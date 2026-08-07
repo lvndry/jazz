@@ -53,6 +53,61 @@ spawn_subagent({
 | `task` | The full brief, **including the expected output shape**. The child cannot see the parent's conversation, so an underspecified task produces an unusable answer. |
 | `name` | Short role label shown in the sub-agent panel, so parallel children are distinguishable. |
 | `persona` | `coder` for code and git work, `researcher` for investigation, `default` for general. |
+| `agent` | Name of a saved **delegatable** agent to run the task as. Mutually exclusive with `persona`. |
+
+---
+
+## Delegating to a saved agent
+
+`persona` varies one thing: tone. Model, reasoning effort, and toolset all come from the
+parent. That is often enough — but when a task wants a *different* model or a narrower
+toolset, the thing that already describes that combination is a saved agent.
+
+Mark one delegatable and it appears in every other agent's system prompt:
+
+```json
+{ "delegatable": true, "whenToUse": "use for tracing call sites; reads only" }
+```
+
+```ts
+spawn_subagent({
+  task: "Map every caller of resolveEffectiveContextWindow. Return file:line for each.",
+  agent: "code-explorer",
+})
+```
+
+The child then runs with that agent's model, reasoning effort, and persona — but **not** its
+toolset, which is capped at the parent's (below). Naming an agent that isn't in the roster is an
+error listing the valid names, not a silent fall back to a persona: a task routed to the wrong
+specialist looks like it succeeded, which is worse than an error the parent can correct on its
+next iteration.
+
+Delegation is opt-in because `description` is written for humans while `whenToUse` is written
+for the router, and because the roster costs prompt tokens every turn. Details and limits:
+[Configuration](../reference/configuration.md#agent-config-delegatable-and-whentouse).
+
+---
+
+## The tool ceiling
+
+A child never holds a tool its parent lacks. `spawn_subagent` passes the parent's effective
+tool names down as the child's allowlist, and the child's own toolset is intersected with it
+after personas and built-in categories resolve.
+
+```mermaid
+flowchart LR
+    P["Parent<br/>read_file · grep · spawn_subagent"]
+    N["Named agent 'code-explorer'<br/>read_file · grep · <s>execute_command</s>"]
+    P -->|"agent: 'code-explorer'"| C["Child<br/>read_file · grep · spawn_subagent"]
+    N -.->|"intersected"| C
+
+    classDef good fill:#4f9d9d,stroke:#2f6d6d,color:#ffffff
+    class C good
+```
+
+This is what keeps the claim in [Agents](../concepts/agents.md) true — that omitting a tool is
+the strongest safety control available. Without the intersection, a read-only CI reviewer could
+reach `execute_command` by delegating to an agent that has it. Withheld tools are logged.
 
 Because the parent can issue several tool calls in one iteration, sub-agents run in parallel
 up to the concurrency cap — each with its own panel in the TUI.
@@ -82,8 +137,9 @@ sequenceDiagram
 | Crosses in | Crosses out | Never crosses |
 | --- | --- | --- |
 | The `task` string | The child's final answer | The parent's message history |
-| The chosen persona | Its cost, into the parent's total | The parent's tool results |
-| The agent's provider/model and toolset | | The child's intermediate work |
+| The chosen persona, or a named agent's config | Its cost, into the parent's total | The parent's tool results |
+| The provider/model — the parent's, or the named agent's | | The child's intermediate work |
+| The parent's toolset, as a ceiling | | Any tool the parent itself lacks |
 
 **Cost rolls up.** Each child reports spend via `recordChildCost`, and the parent's
 `costUSD` is its own tokens plus all child cost. A run on a free local model that delegated
@@ -102,6 +158,8 @@ usual symptom is a confidently wrong answer to a question the child misunderstoo
 | Timeout | 30 min | A delegated task that hasn't finished in half an hour isn't going to |
 | Iterations | inherits the parent's budget | A child can't outlive the run that spawned it |
 | Nesting | children can delegate further | Bounded in practice by the parent's iteration budget |
+| Toolset | at most the parent's | A child must never be an escalation path |
+| Roster size | 24 delegatable agents | The roster is re-sent every turn |
 | Panel height | 12 lines | UI only |
 
 Budget pressure interacts deliberately with delegation: at 70% of its iteration budget the

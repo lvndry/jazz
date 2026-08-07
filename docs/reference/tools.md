@@ -149,7 +149,7 @@ Opt-in per agent (like File Management or Git) rather than always-on — see [Me
 
 | Tool | Risk | Approval pair | What it does |
 | --- | --- | --- | --- |
-| `spawn_subagent` | `low-risk` | — | Spawn a sub-agent with fresh context for a specific task. Personas: coder, researcher, default. Pass a shor… |
+| `spawn_subagent` | `low-risk` | — | Spawn a sub-agent with fresh context for a specific task. Personas: coder, researcher, default. Alternative… |
 | `summarize_context` | `read-only` | — | Compact conversation by summarizing older messages to free token budget. Always performs summarization when… |
 
 ### User Interaction

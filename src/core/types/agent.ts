@@ -80,6 +80,21 @@ export interface AgentConfig {
    * registered builtin tool names are rejected at registration time, not here.
    */
   readonly customTools?: readonly CustomToolDefinition[];
+  /**
+   * Whether other agents may delegate to this one via `spawn_subagent`.
+   *
+   * Opt-in on purpose: most saved agents are daily drivers whose description
+   * reads for a human ("friend"), which is useless for routing. Only agents
+   * marked delegatable are listed in a parent's system prompt, so the roster
+   * stays small and the per-turn token cost stays bounded.
+   */
+  readonly delegatable?: boolean;
+  /**
+   * One-line routing hint written for the delegating agent, not for a human —
+   * e.g. "use for tracing call sites across the codebase; reads only".
+   * Shown in the parent's roster block. Ignored unless `delegatable` is true.
+   */
+  readonly whenToUse?: string;
 }
 
 /**

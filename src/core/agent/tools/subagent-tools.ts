@@ -42,9 +42,18 @@ const spawnSubagentSchema = z.object({
   persona: z
     .enum(["default", "coder", "researcher"])
     .optional()
-    .default("default")
     .describe(
-      "'coder' for code/git tasks, 'researcher' for research tasks, 'default' for general (default: 'default')",
+      "'coder' for code/git tasks, 'researcher' for research tasks, 'default' for general (default: 'default'). " +
+        "Mutually exclusive with 'agent'.",
+    ),
+  agent: z
+    .string()
+    .optional()
+    .describe(
+      "Exact name of a saved delegatable agent to run this task as, taken from the " +
+        "delegatable_agents roster in your system prompt. Brings that agent's model, " +
+        "reasoning effort and persona. Mutually exclusive with 'persona'; omit both for " +
+        "a general-purpose sub-agent.",
     ),
 });
 
@@ -72,7 +81,9 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
       timeoutMs: SUBAGENT_TIMEOUT_MS,
       description:
         "Spawn a sub-agent with fresh context for a specific task. Personas: coder, researcher, default. " +
-        "Pass a short 'name' to label each sub-agent by its role so parallel sub-agents stay distinguishable.",
+        "Alternatively pass 'agent' with the exact name of a saved delegatable agent to run the task as " +
+        "that agent. Pass a short 'name' to label each sub-agent by its role so parallel sub-agents stay " +
+        "distinguishable.",
       parameters: spawnSubagentSchema,
       hidden: false,
       riskLevel: "low-risk",
@@ -92,28 +103,76 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
             };
           }
 
+          const requestedAgentName = args.agent?.trim();
+
+          if (requestedAgentName && args.persona) {
+            return {
+              success: false,
+              result: null,
+              error:
+                "Pass either 'agent' or 'persona', not both. Use 'agent' to delegate to a saved " +
+                "agent, 'persona' for a general-purpose sub-agent.",
+            };
+          }
+
+          const roster = context.delegatableAgents ?? [];
+          let delegateTo: Agent | undefined;
+
+          if (requestedAgentName) {
+            delegateTo =
+              roster.find((candidate) => candidate.name === requestedAgentName) ??
+              roster.find(
+                (candidate) => candidate.name.toLowerCase() === requestedAgentName.toLowerCase(),
+              );
+
+            if (!delegateTo) {
+              // Fail rather than silently degrading to a persona: a task routed
+              // to the wrong specialist looks like it succeeded, which is worse
+              // than an error the model can correct on the next iteration.
+              const available =
+                roster.length > 0
+                  ? roster.map((candidate) => candidate.name).join(", ")
+                  : "(none — no saved agent is marked delegatable)";
+              return {
+                success: false,
+                result: null,
+                error: `No delegatable agent named "${requestedAgentName}". Available: ${available}. Retry with an exact name from that list, or use 'persona' instead.`,
+              };
+            }
+          }
+
+          const persona = delegateTo?.config.persona ?? args.persona ?? "default";
+
           yield* logger.info("Spawning sub-agent", {
             task: args.task.substring(0, 200),
-            persona: args.persona,
+            persona,
+            ...(delegateTo
+              ? { delegateToAgentId: delegateTo.id, delegateTo: delegateTo.name }
+              : {}),
             parentAgentId: parentAgent.id,
           });
 
           const taskPreview = args.task.length > 80 ? `...${args.task.slice(-77)}` : args.task;
-          const subagentLabel = args.name?.trim() || `Sub-Agent (${args.persona})`;
+          const subagentLabel =
+            args.name?.trim() || (delegateTo ? delegateTo.name : `Sub-Agent (${persona})`);
           const startedAt = Date.now();
 
           const regionId = store.openEphemeral("subagent", subagentLabel, SUBAGENT_PANEL_LINES);
           store.appendEphemeral(regionId, `Task: ${taskPreview}`);
 
-          // Create an ephemeral sub-agent with the parent's LLM config but a specific persona
+          // Create an ephemeral sub-agent. Without a named agent it inherits the
+          // parent's LLM config under a chosen persona; with one it takes that
+          // agent's model and config instead. Either way the run is capped by
+          // the parent's effective toolset (toolAllowlist below).
+          const baseConfig = delegateTo?.config ?? parentAgent.config;
           const subAgent: Agent = {
             id: `subagent-${++subagentCounter}-${Date.now()}`,
             name: subagentLabel,
             description: `Ephemeral sub-agent spawned for: ${args.task.substring(0, 100)}`,
-            model: parentAgent.model,
+            model: delegateTo?.model ?? parentAgent.model,
             config: {
-              ...parentAgent.config,
-              persona: args.persona ?? "default",
+              ...baseConfig,
+              persona,
             },
             createdAt: new Date(),
             updatedAt: new Date(),
@@ -124,7 +183,7 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
             researcher:
               "You are a research specialist. Focus on gathering, synthesising, and summarising information.",
           };
-          const personaHint = personaHints[args.persona ?? ""] ?? "";
+          const personaHint = delegateTo?.config.whenToUse ?? personaHints[persona] ?? "";
 
           const wrappedTask = `[SUB-AGENT TASK]
 You are a sub-agent performing a delegated task for a parent agent. This is a ONE-SHOT task.
@@ -157,6 +216,10 @@ ${args.task}`;
             conversationId: `subagent-conv-${++subagentCounter}-${Date.now()}`,
             maxIterations: context.parentMaxIterations ?? DEFAULT_MAX_ITERATIONS,
             ephemeralRegionId: regionId,
+            // Cap the child at the parent's own effective tools. Delegating to a
+            // saved agent must never widen the toolset, or a narrowly-scoped
+            // parent could reach `execute_command` through a child.
+            ...(context.parentToolNames ? { toolAllowlist: context.parentToolNames } : {}),
             ...(context.getAutoApprovePolicy
               ? { autoApprovePolicy: context.getAutoApprovePolicy }
               : {}),
@@ -235,7 +298,8 @@ ${args.task}`;
 
           yield* logger.info("Sub-agent completed", {
             parentAgentId: parentAgent.id,
-            persona: args.persona,
+            persona,
+            ...(delegateTo ? { delegateTo: delegateTo.name } : {}),
             responseLength: (result || "").length,
           });
 

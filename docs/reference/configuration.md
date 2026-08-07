@@ -235,3 +235,33 @@ digits, and underscores, starting with a letter, up to 64 characters).
 
 **Security note:** allowlisting a secret-bearing variable hands it to every shell command the
 agent runs — the deployment owns that trade-off.
+
+## Agent Config: `delegatable` and `whenToUse`
+
+`delegatable` is an optional boolean on an agent's `config`. When true, other agents may run a
+delegated task **as this agent** by passing its name to `spawn_subagent`, instead of only
+choosing a persona. `whenToUse` is the one-line routing hint shown to the delegating agent.
+
+```json
+{
+  "delegatable": true,
+  "whenToUse": "use for tracing call sites across the codebase; reads only"
+}
+```
+
+Set both with `jazz agent edit <id>` → **Delegation**, or by hand.
+
+Delegation is opt-in for two reasons. A saved agent's `description` is usually written for a
+human ("friend"), which tells a delegating model nothing — `whenToUse` is written for the
+router instead. And the roster is rendered into every delegating agent's system prompt on every
+turn, so only agents you actually want delegated to should pay for that space. At most 24
+delegatable agents are advertised, sorted by name; an agent is never listed to itself.
+
+Validation: `delegatable` must be a boolean; `whenToUse` must be a non-empty string of at most
+200 characters. When absent, `whenToUse` falls back to the agent's `description`.
+
+**A delegated agent never gains a tool its caller lacks.** The child's toolset is intersected
+with the parent's effective toolset, so naming a broadly-scoped agent cannot become a way around
+the caller's own restrictions — an agent without `execute_command` cannot reach it by delegating
+to one that has it. Withheld tools are logged. Everything else — model, reasoning effort,
+persona — comes from the named agent. See [Sub-agents](../internals/subagents.md).

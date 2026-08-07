@@ -2,6 +2,7 @@ import { Effect, Option } from "effect";
 import { DEFAULT_MAX_LLM_RETRIES } from "@/core/constants/agent";
 import type { ProviderName } from "@/core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
+import { AgentServiceTag } from "@/core/interfaces/agent-service";
 import type { LLMService } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import { type MCPServerManager } from "@/core/interfaces/mcp-server";
@@ -38,6 +39,42 @@ import {
 } from "./tools/register-tools";
 import { type AgentResponse, type AgentRunContext, type AgentRunnerOptions } from "./types";
 import { normalizeToolConfig } from "./utils/tool-config";
+
+/**
+ * Cap on how many delegatable agents are advertised to a parent. The roster is
+ * rendered into every system prompt of a delegating agent, so it is a per-turn
+ * token cost — a runaway agent directory must not quietly inflate it.
+ */
+const MAX_DELEGATABLE_AGENTS = 24;
+
+/**
+ * Saved agents this run may delegate to by name.
+ *
+ * Returns an empty list unless the agent actually holds `spawn_subagent`, so a
+ * non-delegating agent pays neither the storage read nor the prompt tokens.
+ * AgentService is optional here (as PersonaService is) because several test and
+ * embedded layers omit it; without it, delegation falls back to personas.
+ */
+function resolveDelegatableAgents(
+  agent: Agent,
+  effectiveToolNames: readonly string[],
+): Effect.Effect<readonly Agent[], never, never> {
+  return Effect.gen(function* () {
+    if (!effectiveToolNames.includes("spawn_subagent")) return [];
+
+    const agentServiceOption = yield* Effect.serviceOption(AgentServiceTag);
+    if (Option.isNone(agentServiceOption)) return [];
+
+    const allAgents = yield* agentServiceOption.value
+      .listAgents()
+      .pipe(Effect.catchAll(() => Effect.succeed([] as readonly Agent[])));
+
+    return allAgents
+      .filter((candidate) => candidate.config.delegatable === true && candidate.id !== agent.id)
+      .sort((first, second) => first.name.localeCompare(second.name))
+      .slice(0, MAX_DELEGATABLE_AGENTS);
+  });
+}
 
 /**
  * Initialize common agent run context (tools, messages, metrics)
@@ -159,6 +196,22 @@ function initializeAgentRun(
       combinedToolNames = combinedToolNames.filter((name) => name !== "manage_memory");
     }
 
+    // A sub-agent run inherits its parent's effective toolset as a ceiling, so
+    // that delegating to a saved agent with a broader toolset cannot hand the
+    // child a tool the parent lacked. Applied before the registry filter so
+    // dropped names never reach approval or the LLM tool list.
+    if (options.toolAllowlist) {
+      const allowed = new Set(options.toolAllowlist);
+      const withheld = combinedToolNames.filter((toolName) => !allowed.has(toolName));
+      combinedToolNames = combinedToolNames.filter((toolName) => allowed.has(toolName));
+      if (withheld.length > 0) {
+        yield* logger.info("Tools withheld by inherited allowlist", {
+          agentId: agent.id,
+          withheld,
+        });
+      }
+    }
+
     // Filter out any non-existent tools silently — tools may have been removed
     // or MCP servers may be unavailable. The agent can still operate with its
     // remaining tools.
@@ -192,6 +245,8 @@ function initializeAgentRun(
     // Deterministic, zero LLM overhead, predictable for skill authors.
     const triggeredSkillNames = matchSkillTriggers(userInput, relevantSkills);
 
+    const delegatableAgents = yield* resolveDelegatableAgents(agent, expandedToolNames);
+
     // Build messages — reuses the PersonaService resolved earlier so custom
     // personas can be looked up by name when assembling the system prompt.
     const messages: ConversationMessages = yield* agentPromptBuilder.buildAgentMessages(
@@ -205,6 +260,16 @@ function initializeAgentRun(
         availableTools,
         knownSkills: relevantSkills,
         ...(triggeredSkillNames.length > 0 && { triggeredSkillNames }),
+        ...(delegatableAgents.length > 0 && {
+          delegatableAgents: delegatableAgents.map((candidate) => ({
+            name: candidate.name,
+            ...(candidate.config.whenToUse
+              ? { whenToUse: candidate.config.whenToUse }
+              : candidate.description
+                ? { whenToUse: candidate.description }
+                : {}),
+          })),
+        }),
       },
       resolvedPersonaService,
     );
@@ -239,6 +304,8 @@ function initializeAgentRun(
       // subsequent isAutoApproved checks within the same agent run.
       autoApprovedCommands,
       autoApprovedTools,
+      parentToolNames: expandedToolNames,
+      ...(delegatableAgents.length > 0 ? { delegatableAgents } : {}),
       ...(options.timezone !== undefined ? { timezone: options.timezone } : {}),
       onAutoApproveCommand:
         options.onAutoApproveCommand ??

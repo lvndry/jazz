@@ -96,6 +96,14 @@ export interface AgentRunnerOptions {
    */
   readonly autoApprovedTools?: readonly string[];
   /**
+   * Hard ceiling on this run's toolset. When set, the agent's effective tools
+   * are intersected with this list after personas and built-in categories are
+   * resolved. Sub-agent runs inherit their parent's effective tools this way,
+   * so delegating to a broadly-scoped saved agent can never widen what the
+   * parent itself was allowed to do.
+   */
+  readonly toolAllowlist?: readonly string[];
+  /**
    * Callback invoked when the user chooses "always approve" for a specific tool
    * from the approval prompt.
    */

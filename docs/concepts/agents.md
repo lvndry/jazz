@@ -81,7 +81,9 @@ pressure, loop detection, and automatic context compaction. The full mechanism:
 | **Delegator** | includes `spawn_subagent` | Deep research, work that would blow one context window |
 
 The delegator pattern works today: `spawn_subagent` hands a task to a child agent with its own
-context window, which returns a summary rather than 100k tokens of raw sources. See
+context window, which returns a summary rather than 100k tokens of raw sources. Mark an agent
+`delegatable` (with a `whenToUse` routing line) and other agents can delegate **to it by name**,
+picking up its model and reasoning effort — never more tools than the caller itself holds. See
 [Sub-agents](../internals/subagents.md).
 
 ---

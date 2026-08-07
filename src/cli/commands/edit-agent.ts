@@ -59,6 +59,8 @@ interface AgentEditAnswers {
   numCtx?: number;
   tools?: string[];
   webSearchProvider?: WebSearchProviderName;
+  delegatable?: boolean;
+  whenToUse?: string;
 }
 
 /**
@@ -186,6 +188,7 @@ export function editAgentCommand(
           value: "tools",
           disabled: !supportsTools,
         },
+        { name: "Delegation (other agents may spawn this one)", value: "delegation" },
         ...(agent.config.llmProvider === "ollama"
           ? [{ name: "Context Window", value: "contextWindow" }]
           : []),
@@ -489,7 +492,16 @@ export function editAgentCommand(
       ...(editAnswers.tools &&
         editAnswers.tools.length > 0 && { tools: Array.from(new Set(editAnswers.tools)) }),
       ...(editAnswers.webSearchProvider && { webSearchProvider: editAnswers.webSearchProvider }),
+      ...(editAnswers.delegatable !== undefined && { delegatable: editAnswers.delegatable }),
+      ...(editAnswers.whenToUse !== undefined && { whenToUse: editAnswers.whenToUse }),
     };
+
+    // Turning delegation off drops the routing line too, so a re-enabled agent
+    // never resurfaces a stale one.
+    if (editAnswers.delegatable === false && updatedConfig.whenToUse !== undefined) {
+      const { whenToUse: _discardedWhenToUse, ...withoutWhenToUse } = updatedConfig;
+      updatedConfig = withoutWhenToUse;
+    }
     if (editAnswers.llmApiKeyProvider) {
       updatedConfig = setAgentApiKeyOverride(
         updatedConfig,
@@ -589,6 +601,44 @@ async function promptForAgentUpdates(
       throw new Error("Edit cancelled");
     }
     answers.description = description;
+  }
+
+  // Update delegation settings
+  if (fieldToUpdate === "delegation") {
+    const delegatable = await Effect.runPromise(
+      terminal.select<boolean>("Allow other agents to delegate tasks to this agent?", {
+        choices: [
+          { name: "Yes — list it in other agents' delegation roster", value: true },
+          { name: "No", value: false },
+        ],
+        default: currentAgent.config.delegatable === true,
+      }),
+    );
+    if (delegatable === undefined) {
+      throw new Error("Edit cancelled");
+    }
+    answers.delegatable = delegatable;
+
+    if (delegatable) {
+      const whenToUse = await Effect.runPromise(
+        terminal.ask("When should another agent delegate to this one? (one line)", {
+          defaultValue: currentAgent.config.whenToUse || "",
+          validate: (inputValue: string) => {
+            if (!inputValue.trim()) {
+              return "A routing line is required so other agents know when to pick this agent";
+            }
+            if (inputValue.length > 200) {
+              return "Keep it to 200 characters or less — it is re-sent in every delegating agent's prompt";
+            }
+            return true;
+          },
+        }),
+      );
+      if (whenToUse === undefined) {
+        throw new Error("Edit cancelled");
+      }
+      answers.whenToUse = whenToUse.trim();
+    }
   }
 
   // Update persona

@@ -55,6 +55,16 @@ export interface AgentPromptOptions {
    * call `find_skills` first. Subset of `knownSkills` by name.
    */
   readonly triggeredSkillNames?: readonly string[];
+  /**
+   * Saved agents this agent may delegate to by name via `spawn_subagent`.
+   * Rendered as a compact roster — one line per agent — only when the agent
+   * actually holds `spawn_subagent`. Absent for agents that cannot delegate,
+   * so non-delegating agents pay no tokens for the block.
+   */
+  readonly delegatableAgents?: readonly {
+    readonly name: string;
+    readonly whenToUse?: string;
+  }[];
 }
 
 /**
@@ -65,6 +75,36 @@ export interface AgentPromptOptions {
  * Prefers `tagline`; otherwise truncates `description` to one sentence or
  * 80 chars so legacy skills without a tagline still render compactly.
  */
+/**
+ * Roster of saved agents the parent may delegate to by name.
+ *
+ * Deliberately terse: the block is re-sent every turn, so it carries a name and
+ * a routing line and nothing else. The child still inherits the parent's tool
+ * ceiling, which is why the prompt tells the model to expect a narrower toolset
+ * rather than promising the named agent's own.
+ */
+function renderDelegatableAgents(
+  agents: readonly { readonly name: string; readonly whenToUse?: string }[],
+): string {
+  const roster = agents
+    .map((entry) => (entry.whenToUse ? `- ${entry.name}: ${entry.whenToUse}` : `- ${entry.name}`))
+    .join("\n");
+
+  return `
+## Delegating to a saved agent
+
+Pass \`agent: "<name>"\` to spawn_subagent to run a delegated task as one of the
+agents below, instead of picking a persona. Use the roster line to choose; use a
+persona when none of them fits. The name must match exactly, and \`agent\` and
+\`persona\` cannot both be set. A delegated agent never gains a tool you lack, so
+it may run with fewer tools than its own configuration lists.
+
+<delegatable_agents>
+${roster}
+</delegatable_agents>
+`;
+}
+
 function getSkillIndexLineFromOption(s: {
   readonly name: string;
   readonly description: string;
@@ -150,6 +190,13 @@ export class AgentPromptBuilder {
     }
     if (options.toolNames?.includes("view_memory")) {
       hash.update("memory:1");
+    }
+    if (options.delegatableAgents && options.delegatableAgents.length > 0) {
+      hash.update(
+        `delegatable:${JSON.stringify(
+          options.delegatableAgents.map((entry) => [entry.name, entry.whenToUse ?? ""]),
+        )}`,
+      );
     }
     // Invalidate daily since prompts include current date
     hash.update(new Date().toDateString());
@@ -303,6 +350,14 @@ ${triggeredBlock}`;
 
         if (options.toolNames?.includes("view_memory")) {
           systemPrompt = systemPrompt + MEMORY_INSTRUCTIONS;
+        }
+
+        if (
+          options.toolNames?.includes("spawn_subagent") &&
+          options.delegatableAgents &&
+          options.delegatableAgents.length > 0
+        ) {
+          systemPrompt = systemPrompt + renderDelegatableAgents(options.delegatableAgents);
         }
 
         // Cache the result

@@ -15,6 +15,8 @@ import { type Agent, type AgentConfig, type CustomToolDefinition } from "@/core/
 import { CommonSuggestions } from "@/core/utils/error-handler";
 import { parseProviderModel } from "@/core/utils/provider-model";
 
+const MAX_WHEN_TO_USE_LENGTH = 200;
+
 export class AgentServiceImpl implements AgentService {
   constructor(private readonly storage: StorageService) {}
 
@@ -324,6 +326,46 @@ export class AgentServiceImpl implements AgentService {
               }),
             );
           }
+        }
+      }
+
+      if (config.delegatable !== undefined && typeof config.delegatable !== "boolean") {
+        return yield* Effect.fail(
+          new AgentConfigurationError({
+            agentId: "unknown",
+            field: "config.delegatable",
+            message: "delegatable must be a boolean",
+            suggestion:
+              "Set true to let other agents delegate to this one via spawn_subagent, or remove the field.",
+          }),
+        );
+      }
+
+      if (config.whenToUse !== undefined) {
+        // Bounded because this string is rendered into the system prompt of
+        // every delegating agent, on every turn.
+        if (typeof config.whenToUse !== "string" || config.whenToUse.trim().length === 0) {
+          return yield* Effect.fail(
+            new AgentConfigurationError({
+              agentId: "unknown",
+              field: "config.whenToUse",
+              message: "whenToUse must be a non-empty string",
+              suggestion:
+                'Describe when to delegate to this agent, e.g. "use for tracing call sites; reads only".',
+            }),
+          );
+        }
+
+        if (config.whenToUse.length > MAX_WHEN_TO_USE_LENGTH) {
+          return yield* Effect.fail(
+            new AgentConfigurationError({
+              agentId: "unknown",
+              field: "config.whenToUse",
+              message: `whenToUse cannot exceed ${MAX_WHEN_TO_USE_LENGTH} characters (${config.whenToUse.length} provided)`,
+              suggestion:
+                "Keep it to a single routing line — it is re-sent in every delegating agent's system prompt.",
+            }),
+          );
         }
       }
     });
