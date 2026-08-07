@@ -234,9 +234,7 @@ export function executeWithStreaming(
                 }
                 if (event.type === "error") {
                   const error = event.error as
-                    | LLMAuthenticationError
-                    | LLMRateLimitError
-                    | LLMRequestError;
+                    LLMAuthenticationError | LLMRateLimitError | LLMRequestError;
                   yield* logger.error("Stream event error", {
                     provider,
                     model: agent.config.llmModel,
