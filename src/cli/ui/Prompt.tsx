@@ -439,8 +439,7 @@ function PromptComponent({
         {prompt.type === "text" &&
           (() => {
             const validate = prompt.options?.["validate"] as
-              | ((input: string) => boolean | string)
-              | undefined;
+              ((input: string) => boolean | string) | undefined;
             return (
               <TextInput
                 inputId={prompt.message}

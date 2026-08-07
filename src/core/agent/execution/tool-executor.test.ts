@@ -409,15 +409,13 @@ describe("ToolExecutor.executeToolCall approval events", () => {
     expect(receivedRequests[0]?.previewDiff).toBe("- old\n+ new");
 
     const approvalRequired = emittedEvents.find((event) => event.type === "approval_required") as
-      | Extract<StreamEvent, { type: "approval_required" }>
-      | undefined;
+      Extract<StreamEvent, { type: "approval_required" }> | undefined;
     expect(approvalRequired?.toolCallId).toBe("call_approval_1");
     expect(approvalRequired?.message).toBe("About to run a risky command");
     expect(approvalRequired?.previewDiff).toBe("- old\n+ new");
 
     const approvalResolved = emittedEvents.find((event) => event.type === "approval_resolved") as
-      | Extract<StreamEvent, { type: "approval_resolved" }>
-      | undefined;
+      Extract<StreamEvent, { type: "approval_resolved" }> | undefined;
     expect(approvalResolved?.toolCallId).toBe("call_approval_1");
     expect(approvalResolved?.approved).toBe(true);
   });
