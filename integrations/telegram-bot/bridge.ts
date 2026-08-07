@@ -451,10 +451,10 @@ function webAppKeyboard(url: string, title: string): Record<string, unknown> {
 function followupKeyboard(): Record<string, unknown> {
   return {
     inline_keyboard: [
-      [
-        { text: "🔍 Go deeper", callback_data: "f:deeper" },
-        { text: "✂️ Shorter", callback_data: "f:shorter" },
-      ],
+      Object.entries(FOLLOWUP_OPTIONS).map(([key, option]) => ({
+        text: option.label,
+        callback_data: `f:${key}`,
+      })),
     ],
   };
 }
@@ -867,11 +867,17 @@ async function handleMessage(config: BridgeConfig, chatId: number, text: string)
   }
 }
 
-const FOLLOWUP_PROMPTS: Record<string, string> = {
-  deeper:
-    "Go deeper on your previous answer: add more detail, concrete specifics, and any important nuances or caveats.",
-  shorter:
-    "Give a much shorter version of your previous answer — 2-3 sentences, just the essentials.",
+const FOLLOWUP_OPTIONS: Record<string, { label: string; prompt: string }> = {
+  deeper: {
+    label: "🔍 Go deeper",
+    prompt:
+      "Go deeper on your previous answer: add more detail, concrete specifics, and any important nuances or caveats.",
+  },
+  shorter: {
+    label: "✂️ Shorter",
+    prompt:
+      "Give a much shorter version of your previous answer — 2-3 sentences, just the essentials.",
+  },
 };
 
 // --- Dynamic contextual CTAs ----------------------------------------------
@@ -1321,6 +1327,7 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
       message_id: messageId,
       reply_markup: { inline_keyboard: [] },
     });
+    await sendReply(config, chatId, escapeHtml(item.label));
     void handleMessage(config, chatId, item.prompt).catch((error) =>
       console.error(`Suggestion follow-up failed for chat ${chatId}: ${String(error)}`),
     );
@@ -1389,19 +1396,20 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
   }
 
   if (kind === "f") {
-    const prompt = FOLLOWUP_PROMPTS[indexRaw ?? ""];
+    const option = FOLLOWUP_OPTIONS[indexRaw ?? ""];
     await callTelegram(config, "answerCallbackQuery", {
       callback_query_id: callback.id,
-      ...(prompt ? {} : { text: "Unknown action" }),
+      ...(option ? {} : { text: "Unknown action" }),
     });
-    if (!prompt) return;
+    if (!option) return;
     // Drop the follow-up buttons so they can't be tapped twice.
     await callTelegram(config, "editMessageReplyMarkup", {
       chat_id: chatId,
       message_id: messageId,
       reply_markup: { inline_keyboard: [] },
     });
-    void handleMessage(config, chatId, prompt).catch((error) =>
+    await sendReply(config, chatId, option.label);
+    void handleMessage(config, chatId, option.prompt).catch((error) =>
       console.error(`Follow-up failed for chat ${chatId}: ${String(error)}`),
     );
     return;
