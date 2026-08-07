@@ -106,12 +106,7 @@ export interface LLMConfig {
 }
 
 export type WebSearchProviderName =
-  | "exa"
-  | "parallel"
-  | "tavily"
-  | "brave"
-  | "perplexity"
-  | "linkup";
+  "exa" | "parallel" | "tavily" | "brave" | "perplexity" | "linkup";
 
 export interface WebSearchProviderConfig {
   readonly api_key: string;

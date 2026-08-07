@@ -36,10 +36,7 @@ import { createWebSearchTool } from "./web-search-tools";
  * Dependencies required for MCP tool registration
  */
 type MCPRegistrationDependencies =
-  | ToolRegistry
-  | MCPServerManager
-  | AgentConfigService
-  | LoggerService;
+  ToolRegistry | MCPServerManager | AgentConfigService | LoggerService;
 
 /**
  * Tool registration module

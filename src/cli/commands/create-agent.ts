@@ -184,8 +184,8 @@ export function createAgentCommand(): Effect.Effect<
 
     // Register tools for selected MCP servers
     if (selectedMCPDisplayNames.length > 0) {
-      const selectedServerNames = selectedMCPDisplayNames.map(
-        (displayName) => mcpServerData.displayNameToServerName.get(displayName)!,
+      const selectedServerNames = selectedMCPDisplayNames.map((displayName) =>
+        mcpServerData.displayNameToServerName.get(displayName)!,
       );
       const allServers = yield* mcpManager.listServers();
       const selectedServers = allServers.filter((server) =>

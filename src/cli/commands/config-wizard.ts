@@ -15,12 +15,7 @@ import { WizardHome, type WizardMenuOption } from "../ui/WizardHome";
  * Menu actions for the config wizard
  */
 type ConfigMenuAction =
-  | "llm-providers"
-  | "web-search"
-  | "output-display"
-  | "logging"
-  | "notifications"
-  | "back";
+  "llm-providers" | "web-search" | "output-display" | "logging" | "notifications" | "back";
 
 /**
  * Main entry point for the configuration wizard
