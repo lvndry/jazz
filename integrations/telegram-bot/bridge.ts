@@ -449,14 +449,16 @@ function webAppKeyboard(url: string, title: string): Record<string, unknown> {
 }
 
 function followupKeyboard(): Record<string, unknown> {
-  return {
-    inline_keyboard: [
-      Object.entries(FOLLOWUP_OPTIONS).map(([key, option]) => ({
-        text: option.label,
-        callback_data: `f:${key}`,
-      })),
-    ],
-  };
+  const buttons = Object.entries(FOLLOWUP_OPTIONS).map(([key, option]) => ({
+    text: option.label,
+    callback_data: `f:${key}`,
+  }));
+  // Two per row so the labels stay readable on a mobile-width keyboard.
+  const rows: Array<Array<{ text: string; callback_data: string }>> = [];
+  for (let index = 0; index < buttons.length; index += 2) {
+    rows.push(buttons.slice(index, index + 2));
+  }
+  return { inline_keyboard: rows };
 }
 
 // --- Live progress --------------------------------------------------------
@@ -877,6 +879,15 @@ const FOLLOWUP_OPTIONS: Record<string, { label: string; prompt: string }> = {
     label: "✂️ Shorter",
     prompt:
       "Give a much shorter version of your previous answer — 2-3 sentences, just the essentials.",
+  },
+  simpler: {
+    label: "🧑‍🏫 Explain simpler",
+    prompt:
+      "Explain your previous answer in simpler terms, as if to someone with no background in the topic — avoid jargon and use plain language.",
+  },
+  example: {
+    label: "💡 Example",
+    prompt: "Give a concrete, real-world example that illustrates your previous answer.",
   },
 };
 
