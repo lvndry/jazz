@@ -127,6 +127,7 @@ run Ollama; cloud users typically just keep the default.)
 | `TELEGRAM_MODE`                      | `polling`                               | `polling` or `webhook`.                                                                                  |
 | `PORT`                               | `8080`                                  | In-container health-check port.                                                                          |
 | `TELEGRAM_WEBAPP_BASE_URL`           | webhook URL's origin, else unset        | Public HTTPS origin used to serve `create_web_app`'s "interactive" pages as Telegram Web App buttons. Unset disables interactive mode (the static/image mode always works).                                    |
+| `PUPPETEER_EXECUTABLE_PATH`          | `/usr/bin/chromium`                     | Browser used to screenshot `create_web_app`'s "static" mode. The image installs Chromium and points here; Jazz ships no bundled browser. Interactive mode needs no browser.                                    |
 
 > **Model ↔ reasoning:** reasoning-capable models (`gpt-5.4`, qwen3, …) work with
 > `medium`/`high`; models without it (mistral-small, gemma, …) error unless
