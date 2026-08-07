@@ -38,6 +38,8 @@ interface StreamProcessorConfig {
   readonly hasReasoningEnabled: boolean;
   readonly startTime: number;
   readonly toolsDisabled?: boolean;
+  /** Local-provider `num_ctx` for this request, when the agent pinned one. */
+  readonly pinnedContextWindow?: number;
   readonly providerNativeToolNames?: Set<string>;
   /** Estimated character count of tool definitions for telemetry. */
   readonly toolDefinitionChars?: number;
@@ -162,6 +164,9 @@ export class StreamProcessor {
       provider: this.config.providerName,
       model: this.config.modelName,
       timestamp: this.config.startTime,
+      ...(this.config.pinnedContextWindow !== undefined && {
+        pinnedContextWindow: this.config.pinnedContextWindow,
+      }),
     });
 
     // Start processing stream

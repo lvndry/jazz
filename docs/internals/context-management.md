@@ -44,7 +44,7 @@ flowchart TB
 | --- | --- | --- |
 | Runs | every iteration, after appending the assistant message | when tokens exceed 80% of the model's window |
 | Costs | nothing | one LLM call |
-| Budget | a fixed working-set target (50k tokens by default) | the model's real context window, from the catalog |
+| Budget | a fixed working-set target (50k tokens by default) | the context window the provider will actually honour |
 | What's lost | old messages, entirely | detail — the gist survives as a summary |
 | Preserves | system message + last N complete turns | system message + a summary + recent messages |
 
@@ -197,6 +197,27 @@ a summary is lossy — a detail the agent needed might not survive. Mitigations:
 
 Window size comes from the model catalog (models.dev), falling back to 128k when unknown —
 so the threshold tracks the actual model rather than a guess.
+
+**Local providers are the exception, and getting this wrong is the worst failure mode there
+is.** A cloud provider honours the window its catalog advertises. Ollama does not: it loads
+the model with whatever `num_ctx` the request carries, or with the server's
+`OLLAMA_CONTEXT_LENGTH` default — `qwen3.6:27b` advertises 262144 tokens and is routinely
+served at 131072 or less. Accounting against the advertised number means Jazz compacts long
+after the server has started dropping the middle of the conversation, and the agent keeps
+answering from a context it no longer has.
+
+So for `ollama` and `llamacpp` the threshold is taken from the agent's pinned `numCtx` when
+it has one (that value overrides the server default for the request, so it *is* the runtime
+window), and from the window the local server reported otherwise — llama-server's `/props`
+gives its `-c` value directly. An unpinned Ollama agent gets a warning at run start rather
+than a silent assumption, because Ollama exposes a loaded model's window on `/api/ps` but
+has no endpoint for the server default before anything is loaded.
+
+The catalog is no help here at all: models.dev carries no `ollama` or `llamacpp` provider,
+so a local model resolves to the 128k unknown-model placeholder rather than to a real
+maximum. That placeholder is never treated as a ceiling — a pinned window above it is
+honoured, because the user pinned it and configured the server to serve it. Only a
+*genuinely known* maximum caps a runtime window.
 
 ---
 

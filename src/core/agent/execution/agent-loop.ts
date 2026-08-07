@@ -1,6 +1,5 @@
 import { Effect, Fiber, Option, Ref } from "effect";
 import { DEFAULT_MAX_ITERATIONS } from "@/core/constants/agent";
-import { DEFAULT_CONTEXT_WINDOW } from "@/core/constants/models";
 import { type AgentConfigService } from "@/core/interfaces/agent-config";
 import type { LLMService } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
@@ -19,6 +18,10 @@ import {
   ContextWindowManager,
   DEFAULT_CONTEXT_WINDOW_MANAGER,
 } from "../context/context-window-manager";
+import {
+  describeContextWindowShortfall,
+  resolveEffectiveContextWindow,
+} from "../context/effective-context-window";
 import { Summarizer, type RecursiveRunner } from "../context/summarizer";
 import {
   beginIteration,
@@ -675,7 +678,14 @@ export function executeAgentLoop(
           catch: () => new Error("Failed to fetch model metadata"),
         }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
 
-        const contextWindowMaxTokens = modelMetadata?.contextWindow ?? DEFAULT_CONTEXT_WINDOW;
+        const effectiveContextWindow = resolveEffectiveContextWindow({
+          provider,
+          ...(modelMetadata && { modelMaxTokens: modelMetadata.contextWindow }),
+          ...(typeof agent.config.numCtx === "number" && {
+            pinnedContextWindow: agent.config.numCtx,
+          }),
+        });
+        const contextWindowMaxTokens = effectiveContextWindow.tokens;
 
         const trimBudgetTokens = DEFAULT_CONTEXT_WINDOW_MANAGER.getConfig().maxTokens;
         const protectedRecentTurns =
@@ -690,8 +700,14 @@ export function executeAgentLoop(
           model,
           provider,
           contextWindow: contextWindowMaxTokens,
-          source: modelMetadata ? "models.dev" : "default",
+          modelMaxTokens: effectiveContextWindow.modelMaxTokens,
+          contextWindowSource: effectiveContextWindow.source,
         });
+
+        const shortfall = describeContextWindowShortfall(provider, effectiveContextWindow);
+        if (shortfall !== null && !options.internal) {
+          yield* observer.onContextWindowUnknown(agent.name, shortfall);
+        }
 
         const state: LoopState = {
           currentMessages: [messages[0], ...messages.slice(1)],

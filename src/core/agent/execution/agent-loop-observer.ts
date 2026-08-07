@@ -11,6 +11,8 @@ export interface AgentLoopObserver {
   onInterrupted(agentName: string): Effect.Effect<void, never, never>;
   onIterationLimit(agentName: string, maxIterations: number): Effect.Effect<void, never, never>;
   onEmptyResponse(agentName: string): Effect.Effect<void, never, never>;
+  /** The agent runs on a local server whose real context window Jazz could not determine. */
+  onContextWindowUnknown(agentName: string, advice: string): Effect.Effect<void, never, never>;
   onCompletion(agentName: string): Effect.Effect<void, never, never>;
 }
 
@@ -28,6 +30,7 @@ export function makeDefaultObserver(presentation: PresentationService): AgentLoo
       ),
     onEmptyResponse: (agentName) =>
       presentation.presentWarning(agentName, "model returned an empty response"),
+    onContextWindowUnknown: (agentName, advice) => presentation.presentWarning(agentName, advice),
     onCompletion: (agentName) => presentation.presentCompletion(agentName),
   };
 }
