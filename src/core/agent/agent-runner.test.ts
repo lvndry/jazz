@@ -5,6 +5,8 @@ import { AgentRunner } from "./agent-runner";
 import type { AgentRunnerOptions } from "./types";
 import type { AgentConfigService } from "../interfaces/agent-config";
 import { AgentConfigServiceTag } from "../interfaces/agent-config";
+import type { AgentService } from "../interfaces/agent-service";
+import { AgentServiceTag } from "../interfaces/agent-service";
 import type { FileSystemContextService } from "../interfaces/fs";
 import { FileSystemContextServiceTag } from "../interfaces/fs";
 import type { LLMService } from "../interfaces/llm";
@@ -335,6 +337,161 @@ describe("AgentRunner", () => {
       await runWithTestLayers(AgentRunner.run(options));
 
       expect(lastRequestedToolNames()).toContain("manage_memory");
+    });
+  });
+
+  describe("toolAllowlist", () => {
+    function lastRequestedToolNames(): string[] {
+      const lastCall = mockLlmService.createStreamingChatCompletion.mock.calls.at(-1);
+      const llmOptions = lastCall?.[1] as { tools?: { function: { name: string } }[] };
+      return (llmOptions.tools ?? []).map((tool) => tool.function.name);
+    }
+
+    it("withholds tools outside the inherited allowlist", async () => {
+      const options = {
+        ...defaultOptions,
+        agent: { ...mockAgent, config: { ...mockAgent.config, tools: ["tool1", "tool2"] } },
+        stream: true,
+        maxIterations: 1,
+        toolAllowlist: ["tool1"],
+      };
+
+      await runWithTestLayers(AgentRunner.run(options));
+
+      const requested = lastRequestedToolNames();
+      expect(requested).toContain("tool1");
+      expect(requested).not.toContain("tool2");
+    });
+
+    it("leaves the toolset untouched when no allowlist is inherited", async () => {
+      const options = {
+        ...defaultOptions,
+        agent: { ...mockAgent, config: { ...mockAgent.config, tools: ["tool1", "tool2"] } },
+        stream: true,
+        maxIterations: 1,
+      };
+
+      await runWithTestLayers(AgentRunner.run(options));
+
+      expect(lastRequestedToolNames()).toContain("tool2");
+    });
+  });
+
+  describe("delegation roster", () => {
+    const withHint: Agent = {
+      id: "explorer-1",
+      name: "code-explorer",
+      description: "traces call sites",
+      model: "openai/gpt-4",
+      config: {
+        persona: "coder",
+        llmProvider: "openai",
+        llmModel: "gpt-4",
+        whenToUse: "use for tracing call sites",
+      },
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    const withoutHint: Agent = {
+      ...withHint,
+      id: "plain-1",
+      name: "plain-agent",
+      description: "reviews PRs for security issues",
+      model: "openai/gpt-4o-mini",
+      config: { persona: "default", llmProvider: "openai", llmModel: "gpt-4o-mini" },
+    };
+
+    function runWithAgentService(
+      options: AgentRunnerOptions,
+      roster: readonly Agent[] = [withHint, withoutHint],
+    ): Promise<unknown> {
+      const layer = Layer.mergeAll(
+        createTestLayer(),
+        Layer.succeed(AgentServiceTag, {
+          listAgents: () => Effect.succeed(roster),
+        } as unknown as AgentService),
+      );
+      return Effect.runPromise(
+        AgentRunner.run(options).pipe(Effect.provide(layer)) as Effect.Effect<
+          unknown,
+          never,
+          never
+        >,
+      );
+    }
+
+    function lastSystemPrompt(): string {
+      const lastCall = mockLlmService.createStreamingChatCompletion.mock.calls.at(-1);
+      const llmOptions = lastCall?.[1] as { messages: { role: string; content: string }[] };
+      return llmOptions.messages.find((message) => message.role === "system")?.content ?? "";
+    }
+
+    const delegatingAgent: Agent = {
+      ...mockAgent,
+      config: { ...mockAgent.config, tools: ["tool1", "spawn_subagent"] },
+    };
+
+    it("advertises every saved agent, with its default model", async () => {
+      await runWithAgentService({
+        ...defaultOptions,
+        agent: delegatingAgent,
+        stream: true,
+        maxIterations: 1,
+      });
+
+      const systemPrompt = lastSystemPrompt();
+      expect(systemPrompt).toContain("<delegatable_agents>");
+      expect(systemPrompt).toContain("- code-explorer [openai/gpt-4]: use for tracing call sites");
+      // No whenToUse, so the description carries the routing line instead.
+      expect(systemPrompt).toContain(
+        "- plain-agent [openai/gpt-4o-mini]: reviews PRs for security issues",
+      );
+    });
+
+    it("tells the delegating agent to pick the cheapest capable model", async () => {
+      await runWithAgentService({
+        ...defaultOptions,
+        agent: delegatingAgent,
+        stream: true,
+        maxIterations: 1,
+      });
+
+      const systemPrompt = lastSystemPrompt();
+      expect(systemPrompt).toContain("cheapest model that can actually do the task");
+      expect(systemPrompt).toContain("list_models");
+    });
+
+    it("advertises nothing to a run whose allowlist withheld spawn_subagent", async () => {
+      // spawn_subagent is an always-on builtin, so the non-delegating case is a
+      // run capped by an inherited allowlist — e.g. a child of a parent that
+      // was itself told to stop delegating.
+      await runWithAgentService({
+        ...defaultOptions,
+        agent: { ...mockAgent, config: { ...mockAgent.config, tools: ["tool1"] } },
+        stream: true,
+        maxIterations: 1,
+        toolAllowlist: ["tool1"],
+      });
+
+      expect(lastSystemPrompt()).not.toContain("<delegatable_agents>");
+    });
+
+    it("excludes the running agent from its own roster", async () => {
+      await runWithAgentService(
+        {
+          ...defaultOptions,
+          agent: {
+            ...withHint,
+            config: { ...withHint.config, tools: ["tool1", "spawn_subagent"] },
+          },
+          stream: true,
+          maxIterations: 1,
+        },
+        [withHint],
+      );
+
+      expect(lastSystemPrompt()).not.toContain("<delegatable_agents>");
     });
   });
 });

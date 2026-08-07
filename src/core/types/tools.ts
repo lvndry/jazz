@@ -192,6 +192,20 @@ export interface ToolExecutionContext {
    */
   readonly parentMaxIterations?: number;
   /**
+   * The parent's effective tool names for this run (after persona deny lists
+   * and any inherited allowlist). `spawn_subagent` passes this down as the
+   * child's allowlist so a child can never hold a tool its parent lacks —
+   * otherwise naming a broadly-scoped agent would be a privilege-escalation
+   * path around the toolset, which is Jazz's strongest safety control.
+   */
+  readonly parentToolNames?: readonly string[];
+  /**
+   * Saved agents the parent may delegate to by name (`config.delegatable`).
+   * Resolved once per run by the agent runner so `spawn_subagent` never hits
+   * storage mid-loop. Empty or absent when the parent cannot delegate.
+   */
+  readonly delegatableAgents?: readonly Agent[];
+  /**
    * Callback to replace conversation messages with compacted versions.
    * Used by summarize_context to actually update the executor's message array.
    */

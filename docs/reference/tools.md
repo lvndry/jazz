@@ -15,10 +15,10 @@ and [Security](../../SECURITY.md) for the threat model.
 
 | | Count |
 | --- | --- |
-| **Agent-facing tools** | **45** |
+| **Agent-facing tools** | **46** |
 | Hidden `execute_*` counterparts (the second half of each approval pair) | 15 |
-| Total registered | 60 |
-| `read-only` | 27 |
+| Total registered | 61 |
+| `read-only` | 28 |
 | `low-risk` | 3 |
 | `high-risk` | 15 |
 
@@ -149,7 +149,8 @@ Opt-in per agent (like File Management or Git) rather than always-on — see [Me
 
 | Tool | Risk | Approval pair | What it does |
 | --- | --- | --- | --- |
-| `spawn_subagent` | `low-risk` | — | Spawn a sub-agent with fresh context for a specific task. Personas: coder, researcher, default. Pass a shor… |
+| `list_models` | `read-only` | — | List models available across configured providers, with capabilities, context window and per-million-token… |
+| `spawn_subagent` | `low-risk` | — | Spawn a sub-agent with fresh context for a specific task. Personas: coder, researcher, default. Alternative… |
 | `summarize_context` | `read-only` | — | Compact conversation by summarizing older messages to free token budget. Always performs summarization when… |
 
 ### User Interaction

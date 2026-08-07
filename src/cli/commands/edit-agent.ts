@@ -59,6 +59,7 @@ interface AgentEditAnswers {
   numCtx?: number;
   tools?: string[];
   webSearchProvider?: WebSearchProviderName;
+  whenToUse?: string;
 }
 
 /**
@@ -186,6 +187,7 @@ export function editAgentCommand(
           value: "tools",
           disabled: !supportsTools,
         },
+        { name: "Delegation hint (when other agents should pick this one)", value: "whenToUse" },
         ...(agent.config.llmProvider === "ollama"
           ? [{ name: "Context Window", value: "contextWindow" }]
           : []),
@@ -489,7 +491,15 @@ export function editAgentCommand(
       ...(editAnswers.tools &&
         editAnswers.tools.length > 0 && { tools: Array.from(new Set(editAnswers.tools)) }),
       ...(editAnswers.webSearchProvider && { webSearchProvider: editAnswers.webSearchProvider }),
+      ...(editAnswers.whenToUse ? { whenToUse: editAnswers.whenToUse } : {}),
     };
+
+    // An empty submission clears the hint rather than leaving the old one in
+    // place; the roster then falls back to the agent's description.
+    if (editAnswers.whenToUse === "" && updatedConfig.whenToUse !== undefined) {
+      const { whenToUse: _clearedWhenToUse, ...withoutWhenToUse } = updatedConfig;
+      updatedConfig = withoutWhenToUse;
+    }
     if (editAnswers.llmApiKeyProvider) {
       updatedConfig = setAgentApiKeyOverride(
         updatedConfig,
@@ -589,6 +599,27 @@ async function promptForAgentUpdates(
       throw new Error("Edit cancelled");
     }
     answers.description = description;
+  }
+
+  // Update the delegation routing hint. Every agent is delegatable, so this is
+  // only about sharpening how other agents choose it. Submitting empty clears
+  // the hint and falls back to the description.
+  if (fieldToUpdate === "whenToUse") {
+    const whenToUse = await Effect.runPromise(
+      terminal.ask("When should another agent delegate to this one? (blank to use description)", {
+        defaultValue: currentAgent.config.whenToUse || "",
+        validate: (inputValue: string) => {
+          if (inputValue.length > 200) {
+            return "Keep it to 200 characters or less — it is re-sent in every delegating agent's prompt";
+          }
+          return true;
+        },
+      }),
+    );
+    if (whenToUse === undefined) {
+      throw new Error("Edit cancelled");
+    }
+    answers.whenToUse = whenToUse.trim();
   }
 
   // Update persona

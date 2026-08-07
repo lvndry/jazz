@@ -235,3 +235,50 @@ digits, and underscores, starting with a letter, up to 64 characters).
 
 **Security note:** allowlisting a secret-bearing variable hands it to every shell command the
 agent runs — the deployment owns that trade-off.
+
+## Agent Config: `whenToUse`
+
+**Every saved agent is delegatable.** Any agent can run a delegated task *as* another one by
+passing its name to `spawn_subagent`, with no flag to set — an agent you create is available to
+the rest immediately.
+
+`whenToUse` is an optional one-line routing hint on an agent's `config`, written for the
+delegating agent rather than for a human:
+
+```json
+{
+  "whenToUse": "tracing call sites across the codebase; reads only"
+}
+```
+
+Set it with `jazz agent edit <id>` → **Delegation hint**, or by hand. When absent, the roster
+falls back to the agent's `description` — so an agent described as "reviews PRs for security
+issues" needs nothing here, while one described as "friend" benefits from a real hint.
+
+Validation: a non-empty string of at most 200 characters. The cap is deliberate — the roster is
+re-sent in every delegating agent's system prompt on every turn. At most 24 agents are
+advertised; past that, the most recently updated win (they are the ones in active use) and the
+truncation is logged. An agent is never listed to itself.
+
+### Model choice is per task, not per agent
+
+Each roster entry shows the agent's own model, and the delegating agent may override it for a
+single task with `model: "provider/model"` — the point being to **spend in proportion to task
+difficulty.** Two agents with the same `coder` persona no longer imply two fixed model choices:
+the caller sends a mechanical rename to a cheap model and a subtle design review to a strong one.
+
+Overrides are validated before the child starts, and rejected with the reason when the reference
+is malformed, the provider has no credentials configured, or the model cannot call tools (a
+sub-agent that cannot use tools is near-useless). A model absent from the
+[models.dev](https://models.dev) catalog is allowed through — that is the normal state for local
+providers and brand-new releases. Agents discover what is available with the `list_models` tool,
+which reports capabilities, context window and per-million-token prices, cheapest first.
+
+### The tool ceiling
+
+**A delegated agent never gains a tool its caller lacks.** The child's toolset is intersected
+with the parent's effective toolset, so naming a broadly-scoped agent cannot become a way around
+the caller's own restrictions — an agent without `execute_command` cannot reach it by delegating
+to one that has it. Withheld tools are logged. This is what makes universal delegation safe: the
+roster widens *who* can be asked, never *what* can be done. Reasoning effort and persona come
+from the named agent. See [Sub-agents](../internals/subagents.md).

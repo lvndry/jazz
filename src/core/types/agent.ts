@@ -80,6 +80,17 @@ export interface AgentConfig {
    * registered builtin tool names are rejected at registration time, not here.
    */
   readonly customTools?: readonly CustomToolDefinition[];
+  /**
+   * One-line routing hint written for a delegating agent rather than for a
+   * human — e.g. "tracing call sites across the codebase; reads only". Shown
+   * in every other agent's delegation roster.
+   *
+   * Every saved agent is delegatable; this only sharpens the routing decision.
+   * Falls back to `description` when unset, so an agent whose description
+   * already reads as a job ("reviews PRs for security issues") needs nothing
+   * here, while one described as "friend" benefits from a real hint.
+   */
+  readonly whenToUse?: string;
 }
 
 /**

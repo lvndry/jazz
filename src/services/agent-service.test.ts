@@ -597,6 +597,57 @@ describe("AgentService", () => {
     });
   });
 
+  describe("validateAgentConfig delegation fields", () => {
+    const baseConfig: AgentConfig = {
+      persona: "default",
+      llmProvider: "openai",
+      llmModel: "gpt-4",
+    };
+
+    it("accepts a routing line", async () => {
+      const program = service.validateAgentConfig({
+        ...baseConfig,
+        whenToUse: "use for tracing call sites across the codebase; reads only",
+      });
+
+      await expect(Effect.runPromise(program)).resolves.toBeUndefined();
+    });
+
+    it("accepts an absent routing line, since every agent is delegatable", async () => {
+      const program = service.validateAgentConfig(baseConfig);
+
+      await expect(Effect.runPromise(program)).resolves.toBeUndefined();
+    });
+
+    it("rejects an empty whenToUse", async () => {
+      const program = service.validateAgentConfig({
+        ...baseConfig,
+        whenToUse: "   ",
+      });
+
+      const result = await Effect.runPromiseExit(program);
+      expect(result._tag).toBe("Failure");
+      if (result._tag === "Failure") {
+        // @ts-expect-error - accessing error
+        expect(result.cause.error).toBeInstanceOf(AgentConfigurationError);
+      }
+    });
+
+    it("rejects a whenToUse longer than 200 characters", async () => {
+      const program = service.validateAgentConfig({
+        ...baseConfig,
+        whenToUse: "A".repeat(201),
+      });
+
+      const result = await Effect.runPromiseExit(program);
+      expect(result._tag).toBe("Failure");
+      if (result._tag === "Failure") {
+        // @ts-expect-error - accessing error
+        expect(result.cause.error).toBeInstanceOf(AgentConfigurationError);
+      }
+    });
+  });
+
   describe("deleteAgent", () => {
     it("should delete an agent", async () => {
       // @ts-expect-error - mocking
