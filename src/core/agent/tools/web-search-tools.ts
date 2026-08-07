@@ -13,7 +13,7 @@ import { defineTool, makeZodValidator } from "./base-tool";
 
 export type SearchDepth = "fast" | "standard" | "deep";
 
-export type SourceType = "web" | "news" | "academic" | "company" | "people" | "pdf" | "financial";
+export type SourceType = "web" | "news" | "academic" | "company" | "people" | "financial";
 
 export interface WebSearchArgs extends Record<string, unknown> {
   readonly query: string;
@@ -102,10 +102,10 @@ const webSearchSchema = z
       .optional()
       .describe(`Max results (default: ${DEFAULT_MAX_RESULTS}, max: 100)`),
     sourceType: z
-      .enum(["web", "news", "academic", "company", "people", "pdf", "financial"])
+      .enum(["web", "news", "academic", "company", "people", "financial"])
       .optional()
       .describe(
-        "Source type filter: 'news' for news articles, 'academic' for research papers, 'company' for company pages, 'people' for people profiles, 'pdf' for PDF documents, 'financial' for financial reports/filings, 'web' for general web (default).",
+        "Source type filter: 'news' for news articles, 'academic' for research papers, 'company' for company pages, 'people' for people profiles, 'financial' for financial reports/filings, 'web' for general web (default).",
       ),
   })
   .strict() as z.ZodType<WebSearchArgs>;
@@ -208,21 +208,14 @@ function executeExaSearch(
   apiKey: string,
 ): Effect.Effect<WebSearchResult, Error, LoggerService> {
   type ExaCategory =
-    | "company"
-    | "research paper"
-    | "news"
-    | "pdf"
-    | "personal site"
-    | "financial report"
-    | "people";
+    "company" | "publication" | "news" | "personal site" | "financial report" | "people";
   type ExaSearchType = "auto" | "fast" | "instant" | "deep-lite" | "deep" | "deep-reasoning";
 
   const sourceTypeToCategory: Partial<Record<SourceType, ExaCategory>> = {
     news: "news",
-    academic: "research paper",
+    academic: "publication",
     company: "company",
     people: "people",
-    pdf: "pdf",
     financial: "financial report",
   };
 
@@ -245,19 +238,21 @@ function executeExaSearch(
 
     const response = yield* Effect.retry(
       Effect.tryPromise({
-        try: () =>
-          exa.search(args.query, {
+        try: () => {
+          const baseOptions = {
             type: searchDepthToType[args.searchDepth ?? "standard"],
             numResults: args.maxResults ?? DEFAULT_MAX_RESULTS,
-            ...(exaCategory ? { category: exaCategory } : {}),
             contents: { highlights: true, text: true },
+            ...(exaCategory ? { category: exaCategory } : {}),
             ...(suppressDateFilters
               ? {}
               : {
                   ...(args.fromDate ? { startPublishedDate: args.fromDate } : {}),
                   ...(args.toDate ? { endPublishedDate: args.toDate } : {}),
                 }),
-          }),
+          };
+          return exa.search(args.query, baseOptions as Parameters<typeof exa.search>[1]);
+        },
         catch: (error) =>
           new Error(`Exa search failed: ${error instanceof Error ? error.message : String(error)}`),
       }),
@@ -267,10 +262,12 @@ function executeExaSearch(
     const results: WebSearchItem[] = (response.results || []).map((result) => ({
       title: result.title || "",
       url: result.url || "",
-      snippet: Array.isArray(result.highlights) ? result.highlights.join("\n\n") : "",
+      snippet: Array.isArray((result as Record<string, unknown>)["highlights"])
+        ? ((result as Record<string, unknown>)["highlights"] as string[]).join("\n\n")
+        : "",
       ...(result.publishedDate ? { publishedDate: result.publishedDate } : {}),
       metadata: {
-        text: result.text,
+        text: (result as Record<string, unknown>)["text"],
       },
     }));
 
