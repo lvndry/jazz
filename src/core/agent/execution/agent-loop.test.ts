@@ -790,20 +790,32 @@ describe("executeAgentLoop context window accounting", () => {
   };
 
   const originalJazzHome = process.env["JAZZ_HOME"];
+  const originalOffline = process.env["JAZZ_OFFLINE"];
 
-  // The suite runs offline, so the catalog is served from the on-disk snapshot.
+  // Offline is forced here rather than inherited: the client fetches models.dev first
+  // and only falls back to the snapshot when the fetch fails, so a runner with network
+  // would resolve the real catalog — which carries no ollama provider at all.
+  function seedCatalog(catalog: unknown): void {
+    const jazzHome = process.env["JAZZ_HOME"];
+    if (jazzHome === undefined) throw new Error("JAZZ_HOME is not set for this test");
+    writeFileSync(join(jazzHome, "cache", "models-dev.json"), JSON.stringify(catalog));
+    clearModelsDevCache();
+  }
+
   beforeEach(() => {
     const jazzHome = mkdtempSync(join(tmpdir(), "jazz-agent-loop-test-"));
     mkdirSync(join(jazzHome, "cache"), { recursive: true });
-    writeFileSync(join(jazzHome, "cache", "models-dev.json"), JSON.stringify(modelsDevCatalog));
     process.env["JAZZ_HOME"] = jazzHome;
-    clearModelsDevCache();
+    process.env["JAZZ_OFFLINE"] = "1";
+    seedCatalog(modelsDevCatalog);
   });
 
   afterEach(() => {
     clearModelsDevCache();
     if (originalJazzHome === undefined) delete process.env["JAZZ_HOME"];
     else process.env["JAZZ_HOME"] = originalJazzHome;
+    if (originalOffline === undefined) delete process.env["JAZZ_OFFLINE"];
+    else process.env["JAZZ_OFFLINE"] = originalOffline;
   });
 
   // ~500k characters ≈ 143k tokens at qwen's 3.5 chars/token: over 80% of the pinned
@@ -876,6 +888,16 @@ describe("executeAgentLoop context window accounting", () => {
 
   it("does not compact a history that genuinely fits the window", async () => {
     const { compactions } = await runWithHistory(MODEL_MAX_TOKENS);
+    expect(compactions).toBe(0);
+  });
+
+  // models.dev carries no ollama provider, so every ollama model resolves to the
+  // unknown-model placeholder (128k). Treating that as a ceiling would silently shrink
+  // a window the user pinned and the server was configured to serve.
+  it("honours a pinned window larger than the placeholder when nothing knows the model", async () => {
+    seedCatalog({});
+
+    const { compactions } = await runWithHistory(200000);
     expect(compactions).toBe(0);
   });
 

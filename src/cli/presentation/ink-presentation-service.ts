@@ -788,10 +788,10 @@ export class InkStreamingRenderer implements StreamingRenderer {
     model: string,
     pinnedContextWindow: number | undefined,
   ): void {
-    const publish = (modelMaxTokens: number): void => {
+    const publish = (modelMaxTokens: number | undefined): void => {
       const effective = resolveEffectiveContextWindow({
         provider,
-        modelMaxTokens,
+        ...(modelMaxTokens !== undefined && { modelMaxTokens }),
         ...(pinnedContextWindow !== undefined && { pinnedContextWindow }),
       });
       store.updateRunStats({ maxContextTokens: effective.tokens });
@@ -801,6 +801,11 @@ export class InkStreamingRenderer implements StreamingRenderer {
     if (cached !== undefined) {
       publish(cached.contextWindow);
       return;
+    }
+    // A pinned window stands on its own: the catalog has no local-provider entry
+    // to wait for, and the footer must not show the maximum the run is not getting.
+    if (pinnedContextWindow !== undefined) {
+      publish(undefined);
     }
     void getModelsDevMetadata(model, provider)
       .then((meta) => {

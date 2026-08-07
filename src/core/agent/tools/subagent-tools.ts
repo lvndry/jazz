@@ -4,7 +4,6 @@ import { z } from "zod";
 import { getGlyphs } from "@/cli/ui/glyphs";
 import { store } from "@/cli/ui/store";
 import { DEFAULT_MAX_ITERATIONS } from "@/core/constants/agent";
-import { DEFAULT_CONTEXT_WINDOW } from "@/core/constants/models";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import type { Tool, ToolRequirements } from "@/core/interfaces/tool-registry";
@@ -299,7 +298,7 @@ ${args.task}`;
 
           const contextWindowMaxTokens = resolveEffectiveContextWindow({
             provider: parentAgent.config.llmProvider,
-            modelMaxTokens: modelMetadata?.contextWindow ?? DEFAULT_CONTEXT_WINDOW,
+            ...(modelMetadata && { modelMaxTokens: modelMetadata.contextWindow }),
             ...(typeof parentAgent.config.numCtx === "number" && {
               pinnedContextWindow: parentAgent.config.numCtx,
             }),

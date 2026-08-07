@@ -213,6 +213,12 @@ gives its `-c` value directly. An unpinned Ollama agent gets a warning at run st
 than a silent assumption, because Ollama exposes a loaded model's window on `/api/ps` but
 has no endpoint for the server default before anything is loaded.
 
+The catalog is no help here at all: models.dev carries no `ollama` or `llamacpp` provider,
+so a local model resolves to the 128k unknown-model placeholder rather than to a real
+maximum. That placeholder is never treated as a ceiling — a pinned window above it is
+honoured, because the user pinned it and configured the server to serve it. Only a
+*genuinely known* maximum caps a runtime window.
+
 ---
 
 ## Tool results are reformatted before storage

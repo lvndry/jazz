@@ -9,7 +9,7 @@ import { getAgentByIdentifier } from "@/core/agent/agent-service";
 import { resolveEffectiveContextWindow } from "@/core/agent/context/effective-context-window";
 import { WEB_SEARCH_PROVIDERS } from "@/core/agent/tools/web-search-tools";
 import { normalizeToolConfig } from "@/core/agent/utils/tool-config";
-import { AVAILABLE_PROVIDERS, DEFAULT_CONTEXT_WINDOW } from "@/core/constants/models";
+import { AVAILABLE_PROVIDERS } from "@/core/constants/models";
 import type { ProviderName } from "@/core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "@/core/interfaces/agent-service";
@@ -1632,21 +1632,23 @@ const TOTAL_CELLS = GRID_SIZE * GRID_SIZE;
 const AUTOCOMPACT_BUFFER_PERCENT = 0.165;
 
 /**
- * Get context window size for a specific model from models.dev.
+ * Get the model's advertised context window from models.dev, or `undefined` when
+ * the catalog does not know the model — the catalog carries no local-provider
+ * entries, and a placeholder maximum must not be mistaken for a real one.
  * Pass provider when known so provider-scoped metadata is used
  * otherwise model-only lookup can return another provider's limits.
  */
 function getModelContextWindowEffect(
   modelId: string,
   providerId?: string,
-): Effect.Effect<number, never, never> {
+): Effect.Effect<number | undefined, never, never> {
   return Effect.tryPromise({
     try: async () => {
       const meta = await getModelsDevMetadata(modelId, providerId);
-      return meta?.contextWindow ?? DEFAULT_CONTEXT_WINDOW;
+      return meta?.contextWindow;
     },
     catch: () => new Error("Failed to fetch model metadata"),
-  }).pipe(Effect.catchAll(() => Effect.succeed(DEFAULT_CONTEXT_WINDOW)));
+  }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
 }
 
 /**
@@ -1807,9 +1809,10 @@ function handleContextCommand(
     // Get model information
     const provider = agent.config.llmProvider;
     const modelId = agent.config.llmModel;
+    const advertisedContextWindow = yield* getModelContextWindowEffect(modelId, provider);
     const effectiveContextWindow = resolveEffectiveContextWindow({
       provider,
-      modelMaxTokens: yield* getModelContextWindowEffect(modelId, provider),
+      ...(advertisedContextWindow !== undefined && { modelMaxTokens: advertisedContextWindow }),
       ...(typeof agent.config.numCtx === "number" && {
         pinnedContextWindow: agent.config.numCtx,
       }),
@@ -1850,9 +1853,10 @@ function handleContextCommand(
 
     // Display model info and total usage on first row
     const modelDisplay = `${provider}/${modelId}`;
+    const modelMaxTokens = effectiveContextWindow.modelMaxTokens;
     const runtimeWindowNote =
-      effectiveContextWindow.tokens < effectiveContextWindow.modelMaxTokens
-        ? ` · runtime window, model max ${formatTokenCount(effectiveContextWindow.modelMaxTokens)}`
+      modelMaxTokens !== undefined && effectiveContextWindow.tokens < modelMaxTokens
+        ? ` · runtime window, model max ${formatTokenCount(modelMaxTokens)}`
         : "";
     const usageDisplay = `${formatTokenCount(adjustedUsage.totalUsed)}/${formatTokenCount(contextWindow)} tokens (${usagePercent}%)${runtimeWindowNote}`;
 

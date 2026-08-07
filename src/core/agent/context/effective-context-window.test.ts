@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { DEFAULT_CONTEXT_WINDOW } from "@/core/constants/models";
 import {
   describeContextWindowShortfall,
   resolveEffectiveContextWindow,
@@ -60,6 +61,33 @@ describe("resolveEffectiveContextWindow", () => {
     expect(effective.source).toBe("model-max");
   });
 
+  it("trusts a pinned window larger than the placeholder when no maximum is known", () => {
+    const effective = resolveEffectiveContextWindow({
+      provider: "ollama",
+      pinnedContextWindow: 200000,
+    });
+
+    expect(effective.tokens).toBe(200000);
+    expect(effective.source).toBe("pinned");
+    expect(effective.modelMaxTokens).toBeUndefined();
+  });
+
+  it("trusts a server-reported window larger than the placeholder when no maximum is known", () => {
+    const effective = resolveEffectiveContextWindow({
+      provider: "llamacpp",
+      serverContextWindow: 200000,
+    });
+
+    expect(effective.tokens).toBe(200000);
+  });
+
+  it("falls back to the default window when nothing is known at all", () => {
+    const effective = resolveEffectiveContextWindow({ provider: "ollama" });
+
+    expect(effective.tokens).toBe(DEFAULT_CONTEXT_WINDOW);
+    expect(effective.source).toBe("fallback");
+  });
+
   it("ignores a non-positive pinned window rather than starving the run", () => {
     const effective = resolveEffectiveContextWindow({
       provider: "ollama",
@@ -80,6 +108,16 @@ describe("describeContextWindowShortfall", () => {
     );
 
     expect(advice).toContain("262,144");
+    expect(advice).toContain("jazz agent edit");
+  });
+
+  it("says the window is a guess when nothing reports the model's size", () => {
+    const advice = describeContextWindowShortfall(
+      "ollama",
+      resolveEffectiveContextWindow({ provider: "ollama" }),
+    );
+
+    expect(advice).toContain("estimate");
     expect(advice).toContain("jazz agent edit");
   });
 

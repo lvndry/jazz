@@ -1,6 +1,5 @@
 import { Effect, Fiber, Option, Ref } from "effect";
 import { DEFAULT_MAX_ITERATIONS } from "@/core/constants/agent";
-import { DEFAULT_CONTEXT_WINDOW } from "@/core/constants/models";
 import { type AgentConfigService } from "@/core/interfaces/agent-config";
 import type { LLMService } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
@@ -681,7 +680,7 @@ export function executeAgentLoop(
 
         const effectiveContextWindow = resolveEffectiveContextWindow({
           provider,
-          modelMaxTokens: modelMetadata?.contextWindow ?? DEFAULT_CONTEXT_WINDOW,
+          ...(modelMetadata && { modelMaxTokens: modelMetadata.contextWindow }),
           ...(typeof agent.config.numCtx === "number" && {
             pinnedContextWindow: agent.config.numCtx,
           }),
@@ -703,7 +702,6 @@ export function executeAgentLoop(
           contextWindow: contextWindowMaxTokens,
           modelMaxTokens: effectiveContextWindow.modelMaxTokens,
           contextWindowSource: effectiveContextWindow.source,
-          source: modelMetadata ? "models.dev" : "default",
         });
 
         const shortfall = describeContextWindowShortfall(provider, effectiveContextWindow);
