@@ -195,6 +195,8 @@ function buildToolConfig(
   };
 }
 
+const REASONING_ROUND_TRIP_PROVIDERS = new Set(["anthropic"]);
+
 export function toCoreMessages(
   messages: ReadonlyArray<{
     role: "system" | "user" | "assistant" | "tool";
@@ -279,7 +281,12 @@ export function toCoreMessages(
         | ToolCallPart
       > = [];
 
-      if (m.reasoning_parts && messageIndex > lastUserMessageIndex && normalizedProviderName) {
+      if (
+        m.reasoning_parts &&
+        messageIndex > lastUserMessageIndex &&
+        normalizedProviderName &&
+        REASONING_ROUND_TRIP_PROVIDERS.has(normalizedProviderName)
+      ) {
         for (const storedPart of m.reasoning_parts) {
           if (storedPart.provider.toLowerCase() !== normalizedProviderName) continue;
           contentParts.push({
