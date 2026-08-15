@@ -157,6 +157,24 @@ function initializeAgentRun(
       combinedToolNames = combinedToolNames.filter((name) => name !== "manage_memory");
     }
 
+    // A sub-agent run inherits its parent's effective toolset as a ceiling, so
+    // a child spawned under a different persona cannot end up with a tool the
+    // parent lacked. Applied after personas and built-in categories resolve —
+    // earlier would let the child's persona re-add a category the parent denied
+    // — and before the registry filter, so dropped names never reach approval
+    // or the LLM tool list.
+    if (options.toolAllowlist) {
+      const allowed = new Set(options.toolAllowlist);
+      const withheld = combinedToolNames.filter((toolName) => !allowed.has(toolName));
+      combinedToolNames = combinedToolNames.filter((toolName) => allowed.has(toolName));
+      if (withheld.length > 0) {
+        yield* logger.info("Tools withheld by inherited allowlist", {
+          agentId: agent.id,
+          withheld,
+        });
+      }
+    }
+
     // Filter out any non-existent tools silently — tools may have been removed
     // or MCP servers may be unavailable. The agent can still operate with its
     // remaining tools.
@@ -237,6 +255,7 @@ function initializeAgentRun(
       // subsequent isAutoApproved checks within the same agent run.
       autoApprovedCommands,
       autoApprovedTools,
+      parentToolNames: expandedToolNames,
       ...(options.timezone !== undefined ? { timezone: options.timezone } : {}),
       onAutoApproveCommand:
         options.onAutoApproveCommand ??

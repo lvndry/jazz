@@ -129,6 +129,48 @@ describe("spawn_subagent auto-approve inheritance", () => {
   });
 });
 
+describe("spawn_subagent tool ceiling", () => {
+  it("caps the child at the parent's effective tools", async () => {
+    let captured: Omit<AgentRunnerOptions, "internal"> | undefined;
+    const spy = spyOn(AgentRunner, "runRecursive").mockImplementation((options) => {
+      captured = options;
+      return Effect.succeed({ content: "done", messages: [] }) as ReturnType<
+        typeof AgentRunner.runRecursive
+      >;
+    });
+
+    try {
+      const { presentation } = createPresentationHarness();
+      await runSpawn(presentation, {
+        parentToolNames: ["read_file", "grep", "spawn_subagent"],
+      });
+
+      expect(captured?.toolAllowlist).toEqual(["read_file", "grep", "spawn_subagent"]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("sets no allowlist when the parent's toolset is unknown", async () => {
+    let captured: Omit<AgentRunnerOptions, "internal"> | undefined;
+    const spy = spyOn(AgentRunner, "runRecursive").mockImplementation((options) => {
+      captured = options;
+      return Effect.succeed({ content: "done", messages: [] }) as ReturnType<
+        typeof AgentRunner.runRecursive
+      >;
+    });
+
+    try {
+      const { presentation } = createPresentationHarness();
+      await runSpawn(presentation);
+
+      expect(captured?.toolAllowlist).toBeUndefined();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
 describe("spawn_subagent presentation", () => {
   it("does not import the TUI from core", async () => {
     const source = await Bun.file(new URL("./subagent-tools.ts", import.meta.url)).text();
