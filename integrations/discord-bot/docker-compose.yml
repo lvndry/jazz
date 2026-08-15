@@ -1,0 +1,31 @@
+services:
+  jazz-discord:
+    build:
+      context: ../..
+      dockerfile: integrations/discord-bot/Dockerfile
+    image: jazz-discord-bridge:latest
+    container_name: jazz-discord
+    restart: always
+    env_file: .env
+    volumes:
+      - jazz_discord_data:/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test:
+        - CMD
+        - bun
+        - -e
+        - "fetch('http://localhost:8080/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+volumes:
+  jazz_discord_data:

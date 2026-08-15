@@ -20,7 +20,7 @@ the people or projects one agent talks to), not a multi-tenant knowledge base.
 
 Memory is scoped by `Agent.id`, the same identifier that already scopes conversation
 history — so it follows an agent across every surface that invokes it (CLI, a Telegram
-bridge, a Slack bridge), not by session or conversation.
+bridge, a Discord bridge), not by session or conversation.
 
 ## On disk
 
@@ -52,5 +52,5 @@ acquisition.
 agent via `AgentConfig.tools`, not granted to every agent unconditionally. Memory persists
 durable, potentially sensitive facts about a specific person to disk; forcing it on
 everywhere would silently contradict personas (like `researcher`) that promise their tools
-can't write files. Whoever wires up a persistent chat surface (Telegram, Slack) turns memory
+can't write files. Whoever wires up a persistent chat surface (Telegram, Discord) turns memory
 on for that agent specifically.
