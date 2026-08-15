@@ -1,10 +1,15 @@
 {
-  "extends": "./tsconfig.json",
+  "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "rootDir": ".",
-    "noEmit": true,
-    "types": ["bun", "node"]
+    "outDir": ".tsbuild/scripts",
+    "module": "preserve",
+    "emitDeclarationOnly": true,
+    "types": ["bun", "node"],
+    "composite": true,
+    "declaration": true,
+    "tsBuildInfoFile": ".tsbuildinfo.scripts"
   },
-  "include": ["scripts/**/*.ts"],
+  "include": ["scripts/**/*.ts", "package.json"],
   "exclude": ["node_modules", "dist"]
 }

@@ -5,7 +5,9 @@ bun.lockb
 # Build outputs
 dist/
 build/
-*.tsbuildinfo
+.tsbuild/
+.tsbuildinfo
+.tsbuildinfo.*
 *.tgz
 
 # Environment variables

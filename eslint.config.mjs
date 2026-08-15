@@ -38,7 +38,7 @@ export default [
     ignores: ["**/*.test.ts", "test-preload.ts", "examples/**", "integrations/**"],
     languageOptions: {
       parserOptions: {
-        project: ["./tsconfig.json", "./tsconfig.build.json"],
+        project: ["./tsconfig.app.json", "./tsconfig.build.json"],
         tsconfigRootDir,
       },
       globals: {
