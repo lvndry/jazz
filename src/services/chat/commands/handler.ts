@@ -1816,6 +1816,9 @@ function handleContextCommand(
       ...(typeof agent.config.numCtx === "number" && {
         pinnedContextWindow: agent.config.numCtx,
       }),
+      ...(typeof agent.config.maxContextTokens === "number" && {
+        agentMaxTokens: agent.config.maxContextTokens,
+      }),
     });
     const contextWindow = effectiveContextWindow.tokens;
 
@@ -1854,8 +1857,9 @@ function handleContextCommand(
     // Display model info and total usage on first row
     const modelDisplay = `${provider}/${modelId}`;
     const modelMaxTokens = effectiveContextWindow.modelMaxTokens;
-    const runtimeWindowNote =
-      modelMaxTokens !== undefined && effectiveContextWindow.tokens < modelMaxTokens
+    const runtimeWindowNote = effectiveContextWindow.cappedByAgent
+      ? ` · agent max context${modelMaxTokens !== undefined ? `, model max ${formatTokenCount(modelMaxTokens)}` : ""}`
+      : modelMaxTokens !== undefined && effectiveContextWindow.tokens < modelMaxTokens
         ? ` · runtime window, model max ${formatTokenCount(modelMaxTokens)}`
         : "";
     const usageDisplay = `${formatTokenCount(adjustedUsage.totalUsed)}/${formatTokenCount(contextWindow)} tokens (${usagePercent}%)${runtimeWindowNote}`;

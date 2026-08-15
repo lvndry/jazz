@@ -241,3 +241,71 @@ describe("ContextWindowManager", () => {
     });
   });
 });
+
+describe("context budget thresholds", () => {
+  const fixedCounter = {
+    countMessage: () => 100,
+    countMessages: (messages: readonly ChatMessage[]) => messages.length * 100,
+  } as any;
+
+  function managerWithBudget(contextBudgetTokens: number): ContextWindowManager {
+    return new ContextWindowManager({
+      maxTokens: 50_000,
+      contextBudgetTokens,
+      tokenCounter: fixedCounter,
+    });
+  }
+
+  it("derives warn and compact thresholds from the context budget, not the trim budget", () => {
+    const manager = managerWithBudget(10_000);
+
+    expect(manager.contextBudgetTokens).toBe(10_000);
+    expect(manager.warnThresholdTokens).toBe(7_000);
+    expect(manager.compactThresholdTokens).toBe(8_000);
+  });
+
+  it("falls back to the trim budget when no context budget is given", () => {
+    const manager = new ContextWindowManager({ maxTokens: 10_000, tokenCounter: fixedCounter });
+
+    expect(manager.contextBudgetTokens).toBe(10_000);
+    expect(manager.compactThresholdTokens).toBe(8_000);
+  });
+
+  it("warns before it compacts", () => {
+    const manager = managerWithBudget(10_000);
+    const below = Array.from({ length: 60 }, () => makeMessage("user", "x"));
+    const warning = Array.from({ length: 75 }, () => makeMessage("user", "x"));
+    const compacting = Array.from({ length: 85 }, () => makeMessage("user", "x"));
+
+    expect(manager.shouldWarn(below)).toBe(false);
+    expect(manager.shouldCompact(below)).toBe(false);
+    expect(manager.shouldWarn(warning)).toBe(true);
+    expect(manager.shouldCompact(warning)).toBe(false);
+    expect(manager.shouldWarn(compacting)).toBe(true);
+    expect(manager.shouldCompact(compacting)).toBe(true);
+  });
+
+  it("reports usage against the budget", () => {
+    const manager = managerWithBudget(10_000);
+    const usage = manager.usage(Array.from({ length: 75 }, () => makeMessage("user", "x")));
+
+    expect(usage.currentTokens).toBe(7_500);
+    expect(usage.budgetTokens).toBe(10_000);
+    expect(usage.ratio).toBeCloseTo(0.75, 5);
+    expect(usage.shouldWarn).toBe(true);
+    expect(usage.shouldCompact).toBe(false);
+  });
+
+  it("honours custom threshold ratios", () => {
+    const manager = new ContextWindowManager({
+      maxTokens: 50_000,
+      contextBudgetTokens: 10_000,
+      warnThresholdRatio: 0.5,
+      compactThresholdRatio: 0.9,
+      tokenCounter: fixedCounter,
+    });
+
+    expect(manager.warnThresholdTokens).toBe(5_000);
+    expect(manager.compactThresholdTokens).toBe(9_000);
+  });
+});

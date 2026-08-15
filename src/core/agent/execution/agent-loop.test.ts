@@ -25,6 +25,7 @@ import { PresentationServiceTag } from "../../interfaces/presentation";
 import { TerminalServiceTag } from "../../interfaces/terminal";
 import { ToolRegistryTag } from "../../interfaces/tool-registry";
 import type { RecursiveRunner } from "../context/summarizer";
+import { DEFAULT_TOKEN_COUNTER } from "../context/token-counter";
 import type { AgentRunContext, AgentRunnerOptions, AgentResponse } from "../types";
 
 // Shared mocks
@@ -118,6 +119,8 @@ function recordingObserver() {
     onEmptyResponse: (name: string) => Effect.sync(() => void calls.push(`empty:${name}`)),
     onContextWindowUnknown: (name: string) =>
       Effect.sync(() => void calls.push(`context-window-unknown:${name}`)),
+    onContextPressure: (name: string, percentUsed: number) =>
+      Effect.sync(() => void calls.push(`context-pressure:${name}:${percentUsed}`)),
     onCompletion: (name: string) => Effect.sync(() => void calls.push(`completion:${name}`)),
   };
   return { observer, calls };
@@ -281,6 +284,66 @@ describe("executeAgentLoop", () => {
     expect(toolMessage?.name).toBe("test_tool");
 
     ToolExecutor.executeToolCalls = originalExecute;
+  });
+
+  it("warns against the agent's max context tokens before compacting", async () => {
+    const warningCalls: string[] = [];
+    const trackingPresentationService = {
+      ...mockPresentationService,
+      presentWarning: (_name: string, msg: string) => {
+        warningCalls.push(msg);
+        return Effect.void;
+      },
+    };
+    const trackingObserver = makeDefaultObserver(trackingPresentationService as any);
+
+    const strategy: CompletionStrategy = {
+      shouldShowThinking: false,
+      getCompletion: () =>
+        Effect.succeed({
+          completion: { id: "c1", model: "gpt-4", content: "Hello world" },
+          interrupted: false,
+        }),
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+
+    const messages = [
+      { role: "system" as const, content: "system prompt" },
+      {
+        role: "user" as const,
+        content: "the quick brown fox jumps over the lazy dog. ".repeat(200),
+      },
+    ];
+    const usedTokens = DEFAULT_TOKEN_COUNTER.countMessages(messages, {
+      provider: "openai",
+      modelId: "gpt-4",
+    });
+    // Sit at 75% of the ceiling: past the warn threshold, short of compaction.
+    const maxContextTokens = Math.ceil(usedTokens / 0.75);
+
+    const options = makeOptions();
+    const agentWithCeiling = {
+      ...options.agent,
+      config: { ...options.agent.config, maxContextTokens },
+    } as any;
+
+    await Effect.runPromise(
+      executeAgentLoop(
+        { ...options, agent: agentWithCeiling },
+        makeRunContext({ messages: messages as any, agent: agentWithCeiling }),
+        displayConfig,
+        strategy,
+        trackingObserver,
+        runRecursive,
+      ).pipe(Effect.provide(TestLayer)),
+    );
+
+    const pressureWarning = warningCalls.find((msg) => msg.includes("context "));
+    expect(pressureWarning).toBeDefined();
+    expect(pressureWarning).toContain(`${maxContextTokens.toLocaleString()} tokens`);
+    expect(warningCalls.some((msg) => msg.includes("auto-compacting"))).toBe(false);
   });
 
   it("should warn when iteration limit is reached", async () => {

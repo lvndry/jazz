@@ -18,9 +18,18 @@ export type ContextWindowSource = "pinned" | "server" | "model-max" | "fallback"
 export interface EffectiveContextWindow {
   /** Tokens the server will actually honour. Use this for compaction accounting. */
   readonly tokens: number;
+  /**
+   * Where `tokens` came from before the agent ceiling was applied. Kept as the
+   * runtime source so the local-server shortfall warning still reflects whether
+   * Jazz actually knows the server's window.
+   */
   readonly source: ContextWindowSource;
   /** What the catalog (or the local server) advertises, when anything does. */
   readonly modelMaxTokens?: number;
+  /** The agent's own ceiling, when one is configured. */
+  readonly agentMaxTokens?: number;
+  /** True when the agent ceiling — not the model or server — decided `tokens`. */
+  readonly cappedByAgent: boolean;
 }
 
 export interface EffectiveContextWindowInput {
@@ -35,6 +44,13 @@ export interface EffectiveContextWindowInput {
   readonly pinnedContextWindow?: number;
   /** Window the local server reported for the loaded model, when it is known. */
   readonly serverContextWindow?: number;
+  /**
+   * `config.maxContextTokens` — a per-agent ceiling that applies to every provider.
+   * It never raises the window, only lowers it: an agent may choose to run in less
+   * context than the model offers, but asking for more than the server will honour
+   * would put us back to silent truncation.
+   */
+  readonly agentMaxTokens?: number;
 }
 
 export function isLocalServerProvider(provider: string): boolean {
@@ -55,6 +71,33 @@ function positiveTokenCount(value: number | undefined): number | undefined {
 export function resolveEffectiveContextWindow(
   input: EffectiveContextWindowInput,
 ): EffectiveContextWindow {
+  return applyAgentCeiling(resolveRuntimeContextWindow(input), input.agentMaxTokens);
+}
+
+/**
+ * Lower the runtime window to the agent's own budget. A ceiling above the runtime
+ * window is ignored rather than honoured — it would hand back tokens the server
+ * never promised.
+ */
+function applyAgentCeiling(
+  runtime: Omit<EffectiveContextWindow, "cappedByAgent" | "agentMaxTokens">,
+  requestedAgentMaxTokens: number | undefined,
+): EffectiveContextWindow {
+  const agentMaxTokens = positiveTokenCount(requestedAgentMaxTokens);
+  if (agentMaxTokens === undefined) {
+    return { ...runtime, cappedByAgent: false };
+  }
+  return {
+    ...runtime,
+    tokens: Math.min(runtime.tokens, agentMaxTokens),
+    agentMaxTokens,
+    cappedByAgent: agentMaxTokens < runtime.tokens,
+  };
+}
+
+function resolveRuntimeContextWindow(
+  input: EffectiveContextWindowInput,
+): Omit<EffectiveContextWindow, "cappedByAgent" | "agentMaxTokens"> {
   const modelMaxTokens = positiveTokenCount(input.modelMaxTokens);
   const advertised: Pick<EffectiveContextWindow, "modelMaxTokens"> =
     modelMaxTokens !== undefined ? { modelMaxTokens } : {};
@@ -103,8 +146,9 @@ export function describeContextWindowShortfall(
   if (!isLocalServerProvider(provider)) return null;
   if (effective.source === "pinned" || effective.source === "server") return null;
 
-  const assumed =
-    effective.source === "model-max"
+  const assumed = effective.cappedByAgent
+    ? `this agent's max context (${effective.tokens.toLocaleString()} tokens)`
+    : effective.source === "model-max"
       ? `the model maximum (${effective.tokens.toLocaleString()} tokens)`
       : `a ${effective.tokens.toLocaleString()}-token estimate, since nothing reports this model's size`;
   return (

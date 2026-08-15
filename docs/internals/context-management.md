@@ -42,7 +42,7 @@ flowchart TB
 
 | | Trimming | Compaction |
 | --- | --- | --- |
-| Runs | every iteration, after appending the assistant message | when tokens exceed 80% of the model's window |
+| Runs | every iteration, after appending the assistant message | when tokens exceed 80% of the context budget (the model's window, or the agent's `maxContextTokens` ceiling when it is lower) |
 | Costs | nothing | one LLM call |
 | Budget | a fixed working-set target (50k tokens by default) | the context window the provider will actually honour |
 | What's lost | old messages, entirely | detail — the gist survives as a summary |
@@ -218,6 +218,36 @@ so a local model resolves to the 128k unknown-model placeholder rather than to a
 maximum. That placeholder is never treated as a ceiling — a pinned window above it is
 honoured, because the user pinned it and configured the server to serve it. Only a
 *genuinely known* maximum caps a runtime window.
+
+### The per-agent ceiling
+
+`config.maxContextTokens` caps the window for *any* provider. It is the answer to "this
+agent should never carry more than 60k tokens of history, even though the model would hold
+200k" — useful for keeping cost and latency predictable, for models whose quality sags long
+before their advertised limit, and for staying under a provider tier's real limit.
+
+The ceiling only ever lowers the window: `min(runtime window, maxContextTokens)`. Asking for
+more than the server will honour is ignored, because that is exactly the silent-truncation
+failure above. Everything downstream then follows the capped number — the warning, the
+compaction threshold, the summarizer's recent-message budget, and `/context`.
+
+Set it with `jazz agent edit` → **Max Context Tokens**; leave the prompt blank to remove the
+ceiling and go back to the model's own window.
+
+### Warn first, compact second
+
+Two thresholds share one budget, both defined in `context-window-manager.ts`:
+
+| | Warning | Compaction |
+| --- | --- | --- |
+| Fires at | 70% of the budget (`CONTEXT_WARN_THRESHOLD_RATIO`) | 80% (`CONTEXT_COMPACT_THRESHOLD_RATIO`) |
+| Costs | nothing | an extra LLM call |
+| Effect | `context 74% full of 60,000 tokens — will auto-compact soon`, once per run | history is summarized |
+
+The warning exists so that compaction is never a surprise: there is a window where you can
+still `/compact` on your own terms, narrow the task, or raise the ceiling before the
+summarizer decides what to keep. `ContextWindowManager` owns both decisions — `usage()`
+returns the current tokens, the budget, and both flags from a single count.
 
 ---
 

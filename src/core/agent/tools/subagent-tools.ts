@@ -290,6 +290,9 @@ ${args.task}`;
             ...(typeof parentAgent.config.numCtx === "number" && {
               pinnedContextWindow: parentAgent.config.numCtx,
             }),
+            ...(typeof parentAgent.config.maxContextTokens === "number" && {
+              agentMaxTokens: parentAgent.config.maxContextTokens,
+            }),
           }).tokens;
 
           const { systemMessage, messagesToSummarize, sanitizedRecentMessages } =

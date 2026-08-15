@@ -59,6 +59,8 @@ interface AgentEditAnswers {
   llmApiKeyValue?: string;
   reasoningEffort?: "disable" | "low" | "medium" | "high";
   numCtx?: number;
+  /** New ceiling in tokens, or null to remove the ceiling. */
+  maxContextTokens?: number | null;
   tools?: string[];
   webSearchProvider?: WebSearchProviderName;
 }
@@ -190,6 +192,7 @@ export function editAgentCommand(
         ...(agent.config.llmProvider === "ollama"
           ? [{ name: "Context Window", value: "contextWindow" }]
           : []),
+        { name: "Max Context Tokens", value: "maxContextTokens" },
       ],
     });
 
@@ -487,10 +490,18 @@ export function editAgentCommand(
       ...(editAnswers.llmModel && { llmModel: editAnswers.llmModel }),
       ...(editAnswers.reasoningEffort && { reasoningEffort: editAnswers.reasoningEffort }),
       ...(typeof editAnswers.numCtx === "number" && { numCtx: editAnswers.numCtx }),
+      ...(typeof editAnswers.maxContextTokens === "number" && {
+        maxContextTokens: editAnswers.maxContextTokens,
+      }),
       ...(editAnswers.tools &&
         editAnswers.tools.length > 0 && { tools: Array.from(new Set(editAnswers.tools)) }),
       ...(editAnswers.webSearchProvider && { webSearchProvider: editAnswers.webSearchProvider }),
     };
+    if (editAnswers.maxContextTokens === null) {
+      const { maxContextTokens: _cleared, ...withoutCeiling } = updatedConfig;
+      void _cleared;
+      updatedConfig = withoutCeiling;
+    }
     if (editAnswers.llmApiKeyProvider) {
       updatedConfig = setAgentApiKeyOverride(
         updatedConfig,
@@ -907,6 +918,13 @@ async function promptForAgentUpdates(
     }
   }
 
+  if (fieldToUpdate === "maxContextTokens") {
+    const result = await Effect.runPromise(promptForMaxContextTokens(terminal, currentAgent));
+    if (result !== undefined) {
+      answers.maxContextTokens = result;
+    }
+  }
+
   return answers;
 }
 
@@ -929,6 +947,45 @@ function setAgentApiKeyOverride(
   }
 
   return { ...config, llmApiKeys: nextMap };
+}
+
+export const MIN_AGENT_MAX_CONTEXT_TOKENS = 1_000;
+
+/**
+ * Ask for the agent's context ceiling. Returns the new value, `null` to remove an
+ * existing ceiling, or `undefined` when the user cancelled and nothing should change.
+ */
+function promptForMaxContextTokens(
+  terminal: TerminalService,
+  currentAgent: Agent,
+): Effect.Effect<number | null | undefined, never> {
+  const current = currentAgent.config.maxContextTokens;
+  return terminal
+    .ask(
+      `Max context tokens for this agent? (blank = use the model's full window, min ${MIN_AGENT_MAX_CONTEXT_TOKENS.toLocaleString()})`,
+      {
+        ...(typeof current === "number" ? { defaultValue: String(current) } : {}),
+        cancellable: true,
+        validate: (input: string) => {
+          const trimmed = input.trim();
+          if (trimmed.length === 0) return true;
+          const parsed = Number(trimmed);
+          if (!Number.isInteger(parsed) || parsed < MIN_AGENT_MAX_CONTEXT_TOKENS) {
+            return `Enter a whole number of at least ${MIN_AGENT_MAX_CONTEXT_TOKENS.toLocaleString()}, or leave blank to remove the limit.`;
+          }
+          return true;
+        },
+      },
+    )
+    .pipe(
+      Effect.map((answer) => {
+        if (answer === undefined) return undefined;
+        const trimmed = answer.trim();
+        if (trimmed.length === 0) return null;
+        const parsed = Number(trimmed);
+        return Number.isInteger(parsed) && parsed >= MIN_AGENT_MAX_CONTEXT_TOKENS ? parsed : null;
+      }),
+    );
 }
 
 async function promptForReasoningEffort(

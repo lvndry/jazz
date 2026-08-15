@@ -70,6 +70,7 @@ interface LoopState {
   response: AgentResponse;
   recentToolCalls: TrackedToolCall[];
   iterationsUsed: number;
+  contextPressureWarned: boolean;
 }
 
 interface LoopDeps {
@@ -468,6 +469,24 @@ function runIteration(
       yield* observer.onThinking(agent.name, iterationIndex === 0);
     }
 
+    const contextUsage = runContextWindowManager.usage(state.currentMessages);
+    if (contextUsage.shouldWarn && !contextUsage.shouldCompact && !state.contextPressureWarned) {
+      state.contextPressureWarned = true;
+      yield* logger.info("Context window filling up", {
+        agentId: agent.id,
+        conversationId: actualConversationId,
+        currentTokens: contextUsage.currentTokens,
+        budgetTokens: contextUsage.budgetTokens,
+      });
+      if (!options.internal) {
+        yield* observer.onContextPressure(
+          agent.name,
+          Math.round(contextUsage.ratio * 100),
+          contextUsage.budgetTokens,
+        );
+      }
+    }
+
     state.currentMessages = yield* Summarizer.compactIfNeeded(
       state.currentMessages,
       agent,
@@ -684,6 +703,9 @@ export function executeAgentLoop(
           ...(typeof agent.config.numCtx === "number" && {
             pinnedContextWindow: agent.config.numCtx,
           }),
+          ...(typeof agent.config.maxContextTokens === "number" && {
+            agentMaxTokens: agent.config.maxContextTokens,
+          }),
         });
         const contextWindowMaxTokens = effectiveContextWindow.tokens;
 
@@ -692,6 +714,7 @@ export function executeAgentLoop(
           DEFAULT_CONTEXT_WINDOW_MANAGER.getConfig().protectedRecentTurns;
         const runContextWindowManager = new ContextWindowManager({
           maxTokens: trimBudgetTokens,
+          contextBudgetTokens: contextWindowMaxTokens,
           ...(protectedRecentTurns !== undefined && { protectedRecentTurns }),
           modelHint: { provider, modelId: model },
         });
@@ -702,6 +725,8 @@ export function executeAgentLoop(
           contextWindow: contextWindowMaxTokens,
           modelMaxTokens: effectiveContextWindow.modelMaxTokens,
           contextWindowSource: effectiveContextWindow.source,
+          agentMaxTokens: effectiveContextWindow.agentMaxTokens,
+          cappedByAgent: effectiveContextWindow.cappedByAgent,
         });
 
         const shortfall = describeContextWindowShortfall(provider, effectiveContextWindow);
@@ -717,6 +742,7 @@ export function executeAgentLoop(
           },
           recentToolCalls: [],
           iterationsUsed: 0,
+          contextPressureWarned: false,
         };
         let finished = false;
         let interrupted = false;

@@ -143,3 +143,81 @@ describe("describeContextWindowShortfall", () => {
     expect(advice).toBeNull();
   });
 });
+
+describe("agent max context tokens", () => {
+  it("lowers a cloud window to the agent's ceiling", () => {
+    const effective = resolveEffectiveContextWindow({
+      provider: "anthropic",
+      modelMaxTokens: 200000,
+      agentMaxTokens: 60000,
+    });
+
+    expect(effective.tokens).toBe(60000);
+    expect(effective.cappedByAgent).toBe(true);
+    expect(effective.agentMaxTokens).toBe(60000);
+    expect(effective.source).toBe("model-max");
+    expect(effective.modelMaxTokens).toBe(200000);
+  });
+
+  it("never raises the window above what the runtime will honour", () => {
+    const effective = resolveEffectiveContextWindow({
+      provider: "ollama",
+      modelMaxTokens: 262144,
+      pinnedContextWindow: 32768,
+      agentMaxTokens: 131072,
+    });
+
+    expect(effective.tokens).toBe(32768);
+    expect(effective.cappedByAgent).toBe(false);
+    expect(effective.source).toBe("pinned");
+  });
+
+  it("ignores a non-positive ceiling", () => {
+    const effective = resolveEffectiveContextWindow({
+      provider: "anthropic",
+      modelMaxTokens: 200000,
+      agentMaxTokens: 0,
+    });
+
+    expect(effective.tokens).toBe(200000);
+    expect(effective.cappedByAgent).toBe(false);
+    expect(effective.agentMaxTokens).toBeUndefined();
+  });
+
+  it("reports no cap when the agent ceiling is absent", () => {
+    const effective = resolveEffectiveContextWindow({
+      provider: "anthropic",
+      modelMaxTokens: 200000,
+    });
+
+    expect(effective.cappedByAgent).toBe(false);
+    expect(effective.agentMaxTokens).toBeUndefined();
+  });
+
+  it("still warns a local agent whose ceiling the server never promised", () => {
+    const advice = describeContextWindowShortfall(
+      "ollama",
+      resolveEffectiveContextWindow({
+        provider: "ollama",
+        modelMaxTokens: 262144,
+        agentMaxTokens: 32768,
+      }),
+    );
+
+    expect(advice).toContain("max context (32,768 tokens)");
+  });
+
+  it("stays quiet when a pinned window is capped further by the agent", () => {
+    const advice = describeContextWindowShortfall(
+      "ollama",
+      resolveEffectiveContextWindow({
+        provider: "ollama",
+        modelMaxTokens: 262144,
+        pinnedContextWindow: 131072,
+        agentMaxTokens: 32768,
+      }),
+    );
+
+    expect(advice).toBeNull();
+  });
+});
