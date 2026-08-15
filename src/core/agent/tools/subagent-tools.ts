@@ -44,6 +44,13 @@ const spawnSubagentSchema = z.object({
     .describe(
       "'coder' for code/git tasks, 'researcher' for research tasks, 'default' for general (default: 'default')",
     ),
+  reasoningEffort: z
+    .enum(["disable", "low", "medium", "high"])
+    .optional()
+    .describe(
+      "Reasoning effort for this sub-agent. Omit to inherit the parent's effort. " +
+        "Raise it for hard analysis tasks (deep review, root-cause hunting); lower it for mechanical ones.",
+    ),
 });
 
 type SpawnSubagentArgs = z.infer<typeof spawnSubagentSchema>;
@@ -70,7 +77,8 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
       timeoutMs: SUBAGENT_TIMEOUT_MS,
       description:
         "Spawn a sub-agent with fresh context for a specific task. Personas: coder, researcher, default. " +
-        "Pass a short 'name' to label each sub-agent by its role so parallel sub-agents stay distinguishable.",
+        "Pass a short 'name' to label each sub-agent by its role so parallel sub-agents stay distinguishable. " +
+        "Pass 'reasoningEffort' to override the parent's effort for this sub-agent only.",
       parameters: spawnSubagentSchema,
       hidden: false,
       riskLevel: "low-risk",
@@ -131,6 +139,7 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
             config: {
               ...parentAgent.config,
               persona: args.persona ?? "default",
+              ...(args.reasoningEffort ? { reasoningEffort: args.reasoningEffort } : {}),
             },
             createdAt: new Date(),
             updatedAt: new Date(),
