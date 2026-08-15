@@ -78,6 +78,28 @@ export interface OneShotSuccess {
  * Narrow `create_web_app`'s structured tool result (last call wins if invoked
  * more than once in a turn) out of the agent run's `toolResults` map.
  */
+/**
+ * Assemble the history a resumed run starts from.
+ *
+ * Conversation history is saved only when a run *completes*, so a run killed mid-flight
+ * leaves `priorRecord === null` while its journal — written during the run, at each
+ * compaction — survives. That case must still produce a history, or the journal becomes
+ * unreadable in precisely the situation it exists for.
+ *
+ * Returns `null` only when there is genuinely nothing to resume from.
+ */
+export function composeResumedHistory(
+  priorRecord: ConversationRecord | null,
+  workStatePreamble: ChatMessage | undefined,
+): ChatMessage[] | null {
+  if (priorRecord !== null) {
+    return workStatePreamble !== undefined
+      ? [workStatePreamble, ...priorRecord.messages]
+      : priorRecord.messages;
+  }
+  return workStatePreamble !== undefined ? [workStatePreamble] : null;
+}
+
 export function extractWebAppResult(
   toolResults: Record<string, unknown> | undefined,
 ): OneShotWebApp | undefined {
@@ -390,8 +412,12 @@ export function runAgentOnceCommand(
     // A resumed conversation loads post-compaction messages, so anything compaction
     // dropped is missing from them. The journal is the only surviving copy; fold it back
     // in ahead of the persisted history.
+    // Not gated on `priorRecord`: conversation history is saved only when a run
+    // finishes, so a run killed mid-flight leaves none — and that is exactly the case
+    // where the journal is the only surviving record. Requiring a prior record made the
+    // journal unreadable in the one situation it exists for.
     const workStatePreamble =
-      conversationKey !== undefined && priorRecord !== null
+      conversationKey !== undefined
         ? yield* buildWorkStatePreamble(agent.id, conversationKey, {
             modelHint: {
               provider: agentForRun.config.llmProvider,
@@ -400,12 +426,7 @@ export function runAgentOnceCommand(
           })
         : undefined;
 
-    const resumedHistory =
-      priorRecord !== null
-        ? workStatePreamble !== undefined
-          ? [workStatePreamble, ...priorRecord.messages]
-          : priorRecord.messages
-        : null;
+    const resumedHistory = composeResumedHistory(priorRecord, workStatePreamble);
 
     // Ephemeral runs never touch disk, so prior context (if any) comes back
     // in as inline JSON from the caller rather than a `--conversation` load.
