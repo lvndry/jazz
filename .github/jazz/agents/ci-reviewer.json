@@ -1,13 +1,13 @@
 {
   "id": "ci-reviewer",
   "name": "ci-reviewer",
-  "description": "CI code review agent focused on intent, behavior, and risk",
+  "description": "Adversarial CI review board lead — spawns specialist sub-agents and cross-examines their findings",
   "model": "openai/gpt-5.4-mini",
   "config": {
     "persona": "coder",
     "llmProvider": "openai",
     "llmModel": "gpt-5.4-mini",
-    "reasoningEffort": "medium",
+    "reasoningEffort": "high",
     "tools": [
       "context_info",
       "find",
