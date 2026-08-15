@@ -14,6 +14,7 @@ import {
 import { createShellCommandTools } from "./shell-tools";
 import { createSkillTools } from "./skill-tools";
 import { createSubagentTools } from "./subagent-tools";
+import { createUpdateTaskStateTool } from "./task-state-tools";
 import { createListTodosTool, createManageTodosTool } from "./todo-tools";
 import {
   CONTEXT_CATEGORY,
@@ -221,6 +222,7 @@ export function registerMemoryTools(): Effect.Effect<void, Error, ToolRegistry> 
 
     yield* registerTool(createViewMemoryTool());
     yield* registerTool(createManageMemoryTool());
+    yield* registerTool(createUpdateTaskStateTool());
   });
 }
 

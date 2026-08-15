@@ -4,7 +4,12 @@ import { Effect } from "effect";
 import type { PersonaService } from "@/core/interfaces/persona-service";
 import type { ChatMessage, ConversationMessages } from "@/core/types/message";
 import { renderProjectInstructions, type ProjectInstructionFile } from "./project-instructions";
-import { ENVIRONMENT_TEMPLATE, MEMORY_INSTRUCTIONS, SKILLS_INSTRUCTIONS } from "./prompts/shared";
+import {
+  ENVIRONMENT_TEMPLATE,
+  MEMORY_INSTRUCTIONS,
+  SKILLS_INSTRUCTIONS,
+  TASK_STATE_INSTRUCTIONS,
+} from "./prompts/shared";
 
 function formatUtcOffsetLabel(date: Date): string {
   const offsetMinutes = -date.getTimezoneOffset();
@@ -154,6 +159,9 @@ export class AgentPromptBuilder {
     // injected detail block is rebuilt whenever the trigger match changes.
     if (options.triggeredSkillNames && options.triggeredSkillNames.length > 0) {
       hash.update(`triggered:${[...options.triggeredSkillNames].sort().join(",")}`);
+    }
+    if (options.toolNames?.includes("update_task_state")) {
+      hash.update("taskstate:1");
     }
     if (options.toolNames?.includes("view_memory")) {
       hash.update("memory:1");
@@ -317,6 +325,10 @@ ${triggeredBlock}`;
 
         if (options.toolNames?.includes("view_memory")) {
           systemPrompt = systemPrompt + MEMORY_INSTRUCTIONS;
+        }
+
+        if (options.toolNames?.includes("update_task_state")) {
+          systemPrompt = systemPrompt + TASK_STATE_INSTRUCTIONS;
         }
 
         // Last, so project rules read as the most recent instruction the model

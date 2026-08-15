@@ -15,6 +15,7 @@ import { resolveContextThresholds } from "./context-thresholds";
 import { logContextRung } from "./context-telemetry";
 import { DEFAULT_CONTEXT_WINDOW_MANAGER } from "./context-window-manager";
 import { resolveEffectiveContextWindow } from "./effective-context-window";
+import { formatTaskState, readTaskState } from "./task-state";
 import { DEFAULT_TOKEN_COUNTER, type ModelHint } from "./token-counter";
 import { appendJournalEntry } from "./work-journal";
 
@@ -504,6 +505,10 @@ export const Summarizer = {
         parentModel: agent.config.llmModel,
       });
 
+      // Anything already in task state is durable on disk, so the summary need not carry
+      // it. Passing it through lets the summarizer cover what the transcript adds instead.
+      const recordedState = formatTaskState(yield* readTaskState(agent.id, conversationId));
+
       // Define the specialized summarizer agent once, on the fly, with the selected model.
       const summarizerModel =
         `${summarizerModelConfig.provider}/${summarizerModelConfig.model}` as `${string}/${string}`;
@@ -548,6 +553,7 @@ export const Summarizer = {
           conversationId,
           runRecursive,
           runningSummary,
+          recordedState,
         );
         runningSummary = chunkSummary;
       }
@@ -570,6 +576,7 @@ export const Summarizer = {
     conversationId: string,
     runRecursive: RecursiveRunner,
     priorSummary?: ChatMessage,
+    recordedState?: string,
   ): Effect.Effect<
     ChatMessage,
     Error,
@@ -583,11 +590,21 @@ export const Summarizer = {
     return Effect.gen(function* () {
       const historyText = Summarizer.renderTranscript(messagesToSummarize);
 
+      // What task state already holds is safe on disk. Saying so lets the summary spend
+      // its budget on what the transcript adds rather than restating the plan.
+      const recordedStateBlock = recordedState
+        ? `## Already recorded durably (do not restate)\n\n${recordedState}\n\n` +
+          "The above is saved outside this conversation and will survive compaction. Cover " +
+          "what the transcript adds beyond it, and flag anywhere the transcript contradicts it.\n\n"
+        : "";
+
       const userInput = priorSummary?.content
         ? "You are updating an existing summary of an ongoing conversation, not writing a new one.\n\n" +
           "Carry forward everything in the existing summary that is still true, fold in what the new transcript adds, and correct anything the new transcript contradicts. Do not drop earlier facts merely because the new transcript does not mention them — they are still the only record of what happened. Output only the updated summary, in the same structure.\n\n" +
+          recordedStateBlock +
           `## Existing summary\n\n${priorSummary.content}\n\n## New transcript\n\n${historyText}`
         : "Summarize the following conversation. Produce a concise, structured summary that preserves key information for continuity—goals, decisions, outcomes, key entities, current status, and open questions. Output only the summary.\n\n" +
+          recordedStateBlock +
           historyText;
 
       const summaryResponse = yield* runRecursive({
