@@ -7,6 +7,7 @@ import {
 } from "@/core/constants/agent";
 import type { ProviderName } from "@/core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
+import { FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { LLMService } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import { type MCPServerManager } from "@/core/interfaces/mcp-server";
@@ -35,12 +36,43 @@ import { agentPromptBuilder } from "./agent-prompt";
 import { Summarizer } from "./context/summarizer";
 import { executeWithStreaming, executeWithoutStreaming } from "./execution";
 import { createAgentRunMetrics, emitAgentRunStarted } from "./metrics/agent-run-metrics";
+import { discoverProjectInstructions, type ProjectInstructionFile } from "./project-instructions";
 import { registerCustomToolsForAgent } from "./tools/custom-tools";
 import { registerMCPToolsForAgent } from "./tools/register-mcp-tools";
 import { registerSkillSystemTools } from "./tools/register-tools";
 import { BUILTIN_TOOL_CATEGORIES } from "./tools/tool-categories";
 import { type AgentResponse, type AgentRunContext, type AgentRunnerOptions } from "./types";
 import { normalizeToolConfig } from "./utils/tool-config";
+
+/**
+ * Resolve the AGENTS.md files that apply to this run.
+ *
+ * The working directory is read from FileSystemContextService when it is in the
+ * environment — that is the directory the agent's own file tools operate on, so
+ * it stays correct after the agent changes directories — and falls back to the
+ * process cwd for surfaces (and tests) that do not provide the service.
+ */
+function resolveProjectInstructions(
+  persona: string,
+  agentId: string,
+  options: AgentRunnerOptions,
+): Effect.Effect<readonly ProjectInstructionFile[], never> {
+  return Effect.gen(function* () {
+    if (persona === "summarizer") return [];
+
+    const fileSystemContextOption = yield* Effect.serviceOption(FileSystemContextServiceTag);
+    const workingDirectory = Option.isSome(fileSystemContextOption)
+      ? yield* fileSystemContextOption.value.getCwd({
+          agentId,
+          ...(options.conversationId !== undefined
+            ? { conversationId: options.conversationId }
+            : {}),
+        })
+      : process.cwd();
+
+    return yield* Effect.sync(() => discoverProjectInstructions(workingDirectory));
+  });
+}
 
 /**
  * Initialize common agent run context (tools, messages, metrics)
@@ -216,6 +248,19 @@ function initializeAgentRun(
     // Deterministic, zero LLM overhead, predictable for skill authors.
     const triggeredSkillNames = matchSkillTriggers(userInput, relevantSkills);
 
+    // AGENTS.md discovery. Uses the agent's tracked working directory when the
+    // filesystem-context service is available (the agent can `cd` mid-session),
+    // otherwise the process cwd. The summarizer compresses transcripts and has
+    // no project to honor, so it never gets them.
+    const projectInstructions = yield* resolveProjectInstructions(persona, agent.id, options);
+    if (projectInstructions.length > 0) {
+      yield* logger.debug(
+        `[AGENTS.md] Loaded ${projectInstructions.length} instruction file(s): ${projectInstructions
+          .map((file) => file.path)
+          .join(", ")}`,
+      );
+    }
+
     // Build messages — reuses the PersonaService resolved earlier so custom
     // personas can be looked up by name when assembling the system prompt.
     const messages: ConversationMessages = yield* agentPromptBuilder.buildAgentMessages(
@@ -229,6 +274,7 @@ function initializeAgentRun(
         availableTools,
         knownSkills: relevantSkills,
         ...(triggeredSkillNames.length > 0 && { triggeredSkillNames }),
+        ...(projectInstructions.length > 0 && { projectInstructions }),
       },
       resolvedPersonaService,
     );

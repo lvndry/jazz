@@ -1,3 +1,4 @@
+import os from "node:os";
 import { FileSystem } from "@effect/platform";
 import { describe, expect, it, mock } from "bun:test";
 import { Effect, Layer, Stream } from "effect";
@@ -405,7 +406,12 @@ describe("custom tools surfaced through AgentRunner.run toolCalls", () => {
 
   const mockTerminalService = {} as unknown as TerminalService;
   const mockFileSystem = {} as unknown as FileSystem.FileSystem;
-  const mockFileSystemContext = {} as unknown as FileSystemContextService;
+  const mockFileSystemContext = {
+    // AgentRunner reads the working directory to discover AGENTS.md files.
+    // Point it at a directory with none so the host machine cannot influence
+    // these assertions.
+    getCwd: () => Effect.succeed(os.tmpdir()),
+  } as unknown as FileSystemContextService;
 
   // AgentRunner resolves the agent's persona through PersonaService; there is no
   // built-in fallback prompt, so a persona that can't be resolved is a hard
