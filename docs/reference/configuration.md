@@ -61,6 +61,12 @@ Override settings or provide API keys via `.env` or the process environment.
 | `JAZZ_OFFLINE` | `1`/`true`: make no outbound request of Jazz's own — skips the update check *and* the models.dev catalog fetch. See [Airgapped](../guide/airgapped.md) |
 | `JAZZ_DISABLE_UPDATE_CHECK` | `1`: skip only the npm version check |
 | `JAZZ_MODELS_DEV_URL` | Point the model catalog at an internal mirror of `https://models.dev/api.json` |
+| `HTTPS_PROXY` / `HTTP_PROXY` | Send every outbound request — provider APIs, web tools, remote MCP servers, the update check — through an HTTP proxy. Lowercase names work too, and `ALL_PROXY` covers both protocols |
+| `NO_PROXY` | Comma-separated hosts and domain suffixes to reach directly, bypassing the proxy |
+
+Only `http://` and `https://` proxies are supported; a SOCKS proxy is reported at
+startup rather than silently ignored. If the proxy terminates TLS with a private
+CA, point Node at that CA with `NODE_EXTRA_CA_CERTS=/path/to/ca.pem`.
 
 ### Providers
 
