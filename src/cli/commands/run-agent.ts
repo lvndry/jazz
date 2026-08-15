@@ -514,7 +514,9 @@ export function runAgentOnceCommand(
             promptTokens,
             completionTokens,
             totalTokens: promptTokens + completionTokens,
-            cacheReadTokens: runResult.usage?.cacheReadTokens ?? 0,
+            ...(runResult.usage?.cacheReadTokens !== undefined && {
+              cacheReadTokens: runResult.usage.cacheReadTokens,
+            }),
           },
           toolCalls,
           ...(webApp ? { webApp } : {}),
