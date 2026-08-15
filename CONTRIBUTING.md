@@ -46,6 +46,28 @@ When adding features:
 - Use Effect's `Layer` for dependency injection in tests
 - Mock external dependencies (no real API calls)
 
+## Distributions
+
+Jazz ships two ways, from one codebase:
+
+| Command                 | Output                                       | Used by                     |
+| ----------------------- | -------------------------------------------- | --------------------------- |
+| `bun run build`         | `dist/main.js`, a bundle Node runs            | the `jazz-ai` npm package   |
+| `bun run build:binary`  | `binaries/jazz-<os>-<arch>` for this machine  | local testing               |
+| `bun run build:binaries`| every published target                        | `.github/workflows/release-binaries.yml` |
+
+The binary is self-contained, which changes two things a contributor can trip over:
+
+- **Built-in assets.** `personas/`, `skills/`, and `workflows/` are real directories the npm
+  package resolves via `getPackageRootDirectory()`. A binary has no package directory, so the
+  build embeds each file and Jazz unpacks them to `~/.jazz/runtime/<version>/` on first run.
+  Adding a new built-in asset directory means adding it to `ASSET_DIRECTORIES` in
+  `scripts/build.ts` — otherwise it works everywhere except in the binary.
+- **Reading your own package files at runtime.** Anything that resolves a path relative to the
+  installed package must go through `getPackageRootDirectory()`, which returns the unpacked
+  directory in a binary. Reading straight from `import.meta.dirname` lands inside Bun's
+  virtual filesystem, where `readFile` works but `readdir` and `copyFile` do not.
+
 ## Before Submitting PR
 
 - [ ] `bun run typecheck` passes

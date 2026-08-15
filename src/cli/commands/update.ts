@@ -3,7 +3,12 @@ import { type AgentConfigService } from "@/core/interfaces/agent-config";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import { TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
 import { UpdateCheckError, UpdateInstallError } from "@/core/types/errors";
-import { detectPackageManagerFromPath, findExecutablePathViaShell } from "@/core/utils/runtime";
+import {
+  detectPackageManagerFromPath,
+  findExecutablePathViaShell,
+  isStandaloneBinary,
+} from "@/core/utils/runtime";
+import { installBinaryUpdate } from "./update-binary";
 import packageJson from "../../../package.json";
 
 /**
@@ -303,13 +308,21 @@ function detectPackageManager(): Effect.Effect<PackageManagerInfo, UpdateInstall
 }
 
 /**
- * Install the latest version using the detected package manager
+ * Install the latest version.
+ *
+ * Binary installations replace themselves from the GitHub release; package
+ * installations hand the job to whichever package manager put Jazz there.
  */
 function installUpdate(
   packageName: string,
+  latestVersion: string,
   terminal: TerminalService,
 ): Effect.Effect<void, UpdateInstallError> {
   return Effect.gen(function* () {
+    if (isStandaloneBinary()) {
+      return yield* installBinaryUpdate(latestVersion, terminal);
+    }
+
     const { spawn } = yield* Effect.promise(() => import("child_process"));
 
     // Detect which package manager to use
@@ -434,16 +447,18 @@ export function updateCommand(options?: {
     yield* terminal.log("");
 
     // Install the update
-    yield* installUpdate(packageJson.name, terminal).pipe(
+    yield* installUpdate(packageJson.name, versionInfo.latestVersion, terminal).pipe(
       Effect.catchAll((installError: UpdateInstallError) => {
         return Effect.gen(function* () {
           yield* logger.error("Failed to install update", { error: installError.message });
           yield* terminal.error("Failed to install update:");
           yield* terminal.log(`   ${installError.message}`);
-          yield* terminal.log("\n💡 You can manually update by running:");
-          yield* terminal.log(`   npm install -g ${packageJson.name}@latest`);
-          yield* terminal.log(`   bun add -g ${packageJson.name}@latest`);
-          yield* terminal.log(`   pnpm add -g ${packageJson.name}@latest`);
+          if (!isStandaloneBinary()) {
+            yield* terminal.log("\n💡 You can manually update by running:");
+            yield* terminal.log(`   npm install -g ${packageJson.name}@latest`);
+            yield* terminal.log(`   bun add -g ${packageJson.name}@latest`);
+            yield* terminal.log(`   pnpm add -g ${packageJson.name}@latest`);
+          }
         });
       }),
     );

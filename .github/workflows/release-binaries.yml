@@ -1,0 +1,114 @@
+name: Release Binaries
+
+on:
+  release:
+    types:
+      - published
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Tag to build binaries for (e.g. v1.2.3)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  TAG_NAME: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag_name || github.event.release.tag_name }}
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS binaries are built on macOS so they come out ad-hoc signed.
+          # An unsigned Mach-O binary is killed on sight by arm64 macOS, and
+          # cross-compiling from Linux produces exactly that.
+          - name: darwin-arm64
+            runner: macos-latest
+            targets: bun-darwin-arm64
+          - name: darwin-x64
+            runner: macos-latest
+            targets: bun-darwin-x64
+          - name: linux
+            runner: ubuntu-latest
+            targets: bun-linux-x64 bun-linux-arm64 bun-linux-x64-musl bun-linux-arm64-musl
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG_NAME }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Compile binaries
+        run: |
+          for target in ${{ matrix.targets }}; do
+            bun run scripts/build.ts --compile --target "$target"
+          done
+
+      - name: Sign macOS binaries
+        if: runner.os == 'macOS'
+        run: |
+          for binary in binaries/*; do
+            codesign --force --sign - "$binary"
+            codesign --verify --verbose "$binary"
+          done
+
+      - name: Smoke test the native binary
+        if: matrix.name == 'darwin-arm64' || matrix.name == 'linux'
+        run: |
+          native="binaries/jazz-$(uname -s | tr '[:upper:]' '[:lower:]')-$([ "$(uname -m)" = "x86_64" ] && echo x64 || echo arm64)"
+          JAZZ_HOME="$(mktemp -d)" "$native" --version
+          JAZZ_HOME="$(mktemp -d)" "$native" persona list | grep -q "built-in"
+
+      - name: Compress binaries
+        run: gzip -9 binaries/*
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries-${{ matrix.name }}
+          path: binaries/*.gz
+          retention-days: 1
+
+  publish:
+    name: Attach binaries to the release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG_NAME }}
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: binaries-*
+          merge-multiple: true
+
+      - name: Generate checksums
+        working-directory: artifacts
+        run: |
+          sha256sum *.gz > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cp scripts/install.sh artifacts/install.sh
+          gh release upload "$TAG_NAME" artifacts/* --clobber

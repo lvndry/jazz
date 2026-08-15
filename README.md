@@ -23,9 +23,20 @@ connects through [MCP](https://modelcontextprotocol.io/).
 ## Get started
 
 ```bash
+curl -fsSL https://github.com/lvndry/jazz/releases/latest/download/install.sh | bash
+jazz
+```
+
+That installs a single self-contained binary into `~/.local/bin` — no Node, no npm, nothing
+else to install. Set `JAZZ_INSTALL_DIR` to put it somewhere else. If you would rather go
+through npm:
+
+```bash
 npm install -g jazz-ai
 jazz
 ```
+
+Either way, `jazz update` upgrades in place.
 
 Jazz walks you through provider setup on first run. It can cost nothing:
 [OpenRouter](https://openrouter.ai)'s [free models router](https://openrouter.ai/openrouter/free)

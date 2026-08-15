@@ -21,6 +21,18 @@ export function isOfflineMode(): boolean {
 }
 
 /**
+ * Checks whether Jazz is running as a standalone binary.
+ *
+ * The compiled binary serves its own modules out of a virtual filesystem
+ * rooted at `/$bunfs` (`B:\~BUN` on Windows), which is the one thing that
+ * distinguishes it from every install that has real files on disk.
+ */
+export function isStandaloneBinary(): boolean {
+  const moduleDirectory = import.meta.dirname ?? "";
+  return moduleDirectory.startsWith("/$bunfs") || moduleDirectory.startsWith("B:\\~BUN");
+}
+
+/**
  * Checks whether Jazz is running from a global package-manager installation.
  *
  * Jazz source directories are treated as development mode. Otherwise known
@@ -28,6 +40,10 @@ export function isOfflineMode(): boolean {
  * `node_modules` paths are treated as global installations.
  */
 export function isRunningFromGlobalInstall(): boolean {
+  if (isStandaloneBinary()) {
+    return true;
+  }
+
   const pathsToCheck = [
     process.argv[1] ? path.resolve(process.argv[1]) : null,
     import.meta.dirname,
@@ -153,6 +169,13 @@ export function detectPackageManagerFromPath(
  */
 export function getJazzSchedulerInvocation(): Effect.Effect<readonly string[], never> {
   return Effect.gen(function* () {
+    // A standalone binary is the whole installation, so it is its own most
+    // reliable invocation — and the only one a machine without a package
+    // manager can run.
+    if (isStandaloneBinary()) {
+      return [process.execPath];
+    }
+
     const fromShell = yield* findExecutablePathViaShell();
     if (fromShell) {
       return [fromShell];
