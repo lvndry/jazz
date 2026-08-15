@@ -62,6 +62,12 @@ export interface RunJazzOptions {
   reasoningEffort?: string;
   timeoutMs: number;
   runId: string;
+  /** Resume (or start) a named conversation, so a later run can pick this one up. */
+  conversationId?: string;
+  /** Isolate jazz state — agents, conversations, working state — under this directory. */
+  jazzHome?: string;
+  /** Cap iterations, e.g. to stop a run partway without killing the process. */
+  maxIterations?: number;
 }
 
 /**
@@ -90,6 +96,10 @@ export async function runJazzOnce(options: RunJazzOptions): Promise<OneShotResul
     String(options.timeoutMs),
   ];
   if (options.reasoningEffort) argv.push("--reasoning", options.reasoningEffort);
+  if (options.conversationId) argv.push("--conversation", options.conversationId);
+  if (options.maxIterations !== undefined) {
+    argv.push("--max-iterations", String(options.maxIterations));
+  }
 
   const proc = Bun.spawn(argv, {
     cwd: options.workspaceDir,
@@ -97,6 +107,7 @@ export async function runJazzOnce(options: RunJazzOptions): Promise<OneShotResul
       ...process.env,
       JAZZ_WEB_CASSETTE: options.cassettePath,
       JAZZ_WEB_MODE: options.cassetteMode ?? "replay",
+      ...(options.jazzHome ? { JAZZ_HOME: options.jazzHome } : {}),
     },
     stdout: "pipe",
     stderr: "pipe",
@@ -111,4 +122,111 @@ export async function runJazzOnce(options: RunJazzOptions): Promise<OneShotResul
   await Bun.write(eventsPath, stderr);
   const envelope = parseEnvelope(stdout);
   return { ...envelope, eventsPath };
+}
+
+export interface KilledRun {
+  /** Whether the predicate matched and the process was killed, vs. exiting on its own. */
+  killed: boolean;
+  /** Events observed before the kill, for asserting the run got far enough to matter. */
+  events: Record<string, unknown>[];
+  eventsPath: string;
+}
+
+export interface RunJazzUntilOptions extends Omit<RunJazzOptions, "cassetteMode"> {
+  /**
+   * Kill once this returns true for an emitted event. Receives every parsed event in
+   * order.
+   */
+  killWhen: (event: Record<string, unknown>, seen: Record<string, unknown>[]) => boolean;
+  /** Give up waiting and kill anyway, so a run that never triggers cannot hang the suite. */
+  hardTimeoutMs: number;
+}
+
+/**
+ * Run jazz and kill it mid-flight, to model a session that dies before finishing.
+ *
+ * This is the setup half of the kill test. A clean `--max-iterations` stop would not
+ * exercise the same thing: jazz saves conversation history only when a run *completes*,
+ * so a killed run leaves none, and whatever survives has to have been written during the
+ * run rather than at the end of it. That is the property under test.
+ */
+export async function runJazzUntilKilled(options: RunJazzUntilOptions): Promise<KilledRun> {
+  mkdirSync(REPORT_DIR, { recursive: true });
+  const eventsPath = join(REPORT_DIR, `${options.runId}.events.ndjson`);
+
+  const argv = [
+    "bun",
+    MAIN_TS,
+    "run",
+    options.prompt,
+    "--agent",
+    options.agentId,
+    "--json",
+    "--events",
+    "all",
+    "--approval-policy",
+    "high-risk",
+    "--timeout",
+    String(options.timeoutMs),
+  ];
+  if (options.conversationId) argv.push("--conversation", options.conversationId);
+  if (options.maxIterations !== undefined) {
+    argv.push("--max-iterations", String(options.maxIterations));
+  }
+
+  const proc = Bun.spawn(argv, {
+    cwd: options.workspaceDir,
+    env: {
+      ...process.env,
+      JAZZ_WEB_CASSETTE: options.cassettePath,
+      JAZZ_WEB_MODE: "replay",
+      ...(options.jazzHome ? { JAZZ_HOME: options.jazzHome } : {}),
+    },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+
+  const seen: Record<string, unknown>[] = [];
+  let killed = false;
+  const raw: string[] = [];
+
+  const hardTimeout = setTimeout(() => {
+    if (!killed) {
+      killed = false;
+      proc.kill("SIGKILL");
+    }
+  }, options.hardTimeoutMs);
+
+  const reader = (async () => {
+    const decoder = new TextDecoder();
+    let buffer = "";
+    for await (const chunk of proc.stderr as ReadableStream<Uint8Array>) {
+      buffer += decoder.decode(chunk, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed.length === 0) continue;
+        raw.push(trimmed);
+        let event: Record<string, unknown>;
+        try {
+          event = JSON.parse(trimmed) as Record<string, unknown>;
+        } catch {
+          continue; // non-event stderr noise
+        }
+        seen.push(event);
+        if (!killed && options.killWhen(event, seen)) {
+          killed = true;
+          proc.kill("SIGKILL");
+        }
+      }
+    }
+  })();
+
+  await reader.catch(() => undefined);
+  await proc.exited;
+  clearTimeout(hardTimeout);
+  await Bun.write(eventsPath, raw.join("\n"));
+
+  return { killed, events: seen, eventsPath };
 }

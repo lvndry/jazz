@@ -68,6 +68,50 @@ live in `checks.ts`:
 `eval-sut` / `eval-ceiling` include `execute_command` specifically so the
 machine-spec and disk-space tasks can probe real system state.
 
+### Continuity
+
+`evals/tasks/continuity/*.ts` tests whether work survives the context window — the
+end-to-end check the compaction and working-state design rests on. Unit tests can show
+that clearing does not orphan tool results and that the journal survives a torn write;
+none of that tells you a resumed agent knows what it was doing.
+
+Two tasks, and they fail for different reasons on purpose:
+
+- **`continuity-kill-and-resume`** — seeds a corpus bulky enough that reading it forces
+  compaction, runs the agent, **SIGKILLs it on the first compaction**, then resumes the
+  same `--conversation` and asks what it established. The kill is deliberate: jazz saves
+  conversation history only when a run *completes*, so a killed run leaves none and
+  everything the successor gets must have been written *during* the run. A clean
+  `--max-iterations` stop would quietly test the easy path. A sample that dies before
+  compacting is **voided, not failed** — it says nothing either way.
+- **`continuity-blind-successor`** — seeds `state.json` + `journal.jsonl` and runs a
+  fresh agent with no conversation history at all. If the working-state format does not
+  carry the task, nothing does. No compaction runs here, so a failure is the format's
+  fault rather than the summarizer's.
+
+Both score through `continuityCheck`, which is two-sided by design. Recall alone is not
+continuity: a model that invents a confident plan scores well on plausibility and is
+worse than useless, because the next session inherits its fiction. So a fabricated claim
+fails the sample outright regardless of how much it recalled. The blind-successor state
+plants one item that is written but explicitly `unverified`, and reporting it as done is
+a fabrication.
+
+The kill test accepts **two of three** facts, because it runs through a real lossy
+compaction and demanding perfect recall would make it a coin flip. The blind-successor
+test demands all of them, because nothing lossy happens in it.
+
+These tasks get an **isolated `JAZZ_HOME`** (seeded with the eval agents) so they can
+write fixture working state without touching your real `~/.jazz`. Provider credentials
+still come from the environment.
+
+```bash
+bun run evals --agent eval-sut --samples 5 --stamp continuity
+```
+
+Run more samples than usual here: both tasks depend on a real model's behaviour under
+compaction, so single-sample results are noise. Pass^k across ≥5 samples is the number
+worth reading.
+
 ## Judge calibration
 
 `evals/judge/calibration.jsonl` holds human-labeled rows; the runner checks the
