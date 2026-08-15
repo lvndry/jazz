@@ -4,13 +4,13 @@
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-100%25-blue.svg)](https://www.typescriptlang.org/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![npm version](https://img.shields.io/npm/v/jazz-ai.svg)](https://www.npmjs.com/package/jazz-ai)
 
-### One agent. Every surface. Your rules
+### One agent. Every surface. Your rules.
 
-Jazz is an AI agent you install once and run everywhere: your terminal, a CI pipeline, a
-cron schedule, a Telegram thread, a pull request. Same agent, same tools, same memory,
-any model.
+Most coding agents assume you're sitting there. Jazz assumes you're not. One install runs
+in your terminal, on a cron, inside CI, and behind a chat bot — same agent, same tools,
+same memory, one approval dial that means the same thing everywhere.
 
-[Quick Start](#quick-start) · [Where It Runs](#where-jazz-runs) · [Reliability](#reliability) · [Workflows](#workflows) · [Docs](docs/index.md) · [Discord](https://discord.gg/yBDbS2NZju)
+[Quick Start](#quick-start) · [Where It Runs](#where-jazz-runs) · [Unattended runs](#built-for-runs-youre-not-watching) · [Workflows](#workflows) · [Docs](docs/index.md) · [Discord](https://discord.gg/yBDbS2NZju)
 
 </div>
 
@@ -18,12 +18,13 @@ any model.
 
 ## Why Jazz?
 
-A chatbot answers you. Jazz does the thing, wherever the work actually happens.
+Every serious agent can call tools. The hard part is trusting one to run when nobody is
+watching, and that is the part Jazz is designed around.
 
-- **Runs anywhere**: the same agent works in your terminal, in a script, on a schedule, on a pull request, or behind a chat bot.
-- **Any model**: every major provider, swap mid-conversation, or run fully local with no API key.
-- **Yours**: MIT-licensed, runs on your own machine or server, works offline, nothing leaves your disk.
-- **Built for long jobs**: tracks its own progress, summarizes as it goes, delegates to helper agents, and tells you what it spent.
+- **It declines instead of hanging.** An unattended run has nobody to ask, so tools above your approval tier are refused and the agent routes around them. No job ever blocks forever on a prompt nobody will answer.
+- **It remembers without a database.** Pass `--conversation <any-id>` and Jazz owns the transcript. A Telegram chat, a Slack thread, or a ticket number becomes stateful in one flag, and your bridge stores nothing.
+- **It accounts for itself.** Every run reports what it spent — including the runs that failed, because a job that timed out still cost money. Set a daily cap and walk away.
+- **It survives long jobs.** A budgeted iteration count that warns itself to wrap up, loop detection, automatic context compaction, and sub-agents that keep research out of the parent's context.
 
 You describe the outcome. Jazz plans, calls tools, checks its own work, and reports back.
 
@@ -37,6 +38,7 @@ jazz
 ```
 
 Jazz walks you through provider setup on first run. Update anytime with `jazz update`.
+The CLI ships as one bundled file: no build step, no Python environment, no container.
 
 Free option: [OpenRouter](https://openrouter.ai) with the
 [`Free Models Router`](https://openrouter.ai/openrouter/free) model, no credit card. Private
@@ -53,24 +55,53 @@ option: `ollama`, fully local.
 
 ## Where Jazz runs
 
-Your agent isn't trapped in a terminal. `jazz run` is the one command behind every surface
-below. It prints the answer and nothing else, so any script, bot, or CI job can call it.
-Full contract: [Surfaces → Headless](docs/surfaces/headless.md).
+Your agent isn't trapped in a terminal. One command, `jazz run`, sits behind every surface
+below, so a script, a bot, and a CI job all talk to the same agent the same way.
 
-| Surface | How you run it |
-| --- | --- |
-| Terminal | `jazz` |
-| Scripts & pipes | `jazz run --json --agent dev "…"` |
-| Cron / launchd | `jazz workflow schedule <name>` |
-| GitHub PRs & Actions | [`.github/jazz/`](.github/jazz/), reviews every PR in this repo |
-| Telegram | [`integrations/telegram-bot/`](integrations/telegram-bot/), `docker compose up` |
+| Surface              | How you run it                                                                  |
+| -------------------- | ------------------------------------------------------------------------------- |
+| Terminal             | `jazz`                                                                          |
+| Scripts & pipes      | `jazz run --json --agent dev "…"`                                               |
+| Cron / launchd       | `jazz workflow schedule <name>`                                                 |
+| GitHub PRs & Actions | [`.github/jazz/`](.github/jazz/), reviews every PR in this repo                 |
+| Telegram             | [`integrations/telegram-bot/`](integrations/telegram-bot/), `docker compose up` |
+| Discord              | [`integrations/discord-bot/`](integrations/discord-bot/), `docker compose up`   |
 
-Want Slack, Google Chat, or Discord instead? The same `jazz run` contract works there too, as
+Want Slack, Google Chat, or your own app instead? The same `jazz run` contract works there too, as
 a bridge you write yourself (~100 lines). See [Chat platforms](docs/surfaces/chat-platforms.md).
 
 ---
 
-## Model providers
+## Built for runs you're not watching
+
+The contract behind `jazz run` is what keeps those integrations small: **stdout carries the
+payload, stderr carries everything else.** No mode flags to remember, no log lines to
+filter out of your JSON.
+
+```bash
+jazz run --json --agent dev --conversation "$THREAD_ID" --approval-policy read-only "review this diff"
+```
+
+```jsonc
+{ "ok": true, "answer": "…", "costUSD": 0.000182, "toolCalls": [] }
+```
+
+Exactly one line, one object, on success _and_ on failure. Add `--events tools,subagent`
+for NDJSON progress on stderr while stdout stays pristine, so a bot can render a live
+progress bubble and still parse the result cleanly.
+
+Underneath it: an 80-iteration budget that injects wrap-up pressure at 70% and 90%, loop
+and meltdown detection, context compaction at 80% of the window, and sub-agents with
+isolated context. Built on TypeScript and [Effect-TS](https://effect.website/), so
+failures have a typed recovery path instead of crashing silently.
+
+[Headless contract](docs/surfaces/headless.md) ·
+[Agent loop](docs/internals/agent-loop.md) ·
+[Design decisions](docs/internals/design-decisions.md)
+
+---
+
+## Any model, or none of them
 
 Every major LLM provider, plus `ollama` and `llama.cpp` for running models locally with no
 API key. Switch with `/model` mid-conversation, or point different agents at different
@@ -78,24 +109,6 @@ providers. Full list: [Providers](docs/integrations/providers.md).
 
 Fully airgapped mode is supported: `JAZZ_OFFLINE=1` stops all outbound requests except
 inference itself. See [Airgapped & Self-Hosted](docs/guide/airgapped.md).
-
----
-
-## Reliability
-
-Most agent tools fall apart on tasks longer than a couple of minutes. Jazz is built for
-tasks that take a while:
-
-- **Budgeted iterations** that warn themselves to wrap up as they approach the limit.
-- **Loop detection** that catches an agent repeating itself and forces a different approach.
-- **Automatic context compaction** that summarizes and continues instead of truncating or crashing.
-- **Sub-agents** for delegating research or coding work without blowing the parent's context.
-- **Cost tracking** on every run, with a daily spend cap for unattended use.
-
-Built on TypeScript and [Effect-TS](https://effect.website/), so failures have a typed
-recovery path instead of crashing silently. Details:
-[Agent loop](docs/internals/agent-loop.md) ·
-[Design decisions](docs/internals/design-decisions.md).
 
 ---
 
@@ -161,11 +174,11 @@ own repo and add one provider secret to get the same setup. Guide:
 Nothing runs without a say-so. One dial controls what's allowed to run unattended, for the
 terminal, CI, and any bot the same way:
 
-| Policy | Auto-approves |
-| --- | --- |
-| `false` | Nothing, always asks |
-| `read-only` | Reading files, search, web requests |
-| `low-risk` | + todo tracking, spawning sub-agents |
+| Policy      | Auto-approves                                       |
+| ----------- | --------------------------------------------------- |
+| `false`     | Nothing, always asks                                |
+| `read-only` | Reading files, search, web requests                 |
+| `low-risk`  | + todo tracking, spawning sub-agents                |
 | `high-risk` | + file changes, shell commands, git commit and push |
 
 Every gated action is proposed before it executes, so you see exactly what will happen
@@ -196,15 +209,15 @@ In chat: `/tools` `/skills` `/model` `/mode` `/cost` `/context` `/compact` `/swi
 
 Start at **[`docs/index.md`](docs/index.md)**.
 
-| Topic | Links |
-| --- | --- |
-| Getting started | [Quick Start](docs/guide/quick-start.md) · [Creating Agents](docs/guide/creating-agents.md) |
-| Where it runs | [Surfaces](docs/surfaces/index.md) · [Headless](docs/surfaces/headless.md) · [Chat platforms](docs/surfaces/chat-platforms.md) · [CI/CD](docs/surfaces/ci-cd.md) · [Scheduled](docs/surfaces/scheduled.md) |
-| Examples | [Use Cases](docs/guide/index.md#end-to-end-use-cases) · [Cookbook](docs/cookbook/index.md) · [Examples](examples/) |
-| Concepts | [Agents](docs/concepts/agents.md) · [Personas](docs/concepts/personas.md) · [Skills](docs/concepts/skills.md) · [Tools](docs/concepts/tools.md) · [Workflows](docs/concepts/workflows.md) |
-| Self-hosting | [Airgapped](docs/guide/airgapped.md) · [Telegram bridge](integrations/telegram-bot/) |
-| Reference | [CLI](docs/reference/cli.md) · [Configuration](docs/reference/configuration.md) · [Tools](docs/reference/tools.md) |
-| Internals | [Agent loop](docs/internals/agent-loop.md) · [Context management](docs/internals/context-management.md) · [Design decisions](docs/internals/design-decisions.md) |
+| Topic           | Links                                                                                                                                                                                                      |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Getting started | [Quick Start](docs/guide/quick-start.md) · [Creating Agents](docs/guide/creating-agents.md)                                                                                                                |
+| Where it runs   | [Surfaces](docs/surfaces/index.md) · [Headless](docs/surfaces/headless.md) · [Chat platforms](docs/surfaces/chat-platforms.md) · [CI/CD](docs/surfaces/ci-cd.md) · [Scheduled](docs/surfaces/scheduled.md) |
+| Examples        | [Use Cases](docs/guide/index.md#end-to-end-use-cases) · [Cookbook](docs/cookbook/index.md) · [Examples](examples/)                                                                                         |
+| Concepts        | [Agents](docs/concepts/agents.md) · [Personas](docs/concepts/personas.md) · [Skills](docs/concepts/skills.md) · [Tools](docs/concepts/tools.md) · [Workflows](docs/concepts/workflows.md)                  |
+| Self-hosting    | [Airgapped](docs/guide/airgapped.md) · [Telegram bridge](integrations/telegram-bot/) · [Discord bridge](integrations/discord-bot/)                                                                         |
+| Reference       | [CLI](docs/reference/cli.md) · [Configuration](docs/reference/configuration.md) · [Tools](docs/reference/tools.md)                                                                                         |
+| Internals       | [Agent loop](docs/internals/agent-loop.md) · [Context management](docs/internals/context-management.md) · [Design decisions](docs/internals/design-decisions.md)                                           |
 
 **Community:** [Discord](https://discord.gg/yBDbS2NZju) ·
 [Discussions](https://github.com/lvndry/jazz/discussions) ·
