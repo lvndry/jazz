@@ -19,7 +19,7 @@ file directly (shape below) or copy an existing one.
 | **Name** | How you'll refer to it: `jazz agent chat reviewer` |
 | **Provider + model** | See [Providers](../integrations/providers.md). `openrouter` with a free model costs nothing; `ollama` keeps everything local |
 | **Persona** | `default`, `coder`, `researcher`, or one of yours — see [Personas](../concepts/personas.md) |
-| **Toolset** | The tools this agent may call. **Pick the minimum.** Omitting `execute_command` means it can never run a shell command, whatever the approval policy |
+| **Toolset** | The tools this agent may call. Every category starts checked — **untick down to the minimum.** Omitting `execute_command` means it can never run a shell command, whatever the approval policy. Configured MCP servers start unchecked, since selecting one connects to it |
 | **Skills** | Playbooks it can load on demand — see [Skills](../concepts/skills.md) |
 
 ---
@@ -51,6 +51,7 @@ Useful optional fields:
 | Field | Effect |
 | --- | --- |
 | `reasoningEffort` | `low` \| `medium` \| `high` \| `disable`. Models without reasoning support error unless this is `disable` |
+| `temperature` | Sampling temperature — see [Configuration](../reference/configuration.md#agent-config-temperature). Not asked by the wizard. Unset means Jazz sends nothing and the provider's default applies; models that reject a custom temperature ignore it |
 | `summarizerModel` | `provider/model` used for context compaction — point it at something cheap |
 | `customTools` | Declare extra tools (shell or HTTP) with no code — see [Configuration](../reference/configuration.md#agent-config-customtools) |
 | `envAllowlist` | Exempt specific env vars from secret scrubbing for `execute_command` |

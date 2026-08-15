@@ -1,6 +1,6 @@
 # Design decisions
 
-**Reader job:** understand *why* the harness is built this way — and what each choice
+**Reader job:** understand _why_ the harness is built this way — and what each choice
 gives up.
 
 Every decision below is a real trade-off, not a free win. This page states the alternative
@@ -58,12 +58,12 @@ been told this twice". In practice escalating tiers cover that.
 **Decision.** Over the last 10 tool calls, if unique `name:arguments` keys fall below 40%,
 inject a recovery message and reset the window.
 
-**Alternatives rejected.** Counting repeats of the tool *name* — that flags
+**Alternatives rejected.** Counting repeats of the tool _name_ — that flags
 `web_search(q1) → web_fetch(u1) → web_search(q2)` as a meltdown, which is what research
 looks like, and flags reading ten files in a row, which is what understanding a codebase
 looks like. Both are the behaviors you're trying to encourage.
 
-**Cost accepted.** An agent that loops with *slightly* varied arguments — appending a
+**Cost accepted.** An agent that loops with _slightly_ varied arguments — appending a
 counter to the same query — slips through. Catching that needs semantic similarity, which
 costs a model call per check.
 
@@ -87,7 +87,7 @@ visible rather than silent, and by letting the agent trigger it deliberately via
 
 ### Turn-aware trimming
 
-**Decision.** Trimming protects the system message plus the last N *complete turns*, and
+**Decision.** Trimming protects the system message plus the last N _complete turns_, and
 keeps an assistant message's `tool_calls` together with its `tool` results as a unit.
 
 **Alternatives rejected.** Dropping the oldest K messages. It eventually splits a tool call
@@ -135,7 +135,7 @@ must say so in its own formatter.
 ### Sub-agent cost rolls up into the parent
 
 **Decision.** A parent run reports its own cost plus all child cost, and emits a figure
-whenever *either* side is known.
+whenever _either_ side is known.
 
 **Alternatives rejected.** Reporting only the parent's own tokens — a local-model parent
 that spawned three cloud sub-agents would report `$0.00` while your bill said otherwise.
@@ -157,7 +157,7 @@ Status notices, tool chatter, headers, footers, and `--events` NDJSON all go to 
 
 **Alternatives rejected.** A `--quiet` flag over the normal output path — you're still
 filtering, and one new log line breaks every downstream parser. A dedicated `--format json`
-that only *mostly* suppresses chatter — same problem, later.
+that only _mostly_ suppresses chatter — same problem, later.
 
 **Cost accepted.** Two streams to wire up in a bridge instead of one. That's the entire
 cost, and it's what makes every non-terminal surface possible.
@@ -183,7 +183,7 @@ is the strongest control available.
 ### Two-phase execution (propose → approve → execute)
 
 **Decision.** A gated tool doesn't act. It returns an approval request describing what it
-*would* do — including a preview diff for edits. Approval (human or policy) then invokes the
+_would_ do — including a preview diff for edits. Approval (human or policy) then invokes the
 real execution tool.
 
 **Alternatives rejected.** A boolean `dangerous` flag checked before calling. You can't show
@@ -193,7 +193,7 @@ before the arguments are resolved.
 **Cost accepted.** Every gated tool is two registry entries instead of one, and the registry
 carries the propose→execute mapping.
 
-**What it buys:** interactive and unattended runs use *the same code path*. There is no
+**What it buys:** interactive and unattended runs use _the same code path_. There is no
 separate headless mode that can drift from the interactive one — the only difference is who
 answers.
 
@@ -203,7 +203,7 @@ answers.
 
 **Decision.** "Always approve `git status`" stores a key extracted from the command (binary
 
-+ first subcommand) and matches exactly or on a word boundary.
+- first subcommand) and matches exactly or on a word boundary.
 
 **Alternatives rejected.** Prefix-matching the raw command string. Then approving
 `git status` also approves `git status && rm -rf /`.
@@ -253,7 +253,7 @@ model lists, context windows, and tool support are read from the local server.
 **Decision.** Typed errors, tracked effects, `Layer`-based dependency injection throughout.
 
 **Alternatives rejected.** Plain `async/await` with thrown exceptions. In an agent runtime
-the failure paths *are* the product — a tool that times out, a provider that 429s, a
+the failure paths _are_ the product — a tool that times out, a provider that 429s, a
 malformed tool argument. With exceptions those become `undefined` three frames away.
 
 **Cost accepted.** A real learning curve. Effect is unfamiliar to most contributors and the
@@ -274,7 +274,7 @@ server misbehaves.
 **Cost accepted.** The first call to an MCP tool pays the connection cost, and a broken
 server surfaces mid-run instead of at startup.
 
-📄 [`register-tools.ts:66`](../../src/core/agent/tools/register-tools.ts#L66)
+📄 [`register-tools.ts`](../../src/core/agent/tools/register-tools.ts)
 
 ### Progressive skill loading
 
@@ -292,6 +292,6 @@ hundred skills would consume the window before the user says anything.
 
 ## Related
 
-+ [Agent loop](./agent-loop.md) · [Context management](./context-management.md) · [Tools & approval](./tools-and-approval.md)
-+ [Code map](./code-map.md) — where the code for all of this lives
-+ [Discussions](https://github.com/lvndry/jazz/discussions) — decisions not yet made
+- [Agent loop](./agent-loop.md) · [Context management](./context-management.md) · [Tools & approval](./tools-and-approval.md)
+- [Code map](./code-map.md) — where the code for all of this lives
+- [Discussions](https://github.com/lvndry/jazz/discussions) — decisions not yet made

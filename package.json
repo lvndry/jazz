@@ -1,7 +1,7 @@
 {
   "name": "jazz-ai",
   "version": "0.13.12",
-  "description": "Your terminal. Your agent. Your rules.",
+  "description": "One agent. Every surface. Your rules.",
   "license": "MIT",
   "main": "dist/main.js",
   "types": "dist/main.d.ts",
