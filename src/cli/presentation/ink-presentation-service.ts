@@ -29,6 +29,7 @@ import { expandableToolResultPayload } from "@/core/utils/tool-formatter";
 import { createAccumulator, reduceEvent } from "./activity-reducer";
 import {
   formatToolArguments,
+  formatToolDisplayName,
   formatToolExecutionCompleteEffect,
   formatToolExecutionErrorEffect,
   formatToolExecutionStartEffect,
@@ -257,7 +258,8 @@ export class InkStreamingRenderer implements StreamingRenderer {
         event.arguments,
         event.metadata !== undefined ? { metadata: event.metadata } : undefined,
       );
-      const line = `${event.toolName}${args.length > 0 ? ` ${args}` : ""}`;
+      const displayName = formatToolDisplayName(event.toolName, event.metadata);
+      const line = `${displayName}${args.length > 0 ? ` ${args}` : ""}`;
       // Leading newline so the line starts its own row rather than merging
       // onto a partial reasoning line already in the region.
       this.bufferStreamDelta({ target: "ephemeral", regionId, delta: `\n${line}` });
@@ -1065,7 +1067,7 @@ class InkPresentationService implements PresentationService {
     const formatArgsOpts =
       options?.metadata !== undefined ? { metadata: options.metadata } : undefined;
     return formatToolExecutionStartEffect(
-      toolName,
+      formatToolDisplayName(toolName, options?.metadata),
       formatToolArguments(toolName, args, formatArgsOpts),
     );
   }

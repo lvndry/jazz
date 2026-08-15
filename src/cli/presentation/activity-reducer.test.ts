@@ -215,7 +215,9 @@ describe("activity-reducer", () => {
       expect(result.outputs).toHaveLength(1);
       const line = String(result.outputs[0]!.message);
       expect(line).toContain("effect typescript");
-      expect(line).toContain("builtin");
+      // Provider is folded into the tool name so it can't be mistaken for an
+      // argument or a concurrency marker.
+      expect(line).toContain("web_search(builtin)");
     });
 
     test("tool_execution_complete removes tool and transitions to idle when last", () => {

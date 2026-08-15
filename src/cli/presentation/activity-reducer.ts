@@ -17,7 +17,7 @@ import { Box, Text } from "ink";
 import React from "react";
 import type { TerminalOutput } from "@/core/interfaces/terminal";
 import type { StreamEvent } from "@/core/types/streaming";
-import { formatToolArguments, formatToolResult } from "./format-utils";
+import { formatToolArguments, formatToolDisplayName, formatToolResult } from "./format-utils";
 import type { ActiveTool, ActivityState } from "../ui/activity-state";
 import { getGlyphs } from "../ui/glyphs";
 import { PADDING, THEME } from "../ui/theme";
@@ -76,7 +76,13 @@ export interface ReducerAccumulator {
   lastAppliedTextSequence: number;
   activeTools: Map<
     string,
-    { toolName: string; startedAt: number; todoSnapshot?: TodoSnapshotItem[] }
+    {
+      toolName: string;
+      /** Name with backend folded in (e.g. web_search(brave)); falls back to toolName. */
+      displayName?: string;
+      startedAt: number;
+      todoSnapshot?: TodoSnapshotItem[];
+    }
   >;
   /** Provider id captured from stream_start for cost calculation. */
   currentProvider: string | null;
@@ -136,13 +142,13 @@ function buildToolExecutionActivity(acc: ReducerAccumulator): ActivityState {
     entry.todoSnapshot
       ? {
           toolCallId,
-          toolName: entry.toolName,
+          toolName: entry.displayName ?? entry.toolName,
           startedAt: entry.startedAt,
           todoSnapshot: entry.todoSnapshot,
         }
       : {
           toolCallId,
-          toolName: entry.toolName,
+          toolName: entry.displayName ?? entry.toolName,
           startedAt: entry.startedAt,
         },
   );
@@ -356,22 +362,25 @@ export function reduceEvent(
         event.arguments,
         event.metadata !== undefined ? { metadata: event.metadata } : undefined,
       );
+      const displayName = formatToolDisplayName(event.toolName, event.metadata);
       if (todoSnapshot) {
         acc.activeTools.set(event.toolCallId, {
           toolName: event.toolName,
+          ...(displayName !== event.toolName ? { displayName } : {}),
           startedAt: Date.now(),
           todoSnapshot,
         });
       } else {
         acc.activeTools.set(event.toolCallId, {
           toolName: event.toolName,
+          ...(displayName !== event.toolName ? { displayName } : {}),
           startedAt: Date.now(),
         });
       }
 
       outputs.push({
         type: "info",
-        message: `${event.toolName}${args.length > 0 ? ` ${args}` : ""}`,
+        message: `${displayName}${args.length > 0 ? ` ${args}` : ""}`,
         timestamp: new Date(),
       });
 
@@ -390,7 +399,8 @@ export function reduceEvent(
         // A failed tool's result payload is null — the error message is the
         // only meaningful thing to show.
         const reason = event.error?.trim() || "Tool execution failed";
-        summary = toolName ? `${toolName}: ${reason}` : reason;
+        const failedLabel = toolEntry?.displayName ?? toolName;
+        summary = failedLabel ? `${failedLabel}: ${reason}` : reason;
       } else if (
         toolName === "manage_todos" &&
         toolEntry?.todoSnapshot &&

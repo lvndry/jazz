@@ -9,6 +9,7 @@ import type { ToolCall } from "@/core/types/tools";
 import { getModelsDevMetadataSync } from "@/core/utils/models-dev";
 import {
   formatToolArguments as formatToolArgumentsShared,
+  formatToolDisplayName as formatToolDisplayNameShared,
   formatToolResult as formatToolResultShared,
 } from "@/core/utils/tool-formatter";
 import { formatMarkdown, formatMarkdownHybrid } from "./markdown-formatter";
@@ -320,7 +321,7 @@ export class CLIRenderer {
     return (
       "\n" +
       colors.toolName(`${icons.tool}  Executing tool: `) +
-      colors.toolName(event.toolName) +
+      colors.toolName(formatToolDisplayNameShared(event.toolName, event.metadata)) +
       argsStr
     );
   }
