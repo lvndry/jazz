@@ -246,10 +246,17 @@ are tracked so they can be cleaned up when the conversation ends.
 
 **Captured process output is bounded.** `execute_command`, git, and find/grep each keep at
 most 256 KB of stdout and 256 KB of stderr, collected as bytes so a flood cannot grow until
-the timeout. Truncated `execute_command` streams include a marker. Git and grep parsers keep
-stdout clean (so a partial last line is not treated as a path or match) and set `truncated`
-on the tool result. Custom `command` tools use the same collector with a 16 KB cap — they
-are typically small, trusted argv programs, not a general shell.
+the timeout. Truncated `execute_command` streams include a marker. The git, grep, and find
+parsers keep stdout clean (so a partial last line is not treated as a path or match) and set
+`truncated` on the tool result — without that flag a cut-short enumeration is
+indistinguishable from an exhaustive one. Custom `command` tools use the same collector with
+a 16 KB cap — they are typically small, trusted argv programs, not a general shell.
+
+**MCP argument schemas are advisory, not a gate.** `convertMCPSchemaToZod` is lossy — `$ref`
+is unresolved and an untyped property carries no constraint — so MCP tools forward the
+model's arguments untouched and let the server's own schema reject bad calls. Validating
+locally against the converted schema would reject or silently empty calls the server accepts.
+Builtin tools, whose schemas are authored alongside their handlers, are validated normally.
 
 Current tool list: [Tools reference](../reference/tools.md).
 

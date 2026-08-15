@@ -69,13 +69,20 @@ export function logToolExecutionStart(
   });
 }
 
+/** Cap on the serialized tool result written to the log file. */
+const MAX_LOGGED_RESULT_LENGTH = 10_000;
+
 /**
  * Log tool execution success
+ *
+ * `fullResult` goes to the log file only, never the console: it is what a
+ * post-mortem of a bad run reads to see what a tool actually returned.
  */
 export function logToolExecutionSuccess(
   toolName: string,
   durationMs: number,
   resultSummary?: string,
+  fullResult?: unknown,
 ): Effect.Effect<void, never, LoggerService> {
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
@@ -86,6 +93,43 @@ export function logToolExecutionSuccess(
       : `${toolEmoji} ${toolName} ✅ (${duration})`;
 
     yield* logger.info(message);
+
+    if (fullResult === undefined) {
+      return;
+    }
+
+    const serialized = yield* Effect.try(() =>
+      typeof fullResult === "string"
+        ? fullResult
+        : JSON.stringify(fullResult, jsonBigIntReplacer, 2),
+    ).pipe(Effect.either);
+
+    if (serialized._tag === "Left") {
+      yield* logger
+        .warn(`Failed to log full result for ${toolName}`, {
+          toolName,
+          error:
+            serialized.left instanceof Error ? serialized.left.message : String(serialized.left),
+        })
+        .pipe(Effect.catchAll(() => Effect.void));
+      return;
+    }
+
+    const resultString = serialized.right ?? "undefined";
+    const truncatedResult =
+      resultString.length > MAX_LOGGED_RESULT_LENGTH
+        ? `${resultString.slice(0, MAX_LOGGED_RESULT_LENGTH)}\n... (truncated, ${
+            resultString.length - MAX_LOGGED_RESULT_LENGTH
+          } more characters)`
+        : resultString;
+
+    yield* logger
+      .info(`Tool result for ${toolName}`, {
+        toolName,
+        resultLength: resultString.length,
+        result: truncatedResult,
+      })
+      .pipe(Effect.catchAll(() => Effect.void));
   });
 }
 

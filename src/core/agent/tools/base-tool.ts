@@ -50,6 +50,12 @@ export interface BaseToolConfig<R, Args extends Record<string, unknown>> {
   /**
    * Optional validator. When omitted, arguments are checked with
    * {@link makeZodValidator} against `parameters`.
+   *
+   * `parameters` is therefore an enforced gate, not just the schema shown to
+   * the model: the handler receives the *parsed* value, so a plain `z.object`
+   * drops any key it does not name. Tools whose schema is derived from an
+   * external source (MCP, custom tools) should pass an explicit validator
+   * rather than let a lossy conversion reject or empty valid calls.
    */
   readonly validate?: ToolValidator<Args>;
   /**

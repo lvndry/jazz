@@ -280,12 +280,28 @@ export function formatLogLineAsPlain(
   return `${now.toLocaleDateString()} ${now.toLocaleTimeString()} [${level.toUpperCase()}] ${message}${metaText}\n`;
 }
 
+const LOG_FORMATS: readonly LoggingConfig["format"][] = ["json", "plain"];
+
+/**
+ * Coerce a persisted log format to one this build supports.
+ *
+ * The config file is not schema-validated, so a value written by an older
+ * build (such as the removed `toon`) still reaches us typed but unsupported.
+ * Mapping it here keeps the fallback deliberate instead of an unnoticed
+ * fall-through in the formatter.
+ */
+export function normalizeLogFormat(format: string | undefined): LoggingConfig["format"] {
+  return LOG_FORMATS.includes(format as LoggingConfig["format"])
+    ? (format as LoggingConfig["format"])
+    : "plain";
+}
+
 /**
  * Set the global log format
  * Call this during app initialization based on config
  */
 export function setLogFormat(format: LoggingConfig["format"]): void {
-  globalLogFormat = format;
+  globalLogFormat = normalizeLogFormat(format);
 }
 
 /**

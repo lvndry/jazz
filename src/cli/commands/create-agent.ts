@@ -156,6 +156,7 @@ export function createAgentCommand(): Effect.Effect<
           configService,
           categoryIdToDisplayName,
           terminal,
+          new Set(mcpServerData.displayNameToServerName.keys()),
         ),
       catch: (error) =>
         new ValidationError({
@@ -400,6 +401,7 @@ async function promptForAgentInfo(
   configService: AgentConfigService,
   categoryIdToDisplayName: Map<string, string>,
   terminal: TerminalService,
+  mcpCategoryDisplayNames: ReadonlySet<string>,
 ): Promise<AIAgentCreationAnswers | null> {
   // Initialize state machine
   const state: WizardState = { step: "provider" };
@@ -746,33 +748,33 @@ async function promptForAgentInfo(
         }
 
         // Custom agent - let user select tools
-        const defaultToolCategories = [
-          FILE_MANAGEMENT_CATEGORY.displayName,
-          HTTP_CATEGORY.displayName,
-          GIT_CATEGORY.displayName,
-          WEB_SEARCH_CATEGORY.displayName,
-          SHELL_COMMANDS_CATEGORY.displayName,
-        ];
+        const selectableCategories = Object.entries(toolsByCategory).filter(
+          ([category]) => !BUILTIN_TOOL_CATEGORIES.some((c) => c.displayName === category),
+        );
+
+        // Opt-out rather than opt-in: every builtin category starts checked so
+        // the user only unticks what they don't want. MCP servers stay opt-in —
+        // checking one connects to that server (auth prompts, 45s timeouts).
+        const defaultToolCategories = selectableCategories
+          .map(([category]) => category)
+          .filter((category) => !mcpCategoryDisplayNames.has(category));
+
         let selectedTools: readonly string[] = state.tools?.length
           ? state.tools
-          : defaultToolCategories.filter((name) => name in toolsByCategory);
+          : defaultToolCategories;
 
         // Loop for tool selection to allow "Go Back" from web search config
         let shouldGoBack = false;
         while (true) {
           selectedTools = await Effect.runPromise(
             terminal.checkbox<string>(`Which tools should this agent have access to? ${hint}`, {
-              choices: Object.entries(toolsByCategory)
-                .filter(
-                  ([category]) => !BUILTIN_TOOL_CATEGORIES.some((c) => c.displayName === category),
-                )
-                .map(([category, toolsInCategory]) => ({
-                  name:
-                    toolsInCategory.length > 0
-                      ? `${category} (${toolsInCategory.length} ${toolsInCategory.length === 1 ? "tool" : "tools"})`
-                      : category,
-                  value: category,
-                })),
+              choices: selectableCategories.map(([category, toolsInCategory]) => ({
+                name:
+                  toolsInCategory.length > 0
+                    ? `${category} (${toolsInCategory.length} ${toolsInCategory.length === 1 ? "tool" : "tools"})`
+                    : category,
+                value: category,
+              })),
               default: [...selectedTools],
             }),
           );

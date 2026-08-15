@@ -265,7 +265,7 @@ class DefaultToolRegistry implements ToolRegistry {
         const resultSummary = tool.createSummary?.(result);
 
         // Log successful execution with improved formatting
-        yield* logToolExecutionSuccess(name, durationMs, resultSummary);
+        yield* logToolExecutionSuccess(name, durationMs, resultSummary, result.result);
       } else {
         // If this is an approval-required response, log as warning with special label
         const resultObj = result.result as

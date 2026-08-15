@@ -6,6 +6,7 @@ import { type FileSystemContextService, FileSystemContextServiceTag } from "@/co
 import type { Tool } from "@/core/interfaces/tool-registry";
 import { createSanitizedEnv } from "@/core/utils/env";
 import { defineTool, makeZodValidator } from "../base-tool";
+import { DEFAULT_SPAWN_OUTPUT_CAP_BYTES } from "../capped-output";
 import { buildKeyFromContext } from "../context-utils";
 import {
   checkExternalTool,
@@ -431,6 +432,29 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
     });
   }
 
+  /**
+   * Shape the model-facing result.
+   *
+   * `truncated` reports that the backend's output hit the spawn byte cap, so
+   * paths past the cut were never parsed — without it a short result set is
+   * indistinguishable from an exhaustive one.
+   */
+  function buildFindResult(
+    results: { path: string; name: string; type: "file" | "dir" | "symlink" }[],
+    truncated: boolean,
+  ) {
+    return {
+      results,
+      totalFound: results.length,
+      truncated,
+      ...(truncated
+        ? {
+            message: `Output truncated at ${DEFAULT_SPAWN_OUTPUT_CAP_BYTES} bytes; more matches may exist. Narrow the path or pattern.`,
+          }
+        : {}),
+    };
+  }
+
   function searchWithExternal(
     args: FindArgs,
     searchDir: string,
@@ -438,12 +462,15 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
     maxResults: number,
   ): Effect.Effect<
     {
-      path: string;
-      name: string;
-      type: "file" | "dir" | "symlink";
-      mtimeMs: number;
-      backend: string;
-    }[],
+      results: {
+        path: string;
+        name: string;
+        type: "file" | "dir" | "symlink";
+        mtimeMs: number;
+        backend: string;
+      }[];
+      truncated: boolean;
+    },
     Error,
     FileSystem.FileSystem
   > {
@@ -461,10 +488,13 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
         });
 
         if (out.exitCode === 0 || out.exitCode === 1) {
-          return parseFdResults(out.stdout, typeFilter, maxResults).map((r) => ({
-            ...r,
-            backend: "fd",
-          }));
+          return {
+            results: parseFdResults(out.stdout, typeFilter, maxResults).map((r) => ({
+              ...r,
+              backend: "fd",
+            })),
+            truncated: out.stdoutTruncated,
+          };
         }
         // fd failed — fall through to system find
       }
@@ -482,7 +512,10 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
       }
 
       const results = yield* parseFindResults(out.stdout, maxResults);
-      return results.map((r) => ({ ...r, backend: "find" }));
+      return {
+        results: results.map((r) => ({ ...r, backend: "find" })),
+        truncated: out.stdoutTruncated,
+      };
     });
   }
 
@@ -562,9 +595,12 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
             mtimeMs: number;
           }[] = [];
 
+          let enumerationTruncated = false;
+
           for (const searchDir of searchPaths) {
             const batch = yield* searchWithExternal(args, searchDir, cwd, maxResults);
-            allExtResults.push(...batch);
+            allExtResults.push(...batch.results);
+            enumerationTruncated = enumerationTruncated || batch.truncated;
 
             // Early termination in smart mode
             if (useSmart && allExtResults.length >= Math.min(maxResults / 2, 10)) {
@@ -589,7 +625,7 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
 
           return {
             success: true,
-            result: finalResults,
+            result: buildFindResult(finalResults, enumerationTruncated),
           };
         }
 
@@ -606,7 +642,7 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
 
         return {
           success: true,
-          result: finalResults,
+          result: buildFindResult(finalResults, false),
         };
       }),
   });

@@ -23,8 +23,11 @@ function convertBasicType(type: string | undefined): z.ZodTypeAny {
     case "null":
       return z.null();
     default:
-      // Unknown type - default to empty object for LLM compatibility
-      return z.object({});
+      // No recognizable type keyword. Accept anything: as a property this is a
+      // value the server never constrained, and constraining it here would
+      // reject valid calls. The top-level object guarantee that LLM function
+      // calling needs is restored by the caller, not by narrowing here.
+      return z.unknown();
   }
 }
 
@@ -67,8 +70,9 @@ function convertObjectSchema(
   schema: MCPJSONSchema,
   convertSchema: (schema: unknown) => z.ZodTypeAny,
 ): z.ZodTypeAny {
-  if (!schema.properties) {
-    // Empty object or no properties
+  // No declared properties means the server did not narrow the argument shape,
+  // so keep every key rather than advertising a tool that takes no arguments.
+  if (!schema.properties || Object.keys(schema.properties).length === 0) {
     return z.object({}).passthrough();
   }
 
@@ -83,15 +87,10 @@ function convertObjectSchema(
 
   const objectSchema = z.object(zodShape);
 
-  // Handle additionalProperties
-  if (schema.additionalProperties === false) {
-    return objectSchema.strict();
-  } else if (schema.additionalProperties === true || schema.additionalProperties !== undefined) {
-    // Allow additional properties
-    return objectSchema.passthrough();
-  }
-
-  return objectSchema;
+  // Only an explicit `additionalProperties: false` closes the object. JSON
+  // Schema allows extra properties when the keyword is absent, so defaulting to
+  // a stripping object would drop arguments the server accepts.
+  return schema.additionalProperties === false ? objectSchema.strict() : objectSchema.passthrough();
 }
 
 /**
@@ -198,8 +197,8 @@ function isArrayType(type: string | readonly string[] | undefined): boolean {
 export function convertMCPSchemaToZod(mcpSchema: unknown, toolName?: string): z.ZodTypeAny {
   // Validate input
   if (typeof mcpSchema !== "object" || mcpSchema === null) {
-    // Invalid schema - default to empty object for LLM compatibility
-    return z.object({});
+    // Invalid schema - default to an open object for LLM compatibility
+    return z.object({}).passthrough();
   }
 
   // Handle MCP SDK's nested jsonSchema format
@@ -245,8 +244,11 @@ export function convertMCPSchemaToZod(mcpSchema: unknown, toolName?: string): z.
     return z.unknown();
   }
 
-  // Handle object type
-  if (isObjectType(schema.type)) {
+  // Handle object type. `type` is optional in JSON Schema, so `properties`
+  // alone also identifies an object — without this a schema like
+  // `{ properties: { … } }` would fall through to the unknown-type default and
+  // advertise itself to the model as taking no arguments.
+  if (isObjectType(schema.type) || (schema.type === undefined && schema.properties !== undefined)) {
     return convertObjectSchema(schema, (s) => convertMCPSchemaToZod(s, toolName));
   }
 
