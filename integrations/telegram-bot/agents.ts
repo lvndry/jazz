@@ -6,7 +6,7 @@
  * that chat. `dataDir` is Jazz's home; agents live under `<dataDir>/agents`.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 export interface AgentConfig {
@@ -30,6 +30,10 @@ export interface AgentFile {
 export function agentIdForChat(chatId: number): string {
   // Group chat ids are negative; keep the id filename/name-safe.
   return `tg_${String(chatId).replace("-", "n")}`;
+}
+
+export function isChatAgentId(agentId: string): boolean {
+  return /^tg_n?\d+$/.test(agentId);
 }
 
 export function agentPath(dataDir: string, agentId: string): string {
@@ -57,4 +61,31 @@ export function ensureChatAgent(dataDir: string, chatId: number, baseAgentId: st
   template.id = agentId;
   writeAgentFile(dataDir, template);
   return template;
+}
+
+/**
+ * Point the seed template and every chat agent at the bot's current Telegram
+ * name, so the persona's {agentName} matches the name people see in the
+ * client. Runs on each start, which also picks up a bot rename.
+ */
+export function syncAgentDisplayName(
+  dataDir: string,
+  baseAgentId: string,
+  displayName: string,
+): void {
+  const directory = join(dataDir, "agents");
+  if (!existsSync(directory)) return;
+  for (const entry of readdirSync(directory)) {
+    if (!entry.endsWith(".json")) continue;
+    const agentId = entry.slice(0, -".json".length);
+    if (agentId !== baseAgentId && !isChatAgentId(agentId)) continue;
+    try {
+      const agent = readAgentFile(dataDir, agentId);
+      if (agent.name === displayName) continue;
+      agent.name = displayName;
+      writeAgentFile(dataDir, agent);
+    } catch (error) {
+      console.error(`Could not rename agent ${agentId}: ${String(error)}`);
+    }
+  }
 }

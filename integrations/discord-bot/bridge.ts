@@ -31,6 +31,7 @@ import {
   ensureChatAgent,
   hasChatAgent,
   readAgentFile,
+  syncAgentDisplayName,
   writeAgentFile,
 } from "./agents";
 import {
@@ -1544,6 +1545,7 @@ async function start(): Promise<void> {
   connectGateway(config.botToken, {
     onReady(info) {
       runtime = { botUserId: info.userId, applicationId: info.applicationId };
+      syncAgentDisplayName(config.jazzHome, config.baseAgentId, info.username);
       console.log(
         `Discord → Jazz bridge ready as @${info.username} (${info.userId}), policy="${config.approvalPolicy}"`,
       );
