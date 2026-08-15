@@ -68,7 +68,6 @@ export function ensureChatAgent(
   mkdirSync(join(dataDir, "agents"), { recursive: true });
   const template = readAgentFile(dataDir, baseAgentId);
   template.id = agentId;
-  template.name = agentId;
   writeAgentFile(dataDir, template);
   return template;
 }

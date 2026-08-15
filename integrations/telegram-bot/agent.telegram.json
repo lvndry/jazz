@@ -1,6 +1,6 @@
 {
   "id": "telegram",
-  "name": "telegram",
+  "name": "Jazz",
   "description": "Everyday assistant reachable from Telegram.",
   "model": "__JAZZ_PROVIDER__/__JAZZ_MODEL__",
   "config": {

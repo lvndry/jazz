@@ -1,6 +1,6 @@
 {
   "id": "discord",
-  "name": "discord",
+  "name": "Jazz",
   "description": "Everyday assistant reachable from Discord.",
   "model": "__JAZZ_PROVIDER__/__JAZZ_MODEL__",
   "config": {
