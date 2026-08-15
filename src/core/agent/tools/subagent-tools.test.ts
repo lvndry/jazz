@@ -130,6 +130,44 @@ describe("spawn_subagent auto-approve inheritance", () => {
   });
 });
 
+describe("spawn_subagent persona handling", () => {
+  it("passes the persona through as config rather than restating it in the task", async () => {
+    let captured: Omit<AgentRunnerOptions, "internal"> | undefined;
+    const spy = spyOn(AgentRunner, "runRecursive").mockImplementation((options) => {
+      captured = options;
+      return Effect.succeed({ content: "done", messages: [] }) as ReturnType<
+        typeof AgentRunner.runRecursive
+      >;
+    });
+
+    try {
+      const { presentation } = createPresentationHarness();
+      const tool = getSpawnTool();
+      const testLayer = Layer.mergeAll(
+        Layer.succeed(LoggerServiceTag, mockLogger),
+        Layer.succeed(PresentationServiceTag, presentation),
+      );
+      await Effect.runPromise(
+        (
+          tool.execute(
+            { task: "trace the call sites", persona: "coder" },
+            { agentId: parentAgent.id, parentAgent },
+          ) as Effect.Effect<unknown, unknown, LoggerService | PresentationService>
+        ).pipe(Effect.provide(testLayer)),
+      );
+
+      // The persona reaches the child as config, so AgentPromptBuilder resolves
+      // the packaged persona.md into its system prompt.
+      expect(captured?.agent.config.persona).toBe("coder");
+      // The task itself must not carry a competing one-line persona blurb.
+      expect(captured?.userInput).not.toContain("specialist");
+      expect(captured?.userInput).toContain("trace the call sites");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
 describe("spawn_subagent tool ceiling", () => {
   it("caps the child at the parent's effective tools", async () => {
     let captured: Omit<AgentRunnerOptions, "internal"> | undefined;

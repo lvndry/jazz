@@ -97,17 +97,11 @@ export interface AgentRunnerOptions {
    */
   readonly autoApprovedTools?: readonly string[];
   /**
-   * Hard ceiling on this run's toolset. When set, the agent's effective tools
-   * are intersected with this list after personas and built-in categories are
-   * resolved. Sub-agent runs inherit their parent's effective tools this way,
-   * so a child spawned under a different persona can never end up holding a
-   * tool the parent itself was not allowed to use.
+   * Hard ceiling on this run's toolset, intersected after personas and built-in
+   * categories resolve. Sub-agents inherit their parent's tools this way.
    */
   readonly toolAllowlist?: readonly string[];
-  /**
-   * How many sub-agent levels sit above this run. Omitted (0) for a top-level
-   * run; `spawn_subagent` passes its own depth plus one when starting a child.
-   */
+  /** How many sub-agent levels sit above this run. 0 at the top level. */
   readonly subagentDepth?: number;
   /**
    * Callback invoked when the user chooses "always approve" for a specific tool
@@ -231,11 +225,7 @@ export interface AgentRunContext {
   readonly model: string;
   readonly connectedMCPServers: readonly string[];
   readonly maxRetries?: number;
-  /**
-   * The run's iteration budget, already resolved from the call site's request,
-   * app config, and the built-in default. Executors use this rather than
-   * re-deriving it from options.
-   */
+  /** Iteration budget, already resolved from the call site, config, and default. */
   readonly maxIterations: number;
   readonly knownSkills: readonly {
     readonly name: string;

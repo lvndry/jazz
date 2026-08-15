@@ -18,20 +18,11 @@ export interface AppConfig {
   readonly telemetry?: TelemetryConfig;
   /** Maximum number of retries for transient LLM API failures. Defaults to 3. */
   readonly maxRetries?: number;
-  /**
-   * How many levels of sub-agent may nest below a top-level run. Defaults to 3.
-   * Set 0 to stop agents delegating at all.
-   */
+  /** Sub-agent nesting levels allowed. Defaults to 3; 0 disables delegation. */
   readonly maxSubagentDepth?: number;
-  /**
-   * Iteration budget for a top-level run. Defaults to 100. An explicit
-   * `--max-iterations` on the command line still wins over this.
-   */
+  /** Iteration budget for a top-level run. Defaults to 100; --max-iterations wins. */
   readonly maxIterations?: number;
-  /**
-   * Iteration budget for a sub-agent run. Defaults to 30 — a sub-agent answers
-   * one scoped task, so it needs far less headroom than the run that spawned it.
-   */
+  /** Iteration budget for a sub-agent run. Defaults to 30. */
   readonly maxSubagentIterations?: number;
 }
 

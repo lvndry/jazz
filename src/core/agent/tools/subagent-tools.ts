@@ -90,11 +90,8 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
             };
           }
 
-          // Every level gets a fresh iteration budget rather than its parent's
-          // remainder, so nothing else bounds how much a nest of sub-agents can
-          // spend. Refuse rather than silently flatten: a parent told its
-          // delegation was declined can do the work itself, whereas one handed a
-          // child that quietly ran at the wrong depth cannot tell.
+          // Refuse rather than silently running the child at the wrong depth: a
+          // parent told its delegation was declined can do the work itself.
           const currentDepth = context.subagentDepth ?? 0;
           const maxDepth = context.maxSubagentDepth ?? DEFAULT_MAX_SUBAGENT_DEPTH;
           if (currentDepth >= maxDepth) {
@@ -139,16 +136,9 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
             updatedAt: new Date(),
           };
 
-          const personaHints: Record<string, string> = {
-            coder: "You are a coding specialist. Focus on reading, writing, and modifying code.",
-            researcher:
-              "You are a research specialist. Focus on gathering, synthesising, and summarising information.",
-          };
-          const personaHint = personaHints[args.persona ?? ""] ?? "";
-
           const wrappedTask = `[SUB-AGENT TASK]
 You are a sub-agent performing a delegated task for a parent agent. This is a ONE-SHOT task.
-${personaHint ? `\n${personaHint}\n` : ""}
+
 Rules:
 - Complete the task and produce a answer
 - Do NOT ask follow-up questions or wait for user input
@@ -177,10 +167,7 @@ ${args.task}`;
             conversationId: `subagent-conv-${++subagentCounter}-${Date.now()}`,
             maxIterations: context.maxSubagentIterations ?? DEFAULT_MAX_SUBAGENT_ITERATIONS,
             ephemeralRegionId: regionId,
-            // Cap the child at the parent's own effective tools. The child runs
-            // under a caller-chosen persona, and a persona resolves its own
-            // built-in categories — without this ceiling a narrowly-scoped
-            // parent could reach a tool it lacks by picking a broader persona.
+            // Cap the child at the parent's own effective tools.
             ...(context.parentToolNames ? { toolAllowlist: context.parentToolNames } : {}),
             subagentDepth: currentDepth + 1,
             ...(context.getAutoApprovePolicy
