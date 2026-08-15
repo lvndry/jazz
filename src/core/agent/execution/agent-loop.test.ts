@@ -12,6 +12,7 @@ import {
   type CompletionStrategy,
   type TrackedToolCall,
 } from "./agent-loop";
+import { buildContextPressureMessage } from "./agent-loop";
 import { makeDefaultObserver } from "./agent-loop-observer";
 import { ToolExecutor } from "./tool-executor";
 import { SkillServiceTag } from "../../../core/skills/skill-service";
@@ -344,6 +345,77 @@ describe("executeAgentLoop", () => {
     expect(pressureWarning).toBeDefined();
     expect(pressureWarning).toContain(`${maxContextTokens.toLocaleString()} tokens`);
     expect(warningCalls.some((msg) => msg.includes("auto-compacting"))).toBe(false);
+  });
+
+  it("tells the model to consolidate once context passes the warn threshold", () => {
+    expect(buildContextPressureMessage(6_000, 10_000)).toBeNull();
+    expect(buildContextPressureMessage(7_500, 10_000)?.content).toContain("CONTEXT WARNING");
+    expect(buildContextPressureMessage(7_500, 10_000)?.content).toContain("75%");
+    expect(buildContextPressureMessage(7_500, 10_000)?.content).toContain("10,000");
+  });
+
+  it("tells the model to stop gathering once context is critical", () => {
+    const message = buildContextPressureMessage(9_500, 10_000);
+    expect(message?.content).toContain("CONTEXT CRITICAL");
+    expect(message?.content).toContain("95%");
+    expect(message?.role).toBe("user");
+  });
+
+  it("returns no context nudge when there is no budget to measure against", () => {
+    expect(buildContextPressureMessage(500, 0)).toBeNull();
+  });
+
+  it("sends the context nudge to the model without persisting it in history", async () => {
+    const seenMessages: ConversationMessages[] = [];
+    const strategy: CompletionStrategy = {
+      shouldShowThinking: false,
+      getCompletion: (messages) => {
+        seenMessages.push(messages);
+        return Effect.succeed({
+          completion: { id: "c1", model: "gpt-4", content: "Hello world" },
+          interrupted: false,
+        });
+      },
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+
+    const messages = [
+      { role: "system" as const, content: "system prompt" },
+      {
+        role: "user" as const,
+        content: "the quick brown fox jumps over the lazy dog. ".repeat(200),
+      },
+    ];
+    const usedTokens = DEFAULT_TOKEN_COUNTER.countMessages(messages, {
+      provider: "openai",
+      modelId: "gpt-4",
+    });
+    const maxContextTokens = Math.ceil(usedTokens / 0.75);
+
+    const options = makeOptions();
+    const agentWithCeiling = {
+      ...options.agent,
+      config: { ...options.agent.config, maxContextTokens },
+    } as any;
+
+    const result = await Effect.runPromise(
+      executeAgentLoop(
+        { ...options, agent: agentWithCeiling },
+        makeRunContext({ messages: messages as any, agent: agentWithCeiling }),
+        displayConfig,
+        strategy,
+        defaultObserver,
+        runRecursive,
+      ).pipe(Effect.provide(TestLayer)),
+    );
+
+    const sent = seenMessages[0] ?? [];
+    const nudge = sent.find((message) => message.content?.includes("CONTEXT WARNING"));
+    expect(nudge).toBeDefined();
+    expect(nudge?.role).toBe("user");
+    expect(result.content).toBe("Hello world");
   });
 
   it("should warn when iteration limit is reached", async () => {

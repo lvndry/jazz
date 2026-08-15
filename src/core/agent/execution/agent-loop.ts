@@ -15,6 +15,8 @@ import { formatToolResultForContext } from "@/core/utils/tool-result-formatter";
 import type { AgentLoopObserver } from "./agent-loop-observer";
 import { ToolExecutor } from "./tool-executor";
 import {
+  CONTEXT_COMPACT_THRESHOLD_RATIO,
+  CONTEXT_WARN_THRESHOLD_RATIO,
   ContextWindowManager,
   DEFAULT_CONTEXT_WINDOW_MANAGER,
 } from "../context/context-window-manager";
@@ -55,6 +57,40 @@ export function buildBudgetPressureMessage(
     return {
       role: "user",
       content: `[BUDGET WARNING: Iteration ${iteration}/${maxIterations} (${Math.round(pct * 100)}%). Begin consolidating results. Stop spawning new research subagents. Move to consolidation and output phases.]`,
+    };
+  }
+  return null;
+}
+
+/** Share of the context budget past which the agent is told to stop gathering and write. */
+const CONTEXT_CRITICAL_RATIO = 0.9;
+
+/**
+ * Tell the model its context is running out, mirroring the iteration-budget nudge.
+ *
+ * Without this the agent only learns about compaction after the fact, by finding its
+ * history rewritten underneath it. Warned in advance it can consolidate what it has
+ * while the detail is still there to consolidate.
+ */
+export function buildContextPressureMessage(
+  currentTokens: number,
+  budgetTokens: number,
+): { role: "user"; content: string } | null {
+  if (budgetTokens <= 0) return null;
+  const ratio = currentTokens / budgetTokens;
+  const percent = Math.round(ratio * 100);
+  const budget = budgetTokens.toLocaleString();
+
+  if (ratio >= CONTEXT_CRITICAL_RATIO) {
+    return {
+      role: "user",
+      content: `[CONTEXT CRITICAL: ${percent}% of the ${budget}-token context budget used. Write your final output NOW from what you have already gathered. Do not open new files, run new searches, or spawn subagents — their results may not survive compaction.]`,
+    };
+  }
+  if (ratio >= CONTEXT_WARN_THRESHOLD_RATIO) {
+    return {
+      role: "user",
+      content: `[CONTEXT WARNING: ${percent}% of the ${budget}-token context budget used. Older history is summarized automatically at ${Math.round(CONTEXT_COMPACT_THRESHOLD_RATIO * 100)}%, and detail is lost when that happens. Record any findings you need to keep in your next message, and prefer consolidating over gathering more.]`,
     };
   }
   return null;
@@ -516,9 +552,21 @@ function runIteration(
       lastUserMessage: lastUserContent,
     });
 
+    // Both nudges are ephemeral: appended to this request only, never pushed into
+    // history. A persisted warning would cost tokens exactly when they are scarce,
+    // be re-sent every turn, and end up summarized into the compaction it warned about.
+    const postCompactionUsage = runContextWindowManager.usage(state.currentMessages);
+    const contextMsg = buildContextPressureMessage(
+      postCompactionUsage.currentTokens,
+      postCompactionUsage.budgetTokens,
+    );
     const budgetMsg = buildBudgetPressureMessage(iterationIndex + 1, maxIterations);
-    const messagesForLLM = budgetMsg
-      ? ([...state.currentMessages, budgetMsg] as typeof state.currentMessages)
+    const pressureContent = [contextMsg?.content, budgetMsg?.content].filter(Boolean).join("\n");
+    const messagesForLLM = pressureContent
+      ? ([
+          ...state.currentMessages,
+          { role: "user" as const, content: pressureContent },
+        ] as typeof state.currentMessages)
       : state.currentMessages;
 
     const result = yield* strategy.getCompletion(messagesForLLM, iterationIndex);

@@ -244,6 +244,16 @@ Two thresholds share one budget, both defined in `context-window-manager.ts`:
 | Costs | nothing | an extra LLM call |
 | Effect | `context 74% full of 60,000 tokens — will auto-compact soon`, once per run | history is summarized |
 
+Both the user *and the agent* are told. Past 70% the request carries an ephemeral
+`[CONTEXT WARNING: …]` line telling the model to record what it needs and consolidate
+rather than gather more; past 90% a `[CONTEXT CRITICAL: …]` line telling it to write its
+output now. This mirrors the iteration-budget nudge in `buildBudgetPressureMessage`, and the
+two are merged into one appended message when both fire.
+
+The nudge is appended to the outgoing request only — never pushed into `currentMessages`.
+A persisted warning would cost tokens exactly when they are scarce, be re-sent every turn,
+and eventually be summarized into the very compaction it was warning about.
+
 The warning exists so that compaction is never a surprise: there is a window where you can
 still `/compact` on your own terms, narrow the task, or raise the ceiling before the
 summarizer decides what to keep. `ContextWindowManager` owns both decisions — `usage()`
