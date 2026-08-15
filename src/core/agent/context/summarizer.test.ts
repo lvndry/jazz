@@ -351,7 +351,10 @@ describe("Summarizer", () => {
         >,
       );
 
-      expect(capturedInput).toContain("[Tool Calls: read_file]");
+      // Arguments travel with the name: the summarizer is asked to preserve exact
+      // file paths, so it has to be able to see them.
+      expect(capturedInput).toContain("[Tool Calls: read_file(");
+      expect(capturedInput).toContain("/test.txt");
     });
 
     it("should create summarizer agent with correct config", async () => {
@@ -584,5 +587,63 @@ describe("Summarizer", () => {
       expect(result.length).toBe(3);
       expect(result[0]?.content).toBe("You are an assistant");
     });
+  });
+});
+
+describe("renderTranscript", () => {
+  it("includes tool call arguments, not just names", () => {
+    const rendered = Summarizer.renderTranscript([
+      {
+        role: "assistant",
+        content: "reading the file",
+        tool_calls: [
+          {
+            id: "call_1",
+            type: "function",
+            function: {
+              name: "read_file",
+              arguments: '{"path":"src/core/agent/context/summarizer.ts"}',
+            },
+          },
+        ],
+      } as any,
+    ]);
+
+    expect(rendered).toContain("read_file");
+    expect(rendered).toContain("src/core/agent/context/summarizer.ts");
+  });
+
+  it("truncates an oversized argument payload with a visible marker", () => {
+    const rendered = Summarizer.renderTranscript([
+      {
+        role: "assistant",
+        content: "",
+        tool_calls: [
+          {
+            id: "call_1",
+            type: "function",
+            function: { name: "write_file", arguments: `{"content":"${"x".repeat(5000)}"}` },
+          },
+        ],
+      } as any,
+    ]);
+
+    expect(rendered).toContain("write_file");
+    expect(rendered).toContain("chars)");
+    expect(rendered.length).toBeLessThan(1000);
+  });
+
+  it("renders a tool call with no arguments as a bare name", () => {
+    const rendered = Summarizer.renderTranscript([
+      {
+        role: "assistant",
+        content: "",
+        tool_calls: [
+          { id: "call_1", type: "function", function: { name: "git_status", arguments: "" } },
+        ],
+      } as any,
+    ]);
+
+    expect(rendered).toContain("[Tool Calls: git_status]");
   });
 });

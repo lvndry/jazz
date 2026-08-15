@@ -77,7 +77,10 @@ export interface TrimResult {
   readonly originalCount: number;
   readonly trimmedCount: number;
   readonly messagesRemoved: number;
+  /** Total request tokens after trimming, including per-request overhead. */
   readonly estimatedTokens: number;
+  /** Total request tokens before trimming, for measuring what the rung reclaimed. */
+  readonly estimatedTokensBefore: number;
 }
 
 /** Default model hint when the caller does not supply one (legacy callers). */
@@ -120,7 +123,8 @@ export class ContextWindowManager {
     never,
     LoggerService | AgentConfigService
   > {
-    const currentTokens = this.calculateTotalTokens(messages);
+    const overheadTokens = this.requestOverheadTokens();
+    const currentTokens = this.calculateTotalTokens(messages) + overheadTokens;
     if (currentTokens <= this.config.maxTokens) {
       return Effect.succeed({ messages, result: undefined });
     }
@@ -172,7 +176,7 @@ export class ContextWindowManager {
     }
 
     // Step 3: Calculate tokens for system message and protected zone
-    const systemTokens = this.counter.countMessage(messages[0], this.modelHint);
+    const systemTokens = this.counter.countMessage(messages[0], this.modelHint) + overheadTokens;
     let protectedTokens = 0;
     for (const idx of protectedIndices) {
       const msg = messages[idx];
@@ -242,7 +246,8 @@ export class ContextWindowManager {
       originalCount: originalLength,
       trimmedCount: resultMessages.length,
       messagesRemoved: originalLength - resultMessages.length,
-      estimatedTokens: this.calculateTotalTokens(resultMessages),
+      estimatedTokens: this.totalRequestTokens(resultMessages),
+      estimatedTokensBefore: currentTokens,
     };
 
     return logger
@@ -264,7 +269,7 @@ export class ContextWindowManager {
    * Check if messages need trimming
    */
   needsTrimming(messages: ChatMessage[]): boolean {
-    return this.calculateTotalTokens(messages) > this.config.maxTokens;
+    return this.totalRequestTokens(messages) > this.config.maxTokens;
   }
 
   /** Total context this run may occupy, after the agent's own ceiling. */
@@ -292,20 +297,42 @@ export class ContextWindowManager {
   }
 
   /**
+   * Tokens every request carries beyond the messages — tool schemas above all.
+   *
+   * Counting messages alone understates a request by 10-30k once MCP servers are
+   * attached, which is the difference between compacting at 80% and discovering
+   * the window was already full.
+   */
+  requestOverheadTokens(): number {
+    return this.counter.overheadFor?.(this.modelHint) ?? 0;
+  }
+
+  /** Messages plus the per-request overhead: what the window actually has to hold. */
+  totalRequestTokens(messages: ChatMessage[]): number {
+    return this.calculateTotalTokens(messages) + this.requestOverheadTokens();
+  }
+
+  /**
    * Where this conversation sits inside the budget, so callers can warn, compact,
    * or report usage from one shared accounting.
    */
   usage(messages: ChatMessage[]): {
     currentTokens: number;
+    messageTokens: number;
+    overheadTokens: number;
     budgetTokens: number;
     ratio: number;
     shouldWarn: boolean;
     shouldCompact: boolean;
   } {
-    const currentTokens = this.calculateTotalTokens(messages);
+    const messageTokens = this.calculateTotalTokens(messages);
+    const overheadTokens = this.requestOverheadTokens();
+    const currentTokens = messageTokens + overheadTokens;
     const budgetTokens = this.contextBudgetTokens;
     return {
       currentTokens,
+      messageTokens,
+      overheadTokens,
       budgetTokens,
       ratio: budgetTokens > 0 ? currentTokens / budgetTokens : 0,
       shouldWarn: currentTokens > this.warnThresholdTokens,
@@ -315,12 +342,12 @@ export class ContextWindowManager {
 
   /** True once the conversation passes the warn threshold but before compaction. */
   shouldWarn(messages: ChatMessage[]): boolean {
-    return this.calculateTotalTokens(messages) > this.warnThresholdTokens;
+    return this.totalRequestTokens(messages) > this.warnThresholdTokens;
   }
 
   /** True once the conversation passes the compaction threshold. */
   shouldCompact(messages: ChatMessage[]): boolean {
-    return this.calculateTotalTokens(messages) > this.compactThresholdTokens;
+    return this.totalRequestTokens(messages) > this.compactThresholdTokens;
   }
 
   /**

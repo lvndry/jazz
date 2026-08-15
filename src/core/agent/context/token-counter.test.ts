@@ -292,3 +292,75 @@ describe("TokenCounter — defensive paths", () => {
     expect(counter.getRatio(hint)).toBe(3.5);
   });
 });
+
+describe("request overhead", () => {
+  const hint = { provider: "openai", modelId: "gpt-4o" };
+
+  function messages(count: number): ChatMessage[] {
+    return Array.from({ length: count }, (_, index) => ({
+      role: "user" as const,
+      content: `message ${index} ` + "content ".repeat(50),
+    }));
+  }
+
+  it("is zero before any authoritative usage report", () => {
+    const counter = new TokenCounter();
+    expect(counter.overheadFor(hint)).toBe(0);
+  });
+
+  it("measures exactly what the provider counted beyond our messages", () => {
+    const counter = new TokenCounter();
+    const msgs = messages(5);
+    const exactMessageTokens = counter.countMessages(msgs, hint);
+    const trueOverhead = 12_000;
+
+    counter.calibrate(exactMessageTokens + trueOverhead, msgs, hint);
+
+    // gpt-4o is tokenizer-backed, so the message estimate is exact and the
+    // remainder is the overhead with no approximation involved.
+    expect(counter.overheadFor(hint)).toBe(trueOverhead);
+  });
+
+  it("converges on a stable overhead across repeated reports", () => {
+    const counter = new TokenCounter();
+    const trueOverhead = 9_000;
+    const estimates: number[] = [];
+
+    for (let call = 0; call < 5; call++) {
+      const msgs = messages(3 + call);
+      const exact = counter.countMessages(msgs, hint);
+      counter.calibrate(exact + trueOverhead, msgs, hint);
+      estimates.push(counter.overheadFor(hint));
+    }
+
+    // Stable rather than oscillating: every reading lands on the true value.
+    for (const estimate of estimates) {
+      expect(estimate).toBe(trueOverhead);
+    }
+  });
+
+  it("does not go negative when the provider reports fewer tokens than estimated", () => {
+    const counter = new TokenCounter();
+    const msgs = messages(5);
+    counter.calibrate(1, msgs, hint);
+    expect(counter.overheadFor(hint)).toBe(0);
+  });
+
+  it("keeps overhead per model", () => {
+    const counter = new TokenCounter();
+    const msgs = messages(4);
+    const exact = counter.countMessages(msgs, hint);
+    counter.calibrate(exact + 5_000, msgs, hint);
+
+    expect(counter.overheadFor(hint)).toBe(5_000);
+    expect(counter.overheadFor({ provider: "openai", modelId: "gpt-4" })).toBe(0);
+  });
+
+  it("is cleared by reset", () => {
+    const counter = new TokenCounter();
+    const msgs = messages(4);
+    counter.calibrate(counter.countMessages(msgs, hint) + 3_000, msgs, hint);
+    counter.reset();
+    expect(counter.overheadFor(hint)).toBe(0);
+  });
+});

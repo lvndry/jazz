@@ -9,6 +9,7 @@ import { getAgentByIdentifier } from "@/core/agent/agent-service";
 import { sortAgents } from "@/core/agent/agent-sort";
 import { resolveContextThresholds } from "@/core/agent/context/context-thresholds";
 import { resolveEffectiveContextWindow } from "@/core/agent/context/effective-context-window";
+import { DEFAULT_TOKEN_COUNTER } from "@/core/agent/context/token-counter";
 import { WEB_SEARCH_PROVIDERS } from "@/core/agent/tools/web-search-tools";
 import { normalizeToolConfig } from "@/core/agent/utils/tool-config";
 import type { ProviderName } from "@/core/constants/models";
@@ -1834,10 +1835,14 @@ function handleContextCommand(
     });
     const contextWindow = effectiveContextWindow.tokens;
 
-    // Get tool definitions for more accurate tool token estimation
+    // Prefer the overhead the provider actually reported (tool schemas plus its own
+    // scaffolding) so this display matches the number that triggers compaction.
+    // Fall back to estimating from the schemas before any usage report has arrived.
     const toolDefinitions = yield* toolRegistry.getToolDefinitions();
     const toolDefinitionsJson = JSON.stringify(toolDefinitions);
-    const toolDefinitionTokens = Math.ceil(toolDefinitionsJson.length / 4);
+    const measuredOverhead = DEFAULT_TOKEN_COUNTER.overheadFor({ provider, modelId });
+    const toolDefinitionTokens =
+      measuredOverhead > 0 ? measuredOverhead : Math.ceil(toolDefinitionsJson.length / 4);
 
     // Calculate usage breakdown
     const usage = calculateContextUsage(conversationHistory, contextWindow, compactThresholdRatio);

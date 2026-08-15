@@ -14,6 +14,7 @@ import { formatToolResultForContext } from "@/core/utils/tool-result-formatter";
 import type { AgentLoopObserver } from "./agent-loop-observer";
 import { ToolExecutor } from "./tool-executor";
 import { resolveContextThresholds } from "../context/context-thresholds";
+import { logContextRung } from "../context/context-telemetry";
 import {
   CONTEXT_COMPACT_THRESHOLD_RATIO,
   CONTEXT_TRIM_THRESHOLD_RATIO,
@@ -661,8 +662,20 @@ function runIteration(
       actualConversationId,
     );
     state.currentMessages = trimUpdate.messages;
-    if (trimUpdate.result !== undefined && !options.internal) {
-      yield* observer.onHistoryTrimmed(agent.name, trimUpdate.result.messagesRemoved);
+    if (trimUpdate.result !== undefined) {
+      yield* logContextRung(logger, {
+        rung: "trim",
+        agentId: agent.id,
+        conversationId: actualConversationId,
+        tokensBefore: trimUpdate.result.estimatedTokensBefore,
+        tokensAfter: trimUpdate.result.estimatedTokens,
+        budgetTokens: runContextWindowManager.contextBudgetTokens,
+        messagesBefore: trimUpdate.result.originalCount,
+        messagesAfter: trimUpdate.result.trimmedCount,
+      });
+      if (!options.internal) {
+        yield* observer.onHistoryTrimmed(agent.name, trimUpdate.result.messagesRemoved);
+      }
     }
 
     if (completion.toolCalls && completion.toolCalls.length > 0) {

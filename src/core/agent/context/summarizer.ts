@@ -10,9 +10,31 @@ import type { Agent } from "@/core/types";
 import type { ChatMessage, ConversationMessages } from "@/core/types/message";
 import { parseProviderModel } from "@/core/utils/provider-model";
 import type { AgentResponse } from "../types";
+<<<<<<< HEAD
 import { resolveContextThresholds } from "./context-thresholds";
 import { DEFAULT_CONTEXT_WINDOW_MANAGER } from "./context-window-manager";
+=======
+import { logContextRung } from "./context-telemetry";
+import {
+  CONTEXT_COMPACT_THRESHOLD_RATIO,
+  DEFAULT_CONTEXT_WINDOW_MANAGER,
+} from "./context-window-manager";
+>>>>>>> d5123cf (fix(context): count tool schemas, and give the summarizer its arguments)
 import { DEFAULT_TOKEN_COUNTER, type ModelHint } from "./token-counter";
+
+/** Longest tool-argument string kept verbatim in a summarizer transcript. */
+const MAX_RENDERED_ARGUMENT_CHARS = 200;
+
+/**
+ * Keep arguments readable without letting one pasted payload dominate the transcript
+ * the summarizer has to read.
+ */
+function truncateArguments(rawArguments: string | undefined): string {
+  if (!rawArguments) return "";
+  const trimmed = rawArguments.trim();
+  if (trimmed.length <= MAX_RENDERED_ARGUMENT_CHARS) return trimmed;
+  return `${trimmed.slice(0, MAX_RENDERED_ARGUMENT_CHARS)}… (${trimmed.length} chars)`;
+}
 
 /** Build a token-counter hint from an agent's provider/model. */
 function modelHintFromAgent(agent: Agent): ModelHint {
@@ -195,6 +217,32 @@ export const Summarizer = {
     return { systemMessage, messagesToSummarize, sanitizedRecentMessages };
   },
 
+  /**
+   * Render messages as the transcript handed to the summarizer.
+   *
+   * Tool call *arguments* are included, not just names. The persona is told to
+   * preserve exact file paths and command names; rendering `[Tool Calls: read_file]`
+   * stripped precisely those before the summarizer ever saw them, leaving it to
+   * describe results without knowing what was asked for.
+   */
+  renderTranscript(messages: readonly ChatMessage[]): string {
+    return messages
+      .map((message) => {
+        let content = message.content || "";
+        if (message.tool_calls) {
+          const calls = message.tool_calls
+            .map((call) => {
+              const args = truncateArguments(call.function.arguments);
+              return args ? `${call.function.name}(${args})` : call.function.name;
+            })
+            .join(", ");
+          content += `\n[Tool Calls: ${calls}]`;
+        }
+        return `[${message.role.toUpperCase()}] ${content}`;
+      })
+      .join("\n\n---\n\n");
+  },
+
   compactIfNeeded(
     currentMessages: ConversationMessages,
     agent: Agent,
@@ -221,9 +269,18 @@ export const Summarizer = {
       // Use model-specific context window or fall back to default
       const maxTokens = modelContextWindow ?? DEFAULT_CONTEXT_WINDOW_MANAGER.getConfig().maxTokens;
       const hint = modelHintFromAgent(agent);
+<<<<<<< HEAD
       const currentTokens = DEFAULT_TOKEN_COUNTER.countMessages(currentMessages, hint);
       const { compactThresholdRatio } = resolveContextThresholds(appConfig.context);
       const threshold = maxTokens * compactThresholdRatio;
+=======
+      // Include the per-request overhead (tool schemas, provider scaffolding) — the
+      // window has to hold it too, and ignoring it compacts late.
+      const currentTokens =
+        DEFAULT_TOKEN_COUNTER.countMessages(currentMessages, hint) +
+        DEFAULT_TOKEN_COUNTER.overheadFor(hint);
+      const threshold = maxTokens * CONTEXT_COMPACT_THRESHOLD_RATIO;
+>>>>>>> d5123cf (fix(context): count tool schemas, and give the summarizer its arguments)
 
       // Check if summarization is needed
       if (currentTokens <= threshold) {
@@ -280,7 +337,9 @@ export const Summarizer = {
         ...sanitizedRecentMessages,
       ] as ConversationMessages;
 
-      const newTokens = DEFAULT_TOKEN_COUNTER.countMessages(compactedMessages, hint);
+      const newTokens =
+        DEFAULT_TOKEN_COUNTER.countMessages(compactedMessages, hint) +
+        DEFAULT_TOKEN_COUNTER.overheadFor(hint);
 
       yield* logger.info("Context compacted successfully", {
         originalMessages: currentMessages.length,
@@ -288,6 +347,17 @@ export const Summarizer = {
         originalTokens: currentTokens,
         compactedTokens: newTokens,
         tokensSaved: currentTokens - newTokens,
+      });
+
+      yield* logContextRung(logger, {
+        rung: "compact",
+        agentId: agent.id,
+        conversationId,
+        tokensBefore: currentTokens,
+        tokensAfter: newTokens,
+        budgetTokens: maxTokens,
+        messagesBefore: currentMessages.length,
+        messagesAfter: compactedMessages.length,
       });
 
       yield* presentationService.presentWarning(
@@ -345,15 +415,7 @@ export const Summarizer = {
         parentModel: agent.config.llmModel,
       });
 
-      const historyText = messagesToSummarize
-        .map((m) => {
-          let content = m.content || "";
-          if (m.tool_calls) {
-            content += `\n[Tool Calls: ${m.tool_calls.map((tc) => tc.function.name).join(", ")}]`;
-          }
-          return `[${m.role.toUpperCase()}] ${content}`;
-        })
-        .join("\n\n---\n\n");
+      const historyText = Summarizer.renderTranscript(messagesToSummarize);
 
       const userInput =
         "Summarize the following conversation. Produce a concise, structured summary that preserves key information for continuity—goals, decisions, outcomes, key entities, current status, and open questions. Output only the summary.\n\n" +
