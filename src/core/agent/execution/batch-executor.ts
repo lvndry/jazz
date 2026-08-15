@@ -16,7 +16,7 @@ import type { DisplayConfig } from "@/core/types/output";
 import { executeAgentLoop, type CompletionStrategy } from "./agent-loop";
 import { makeDefaultObserver } from "./agent-loop-observer";
 import type { RecursiveRunner } from "../context/summarizer";
-import { recordLLMRetry } from "../metrics/agent-run-metrics";
+import { emitLLMRetry, recordLLMRetry } from "../metrics/agent-run-metrics";
 import type { AgentResponse, AgentRunContext, AgentRunnerOptions } from "../types";
 
 /**
@@ -101,14 +101,14 @@ export function executeWithoutStreaming(
             withLongRunningLlmNotice(
               agent.name,
               showAgentStatus,
-              Effect.gen(function* () {
-                try {
-                  return yield* llmService.createChatCompletion(provider, llmOptions);
-                } catch (error) {
-                  recordLLMRetry(runMetrics, error);
-                  throw error;
-                }
-              }),
+              llmService.createChatCompletion(provider, llmOptions).pipe(
+                Effect.tapError((error) =>
+                  Effect.gen(function* () {
+                    recordLLMRetry(runMetrics, error);
+                    yield* emitLLMRetry(runMetrics, error);
+                  }),
+                ),
+              ),
             ),
             batchRetrySchedule,
           ).pipe(

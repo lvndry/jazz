@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { Context, Effect } from "effect";
+import { Effect } from "effect";
 import type { LoggerService } from "@/core/interfaces/logger";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import type { TelemetryService, TokenUsage } from "@/core/interfaces/telemetry";
-import { TelemetryServiceTag } from "@/core/interfaces/telemetry";
 import { type Agent } from "@/core/types";
 import type { ChatMessage } from "@/core/types/message";
+import { emitTelemetry } from "@/core/utils/telemetry-emit";
 import { DEFAULT_TOKEN_COUNTER } from "../context/token-counter";
 
 export interface AgentRunMetricsContext {
@@ -471,31 +471,102 @@ function buildTelemetryPayload(
   };
 }
 
-/**
- * Emit telemetry for a completed agent run.
- *
- * Uses a raw context lookup via `Context.getOption` cast through `any`
- * so that `TelemetryService` is NOT added to the `R` type parameter –
- * callers are completely unaffected.
- *
- * Failures are silently swallowed (telemetry is best-effort).
- */
 function emitAgentRunTelemetry(
   metrics: AgentRunMetrics,
   totalTokens: number,
   durationMs: number,
   details: { readonly iterationsUsed: number; readonly finished: boolean },
 ): Effect.Effect<void> {
-  return Effect.flatMap(Effect.context<never>(), (ctx) => {
-    const maybeTelemetry = Context.getOption(ctx, TelemetryServiceTag);
+  const payload = buildTelemetryPayload(metrics, totalTokens, durationMs, details);
+  return emitTelemetry((telemetry) => telemetry.recordAgentRunCompleted(payload));
+}
 
-    if (maybeTelemetry._tag === "None") return Effect.void;
+/** Emit `agent_run_started` at the top of a run. Best-effort. */
+export function emitAgentRunStarted(metrics: AgentRunMetrics): Effect.Effect<void> {
+  return emitTelemetry((telemetry) =>
+    telemetry.recordAgentRunStarted({
+      runId: metrics.runId,
+      agentId: metrics.agentId,
+      agentName: metrics.agentName,
+      conversationId: metrics.conversationId,
+      ...(metrics.provider && { provider: metrics.provider }),
+      ...(metrics.model && { model: metrics.model }),
+    }),
+  );
+}
 
-    const telemetry = maybeTelemetry.value;
-    const payload = buildTelemetryPayload(metrics, totalTokens, durationMs, details);
+/**
+ * Emit `agent_run_failed` when the run dies before `finalizeAgentRun` is
+ * reached. A run emits either this or `agent_run_completed`, never both.
+ */
+export function emitAgentRunFailed(metrics: AgentRunMetrics, error: unknown): Effect.Effect<void> {
+  const durationMs = Date.now() - metrics.startedAt.getTime();
+  return emitTelemetry((telemetry) =>
+    telemetry.recordAgentRunFailed({
+      runId: metrics.runId,
+      agentId: metrics.agentId,
+      agentName: metrics.agentName,
+      conversationId: metrics.conversationId,
+      error: normalizeError(error),
+      durationMs,
+    }),
+  );
+}
 
-    return telemetry.recordAgentRunCompleted(payload).pipe(Effect.catchAll(() => Effect.void));
-  }).pipe(Effect.catchAll(() => Effect.void));
+/** Emit `llm_usage` for a single completion. Best-effort. */
+export function emitLLMUsage(
+  metrics: AgentRunMetrics,
+  usage: TokenUsage,
+  durationMs: number,
+): Effect.Effect<void> {
+  return emitTelemetry((telemetry) =>
+    telemetry.recordLLMUsage({
+      provider: metrics.provider ?? "unknown",
+      model: metrics.model ?? "unknown",
+      usage,
+      agentId: metrics.agentId,
+      sessionId: metrics.conversationId,
+      durationMs,
+      runId: metrics.runId,
+    }),
+  );
+}
+
+/** Emit `llm_retry`. Best-effort. Call after `recordLLMRetry` bumps the count. */
+export function emitLLMRetry(metrics: AgentRunMetrics, error: unknown): Effect.Effect<void> {
+  return emitTelemetry((telemetry) =>
+    telemetry.recordLLMRetry({
+      provider: metrics.provider ?? "unknown",
+      model: metrics.model ?? "unknown",
+      error: normalizeError(error),
+      attempt: metrics.llmRetryCount,
+      agentId: metrics.agentId,
+      runId: metrics.runId,
+    }),
+  );
+}
+
+/** Emit `tool_invocation` / `tool_error` for a single tool call. Best-effort. */
+export function emitToolInvocation(
+  metrics: AgentRunMetrics,
+  data: {
+    readonly toolName: string;
+    readonly success: boolean;
+    readonly durationMs: number;
+    readonly error?: unknown;
+  },
+): Effect.Effect<void> {
+  return emitTelemetry((telemetry) =>
+    telemetry.recordToolInvocation({
+      toolName: data.toolName,
+      success: data.success,
+      durationMs: data.durationMs,
+      ...(data.error !== undefined && { error: normalizeError(data.error) }),
+      agentId: metrics.agentId,
+      sessionId: metrics.conversationId,
+      runId: metrics.runId,
+    }),
+  );
 }
 
 function normalizeError(error: unknown): string {

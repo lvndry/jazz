@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { appendFile, mkdir, readFile, readdir, unlink } from "node:fs/promises";
 import path from "node:path";
 import { Effect, Layer } from "effect";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
@@ -16,15 +15,28 @@ import type {
 } from "@/core/interfaces/telemetry";
 import { TelemetryServiceTag } from "@/core/interfaces/telemetry";
 import type { TelemetryConfig } from "@/core/types/config";
-import { TelemetryError, TelemetryWriteError } from "@/core/types/errors";
+import { TelemetryError } from "@/core/types/errors";
 import { getUserDataDirectory } from "@/core/utils/paths";
+import { FileTelemetrySink } from "./file-sink";
+import { redactHeaders, resolveOtlpConfig } from "./otlp-config";
+import { OtlpTelemetrySink } from "./otlp-sink";
+import { isEventReader, type TelemetrySink } from "./sink";
+import packageJson from "../../../package.json";
 
 // ── Constants ───────────────────────────────────────────────────────
 
 const DEFAULT_BUFFER_SIZE = 100;
 const DEFAULT_FLUSH_INTERVAL_MS = 30_000;
 const DEFAULT_RETENTION_DAYS = 90;
-const EVENTS_DIR = "events";
+
+/**
+ * Hard ceiling on retained-but-unflushed events, as a multiple of bufferSize.
+ *
+ * Failed writes are re-enqueued so a transient collector outage does not lose
+ * data, but an endpoint that is down for the whole run must not grow the buffer
+ * without bound. Past this point the oldest events are dropped.
+ */
+const MAX_BUFFER_MULTIPLIER = 10;
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
@@ -34,13 +46,6 @@ const EVENTS_DIR = "events";
  */
 function resolveDefaultStoragePath(): string {
   return path.join(getUserDataDirectory(), "telemetry");
-}
-
-/**
- * Create a date string suitable for partitioning event files: YYYY-MM-DD.
- */
-function datePartition(date: Date): string {
-  return date.toISOString().slice(0, 10);
 }
 
 function emptyUsageSummary(): UsageSummary {
@@ -66,18 +71,36 @@ function emptyUsageSummary(): UsageSummary {
 
 // ── Implementation ──────────────────────────────────────────────────
 
+export interface TelemetryServiceOptions {
+  readonly enabled: boolean;
+  readonly bufferSize: number;
+  readonly flushIntervalMs: number;
+  /** Destinations events are fanned out to on every flush. */
+  readonly sinks: readonly TelemetrySink[];
+  /** Reports a sink failure. Wired to the logger by the layer. */
+  readonly onSinkError?: (sinkName: string, error: unknown) => void;
+  /** Reports events dropped because the buffer hit its ceiling. */
+  readonly onEventsDropped?: (count: number) => void;
+}
+
 export class TelemetryServiceImpl implements TelemetryService {
   private buffer: TelemetryEvent[] = [];
   private flushTimer: ReturnType<typeof setInterval> | null = null;
-  private dirCreated = false;
+  private readonly enabled: boolean;
+  private readonly bufferSize: number;
+  private readonly flushIntervalMs: number;
+  private readonly sinks: readonly TelemetrySink[];
+  private readonly onSinkError: (sinkName: string, error: unknown) => void;
+  private readonly onEventsDropped: (count: number) => void;
 
-  constructor(
-    private readonly storagePath: string,
-    private readonly enabled: boolean,
-    private readonly bufferSize: number,
-    private readonly flushIntervalMs: number,
-    private readonly retentionDays: number,
-  ) {
+  constructor(options: TelemetryServiceOptions) {
+    this.enabled = options.enabled;
+    this.bufferSize = options.bufferSize;
+    this.flushIntervalMs = options.flushIntervalMs;
+    this.sinks = options.sinks;
+    this.onSinkError = options.onSinkError ?? (() => {});
+    this.onEventsDropped = options.onEventsDropped ?? (() => {});
+
     if (this.enabled && this.flushIntervalMs > 0) {
       this.flushTimer = setInterval(() => {
         void this.flushSync();
@@ -328,223 +351,83 @@ export class TelemetryServiceImpl implements TelemetryService {
   }
 
   private flushBuffer(): Effect.Effect<void, TelemetryError> {
-    return Effect.gen(
-      function* (this: TelemetryServiceImpl) {
-        if (this.buffer.length === 0) return;
-
-        const toFlush = [...this.buffer];
-        this.buffer = [];
-
-        yield* this.writeEvents(toFlush);
-      }.bind(this),
-    );
+    return Effect.promise(() => this.flushSync());
   }
 
   /**
-   * Synchronous flush (used by the interval timer outside of Effect context).
+   * Write the buffer out to every sink.
+   *
+   * Promise-based because the interval timer drives it from outside any Effect
+   * context. Sinks are written concurrently and independently: one failing
+   * destination never blocks another, and no failure is surfaced to the caller.
+   * Events are re-enqueued only when every sink failed, so a working file sink
+   * plus a dead collector does not duplicate rows on disk.
    */
   private async flushSync(): Promise<void> {
-    if (this.buffer.length === 0) return;
+    if (this.buffer.length === 0 || this.sinks.length === 0) return;
 
     const toFlush = [...this.buffer];
     this.buffer = [];
 
-    const eventsDir = path.join(this.storagePath, EVENTS_DIR);
+    const results = await Promise.allSettled(this.sinks.map((sink) => sink.write(toFlush)));
 
-    try {
-      if (!this.dirCreated) {
-        await mkdir(eventsDir, { recursive: true });
-        this.dirCreated = true;
+    let failures = 0;
+    results.forEach((result, index) => {
+      if (result.status === "rejected") {
+        failures += 1;
+        this.onSinkError(this.sinks[index]?.name ?? "unknown", result.reason);
       }
+    });
 
-      // Group by date partition
-      const grouped = new Map<string, TelemetryEvent[]>();
-      for (const event of toFlush) {
-        const partition = datePartition(new Date(event.timestamp));
-        const existing = grouped.get(partition);
-        if (existing) {
-          existing.push(event);
-        } else {
-          grouped.set(partition, [event]);
-        }
-      }
-
-      for (const [partition, events] of grouped) {
-        const filePath = path.join(eventsDir, `${partition}.ndjson`);
-        const lines = events.map((e) => JSON.stringify(e)).join("\n") + "\n";
-        await appendFile(filePath, lines, { encoding: "utf8" });
-      }
-    } catch {
-      // Re-enqueue events that failed to flush (best-effort)
+    if (failures === this.sinks.length) {
       this.buffer.unshift(...toFlush);
+      this.enforceBufferCeiling();
     }
   }
 
-  private writeEvents(events: readonly TelemetryEvent[]): Effect.Effect<void, TelemetryError> {
-    return Effect.gen(
-      function* (this: TelemetryServiceImpl) {
-        const eventsDir = path.join(this.storagePath, EVENTS_DIR);
+  private enforceBufferCeiling(): void {
+    const ceiling = this.bufferSize * MAX_BUFFER_MULTIPLIER;
+    if (this.buffer.length <= ceiling) return;
 
-        yield* Effect.tryPromise({
-          try: async () => {
-            if (!this.dirCreated) {
-              await mkdir(eventsDir, { recursive: true });
-              this.dirCreated = true;
-            }
-          },
-          catch: (error) =>
-            new TelemetryWriteError({
-              path: eventsDir,
-              message: `Failed to create telemetry directory: ${String(error)}`,
-              cause: error,
-              suggestion: "Check file system permissions for the telemetry storage path.",
-            }),
-        }).pipe(
-          Effect.mapError(
-            (err) =>
-              new TelemetryError({
-                operation: "flush",
-                message: err.message,
-                cause: err,
-              }),
-          ),
-        );
-
-        // Group events by date partition for file organization
-        const grouped = new Map<string, TelemetryEvent[]>();
-        for (const event of events) {
-          const partition = datePartition(new Date(event.timestamp));
-          const existing = grouped.get(partition);
-          if (existing) {
-            existing.push(event);
-          } else {
-            grouped.set(partition, [event]);
-          }
-        }
-
-        for (const [partition, partitionEvents] of grouped) {
-          const filePath = path.join(eventsDir, `${partition}.ndjson`);
-          const lines = partitionEvents.map((e) => JSON.stringify(e)).join("\n") + "\n";
-
-          yield* Effect.tryPromise({
-            try: () => appendFile(filePath, lines, { encoding: "utf8" }),
-            catch: (error) =>
-              new TelemetryError({
-                operation: "write",
-                message: `Failed to write telemetry events to ${filePath}: ${String(error)}`,
-                cause: error,
-                suggestion: "Check file system permissions for the telemetry storage path.",
-              }),
-          });
-        }
-      }.bind(this),
-    );
+    const dropped = this.buffer.length - ceiling;
+    this.buffer = this.buffer.slice(dropped);
+    this.onEventsDropped(dropped);
   }
 
   private loadAllEvents(): Effect.Effect<TelemetryEvent[], TelemetryError> {
-    return Effect.gen(
-      function* (this: TelemetryServiceImpl) {
-        const eventsDir = path.join(this.storagePath, EVENTS_DIR);
+    const reader = this.sinks.find(isEventReader);
+    if (!reader) return Effect.succeed([...this.buffer]);
 
-        const files = yield* Effect.tryPromise({
-          try: async () => {
-            try {
-              return await readdir(eventsDir);
-            } catch {
-              return [];
-            }
-          },
-          catch: (error) =>
-            new TelemetryError({
-              operation: "read",
-              message: `Failed to list telemetry events directory: ${String(error)}`,
-              cause: error,
-            }),
-        });
-
-        const ndjsonFiles = files.filter((f) => f.endsWith(".ndjson")).sort();
-        const allEvents: TelemetryEvent[] = [];
-
-        // Also include buffered (not yet flushed) events
-        allEvents.push(...this.buffer);
-
-        for (const file of ndjsonFiles) {
-          const filePath = path.join(eventsDir, file);
-          const content = yield* Effect.tryPromise({
-            try: () => readFile(filePath, { encoding: "utf8" }),
-            catch: (error) =>
-              new TelemetryError({
-                operation: "read",
-                message: `Failed to read telemetry file ${filePath}: ${String(error)}`,
-                cause: error,
-              }),
-          });
-
-          const lines = content.split("\n").filter((line) => line.trim().length > 0);
-          for (const line of lines) {
-            try {
-              const event = JSON.parse(line) as TelemetryEvent;
-              allEvents.push(event);
-            } catch {
-              // Skip malformed lines
-            }
-          }
-        }
-
-        return allEvents;
-      }.bind(this),
-    );
+    return Effect.tryPromise({
+      try: async () => [...this.buffer, ...(await reader.readAll())],
+      catch: (error) =>
+        new TelemetryError({
+          operation: "read",
+          message: `Failed to read telemetry events: ${String(error)}`,
+          cause: error,
+        }),
+    });
   }
 
   /**
-   * Remove telemetry files older than retentionDays.
+   * Remove stored events older than the retention window.
+   * Only the file sink retains anything locally; other sinks are no-ops here.
    */
   pruneOldEvents(): Effect.Effect<number, TelemetryError> {
-    return Effect.gen(
-      function* (this: TelemetryServiceImpl) {
-        const eventsDir = path.join(this.storagePath, EVENTS_DIR);
-        const cutoff = new Date();
-        cutoff.setDate(cutoff.getDate() - this.retentionDays);
-        const cutoffPartition = datePartition(cutoff);
-
-        const files = yield* Effect.tryPromise({
-          try: async () => {
-            try {
-              return await readdir(eventsDir);
-            } catch {
-              return [];
-            }
-          },
-          catch: (error) =>
-            new TelemetryError({
-              operation: "prune",
-              message: `Failed to list telemetry directory for pruning: ${String(error)}`,
-              cause: error,
-            }),
-        });
-
-        let pruned = 0;
-        for (const file of files) {
-          if (!file.endsWith(".ndjson")) continue;
-          // File name format: YYYY-MM-DD.ndjson
-          const partition = file.replace(".ndjson", "");
-          if (partition < cutoffPartition) {
-            yield* Effect.tryPromise({
-              try: () => unlink(path.join(eventsDir, file)),
-              catch: (error) =>
-                new TelemetryError({
-                  operation: "prune",
-                  message: `Failed to delete old telemetry file ${file}: ${String(error)}`,
-                  cause: error,
-                }),
-            });
-            pruned += 1;
-          }
-        }
-
-        return pruned;
-      }.bind(this),
+    const fileSink = this.sinks.find(
+      (sink): sink is FileTelemetrySink => sink instanceof FileTelemetrySink,
     );
+    if (!fileSink) return Effect.succeed(0);
+
+    return Effect.tryPromise({
+      try: () => fileSink.prune(),
+      catch: (error) =>
+        new TelemetryError({
+          operation: "prune",
+          message: `Failed to prune telemetry events: ${String(error)}`,
+          cause: error,
+        }),
+    });
   }
 
   private aggregateUsage(events: readonly TelemetryEvent[]): UsageSummary {
@@ -627,22 +510,16 @@ export class TelemetryServiceImpl implements TelemetryService {
               };
             }
           }
-          if (data["durationMs"] != null) {
-            summary.totalDurationMs += Number(data["durationMs"]);
-          }
           break;
         }
 
         case "agent_run_completed": {
           summary.totalAgentRuns += 1;
+          // `totalDurationMs` tracks wall clock, so only run duration counts —
+          // per-request `llm_usage` durations are contained within it. Tool
+          // counters come from the per-invocation events for the same reason.
           if (data["durationMs"] != null) {
             summary.totalDurationMs += Number(data["durationMs"]);
-          }
-          if (data["toolCalls"] != null) {
-            summary.totalToolCalls += Number(data["toolCalls"]);
-          }
-          if (data["toolErrors"] != null) {
-            summary.totalToolErrors += Number(data["toolErrors"]);
           }
 
           // Accumulate per-agent usage
@@ -654,13 +531,6 @@ export class TelemetryServiceImpl implements TelemetryService {
                 : "unknown";
           const agentName = typeof data["agentName"] === "string" ? data["agentName"] : "unknown";
           const usage = data["usage"] as TokenUsage | undefined;
-
-          // Accumulate tool token usage from agent run
-          if (usage) {
-            summary.toolDefinitionTokens += usage.toolDefinitionTokens ?? 0;
-            summary.toolResultTokens += usage.toolResultTokens ?? 0;
-            summary.toolDefinitionsOffered += usage.toolDefinitionsOffered ?? 0;
-          }
 
           const existingAgent = summary.byAgent[agentId];
           if (existingAgent) {
@@ -753,21 +623,51 @@ export function createTelemetryServiceLayer(): Layer.Layer<
       const flushIntervalMs = telemetryConfig?.flushIntervalMs ?? DEFAULT_FLUSH_INTERVAL_MS;
       const retentionDays = telemetryConfig?.retentionDays ?? DEFAULT_RETENTION_DAYS;
 
+      const sinks: TelemetrySink[] = [new FileTelemetrySink(storagePath, retentionDays)];
+
+      const otlpConfig = resolveOtlpConfig(telemetryConfig?.otlp);
+      if (otlpConfig?.enabled === true) {
+        sinks.push(new OtlpTelemetrySink(otlpConfig, packageJson.version));
+      }
+
       yield* logger.debug("Telemetry service initialized", {
         enabled,
         storagePath,
         bufferSize,
         flushIntervalMs,
         retentionDays,
+        sinks: sinks.map((sink) => sink.name),
+        ...(otlpConfig && {
+          otlp: {
+            enabled: otlpConfig.enabled,
+            logsEndpoint: otlpConfig.logsEndpoint,
+            serviceName: otlpConfig.serviceName,
+            captureContent: otlpConfig.captureContent,
+            // Headers carry credentials and must never reach the log file.
+            headers: redactHeaders(otlpConfig.headers),
+          },
+        }),
       });
 
-      return new TelemetryServiceImpl(
-        storagePath,
+      return new TelemetryServiceImpl({
         enabled,
         bufferSize,
         flushIntervalMs,
-        retentionDays,
-      );
+        sinks,
+        onSinkError: (sinkName, error) => {
+          Effect.runFork(
+            logger.warn("Telemetry sink write failed", {
+              sink: sinkName,
+              error: error instanceof Error ? error.message : String(error),
+            }),
+          );
+        },
+        onEventsDropped: (count) => {
+          Effect.runFork(
+            logger.warn("Telemetry buffer full; dropped oldest events", { dropped: count }),
+          );
+        },
+      });
     }),
   );
 }

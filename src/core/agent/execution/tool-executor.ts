@@ -24,6 +24,7 @@ import {
 import { extractCommandApprovalKey } from "@/core/utils/shell";
 import { formatToolArguments } from "@/core/utils/tool-formatter";
 import {
+  emitToolInvocation,
   recordToolError,
   recordToolInvocation,
   type createAgentRunMetrics,
@@ -408,6 +409,13 @@ export class ToolExecutor {
         // approval is waiting.
         yield* presentationService.signalToolExecutionStarted();
 
+        yield* emitToolInvocation(runMetrics, {
+          toolName: finalToolName,
+          success: result.success,
+          durationMs: toolDuration,
+          ...(result.success ? {} : { error: result.error ?? "Tool execution failed" }),
+        });
+
         const finalResult = result.success
           ? result.result
           : { error: result.error ?? "Tool execution failed", result: result.result };
@@ -440,6 +448,12 @@ export class ToolExecutor {
         }
 
         recordToolError(runMetrics, name, error);
+        yield* emitToolInvocation(runMetrics, {
+          toolName: name,
+          success: false,
+          durationMs: toolDuration,
+          error,
+        });
         yield* logger.error("Tool execution failed", {
           agentId,
           conversationId,

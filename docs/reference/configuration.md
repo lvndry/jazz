@@ -149,6 +149,86 @@ Other providers follow the same `<PROVIDER>_API_KEY` convention — see
 | `JAZZ_TERMINAL_NOTIFIER` / `TERMINAL_NOTIFIER` | Path to a `terminal-notifier` binary for desktop notifications |
 | `JAZZ_TERMINAL` | Terminal identity used for notification attribution |
 
+## `telemetry`
+
+Jazz records what each run did — agent runs, LLM requests and token usage, retries, tool
+invocations, and CLI commands — as NDJSON under `~/.jazz/telemetry/events/YYYY-MM-DD.ndjson`,
+pruned after `retentionDays`. Set `telemetry.otlp` to also push those events to an
+OpenTelemetry collector. See [Observability](../guide/observability.md) for a working
+collector and Langfuse setup.
+
+```json
+{
+  "telemetry": {
+    "enabled": true,
+    "retentionDays": 90,
+    "otlp": {
+      "endpoint": "http://localhost:4318",
+      "headers": { "authorization": "Basic <base64>" },
+      "serviceName": "jazz",
+      "captureContent": false
+    }
+  }
+}
+```
+
+| Field | Default | Effect |
+| --- | --- | --- |
+| `enabled` | `true` | Master switch. `false` records nothing, locally or remotely |
+| `storagePath` | `~/.jazz/telemetry` | Where the local NDJSON files live |
+| `bufferSize` | `100` | Events buffered in memory before a flush |
+| `flushIntervalMs` | `30000` | Periodic flush interval |
+| `retentionDays` | `90` | Local files older than this are deleted |
+| `otlp.enabled` | `true` when an endpoint is set | Explicit opt-out that keeps the endpoint configured |
+| `otlp.signals` | `["traces"]` | Signals to export: `traces`, `logs`, or both |
+| `otlp.endpoint` | — | Collector base URL; `/v1/traces` and `/v1/logs` are appended |
+| `otlp.tracesEndpoint` | — | Full traces URL including path, overriding `endpoint` |
+| `otlp.logsEndpoint` | — | Full logs URL including path, overriding `endpoint` |
+| `otlp.headers` | `{}` | Extra HTTP headers, typically auth |
+| `otlp.serviceName` | `jazz` | `service.name` on exported records |
+| `otlp.captureContent` | `false` | Include prompt, completion, and tool argument text |
+| `otlp.timeoutMs` | `10000` | Per-request timeout |
+
+### OTLP environment variables
+
+Every `otlp` field falls back to the standard `OTEL_*` variable, so a Jazz process inherits an
+already-configured collector without touching `config.json`. Precedence is config → environment
+→ default.
+
+| Variable | Effect |
+| --- | --- |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | Collector base URL. Setting this alone turns export on |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | Full traces URL, used verbatim; wins over the base URL |
+| `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` | Full logs URL, used verbatim; wins over the base URL |
+| `OTEL_EXPORTER_OTLP_HEADERS` | `key=value` pairs, comma-separated, values percent-encoded |
+| `OTEL_SERVICE_NAME` | `service.name` on exported records |
+
+There is no environment variable for `captureContent` — it can only be turned on in config, and
+never follows from configuring an endpoint.
+
+### What gets exported
+
+Events are sent over OTLP/HTTP with JSON encoding. By default they are exported as **traces**:
+one trace per agent run, with the run as the root span and each LLM request, retry, and tool
+call as a child span. Traces are what LLM-observability backends accept — Langfuse ingests OTLP
+traces and not logs — so this is the signal that works everywhere. Add `logs` to
+`otlp.signals` to also emit the same events as OTLP log records.
+
+Where the OpenTelemetry GenAI semantic conventions define an attribute, Jazz uses it
+(`gen_ai.system`, `gen_ai.request.model`, `gen_ai.usage.input_tokens`,
+`gen_ai.usage.output_tokens`); everything else is namespaced under `jazz.*`.
+
+**`captureContent` is the one setting that turns observability into data egress.** With it off
+(the default) Jazz drops content-bearing fields and truncates every remaining string attribute
+to 256 characters. Turning it on sends user prompts, model output, and tool arguments to
+whatever endpoint you configured. No event Jazz emits today carries content, so the flag is
+currently inert — it exists so that adding a content-bearing field later cannot leak it by
+default.
+
+Export never blocks a run. A collector that is slow, down, or rejecting is logged as a warning
+and the events are dropped once the buffer ceiling is reached; the local NDJSON file is
+unaffected.
+
 ## `autoApprovedCommands`
 
 A persisted allowlist for `execute_command`, set at the top level of `~/.jazz/config.json`:

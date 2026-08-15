@@ -48,8 +48,13 @@ mock.module("@/core/utils/models-dev", () => ({
   }),
 }));
 
+// `global.fetch` is assigned directly below, which `mock.restore()` does not
+// undo. Snapshot it so later test files in the same process still see real fetch.
+const actualFetch = globalThis.fetch;
+
 afterAll(() => {
   mock.module("@/core/utils/models-dev", () => actualModelsDevModule);
+  globalThis.fetch = actualFetch;
 });
 
 /**

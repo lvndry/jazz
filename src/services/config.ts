@@ -427,7 +427,15 @@ function mergeConfig(base: AppConfig, override?: Partial<AppConfig>): AppConfig 
     ...(override.maxSubagentIterations !== undefined && {
       maxSubagentIterations: override.maxSubagentIterations,
     }),
-    ...(override.telemetry && { telemetry: { ...(base.telemetry ?? {}), ...override.telemetry } }),
+    ...(override.telemetry && {
+      telemetry: {
+        ...(base.telemetry ?? {}),
+        ...override.telemetry,
+        ...(override.telemetry.otlp && {
+          otlp: { ...(base.telemetry?.otlp ?? {}), ...override.telemetry.otlp },
+        }),
+      },
+    }),
   };
 }
 

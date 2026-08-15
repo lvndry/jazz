@@ -19,8 +19,10 @@ import { handleError, isUserCancellation } from "./core/presentation/error-handl
 import { QuietPresentationServiceLayer } from "./core/presentation/quiet-presentation-service";
 import { SkillsLive } from "./core/skills/skill-service";
 import type { JazzError } from "./core/types/errors";
+import { getCurrentCommandName } from "./core/utils/current-command";
 import { isOfflineMode } from "./core/utils/runtime";
 import { resolveStorageDirectory } from "./core/utils/storage";
+import { emitTelemetry } from "./core/utils/telemetry-emit";
 import { SchedulerServiceLayer } from "./core/workflows/scheduler-service";
 import { WorkflowsLive } from "./core/workflows/workflow-service";
 import { createAgentServiceLayer } from "./services/agent-service";
@@ -216,6 +218,36 @@ export function createAppLayer(config: AppLayerConfig = {}) {
  * @param effect - The Effect to run
  * @param config - Configuration options for the application layer
  */
+/**
+ * Record the outcome of the CLI command that just finished.
+ *
+ * Only the command path is recorded — arguments and option values are omitted
+ * because they routinely carry prompts and file paths.
+ */
+function emitCommandExecuted(
+  exit: Exit.Exit<void, unknown>,
+  durationMs: number,
+): Effect.Effect<void> {
+  const command = getCurrentCommandName();
+  if (command === undefined) return Effect.void;
+
+  const failure = Exit.isFailure(exit) ? Cause.failureOption(exit.cause) : Option.none();
+  const errorMessage = Option.isSome(failure)
+    ? failure.value instanceof Error
+      ? failure.value.message
+      : String(failure.value)
+    : undefined;
+
+  return emitTelemetry((telemetry) =>
+    telemetry.recordCommandExecuted({
+      command,
+      durationMs,
+      success: Exit.isSuccess(exit),
+      ...(errorMessage !== undefined && { error: errorMessage }),
+    }),
+  );
+}
+
 export function runCliEffect<R, E extends JazzError | Error>(
   effect: Effect.Effect<void, E, R>,
   config: AppLayerConfig = {},
@@ -243,6 +275,7 @@ export function runCliEffect<R, E extends JazzError | Error>(
   });
 
   const program = Effect.gen(function* () {
+    const commandStartedAt = Date.now();
     const shouldSkipCatchUp =
       process.env["JAZZ_DISABLE_CATCH_UP"] === "1" || options.skipCatchUp === true;
 
@@ -323,6 +356,8 @@ export function runCliEffect<R, E extends JazzError | Error>(
         ),
       )
       .pipe(Effect.map((r) => r.exit));
+
+    yield* emitCommandExecuted(exit, Date.now() - commandStartedAt);
 
     // Register cleanup for MCP server connections and telemetry flush
     yield* Effect.addFinalizer(() =>

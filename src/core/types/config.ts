@@ -51,6 +51,54 @@ export interface TelemetryConfig {
   readonly flushIntervalMs?: number;
   /** Maximum number of days to retain telemetry data. Defaults to 90. */
   readonly retentionDays?: number;
+  /** Export events to an OpenTelemetry-compatible collector. Off unless an endpoint is set. */
+  readonly otlp?: OtlpTelemetryConfig;
+}
+
+/**
+ * OTLP/HTTP export settings.
+ *
+ * Every field falls back to the corresponding `OTEL_*` environment variable, so
+ * a Jazz process inherits an already-configured collector without touching
+ * config.json.
+ */
+export interface OtlpTelemetryConfig {
+  /**
+   * Explicit opt-out. Export is enabled by the presence of an endpoint; set
+   * this to false to keep the endpoint configured but stop sending.
+   */
+  readonly enabled?: boolean;
+  /**
+   * Signals to export. Defaults to `["traces"]`: spans are what turns a run
+   * into a waterfall, and what LLM-observability backends accept — Langfuse
+   * ingests OTLP traces and not logs.
+   */
+  readonly signals?: readonly ("traces" | "logs")[];
+  /** Collector base URL, e.g. `http://localhost:4318`. Env: OTEL_EXPORTER_OTLP_ENDPOINT. */
+  readonly endpoint?: string;
+  /**
+   * Full traces URL including path, overriding `endpoint`. Needed by backends
+   * that do not serve OTLP at `<base>/v1/traces`.
+   * Env: OTEL_EXPORTER_OTLP_TRACES_ENDPOINT.
+   */
+  readonly tracesEndpoint?: string;
+  /**
+   * Full logs URL including path, overriding `endpoint`.
+   * Env: OTEL_EXPORTER_OTLP_LOGS_ENDPOINT.
+   */
+  readonly logsEndpoint?: string;
+  /** Extra HTTP headers, typically auth. Env: OTEL_EXPORTER_OTLP_HEADERS. */
+  readonly headers?: Readonly<Record<string, string>>;
+  /** `service.name` on exported records. Defaults to "jazz". Env: OTEL_SERVICE_NAME. */
+  readonly serviceName?: string;
+  /**
+   * Include prompt, completion, and tool argument text in exported events.
+   * Defaults to false: enabling it sends user content to the configured
+   * endpoint.
+   */
+  readonly captureContent?: boolean;
+  /** Per-request timeout in milliseconds. Defaults to 10000. */
+  readonly timeoutMs?: number;
 }
 
 /**

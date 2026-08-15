@@ -34,7 +34,7 @@ import { type Agent } from "../types";
 import { agentPromptBuilder } from "./agent-prompt";
 import { Summarizer } from "./context/summarizer";
 import { executeWithStreaming, executeWithoutStreaming } from "./execution";
-import { createAgentRunMetrics } from "./metrics/agent-run-metrics";
+import { createAgentRunMetrics, emitAgentRunStarted } from "./metrics/agent-run-metrics";
 import { registerCustomToolsForAgent } from "./tools/custom-tools";
 import { registerMCPToolsForAgent } from "./tools/register-mcp-tools";
 import { registerSkillSystemTools } from "./tools/register-tools";
@@ -101,6 +101,8 @@ function initializeAgentRun(
       reasoningEffort: agent.config.reasoningEffort ?? "disable",
       maxIterations: resolvedMaxIterations,
     });
+
+    yield* emitAgentRunStarted(runMetrics);
 
     // Level 1: List all available skills (metadata only)
     const relevantSkills = yield* skillService.listSkills();

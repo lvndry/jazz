@@ -24,7 +24,11 @@ import { isRetryableLLMError } from "@/core/utils/llm-error";
 import { executeAgentLoop, type CompletionStrategy } from "./agent-loop";
 import { makeDefaultObserver } from "./agent-loop-observer";
 import type { RecursiveRunner } from "../context/summarizer";
-import { recordFirstTokenLatency, recordLLMRetry } from "../metrics/agent-run-metrics";
+import {
+  emitLLMRetry,
+  recordFirstTokenLatency,
+  recordLLMRetry,
+} from "../metrics/agent-run-metrics";
 import type { AgentResponse, AgentRunContext, AgentRunnerOptions } from "../types";
 
 const DEFERRED_RESPONSE_TIMEOUT = Duration.seconds(15);
@@ -131,28 +135,28 @@ export function executeWithStreaming(
             withLongRunningLlmNotice(
               agent.name,
               showAgentStatus,
-              Effect.gen(function* () {
-                try {
-                  return yield* llmService.createStreamingChatCompletion(provider, llmOptions);
-                } catch (error) {
-                  recordLLMRetry(runMetrics, error);
-                  if (
-                    error instanceof LLMRequestError ||
-                    error instanceof LLMRateLimitError ||
-                    error instanceof LLMAuthenticationError
-                  ) {
-                    yield* logger.error("LLM request error", {
-                      provider,
-                      model: agent.config.llmModel,
-                      errorType: error._tag,
-                      message: error.message,
-                      agentId: agent.id,
-                      conversationId: actualConversationId,
-                    });
-                  }
-                  throw error;
-                }
-              }),
+              llmService.createStreamingChatCompletion(provider, llmOptions).pipe(
+                Effect.tapError((error) =>
+                  Effect.gen(function* () {
+                    recordLLMRetry(runMetrics, error);
+                    yield* emitLLMRetry(runMetrics, error);
+                    if (
+                      error instanceof LLMRequestError ||
+                      error instanceof LLMRateLimitError ||
+                      error instanceof LLMAuthenticationError
+                    ) {
+                      yield* logger.error("LLM request error", {
+                        provider,
+                        model: agent.config.llmModel,
+                        errorType: error._tag,
+                        message: error.message,
+                        agentId: agent.id,
+                        conversationId: actualConversationId,
+                      });
+                    }
+                  }),
+                ),
+              ),
             ),
             streamingRetrySchedule,
           ).pipe(
@@ -188,14 +192,14 @@ export function executeWithStreaming(
                     withLongRunningLlmNotice(
                       agent.name,
                       showAgentStatus,
-                      Effect.gen(function* () {
-                        try {
-                          return yield* llmService.createChatCompletion(provider, llmOptions);
-                        } catch (innerError) {
-                          recordLLMRetry(runMetrics, innerError);
-                          throw innerError;
-                        }
-                      }),
+                      llmService.createChatCompletion(provider, llmOptions).pipe(
+                        Effect.tapError((innerError) =>
+                          Effect.gen(function* () {
+                            recordLLMRetry(runMetrics, innerError);
+                            yield* emitLLMRetry(runMetrics, innerError);
+                          }),
+                        ),
+                      ),
                     ),
                     fallbackRetrySchedule,
                   ).pipe(
