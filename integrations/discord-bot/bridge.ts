@@ -129,7 +129,12 @@ interface JazzSuccessEnvelope {
   readonly ok: true;
   readonly answer: string;
   readonly costUSD: number;
-  readonly tokenUsage?: { readonly totalTokens?: number };
+  readonly tokenUsage?: {
+    readonly totalTokens?: number;
+    readonly promptTokens?: number;
+    readonly completionTokens?: number;
+    readonly cacheReadTokens?: number;
+  };
   readonly webApp?: JazzWebApp;
   readonly messages?: unknown[];
 }
@@ -226,6 +231,22 @@ function newRunToken(): string {
 
 function formatTokenCount(tokens: number): string {
   return tokens >= 1000 ? `${(tokens / 1000).toFixed(1)}k` : String(tokens);
+}
+
+/**
+ * Input and output split out, since a single total hides that the input is
+ * the whole conversation plus tool schemas re-sent on every loop iteration.
+ */
+function formatUsageLines(usage: JazzSuccessEnvelope["tokenUsage"]): string | undefined {
+  const promptTokens = usage?.promptTokens ?? 0;
+  const completionTokens = usage?.completionTokens ?? 0;
+  if (promptTokens === 0 && completionTokens === 0) return undefined;
+  const cacheReadTokens = usage?.cacheReadTokens ?? 0;
+  const cached = cacheReadTokens > 0 ? ` (${formatTokenCount(cacheReadTokens)} cached)` : "";
+  return [
+    `-# Input: ${formatTokenCount(promptTokens)}${cached}`,
+    `-# Output: ${formatTokenCount(completionTokens)}`,
+  ].join("\n");
 }
 
 async function resolveChannel(config: BridgeConfig, channelId: string): Promise<ChannelMeta> {
@@ -618,14 +639,13 @@ async function handleMessage(
       const used = reporter?.toolsUsed() ?? [];
       const parts = ["✅ **Done**"];
       if (used.length > 0) parts.push(used.map((tool) => `\`${tool}\``).join(" "));
-      const totalTokens = envelope.tokenUsage?.totalTokens;
-      if (typeof totalTokens === "number" && totalTokens > 0) {
-        parts.push(`${formatTokenCount(totalTokens)} tok`);
-      }
       if (envelope.costUSD > 0) {
         parts.push(envelope.costUSD >= 0.0001 ? `$${envelope.costUSD.toFixed(4)}` : "<$0.0001");
       }
-      await reporter?.finish(parts.join(" · "));
+      const usageLines = formatUsageLines(envelope.tokenUsage);
+      await reporter?.finish(
+        usageLines === undefined ? parts.join(" · ") : `${parts.join(" · ")}\n${usageLines}`,
+      );
       const answerMessageId = await sendReply(config, channelId, envelope.answer, {
         components: followupComponents(),
       });

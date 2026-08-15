@@ -289,6 +289,7 @@ function finalizeRun(
       usage: {
         promptTokens: runMetrics.totalPromptTokens,
         completionTokens: runMetrics.totalCompletionTokens,
+        cacheReadTokens: runMetrics.totalCacheReadTokens,
       },
       ...(costUSD !== undefined ? { costUSD } : {}),
     };

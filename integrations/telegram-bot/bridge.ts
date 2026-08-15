@@ -108,7 +108,12 @@ interface JazzSuccessEnvelope {
   readonly ok: true;
   readonly answer: string;
   readonly costUSD: number;
-  readonly tokenUsage?: { readonly totalTokens?: number };
+  readonly tokenUsage?: {
+    readonly totalTokens?: number;
+    readonly promptTokens?: number;
+    readonly completionTokens?: number;
+    readonly cacheReadTokens?: number;
+  };
   readonly webApp?: JazzWebApp;
   /**
    * Only present for `--ephemeral` runs (incognito chats): the full
@@ -512,6 +517,22 @@ function formatTokenCount(tokens: number): string {
 }
 
 /**
+ * Input and output split out, since a single total hides that the input is
+ * the whole conversation plus tool schemas re-sent on every loop iteration.
+ */
+function formatUsageLines(usage: JazzSuccessEnvelope["tokenUsage"]): string | undefined {
+  const promptTokens = usage?.promptTokens ?? 0;
+  const completionTokens = usage?.completionTokens ?? 0;
+  if (promptTokens === 0 && completionTokens === 0) return undefined;
+  const cacheReadTokens = usage?.cacheReadTokens ?? 0;
+  const cached = cacheReadTokens > 0 ? ` (${formatTokenCount(cacheReadTokens)} cached)` : "";
+  return [
+    `Input: ${formatTokenCount(promptTokens)}${cached}`,
+    `Output: ${formatTokenCount(completionTokens)}`,
+  ].join("\n");
+}
+
+/**
  * Show the latest slice of a streaming thought. Short thoughts render whole;
  * longer ones show the tail from a word boundary with a leading ellipsis, so
  * the line reads as a continuation rather than a chopped-off first word.
@@ -835,14 +856,13 @@ async function handleMessage(config: BridgeConfig, chatId: number, text: string)
       if (used.length > 0) {
         parts.push(used.map((tool) => `<code>${escapeHtml(tool)}</code>`).join(" "));
       }
-      const totalTokens = envelope.tokenUsage?.totalTokens;
-      if (typeof totalTokens === "number" && totalTokens > 0) {
-        parts.push(`${formatTokenCount(totalTokens)} tok`);
-      }
       if (envelope.costUSD > 0) {
         parts.push(envelope.costUSD >= 0.0001 ? `$${envelope.costUSD.toFixed(4)}` : "<$0.0001");
       }
-      await reporter?.finish(parts.join(" · "));
+      const usageLines = formatUsageLines(envelope.tokenUsage);
+      await reporter?.finish(
+        usageLines === undefined ? parts.join(" · ") : `${parts.join(" · ")}\n\n${usageLines}`,
+      );
       // Send with static CTAs immediately, then (optionally) upgrade to
       // contextual ones once a quick follow-up generation returns.
       const answerMessageId = await sendReply(config, chatId, envelope.answer, {
