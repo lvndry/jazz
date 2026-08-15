@@ -28,6 +28,7 @@ import {
   agentPath,
   ensureChatAgent,
   readAgentFile,
+  syncAgentDisplayName,
   writeAgentFile,
 } from "./agents";
 import { startReminderSweep } from "./reminders";
@@ -1658,6 +1659,13 @@ async function pollLoop(config: BridgeConfig): Promise<void> {
   }
 }
 
+/** The bot's own display name, used as the agent name the persona speaks as. */
+async function fetchBotName(config: BridgeConfig): Promise<string | undefined> {
+  const body = (await callTelegram(config, "getMe", {})) as
+    { result?: { first_name?: string; username?: string } } | undefined;
+  return body?.result?.first_name ?? body?.result?.username;
+}
+
 async function start(): Promise<void> {
   const config = loadConfig();
   // Drop the cached CTA agent so it re-seeds from the current template (picks
@@ -1670,8 +1678,12 @@ async function start(): Promise<void> {
   // Populates Telegram's "/" autocomplete menu. Cheap and idempotent, so it's
   // just re-sent on every start rather than only when BOT_COMMANDS changes.
   await callTelegram(config, "setMyCommands", { commands: BOT_COMMANDS });
+  const botName = await fetchBotName(config);
+  if (botName !== undefined) {
+    syncAgentDisplayName(config.jazzHome, config.baseAgentId, botName);
+  }
   console.log(
-    `Telegram → Jazz bridge started (mode="${config.mode}", per-chat agents, policy="${config.approvalPolicy}")`,
+    `Telegram → Jazz bridge started as ${botName ?? "an unnamed bot"} (mode="${config.mode}", per-chat agents, policy="${config.approvalPolicy}")`,
   );
 
   if (config.mode === "webhook") {
