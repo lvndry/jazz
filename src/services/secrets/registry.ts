@@ -22,7 +22,7 @@ export const LLM_PROVIDER_ENV_VARS: Record<string, string> = {
   cerebras: "CEREBRAS_API_KEY",
   deepseek: "DEEPSEEK_API_KEY",
   fireworks: "FIREWORKS_API_KEY",
-  google: "GOOGLE_GENERATIVE_AI_API_KEY",
+  gemini: "GOOGLE_GENERATIVE_AI_API_KEY",
   groq: "GROQ_API_KEY",
   llamacpp: "LLAMACPP_API_KEY",
   minimax: "MINIMAX_API_KEY",

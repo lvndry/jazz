@@ -5,6 +5,7 @@ import { StorageServiceTag, type StorageService } from "@/core/interfaces/storag
 import { AgentConfigurationError, StorageError, StorageNotFoundError } from "@/core/types/errors";
 import type { Agent, AgentConfig } from "@/core/types/index";
 import { parseJson } from "@/core/utils/json";
+import { migrateAgentProviderName } from "@/core/utils/provider-migration";
 
 /** On-disk agent JSON may omit timestamps (e.g. repo templates); defaults apply at read time. */
 function resolveAgentFileTimestamps(raw: {
@@ -107,13 +108,7 @@ export class FileStorageService implements StorageService {
           .readFileString(path)
           .pipe(Effect.mapError((error) => this.mapReadError(path, error)));
 
-        const rawData = yield* parseJson<
-          Omit<Agent, "createdAt" | "updatedAt" | "model"> & {
-            readonly model?: string;
-            readonly createdAt?: string;
-            readonly updatedAt?: string;
-          }
-        >(content).pipe(
+        const parsed = yield* parseJson<unknown>(content).pipe(
           Effect.mapError(
             (error) =>
               new StorageError({
@@ -123,6 +118,22 @@ export class FileStorageService implements StorageService {
               }),
           ),
         );
+
+        // Rewrite the legacy "google" provider name in place. Doing this on read
+        // rather than as a one-shot startup pass also repairs agent files that
+        // show up later, from a backup or a synced machine.
+        const migration = migrateAgentProviderName(parsed);
+        if (migration.changed) {
+          yield* this.writeJsonFile(path, migration.record).pipe(
+            Effect.catchAll(() => Effect.void),
+          );
+        }
+
+        const rawData = migration.record as Omit<Agent, "createdAt" | "updatedAt" | "model"> & {
+          readonly model?: string;
+          readonly createdAt?: string;
+          readonly updatedAt?: string;
+        };
 
         let normalizedTools: readonly string[];
         try {

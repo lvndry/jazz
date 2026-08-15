@@ -223,7 +223,7 @@ describe("AI SDK Service - Unit Tests", () => {
       const llmConfigProviders: ProviderName[] = [
         "openai",
         "anthropic",
-        "google",
+        "gemini",
         "mistral",
         "xai",
         "deepseek",
@@ -498,6 +498,16 @@ describe("AI SDK Service - Unit Tests", () => {
       const openaiModels = PROVIDER_MODELS.openai;
       if (openaiModels.type === "static") {
         expect(result.length).toBe(openaiModels.models.length);
+      }
+    });
+
+    it("looks gemini up in the models.dev catalog under its upstream id", () => {
+      // models.dev lists Gemini under "google". That id is theirs, so the
+      // provider rename must not reach the catalog lookup.
+      const geminiModels = PROVIDER_MODELS.gemini;
+      expect(geminiModels.type).toBe("models-dev");
+      if (geminiModels.type === "models-dev") {
+        expect(geminiModels.catalogId).toBe("google");
       }
     });
 

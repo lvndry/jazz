@@ -66,7 +66,7 @@ You can set or update your API keys in config by running `jazz` -> `update confi
 
 **Supported Models:** [`src/core/constants/models.ts`](../../src/core/constants/models.ts#L28-L32)
 
-## Google Gemini
+## Gemini
 
 **Capabilities**: Gemini Pro and Flash models with multimodal support
 
@@ -78,12 +78,16 @@ You can set or update your API keys in config by running `jazz` -> `update confi
 ```json
 {
   "llm": {
-    "google": {
+    "gemini": {
       "api_key": "AIza..."
     }
   }
 }
 ```
+
+> Previously named `google`. Existing configs and agents are rewritten to
+> `gemini` automatically the first time Jazz reads them. The environment
+> variable keeps its upstream name, `GOOGLE_GENERATIVE_AI_API_KEY`.
 
 **Supported Models:** [`src/core/constants/models.ts`](../../src/core/constants/models.ts#L33-L42)
 

@@ -7,7 +7,7 @@ const PROVIDER_DISPLAY_NAMES: Readonly<Record<string, string>> = {
   cerebras: "Cerebras",
   deepseek: "DeepSeek",
   fireworks: "Fireworks",
-  google: "Google",
+  gemini: "Gemini",
   groq: "Groq",
   llamacpp: "llama.cpp",
   minimax: "MiniMax",

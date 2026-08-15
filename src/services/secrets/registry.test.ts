@@ -21,7 +21,7 @@ describe("secret registry", () => {
 
   it("maps secret paths to their environment variables", () => {
     expect(envVarForSecretPath("llm.anthropic.api_key")).toBe("ANTHROPIC_API_KEY");
-    expect(envVarForSecretPath("llm.google.api_key")).toBe("GOOGLE_GENERATIVE_AI_API_KEY");
+    expect(envVarForSecretPath("llm.gemini.api_key")).toBe("GOOGLE_GENERATIVE_AI_API_KEY");
     expect(envVarForSecretPath("web_search.exa.api_key")).toBe("EXA_API_KEY");
     expect(envVarForSecretPath("logging.level")).toBeUndefined();
   });

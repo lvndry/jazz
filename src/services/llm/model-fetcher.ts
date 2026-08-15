@@ -97,8 +97,8 @@ function isTextChatModel(entry: ModelsDevModelEntry): boolean {
  *
  * Throws when models.dev is unavailable.
  */
-export async function fetchModelsDevModels(providerName: ProviderName): Promise<ModelInfo[]> {
-  const entries = await getModelsDevProviderModels(providerName);
+export async function fetchModelsDevModels(catalogId: string): Promise<ModelInfo[]> {
+  const entries = await getModelsDevProviderModels(catalogId);
 
   const ids = new Set(entries.map((entry) => entry.id));
   const isSnapshotDuplicate = (id: string): boolean => {

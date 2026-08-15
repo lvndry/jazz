@@ -21,8 +21,8 @@ describe("inferFamily", () => {
     [{ provider: "openai", modelId: "o3-mini" }, "openai-o200k"],
     [{ provider: "anthropic", modelId: "claude-opus-4-6" }, "anthropic"],
     [{ provider: "openrouter", modelId: "anthropic/claude-3.5-sonnet" }, "anthropic"],
-    [{ provider: "google", modelId: "gemini-2.5-pro" }, "google"],
-    [{ provider: "openrouter", modelId: "google/gemini-2.5-flash" }, "google"],
+    [{ provider: "gemini", modelId: "gemini-2.5-pro" }, "gemini"],
+    [{ provider: "openrouter", modelId: "google/gemini-2.5-flash" }, "gemini"],
     [{ provider: "mistral", modelId: "mistral-large-latest" }, "mistral"],
     [{ provider: "mistral", modelId: "ministral-8b-latest" }, "mistral"],
     [{ provider: "groq", modelId: "llama-3.1-70b" }, "llama"],
@@ -93,7 +93,7 @@ describe("TokenCounter — non-OpenAI families use ratio fallback", () => {
 
   it("Google uses ~4.0 chars/token by default", () => {
     const counter = new TokenCounter();
-    const hint: ModelHint = { provider: "google", modelId: "gemini-2.5-pro" };
+    const hint: ModelHint = { provider: "gemini", modelId: "gemini-2.5-pro" };
     const text = "a".repeat(80);
 
     expect(counter.countText(text, hint)).toBe(Math.ceil(80 / 4.0));
@@ -251,15 +251,15 @@ describe("TokenCounter — calibration converges to authoritative truth", () => 
     expect(counter.getRatio(hint)).toBe(before);
   });
 
-  it("calibration is per-model (anthropic ratio doesn't affect google)", () => {
+  it("calibration is per-model (anthropic ratio doesn't affect gemini)", () => {
     const counter = new TokenCounter();
     const anthropicHint: ModelHint = { provider: "anthropic", modelId: "claude-opus-4-6" };
-    const googleHint: ModelHint = { provider: "google", modelId: "gemini-2.5-pro" };
+    const geminiHint: ModelHint = { provider: "gemini", modelId: "gemini-2.5-pro" };
 
     counter.calibrate(175, [userMsg("a".repeat(700))], anthropicHint);
 
     expect(counter.getRatio(anthropicHint)).toBeCloseTo(4.0, 2);
-    expect(counter.getRatio(googleHint)).toBe(4.0); // google default unchanged
+    expect(counter.getRatio(geminiHint)).toBe(4.0); // gemini default unchanged
   });
 
   it("calibration invalidates the message cache so new ratio takes effect", () => {
