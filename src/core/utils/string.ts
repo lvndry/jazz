@@ -89,53 +89,63 @@ export function safeStringify(value: unknown): string {
 }
 
 /**
- * Convert a string to PascalCase
+ * Build a sorted index containing the UTF-16 offset at which each line starts.
  *
- * Handles camelCase, kebab-case, snake_case, and space-separated strings.
- * Examples:
- * - "notionMCP" -> "NotionMCP"
- * - "my-server" -> "MyServer"
- * - "my_server" -> "MyServer"
- * - "my server" -> "MyServer"
- *
- * @param str - The string to convert
- * @returns The string in PascalCase format
+ * Build this once and reuse it when many String or RegExp match offsets need
+ * conversion to one-based line numbers.
  */
-/**
- * Provider display name map. Uses official brand casing for each provider.
- */
-const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
-  ai_gateway: "Vercel AI Gateway",
-  alibaba: "Alibaba",
-  anthropic: "Anthropic",
-  cerebras: "Cerebras",
-  deepseek: "DeepSeek",
-  fireworks: "Fireworks",
-  google: "Google",
-  groq: "Groq",
-  llamacpp: "llama.cpp",
-  minimax: "MiniMax",
-  mistral: "Mistral",
-  moonshotai: "Moonshot AI",
-  ollama: "Ollama",
-  openai: "OpenAI",
-  openrouter: "OpenRouter",
-  togetherai: "Together AI",
-  xai: "xAI",
-  zhipuai: "Zhipu AI",
-};
-
-/**
- * Format a provider name for display.
- * Uses official brand casing (e.g., "openai" → "OpenAI", "ai_gateway" → "AI Gateway").
- * Falls back to PascalCase with underscores replaced by spaces for unknown providers.
- */
-export function formatProviderDisplayName(provider: string): string {
-  const known = PROVIDER_DISPLAY_NAMES[provider];
-  if (known) return known;
-  return provider.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+export function buildLineOffsets(content: string): number[] {
+  const lineOffsets: number[] = [0];
+  for (let index = 0; index < content.length; index++) {
+    if (content[index] === "\n") lineOffsets.push(index + 1);
+  }
+  return lineOffsets;
 }
 
+/**
+ * Find the one-based line containing a UTF-16 string offset using binary search.
+ */
+export function offsetToLine(lineOffsets: readonly number[], offset: number): number {
+  let low = 0;
+  let high = lineOffsets.length - 1;
+  while (low < high) {
+    const middle = (low + high + 1) >>> 1;
+    if ((lineOffsets[middle] as number) <= offset) {
+      low = middle;
+    } else {
+      high = middle - 1;
+    }
+  }
+  return low + 1;
+}
+
+/**
+ * Return one-based line numbers for exact, non-empty substring occurrences.
+ *
+ * @param limit - Maximum matches to collect; defaults to all matches.
+ */
+export function findAllOccurrenceLineNumbers(
+  content: string,
+  search: string,
+  limit = Number.POSITIVE_INFINITY,
+): number[] {
+  if (search.length === 0 || limit <= 0) return [];
+  const lineOffsets = buildLineOffsets(content);
+  const lineNumbers: number[] = [];
+  let index = 0;
+  while (lineNumbers.length < limit && (index = content.indexOf(search, index)) !== -1) {
+    lineNumbers.push(offsetToLine(lineOffsets, index));
+    index += search.length;
+  }
+  return lineNumbers;
+}
+
+/**
+ * Convert camelCase, kebab-case, snake_case, or words to PascalCase.
+ *
+ * @param str - The string to convert.
+ * @returns The PascalCase string.
+ */
 export function toPascalCase(str: string): string {
   if (!str) return str;
 

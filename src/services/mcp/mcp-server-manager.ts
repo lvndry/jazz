@@ -21,8 +21,8 @@ import {
 } from "@/core/types/errors";
 import type { MCPClient, MCPTool } from "@/core/types/mcp";
 import { isMCPClient, normalizeMCPToolRegistry } from "@/core/types/mcp";
-import { createSanitizedEnv } from "@/core/utils/env-utils";
-import { retryWithBackoff } from "@/core/utils/mcp-utils";
+import { createSanitizedEnv } from "@/core/utils/env";
+import { retryWithBackoff } from "@/core/utils/mcp";
 
 /**
  * MCP Server Manager implementation

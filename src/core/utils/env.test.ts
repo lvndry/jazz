@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { createSanitizedEnv } from "./env-utils";
+import { createSanitizedEnv } from "./env";
 
 describe("createSanitizedEnv", () => {
   it("scrubs sensitive-looking env vars by default", () => {

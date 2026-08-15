@@ -1,26 +1,30 @@
-import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { z } from "zod";
-import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
 import { defineTool, makeZodValidator } from "../base-tool";
-import { resolveGitWorkingDirectory, runGitCommand } from "./utils";
+import {
+  gitRepoPathSchema,
+  resolveGitRepoDir,
+  runGitOrFail,
+  withGitTruncation,
+  type GitToolDeps,
+} from "./utils";
 
 /**
  * Git status tool - displays repository working tree status
  */
 
-export function createGitStatusTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
+export function createGitStatusTool(): Tool<GitToolDeps> {
   const parameters = z
     .object({
-      path: z.string().optional().describe("Repository path (defaults to cwd)"),
+      path: gitRepoPathSchema,
     })
     .strict();
 
   type GitStatusArgs = z.infer<typeof parameters>;
 
-  return defineTool<FileSystem.FileSystem | FileSystemContextService, GitStatusArgs>({
+  return defineTool<GitToolDeps, GitStatusArgs>({
     name: "git_status",
     description: "Show current branch, modified files, staged changes, and untracked files.",
     tags: ["git", "status"],
@@ -29,61 +33,19 @@ export function createGitStatusTool(): Tool<FileSystem.FileSystem | FileSystemCo
     handler: (
       args: GitStatusArgs,
       context: ToolExecutionContext,
-    ): Effect.Effect<
-      ToolExecutionResult,
-      Error,
-      FileSystem.FileSystem | FileSystemContextService
-    > =>
+    ): Effect.Effect<ToolExecutionResult, Error, GitToolDeps> =>
       Effect.gen(function* () {
-        const shell = yield* FileSystemContextServiceTag;
-        const fs = yield* FileSystem.FileSystem;
+        const resolved = yield* resolveGitRepoDir(args?.path, context);
+        if (resolved.kind === "failure") return resolved.result;
+        const workingDir = resolved.path;
 
-        let workingDirError: string | null = null;
-        const workingDir = yield* resolveGitWorkingDirectory(shell, context, fs, args?.path).pipe(
-          Effect.catchAll((error) => {
-            workingDirError = error instanceof Error ? error.message : String(error);
-            return Effect.succeed(null);
-          }),
-        );
-
-        if (workingDir === null) {
-          return {
-            success: false,
-            result: null,
-            error: workingDirError || "Failed to resolve working directory",
-          };
-        }
-
-        // Catch spawn errors (e.g., git not found, invalid cwd)
-        let commandError: string | null = null;
-        const commandResult = yield* runGitCommand({
+        const executed = yield* runGitOrFail("git status", {
           args: ["status", "--short", "--branch"],
           workingDirectory: workingDir,
-        }).pipe(
-          Effect.catchAll((error) => {
-            const errorMsg = error instanceof Error ? error.message : String(error);
-            commandError = `Failed to execute git status in directory '${workingDir}': ${errorMsg}`;
-            return Effect.succeed(null);
-          }),
-        );
+        });
+        if (executed.kind === "failure") return executed.result;
 
-        if (commandResult === null) {
-          return {
-            success: false,
-            result: null,
-            error: commandError || `Failed to execute git status in directory '${workingDir}'`,
-          };
-        }
-
-        const gitResult = commandResult;
-
-        if (gitResult.exitCode !== 0) {
-          return {
-            success: false,
-            result: null,
-            error: `git status failed in directory '${workingDir}' with exit code ${gitResult.exitCode}: ${gitResult.stderr || "Unknown error"}`,
-          };
-        }
+        const gitResult = executed.result;
 
         const lines = gitResult.stdout.split("\n").filter((line) => line.trim().length > 0);
         const branchLine = lines.find((line) => line.startsWith("##")) ?? "";
@@ -92,13 +54,16 @@ export function createGitStatusTool(): Tool<FileSystem.FileSystem | FileSystemCo
 
         return {
           success: true,
-          result: {
-            workingDirectory: workingDir,
-            branch: branchLine.replace(/^##\s*/, "") || "unknown",
-            hasChanges,
-            summary: hasChanges ? changes : ["Working tree clean"],
-            rawStatus: gitResult.stdout,
-          },
+          result: withGitTruncation(
+            {
+              workingDirectory: workingDir,
+              branch: branchLine.replace(/^##\s*/, "") || "unknown",
+              hasChanges,
+              summary: hasChanges ? changes : ["Working tree clean"],
+              rawStatus: gitResult.stdout,
+            },
+            gitResult,
+          ),
         };
       }),
     createSummary: (result: ToolExecutionResult) => {

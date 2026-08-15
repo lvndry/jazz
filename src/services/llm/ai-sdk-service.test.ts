@@ -30,8 +30,8 @@ import { PROVIDER_MODELS } from "./models";
 
 // Bun module mocks are process-global: snapshot the real exports so afterAll can
 // restore them for test files that run later in the same process.
-const actualModelsDevClient = {
-  ...(await import("@/core/utils/models-dev-client")),
+const actualModelsDevModule = {
+  ...(await import("@/core/utils/models-dev")),
 };
 
 const mockCatalogMetadata = {
@@ -46,7 +46,7 @@ const mockCatalogMetadata = {
 // getModelsDevProviderModels must be mocked too: catalog-backed providers list
 // models through it, and the real implementation reaches the network (or the
 // on-disk snapshot), which unit tests must never depend on.
-mock.module("@/core/utils/models-dev-client", () => ({
+mock.module("@/core/utils/models-dev", () => ({
   getModelsDevMap: () => Promise.resolve(new Map()),
   getMetadataFromMap: () => null,
   getModelsDevProviderModels: () =>
@@ -71,7 +71,7 @@ mock.module("@/core/utils/models-dev-client", () => ({
 }));
 
 afterAll(() => {
-  mock.module("@/core/utils/models-dev-client", () => actualModelsDevClient);
+  mock.module("@/core/utils/models-dev", () => actualModelsDevModule);
 });
 
 describe("AI SDK Service - Unit Tests", () => {

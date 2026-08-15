@@ -1,4 +1,4 @@
-import { Effect, Schedule } from "effect";
+import { Duration, Effect, Schedule } from "effect";
 import { MCPServerNameParseError } from "@/core/types/errors";
 
 /**
@@ -95,13 +95,21 @@ export function retryWithBackoff<E, A, R>(
     readonly shouldRetry?: (error: E) => boolean;
   } = {},
 ): Effect.Effect<A, E, R> {
-  const { maxRetries = 3, initialDelayMs = 1000, shouldRetry = () => true } = options;
+  const {
+    maxRetries = 3,
+    initialDelayMs = 1000,
+    maxDelayMs = 10_000,
+    shouldRetry = () => true,
+  } = options;
 
   // Create a schedule with exponential backoff
   // Schedule.exponential creates delays that grow exponentially: base * 2^attempt
   // We intersect with Schedule.recurs to limit the number of retries
   // and use Schedule.whileInput to conditionally retry based on error type
   const schedule = Schedule.exponential(`${initialDelayMs} millis`).pipe(
+    Schedule.modifyDelay((_, delay) =>
+      Duration.min(delay, Duration.millis(Math.max(0, maxDelayMs))),
+    ),
     Schedule.intersect(Schedule.recurs(maxRetries)),
     Schedule.whileInput((error: E) => shouldRetry(error)),
   );
@@ -113,7 +121,8 @@ export function retryWithBackoff<E, A, R>(
  * Check if an error indicates that authentication is required
  *
  * MCP servers may require authentication and can take longer than normal timeouts.
- * This function detects common patterns that indicate authentication is needed.
+ * This broad text heuristic may produce false positives and is suitable only
+ * for deciding whether to offer authentication UX, never for security policy.
  *
  * @param error - The error to check
  * @returns true if the error suggests authentication is required

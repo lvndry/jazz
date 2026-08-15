@@ -15,12 +15,12 @@ import { MCPServerManagerTag } from "./core/interfaces/mcp-server";
 import { StorageServiceTag } from "./core/interfaces/storage";
 import { TelemetryServiceTag } from "./core/interfaces/telemetry";
 import { TerminalServiceTag } from "./core/interfaces/terminal";
+import { handleError, isUserCancellation } from "./core/presentation/error-handler";
 import { QuietPresentationServiceLayer } from "./core/presentation/quiet-presentation-service";
 import { SkillsLive } from "./core/skills/skill-service";
 import type { JazzError } from "./core/types/errors";
-import { handleError, isUserCancellation } from "./core/utils/error-handler";
-import { isOfflineMode } from "./core/utils/offline";
-import { resolveStorageDirectory } from "./core/utils/storage-utils";
+import { isOfflineMode } from "./core/utils/runtime";
+import { resolveStorageDirectory } from "./core/utils/storage";
 import { SchedulerServiceLayer } from "./core/workflows/scheduler-service";
 import { WorkflowsLive } from "./core/workflows/workflow-service";
 import { createAgentServiceLayer } from "./services/agent-service";
@@ -148,10 +148,6 @@ export function createAppLayer(config: AppLayerConfig = {}) {
 
   const toolRegistrationLayer = createToolRegistrationLayer().pipe(
     Layer.provide(toolRegistryLayer),
-    Layer.provide(mcpServerManagerLayer),
-    Layer.provide(configLayer),
-    Layer.provide(loggerLayer),
-    Layer.provide(SkillsLive.layer),
   );
 
   const telemetryLayer = createTelemetryServiceLayer().pipe(

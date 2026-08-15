@@ -6,7 +6,7 @@ import { type LLMError } from "@/core/types/errors";
 import type { ColorProfile, DisplayConfig, OutputMode, RenderTheme } from "@/core/types/output";
 import type { StreamEvent, StreamingConfig } from "@/core/types/streaming";
 import type { ToolCall } from "@/core/types/tools";
-import { getModelsDevMetadataSync } from "@/core/utils/models-dev-client";
+import { getModelsDevMetadataSync } from "@/core/utils/models-dev";
 import {
   formatToolArguments as formatToolArgumentsShared,
   formatToolResult as formatToolResultShared,

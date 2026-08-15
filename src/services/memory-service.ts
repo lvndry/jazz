@@ -18,126 +18,29 @@ import type {
   MemoryViewOutcome,
 } from "@/core/interfaces/memory-service";
 import { MemoryServiceTag } from "@/core/interfaces/memory-service";
-import { withLock } from "@/core/utils/file-lock";
-import { getMemoryDirectory } from "@/core/utils/runtime-detection";
+import { getMemoryDirectory } from "@/core/utils/paths";
+import {
+  abbreviateHomePath,
+  requireValidAgentId,
+  withLock,
+  writeFileStringAtomic,
+} from "@/core/utils/storage";
+import { findAllOccurrenceLineNumbers } from "@/core/utils/string";
+import { resolveVirtualPath, type VirtualPathViolation } from "@/core/utils/virtual-path";
 
-/** Raised for path-safety and guardrail violations — genuinely unexpected conditions, not tool-result-shaped errors. */
-export class MemoryPathViolation extends Error {}
+/** Raised for memory quota and agent-scoping guardrail violations. */
+export class MemoryGuardrailViolation extends Error {}
 
-const AGENT_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+const MEMORY_PATH_OPTIONS = {
+  maxDepth: MAX_MEMORY_PATH_DEPTH,
+  maxSegmentLength: MAX_MEMORY_PATH_SEGMENT_LENGTH,
+} as const;
 
-function requireValidAgentId(agentId: string): Effect.Effect<void, MemoryPathViolation> {
-  return AGENT_ID_PATTERN.test(agentId)
-    ? Effect.void
-    : Effect.fail(new MemoryPathViolation(`Invalid agent id: "${agentId}".`));
-}
-
-function displayPath(virtualPath: string): string {
-  const trimmed = virtualPath.trim();
-  if (trimmed.length === 0 || trimmed === "/") return "/";
-  return trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
-}
-
-/**
- * Split an LLM-supplied virtual path into safe segments. Never treats a
- * leading "/" as an OS-absolute escape — the whole string is relative to a
- * fixed virtual root, matching Anthropic's own /memories convention rather
- * than Node's absolute-path semantics.
- */
-function splitVirtualPathIntoSegments(virtualPath: string): string[] {
-  if (virtualPath.includes("\0")) {
-    throw new MemoryPathViolation("Path contains a null byte.");
-  }
-
-  const normalized = virtualPath.normalize("NFC");
-  const withoutLeadingSlashes = normalized.replace(/^\/+/, "");
-
-  if (withoutLeadingSlashes.length === 0) return [];
-
-  if (withoutLeadingSlashes.includes("\\")) {
-    throw new MemoryPathViolation("Path must not contain backslashes.");
-  }
-
-  const segments = withoutLeadingSlashes.split("/");
-  if (segments.length > MAX_MEMORY_PATH_DEPTH) {
-    throw new MemoryPathViolation(
-      `Path depth ${segments.length} exceeds the maximum of ${MAX_MEMORY_PATH_DEPTH}.`,
-    );
-  }
-
-  for (const segment of segments) {
-    if (segment.length === 0) {
-      throw new MemoryPathViolation('Path must not contain empty segments ("//").');
-    }
-    if (segment === "." || segment === "..") {
-      throw new MemoryPathViolation(`Path segment "${segment}" is not allowed.`);
-    }
-    if (segment.length > MAX_MEMORY_PATH_SEGMENT_LENGTH) {
-      throw new MemoryPathViolation(
-        `Path segment exceeds the maximum length of ${MAX_MEMORY_PATH_SEGMENT_LENGTH}.`,
-      );
-    }
-  }
-
-  return segments;
-}
-
-function parseVirtualPath(virtualPath: string): Effect.Effect<string[], MemoryPathViolation> {
-  return Effect.try({
-    try: () => splitVirtualPathIntoSegments(virtualPath),
-    catch: (error) =>
-      error instanceof MemoryPathViolation ? error : new MemoryPathViolation(String(error)),
-  });
-}
-
-/** True if `candidatePath` exists and is a symlink. Non-existent paths are not symlinks. */
-function isSymlink(candidatePath: string): Effect.Effect<boolean> {
-  return Effect.tryPromise({
-    try: () => nodeFs.lstat(candidatePath),
-    catch: (error) => error,
-  }).pipe(
-    Effect.map((stat) => stat.isSymbolicLink()),
-    Effect.catchAll(() => Effect.succeed(false)),
-  );
-}
-
-/**
- * The single choke point every memory action goes through before touching
- * the filesystem. Bans symlinks outright — re-checked on every call (not
- * cached), so a same-run "create a file, swap it for a symlink via another
- * tool, then read/delete through it" race is closed rather than exploitable.
- */
 function resolveMemoryPath(
   memoryRoot: string,
   virtualPath: string,
-): Effect.Effect<string, MemoryPathViolation> {
-  return Effect.gen(function* () {
-    const segments = yield* parseVirtualPath(virtualPath);
-
-    const candidate = segments.length === 0 ? memoryRoot : path.join(memoryRoot, ...segments);
-    const normalizedCandidate = path.normalize(candidate);
-    const rootWithSep = memoryRoot.endsWith(path.sep) ? memoryRoot : memoryRoot + path.sep;
-    if (normalizedCandidate !== memoryRoot && !normalizedCandidate.startsWith(rootWithSep)) {
-      return yield* Effect.fail(
-        new MemoryPathViolation("Resolved path escapes the agent's memory root."),
-      );
-    }
-
-    let walked = memoryRoot;
-    for (const segment of segments) {
-      walked = path.join(walked, segment);
-      const symlink = yield* isSymlink(walked);
-      if (symlink) {
-        return yield* Effect.fail(
-          new MemoryPathViolation(
-            `Path component "${segment}" is a symlink; symlinks are not allowed under the memory root.`,
-          ),
-        );
-      }
-    }
-
-    return normalizedCandidate;
-  });
+): Effect.Effect<string, VirtualPathViolation | Error> {
+  return resolveVirtualPath(memoryRoot, virtualPath, MEMORY_PATH_OPTIONS);
 }
 
 interface MemoryTreeStats {
@@ -206,65 +109,6 @@ function listDirectoryEntries(
   });
 }
 
-function writeFileAtomic(
-  fs: FileSystem.FileSystem,
-  targetPath: string,
-  content: string,
-): Effect.Effect<void, Error> {
-  return Effect.gen(function* () {
-    const directory = path.dirname(targetPath);
-    const tmpPath = path.join(
-      directory,
-      `.memory-${Date.now()}-${Math.random().toString(36).slice(2)}.tmp`,
-    );
-
-    yield* fs
-      .makeDirectory(directory, { recursive: true })
-      .pipe(Effect.catchAll((e) => Effect.fail(e instanceof Error ? e : new Error(String(e)))));
-    yield* fs
-      .writeFileString(tmpPath, content)
-      .pipe(Effect.catchAll((e) => Effect.fail(e instanceof Error ? e : new Error(String(e)))));
-    yield* fs.rename(tmpPath, targetPath).pipe(
-      Effect.tapError(() => fs.remove(tmpPath).pipe(Effect.catchAll(() => Effect.void))),
-      Effect.catchAll((e) => Effect.fail(e instanceof Error ? e : new Error(String(e)))),
-    );
-  });
-}
-
-/** Byte offset of the start of each line, for O(log N) offset→line lookups (mirrors edit.ts's approval-preview technique). */
-function buildLineOffsets(content: string): number[] {
-  const lineOffsets: number[] = [0];
-  for (let i = 0; i < content.length; i++) {
-    if (content[i] === "\n") lineOffsets.push(i + 1);
-  }
-  return lineOffsets;
-}
-
-function offsetToLine(lineOffsets: readonly number[], offset: number): number {
-  let lo = 0;
-  let hi = lineOffsets.length - 1;
-  while (lo < hi) {
-    const mid = (lo + hi + 1) >>> 1;
-    if ((lineOffsets[mid] as number) <= offset) {
-      lo = mid;
-    } else {
-      hi = mid - 1;
-    }
-  }
-  return lo + 1;
-}
-
-function findAllOccurrenceLineNumbers(content: string, searchStr: string): number[] {
-  const lineOffsets = buildLineOffsets(content);
-  const lineNumbers: number[] = [];
-  let index = 0;
-  while ((index = content.indexOf(searchStr, index)) !== -1) {
-    lineNumbers.push(offsetToLine(lineOffsets, index));
-    index += Math.max(searchStr.length, 1);
-  }
-  return lineNumbers;
-}
-
 export interface MemoryServiceImplOptions {
   /** Override for tests; defaults to ~/.jazz/memory (or $JAZZ_HOME/memory). */
   readonly baseMemoryDirectory?: string;
@@ -283,10 +127,10 @@ export class MemoryServiceImpl implements MemoryService {
 
   private ensureAgentRoot(
     agentId: string,
-  ): Effect.Effect<string, MemoryPathViolation | Error, FileSystem.FileSystem> {
+  ): Effect.Effect<string, MemoryGuardrailViolation | Error, FileSystem.FileSystem> {
     const baseMemoryDirectory = this.baseMemoryDirectory;
     return Effect.gen(function* () {
-      yield* requireValidAgentId(agentId);
+      yield* requireValidAgentId(agentId, MemoryGuardrailViolation);
       const fs = yield* FileSystem.FileSystem;
       const rawRoot = path.join(baseMemoryDirectory, agentId);
       yield* fs
@@ -302,10 +146,10 @@ export class MemoryServiceImpl implements MemoryService {
   private withValidatedAgentLock<A, E, R>(
     agentId: string,
     operation: Effect.Effect<A, E, R>,
-  ): Effect.Effect<A, E | MemoryPathViolation | Error, R | FileSystem.FileSystem> {
+  ): Effect.Effect<A, E | MemoryGuardrailViolation | Error, R | FileSystem.FileSystem> {
     const lockPath = this.memoryLockPath(agentId);
     return Effect.gen(function* () {
-      yield* requireValidAgentId(agentId);
+      yield* requireValidAgentId(agentId, MemoryGuardrailViolation);
       return yield* withLock(lockPath, operation);
     });
   }
@@ -321,7 +165,7 @@ export class MemoryServiceImpl implements MemoryService {
         if (!info) {
           return {
             kind: "not_found",
-            message: `The path ${displayPath(virtualPath)} does not exist. Please provide a valid path.`,
+            message: `The path ${abbreviateHomePath(target)} does not exist. Please provide a valid path.`,
           } satisfies MemoryViewOutcome;
         }
 
@@ -329,7 +173,7 @@ export class MemoryServiceImpl implements MemoryService {
           const entries = yield* listDirectoryEntries(fs, target, 2);
           return {
             kind: "directory",
-            path: displayPath(virtualPath),
+            path: abbreviateHomePath(target),
             entries,
           } satisfies MemoryViewOutcome;
         }
@@ -343,7 +187,7 @@ export class MemoryServiceImpl implements MemoryService {
         if (totalLines > MEMORY_VIEW_MAX_LINES) {
           return {
             kind: "too_large",
-            message: `File ${displayPath(virtualPath)} exceeds maximum line limit of ${MEMORY_VIEW_MAX_LINES.toLocaleString()} lines.`,
+            message: `File ${abbreviateHomePath(target)} exceeds maximum line limit of ${MEMORY_VIEW_MAX_LINES.toLocaleString()} lines.`,
           } satisfies MemoryViewOutcome;
         }
 
@@ -362,7 +206,7 @@ export class MemoryServiceImpl implements MemoryService {
 
         return {
           kind: "file",
-          path: displayPath(virtualPath),
+          path: abbreviateHomePath(target),
           content: displayContent,
           startLine,
           totalLines,
@@ -383,7 +227,7 @@ export class MemoryServiceImpl implements MemoryService {
           const fileTextBytes = Buffer.byteLength(fileText, "utf-8");
           if (fileTextBytes > MAX_MEMORY_FILE_BYTES) {
             return yield* Effect.fail(
-              new MemoryPathViolation(
+              new MemoryGuardrailViolation(
                 `File would be ${fileTextBytes} bytes, exceeding the maximum of ${MAX_MEMORY_FILE_BYTES} bytes.`,
               ),
             );
@@ -395,31 +239,31 @@ export class MemoryServiceImpl implements MemoryService {
           if (alreadyExists) {
             return {
               success: false,
-              message: `Error: File ${displayPath(virtualPath)} already exists`,
+              message: `Error: File ${abbreviateHomePath(target)} already exists`,
             } satisfies MemoryMutationOutcome;
           }
 
           const stats = yield* walkMemoryTree(fs, root);
           if (stats.fileCount + 1 > MAX_MEMORY_FILES_PER_AGENT) {
             return yield* Effect.fail(
-              new MemoryPathViolation(
+              new MemoryGuardrailViolation(
                 `Creating this file would exceed the maximum of ${MAX_MEMORY_FILES_PER_AGENT} files in memory.`,
               ),
             );
           }
           if (stats.totalBytes + fileTextBytes > MAX_MEMORY_TOTAL_BYTES_PER_AGENT) {
             return yield* Effect.fail(
-              new MemoryPathViolation(
+              new MemoryGuardrailViolation(
                 `Creating this file would exceed the total memory budget of ${MAX_MEMORY_TOTAL_BYTES_PER_AGENT} bytes.`,
               ),
             );
           }
 
-          yield* writeFileAtomic(fs, target, fileText);
+          yield* writeFileStringAtomic(fs, target, fileText, { tempPrefix: "memory" });
 
           return {
             success: true,
-            message: `File created successfully at: ${displayPath(virtualPath)}`,
+            message: `File created successfully at: ${abbreviateHomePath(target)}`,
           } satisfies MemoryMutationOutcome;
         }.bind(this),
       ),
@@ -438,7 +282,7 @@ export class MemoryServiceImpl implements MemoryService {
           if (!info || info.type === "Directory") {
             return {
               success: false,
-              message: `The path ${displayPath(virtualPath)} does not exist. Please provide a valid path.`,
+              message: `The path ${abbreviateHomePath(target)} does not exist. Please provide a valid path.`,
             } satisfies MemoryMutationOutcome;
           }
 
@@ -452,7 +296,7 @@ export class MemoryServiceImpl implements MemoryService {
           if (occurrenceLines.length === 0) {
             return {
               success: false,
-              message: `No replacement was performed, old_str \`${oldStr}\` did not appear verbatim in ${displayPath(virtualPath)}.`,
+              message: `No replacement was performed, old_str \`${oldStr}\` did not appear verbatim in ${abbreviateHomePath(target)}.`,
             } satisfies MemoryMutationOutcome;
           }
           if (occurrenceLines.length > 1) {
@@ -470,13 +314,13 @@ export class MemoryServiceImpl implements MemoryService {
           const updatedBytes = Buffer.byteLength(updatedContent, "utf-8");
           if (updatedBytes > MAX_MEMORY_FILE_BYTES) {
             return yield* Effect.fail(
-              new MemoryPathViolation(
+              new MemoryGuardrailViolation(
                 `Edit would grow the file to ${updatedBytes} bytes, exceeding the maximum of ${MAX_MEMORY_FILE_BYTES} bytes.`,
               ),
             );
           }
 
-          yield* writeFileAtomic(fs, target, updatedContent);
+          yield* writeFileStringAtomic(fs, target, updatedContent, { tempPrefix: "memory" });
 
           return {
             success: true,
@@ -499,7 +343,7 @@ export class MemoryServiceImpl implements MemoryService {
           if (!info || info.type === "Directory") {
             return {
               success: false,
-              message: `Error: The path ${displayPath(virtualPath)} does not exist`,
+              message: `Error: The path ${abbreviateHomePath(target)} does not exist`,
             } satisfies MemoryMutationOutcome;
           }
 
@@ -527,17 +371,17 @@ export class MemoryServiceImpl implements MemoryService {
           const updatedBytes = Buffer.byteLength(updatedContent, "utf-8");
           if (updatedBytes > MAX_MEMORY_FILE_BYTES) {
             return yield* Effect.fail(
-              new MemoryPathViolation(
+              new MemoryGuardrailViolation(
                 `Edit would grow the file to ${updatedBytes} bytes, exceeding the maximum of ${MAX_MEMORY_FILE_BYTES} bytes.`,
               ),
             );
           }
 
-          yield* writeFileAtomic(fs, target, updatedContent);
+          yield* writeFileStringAtomic(fs, target, updatedContent, { tempPrefix: "memory" });
 
           return {
             success: true,
-            message: `The file ${displayPath(virtualPath)} has been edited.`,
+            message: `The file ${abbreviateHomePath(target)} has been edited.`,
           } satisfies MemoryMutationOutcome;
         }.bind(this),
       ),
@@ -565,7 +409,7 @@ export class MemoryServiceImpl implements MemoryService {
           if (!exists) {
             return {
               success: false,
-              message: `Error: The path ${displayPath(virtualPath)} does not exist`,
+              message: `Error: The path ${abbreviateHomePath(target)} does not exist`,
             } satisfies MemoryMutationOutcome;
           }
 
@@ -577,7 +421,7 @@ export class MemoryServiceImpl implements MemoryService {
 
           return {
             success: true,
-            message: `Successfully deleted ${displayPath(virtualPath)}`,
+            message: `Successfully deleted ${abbreviateHomePath(target)}`,
           } satisfies MemoryMutationOutcome;
         }.bind(this),
       ),
@@ -606,7 +450,7 @@ export class MemoryServiceImpl implements MemoryService {
           if (!sourceExists) {
             return {
               success: false,
-              message: `Error: The path ${displayPath(oldVirtualPath)} does not exist`,
+              message: `Error: The path ${abbreviateHomePath(source)} does not exist`,
             } satisfies MemoryMutationOutcome;
           }
 
@@ -616,7 +460,7 @@ export class MemoryServiceImpl implements MemoryService {
           if (destinationExists) {
             return {
               success: false,
-              message: `Error: The destination ${displayPath(newVirtualPath)} already exists`,
+              message: `Error: The destination ${abbreviateHomePath(destination)} already exists`,
             } satisfies MemoryMutationOutcome;
           }
 
@@ -633,7 +477,7 @@ export class MemoryServiceImpl implements MemoryService {
 
           return {
             success: true,
-            message: `Successfully renamed ${displayPath(oldVirtualPath)} to ${displayPath(newVirtualPath)}`,
+            message: `Successfully renamed ${abbreviateHomePath(source)} to ${abbreviateHomePath(destination)}`,
           } satisfies MemoryMutationOutcome;
         }.bind(this),
       ),

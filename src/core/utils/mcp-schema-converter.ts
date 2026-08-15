@@ -186,6 +186,11 @@ function isArrayType(type: string | readonly string[] | undefined): boolean {
 /**
  * Main function to convert MCP JSON Schema to Zod schema
  *
+ * Unsupported or malformed fragments intentionally degrade to permissive
+ * schemas for MCP compatibility. `$ref` is not resolved and becomes
+ * `z.unknown()`. This conversion validates shape but does not sandbox an MCP
+ * server; configured servers remain trusted executable integrations.
+ *
  * @param mcpSchema - The MCP JSON Schema to convert
  * @param toolName - Optional tool name for error messages
  * @returns Zod schema

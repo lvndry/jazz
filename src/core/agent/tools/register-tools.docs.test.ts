@@ -11,18 +11,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
 import { ToolRegistryTag, type ToolRiskLevel } from "@/core/interfaces/tool-registry";
-import {
-  registerContextTools,
-  registerFileTools,
-  registerGitTools,
-  registerHttpTools,
-  registerMemoryTools,
-  registerSearchTools,
-  registerShellTools,
-  registerSubagentTools,
-  registerTodoTools,
-  registerUserInteractionTools,
-} from "./register-tools";
+import { registerAllTools } from "./register-tools";
 import { createToolRegistryLayer } from "./tool-registry";
 
 /** Repo-relative; `bun test` runs from the repository root. */
@@ -40,16 +29,7 @@ interface RegisteredTool {
  * and the docs describe them separately.
  */
 const collectTools = Effect.gen(function* () {
-  yield* registerFileTools();
-  yield* registerShellTools();
-  yield* registerGitTools();
-  yield* registerSearchTools();
-  yield* registerHttpTools();
-  yield* registerTodoTools();
-  yield* registerMemoryTools();
-  yield* registerContextTools();
-  yield* registerSubagentTools();
-  yield* registerUserInteractionTools();
+  yield* registerAllTools();
 
   const registry = yield* ToolRegistryTag;
   const names = yield* registry.listTools();

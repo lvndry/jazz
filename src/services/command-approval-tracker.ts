@@ -1,7 +1,8 @@
 import * as path from "node:path";
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
-import { getUserDataDirectory } from "@/core/utils/runtime-detection";
+import { getUserDataDirectory } from "@/core/utils/paths";
+import { writeFileStringAtomic } from "@/core/utils/storage";
 
 /**
  * Tracks how many distinct sessions a command has been auto-approved in.
@@ -72,22 +73,9 @@ export function saveCommandApprovals(
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const approvalsPath = getApprovalsPath();
-    const dir = path.dirname(approvalsPath);
-    const tempPath = path.join(
-      dir,
-      `.command-approvals-${Date.now()}-${Math.random().toString(36).slice(2)}.tmp`,
-    );
-
-    yield* fs
-      .makeDirectory(dir, { recursive: true })
-      .pipe(Effect.catchAll((e) => Effect.fail(e instanceof Error ? e : new Error(String(e)))));
-    yield* fs
-      .writeFileString(tempPath, JSON.stringify(data, null, 2))
-      .pipe(Effect.catchAll((e) => Effect.fail(e instanceof Error ? e : new Error(String(e)))));
-    yield* fs.rename(tempPath, approvalsPath).pipe(
-      Effect.tapError(() => fs.remove(tempPath).pipe(Effect.catchAll(() => Effect.void))),
-      Effect.catchAll((e) => Effect.fail(e instanceof Error ? e : new Error(String(e)))),
-    );
+    yield* writeFileStringAtomic(fs, approvalsPath, JSON.stringify(data, null, 2), {
+      tempPrefix: "command-approvals",
+    });
   });
 }
 

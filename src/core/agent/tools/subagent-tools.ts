@@ -1,21 +1,16 @@
-import chalk from "chalk";
 import { Effect } from "effect";
 import { z } from "zod";
-import { getGlyphs } from "@/cli/ui/glyphs";
-import { store } from "@/cli/ui/store";
 import { DEFAULT_MAX_ITERATIONS } from "@/core/constants/agent";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import type { Tool, ToolRequirements } from "@/core/interfaces/tool-registry";
 import type { Agent } from "@/core/types";
 import type { ConversationMessages } from "@/core/types/message";
-import { getModelsDevMetadata } from "@/core/utils/models-dev-client";
-import { defineTool, makeZodValidator } from "./base-tool";
+import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import { AgentRunner } from "../agent-runner";
+import { defineTool, makeZodValidator } from "./base-tool";
 import { resolveEffectiveContextWindow } from "../context/effective-context-window";
 import { Summarizer, type RecursiveRunner } from "../context/summarizer";
-
-const SUBAGENT_PANEL_LINES = 12;
 
 // ─── Constants ───────────────────────────────────────────────────────
 
@@ -102,8 +97,8 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
           const subagentLabel = args.name?.trim() || `Sub-Agent (${args.persona})`;
           const startedAt = Date.now();
 
-          const regionId = store.openEphemeral("subagent", subagentLabel, SUBAGENT_PANEL_LINES);
-          store.appendEphemeral(regionId, `Task: ${taskPreview}`);
+          const regionId = yield* presentation.openEphemeralRegion("subagent", subagentLabel);
+          yield* presentation.appendEphemeralRegion(regionId, `Task: ${taskPreview}`);
 
           // Create an ephemeral sub-agent with the parent's LLM config but a specific persona
           const subAgent: Agent = {
@@ -170,25 +165,19 @@ ${args.task}`;
             ...(context.onAutoApproveTool ? { onAutoApproveTool: context.onAutoApproveTool } : {}),
           }).pipe(
             Effect.tapError(() =>
-              Effect.sync(() =>
-                store.collapseEphemeral(regionId, {
-                  line: chalk.dim(chalk.italic(`${getGlyphs().error} ${subagentLabel} failed`)),
-                  durationMs: Date.now() - startedAt,
-                }),
-              ),
+              presentation.collapseEphemeralRegion(regionId, subagentLabel, {
+                status: "failed",
+                durationMs: Date.now() - startedAt,
+              }),
             ),
             // Interruption is not a typed error, so tapError never sees it.
             // Without this, any abort that doesn't go through the double-Esc
             // handler leaves the subagent panel stuck live.
             Effect.onInterrupt(() =>
-              Effect.sync(() =>
-                store.collapseEphemeral(regionId, {
-                  line: chalk.dim(
-                    chalk.italic(`${getGlyphs().error} ${subagentLabel} interrupted`),
-                  ),
-                  durationMs: Date.now() - startedAt,
-                }),
-              ),
+              presentation.collapseEphemeralRegion(regionId, subagentLabel, {
+                status: "interrupted",
+                durationMs: Date.now() - startedAt,
+              }),
             ),
             // Bracket the sub-run for --events consumers, whatever the outcome.
             Effect.ensuring(
@@ -221,11 +210,10 @@ ${args.task}`;
           }
 
           const durationMs = Date.now() - startedAt;
-          const seconds = (durationMs / 1000).toFixed(1);
-          const summaryLine = chalk.dim(
-            chalk.italic(`${getGlyphs().success} ${subagentLabel} completed · ${seconds}s`),
-          );
-          store.collapseEphemeral(regionId, { line: summaryLine, durationMs });
+          yield* presentation.collapseEphemeralRegion(regionId, subagentLabel, {
+            status: "completed",
+            durationMs,
+          });
 
           const fullResult = result?.trim() || "No output";
           const maxLines = 10;

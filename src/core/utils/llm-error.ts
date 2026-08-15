@@ -9,11 +9,11 @@ import {
   LLMRequestError,
   type LLMError,
 } from "@/core/types/errors";
-import { formatProviderDisplayName } from "@/core/utils/string";
+import { formatProviderDisplayName } from "@/core/utils/provider-model";
 
 /**
- * Core truncation logic: truncate contents array to keep first message + last N messages.
- * Returns the truncated contents array or undefined if no truncation needed.
+ * Keep the first request message plus the last N messages.
+ * Returns undefined when no truncation is needed.
  */
 function truncateContentsArray(
   contents: unknown[],
@@ -30,7 +30,7 @@ function truncateContentsArray(
 }
 
 /**
- * Truncate requestBodyValues to keep only the last N messages in contents array.
+ * Truncate a provider request body's `messages` or `contents` array.
  * This prevents verbose error logs when API calls fail with large conversation histories.
  * Handles both direct errors and nested errors (e.g., AI_RetryError with errors array).
  * Returns the truncated requestBodyValues object or undefined if not found.
@@ -67,24 +67,27 @@ export function truncateRequestBodyValues(
   }
 
   const bodyValues = requestBodyValues as Record<string, unknown>;
-  const messages = bodyValues["messages"] || bodyValues["messages"];
-
-  if (!Array.isArray(messages)) {
+  const messageKey = Array.isArray(bodyValues["messages"])
+    ? "messages"
+    : Array.isArray(bodyValues["contents"])
+      ? "contents"
+      : undefined;
+  if (messageKey === undefined) {
     return undefined;
   }
 
-  const messagesArray = messages as unknown[];
+  const truncatedMessages = truncateContentsArray(
+    bodyValues[messageKey] as unknown[],
+    keepLastMessages,
+  );
 
-  // Truncate to last N messages
-  const truncatedContents = truncateContentsArray(messagesArray, keepLastMessages);
-
-  if (!truncatedContents) {
+  if (!truncatedMessages) {
     return undefined;
   }
 
   return {
     ...bodyValues,
-    contents: truncatedContents,
+    [messageKey]: truncatedMessages,
     _truncated: true,
   };
 }

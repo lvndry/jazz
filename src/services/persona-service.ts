@@ -14,7 +14,7 @@ import {
 } from "@/core/types/errors";
 import type { CreatePersonaInput, Persona, PersonaToolProfile } from "@/core/types/persona";
 import { scanMarkdownIndex } from "@/core/utils/markdown-index";
-import { getBuiltinPersonasDirectory } from "@/core/utils/runtime-detection";
+import { getBuiltinPersonasDirectory } from "@/core/utils/paths";
 
 const PERSONA_DEFINITION_FILENAME = "persona.md" as const;
 

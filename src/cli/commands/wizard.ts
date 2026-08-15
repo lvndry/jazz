@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 import React from "react";
+import { sortAgents } from "@/core/agent/agent-sort";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { AgentServiceTag } from "@/core/interfaces/agent-service";
 import { ChatServiceTag } from "@/core/interfaces/chat-service";
@@ -7,7 +8,6 @@ import { JazzStateServiceTag } from "@/core/interfaces/jazz-state";
 import { TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
 import type { Agent } from "@/core/types/index";
 import type { ChatMessage } from "@/core/types/message";
-import { sortAgents } from "@/core/utils/agent-sort";
 import { loadHistory } from "@/services/history/conversation-history-service";
 import { listAgentsCommand, deleteAgentCommand } from "./agent-management";
 import { configWizardCommand } from "./config-wizard";

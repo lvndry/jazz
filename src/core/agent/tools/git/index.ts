@@ -110,5 +110,15 @@ export {
 };
 
 // Export utility types and functions
-export { DEFAULT_GIT_TIMEOUT, resolveGitWorkingDirectory, runGitCommand } from "./utils";
-export type { GitCommandResult } from "./utils";
+export {
+  DEFAULT_GIT_TIMEOUT,
+  GIT_TIMEOUTS,
+  gitApprovalDirectory,
+  gitRepoPathSchema,
+  getHeadCommitHash,
+  resolveGitRepoDir,
+  resolveGitWorkingDirectory,
+  runGitCommand,
+  runGitOrFail,
+} from "./utils";
+export type { GitCommandResult, GitToolDeps } from "./utils";

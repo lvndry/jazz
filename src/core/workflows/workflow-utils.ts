@@ -1,4 +1,4 @@
-import { describeCronSchedule } from "@/core/utils/cron-utils";
+import { describeCronSchedule } from "@/core/utils/cron";
 import type { WorkflowMetadata } from "./workflow-service";
 
 /**

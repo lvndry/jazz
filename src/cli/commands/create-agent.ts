@@ -5,16 +5,17 @@ import React from "react";
 import { handleWebSearchConfiguration } from "@/cli/helpers/web-search";
 import { THEME } from "@/cli/ui/theme";
 import { registerMCPServerTools } from "@/core/agent/tools/mcp-tools";
+import { getMCPServerCategories } from "@/core/agent/tools/register-mcp-tools";
 import {
   BUILTIN_TOOL_CATEGORIES,
   createCategoryMappings,
   FILE_MANAGEMENT_CATEGORY,
-  getMCPServerCategories,
   GIT_CATEGORY,
   HTTP_CATEGORY,
+  mcpToolCategory,
   SHELL_COMMANDS_CATEGORY,
   WEB_SEARCH_CATEGORY,
-} from "@/core/agent/tools/register-tools";
+} from "@/core/agent/tools/tool-categories";
 import type { ProviderName } from "@/core/constants/models";
 import { buildOllamaContextChoices, defaultOllamaContextWindow } from "@/core/constants/ollama";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
@@ -36,8 +37,9 @@ import {
 import type { AgentConfig } from "@/core/types/index";
 import type { LLMProvider, LLMProviderListItem } from "@/core/types/llm";
 import type { MCPTool } from "@/core/types/mcp";
-import { isAuthenticationRequired } from "@/core/utils/mcp-utils";
-import { formatProviderDisplayName, toPascalCase } from "@/core/utils/string";
+import { isAuthenticationRequired } from "@/core/utils/mcp";
+import { formatProviderDisplayName } from "@/core/utils/provider-model";
+import { toPascalCase } from "@/core/utils/string";
 
 /**
  * CLI commands for creating AI agents
@@ -141,8 +143,7 @@ export function createAgentCommand(): Effect.Effect<
 
     // Add MCP server category mappings (category ID format: mcp_<servername>)
     for (const [displayName, serverName] of mcpServerData.displayNameToServerName.entries()) {
-      const categoryId = `mcp_${serverName.toLowerCase()}`;
-      categoryDisplayNameToId.set(displayName, categoryId);
+      categoryDisplayNameToId.set(displayName, mcpToolCategory(serverName).id);
     }
 
     // Get agent basic information

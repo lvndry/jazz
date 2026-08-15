@@ -6,6 +6,8 @@ two.
 Source:
 [`execution/tool-executor.ts`](../../src/core/agent/execution/tool-executor.ts) ·
 [`tools/tool-registry.ts`](../../src/core/agent/tools/tool-registry.ts) ·
+[`tools/register-tools.ts`](../../src/core/agent/tools/register-tools.ts) ·
+[`tools/register-mcp-tools.ts`](../../src/core/agent/tools/register-mcp-tools.ts) ·
 [`types/tools.ts`](../../src/core/types/tools.ts)
 
 ---
@@ -211,7 +213,7 @@ exfiltrate your provider keys.
 When a command genuinely needs one, an agent's `envAllowlist` exempts specific names. The
 allowlist can only un-hide a variable that already exists in the parent environment; it never
 invents a value, and the `SSH_` block applies regardless. Implementation:
-[`env-utils.ts`](../../src/core/utils/env-utils.ts).
+[`env.ts`](../../src/core/utils/env.ts).
 
 ---
 
@@ -221,16 +223,19 @@ Tools are registered by category at startup, except MCP:
 
 | Category | Tools | Examples |
 | --- | --- | --- |
-| File Management | 16 | `read_file` `write_file` `edit_file` `find` `grep` `read_pdf` `mkdir` `rm` `mv` `cp` |
-| Git | 15 | `git_status` `git_diff` `git_commit` `git_push` `git_branch` `git_merge` `git_blame` `git_reflog` `git_tag` |
+| File Management | 17 | `read_file` `write_file` `edit_file` `find` `grep` `read_pdf` `pdf_page_count` `mkdir` `rm` `mv` `cp` |
+| Git | 15 | `git_status` `git_diff` `git_commit` `git_push` `git_branch` `git_merge` `git_blame` `git_reflog` `git_tag` `git_add` `git_pull` `git_rm` `git_checkout` `git_tag_list` |
 | Shell Commands | 1 | `execute_command` |
 | Web Search / Web Fetch | 2 | `web_search` `web_fetch` |
 | HTTP | 1 | `http_request` |
 | Todo | 2 | `manage_todos` `list_todos` |
+| Memory | 2 | `view_memory` `manage_memory` |
+| Reminders | 3 | `add_reminder` `list_reminders` `cancel_reminder` |
 | Context | 2 | `context_info` `get_time` |
 | Sub Agents | 2 | `spawn_subagent` `summarize_context` |
 | User Interaction | 2 | `ask_user_question` `ask_file_picker` |
-| **Total agent-facing** | **43** | plus 15 hidden `execute_*` counterparts |
+| Web App | 1 | `create_web_app` |
+| **Total agent-facing** | **50** | plus 15 hidden `execute_*` counterparts |
 | **Skills** | 3 | `find_skills` `load_skill` `load_skill_section` — per agent |
 | **MCP** | dynamic | `mcp_<server>_<tool>` — per agent, connected lazily |
 
@@ -238,6 +243,13 @@ Tools are registered by category at startup, except MCP:
 `jazz` slow to start and hangs the CLI when one misbehaves. Instead, an agent's MCP tools are
 registered from its tool list and the server connects on first invocation. Connected servers
 are tracked so they can be cleaned up when the conversation ends.
+
+**Captured process output is bounded.** `execute_command`, git, and find/grep each keep at
+most 256 KB of stdout and 256 KB of stderr, collected as bytes so a flood cannot grow until
+the timeout. Truncated `execute_command` streams include a marker. Git and grep parsers keep
+stdout clean (so a partial last line is not treated as a path or match) and set `truncated`
+on the tool result. Custom `command` tools use the same collector with a 16 KB cap — they
+are typically small, trusted argv programs, not a general shell.
 
 Current tool list: [Tools reference](../reference/tools.md).
 

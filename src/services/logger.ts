@@ -1,12 +1,12 @@
 import { appendFile, mkdir } from "node:fs/promises";
 import path from "node:path";
-import { encode as encodeToon } from "@toon-format/toon";
 import { Effect, Layer, Option, Ref } from "effect";
+import { jsonBigIntReplacer } from "@/core/agent/tools/tool-logging";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
-import { jsonBigIntReplacer } from "@/core/utils/logging-helpers";
-import { getJazzHomeDirectory } from "@/core/utils/runtime-detection";
+import type { LoggingConfig } from "@/core/types/config";
+import { getJazzHomeDirectory } from "@/core/utils/paths";
 
-let globalLogFormat: "json" | "plain" | "toon" = "plain";
+let globalLogFormat: LoggingConfig["format"] = "plain";
 let globalLogLevel: "debug" | "info" | "warn" | "error" = "info";
 
 /**
@@ -235,9 +235,6 @@ function formatLogLineForFile(
   if (globalLogFormat === "json") {
     return formatLogLineAsJson(level, message, meta, sessionId);
   }
-  if (globalLogFormat === "toon") {
-    return formatLogLineAsToon(level, message, meta, sessionId);
-  }
   return formatLogLineAsPlain(level, message, meta);
 }
 
@@ -284,44 +281,17 @@ export function formatLogLineAsPlain(
 }
 
 /**
- * Format log line as TOON (Token-Oriented Object Notation)
- * Optimized for LLM consumption with minimal token usage
- */
-export function formatLogLineAsToon(
-  level: "debug" | "info" | "warn" | "error",
-  message: string,
-  meta?: Record<string, unknown>,
-  sessionId?: string,
-): string {
-  const logEntry: Record<string, unknown> = {
-    timestamp: new Date().toISOString(),
-    level: level.toUpperCase(),
-    message,
-  };
-
-  if (sessionId) {
-    logEntry["sessionId"] = sessionId;
-  }
-
-  if (meta && Object.keys(meta).length > 0) {
-    logEntry["meta"] = meta;
-  }
-
-  return encodeToon(logEntry) + "\n";
-}
-
-/**
  * Set the global log format
  * Call this during app initialization based on config
  */
-export function setLogFormat(format: "json" | "plain" | "toon"): void {
+export function setLogFormat(format: LoggingConfig["format"]): void {
   globalLogFormat = format;
 }
 
 /**
  * Get the current log format
  */
-export function getLogFormat(): "json" | "plain" | "toon" {
+export function getLogFormat(): LoggingConfig["format"] {
   return globalLogFormat;
 }
 

@@ -5,10 +5,7 @@ import { Context, Effect, Layer, Ref } from "effect";
 import matter from "gray-matter";
 import type { AutoApprovePolicy } from "@/core/types/tools";
 import { loadCachedIndex, mergeByName, scanMarkdownIndex } from "@/core/utils/markdown-index";
-import {
-  getBuiltinWorkflowsDirectory,
-  getGlobalWorkflowsDirectory,
-} from "@/core/utils/runtime-detection";
+import { getBuiltinWorkflowsDirectory, getGlobalWorkflowsDirectory } from "@/core/utils/paths";
 
 const WORKFLOW_DEFINITION_FILENAME = "WORKFLOW.md" as const;
 

@@ -1,12 +1,12 @@
 import { Duration, Effect } from "effect";
 import { AgentRunner } from "@/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@/core/agent/agent-service";
+import { CommonSuggestions, getErrorMessage } from "@/core/presentation/error-handler";
 import { makeOneShotPresentationServiceLayer } from "@/core/presentation/oneshot-presentation-service";
 import { AgentNotFoundError } from "@/core/types/errors";
 import type { ChatMessage } from "@/core/types/message";
 import type { StreamEvent } from "@/core/types/streaming";
 import type { AutoApprovePolicy } from "@/core/types/tools";
-import { CommonSuggestions, getErrorMessage } from "@/core/utils/error-handler";
 import {
   loadConversation,
   saveConversation,

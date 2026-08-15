@@ -1,8 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
-import { execCommand, execCommandWithStdin, extractCommandApprovalKey } from "./shell-utils";
+import { execCommand, execCommandWithStdin, extractCommandApprovalKey } from "./shell";
 
-describe("shell-utils", () => {
+describe("shell", () => {
   describe("execCommand", () => {
     it("should execute a simple command and return stdout", async () => {
       const result = await Effect.runPromise(execCommand("echo", ["hello"]));

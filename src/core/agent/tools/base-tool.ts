@@ -4,8 +4,11 @@ import type { Tool, ToolRiskLevel } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
 
 /**
- * Lightweight, reusable tool builder with optional runtime validation.
- * Uses Zod schemas to ensure tool arguments stay in sync with runtime validation.
+ * Shared builders for Jazz tools.
+ *
+ * `defineTool` always validates arguments against the supplied Zod schema.
+ * `defineApprovalTool` creates the visible proposal tool and the hidden
+ * `execute_*` counterpart used after approval.
  */
 
 export interface ToolValidatorResult<Args extends Record<string, unknown>> {
@@ -45,7 +48,8 @@ export interface BaseToolConfig<R, Args extends Record<string, unknown>> {
    */
   readonly riskLevel?: ToolRiskLevel;
   /**
-   * Optional function to validate the tool arguments before execution.
+   * Optional validator. When omitted, arguments are checked with
+   * {@link makeZodValidator} against `parameters`.
    */
   readonly validate?: ToolValidator<Args>;
   /**
@@ -76,9 +80,8 @@ export interface BaseToolConfig<R, Args extends Record<string, unknown>> {
 }
 
 /**
- * Define a new tool with validation capabilities
+ * Define a tool that validates arguments before calling `handler`.
  *
- * Creates a tool from the provided configuration, including optional validation.
  * For approval-required tools, use `defineApprovalTool` instead.
  */
 export function defineTool<R, Args extends Record<string, unknown>>(
@@ -107,18 +110,13 @@ export function defineTool<R, Args extends Record<string, unknown>>(
       args: Record<string, unknown>,
       context: ToolExecutionContext,
     ): Effect.Effect<ToolExecutionResult, Error, R> {
-      if (config.validate) {
-        const result = config.validate(args);
-        if (!result.valid) {
-          const message = (result.errors || ["Invalid arguments"]).join("; ");
-          return Effect.succeed({ success: false, result: null, error: message });
-        }
-        const validated = result.value as Args;
-        return config.handler(validated, context);
+      const validator = config.validate ?? makeZodValidator(config.parameters as z.ZodType<Args>);
+      const result = validator(args);
+      if (!result.valid) {
+        const message = (result.errors || ["Invalid arguments"]).join("; ");
+        return Effect.succeed({ success: false, result: null, error: message });
       }
-
-      // No validation configured; pass through
-      return config.handler(args as Args, context);
+      return config.handler(result.value as Args, context);
     },
   };
 }
@@ -238,13 +236,7 @@ export function defineApprovalTool<R, Args extends Record<string, unknown>>(
   const riskLevel = config.riskLevel ?? "high-risk";
 
   const validator: ToolValidator<Args> =
-    config.validate ??
-    ((args) => {
-      const result = config.parameters.safeParse(args);
-      return result.success
-        ? { valid: true, value: result.data as Args }
-        : { valid: false, errors: result.error.issues.map((i: z.ZodIssue) => i.message) };
-    });
+    config.validate ?? makeZodValidator(config.parameters as z.ZodType<Args>);
 
   const errorMessage =
     config.approvalErrorMessage ?? `Approval required: ${config.name} requires user confirmation.`;

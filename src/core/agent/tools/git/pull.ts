@@ -1,7 +1,5 @@
-import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { z } from "zod";
-import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
 import {
   defineApprovalTool,
@@ -9,7 +7,13 @@ import {
   type ApprovalToolConfig,
   type ApprovalToolPair,
 } from "../base-tool";
-import { resolveGitWorkingDirectory, runGitCommand } from "./utils";
+import {
+  gitApprovalDirectory,
+  gitRepoPathSchema,
+  resolveGitRepoDir,
+  runGitOrFail,
+  type GitToolDeps,
+} from "./utils";
 
 /**
  * Git pull tools (approval + execution)
@@ -17,7 +21,7 @@ import { resolveGitWorkingDirectory, runGitCommand } from "./utils";
 
 const gitPullParameters = z
   .object({
-    path: z.string().optional().describe("Repository path (defaults to cwd)"),
+    path: gitRepoPathSchema,
     remote: z.string().optional().describe("Remote name (default: 'origin')"),
     branch: z.string().optional().describe("Branch to pull (default: current)"),
     rebase: z.boolean().optional().describe("Rebase instead of merge"),
@@ -26,10 +30,8 @@ const gitPullParameters = z
 
 type GitPullArgs = z.infer<typeof gitPullParameters>;
 
-type GitDeps = FileSystem.FileSystem | FileSystemContextService;
-
-export function createGitPullTools(): ApprovalToolPair<GitDeps> {
-  const config: ApprovalToolConfig<GitDeps, GitPullArgs> = {
+export function createGitPullTools(): ApprovalToolPair<GitToolDeps> {
+  const config: ApprovalToolConfig<GitToolDeps, GitPullArgs> = {
     name: "git_pull",
     description: "Pull changes from a remote. Supports rebase mode.",
     tags: ["git", "pull"],
@@ -38,19 +40,7 @@ export function createGitPullTools(): ApprovalToolPair<GitDeps> {
 
     approvalMessage: (args: GitPullArgs, context: ToolExecutionContext) =>
       Effect.gen(function* () {
-        const shell = yield* FileSystemContextServiceTag;
-        const workingDir = args.path
-          ? yield* shell.resolvePath(
-              {
-                agentId: context.agentId,
-                ...(context.conversationId && { conversationId: context.conversationId }),
-              },
-              args.path,
-            )
-          : yield* shell.getCwd({
-              agentId: context.agentId,
-              ...(context.conversationId && { conversationId: context.conversationId }),
-            });
+        const workingDir = yield* gitApprovalDirectory(args.path, context);
 
         const remote = args.remote || "origin";
         const branch = args.branch || "current branch";
@@ -62,24 +52,9 @@ export function createGitPullTools(): ApprovalToolPair<GitDeps> {
 
     handler: (args: GitPullArgs, context: ToolExecutionContext) =>
       Effect.gen(function* () {
-        const shell = yield* FileSystemContextServiceTag;
-        const fs = yield* FileSystem.FileSystem;
-
-        let workingDirError: string | null = null;
-        const workingDir = yield* resolveGitWorkingDirectory(shell, context, fs, args.path).pipe(
-          Effect.catchAll((error) => {
-            workingDirError = error instanceof Error ? error.message : String(error);
-            return Effect.succeed(null);
-          }),
-        );
-
-        if (workingDir === null) {
-          return {
-            success: false,
-            result: null,
-            error: workingDirError || "Failed to resolve working directory",
-          };
-        }
+        const resolved = yield* resolveGitRepoDir(args.path, context);
+        if (resolved.kind === "failure") return resolved.result;
+        const workingDir = resolved.path;
 
         const remote = args.remote || "origin";
         const branch = args.branch || "";
@@ -94,34 +69,11 @@ export function createGitPullTools(): ApprovalToolPair<GitDeps> {
           pullArgs.push(remote);
         }
 
-        let commandError: string | null = null;
-        const commandResult = yield* runGitCommand({
+        const executed = yield* runGitOrFail("git pull", {
           args: pullArgs,
           workingDirectory: workingDir,
-        }).pipe(
-          Effect.catchAll((error) => {
-            const errorMsg = error instanceof Error ? error.message : String(error);
-            commandError = `Failed to execute git pull in directory '${workingDir}': ${errorMsg}`;
-            return Effect.succeed(null);
-          }),
-        );
-
-        if (commandResult === null) {
-          return {
-            success: false,
-            result: null,
-            error: commandError || `Failed to execute git pull in directory '${workingDir}'`,
-          };
-        }
-
-        if (commandResult.exitCode !== 0) {
-          return {
-            success: false,
-            result: null,
-            error:
-              commandResult.stderr || `git pull failed with exit code ${commandResult.exitCode}`,
-          };
-        }
+        });
+        if (executed.kind === "failure") return executed.result;
 
         return {
           success: true,
@@ -144,5 +96,5 @@ export function createGitPullTools(): ApprovalToolPair<GitDeps> {
     },
   };
 
-  return defineApprovalTool<GitDeps, GitPullArgs>(config);
+  return defineApprovalTool<GitToolDeps, GitPullArgs>(config);
 }

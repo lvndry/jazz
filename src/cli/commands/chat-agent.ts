@@ -3,9 +3,9 @@ import { getAgentByIdentifier } from "@/core/agent/agent-service";
 import { ChatServiceTag } from "@/core/interfaces/chat-service";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import { TerminalServiceTag } from "@/core/interfaces/terminal";
+import { CommonSuggestions } from "@/core/presentation/error-handler";
 import { AgentNotFoundError } from "@/core/types/errors";
-import { CommonSuggestions } from "@/core/utils/error-handler";
-import { getModelsDevMetadata } from "@/core/utils/models-dev-client";
+import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import packageJson from "../../../package.json";
 
 /**

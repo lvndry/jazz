@@ -17,7 +17,7 @@ import {
   getGlobalUserDataDirectory,
   getJazzHomeDirectory,
   getLocalJazzDirectory,
-} from "@/core/utils/runtime-detection";
+} from "@/core/utils/paths";
 
 /**
  * Extract only override fields (enabled) from a server config.

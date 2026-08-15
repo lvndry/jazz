@@ -92,7 +92,7 @@ Implementation and the documented set of known bypasses:
 `API|KEY|SECRET|TOKEN|PASSWORD|CREDENTIAL|AUTH` (case-insensitive), plus everything prefixed
 `SSH_`, stripped from the environment. An agent's `envAllowlist` can exempt specific names when
 a command genuinely needs one. Implementation:
-[`env-utils.ts`](src/core/utils/env-utils.ts).
+[`env.ts`](src/core/utils/env.ts).
 
 **Local-only data.** Credentials live in your config; telemetry is JSON on your disk and is
 never transmitted. `JAZZ_OFFLINE=1` stops Jazz initiating any outbound request of its own. See

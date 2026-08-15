@@ -1,11 +1,11 @@
+/**
+ * Tool-specific execution logging and formatting.
+ *
+ * Kept with agent tools so logging policy follows tool execution concerns.
+ */
 import { Effect } from "effect";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
-import { formatToolArguments } from "./tool-formatter";
-
-/**
- * Helper functions for tool execution logging
- * These functions format messages and use LoggerService directly
- */
+import { formatToolArguments } from "@/core/utils/tool-formatter";
 
 /**
  * Custom replacer for JSON.stringify to handle BigInt values
@@ -76,7 +76,6 @@ export function logToolExecutionSuccess(
   toolName: string,
   durationMs: number,
   resultSummary?: string,
-  fullResult?: unknown,
 ): Effect.Effect<void, never, LoggerService> {
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
@@ -87,38 +86,6 @@ export function logToolExecutionSuccess(
       : `${toolEmoji} ${toolName} ✅ (${duration})`;
 
     yield* logger.info(message);
-
-    // Log full result to file only (not console) for ALL tools
-    if (fullResult !== undefined) {
-      try {
-        const resultString =
-          typeof fullResult === "string" ? fullResult : JSON.stringify(fullResult, null, 2);
-
-        // Truncate very long results to avoid overwhelming logs
-        const maxLength = 10_000;
-        const truncatedResult =
-          resultString.length > maxLength
-            ? resultString.substring(0, maxLength) +
-              `\n... (truncated, ${resultString.length - maxLength} more characters)`
-            : resultString;
-
-        yield* logger
-          .info(`Tool result for ${toolName}`, {
-            toolName,
-            resultLength: resultString.length,
-            result: truncatedResult,
-          })
-          .pipe(Effect.catchAll(() => Effect.void));
-      } catch (error) {
-        // If serialization fails, log a warning to file
-        yield* logger
-          .warn(`Failed to log full result for ${toolName}`, {
-            toolName,
-            error: error instanceof Error ? error.message : String(error),
-          })
-          .pipe(Effect.catchAll(() => Effect.void));
-      }
-    }
   });
 }
 

@@ -1,7 +1,5 @@
-import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { z } from "zod";
-import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
 import {
   defineApprovalTool,
@@ -9,7 +7,15 @@ import {
   type ApprovalToolConfig,
   type ApprovalToolPair,
 } from "../base-tool";
-import { resolveGitWorkingDirectory, runGitCommand } from "./utils";
+import {
+  GIT_TIMEOUTS,
+  getHeadCommitHash,
+  gitApprovalDirectory,
+  gitRepoPathSchema,
+  resolveGitRepoDir,
+  runGitOrFail,
+  type GitToolDeps,
+} from "./utils";
 
 /**
  * Git merge tools (approval + execution)
@@ -17,7 +23,7 @@ import { resolveGitWorkingDirectory, runGitCommand } from "./utils";
 
 const gitMergeParameters = z
   .object({
-    path: z.string().optional().describe("Repository path (defaults to cwd)"),
+    path: gitRepoPathSchema,
     branch: z.string().min(1).describe("Branch or commit to merge"),
     message: z.string().optional().describe("Merge commit message"),
     noFastForward: z.boolean().optional().describe("Force merge commit (no fast-forward)"),
@@ -32,10 +38,8 @@ const gitMergeParameters = z
 
 type GitMergeArgs = z.infer<typeof gitMergeParameters>;
 
-type GitDeps = FileSystem.FileSystem | FileSystemContextService;
-
-export function createGitMergeTools(): ApprovalToolPair<GitDeps> {
-  const config: ApprovalToolConfig<GitDeps, GitMergeArgs> = {
+export function createGitMergeTools(): ApprovalToolPair<GitToolDeps> {
+  const config: ApprovalToolConfig<GitToolDeps, GitMergeArgs> = {
     name: "git_merge",
     description: "Merge a branch into the current branch. Supports squash, no-ff, and abort.",
     tags: ["git", "merge"],
@@ -44,19 +48,7 @@ export function createGitMergeTools(): ApprovalToolPair<GitDeps> {
 
     approvalMessage: (args: GitMergeArgs, context: ToolExecutionContext) =>
       Effect.gen(function* () {
-        const shell = yield* FileSystemContextServiceTag;
-        const workingDir = args.path
-          ? yield* shell.resolvePath(
-              {
-                agentId: context.agentId,
-                ...(context.conversationId && { conversationId: context.conversationId }),
-              },
-              args.path,
-            )
-          : yield* shell.getCwd({
-              agentId: context.agentId,
-              ...(context.conversationId && { conversationId: context.conversationId }),
-            });
+        const workingDir = yield* gitApprovalDirectory(args.path, context);
 
         if (args.abort) {
           return `Abort in-progress merge\nDirectory: ${workingDir}`;
@@ -76,59 +68,16 @@ export function createGitMergeTools(): ApprovalToolPair<GitDeps> {
 
     handler: (args: GitMergeArgs, context: ToolExecutionContext) =>
       Effect.gen(function* () {
-        const shell = yield* FileSystemContextServiceTag;
-        const fs = yield* FileSystem.FileSystem;
-
-        let workingDirError: string | null = null;
-        const workingDir = yield* resolveGitWorkingDirectory(shell, context, fs, args.path).pipe(
-          Effect.catchAll((error) => {
-            workingDirError = error instanceof Error ? error.message : String(error);
-            return Effect.succeed(null);
-          }),
-        );
-
-        if (workingDir === null) {
-          return {
-            success: false,
-            result: null,
-            error: workingDirError || "Failed to resolve working directory",
-          };
-        }
+        const resolved = yield* resolveGitRepoDir(args.path, context);
+        if (resolved.kind === "failure") return resolved.result;
+        const workingDir = resolved.path;
 
         if (args.abort) {
-          // Abort merge
-          const mergeArgs: string[] = ["merge", "--abort"];
-
-          let commandError: string | null = null;
-          const commandResult = yield* runGitCommand({
-            args: mergeArgs,
+          const executed = yield* runGitOrFail("git merge --abort", {
+            args: ["merge", "--abort"],
             workingDirectory: workingDir,
-          }).pipe(
-            Effect.catchAll((error) => {
-              const errorMsg = error instanceof Error ? error.message : String(error);
-              commandError = `Failed to execute git merge --abort in directory '${workingDir}': ${errorMsg}`;
-              return Effect.succeed(null);
-            }),
-          );
-
-          if (commandResult === null) {
-            return {
-              success: false,
-              result: null,
-              error:
-                commandError || `Failed to execute git merge --abort in directory '${workingDir}'`,
-            };
-          }
-
-          if (commandResult.exitCode !== 0) {
-            return {
-              success: false,
-              result: null,
-              error:
-                commandResult.stderr ||
-                `git merge --abort failed with exit code ${commandResult.exitCode}`,
-            };
-          }
+          });
+          if (executed.kind === "failure") return executed.result;
 
           return {
             success: true,
@@ -156,26 +105,15 @@ export function createGitMergeTools(): ApprovalToolPair<GitDeps> {
         }
         mergeArgs.push(args.branch);
 
-        let commandError: string | null = null;
-        const commandResult = yield* runGitCommand({
+        const executed = yield* runGitOrFail("git merge", {
           args: mergeArgs,
           workingDirectory: workingDir,
-          timeoutMs: 30_000,
-        }).pipe(
-          Effect.catchAll((error) => {
-            const errorMsg = error instanceof Error ? error.message : String(error);
-            commandError = `Failed to execute git merge in directory '${workingDir}': ${errorMsg}`;
-            return Effect.succeed(null);
-          }),
-        );
+          timeoutMs: GIT_TIMEOUTS.merge,
+          failOnNonZero: false,
+        });
+        if (executed.kind === "failure") return executed.result;
 
-        if (commandResult === null) {
-          return {
-            success: false,
-            result: null,
-            error: commandError || `Failed to execute git merge in directory '${workingDir}'`,
-          };
-        }
+        const commandResult = executed.result;
 
         if (commandResult.exitCode !== 0) {
           // Merge conflicts or other errors
@@ -196,14 +134,7 @@ export function createGitMergeTools(): ApprovalToolPair<GitDeps> {
           };
         }
 
-        // Get the merge commit hash if available
-        const hashResult = yield* runGitCommand({
-          args: ["rev-parse", "HEAD"],
-          workingDirectory: workingDir,
-        }).pipe(Effect.catchAll(() => Effect.succeed(null)));
-
-        const mergeCommitHash =
-          hashResult === null || hashResult.exitCode !== 0 ? "unknown" : hashResult.stdout.trim();
+        const mergeCommitHash = yield* getHeadCommitHash(workingDir);
 
         return {
           success: true,
@@ -234,5 +165,5 @@ export function createGitMergeTools(): ApprovalToolPair<GitDeps> {
     },
   };
 
-  return defineApprovalTool<GitDeps, GitMergeArgs>(config);
+  return defineApprovalTool<GitToolDeps, GitMergeArgs>(config);
 }

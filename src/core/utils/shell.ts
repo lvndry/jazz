@@ -13,8 +13,10 @@ import { Effect } from "effect";
  * is returned ("ls"). Environment variable prefixes (FOO=bar) and common
  * command prefixes (sudo, env, npx, etc.) are skipped.
  *
- * Since matching uses `startsWith`, the returned key acts as a prefix:
- * approving "git diff" auto-approves any command starting with "git diff".
+ * The returned key is what Jazz persists for "always approve". Runtime
+ * matching compares extracted keys exactly or by a token-boundary prefix, not
+ * the full raw command. Wrapper stripping can therefore create broad keys:
+ * `npx jest --watch` persists `jest`.
  */
 export function extractCommandApprovalKey(command: string): string {
   const trimmed = command.trim();
@@ -114,7 +116,9 @@ export interface ExecCommandOptions {
  * @param command - The command to execute
  * @param args - Arguments to pass to the command
  * @param options - Optional execution options
- * @returns Effect that resolves with stdout on success, or fails with Error
+ * @returns An Effect containing stdout. A non-zero exit fails with an Error
+ * whose message includes stderr, or stdout when stderr is empty; callers must
+ * treat that message as potentially sensitive.
  */
 export function execCommand(
   command: string,

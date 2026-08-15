@@ -1,3 +1,9 @@
+/**
+ * Best-effort discovery and caching of frontmatter-backed Markdown definitions.
+ *
+ * Skills, workflows, and personas share this index machinery. Individual
+ * malformed definitions are skipped so one bad file cannot hide valid peers.
+ */
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { Effect } from "effect";
@@ -83,7 +89,7 @@ export interface LoadCachedIndexOptions<T> {
 
 /**
  * Load a JSON index from `cachePath`, falling back to `scan` and rewriting the cache.
- * Cache rewrite failures are ignored.
+ * Missing or corrupt cache files trigger a rescan. Cache rewrite failures are ignored.
  */
 export function loadCachedIndex<T>(
   options: LoadCachedIndexOptions<T>,

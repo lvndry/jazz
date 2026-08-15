@@ -10,7 +10,7 @@ import {
   type ScheduledWorkflow,
 } from "./scheduler-service";
 import type { WorkflowMetadata } from "./workflow-service";
-import { isValidCronExpression } from "../utils/cron-utils";
+import { isValidCronExpression } from "../utils/cron";
 
 // Re-implement parseCronField for testing since it's not exported
 function parseCronField(value: string, fieldName: string): number | undefined {

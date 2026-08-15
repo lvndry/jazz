@@ -1,7 +1,5 @@
-import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { z } from "zod";
-import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
 import {
   defineApprovalTool,
@@ -9,7 +7,13 @@ import {
   type ApprovalToolConfig,
   type ApprovalToolPair,
 } from "../base-tool";
-import { resolveGitWorkingDirectory, runGitCommand } from "./utils";
+import {
+  gitApprovalDirectory,
+  gitRepoPathSchema,
+  resolveGitRepoDir,
+  runGitOrFail,
+  type GitToolDeps,
+} from "./utils";
 
 /**
  * Git add tools (approval + execution)
@@ -17,7 +21,7 @@ import { resolveGitWorkingDirectory, runGitCommand } from "./utils";
 
 const gitAddParameters = z
   .object({
-    path: z.string().optional().describe("Repository path (defaults to cwd)"),
+    path: gitRepoPathSchema,
     files: z.array(z.string()).min(1).describe("File paths to stage"),
     all: z.boolean().optional().describe("Stage all modified and untracked files"),
   })
@@ -25,10 +29,8 @@ const gitAddParameters = z
 
 type GitAddArgs = z.infer<typeof gitAddParameters>;
 
-type GitDeps = FileSystem.FileSystem | FileSystemContextService;
-
-export function createGitAddTools(): ApprovalToolPair<GitDeps> {
-  const config: ApprovalToolConfig<GitDeps, GitAddArgs> = {
+export function createGitAddTools(): ApprovalToolPair<GitToolDeps> {
+  const config: ApprovalToolConfig<GitToolDeps, GitAddArgs> = {
     name: "git_add",
     description: "Stage files for the next commit. Specify files or use all:true.",
     tags: ["git", "index"],
@@ -37,19 +39,7 @@ export function createGitAddTools(): ApprovalToolPair<GitDeps> {
 
     approvalMessage: (args: GitAddArgs, context: ToolExecutionContext) =>
       Effect.gen(function* () {
-        const shell = yield* FileSystemContextServiceTag;
-        const workingDir = args.path
-          ? yield* shell.resolvePath(
-              {
-                agentId: context.agentId,
-                ...(context.conversationId && { conversationId: context.conversationId }),
-              },
-              args.path,
-            )
-          : yield* shell.getCwd({
-              agentId: context.agentId,
-              ...(context.conversationId && { conversationId: context.conversationId }),
-            });
+        const workingDir = yield* gitApprovalDirectory(args.path, context);
 
         const filesToAdd = args.all ? "all files" : args.files.join(", ");
         return `Add ${filesToAdd} to git staging\nDirectory: ${workingDir}`;
@@ -59,24 +49,9 @@ export function createGitAddTools(): ApprovalToolPair<GitDeps> {
 
     handler: (args: GitAddArgs, context: ToolExecutionContext) =>
       Effect.gen(function* () {
-        const shell = yield* FileSystemContextServiceTag;
-        const fs = yield* FileSystem.FileSystem;
-
-        let workingDirError: string | null = null;
-        const workingDir = yield* resolveGitWorkingDirectory(shell, context, fs, args.path).pipe(
-          Effect.catchAll((error) => {
-            workingDirError = error instanceof Error ? error.message : String(error);
-            return Effect.succeed(null);
-          }),
-        );
-
-        if (workingDir === null) {
-          return {
-            success: false,
-            result: null,
-            error: workingDirError || "Failed to resolve working directory",
-          };
-        }
+        const resolved = yield* resolveGitRepoDir(args.path, context);
+        if (resolved.kind === "failure") return resolved.result;
+        const workingDir = resolved.path;
 
         const addArgs: string[] = ["add"];
         if (args.all) {
@@ -85,34 +60,11 @@ export function createGitAddTools(): ApprovalToolPair<GitDeps> {
           addArgs.push(...args.files);
         }
 
-        let commandError: string | null = null;
-        const commandResult = yield* runGitCommand({
+        const executed = yield* runGitOrFail("git add", {
           args: addArgs,
           workingDirectory: workingDir,
-        }).pipe(
-          Effect.catchAll((error) => {
-            const errorMsg = error instanceof Error ? error.message : String(error);
-            commandError = `Failed to execute git add in directory '${workingDir}': ${errorMsg}`;
-            return Effect.succeed(null);
-          }),
-        );
-
-        if (commandResult === null) {
-          return {
-            success: false,
-            result: null,
-            error: commandError || `Failed to execute git add in directory '${workingDir}'`,
-          };
-        }
-
-        if (commandResult.exitCode !== 0) {
-          return {
-            success: false,
-            result: null,
-            error:
-              commandResult.stderr || `git add failed with exit code ${commandResult.exitCode}`,
-          };
-        }
+        });
+        if (executed.kind === "failure") return executed.result;
 
         return {
           success: true,
@@ -133,5 +85,5 @@ export function createGitAddTools(): ApprovalToolPair<GitDeps> {
     },
   };
 
-  return defineApprovalTool<GitDeps, GitAddArgs>(config);
+  return defineApprovalTool<GitToolDeps, GitAddArgs>(config);
 }

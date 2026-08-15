@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
-import { describeCronSchedule, isValidCronExpression, normalizeCronExpression } from "./cron-utils";
+import { describeCronSchedule, isValidCronExpression, normalizeCronExpression } from "./cron";
 
-describe("cron-utils", () => {
+describe("cron", () => {
   describe("normalizeCronExpression", () => {
     it("should add seconds field to 5-field cron expressions", () => {
       expect(normalizeCronExpression("0 * * * *")).toBe("0 0 * * * *");
