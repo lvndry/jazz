@@ -38,6 +38,23 @@ See [MCP Servers](../integrations/index.md#mcp-servers) for format details.
 }
 ```
 
+### `maxSubagentDepth`
+
+How many levels of sub-agent may nest below a top-level run. Defaults to **3**.
+
+```json
+{
+  "maxSubagentDepth": 3
+}
+```
+
+Each level of delegation gets a *fresh* iteration budget rather than its parent's remainder — a
+child spawned on the parent's last iteration would be useless otherwise — so this depth, not the
+parent's remaining budget, is what bounds how much a nest of sub-agents can spend. Past the
+limit `spawn_subagent` returns an error telling the agent to do the work itself; it never
+silently runs the child anyway. Set `0` to stop agents delegating at all. See
+[Sub-agents](../internals/subagents.md#nesting-depth).
+
 ## Project Overrides: `./.jazz/config.json`
 
 Use for project-specific settings such as MCP enable/disable flags or logging level. Do not put agent storage paths here — agents always load from `~/.jazz`.

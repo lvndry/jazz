@@ -104,6 +104,11 @@ export interface AgentRunnerOptions {
    */
   readonly toolAllowlist?: readonly string[];
   /**
+   * How many sub-agent levels sit above this run. Omitted (0) for a top-level
+   * run; `spawn_subagent` passes its own depth plus one when starting a child.
+   */
+  readonly subagentDepth?: number;
+  /**
    * Callback invoked when the user chooses "always approve" for a specific tool
    * from the approval prompt.
    */

@@ -4,6 +4,17 @@ export const DEFAULT_MAX_ITERATIONS = 80;
 /** Maximum number of tools that can execute concurrently */
 export const MAX_CONCURRENT_TOOLS = 10;
 
+/**
+ * How many levels of sub-agent may nest below a top-level run, when
+ * `maxSubagentDepth` is not set in app config.
+ *
+ * Each level gets a fresh iteration budget rather than its parent's remainder —
+ * a child spawned on the parent's last iteration still needs a full budget to be
+ * useful — so depth, not the parent's remaining budget, is what bounds total
+ * spend. Three levels covers orchestrator → specialist → helper.
+ */
+export const DEFAULT_MAX_SUBAGENT_DEPTH = 3;
+
 /** Tool execution timeout in milliseconds (3 minutes) */
 export const TOOL_TIMEOUT_MS = 3 * 60 * 1000;
 

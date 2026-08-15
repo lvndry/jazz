@@ -19,6 +19,11 @@ export interface AppConfig {
   readonly telemetry?: TelemetryConfig;
   /** Maximum number of retries for transient LLM API failures. Defaults to 3. */
   readonly maxRetries?: number;
+  /**
+   * How many levels of sub-agent may nest below a top-level run. Defaults to 3.
+   * Set 0 to stop agents delegating at all.
+   */
+  readonly maxSubagentDepth?: number;
 }
 
 export interface NotificationsConfig {

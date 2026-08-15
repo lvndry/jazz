@@ -343,4 +343,40 @@ describe("createConfigLayer", () => {
     expect(result.maxRetries).toBe(8);
     expect(result.telemetryEnabled).toBe(false);
   });
+
+  it("preserves maxSubagentDepth from a custom config file", async () => {
+    const customConfigPath = path.join(os.tmpdir(), "jazz-subagent-depth-config.json");
+
+    const fileContents = new Map<string, string>([
+      [customConfigPath, JSON.stringify({ maxSubagentDepth: 1 })],
+    ]);
+
+    const layer = createConfigLayer(undefined, customConfigPath).pipe(
+      Layer.provide(Layer.succeed(FileSystem.FileSystem, createTestFileSystem(fileContents))),
+    );
+    const program = Effect.gen(function* () {
+      const config = yield* AgentConfigServiceTag;
+      return yield* config.get<number>("maxSubagentDepth");
+    }).pipe(Effect.provide(layer));
+
+    expect(await Effect.runPromise(program)).toBe(1);
+  });
+
+  it("leaves maxSubagentDepth unset when the config file omits it", async () => {
+    const customConfigPath = path.join(os.tmpdir(), "jazz-subagent-depth-default.json");
+
+    const fileContents = new Map<string, string>([
+      [customConfigPath, JSON.stringify({ maxRetries: 3 })],
+    ]);
+
+    const layer = createConfigLayer(undefined, customConfigPath).pipe(
+      Layer.provide(Layer.succeed(FileSystem.FileSystem, createTestFileSystem(fileContents))),
+    );
+    const program = Effect.gen(function* () {
+      const config = yield* AgentConfigServiceTag;
+      return yield* config.get<number>("maxSubagentDepth");
+    }).pipe(Effect.provide(layer));
+
+    expect(await Effect.runPromise(program)).toBeUndefined();
+  });
 });
