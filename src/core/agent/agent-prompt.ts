@@ -3,6 +3,7 @@ import * as os from "os";
 import { Effect } from "effect";
 import type { PersonaService } from "@/core/interfaces/persona-service";
 import type { ChatMessage, ConversationMessages } from "@/core/types/message";
+import { renderProjectInstructions, type ProjectInstructionFile } from "./project-instructions";
 import { ENVIRONMENT_TEMPLATE, MEMORY_INSTRUCTIONS, SKILLS_INSTRUCTIONS } from "./prompts/shared";
 
 function formatUtcOffsetLabel(date: Date): string {
@@ -55,6 +56,12 @@ export interface AgentPromptOptions {
    * call `find_skills` first. Subset of `knownSkills` by name.
    */
   readonly triggeredSkillNames?: readonly string[];
+  /**
+   * AGENTS.md files discovered for the working directory, outermost first.
+   * Rendered verbatim into the system prompt so project conventions reach the
+   * model without the user restating them every session.
+   */
+  readonly projectInstructions?: readonly ProjectInstructionFile[];
 }
 
 /**
@@ -150,6 +157,13 @@ export class AgentPromptBuilder {
     }
     if (options.toolNames?.includes("view_memory")) {
       hash.update("memory:1");
+    }
+    // Content, not just paths: editing an AGENTS.md must take effect on the
+    // next turn rather than waiting for a process restart.
+    if (options.projectInstructions && options.projectInstructions.length > 0) {
+      for (const file of options.projectInstructions) {
+        hash.update(`agentsmd:${file.path}:${file.content}`);
+      }
     }
     // Invalidate daily since prompts include current date
     hash.update(new Date().toDateString());
@@ -303,6 +317,12 @@ ${triggeredBlock}`;
 
         if (options.toolNames?.includes("view_memory")) {
           systemPrompt = systemPrompt + MEMORY_INSTRUCTIONS;
+        }
+
+        // Last, so project rules read as the most recent instruction the model
+        // has before the conversation itself.
+        if (options.projectInstructions && options.projectInstructions.length > 0) {
+          systemPrompt = systemPrompt + renderProjectInstructions(options.projectInstructions);
         }
 
         // Cache the result

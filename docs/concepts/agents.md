@@ -60,6 +60,29 @@ which skills they reach for. See [Skills](./skills.md).
 
 ---
 
+## Project instructions (AGENTS.md)
+
+Jazz reads [`AGENTS.md`](https://agents.md) — the cross-tool convention for telling an agent how
+a project works: build and test commands, conventions, house rules. Drop one at the root of a
+repository and every Jazz agent working there picks it up, with no per-agent configuration.
+
+Discovery runs on each turn against the agent's current working directory:
+
+| Order | File | Purpose |
+| --- | --- | --- |
+| 1 | `~/.agents/AGENTS.md` | Your personal defaults, across every project |
+| 2 | `<repo root>/AGENTS.md` | How this project works |
+| 3 | `<subdirectory>/AGENTS.md` | Overrides for one package or area |
+
+The walk climbs from the working directory to the repository root (the nearest ancestor with a
+`.git`) and stops there, so a checkout never inherits an unrelated `AGENTS.md` from a directory
+above it. Files are placed in the system prompt outermost-first: **when two conflict, the more
+specific one wins.** Each file is capped at 32 KB — keep them short and they stay effective.
+
+Edits take effect on the next turn; no restart needed.
+
+---
+
 ## The execution loop
 
 ```mermaid
