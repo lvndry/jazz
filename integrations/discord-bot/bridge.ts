@@ -1372,7 +1372,11 @@ async function dispatchComponent(
       type: CALLBACK_UPDATE_MESSAGE,
       data: { components: [] },
     });
-    await sendReply(config, channelId, item.label);
+    // A bot cannot post as the clicker, so the echo is attributed subtext
+    // rather than a plain line that reads as the bot talking to itself.
+    const requesterId = interactionUserId(interaction);
+    const echo = requesterId === undefined ? item.label : `<@${requesterId}> · ${item.label}`;
+    await sendReply(config, channelId, `-# ${echo}`);
     void handleMessage(config, channelId, item.prompt).catch((error) =>
       console.error(`Suggestion follow-up failed for ${channelId}: ${String(error)}`),
     );
