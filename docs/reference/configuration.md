@@ -81,6 +81,28 @@ limit `spawn_subagent` returns an error telling the agent to do the work itself;
 silently runs the child anyway. Set `0` to stop agents delegating at all. See
 [Sub-agents](../internals/subagents.md#nesting-depth).
 
+### `context`
+
+When to warn the model that its context is filling, and when to compact history automatically. Both are fractions of the run's context budget — the effective model window, after any `numCtx` pin or agent `maxContextTokens` ceiling.
+
+```json
+{
+  "context": {
+    "warnThresholdRatio": 0.7,
+    "compactThresholdRatio": 0.8
+  }
+}
+```
+
+| Key | Default | Effect |
+| --- | --- | --- |
+| `warnThresholdRatio` | 0.7 | The model is told to consolidate what it has while detail still exists |
+| `compactThresholdRatio` | 0.8 | Older history is summarized automatically |
+
+The ordering `warn < compact < 0.95` is enforced. The 0.95 ceiling is the trim ratio: trimming *discards* messages rather than summarizing them, so a compaction threshold at or above it would let trimming pre-empt compaction and turn the whole scheme into a sliding window. A value that breaks the ordering — or that isn't a number strictly between 0 and 1 — is ignored with a logged warning and the default is used; the run never fails on a bad ratio.
+
+Raising `compactThresholdRatio` keeps more verbatim history but leaves less headroom, which bites hardest on local servers whose real window is smaller than advertised. Lowering it compacts earlier and more often, costing a summarizer call each time. The reserved-space figure in `/context` is derived from this setting, so the grid always reflects where compaction actually fires.
+
 ## Project Overrides: `./.jazz/config.json`
 
 Use for project-specific settings such as MCP enable/disable flags or logging level. Do not put agent storage paths here — agents always load from `~/.jazz`.

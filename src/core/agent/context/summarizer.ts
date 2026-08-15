@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import type { ProviderName } from "@/core/constants/models";
-import { type AgentConfigService } from "@/core/interfaces/agent-config";
+import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import type { LLMService } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import type { PresentationService } from "@/core/interfaces/presentation";
@@ -10,10 +10,8 @@ import type { Agent } from "@/core/types";
 import type { ChatMessage, ConversationMessages } from "@/core/types/message";
 import { parseProviderModel } from "@/core/utils/provider-model";
 import type { AgentResponse } from "../types";
-import {
-  CONTEXT_COMPACT_THRESHOLD_RATIO,
-  DEFAULT_CONTEXT_WINDOW_MANAGER,
-} from "./context-window-manager";
+import { resolveContextThresholds } from "./context-thresholds";
+import { DEFAULT_CONTEXT_WINDOW_MANAGER } from "./context-window-manager";
 import { DEFAULT_TOKEN_COUNTER, type ModelHint } from "./token-counter";
 
 /** Build a token-counter hint from an agent's provider/model. */
@@ -217,12 +215,15 @@ export const Summarizer = {
     return Effect.gen(function* () {
       const logger = yield* LoggerServiceTag;
       const presentationService = yield* PresentationServiceTag;
+      const configService = yield* AgentConfigServiceTag;
+      const appConfig = yield* configService.appConfig;
 
       // Use model-specific context window or fall back to default
       const maxTokens = modelContextWindow ?? DEFAULT_CONTEXT_WINDOW_MANAGER.getConfig().maxTokens;
       const hint = modelHintFromAgent(agent);
       const currentTokens = DEFAULT_TOKEN_COUNTER.countMessages(currentMessages, hint);
-      const threshold = maxTokens * CONTEXT_COMPACT_THRESHOLD_RATIO;
+      const { compactThresholdRatio } = resolveContextThresholds(appConfig.context);
+      const threshold = maxTokens * compactThresholdRatio;
 
       // Check if summarization is needed
       if (currentTokens <= threshold) {
@@ -233,6 +234,7 @@ export const Summarizer = {
         currentTokens,
         maxTokens,
         threshold: Math.floor(threshold),
+        compactThresholdRatio,
         agentId: agent.id,
         conversationId,
         modelContextWindow,
@@ -240,7 +242,7 @@ export const Summarizer = {
 
       yield* presentationService.presentWarning(
         agent.name,
-        `Context window ~${Math.round(CONTEXT_COMPACT_THRESHOLD_RATIO * 100)}% full of ${maxTokens.toLocaleString()} tokens — auto-compacting conversation history...`,
+        `Context window ~${Math.round(compactThresholdRatio * 100)}% full of ${maxTokens.toLocaleString()} tokens — auto-compacting conversation history...`,
       );
 
       yield* logger.info("Compacting history to preserve context...", {

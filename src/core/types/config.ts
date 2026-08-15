@@ -24,6 +24,21 @@ export interface AppConfig {
   readonly maxIterations?: number;
   /** Iteration budget for a sub-agent run. Defaults to 30. */
   readonly maxSubagentIterations?: number;
+  readonly context?: ContextConfig;
+}
+
+export interface ContextConfig {
+  /**
+   * Fraction of the context budget at which the model is warned the window is
+   * filling up. Defaults to 0.7. Must be below `compactThresholdRatio`.
+   */
+  readonly warnThresholdRatio?: number;
+
+  /**
+   * Fraction of the context budget at which history is compacted automatically.
+   * Defaults to 0.8. Must be below the 0.95 trim ratio.
+   */
+  readonly compactThresholdRatio?: number;
 }
 
 export interface NotificationsConfig {

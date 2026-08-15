@@ -367,6 +367,16 @@ describe("executeAgentLoop", () => {
     expect(buildContextPressureMessage(500, 0)).toBeNull();
   });
 
+  it("honors configured warn and compaction ratios", () => {
+    const thresholds = { warnThresholdRatio: 0.5, compactThresholdRatio: 0.6 };
+
+    expect(buildContextPressureMessage(4_500, 10_000, thresholds)).toBeNull();
+
+    const warning = buildContextPressureMessage(5_500, 10_000, thresholds);
+    expect(warning?.content).toContain("CONTEXT WARNING");
+    expect(warning?.content).toContain("summarized automatically at 60%");
+  });
+
   it("sends the context nudge to the model without persisting it in history", async () => {
     const seenMessages: ConversationMessages[] = [];
     const strategy: CompletionStrategy = {
