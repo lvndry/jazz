@@ -5,8 +5,6 @@ describe("secret registry", () => {
   it("treats known LLM, web search, and Google secret paths as secrets", () => {
     expect(isSecretPath("llm.openai.api_key")).toBe(true);
     expect(isSecretPath("web_search.brave.api_key")).toBe(true);
-    expect(isSecretPath("google.clientSecret")).toBe(true);
-    expect(isSecretPath("google.clientId")).toBe(true);
   });
 
   it("treats unknown providers as secrets so new keys are never left in plaintext", () => {
@@ -25,7 +23,6 @@ describe("secret registry", () => {
     expect(envVarForSecretPath("llm.anthropic.api_key")).toBe("ANTHROPIC_API_KEY");
     expect(envVarForSecretPath("llm.google.api_key")).toBe("GOOGLE_GENERATIVE_AI_API_KEY");
     expect(envVarForSecretPath("web_search.exa.api_key")).toBe("EXA_API_KEY");
-    expect(envVarForSecretPath("google.clientSecret")).toBe("GOOGLE_CLIENT_SECRET");
     expect(envVarForSecretPath("logging.level")).toBeUndefined();
   });
 

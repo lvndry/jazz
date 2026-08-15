@@ -44,7 +44,6 @@ describe("AgentConfigService", () => {
   const initialConfig: AppConfig = {
     storage: { type: "file", path: "/tmp" },
     logging: { level: "info", format: "plain" },
-    google: { clientId: "", clientSecret: "" },
     llm: {},
     web_search: { provider: "parallel" },
   };
@@ -137,6 +136,48 @@ describe("createConfigLayer", () => {
       makeDirectory: mock(() => Effect.void),
     } as unknown as FileSystem;
   }
+
+  it("removes the legacy google client block from the config file", async () => {
+    const globalPath = path.join(os.homedir(), ".jazz", "config.json");
+    const fileContents = new Map<string, string>([
+      [
+        globalPath,
+        JSON.stringify({
+          logging: { level: "info" },
+          google: { clientId: "dead-id", clientSecret: "dead-secret" },
+        }),
+      ],
+    ]);
+    const testFS = createTestFileSystem(fileContents);
+
+    const layer = createConfigLayer().pipe(
+      Layer.provide(Layer.succeed(FileSystem.FileSystem, testFS)),
+    );
+    await Effect.runPromise(Effect.provide(AgentConfigServiceTag, layer));
+
+    const calls = (testFS.writeFileString as ReturnType<typeof mock>).mock.calls;
+    expect(calls.length).toBeGreaterThan(0);
+    const written = calls[calls.length - 1]?.[1] as string;
+    expect(written).not.toContain("dead-secret");
+    expect(JSON.parse(written).google).toBeUndefined();
+    expect(JSON.parse(written).logging).toEqual({ level: "info" });
+  });
+
+  it("leaves a repurposed google block alone", async () => {
+    const globalPath = path.join(os.homedir(), ".jazz", "config.json");
+    const fileContents = new Map<string, string>([
+      [globalPath, JSON.stringify({ google: { somethingElse: "keep-me" } })],
+    ]);
+    const testFS = createTestFileSystem(fileContents);
+
+    const layer = createConfigLayer().pipe(
+      Layer.provide(Layer.succeed(FileSystem.FileSystem, testFS)),
+    );
+    await Effect.runPromise(Effect.provide(AgentConfigServiceTag, layer));
+
+    const calls = (testFS.writeFileString as ReturnType<typeof mock>).mock.calls;
+    expect(calls.length).toBe(0);
+  });
 
   it("resolves secrets from the environment over the config file", async () => {
     const globalPath = path.join(os.homedir(), ".jazz", "config.json");

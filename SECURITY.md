@@ -166,7 +166,7 @@ GitHub account, a separate mailbox) so a mistake cannot reach your primary ident
 
 Jazz resolves every secret in this order, and uses the first hit:
 
-1. **Environment variable** — `OPENAI_API_KEY`, `BRAVE_API_KEY`, `GOOGLE_CLIENT_SECRET`, and so
+1. **Environment variable** — `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `BRAVE_API_KEY`, and so
    on. Nothing touches disk. Best for containers and CI.
 2. **OS keyring** — macOS Keychain, or libsecret (`secret-tool`) on Linux. Used automatically
    when available. Keys already sitting in `~/.jazz/config.json` are moved here on next start.

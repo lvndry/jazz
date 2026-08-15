@@ -5,7 +5,6 @@ import type { MCPServerConfig } from "@/core/interfaces/mcp-server";
 import { ConfigurationError, ConfigurationNotFoundError } from "@/core/types/errors";
 import type {
   AppConfig,
-  GoogleConfig,
   LLMConfig,
   LoggingConfig,
   MCPServerOverride,
@@ -373,15 +372,10 @@ function defaultConfig(): AppConfig {
     format: "plain",
   };
 
-  const google: GoogleConfig = {
-    clientId: "",
-    clientSecret: "",
-  };
-
   const llm: LLMConfig = {};
   const web_search: WebSearchConfig = {};
 
-  return { storage, logging, google, llm, web_search };
+  return { storage, logging, llm, web_search };
 }
 
 function mergeConfig(base: AppConfig, override?: Partial<AppConfig>): AppConfig {
@@ -412,7 +406,6 @@ function mergeConfig(base: AppConfig, override?: Partial<AppConfig>): AppConfig 
         }),
       },
     }),
-    ...(override.google && { google: { ...base.google, ...override.google } }),
     ...(override.llm && { llm: { ...(base.llm ?? {}), ...override.llm } }),
     ...(override.web_search && {
       web_search: { ...(base.web_search ?? {}), ...override.web_search },
@@ -485,10 +478,6 @@ function collectSecretPaths(config: Partial<AppConfig>): string[] {
     }
   }
 
-  for (const path of ["google.clientId", "google.clientSecret"]) {
-    if (typeof deepGet(record, path) === "string") paths.push(path);
-  }
-
   return paths;
 }
 
@@ -559,18 +548,51 @@ function resolveSecrets(
       if (nonEmptyString(fileValue)) fileSecrets.set(path, fileValue);
     }
 
-    if (migrated.length > 0 && globalConfigPath) {
+    const droppedLegacy = dropLegacyGoogleBlock(fileRecord);
+
+    if ((migrated.length > 0 || droppedLegacy) && globalConfigPath) {
       const cleaned = structuredClone(fileRecord);
       for (const path of migrated) {
         deepDelete(cleaned, path);
       }
+      if (droppedLegacy) delete cleaned["google"];
       yield* writePrivateFile(fs, globalConfigPath, JSON.stringify(cleaned, null, 2));
+      if (droppedLegacy) noticeLegacyGoogleRemoved(globalConfigPath);
     } else if (globalConfigPath) {
       yield* chmodQuietly(fs, globalConfigPath, CONFIG_FILE_MODE);
     }
 
     return { config: resolved as unknown as AppConfig, origins, fileSecrets };
   });
+}
+
+/**
+ * Detect the legacy top-level `google` block — an OAuth client id/secret pair
+ * that was scaffolded into the config shape but never read by anything.
+ *
+ * It is matched by shape rather than merely by key, so a `google` block that
+ * someone repurposed for something else is left alone.
+ */
+function dropLegacyGoogleBlock(fileRecord: Record<string, unknown>): boolean {
+  const block = fileRecord["google"];
+  if (!block || typeof block !== "object") return false;
+
+  const keys = Object.keys(block);
+  if (keys.length === 0) return true;
+  return keys.every((key) => key === "clientId" || key === "clientSecret");
+}
+
+/**
+ * Tell the user once, on the run that removes it. The credential is not moved
+ * anywhere — nothing ever read it — so silently deleting it would be the wrong
+ * kind of quiet.
+ */
+function noticeLegacyGoogleRemoved(configPath: string): void {
+  process.stderr.write(
+    `jazz: removed the unused "google" client id/secret block from ${configPath}.\n` +
+      `      Nothing in Jazz ever read it. If you still need those values, recover them\n` +
+      `      from your version control or backups before they age out.\n`,
+  );
 }
 
 /**
