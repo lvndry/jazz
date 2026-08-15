@@ -6,11 +6,11 @@
 
 ### One agent. Every surface. Your rules.
 
-Most coding agents assume you're sitting there. Jazz assumes you're not. One install runs
-in your terminal, on a cron, inside CI, and behind a chat bot — same agent, same tools,
-same memory, one approval dial that means the same thing everywhere.
+Jazz is a general-purpose agent you host yourself. It starts in your terminal, but the same
+install runs headless: on a schedule, inside CI, or as a chat bot on a server you own. When
+a job needs your permission, it asks you wherever you are instead of stopping.
 
-[Quick Start](#quick-start) · [Where It Runs](#where-jazz-runs) · [Unattended runs](#built-for-runs-youre-not-watching) · [Workflows](#workflows) · [Docs](docs/index.md) · [Discord](https://discord.gg/yBDbS2NZju)
+[Quick Start](#quick-start) · [Where It Runs](#where-jazz-runs) · [Headless](#the-headless-contract) · [Workflows](#workflows) · [Docs](docs/index.md) · [Discord](https://discord.gg/yBDbS2NZju)
 
 </div>
 
@@ -18,13 +18,22 @@ same memory, one approval dial that means the same thing everywhere.
 
 ## Why Jazz?
 
-Every serious agent can call tools. The hard part is trusting one to run when nobody is
-watching, and that is the part Jazz is designed around.
+Plenty of agents call tools well. The gap is what happens when one is running and you aren't
+there to answer it.
 
-- **It declines instead of hanging.** An unattended run has nobody to ask, so tools above your approval tier are refused and the agent routes around them. No job ever blocks forever on a prompt nobody will answer.
-- **It remembers without a database.** Pass `--conversation <any-id>` and Jazz owns the transcript. A Telegram chat, a Slack thread, or a ticket number becomes stateful in one flag, and your bridge stores nothing.
-- **It accounts for itself.** Every run reports what it spent — including the runs that failed, because a job that timed out still cost money. Set a daily cap and walk away.
-- **It survives long jobs.** A budgeted iteration count that warns itself to wrap up, loop detection, automatic context compaction, and sub-agents that keep research out of the parent's context.
+- **Approve from your phone.** A run that hits something above its permission tier doesn't
+  die and doesn't hang. It sends the request to your chat, waits, and picks up where it
+  stopped when you tap Approve. Nothing is pre-authorized just because nobody's at a
+  terminal.
+- **A bot on your server, not a relay to your laptop.** The Telegram and Discord bridges are
+  plain processes that shell out to `jazz run`. `docker compose up` on a VPS and the agent
+  answers whether or not your machine is awake. A minimal bridge for another platform is
+  about 100 lines.
+- **The answer can be a page, not a paragraph.** The agent writes a real self-contained
+  HTML document — a dashboard, a form, an explorable chart — which Telegram renders as a
+  Mini App, or Jazz screenshots to an image for surfaces that can't.
+- **Yours, offline if you want.** MIT, your machine or your server, local models via
+  `ollama`, and `JAZZ_OFFLINE=1` for a hard airgap. Your inbox and your repo stay on disk.
 
 You describe the outcome. Jazz plans, calls tools, checks its own work, and reports back.
 
@@ -72,11 +81,10 @@ a bridge you write yourself (~100 lines). See [Chat platforms](docs/surfaces/cha
 
 ---
 
-## Built for runs you're not watching
+## The headless contract
 
-The contract behind `jazz run` is what keeps those integrations small: **stdout carries the
-payload, stderr carries everything else.** No mode flags to remember, no log lines to
-filter out of your JSON.
+Why the bridges stay small: stdout carries the payload, stderr carries everything else. No
+mode flags, no log lines to filter out of your JSON.
 
 ```bash
 jazz run --json --agent dev --conversation "$THREAD_ID" --approval-policy read-only "review this diff"
@@ -86,14 +94,20 @@ jazz run --json --agent dev --conversation "$THREAD_ID" --approval-policy read-o
 { "ok": true, "answer": "…", "costUSD": 0.000182, "toolCalls": [] }
 ```
 
-Exactly one line, one object, on success _and_ on failure. Add `--events tools,subagent`
-for NDJSON progress on stderr while stdout stays pristine, so a bot can render a live
-progress bubble and still parse the result cleanly.
+One line, one object, whether the run succeeded or failed. `--conversation <any-id>` makes
+it stateful — pass a chat id, a thread id, or a ticket number and Jazz owns the transcript,
+so your bridge stores nothing. `--events tools,subagent` adds NDJSON progress on stderr
+while stdout stays clean.
 
-Underneath it: an 80-iteration budget that injects wrap-up pressure at 70% and 90%, loop
-and meltdown detection, context compaction at 80% of the window, and sub-agents with
-isolated context. Built on TypeScript and [Effect-TS](https://effect.website/), so
-failures have a typed recovery path instead of crashing silently.
+The event stream runs both ways. A gated tool emits `approval_required` with a
+`toolCallId` and the run blocks; write an `approval_decision` line back on stdin and it
+continues. That round-trip is the whole mechanism behind approving a paused server job
+from a chat message.
+
+Long runs are budgeted: an 80-iteration ceiling that injects wrap-up pressure at 70% and
+90%, loop and meltdown detection, context compaction at 80% of the window, sub-agents with
+isolated context, and cost on every run with a daily cap. Built on TypeScript and
+[Effect-TS](https://effect.website/), so failures have a typed recovery path.
 
 [Headless contract](docs/surfaces/headless.md) ·
 [Agent loop](docs/internals/agent-loop.md) ·
@@ -151,9 +165,11 @@ Check my git activity from yesterday and summarize what I worked on as bullet po
 jazz workflow schedule daily-standup-prep
 ```
 
-Jazz schedules through `launchd` on macOS and `cron` on Linux, and can catch up runs your
-laptop slept through. Three workflows ship built in; the
-[Cookbook](docs/cookbook/index.md) has seven more ready to copy.
+Jazz schedules through `launchd` on macOS and `cron` on Linux. If your laptop was asleep at
+9am, a workflow with `catchUpOnStartup` offers to run what it missed the next time you use
+Jazz, so a personal machine works as a scheduler. Three workflows ship built in —
+inbox cleanup, market analysis, morning weather — and the
+[Cookbook](docs/cookbook/index.md) has seven more to copy.
 
 ---
 

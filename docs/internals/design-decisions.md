@@ -246,7 +246,7 @@ deployment.
 provider-reported metadata and a 128k default. Ollama and llama.cpp need no catalog at all —
 model lists, context windows, and tool support are read from the local server.
 
-📄 [`models-dev.ts`](../../src/core/utils/models-dev.ts) · [Airgapped](../guide/airgapped.md)
+📄 [`models-dev-client.ts`](../../src/core/utils/models-dev-client.ts) · [Airgapped](../guide/airgapped.md)
 
 ### Effect-TS for the entire runtime
 
@@ -274,7 +274,7 @@ server misbehaves.
 **Cost accepted.** The first call to an MCP tool pays the connection cost, and a broken
 server surfaces mid-run instead of at startup.
 
-📄 [`register-mcp-tools.ts`](../../src/core/agent/tools/register-mcp-tools.ts)
+📄 [`register-tools.ts`](../../src/core/agent/tools/register-tools.ts)
 
 ### Progressive skill loading
 
