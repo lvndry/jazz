@@ -535,7 +535,7 @@ jobs:
   # On-demand PR assistant — triggered by a /jazz comment or manual workflow dispatch.
   assistant:
     # Depends on code-review too (not just resolve) so the two jazz jobs don't
-    # burst the same free OpenRouter model concurrently. code-review no longer
+    # burst the same provider account concurrently. code-review no longer
     # hard-fails on provider errors/rate limits, but `always()` guards against
     # it being skipped or cancelled for any other reason.
     needs: [resolve, code-review]
