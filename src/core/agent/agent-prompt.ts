@@ -5,10 +5,14 @@ import type { PersonaService } from "@/core/interfaces/persona-service";
 import type { ChatMessage, ConversationMessages } from "@/core/types/message";
 import { renderProjectInstructions, type ProjectInstructionFile } from "./project-instructions";
 import {
+  COMPLETION_INSTRUCTIONS,
   ENVIRONMENT_TEMPLATE,
+  INTERACTIVE_QUESTIONS_GUIDELINES,
   MEMORY_INSTRUCTIONS,
+  renderToolNotes,
   SKILLS_INSTRUCTIONS,
   TASK_STATE_INSTRUCTIONS,
+  TOOL_SELECTION_INSTRUCTIONS,
 } from "./prompts/shared";
 
 function formatUtcOffsetLabel(date: Date): string {
@@ -160,11 +164,10 @@ export class AgentPromptBuilder {
     if (options.triggeredSkillNames && options.triggeredSkillNames.length > 0) {
       hash.update(`triggered:${[...options.triggeredSkillNames].sort().join(",")}`);
     }
-    if (options.toolNames?.includes("update_task_state")) {
-      hash.update("taskstate:1");
-    }
-    if (options.toolNames?.includes("view_memory")) {
-      hash.update("memory:1");
+    // The full tool set shapes the prompt: tool-gated instruction blocks
+    // (memory, task state, questions) and the per-tool notes both key off it.
+    if (options.toolNames && options.toolNames.length > 0) {
+      hash.update(`tools:${[...options.toolNames].sort().join(",")}`);
     }
     // Content, not just paths: editing an AGENTS.md must take effect on the
     // next turn rather than waiting for a process restart.
@@ -283,6 +286,22 @@ export class AgentPromptBuilder {
           systemPrompt = fillEnvironment(systemPrompt);
         } else if (personaName !== "summarizer") {
           systemPrompt = `${systemPrompt}\n${fillEnvironment(ENVIRONMENT_TEMPLATE)}`;
+        }
+
+        // Every acting persona gets the completion contract. The summarizer is
+        // a pure transcript-compression role with no tools — "finish the job"
+        // framing is noise for it.
+        if (personaName !== "summarizer") {
+          systemPrompt = systemPrompt + COMPLETION_INSTRUCTIONS;
+        }
+
+        if (options.toolNames && options.toolNames.length > 0) {
+          systemPrompt = systemPrompt + TOOL_SELECTION_INSTRUCTIONS;
+          systemPrompt = systemPrompt + renderToolNotes(options.toolNames);
+        }
+
+        if (options.toolNames?.includes("ask_user_question")) {
+          systemPrompt = systemPrompt + INTERACTIVE_QUESTIONS_GUIDELINES;
         }
 
         if (options.knownSkills && options.knownSkills.length > 0) {
