@@ -26,6 +26,7 @@ import type { ApprovalOutcome, ApprovalRequest } from "@/core/types/tools";
 import { getModelsDevMetadata, getModelsDevMetadataSync } from "@/core/utils/models-dev";
 import { extractCommandApprovalKey } from "@/core/utils/shell";
 import { expandableToolResultPayload } from "@/core/utils/tool-formatter";
+import { computeUsageCostUSD, type UsageCostPricing } from "@/core/utils/usage-cost";
 import { createAccumulator, reduceEvent } from "./activity-reducer";
 import {
   formatToolArguments,
@@ -726,8 +727,13 @@ export class InkStreamingRenderer implements StreamingRenderer {
 
     const usage = event.response.usage;
     if (usage) {
+      const cacheReadTokens = Math.min(usage.cacheReadTokens ?? 0, usage.promptTokens);
+      const cachedShare =
+        usage.promptTokens > 0 && cacheReadTokens > 0
+          ? ` (${Math.round((cacheReadTokens / usage.promptTokens) * 100)}% cached)`
+          : "";
       parts.push(
-        `${compactTokens(usage.promptTokens)} in → ${compactTokens(usage.completionTokens)} out`,
+        `${compactTokens(usage.promptTokens)} in${cachedShare} → ${compactTokens(usage.completionTokens)} out`,
       );
       // Push the prompt-side count to the persistent footer so users have
       // visibility on context-window pressure between turns.
@@ -740,16 +746,8 @@ export class InkStreamingRenderer implements StreamingRenderer {
     const provider = this.acc.currentProvider;
     const model = this.acc.currentModel;
     if (usage && provider && model) {
-      const computeCost = (
-        meta: { inputPricePerMillion?: number; outputPricePerMillion?: number } | undefined,
-      ): number | null => {
-        if (meta?.inputPricePerMillion === undefined && meta?.outputPricePerMillion === undefined) {
-          return null;
-        }
-        const inputCost = (usage.promptTokens / 1_000_000) * (meta.inputPricePerMillion ?? 0);
-        const outputCost = (usage.completionTokens / 1_000_000) * (meta.outputPricePerMillion ?? 0);
-        return inputCost + outputCost;
-      };
+      const computeCost = (meta: UsageCostPricing | undefined): number | null =>
+        computeUsageCostUSD(usage, meta);
       const rollIntoFooter = (totalCost: number): void => {
         this.acc.cumulativeCostUSD += totalCost;
         // Accumulate into the shared session total so sub-agent renderers add

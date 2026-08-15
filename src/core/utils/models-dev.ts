@@ -46,6 +46,8 @@ export interface ModelsDevMetadata {
   readonly inputPricePerMillion?: number;
   /** Output price in USD per 1M tokens (from models.dev cost.output). */
   readonly outputPricePerMillion?: number;
+  /** Cached-input price in USD per 1M tokens (from models.dev cost.cache_read). */
+  readonly cacheReadPricePerMillion?: number;
 }
 
 /** One model as listed under a models.dev provider, with resolved metadata. */
@@ -70,7 +72,7 @@ type ModelsDevModelSpec = {
   reasoning?: boolean;
   temperature?: boolean;
   modalities?: { input?: string[]; output?: string[] };
-  cost?: { input?: number; output?: number };
+  cost?: { input?: number; output?: number; cache_read?: number };
 };
 
 type ModelsDevProvider = {
@@ -124,6 +126,10 @@ function toMetadata(spec: ModelsDevModelSpec): ModelsDevMetadata {
     typeof spec.cost?.input === "number" && spec.cost.input >= 0 ? spec.cost.input : undefined;
   const outputPrice =
     typeof spec.cost?.output === "number" && spec.cost.output >= 0 ? spec.cost.output : undefined;
+  const cacheReadPrice =
+    typeof spec.cost?.cache_read === "number" && spec.cost.cache_read >= 0
+      ? spec.cost.cache_read
+      : undefined;
 
   const inputModalities = Array.isArray(spec.modalities?.input) ? spec.modalities.input : [];
 
@@ -136,6 +142,7 @@ function toMetadata(spec: ModelsDevModelSpec): ModelsDevMetadata {
     supportsTemperature: spec.temperature !== false,
     ...(inputPrice !== undefined && { inputPricePerMillion: inputPrice }),
     ...(outputPrice !== undefined && { outputPricePerMillion: outputPrice }),
+    ...(cacheReadPrice !== undefined && { cacheReadPricePerMillion: cacheReadPrice }),
   };
 }
 
