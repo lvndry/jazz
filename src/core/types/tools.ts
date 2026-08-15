@@ -192,6 +192,14 @@ export interface ToolExecutionContext {
    */
   readonly parentMaxIterations?: number;
   /**
+   * The parent's effective tool names for this run (after persona deny lists
+   * and any inherited allowlist). `spawn_subagent` passes this down as the
+   * child's allowlist so a child can never hold a tool its parent lacks —
+   * otherwise swapping the child's persona would be a way around the parent's
+   * toolset, which is Jazz's strongest safety control.
+   */
+  readonly parentToolNames?: readonly string[];
+  /**
    * Callback to replace conversation messages with compacted versions.
    * Used by summarize_context to actually update the executor's message array.
    */

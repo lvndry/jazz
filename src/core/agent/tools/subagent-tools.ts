@@ -152,6 +152,11 @@ ${args.task}`;
             conversationId: `subagent-conv-${++subagentCounter}-${Date.now()}`,
             maxIterations: context.parentMaxIterations ?? DEFAULT_MAX_ITERATIONS,
             ephemeralRegionId: regionId,
+            // Cap the child at the parent's own effective tools. The child runs
+            // under a caller-chosen persona, and a persona resolves its own
+            // built-in categories — without this ceiling a narrowly-scoped
+            // parent could reach a tool it lacks by picking a broader persona.
+            ...(context.parentToolNames ? { toolAllowlist: context.parentToolNames } : {}),
             ...(context.getAutoApprovePolicy
               ? { autoApprovePolicy: context.getAutoApprovePolicy }
               : {}),

@@ -54,6 +54,38 @@ spawn_subagent({
 | `name` | Short role label shown in the sub-agent panel, so parallel children are distinguishable. |
 | `persona` | `coder` for code and git work, `researcher` for investigation, `default` for general. |
 
+A sub-agent always runs as the parent agent itself — same provider, same model, same config —
+varying only the persona. Delegating to a *different* saved agent, or running the child on a
+different model, is deliberately not offered.
+
+---
+
+## The tool ceiling
+
+A child never holds a tool its parent lacks. `spawn_subagent` passes the parent's effective
+tool names down as the child's allowlist, and the child's own toolset is intersected with it
+after personas and built-in categories resolve.
+
+```mermaid
+flowchart LR
+    P["Parent<br/>read_file · grep · spawn_subagent"]
+    N["Persona 'coder'<br/>read_file · grep · <s>execute_command</s>"]
+    P -->|"persona: 'coder'"| C["Child<br/>read_file · grep · spawn_subagent"]
+    N -.->|"intersected"| C
+
+    classDef good fill:#4f9d9d,stroke:#2f6d6d,color:#ffffff
+    class C good
+```
+
+The parent chooses the child's persona, and a persona resolves its own built-in tool
+categories — so without the intersection, a read-only CI reviewer could reach
+`execute_command` by spawning a child under a broader persona. This is what keeps the claim in
+[Agents](../concepts/agents.md) true: that omitting a tool is the strongest safety control
+available. Withheld tools are logged at `info`.
+
+Because the ceiling lives in the runner rather than at the call site, it holds for any future
+caller of a nested run, not just `spawn_subagent`.
+
 Because the parent can issue several tool calls in one iteration, sub-agents run in parallel
 up to the concurrency cap — each with its own panel in the TUI.
 
@@ -83,7 +115,8 @@ sequenceDiagram
 | --- | --- | --- |
 | The `task` string | The child's final answer | The parent's message history |
 | The chosen persona | Its cost, into the parent's total | The parent's tool results |
-| The agent's provider/model and toolset | | The child's intermediate work |
+| The agent's provider/model | | The child's intermediate work |
+| The parent's toolset, as a ceiling | | Any tool the parent itself lacks |
 
 **Cost rolls up.** Each child reports spend via `recordChildCost`, and the parent's
 `costUSD` is its own tokens plus all child cost. A run on a free local model that delegated
@@ -102,6 +135,7 @@ usual symptom is a confidently wrong answer to a question the child misunderstoo
 | Timeout | 30 min | A delegated task that hasn't finished in half an hour isn't going to |
 | Iterations | inherits the parent's budget | A child can't outlive the run that spawned it |
 | Nesting | children can delegate further | Bounded in practice by the parent's iteration budget |
+| Toolset | at most the parent's | A child must never be an escalation path |
 | Panel height | 12 lines | UI only |
 
 Budget pressure interacts deliberately with delegation: at 70% of its iteration budget the

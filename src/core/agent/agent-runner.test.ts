@@ -337,4 +337,41 @@ describe("AgentRunner", () => {
       expect(lastRequestedToolNames()).toContain("manage_memory");
     });
   });
+
+  describe("toolAllowlist", () => {
+    function lastRequestedToolNames(): string[] {
+      const lastCall = mockLlmService.createStreamingChatCompletion.mock.calls.at(-1);
+      const llmOptions = lastCall?.[1] as { tools?: { function: { name: string } }[] };
+      return (llmOptions.tools ?? []).map((tool) => tool.function.name);
+    }
+
+    it("withholds tools outside the inherited allowlist", async () => {
+      const options = {
+        ...defaultOptions,
+        agent: { ...mockAgent, config: { ...mockAgent.config, tools: ["tool1", "tool2"] } },
+        stream: true,
+        maxIterations: 1,
+        toolAllowlist: ["tool1"],
+      };
+
+      await runWithTestLayers(AgentRunner.run(options));
+
+      const requested = lastRequestedToolNames();
+      expect(requested).toContain("tool1");
+      expect(requested).not.toContain("tool2");
+    });
+
+    it("leaves the toolset untouched when no allowlist is inherited", async () => {
+      const options = {
+        ...defaultOptions,
+        agent: { ...mockAgent, config: { ...mockAgent.config, tools: ["tool1", "tool2"] } },
+        stream: true,
+        maxIterations: 1,
+      };
+
+      await runWithTestLayers(AgentRunner.run(options));
+
+      expect(lastRequestedToolNames()).toContain("tool2");
+    });
+  });
 });
