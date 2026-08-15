@@ -38,6 +38,12 @@ An agent's config lists which tools it may use. **Omitting a tool is the stronge
 there is** — an agent without `execute_command` cannot run shell commands no matter what
 policy is set.
 
+Built-in and custom tools are validated against their own schema before the handler runs. MCP
+tools are the exception: their schemas are translated from the server's JSON Schema, and that
+translation is lossy enough that enforcing it locally would reject calls the server accepts.
+Their arguments are forwarded as-is and the server validates them. The risk gate is unaffected
+either way — it runs on every tool.
+
 ---
 
 ## Risk tiers

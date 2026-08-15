@@ -19,7 +19,7 @@ file directly (shape below) or copy an existing one.
 | **Name** | How you'll refer to it: `jazz agent chat reviewer` |
 | **Provider + model** | See [Providers](../integrations/providers.md). `openrouter` with a free model costs nothing; `ollama` keeps everything local |
 | **Persona** | `default`, `coder`, `researcher`, or one of yours — see [Personas](../concepts/personas.md) |
-| **Toolset** | The tools this agent may call. **Pick the minimum.** Omitting `execute_command` means it can never run a shell command, whatever the approval policy |
+| **Toolset** | The tools this agent may call. Every category starts checked — **untick down to the minimum.** Omitting `execute_command` means it can never run a shell command, whatever the approval policy. Configured MCP servers start unchecked, since selecting one connects to it |
 | **Skills** | Playbooks it can load on demand — see [Skills](../concepts/skills.md) |
 
 ---
