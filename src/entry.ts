@@ -10,7 +10,15 @@
 // from transitive dependencies on newer Node versions).
 process.noDeprecation = true;
 
-void import("./main").catch((error) => {
+void (async () => {
+  // Node's `fetch` ignores HTTP_PROXY/HTTPS_PROXY, so on a proxied network every
+  // outbound request Jazz makes fails until a dispatcher is installed for them.
+  // This has to happen before the CLI module tree loads and issues its first one.
+  const { installProxyFromEnvironmentAndWarn } = await import("./core/utils/proxy");
+  await installProxyFromEnvironmentAndWarn();
+
+  await import("./main");
+})().catch((error) => {
   console.error("Fatal error:", error);
   throw error;
 });
