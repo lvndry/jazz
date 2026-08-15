@@ -51,6 +51,7 @@ Useful optional fields:
 | Field | Effect |
 | --- | --- |
 | `reasoningEffort` | `low` \| `medium` \| `high` \| `disable`. Models without reasoning support error unless this is `disable` |
+| `temperature` | Sampling temperature — see [Configuration](../reference/configuration.md#agent-config-temperature). Not asked by the wizard. Unset means Jazz sends nothing and the provider's default applies; models that reject a custom temperature ignore it |
 | `summarizerModel` | `provider/model` used for context compaction — point it at something cheap |
 | `customTools` | Declare extra tools (shell or HTTP) with no code — see [Configuration](../reference/configuration.md#agent-config-customtools) |
 | `envAllowlist` | Exempt specific env vars from secret scrubbing for `execute_command` |

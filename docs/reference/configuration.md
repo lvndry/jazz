@@ -236,3 +236,34 @@ digits, and underscores, starting with a letter, up to 64 characters).
 
 **Security note:** allowlisting a secret-bearing variable hands it to every shell command the
 agent runs — the deployment owns that trade-off.
+
+---
+
+## Agent Config: `temperature`
+
+`temperature` is an optional `number` field on an agent's `config` that sets the model's
+sampling temperature. The wizard never asks for it, so it is a file-only setting:
+
+```json
+{
+  "config": {
+    "llmProvider": "anthropic",
+    "llmModel": "claude-sonnet-4-5",
+    "temperature": 0.2
+  }
+}
+```
+
+**Leaving it unset is not the same as setting a default.** When the field is absent Jazz omits
+the parameter from the request entirely and the provider applies its own default. Set it only
+when you want to override that.
+
+Jazz does not range-check the value — the valid range differs by provider (commonly `0`–`1` or
+`0`–`2`), and an out-of-range number surfaces as a provider error.
+
+**Models that reject a custom temperature silently ignore this field.** Some models — notably
+several reasoning models — accept no temperature at all. Jazz reads that capability from
+[models.dev](https://models.dev) metadata (and, for OpenRouter, the model's
+`supported_parameters`), and drops the parameter rather than sending a request the provider
+would reject. The agent still runs; the setting simply has no effect. If a temperature change
+appears to do nothing, that is the first thing to check.
