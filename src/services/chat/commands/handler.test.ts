@@ -14,7 +14,7 @@ import type { CommandContext } from "./types";
 
 let tmpDir = "";
 
-mock.module("@/core/utils/runtime-detection", () => ({
+mock.module("@/core/utils/paths", () => ({
   getHistoryDirectory: () => tmpDir,
   getUserDataDirectory: () => tmpDir,
   getGlobalUserDataDirectory: () => tmpDir,
@@ -25,11 +25,6 @@ mock.module("@/core/utils/runtime-detection", () => ({
   getBuiltinPersonasDirectory: () => null,
   getBuiltinWorkflowsDirectory: () => null,
   getGlobalWorkflowsDirectory: () => tmpDir,
-  isRunningFromGlobalInstall: () => false,
-  isRunningInDevelopmentMode: () => false,
-  findExecutablePathViaShell: () => Effect.succeed(null),
-  detectPackageManagerFromPath: () => null,
-  getJazzSchedulerInvocation: () => Effect.succeed([]),
 }));
 
 const TEST_AGENT_ID = "test-agent-resume";

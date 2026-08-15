@@ -1,20 +1,26 @@
-import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { z } from "zod";
-import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
 import { defineTool, makeZodValidator } from "../base-tool";
-import { resolveGitWorkingDirectory, runGitCommand } from "./utils";
+import { spawnOutputTruncationNotice } from "../capped-output";
+import {
+  GIT_TIMEOUTS,
+  gitRepoPathSchema,
+  resolveGitRepoDir,
+  runGitOrFail,
+  withGitTruncation,
+  type GitToolDeps,
+} from "./utils";
 
 /**
  * Git diff tool - shows differences between commits, branches, or working tree
  */
 
-export function createGitDiffTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
+export function createGitDiffTool(): Tool<GitToolDeps> {
   const parameters = z
     .object({
-      path: z.string().optional().describe("Repository path (defaults to cwd)"),
+      path: gitRepoPathSchema,
       staged: z.boolean().optional().describe("Show staged changes"),
       branch: z.string().optional().describe("Compare with branch"),
       commit: z.string().optional().describe("Compare with commit"),
@@ -41,7 +47,7 @@ export function createGitDiffTool(): Tool<FileSystem.FileSystem | FileSystemCont
 
   type GitDiffArgs = z.infer<typeof parameters>;
 
-  return defineTool<FileSystem.FileSystem | FileSystemContextService, GitDiffArgs>({
+  return defineTool<GitToolDeps, GitDiffArgs>({
     name: "git_diff",
     description:
       "Show differences between commits, branches, or working tree. Returns the whole diff by default; maxLines caps it.",
@@ -50,25 +56,9 @@ export function createGitDiffTool(): Tool<FileSystem.FileSystem | FileSystemCont
     validate: makeZodValidator(parameters),
     handler: (args: GitDiffArgs, context: ToolExecutionContext) =>
       Effect.gen(function* () {
-        const shell = yield* FileSystemContextServiceTag;
-        const fs = yield* FileSystem.FileSystem;
-
-        // Catch errors from path resolution
-        let workingDirError: string | null = null;
-        const workingDir = yield* resolveGitWorkingDirectory(shell, context, fs, args?.path).pipe(
-          Effect.catchAll((error) => {
-            workingDirError = error instanceof Error ? error.message : String(error);
-            return Effect.succeed(null);
-          }),
-        );
-
-        if (workingDir === null) {
-          return {
-            success: false,
-            result: null,
-            error: workingDirError || "Failed to resolve working directory",
-          };
-        }
+        const resolved = yield* resolveGitRepoDir(args?.path, context);
+        if (resolved.kind === "failure") return resolved.result;
+        const workingDir = resolved.path;
 
         const diffArgs: string[] = ["diff", "--no-color"];
         if (args?.nameOnly) {
@@ -86,38 +76,14 @@ export function createGitDiffTool(): Tool<FileSystem.FileSystem | FileSystemCont
           diffArgs.push("--", ...args.paths);
         }
 
-        // Catch spawn errors (e.g., git not found, invalid cwd)
-        let commandError: string | null = null;
-        const commandResult = yield* runGitCommand({
+        const executed = yield* runGitOrFail("git diff", {
           args: diffArgs,
           workingDirectory: workingDir,
-          timeoutMs: 20_000,
-        }).pipe(
-          Effect.catchAll((error) => {
-            const errorMsg = error instanceof Error ? error.message : String(error);
-            commandError = `Failed to execute git diff in directory '${workingDir}': ${errorMsg}`;
-            return Effect.succeed(null);
-          }),
-        );
+          timeoutMs: GIT_TIMEOUTS.diff,
+        });
+        if (executed.kind === "failure") return executed.result;
 
-        // If runGitCommand failed (spawn error), return the error
-        if (commandResult === null) {
-          return {
-            success: false,
-            result: null,
-            error: commandError || `Failed to execute git diff in directory '${workingDir}'`,
-          };
-        }
-
-        const gitResult = commandResult;
-
-        if (gitResult.exitCode !== 0) {
-          return {
-            success: false,
-            result: null,
-            error: `git diff failed in directory '${workingDir}' with exit code ${gitResult.exitCode}: ${gitResult.stderr || "Unknown error"}`,
-          };
-        }
+        const gitResult = executed.result;
 
         const trimmedOutput = gitResult.stdout.trimEnd();
 
@@ -125,12 +91,15 @@ export function createGitDiffTool(): Tool<FileSystem.FileSystem | FileSystemCont
           const paths = trimmedOutput ? trimmedOutput.split("\n").filter((p) => p.length > 0) : [];
           return {
             success: true,
-            result: {
-              workingDirectory: workingDir,
-              paths,
-              nameOnly: true,
-              count: paths.length,
-            },
+            result: withGitTruncation(
+              {
+                workingDirectory: workingDir,
+                paths,
+                nameOnly: true,
+                count: paths.length,
+              },
+              gitResult,
+            ),
           };
         }
 
@@ -140,7 +109,7 @@ export function createGitDiffTool(): Tool<FileSystem.FileSystem | FileSystemCont
         // cap for callers that deliberately want a bounded slice.
         const maxLines = args.maxLines;
         let diff = trimmedOutput;
-        let truncated = false;
+        let truncated = gitResult.stdoutTruncated;
         let totalLines = 0;
         let returnedLines = 0;
 
@@ -154,6 +123,10 @@ export function createGitDiffTool(): Tool<FileSystem.FileSystem | FileSystemCont
           } else {
             returnedLines = lines.length;
           }
+        }
+
+        if (gitResult.stdoutTruncated) {
+          diff = `${diff}\n${spawnOutputTruncationNotice("stdout")}`;
         }
 
         return {

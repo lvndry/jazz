@@ -6,7 +6,7 @@ places providers genuinely differ.
 Source:
 [`services/llm/ai-sdk-service.ts`](../../src/services/llm/ai-sdk-service.ts) ·
 [`services/llm/reasoning/`](../../src/services/llm/reasoning/) ·
-[`core/utils/models-dev-client.ts`](../../src/core/utils/models-dev-client.ts)
+[`core/utils/models-dev.ts`](../../src/core/utils/models-dev.ts)
 
 ---
 

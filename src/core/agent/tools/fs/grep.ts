@@ -3,8 +3,9 @@ import { Effect } from "effect";
 import { z } from "zod";
 import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
-import { createSanitizedEnv } from "@/core/utils/env-utils";
+import { createSanitizedEnv } from "@/core/utils/env";
 import { defineTool, makeZodValidator } from "../base-tool";
+import { DEFAULT_SPAWN_OUTPUT_CAP_BYTES, type CollectedProcessOutput } from "../capped-output";
 import { buildKeyFromContext } from "../context-utils";
 import { checkExternalTool, spawnCollect } from "./utils";
 
@@ -160,6 +161,13 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
   // -------------------------------------------------------------------
   // Output parsers
   // -------------------------------------------------------------------
+
+  function withGrepTruncationNote(message: string, truncated: boolean): string {
+    if (!truncated) {
+      return message;
+    }
+    return `${message} Output truncated at ${DEFAULT_SPAWN_OUTPUT_CAP_BYTES} bytes; narrow the path or pattern.`;
+  }
 
   function parseFilesOutput(stdout: string, maxResults: number) {
     return stdout
@@ -374,7 +382,7 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
         // Try ripgrep first, fallback to grep
         const useRipgrep = yield* Effect.promise(() => checkExternalTool("rg"));
 
-        let result: { stdout: string; stderr: string; exitCode: number };
+        let result: CollectedProcessOutput;
 
         if (useRipgrep) {
           const rgArgs = buildRipgrepArgs(
@@ -429,7 +437,10 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
           return {
             success: false,
             result: null,
-            error: `grep command failed: ${result.stderr}`,
+            error: withGrepTruncationNote(
+              `grep command failed: ${result.stderr}`,
+              result.stderrTruncated,
+            ),
           };
         }
 
@@ -445,10 +456,13 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
               backend: useRipgrep ? "ripgrep" : "grep",
               files,
               totalFound: files.length,
-              message:
+              truncated: result.stdoutTruncated,
+              message: withGrepTruncationNote(
                 files.length === 0
                   ? `No files found matching pattern "${args.pattern}"`
                   : `Found ${files.length} files matching pattern "${args.pattern}"`,
+                result.stdoutTruncated,
+              ),
             },
           };
         }
@@ -464,10 +478,13 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
               backend: useRipgrep ? "ripgrep" : "grep",
               counts,
               totalFound: counts.length,
-              message:
+              truncated: result.stdoutTruncated,
+              message: withGrepTruncationNote(
                 counts.length === 0
                   ? `No matches found for pattern "${args.pattern}"`
                   : `Found matches in ${counts.length} files for pattern "${args.pattern}"`,
+                result.stdoutTruncated,
+              ),
             },
           };
         }
@@ -494,12 +511,15 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
             backend: useRipgrep ? "ripgrep" : "grep",
             matches,
             totalFound: matches.length,
-            message:
+            truncated: result.stdoutTruncated,
+            message: withGrepTruncationNote(
               matches.length === 0
                 ? `No matches found for pattern "${args.pattern}"`
                 : `Found ${matches.length} matches for pattern "${args.pattern}"${
                     args.contextLines ? ` (with ${args.contextLines} context lines)` : ""
                   }${requestedMaxResults > maxResults ? ` (capped at ${maxResults})` : ""}`,
+              result.stdoutTruncated,
+            ),
           },
         };
       }),

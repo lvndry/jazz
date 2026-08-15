@@ -1,6 +1,6 @@
 import { Box, Text, useStdout } from "ink";
 import React from "react";
-import { formatProviderDisplayName } from "@/core/utils/string";
+import { formatProviderDisplayName } from "@/core/utils/provider-model";
 import { THEME } from "./theme";
 
 interface AgentDetailsItem {

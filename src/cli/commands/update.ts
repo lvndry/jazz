@@ -3,10 +3,7 @@ import { type AgentConfigService } from "@/core/interfaces/agent-config";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import { TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
 import { UpdateCheckError, UpdateInstallError } from "@/core/types/errors";
-import {
-  detectPackageManagerFromPath,
-  findExecutablePathViaShell,
-} from "@/core/utils/runtime-detection";
+import { detectPackageManagerFromPath, findExecutablePathViaShell } from "@/core/utils/runtime";
 import packageJson from "../../../package.json";
 
 /**

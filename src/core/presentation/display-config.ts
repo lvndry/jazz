@@ -1,3 +1,6 @@
+/**
+ * Resolve terminal display policy from application config and environment overrides.
+ */
 import { DEFAULT_DISPLAY_CONFIG } from "@/core/agent/types";
 import type { AppConfig } from "@/core/types/config";
 import type { DisplayConfig, OutputMode } from "@/core/types/output";
@@ -11,6 +14,8 @@ const VALID_OUTPUT_MODES: readonly string[] = ["rendered", "hybrid", "raw", "qui
  * 1. JAZZ_OUTPUT_MODE environment variable (e.g. `JAZZ_OUTPUT_MODE=raw`)
  * 2. App config file (`output.mode`)
  * 3. Default ("hybrid")
+ *
+ * Unsupported environment values are ignored.
  */
 export function resolveDisplayConfig(appConfig: AppConfig): DisplayConfig {
   const envMode = process.env["JAZZ_OUTPUT_MODE"];

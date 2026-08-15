@@ -6,7 +6,7 @@ import {
   type JazzStateService,
 } from "@/core/interfaces/jazz-state";
 import { safeParseJson } from "@/core/utils/json";
-import { getJazzHomeDirectory } from "@/core/utils/runtime-detection";
+import { getJazzHomeDirectory } from "@/core/utils/paths";
 
 export function createJazzStateServiceLayer(): Layer.Layer<
   JazzStateService,

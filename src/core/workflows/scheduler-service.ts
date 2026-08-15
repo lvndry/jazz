@@ -4,9 +4,10 @@ import * as path from "node:path";
 import { Context, Effect, Layer } from "effect";
 import * as plist from "plist";
 import type { WorkflowMetadata } from "./workflow-service";
-import { isValidCronExpression } from "../utils/cron-utils";
-import { getGlobalUserDataDirectory, getJazzSchedulerInvocation } from "../utils/runtime-detection";
-import { execCommand, execCommandWithStdin } from "../utils/shell-utils";
+import { isValidCronExpression } from "../utils/cron";
+import { getGlobalUserDataDirectory } from "../utils/paths";
+import { getJazzSchedulerInvocation } from "../utils/runtime";
+import { execCommand, execCommandWithStdin } from "../utils/shell";
 
 /**
  * Information about a scheduled workflow.

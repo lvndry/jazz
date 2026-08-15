@@ -5,7 +5,7 @@ import shortuuid from "short-uuid";
 import { z } from "zod";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionResult } from "@/core/types/tools";
-import { getUserDataDirectory } from "@/core/utils/runtime-detection";
+import { getUserDataDirectory } from "@/core/utils/paths";
 import { defineTool, makeZodValidator } from "./base-tool";
 
 /**

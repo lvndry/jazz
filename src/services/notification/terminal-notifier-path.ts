@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { getPackageRootDirectory } from "@/core/utils/runtime-detection";
+import { getPackageRootDirectory } from "@/core/utils/paths";
 
 const HOMEBREW_PATHS = [
   "/opt/homebrew/bin/terminal-notifier",

@@ -2,7 +2,7 @@
  * Reminders: swept on an interval and delivered via an injected `send`
  * callback (so this module stays independent of the Telegram API and the
  * bridge). Storage and time-parsing now live in core (`src/services/reminder-service.ts`,
- * `src/core/utils/when-parser.ts`) as one per-agent JSON file each, written by
+ * `src/core/utils/time.ts`) as one per-agent JSON file each, written by
  * the `add_reminder`/`cancel_reminder` tools the agent calls directly — this
  * module only sweeps for due reminders and fires them.
  */

@@ -8,8 +8,10 @@ const MAX_RESULT_DISPLAY_CHARS = 1200;
 const MAX_EXPANDABLE_CHARS = 100_000;
 
 /**
- * Utility functions for formatting tool arguments and results
- * Used by both streaming and non-streaming modes
+ * User-facing formatting for tool arguments and results.
+ *
+ * This module targets terminal and log presentation. LLM-context formatting
+ * has separate truncation and safety rules in tool-result-formatter.ts.
  */
 
 type FormatStyle = "plain" | "colored";
@@ -23,7 +25,10 @@ interface FormatOptions {
 /**
  * Format tool arguments for display
  * Shows relevant parameters for each tool type
- * @param style - "plain" for logger (no colors, { } format), "colored" for console output (chalk colors)
+ *
+ * @param toolName - Registered tool name used to select relevant fields.
+ * @param args - Raw tool arguments.
+ * @param options - Plain or colored style plus optional executor metadata.
  */
 export function formatToolArguments(
   toolName: string,

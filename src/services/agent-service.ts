@@ -4,6 +4,7 @@ import { validateCustomToolDefinitionShape } from "@/core/agent/tools/custom-too
 import { normalizeToolConfig } from "@/core/agent/utils/tool-config";
 import { AgentServiceTag, type AgentService } from "@/core/interfaces/agent-service";
 import { StorageServiceTag, type StorageService } from "@/core/interfaces/storage";
+import { CommonSuggestions } from "@/core/presentation/error-handler";
 import {
   AgentAlreadyExistsError,
   AgentConfigurationError,
@@ -12,7 +13,6 @@ import {
   ValidationError,
 } from "@/core/types/errors";
 import { type Agent, type AgentConfig, type CustomToolDefinition } from "@/core/types/index";
-import { CommonSuggestions } from "@/core/utils/error-handler";
 import { parseProviderModel } from "@/core/utils/provider-model";
 
 export class AgentServiceImpl implements AgentService {

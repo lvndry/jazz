@@ -21,7 +21,7 @@ import {
   type ToolExecutionContext,
   type ToolExecutionResult,
 } from "@/core/types/tools";
-import { extractCommandApprovalKey } from "@/core/utils/shell-utils";
+import { extractCommandApprovalKey } from "@/core/utils/shell";
 import { formatToolArguments } from "@/core/utils/tool-formatter";
 import {
   recordToolError,

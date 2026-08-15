@@ -1,20 +1,25 @@
-import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { z } from "zod";
-import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
 import { defineTool, makeZodValidator } from "../base-tool";
-import { resolveGitWorkingDirectory, runGitCommand } from "./utils";
+import {
+  GIT_TIMEOUTS,
+  gitRepoPathSchema,
+  resolveGitRepoDir,
+  runGitOrFail,
+  withGitTruncation,
+  type GitToolDeps,
+} from "./utils";
 
 /**
  * Git blame tool - shows file annotations (who changed what line)
  */
 
-export function createGitBlameTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
+export function createGitBlameTool(): Tool<GitToolDeps> {
   const parameters = z
     .object({
-      path: z.string().optional().describe("Repository path (defaults to cwd)"),
+      path: gitRepoPathSchema,
       file: z.string().min(1).describe("File path to blame"),
       startLine: z.number().int().min(1).optional().describe("Start line (1-based)"),
       endLine: z.number().int().min(1).optional().describe("End line (1-based)"),
@@ -25,7 +30,7 @@ export function createGitBlameTool(): Tool<FileSystem.FileSystem | FileSystemCon
 
   type GitBlameArgs = z.infer<typeof parameters>;
 
-  return defineTool<FileSystem.FileSystem | FileSystemContextService, GitBlameArgs>({
+  return defineTool<GitToolDeps, GitBlameArgs>({
     name: "git_blame",
     description: "Show revision and author for each line of a file. Supports line ranges.",
     tags: ["git", "blame", "history"],
@@ -33,24 +38,9 @@ export function createGitBlameTool(): Tool<FileSystem.FileSystem | FileSystemCon
     validate: makeZodValidator(parameters),
     handler: (args: GitBlameArgs, context: ToolExecutionContext) =>
       Effect.gen(function* () {
-        const shell = yield* FileSystemContextServiceTag;
-        const fs = yield* FileSystem.FileSystem;
-
-        let workingDirError: string | null = null;
-        const workingDir = yield* resolveGitWorkingDirectory(shell, context, fs, args?.path).pipe(
-          Effect.catchAll((error) => {
-            workingDirError = error instanceof Error ? error.message : String(error);
-            return Effect.succeed(null);
-          }),
-        );
-
-        if (workingDir === null) {
-          return {
-            success: false,
-            result: null,
-            error: workingDirError || "Failed to resolve working directory",
-          };
-        }
+        const resolved = yield* resolveGitRepoDir(args?.path, context);
+        if (resolved.kind === "failure") return resolved.result;
+        const workingDir = resolved.path;
 
         const blameArgs: string[] = ["blame", "--no-color"];
         if (args?.showEmail) {
@@ -76,35 +66,14 @@ export function createGitBlameTool(): Tool<FileSystem.FileSystem | FileSystemCon
 
         blameArgs.push(args.file);
 
-        let commandError: string | null = null;
-        const commandResult = yield* runGitCommand({
+        const executed = yield* runGitOrFail("git blame", {
           args: blameArgs,
           workingDirectory: workingDir,
-          timeoutMs: 20_000,
-        }).pipe(
-          Effect.catchAll((error) => {
-            const errorMsg = error instanceof Error ? error.message : String(error);
-            commandError = `Failed to execute git blame in directory '${workingDir}': ${errorMsg}`;
-            return Effect.succeed(null);
-          }),
-        );
+          timeoutMs: GIT_TIMEOUTS.diff,
+        });
+        if (executed.kind === "failure") return executed.result;
 
-        if (commandResult === null) {
-          return {
-            success: false,
-            result: null,
-            error: commandError || `Failed to execute git blame in directory '${workingDir}'`,
-          };
-        }
-
-        if (commandResult.exitCode !== 0) {
-          return {
-            success: false,
-            result: null,
-            error:
-              commandResult.stderr || `git blame failed with exit code ${commandResult.exitCode}`,
-          };
-        }
+        const commandResult = executed.result;
 
         const lines = commandResult.stdout
           .split("\n")
@@ -135,18 +104,21 @@ export function createGitBlameTool(): Tool<FileSystem.FileSystem | FileSystemCon
 
         return {
           success: true,
-          result: {
-            workingDirectory: workingDir,
-            file: args.file,
-            lineCount: lines.length,
-            lines,
-            options: {
-              startLine: args?.startLine,
-              endLine: args?.endLine,
-              showEmail: args?.showEmail ?? false,
-              showLineNumbers: args?.showLineNumbers ?? false,
+          result: withGitTruncation(
+            {
+              workingDirectory: workingDir,
+              file: args.file,
+              lineCount: lines.length,
+              lines,
+              options: {
+                startLine: args?.startLine,
+                endLine: args?.endLine,
+                showEmail: args?.showEmail ?? false,
+                showLineNumbers: args?.showLineNumbers ?? false,
+              },
             },
-          },
+            commandResult,
+          ),
         };
       }),
     createSummary: (result: ToolExecutionResult) => {

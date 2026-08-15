@@ -2,17 +2,22 @@ import { spawn } from "child_process";
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { z } from "zod";
-import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
+import { FileSystemContextServiceTag, type FileSystemContextService } from "@/core/interfaces/fs";
 import type { LoggerService } from "@/core/interfaces/logger";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
-import { createSanitizedEnv } from "@/core/utils/env-utils";
+import { createSanitizedEnv } from "@/core/utils/env";
 import {
   defineApprovalTool,
   makeZodValidator,
   type ApprovalToolConfig,
   type ApprovalToolPair,
 } from "./base-tool";
+import {
+  bindCappedStdio,
+  DEFAULT_SPAWN_OUTPUT_CAP_BYTES,
+  formatCappedStream,
+} from "./capped-output";
 import { buildKeyFromContext } from "./context-utils";
 
 /**
@@ -395,6 +400,12 @@ type ExecuteCommandArgs = z.infer<typeof executeCommandParameters>;
 type ShellCommandDeps = FileSystem.FileSystem | FileSystemContextService | LoggerService;
 
 /**
+ * Per-stream cap for `execute_command` stdout and stderr. Alias of the shared
+ * spawn cap so tests and docs can name the tool-specific bound.
+ */
+export const EXECUTE_COMMAND_OUTPUT_CAP_BYTES = DEFAULT_SPAWN_OUTPUT_CAP_BYTES;
+
+/**
  * Create shell command tools (approval + execution pair).
  *
  * SECURITY WARNING: This tool can execute arbitrary commands on the system.
@@ -407,7 +418,8 @@ type ShellCommandDeps = FileSystem.FileSystem | FileSystemContextService | Logge
 export function createShellCommandTools(): ApprovalToolPair<ShellCommandDeps> {
   const config: ApprovalToolConfig<ShellCommandDeps, ExecuteCommandArgs> = {
     name: "execute_command",
-    description: "Execute a shell command. Use only when no dedicated tool exists.",
+    description:
+      "Execute a shell command. Use only when no dedicated tool exists. Captured stdout and stderr are each capped at 256 KB; truncated output includes a marker so you can re-run with head/tail/grep.",
     tags: ["shell", "execution"],
     timeoutMs: 15 * 60 * 1000, // 15 minutes — executor cap so long-running commands can complete
     parameters: executeCommandParameters,
@@ -480,8 +492,6 @@ This command will be executed on your system. Only approve commands you trust.`;
             () =>
               new Promise((resolve, reject) => {
                 let resolved = false;
-                let stdout = "";
-                let stderr = "";
 
                 let child;
                 try {
@@ -500,17 +510,11 @@ This command will be executed on your system. Only approve commands you trust.`;
                   return;
                 }
 
-                if (child.stdout) {
-                  child.stdout.on("data", (data: Buffer) => {
-                    stdout += data.toString();
-                  });
-                }
-
-                if (child.stderr) {
-                  child.stderr.on("data", (data: Buffer) => {
-                    stderr += data.toString();
-                  });
-                }
+                const snapshot = bindCappedStdio(
+                  child.stdout,
+                  child.stderr,
+                  EXECUTE_COMMAND_OUTPUT_CAP_BYTES,
+                );
 
                 // Handle timeout
                 let timeoutId: NodeJS.Timeout | null = null;
@@ -542,9 +546,18 @@ This command will be executed on your system. Only approve commands you trust.`;
                   cleanup();
                   if (!resolved) {
                     resolved = true;
+                    const collected = snapshot();
                     resolve({
-                      stdout: stdout.trim(),
-                      stderr: stderr.trim(),
+                      stdout: formatCappedStream(
+                        collected.stdout,
+                        "stdout",
+                        EXECUTE_COMMAND_OUTPUT_CAP_BYTES,
+                      ),
+                      stderr: formatCappedStream(
+                        collected.stderr,
+                        "stderr",
+                        EXECUTE_COMMAND_OUTPUT_CAP_BYTES,
+                      ),
                       exitCode: code || 0,
                     });
                   }

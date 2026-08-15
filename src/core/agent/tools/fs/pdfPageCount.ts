@@ -1,10 +1,10 @@
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { z } from "zod";
-import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
+import type { FileSystemContextService } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import { defineTool, makeZodValidator } from "../base-tool";
-import { buildKeyFromContext } from "../context-utils";
+import { loadPdfParser, pdfExtensionError, resolveReadableFile } from "./read-common";
 import { normalizeStatSize } from "./utils";
 
 /**
@@ -34,49 +34,20 @@ export function createPdfPageCountTool(): Tool<FileSystem.FileSystem | FileSyste
     validate: makeZodValidator(parameters),
     handler: (args, context) =>
       Effect.gen(function* () {
+        const resolved = yield* resolveReadableFile(args.path, context);
+        if (resolved.kind === "failure") return resolved.result;
+        const filePathResult = resolved.path;
         const fs = yield* FileSystem.FileSystem;
-        const shell = yield* FileSystemContextServiceTag;
-        const filePathResult = yield* shell
-          .resolvePath(buildKeyFromContext(context), args.path)
-          .pipe(Effect.catchAll(() => Effect.succeed(null)));
-
-        if (filePathResult === null) {
-          return {
-            success: false,
-            result: null,
-            error: `Path not found: ${args.path}`,
-          };
-        }
 
         try {
+          const pdfError = pdfExtensionError(filePathResult, "Use this tool for PDF files only.");
+          if (pdfError) return pdfError;
+
+          const loaded = yield* loadPdfParser("Failed to load PDF parser");
+          if (loaded.kind === "failure") return loaded.result;
+          const PDFParse = loaded.PDFParse;
+
           const stat = yield* fs.stat(filePathResult);
-          if (stat.type === "Directory") {
-            return { success: false, result: null, error: `Not a file: ${filePathResult}` };
-          }
-
-          if (!filePathResult.toLowerCase().endsWith(".pdf")) {
-            return {
-              success: false,
-              result: null,
-              error: `File is not a PDF: ${filePathResult}. Use this tool for PDF files only.`,
-            };
-          }
-
-          let PDFParse;
-          try {
-            const pdfModule = yield* Effect.tryPromise({
-              try: () => import("pdf-parse"),
-              catch: (error) => (error instanceof Error ? error : new Error(String(error))),
-            });
-            PDFParse = pdfModule.PDFParse;
-          } catch (importError) {
-            return {
-              success: false,
-              result: null,
-              error: `Failed to load PDF parser: ${importError instanceof Error ? importError.message : String(importError)}`,
-            };
-          }
-
           const fileBuffer = yield* fs.readFile(filePathResult);
           const pdfParser = new PDFParse({ data: fileBuffer });
 

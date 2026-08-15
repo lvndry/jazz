@@ -3,8 +3,8 @@ import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { MAX_CONVERSATION_HISTORY_PER_AGENT } from "@/core/constants/agent";
 import type { ChatMessage } from "@/core/types/message";
-import { withLock } from "@/core/utils/file-lock";
-import { getHistoryDirectory } from "@/core/utils/runtime-detection";
+import { getHistoryDirectory } from "@/core/utils/paths";
+import { withLock, writeFileStringAtomic } from "@/core/utils/storage";
 
 export interface ConversationRecord {
   readonly conversationId: string;
@@ -69,22 +69,9 @@ function writeHistory(
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const filePath = getAgentHistoryPath(data.agentId, dir);
-    const directory = path.dirname(filePath);
-    const tmpPath = path.join(
-      directory,
-      `.history-${Date.now()}-${Math.random().toString(36).slice(2)}.tmp`,
-    );
-
-    yield* fs
-      .makeDirectory(directory, { recursive: true })
-      .pipe(Effect.catchAll((e) => Effect.fail(e instanceof Error ? e : new Error(String(e)))));
-    yield* fs
-      .writeFileString(tmpPath, JSON.stringify(data, null, 2))
-      .pipe(Effect.catchAll((e) => Effect.fail(e instanceof Error ? e : new Error(String(e)))));
-    yield* fs.rename(tmpPath, filePath).pipe(
-      Effect.tapError(() => fs.remove(tmpPath).pipe(Effect.catchAll(() => Effect.void))),
-      Effect.catchAll((e) => Effect.fail(e instanceof Error ? e : new Error(String(e)))),
-    );
+    yield* writeFileStringAtomic(fs, filePath, JSON.stringify(data, null, 2), {
+      tempPrefix: "history",
+    });
   });
 }
 

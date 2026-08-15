@@ -80,6 +80,25 @@ describe("create", () => {
     }
   });
 
+  test("treats leading slash as memory-relative and reports the backing path", async () => {
+    const service = makeService();
+    const outcome = await runEffect(service.create("agent-1", "/people/alex.md", "likes coffee"));
+    const expectedPath = path.join(
+      fs.realpathSync(path.join(tmpDir, "agent-1")),
+      "people",
+      "alex.md",
+    );
+    expect(outcome.success).toBe(true);
+    expect(outcome.message).toContain(expectedPath);
+
+    const view = await runEffect(service.view("agent-1", "/people/alex.md"));
+    expect(view.kind).toBe("file");
+    if (view.kind === "file") {
+      expect(view.path).toBe(expectedPath);
+      expect(view.content).toBe("likes coffee");
+    }
+  });
+
   test("errors instead of overwriting an existing file", async () => {
     const service = makeService();
     await runEffect(service.create("agent-1", "notes.txt", "first"));

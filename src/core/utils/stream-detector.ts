@@ -1,8 +1,9 @@
 import type { AppConfig } from "../types";
 
 /**
- * Stream detection utility
- * Determines if streaming should be enabled based on:
+ * Resolve whether model output should stream for the current process.
+ *
+ * Decision inputs, in priority order:
  * 1. Explicit CLI flags (--stream, --no-stream)
  * 2. Environment variables (NO_COLOR, CI)
  * 3. TTY status (stdout.isTTY)
@@ -19,7 +20,7 @@ export interface StreamDetectionOptions {
    * - `false`: Force streaming off
    * - `undefined`: Use auto-detection (default)
    */
-  stream?: boolean;
+  readonly stream?: boolean;
 }
 
 /**
@@ -29,12 +30,12 @@ export interface StreamDetection {
   /**
    * Should streaming be enabled?
    */
-  shouldStream: boolean;
+  readonly shouldStream: boolean;
 
   /**
    * Reason for the decision (for debugging)
    */
-  reason: string;
+  readonly reason: string;
 }
 
 /**

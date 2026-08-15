@@ -72,7 +72,8 @@ import {
   truncateRequestBodyValues,
 } from "@/core/utils/llm-error";
 import { createDeferred } from "@/core/utils/promise";
-import { formatProviderDisplayName, sanitize } from "@/core/utils/string";
+import { formatProviderDisplayName } from "@/core/utils/provider-model";
+import { sanitize } from "@/core/utils/string";
 import {
   createModelFetcher,
   fetchModelsDevModels,

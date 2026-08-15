@@ -8,6 +8,8 @@ import { DEFAULT_DISPLAY_CONFIG } from "@/core/agent/types";
 import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
 import { NotificationServiceTag, type NotificationService } from "@/core/interfaces/notification";
 import type {
+  EphemeralRegionCollapse,
+  EphemeralRegionKind,
   FilePickerRequest,
   PresentationService,
   StreamingRenderer,
@@ -17,28 +19,28 @@ import type {
 } from "@/core/interfaces/presentation";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import { ink } from "@/core/interfaces/terminal";
+import { resolveDisplayConfig } from "@/core/presentation/display-config";
 import type { DisplayConfig } from "@/core/types/output";
 import type { StreamEvent } from "@/core/types/streaming";
-import type { ApprovalRequest, ApprovalOutcome } from "@/core/types/tools";
-import { resolveDisplayConfig } from "@/core/utils/display-config";
-import { getModelsDevMetadata, getModelsDevMetadataSync } from "@/core/utils/models-dev-client";
-import { extractCommandApprovalKey } from "@/core/utils/shell-utils";
+import type { ApprovalOutcome, ApprovalRequest } from "@/core/types/tools";
+import { getModelsDevMetadata, getModelsDevMetadataSync } from "@/core/utils/models-dev";
+import { extractCommandApprovalKey } from "@/core/utils/shell";
 import { expandableToolResultPayload } from "@/core/utils/tool-formatter";
 import { createAccumulator, reduceEvent } from "./activity-reducer";
 import {
   formatToolArguments,
-  formatToolResult,
-  formatWarning,
-  formatToolExecutionStartEffect,
   formatToolExecutionCompleteEffect,
   formatToolExecutionErrorEffect,
+  formatToolExecutionStartEffect,
+  formatToolResult,
   formatToolsDetectedEffect,
+  formatWarning,
 } from "./format-utils";
 import {
   formatMarkdown,
   formatMarkdownHybrid,
-  wrapToWidth,
   getTerminalWidth,
+  wrapToWidth,
 } from "./markdown-formatter";
 import { isInsideOpenStructure } from "./markdown-split";
 import { AgentResponseCard } from "../ui/AgentResponseCard";
@@ -46,6 +48,19 @@ import { getGlyphs } from "../ui/glyphs";
 import { store } from "../ui/store";
 import { CHALK_THEME, PADDING, THEME } from "../ui/theme";
 import { separatorLine } from "../utils/string-utils";
+
+/** Last-N-lines cap for a live sub-agent panel. */
+const SUBAGENT_PANEL_LINES = 12;
+
+function formatSubagentCollapseLine(label: string, outcome: EphemeralRegionCollapse): string {
+  const glyphs = getGlyphs();
+  if (outcome.status === "completed") {
+    const seconds = (outcome.durationMs / 1000).toFixed(1);
+    return chalk.dim(chalk.italic(`${glyphs.success} ${label} completed · ${seconds}s`));
+  }
+  const verb = outcome.status === "failed" ? "failed" : "interrupted";
+  return chalk.dim(chalk.italic(`${glyphs.error} ${label} ${verb}`));
+}
 
 /**
  * Bridges the pure activity reducer with Ink's rendering system.
@@ -1116,6 +1131,31 @@ class InkPresentationService implements PresentationService {
       const formatted = `${colorFn(icon)} ${message}`;
       const type = level === "error" ? "error" : level === "warning" ? "warn" : "info";
       store.printOutput({ type, message: formatted, timestamp: new Date() });
+    });
+  }
+
+  openEphemeralRegion(kind: EphemeralRegionKind, label: string): Effect.Effect<string, never> {
+    return Effect.sync(() =>
+      store.openEphemeral(kind, label, kind === "subagent" ? SUBAGENT_PANEL_LINES : 8),
+    );
+  }
+
+  appendEphemeralRegion(regionId: string, text: string): Effect.Effect<void, never> {
+    return Effect.sync(() => {
+      store.appendEphemeral(regionId, text);
+    });
+  }
+
+  collapseEphemeralRegion(
+    regionId: string,
+    label: string,
+    outcome: EphemeralRegionCollapse,
+  ): Effect.Effect<void, never> {
+    return Effect.sync(() => {
+      store.collapseEphemeral(regionId, {
+        line: formatSubagentCollapseLine(label, outcome),
+        durationMs: outcome.durationMs,
+      });
     });
   }
 

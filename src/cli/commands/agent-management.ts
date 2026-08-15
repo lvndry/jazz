@@ -10,13 +10,13 @@ import {
   wrapCommaList,
 } from "@/cli/utils/string-utils";
 import { getAgentByIdentifier, listAllAgents } from "@/core/agent/agent-service";
+import { sortAgents } from "@/core/agent/agent-sort";
 import { AgentServiceTag, type AgentService } from "@/core/interfaces/agent-service";
 import { CLIOptionsTag, type CLIOptions } from "@/core/interfaces/cli-options";
 import { JazzStateServiceTag, type JazzStateService } from "@/core/interfaces/jazz-state";
 import { ink, TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
 import { CLIError, StorageError, StorageNotFoundError } from "@/core/types/errors";
-import { sortAgents } from "@/core/utils/agent-sort";
-import { formatProviderDisplayName } from "@/core/utils/string";
+import { formatProviderDisplayName } from "@/core/utils/provider-model";
 import { AgentDetailsCard } from "../ui/AgentDetailsCard";
 import { AgentsList } from "../ui/AgentsList";
 

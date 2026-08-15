@@ -1,10 +1,10 @@
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { z } from "zod";
-import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
+import type { FileSystemContextService } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import { defineTool, makeZodValidator } from "../base-tool";
-import { buildKeyFromContext } from "../context-utils";
+import { loadPdfParser, pdfExtensionError, resolveReadableFile } from "./read-common";
 
 /**
  * Read PDF file contents tool
@@ -82,51 +82,20 @@ export function createReadPdfTool(): Tool<FileSystem.FileSystem | FileSystemCont
     validate: makeZodValidator(parameters),
     handler: (args, context) =>
       Effect.gen(function* () {
+        const resolved = yield* resolveReadableFile(args.path, context);
+        if (resolved.kind === "failure") return resolved.result;
+        const filePathResult = resolved.path;
         const fs = yield* FileSystem.FileSystem;
-        const shell = yield* FileSystemContextServiceTag;
-        const filePathResult = yield* shell
-          .resolvePath(buildKeyFromContext(context), args.path)
-          .pipe(Effect.catchAll(() => Effect.succeed(null)));
-
-        if (filePathResult === null) {
-          return {
-            success: false,
-            result: null,
-            error: `Path not found: ${args.path}`,
-          };
-        }
 
         try {
-          const stat = yield* fs.stat(filePathResult);
-          if (stat.type === "Directory") {
-            return { success: false, result: null, error: `Not a file: ${filePathResult}` };
-          }
+          const pdfError = pdfExtensionError(filePathResult, "Use read_file for text files.");
+          if (pdfError) return pdfError;
 
-          if (!filePathResult.toLowerCase().endsWith(".pdf")) {
-            return {
-              success: false,
-              result: null,
-              error: `File is not a PDF: ${filePathResult}. Use read_file for text files.`,
-            };
-          }
-
-          let PDFParse;
-          try {
-            const pdfModule = yield* Effect.tryPromise({
-              try: () => import("pdf-parse"),
-              catch: (error) => (error instanceof Error ? error : new Error(String(error))),
-            });
-            PDFParse = pdfModule.PDFParse;
-          } catch (importError) {
-            return {
-              success: false,
-              result: null,
-              error: `Failed to read PDF file: ${importError instanceof Error ? importError.message : String(importError)}`,
-            };
-          }
+          const loaded = yield* loadPdfParser("Failed to read PDF file");
+          if (loaded.kind === "failure") return loaded.result;
+          const PDFParse = loaded.PDFParse;
 
           const fileBuffer = yield* fs.readFile(filePathResult);
-
           const pdfParser = new PDFParse({ data: fileBuffer });
 
           try {
@@ -145,7 +114,11 @@ export function createReadPdfTool(): Tool<FileSystem.FileSystem | FileSystemCont
                 try: () => pdfParser.getTable(parseParams as { partial?: number[] }),
                 catch: (error) => (error instanceof Error ? error : new Error(String(error))),
               });
-              const built = buildTablesSection(tableResult);
+              const built = buildTablesSection(
+                tableResult as {
+                  pages?: Array<{ num?: number; tables?: (readonly (readonly string[])[])[] }>;
+                },
+              );
               tablesSection = built.section;
               extractedTables = built.tables;
             } catch (tableError) {

@@ -248,7 +248,7 @@ describe("AgentService", () => {
     it("rejects a non-array customTools value", async () => {
       const program = service.validateAgentConfig({
         ...baseConfig,
-        // @ts-expect-error - testing invalid input shape
+        // @ts-expect-error - invalid customTools shape
         customTools: { name: "not-an-array" },
       });
 
@@ -378,7 +378,7 @@ describe("AgentService", () => {
           {
             name: "ping",
             description: "Bad parameters.",
-            // @ts-expect-error - testing invalid input shape
+            // @ts-expect-error - parameters must be a plain object
             parameters: null,
             handler: { type: "record", response: "pong" },
           },
@@ -422,7 +422,7 @@ describe("AgentService", () => {
             name: "ping",
             description: "Bad handler type.",
             parameters: { type: "object", properties: {} },
-            // @ts-expect-error - testing invalid input shape
+            // @ts-expect-error - unknown handler type
             handler: { type: "bogus" },
           },
         ],

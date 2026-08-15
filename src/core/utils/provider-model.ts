@@ -1,5 +1,26 @@
 import { AVAILABLE_PROVIDERS, type ProviderName } from "@/core/constants/models";
 
+const PROVIDER_DISPLAY_NAMES: Readonly<Record<string, string>> = {
+  ai_gateway: "Vercel AI Gateway",
+  alibaba: "Alibaba",
+  anthropic: "Anthropic",
+  cerebras: "Cerebras",
+  deepseek: "DeepSeek",
+  fireworks: "Fireworks",
+  google: "Google",
+  groq: "Groq",
+  llamacpp: "llama.cpp",
+  minimax: "MiniMax",
+  mistral: "Mistral",
+  moonshotai: "Moonshot AI",
+  ollama: "Ollama",
+  openai: "OpenAI",
+  openrouter: "OpenRouter",
+  togetherai: "Together AI",
+  xai: "xAI",
+  zhipuai: "Zhipu AI",
+};
+
 /**
  * Parse a "provider/model" string into its parts.
  *
@@ -26,4 +47,15 @@ export function parseProviderModel(
     return null;
   }
   return { provider: provider as ProviderName, model };
+}
+
+/**
+ * Format a provider identifier with its official brand casing.
+ *
+ * Unknown providers fall back to title-cased words separated by underscores.
+ */
+export function formatProviderDisplayName(provider: string): string {
+  const known = PROVIDER_DISPLAY_NAMES[provider];
+  if (known) return known;
+  return provider.replace(/_/g, " ").replace(/\b\w/g, (character) => character.toUpperCase());
 }

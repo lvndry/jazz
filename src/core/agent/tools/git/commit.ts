@@ -1,7 +1,5 @@
-import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { z } from "zod";
-import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
 import {
   defineApprovalTool,
@@ -9,7 +7,14 @@ import {
   type ApprovalToolConfig,
   type ApprovalToolPair,
 } from "../base-tool";
-import { resolveGitWorkingDirectory, runGitCommand } from "./utils";
+import {
+  getHeadCommitHash,
+  gitApprovalDirectory,
+  gitRepoPathSchema,
+  resolveGitRepoDir,
+  runGitOrFail,
+  type GitToolDeps,
+} from "./utils";
 
 /**
  * Git commit tools (approval + execution)
@@ -17,7 +22,7 @@ import { resolveGitWorkingDirectory, runGitCommand } from "./utils";
 
 const gitCommitParameters = z
   .object({
-    path: z.string().optional().describe("Repository path (defaults to cwd)"),
+    path: gitRepoPathSchema,
     message: z
       .string()
       .min(1)
@@ -28,10 +33,8 @@ const gitCommitParameters = z
 
 type GitCommitArgs = z.infer<typeof gitCommitParameters>;
 
-type GitDeps = FileSystem.FileSystem | FileSystemContextService;
-
-export function createGitCommitTools(): ApprovalToolPair<GitDeps> {
-  const config: ApprovalToolConfig<GitDeps, GitCommitArgs> = {
+export function createGitCommitTools(): ApprovalToolPair<GitToolDeps> {
+  const config: ApprovalToolConfig<GitToolDeps, GitCommitArgs> = {
     name: "git_commit",
     description: "Create a commit from staged changes. Use git_add first to stage files.",
     tags: ["git", "commit"],
@@ -40,19 +43,7 @@ export function createGitCommitTools(): ApprovalToolPair<GitDeps> {
 
     approvalMessage: (args: GitCommitArgs, context: ToolExecutionContext) =>
       Effect.gen(function* () {
-        const shell = yield* FileSystemContextServiceTag;
-        const workingDir = args.path
-          ? yield* shell.resolvePath(
-              {
-                agentId: context.agentId,
-                ...(context.conversationId && { conversationId: context.conversationId }),
-              },
-              args.path,
-            )
-          : yield* shell.getCwd({
-              agentId: context.agentId,
-              ...(context.conversationId && { conversationId: context.conversationId }),
-            });
+        const workingDir = yield* gitApprovalDirectory(args.path, context);
 
         return `Commit changes with message: "${args.message}"\nDirectory: ${workingDir}${args.all ? "\nMode: all changes" : ""}`;
       }),
@@ -61,67 +52,22 @@ export function createGitCommitTools(): ApprovalToolPair<GitDeps> {
 
     handler: (args: GitCommitArgs, context: ToolExecutionContext) =>
       Effect.gen(function* () {
-        const shell = yield* FileSystemContextServiceTag;
-        const fs = yield* FileSystem.FileSystem;
-
-        let workingDirError: string | null = null;
-        const workingDir = yield* resolveGitWorkingDirectory(shell, context, fs, args.path).pipe(
-          Effect.catchAll((error) => {
-            workingDirError = error instanceof Error ? error.message : String(error);
-            return Effect.succeed(null);
-          }),
-        );
-
-        if (workingDir === null) {
-          return {
-            success: false,
-            result: null,
-            error: workingDirError || "Failed to resolve working directory",
-          };
-        }
+        const resolved = yield* resolveGitRepoDir(args.path, context);
+        if (resolved.kind === "failure") return resolved.result;
+        const workingDir = resolved.path;
 
         const commitArgs: string[] = ["commit", "-m", args.message];
         if (args.all) {
           commitArgs.push("--all");
         }
 
-        let commandError: string | null = null;
-        const commandResult = yield* runGitCommand({
+        const executed = yield* runGitOrFail("git commit", {
           args: commitArgs,
           workingDirectory: workingDir,
-        }).pipe(
-          Effect.catchAll((error) => {
-            const errorMsg = error instanceof Error ? error.message : String(error);
-            commandError = `Failed to execute git commit in directory '${workingDir}': ${errorMsg}`;
-            return Effect.succeed(null);
-          }),
-        );
+        });
+        if (executed.kind === "failure") return executed.result;
 
-        if (commandResult === null) {
-          return {
-            success: false,
-            result: null,
-            error: commandError || `Failed to execute git commit in directory '${workingDir}'`,
-          };
-        }
-
-        if (commandResult.exitCode !== 0) {
-          return {
-            success: false,
-            result: null,
-            error:
-              commandResult.stderr || `git commit failed with exit code ${commandResult.exitCode}`,
-          };
-        }
-
-        // Get the commit hash from the last commit
-        const hashResult = yield* runGitCommand({
-          args: ["rev-parse", "HEAD"],
-          workingDirectory: workingDir,
-        }).pipe(Effect.catchAll(() => Effect.succeed(null)));
-
-        const commitHash =
-          hashResult === null || hashResult.exitCode !== 0 ? "unknown" : hashResult.stdout.trim();
+        const commitHash = yield* getHeadCommitHash(workingDir);
 
         return {
           success: true,
@@ -142,5 +88,5 @@ export function createGitCommitTools(): ApprovalToolPair<GitDeps> {
     },
   };
 
-  return defineApprovalTool<GitDeps, GitCommitArgs>(config);
+  return defineApprovalTool<GitToolDeps, GitCommitArgs>(config);
 }

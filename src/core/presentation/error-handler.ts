@@ -1,11 +1,12 @@
+/**
+ * Convert domain and runtime errors into actionable presentation output.
+ *
+ * This module owns user-facing error classification and recovery guidance.
+ */
 import { Effect } from "effect";
 import type { PresentationService } from "@/core/interfaces/presentation";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import type { JazzError } from "@/core/types/errors";
-
-/**
- * Enhanced error handling utilities with actionable suggestions
- */
 
 export interface ErrorDisplay {
   readonly title: string;
@@ -513,17 +514,6 @@ export function getErrorMessage(error: JazzError | Error): string {
   return error instanceof Error && error.message ? error.message : String(error);
 }
 
-/**
- * Enhanced error handler that provides actionable suggestions
- *
- * Handles both JazzError types (with structured suggestions) and generic Error objects.
- * For JazzError types, it formats them with actionable suggestions, recovery steps, and related commands.
- * For generic Error objects, it provides a basic error message with general guidance.
- *
- * @param error - The error to handle (JazzError or generic Error)
- * @returns An Effect that logs the formatted error to the console
- *
- */
 /** Ctrl+C during an inquirer prompt — a user cancellation, not a command failure. */
 export function isUserCancellation(error: JazzError | Error): boolean {
   return (
@@ -531,6 +521,14 @@ export function isUserCancellation(error: JazzError | Error): boolean {
   );
 }
 
+/**
+ * Present a Jazz or generic error with actionable recovery guidance.
+ *
+ * User cancellations receive a quiet goodbye instead of failure output.
+ *
+ * @param error - Error to classify and present.
+ * @returns An Effect that writes through PresentationService.
+ */
 export function handleError(
   error: JazzError | Error,
 ): Effect.Effect<void, never, PresentationService> {

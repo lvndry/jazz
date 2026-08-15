@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { registerMCPToolsForAgent } from "@/core/agent/tools/register-tools";
+import { registerMCPToolsForAgent } from "@/core/agent/tools/register-mcp-tools";
 import { normalizeToolConfig } from "@/core/agent/utils/tool-config";
 import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";

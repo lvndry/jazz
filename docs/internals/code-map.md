@@ -81,7 +81,9 @@ src/
 │   │   └── tools/                # Tool implementations
 │   │       ├── fs/               # Filesystem tools (read, write, grep, etc.)
 │   │       ├── git/              # Git tools (status, commit, push, etc.)
-│   │       └── register-tools.ts # Tool registration
+│   │       ├── tool-categories.ts # Builtin category ids + mappings
+│   │       ├── register-tools.ts # Builtin tool registration
+│   │       └── register-mcp-tools.ts # Per-agent MCP connect + register
 │   ├── interfaces/               # Service contracts (Tag + Interface)
 │   ├── types/                    # Domain types
 │   └── utils/                    # Shared utilities

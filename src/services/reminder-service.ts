@@ -9,20 +9,12 @@ import type {
   ReminderService,
 } from "@/core/interfaces/reminder-service";
 import { ReminderServiceTag } from "@/core/interfaces/reminder-service";
-import { withLock } from "@/core/utils/file-lock";
-import { getJazzHomeDirectory } from "@/core/utils/runtime-detection";
-import { parseWhen } from "@/core/utils/when-parser";
+import { getJazzHomeDirectory } from "@/core/utils/paths";
+import { requireValidAgentId, withLock, writeFileStringAtomic } from "@/core/utils/storage";
+import { parseWhen } from "@/core/utils/time";
 
 /** Raised for guardrail violations — genuinely unexpected conditions, not tool-result-shaped errors. */
 export class ReminderGuardrailViolation extends Error {}
-
-const AGENT_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
-
-function requireValidAgentId(agentId: string): Effect.Effect<void, ReminderGuardrailViolation> {
-  return AGENT_ID_PATTERN.test(agentId)
-    ? Effect.void
-    : Effect.fail(new ReminderGuardrailViolation(`Invalid agent id: "${agentId}".`));
-}
 
 function newReminderId(): string {
   return Math.random().toString(36).slice(2, 10);
@@ -57,31 +49,6 @@ function readReminderFile(
   });
 }
 
-function writeReminderFileAtomic(
-  fs: FileSystem.FileSystem,
-  filePath: string,
-  reminders: readonly ReminderRecord[],
-): Effect.Effect<void, Error> {
-  return Effect.gen(function* () {
-    const directory = path.dirname(filePath);
-    const tmpPath = path.join(
-      directory,
-      `.reminders-${Date.now()}-${Math.random().toString(36).slice(2)}.tmp`,
-    );
-
-    yield* fs
-      .makeDirectory(directory, { recursive: true })
-      .pipe(Effect.catchAll((e) => Effect.fail(e instanceof Error ? e : new Error(String(e)))));
-    yield* fs
-      .writeFileString(tmpPath, `${JSON.stringify(reminders, null, 2)}\n`)
-      .pipe(Effect.catchAll((e) => Effect.fail(e instanceof Error ? e : new Error(String(e)))));
-    yield* fs.rename(tmpPath, filePath).pipe(
-      Effect.tapError(() => fs.remove(tmpPath).pipe(Effect.catchAll(() => Effect.void))),
-      Effect.catchAll((e) => Effect.fail(e instanceof Error ? e : new Error(String(e)))),
-    );
-  });
-}
-
 export interface ReminderServiceImplOptions {
   /** Override for tests; defaults to ~/.jazz/reminders (or $JAZZ_HOME/reminders). */
   readonly baseReminderDirectory?: string;
@@ -102,7 +69,7 @@ export class ReminderServiceImpl implements ReminderService {
     const lockPath = reminderLockPath(this.baseReminderDirectory, agentId);
     const baseReminderDirectory = this.baseReminderDirectory;
     return Effect.gen(function* () {
-      yield* requireValidAgentId(agentId);
+      yield* requireValidAgentId(agentId, ReminderGuardrailViolation);
       const fs = yield* FileSystem.FileSystem;
       yield* fs
         .makeDirectory(baseReminderDirectory, { recursive: true })
@@ -149,7 +116,12 @@ export class ReminderServiceImpl implements ReminderService {
             text,
             createdAt: Date.now(),
           };
-          yield* writeReminderFileAtomic(fs, filePath, [...existing, reminder]);
+          yield* writeFileStringAtomic(
+            fs,
+            filePath,
+            `${JSON.stringify([...existing, reminder], null, 2)}\n`,
+            { tempPrefix: "reminders" },
+          );
 
           return { success: true, reminder } satisfies AddReminderOutcome;
         }.bind(this),
@@ -159,7 +131,7 @@ export class ReminderServiceImpl implements ReminderService {
   readonly list: ReminderService["list"] = (agentId) =>
     Effect.gen(
       function* (this: ReminderServiceImpl) {
-        yield* requireValidAgentId(agentId);
+        yield* requireValidAgentId(agentId, ReminderGuardrailViolation);
         const fs = yield* FileSystem.FileSystem;
         const filePath = reminderFilePath(this.baseReminderDirectory, agentId);
         return yield* readReminderFile(fs, filePath);
@@ -183,7 +155,9 @@ export class ReminderServiceImpl implements ReminderService {
             } satisfies CancelReminderOutcome;
           }
 
-          yield* writeReminderFileAtomic(fs, filePath, remaining);
+          yield* writeFileStringAtomic(fs, filePath, `${JSON.stringify(remaining, null, 2)}\n`, {
+            tempPrefix: "reminders",
+          });
           return { success: true, message: "Reminder cancelled." } satisfies CancelReminderOutcome;
         }.bind(this),
       ),
@@ -242,7 +216,9 @@ export function sweepDueReminders(
           if (due.length === 0) return [] as ReminderRecord[];
 
           const remaining = reminders.filter((reminder) => reminder.fireAt > now);
-          yield* writeReminderFileAtomic(fs, filePath, remaining);
+          yield* writeFileStringAtomic(fs, filePath, `${JSON.stringify(remaining, null, 2)}\n`, {
+            tempPrefix: "reminders",
+          });
           return due;
         }),
         // A file whose lock can't be acquired this sweep will simply be

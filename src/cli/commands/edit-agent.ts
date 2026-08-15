@@ -7,16 +7,17 @@ import { THEME } from "@/cli/ui/theme";
 import * as fmt from "@/cli/utils/list-format";
 import { getAgentByIdentifier } from "@/core/agent/agent-service";
 import { registerMCPServerTools } from "@/core/agent/tools/mcp-tools";
+import { getMCPServerCategories } from "@/core/agent/tools/register-mcp-tools";
 import {
   createCategoryMappings,
-  getMCPServerCategories,
+  mcpToolCategory,
   SKILLS_CATEGORY,
   USER_INTERACTION_CATEGORY,
   WEB_SEARCH_CATEGORY,
-} from "@/core/agent/tools/register-tools";
+} from "@/core/agent/tools/tool-categories";
 import { normalizeToolConfig } from "@/core/agent/utils/tool-config";
-import { AVAILABLE_PROVIDERS } from "@/core/constants/models";
 import type { ProviderName } from "@/core/constants/models";
+import { AVAILABLE_PROVIDERS } from "@/core/constants/models";
 import { buildOllamaContextChoices, defaultOllamaContextWindow } from "@/core/constants/ollama";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "@/core/interfaces/agent-service";
@@ -39,9 +40,10 @@ import {
   ValidationError,
 } from "@/core/types/errors";
 import type { MCPTool } from "@/core/types/mcp";
-import { extractServerNamesFromToolNames, isAuthenticationRequired } from "@/core/utils/mcp-utils";
-import { getModelsDevMetadata } from "@/core/utils/models-dev-client";
-import { formatProviderDisplayName, toPascalCase } from "@/core/utils/string";
+import { extractServerNamesFromToolNames, isAuthenticationRequired } from "@/core/utils/mcp";
+import { getModelsDevMetadata } from "@/core/utils/models-dev";
+import { formatProviderDisplayName } from "@/core/utils/provider-model";
+import { toPascalCase } from "@/core/utils/string";
 
 /**
  * CLI commands for editing existing agents
@@ -136,8 +138,7 @@ export function editAgentCommand(
 
     // Add MCP server category mappings (category ID format: mcp_<servername>)
     for (const [displayName, serverName] of mcpServerData.displayNameToServerName.entries()) {
-      const categoryId = `mcp_${serverName.toLowerCase()}`;
-      categoryDisplayNameToId.set(displayName, categoryId);
+      categoryDisplayNameToId.set(displayName, mcpToolCategory(serverName).id);
     }
 
     // Get current provider info for model selection

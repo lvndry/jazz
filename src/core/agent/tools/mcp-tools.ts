@@ -16,7 +16,7 @@ import { MCPToolExecutionError } from "@/core/types/errors";
 import type { MCPTool } from "@/core/types/mcp";
 import { convertMCPSchemaToZod } from "@/core/utils/mcp-schema-converter";
 import { safeStringify, toPascalCase } from "@/core/utils/string";
-import { defineTool } from "./base-tool";
+import { defineTool, type ToolValidatorResult } from "./base-tool";
 
 /**
  * MCP Tool Dependencies - all services needed for MCP tool operations
@@ -26,6 +26,37 @@ import { defineTool } from "./base-tool";
  */
 export type MCPToolDependencies =
   AgentConfigService | LoggerService | MCPServerManager | TerminalService | PresentationService;
+
+/** An object schema that keeps every key the model supplied. */
+function emptyPassthroughObject(): z.ZodTypeAny {
+  return z.object({}).passthrough();
+}
+
+/**
+ * Detect the permissive schema `convertMCPSchemaToZod` degrades to.
+ *
+ * Zod 3 reports this as `_def.typeName`, Zod 4 as `_def.type`, so both are
+ * checked — reading only one silently disables the fallback on the other major.
+ */
+function isZodUnknown(schema: z.ZodTypeAny): boolean {
+  const def = (schema as { _def?: { typeName?: string; type?: string } })._def;
+  return def?.typeName === "ZodUnknown" || def?.type === "unknown";
+}
+
+/**
+ * Forward MCP arguments untouched.
+ *
+ * `convertMCPSchemaToZod` is lossy — `$ref` is unresolved, an untyped property
+ * degrades to an object schema, and a plain `z.object` strips keys it does not
+ * name. Validating against it would reject or silently empty calls the server
+ * would have accepted, so the server's own schema stays authoritative and its
+ * error is what the model sees.
+ */
+function passThroughMCPArguments(
+  args: Record<string, unknown>,
+): ToolValidatorResult<Record<string, unknown>> {
+  return { valid: true, value: args };
+}
 
 /**
  * Adapt an MCP tool to a Jazz tool with lazy connection support
@@ -51,17 +82,14 @@ function adaptMCPToolToJazz(
   let parameters: z.ZodTypeAny;
 
   if (mcpTool.inputSchema === undefined || mcpTool.inputSchema === null) {
-    // No schema provided - default to empty object
-    parameters = z.object({});
+    // No schema provided - default to an open object so nothing is stripped
+    parameters = emptyPassthroughObject();
   } else {
     parameters = convertMCPSchemaToZod(mcpTool.inputSchema, mcpToolName);
 
-    // Check if the result is z.unknown() by inspecting the internal type
-    // z.unknown() has _def.typeName === "ZodUnknown"
-    const zodDef = (parameters as { _def?: { typeName?: string } })._def;
-    if (zodDef?.typeName === "ZodUnknown") {
-      // Invalid or unsupported schema - default to empty object for LLM compatibility
-      parameters = z.object({});
+    if (isZodUnknown(parameters)) {
+      // Invalid or unsupported schema - default to an open object for LLM compatibility
+      parameters = emptyPassthroughObject();
     }
   }
 
@@ -70,6 +98,7 @@ function adaptMCPToolToJazz(
     description: mcpTool.description || `MCP tool: ${mcpToolName}`,
     parameters,
     hidden: false,
+    validate: passThroughMCPArguments,
     handler: (args: Record<string, unknown>, context: ToolExecutionContext) =>
       executeMCPToolWithLazyConnection(serverConfig, mcpToolName, args, context),
   });

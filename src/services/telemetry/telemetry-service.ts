@@ -17,7 +17,7 @@ import type {
 import { TelemetryServiceTag } from "@/core/interfaces/telemetry";
 import type { TelemetryConfig } from "@/core/types/config";
 import { TelemetryError, TelemetryWriteError } from "@/core/types/errors";
-import { getUserDataDirectory } from "@/core/utils/runtime-detection";
+import { getUserDataDirectory } from "@/core/utils/paths";
 
 // ── Constants ───────────────────────────────────────────────────────
 

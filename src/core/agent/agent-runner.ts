@@ -13,6 +13,7 @@ import {
   type ToolRegistry,
   type ToolRequirements,
 } from "@/core/interfaces/tool-registry";
+import { resolveDisplayConfig } from "@/core/presentation/display-config";
 import {
   matchSkillTriggers,
   SkillServiceTag,
@@ -22,7 +23,6 @@ import { LLMRateLimitError } from "@/core/types/errors";
 import type { ChatMessage } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
 import type { AutoApprovePolicy, ToolExecutionContext } from "@/core/types/tools";
-import { resolveDisplayConfig } from "@/core/utils/display-config";
 import { shouldEnableStreaming } from "@/core/utils/stream-detector";
 import type { ConversationMessages, StreamingConfig } from "../types";
 import { type Agent } from "../types";
@@ -31,11 +31,9 @@ import { Summarizer } from "./context/summarizer";
 import { executeWithStreaming, executeWithoutStreaming } from "./execution";
 import { createAgentRunMetrics } from "./metrics/agent-run-metrics";
 import { registerCustomToolsForAgent } from "./tools/custom-tools";
-import {
-  BUILTIN_TOOL_CATEGORIES,
-  registerMCPToolsForAgent,
-  registerSkillSystemTools,
-} from "./tools/register-tools";
+import { registerMCPToolsForAgent } from "./tools/register-mcp-tools";
+import { registerSkillSystemTools } from "./tools/register-tools";
+import { BUILTIN_TOOL_CATEGORIES } from "./tools/tool-categories";
 import { type AgentResponse, type AgentRunContext, type AgentRunnerOptions } from "./types";
 import { normalizeToolConfig } from "./utils/tool-config";
 

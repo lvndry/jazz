@@ -2,11 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
-import {
-  clearModelsDevCache,
-  getModelsDevMap,
-  getModelsDevProviderModels,
-} from "./models-dev-client";
+import { clearModelsDevCache, getModelsDevMap, getModelsDevProviderModels } from "./models-dev";
 
 const SAMPLE_API = {
   anthropic: {
@@ -62,7 +58,7 @@ afterEach(async () => {
   await rm(jazzHome, { recursive: true, force: true });
 });
 
-describe("models-dev-client disk cache", () => {
+describe("models-dev disk cache", () => {
   it("mirrors a successful fetch to disk", async () => {
     mockFetchSuccess();
 
@@ -104,7 +100,7 @@ describe("models-dev-client disk cache", () => {
   });
 });
 
-describe("models-dev-client offline mode", () => {
+describe("models-dev offline mode", () => {
   it("never fetches and serves the disk snapshot", async () => {
     process.env["JAZZ_OFFLINE"] = "1";
     await mkdir(join(jazzHome, "cache"), { recursive: true });
@@ -126,7 +122,7 @@ describe("models-dev-client offline mode", () => {
   });
 });
 
-describe("models-dev-client mirror override", () => {
+describe("models-dev mirror override", () => {
   it("fetches from JAZZ_MODELS_DEV_URL when set", async () => {
     const originalMirror = process.env["JAZZ_MODELS_DEV_URL"];
     process.env["JAZZ_MODELS_DEV_URL"] = "http://mirror.internal/api.json";

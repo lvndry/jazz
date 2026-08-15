@@ -1,7 +1,7 @@
 import * as path from "node:path";
 import { Effect } from "effect";
 import { TerminalServiceTag } from "@/core/interfaces/terminal";
-import { getGlobalUserDataDirectory } from "@/core/utils/runtime-detection";
+import { getGlobalUserDataDirectory } from "@/core/utils/paths";
 import {
   getRunHistoryFilePath,
   loadRunHistory,

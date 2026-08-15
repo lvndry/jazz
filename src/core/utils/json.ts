@@ -1,13 +1,12 @@
 import { Effect, Option } from "effect";
 
-/**
- * Utility functions for safe JSON parsing
- */
+/** JSON parsing adapters for optional and Effect-based control flow. */
 
 /**
  * Safely parse JSON string, returning an Option.
  * Returns Option.some(parsed) on success, Option.none() on parse error.
- *
+ * The generic type is an unchecked cast; use boundary schema validation when
+ * the parsed shape is untrusted.
  */
 export function safeParseJson<T>(text: string): Option.Option<T> {
   try {
@@ -20,7 +19,7 @@ export function safeParseJson<T>(text: string): Option.Option<T> {
 /**
  * Parse JSON string as an Effect, failing with a descriptive error on parse failure.
  * Useful for Effect-based workflows where parse errors should be propagated.
- *
+ * The generic type is an unchecked cast and does not validate object shape.
  */
 export function parseJson<T>(text: string): Effect.Effect<T, Error> {
   return Effect.try({

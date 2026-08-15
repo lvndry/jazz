@@ -246,7 +246,7 @@ deployment.
 provider-reported metadata and a 128k default. Ollama and llama.cpp need no catalog at all —
 model lists, context windows, and tool support are read from the local server.
 
-📄 [`models-dev-client.ts`](../../src/core/utils/models-dev-client.ts) · [Airgapped](../guide/airgapped.md)
+📄 [`models-dev.ts`](../../src/core/utils/models-dev.ts) · [Airgapped](../guide/airgapped.md)
 
 ### Effect-TS for the entire runtime
 

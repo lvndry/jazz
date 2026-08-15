@@ -1,10 +1,13 @@
-/**
- * Utility functions for promise manipulation
- */
+/** Promise coordination primitives. */
 
 /**
  * Creates a deferred promise with external resolve/reject controls.
  *
+ * A no-op rejection branch is attached immediately so an unused rejected
+ * deferred does not trigger an unhandled-rejection crash. Consumers of the
+ * original promise still observe the rejection.
+ *
+ * @returns The promise and its externally callable settlement functions.
  */
 export function createDeferred<T>(): {
   promise: Promise<T>;

@@ -65,10 +65,14 @@ export function createRmTools(): ApprovalToolPair<RmDeps> {
           const st = yield* fs
             .stat(target)
             .pipe(
-              Effect.catchAll((err) =>
-                args.force ? Effect.fail(err as Error) : Effect.fail(err as Error),
+              Effect.catchAll((error) =>
+                args.force === true ? Effect.succeed(null) : Effect.fail(error as Error),
               ),
             );
+
+          if (st === null) {
+            return { success: true, result: `Removed: ${target}` };
+          }
 
           if (st.type === "Directory" && args.recursive !== true) {
             return {

@@ -1,10 +1,17 @@
+/**
+ * Normalize, validate, and describe workflow cron schedules.
+ *
+ * Jazz accepts conventional five-field expressions and six-field expressions
+ * with seconds.
+ */
 import cronParser from "cron-parser";
 import cronstrue from "cronstrue";
 
 /**
  * Normalize a cron expression to 6-field format (with seconds).
  * If the expression has 5 fields, prepend "0 " for seconds.
- * If it already has 6 fields, return as-is.
+ * Other field counts are returned unchanged; call isValidCronExpression when
+ * validation is required.
  */
 export function normalizeCronExpression(schedule: string): string {
   const trimmed = schedule.trim();

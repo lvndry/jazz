@@ -1,20 +1,24 @@
-import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { z } from "zod";
-import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
 import { defineTool, makeZodValidator } from "../base-tool";
-import { resolveGitWorkingDirectory, runGitCommand } from "./utils";
+import {
+  gitRepoPathSchema,
+  resolveGitRepoDir,
+  runGitOrFail,
+  withGitTruncation,
+  type GitToolDeps,
+} from "./utils";
 
 /**
  * Git log tool - displays commit history
  */
 
-export function createGitLogTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
+export function createGitLogTool(): Tool<GitToolDeps> {
   const parameters = z
     .object({
-      path: z.string().optional().describe("Repository path (defaults to cwd)"),
+      path: gitRepoPathSchema,
       limit: z
         .number()
         .int()
@@ -28,7 +32,7 @@ export function createGitLogTool(): Tool<FileSystem.FileSystem | FileSystemConte
 
   type GitLogArgs = z.infer<typeof parameters>;
 
-  return defineTool<FileSystem.FileSystem | FileSystemContextService, GitLogArgs>({
+  return defineTool<GitToolDeps, GitLogArgs>({
     name: "git_log",
     description: "Show commit history. Default 20 commits, cap 50.",
     tags: ["git", "history"],
@@ -36,31 +40,15 @@ export function createGitLogTool(): Tool<FileSystem.FileSystem | FileSystemConte
     validate: makeZodValidator(parameters),
     handler: (args: GitLogArgs, context: ToolExecutionContext) =>
       Effect.gen(function* () {
-        const shell = yield* FileSystemContextServiceTag;
-        const fs = yield* FileSystem.FileSystem;
-
-        let workingDirError: string | null = null;
-        const workingDir = yield* resolveGitWorkingDirectory(shell, context, fs, args?.path).pipe(
-          Effect.catchAll((error) => {
-            workingDirError = error instanceof Error ? error.message : String(error);
-            return Effect.succeed(null);
-          }),
-        );
-
-        if (workingDir === null) {
-          return {
-            success: false,
-            result: null,
-            error: workingDirError || "Failed to resolve working directory",
-          };
-        }
+        const resolved = yield* resolveGitRepoDir(args?.path, context);
+        if (resolved.kind === "failure") return resolved.result;
+        const workingDir = resolved.path;
 
         const requestedLimit = args?.limit ?? 20;
         const limit = Math.min(requestedLimit, 50);
         const prettyFormat = "%H%x1f%h%x1f%an%x1f%ar%x1f%s%x1e";
 
-        let commandError: string | null = null;
-        const commandResult = yield* runGitCommand({
+        const executed = yield* runGitOrFail("git log", {
           args: [
             "log",
             `--max-count=${limit}`,
@@ -68,32 +56,10 @@ export function createGitLogTool(): Tool<FileSystem.FileSystem | FileSystemConte
             "--date=relative",
           ],
           workingDirectory: workingDir,
-        }).pipe(
-          Effect.catchAll((error) => {
-            const errorMsg = error instanceof Error ? error.message : String(error);
-            commandError = `Failed to execute git log in directory '${workingDir}': ${errorMsg}`;
-            return Effect.succeed(null);
-          }),
-        );
+        });
+        if (executed.kind === "failure") return executed.result;
 
-        // If runGitCommand failed (spawn error), return the error
-        if (commandResult === null) {
-          return {
-            success: false,
-            result: null,
-            error: commandError || `Failed to execute git log in directory '${workingDir}'`,
-          };
-        }
-
-        const gitResult = commandResult;
-
-        if (gitResult.exitCode !== 0) {
-          return {
-            success: false,
-            result: null,
-            error: `git log failed in directory '${workingDir}' with exit code ${gitResult.exitCode}: ${gitResult.stderr || "Unknown error"}`,
-          };
-        }
+        const gitResult = executed.result;
 
         const commits = gitResult.stdout
           .split("\x1e")
@@ -114,11 +80,14 @@ export function createGitLogTool(): Tool<FileSystem.FileSystem | FileSystemConte
 
         return {
           success: true,
-          result: {
-            workingDirectory: workingDir,
-            commitCount: commits.length,
-            commits,
-          },
+          result: withGitTruncation(
+            {
+              workingDirectory: workingDir,
+              commitCount: commits.length,
+              commits,
+            },
+            gitResult,
+          ),
         };
       }),
     createSummary: (result: ToolExecutionResult) => {

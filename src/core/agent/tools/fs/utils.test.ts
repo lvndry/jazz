@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
+import { DEFAULT_SPAWN_OUTPUT_CAP_BYTES } from "../capped-output";
 import {
   checkExternalTool,
   normalizeFilterPattern,
@@ -164,6 +165,22 @@ node_modules/
       expect(result.exitCode).toBe(0);
       // /tmp may resolve to /private/tmp on macOS
       expect(result.stdout).toMatch(/\/tmp/);
+      expect(result.stdoutTruncated).toBe(false);
+      expect(result.stderrTruncated).toBe(false);
+    });
+
+    it("caps stdout while collecting and drops an incomplete last line", async () => {
+      const result = await Effect.runPromise(
+        spawnCollect("node", ["-e", "process.stdout.write(('xxxxxxxx\\n').repeat(40000))"]),
+      );
+      expect(result.exitCode).toBe(0);
+      expect(result.stdoutTruncated).toBe(true);
+      expect(Buffer.byteLength(result.stdout, "utf8")).toBeLessThanOrEqual(
+        DEFAULT_SPAWN_OUTPUT_CAP_BYTES,
+      );
+      expect(result.stdout).not.toContain("[truncated:");
+      expect(result.stdout.startsWith("xxxxxxxx\n")).toBe(true);
+      expect(result.stdout.endsWith("xxxxxxxx")).toBe(true);
     });
   });
 });
