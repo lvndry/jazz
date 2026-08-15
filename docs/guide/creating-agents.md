@@ -63,7 +63,8 @@ Full field reference: [Configuration](../reference/configuration.md).
 ## Copying an agent
 
 Cloning is usually faster than the wizard, and it's how the
-[Telegram bridge](../../integrations/telegram-bot/) gives every chat its own agent:
+[Telegram](../../integrations/telegram-bot/) and
+[Discord](../../integrations/discord-bot/) bridges give every chat its own agent:
 
 ```bash
 cp ~/.jazz/agents/<id>.json ~/.jazz/agents/reviewer-strict.json
