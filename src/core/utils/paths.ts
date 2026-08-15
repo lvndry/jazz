@@ -1,6 +1,12 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import {
+  extractEmbeddedAssets,
+  hasEmbeddedAssets,
+  pruneStaleAssetDirectories,
+} from "@/core/assets/asset-extraction";
+import packageJson from "../../../package.json";
 
 /**
  * Resolves Jazz's user, project, and package directories.
@@ -75,12 +81,44 @@ export function getMemoryDirectory(): string {
   return path.join(getJazzHomeDirectory(), "memory");
 }
 
+let embeddedAssetRoot: string | null | undefined;
+
+/**
+ * Returns the directory a standalone binary unpacks its built-in assets into.
+ *
+ * Resolved once per process: the unpack itself is a no-op after the first run,
+ * but `getPackageRootDirectory` is called often enough that the existence check
+ * is worth skipping.
+ *
+ * @returns The unpacked directory, or `null` outside a standalone binary.
+ */
+function getEmbeddedAssetRoot(): string | null {
+  if (embeddedAssetRoot !== undefined) {
+    return embeddedAssetRoot;
+  }
+
+  if (!hasEmbeddedAssets()) {
+    embeddedAssetRoot = null;
+    return embeddedAssetRoot;
+  }
+
+  const runtimeRoot = path.join(getJazzHomeDirectory(), "runtime");
+  embeddedAssetRoot = extractEmbeddedAssets(path.join(runtimeRoot, packageJson.version));
+  pruneStaleAssetDirectories(runtimeRoot, packageJson.version);
+  return embeddedAssetRoot;
+}
+
 /**
  * Finds the `jazz-ai` package root containing `package.json`.
  *
  * @returns The package root directory, or `null` when it cannot be found.
  */
 export function getPackageRootDirectory(): string | null {
+  const unpackedAssets = getEmbeddedAssetRoot();
+  if (unpackedAssets) {
+    return unpackedAssets;
+  }
+
   try {
     let currentDir = path.resolve(import.meta.dirname);
     const root = path.parse(currentDir).root;
