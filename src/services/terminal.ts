@@ -106,9 +106,6 @@ export class InkTerminalService implements TerminalService {
       ),
       INK_RENDER_OPTIONS,
     );
-    store.registerFrameClearHandler(() => {
-      this.inkInstance?.clear();
-    });
     instanceExists = true;
   }
 
@@ -117,7 +114,6 @@ export class InkTerminalService implements TerminalService {
    * Called when the command completes
    */
   cleanup(): void {
-    store.registerFrameClearHandler(null);
     if (this.inkInstance) {
       this.inkInstance.unmount();
       this.inkInstance = null;
