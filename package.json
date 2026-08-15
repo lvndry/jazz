@@ -137,6 +137,7 @@
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.67.0",
     "tz-lookup": "^6.1.25",
+    "undici": "^8.10.0",
     "vercel-minimax-ai-provider": "^0.0.2",
     "wrap-ansi": "^10.0.0",
     "zhipu-ai-provider": "^0.4.0",
