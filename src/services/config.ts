@@ -441,6 +441,11 @@ function mergeConfig(base: AppConfig, override?: Partial<AppConfig>): AppConfig 
         }),
       },
     }),
+    // Kept even when the override omits it, so a project-local config.json does not
+    // silently drop globally configured thresholds.
+    ...((base.context ?? override.context) && {
+      context: { ...(base.context ?? {}), ...(override.context ?? {}) },
+    }),
   };
 }
 

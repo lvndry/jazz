@@ -1,5 +1,5 @@
 import { Cause, Effect, Fiber, Option, Ref } from "effect";
-import { type AgentConfigService } from "@/core/interfaces/agent-config";
+import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import type { LLMService } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import type { PresentationService, StreamingRenderer } from "@/core/interfaces/presentation";
@@ -13,6 +13,7 @@ import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import { formatToolResultForContext } from "@/core/utils/tool-result-formatter";
 import type { AgentLoopObserver } from "./agent-loop-observer";
 import { ToolExecutor } from "./tool-executor";
+import { resolveContextThresholds } from "../context/context-thresholds";
 import {
   CONTEXT_COMPACT_THRESHOLD_RATIO,
   CONTEXT_TRIM_THRESHOLD_RATIO,
@@ -77,8 +78,11 @@ const CONTEXT_CRITICAL_RATIO = 0.9;
 export function buildContextPressureMessage(
   currentTokens: number,
   budgetTokens: number,
+  thresholds?: { warnThresholdRatio: number; compactThresholdRatio: number },
 ): { role: "user"; content: string } | null {
   if (budgetTokens <= 0) return null;
+  const warnRatio = thresholds?.warnThresholdRatio ?? CONTEXT_WARN_THRESHOLD_RATIO;
+  const compactRatio = thresholds?.compactThresholdRatio ?? CONTEXT_COMPACT_THRESHOLD_RATIO;
   const ratio = currentTokens / budgetTokens;
   const percent = Math.round(ratio * 100);
   const budget = budgetTokens.toLocaleString();
@@ -89,10 +93,10 @@ export function buildContextPressureMessage(
       content: `[CONTEXT CRITICAL: ${percent}% of the ${budget}-token context budget used. Write your final output NOW from what you have already gathered. Do not open new files, run new searches, or spawn subagents — their results may not survive compaction.]`,
     };
   }
-  if (ratio >= CONTEXT_WARN_THRESHOLD_RATIO) {
+  if (ratio >= warnRatio) {
     return {
       role: "user",
-      content: `[CONTEXT WARNING: ${percent}% of the ${budget}-token context budget used. Older history is summarized automatically at ${Math.round(CONTEXT_COMPACT_THRESHOLD_RATIO * 100)}%, and detail is lost when that happens. Record any findings you need to keep in your next message, and prefer consolidating over gathering more.]`,
+      content: `[CONTEXT WARNING: ${percent}% of the ${budget}-token context budget used. Older history is summarized automatically at ${Math.round(compactRatio * 100)}%, and detail is lost when that happens. Record any findings you need to keep in your next message, and prefer consolidating over gathering more.]`,
     };
   }
   return null;
@@ -559,6 +563,7 @@ function runIteration(
     const contextMsg = buildContextPressureMessage(
       postCompactionUsage.currentTokens,
       postCompactionUsage.budgetTokens,
+      runContextWindowManager.thresholdRatios,
     );
     const budgetMsg = buildBudgetPressureMessage(iterationIndex + 1, maxIterations);
     const pressureContent = [contextMsg?.content, budgetMsg?.content].filter(Boolean).join("\n");
@@ -752,6 +757,9 @@ export function executeAgentLoop(
           maxIterations,
         } = runContext;
 
+        const configService = yield* AgentConfigServiceTag;
+        const appConfig = yield* configService.appConfig;
+
         // Fetch model's actual context window from models.dev
         const modelMetadata = yield* Effect.tryPromise({
           try: () => getModelsDevMetadata(model, provider),
@@ -778,10 +786,16 @@ export function executeAgentLoop(
         const trimBudgetTokens = Math.floor(contextWindowMaxTokens * CONTEXT_TRIM_THRESHOLD_RATIO);
         const protectedRecentTurns =
           DEFAULT_CONTEXT_WINDOW_MANAGER.getConfig().protectedRecentTurns;
+        const contextThresholds = resolveContextThresholds(appConfig.context);
+        for (const thresholdWarning of contextThresholds.warnings) {
+          yield* logger.warn(thresholdWarning, { agentId: agent.id });
+        }
         const runContextWindowManager = new ContextWindowManager({
           maxTokens: trimBudgetTokens,
           contextBudgetTokens: contextWindowMaxTokens,
           ...(protectedRecentTurns !== undefined && { protectedRecentTurns }),
+          warnThresholdRatio: contextThresholds.warnThresholdRatio,
+          compactThresholdRatio: contextThresholds.compactThresholdRatio,
           modelHint: { provider, modelId: model },
         });
 

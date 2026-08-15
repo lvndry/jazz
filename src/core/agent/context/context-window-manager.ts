@@ -280,8 +280,15 @@ export class ContextWindowManager {
 
   /** Token count above which history is compacted. */
   get compactThresholdTokens(): number {
-    const ratio = this.config.compactThresholdRatio ?? CONTEXT_COMPACT_THRESHOLD_RATIO;
-    return Math.floor(this.contextBudgetTokens * ratio);
+    return Math.floor(this.contextBudgetTokens * this.thresholdRatios.compactThresholdRatio);
+  }
+
+  /** The resolved ratios, so callers can describe them without re-deriving defaults. */
+  get thresholdRatios(): { warnThresholdRatio: number; compactThresholdRatio: number } {
+    return {
+      warnThresholdRatio: this.config.warnThresholdRatio ?? CONTEXT_WARN_THRESHOLD_RATIO,
+      compactThresholdRatio: this.config.compactThresholdRatio ?? CONTEXT_COMPACT_THRESHOLD_RATIO,
+    };
   }
 
   /**

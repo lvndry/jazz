@@ -7,6 +7,7 @@ import * as fmt from "@/cli/utils/list-format";
 import { AgentRunner } from "@/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@/core/agent/agent-service";
 import { sortAgents } from "@/core/agent/agent-sort";
+import { resolveContextThresholds } from "@/core/agent/context/context-thresholds";
 import { resolveEffectiveContextWindow } from "@/core/agent/context/effective-context-window";
 import { WEB_SEARCH_PROVIDERS } from "@/core/agent/tools/web-search-tools";
 import { normalizeToolConfig } from "@/core/agent/utils/tool-config";
@@ -1628,8 +1629,13 @@ function contextSymbols(): { used: string; free: string; buffer: string } {
 const GRID_SIZE = 10;
 const TOTAL_CELLS = GRID_SIZE * GRID_SIZE;
 
-/** Buffer percentage reserved for autocompact (16.5% like Claude Code) */
-const AUTOCOMPACT_BUFFER_PERCENT = 0.165;
+/**
+ * Space reserved for autocompact: whatever sits above the ratio at which compaction
+ * actually fires, so the grid and the runtime agree on where the ceiling is.
+ */
+function autocompactBufferPercent(compactThresholdRatio: number): number {
+  return 1 - compactThresholdRatio;
+}
 
 /**
  * Get the model's advertised context window from models.dev, or `undefined` when
@@ -1700,9 +1706,12 @@ interface ContextUsageBreakdown {
 function calculateContextUsage(
   conversationHistory: ChatMessage[],
   contextWindow: number,
+  compactThresholdRatio: number,
 ): ContextUsageBreakdown {
   // Calculate autocompact buffer (reserved space)
-  const autocompactBuffer = Math.floor(contextWindow * AUTOCOMPACT_BUFFER_PERCENT);
+  const autocompactBuffer = Math.floor(
+    contextWindow * autocompactBufferPercent(compactThresholdRatio),
+  );
   const effectiveWindow = contextWindow - autocompactBuffer;
 
   // Separate system message from other messages
@@ -1802,9 +1811,12 @@ function handleContextCommand(
   terminal: TerminalService,
   agent: CommandContext["agent"],
   conversationHistory: CommandContext["conversationHistory"],
-): Effect.Effect<CommandResult, never, ToolRegistry> {
+): Effect.Effect<CommandResult, never, ToolRegistry | AgentConfigService> {
   return Effect.gen(function* () {
     const toolRegistry = yield* ToolRegistryTag;
+    const configService = yield* AgentConfigServiceTag;
+    const appConfig = yield* configService.appConfig;
+    const { compactThresholdRatio } = resolveContextThresholds(appConfig.context);
 
     // Get model information
     const provider = agent.config.llmProvider;
@@ -1828,7 +1840,7 @@ function handleContextCommand(
     const toolDefinitionTokens = Math.ceil(toolDefinitionsJson.length / 4);
 
     // Calculate usage breakdown
-    const usage = calculateContextUsage(conversationHistory, contextWindow);
+    const usage = calculateContextUsage(conversationHistory, contextWindow, compactThresholdRatio);
 
     // Add tool definition tokens (these are sent with every request)
     const adjustedUsage: ContextUsageBreakdown = {
