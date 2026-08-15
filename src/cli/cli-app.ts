@@ -44,6 +44,7 @@ import {
   workflowHistoryCommand,
 } from "./commands/workflow";
 import { parsePositiveInt } from "./utils/option-parsers";
+import { setCurrentCommandName } from "../core/utils/current-command";
 
 /**
  * CLI Application setup and command registration
@@ -58,6 +59,17 @@ interface CliOptions {
   config?: string;
   output?: string;
   tui?: boolean;
+}
+
+/** Build the full command path (`agent list`) by walking up to the root program. */
+function commandPath(command: Command): string {
+  const segments: string[] = [];
+  let current: Command | null = command;
+  while (current && current.parent) {
+    segments.unshift(current.name());
+    current = current.parent;
+  }
+  return segments.length > 0 ? segments.join(" ") : command.name();
 }
 
 /**
@@ -729,7 +741,7 @@ export function createCLIApp(): Effect.Effect<Command, never> {
       );
 
     // Apply global options before any command runs
-    program.hook("preAction", (thisCommand) => {
+    program.hook("preAction", (thisCommand, actionCommand) => {
       const opts = thisCommand.optsWithGlobals();
       if (opts["tui"] === false) {
         process.env["JAZZ_NO_TUI"] = "1";
@@ -737,6 +749,7 @@ export function createCLIApp(): Effect.Effect<Command, never> {
       if (opts["output"]) {
         process.env["JAZZ_OUTPUT_MODE"] = opts["output"] as string;
       }
+      setCurrentCommandName(commandPath(actionCommand));
     });
 
     // Register all commands

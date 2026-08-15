@@ -197,6 +197,8 @@ export interface TelemetryService {
     readonly agentId?: string;
     readonly sessionId?: string;
     readonly durationMs?: number;
+    /** Groups this request under its agent run when exported as a trace. */
+    readonly runId?: string;
   }) => Effect.Effect<void, TelemetryError>;
 
   /**
@@ -208,6 +210,8 @@ export interface TelemetryService {
     readonly error: string;
     readonly attempt: number;
     readonly agentId?: string;
+    /** Groups this retry under its agent run when exported as a trace. */
+    readonly runId?: string;
   }) => Effect.Effect<void, TelemetryError>;
 
   /**
@@ -220,6 +224,8 @@ export interface TelemetryService {
     readonly error?: string;
     readonly agentId?: string;
     readonly sessionId?: string;
+    /** Groups this tool call under its agent run when exported as a trace. */
+    readonly runId?: string;
   }) => Effect.Effect<void, TelemetryError>;
 
   /**

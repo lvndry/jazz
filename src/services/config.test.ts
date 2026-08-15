@@ -442,4 +442,36 @@ describe("createConfigLayer", () => {
 
     expect(await Effect.runPromise(program)).toBeUndefined();
   });
+
+  it("merges the telemetry.otlp block without dropping sibling telemetry settings", async () => {
+    const customConfigPath = path.join(os.tmpdir(), "jazz-otlp-config.json");
+
+    const fileContents = new Map<string, string>([
+      [
+        customConfigPath,
+        JSON.stringify({
+          telemetry: {
+            retentionDays: 7,
+            otlp: { endpoint: "http://collector:4318", captureContent: true },
+          },
+        }),
+      ],
+    ]);
+
+    const layer = createConfigLayer(undefined, customConfigPath).pipe(
+      Layer.provide(Layer.succeed(FileSystem.FileSystem, createTestFileSystem(fileContents))),
+    );
+    const program = Effect.gen(function* () {
+      const config = yield* AgentConfigServiceTag;
+      const endpoint = yield* config.get<string>("telemetry.otlp.endpoint");
+      const captureContent = yield* config.get<boolean>("telemetry.otlp.captureContent");
+      const retentionDays = yield* config.get<number>("telemetry.retentionDays");
+      return { endpoint, captureContent, retentionDays };
+    }).pipe(Effect.provide(layer));
+
+    const result = await Effect.runPromise(program);
+    expect(result.endpoint).toBe("http://collector:4318");
+    expect(result.captureContent).toBe(true);
+    expect(result.retentionDays).toBe(7);
+  });
 });

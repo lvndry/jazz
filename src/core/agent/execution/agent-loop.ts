@@ -1,4 +1,4 @@
-import { Effect, Fiber, Option, Ref } from "effect";
+import { Cause, Effect, Fiber, Option, Ref } from "effect";
 import { type AgentConfigService } from "@/core/interfaces/agent-config";
 import type { LLMService } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
@@ -29,6 +29,8 @@ import {
   beginIteration,
   calibrateTokenCounter,
   completeIteration,
+  emitAgentRunFailed,
+  emitLLMUsage,
   estimateTokens,
   finalizeAgentRun,
   recordLLMUsage,
@@ -567,7 +569,9 @@ function runIteration(
         ] as typeof state.currentMessages)
       : state.currentMessages;
 
+    const completionStartTime = Date.now();
     const result = yield* strategy.getCompletion(messagesForLLM, iterationIndex);
+    const completionDurationMs = Date.now() - completionStartTime;
 
     if (result.interrupted) {
       const completion = result.completion;
@@ -603,6 +607,7 @@ function runIteration(
 
     if (completion.usage) {
       recordLLMUsage(runMetrics, completion.usage);
+      yield* emitLLMUsage(runMetrics, completion.usage, completionDurationMs);
 
       calibrateTokenCounter({
         authoritativePromptTokens: completion.usage.promptTokens,
@@ -861,7 +866,19 @@ export function executeAgentLoop(
           maxIterations,
           finalizeFiberRef,
         );
-      }),
+      }).pipe(
+        // A run that dies here never reaches finalizeRun, so `agent_run_completed`
+        // is never emitted. Record the failure instead. Interrupts (Ctrl+C, double
+        // Esc) are not failures and are left unrecorded.
+        Effect.tapErrorCause((cause) =>
+          Cause.isInterruptedOnly(cause)
+            ? Effect.void
+            : emitAgentRunFailed(
+                runContext.runMetrics,
+                Cause.failureOption(cause).pipe(Option.getOrElse(() => Cause.pretty(cause))),
+              ),
+        ),
+      ),
     // Release: cleanup
     ({ logger, finalizeFiberRef }) =>
       Effect.gen(function* () {
