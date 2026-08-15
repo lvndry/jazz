@@ -42,11 +42,24 @@ flowchart TB
 
 | | Trimming | Compaction |
 | --- | --- | --- |
-| Runs | every iteration, after appending the assistant message | when tokens exceed 80% of the context budget (the model's window, or the agent's `maxContextTokens` ceiling when it is lower) |
+| Runs | after appending the assistant message, once tokens exceed **95%** of the context budget | when tokens exceed 80% of the context budget (the model's window, or the agent's `maxContextTokens` ceiling when it is lower) |
 | Costs | nothing | one LLM call |
 | Budget | a fixed working-set target (50k tokens by default) | the context window the provider will actually honour |
 | What's lost | old messages, entirely | detail — the gist survives as a summary |
 | Preserves | system message + last N complete turns | system message + a summary + recent messages |
+
+**Trimming sits above compaction, deliberately.** Its budget is 95% of the context budget,
+compaction's is 80%, so compaction always gets first refusal and trimming only fires when
+summarizing could not bring the run under budget — a single tool result too large to
+summarize around, for example. When it does fire you are told, because messages are being
+discarded without being summarized.
+
+This ordering used to be inverted. The trim budget was a flat 50,000 tokens regardless of
+the model, so on any window larger than ~62k (50k ÷ 0.8) trimming pre-empted compaction
+entirely: history was held at 50k by discarding the oldest turns, the 80% threshold was
+never reached, and the summarizer never ran. The run degraded into exactly the sliding
+window this design exists to avoid — and, because trimming rewrites the start of the
+message list, it also invalidated the provider's cacheable prefix on every single turn.
 
 Trimming keeps the working set tidy. Compaction is what saves a run that genuinely has more
 history than fits.

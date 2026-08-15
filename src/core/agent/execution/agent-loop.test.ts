@@ -418,6 +418,91 @@ describe("executeAgentLoop", () => {
     expect(result.content).toBe("Hello world");
   });
 
+  it("does not trim a history that fits the model window", async () => {
+    // Regression: the trim budget was a flat 50k while compaction fired at 80% of the
+    // window, so on any model above ~62k trimming silently pre-empted compaction and
+    // the run degraded to a sliding window that dropped the earliest turns.
+    // Two iterations: trimming happens after the first LLM call, so only the second
+    // call can observe whether history survived.
+    const seenMessages: ConversationMessages[] = [];
+    let iteration = 0;
+    const strategy: CompletionStrategy = {
+      shouldShowThinking: false,
+      getCompletion: (messages) => {
+        seenMessages.push(messages);
+        iteration++;
+        if (iteration === 1) {
+          return Effect.succeed({
+            completion: {
+              id: "c1",
+              model: "gpt-4o",
+              content: "",
+              toolCalls: [
+                {
+                  id: "call_1",
+                  type: "function" as const,
+                  function: { name: "test_tool", arguments: "{}" },
+                },
+              ],
+            },
+            interrupted: false,
+          });
+        }
+        return Effect.succeed({
+          completion: { id: "c2", model: "gpt-4o", content: "Hello world" },
+          interrupted: false,
+        });
+      },
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+
+    const originalExecute = ToolExecutor.executeToolCalls;
+    ToolExecutor.executeToolCalls = mock(() =>
+      Effect.succeed([
+        { toolCallId: "call_1", name: "test_tool", result: "output", success: true },
+      ]),
+    );
+
+    const messages: any[] = [{ role: "system", content: "system prompt" }];
+    for (let turn = 0; turn < 90; turn++) {
+      messages.push({ role: "user", content: `question ${turn} ` + "detail ".repeat(400) });
+      messages.push({ role: "assistant", content: `answer ${turn} ` + "finding ".repeat(400) });
+    }
+    // gpt-4o: a real 128k window, so the history below fits with room to spare.
+    const model = "gpt-4o";
+    const totalTokens = DEFAULT_TOKEN_COUNTER.countMessages(messages, {
+      provider: "openai",
+      modelId: model,
+    });
+    // Comfortably past the old 50k trim budget, well under 80% of the 128k window.
+    expect(totalTokens).toBeGreaterThan(50_000);
+    expect(totalTokens).toBeLessThan(128_000 * 0.8);
+
+    const options = makeOptions();
+    const agent = { ...options.agent, config: { ...options.agent.config, llmModel: model } } as any;
+
+    await Effect.runPromise(
+      executeAgentLoop(
+        { ...options, agent },
+        makeRunContext({ messages: messages as any, agent, model }),
+        displayConfig,
+        strategy,
+        defaultObserver,
+        runRecursive,
+      ).pipe(Effect.provide(TestLayer)),
+    );
+
+    ToolExecutor.executeToolCalls = originalExecute;
+
+    // The second call is the one that sees post-trim history.
+    const sent = seenMessages[1] ?? [];
+    expect(sent.length).toBeGreaterThan(0);
+    // The earliest turn — the one carrying the task definition — must survive.
+    expect(sent.some((message) => message.content?.includes("question 0"))).toBe(true);
+  });
+
   it("should warn when iteration limit is reached", async () => {
     const warningCalls: string[] = [];
     const trackingPresentationService = {

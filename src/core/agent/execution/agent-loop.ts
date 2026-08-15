@@ -16,6 +16,7 @@ import type { AgentLoopObserver } from "./agent-loop-observer";
 import { ToolExecutor } from "./tool-executor";
 import {
   CONTEXT_COMPACT_THRESHOLD_RATIO,
+  CONTEXT_TRIM_THRESHOLD_RATIO,
   CONTEXT_WARN_THRESHOLD_RATIO,
   ContextWindowManager,
   DEFAULT_CONTEXT_WINDOW_MANAGER,
@@ -653,6 +654,9 @@ function runIteration(
       actualConversationId,
     );
     state.currentMessages = trimUpdate.messages;
+    if (trimUpdate.result !== undefined && !options.internal) {
+      yield* observer.onHistoryTrimmed(agent.name, trimUpdate.result.messagesRemoved);
+    }
 
     if (completion.toolCalls && completion.toolCalls.length > 0) {
       yield* handleToolPhase(state, completion.toolCalls, completion.content, iterationIndex, deps);
@@ -757,7 +761,12 @@ export function executeAgentLoop(
         });
         const contextWindowMaxTokens = effectiveContextWindow.tokens;
 
-        const trimBudgetTokens = DEFAULT_CONTEXT_WINDOW_MANAGER.getConfig().maxTokens;
+        // Trim is the floor, not the routine path: it discards messages instead of
+        // summarizing them, so its budget sits above the compaction threshold. Keying
+        // it to a constant below the window (it was 50k) made trimming pre-empt
+        // compaction on every model with a window over ~62k — a sliding window in all
+        // but name, and one that rewrote the cacheable prefix on every turn.
+        const trimBudgetTokens = Math.floor(contextWindowMaxTokens * CONTEXT_TRIM_THRESHOLD_RATIO);
         const protectedRecentTurns =
           DEFAULT_CONTEXT_WINDOW_MANAGER.getConfig().protectedRecentTurns;
         const runContextWindowManager = new ContextWindowManager({

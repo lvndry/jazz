@@ -16,6 +16,17 @@ export const CONTEXT_WARN_THRESHOLD_RATIO = 0.7;
 /** Fraction of the context budget at which history is compacted automatically. */
 export const CONTEXT_COMPACT_THRESHOLD_RATIO = 0.8;
 
+/**
+ * Fraction of the context budget at which history is trimmed outright.
+ *
+ * Deliberately *above* the compaction threshold. Trimming discards messages without
+ * summarizing them, so it must never be the mechanism that normally runs — it is the
+ * floor for the cases compaction cannot fix, such as a single tool result too large
+ * to summarize around. A trim budget below the compaction threshold silently converts
+ * the whole design into a sliding window.
+ */
+export const CONTEXT_TRIM_THRESHOLD_RATIO = 0.95;
+
 export interface ContextWindowConfig {
   /** Maximum number of tokens to keep in history */
   readonly maxTokens: number;
