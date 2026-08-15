@@ -8,7 +8,6 @@ import type { OutputConfig } from "./output";
 export interface AppConfig {
   readonly storage: StorageConfig;
   readonly logging: LoggingConfig;
-  readonly google?: GoogleConfig;
   readonly llm?: LLMConfig;
   readonly web_search?: WebSearchConfig;
   readonly output?: OutputConfig;
@@ -61,11 +60,6 @@ export type StorageConfig =
 export interface LoggingConfig {
   readonly level: "debug" | "info" | "warn" | "error";
   readonly format: "json" | "plain";
-}
-
-export interface GoogleConfig {
-  readonly clientId: string;
-  readonly clientSecret: string;
 }
 
 export interface LLMProviderConfig {

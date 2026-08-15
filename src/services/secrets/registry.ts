@@ -44,13 +44,8 @@ const WEB_SEARCH_PROVIDER_ENV_VARS: Record<string, string> = {
   tavily: "TAVILY_API_KEY",
 };
 
-const STANDALONE_SECRET_ENV_VARS: Record<string, string> = {
-  "google.clientId": "GOOGLE_CLIENT_ID",
-  "google.clientSecret": "GOOGLE_CLIENT_SECRET",
-};
-
 function buildSecretEnvVars(): Record<string, string> {
-  const paths: Record<string, string> = { ...STANDALONE_SECRET_ENV_VARS };
+  const paths: Record<string, string> = {};
   for (const [provider, envVar] of Object.entries(LLM_PROVIDER_ENV_VARS)) {
     paths[`llm.${provider}.api_key`] = envVar;
   }
