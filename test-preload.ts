@@ -16,3 +16,11 @@ process.env["JAZZ_UI_GLYPHS"] ??= "ascii";
  * (models-dev.test.ts) manage this env var explicitly per-test.
  */
 process.env["JAZZ_OFFLINE"] ??= "1";
+
+/**
+ * Keep the suite away from the developer's real OS keyring. Without this, any
+ * test that builds a config layer would probe — and, worse, migrate real
+ * plaintext keys into — the login keychain. Tests covering keyring behavior set
+ * this to "0" explicitly.
+ */
+process.env["JAZZ_DISABLE_KEYRING"] ??= "1";

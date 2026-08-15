@@ -162,6 +162,30 @@ CMD ["jazz"]
 Also consider a dedicated OS user for running Jazz, and separate service accounts (a bot
 GitHub account, a separate mailbox) so a mistake cannot reach your primary identity.
 
+### Know where your API keys live
+
+Jazz resolves every secret in this order, and uses the first hit:
+
+1. **Environment variable** — `OPENAI_API_KEY`, `BRAVE_API_KEY`, `GOOGLE_CLIENT_SECRET`, and so
+   on. Nothing touches disk. Best for containers and CI.
+2. **OS keyring** — macOS Keychain, or libsecret (`secret-tool`) on Linux. Used automatically
+   when available. Keys already sitting in `~/.jazz/config.json` are moved here on next start.
+3. **`~/.jazz/config.json`** — the fallback when there is no keyring, e.g. a headless server with
+   no session D-Bus. Jazz creates the file mode `0600` and repairs looser modes on load, but the
+   keys are plaintext to anyone who can read that file (including `root`).
+
+On a shared host, prefer 1 or 2. Set `JAZZ_DISABLE_KEYRING=1` to force the file path.
+
+Secrets resolved from the environment or the keyring are never written back into the config
+file. To check what is on disk:
+
+```bash
+cat ~/.jazz/config.json && ls -l ~/.jazz/config.json
+```
+
+Note that `~/.jazz/history/` and `~/.jazz/logs/` are separate plaintext stores and are not
+covered by the keyring — treat them as sensitive in their own right.
+
 ---
 
 ## If something goes wrong

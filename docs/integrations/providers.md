@@ -5,6 +5,11 @@
 Jazz supports **18 providers** behind one interface. You need at least one configured. Set
 keys by running `jazz` → *Update configuration*, or by editing `~/.jazz/config.json`.
 
+> **Where keys are stored:** environment variable first, then your OS keyring (macOS Keychain
+> or libsecret), then `~/.jazz/config.json` as a fallback. Keys you set through the wizard go
+> to the keyring when one is available, and existing plaintext keys are migrated there on next
+> start. See [Security → Know where your API keys live](../../SECURITY.md#know-where-your-api-keys-live).
+
 Full provider list: [`src/core/constants/models.ts`](../../src/core/constants/models.ts).
 For how the provider abstraction works, see
 [Internals → Providers & models](../internals/providers-and-models.md).
