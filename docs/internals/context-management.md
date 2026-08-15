@@ -247,6 +247,33 @@ compaction threshold, the summarizer's recent-message budget, and `/context`.
 Set it with `jazz agent edit` → **Max Context Tokens**; leave the prompt blank to remove the
 ceiling and go back to the model's own window.
 
+### The ladder, cheapest rung first
+
+Four mechanisms now share one budget, escalating by cost:
+
+| Rung | Fires at | Costs | Effect |
+| --- | --- | --- | --- |
+| Warn | 70% | nothing | User *and* agent are told; the agent is nudged to consolidate |
+| Clear tool results | 65% | nothing | Old raw tool output replaced by a placeholder, structure kept |
+| Compact | 80% | one LLM call | Older history summarized into the running summary |
+| Trim | 95% | nothing, but lossy | Messages dropped unsummarized — the floor, not the path |
+
+Clearing runs before compaction because it is free: a long run's tokens are mostly raw
+tool output, and most of it stops mattering once the model has read it. It fires **once per
+crossing**, not per turn, because rewriting the message prefix invalidates the provider's
+cache — the same reason the trim budget must not sit below the compaction threshold.
+
+Tool results are cleared by replacing content and keeping the message, so the
+assistant/tool pairing survives. Deleting the message would orphan the `tool_calls` that
+referenced it and provoke a provider error.
+
+### What the budget counts
+
+Tokens are messages **plus per-request overhead** — tool schemas and provider scaffolding,
+which reach 10–30k once MCP servers are attached. Overhead is measured, not estimated:
+after each call, `promptTokens − estimatedMessageTokens` is the gap, smoothed per model.
+Counting messages alone meant an agent believed it was at 79% when it was at 102%.
+
 ### Warn first, compact second
 
 Two thresholds share one budget, both defined in `context-window-manager.ts`:
@@ -271,6 +298,41 @@ The warning exists so that compaction is never a surprise: there is a window whe
 still `/compact` on your own terms, narrow the task, or raise the ceiling before the
 summarizer decides what to keep. `ContextWindowManager` owns both decisions — `usage()`
 returns the current tokens, the budget, and both flags from a single count.
+
+---
+
+## Working state outlives the context window
+
+Compaction is lossy by design, so the things that must not be lost are written outside the
+conversation, under `~/.jazz/work/<agent>/<conversation>/`:
+
+- **`journal.jsonl`** — every compaction appends its summary here *before* it enters
+  context. No extra LLM call and no extra tokens: it persists something already paid for.
+  Append-only, one JSON object per line, so a crash damages at most the final record.
+- **`state.json`** — the agent's own record of where the task stands, written through
+  `update_task_state`. Patched field by field, so a small correction cannot drop the rest.
+
+This is deliberately **not** memory. Memory holds what stays true about a person or project
+for weeks, and its own instructions tell the agent not to store one-off task details —
+which is exactly what compaction destroys. "They prefer Bun over npm" is memory; "3 of 5
+routes migrated, auth fails on token refresh" is task state, and it is discarded when the
+task ends.
+
+Two things read it back:
+
+- **Resuming a conversation** loads post-compaction messages, so whatever compaction
+  dropped is simply absent. The journal is folded back in as a bounded (~2k token)
+  preamble, framed as claims to verify rather than fact — progress records are written
+  mid-task and are habitually optimistic about what was finished.
+- **Compaction itself** is told what task state already holds, so the summary covers what
+  the transcript adds instead of restating the plan.
+
+Work items carry an explicit `unverified` status, and the prompt requires that `done` means
+something was actually run. An agent that marks its own work complete on the strength of
+having written it turns the record into a confident lie for the next session.
+
+Inspect or discard it with `/work` and `/work clear`. Journals are capped per conversation
+and pruned oldest-first, since the newest record is the one describing where the task is.
 
 ---
 

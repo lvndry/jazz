@@ -45,6 +45,8 @@ export function parseSpecialCommand(input: string): SpecialCommand {
       return { type: "skills", args };
     case "context":
       return { type: "context", args };
+    case "work":
+      return { type: "work", args };
     case "cost":
       return { type: "cost", args };
     case "workflows":

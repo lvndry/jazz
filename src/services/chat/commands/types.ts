@@ -19,6 +19,7 @@ export type CommandType =
   | "config"
   | "skills"
   | "context"
+  | "work"
   | "cost"
   | "workflows"
   | "stats"

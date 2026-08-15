@@ -11,13 +11,13 @@ import type { ChatMessage, ConversationMessages } from "@/core/types/message";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import { parseProviderModel } from "@/core/utils/provider-model";
 import type { AgentResponse } from "../types";
-import { resolveContextThresholds } from "./context-thresholds";
 import { logContextRung } from "./context-telemetry";
+import { resolveContextThresholds } from "./context-thresholds";
 import { DEFAULT_CONTEXT_WINDOW_MANAGER } from "./context-window-manager";
 import { resolveEffectiveContextWindow } from "./effective-context-window";
 import { formatTaskState, readTaskState } from "./task-state";
 import { DEFAULT_TOKEN_COUNTER, type ModelHint } from "./token-counter";
-import { appendJournalEntry } from "./work-journal";
+import { appendJournalEntry, pruneJournal } from "./work-journal";
 
 /** Longest tool-argument string kept verbatim in a summarizer transcript. */
 const MAX_RENDERED_ARGUMENT_CHARS = 200;
@@ -437,6 +437,7 @@ export const Summarizer = {
         messagesAfter: compactedMessages.length,
         summary: summaryMessage.content,
       });
+      yield* pruneJournal(agent.id, conversationId);
 
       yield* logContextRung(logger, {
         rung: "compact",

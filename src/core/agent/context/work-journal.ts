@@ -85,3 +85,84 @@ export function readJournal(
     Effect.catchAll(() => Effect.succeed<JournalEntry[]>([])),
   );
 }
+
+/**
+ * Ceiling on stored working state per conversation. Journals are summaries, not
+ * transcripts, so this is generous in practice — it exists so an agent that compacts
+ * hundreds of times cannot fill the disk unnoticed.
+ */
+export const MAX_WORK_STATE_BYTES_PER_CONVERSATION = 2 * 1024 * 1024;
+
+/** Delete a conversation's working state. Used when a task is finished or abandoned. */
+export function clearWorkState(
+  agentId: string,
+  conversationId: string,
+): Effect.Effect<boolean, never, never> {
+  return Effect.tryPromise({
+    try: async () => {
+      await nodeFs.rm(getWorkStateDirectory(agentId, conversationId), {
+        recursive: true,
+        force: true,
+      });
+      return true;
+    },
+    catch: (error) => error,
+  }).pipe(Effect.catchAll(() => Effect.succeed(false)));
+}
+
+/** Bytes currently stored for a conversation. Zero when nothing is stored. */
+export function workStateSizeBytes(
+  agentId: string,
+  conversationId: string,
+): Effect.Effect<number, never, never> {
+  return Effect.tryPromise({
+    try: async () => {
+      const directory = getWorkStateDirectory(agentId, conversationId);
+      const names = await nodeFs.readdir(directory);
+      let total = 0;
+      for (const name of names) {
+        const stats = await nodeFs.stat(path.join(directory, name));
+        if (stats.isFile()) total += stats.size;
+      }
+      return total;
+    },
+    catch: (error) => error,
+  }).pipe(Effect.catchAll(() => Effect.succeed(0)));
+}
+
+/**
+ * Drop the oldest journal entries until the file is back under the cap.
+ *
+ * Oldest-first because the newest records describe where the task actually is; an old
+ * record of finished work is the most expendable thing here.
+ */
+export function pruneJournal(
+  agentId: string,
+  conversationId: string,
+  maxBytes = MAX_WORK_STATE_BYTES_PER_CONVERSATION,
+): Effect.Effect<number, never, never> {
+  return workStateSizeBytes(agentId, conversationId).pipe(
+    Effect.flatMap((size) => {
+      if (size <= maxBytes) return Effect.succeed(0);
+      return readJournal(agentId, conversationId).pipe(
+        Effect.flatMap((entries) => {
+          // Halve the record count rather than trimming one at a time, so pruning is
+          // amortized instead of running on every subsequent append.
+          const keep = entries.slice(Math.ceil(entries.length / 2));
+          const dropped = entries.length - keep.length;
+          return Effect.tryPromise({
+            try: async () => {
+              await nodeFs.writeFile(
+                journalPath(agentId, conversationId),
+                keep.map((entry) => JSON.stringify(entry)).join("\n") + (keep.length ? "\n" : ""),
+                "utf-8",
+              );
+              return dropped;
+            },
+            catch: (error) => error,
+          }).pipe(Effect.catchAll(() => Effect.succeed(0)));
+        }),
+      );
+    }),
+  );
+}

@@ -13,8 +13,8 @@ import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import { formatToolResultForContext } from "@/core/utils/tool-result-formatter";
 import type { AgentLoopObserver } from "./agent-loop-observer";
 import { ToolExecutor } from "./tool-executor";
-import { resolveContextThresholds } from "../context/context-thresholds";
 import { logContextRung } from "../context/context-telemetry";
+import { resolveContextThresholds } from "../context/context-thresholds";
 import {
   CONTEXT_COMPACT_THRESHOLD_RATIO,
   CONTEXT_TRIM_THRESHOLD_RATIO,
