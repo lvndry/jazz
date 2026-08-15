@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { SECRET_ENV_VARS, envVarForSecretPath, isSecretPath } from "./registry";
+import { SECRET_ENV_VARS, SECRET_PATHS, envVarForSecretPath, isSecretPath } from "./registry";
 
 describe("secret registry", () => {
   it("treats known LLM, web search, and Google secret paths as secrets", () => {
@@ -29,5 +29,25 @@ describe("secret registry", () => {
   it("gives every registered secret path a distinct environment variable", () => {
     const envVars = Object.values(SECRET_ENV_VARS);
     expect(new Set(envVars).size).toBe(envVars.length);
+  });
+
+  it("treats OTLP export headers as secrets", () => {
+    // These carry the collector credential (e.g. a Langfuse key pair).
+    expect(isSecretPath("telemetry.otlp.headers.authorization")).toBe(true);
+    expect(isSecretPath("telemetry.otlp.headers.x-api-key")).toBe(true);
+  });
+
+  it("does not treat non-header telemetry settings as secrets", () => {
+    expect(isSecretPath("telemetry.otlp.endpoint")).toBe(false);
+    expect(isSecretPath("telemetry.otlp.captureContent")).toBe(false);
+    expect(isSecretPath("telemetry.enabled")).toBe(false);
+  });
+
+  it("checks the keyring for the OTLP authorization header on load", () => {
+    expect(SECRET_PATHS).toContain("telemetry.otlp.headers.authorization");
+  });
+
+  it("has no env var for OTLP headers, which OTEL_EXPORTER_OTLP_HEADERS supplies as a set", () => {
+    expect(envVarForSecretPath("telemetry.otlp.headers.authorization")).toBeUndefined();
   });
 });

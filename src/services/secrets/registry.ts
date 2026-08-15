@@ -58,8 +58,24 @@ function buildSecretEnvVars(): Record<string, string> {
 /** Config path -> environment variable name, for every known secret. */
 export const SECRET_ENV_VARS: Record<string, string> = buildSecretEnvVars();
 
+/**
+ * Headers sent to the OTLP export endpoint.
+ *
+ * These carry the collector's credential — a Langfuse key pair, a vendor API
+ * token — so they are secrets even though they are not `api_key` shaped. There
+ * is no per-header env var: `OTEL_EXPORTER_OTLP_HEADERS` supplies the whole set
+ * at once and is read by the telemetry layer, not resolved per path here.
+ */
+const OTLP_HEADER_PATH = /^telemetry\.otlp\.headers\.[^.]+$/;
+
+/** The header operators actually set; listed so the keyring is checked for it on load. */
+export const OTLP_AUTHORIZATION_PATH = "telemetry.otlp.headers.authorization";
+
 /** Every config path Jazz treats as a secret. */
-export const SECRET_PATHS: readonly string[] = Object.keys(SECRET_ENV_VARS);
+export const SECRET_PATHS: readonly string[] = [
+  ...Object.keys(SECRET_ENV_VARS),
+  OTLP_AUTHORIZATION_PATH,
+];
 
 /**
  * Whether a config path holds a secret.
@@ -69,6 +85,10 @@ export const SECRET_PATHS: readonly string[] = Object.keys(SECRET_ENV_VARS);
  */
 export function isSecretPath(path: string): boolean {
   if (path in SECRET_ENV_VARS) return true;
+  // Every OTLP header is treated as a secret, not just `authorization`: a
+  // backend may name its credential header anything, and guessing wrong writes
+  // it to disk in plaintext.
+  if (OTLP_HEADER_PATH.test(path)) return true;
   return /^(llm|web_search)\.[^.]+\.api_key$/.test(path);
 }
 
