@@ -491,6 +491,17 @@ function collectSecretPaths(config: Partial<AppConfig>): string[] {
     }
   }
 
+  // Pick up OTLP headers by whatever name the backend uses, so a credential
+  // under a non-standard header still migrates out of the file.
+  const otlpHeaders = (record["telemetry"] as Record<string, unknown> | undefined)?.["otlp"] as
+    Record<string, unknown> | undefined;
+  const headers = otlpHeaders?.["headers"];
+  if (headers && typeof headers === "object") {
+    for (const [name, value] of Object.entries(headers)) {
+      if (typeof value === "string") paths.push(`telemetry.otlp.headers.${name}`);
+    }
+  }
+
   return paths;
 }
 
