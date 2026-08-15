@@ -60,7 +60,7 @@ export type StorageConfig =
 
 export interface LoggingConfig {
   readonly level: "debug" | "info" | "warn" | "error";
-  readonly format: "json" | "plain" | "toon";
+  readonly format: "json" | "plain";
 }
 
 export interface GoogleConfig {

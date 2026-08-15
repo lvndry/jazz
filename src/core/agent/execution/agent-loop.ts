@@ -10,7 +10,7 @@ import type { ChatCompletionResponse } from "@/core/types/chat";
 import { LLMRateLimitError } from "@/core/types/errors";
 import type { DisplayConfig } from "@/core/types/output";
 import type { StreamEvent } from "@/core/types/streaming";
-import { getModelsDevMetadata } from "@/core/utils/models-dev-client";
+import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import { formatToolResultForContext } from "@/core/utils/tool-result-formatter";
 import type { AgentLoopObserver } from "./agent-loop-observer";
 import { ToolExecutor } from "./tool-executor";

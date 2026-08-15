@@ -1,7 +1,5 @@
-import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { z } from "zod";
-import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
 import {
@@ -11,7 +9,14 @@ import {
   type ApprovalToolConfig,
   type ApprovalToolPair,
 } from "../base-tool";
-import { resolveGitWorkingDirectory, runGitCommand } from "./utils";
+import {
+  gitApprovalDirectory,
+  gitRepoPathSchema,
+  resolveGitRepoDir,
+  runGitOrFail,
+  withGitTruncation,
+  type GitToolDeps,
+} from "./utils";
 
 /**
  * Git tag tools
@@ -19,21 +24,19 @@ import { resolveGitWorkingDirectory, runGitCommand } from "./utils";
  * - Create/Delete tools: Mutating operations, require approval
  */
 
-type GitDeps = FileSystem.FileSystem | FileSystemContextService;
-
 /**
  * Git tag list tool - read-only, no approval required
  */
-export function createGitTagListTool(): Tool<GitDeps> {
+export function createGitTagListTool(): Tool<GitToolDeps> {
   const parameters = z
     .object({
-      path: z.string().optional().describe("Repository path (defaults to cwd)"),
+      path: gitRepoPathSchema,
     })
     .strict();
 
   type GitTagListArgs = z.infer<typeof parameters>;
 
-  return defineTool<GitDeps, GitTagListArgs>({
+  return defineTool<GitToolDeps, GitTagListArgs>({
     name: "git_tag_list",
     description: "List all Git tags, newest first.",
     tags: ["git", "tag", "list"],
@@ -41,54 +44,17 @@ export function createGitTagListTool(): Tool<GitDeps> {
     validate: makeZodValidator(parameters),
     handler: (args: GitTagListArgs, context: ToolExecutionContext) =>
       Effect.gen(function* () {
-        const shell = yield* FileSystemContextServiceTag;
-        const fs = yield* FileSystem.FileSystem;
+        const resolved = yield* resolveGitRepoDir(args.path, context);
+        if (resolved.kind === "failure") return resolved.result;
+        const workingDir = resolved.path;
 
-        let workingDirError: string | null = null;
-        const workingDir = yield* resolveGitWorkingDirectory(shell, context, fs, args.path).pipe(
-          Effect.catchAll((error) => {
-            workingDirError = error instanceof Error ? error.message : String(error);
-            return Effect.succeed(null);
-          }),
-        );
-
-        if (workingDir === null) {
-          return {
-            success: false,
-            result: null,
-            error: workingDirError || "Failed to resolve working directory",
-          };
-        }
-
-        let commandError: string | null = null;
-        const commandResult = yield* runGitCommand({
+        const executed = yield* runGitOrFail("git tag list", {
           args: ["tag", "--list", "--sort=-creatordate"],
           workingDirectory: workingDir,
-        }).pipe(
-          Effect.catchAll((error) => {
-            const errorMsg = error instanceof Error ? error.message : String(error);
-            commandError = `Failed to execute git tag list in directory '${workingDir}': ${errorMsg}`;
-            return Effect.succeed(null);
-          }),
-        );
+        });
+        if (executed.kind === "failure") return executed.result;
 
-        if (commandResult === null) {
-          return {
-            success: false,
-            result: null,
-            error: commandError || `Failed to execute git tag list in directory '${workingDir}'`,
-          };
-        }
-
-        if (commandResult.exitCode !== 0) {
-          return {
-            success: false,
-            result: null,
-            error:
-              commandResult.stderr ||
-              `git tag list failed with exit code ${commandResult.exitCode}`,
-          };
-        }
+        const commandResult = executed.result;
 
         const tags = commandResult.stdout
           .split("\n")
@@ -97,11 +63,14 @@ export function createGitTagListTool(): Tool<GitDeps> {
 
         return {
           success: true,
-          result: {
-            workingDirectory: workingDir,
-            tags,
-            tagCount: tags.length,
-          },
+          result: withGitTruncation(
+            {
+              workingDirectory: workingDir,
+              tags,
+              tagCount: tags.length,
+            },
+            commandResult,
+          ),
         };
       }),
     createSummary: (result: ToolExecutionResult) => {
@@ -121,7 +90,7 @@ export function createGitTagListTool(): Tool<GitDeps> {
  */
 const gitTagParameters = z
   .object({
-    path: z.string().optional().describe("Repository path (defaults to cwd)"),
+    path: gitRepoPathSchema,
     create: z.string().optional().describe("Tag name to create"),
     message: z.string().optional().describe("Annotated tag message"),
     commit: z.string().optional().describe("Commit to tag (default: HEAD)"),
@@ -132,8 +101,8 @@ const gitTagParameters = z
 
 type GitTagArgs = z.infer<typeof gitTagParameters>;
 
-export function createGitTagTools(): ApprovalToolPair<GitDeps> {
-  const config: ApprovalToolConfig<GitDeps, GitTagArgs> = {
+export function createGitTagTools(): ApprovalToolPair<GitToolDeps> {
+  const config: ApprovalToolConfig<GitToolDeps, GitTagArgs> = {
     name: "git_tag",
     description: "Create or delete Git tags. Supports lightweight and annotated.",
     tags: ["git", "tag"],
@@ -142,19 +111,7 @@ export function createGitTagTools(): ApprovalToolPair<GitDeps> {
 
     approvalMessage: (args: GitTagArgs, context: ToolExecutionContext) =>
       Effect.gen(function* () {
-        const shell = yield* FileSystemContextServiceTag;
-        const workingDir = args.path
-          ? yield* shell.resolvePath(
-              {
-                agentId: context.agentId,
-                ...(context.conversationId && { conversationId: context.conversationId }),
-              },
-              args.path,
-            )
-          : yield* shell.getCwd({
-              agentId: context.agentId,
-              ...(context.conversationId && { conversationId: context.conversationId }),
-            });
+        const workingDir = yield* gitApprovalDirectory(args.path, context);
 
         if (args.create) {
           const tagType = args.message ? "annotated" : "lightweight";
@@ -176,24 +133,9 @@ export function createGitTagTools(): ApprovalToolPair<GitDeps> {
 
     handler: (args: GitTagArgs, context: ToolExecutionContext) =>
       Effect.gen(function* () {
-        const shell = yield* FileSystemContextServiceTag;
-        const fs = yield* FileSystem.FileSystem;
-
-        let workingDirError: string | null = null;
-        const workingDir = yield* resolveGitWorkingDirectory(shell, context, fs, args.path).pipe(
-          Effect.catchAll((error) => {
-            workingDirError = error instanceof Error ? error.message : String(error);
-            return Effect.succeed(null);
-          }),
-        );
-
-        if (workingDir === null) {
-          return {
-            success: false,
-            result: null,
-            error: workingDirError || "Failed to resolve working directory",
-          };
-        }
+        const resolved = yield* resolveGitRepoDir(args.path, context);
+        if (resolved.kind === "failure") return resolved.result;
+        const workingDir = resolved.path;
 
         if (args.create) {
           // Create tag
@@ -210,34 +152,11 @@ export function createGitTagTools(): ApprovalToolPair<GitDeps> {
             tagArgs.push(args.commit);
           }
 
-          let commandError: string | null = null;
-          const commandResult = yield* runGitCommand({
+          const executed = yield* runGitOrFail("git tag", {
             args: tagArgs,
             workingDirectory: workingDir,
-          }).pipe(
-            Effect.catchAll((error) => {
-              const errorMsg = error instanceof Error ? error.message : String(error);
-              commandError = `Failed to execute git tag in directory '${workingDir}': ${errorMsg}`;
-              return Effect.succeed(null);
-            }),
-          );
-
-          if (commandResult === null) {
-            return {
-              success: false,
-              result: null,
-              error: commandError || `Failed to execute git tag in directory '${workingDir}'`,
-            };
-          }
-
-          if (commandResult.exitCode !== 0) {
-            return {
-              success: false,
-              result: null,
-              error:
-                commandResult.stderr || `git tag failed with exit code ${commandResult.exitCode}`,
-            };
-          }
+          });
+          if (executed.kind === "failure") return executed.result;
 
           return {
             success: true,
@@ -260,36 +179,11 @@ export function createGitTagTools(): ApprovalToolPair<GitDeps> {
           }
           tagArgs.push(args.delete);
 
-          let commandError: string | null = null;
-          const commandResult = yield* runGitCommand({
+          const executed = yield* runGitOrFail("git tag delete", {
             args: tagArgs,
             workingDirectory: workingDir,
-          }).pipe(
-            Effect.catchAll((error) => {
-              const errorMsg = error instanceof Error ? error.message : String(error);
-              commandError = `Failed to execute git tag delete in directory '${workingDir}': ${errorMsg}`;
-              return Effect.succeed(null);
-            }),
-          );
-
-          if (commandResult === null) {
-            return {
-              success: false,
-              result: null,
-              error:
-                commandError || `Failed to execute git tag delete in directory '${workingDir}'`,
-            };
-          }
-
-          if (commandResult.exitCode !== 0) {
-            return {
-              success: false,
-              result: null,
-              error:
-                commandResult.stderr ||
-                `git tag delete failed with exit code ${commandResult.exitCode}`,
-            };
-          }
+          });
+          if (executed.kind === "failure") return executed.result;
 
           return {
             success: true,
@@ -328,5 +222,5 @@ export function createGitTagTools(): ApprovalToolPair<GitDeps> {
     },
   };
 
-  return defineApprovalTool<GitDeps, GitTagArgs>(config);
+  return defineApprovalTool<GitToolDeps, GitTagArgs>(config);
 }

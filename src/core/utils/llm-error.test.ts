@@ -8,7 +8,26 @@ import {
   isConnectionError,
   isRetryableLLMError,
   localServerUnreachableMessage,
+  truncateRequestBodyValues,
 } from "./llm-error";
+
+describe("truncateRequestBodyValues", () => {
+  const entries = ["system", "one", "two", "three"];
+
+  it("preserves and truncates a messages field", () => {
+    expect(truncateRequestBodyValues({ requestBodyValues: { messages: entries } }, 2)).toEqual({
+      messages: ["system", "two", "three"],
+      _truncated: true,
+    });
+  });
+
+  it("preserves and truncates a contents field", () => {
+    expect(truncateRequestBodyValues({ requestBodyValues: { contents: entries } }, 2)).toEqual({
+      contents: ["system", "two", "three"],
+      _truncated: true,
+    });
+  });
+});
 
 describe("extractCleanErrorMessage", () => {
   it("unwraps AI SDK RetryError to the last nested error message", () => {

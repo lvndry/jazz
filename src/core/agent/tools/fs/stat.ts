@@ -30,7 +30,9 @@ export function createStatTool(): Tool<FileSystem.FileSystem | FileSystemContext
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const shell = yield* FileSystemContextServiceTag;
-        const target = yield* shell.resolvePathForMkdir(buildKeyFromContext(context), args.path);
+        const target = yield* shell.resolvePath(buildKeyFromContext(context), args.path, {
+          skipExistenceCheck: true,
+        });
 
         try {
           const stat = yield* fs.stat(target);

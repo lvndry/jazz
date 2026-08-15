@@ -1,11 +1,11 @@
 import { describe, expect, it } from "bun:test";
 import chalk from "chalk";
-import { generateDiff } from "./diff-utils";
+import { generateDiff } from "./diff";
 
 // Disable chalk colors for predictable test output
 chalk.level = 0;
 
-describe("diff-utils", () => {
+describe("diff", () => {
   describe("generateDiff", () => {
     it("returns creation message for new files", () => {
       const result = generateDiff("", "line1\nline2\nline3", "/path/to/file.txt", {

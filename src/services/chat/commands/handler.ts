@@ -6,11 +6,12 @@ import { getThemeVariant, setThemeVariant } from "@/cli/ui/theme";
 import * as fmt from "@/cli/utils/list-format";
 import { AgentRunner } from "@/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@/core/agent/agent-service";
+import { sortAgents } from "@/core/agent/agent-sort";
 import { resolveEffectiveContextWindow } from "@/core/agent/context/effective-context-window";
 import { WEB_SEARCH_PROVIDERS } from "@/core/agent/tools/web-search-tools";
 import { normalizeToolConfig } from "@/core/agent/utils/tool-config";
-import { AVAILABLE_PROVIDERS } from "@/core/constants/models";
 import type { ProviderName } from "@/core/constants/models";
+import { AVAILABLE_PROVIDERS } from "@/core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "@/core/interfaces/agent-service";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "@/core/interfaces/fs";
@@ -18,8 +19,8 @@ import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
 import type { LoggerService } from "@/core/interfaces/logger";
 import {
   MCPServerManagerTag,
-  isStdioConfig,
   isHttpConfig,
+  isStdioConfig,
   type MCPServerManager,
 } from "@/core/interfaces/mcp-server";
 import type { PresentationService } from "@/core/interfaces/presentation";
@@ -33,15 +34,14 @@ import { SkillServiceTag, type SkillService } from "@/core/skills/skill-service"
 import { StorageError, StorageNotFoundError } from "@/core/types/errors";
 import type { ChatMessage } from "@/core/types/message";
 import type { AutoApprovePolicy } from "@/core/types/tools";
-import { sortAgents } from "@/core/utils/agent-sort";
-import { describeCronSchedule } from "@/core/utils/cron-utils";
-import { getModelsDevMetadata } from "@/core/utils/models-dev-client";
-import { WorkflowServiceTag, type WorkflowService } from "@/core/workflows/workflow-service";
+import { describeCronSchedule } from "@/core/utils/cron";
+import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import type { WorkflowMetadata } from "@/core/workflows/workflow-service";
+import { WorkflowServiceTag, type WorkflowService } from "@/core/workflows/workflow-service";
 import { groupWorkflows } from "@/core/workflows/workflow-utils";
 import { loadHistory } from "@/services/history/conversation-history-service";
-import { CHAT_COMMANDS } from "./constants";
 import { generateConversationId } from "../session";
+import { CHAT_COMMANDS } from "./constants";
 import type { CommandContext, CommandResult, SpecialCommand } from "./types";
 
 /**

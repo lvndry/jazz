@@ -2,14 +2,16 @@ import { Effect, Layer, Option } from "effect";
 import { DEFAULT_DISPLAY_CONFIG } from "@/core/agent/types";
 import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
 import type {
+  EphemeralRegionCollapse,
+  EphemeralRegionKind,
   PresentationService,
   StreamingRenderer,
   StreamingRendererConfig,
 } from "@/core/interfaces/presentation";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
+import { resolveDisplayConfig } from "@/core/presentation/display-config";
 import type { StreamEvent } from "@/core/types/streaming";
 import type { ApprovalRequest, ApprovalOutcome } from "@/core/types/tools";
-import { resolveDisplayConfig } from "@/core/utils/display-config";
 
 /**
  * Quiet presentation service — suppresses all output.
@@ -124,6 +126,22 @@ class QuietPresentationService implements PresentationService {
   // Quiet mode cannot show file picker — return empty string
   requestFilePicker(): Effect.Effect<string, never> {
     return Effect.succeed("");
+  }
+
+  openEphemeralRegion(_kind: EphemeralRegionKind, _label: string): Effect.Effect<string, never> {
+    return Effect.succeed("noop");
+  }
+
+  appendEphemeralRegion(_regionId: string, _text: string): Effect.Effect<void, never> {
+    return Effect.void;
+  }
+
+  collapseEphemeralRegion(
+    _regionId: string,
+    _label: string,
+    _outcome: EphemeralRegionCollapse,
+  ): Effect.Effect<void, never> {
+    return Effect.void;
   }
 }
 

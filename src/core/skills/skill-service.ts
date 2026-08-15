@@ -8,7 +8,7 @@ import {
   getAgentsSkillsDirectory,
   getBuiltinSkillsDirectory,
   getGlobalSkillsDirectory,
-} from "../utils/runtime-detection.js";
+} from "../utils/paths.js";
 
 export interface SkillMetadata {
   readonly name: string;

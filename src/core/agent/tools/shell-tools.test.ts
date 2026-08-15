@@ -2,7 +2,8 @@ import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
-import { createShellCommandTools } from "./shell-tools";
+import { spawnOutputTruncationNotice } from "./capped-output";
+import { createShellCommandTools, EXECUTE_COMMAND_OUTPUT_CAP_BYTES } from "./shell-tools";
 import { createToolRegistryLayer } from "./tool-registry";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "../../interfaces/fs";
 import { LoggerServiceTag, type LoggerService } from "../../interfaces/logger";
@@ -305,5 +306,85 @@ describe("Shell Tools", () => {
       expect(result.result.exitCode).not.toBe(0); // Non-zero exit code
     }
     expect(result.result).toHaveProperty("stderr");
+  });
+
+  it("does not mark truncation when stdout is under the cap", async () => {
+    const tool = shellTools.execute;
+    const result: ToolExecutionResult = await Effect.runPromise(
+      Effect.provide(
+        tool.execute(
+          {
+            command: "echo 'test output'",
+            description: "Print a test string to stdout.",
+          },
+          { agentId: "test-agent", conversationId: "test-conversation" },
+        ),
+        createTestLayer(),
+      ),
+    );
+
+    expect(result.success).toBe(true);
+    const stdout =
+      result.result && typeof result.result === "object" && "stdout" in result.result
+        ? String(result.result.stdout)
+        : "";
+    expect(stdout).toBe("test output");
+    expect(stdout).not.toContain("[truncated:");
+  });
+
+  it("caps stdout while collecting and tells the model it was truncated", async () => {
+    const overflowBytes = EXECUTE_COMMAND_OUTPUT_CAP_BYTES + 2048;
+    const tool = shellTools.execute;
+    const result: ToolExecutionResult = await Effect.runPromise(
+      Effect.provide(
+        tool.execute(
+          {
+            command: `head -c ${overflowBytes} /dev/zero`,
+            description: "Write more than the stdout cap to verify truncation.",
+          },
+          { agentId: "test-agent", conversationId: "test-conversation" },
+        ),
+        createTestLayer(),
+      ),
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.result).toHaveProperty("exitCode", 0);
+    const stdout =
+      result.result && typeof result.result === "object" && "stdout" in result.result
+        ? String(result.result.stdout)
+        : "";
+    const marker = spawnOutputTruncationNotice("stdout", EXECUTE_COMMAND_OUTPUT_CAP_BYTES);
+    expect(stdout.endsWith(marker)).toBe(true);
+    const payload = stdout.slice(0, stdout.length - marker.length).replace(/\n$/, "");
+    expect(Buffer.byteLength(payload, "utf8")).toBe(EXECUTE_COMMAND_OUTPUT_CAP_BYTES);
+  });
+
+  it("caps stderr independently of stdout", async () => {
+    const overflowBytes = EXECUTE_COMMAND_OUTPUT_CAP_BYTES + 2048;
+    const tool = shellTools.execute;
+    const result: ToolExecutionResult = await Effect.runPromise(
+      Effect.provide(
+        tool.execute(
+          {
+            command: `head -c ${overflowBytes} /dev/zero >&2`,
+            description: "Write more than the stderr cap to verify truncation.",
+          },
+          { agentId: "test-agent", conversationId: "test-conversation" },
+        ),
+        createTestLayer(),
+      ),
+    );
+
+    expect(result.success).toBe(true);
+    const stderr =
+      result.result && typeof result.result === "object" && "stderr" in result.result
+        ? String(result.result.stderr)
+        : "";
+    expect(stderr).toContain(
+      spawnOutputTruncationNotice("stderr", EXECUTE_COMMAND_OUTPUT_CAP_BYTES),
+    );
+    const payload = stderr.split("\n[truncated:")[0] ?? "";
+    expect(Buffer.byteLength(payload, "utf8")).toBe(EXECUTE_COMMAND_OUTPUT_CAP_BYTES);
   });
 });

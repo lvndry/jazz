@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, it, mock, beforeEach } from "bun:test";
 import { Effect } from "effect";
-import type { ModelsDevMetadata, ModelsDevModelEntry } from "@/core/utils/models-dev-client";
+import type { ModelsDevMetadata, ModelsDevModelEntry } from "@/core/utils/models-dev";
 import {
   createModelFetcher,
   fetchModelsDevModels,
@@ -34,12 +34,12 @@ let modelsDevMetadata: ModelsDevMetadata | null = null;
 
 // Bun module mocks are process-global: snapshot the real exports so afterAll can
 // restore them for test files that run later in the same process.
-const actualModelsDevClient = {
-  ...(await import("@/core/utils/models-dev-client")),
+const actualModelsDevModule = {
+  ...(await import("@/core/utils/models-dev")),
 };
 
-// Mock models-dev-client
-mock.module("@/core/utils/models-dev-client", () => ({
+// Mock the models.dev catalog module
+mock.module("@/core/utils/models-dev", () => ({
   getModelsDevMap: mock(() => Promise.resolve(new Map())),
   getMetadataFromMap: mock(() => modelsDevMetadata),
   getModelsDevProviderModels: mock(() => {
@@ -49,7 +49,7 @@ mock.module("@/core/utils/models-dev-client", () => ({
 }));
 
 afterAll(() => {
-  mock.module("@/core/utils/models-dev-client", () => actualModelsDevClient);
+  mock.module("@/core/utils/models-dev", () => actualModelsDevModule);
 });
 
 /**

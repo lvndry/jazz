@@ -1,11 +1,11 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { DEFAULT_CONTEXT_WINDOW } from "@/core/constants/models";
-import { isOfflineMode } from "@/core/utils/offline";
-import { getUserDataDirectory } from "@/core/utils/runtime-detection";
+import { getUserDataDirectory } from "@/core/utils/paths";
+import { isOfflineMode } from "@/core/utils/runtime";
 
 /**
- * Client for https://models.dev/api.json (~3MB JSON)
+ * Catalog integration for https://models.dev/api.json (~3MB JSON)
  *
  * Single source of truth for model catalogs and metadata across providers:
  * - Model lists per provider (id, display name, status, release date, modalities)

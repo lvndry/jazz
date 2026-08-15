@@ -1,10 +1,10 @@
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { z } from "zod";
-import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
+import type { FileSystemContextService } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import { defineTool, makeZodValidator } from "../base-tool";
-import { buildKeyFromContext } from "../context-utils";
+import { resolveReadableFile, stripUtf8Bom } from "./read-common";
 
 /**
  * Read file contents tool
@@ -37,32 +37,13 @@ export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
     validate: makeZodValidator(parameters),
     handler: (args, context) =>
       Effect.gen(function* () {
+        const resolved = yield* resolveReadableFile(args.path, context);
+        if (resolved.kind === "failure") return resolved.result;
+        const filePathResult = resolved.path;
         const fs = yield* FileSystem.FileSystem;
-        const shell = yield* FileSystemContextServiceTag;
-        const filePathResult = yield* shell
-          .resolvePath(buildKeyFromContext(context), args.path)
-          .pipe(Effect.catchAll(() => Effect.succeed(null)));
-
-        if (filePathResult === null) {
-          return {
-            success: false,
-            result: null,
-            error: `Path not found: ${args.path}`,
-          };
-        }
 
         try {
-          const stat = yield* fs.stat(filePathResult);
-          if (stat.type === "Directory") {
-            return { success: false, result: null, error: `Not a file: ${filePathResult}` };
-          }
-
-          let content = yield* fs.readFileString(filePathResult);
-
-          // Strip UTF-8 BOM if present
-          if (content.length > 0 && content.charCodeAt(0) === 0xfeff) {
-            content = content.slice(1);
-          }
+          let content = stripUtf8Bom(yield* fs.readFileString(filePathResult));
 
           let totalLines = 0;
           let returnedLines = 0;

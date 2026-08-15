@@ -8,7 +8,7 @@
  *   API endpoints, with models.dev used for best-effort metadata enrichment.
  *
  * See src/services/llm/models.ts for the per-provider model source mapping and
- * src/core/utils/models-dev-client.ts for the models.dev client.
+ * src/core/utils/models-dev.ts for the models.dev catalog integration.
  *
  * The provider names are defined here as the source of truth, and the ProviderName
  * type is derived from this constant to ensure they stay in sync.

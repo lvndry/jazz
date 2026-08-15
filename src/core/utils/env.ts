@@ -1,15 +1,22 @@
+/**
+ * Reduced child-process environments with credential-like parent variables removed.
+ *
+ * Explicit overrides are trusted operator configuration and are injected as-is.
+ * Never pass agent- or tool-supplied environment maps as overrides.
+ */
 export type ProcessEnvRecord = Record<string, string | undefined>;
 
 /**
  * Build a sanitized environment for child process execution.
  * Strips sensitive vars while preserving essentials like PATH.
  *
- * @param overrides - Values merged into the base environment before scrubbing.
+ * @param overrides - Trusted values injected as-is; these bypass name scrubbing.
  * @param allowlist - Env var names exempted from the sensitive-name scrub
  * regex. A name only appears in the result if it is present in
  * `process.env` — the allowlist never invents a value. The `SSH_*` prefix
  * block and the `key in baseEnv` guard still apply regardless of allowlist
- * membership.
+ * membership. `PWD` reflects Jazz's current process directory when this
+ * function is called, not a later child-process `cwd` option.
  */
 export function createSanitizedEnv(
   overrides: ProcessEnvRecord = {},

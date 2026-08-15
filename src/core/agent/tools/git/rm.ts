@@ -1,7 +1,5 @@
-import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { z } from "zod";
-import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
 import {
   defineApprovalTool,
@@ -9,7 +7,13 @@ import {
   type ApprovalToolConfig,
   type ApprovalToolPair,
 } from "../base-tool";
-import { resolveGitWorkingDirectory, runGitCommand } from "./utils";
+import {
+  gitApprovalDirectory,
+  gitRepoPathSchema,
+  resolveGitRepoDir,
+  runGitOrFail,
+  type GitToolDeps,
+} from "./utils";
 
 /**
  * Git rm tools (approval + execution)
@@ -17,7 +21,7 @@ import { resolveGitWorkingDirectory, runGitCommand } from "./utils";
 
 const gitRmParameters = z
   .object({
-    path: z.string().optional().describe("Repository path (defaults to cwd)"),
+    path: gitRepoPathSchema,
     files: z.array(z.string()).min(1).describe("Files to remove"),
     cached: z.boolean().optional().describe("Remove from index only (keep on disk)"),
     recursive: z.boolean().optional().describe("Remove directories recursively"),
@@ -27,10 +31,8 @@ const gitRmParameters = z
 
 type GitRmArgs = z.infer<typeof gitRmParameters>;
 
-type GitDeps = FileSystem.FileSystem | FileSystemContextService;
-
-export function createGitRmTools(): ApprovalToolPair<GitDeps> {
-  const config: ApprovalToolConfig<GitDeps, GitRmArgs> = {
+export function createGitRmTools(): ApprovalToolPair<GitToolDeps> {
+  const config: ApprovalToolConfig<GitToolDeps, GitRmArgs> = {
     name: "git_rm",
     description:
       "Remove files from Git tracking. Supports cached (index only), recursive, and force.",
@@ -40,19 +42,7 @@ export function createGitRmTools(): ApprovalToolPair<GitDeps> {
 
     approvalMessage: (args: GitRmArgs, context: ToolExecutionContext) =>
       Effect.gen(function* () {
-        const shell = yield* FileSystemContextServiceTag;
-        const workingDir = args.path
-          ? yield* shell.resolvePath(
-              {
-                agentId: context.agentId,
-                ...(context.conversationId && { conversationId: context.conversationId }),
-              },
-              args.path,
-            )
-          : yield* shell.getCwd({
-              agentId: context.agentId,
-              ...(context.conversationId && { conversationId: context.conversationId }),
-            });
+        const workingDir = yield* gitApprovalDirectory(args.path, context);
 
         const options = [];
         if (args.cached) options.push("index only");
@@ -67,24 +57,9 @@ export function createGitRmTools(): ApprovalToolPair<GitDeps> {
 
     handler: (args: GitRmArgs, context: ToolExecutionContext) =>
       Effect.gen(function* () {
-        const shell = yield* FileSystemContextServiceTag;
-        const fs = yield* FileSystem.FileSystem;
-
-        let workingDirError: string | null = null;
-        const workingDir = yield* resolveGitWorkingDirectory(shell, context, fs, args.path).pipe(
-          Effect.catchAll((error) => {
-            workingDirError = error instanceof Error ? error.message : String(error);
-            return Effect.succeed(null);
-          }),
-        );
-
-        if (workingDir === null) {
-          return {
-            success: false,
-            result: null,
-            error: workingDirError || "Failed to resolve working directory",
-          };
-        }
+        const resolved = yield* resolveGitRepoDir(args.path, context);
+        if (resolved.kind === "failure") return resolved.result;
+        const workingDir = resolved.path;
 
         const rmArgs: string[] = ["rm"];
         if (args.cached) {
@@ -98,33 +73,11 @@ export function createGitRmTools(): ApprovalToolPair<GitDeps> {
         }
         rmArgs.push(...args.files);
 
-        let commandError: string | null = null;
-        const commandResult = yield* runGitCommand({
+        const executed = yield* runGitOrFail("git rm", {
           args: rmArgs,
           workingDirectory: workingDir,
-        }).pipe(
-          Effect.catchAll((error) => {
-            const errorMsg = error instanceof Error ? error.message : String(error);
-            commandError = `Failed to execute git rm in directory '${workingDir}': ${errorMsg}`;
-            return Effect.succeed(null);
-          }),
-        );
-
-        if (commandResult === null) {
-          return {
-            success: false,
-            result: null,
-            error: commandError || `Failed to execute git rm in directory '${workingDir}'`,
-          };
-        }
-
-        if (commandResult.exitCode !== 0) {
-          return {
-            success: false,
-            result: null,
-            error: commandResult.stderr || `git rm failed with exit code ${commandResult.exitCode}`,
-          };
-        }
+        });
+        if (executed.kind === "failure") return executed.result;
 
         return {
           success: true,
@@ -148,5 +101,5 @@ export function createGitRmTools(): ApprovalToolPair<GitDeps> {
     },
   };
 
-  return defineApprovalTool<GitDeps, GitRmArgs>(config);
+  return defineApprovalTool<GitToolDeps, GitRmArgs>(config);
 }

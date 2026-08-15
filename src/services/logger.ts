@@ -1,12 +1,12 @@
 import { appendFile, mkdir } from "node:fs/promises";
 import path from "node:path";
-import { encode as encodeToon } from "@toon-format/toon";
 import { Effect, Layer, Option, Ref } from "effect";
+import { jsonBigIntReplacer } from "@/core/agent/tools/tool-logging";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
-import { jsonBigIntReplacer } from "@/core/utils/logging-helpers";
-import { getJazzHomeDirectory } from "@/core/utils/runtime-detection";
+import type { LoggingConfig } from "@/core/types/config";
+import { getJazzHomeDirectory } from "@/core/utils/paths";
 
-let globalLogFormat: "json" | "plain" | "toon" = "plain";
+let globalLogFormat: LoggingConfig["format"] = "plain";
 let globalLogLevel: "debug" | "info" | "warn" | "error" = "info";
 
 /**
@@ -235,9 +235,6 @@ function formatLogLineForFile(
   if (globalLogFormat === "json") {
     return formatLogLineAsJson(level, message, meta, sessionId);
   }
-  if (globalLogFormat === "toon") {
-    return formatLogLineAsToon(level, message, meta, sessionId);
-  }
   return formatLogLineAsPlain(level, message, meta);
 }
 
@@ -283,45 +280,34 @@ export function formatLogLineAsPlain(
   return `${now.toLocaleDateString()} ${now.toLocaleTimeString()} [${level.toUpperCase()}] ${message}${metaText}\n`;
 }
 
+const LOG_FORMATS: readonly LoggingConfig["format"][] = ["json", "plain"];
+
 /**
- * Format log line as TOON (Token-Oriented Object Notation)
- * Optimized for LLM consumption with minimal token usage
+ * Coerce a persisted log format to one this build supports.
+ *
+ * The config file is not schema-validated, so a value written by an older
+ * build (such as the removed `toon`) still reaches us typed but unsupported.
+ * Mapping it here keeps the fallback deliberate instead of an unnoticed
+ * fall-through in the formatter.
  */
-export function formatLogLineAsToon(
-  level: "debug" | "info" | "warn" | "error",
-  message: string,
-  meta?: Record<string, unknown>,
-  sessionId?: string,
-): string {
-  const logEntry: Record<string, unknown> = {
-    timestamp: new Date().toISOString(),
-    level: level.toUpperCase(),
-    message,
-  };
-
-  if (sessionId) {
-    logEntry["sessionId"] = sessionId;
-  }
-
-  if (meta && Object.keys(meta).length > 0) {
-    logEntry["meta"] = meta;
-  }
-
-  return encodeToon(logEntry) + "\n";
+export function normalizeLogFormat(format: string | undefined): LoggingConfig["format"] {
+  return LOG_FORMATS.includes(format as LoggingConfig["format"])
+    ? (format as LoggingConfig["format"])
+    : "plain";
 }
 
 /**
  * Set the global log format
  * Call this during app initialization based on config
  */
-export function setLogFormat(format: "json" | "plain" | "toon"): void {
-  globalLogFormat = format;
+export function setLogFormat(format: LoggingConfig["format"]): void {
+  globalLogFormat = normalizeLogFormat(format);
 }
 
 /**
  * Get the current log format
  */
-export function getLogFormat(): "json" | "plain" | "toon" {
+export function getLogFormat(): LoggingConfig["format"] {
   return globalLogFormat;
 }
 

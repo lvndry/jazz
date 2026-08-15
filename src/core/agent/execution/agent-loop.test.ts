@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { FileSystem } from "@effect/platform";
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import { Effect, Layer } from "effect";
-import { clearModelsDevCache } from "@/core/utils/models-dev-client";
+import { clearModelsDevCache } from "@/core/utils/models-dev";
 import {
   buildBudgetPressureMessage,
   detectMeltdown,

@@ -1,6 +1,6 @@
 import { Context, Effect } from "effect";
 import type { StreamEvent, StreamingConfig } from "@/core/types/streaming";
-import type { ApprovalRequest, ApprovalOutcome } from "@/core/types/tools";
+import type { ApprovalOutcome, ApprovalRequest } from "@/core/types/tools";
 import type { DisplayConfig } from "../types";
 
 /**
@@ -173,6 +173,33 @@ export interface PresentationService {
   ) => Effect.Effect<void, never>;
 
   /**
+   * Open a bounded live region for in-flight work (sub-agent panel, later
+   * reasoning). Returns a region id the caller must pass to append/collapse.
+   *
+   * Ink renders a last-N-lines panel; headless and quiet implementations
+   * return a dummy id and no-op the rest of the lifecycle.
+   */
+  readonly openEphemeralRegion: (
+    kind: EphemeralRegionKind,
+    label: string,
+  ) => Effect.Effect<string, never>;
+
+  /**
+   * Append text to an open live region. No-op if the region is unknown.
+   */
+  readonly appendEphemeralRegion: (regionId: string, text: string) => Effect.Effect<void, never>;
+
+  /**
+   * Close a live region and emit a one-line summary. Safe to call if the
+   * region was never opened (headless no-ops).
+   */
+  readonly collapseEphemeralRegion: (
+    regionId: string,
+    label: string,
+    outcome: EphemeralRegionCollapse,
+  ) => Effect.Effect<void, never>;
+
+  /**
    * Request user approval for a tool action.
    *
    * Shows a confirmation prompt with details about what action will be performed.
@@ -234,6 +261,21 @@ export interface PresentationService {
  */
 export type StreamTarget =
   { readonly kind: "scrollback" } | { readonly kind: "ephemeral"; readonly regionId: string };
+
+/**
+ * Kind of bounded live region. Matches the Ink store's ephemeral kinds so
+ * the TUI can pick label styling and panel size.
+ */
+export type EphemeralRegionKind = "reasoning" | "subagent";
+
+/**
+ * How a live region ended. Ink formats the collapse line; core only reports
+ * the outcome so it never imports chalk or glyphs.
+ */
+export interface EphemeralRegionCollapse {
+  readonly status: "completed" | "failed" | "interrupted";
+  readonly durationMs: number;
+}
 
 /**
  * Configuration for creating a streaming renderer

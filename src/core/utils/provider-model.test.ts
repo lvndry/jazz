@@ -1,5 +1,12 @@
 import { describe, expect, it } from "bun:test";
-import { parseProviderModel } from "./provider-model";
+import { formatProviderDisplayName, parseProviderModel } from "./provider-model";
+
+describe("formatProviderDisplayName", () => {
+  it("uses official provider branding and a readable fallback", () => {
+    expect(formatProviderDisplayName("ai_gateway")).toBe("Vercel AI Gateway");
+    expect(formatProviderDisplayName("custom_provider")).toBe("Custom Provider");
+  });
+});
 
 describe("parseProviderModel", () => {
   it("parses a simple provider/model pair", () => {

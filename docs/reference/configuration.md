@@ -157,7 +157,8 @@ pattern behind confirmation-card / propose-then-confirm flows:
 
 **`command`** — spawns `handler.command` directly (an argv array, no shell) with the validated
 tool arguments serialized as JSON on the child's stdin. Exit code `0` returns stdout (capped at
-16 KB) as the tool result; a non-zero exit, spawn error, or timeout produces a failure result the
+16 KB — tighter than `execute_command`'s 256 KB, because custom commands are small trusted argv
+programs, not a general shell) as the tool result; a non-zero exit, spawn error, or timeout produces a failure result the
 model sees the same way it sees a failing builtin tool. The command's environment is sanitized
 the same way `execute_command` sanitizes its shell environment (see `envAllowlist` below), using
 the `envAllowlist` of the agent that DECLARED the tool, not whichever agent happens to be calling

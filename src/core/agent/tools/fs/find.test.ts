@@ -5,6 +5,11 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { createFindTool } from "./find";
 import { runTool } from "./test-helpers";
 
+/** `find` returns `{ results, totalFound, truncated }`; tests assert on the list. */
+function findResults(result: { result: unknown }): unknown {
+  return (result.result as { results: unknown }).results;
+}
+
 describe("find tool", () => {
   const testDir = join(tmpdir(), `jazz-find-test-${Date.now()}`);
   const tool = createFindTool();
@@ -51,9 +56,9 @@ describe("find tool", () => {
   it("should find all files and directories in a directory", async () => {
     const result = await runTool(tool, { path: testDir, smart: false }, testDir);
     expect(result.success).toBe(true);
-    expect(Array.isArray(result.result)).toBe(true);
+    expect(Array.isArray(findResults(result))).toBe(true);
 
-    const paths = (result.result as Array<{ path: string }>).map((r) => r.path);
+    const paths = (findResults(result) as Array<{ path: string }>).map((r) => r.path);
     expect(paths.some((p) => p.endsWith("foo.ts"))).toBe(true);
     expect(paths.some((p) => p.endsWith("bar.js"))).toBe(true);
     expect(paths.some((p) => p.endsWith("baz.ts"))).toBe(true);
@@ -63,7 +68,7 @@ describe("find tool", () => {
     const result = await runTool(tool, { path: testDir, name: "foo", smart: false }, testDir);
     expect(result.success).toBe(true);
 
-    const items = result.result as Array<{ name: string }>;
+    const items = findResults(result) as Array<{ name: string }>;
     expect(items.length).toBeGreaterThanOrEqual(1);
     expect(items.every((i) => i.name.includes("foo"))).toBe(true);
   });
@@ -72,7 +77,7 @@ describe("find tool", () => {
     const result = await runTool(tool, { path: testDir, name: "*.ts", smart: false }, testDir);
     expect(result.success).toBe(true);
 
-    const items = result.result as Array<{ name: string }>;
+    const items = findResults(result) as Array<{ name: string }>;
     // Should find foo.ts and baz.ts but NOT qux.tsx
     expect(items.some((i) => i.name === "foo.ts")).toBe(true);
     expect(items.some((i) => i.name === "baz.ts")).toBe(true);
@@ -87,7 +92,7 @@ describe("find tool", () => {
     );
     expect(result.success).toBe(true);
 
-    const items = result.result as Array<{ name: string }>;
+    const items = findResults(result) as Array<{ name: string }>;
     expect(items.length).toBe(2);
     const names = items.map((i) => i.name).sort();
     expect(names).toEqual(["baz.ts", "foo.ts"]);
@@ -97,7 +102,7 @@ describe("find tool", () => {
     const result = await runTool(tool, { path: testDir, type: "file", smart: false }, testDir);
     expect(result.success).toBe(true);
 
-    const items = result.result as Array<{ type: string }>;
+    const items = findResults(result) as Array<{ type: string }>;
     expect(items.every((i) => i.type === "file")).toBe(true);
   });
 
@@ -105,7 +110,7 @@ describe("find tool", () => {
     const result = await runTool(tool, { path: testDir, type: "dir", smart: false }, testDir);
     expect(result.success).toBe(true);
 
-    const items = result.result as Array<{ name: string; type: string }>;
+    const items = findResults(result) as Array<{ name: string; type: string }>;
     expect(items.every((i) => i.type === "dir")).toBe(true);
     expect(items.some((i) => i.name === "sub")).toBe(true);
     expect(items.some((i) => i.name === "empty")).toBe(true);
@@ -119,7 +124,7 @@ describe("find tool", () => {
     );
     expect(result.success).toBe(true);
 
-    const items = result.result as Array<{ path: string }>;
+    const items = findResults(result) as Array<{ path: string }>;
     // Should only find files at depth 1 (foo.ts, bar.js) — not sub/baz.ts
     expect(items.every((i) => !i.path.includes("/sub/"))).toBe(true);
   });
@@ -128,7 +133,7 @@ describe("find tool", () => {
     const result = await runTool(tool, { path: testDir, smart: false }, testDir);
     expect(result.success).toBe(true);
 
-    const items = result.result as Array<{ name: string }>;
+    const items = findResults(result) as Array<{ name: string }>;
     expect(items.every((i) => !i.name.startsWith("."))).toBe(true);
   });
 
@@ -140,7 +145,7 @@ describe("find tool", () => {
     );
     expect(result.success).toBe(true);
 
-    const items = result.result as Array<{ name: string }>;
+    const items = findResults(result) as Array<{ name: string }>;
     expect(items.some((i) => i.name === ".hidden")).toBe(true);
   });
 
@@ -148,7 +153,7 @@ describe("find tool", () => {
     const result = await runTool(tool, { path: testDir, maxResults: 2, smart: false }, testDir);
     expect(result.success).toBe(true);
 
-    const items = result.result as Array<{ path: string }>;
+    const items = findResults(result) as Array<{ path: string }>;
     expect(items.length).toBeLessThanOrEqual(2);
   });
 
@@ -172,7 +177,7 @@ describe("find tool", () => {
     // fast-glob suppressErrors returns empty results for non-existent paths,
     // which is acceptable graceful handling.
     if (result.success) {
-      const items = result.result as Array<{ path: string }>;
+      const items = findResults(result) as Array<{ path: string }>;
       expect(items.length).toBe(0);
     } else {
       expect(result.success).toBe(false);
@@ -188,7 +193,7 @@ describe("find tool", () => {
     const result = await runTool(tool, { name: "foo.ts", maxDepth: 2 }, testDir);
     expect(result.success).toBe(true);
 
-    const items = result.result as Array<{ name: string }>;
+    const items = findResults(result) as Array<{ name: string }>;
     expect(items.some((i) => i.name === "foo.ts")).toBe(true);
   });
 
@@ -204,7 +209,7 @@ describe("find tool", () => {
     );
     expect(result.success).toBe(true);
 
-    const items = result.result as Array<{ name: string }>;
+    const items = findResults(result) as Array<{ name: string }>;
     // Our test files are tiny, should find them
     expect(items.length).toBeGreaterThanOrEqual(1);
   });
@@ -217,7 +222,7 @@ describe("find tool", () => {
     );
     expect(result.success).toBe(true);
 
-    const items = result.result as Array<{ path: string }>;
+    const items = findResults(result) as Array<{ path: string }>;
     // Should not contain anything from sub/
     expect(items.every((i) => !i.path.includes("/sub/"))).toBe(true);
   });
@@ -229,8 +234,26 @@ describe("find tool", () => {
     const result = await runTool(tool, { name: "foo.ts", size: "-10M", maxDepth: 2 }, testDir);
     expect(result.success).toBe(true);
 
-    const items = result.result as Array<{ name: string }>;
+    const items = findResults(result) as Array<{ name: string }>;
     // foo.ts is in cwd (testDir) — smart search should find it
     expect(items.some((i) => i.name === "foo.ts")).toBe(true);
+  });
+
+  // ---------------------------------------------------------------
+  // Truncation reporting
+  // ---------------------------------------------------------------
+
+  it("reports totalFound and an explicit truncated flag", async () => {
+    const result = await runTool(tool, { path: testDir, smart: false }, testDir);
+    expect(result.success).toBe(true);
+
+    const payload = result.result as {
+      results: unknown[];
+      totalFound: number;
+      truncated: boolean;
+    };
+    // A small tree fits well under the spawn byte cap, so nothing is hidden.
+    expect(payload.truncated).toBe(false);
+    expect(payload.totalFound).toBe(payload.results.length);
   });
 });

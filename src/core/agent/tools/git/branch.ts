@@ -1,20 +1,24 @@
-import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { z } from "zod";
-import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
 import { defineTool, makeZodValidator } from "../base-tool";
-import { resolveGitWorkingDirectory, runGitCommand } from "./utils";
+import {
+  gitRepoPathSchema,
+  resolveGitRepoDir,
+  runGitOrFail,
+  withGitTruncation,
+  type GitToolDeps,
+} from "./utils";
 
 /**
  * Git branch tool - lists Git branches
  */
 
-export function createGitBranchTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
+export function createGitBranchTool(): Tool<GitToolDeps> {
   const parameters = z
     .object({
-      path: z.string().optional().describe("Repository path (defaults to cwd)"),
+      path: gitRepoPathSchema,
       list: z.boolean().optional().describe("List branches"),
       all: z.boolean().optional().describe("Include remote branches"),
       remote: z.boolean().optional().describe("Remote branches only"),
@@ -23,7 +27,7 @@ export function createGitBranchTool(): Tool<FileSystem.FileSystem | FileSystemCo
 
   type GitBranchArgs = z.infer<typeof parameters>;
 
-  return defineTool<FileSystem.FileSystem | FileSystemContextService, GitBranchArgs>({
+  return defineTool<GitToolDeps, GitBranchArgs>({
     name: "git_branch",
     description: "List branches (local, remote, or both) and show current branch.",
     tags: ["git", "branch"],
@@ -31,23 +35,9 @@ export function createGitBranchTool(): Tool<FileSystem.FileSystem | FileSystemCo
     validate: makeZodValidator(parameters),
     handler: (args: GitBranchArgs, context: ToolExecutionContext) =>
       Effect.gen(function* () {
-        const shell = yield* FileSystemContextServiceTag;
-        const fs = yield* FileSystem.FileSystem;
-        let workingDirError: string | null = null;
-        const workingDir = yield* resolveGitWorkingDirectory(shell, context, fs, args?.path).pipe(
-          Effect.catchAll((error) => {
-            workingDirError = error instanceof Error ? error.message : String(error);
-            return Effect.succeed(null);
-          }),
-        );
-
-        if (workingDir === null) {
-          return {
-            success: false,
-            result: null,
-            error: workingDirError || "Failed to resolve working directory",
-          };
-        }
+        const resolved = yield* resolveGitRepoDir(args?.path, context);
+        if (resolved.kind === "failure") return resolved.result;
+        const workingDir = resolved.path;
 
         const branchArgs: string[] = ["branch", "--list"];
         if (args?.remote) {
@@ -56,34 +46,13 @@ export function createGitBranchTool(): Tool<FileSystem.FileSystem | FileSystemCo
           branchArgs.push("--all");
         }
 
-        let commandError: string | null = null;
-        const commandResult = yield* runGitCommand({
+        const executed = yield* runGitOrFail("git branch", {
           args: branchArgs,
           workingDirectory: workingDir,
-        }).pipe(
-          Effect.catchAll((error) => {
-            const errorMsg = error instanceof Error ? error.message : String(error);
-            commandError = `Failed to execute git branch in directory '${workingDir}': ${errorMsg}`;
-            return Effect.succeed(null);
-          }),
-        );
+        });
+        if (executed.kind === "failure") return executed.result;
 
-        if (commandResult === null) {
-          return {
-            success: false,
-            result: null,
-            error: commandError || `Failed to execute git branch in directory '${workingDir}'`,
-          };
-        }
-
-        if (commandResult.exitCode !== 0) {
-          return {
-            success: false,
-            result: null,
-            error:
-              commandResult.stderr || `git branch failed with exit code ${commandResult.exitCode}`,
-          };
-        }
+        const commandResult = executed.result;
 
         const lines = commandResult.stdout.split("\n").filter((line) => line.trim().length > 0);
         let currentBranch: string | undefined;
@@ -97,16 +66,19 @@ export function createGitBranchTool(): Tool<FileSystem.FileSystem | FileSystemCo
 
         return {
           success: true,
-          result: {
-            workingDirectory: workingDir,
-            branches,
-            currentBranch,
-            options: {
-              list: args?.list !== false,
-              all: args?.all ?? false,
-              remote: args?.remote ?? false,
+          result: withGitTruncation(
+            {
+              workingDirectory: workingDir,
+              branches,
+              currentBranch,
+              options: {
+                list: args?.list !== false,
+                all: args?.all ?? false,
+                remote: args?.remote ?? false,
+              },
             },
-          },
+            commandResult,
+          ),
         };
       }),
     createSummary: (result: ToolExecutionResult) => {

@@ -1,7 +1,7 @@
-import { type ChildProcess, spawn } from "child_process";
+import { spawn, type ChildProcess } from "child_process";
 import { Effect, Option } from "effect";
 import type { z } from "zod";
-import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
+import { FileSystemContextServiceTag, type FileSystemContextService } from "@/core/interfaces/fs";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import { ToolRegistryTag, type Tool, type ToolRegistry } from "@/core/interfaces/tool-registry";
 import type {
@@ -12,9 +12,15 @@ import type {
 } from "@/core/types/agent";
 import { AgentConfigurationError } from "@/core/types/errors";
 import type { ToolCategory, ToolExecutionResult } from "@/core/types/tools";
-import { createSanitizedEnv, type ProcessEnvRecord } from "@/core/utils/env-utils";
+import { createSanitizedEnv, type ProcessEnvRecord } from "@/core/utils/env";
 import { convertMCPSchemaToZod } from "@/core/utils/mcp-schema-converter";
 import { defineTool, makeZodValidator } from "./base-tool";
+import {
+  appendCapped,
+  decodeCapped,
+  EMPTY_CAPPED_OUTPUT,
+  type CappedOutput,
+} from "./capped-output";
 import { buildKeyFromContext } from "./context-utils";
 import { validateCustomToolDefinitionShape } from "./custom-tool-validation";
 
@@ -23,7 +29,7 @@ import { validateCustomToolDefinitionShape } from "./custom-tool-validation";
  *
  * Registers agent-declared `customTools` (see `CustomToolDefinition` in
  * `@/core/types/agent`) into the shared `ToolRegistry`, mirroring the shape
- * of `registerMCPToolsForAgent` in `register-tools.ts`.
+ * of `registerMCPToolsForAgent` in `register-mcp-tools.ts`.
  *
  * Two handlers are implemented:
  * - `record`: always returns a fixed response with no side effects.
@@ -52,49 +58,6 @@ type CommandExecutionOutcome =
       readonly stderr: string;
     }
   | { readonly ok: false; readonly error: string };
-
-/** Accumulated command output, tracked as raw (capped) byte chunks plus a running byte count. */
-export interface CappedOutput {
-  readonly chunks: readonly Buffer[];
-  readonly bytes: number;
-}
-
-export const EMPTY_CAPPED_OUTPUT: CappedOutput = { chunks: [], bytes: 0 };
-
-/**
- * Append a raw stdout/stderr `chunk` (as delivered by Node's child_process
- * stream, before any string decoding) to `current`, truncating so the
- * combined output never exceeds `capBytes` BYTES — measured via
- * `Buffer.byteLength`/`Buffer.subarray`, not `String.prototype.length` (which
- * counts UTF-16 code units and undercounts multi-byte UTF-8 output). Caps per
- * chunk (not post-hoc) so an unbounded stream never balloons memory before
- * being sliced down.
- *
- * Deliberately keeps the raw `Buffer` chunks rather than decoding here: a
- * multi-byte UTF-8 character can straddle two separate `data` events (or,
- * post-cap, straddle the truncation cut itself), and decoding chunk-by-chunk
- * would turn each half into a replacement character (U+FFFD). Decoding is
- * deferred to `decodeCapped`, which runs once over the fully concatenated
- * buffer so only in-stream chunk seams are healed — a character split by the
- * cap cut itself can still yield one trailing replacement character, which is
- * an acceptable, inherent cost of truncating raw bytes.
- */
-export function appendCapped(current: CappedOutput, chunk: Buffer, capBytes: number): CappedOutput {
-  if (current.bytes >= capBytes) {
-    return current;
-  }
-  const remainingBytes = capBytes - current.bytes;
-  const truncatedChunk = chunk.subarray(0, remainingBytes);
-  return {
-    chunks: [...current.chunks, truncatedChunk],
-    bytes: current.bytes + truncatedChunk.byteLength,
-  };
-}
-
-/** Decode a `CappedOutput`'s accumulated raw chunks to a UTF-8 string, once, over the full concatenated buffer. */
-export function decodeCapped(current: CappedOutput): string {
-  return Buffer.concat(current.chunks).toString("utf8");
-}
 
 /**
  * Spawn `argv` directly (no shell), write `stdin` to the child's stdin, and

@@ -1,4 +1,10 @@
 import { Cause, Chunk, Effect, Layer, Option } from "effect";
+import {
+  logToolExecutionApproval,
+  logToolExecutionError,
+  logToolExecutionStart,
+  logToolExecutionSuccess,
+} from "@/core/agent/tools/tool-logging";
 import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import type { LoggerService } from "@/core/interfaces/logger";
 import {
@@ -14,12 +20,6 @@ import type {
   ToolExecutionContext,
   ToolExecutionResult,
 } from "@/core/types/tools";
-import {
-  logToolExecutionApproval,
-  logToolExecutionError,
-  logToolExecutionStart,
-  logToolExecutionSuccess,
-} from "@/core/utils/logging-helpers";
 
 /**
  * Tool registry for managing agent tools

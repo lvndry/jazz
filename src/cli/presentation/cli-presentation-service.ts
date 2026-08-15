@@ -4,6 +4,8 @@ import { separatorLine } from "@/cli/utils/string-utils";
 import { DEFAULT_DISPLAY_CONFIG } from "@/core/agent/types";
 import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
 import type {
+  EphemeralRegionCollapse,
+  EphemeralRegionKind,
   FilePickerRequest,
   PresentationService,
   StreamingRenderer,
@@ -12,11 +14,11 @@ import type {
 } from "@/core/interfaces/presentation";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import { TerminalServiceTag } from "@/core/interfaces/terminal";
+import { resolveDisplayConfig } from "@/core/presentation/display-config";
 import type { DisplayConfig } from "@/core/types/output";
 import type { StreamEvent } from "@/core/types/streaming";
-import type { ApprovalRequest, ApprovalOutcome } from "@/core/types/tools";
-import { resolveDisplayConfig } from "@/core/utils/display-config";
-import { extractCommandApprovalKey } from "@/core/utils/shell-utils";
+import type { ApprovalOutcome, ApprovalRequest } from "@/core/types/tools";
+import { extractCommandApprovalKey } from "@/core/utils/shell";
 import { CLIRenderer, type CLIRendererConfig } from "./cli-renderer";
 import { CHALK_THEME } from "../ui/theme";
 
@@ -311,6 +313,22 @@ export class CLIPresentationService implements PresentationService {
       const response = yield* this.ask("Enter file path:", {});
       return response ?? "";
     });
+  }
+
+  openEphemeralRegion(_kind: EphemeralRegionKind, _label: string): Effect.Effect<string, never> {
+    return Effect.succeed("noop");
+  }
+
+  appendEphemeralRegion(_regionId: string, _text: string): Effect.Effect<void, never> {
+    return Effect.void;
+  }
+
+  collapseEphemeralRegion(
+    _regionId: string,
+    _label: string,
+    _outcome: EphemeralRegionCollapse,
+  ): Effect.Effect<void, never> {
+    return Effect.void;
   }
 }
 

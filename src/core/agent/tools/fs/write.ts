@@ -1,9 +1,9 @@
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { z } from "zod";
-import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
+import { FileSystemContextServiceTag, type FileSystemContextService } from "@/core/interfaces/fs";
 import type { ToolExecutionContext } from "@/core/types";
-import { generateDiff, generateDiffWithMetadata } from "@/core/utils/diff-utils";
+import { generateDiff, generateDiffWithMetadata } from "@/core/utils/diff";
 import {
   defineApprovalTool,
   makeZodValidator,
@@ -21,7 +21,6 @@ const writeFileParameters = z
   .object({
     path: z.string().min(1).describe("File path (created if it doesn't exist)"),
     content: z.string().describe("Full file content (replaces existing content)"),
-    encoding: z.string().optional().describe("Text encoding (default: utf-8)"),
     createDirs: z
       .boolean()
       .optional()
@@ -98,7 +97,6 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
         });
 
         try {
-          // Create parent directories if needed
           const parentDir = target.substring(0, target.lastIndexOf("/"));
           if (parentDir && parentDir !== target) {
             const parentExists = yield* fs
@@ -106,6 +104,13 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
               .pipe(Effect.catchAll(() => Effect.succeed(false)));
 
             if (!parentExists) {
+              if (args.createDirs !== true) {
+                return {
+                  success: false,
+                  result: null,
+                  error: `Parent directory does not exist: ${parentDir}. Pass createDirs: true to create it.`,
+                };
+              }
               yield* fs.makeDirectory(parentDir, { recursive: true });
             }
           }

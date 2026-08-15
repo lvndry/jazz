@@ -1,9 +1,10 @@
 import { FileSystem } from "@effect/platform";
 import { Data, Effect } from "effect";
 import { z } from "zod";
-import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
+import { FileSystemContextServiceTag, type FileSystemContextService } from "@/core/interfaces/fs";
 import type { ToolExecutionContext } from "@/core/types";
-import { generateDiff, generateDiffWithMetadata } from "@/core/utils/diff-utils";
+import { generateDiff, generateDiffWithMetadata } from "@/core/utils/diff";
+import { buildLineOffsets, findAllOccurrenceLineNumbers, offsetToLine } from "@/core/utils/string";
 import {
   defineApprovalTool,
   makeZodValidator,
@@ -206,7 +207,6 @@ const editFileParameters = z
       .describe(
         "Edit operations to apply in order: replace_lines, replace_pattern, insert, delete_lines.",
       ),
-    encoding: z.string().optional().describe("Text encoding (default: utf-8)"),
   })
   .strict();
 
@@ -523,48 +523,17 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
               const content = lines.join("\n");
               const matchLineNumbers: number[] = [];
 
-              // Build sorted array of byte offsets where each line starts.
-              // lineOffsets[i] = offset of line i+1 (0-based index → 1-based line).
-              // lineOffsets[0] is always 0 (line 1 starts at offset 0).
-              const lineOffsets: number[] = [0];
-              for (let i = 0; i < content.length; i++) {
-                if (content[i] === "\n") {
-                  lineOffsets.push(i + 1);
-                }
-              }
-
-              // Binary search: find the 1-based line number for a byte offset
-              const offsetToLine = (offset: number): number => {
-                let lo = 0;
-                let hi = lineOffsets.length - 1;
-                while (lo < hi) {
-                  const mid = (lo + hi + 1) >>> 1;
-                  if ((lineOffsets[mid] as number) <= offset) {
-                    lo = mid;
-                  } else {
-                    hi = mid - 1;
-                  }
-                }
-                return lo + 1; // 1-based
-              };
-
               if (patternInfo.type === "regex" && patternInfo.regex && !patternInfo.error) {
+                const lineOffsets = buildLineOffsets(content);
                 const regex = ensureGlobalRegex(patternInfo.regex);
                 let match;
                 while ((match = regex.exec(content)) !== null && matchLineNumbers.length < 20) {
-                  matchLineNumbers.push(offsetToLine(match.index));
+                  matchLineNumbers.push(offsetToLine(lineOffsets, match.index));
                   if (match[0].length === 0) regex.lastIndex++;
                 }
               } else if (!patternInfo.error) {
                 const searchStr = patternInfo.value || edit.pattern;
-                let searchIndex = 0;
-                while (
-                  (searchIndex = content.indexOf(searchStr, searchIndex)) !== -1 &&
-                  matchLineNumbers.length < 20
-                ) {
-                  matchLineNumbers.push(offsetToLine(searchIndex));
-                  searchIndex += searchStr.length;
-                }
+                matchLineNumbers.push(...findAllOccurrenceLineNumbers(content, searchStr, 20));
               }
 
               const countDesc = edit.count === -1 ? "all" : (edit.count ?? 1);

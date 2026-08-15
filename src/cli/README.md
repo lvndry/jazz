@@ -232,7 +232,7 @@ All commands run within this layer context, providing automatic dependency injec
 
 ## Error Handling
 
-The CLI uses a centralized error handler (`src/core/utils/error-handler.ts`) that:
+The CLI uses a centralized error handler (`src/core/presentation/error-handler.ts`) that:
 
 - Catches all errors (configuration, LLM, tool execution, etc.)
 - Provides actionable error messages

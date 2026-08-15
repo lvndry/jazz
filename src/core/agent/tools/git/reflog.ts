@@ -1,20 +1,24 @@
-import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { z } from "zod";
-import { type FileSystemContextService, FileSystemContextServiceTag } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
 import { defineTool, makeZodValidator } from "../base-tool";
-import { resolveGitWorkingDirectory, runGitCommand } from "./utils";
+import {
+  gitRepoPathSchema,
+  resolveGitRepoDir,
+  runGitOrFail,
+  withGitTruncation,
+  type GitToolDeps,
+} from "./utils";
 
 /**
  * Git reflog tool - shows reference log of HEAD updates
  */
 
-export function createGitReflogTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
+export function createGitReflogTool(): Tool<GitToolDeps> {
   const parameters = z
     .object({
-      path: z.string().optional().describe("Repository path (defaults to cwd)"),
+      path: gitRepoPathSchema,
       limit: z.number().int().min(1).max(1000).optional().describe("Max entries to show"),
       branch: z.string().optional().describe("Branch (default: HEAD)"),
       all: z.boolean().optional().describe("All branches"),
@@ -24,7 +28,7 @@ export function createGitReflogTool(): Tool<FileSystem.FileSystem | FileSystemCo
 
   type GitReflogArgs = z.infer<typeof parameters>;
 
-  return defineTool<FileSystem.FileSystem | FileSystemContextService, GitReflogArgs>({
+  return defineTool<GitToolDeps, GitReflogArgs>({
     name: "git_reflog",
     description: "Show reference log for HEAD or a branch. Useful for recovering lost commits.",
     tags: ["git", "reflog", "history"],
@@ -32,24 +36,9 @@ export function createGitReflogTool(): Tool<FileSystem.FileSystem | FileSystemCo
     validate: makeZodValidator(parameters),
     handler: (args: GitReflogArgs, context: ToolExecutionContext) =>
       Effect.gen(function* () {
-        const shell = yield* FileSystemContextServiceTag;
-        const fs = yield* FileSystem.FileSystem;
-
-        let workingDirError: string | null = null;
-        const workingDir = yield* resolveGitWorkingDirectory(shell, context, fs, args?.path).pipe(
-          Effect.catchAll((error) => {
-            workingDirError = error instanceof Error ? error.message : String(error);
-            return Effect.succeed(null);
-          }),
-        );
-
-        if (workingDir === null) {
-          return {
-            success: false,
-            result: null,
-            error: workingDirError || "Failed to resolve working directory",
-          };
-        }
+        const resolved = yield* resolveGitRepoDir(args?.path, context);
+        if (resolved.kind === "failure") return resolved.result;
+        const workingDir = resolved.path;
 
         const limit = args?.limit ?? 20;
         const reflogArgs: string[] = ["reflog", "--no-color"];
@@ -64,34 +53,13 @@ export function createGitReflogTool(): Tool<FileSystem.FileSystem | FileSystemCo
           reflogArgs.push(`-n${limit}`);
         }
 
-        let commandError: string | null = null;
-        const commandResult = yield* runGitCommand({
+        const executed = yield* runGitOrFail("git reflog", {
           args: reflogArgs,
           workingDirectory: workingDir,
-        }).pipe(
-          Effect.catchAll((error) => {
-            const errorMsg = error instanceof Error ? error.message : String(error);
-            commandError = `Failed to execute git reflog in directory '${workingDir}': ${errorMsg}`;
-            return Effect.succeed(null);
-          }),
-        );
+        });
+        if (executed.kind === "failure") return executed.result;
 
-        if (commandResult === null) {
-          return {
-            success: false,
-            result: null,
-            error: commandError || `Failed to execute git reflog in directory '${workingDir}'`,
-          };
-        }
-
-        if (commandResult.exitCode !== 0) {
-          return {
-            success: false,
-            result: null,
-            error:
-              commandResult.stderr || `git reflog failed with exit code ${commandResult.exitCode}`,
-          };
-        }
+        const commandResult = executed.result;
 
         // Parse reflog output format: <commit-hash> HEAD@{n}: <action>: <summary>
         // Example: abc1234 HEAD@{0}: checkout: moving from main to feature
@@ -134,17 +102,20 @@ export function createGitReflogTool(): Tool<FileSystem.FileSystem | FileSystemCo
 
         return {
           success: true,
-          result: {
-            workingDirectory: workingDir,
-            entryCount: entries.length,
-            entries,
-            options: {
-              limit,
-              branch: args?.branch,
-              all: args?.all ?? false,
-              oneline: args?.oneline ?? false,
+          result: withGitTruncation(
+            {
+              workingDirectory: workingDir,
+              entryCount: entries.length,
+              entries,
+              options: {
+                limit,
+                branch: args?.branch,
+                all: args?.all ?? false,
+                oneline: args?.oneline ?? false,
+              },
             },
-          },
+            commandResult,
+          ),
         };
       }),
     createSummary: (result: ToolExecutionResult) => {

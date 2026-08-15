@@ -6,8 +6,8 @@ Every tool an agent can call, generated from the registry. Risk tiers determine 
 unattended — see [Tools & approval](../internals/tools-and-approval.md) for the mechanism
 and [Security](../../SECURITY.md) for the threat model.
 
-> This page is verified by a test (`bun test scripts/docs-tools-sync.test.ts`) that fails if
-> the registry and this table drift apart. If you add a tool, update this page.
+> This page is verified by a test (`bun test src/core/agent/tools/register-tools.docs.test.ts`)
+> that fails if the registry and this table drift apart. If you add a tool, update this page.
 
 ---
 
@@ -15,11 +15,11 @@ and [Security](../../SECURITY.md) for the threat model.
 
 | | Count |
 | --- | --- |
-| **Agent-facing tools** | **45** |
+| **Agent-facing tools** | **50** |
 | Hidden `execute_*` counterparts (the second half of each approval pair) | 15 |
-| Total registered | 60 |
-| `read-only` | 27 |
-| `low-risk` | 3 |
+| Total registered | 65 |
+| `read-only` | 29 |
+| `low-risk` | 6 |
 | `high-risk` | 15 |
 
 Plus, registered per agent rather than globally:
@@ -70,6 +70,7 @@ You never call `execute_*` names yourself; they are hidden from the model's tool
 | `ls` | `read-only` | — | List directory contents. Supports recursive traversal, name filtering, hidden files. Default 200 results, c… |
 | `mkdir` | `high-risk` | `execute_mkdir` | Create a directory. Parents created automatically by default. |
 | `mv` | `high-risk` | `execute_mv` | Move or rename a file or directory. Equivalent to shell mv. |
+| `pdf_page_count` | `read-only` | — | Get total page count of a PDF without reading content. |
 | `pwd` | `read-only` | — | Print the current working directory. |
 | `read_file` | `read-only` | — | Read a text file with optional line range (startLine/endLine). Handles BOM, enforces size limits. |
 | `read_pdf` | `read-only` | — | Extract text and tables from a PDF. Use pdf_page_count first for large files. Supports page ranges. |
@@ -82,7 +83,7 @@ You never call `execute_*` names yourself; they are hidden from the model's tool
 
 | Tool | Risk | Approval pair | What it does |
 | --- | --- | --- | --- |
-| `execute_command` | `high-risk` | `execute_execute_command` | Execute a shell command. Use only when no dedicated tool exists. |
+| `execute_command` | `high-risk` | `execute_execute_command` | Execute a shell command. Use only when no dedicated tool exists. Stdout/stderr capped at 256 KB each. |
 
 ### Git
 
@@ -138,6 +139,16 @@ Opt-in per agent (like File Management or Git) rather than always-on — see [Me
 | `view_memory` | `read-only` | — | Read what you've saved about this person or project from earlier conversations. Call with no pa… |
 | `manage_memory` | `low-risk` | — | Create, edit, rename, or delete files under your persistent memory directory — the durable notes… |
 
+### Reminders
+
+Opt-in per agent. Reminders persist on disk and fire later on the same surface that scheduled them — see [Reminders](../internals/reminders.md).
+
+| Tool | Risk | Approval pair | What it does |
+| --- | --- | --- | --- |
+| `add_reminder` | `low-risk` | — | Schedule a reminder from a duration (`30m`), clock time (`18:00`), or `tomorrow HH:MM`. |
+| `list_reminders` | `read-only` | — | List this person's pending reminders, including their id, fire time, and text. |
+| `cancel_reminder` | `low-risk` | — | Cancel a pending reminder by id (get the id from list_reminders first). |
+
 ### Context
 
 | Tool | Risk | Approval pair | What it does |
@@ -158,6 +169,14 @@ Opt-in per agent (like File Management or Git) rather than always-on — see [Me
 | --- | --- | --- | --- |
 | `ask_file_picker` | `read-only` | — | Show an interactive file picker for the user to select a file. |
 | `ask_user_question` | `read-only` | — | Ask the user a question with interactive selectable suggestions. One question per call. |
+
+### Web App
+
+Opt-in per agent via `tools`. Used by chat bridges that can render a Mini App or a static image.
+
+| Tool | Risk | Approval pair | What it does |
+| --- | --- | --- | --- |
+| `create_web_app` | `low-risk` | — | Create an interactive UI — a chart, form, dashboard, small game, or any other webpage — for delivery as a static image or a live page. |
 
 ---
 
@@ -194,7 +213,7 @@ That keeps the tier low while letting the one command through. Matching is on a 
 - **`http_request` is `read-only`** by risk classification even though it can issue POSTs. It reaches whatever URL the agent targets; network policy belongs at the firewall, not the tier. Treat it accordingly on surfaces that accept untrusted input.
 - **Timeouts** — 3 minutes by default per tool. `ask_user_question` and `ask_file_picker` are `longRunning` and never time out, because waiting for a human is not a hang.
 - **Concurrency** — up to 10 tools execute in parallel per iteration.
-- **`create_web_app` needs a browser for `mode: "static"`** — it screenshots the page through `puppeteer-core`, which deliberately ships no bundled Chrome so that installing Jazz never downloads one. It uses `PUPPETEER_EXECUTABLE_PATH` if set, otherwise an installed Google Chrome; with neither it fails and says so. `mode: "interactive"` needs no browser. The tool is opt-in per agent via `tools`, so it is not in the table above.
+- **`create_web_app` needs a browser for `mode: "static"`** — it screenshots the page through `puppeteer-core`, which deliberately ships no bundled Chrome so that installing Jazz never downloads one. It uses `PUPPETEER_EXECUTABLE_PATH` if set, otherwise an installed Google Chrome; with neither it fails and says so. `mode: "interactive"` needs no browser.
 
 ---
 

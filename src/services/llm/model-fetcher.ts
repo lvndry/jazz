@@ -10,7 +10,7 @@ import {
   getModelsDevProviderModels,
   type ModelsDevMetadata,
   type ModelsDevModelEntry,
-} from "@/core/utils/models-dev-client";
+} from "@/core/utils/models-dev";
 import { hasReasoningParser } from "./reasoning";
 
 /**

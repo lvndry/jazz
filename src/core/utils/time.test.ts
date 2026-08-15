@@ -1,5 +1,5 @@
-import { describe, test, expect } from "bun:test";
-import { parseWhen, wallClockToEpoch, zonedDateParts } from "./when-parser";
+import { describe, expect, test } from "bun:test";
+import { parseWhen, wallClockToEpoch, zonedDateParts } from "./time";
 
 describe("parseWhen", () => {
   test("parses a plain minute duration", () => {
@@ -29,21 +29,18 @@ describe("parseWhen", () => {
   });
 
   test("parses a future clock time today", () => {
-    const now = Date.UTC(2026, 0, 1, 10, 0, 0); // 10:00 UTC
-    const fireAt = parseWhen("18:00", now, "UTC");
-    expect(fireAt).toBe(Date.UTC(2026, 0, 1, 18, 0, 0));
+    const now = Date.UTC(2026, 0, 1, 10, 0, 0);
+    expect(parseWhen("18:00", now, "UTC")).toBe(Date.UTC(2026, 0, 1, 18, 0, 0));
   });
 
   test("rolls a past clock time to tomorrow", () => {
-    const now = Date.UTC(2026, 0, 1, 20, 0, 0); // 20:00 UTC
-    const fireAt = parseWhen("18:00", now, "UTC");
-    expect(fireAt).toBe(Date.UTC(2026, 0, 2, 18, 0, 0));
+    const now = Date.UTC(2026, 0, 1, 20, 0, 0);
+    expect(parseWhen("18:00", now, "UTC")).toBe(Date.UTC(2026, 0, 2, 18, 0, 0));
   });
 
   test('parses "tomorrow HH:MM" explicitly', () => {
     const now = Date.UTC(2026, 0, 1, 9, 0, 0);
-    const fireAt = parseWhen("tomorrow 09:00", now, "UTC");
-    expect(fireAt).toBe(Date.UTC(2026, 0, 2, 9, 0, 0));
+    expect(parseWhen("tomorrow 09:00", now, "UTC")).toBe(Date.UTC(2026, 0, 2, 9, 0, 0));
   });
 
   test("is case-insensitive and trims whitespace", () => {
@@ -70,10 +67,8 @@ describe("parseWhen", () => {
   });
 
   test("interprets clock times in the given timezone, not UTC", () => {
-    // 09:00 in America/New_York (UTC-5 in January) is 14:00 UTC.
-    const now = Date.UTC(2026, 0, 1, 10, 0, 0); // 05:00 America/New_York
-    const fireAt = parseWhen("09:00", now, "America/New_York");
-    expect(fireAt).toBe(Date.UTC(2026, 0, 1, 14, 0, 0));
+    const now = Date.UTC(2026, 0, 1, 10, 0, 0);
+    expect(parseWhen("09:00", now, "America/New_York")).toBe(Date.UTC(2026, 0, 1, 14, 0, 0));
   });
 });
 
@@ -84,7 +79,6 @@ describe("zonedDateParts", () => {
   });
 
   test("returns a different calendar date across a timezone boundary", () => {
-    // 23:30 UTC on June 15 is already June 16 in a UTC+2 zone.
     const epoch = Date.UTC(2026, 5, 15, 23, 30, 0);
     expect(zonedDateParts(epoch, "Europe/Paris")).toEqual({ year: 2026, month: 6, day: 16 });
   });
@@ -92,13 +86,10 @@ describe("zonedDateParts", () => {
 
 describe("wallClockToEpoch", () => {
   test("round-trips a UTC wall clock time", () => {
-    const epoch = wallClockToEpoch(2026, 6, 15, 18, 0, "UTC");
-    expect(epoch).toBe(Date.UTC(2026, 5, 15, 18, 0, 0));
+    expect(wallClockToEpoch(2026, 6, 15, 18, 0, "UTC")).toBe(Date.UTC(2026, 5, 15, 18, 0, 0));
   });
 
   test("accounts for a fixed timezone offset", () => {
-    // 09:00 in Asia/Tokyo (UTC+9, no DST) is 00:00 UTC.
-    const epoch = wallClockToEpoch(2026, 6, 15, 9, 0, "Asia/Tokyo");
-    expect(epoch).toBe(Date.UTC(2026, 5, 15, 0, 0, 0));
+    expect(wallClockToEpoch(2026, 6, 15, 9, 0, "Asia/Tokyo")).toBe(Date.UTC(2026, 5, 15, 0, 0, 0));
   });
 });

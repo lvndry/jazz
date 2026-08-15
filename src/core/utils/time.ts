@@ -1,8 +1,5 @@
 /**
- * Timezone-aware "when" spec parsing for reminders — ported verbatim from
- * `integrations/telegram-bot/timezone.ts` / `reminders.ts` since this logic is
- * pure, dependency-free, and now used by the core reminder tool rather than
- * being Telegram-specific.
+ * Timezone-aware "when" spec parsing for reminders
  */
 
 /** Offset (ms) that must be subtracted from a UTC instant to reach wall time in `tz`. */
@@ -50,7 +47,12 @@ export function zonedDateParts(
   return { year: field["year"] ?? 1970, month: field["month"] ?? 1, day: field["day"] ?? 1 };
 }
 
-/** Convert a wall-clock time in `tz` to an epoch, settling DST with a refine pass. */
+/**
+ * Convert a wall-clock time in an IANA timezone to an epoch.
+ *
+ * Date.UTC rollover handles day values crossing month or year boundaries.
+ * Invalid timezone names throw RangeError from Intl.DateTimeFormat.
+ */
 export function wallClockToEpoch(
   year: number,
   month: number,
@@ -75,7 +77,8 @@ const DURATION_UNIT_MS: Record<string, number> = {
  * Parse a "when" spec into an absolute epoch-ms, or null if unparseable.
  * Supports relative durations (30m, 2h, 1h30m, 90s, 1d), a 24h clock time
  * (HH:MM → next occurrence), and "tomorrow HH:MM". Clock times are interpreted
- * in the caller's `tz` so "18:00" means 6pm where the sender is.
+ * in the caller's IANA `tz` so "18:00" means 6pm where the sender is.
+ * Invalid timezone names throw RangeError from Intl.DateTimeFormat.
  */
 export function parseWhen(spec: string, now: number, tz: string): number | null {
   const trimmed = spec.trim().toLowerCase();

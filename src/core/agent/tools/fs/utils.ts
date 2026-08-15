@@ -1,6 +1,12 @@
 import { spawn } from "child_process";
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
+import {
+  bindCappedStdio,
+  decodeCappedText,
+  DEFAULT_SPAWN_OUTPUT_CAP_BYTES,
+  type CollectedProcessOutput,
+} from "../capped-output";
 
 /**
  * Default ignore patterns when .gitignore is missing or empty (matches common VCS/build artifacts).
@@ -60,8 +66,8 @@ export function spawnCollect(
     timeout?: number;
     env?: Record<string, string | undefined>;
   } = {},
-): Effect.Effect<{ stdout: string; stderr: string; exitCode: number }, never, never> {
-  return Effect.promise<{ stdout: string; stderr: string; exitCode: number }>(
+): Effect.Effect<CollectedProcessOutput, never, never> {
+  return Effect.promise<CollectedProcessOutput>(
     () =>
       new Promise((resolve) => {
         const child = spawn(cmd, args, {
@@ -72,21 +78,38 @@ export function spawnCollect(
           detached: false,
         });
 
-        let stdout = "";
-        let stderr = "";
-
-        child.stdout?.on("data", (data: Buffer) => {
-          stdout += data.toString();
-        });
-        child.stderr?.on("data", (data: Buffer) => {
-          stderr += data.toString();
-        });
+        const snapshot = bindCappedStdio(
+          child.stdout,
+          child.stderr,
+          DEFAULT_SPAWN_OUTPUT_CAP_BYTES,
+        );
 
         child.on("close", (code: number | null) => {
-          resolve({ stdout: stdout.trim(), stderr: stderr.trim(), exitCode: code ?? 1 });
+          const collected = snapshot();
+          const stdout = decodeCappedText(collected.stdout, {
+            trim: "all",
+            dropIncompleteLastLine: true,
+          });
+          const stderr = decodeCappedText(collected.stderr, {
+            trim: "all",
+            dropIncompleteLastLine: true,
+          });
+          resolve({
+            stdout: stdout.text,
+            stderr: stderr.text,
+            exitCode: code ?? 1,
+            stdoutTruncated: stdout.truncated,
+            stderrTruncated: stderr.truncated,
+          });
         });
         child.on("error", (error: Error) => {
-          resolve({ stdout: "", stderr: error.message, exitCode: 1 });
+          resolve({
+            stdout: "",
+            stderr: error.message,
+            exitCode: 1,
+            stdoutTruncated: false,
+            stderrTruncated: false,
+          });
         });
       }),
   );

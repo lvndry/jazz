@@ -97,6 +97,7 @@ Details and conventions: [Code map](./code-map.md).
 | [Tools & approval](./tools-and-approval.md) | Registry, risk tiers, two-phase execution, concurrency, timeouts, command allowlisting |
 | [Sub-agents](./subagents.md) | Context isolation, personas, cost roll-up, when the model reaches for one |
 | [Memory](./memory.md) | Per-agent file-backed memory, path-safety choke point, locking, why it's opt-in |
+| [Reminders](./reminders.md) | Per-agent scheduled reminders, timezone-aware `when` specs, disk persistence |
 | [Skills loading](./skills-loading.md) | Progressive disclosure: `find_skills` → `load_skill` → `load_skill_section` |
 | [Providers & models](./providers-and-models.md) | The AI SDK port, model catalog, reasoning normalization, retries, cost |
 | [Evals](./evals.md) | Measuring whether a harness change helped: Pass^k, A/B, grounding checks, judge calibration |

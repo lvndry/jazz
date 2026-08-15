@@ -2,7 +2,7 @@ import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import { TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
-import { getUserDataDirectory } from "@/core/utils/runtime-detection";
+import { getUserDataDirectory } from "@/core/utils/paths";
 import { checkForUpdate } from "./commands/update";
 import { getGlyphs } from "./ui/glyphs";
 
