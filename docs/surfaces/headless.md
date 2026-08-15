@@ -245,7 +245,7 @@ export function askJazz(chatId: string, message: string): Promise<JazzResult> {
 ```
 
 Swap `spawn` for your platform's SDK around it and you have a bot. That's exactly what
-the [Telegram bridge](./chat-platforms.md) does.
+the [Telegram](./chat-platforms.md) and [Discord](./chat-platforms.md) bridges do.
 
 ---
 

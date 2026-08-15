@@ -32,7 +32,7 @@ chat. Any model, including local ones. These docs are organized by what you're t
 One agent, many front doors. Start with the [surface matrix](./surfaces/index.md).
 
 - [Headless](./surfaces/headless.md) — the `jazz run` contract: stdout/stderr, JSON envelope, per-chat memory, live events
-- [Chat platforms](./surfaces/chat-platforms.md) — Telegram (shipped), Slack / Google Chat / Discord (bring your own bridge)
+- [Chat platforms](./surfaces/chat-platforms.md) — Telegram and Discord (shipped), Slack / Google Chat (bring your own bridge)
 - [CI/CD](./surfaces/ci-cd.md) — PR review with inline comments, the `/jazz` assistant, release notes
 - [Scheduled](./surfaces/scheduled.md) — launchd / cron, catch-up, unattended safety
 
