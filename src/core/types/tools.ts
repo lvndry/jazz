@@ -187,10 +187,13 @@ export interface ToolExecutionContext {
    */
   readonly parentAgent?: Agent;
   /**
-   * The iteration budget of the parent agent.
-   * Subagents inherit this so they run with the same cap as their parent.
+   * Iteration budget to give a sub-agent spawned from this run, resolved from
+   * `maxSubagentIterations` in app config. A sub-agent gets its own budget
+   * rather than the parent's remainder — a child spawned on the parent's last
+   * iteration would be useless with one round — so this is a separate knob,
+   * defaulting well below a top-level run's.
    */
-  readonly parentMaxIterations?: number;
+  readonly maxSubagentIterations?: number;
   /**
    * The parent's effective tool names for this run (after persona deny lists
    * and any inherited allowlist). `spawn_subagent` passes this down as the

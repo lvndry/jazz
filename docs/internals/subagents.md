@@ -90,13 +90,14 @@ caller of a nested run, not just `spawn_subagent`.
 
 ## Nesting depth
 
-A child gets a **fresh** iteration budget, not its parent's remainder — a sub-agent spawned on
-the parent's last iteration would be useless with one round to work in, and the point of
-delegation is a clean context with room to use it.
+A child gets its **own** iteration budget — `maxSubagentIterations`, default 30 — not its
+parent's remainder. A sub-agent spawned on the parent's last iteration would be useless with one
+round to work in, and the point of delegation is a clean context with room to use it. It is set
+well below a top-level run's 100 because a sub-agent answers one scoped task; a child still
+working after 30 iterations has usually misunderstood the brief rather than found more to do.
 
-That is deliberate, and it means the parent's remaining budget bounds nothing. Depth does. Each
-run carries how many levels sit above it, and `spawn_subagent` refuses once the limit is
-reached:
+That means the parent's remaining budget bounds nothing. Depth does. Each run carries how many
+levels sit above it, and `spawn_subagent` refuses once the limit is reached:
 
 ```
 Sub-agent nesting limit reached (depth 3 of 3). Do this task yourself instead of delegating it further.
@@ -169,7 +170,7 @@ usual symptom is a confidently wrong answer to a question the child misunderstoo
 | Limit | Value | Why |
 | --- | --- | --- |
 | Timeout | 30 min | A delegated task that hasn't finished in half an hour isn't going to |
-| Iterations | a **fresh copy** of the parent's budget | A child spawned on the parent's last iteration would be useless with only the remainder |
+| Iterations | 30, via `maxSubagentIterations` | Its own budget, not the parent's remainder — and far below a top-level run's 100 |
 | Nesting | 3 levels, via `maxSubagentDepth` | Depth is what bounds total spend, since each level gets a fresh budget |
 | Toolset | at most the parent's | A child must never be an escalation path |
 | Panel height | 12 lines | UI only |

@@ -4,6 +4,7 @@ import { Effect, Layer } from "effect";
 import { OneShotPresentationService } from "@/core/presentation/oneshot-presentation-service";
 import { SkillServiceTag } from "@/core/skills/skill-service";
 import { executeWithoutStreaming } from "./batch-executor";
+import { DEFAULT_MAX_ITERATIONS } from "../../constants/agent";
 import { AgentConfigServiceTag } from "../../interfaces/agent-config";
 import { FileSystemContextServiceTag } from "../../interfaces/fs";
 import type { LLMService } from "../../interfaces/llm";
@@ -130,6 +131,7 @@ function makeRunContext(): AgentRunContext {
     connectedMCPServers: [],
     knownSkills: [],
     maxRetries: 0,
+    maxIterations: DEFAULT_MAX_ITERATIONS,
   };
 }
 

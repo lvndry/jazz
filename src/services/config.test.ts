@@ -362,6 +362,28 @@ describe("createConfigLayer", () => {
     expect(await Effect.runPromise(program)).toBe(1);
   });
 
+  it("preserves both iteration budgets from a custom config file", async () => {
+    const customConfigPath = path.join(os.tmpdir(), "jazz-iterations-config.json");
+
+    const fileContents = new Map<string, string>([
+      [customConfigPath, JSON.stringify({ maxIterations: 150, maxSubagentIterations: 12 })],
+    ]);
+
+    const layer = createConfigLayer(undefined, customConfigPath).pipe(
+      Layer.provide(Layer.succeed(FileSystem.FileSystem, createTestFileSystem(fileContents))),
+    );
+    const program = Effect.gen(function* () {
+      const config = yield* AgentConfigServiceTag;
+      const maxIterations = yield* config.get<number>("maxIterations");
+      const maxSubagentIterations = yield* config.get<number>("maxSubagentIterations");
+      return { maxIterations, maxSubagentIterations };
+    }).pipe(Effect.provide(layer));
+
+    const result = await Effect.runPromise(program);
+    expect(result.maxIterations).toBe(150);
+    expect(result.maxSubagentIterations).toBe(12);
+  });
+
   it("leaves maxSubagentDepth unset when the config file omits it", async () => {
     const customConfigPath = path.join(os.tmpdir(), "jazz-subagent-depth-default.json");
 

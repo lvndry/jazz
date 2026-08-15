@@ -5,6 +5,7 @@ import { Stream } from "effect";
 import { executeWithStreaming } from "./streaming-executor";
 import { ToolExecutor } from "./tool-executor";
 import { SkillServiceTag } from "../../../core/skills/skill-service";
+import { DEFAULT_MAX_ITERATIONS } from "../../constants/agent";
 import { AgentConfigServiceTag } from "../../interfaces/agent-config";
 import { FileSystemContextServiceTag } from "../../interfaces/fs";
 import type { LLMService } from "../../interfaces/llm";
@@ -138,6 +139,7 @@ describe("executeWithStreaming", () => {
       expandedToolNames: [],
       connectedMCPServers: [],
       knownSkills: [],
+      maxIterations: DEFAULT_MAX_ITERATIONS,
     };
 
     const displayConfig = {
@@ -337,6 +339,7 @@ describe("executeWithStreaming", () => {
       expandedToolNames: [],
       connectedMCPServers: [],
       knownSkills: [],
+      maxIterations: DEFAULT_MAX_ITERATIONS,
     };
 
     const displayConfig = {
@@ -445,6 +448,7 @@ describe("executeWithStreaming", () => {
       expandedToolNames: [],
       connectedMCPServers: [],
       knownSkills: [],
+      maxIterations: DEFAULT_MAX_ITERATIONS,
     };
 
     const mockLLMService: LLMService = {

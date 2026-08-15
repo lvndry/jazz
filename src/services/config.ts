@@ -430,6 +430,10 @@ function mergeConfig(base: AppConfig, override?: Partial<AppConfig>): AppConfig 
     ...(override.maxSubagentDepth !== undefined && {
       maxSubagentDepth: override.maxSubagentDepth,
     }),
+    ...(override.maxIterations !== undefined && { maxIterations: override.maxIterations }),
+    ...(override.maxSubagentIterations !== undefined && {
+      maxSubagentIterations: override.maxSubagentIterations,
+    }),
     ...(override.telemetry && { telemetry: { ...(base.telemetry ?? {}), ...override.telemetry } }),
   };
 }

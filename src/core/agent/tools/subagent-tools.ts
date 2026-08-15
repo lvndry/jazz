@@ -1,6 +1,9 @@
 import { Effect } from "effect";
 import { z } from "zod";
-import { DEFAULT_MAX_ITERATIONS, DEFAULT_MAX_SUBAGENT_DEPTH } from "@/core/constants/agent";
+import {
+  DEFAULT_MAX_SUBAGENT_DEPTH,
+  DEFAULT_MAX_SUBAGENT_ITERATIONS,
+} from "@/core/constants/agent";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import type { Tool, ToolRequirements } from "@/core/interfaces/tool-registry";
@@ -172,7 +175,7 @@ ${args.task}`;
             userInput: wrappedTask,
             sessionId: context.sessionId ?? context.conversationId ?? `session-${Date.now()}`,
             conversationId: `subagent-conv-${++subagentCounter}-${Date.now()}`,
-            maxIterations: context.parentMaxIterations ?? DEFAULT_MAX_ITERATIONS,
+            maxIterations: context.maxSubagentIterations ?? DEFAULT_MAX_SUBAGENT_ITERATIONS,
             ephemeralRegionId: regionId,
             // Cap the child at the parent's own effective tools. The child runs
             // under a caller-chosen persona, and a persona resolves its own

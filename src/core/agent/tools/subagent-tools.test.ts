@@ -1,5 +1,6 @@
 import { describe, expect, it, spyOn } from "bun:test";
 import { Effect, Layer } from "effect";
+import { DEFAULT_MAX_ITERATIONS, DEFAULT_MAX_SUBAGENT_ITERATIONS } from "@/core/constants/agent";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import type { LoggerService } from "@/core/interfaces/logger";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
@@ -272,6 +273,49 @@ describe("spawn_subagent nesting depth", () => {
 
       expect(calls.opens).toHaveLength(0);
       expect(calls.collapses).toHaveLength(0);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
+describe("spawn_subagent iteration budget", () => {
+  function captureSpawn(): {
+    readonly captured: () => Omit<AgentRunnerOptions, "internal"> | undefined;
+    readonly spy: ReturnType<typeof spyOn>;
+  } {
+    let seen: Omit<AgentRunnerOptions, "internal"> | undefined;
+    const spy = spyOn(AgentRunner, "runRecursive").mockImplementation((options) => {
+      seen = options;
+      return Effect.succeed({ content: "done", messages: [] }) as ReturnType<
+        typeof AgentRunner.runRecursive
+      >;
+    });
+    return { captured: () => seen, spy };
+  }
+
+  it("gives the child the configured sub-agent budget", async () => {
+    const { captured, spy } = captureSpawn();
+
+    try {
+      const { presentation } = createPresentationHarness();
+      await runSpawn(presentation, { maxSubagentIterations: 12 });
+
+      expect(captured()?.maxIterations).toBe(12);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("falls back to the sub-agent default when config sets nothing", async () => {
+    const { captured, spy } = captureSpawn();
+
+    try {
+      const { presentation } = createPresentationHarness();
+      await runSpawn(presentation);
+
+      expect(captured()?.maxIterations).toBe(DEFAULT_MAX_SUBAGENT_ITERATIONS);
+      expect(DEFAULT_MAX_SUBAGENT_ITERATIONS).toBeLessThan(DEFAULT_MAX_ITERATIONS);
     } finally {
       spy.mockRestore();
     }

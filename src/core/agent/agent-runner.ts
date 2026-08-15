@@ -1,5 +1,10 @@
 import { Effect, Option } from "effect";
-import { DEFAULT_MAX_LLM_RETRIES, DEFAULT_MAX_SUBAGENT_DEPTH } from "@/core/constants/agent";
+import {
+  DEFAULT_MAX_ITERATIONS,
+  DEFAULT_MAX_LLM_RETRIES,
+  DEFAULT_MAX_SUBAGENT_DEPTH,
+  DEFAULT_MAX_SUBAGENT_ITERATIONS,
+} from "@/core/constants/agent";
 import type { ProviderName } from "@/core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import type { LLMService } from "@/core/interfaces/llm";
@@ -80,13 +85,21 @@ function initializeAgentRun(
       : null;
     const toolProfile = resolvedPersona?.toolProfile;
 
+    // An explicit budget from the call site (--max-iterations, a workflow's
+    // metadata, a sub-agent spawn) wins; app config sets the default for
+    // everything else.
+    const resolvedMaxIterations = Math.max(
+      1,
+      Math.floor(options.maxIterations ?? appConfig.maxIterations ?? DEFAULT_MAX_ITERATIONS),
+    );
+
     const runMetrics = createAgentRunMetrics({
       agent,
       conversationId: actualConversationId,
       provider,
       model,
       reasoningEffort: agent.config.reasoningEffort ?? "disable",
-      maxIterations: options.maxIterations,
+      maxIterations: resolvedMaxIterations,
     });
 
     // Level 1: List all available skills (metadata only)
@@ -261,6 +274,10 @@ function initializeAgentRun(
         0,
         Math.floor(appConfig.maxSubagentDepth ?? DEFAULT_MAX_SUBAGENT_DEPTH),
       ),
+      maxSubagentIterations: Math.max(
+        1,
+        Math.floor(appConfig.maxSubagentIterations ?? DEFAULT_MAX_SUBAGENT_ITERATIONS),
+      ),
       ...(options.timezone !== undefined ? { timezone: options.timezone } : {}),
       onAutoApproveCommand:
         options.onAutoApproveCommand ??
@@ -291,6 +308,7 @@ function initializeAgentRun(
       model,
       connectedMCPServers,
       maxRetries: Math.max(0, Math.floor(appConfig.maxRetries ?? DEFAULT_MAX_LLM_RETRIES)),
+      maxIterations: resolvedMaxIterations,
       knownSkills: relevantSkills,
     };
   });

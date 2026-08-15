@@ -38,6 +38,32 @@ See [MCP Servers](../integrations/index.md#mcp-servers) for format details.
 }
 ```
 
+### `maxIterations` and `maxSubagentIterations`
+
+Iteration budgets — how many reasoning loops a run gets before it stops and asks whether to
+continue.
+
+```json
+{
+  "maxIterations": 100,
+  "maxSubagentIterations": 30
+}
+```
+
+| Key | Default | Applies to |
+| --- | --- | --- |
+| `maxIterations` | 100 | A top-level run |
+| `maxSubagentIterations` | 30 | Each sub-agent run |
+
+They are **separate knobs on purpose.** A sub-agent gets its own budget rather than the parent's
+remainder — a child spawned on the parent's last iteration would be useless with one round — so
+without a lower default, every level of delegation would be as expensive as the run that spawned
+it. A sub-agent answers one scoped task; a child still working after 30 iterations has usually
+misunderstood the brief rather than found more to do.
+
+An explicit `--max-iterations` on the command line, or a workflow's own `maxIterations`, still
+wins over `maxIterations` here. Both values are floored at 1.
+
 ### `maxSubagentDepth`
 
 How many levels of sub-agent may nest below a top-level run. Defaults to **3**.
