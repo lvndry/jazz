@@ -39,6 +39,20 @@ interface FormatOptions {
 }
 
 /**
+ * Format the tool name for display, folding in the backing provider when the
+ * executor supplied one — e.g. `web_search(brave)`. Keeps the provider glued
+ * to the name so it can never be mistaken for an argument or a concurrency
+ * marker in the tool line.
+ */
+export function formatToolDisplayName(
+  toolName: string,
+  metadata?: Record<string, unknown>,
+): string {
+  const provider = safeString(metadata?.["provider"]);
+  return provider ? `${toolName}(${provider})` : toolName;
+}
+
+/**
  * Format tool arguments for display
  * Shows relevant parameters for each tool type
  *
@@ -55,13 +69,6 @@ export function formatToolArguments(
   const usePlain = style === "plain";
 
   if (!args || Object.keys(args).length === 0) {
-    if (toolName === "web_search") {
-      const provider = safeString(options.metadata?.["provider"]);
-      if (!provider) return "";
-      return usePlain
-        ? `{ provider: ${provider} }`
-        : ` ${chalk.dim("provider:")} ${chalk.cyan(provider)}`;
-    }
     return "";
   }
 
@@ -309,21 +316,11 @@ export function formatToolArguments(
       return formatParts(parts);
     }
     case "web_search": {
-      // Check common query argument names across providers
+      // Check common query argument names across providers. The provider
+      // itself renders inside the tool name via formatToolDisplayName.
       const query = safeString(args["query"] || args["search_query"] || args["q"]);
-      const provider = safeString(options.metadata?.["provider"]);
-      if (!query) {
-        if (!provider) return "";
-        return usePlain
-          ? `{ provider: ${provider} }`
-          : ` ${chalk.dim("provider:")} ${chalk.cyan(provider)}`;
-      }
-      if (!provider) {
-        return usePlain ? `{ query: "${query}" }` : formatKeyValue("query", query);
-      }
-      return usePlain
-        ? `{ query: "${query}", provider: ${provider} }`
-        : `${formatKeyValue("query", query)} ${chalk.dim(`(${provider})`)}`;
+      if (!query) return "";
+      return usePlain ? `{ query: "${query}" }` : formatKeyValue("query", query);
     }
     case "mkdir": {
       const dirPath = safeString(args["path"]);
@@ -512,9 +509,10 @@ export function formatToolResult(toolName: string, result: string): string {
     const stdout = safeString(parsedResult["stdout"]);
     const stderr = safeString(parsedResult["stderr"]);
     const exitCode = safeString(parsedResult["exitCode"]);
+    const failed = exitCode !== "" && exitCode !== "0";
 
     if (!stdout && !stderr) {
-      return exitCode ? `exitCode: ${exitCode}` : "";
+      return failed ? `failed (exit code ${exitCode}), no output` : "no output";
     }
 
     const lines: string[] = [];
@@ -524,9 +522,9 @@ export function formatToolResult(toolName: string, result: string): string {
       lines.push("stderr:");
       lines.push(stderr);
     }
-    if (exitCode && exitCode !== "0") {
+    if (failed) {
       lines.push("");
-      lines.push(`exitCode: ${exitCode}`);
+      lines.push(`failed (exit code ${exitCode})`);
     }
 
     return lines.join("\n");

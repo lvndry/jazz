@@ -31,6 +31,26 @@ import {
 } from "../metrics/agent-run-metrics";
 
 /**
+ * Display metadata for tools whose behavior depends on a configured backend.
+ * For web_search, resolves the provider the handler will actually use
+ * (per-agent override first, then global config) so the UI can show
+ * `web_search(brave)` instead of a bare tool name.
+ */
+function resolveToolDisplayMetadata(
+  name: string,
+  context: ToolExecutionContext,
+): Effect.Effect<Record<string, unknown> | undefined, never, AgentConfigService> {
+  return Effect.gen(function* () {
+    if (name !== "web_search") return undefined;
+    const configService = yield* AgentConfigServiceTag;
+    const appConfig = yield* configService.appConfig;
+    const provider =
+      context.parentAgent?.config.webSearchProvider ?? appConfig.web_search?.provider;
+    return { provider: provider ?? "builtin" };
+  });
+}
+
+/**
  * Service for executing tools
  */
 export class ToolExecutor {
@@ -156,13 +176,7 @@ export class ToolExecutor {
         const isApprovalTool = toolsRequiringApproval.has(name);
         if (displayConfig.showToolExecution && !isApprovalTool) {
           // Build metadata for specific tools (e.g., web_search provider)
-          let metadata: Record<string, unknown> | undefined;
-          if (name === "web_search") {
-            const configService = yield* AgentConfigServiceTag;
-            const appConfig = yield* configService.appConfig;
-            const provider = appConfig.web_search?.provider;
-            metadata = { provider: provider ?? "builtin" };
-          }
+          const metadata = yield* resolveToolDisplayMetadata(name, context);
           if (renderer) {
             yield* renderer.handleEvent({
               type: "tool_execution_start",
@@ -299,13 +313,10 @@ export class ToolExecutor {
 
             // Emit execution start for the follow-up tool
             if (displayConfig.showToolExecution) {
-              let executeMetadata: Record<string, unknown> | undefined;
-              if (approvalResult.executeToolName === "web_search") {
-                const configService = yield* AgentConfigServiceTag;
-                const appConfig = yield* configService.appConfig;
-                const provider = appConfig.web_search?.provider;
-                executeMetadata = { provider: provider ?? "builtin" };
-              }
+              const executeMetadata = yield* resolveToolDisplayMetadata(
+                approvalResult.executeToolName,
+                context,
+              );
               if (renderer) {
                 yield* renderer.handleEvent({
                   type: "tool_execution_start",
@@ -383,6 +394,8 @@ export class ToolExecutor {
               toolCallId: toolCall.id,
               result: resultString,
               durationMs: toolDuration,
+              success: result.success,
+              ...(result.success ? {} : { error: result.error ?? "Tool execution failed" }),
             });
           } else {
             if (result.success) {
@@ -437,6 +450,8 @@ export class ToolExecutor {
               toolCallId: toolCall.id,
               result: `Error: ${errorMessage}`,
               durationMs: toolDuration,
+              success: false,
+              error: errorMessage,
             });
           } else {
             const message = yield* presentationService.formatToolExecutionError(
