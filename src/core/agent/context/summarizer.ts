@@ -16,6 +16,7 @@ import { logContextRung } from "./context-telemetry";
 import { DEFAULT_CONTEXT_WINDOW_MANAGER } from "./context-window-manager";
 import { resolveEffectiveContextWindow } from "./effective-context-window";
 import { DEFAULT_TOKEN_COUNTER, type ModelHint } from "./token-counter";
+import { appendJournalEntry } from "./work-journal";
 
 /** Longest tool-argument string kept verbatim in a summarizer transcript. */
 const MAX_RENDERED_ARGUMENT_CHARS = 200;
@@ -423,6 +424,17 @@ export const Summarizer = {
         originalTokens: currentTokens,
         compactedTokens: newTokens,
         tokensSaved: currentTokens - newTokens,
+      });
+
+      // Persist before it enters context. From here on this summary is folded into
+      // later ones; the journal keeps the version this cycle actually produced.
+      yield* appendJournalEntry(agent.id, conversationId, {
+        recordedAt: new Date().toISOString(),
+        tokensBefore: currentTokens,
+        tokensAfter: newTokens,
+        messagesBefore: currentMessages.length,
+        messagesAfter: compactedMessages.length,
+        summary: summaryMessage.content,
       });
 
       yield* logContextRung(logger, {

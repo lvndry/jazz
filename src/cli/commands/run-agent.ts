@@ -1,6 +1,7 @@
 import { Duration, Effect } from "effect";
 import { AgentRunner } from "@/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@/core/agent/agent-service";
+import { buildWorkStatePreamble } from "@/core/agent/context/work-state-preamble";
 import { CommonSuggestions, getErrorMessage } from "@/core/presentation/error-handler";
 import { makeOneShotPresentationServiceLayer } from "@/core/presentation/oneshot-presentation-service";
 import { AgentNotFoundError } from "@/core/types/errors";
@@ -386,6 +387,26 @@ export function runAgentOnceCommand(
     const priorRecord =
       conversationKey !== undefined ? yield* loadConversation(agent.id, conversationKey) : null;
 
+    // A resumed conversation loads post-compaction messages, so anything compaction
+    // dropped is missing from them. The journal is the only surviving copy; fold it back
+    // in ahead of the persisted history.
+    const workStatePreamble =
+      conversationKey !== undefined && priorRecord !== null
+        ? yield* buildWorkStatePreamble(agent.id, conversationKey, {
+            modelHint: {
+              provider: agentForRun.config.llmProvider,
+              modelId: agentForRun.config.llmModel,
+            },
+          })
+        : undefined;
+
+    const resumedHistory =
+      priorRecord !== null
+        ? workStatePreamble !== undefined
+          ? [workStatePreamble, ...priorRecord.messages]
+          : priorRecord.messages
+        : null;
+
     // Ephemeral runs never touch disk, so prior context (if any) comes back
     // in as inline JSON from the caller rather than a `--conversation` load.
     let inlineHistory: ChatMessage[] | undefined;
@@ -407,8 +428,8 @@ export function runAgentOnceCommand(
       conversationId: conversationKey ?? runId,
       ...(inlineHistory !== undefined
         ? { conversationHistory: inlineHistory }
-        : priorRecord !== null
-          ? { conversationHistory: priorRecord.messages }
+        : resumedHistory !== null
+          ? { conversationHistory: resumedHistory }
           : {}),
       ...(autoApprovePolicy !== undefined ? { autoApprovePolicy } : {}),
       ...(options.autoApprovedTools?.length
