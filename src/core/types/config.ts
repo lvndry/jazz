@@ -24,6 +24,16 @@ export interface AppConfig {
    * Set 0 to stop agents delegating at all.
    */
   readonly maxSubagentDepth?: number;
+  /**
+   * Iteration budget for a top-level run. Defaults to 100. An explicit
+   * `--max-iterations` on the command line still wins over this.
+   */
+  readonly maxIterations?: number;
+  /**
+   * Iteration budget for a sub-agent run. Defaults to 30 — a sub-agent answers
+   * one scoped task, so it needs far less headroom than the run that spawned it.
+   */
+  readonly maxSubagentIterations?: number;
 }
 
 export interface NotificationsConfig {

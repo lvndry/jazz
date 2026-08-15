@@ -1,5 +1,20 @@
-/** Default maximum number of agent iteration steps per run */
-export const DEFAULT_MAX_ITERATIONS = 80;
+/**
+ * Default maximum number of agent iteration steps per top-level run, when
+ * neither `--max-iterations` nor `maxIterations` in app config is set.
+ */
+export const DEFAULT_MAX_ITERATIONS = 100;
+
+/**
+ * Default iteration budget for a sub-agent run, when `maxSubagentIterations`
+ * is not set in app config.
+ *
+ * Deliberately far below a top-level run's. A sub-agent is given one scoped
+ * task and answers in one shot; a child still working after 30 iterations has
+ * usually misunderstood the brief rather than found more to do. Keeping it
+ * separate also bounds a nest of sub-agents, since every level gets a fresh
+ * budget rather than its parent's remainder.
+ */
+export const DEFAULT_MAX_SUBAGENT_ITERATIONS = 30;
 
 /** Maximum number of tools that can execute concurrently */
 export const MAX_CONCURRENT_TOOLS = 10;

@@ -55,7 +55,8 @@ export interface AgentRunnerOptions {
   /**
    * Maximum number of iterations (agent reasoning loops) allowed for this run.
    * Each iteration may involve tool calls and LLM responses.
-   * If not specified, defaults to `DEFAULT_MAX_ITERATIONS` (80).
+   * If not specified, falls back to `maxIterations` in app config and then to
+   * `DEFAULT_MAX_ITERATIONS`.
    */
   readonly maxIterations?: number;
   /**
@@ -230,6 +231,12 @@ export interface AgentRunContext {
   readonly model: string;
   readonly connectedMCPServers: readonly string[];
   readonly maxRetries?: number;
+  /**
+   * The run's iteration budget, already resolved from the call site's request,
+   * app config, and the built-in default. Executors use this rather than
+   * re-deriving it from options.
+   */
+  readonly maxIterations: number;
   readonly knownSkills: readonly {
     readonly name: string;
     readonly description: string;

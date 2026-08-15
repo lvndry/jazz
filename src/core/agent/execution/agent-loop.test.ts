@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { FileSystem } from "@effect/platform";
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import { Effect, Layer } from "effect";
+import { DEFAULT_MAX_ITERATIONS } from "@/core/constants/agent";
 import { clearModelsDevCache } from "@/core/utils/models-dev";
 import {
   buildBudgetPressureMessage,
@@ -180,6 +181,7 @@ function makeRunContext(overrides?: Partial<AgentRunContext>): AgentRunContext {
     expandedToolNames: [],
     connectedMCPServers: [],
     knownSkills: [],
+    maxIterations: DEFAULT_MAX_ITERATIONS,
     ...overrides,
   };
 }

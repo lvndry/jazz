@@ -1,5 +1,4 @@
 import { Effect, Fiber, Option, Ref } from "effect";
-import { DEFAULT_MAX_ITERATIONS } from "@/core/constants/agent";
 import { type AgentConfigService } from "@/core/interfaces/agent-config";
 import type { LLMService } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
@@ -274,7 +273,6 @@ function handleToolPhase(
     displayConfig,
     strategy,
     runMetrics,
-    maxIterations,
     options,
     logger,
   } = deps;
@@ -323,7 +321,6 @@ function handleToolPhase(
       },
       conversationMessages: state.currentMessages,
       parentAgent: agent,
-      parentMaxIterations: maxIterations,
       compactConversation: (compacted: readonly ChatMessage[]) => {
         state.currentMessages = [
           state.currentMessages[0],
@@ -667,10 +664,17 @@ export function executeAgentLoop(
     // Use: main loop
     ({ logger, finalizeFiberRef }) =>
       Effect.gen(function* () {
-        const { agent, maxIterations: maxIter } = options;
-        const maxIterations = maxIter ?? DEFAULT_MAX_ITERATIONS;
-        const { actualConversationId, context, tools, messages, runMetrics, provider, model } =
-          runContext;
+        const { agent } = options;
+        const {
+          actualConversationId,
+          context,
+          tools,
+          messages,
+          runMetrics,
+          provider,
+          model,
+          maxIterations,
+        } = runContext;
 
         // Fetch model's actual context window from models.dev
         const modelMetadata = yield* Effect.tryPromise({
