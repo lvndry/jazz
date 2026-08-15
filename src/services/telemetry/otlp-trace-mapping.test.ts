@@ -110,21 +110,11 @@ describe("toSpan", () => {
   });
 
   it("makes an event with neither run nor conversation its own root span", () => {
-    const span = toSpan(makeEvent("command_executed", { command: "agent list" }), false);
+    const span = toSpan(makeEvent("custom", { note: "standalone" }), false);
 
     expect(span.traceId).toHaveLength(32);
-    expect(span.name).toBe("jazz agent list");
     // Parenting it to a run root that will never be emitted would orphan it.
     expect(span.parentSpanId).toBeUndefined();
-  });
-
-  it("still parents a run-scoped command to its run", () => {
-    const span = toSpan(
-      makeEvent("command_executed", { command: "run", runId: "run-1", durationMs: 10 }),
-      false,
-    );
-
-    expect(span.parentSpanId).toBe(rootSpanIdForRun("run-1"));
   });
 
   it("carries the GenAI attributes from the log mapping", () => {
@@ -149,6 +139,100 @@ describe("isSpanEvent", () => {
   it("excludes agent_run_started, whose span comes from the terminal event", () => {
     expect(isSpanEvent(makeEvent("agent_run_started", {}))).toBe(false);
     expect(isSpanEvent(makeEvent("agent_run_completed", {}))).toBe(true);
+  });
+
+  it("excludes command_executed, which would emit a junk trace beside every run", () => {
+    expect(isSpanEvent(makeEvent("command_executed", { command: "run" }))).toBe(false);
+  });
+});
+
+describe("run rollup spans do not double-count usage", () => {
+  const usage = { promptTokens: 11654, completionTokens: 237, totalTokens: 11891 };
+
+  it("keeps the run rollup free of GenAI usage attributes", () => {
+    const span = toSpan(
+      makeEvent("agent_run_completed", {
+        runId: "run-1",
+        agentName: "researcher",
+        provider: "openai",
+        model: "gpt-5.4-nano",
+        durationMs: 6000,
+        usage,
+      }),
+      false,
+    );
+
+    const keys = span.attributes.map((attribute) => attribute.key);
+    // Any gen_ai.* on the rollup makes a backend price it as a further LLM call,
+    // on top of the per-request spans it summarises.
+    expect(keys.filter((key) => key.startsWith("gen_ai."))).toEqual([]);
+    // The totals are still reported, just not as semconv usage.
+    expect(keys).toContain("jazz.usage.promptTokens");
+    expect(keys).toContain("jazz.model");
+  });
+
+  it("keeps GenAI usage on the per-request span", () => {
+    const span = toSpan(
+      makeEvent("llm_usage", {
+        runId: "run-1",
+        provider: "openai",
+        model: "gpt-5.4-nano",
+        durationMs: 3538,
+        usage,
+      }),
+      false,
+    );
+
+    const attributes = Object.fromEntries(
+      span.attributes.map((attribute) => [attribute.key, Object.values(attribute.value)[0]]),
+    );
+    expect(attributes["gen_ai.usage.input_tokens"]).toBe("11654");
+    expect(attributes["gen_ai.usage.output_tokens"]).toBe("237");
+    expect(attributes["gen_ai.request.model"]).toBe("gpt-5.4-nano");
+  });
+
+  it("totals across per-request spans equal the rollup, counted once", () => {
+    const events = [
+      makeEvent(
+        "llm_usage",
+        { runId: "run-1", model: "gpt-5.4-nano", durationMs: 3538, usage },
+        { id: "e1" },
+      ),
+      makeEvent(
+        "llm_usage",
+        {
+          runId: "run-1",
+          model: "gpt-5.4-nano",
+          durationMs: 2284,
+          usage: { promptTokens: 10819, completionTokens: 58, totalTokens: 10877 },
+        },
+        { id: "e2" },
+      ),
+      makeEvent(
+        "agent_run_completed",
+        {
+          runId: "run-1",
+          durationMs: 6158,
+          usage: { promptTokens: 22473, completionTokens: 295, totalTokens: 22768 },
+        },
+        { id: "e3" },
+      ),
+    ];
+
+    const payload = buildTracesPayload(events, {
+      serviceName: "jazz",
+      serviceVersion: "1.0.0",
+      captureContent: false,
+    });
+
+    const spans = payload.resourceSpans[0]!.scopeSpans[0]!.spans;
+    const billedInput = spans
+      .flatMap((span) => span.attributes)
+      .filter((attribute) => attribute.key === "gen_ai.usage.input_tokens")
+      .reduce((total, attribute) => total + Number(Object.values(attribute.value)[0]), 0);
+
+    // 11654 + 10819 — the rollup's 22473 must not be added a second time.
+    expect(billedInput).toBe(22473);
   });
 });
 
