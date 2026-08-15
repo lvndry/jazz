@@ -186,35 +186,19 @@ export interface ToolExecutionContext {
    * Used by tools like spawn_subagent to inherit LLM configuration.
    */
   readonly parentAgent?: Agent;
-  /**
-   * Iteration budget to give a sub-agent spawned from this run, resolved from
-   * `maxSubagentIterations` in app config. A sub-agent gets its own budget
-   * rather than the parent's remainder — a child spawned on the parent's last
-   * iteration would be useless with one round — so this is a separate knob,
-   * defaulting well below a top-level run's.
-   */
+  /** Iteration budget for a sub-agent spawned here — its own, not the parent's remainder. */
   readonly maxSubagentIterations?: number;
   /**
-   * The parent's effective tool names for this run (after persona deny lists
-   * and any inherited allowlist). `spawn_subagent` passes this down as the
-   * child's allowlist so a child can never hold a tool its parent lacks —
-   * otherwise swapping the child's persona would be a way around the parent's
-   * toolset, which is Jazz's strongest safety control.
+   * The parent's effective tool names. `spawn_subagent` passes these down as
+   * the child's allowlist so a child can never hold a tool its parent lacks.
    */
   readonly parentToolNames?: readonly string[];
   /**
-   * How many sub-agent levels deep the run executing this tool already sits.
-   * 0 for a top-level run, 1 for its children, and so on. `spawn_subagent`
-   * increments it for the child and refuses past `maxSubagentDepth`, which is
-   * the only thing bounding total delegated spend: every level gets a fresh
-   * iteration budget rather than its parent's remainder.
+   * How many sub-agent levels sit above the run executing this tool. 0 at the
+   * top level; `spawn_subagent` increments it and refuses past the limit.
    */
   readonly subagentDepth?: number;
-  /**
-   * Nesting limit in force for this run, resolved from `maxSubagentDepth` in
-   * app config. Resolved by the runner rather than read in the tool so the
-   * whole tree obeys one value.
-   */
+  /** Nesting limit for this run, resolved once by the runner so a whole tree agrees. */
   readonly maxSubagentDepth?: number;
   /**
    * Callback to replace conversation messages with compacted versions.

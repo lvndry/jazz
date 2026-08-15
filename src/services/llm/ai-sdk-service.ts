@@ -46,7 +46,7 @@ import shortUUID from "short-uuid";
 import { minimax } from "vercel-minimax-ai-provider";
 import { createZhipu, zhipu } from "zhipu-ai-provider";
 import { z } from "zod";
-import { DEFAULT_MAX_ITERATIONS, AI_SDK_MAX_RETRIES } from "@/core/constants/agent";
+import { AI_SDK_MAX_RETRIES, AI_SDK_MAX_STEPS } from "@/core/constants/agent";
 import type { ProviderName } from "@/core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
@@ -1313,7 +1313,7 @@ class AISDKService implements LLMService {
           ...(tools ? { tools } : {}),
           ...(requestedToolChoice ? { toolChoice: requestedToolChoice } : {}),
           ...(providerOptions ? { providerOptions } : {}),
-          stopWhen: stepCountIs(DEFAULT_MAX_ITERATIONS),
+          stopWhen: stepCountIs(AI_SDK_MAX_STEPS),
         });
         void this.logger.debug(
           `[LLM Timing] generateText completed in ${Date.now() - generateTextStart}ms`,
@@ -1560,7 +1560,7 @@ class AISDKService implements LLMService {
                   ...(requestedToolChoice ? { toolChoice: requestedToolChoice } : {}),
                   ...(providerOptions ? { providerOptions } : {}),
                   abortSignal: abortController.signal,
-                  stopWhen: stepCountIs(DEFAULT_MAX_ITERATIONS),
+                  stopWhen: stepCountIs(AI_SDK_MAX_STEPS),
                 });
                 const result = streamTextResult;
 

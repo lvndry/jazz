@@ -1,18 +1,9 @@
-/**
- * Default maximum number of agent iteration steps per top-level run, when
- * neither `--max-iterations` nor `maxIterations` in app config is set.
- */
+/** Default iteration budget for a top-level run, when neither --max-iterations nor config sets one */
 export const DEFAULT_MAX_ITERATIONS = 100;
 
 /**
- * Default iteration budget for a sub-agent run, when `maxSubagentIterations`
- * is not set in app config.
- *
- * Deliberately far below a top-level run's. A sub-agent is given one scoped
- * task and answers in one shot; a child still working after 30 iterations has
- * usually misunderstood the brief rather than found more to do. Keeping it
- * separate also bounds a nest of sub-agents, since every level gets a fresh
- * budget rather than its parent's remainder.
+ * Default iteration budget for a sub-agent run. Far below a top-level run's:
+ * a sub-agent answers one scoped task, and every level gets a fresh budget.
  */
 export const DEFAULT_MAX_SUBAGENT_ITERATIONS = 30;
 
@@ -20,13 +11,8 @@ export const DEFAULT_MAX_SUBAGENT_ITERATIONS = 30;
 export const MAX_CONCURRENT_TOOLS = 10;
 
 /**
- * How many levels of sub-agent may nest below a top-level run, when
- * `maxSubagentDepth` is not set in app config.
- *
- * Each level gets a fresh iteration budget rather than its parent's remainder —
- * a child spawned on the parent's last iteration still needs a full budget to be
- * useful — so depth, not the parent's remaining budget, is what bounds total
- * spend. Three levels covers orchestrator → specialist → helper.
+ * How many levels of sub-agent may nest below a top-level run. Every level gets
+ * a fresh iteration budget, so depth is what bounds total delegated spend.
  */
 export const DEFAULT_MAX_SUBAGENT_DEPTH = 3;
 
@@ -63,6 +49,12 @@ export const DEFAULT_MAX_LLM_RETRIES = 10;
 
 /** AI SDK internal retries are disabled — Jazz retries via Effect.retry instead. */
 export const AI_SDK_MAX_RETRIES = 0;
+
+/**
+ * Backstop on the AI SDK's multi-step loop inside a single completion call.
+ * Not Jazz's agent loop — must not follow `maxIterations` from app config.
+ */
+export const AI_SDK_MAX_STEPS = 20;
 
 /** Maximum delay between LLM retry attempts in seconds (caps exponential backoff) */
 export const MAX_RETRY_DELAY_SECONDS = 30;

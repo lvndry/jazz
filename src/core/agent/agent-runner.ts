@@ -85,9 +85,6 @@ function initializeAgentRun(
       : null;
     const toolProfile = resolvedPersona?.toolProfile;
 
-    // An explicit budget from the call site (--max-iterations, a workflow's
-    // metadata, a sub-agent spawn) wins; app config sets the default for
-    // everything else.
     const resolvedMaxIterations = Math.max(
       1,
       Math.floor(options.maxIterations ?? appConfig.maxIterations ?? DEFAULT_MAX_ITERATIONS),
@@ -170,12 +167,8 @@ function initializeAgentRun(
       combinedToolNames = combinedToolNames.filter((name) => name !== "manage_memory");
     }
 
-    // A sub-agent run inherits its parent's effective toolset as a ceiling, so
-    // a child spawned under a different persona cannot end up with a tool the
-    // parent lacked. Applied after personas and built-in categories resolve —
-    // earlier would let the child's persona re-add a category the parent denied
-    // — and before the registry filter, so dropped names never reach approval
-    // or the LLM tool list.
+    // Applied after personas resolve (earlier would let a child's persona re-add
+    // a category the parent denied) and before the registry filter.
     if (options.toolAllowlist) {
       const allowed = new Set(options.toolAllowlist);
       const withheld = combinedToolNames.filter((toolName) => !allowed.has(toolName));
