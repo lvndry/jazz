@@ -99,7 +99,7 @@ working after 30 iterations has usually misunderstood the brief rather than foun
 That means the parent's remaining budget bounds nothing. Depth does. Each run carries how many
 levels sit above it, and `spawn_subagent` refuses once the limit is reached:
 
-```
+```text
 Sub-agent nesting limit reached (depth 3 of 3). Do this task yourself instead of delegating it further.
 ```
 
