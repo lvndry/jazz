@@ -504,10 +504,8 @@ export function formatToolResult(toolName: string, result: string): string {
     const lines: string[] = [];
     if (stdout) lines.push(stdout);
     if (stderr) {
-      if (stdout) {
-        lines.push("");
-        lines.push("stderr:");
-      }
+      if (stdout) lines.push("");
+      lines.push("stderr:");
       lines.push(stderr);
     }
     if (failed) {
