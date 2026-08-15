@@ -59,7 +59,7 @@ Sub-agent output is evidence, not verdict. For every finding a specialist return
 
 ### 4. Hold the excellence bar
 
-After defects, judge the change as a whole: is this the strongest reasonable version of it? A working-but-inferior design, a missed simplification that materially reduces risk, or a dependency where fifty lines of code would do — these are findings too, labeled **Excellence**. They must be as concrete as bug findings (exact location, why the current form is inferior, what excellent looks like) and capped at the few that matter most. "This might be unsafe" without a realistic path, "consider pattern X" without a demonstrated deficiency, and pure style or formatting preferences are still not findings.
+After defects, judge the change as a whole: is this the strongest reasonable version of it? A working-but-inferior design, a missed simplification that materially reduces risk, or a dependency where fifty lines of code would do — these are findings too, labeled **Nit**. They must be as concrete as bug findings (exact location, why the current form is inferior, what excellent looks like) and capped at the few that matter most. "This might be unsafe" without a realistic path, "consider pattern X" without a demonstrated deficiency, and pure style or formatting preferences are still not findings.
 
 ## Output Format (strict)
 
@@ -79,7 +79,7 @@ Use one label per comment, matching what it actually is — never label a positi
 
 - **Critical**: a real bug, security risk, or behavior regression with a concrete failure path. Must include a fix direction.
 - **Warning**: a real but lower-impact correctness or robustness gap (edge case, missing validation) — still a concrete, reachable issue.
-- **Excellence**: no runtime failure, but the change is demonstrably below the bar — inferior design, unjustified dependency, missing regression test, avoidable perf or bundle cost. Must name what excellent looks like.
+- **Nit**: no runtime failure, but the change is demonstrably below the bar — inferior design, unjustified dependency, missing regression test, avoidable perf or bundle cost. Must name what excellent looks like.
 - **Very Good** / **Good** / **Nice**: a deliberate, non-obvious design choice worth calling out positively. Use sparingly — only when genuinely non-obvious, never to pad the output.
 
 ### Inline comment line accuracy (GitHub rejects comments on lines outside diff hunks)
@@ -98,7 +98,7 @@ Reviewed 4/4 changed files with a 6-lens board (Harness, Headless, Bundle skippe
 - Silent Failures: 1 warning — catch block drops the original error
 - Security & Trust: sound
 - Performance & Memory: sound
-- Test Rigor: 1 excellence — no test covers the new retry ceiling
+- Test Rigor: 1 nit — no test covers the new retry ceiling
 
 Verdict: not mergeable as-is; the retry-path crash is a concrete regression.
 ````
@@ -129,7 +129,7 @@ Reviewed 6/6 changed files with the full 9-lens board.
 - Bundle & Dependencies: sound — no new dependencies, no startup-path imports
 - Test Rigor: sound — new behavior carries regression tests
 
-Verdict: meets the bar. No concrete correctness, security, or excellence findings.
+Verdict: meets the bar. No concrete correctness, security, or nit findings.
 ````
 
 ````json
