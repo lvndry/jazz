@@ -74,6 +74,7 @@ import {
 import { createDeferred } from "@/core/utils/promise";
 import { formatProviderDisplayName } from "@/core/utils/provider-model";
 import { sanitize } from "@/core/utils/string";
+import { LLM_PROVIDER_ENV_VARS } from "@/services/secrets/registry";
 import {
   createModelFetcher,
   fetchModelsDevModels,
@@ -473,24 +474,7 @@ function checkProviderNativeWebSearchSupport(
  * Environment variable names for each provider's API key.
  * Used as a fallback when no key is configured in the config file.
  */
-const PROVIDER_ENV_VARS: Record<string, string> = {
-  alibaba: "ALIBABA_API_KEY",
-  anthropic: "ANTHROPIC_API_KEY",
-  cerebras: "CEREBRAS_API_KEY",
-  deepseek: "DEEPSEEK_API_KEY",
-  fireworks: "FIREWORKS_API_KEY",
-  google: "GOOGLE_GENERATIVE_AI_API_KEY",
-  groq: "GROQ_API_KEY",
-  llamacpp: "LLAMACPP_API_KEY",
-  minimax: "MINIMAX_API_KEY",
-  mistral: "MISTRAL_API_KEY",
-  moonshotai: "MOONSHOT_API_KEY",
-  openai: "OPENAI_API_KEY",
-  openrouter: "OPENROUTER_API_KEY",
-  togetherai: "TOGETHER_AI_API_KEY",
-  xai: "XAI_API_KEY",
-  zhipuai: "ZHIPU_API_KEY",
-};
+const PROVIDER_ENV_VARS = LLM_PROVIDER_ENV_VARS;
 
 function getConfiguredProviders(
   llmConfig?: LLMConfig,

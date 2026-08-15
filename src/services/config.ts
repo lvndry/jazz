@@ -18,6 +18,24 @@ import {
   getJazzHomeDirectory,
   getLocalJazzDirectory,
 } from "@/core/utils/paths";
+import {
+  detectKeyringBackend,
+  keyringDelete,
+  keyringGet,
+  keyringSet,
+  type KeyringBackend,
+} from "./secrets/keyring";
+import { SECRET_PATHS, envVarForSecretPath, isSecretPath } from "./secrets/registry";
+
+/**
+ * ~/.jazz/config.json can hold API keys, so it is created private to the user
+ * and repaired on load — a default umask would otherwise leave it world-readable.
+ */
+const CONFIG_FILE_MODE = 0o600;
+const CONFIG_DIR_MODE = 0o700;
+
+/** Where a resolved secret came from. Anything but "file" must never be persisted. */
+type SecretOrigin = "env" | "keyring";
 
 /**
  * Extract only override fields (enabled) from a server config.
@@ -31,15 +49,27 @@ function extractMcpOverride(entry: unknown): MCPServerOverride | undefined {
 }
 
 /**
- * Build jazz config for persistence: full config but mcpServers replaced by overrides only.
+ * Build jazz config for persistence: full config but mcpServers replaced by
+ * overrides only, and secrets held elsewhere (env or keyring) left out entirely
+ * so resolving a key at runtime never causes it to be written back to disk.
  */
 function buildJazzConfigForPersist(
   config: AppConfig,
   mcpOverrides: Record<string, MCPServerOverride>,
+  secretOrigins: ReadonlyMap<string, SecretOrigin>,
+  fileSecrets: ReadonlyMap<string, string>,
 ): Record<string, unknown> {
   const json = config as unknown as Record<string, unknown>;
-  const out = { ...json };
+  const out = structuredClone(json);
   out["mcpServers"] = Object.keys(mcpOverrides).length > 0 ? mcpOverrides : undefined;
+  for (const path of secretOrigins.keys()) {
+    deepDelete(out, path);
+  }
+  // Restore what the file itself owns, so an env var that merely shadows a
+  // stored key at runtime does not erase it from disk.
+  for (const [path, value] of fileSecrets) {
+    deepSet(out, path, value);
+  }
   return out;
 }
 
@@ -52,18 +82,27 @@ export class AgentConfigServiceImpl implements AgentConfigService {
   private configPath: string | undefined;
   private fs: FileSystem.FileSystem;
   private currentRevision: number;
+  private keyringBackend: KeyringBackend;
+  private secretOrigins: Map<string, SecretOrigin>;
+  private fileSecrets: Map<string, string>;
 
   constructor(
     initialConfig: AppConfig,
     mcpOverrides: Record<string, MCPServerOverride>,
     configPath: string | undefined,
     fs: FileSystem.FileSystem,
+    keyringBackend: KeyringBackend = "none",
+    secretOrigins: ReadonlyMap<string, SecretOrigin> = new Map(),
+    fileSecrets: ReadonlyMap<string, string> = new Map(),
   ) {
     this.currentConfig = initialConfig;
     this.mcpOverrides = mcpOverrides;
     this.configPath = configPath;
     this.fs = fs;
     this.currentRevision = 0;
+    this.keyringBackend = keyringBackend;
+    this.secretOrigins = new Map(secretOrigins);
+    this.fileSecrets = new Map(fileSecrets);
   }
 
   get<A>(key: string): Effect.Effect<A, never> {
@@ -156,23 +195,61 @@ export class AgentConfigServiceImpl implements AgentConfigService {
           deepSet(this.currentConfig as unknown as Record<string, unknown>, key, value);
         }
 
+        if (isSecretPath(key)) {
+          yield* this.storeSecret(key, value);
+        }
+
         // Persist to file
         const path = this.configPath ?? `${getJazzHomeDirectory()}/config.json`;
         if (!this.configPath) {
           this.configPath = path;
           const dir = path.substring(0, path.lastIndexOf("/"));
           yield* this.fs
-            .makeDirectory(dir, { recursive: true })
+            .makeDirectory(dir, { recursive: true, mode: CONFIG_DIR_MODE })
             .pipe(Effect.catchAll(() => Effect.void));
         }
 
-        const toWrite = buildJazzConfigForPersist(this.currentConfig, this.mcpOverrides);
-        yield* this.fs
-          .writeFileString(path, JSON.stringify(toWrite, null, 2))
-          .pipe(Effect.catchAll(() => Effect.void));
+        const toWrite = buildJazzConfigForPersist(
+          this.currentConfig,
+          this.mcpOverrides,
+          this.secretOrigins,
+          this.fileSecrets,
+        );
+        yield* writePrivateFile(this.fs, path, JSON.stringify(toWrite, null, 2));
         this.currentRevision += 1;
       }.bind(this),
     ).pipe(Effect.catchAll(() => Effect.void));
+  }
+
+  /**
+   * Route a secret to the keyring when one is usable, recording where it now
+   * lives so it is excluded from the config file on persist. Falls through to
+   * file storage (mode 0600) when there is no keyring.
+   */
+  private storeSecret(key: string, value: unknown): Effect.Effect<void, never> {
+    return Effect.gen(
+      function* (this: AgentConfigServiceImpl) {
+        const isBlank = typeof value !== "string" || value.trim() === "";
+        if (isBlank) {
+          yield* keyringDelete(this.keyringBackend, key);
+          this.secretOrigins.delete(key);
+          this.fileSecrets.delete(key);
+          return;
+        }
+
+        const stored = yield* keyringSet(this.keyringBackend, key, value);
+        if (stored) {
+          this.secretOrigins.set(key, "keyring");
+          this.fileSecrets.delete(key);
+          return;
+        }
+
+        // No usable keyring: the value stays in the config file, which
+        // writePrivateFile keeps at mode 0600.
+        this.secretOrigins.delete(key);
+        this.fileSecrets.set(key, value);
+      }.bind(this),
+    );
   }
 
   get revision(): Effect.Effect<number, never> {
@@ -244,7 +321,24 @@ export function createConfigLayer(
 
       const finalConfig = mergeAgentsMcpIntoConfig(mainConfig, agentsServers, mcpOverrides);
 
-      return new AgentConfigServiceImpl(finalConfig, mcpOverrides, loaded.configPath, fs);
+      const keyringBackend = yield* detectKeyringBackend();
+      const secrets = yield* resolveSecrets(
+        fs,
+        finalConfig,
+        loaded.configPath,
+        loaded.globalConfig,
+        keyringBackend,
+      );
+
+      return new AgentConfigServiceImpl(
+        secrets.config,
+        mcpOverrides,
+        loaded.configPath,
+        fs,
+        keyringBackend,
+        secrets.origins,
+        secrets.fileSecrets,
+      );
     }),
   );
 }
@@ -335,6 +429,166 @@ function mergeConfig(base: AppConfig, override?: Partial<AppConfig>): AppConfig 
     ...(override.maxRetries !== undefined && { maxRetries: override.maxRetries }),
     ...(override.telemetry && { telemetry: { ...(base.telemetry ?? {}), ...override.telemetry } }),
   };
+}
+
+/**
+ * Write a file that only the owning user can read, repairing the mode on files
+ * that already exist — `writeFileString`'s mode applies solely at creation.
+ */
+function writePrivateFile(
+  fs: FileSystem.FileSystem,
+  filePath: string,
+  content: string,
+): Effect.Effect<void, never> {
+  return Effect.gen(function* () {
+    yield* fs
+      .writeFileString(filePath, content, { mode: CONFIG_FILE_MODE })
+      .pipe(Effect.catchAll(() => Effect.void));
+    yield* chmodQuietly(fs, filePath, CONFIG_FILE_MODE);
+  });
+}
+
+/** chmod that tolerates both failures and FileSystem stubs without `chmod`. */
+function chmodQuietly(
+  fs: FileSystem.FileSystem,
+  filePath: string,
+  mode: number,
+): Effect.Effect<void, never> {
+  return Effect.suspend(() => fs.chmod(filePath, mode)).pipe(
+    Effect.catchAll(() => Effect.void),
+    Effect.catchAllDefect(() => Effect.void),
+  );
+}
+
+/**
+ * Every secret-bearing path present in a config, including providers Jazz does
+ * not ship support for, so nothing is left behind in plaintext.
+ */
+function collectSecretPaths(config: Partial<AppConfig>): string[] {
+  const record = config as unknown as Record<string, unknown>;
+  const paths: string[] = [];
+
+  for (const section of ["llm", "web_search"]) {
+    const providers = record[section];
+    if (!providers || typeof providers !== "object") continue;
+    for (const [provider, providerConfig] of Object.entries(providers)) {
+      if (!providerConfig || typeof providerConfig !== "object") continue;
+      if (typeof (providerConfig as Record<string, unknown>)["api_key"] !== "string") continue;
+      paths.push(`${section}.${provider}.api_key`);
+    }
+  }
+
+  for (const path of ["google.clientId", "google.clientSecret"]) {
+    if (typeof deepGet(record, path) === "string") paths.push(path);
+  }
+
+  return paths;
+}
+
+function nonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim() !== "";
+}
+
+/**
+ * Resolve secrets in precedence order — environment, then keyring, then the
+ * config file — and move any plaintext left in the global config file into the
+ * keyring when one is available.
+ */
+function resolveSecrets(
+  fs: FileSystem.FileSystem,
+  config: AppConfig,
+  globalConfigPath: string | undefined,
+  globalFileConfig: Partial<AppConfig> | undefined,
+  backend: KeyringBackend,
+): Effect.Effect<
+  {
+    config: AppConfig;
+    origins: Map<string, SecretOrigin>;
+    fileSecrets: Map<string, string>;
+  },
+  never
+> {
+  return Effect.gen(function* () {
+    const resolved = structuredClone(config) as unknown as Record<string, unknown>;
+    const origins = new Map<string, SecretOrigin>();
+    const candidates = new Set([...SECRET_PATHS, ...collectSecretPaths(config)]);
+
+    for (const path of candidates) {
+      const envVar = envVarForSecretPath(path);
+      const envValue = envVar ? process.env[envVar] : undefined;
+      if (nonEmptyString(envValue)) {
+        deepSet(resolved, path, envValue);
+        origins.set(path, "env");
+      }
+    }
+
+    if (backend !== "none") {
+      const lookups = [...candidates].filter((path) => !origins.has(path));
+      const found = yield* Effect.all(
+        lookups.map((path) =>
+          keyringGet(backend, path).pipe(Effect.map((value) => [path, value] as const)),
+        ),
+        { concurrency: "unbounded" },
+      );
+      for (const [path, value] of found) {
+        if (!nonEmptyString(value)) continue;
+        deepSet(resolved, path, value);
+        origins.set(path, "keyring");
+      }
+    }
+
+    const fileRecord = (globalFileConfig ?? {}) as unknown as Record<string, unknown>;
+    const migrated = yield* migratePlaintextSecrets(backend, fileRecord, candidates);
+    for (const path of migrated) {
+      origins.set(path, "keyring");
+    }
+
+    // Secrets the file still legitimately owns. Kept verbatim so that a shadowing
+    // env var never causes the stored copy to be dropped on the next write.
+    const fileSecrets = new Map<string, string>();
+    for (const path of candidates) {
+      if (migrated.includes(path)) continue;
+      const fileValue = deepGet(fileRecord, path);
+      if (nonEmptyString(fileValue)) fileSecrets.set(path, fileValue);
+    }
+
+    if (migrated.length > 0 && globalConfigPath) {
+      const cleaned = structuredClone(fileRecord);
+      for (const path of migrated) {
+        deepDelete(cleaned, path);
+      }
+      yield* writePrivateFile(fs, globalConfigPath, JSON.stringify(cleaned, null, 2));
+    } else if (globalConfigPath) {
+      yield* chmodQuietly(fs, globalConfigPath, CONFIG_FILE_MODE);
+    }
+
+    return { config: resolved as unknown as AppConfig, origins, fileSecrets };
+  });
+}
+
+/**
+ * Move secrets still sitting in the global config file into the keyring.
+ * Returns the paths that moved, i.e. those now safe to drop from the file.
+ */
+function migratePlaintextSecrets(
+  backend: KeyringBackend,
+  fileRecord: Record<string, unknown>,
+  candidates: ReadonlySet<string>,
+): Effect.Effect<string[], never> {
+  return Effect.gen(function* () {
+    if (backend === "none") return [];
+
+    const migrated: string[] = [];
+    for (const path of candidates) {
+      const fileValue = deepGet(fileRecord, path);
+      if (!nonEmptyString(fileValue)) continue;
+
+      const stored = yield* keyringSet(backend, path, fileValue);
+      if (stored) migrated.push(path);
+    }
+
+    return migrated;
+  });
 }
 
 function expandHome(p: string): string {
@@ -721,6 +975,33 @@ function deepHas(obj: Record<string, unknown>, path: string): boolean {
  * Example: deepSet(obj, "storage.type", "file") sets obj.storage.type = "file"
  * If obj.storage doesn't exist, it will be created as an empty object first.
  */
+/**
+ * Removes the value at a dot notation path, then discards any parent objects
+ * the removal emptied — so dropping `llm.openai.api_key` does not leave an
+ * orphaned `llm.openai: {}` behind in the written config.
+ */
+function deepDelete(obj: Record<string, unknown>, path: string): void {
+  const parts = path.split(".").filter(Boolean);
+  if (parts.length === 0) return;
+
+  const chain: Record<string, unknown>[] = [obj];
+  let cur: Record<string, unknown> = obj;
+  for (let i = 0; i < parts.length - 1; i++) {
+    const next = cur[parts[i] as string];
+    if (!next || typeof next !== "object") return;
+    cur = next as Record<string, unknown>;
+    chain.push(cur);
+  }
+
+  delete cur[parts[parts.length - 1] as string];
+
+  for (let i = chain.length - 1; i > 0; i--) {
+    const node = chain[i] as Record<string, unknown>;
+    if (Object.keys(node).length > 0) break;
+    delete (chain[i - 1] as Record<string, unknown>)[parts[i - 1] as string];
+  }
+}
+
 function deepSet(obj: Record<string, unknown>, path: string, value: unknown): void {
   const parts = path.split(".").filter(Boolean);
   let cur: Record<string, unknown> = obj;

@@ -70,7 +70,28 @@ describe("AgentConfigService", () => {
     expect(mockFS.writeFileString).toHaveBeenCalledWith(
       configPath,
       expect.stringContaining("sk-test"),
+      { mode: 0o600 },
     );
+  });
+
+  it("writes the config file owner-only and repairs an existing mode", async () => {
+    const configPath = "/tmp/config-mode.json";
+    const service = new AgentConfigServiceImpl(initialConfig, {}, configPath, mockFS);
+
+    await Effect.runPromise(service.set("logging.level", "debug"));
+
+    const writeCalls = (mockFS.writeFileString as ReturnType<typeof mock>).mock.calls;
+    expect(writeCalls[writeCalls.length - 1]?.[2]).toEqual({ mode: 0o600 });
+    expect(mockFS.chmod).toHaveBeenCalledWith(configPath, 0o600);
+  });
+
+  it("creates the config directory owner-only", async () => {
+    const service = new AgentConfigServiceImpl(initialConfig, {}, undefined, mockFS);
+
+    await Effect.runPromise(service.set("logging.level", "debug"));
+
+    const dirCalls = (mockFS.makeDirectory as ReturnType<typeof mock>).mock.calls;
+    expect(dirCalls[dirCalls.length - 1]?.[1]).toEqual({ recursive: true, mode: 0o700 });
   });
 
   it("should return default value for missing keys with getOrElse", async () => {
@@ -116,6 +137,89 @@ describe("createConfigLayer", () => {
       makeDirectory: mock(() => Effect.void),
     } as unknown as FileSystem;
   }
+
+  it("resolves secrets from the environment over the config file", async () => {
+    const globalPath = path.join(os.homedir(), ".jazz", "config.json");
+    const fileContents = new Map<string, string>([
+      [globalPath, JSON.stringify({ llm: { openai: { api_key: "sk-from-file" } } })],
+    ]);
+
+    process.env["OPENAI_API_KEY"] = "sk-from-env";
+    process.env["BRAVE_API_KEY"] = "brave-from-env";
+    try {
+      const layer = createConfigLayer().pipe(
+        Layer.provide(Layer.succeed(FileSystem.FileSystem, createTestFileSystem(fileContents))),
+      );
+      const program = Effect.gen(function* () {
+        const config = yield* AgentConfigServiceTag;
+        return {
+          openai: yield* config.get<string>("llm.openai.api_key"),
+          brave: yield* config.get<string>("web_search.brave.api_key"),
+        };
+      }).pipe(Effect.provide(layer));
+
+      const result = await Effect.runPromise(program);
+      expect(result.openai).toBe("sk-from-env");
+      expect(result.brave).toBe("brave-from-env");
+    } finally {
+      delete process.env["OPENAI_API_KEY"];
+      delete process.env["BRAVE_API_KEY"];
+    }
+  });
+
+  it("never writes an env-supplied secret into the config file", async () => {
+    const globalPath = path.join(os.homedir(), ".jazz", "config.json");
+    const fileContents = new Map<string, string>([[globalPath, JSON.stringify({})]]);
+    const testFS = createTestFileSystem(fileContents);
+
+    process.env["OPENAI_API_KEY"] = "sk-from-env";
+    try {
+      const layer = createConfigLayer().pipe(
+        Layer.provide(Layer.succeed(FileSystem.FileSystem, testFS)),
+      );
+      const program = Effect.gen(function* () {
+        const config = yield* AgentConfigServiceTag;
+        yield* config.set("logging.level", "debug");
+      }).pipe(Effect.provide(layer));
+
+      await Effect.runPromise(program);
+
+      const calls = (testFS.writeFileString as ReturnType<typeof mock>).mock.calls;
+      const written = calls[calls.length - 1]?.[1] as string;
+      expect(written).not.toContain("sk-from-env");
+      expect(JSON.parse(written).llm?.openai).toBeUndefined();
+    } finally {
+      delete process.env["OPENAI_API_KEY"];
+    }
+  });
+
+  it("keeps a file-stored secret on disk even when an env var shadows it", async () => {
+    const globalPath = path.join(os.homedir(), ".jazz", "config.json");
+    const fileContents = new Map<string, string>([
+      [globalPath, JSON.stringify({ llm: { openai: { api_key: "sk-from-file" } } })],
+    ]);
+    const testFS = createTestFileSystem(fileContents);
+
+    process.env["OPENAI_API_KEY"] = "sk-from-env";
+    try {
+      const layer = createConfigLayer().pipe(
+        Layer.provide(Layer.succeed(FileSystem.FileSystem, testFS)),
+      );
+      const program = Effect.gen(function* () {
+        const config = yield* AgentConfigServiceTag;
+        yield* config.set("logging.level", "debug");
+      }).pipe(Effect.provide(layer));
+
+      await Effect.runPromise(program);
+
+      const calls = (testFS.writeFileString as ReturnType<typeof mock>).mock.calls;
+      const written = JSON.parse(calls[calls.length - 1]?.[1] as string);
+      expect(written.llm.openai.api_key).toBe("sk-from-file");
+      expect(written.llm.openai.api_key).not.toBe("sk-from-env");
+    } finally {
+      delete process.env["OPENAI_API_KEY"];
+    }
+  });
 
   it("merges global and local config with local overrides winning", async () => {
     const homeDir = os.homedir();

@@ -5,6 +5,11 @@
 `web_search` needs a configured provider; without one it errors. `web_fetch` and
 `http_request` need no key.
 
+Each provider's key can come from an environment variable instead of the config file —
+`BRAVE_API_KEY`, `EXA_API_KEY`, `LINKUP_API_KEY`, `PARALLEL_API_KEY`, `PERPLEXITY_API_KEY`,
+`TAVILY_API_KEY` — or from your OS keyring. See
+[Security → Know where your API keys live](../../SECURITY.md#know-where-your-api-keys-live).
+
 ---
 
 Enable your agents to search the web and get current information.
