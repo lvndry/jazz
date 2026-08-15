@@ -16,6 +16,22 @@ const MAX_EXPANDABLE_CHARS = 100_000;
 
 type FormatStyle = "plain" | "colored";
 
+/**
+ * Merge an http_request `query` argument into the displayed URL so searches
+ * read as the request actually sent (`…/html/?q=…`), not the bare base URL.
+ */
+function appendQueryParams(url: string, query: unknown): string {
+  if (typeof query !== "object" || query === null || Array.isArray(query)) return url;
+  const entries = Object.entries(query as Record<string, unknown>).filter(
+    ([, value]) => value !== undefined && value !== null,
+  );
+  if (entries.length === 0) return url;
+  const queryString = entries
+    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(safeString(value))}`)
+    .join("&");
+  return `${url}${url.includes("?") ? "&" : "?"}${queryString}`;
+}
+
 interface FormatOptions {
   style?: FormatStyle;
   /** Executor hints for display (e.g. web_search backend: builtin vs configured provider). */
@@ -290,10 +306,11 @@ export function formatToolArguments(
       }
       const url = safeString(args["url"]);
       if (url) {
+        const resolvedUrl = appendQueryParams(url, args["query"]);
         if (usePlain) {
-          parts.push(`url: ${url}`);
+          parts.push(`url: ${resolvedUrl}`);
         } else {
-          parts.push(` ${chalk.cyan(url)}`);
+          parts.push(` ${chalk.cyan(resolvedUrl)}`);
         }
       }
       return formatParts(parts);

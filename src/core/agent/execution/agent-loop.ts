@@ -11,6 +11,7 @@ import type { DisplayConfig } from "@/core/types/output";
 import type { StreamEvent } from "@/core/types/streaming";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import { formatToolResultForContext } from "@/core/utils/tool-result-formatter";
+import { computeUsageCostUSD, type UsageCostPricing } from "@/core/utils/usage-cost";
 import type { AgentLoopObserver } from "./agent-loop-observer";
 import { ToolExecutor } from "./tool-executor";
 import { logContextRung } from "../context/context-telemetry";
@@ -220,7 +221,7 @@ interface FinalizeInput {
   response: AgentResponse;
   currentMessages: ConversationMessages;
   runMetrics: AgentRunMetrics;
-  modelMetadata: { inputPricePerMillion?: number; outputPricePerMillion?: number } | undefined;
+  modelMetadata: UsageCostPricing | undefined;
   iterationsUsed: number;
   finished: boolean;
   interrupted: boolean;
@@ -268,13 +269,15 @@ function finalizeRun(
     );
     yield* Ref.set(finalizeFiberRef, Option.some(finalizeFiber));
 
-    const inputPrice = modelMetadata?.inputPricePerMillion ?? 0;
-    const outputPrice = modelMetadata?.outputPricePerMillion ?? 0;
     const ownCostUSD =
-      inputPrice > 0 || outputPrice > 0
-        ? (runMetrics.totalPromptTokens / 1_000_000) * inputPrice +
-          (runMetrics.totalCompletionTokens / 1_000_000) * outputPrice
-        : undefined;
+      computeUsageCostUSD(
+        {
+          promptTokens: runMetrics.totalPromptTokens,
+          completionTokens: runMetrics.totalCompletionTokens,
+          cacheReadTokens: runMetrics.totalCacheReadTokens,
+        },
+        modelMetadata,
+      ) ?? undefined;
     // Report the run's own cost plus any sub-agent cost. Emit a figure whenever
     // either side is known — a run with unpriced parent tokens but priced
     // sub-agents should still surface the sub-agent spend.

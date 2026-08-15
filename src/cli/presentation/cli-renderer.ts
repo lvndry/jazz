@@ -12,6 +12,7 @@ import {
   formatToolDisplayName as formatToolDisplayNameShared,
   formatToolResult as formatToolResultShared,
 } from "@/core/utils/tool-formatter";
+import { computeUsageCostUSD } from "@/core/utils/usage-cost";
 import { formatMarkdown, formatMarkdownHybrid } from "./markdown-formatter";
 import { createTheme, detectColorProfile } from "./output-theme";
 import type { OutputWriter } from "./output-writer";
@@ -83,6 +84,7 @@ export class CLIRenderer {
     promptTokens: number;
     completionTokens: number;
     totalTokens: number;
+    cacheReadTokens?: number;
   } | null = null;
   private currentProvider: string | null = null;
   private currentModel: string | null = null;
@@ -462,11 +464,10 @@ export class CLIRenderer {
     ) {
       const meta = getModelsDevMetadataSync(this.currentModel, this.currentProvider);
       if (meta?.inputPricePerMillion !== undefined || meta?.outputPricePerMillion !== undefined) {
-        const inputPrice = meta.inputPricePerMillion ?? 0;
         const outputPrice = meta.outputPricePerMillion ?? 0;
-        const inputCost = (this.accumulatedUsage.promptTokens / 1_000_000) * inputPrice;
         const outputCost = (this.accumulatedUsage.completionTokens / 1_000_000) * outputPrice;
-        const totalCost = inputCost + outputCost;
+        const totalCost = computeUsageCostUSD(this.accumulatedUsage, meta) ?? 0;
+        const inputCost = totalCost - outputCost;
 
         const fmt = (cost: number): string => {
           if (cost === 0) return "$0.00";
