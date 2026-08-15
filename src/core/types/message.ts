@@ -38,6 +38,18 @@ export interface ChatMessage {
    */
   tool_call_id?: string;
   /**
+   * Set when this message's original content has been replaced by a placeholder to
+   * reclaim context (see `clearToolResults`). Marks the message as already reclaimed
+   * so later passes skip it, and distinguishes a stub from a genuinely short result.
+   */
+  cleared?: true;
+  /**
+   * Marks an assistant message as a compaction summary rather than model output.
+   * Identified by flag rather than position so summarization can carry it forward
+   * as prior state instead of re-summarizing its own previous summary.
+   */
+  kind?: "summary";
+  /**
    * For role === "assistant": include tool calls emitted by the model so that
    * subsequent tool messages are valid according to the OpenAI API.
    *

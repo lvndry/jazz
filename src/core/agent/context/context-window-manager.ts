@@ -13,6 +13,14 @@ import { DEFAULT_TOKEN_COUNTER, type ModelHint, type TokenCounter } from "./toke
  */
 export const CONTEXT_WARN_THRESHOLD_RATIO = 0.7;
 
+/**
+ * Fraction of the context budget at which stale tool output is cleared.
+ *
+ * Below the compaction threshold: clearing is free, so it gets first attempt at
+ * reclaiming space before an LLM call is spent summarizing.
+ */
+export const CONTEXT_CLEAR_THRESHOLD_RATIO = 0.65;
+
 /** Fraction of the context budget at which history is compacted automatically. */
 export const CONTEXT_COMPACT_THRESHOLD_RATIO = 0.8;
 
@@ -45,6 +53,9 @@ export interface ContextWindowConfig {
 
   /** Fraction of the budget that triggers compaction. Default {@link CONTEXT_COMPACT_THRESHOLD_RATIO}. */
   readonly compactThresholdRatio?: number;
+
+  /** Fraction of the budget that triggers tool-result clearing. Default {@link CONTEXT_CLEAR_THRESHOLD_RATIO}. */
+  readonly clearThresholdRatio?: number;
 
   /**
    * Number of recent turns to always keep intact (never trim).
@@ -81,6 +92,39 @@ export interface TrimResult {
   readonly estimatedTokens: number;
   /** Total request tokens before trimming, for measuring what the rung reclaimed. */
   readonly estimatedTokensBefore: number;
+}
+
+/**
+ * Index at which the protected recent zone begins.
+ *
+ * A turn starts at a "user" message and runs through every assistant/tool message
+ * until the next one, so protecting whole turns keeps tool calls with their results
+ * instead of severing them. Shared by trimming and tool-result clearing so both agree
+ * on what counts as recent — a clearing pass that reached further back than trimming
+ * would strip results the protected zone was meant to keep intact.
+ *
+ * Returns `messages.length` when there is nothing to protect.
+ */
+export function protectedZoneStartIndex(
+  messages: readonly ChatMessage[],
+  protectedTurns: number,
+): number {
+  let turnsFound = 0;
+  for (let index = messages.length - 1; index >= 1; index--) {
+    if (messages[index]?.role === "user") {
+      turnsFound++;
+      if (turnsFound >= protectedTurns) return index;
+    }
+  }
+
+  // Fewer complete turns than requested: protect from the earliest user message.
+  if (turnsFound > 0) {
+    for (let index = 1; index < messages.length; index++) {
+      if (messages[index]?.role === "user") return index;
+    }
+  }
+
+  return messages.length;
 }
 
 /** Default model hint when the caller does not supply one (legacy callers). */
@@ -131,32 +175,7 @@ export class ContextWindowManager {
 
     const originalLength = messages.length;
     const protectedTurns = this.config.protectedRecentTurns ?? 2;
-
-    // Step 1: Identify protected zone — last N complete turns.
-    // A turn starts at each "user" message and includes all subsequent
-    // assistant/tool messages until the next user message.
-    // Scan backwards to find the start index of the Nth-from-last turn.
-    let turnsFound = 0;
-    let protectedStartIndex = messages.length; // nothing protected yet
-    for (let i = messages.length - 1; i >= 1; i--) {
-      if (messages[i]?.role === "user") {
-        turnsFound++;
-        if (turnsFound >= protectedTurns) {
-          protectedStartIndex = i;
-          break;
-        }
-      }
-    }
-    // If we didn't find enough turns, protect from index 1 (after system)
-    if (turnsFound < protectedTurns && turnsFound > 0) {
-      // Find the earliest user message (after system)
-      for (let i = 1; i < messages.length; i++) {
-        if (messages[i]?.role === "user") {
-          protectedStartIndex = i;
-          break;
-        }
-      }
-    }
+    const protectedStartIndex = protectedZoneStartIndex(messages, protectedTurns);
 
     const protectedIndices = new Set<number>();
     for (let i = protectedStartIndex; i < messages.length; i++) {
@@ -281,6 +300,17 @@ export class ContextWindowManager {
   get warnThresholdTokens(): number {
     const ratio = this.config.warnThresholdRatio ?? CONTEXT_WARN_THRESHOLD_RATIO;
     return Math.floor(this.contextBudgetTokens * ratio);
+  }
+
+  /** Token count above which stale tool results are cleared. */
+  get clearThresholdTokens(): number {
+    const ratio = this.config.clearThresholdRatio ?? CONTEXT_CLEAR_THRESHOLD_RATIO;
+    return Math.floor(this.contextBudgetTokens * ratio);
+  }
+
+  /** True once the conversation passes the tool-result clearing threshold. */
+  shouldClearToolResults(messages: ChatMessage[]): boolean {
+    return this.totalRequestTokens(messages) > this.clearThresholdTokens;
   }
 
   /** Token count above which history is compacted. */

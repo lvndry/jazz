@@ -21,12 +21,14 @@ import {
   CONTEXT_WARN_THRESHOLD_RATIO,
   ContextWindowManager,
   DEFAULT_CONTEXT_WINDOW_MANAGER,
+  protectedZoneStartIndex,
 } from "../context/context-window-manager";
 import {
   describeContextWindowShortfall,
   resolveEffectiveContextWindow,
 } from "../context/effective-context-window";
 import { Summarizer, type RecursiveRunner } from "../context/summarizer";
+import { clearToolResults } from "../context/tool-result-clearing";
 import {
   beginIteration,
   calibrateTokenCounter,
@@ -114,6 +116,7 @@ interface LoopState {
   recentToolCalls: TrackedToolCall[];
   iterationsUsed: number;
   contextPressureWarned: boolean;
+  toolResultsCleared: boolean;
 }
 
 interface LoopDeps {
@@ -510,6 +513,41 @@ function runIteration(
       yield* observer.onThinking(agent.name, iterationIndex === 0);
     }
 
+    // Cheapest rung first: drop stale raw tool output before spending an LLM call on
+    // summarizing. Gated on `toolResultsCleared` so it runs once per crossing —
+    // rewriting the prefix every turn would reintroduce the cache churn that the
+    // trim-budget fix removed.
+    if (
+      !state.toolResultsCleared &&
+      runContextWindowManager.shouldClearToolResults(state.currentMessages)
+    ) {
+      const before = runContextWindowManager.totalRequestTokens(state.currentMessages);
+      const cleared = clearToolResults(state.currentMessages, {
+        protectedFromIndex: protectedZoneStartIndex(
+          state.currentMessages,
+          DEFAULT_CONTEXT_WINDOW_MANAGER.getConfig().protectedRecentTurns ?? 2,
+        ),
+        modelHint: { provider, modelId: model },
+      });
+      if (cleared.clearedCount > 0) {
+        state.toolResultsCleared = true;
+        state.currentMessages = [
+          state.currentMessages[0],
+          ...cleared.messages.slice(1),
+        ] as typeof state.currentMessages;
+        yield* logContextRung(logger, {
+          rung: "clear",
+          agentId: agent.id,
+          conversationId: actualConversationId,
+          tokensBefore: before,
+          tokensAfter: runContextWindowManager.totalRequestTokens(state.currentMessages),
+          budgetTokens: runContextWindowManager.contextBudgetTokens,
+          messagesBefore: state.currentMessages.length,
+          messagesAfter: state.currentMessages.length,
+        });
+      }
+    }
+
     const contextUsage = runContextWindowManager.usage(state.currentMessages);
     if (contextUsage.shouldWarn && !contextUsage.shouldCompact && !state.contextPressureWarned) {
       state.contextPressureWarned = true;
@@ -836,6 +874,7 @@ export function executeAgentLoop(
           recentToolCalls: [],
           iterationsUsed: 0,
           contextPressureWarned: false,
+          toolResultsCleared: false,
         };
         let finished = false;
         let interrupted = false;
