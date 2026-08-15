@@ -171,6 +171,113 @@ describe("spawn_subagent tool ceiling", () => {
   });
 });
 
+describe("spawn_subagent nesting depth", () => {
+  function captureSpawn(): {
+    readonly captured: () => Omit<AgentRunnerOptions, "internal"> | undefined;
+    readonly spy: ReturnType<typeof spyOn>;
+  } {
+    let seen: Omit<AgentRunnerOptions, "internal"> | undefined;
+    const spy = spyOn(AgentRunner, "runRecursive").mockImplementation((options) => {
+      seen = options;
+      return Effect.succeed({ content: "done", messages: [] }) as ReturnType<
+        typeof AgentRunner.runRecursive
+      >;
+    });
+    return { captured: () => seen, spy };
+  }
+
+  it("starts a top-level run's child at depth 1", async () => {
+    const { captured, spy } = captureSpawn();
+
+    try {
+      const { presentation } = createPresentationHarness();
+      await runSpawn(presentation);
+
+      expect(captured()?.subagentDepth).toBe(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("increments the depth for each further level", async () => {
+    const { captured, spy } = captureSpawn();
+
+    try {
+      const { presentation } = createPresentationHarness();
+      await runSpawn(presentation, { subagentDepth: 2, maxSubagentDepth: 3 });
+
+      expect(captured()?.subagentDepth).toBe(3);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("refuses to spawn once the depth limit is reached", async () => {
+    const { spy } = captureSpawn();
+
+    try {
+      const { presentation } = createPresentationHarness();
+      const result = (await runSpawn(presentation, {
+        subagentDepth: 3,
+        maxSubagentDepth: 3,
+      })) as { success: boolean; error?: string };
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("nesting limit");
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("honours a configured limit other than the default", async () => {
+    const { spy } = captureSpawn();
+
+    try {
+      const { presentation } = createPresentationHarness();
+      const result = (await runSpawn(presentation, {
+        subagentDepth: 1,
+        maxSubagentDepth: 1,
+      })) as { success: boolean };
+
+      expect(result.success).toBe(false);
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("lets a configured limit of 0 stop delegation outright", async () => {
+    const { spy } = captureSpawn();
+
+    try {
+      const { presentation } = createPresentationHarness();
+      const result = (await runSpawn(presentation, { maxSubagentDepth: 0 })) as {
+        success: boolean;
+      };
+
+      expect(result.success).toBe(false);
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("opens no panel when the spawn is refused", async () => {
+    const { spy } = captureSpawn();
+
+    try {
+      const { presentation, calls } = createPresentationHarness();
+      await runSpawn(presentation, { subagentDepth: 3, maxSubagentDepth: 3 });
+
+      expect(calls.opens).toHaveLength(0);
+      expect(calls.collapses).toHaveLength(0);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
 describe("spawn_subagent presentation", () => {
   it("does not import the TUI from core", async () => {
     const source = await Bun.file(new URL("./subagent-tools.ts", import.meta.url)).text();

@@ -86,6 +86,42 @@ available. Withheld tools are logged at `info`.
 Because the ceiling lives in the runner rather than at the call site, it holds for any future
 caller of a nested run, not just `spawn_subagent`.
 
+---
+
+## Nesting depth
+
+A child gets a **fresh** iteration budget, not its parent's remainder — a sub-agent spawned on
+the parent's last iteration would be useless with one round to work in, and the point of
+delegation is a clean context with room to use it.
+
+That is deliberate, and it means the parent's remaining budget bounds nothing. Depth does. Each
+run carries how many levels sit above it, and `spawn_subagent` refuses once the limit is
+reached:
+
+```
+Sub-agent nesting limit reached (depth 3 of 3). Do this task yourself instead of delegating it further.
+```
+
+It refuses rather than silently running the child at the wrong depth: a parent told its
+delegation was declined can do the work itself, whereas one handed a child that quietly ignored
+the limit cannot tell. Refusal is a normal tool error the parent can act on in its next
+iteration, and no sub-agent panel opens.
+
+The limit is `maxSubagentDepth` in `~/.jazz/config.json` (or `./.jazz/config.json`), defaulting
+to **3** — enough for orchestrator → specialist → helper:
+
+```json
+{
+  "maxSubagentDepth": 3
+}
+```
+
+Set it to `0` to stop agents delegating at all. The runner resolves the value once per run, so
+every level of a tree obeys the same number.
+
+Breadth is bounded separately: `MAX_CONCURRENT_TOOLS` (10) caps how many tool calls — sub-agents
+included — run at once within a single iteration.
+
 Because the parent can issue several tool calls in one iteration, sub-agents run in parallel
 up to the concurrency cap — each with its own panel in the TUI.
 
@@ -133,8 +169,8 @@ usual symptom is a confidently wrong answer to a question the child misunderstoo
 | Limit | Value | Why |
 | --- | --- | --- |
 | Timeout | 30 min | A delegated task that hasn't finished in half an hour isn't going to |
-| Iterations | inherits the parent's budget | A child can't outlive the run that spawned it |
-| Nesting | children can delegate further | Bounded in practice by the parent's iteration budget |
+| Iterations | a **fresh copy** of the parent's budget | A child spawned on the parent's last iteration would be useless with only the remainder |
+| Nesting | 3 levels, via `maxSubagentDepth` | Depth is what bounds total spend, since each level gets a fresh budget |
 | Toolset | at most the parent's | A child must never be an escalation path |
 | Panel height | 12 lines | UI only |
 

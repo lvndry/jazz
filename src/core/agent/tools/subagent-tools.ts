@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { z } from "zod";
-import { DEFAULT_MAX_ITERATIONS } from "@/core/constants/agent";
+import { DEFAULT_MAX_ITERATIONS, DEFAULT_MAX_SUBAGENT_DEPTH } from "@/core/constants/agent";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import type { Tool, ToolRequirements } from "@/core/interfaces/tool-registry";
@@ -87,6 +87,28 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
             };
           }
 
+          // Every level gets a fresh iteration budget rather than its parent's
+          // remainder, so nothing else bounds how much a nest of sub-agents can
+          // spend. Refuse rather than silently flatten: a parent told its
+          // delegation was declined can do the work itself, whereas one handed a
+          // child that quietly ran at the wrong depth cannot tell.
+          const currentDepth = context.subagentDepth ?? 0;
+          const maxDepth = context.maxSubagentDepth ?? DEFAULT_MAX_SUBAGENT_DEPTH;
+          if (currentDepth >= maxDepth) {
+            yield* logger.info("Sub-agent spawn refused at depth limit", {
+              parentAgentId: parentAgent.id,
+              currentDepth,
+              maxDepth,
+            });
+            return {
+              success: false,
+              result: null,
+              error:
+                `Sub-agent nesting limit reached (depth ${currentDepth} of ${maxDepth}). ` +
+                `Do this task yourself instead of delegating it further.`,
+            };
+          }
+
           yield* logger.info("Spawning sub-agent", {
             task: args.task.substring(0, 200),
             persona: args.persona,
@@ -157,6 +179,7 @@ ${args.task}`;
             // built-in categories — without this ceiling a narrowly-scoped
             // parent could reach a tool it lacks by picking a broader persona.
             ...(context.parentToolNames ? { toolAllowlist: context.parentToolNames } : {}),
+            subagentDepth: currentDepth + 1,
             ...(context.getAutoApprovePolicy
               ? { autoApprovePolicy: context.getAutoApprovePolicy }
               : {}),

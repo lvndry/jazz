@@ -427,6 +427,9 @@ function mergeConfig(base: AppConfig, override?: Partial<AppConfig>): AppConfig 
       autoApprovedCommands: override.autoApprovedCommands,
     }),
     ...(override.maxRetries !== undefined && { maxRetries: override.maxRetries }),
+    ...(override.maxSubagentDepth !== undefined && {
+      maxSubagentDepth: override.maxSubagentDepth,
+    }),
     ...(override.telemetry && { telemetry: { ...(base.telemetry ?? {}), ...override.telemetry } }),
   };
 }

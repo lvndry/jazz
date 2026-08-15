@@ -200,6 +200,20 @@ export interface ToolExecutionContext {
    */
   readonly parentToolNames?: readonly string[];
   /**
+   * How many sub-agent levels deep the run executing this tool already sits.
+   * 0 for a top-level run, 1 for its children, and so on. `spawn_subagent`
+   * increments it for the child and refuses past `maxSubagentDepth`, which is
+   * the only thing bounding total delegated spend: every level gets a fresh
+   * iteration budget rather than its parent's remainder.
+   */
+  readonly subagentDepth?: number;
+  /**
+   * Nesting limit in force for this run, resolved from `maxSubagentDepth` in
+   * app config. Resolved by the runner rather than read in the tool so the
+   * whole tree obeys one value.
+   */
+  readonly maxSubagentDepth?: number;
+  /**
    * Callback to replace conversation messages with compacted versions.
    * Used by summarize_context to actually update the executor's message array.
    */
