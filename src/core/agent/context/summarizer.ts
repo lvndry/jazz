@@ -8,11 +8,108 @@ import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import type { ToolRegistry, ToolRequirements } from "@/core/interfaces/tool-registry";
 import type { Agent } from "@/core/types";
 import type { ChatMessage, ConversationMessages } from "@/core/types/message";
+import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import { parseProviderModel } from "@/core/utils/provider-model";
 import type { AgentResponse } from "../types";
+import { logContextRung } from "./context-telemetry";
 import { resolveContextThresholds } from "./context-thresholds";
 import { DEFAULT_CONTEXT_WINDOW_MANAGER } from "./context-window-manager";
+import { resolveEffectiveContextWindow } from "./effective-context-window";
+import { formatTaskState, readTaskState } from "./task-state";
 import { DEFAULT_TOKEN_COUNTER, type ModelHint } from "./token-counter";
+import { appendJournalEntry, pruneJournal } from "./work-journal";
+
+/** Longest tool-argument string kept verbatim in a summarizer transcript. */
+const MAX_RENDERED_ARGUMENT_CHARS = 200;
+
+/**
+ * Keep arguments readable without letting one pasted payload dominate the transcript
+ * the summarizer has to read.
+ */
+function truncateArguments(rawArguments: string | undefined): string {
+  if (!rawArguments) return "";
+  const trimmed = rawArguments.trim();
+  if (trimmed.length <= MAX_RENDERED_ARGUMENT_CHARS) return trimmed;
+  return `${trimmed.slice(0, MAX_RENDERED_ARGUMENT_CHARS)}… (${trimmed.length} chars)`;
+}
+
+/**
+ * Fraction of the summarizer's own window its input may occupy, leaving room for the
+ * system prompt and the summary it has to write.
+ */
+const SUMMARIZER_INPUT_BUDGET_RATIO = 0.6;
+
+/**
+ * Build the throwaway agent that performs summarization.
+ *
+ * The parent's window pins (`numCtx`, `maxContextTokens`) are deliberately dropped when
+ * the summarizer runs a different model: they describe the parent's runtime, and applying
+ * a 200k parent ceiling to an 8k summarizer — or vice versa — is wrong in both directions.
+ */
+function buildSummarizerAgent(
+  parentAgent: Agent,
+  summarizerModelConfig: SummarizerModelConfig,
+  summarizerModel: `${string}/${string}`,
+): Agent {
+  const sameModel =
+    summarizerModelConfig.provider === parentAgent.config.llmProvider &&
+    summarizerModelConfig.model === parentAgent.config.llmModel;
+
+  const {
+    numCtx: _numCtx,
+    maxContextTokens: _maxContextTokens,
+    ...configWithoutWindowPins
+  } = parentAgent.config;
+
+  return {
+    id: "summarizer",
+    name: "Summarizer",
+    description: "Background context compressor",
+    model: summarizerModel,
+    config: {
+      ...(sameModel ? parentAgent.config : configWithoutWindowPins),
+      llmProvider: summarizerModelConfig.provider,
+      llmModel: summarizerModelConfig.model,
+      persona: "summarizer",
+      tools: [], // No tools—summarizer should only produce text, not use tools
+    },
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
+}
+
+/**
+ * Split messages into chunks that each fit the summarizer's input budget.
+ *
+ * A message larger than a whole chunk is kept as its own chunk rather than dropped —
+ * the fold below will still see it, and truncation is the transport's problem, not a
+ * reason to lose the message entirely.
+ */
+export function chunkForSummarizer(
+  messages: readonly ChatMessage[],
+  budgetTokens: number,
+  hint: ModelHint,
+): ChatMessage[][] {
+  if (budgetTokens <= 0) return [[...messages]];
+
+  const chunks: ChatMessage[][] = [];
+  let current: ChatMessage[] = [];
+  let currentTokens = 0;
+
+  for (const message of messages) {
+    const tokens = DEFAULT_TOKEN_COUNTER.countMessage(message, hint);
+    if (current.length > 0 && currentTokens + tokens > budgetTokens) {
+      chunks.push(current);
+      current = [];
+      currentTokens = 0;
+    }
+    current.push(message);
+    currentTokens += tokens;
+  }
+
+  if (current.length > 0) chunks.push(current);
+  return chunks;
+}
 
 /** Build a token-counter hint from an agent's provider/model. */
 function modelHintFromAgent(agent: Agent): ModelHint {
@@ -113,11 +210,17 @@ export const Summarizer = {
     modelHint?: ModelHint,
   ): {
     systemMessage: ChatMessage;
+    priorSummary: ChatMessage | undefined;
     messagesToSummarize: ChatMessage[];
     sanitizedRecentMessages: ChatMessage[];
   } {
     // Keep system message [0] and recent messages that fit in token budget
     const systemMessage = currentMessages[0];
+
+    // A summary from an earlier compaction is prior *state*, not raw history. Feeding
+    // it back through the summarizer re-summarizes a summary, and the drift compounds
+    // with every cycle. Pull it out here and hand it to the summarizer to merge into.
+    const priorSummary = currentMessages[1]?.kind === "summary" ? currentMessages[1] : undefined;
     const hint: ModelHint = modelHint ?? { provider: "", modelId: "" };
 
     // Reserve 20% of max tokens for recent context
@@ -149,7 +252,8 @@ export const Summarizer = {
     recentCount = Math.min(recentCount, currentMessages.length - 1);
 
     const recentMessages = currentMessages.slice(-recentCount);
-    const messagesToSummarize = currentMessages.slice(1, -recentCount);
+    const summarizeFrom = priorSummary ? 2 : 1;
+    const messagesToSummarize = currentMessages.slice(summarizeFrom, -recentCount);
 
     // Sanitize recent messages to avoid orphaned tool call/result references.
     // The split may land in the middle of a tool call group, leaving:
@@ -192,7 +296,33 @@ export const Summarizer = {
       return acc;
     }, []);
 
-    return { systemMessage, messagesToSummarize, sanitizedRecentMessages };
+    return { systemMessage, priorSummary, messagesToSummarize, sanitizedRecentMessages };
+  },
+
+  /**
+   * Render messages as the transcript handed to the summarizer.
+   *
+   * Tool call *arguments* are included, not just names. The persona is told to
+   * preserve exact file paths and command names; rendering `[Tool Calls: read_file]`
+   * stripped precisely those before the summarizer ever saw them, leaving it to
+   * describe results without knowing what was asked for.
+   */
+  renderTranscript(messages: readonly ChatMessage[]): string {
+    return messages
+      .map((message) => {
+        let content = message.content || "";
+        if (message.tool_calls) {
+          const calls = message.tool_calls
+            .map((call) => {
+              const args = truncateArguments(call.function.arguments);
+              return args ? `${call.function.name}(${args})` : call.function.name;
+            })
+            .join(", ");
+          content += `\n[Tool Calls: ${calls}]`;
+        }
+        return `[${message.role.toUpperCase()}] ${content}`;
+      })
+      .join("\n\n---\n\n");
   },
 
   compactIfNeeded(
@@ -221,7 +351,11 @@ export const Summarizer = {
       // Use model-specific context window or fall back to default
       const maxTokens = modelContextWindow ?? DEFAULT_CONTEXT_WINDOW_MANAGER.getConfig().maxTokens;
       const hint = modelHintFromAgent(agent);
-      const currentTokens = DEFAULT_TOKEN_COUNTER.countMessages(currentMessages, hint);
+      // Include the per-request overhead (tool schemas, provider scaffolding) — the
+      // window has to hold it too, and ignoring it compacts late.
+      const currentTokens =
+        DEFAULT_TOKEN_COUNTER.countMessages(currentMessages, hint) +
+        DEFAULT_TOKEN_COUNTER.overheadFor(hint);
       const { compactThresholdRatio } = resolveContextThresholds(appConfig.context);
       const threshold = maxTokens * compactThresholdRatio;
 
@@ -250,7 +384,7 @@ export const Summarizer = {
         maxTokens,
       });
 
-      const { systemMessage, messagesToSummarize, sanitizedRecentMessages } =
+      const { systemMessage, priorSummary, messagesToSummarize, sanitizedRecentMessages } =
         Summarizer.splitMessages(currentMessages, maxTokens, hint);
 
       if (messagesToSummarize.length === 0) {
@@ -271,6 +405,7 @@ export const Summarizer = {
         sessionId,
         conversationId,
         runRecursive,
+        priorSummary,
       );
 
       // Rebuild: [system, summary, ...recent]
@@ -280,7 +415,9 @@ export const Summarizer = {
         ...sanitizedRecentMessages,
       ] as ConversationMessages;
 
-      const newTokens = DEFAULT_TOKEN_COUNTER.countMessages(compactedMessages, hint);
+      const newTokens =
+        DEFAULT_TOKEN_COUNTER.countMessages(compactedMessages, hint) +
+        DEFAULT_TOKEN_COUNTER.overheadFor(hint);
 
       yield* logger.info("Context compacted successfully", {
         originalMessages: currentMessages.length,
@@ -288,6 +425,29 @@ export const Summarizer = {
         originalTokens: currentTokens,
         compactedTokens: newTokens,
         tokensSaved: currentTokens - newTokens,
+      });
+
+      // Persist before it enters context. From here on this summary is folded into
+      // later ones; the journal keeps the version this cycle actually produced.
+      yield* appendJournalEntry(agent.id, conversationId, {
+        recordedAt: new Date().toISOString(),
+        tokensBefore: currentTokens,
+        tokensAfter: newTokens,
+        messagesBefore: currentMessages.length,
+        messagesAfter: compactedMessages.length,
+        summary: summaryMessage.content,
+      });
+      yield* pruneJournal(agent.id, conversationId);
+
+      yield* logContextRung(logger, {
+        rung: "compact",
+        agentId: agent.id,
+        conversationId,
+        tokensBefore: currentTokens,
+        tokensAfter: newTokens,
+        budgetTokens: maxTokens,
+        messagesBefore: currentMessages.length,
+        messagesAfter: compactedMessages.length,
       });
 
       yield* presentationService.presentWarning(
@@ -314,6 +474,7 @@ export const Summarizer = {
     sessionId: string,
     conversationId: string,
     runRecursive: RecursiveRunner,
+    priorSummary?: ChatMessage,
   ): Effect.Effect<
     ChatMessage,
     Error,
@@ -345,38 +506,107 @@ export const Summarizer = {
         parentModel: agent.config.llmModel,
       });
 
-      const historyText = messagesToSummarize
-        .map((m) => {
-          let content = m.content || "";
-          if (m.tool_calls) {
-            content += `\n[Tool Calls: ${m.tool_calls.map((tc) => tc.function.name).join(", ")}]`;
-          }
-          return `[${m.role.toUpperCase()}] ${content}`;
-        })
-        .join("\n\n---\n\n");
+      // Anything already in task state is durable on disk, so the summary need not carry
+      // it. Passing it through lets the summarizer cover what the transcript adds instead.
+      const recordedState = formatTaskState(yield* readTaskState(agent.id, conversationId));
 
-      const userInput =
-        "Summarize the following conversation. Produce a concise, structured summary that preserves key information for continuity—goals, decisions, outcomes, key entities, current status, and open questions. Output only the summary.\n\n" +
-        historyText;
-
-      // Define specialized summarizer agent on the fly with the selected model
+      // Define the specialized summarizer agent once, on the fly, with the selected model.
       const summarizerModel =
         `${summarizerModelConfig.provider}/${summarizerModelConfig.model}` as `${string}/${string}`;
-      const summarizer: Agent = {
-        id: "summarizer",
-        name: "Summarizer",
-        description: "Background context compressor",
-        model: summarizerModel,
-        config: {
-          ...agent.config,
-          llmProvider: summarizerModelConfig.provider,
-          llmModel: summarizerModelConfig.model,
-          persona: "summarizer",
-          tools: [], // No tools—summarizer should only produce text, not use tools
-        },
-        createdAt: new Date(),
-        updatedAt: new Date(),
+      const summarizer = buildSummarizerAgent(agent, summarizerModelConfig, summarizerModel);
+
+      // The transcript can be most of the *parent's* window, which says nothing about
+      // what the summarizer's own model can hold. Fold it in chunks when it does not
+      // fit, reusing the merge prompt: chunk 1 becomes a summary, each later chunk is
+      // merged into it, so the result is one record rather than a pile of fragments.
+      const summarizerHint: ModelHint = {
+        provider: summarizerModelConfig.provider,
+        modelId: summarizerModelConfig.model,
       };
+      const summarizerMetadata = yield* Effect.tryPromise({
+        try: () =>
+          getModelsDevMetadata(summarizerModelConfig.model, summarizerModelConfig.provider),
+        catch: () => new Error("Failed to fetch summarizer model metadata"),
+      }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+
+      const summarizerWindow = resolveEffectiveContextWindow({
+        provider: summarizerModelConfig.provider,
+        ...(summarizerMetadata && { modelMaxTokens: summarizerMetadata.contextWindow }),
+      }).tokens;
+      const inputBudget = Math.floor(summarizerWindow * SUMMARIZER_INPUT_BUDGET_RATIO);
+
+      const chunks = chunkForSummarizer(messagesToSummarize, inputBudget, summarizerHint);
+      if (chunks.length > 1) {
+        yield* logger.info("Folding an oversized transcript for the summarizer", {
+          chunks: chunks.length,
+          inputBudget,
+          summarizerWindow,
+          summarizerModel: `${summarizerModelConfig.provider}/${summarizerModelConfig.model}`,
+        });
+      }
+
+      let runningSummary = priorSummary;
+      for (const chunk of chunks) {
+        const chunkSummary = yield* Summarizer.summarizeChunk(
+          chunk,
+          summarizer,
+          sessionId,
+          conversationId,
+          runRecursive,
+          runningSummary,
+          recordedState,
+        );
+        runningSummary = chunkSummary;
+      }
+
+      return runningSummary ?? { role: "assistant", content: "No history to summarize." };
+    });
+  },
+
+  /**
+   * Summarize one chunk, merging into `priorSummary` when there is one.
+   *
+   * Split out from `summarizeHistory` so the fold above can call it per chunk with the
+   * summarizer agent already resolved — resolving it once per chunk would re-read config
+   * and re-log for no reason.
+   */
+  summarizeChunk(
+    messagesToSummarize: readonly ChatMessage[],
+    summarizer: Agent,
+    sessionId: string,
+    conversationId: string,
+    runRecursive: RecursiveRunner,
+    priorSummary?: ChatMessage,
+    recordedState?: string,
+  ): Effect.Effect<
+    ChatMessage,
+    Error,
+    | LLMService
+    | ToolRegistry
+    | LoggerService
+    | AgentConfigService
+    | PresentationService
+    | ToolRequirements
+  > {
+    return Effect.gen(function* () {
+      const historyText = Summarizer.renderTranscript(messagesToSummarize);
+
+      // What task state already holds is safe on disk. Saying so lets the summary spend
+      // its budget on what the transcript adds rather than restating the plan.
+      const recordedStateBlock = recordedState
+        ? `## Already recorded durably (do not restate)\n\n${recordedState}\n\n` +
+          "The above is saved outside this conversation and will survive compaction. Cover " +
+          "what the transcript adds beyond it, and flag anywhere the transcript contradicts it.\n\n"
+        : "";
+
+      const userInput = priorSummary?.content
+        ? "You are updating an existing summary of an ongoing conversation, not writing a new one.\n\n" +
+          "Carry forward everything in the existing summary that is still true, fold in what the new transcript adds, and correct anything the new transcript contradicts. Do not drop earlier facts merely because the new transcript does not mention them — they are still the only record of what happened. Output only the updated summary, in the same structure.\n\n" +
+          recordedStateBlock +
+          `## Existing summary\n\n${priorSummary.content}\n\n## New transcript\n\n${historyText}`
+        : "Summarize the following conversation. Produce a concise, structured summary that preserves key information for continuity—goals, decisions, outcomes, key entities, current status, and open questions. Output only the summary.\n\n" +
+          recordedStateBlock +
+          historyText;
 
       const summaryResponse = yield* runRecursive({
         agent: summarizer,
@@ -389,6 +619,7 @@ export const Summarizer = {
       return {
         role: "assistant",
         content: summaryResponse.content,
+        kind: "summary",
       };
     });
   },

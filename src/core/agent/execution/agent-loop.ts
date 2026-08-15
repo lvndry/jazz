@@ -13,6 +13,7 @@ import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import { formatToolResultForContext } from "@/core/utils/tool-result-formatter";
 import type { AgentLoopObserver } from "./agent-loop-observer";
 import { ToolExecutor } from "./tool-executor";
+import { logContextRung } from "../context/context-telemetry";
 import { resolveContextThresholds } from "../context/context-thresholds";
 import {
   CONTEXT_COMPACT_THRESHOLD_RATIO,
@@ -20,12 +21,14 @@ import {
   CONTEXT_WARN_THRESHOLD_RATIO,
   ContextWindowManager,
   DEFAULT_CONTEXT_WINDOW_MANAGER,
+  protectedZoneStartIndex,
 } from "../context/context-window-manager";
 import {
   describeContextWindowShortfall,
   resolveEffectiveContextWindow,
 } from "../context/effective-context-window";
 import { Summarizer, type RecursiveRunner } from "../context/summarizer";
+import { clearToolResults } from "../context/tool-result-clearing";
 import {
   beginIteration,
   calibrateTokenCounter,
@@ -113,6 +116,7 @@ interface LoopState {
   recentToolCalls: TrackedToolCall[];
   iterationsUsed: number;
   contextPressureWarned: boolean;
+  toolResultsCleared: boolean;
 }
 
 interface LoopDeps {
@@ -509,6 +513,41 @@ function runIteration(
       yield* observer.onThinking(agent.name, iterationIndex === 0);
     }
 
+    // Cheapest rung first: drop stale raw tool output before spending an LLM call on
+    // summarizing. Gated on `toolResultsCleared` so it runs once per crossing —
+    // rewriting the prefix every turn would reintroduce the cache churn that the
+    // trim-budget fix removed.
+    if (
+      !state.toolResultsCleared &&
+      runContextWindowManager.shouldClearToolResults(state.currentMessages)
+    ) {
+      const before = runContextWindowManager.totalRequestTokens(state.currentMessages);
+      const cleared = clearToolResults(state.currentMessages, {
+        protectedFromIndex: protectedZoneStartIndex(
+          state.currentMessages,
+          DEFAULT_CONTEXT_WINDOW_MANAGER.getConfig().protectedRecentTurns ?? 2,
+        ),
+        modelHint: { provider, modelId: model },
+      });
+      if (cleared.clearedCount > 0) {
+        state.toolResultsCleared = true;
+        state.currentMessages = [
+          state.currentMessages[0],
+          ...cleared.messages.slice(1),
+        ] as typeof state.currentMessages;
+        yield* logContextRung(logger, {
+          rung: "clear",
+          agentId: agent.id,
+          conversationId: actualConversationId,
+          tokensBefore: before,
+          tokensAfter: runContextWindowManager.totalRequestTokens(state.currentMessages),
+          budgetTokens: runContextWindowManager.contextBudgetTokens,
+          messagesBefore: state.currentMessages.length,
+          messagesAfter: state.currentMessages.length,
+        });
+      }
+    }
+
     const contextUsage = runContextWindowManager.usage(state.currentMessages);
     if (contextUsage.shouldWarn && !contextUsage.shouldCompact && !state.contextPressureWarned) {
       state.contextPressureWarned = true;
@@ -661,8 +700,20 @@ function runIteration(
       actualConversationId,
     );
     state.currentMessages = trimUpdate.messages;
-    if (trimUpdate.result !== undefined && !options.internal) {
-      yield* observer.onHistoryTrimmed(agent.name, trimUpdate.result.messagesRemoved);
+    if (trimUpdate.result !== undefined) {
+      yield* logContextRung(logger, {
+        rung: "trim",
+        agentId: agent.id,
+        conversationId: actualConversationId,
+        tokensBefore: trimUpdate.result.estimatedTokensBefore,
+        tokensAfter: trimUpdate.result.estimatedTokens,
+        budgetTokens: runContextWindowManager.contextBudgetTokens,
+        messagesBefore: trimUpdate.result.originalCount,
+        messagesAfter: trimUpdate.result.trimmedCount,
+      });
+      if (!options.internal) {
+        yield* observer.onHistoryTrimmed(agent.name, trimUpdate.result.messagesRemoved);
+      }
     }
 
     if (completion.toolCalls && completion.toolCalls.length > 0) {
@@ -823,6 +874,7 @@ export function executeAgentLoop(
           recentToolCalls: [],
           iterationsUsed: 0,
           contextPressureWarned: false,
+          toolResultsCleared: false,
         };
         let finished = false;
         let interrupted = false;

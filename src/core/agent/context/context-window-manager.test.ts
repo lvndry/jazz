@@ -309,3 +309,55 @@ describe("context budget thresholds", () => {
     expect(manager.compactThresholdTokens).toBe(9_000);
   });
 });
+
+describe("overhead in the budget", () => {
+  const messages = [makeMessage("user", "hello")];
+
+  function counterWithOverhead(overhead: number): any {
+    return {
+      countMessage: () => 100,
+      countMessages: (msgs: readonly ChatMessage[]) => msgs.length * 100,
+      overheadFor: () => overhead,
+    };
+  }
+
+  it("counts request overhead toward the budget", () => {
+    const manager = new ContextWindowManager({
+      maxTokens: 50_000,
+      contextBudgetTokens: 1_000,
+      tokenCounter: counterWithOverhead(650),
+    });
+
+    const usage = manager.usage(messages);
+    expect(usage.messageTokens).toBe(100);
+    expect(usage.overheadTokens).toBe(650);
+    expect(usage.currentTokens).toBe(750);
+  });
+
+  it("crosses the compaction threshold on overhead the messages alone would not reach", () => {
+    const withoutSchemas = new ContextWindowManager({
+      maxTokens: 50_000,
+      contextBudgetTokens: 1_000,
+      tokenCounter: counterWithOverhead(0),
+    });
+    const withSchemas = new ContextWindowManager({
+      maxTokens: 50_000,
+      contextBudgetTokens: 1_000,
+      tokenCounter: counterWithOverhead(750),
+    });
+
+    // Identical message content; only the tool schemas differ.
+    expect(withoutSchemas.shouldCompact(messages)).toBe(false);
+    expect(withSchemas.shouldCompact(messages)).toBe(true);
+  });
+
+  it("tolerates a counter that predates overhead reporting", () => {
+    const manager = new ContextWindowManager({
+      maxTokens: 50_000,
+      contextBudgetTokens: 1_000,
+      tokenCounter: { countMessage: () => 100, countMessages: () => 100 } as any,
+    });
+
+    expect(manager.usage(messages).overheadTokens).toBe(0);
+  });
+});

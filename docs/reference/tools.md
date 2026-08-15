@@ -15,11 +15,11 @@ and [Security](../../SECURITY.md) for the threat model.
 
 | | Count |
 | --- | --- |
-| **Agent-facing tools** | **50** |
+| **Agent-facing tools** | **51** |
 | Hidden `execute_*` counterparts (the second half of each approval pair) | 15 |
-| Total registered | 65 |
+| Total registered | 66 |
 | `read-only` | 29 |
-| `low-risk` | 6 |
+| `low-risk` | 7 |
 | `high-risk` | 15 |
 
 Plus, registered per agent rather than globally:
@@ -138,6 +138,10 @@ Opt-in per agent (like File Management or Git) rather than always-on — see [Me
 | --- | --- | --- | --- |
 | `view_memory` | `read-only` | — | Read what you've saved about this person or project from earlier conversations. Call with no pa… |
 | `manage_memory` | `low-risk` | — | Create, edit, rename, or delete files under your persistent memory directory — the durable notes… |
+| `update_task_state` | `low-risk` | — | Record where you are in the current task so it survives compaction and resuming later. Patches o… |
+
+`update_task_state` is scoped to one conversation and discarded when the task ends, unlike
+memory which persists across conversations — see [Context management](../internals/context-management.md).
 
 ### Reminders
 

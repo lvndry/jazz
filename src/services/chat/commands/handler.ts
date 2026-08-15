@@ -9,6 +9,9 @@ import { getAgentByIdentifier } from "@/core/agent/agent-service";
 import { sortAgents } from "@/core/agent/agent-sort";
 import { resolveContextThresholds } from "@/core/agent/context/context-thresholds";
 import { resolveEffectiveContextWindow } from "@/core/agent/context/effective-context-window";
+import { formatTaskState, readTaskState } from "@/core/agent/context/task-state";
+import { DEFAULT_TOKEN_COUNTER } from "@/core/agent/context/token-counter";
+import { clearWorkState, readJournal, workStateSizeBytes } from "@/core/agent/context/work-journal";
 import { WEB_SEARCH_PROVIDERS } from "@/core/agent/tools/web-search-tools";
 import { normalizeToolConfig } from "@/core/agent/utils/tool-config";
 import type { ProviderName } from "@/core/constants/models";
@@ -122,6 +125,9 @@ export function handleSpecialCommand(
 
       case "context":
         return yield* handleContextCommand(terminal, agent, conversationHistory);
+
+      case "work":
+        return yield* handleWorkCommand(terminal, agent, context.conversationId, command.args);
 
       case "cost":
         return yield* handleCostCommand(terminal, agent, context.sessionUsage);
@@ -1805,6 +1811,68 @@ function generateContextGrid(usage: ContextUsageBreakdown): string[] {
 }
 
 /**
+ * Handle /work command — show or discard the working state kept for this conversation.
+ *
+ * Working state is written by compaction and by the agent itself, so without a way to
+ * read it you cannot tell whether what a resumed session "remembers" is accurate, and
+ * without a way to clear it a stale record follows the conversation forever.
+ */
+function handleWorkCommand(
+  terminal: TerminalService,
+  agent: CommandContext["agent"],
+  conversationId: string | undefined,
+  args: string[],
+): Effect.Effect<CommandResult, never, never> {
+  return Effect.gen(function* () {
+    if (!conversationId) {
+      yield* terminal.info("No active conversation, so there is no working state.");
+      return { shouldContinue: true };
+    }
+
+    if (args[0] === "clear") {
+      const cleared = yield* clearWorkState(agent.id, conversationId);
+      yield* terminal.log(
+        cleared ? fmt.heading("Working state cleared") : "Nothing to clear for this conversation.",
+      );
+      return { shouldContinue: true };
+    }
+
+    const state = yield* readTaskState(agent.id, conversationId);
+    const entries = yield* readJournal(agent.id, conversationId);
+    const sizeBytes = yield* workStateSizeBytes(agent.id, conversationId);
+
+    yield* terminal.log(fmt.heading("Working state"));
+
+    const formatted = formatTaskState(state);
+    if (formatted) {
+      yield* terminal.log(`\n${formatted}`);
+    } else {
+      yield* terminal.log("\nNo task state recorded yet.");
+    }
+
+    if (entries.length > 0) {
+      yield* terminal.log(
+        `\n${entries.length} compaction record(s), most recent ${entries[entries.length - 1]?.recordedAt}.`,
+      );
+      const latest = entries[entries.length - 1];
+      if (latest) {
+        const preview =
+          latest.summary.length > 500 ? `${latest.summary.slice(0, 500)}…` : latest.summary;
+        yield* terminal.log(`\n${preview}`);
+      }
+    } else {
+      yield* terminal.log("\nNo compaction has happened in this conversation yet.");
+    }
+
+    yield* terminal.log(
+      `\n${(sizeBytes / 1024).toFixed(1)}KB stored. Use \`/work clear\` to discard it.`,
+    );
+
+    return { shouldContinue: true };
+  });
+}
+
+/**
  * Handle /context command - Show context window usage
  */
 function handleContextCommand(
@@ -1834,10 +1902,14 @@ function handleContextCommand(
     });
     const contextWindow = effectiveContextWindow.tokens;
 
-    // Get tool definitions for more accurate tool token estimation
+    // Prefer the overhead the provider actually reported (tool schemas plus its own
+    // scaffolding) so this display matches the number that triggers compaction.
+    // Fall back to estimating from the schemas before any usage report has arrived.
     const toolDefinitions = yield* toolRegistry.getToolDefinitions();
     const toolDefinitionsJson = JSON.stringify(toolDefinitions);
-    const toolDefinitionTokens = Math.ceil(toolDefinitionsJson.length / 4);
+    const measuredOverhead = DEFAULT_TOKEN_COUNTER.overheadFor({ provider, modelId });
+    const toolDefinitionTokens =
+      measuredOverhead > 0 ? measuredOverhead : Math.ceil(toolDefinitionsJson.length / 4);
 
     // Calculate usage breakdown
     const usage = calculateContextUsage(conversationHistory, contextWindow, compactThresholdRatio);

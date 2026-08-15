@@ -109,6 +109,18 @@ function getEmbeddedAssetRoot(): string | null {
 }
 
 /**
+ * Directory holding per-conversation working state: the compaction journal and the
+ * agent-maintained task state.
+ *
+ * Deliberately separate from the memory directory. Memory is what stays true about a
+ * person or project across conversations; this is where one task stands right now, and
+ * it is discarded when that task is done.
+ */
+export function getWorkStateDirectory(agentId: string, conversationId: string): string {
+  return path.join(getJazzHomeDirectory(), "work", agentId, conversationId);
+}
+
+/**
  * Finds the `jazz-ai` package root containing `package.json`.
  *
  * @returns The package root directory, or `null` when it cannot be found.

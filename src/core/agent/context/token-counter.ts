@@ -147,6 +147,16 @@ export class TokenCounter {
   private calibratedRatio = new Map<string, number>();
 
   /**
+   * Per-model request overhead in tokens: everything the provider counts that is
+   * not in our message list — tool schemas above all, plus system scaffolding.
+   *
+   * Measured rather than derived. `toolDefinitionChars` reports only the schemas,
+   * while `promptTokens - estimatedMessageTokens` captures the whole gap, which is
+   * what the context window actually has to hold.
+   */
+  private overheadTokens = new Map<string, number>();
+
+  /**
    * Per-message memoization: maps message → cached count.
    * Stores modelKey at compute-time so a later calibration (which invalidates
    * the cache by replacing the WeakMap) doesn't mismatch.
@@ -238,8 +248,16 @@ export class TokenCounter {
     }
     if (totalChars === 0) return;
 
-    const observedRatio = totalChars / authoritativePromptTokens;
     const modelKey = this.modelKey(hint);
+
+    // Attribute only the message share of promptTokens to the ratio. Dividing by the
+    // raw total (which includes tool schemas) depressed the ratio and silently
+    // inflated every later estimate — compensation proportional to message size
+    // rather than to the overhead actually being missed.
+    const priorOverhead = this.overheadTokens.get(modelKey) ?? 0;
+    const messageTokens = Math.max(1, authoritativePromptTokens - priorOverhead);
+
+    const observedRatio = totalChars / messageTokens;
     const prior = this.calibratedRatio.get(modelKey);
     const smoothed =
       prior !== undefined
@@ -253,6 +271,27 @@ export class TokenCounter {
     // discard it. Hot messages are recomputed on next access; cold messages
     // (already trimmed away) are GC'd by the WeakMap.
     this.messageCache = new WeakMap<ChatMessage, number>();
+
+    // Now that the ratio is fresh, whatever the provider counted beyond our
+    // messages is the request overhead. Exact for tokenizer-backed families,
+    // smoothed for the rest so a single odd report cannot swing the budget.
+    const estimatedMessageTokens = this.countMessages(messagesAtCallTime, hint);
+    const observedOverhead = Math.max(0, authoritativePromptTokens - estimatedMessageTokens);
+    const priorOverheadValue = this.overheadTokens.get(modelKey);
+    const smoothedOverhead =
+      priorOverheadValue !== undefined
+        ? (1 - CALIBRATION_SMOOTHING) * priorOverheadValue +
+          CALIBRATION_SMOOTHING * observedOverhead
+        : observedOverhead;
+    this.overheadTokens.set(modelKey, Math.round(smoothedOverhead));
+  }
+
+  /**
+   * Tokens each request carries beyond the message list — tool schemas and provider
+   * scaffolding. Zero until the first authoritative usage report arrives.
+   */
+  overheadFor(hint: ModelHint): number {
+    return this.overheadTokens.get(this.modelKey(hint)) ?? 0;
   }
 
   /**
@@ -266,6 +305,7 @@ export class TokenCounter {
   /** Reset all calibration state. Useful for tests. */
   reset(): void {
     this.calibratedRatio.clear();
+    this.overheadTokens.clear();
     this.messageCache = new WeakMap<ChatMessage, number>();
   }
 

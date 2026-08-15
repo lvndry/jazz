@@ -1,6 +1,11 @@
 import { describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
-import { selectSummarizerModel, Summarizer, type RecursiveRunner } from "./summarizer";
+import {
+  chunkForSummarizer,
+  selectSummarizerModel,
+  Summarizer,
+  type RecursiveRunner,
+} from "./summarizer";
 import { AgentConfigServiceTag, type AgentConfigService } from "../../interfaces/agent-config";
 import { LLMServiceTag, type LLMService } from "../../interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "../../interfaces/logger";
@@ -351,7 +356,10 @@ describe("Summarizer", () => {
         >,
       );
 
-      expect(capturedInput).toContain("[Tool Calls: read_file]");
+      // Arguments travel with the name: the summarizer is asked to preserve exact
+      // file paths, so it has to be able to see them.
+      expect(capturedInput).toContain("[Tool Calls: read_file(");
+      expect(capturedInput).toContain("/test.txt");
     });
 
     it("should create summarizer agent with correct config", async () => {
@@ -584,5 +592,203 @@ describe("Summarizer", () => {
       expect(result.length).toBe(3);
       expect(result[0]?.content).toBe("You are an assistant");
     });
+  });
+});
+
+describe("renderTranscript", () => {
+  it("includes tool call arguments, not just names", () => {
+    const rendered = Summarizer.renderTranscript([
+      {
+        role: "assistant",
+        content: "reading the file",
+        tool_calls: [
+          {
+            id: "call_1",
+            type: "function",
+            function: {
+              name: "read_file",
+              arguments: '{"path":"src/core/agent/context/summarizer.ts"}',
+            },
+          },
+        ],
+      } as any,
+    ]);
+
+    expect(rendered).toContain("read_file");
+    expect(rendered).toContain("src/core/agent/context/summarizer.ts");
+  });
+
+  it("truncates an oversized argument payload with a visible marker", () => {
+    const rendered = Summarizer.renderTranscript([
+      {
+        role: "assistant",
+        content: "",
+        tool_calls: [
+          {
+            id: "call_1",
+            type: "function",
+            function: { name: "write_file", arguments: `{"content":"${"x".repeat(5000)}"}` },
+          },
+        ],
+      } as any,
+    ]);
+
+    expect(rendered).toContain("write_file");
+    expect(rendered).toContain("chars)");
+    expect(rendered.length).toBeLessThan(1000);
+  });
+
+  it("renders a tool call with no arguments as a bare name", () => {
+    const rendered = Summarizer.renderTranscript([
+      {
+        role: "assistant",
+        content: "",
+        tool_calls: [
+          { id: "call_1", type: "function", function: { name: "git_status", arguments: "" } },
+        ],
+      } as any,
+    ]);
+
+    expect(rendered).toContain("[Tool Calls: git_status]");
+  });
+});
+
+describe("anchored iterative summarization", () => {
+  const systemMessage = { role: "system", content: "system" } as ChatMessage;
+  const priorSummary = {
+    role: "assistant",
+    content: "## Context\nEarlier work: migrated auth module.",
+    kind: "summary",
+  } as ChatMessage;
+
+  function longConversation(): ConversationMessages {
+    const messages: ChatMessage[] = [systemMessage, priorSummary];
+    for (let index = 0; index < 20; index++) {
+      messages.push({ role: "user", content: `ask ${index} ` + "detail ".repeat(100) });
+      messages.push({ role: "assistant", content: `answer ${index} ` + "text ".repeat(100) });
+    }
+    return messages as ConversationMessages;
+  }
+
+  it("pulls a prior summary out instead of re-summarizing it", () => {
+    const result = Summarizer.splitMessages(longConversation(), 2000);
+
+    expect(result.priorSummary?.content).toBe(priorSummary.content);
+    expect(result.messagesToSummarize).not.toContain(priorSummary);
+    for (const message of result.messagesToSummarize) {
+      expect(message.kind).toBeUndefined();
+    }
+  });
+
+  it("treats an ordinary assistant message at index 1 as history, not state", () => {
+    const messages = [
+      systemMessage,
+      { role: "assistant", content: "just an answer" },
+      ...Array.from({ length: 20 }, (_, index) => ({
+        role: "user" as const,
+        content: `ask ${index} ` + "detail ".repeat(100),
+      })),
+    ] as ConversationMessages;
+
+    const result = Summarizer.splitMessages(messages, 2000);
+    expect(result.priorSummary).toBeUndefined();
+  });
+
+  it("marks its output as a summary so the next cycle can anchor on it", async () => {
+    let capturedInput = "";
+    const mockRunner: RecursiveRunner = (options) => {
+      capturedInput = options.userInput;
+      return Effect.succeed({
+        content: "merged summary",
+        conversationId: "test-conv",
+      } as AgentResponse);
+    };
+
+    const summary = await Effect.runPromise(
+      Summarizer.summarizeHistory(
+        [{ role: "user", content: "did some work" } as ChatMessage],
+        createMockAgent(),
+        "session-1",
+        "conv-1",
+        mockRunner,
+        priorSummary,
+      ).pipe(Effect.provide(createTestLayer())) as Effect.Effect<ChatMessage, Error, never>,
+    );
+
+    expect(summary.kind).toBe("summary");
+    expect(capturedInput).toContain("Existing summary");
+    expect(capturedInput).toContain("migrated auth module");
+    expect(capturedInput).toContain("updating an existing summary");
+  });
+});
+
+describe("bounded summarizer input", () => {
+  const hint = { provider: "openai", modelId: "gpt-4o" };
+
+  function messages(count: number, size: number): ChatMessage[] {
+    return Array.from({ length: count }, (_, index) => ({
+      role: "user" as const,
+      content: `message ${index} ` + "word ".repeat(size),
+    }));
+  }
+
+  it("returns a single chunk when the transcript fits", () => {
+    const chunks = chunkForSummarizer(messages(3, 10), 100_000, hint);
+    expect(chunks.length).toBe(1);
+    expect(chunks[0]?.length).toBe(3);
+  });
+
+  it("splits an oversized transcript into fitting chunks", () => {
+    const input = messages(20, 200);
+    const chunks = chunkForSummarizer(input, 500, hint);
+
+    expect(chunks.length).toBeGreaterThan(1);
+    // Every message survives exactly once, in order.
+    expect(chunks.flat().length).toBe(input.length);
+    expect(chunks.flat()[0]?.content).toBe(input[0]?.content);
+  });
+
+  it("keeps a single oversized message as its own chunk rather than dropping it", () => {
+    const huge = { role: "user" as const, content: "word ".repeat(50_000) };
+    const chunks = chunkForSummarizer([huge], 100, hint);
+
+    expect(chunks.length).toBe(1);
+    expect(chunks[0]?.[0]?.content).toBe(huge.content);
+  });
+
+  it("never emits an empty chunk", () => {
+    const chunks = chunkForSummarizer(messages(15, 300), 400, hint);
+    for (const chunk of chunks) {
+      expect(chunk.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("folds every chunk into one summary via repeated merges", async () => {
+    const inputs: string[] = [];
+    const mockRunner: RecursiveRunner = (options) => {
+      inputs.push(options.userInput);
+      return Effect.succeed({
+        content: `summary after ${inputs.length}`,
+        conversationId: "test-conv",
+      } as AgentResponse);
+    };
+
+    // 8 sizeable messages against a deliberately small budget forces several folds.
+    const result = await Effect.runPromise(
+      Summarizer.summarizeHistory(
+        messages(8, 400),
+        createMockAgent(),
+        "session-1",
+        "conv-1",
+        mockRunner,
+      ).pipe(Effect.provide(createTestLayer())) as Effect.Effect<ChatMessage, Error, never>,
+    );
+
+    expect(result.kind).toBe("summary");
+    expect(result.content).toBe(`summary after ${inputs.length}`);
+    // Every call after the first merges into what came before.
+    for (const input of inputs.slice(1)) {
+      expect(input).toContain("Existing summary");
+    }
   });
 });
