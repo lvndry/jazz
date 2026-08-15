@@ -647,3 +647,72 @@ describe("renderTranscript", () => {
     expect(rendered).toContain("[Tool Calls: git_status]");
   });
 });
+
+describe("anchored iterative summarization", () => {
+  const systemMessage = { role: "system", content: "system" } as ChatMessage;
+  const priorSummary = {
+    role: "assistant",
+    content: "## Context\nEarlier work: migrated auth module.",
+    kind: "summary",
+  } as ChatMessage;
+
+  function longConversation(): ConversationMessages {
+    const messages: ChatMessage[] = [systemMessage, priorSummary];
+    for (let index = 0; index < 20; index++) {
+      messages.push({ role: "user", content: `ask ${index} ` + "detail ".repeat(100) });
+      messages.push({ role: "assistant", content: `answer ${index} ` + "text ".repeat(100) });
+    }
+    return messages as ConversationMessages;
+  }
+
+  it("pulls a prior summary out instead of re-summarizing it", () => {
+    const result = Summarizer.splitMessages(longConversation(), 2000);
+
+    expect(result.priorSummary?.content).toBe(priorSummary.content);
+    expect(result.messagesToSummarize).not.toContain(priorSummary);
+    for (const message of result.messagesToSummarize) {
+      expect(message.kind).toBeUndefined();
+    }
+  });
+
+  it("treats an ordinary assistant message at index 1 as history, not state", () => {
+    const messages = [
+      systemMessage,
+      { role: "assistant", content: "just an answer" },
+      ...Array.from({ length: 20 }, (_, index) => ({
+        role: "user" as const,
+        content: `ask ${index} ` + "detail ".repeat(100),
+      })),
+    ] as ConversationMessages;
+
+    const result = Summarizer.splitMessages(messages, 2000);
+    expect(result.priorSummary).toBeUndefined();
+  });
+
+  it("marks its output as a summary so the next cycle can anchor on it", async () => {
+    let capturedInput = "";
+    const mockRunner: RecursiveRunner = (options) => {
+      capturedInput = options.userInput;
+      return Effect.succeed({
+        content: "merged summary",
+        conversationId: "test-conv",
+      } as AgentResponse);
+    };
+
+    const summary = await Effect.runPromise(
+      Summarizer.summarizeHistory(
+        [{ role: "user", content: "did some work" } as ChatMessage],
+        createMockAgent(),
+        "session-1",
+        "conv-1",
+        mockRunner,
+        priorSummary,
+      ).pipe(Effect.provide(createTestLayer())) as Effect.Effect<ChatMessage, Error, never>,
+    );
+
+    expect(summary.kind).toBe("summary");
+    expect(capturedInput).toContain("Existing summary");
+    expect(capturedInput).toContain("migrated auth module");
+    expect(capturedInput).toContain("updating an existing summary");
+  });
+});

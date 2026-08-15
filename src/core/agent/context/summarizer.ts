@@ -135,11 +135,17 @@ export const Summarizer = {
     modelHint?: ModelHint,
   ): {
     systemMessage: ChatMessage;
+    priorSummary: ChatMessage | undefined;
     messagesToSummarize: ChatMessage[];
     sanitizedRecentMessages: ChatMessage[];
   } {
     // Keep system message [0] and recent messages that fit in token budget
     const systemMessage = currentMessages[0];
+
+    // A summary from an earlier compaction is prior *state*, not raw history. Feeding
+    // it back through the summarizer re-summarizes a summary, and the drift compounds
+    // with every cycle. Pull it out here and hand it to the summarizer to merge into.
+    const priorSummary = currentMessages[1]?.kind === "summary" ? currentMessages[1] : undefined;
     const hint: ModelHint = modelHint ?? { provider: "", modelId: "" };
 
     // Reserve 20% of max tokens for recent context
@@ -171,7 +177,8 @@ export const Summarizer = {
     recentCount = Math.min(recentCount, currentMessages.length - 1);
 
     const recentMessages = currentMessages.slice(-recentCount);
-    const messagesToSummarize = currentMessages.slice(1, -recentCount);
+    const summarizeFrom = priorSummary ? 2 : 1;
+    const messagesToSummarize = currentMessages.slice(summarizeFrom, -recentCount);
 
     // Sanitize recent messages to avoid orphaned tool call/result references.
     // The split may land in the middle of a tool call group, leaving:
@@ -214,7 +221,7 @@ export const Summarizer = {
       return acc;
     }, []);
 
-    return { systemMessage, messagesToSummarize, sanitizedRecentMessages };
+    return { systemMessage, priorSummary, messagesToSummarize, sanitizedRecentMessages };
   },
 
   /**
@@ -307,7 +314,7 @@ export const Summarizer = {
         maxTokens,
       });
 
-      const { systemMessage, messagesToSummarize, sanitizedRecentMessages } =
+      const { systemMessage, priorSummary, messagesToSummarize, sanitizedRecentMessages } =
         Summarizer.splitMessages(currentMessages, maxTokens, hint);
 
       if (messagesToSummarize.length === 0) {
@@ -328,6 +335,7 @@ export const Summarizer = {
         sessionId,
         conversationId,
         runRecursive,
+        priorSummary,
       );
 
       // Rebuild: [system, summary, ...recent]
@@ -384,6 +392,7 @@ export const Summarizer = {
     sessionId: string,
     conversationId: string,
     runRecursive: RecursiveRunner,
+    priorSummary?: ChatMessage,
   ): Effect.Effect<
     ChatMessage,
     Error,
@@ -417,9 +426,12 @@ export const Summarizer = {
 
       const historyText = Summarizer.renderTranscript(messagesToSummarize);
 
-      const userInput =
-        "Summarize the following conversation. Produce a concise, structured summary that preserves key information for continuity—goals, decisions, outcomes, key entities, current status, and open questions. Output only the summary.\n\n" +
-        historyText;
+      const userInput = priorSummary?.content
+        ? "You are updating an existing summary of an ongoing conversation, not writing a new one.\n\n" +
+          "Carry forward everything in the existing summary that is still true, fold in what the new transcript adds, and correct anything the new transcript contradicts. Do not drop earlier facts merely because the new transcript does not mention them — they are still the only record of what happened. Output only the updated summary, in the same structure.\n\n" +
+          `## Existing summary\n\n${priorSummary.content}\n\n## New transcript\n\n${historyText}`
+        : "Summarize the following conversation. Produce a concise, structured summary that preserves key information for continuity—goals, decisions, outcomes, key entities, current status, and open questions. Output only the summary.\n\n" +
+          historyText;
 
       // Define specialized summarizer agent on the fly with the selected model
       const summarizerModel =
@@ -451,6 +463,7 @@ export const Summarizer = {
       return {
         role: "assistant",
         content: summaryResponse.content,
+        kind: "summary",
       };
     });
   },
