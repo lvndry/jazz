@@ -2,7 +2,7 @@
  * Provider registry.
  *
  * Model lists are NOT hardcoded. Every provider resolves its models at runtime:
- * - Catalog-backed providers (openai, anthropic, google, ...) list models from
+ * - Catalog-backed providers (openai, anthropic, gemini, ...) list models from
  *   https://models.dev/api.json (fetched lazily, cached in memory for 1 hour).
  * - Dynamic providers (openrouter, groq, ollama, ...) list models from their own
  *   API endpoints, with models.dev used for best-effort metadata enrichment.
@@ -26,7 +26,7 @@ export const DEFAULT_CONTEXT_WINDOW = 128_000;
 export const AVAILABLE_PROVIDERS = [
   "openai",
   "anthropic",
-  "google",
+  "gemini",
   "openrouter",
   "xai",
   "ai_gateway",

@@ -91,7 +91,7 @@ export interface LLMConfig {
   readonly cerebras?: LLMProviderConfig;
   readonly deepseek?: LLMProviderConfig;
   readonly fireworks?: LLMProviderConfig;
-  readonly google?: LLMProviderConfig;
+  readonly gemini?: LLMProviderConfig;
   readonly groq?: LLMProviderConfig;
   readonly llamacpp?: LlamaCppProviderConfig;
   readonly minimax?: LLMProviderConfig;

@@ -33,7 +33,7 @@ export type ModelFamily =
   | "openai-o200k" // gpt-4o, gpt-4.1, gpt-5.x
   | "openai-cl100k" // gpt-3.5, gpt-4, gpt-4-turbo
   | "anthropic"
-  | "google"
+  | "gemini"
   | "mistral"
   | "llama" // most open-weight models, served via Groq/Cerebras/Fireworks/Together
   | "qwen"
@@ -61,7 +61,7 @@ const FAMILY_DEFAULT_RATIO: Record<ModelFamily, number> = {
   "openai-o200k": 4.0,
   "openai-cl100k": 4.0,
   anthropic: 3.5,
-  google: 4.0,
+  gemini: 4.0,
   mistral: 3.8,
   llama: 3.6,
   qwen: 3.5,
@@ -110,7 +110,7 @@ export function inferFamily(hint: ModelHint): ModelFamily {
     return "openai-cl100k";
   }
   if (provider === "anthropic" || id.includes("claude")) return "anthropic";
-  if (provider === "google" || id.includes("gemini")) return "google";
+  if (provider === "gemini" || id.includes("gemini")) return "gemini";
   if (
     provider === "mistral" ||
     id.includes("mistral") ||

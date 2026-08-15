@@ -18,6 +18,10 @@ import {
   getLocalJazzDirectory,
 } from "@/core/utils/paths";
 import {
+  migrateConfigProviderName,
+  migrateKeyringProviderName,
+} from "@/core/utils/provider-migration";
+import {
   detectKeyringBackend,
   keyringDelete,
   keyringGet,
@@ -327,6 +331,7 @@ export function createConfigLayer(
         loaded.configPath,
         loaded.globalConfig,
         keyringBackend,
+        loaded.renamedProvider ?? false,
       );
 
       return new AgentConfigServiceImpl(
@@ -496,6 +501,7 @@ function resolveSecrets(
   globalConfigPath: string | undefined,
   globalFileConfig: Partial<AppConfig> | undefined,
   backend: KeyringBackend,
+  renamedProvider: boolean,
 ): Effect.Effect<
   {
     config: AppConfig;
@@ -505,6 +511,8 @@ function resolveSecrets(
   never
 > {
   return Effect.gen(function* () {
+    yield* migrateKeyringProviderName(backend, keyringGet, keyringSet, keyringDelete);
+
     const resolved = structuredClone(config) as unknown as Record<string, unknown>;
     const origins = new Map<string, SecretOrigin>();
     const candidates = new Set([...SECRET_PATHS, ...collectSecretPaths(config)]);
@@ -550,7 +558,7 @@ function resolveSecrets(
 
     const droppedLegacy = dropLegacyGoogleBlock(fileRecord);
 
-    if ((migrated.length > 0 || droppedLegacy) && globalConfigPath) {
+    if ((migrated.length > 0 || droppedLegacy || renamedProvider) && globalConfigPath) {
       const cleaned = structuredClone(fileRecord);
       for (const path of migrated) {
         deepDelete(cleaned, path);
@@ -636,7 +644,7 @@ function stripStorageOverride(config: Partial<AppConfig>): Partial<AppConfig> {
 function readOptionalConfigFile(
   fs: FileSystem.FileSystem,
   filePath: string,
-): Effect.Effect<Partial<AppConfig> | undefined, never> {
+): Effect.Effect<{ config: Partial<AppConfig>; renamedProvider: boolean } | undefined, never> {
   return Effect.gen(function* () {
     const exists = yield* fs.exists(filePath).pipe(Effect.catchAll(() => Effect.succeed(false)));
     if (!exists) return undefined;
@@ -652,7 +660,8 @@ function readOptionalConfigFile(
     const config = parsed.value;
     if (typeof config !== "object" || config === null) return undefined;
 
-    return config;
+    const renamedProvider = migrateConfigProviderName(config);
+    return { config, renamedProvider };
   });
 }
 
@@ -665,6 +674,7 @@ function loadConfigFile(
     fileConfig?: Partial<AppConfig>;
     globalConfig?: Partial<AppConfig>;
     localConfig?: Partial<AppConfig>;
+    renamedProvider?: boolean;
   },
   ConfigurationError | ConfigurationNotFoundError
 > {
@@ -732,8 +742,11 @@ function loadConfigFile(
         );
       }
 
+      const renamedProvider = migrateConfigProviderName(config);
+
       const localConfigPath = `${getLocalJazzDirectory()}/config.json`;
-      const localConfigRaw = yield* readOptionalConfigFile(fs, localConfigPath);
+      const localRead = yield* readOptionalConfigFile(fs, localConfigPath);
+      const localConfigRaw = localRead?.config;
       const localConfig = localConfigRaw ? stripStorageOverride(localConfigRaw) : undefined;
 
       const emptyBase = defaultConfig();
@@ -745,10 +758,12 @@ function loadConfigFile(
         fileConfig: Partial<AppConfig>;
         globalConfig?: Partial<AppConfig>;
         localConfig?: Partial<AppConfig>;
+        renamedProvider?: boolean;
       } = {
         configPath: expandedPath,
         fileConfig: merged,
         globalConfig: config,
+        renamedProvider,
       };
 
       if (localConfigRaw) {
@@ -764,8 +779,10 @@ function loadConfigFile(
       : `${getJazzHomeDirectory()}/config.json`;
     const localConfigPath = `${getLocalJazzDirectory()}/config.json`;
 
-    const globalConfig = yield* readOptionalConfigFile(fs, globalConfigPath);
-    const localConfigRaw = yield* readOptionalConfigFile(fs, localConfigPath);
+    const globalRead = yield* readOptionalConfigFile(fs, globalConfigPath);
+    const globalConfig = globalRead?.config;
+    const localRead = yield* readOptionalConfigFile(fs, localConfigPath);
+    const localConfigRaw = localRead?.config;
     const localConfig = localConfigRaw ? stripStorageOverride(localConfigRaw) : undefined;
 
     if (!globalConfig && !localConfig) {
@@ -781,9 +798,11 @@ function loadConfigFile(
       fileConfig: Partial<AppConfig>;
       globalConfig?: Partial<AppConfig>;
       localConfig?: Partial<AppConfig>;
+      renamedProvider?: boolean;
     } = {
       configPath: globalConfigPath,
       fileConfig: merged,
+      renamedProvider: globalRead?.renamedProvider ?? false,
     };
 
     if (globalConfig) {

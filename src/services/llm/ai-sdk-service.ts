@@ -511,9 +511,9 @@ function getConfiguredProviders(
       providers.push({ name: "fireworks", apiKey: llmConfig.fireworks.api_key });
       addedProviders.add("fireworks");
     }
-    if (llmConfig.google?.api_key) {
-      providers.push({ name: "google", apiKey: llmConfig.google.api_key });
-      addedProviders.add("google");
+    if (llmConfig.gemini?.api_key) {
+      providers.push({ name: "gemini", apiKey: llmConfig.gemini.api_key });
+      addedProviders.add("gemini");
     }
     if (llmConfig.groq?.api_key) {
       providers.push({ name: "groq", apiKey: llmConfig.groq.api_key });
@@ -604,8 +604,8 @@ function selectModel(
       model = apiKey ? createAnthropic({ apiKey })(modelId) : anthropic(modelId);
       break;
     }
-    case "google": {
-      const apiKey = resolveApiKey("google");
+    case "gemini": {
+      const apiKey = resolveApiKey("gemini");
       model = apiKey ? createGoogleGenerativeAI({ apiKey })(modelId) : google(modelId);
       break;
     }
@@ -802,7 +802,7 @@ export function buildProviderOptions(
       }
       break;
     }
-    case "google": {
+    case "gemini": {
       const reasoningEffort = options.reasoning_effort;
       if (reasoningEffort && reasoningEffort !== "disable") {
         const geminiProReasoningEffort = options.model.includes("gemini-3")
@@ -1050,7 +1050,7 @@ class AISDKService implements LLMService {
     if (modelSource.type === "models-dev") {
       return Effect.tryPromise({
         try: async () => {
-          const resolved = await fetchModelsDevModels(providerName);
+          const resolved = await fetchModelsDevModels(modelSource.catalogId ?? providerName);
           this.modelInfoCache.set(providerName, resolved);
           return resolved;
         },
