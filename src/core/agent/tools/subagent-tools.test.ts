@@ -168,6 +168,117 @@ describe("spawn_subagent persona handling", () => {
   });
 });
 
+describe("spawn_subagent reasoning effort", () => {
+  function captureSpawn(): {
+    readonly captured: () => Omit<AgentRunnerOptions, "internal"> | undefined;
+    readonly spy: ReturnType<typeof spyOn>;
+  } {
+    let seen: Omit<AgentRunnerOptions, "internal"> | undefined;
+    const spy = spyOn(AgentRunner, "runRecursive").mockImplementation((options) => {
+      seen = options;
+      return Effect.succeed({ content: "done", messages: [] }) as ReturnType<
+        typeof AgentRunner.runRecursive
+      >;
+    });
+    return { captured: () => seen, spy };
+  }
+
+  function runSpawnWithArgs(
+    presentation: PresentationService,
+    args: Record<string, unknown>,
+  ): Promise<unknown> {
+    const tool = getSpawnTool();
+    const testLayer = Layer.mergeAll(
+      Layer.succeed(LoggerServiceTag, mockLogger),
+      Layer.succeed(PresentationServiceTag, presentation),
+    );
+    return Effect.runPromise(
+      (
+        tool.execute(args, { agentId: parentAgent.id, parentAgent }) as Effect.Effect<
+          unknown,
+          unknown,
+          LoggerService | PresentationService
+        >
+      ).pipe(Effect.provide(testLayer)),
+    );
+  }
+
+  it("overrides the parent's effort when provided", async () => {
+    const { captured, spy } = captureSpawn();
+
+    try {
+      const { presentation } = createPresentationHarness();
+      const effortParent: Agent = {
+        ...parentAgent,
+        config: { persona: "default", reasoningEffort: "medium" } as Agent["config"],
+      };
+      const tool = getSpawnTool();
+      const testLayer = Layer.mergeAll(
+        Layer.succeed(LoggerServiceTag, mockLogger),
+        Layer.succeed(PresentationServiceTag, presentation),
+      );
+      await Effect.runPromise(
+        (
+          tool.execute(
+            { task: "deep review", persona: "coder", reasoningEffort: "high" },
+            { agentId: effortParent.id, parentAgent: effortParent },
+          ) as Effect.Effect<unknown, unknown, LoggerService | PresentationService>
+        ).pipe(Effect.provide(testLayer)),
+      );
+
+      expect(captured()?.agent.config.reasoningEffort).toBe("high");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("inherits the parent's effort when omitted", async () => {
+    const { captured, spy } = captureSpawn();
+
+    try {
+      const { presentation } = createPresentationHarness();
+      const effortParent: Agent = {
+        ...parentAgent,
+        config: { persona: "default", reasoningEffort: "medium" } as Agent["config"],
+      };
+      const tool = getSpawnTool();
+      const testLayer = Layer.mergeAll(
+        Layer.succeed(LoggerServiceTag, mockLogger),
+        Layer.succeed(PresentationServiceTag, presentation),
+      );
+      await Effect.runPromise(
+        (
+          tool.execute(
+            { task: "do a thing", persona: "default" },
+            { agentId: effortParent.id, parentAgent: effortParent },
+          ) as Effect.Effect<unknown, unknown, LoggerService | PresentationService>
+        ).pipe(Effect.provide(testLayer)),
+      );
+
+      expect(captured()?.agent.config.reasoningEffort).toBe("medium");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("rejects an invalid effort value", async () => {
+    const { spy } = captureSpawn();
+
+    try {
+      const { presentation } = createPresentationHarness();
+      const result = (await runSpawnWithArgs(presentation, {
+        task: "do a thing",
+        reasoningEffort: "maximum",
+      })) as { success: boolean; error?: string };
+
+      expect(result.success).toBe(false);
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
 describe("spawn_subagent tool ceiling", () => {
   it("caps the child at the parent's effective tools", async () => {
     let captured: Omit<AgentRunnerOptions, "internal"> | undefined;
