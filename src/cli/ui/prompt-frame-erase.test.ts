@@ -91,6 +91,10 @@ function mountHarness(): Harness {
     ...INK_RENDER_OPTIONS,
     stdout: stdout as unknown as NodeJS.WriteStream,
     stdin: createFakeStdin(),
+    // Ink defaults to non-interactive under CI and never emits erase escapes
+    // there. The bug only exists on the interactive path a real terminal
+    // takes, so pin it explicitly rather than letting the environment decide.
+    interactive: true,
   });
 
   return {
