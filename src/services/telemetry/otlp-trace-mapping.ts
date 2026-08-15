@@ -98,10 +98,6 @@ function spanNameOf(event: TelemetryEvent): string {
       const toolName = data["toolName"];
       return typeof toolName === "string" ? `tool ${toolName}` : "tool";
     }
-    case "command_executed": {
-      const command = data["command"];
-      return typeof command === "string" ? `jazz ${command}` : "command";
-    }
     default:
       return event.type;
   }
@@ -117,12 +113,19 @@ const ERROR_EVENT_TYPES = new Set(["agent_run_failed", "tool_error"]);
 /**
  * Event types that do not become spans.
  *
- * `agent_run_started` is deliberately excluded: the run's span is built entirely
- * from the terminal event, which carries `durationMs`. Deriving both endpoints
- * from one event keeps the mapping stateless — no correlation buffer waiting for
- * a matching start, and nothing lost when a process exits mid-run.
+ * `agent_run_started` is excluded because the run's span is built entirely from
+ * the terminal event, which carries `durationMs`. Deriving both endpoints from
+ * one event keeps the mapping stateless — no correlation buffer waiting for a
+ * matching start, and nothing lost when a process exits mid-run.
+ *
+ * `command_executed` is excluded because a CLI invocation is not agent work. It
+ * carries no run id, so it could only ever be its own root, which meant every
+ * command emitted a second single-span trace next to the run it wrapped — half
+ * the trace list was noise. Commands that spawn no run (`jazz agent list`) now
+ * produce no trace at all, which is the honest answer: there was nothing to
+ * observe. The event is still recorded locally and exported as a log record.
  */
-const NON_SPAN_EVENT_TYPES = new Set(["agent_run_started"]);
+const NON_SPAN_EVENT_TYPES = new Set(["agent_run_started", "command_executed"]);
 
 export function isSpanEvent(event: TelemetryEvent): boolean {
   return !NON_SPAN_EVENT_TYPES.has(event.type);

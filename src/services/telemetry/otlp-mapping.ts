@@ -156,36 +156,47 @@ export function eventToAttributes(event: TelemetryEvent, captureContent: boolean
   const data = event.data;
   const consumed = new Set<string>();
 
-  const provider = data["provider"];
-  if (typeof provider === "string") {
-    attributes.push(stringAttribute("gen_ai.system", provider));
-    consumed.add("provider");
-  }
+  // GenAI attributes describe one model call. An agent run is a rollup of many,
+  // so tagging it with them makes observability backends read it as a further
+  // LLM call and price its totals on top of the calls they already summarise —
+  // double-counting every run's tokens and cost. The rollup keeps its numbers
+  // under jazz.* instead.
+  const describesSingleLLMCall = event.type === "llm_usage" || event.type === "llm_retry";
 
-  const model = data["model"];
-  if (typeof model === "string") {
-    attributes.push(stringAttribute("gen_ai.request.model", model));
-    attributes.push(stringAttribute("gen_ai.response.model", model));
-    consumed.add("model");
-  }
+  if (describesSingleLLMCall) {
+    const provider = data["provider"];
+    if (typeof provider === "string") {
+      attributes.push(stringAttribute("gen_ai.system", provider));
+      consumed.add("provider");
+    }
 
-  if (event.type === "llm_usage" || event.type === "agent_run_completed") {
+    const model = data["model"];
+    if (typeof model === "string") {
+      attributes.push(stringAttribute("gen_ai.request.model", model));
+      attributes.push(stringAttribute("gen_ai.response.model", model));
+      consumed.add("model");
+    }
+
     attributes.push(stringAttribute("gen_ai.operation.name", "chat"));
   }
 
   const usage = data["usage"];
   if (usage && typeof usage === "object") {
     const usageRecord = usage as Record<string, unknown>;
-    const promptTokens = usageRecord["promptTokens"];
-    const completionTokens = usageRecord["completionTokens"];
-    if (typeof promptTokens === "number") {
-      attributes.push(intAttribute("gen_ai.usage.input_tokens", promptTokens));
+
+    if (describesSingleLLMCall) {
+      const promptTokens = usageRecord["promptTokens"];
+      const completionTokens = usageRecord["completionTokens"];
+      if (typeof promptTokens === "number") {
+        attributes.push(intAttribute("gen_ai.usage.input_tokens", promptTokens));
+      }
+      if (typeof completionTokens === "number") {
+        attributes.push(intAttribute("gen_ai.usage.output_tokens", completionTokens));
+      }
     }
-    if (typeof completionTokens === "number") {
-      attributes.push(intAttribute("gen_ai.usage.output_tokens", completionTokens));
-    }
-    // The remaining usage fields (cache, reasoning, tool-token estimates) have
-    // no semconv equivalent and stay under jazz.usage.*.
+
+    // Everything else (cache, reasoning, tool-token estimates, and the run
+    // rollup's totals) has no semconv equivalent and stays under jazz.usage.*.
     flattenData(usageRecord, "jazz.usage.", new Set(), captureContent, attributes);
     consumed.add("usage");
   }
