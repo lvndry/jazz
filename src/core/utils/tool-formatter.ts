@@ -495,21 +495,24 @@ export function formatToolResult(toolName: string, result: string): string {
     const stdout = safeString(parsedResult["stdout"]);
     const stderr = safeString(parsedResult["stderr"]);
     const exitCode = safeString(parsedResult["exitCode"]);
+    const failed = exitCode !== "" && exitCode !== "0";
 
     if (!stdout && !stderr) {
-      return exitCode ? `exitCode: ${exitCode}` : "";
+      return failed ? `failed (exit code ${exitCode}), no output` : "no output";
     }
 
     const lines: string[] = [];
     if (stdout) lines.push(stdout);
     if (stderr) {
-      if (stdout) lines.push("");
-      lines.push("stderr:");
+      if (stdout) {
+        lines.push("");
+        lines.push("stderr:");
+      }
       lines.push(stderr);
     }
-    if (exitCode && exitCode !== "0") {
+    if (failed) {
       lines.push("");
-      lines.push(`exitCode: ${exitCode}`);
+      lines.push(`failed (exit code ${exitCode})`);
     }
 
     return lines.join("\n");

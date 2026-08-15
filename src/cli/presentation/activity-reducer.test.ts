@@ -280,6 +280,55 @@ describe("activity-reducer", () => {
       expect(outputText).not.toContain("load_skill done");
     });
 
+    test("tool_execution_complete failure renders the error message, not the null result", () => {
+      const a = acc();
+      const { nodes, render } = createCapturingInk();
+      a.activeTools.set("tc-fail", { toolName: "web_search", startedAt: Date.now() });
+
+      const result = reduceEvent(
+        a,
+        {
+          type: "tool_execution_complete",
+          toolCallId: "tc-fail",
+          result: "null",
+          durationMs: 11783,
+          success: false,
+          error: "exa search failed: invalid API key",
+        },
+        render,
+      );
+
+      expect(result.outputs[0]!.type).toBe("log");
+      const outputText = nodes.map((node) => extractText(node)).join("\n");
+      expect(outputText).toContain("web_search");
+      expect(outputText).toContain("exa search failed: invalid API key");
+      expect(outputText).not.toContain("null");
+      expect(outputText).toContain(`${getGlyphs().error} `);
+      expect(outputText).not.toContain(`${getGlyphs().success} `);
+    });
+
+    test("tool_execution_complete failure without an error message falls back to a generic reason", () => {
+      const a = acc();
+      const { nodes, render } = createCapturingInk();
+      a.activeTools.set("tc-fail-2", { toolName: "web_fetch", startedAt: Date.now() });
+
+      reduceEvent(
+        a,
+        {
+          type: "tool_execution_complete",
+          toolCallId: "tc-fail-2",
+          result: "null",
+          durationMs: 72,
+          success: false,
+        },
+        render,
+      );
+
+      const outputText = nodes.map((node) => extractText(node)).join("\n");
+      expect(outputText).toContain("Tool execution failed");
+      expect(outputText).not.toContain("null");
+    });
+
     test("tool_execution_complete with multi-line summary renders full body in bordered log", () => {
       const a = acc();
       const { nodes, render } = createCapturingInk();

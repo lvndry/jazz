@@ -264,13 +264,16 @@ export class InkStreamingRenderer implements StreamingRenderer {
       return;
     }
     if (event.type === "tool_execution_complete") {
-      const summary =
-        event.summary?.trim() ||
-        (completedToolName ? formatToolResult(completedToolName, event.result) : "") ||
-        completedToolName ||
-        "Tool";
+      const failed = event.success === false;
+      const summary = failed
+        ? `${completedToolName ? `${completedToolName}: ` : ""}${event.error?.trim() || "Tool execution failed"}`
+        : event.summary?.trim() ||
+          (completedToolName ? formatToolResult(completedToolName, event.result) : "") ||
+          completedToolName ||
+          "Tool";
       const firstLine = summary.split("\n")[0] ?? summary;
-      const line = `${getGlyphs().success} ${firstLine} (${event.durationMs}ms)`;
+      const glyph = failed ? getGlyphs().error : getGlyphs().success;
+      const line = `${glyph} ${firstLine} (${event.durationMs}ms)`;
       this.bufferStreamDelta({ target: "ephemeral", regionId, delta: `\n${line}` });
     }
   }

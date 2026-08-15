@@ -383,8 +383,15 @@ export function reduceEvent(
       const toolName = toolEntry?.toolName;
       acc.activeTools.delete(event.toolCallId);
 
+      const failed = event.success === false;
+
       let summary = event.summary?.trim();
-      if (
+      if (failed) {
+        // A failed tool's result payload is null — the error message is the
+        // only meaningful thing to show.
+        const reason = event.error?.trim() || "Tool execution failed";
+        summary = toolName ? `${toolName}: ${reason}` : reason;
+      } else if (
         toolName === "manage_todos" &&
         toolEntry?.todoSnapshot &&
         toolEntry.todoSnapshot.length > 0
@@ -394,6 +401,9 @@ export function reduceEvent(
       if (!summary && toolName && event.result) {
         summary = formatToolResult(toolName, event.result);
       }
+
+      const glyph = failed ? getGlyphs().error : getGlyphs().success;
+      const glyphColor = failed ? THEME.error : THEME.success;
 
       const displayText = summary && summary.length > 0 ? summary : (toolName ?? "Tool");
       const hasMultiLine = displayText.includes("\n");
@@ -418,8 +428,12 @@ export function reduceEvent(
               React.createElement(
                 Box,
                 null,
-                React.createElement(Text, { color: THEME.success }, `${getGlyphs().success} `),
-                React.createElement(Text, { color: THEME.agent }, headerLine),
+                React.createElement(Text, { color: glyphColor }, `${glyph} `),
+                React.createElement(
+                  Text,
+                  { color: failed ? THEME.error : THEME.agent },
+                  headerLine,
+                ),
                 React.createElement(Text, { dimColor: true }, ` (${event.durationMs}ms)`),
               ),
               ...bodyLines.map((line, index) =>
@@ -449,8 +463,12 @@ export function reduceEvent(
             React.createElement(
               Box,
               { paddingLeft: PADDING.content },
-              React.createElement(Text, { color: THEME.success }, `${getGlyphs().success} `),
-              React.createElement(Text, { color: THEME.agent }, singleLineSummary),
+              React.createElement(Text, { color: glyphColor }, `${glyph} `),
+              React.createElement(
+                Text,
+                { color: failed ? THEME.error : THEME.agent },
+                singleLineSummary,
+              ),
               React.createElement(Text, { dimColor: true }, ` (${event.durationMs}ms)`),
             ),
           ),

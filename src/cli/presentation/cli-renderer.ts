@@ -330,14 +330,27 @@ export class CLIRenderer {
     result: string;
     durationMs: number;
     summary?: string;
+    success?: boolean;
+    error?: string;
   }): string {
     // Get tool name from map
     const toolName = this.toolNameMap.get(event.toolCallId) || "";
-    const summary = event.summary || CLIRenderer.formatToolResult(toolName, event.result);
     const { colors, icons } = this.theme;
 
     // Clean up
     this.toolNameMap.delete(event.toolCallId);
+
+    if (event.success === false) {
+      const reason = event.error?.trim() || "Tool execution failed";
+      return (
+        ` ${colors.error(icons.error)}` +
+        ` ${colors.error(toolName ? `${toolName}: ${reason}` : reason)}` +
+        ` ${colors.dim(`(${event.durationMs}ms)`)}` +
+        "\n\n"
+      );
+    }
+
+    const summary = event.summary || CLIRenderer.formatToolResult(toolName, event.result);
 
     // Check if summary contains multi-line content (like a diff)
     const hasMultiLine = summary && summary.includes("\n");

@@ -383,6 +383,8 @@ export class ToolExecutor {
               toolCallId: toolCall.id,
               result: resultString,
               durationMs: toolDuration,
+              success: result.success,
+              ...(result.success ? {} : { error: result.error ?? "Tool execution failed" }),
             });
           } else {
             if (result.success) {
@@ -437,6 +439,8 @@ export class ToolExecutor {
               toolCallId: toolCall.id,
               result: `Error: ${errorMessage}`,
               durationMs: toolDuration,
+              success: false,
+              error: errorMessage,
             });
           } else {
             const message = yield* presentationService.formatToolExecutionError(
