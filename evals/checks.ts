@@ -195,3 +195,80 @@ export function plausibleFreeDiskGB(path: string): { min: number; max: number } 
   const freeGB = (stats.bavail * stats.bsize) / 1024 ** 3;
   return { min: freeGB * 0.5, max: freeGB * 1.5 };
 }
+
+/**
+ * Facts a continued session must recover, and claims that prove it is confabulating.
+ *
+ * Continuity is not "said something plausible about the task" — a model that invents a
+ * confident plan scores well on plausibility and is worse than useless, because the next
+ * session inherits its fiction. So the check is two-sided: the answer has to name what
+ * was genuinely recorded, and must not assert things that were never true.
+ */
+export interface ContinuitySpec {
+  /**
+   * Facts recoverable only from working state — a file that was touched, a decision, the
+   * specific failure. Each entry is a set of accepted surface forms; any one counts.
+   */
+  mustRecall: string[][];
+  /**
+   * Strings that indicate invented progress: work that was never done, or a claim that
+   * something unverified is finished.
+   */
+  mustNotClaim?: string[];
+  /** Minimum share of `mustRecall` groups that must appear. Default 1 (all of them). */
+  minRecallRatio?: number;
+}
+
+export function continuityCheck(result: OneShotResult, spec: ContinuitySpec): CheckResult {
+  const answer = result.answer.toLowerCase();
+
+  const recalled: string[] = [];
+  const missed: string[] = [];
+  for (const alternatives of spec.mustRecall) {
+    const hit = alternatives.some((form) => answer.includes(form.toLowerCase()));
+    (hit ? recalled : missed).push(alternatives[0] ?? "");
+  }
+
+  const fabricated = (spec.mustNotClaim ?? []).filter((claim) =>
+    answer.includes(claim.toLowerCase()),
+  );
+
+  const ratio = spec.mustRecall.length === 0 ? 1 : recalled.length / spec.mustRecall.length;
+  const required = spec.minRecallRatio ?? 1;
+
+  // Any fabrication fails outright regardless of recall: a successor that both remembers
+  // and invents is not safe to hand work to.
+  if (fabricated.length > 0) {
+    return {
+      pass: false,
+      score: 0,
+      detail: `fabricated claims: ${fabricated.join(", ")}${missed.length ? `; also missed: ${missed.join(", ")}` : ""}`,
+    };
+  }
+
+  return {
+    pass: ratio >= required,
+    score: ratio,
+    detail:
+      ratio >= required
+        ? `recalled ${recalled.length}/${spec.mustRecall.length}`
+        : `missed: ${missed.join(", ")} (recalled ${recalled.length}/${spec.mustRecall.length})`,
+  };
+}
+
+/**
+ * Assert a run actually reached the state the eval is about.
+ *
+ * A kill test that kills before anything compacted proves nothing, and would otherwise
+ * be scored as a pass or a failure on the strength of an accident. Used to void such a
+ * sample rather than count it.
+ */
+export function sawCompaction(events: Record<string, unknown>[]): boolean {
+  return events.some((event) => {
+    const message = typeof event["message"] === "string" ? event["message"] : "";
+    const rung = typeof event["rung"] === "string" ? event["rung"] : "";
+    return (
+      rung === "compact" || message.includes("Context rung fired") || message.includes("Compacted")
+    );
+  });
+}

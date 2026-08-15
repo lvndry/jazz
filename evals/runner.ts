@@ -107,6 +107,28 @@ async function pool<T>(
   await Promise.all(runners);
 }
 
+const EVAL_AGENTS_DIR = join(import.meta.dir, "agents");
+
+/**
+ * Give a rollout its own JAZZ_HOME with the eval agents copied in.
+ *
+ * Continuity tasks seed working state and assert on what survives it, which needs a home
+ * they control — and seeding fixture state into the user's real ~/.jazz would be wrong
+ * even if it worked. Provider credentials still come from the environment, so only the
+ * agent definitions have to be copied.
+ */
+export function seedIsolatedJazzHome(homeDir: string): string {
+  const agentsDir = join(homeDir, "agents");
+  mkdirSync(agentsDir, { recursive: true });
+  if (existsSync(EVAL_AGENTS_DIR)) {
+    for (const name of readdirSync(EVAL_AGENTS_DIR)) {
+      if (!name.endsWith(".json")) continue;
+      writeFileSync(join(agentsDir, name), readFileSync(join(EVAL_AGENTS_DIR, name), "utf-8"));
+    }
+  }
+  return homeDir;
+}
+
 export interface RunSuiteOptions {
   tasks: EvalTask[];
   agentId: string;
@@ -126,20 +148,37 @@ export async function runSuite(options: RunSuiteOptions): Promise<SuiteReport> {
 
   await pool(jobs, options.concurrency, async ({ task, sampleIndex }) => {
     const workspaceDir = mkdtempSync(join(tmpdir(), `eval-${task.id}-`));
+    // Only tasks that drive jazz themselves get an isolated home; the rest keep using
+    // the user's real ~/.jazz, where their agents and provider keys already live.
+    const jazzHomeDir = task.run
+      ? seedIsolatedJazzHome(mkdtempSync(join(tmpdir(), `eval-home-${task.id}-`)))
+      : "";
     const cassettePath = join(WEB_FIXTURE_DIR, `${task.id}.cassette.json`);
     if (!existsSync(cassettePath)) writeFileSync(cassettePath, "{}");
     let pass: boolean;
     let costUSD = 0;
     try {
       await task.setup(workspaceDir);
-      const result = await runJazzOnce({
-        prompt: task.prompt,
-        agentId: options.agentId,
-        workspaceDir,
-        cassettePath,
-        timeoutMs: EVAL_CONFIG.timeoutMs,
-        runId: `${task.id}-s${sampleIndex}-${options.agentId}`,
-      });
+      const runId = `${task.id}-s${sampleIndex}-${options.agentId}`;
+      // Continuity tasks need several invocations against one conversation and their own
+      // JAZZ_HOME; everything else is one prompt in, one answer out.
+      const result = task.run
+        ? await task.run({
+            agentId: options.agentId,
+            workspaceDir,
+            cassettePath,
+            timeoutMs: EVAL_CONFIG.timeoutMs,
+            runId,
+            jazzHome: jazzHomeDir,
+          })
+        : await runJazzOnce({
+            prompt: task.prompt,
+            agentId: options.agentId,
+            workspaceDir,
+            cassettePath,
+            timeoutMs: EVAL_CONFIG.timeoutMs,
+            runId,
+          });
       costUSD = result.costUSD;
       const check = await task.check(result, workspaceDir);
       pass = check.pass;
@@ -152,6 +191,7 @@ export async function runSuite(options: RunSuiteOptions): Promise<SuiteReport> {
       pass = false;
     } finally {
       rmSync(workspaceDir, { recursive: true, force: true });
+      if (jazzHomeDir) rmSync(jazzHomeDir, { recursive: true, force: true });
     }
     const entry = perTask.get(task.id) ?? {
       taskId: task.id,

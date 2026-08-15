@@ -18,6 +18,7 @@ import {
   isReasoningEffortFlag,
   type OneShotSuccess,
   parseEventCategories,
+  composeResumedHistory,
 } from "./run-agent";
 
 const baseResult: OneShotSuccess = {
@@ -342,5 +343,35 @@ describe("isReasoningEffortFlag", () => {
     expect(isReasoningEffortFlag("none")).toBe(false);
     expect(isReasoningEffortFlag("")).toBe(false);
     expect(isReasoningEffortFlag("HIGH")).toBe(false);
+  });
+});
+
+describe("composeResumedHistory", () => {
+  const preamble = { role: "assistant" as const, content: "## Recovered context" };
+  const record = {
+    conversationId: "conv-1",
+    messages: [{ role: "user" as const, content: "earlier turn" }],
+  } as any;
+
+  it("puts the recovered context ahead of persisted history", () => {
+    const history = composeResumedHistory(record, preamble);
+    expect(history?.[0]?.content).toBe("## Recovered context");
+    expect(history?.[1]?.content).toBe("earlier turn");
+  });
+
+  it("resumes from working state alone after a killed run left no history", () => {
+    // Regression: history is saved only when a run completes, so a killed run has no
+    // prior record — the exact case the journal exists for. Gating on priorRecord made
+    // it unreadable there.
+    const history = composeResumedHistory(null, preamble);
+    expect(history).toEqual([preamble]);
+  });
+
+  it("passes history through unchanged when there is no working state", () => {
+    expect(composeResumedHistory(record, undefined)).toEqual(record.messages);
+  });
+
+  it("returns null when there is nothing to resume from at all", () => {
+    expect(composeResumedHistory(null, undefined)).toBeNull();
   });
 });
