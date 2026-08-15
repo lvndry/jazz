@@ -63,6 +63,13 @@ export interface AgentConfig {
   readonly reasoningEffort?: "disable" | "low" | "medium" | "high";
   /** Ollama context window (`num_ctx`) in tokens, chosen at agent creation. */
   readonly numCtx?: number;
+  /**
+   * Per-agent ceiling on the conversation context, in tokens. Applies to every
+   * provider and caps whatever window the model or local server would otherwise
+   * offer, so the agent warns and compacts against this budget instead of the
+   * full window. Unset means "use the model's window".
+   */
+  readonly maxContextTokens?: number;
   readonly temperature?: number;
   readonly tools?: readonly string[];
   readonly webSearchProvider?: WebSearchProviderName;

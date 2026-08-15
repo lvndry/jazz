@@ -10,7 +10,10 @@ import type { Agent } from "@/core/types";
 import type { ChatMessage, ConversationMessages } from "@/core/types/message";
 import { parseProviderModel } from "@/core/utils/provider-model";
 import type { AgentResponse } from "../types";
-import { DEFAULT_CONTEXT_WINDOW_MANAGER } from "./context-window-manager";
+import {
+  CONTEXT_COMPACT_THRESHOLD_RATIO,
+  DEFAULT_CONTEXT_WINDOW_MANAGER,
+} from "./context-window-manager";
 import { DEFAULT_TOKEN_COUNTER, type ModelHint } from "./token-counter";
 
 /** Build a token-counter hint from an agent's provider/model. */
@@ -219,7 +222,7 @@ export const Summarizer = {
       const maxTokens = modelContextWindow ?? DEFAULT_CONTEXT_WINDOW_MANAGER.getConfig().maxTokens;
       const hint = modelHintFromAgent(agent);
       const currentTokens = DEFAULT_TOKEN_COUNTER.countMessages(currentMessages, hint);
-      const threshold = maxTokens * 0.8; // 80% threshold
+      const threshold = maxTokens * CONTEXT_COMPACT_THRESHOLD_RATIO;
 
       // Check if summarization is needed
       if (currentTokens <= threshold) {
@@ -237,7 +240,7 @@ export const Summarizer = {
 
       yield* presentationService.presentWarning(
         agent.name,
-        "Context window ~80% full — auto-compacting conversation history...",
+        `Context window ~${Math.round(CONTEXT_COMPACT_THRESHOLD_RATIO * 100)}% full of ${maxTokens.toLocaleString()} tokens — auto-compacting conversation history...`,
       );
 
       yield* logger.info("Compacting history to preserve context...", {

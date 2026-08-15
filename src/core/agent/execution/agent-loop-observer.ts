@@ -13,6 +13,17 @@ export interface AgentLoopObserver {
   onEmptyResponse(agentName: string): Effect.Effect<void, never, never>;
   /** The agent runs on a local server whose real context window Jazz could not determine. */
   onContextWindowUnknown(agentName: string, advice: string): Effect.Effect<void, never, never>;
+  /**
+   * History was trimmed — messages discarded without being summarized. This is the
+   * backstop firing, which means compaction could not bring the run under budget.
+   */
+  onHistoryTrimmed(agentName: string, messagesRemoved: number): Effect.Effect<void, never, never>;
+  /** The conversation passed the warn threshold; compaction has not run yet. */
+  onContextPressure(
+    agentName: string,
+    percentUsed: number,
+    budgetTokens: number,
+  ): Effect.Effect<void, never, never>;
   onCompletion(agentName: string): Effect.Effect<void, never, never>;
 }
 
@@ -31,6 +42,16 @@ export function makeDefaultObserver(presentation: PresentationService): AgentLoo
     onEmptyResponse: (agentName) =>
       presentation.presentWarning(agentName, "model returned an empty response"),
     onContextWindowUnknown: (agentName, advice) => presentation.presentWarning(agentName, advice),
+    onHistoryTrimmed: (agentName, messagesRemoved) =>
+      presentation.presentWarning(
+        agentName,
+        `context still over budget after compacting — dropped ${messagesRemoved} older message(s) without summarizing them`,
+      ),
+    onContextPressure: (agentName, percentUsed, budgetTokens) =>
+      presentation.presentWarning(
+        agentName,
+        `context ${percentUsed}% full of ${budgetTokens.toLocaleString()} tokens — will auto-compact soon`,
+      ),
     onCompletion: (agentName) => presentation.presentCompletion(agentName),
   };
 }

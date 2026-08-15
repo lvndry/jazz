@@ -42,11 +42,24 @@ flowchart TB
 
 | | Trimming | Compaction |
 | --- | --- | --- |
-| Runs | every iteration, after appending the assistant message | when tokens exceed 80% of the model's window |
+| Runs | after appending the assistant message, once tokens exceed **95%** of the context budget | when tokens exceed 80% of the context budget (the model's window, or the agent's `maxContextTokens` ceiling when it is lower) |
 | Costs | nothing | one LLM call |
 | Budget | a fixed working-set target (50k tokens by default) | the context window the provider will actually honour |
 | What's lost | old messages, entirely | detail — the gist survives as a summary |
 | Preserves | system message + last N complete turns | system message + a summary + recent messages |
+
+**Trimming sits above compaction, deliberately.** Its budget is 95% of the context budget,
+compaction's is 80%, so compaction always gets first refusal and trimming only fires when
+summarizing could not bring the run under budget — a single tool result too large to
+summarize around, for example. When it does fire you are told, because messages are being
+discarded without being summarized.
+
+This ordering used to be inverted. The trim budget was a flat 50,000 tokens regardless of
+the model, so on any window larger than ~62k (50k ÷ 0.8) trimming pre-empted compaction
+entirely: history was held at 50k by discarding the oldest turns, the 80% threshold was
+never reached, and the summarizer never ran. The run degraded into exactly the sliding
+window this design exists to avoid — and, because trimming rewrites the start of the
+message list, it also invalidated the provider's cacheable prefix on every single turn.
 
 Trimming keeps the working set tidy. Compaction is what saves a run that genuinely has more
 history than fits.
@@ -218,6 +231,46 @@ so a local model resolves to the 128k unknown-model placeholder rather than to a
 maximum. That placeholder is never treated as a ceiling — a pinned window above it is
 honoured, because the user pinned it and configured the server to serve it. Only a
 *genuinely known* maximum caps a runtime window.
+
+### The per-agent ceiling
+
+`config.maxContextTokens` caps the window for *any* provider. It is the answer to "this
+agent should never carry more than 60k tokens of history, even though the model would hold
+200k" — useful for keeping cost and latency predictable, for models whose quality sags long
+before their advertised limit, and for staying under a provider tier's real limit.
+
+The ceiling only ever lowers the window: `min(runtime window, maxContextTokens)`. Asking for
+more than the server will honour is ignored, because that is exactly the silent-truncation
+failure above. Everything downstream then follows the capped number — the warning, the
+compaction threshold, the summarizer's recent-message budget, and `/context`.
+
+Set it with `jazz agent edit` → **Max Context Tokens**; leave the prompt blank to remove the
+ceiling and go back to the model's own window.
+
+### Warn first, compact second
+
+Two thresholds share one budget, both defined in `context-window-manager.ts`:
+
+| | Warning | Compaction |
+| --- | --- | --- |
+| Fires at | 70% of the budget (`CONTEXT_WARN_THRESHOLD_RATIO`) | 80% (`CONTEXT_COMPACT_THRESHOLD_RATIO`) |
+| Costs | nothing | an extra LLM call |
+| Effect | `context 74% full of 60,000 tokens — will auto-compact soon`, once per run | history is summarized |
+
+Both the user *and the agent* are told. Past 70% the request carries an ephemeral
+`[CONTEXT WARNING: …]` line telling the model to record what it needs and consolidate
+rather than gather more; past 90% a `[CONTEXT CRITICAL: …]` line telling it to write its
+output now. This mirrors the iteration-budget nudge in `buildBudgetPressureMessage`, and the
+two are merged into one appended message when both fire.
+
+The nudge is appended to the outgoing request only — never pushed into `currentMessages`.
+A persisted warning would cost tokens exactly when they are scarce, be re-sent every turn,
+and eventually be summarized into the very compaction it was warning about.
+
+The warning exists so that compaction is never a surprise: there is a window where you can
+still `/compact` on your own terms, narrow the task, or raise the ceiling before the
+summarizer decides what to keep. `ContextWindowManager` owns both decisions — `usage()`
+returns the current tokens, the budget, and both flags from a single count.
 
 ---
 

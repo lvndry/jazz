@@ -13,6 +13,7 @@ import {
   type CompletionStrategy,
   type TrackedToolCall,
 } from "./agent-loop";
+import { buildContextPressureMessage } from "./agent-loop";
 import { makeDefaultObserver } from "./agent-loop-observer";
 import { ToolExecutor } from "./tool-executor";
 import { SkillServiceTag } from "../../../core/skills/skill-service";
@@ -26,6 +27,7 @@ import { PresentationServiceTag } from "../../interfaces/presentation";
 import { TerminalServiceTag } from "../../interfaces/terminal";
 import { ToolRegistryTag } from "../../interfaces/tool-registry";
 import type { RecursiveRunner } from "../context/summarizer";
+import { DEFAULT_TOKEN_COUNTER } from "../context/token-counter";
 import type { AgentRunContext, AgentRunnerOptions, AgentResponse } from "../types";
 
 // Shared mocks
@@ -119,6 +121,8 @@ function recordingObserver() {
     onEmptyResponse: (name: string) => Effect.sync(() => void calls.push(`empty:${name}`)),
     onContextWindowUnknown: (name: string) =>
       Effect.sync(() => void calls.push(`context-window-unknown:${name}`)),
+    onContextPressure: (name: string, percentUsed: number) =>
+      Effect.sync(() => void calls.push(`context-pressure:${name}:${percentUsed}`)),
     onCompletion: (name: string) => Effect.sync(() => void calls.push(`completion:${name}`)),
   };
   return { observer, calls };
@@ -283,6 +287,222 @@ describe("executeAgentLoop", () => {
     expect(toolMessage?.name).toBe("test_tool");
 
     ToolExecutor.executeToolCalls = originalExecute;
+  });
+
+  it("warns against the agent's max context tokens before compacting", async () => {
+    const warningCalls: string[] = [];
+    const trackingPresentationService = {
+      ...mockPresentationService,
+      presentWarning: (_name: string, msg: string) => {
+        warningCalls.push(msg);
+        return Effect.void;
+      },
+    };
+    const trackingObserver = makeDefaultObserver(trackingPresentationService as any);
+
+    const strategy: CompletionStrategy = {
+      shouldShowThinking: false,
+      getCompletion: () =>
+        Effect.succeed({
+          completion: { id: "c1", model: "gpt-4", content: "Hello world" },
+          interrupted: false,
+        }),
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+
+    const messages = [
+      { role: "system" as const, content: "system prompt" },
+      {
+        role: "user" as const,
+        content: "the quick brown fox jumps over the lazy dog. ".repeat(200),
+      },
+    ];
+    const usedTokens = DEFAULT_TOKEN_COUNTER.countMessages(messages, {
+      provider: "openai",
+      modelId: "gpt-4",
+    });
+    // Sit at 75% of the ceiling: past the warn threshold, short of compaction.
+    const maxContextTokens = Math.ceil(usedTokens / 0.75);
+
+    const options = makeOptions();
+    const agentWithCeiling = {
+      ...options.agent,
+      config: { ...options.agent.config, maxContextTokens },
+    } as any;
+
+    await Effect.runPromise(
+      executeAgentLoop(
+        { ...options, agent: agentWithCeiling },
+        makeRunContext({ messages: messages as any, agent: agentWithCeiling }),
+        displayConfig,
+        strategy,
+        trackingObserver,
+        runRecursive,
+      ).pipe(Effect.provide(TestLayer)),
+    );
+
+    const pressureWarning = warningCalls.find((msg) => msg.includes("context "));
+    expect(pressureWarning).toBeDefined();
+    expect(pressureWarning).toContain(`${maxContextTokens.toLocaleString()} tokens`);
+    expect(warningCalls.some((msg) => msg.includes("auto-compacting"))).toBe(false);
+  });
+
+  it("tells the model to consolidate once context passes the warn threshold", () => {
+    expect(buildContextPressureMessage(6_000, 10_000)).toBeNull();
+    expect(buildContextPressureMessage(7_500, 10_000)?.content).toContain("CONTEXT WARNING");
+    expect(buildContextPressureMessage(7_500, 10_000)?.content).toContain("75%");
+    expect(buildContextPressureMessage(7_500, 10_000)?.content).toContain("10,000");
+  });
+
+  it("tells the model to stop gathering once context is critical", () => {
+    const message = buildContextPressureMessage(9_500, 10_000);
+    expect(message?.content).toContain("CONTEXT CRITICAL");
+    expect(message?.content).toContain("95%");
+    expect(message?.role).toBe("user");
+  });
+
+  it("returns no context nudge when there is no budget to measure against", () => {
+    expect(buildContextPressureMessage(500, 0)).toBeNull();
+  });
+
+  it("sends the context nudge to the model without persisting it in history", async () => {
+    const seenMessages: ConversationMessages[] = [];
+    const strategy: CompletionStrategy = {
+      shouldShowThinking: false,
+      getCompletion: (messages) => {
+        seenMessages.push(messages);
+        return Effect.succeed({
+          completion: { id: "c1", model: "gpt-4", content: "Hello world" },
+          interrupted: false,
+        });
+      },
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+
+    const messages = [
+      { role: "system" as const, content: "system prompt" },
+      {
+        role: "user" as const,
+        content: "the quick brown fox jumps over the lazy dog. ".repeat(200),
+      },
+    ];
+    const usedTokens = DEFAULT_TOKEN_COUNTER.countMessages(messages, {
+      provider: "openai",
+      modelId: "gpt-4",
+    });
+    const maxContextTokens = Math.ceil(usedTokens / 0.75);
+
+    const options = makeOptions();
+    const agentWithCeiling = {
+      ...options.agent,
+      config: { ...options.agent.config, maxContextTokens },
+    } as any;
+
+    const result = await Effect.runPromise(
+      executeAgentLoop(
+        { ...options, agent: agentWithCeiling },
+        makeRunContext({ messages: messages as any, agent: agentWithCeiling }),
+        displayConfig,
+        strategy,
+        defaultObserver,
+        runRecursive,
+      ).pipe(Effect.provide(TestLayer)),
+    );
+
+    const sent = seenMessages[0] ?? [];
+    const nudge = sent.find((message) => message.content?.includes("CONTEXT WARNING"));
+    expect(nudge).toBeDefined();
+    expect(nudge?.role).toBe("user");
+    expect(result.content).toBe("Hello world");
+  });
+
+  it("does not trim a history that fits the model window", async () => {
+    // Regression: the trim budget was a flat 50k while compaction fired at 80% of the
+    // window, so on any model above ~62k trimming silently pre-empted compaction and
+    // the run degraded to a sliding window that dropped the earliest turns.
+    // Two iterations: trimming happens after the first LLM call, so only the second
+    // call can observe whether history survived.
+    const seenMessages: ConversationMessages[] = [];
+    let iteration = 0;
+    const strategy: CompletionStrategy = {
+      shouldShowThinking: false,
+      getCompletion: (messages) => {
+        seenMessages.push(messages);
+        iteration++;
+        if (iteration === 1) {
+          return Effect.succeed({
+            completion: {
+              id: "c1",
+              model: "gpt-4o",
+              content: "",
+              toolCalls: [
+                {
+                  id: "call_1",
+                  type: "function" as const,
+                  function: { name: "test_tool", arguments: "{}" },
+                },
+              ],
+            },
+            interrupted: false,
+          });
+        }
+        return Effect.succeed({
+          completion: { id: "c2", model: "gpt-4o", content: "Hello world" },
+          interrupted: false,
+        });
+      },
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+
+    const originalExecute = ToolExecutor.executeToolCalls;
+    ToolExecutor.executeToolCalls = mock(() =>
+      Effect.succeed([
+        { toolCallId: "call_1", name: "test_tool", result: "output", success: true },
+      ]),
+    );
+
+    const messages: any[] = [{ role: "system", content: "system prompt" }];
+    for (let turn = 0; turn < 90; turn++) {
+      messages.push({ role: "user", content: `question ${turn} ` + "detail ".repeat(400) });
+      messages.push({ role: "assistant", content: `answer ${turn} ` + "finding ".repeat(400) });
+    }
+    // gpt-4o: a real 128k window, so the history below fits with room to spare.
+    const model = "gpt-4o";
+    const totalTokens = DEFAULT_TOKEN_COUNTER.countMessages(messages, {
+      provider: "openai",
+      modelId: model,
+    });
+    // Comfortably past the old 50k trim budget, well under 80% of the 128k window.
+    expect(totalTokens).toBeGreaterThan(50_000);
+    expect(totalTokens).toBeLessThan(128_000 * 0.8);
+
+    const options = makeOptions();
+    const agent = { ...options.agent, config: { ...options.agent.config, llmModel: model } } as any;
+
+    await Effect.runPromise(
+      executeAgentLoop(
+        { ...options, agent },
+        makeRunContext({ messages: messages as any, agent, model }),
+        displayConfig,
+        strategy,
+        defaultObserver,
+        runRecursive,
+      ).pipe(Effect.provide(TestLayer)),
+    );
+
+    ToolExecutor.executeToolCalls = originalExecute;
+
+    // The second call is the one that sees post-trim history.
+    const sent = seenMessages[1] ?? [];
+    expect(sent.length).toBeGreaterThan(0);
+    // The earliest turn — the one carrying the task definition — must survive.
+    expect(sent.some((message) => message.content?.includes("question 0"))).toBe(true);
   });
 
   it("should warn when iteration limit is reached", async () => {

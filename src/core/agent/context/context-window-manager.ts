@@ -7,9 +7,44 @@ import { DEFAULT_TOKEN_COUNTER, type ModelHint, type TokenCounter } from "./toke
 /**
  * Configuration for context window management
  */
+/**
+ * Fraction of the context budget at which the user is told the window is filling up,
+ * while there is still room to act on it.
+ */
+export const CONTEXT_WARN_THRESHOLD_RATIO = 0.7;
+
+/** Fraction of the context budget at which history is compacted automatically. */
+export const CONTEXT_COMPACT_THRESHOLD_RATIO = 0.8;
+
+/**
+ * Fraction of the context budget at which history is trimmed outright.
+ *
+ * Deliberately *above* the compaction threshold. Trimming discards messages without
+ * summarizing them, so it must never be the mechanism that normally runs — it is the
+ * floor for the cases compaction cannot fix, such as a single tool result too large
+ * to summarize around. A trim budget below the compaction threshold silently converts
+ * the whole design into a sliding window.
+ */
+export const CONTEXT_TRIM_THRESHOLD_RATIO = 0.95;
+
 export interface ContextWindowConfig {
   /** Maximum number of tokens to keep in history */
   readonly maxTokens: number;
+
+  /**
+   * Total context the run may occupy — the effective model window, already lowered
+   * by the agent's own `maxContextTokens` ceiling. Warning and compaction are
+   * measured against this, not against `maxTokens`: `maxTokens` is the hard trim
+   * budget applied after every LLM turn, and it is deliberately far smaller.
+   * Defaults to `maxTokens` for callers that manage a single budget.
+   */
+  readonly contextBudgetTokens?: number;
+
+  /** Fraction of the budget that triggers a warning. Default {@link CONTEXT_WARN_THRESHOLD_RATIO}. */
+  readonly warnThresholdRatio?: number;
+
+  /** Fraction of the budget that triggers compaction. Default {@link CONTEXT_COMPACT_THRESHOLD_RATIO}. */
+  readonly compactThresholdRatio?: number;
 
   /**
    * Number of recent turns to always keep intact (never trim).
@@ -232,14 +267,63 @@ export class ContextWindowManager {
     return this.calculateTotalTokens(messages) > this.config.maxTokens;
   }
 
+  /** Total context this run may occupy, after the agent's own ceiling. */
+  get contextBudgetTokens(): number {
+    return this.config.contextBudgetTokens ?? this.config.maxTokens;
+  }
+
+  /** Token count above which the user is warned the window is filling up. */
+  get warnThresholdTokens(): number {
+    const ratio = this.config.warnThresholdRatio ?? CONTEXT_WARN_THRESHOLD_RATIO;
+    return Math.floor(this.contextBudgetTokens * ratio);
+  }
+
+  /** Token count above which history is compacted. */
+  get compactThresholdTokens(): number {
+    const ratio = this.config.compactThresholdRatio ?? CONTEXT_COMPACT_THRESHOLD_RATIO;
+    return Math.floor(this.contextBudgetTokens * ratio);
+  }
+
   /**
-   * Check if messages should be summarized (80% of token limit)
-   * This provides early warning before hitting the hard limit
+   * Where this conversation sits inside the budget, so callers can warn, compact,
+   * or report usage from one shared accounting.
+   */
+  usage(messages: ChatMessage[]): {
+    currentTokens: number;
+    budgetTokens: number;
+    ratio: number;
+    shouldWarn: boolean;
+    shouldCompact: boolean;
+  } {
+    const currentTokens = this.calculateTotalTokens(messages);
+    const budgetTokens = this.contextBudgetTokens;
+    return {
+      currentTokens,
+      budgetTokens,
+      ratio: budgetTokens > 0 ? currentTokens / budgetTokens : 0,
+      shouldWarn: currentTokens > this.warnThresholdTokens,
+      shouldCompact: currentTokens > this.compactThresholdTokens,
+    };
+  }
+
+  /** True once the conversation passes the warn threshold but before compaction. */
+  shouldWarn(messages: ChatMessage[]): boolean {
+    return this.calculateTotalTokens(messages) > this.warnThresholdTokens;
+  }
+
+  /** True once the conversation passes the compaction threshold. */
+  shouldCompact(messages: ChatMessage[]): boolean {
+    return this.calculateTotalTokens(messages) > this.compactThresholdTokens;
+  }
+
+  /**
+   * Check if messages should be summarized.
+   *
+   * @deprecated Use {@link shouldCompact}, which measures against the context
+   * budget rather than the trim budget.
    */
   shouldSummarize(messages: ChatMessage[]): boolean {
-    const currentTokens = this.calculateTotalTokens(messages);
-    const threshold = this.config.maxTokens * 0.8; // 80% threshold
-    return currentTokens > threshold;
+    return this.shouldCompact(messages);
   }
 
   /**

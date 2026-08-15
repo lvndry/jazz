@@ -19,7 +19,7 @@ flowchart TB
     A --> P["<b>Persona</b><br/>tone and style<br/><i>default · coder · researcher</i>"]
     A --> T["<b>Toolset</b><br/>explicit list of tool names<br/><i>omission is a security control</i>"]
     A --> S["<b>Skills</b><br/>playbooks it may load"]
-    A --> X["<b>Extras</b><br/>reasoningEffort · summarizerModel<br/>customTools · envAllowlist"]
+    A --> X["<b>Extras</b><br/>reasoningEffort · summarizerModel<br/>maxContextTokens · customTools · envAllowlist"]
 
     classDef key fill:#4f9d9d,stroke:#2f6d6d,color:#ffffff
     class T key
@@ -42,6 +42,15 @@ An explicit list of tool names the agent may call, e.g. `read_file`, `grep`, `gi
 **This is the strongest safety control available:** an agent whose list omits
 `execute_command` cannot run shell commands, no matter what approval policy is set. Give each
 agent the fewest tools its job needs. See [Tools](./tools.md).
+
+### Context budget
+
+`maxContextTokens` caps how much conversation this agent may carry, in tokens, whatever the
+model would allow. It is optional: unset, the agent uses the model's own window. Set it to
+keep cost and latency predictable, or to stop a model degrading long before its advertised
+limit. The agent warns at 70% of the budget and auto-compacts at 80%, so a smaller ceiling
+means earlier, cheaper compaction rather than a hard failure. Edit it with `jazz agent edit`
+→ **Max Context Tokens**. See [Context management](../internals/context-management.md).
 
 ### Skills
 

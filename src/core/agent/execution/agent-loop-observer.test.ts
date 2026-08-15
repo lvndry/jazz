@@ -40,6 +40,12 @@ describe("makeDefaultObserver", () => {
     expect(calls[2]).toBe("warning:Agent:model returned an empty response");
   });
 
+  it("warns with the percentage and budget on context pressure", async () => {
+    const { service, calls } = recordingPresentation();
+    await Effect.runPromise(makeDefaultObserver(service).onContextPressure("Agent", 72, 128000));
+    expect(calls[0]).toContain("context 72% full of 128,000 tokens");
+  });
+
   it("maps onCompletion to presentCompletion", async () => {
     const { service, calls } = recordingPresentation();
     await Effect.runPromise(makeDefaultObserver(service).onCompletion("Agent"));
