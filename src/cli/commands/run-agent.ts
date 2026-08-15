@@ -35,6 +35,8 @@ export interface OneShotTokenUsage {
   readonly promptTokens: number;
   readonly completionTokens: number;
   readonly totalTokens: number;
+  /** Share of promptTokens served from the provider's prompt cache. */
+  readonly cacheReadTokens?: number;
 }
 
 export interface OneShotToolCall {
@@ -512,6 +514,9 @@ export function runAgentOnceCommand(
             promptTokens,
             completionTokens,
             totalTokens: promptTokens + completionTokens,
+            ...(runResult.usage?.cacheReadTokens !== undefined && {
+              cacheReadTokens: runResult.usage.cacheReadTokens,
+            }),
           },
           toolCalls,
           ...(webApp ? { webApp } : {}),
