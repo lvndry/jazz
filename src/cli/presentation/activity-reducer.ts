@@ -17,7 +17,7 @@ import { Box, Text } from "ink";
 import React from "react";
 import type { TerminalOutput } from "@/core/interfaces/terminal";
 import type { StreamEvent } from "@/core/types/streaming";
-import { formatToolArguments, formatToolResult } from "./format-utils";
+import { formatToolArguments, formatToolDisplayName, formatToolResult } from "./format-utils";
 import type { ActiveTool, ActivityState } from "../ui/activity-state";
 import { getGlyphs } from "../ui/glyphs";
 import { PADDING, THEME } from "../ui/theme";
@@ -76,7 +76,13 @@ export interface ReducerAccumulator {
   lastAppliedTextSequence: number;
   activeTools: Map<
     string,
-    { toolName: string; startedAt: number; todoSnapshot?: TodoSnapshotItem[] }
+    {
+      toolName: string;
+      /** Name with backend folded in (e.g. web_search(brave)); falls back to toolName. */
+      displayName?: string;
+      startedAt: number;
+      todoSnapshot?: TodoSnapshotItem[];
+    }
   >;
   /** Provider id captured from stream_start for cost calculation. */
   currentProvider: string | null;
@@ -136,13 +142,13 @@ function buildToolExecutionActivity(acc: ReducerAccumulator): ActivityState {
     entry.todoSnapshot
       ? {
           toolCallId,
-          toolName: entry.toolName,
+          toolName: entry.displayName ?? entry.toolName,
           startedAt: entry.startedAt,
           todoSnapshot: entry.todoSnapshot,
         }
       : {
           toolCallId,
-          toolName: entry.toolName,
+          toolName: entry.displayName ?? entry.toolName,
           startedAt: entry.startedAt,
         },
   );
@@ -356,22 +362,25 @@ export function reduceEvent(
         event.arguments,
         event.metadata !== undefined ? { metadata: event.metadata } : undefined,
       );
+      const displayName = formatToolDisplayName(event.toolName, event.metadata);
       if (todoSnapshot) {
         acc.activeTools.set(event.toolCallId, {
           toolName: event.toolName,
+          ...(displayName !== event.toolName ? { displayName } : {}),
           startedAt: Date.now(),
           todoSnapshot,
         });
       } else {
         acc.activeTools.set(event.toolCallId, {
           toolName: event.toolName,
+          ...(displayName !== event.toolName ? { displayName } : {}),
           startedAt: Date.now(),
         });
       }
 
       outputs.push({
         type: "info",
-        message: `${event.toolName}${args.length > 0 ? ` ${args}` : ""}`,
+        message: `${displayName}${args.length > 0 ? ` ${args}` : ""}`,
         timestamp: new Date(),
       });
 
@@ -383,8 +392,16 @@ export function reduceEvent(
       const toolName = toolEntry?.toolName;
       acc.activeTools.delete(event.toolCallId);
 
+      const failed = event.success === false;
+
       let summary = event.summary?.trim();
-      if (
+      if (failed) {
+        // A failed tool's result payload is null — the error message is the
+        // only meaningful thing to show.
+        const reason = event.error?.trim() || "Tool execution failed";
+        const failedLabel = toolEntry?.displayName ?? toolName;
+        summary = failedLabel ? `${failedLabel}: ${reason}` : reason;
+      } else if (
         toolName === "manage_todos" &&
         toolEntry?.todoSnapshot &&
         toolEntry.todoSnapshot.length > 0
@@ -394,6 +411,9 @@ export function reduceEvent(
       if (!summary && toolName && event.result) {
         summary = formatToolResult(toolName, event.result);
       }
+
+      const glyph = failed ? getGlyphs().error : getGlyphs().success;
+      const glyphColor = failed ? THEME.error : THEME.success;
 
       const displayText = summary && summary.length > 0 ? summary : (toolName ?? "Tool");
       const hasMultiLine = displayText.includes("\n");
@@ -418,8 +438,12 @@ export function reduceEvent(
               React.createElement(
                 Box,
                 null,
-                React.createElement(Text, { color: THEME.success }, `${getGlyphs().success} `),
-                React.createElement(Text, { color: THEME.agent }, headerLine),
+                React.createElement(Text, { color: glyphColor }, `${glyph} `),
+                React.createElement(
+                  Text,
+                  { color: failed ? THEME.error : THEME.agent },
+                  headerLine,
+                ),
                 React.createElement(Text, { dimColor: true }, ` (${event.durationMs}ms)`),
               ),
               ...bodyLines.map((line, index) =>
@@ -449,8 +473,12 @@ export function reduceEvent(
             React.createElement(
               Box,
               { paddingLeft: PADDING.content },
-              React.createElement(Text, { color: THEME.success }, `${getGlyphs().success} `),
-              React.createElement(Text, { color: THEME.agent }, singleLineSummary),
+              React.createElement(Text, { color: glyphColor }, `${glyph} `),
+              React.createElement(
+                Text,
+                { color: failed ? THEME.error : THEME.agent },
+                singleLineSummary,
+              ),
               React.createElement(Text, { dimColor: true }, ` (${event.durationMs}ms)`),
             ),
           ),

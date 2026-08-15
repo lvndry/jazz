@@ -195,10 +195,19 @@ export function createWebSearchTool(): ReturnType<
   });
 }
 
-const SEARCH_RETRY_POLICY = Schedule.intersect(
+const SEARCH_RETRY_SCHEDULE = Schedule.intersect(
   Schedule.recurs(3),
   Schedule.jittered(Schedule.exponential("1 second")),
 );
+
+// Auth and client errors never succeed on retry; retrying a 401 four times
+// costs ~12s per search call for the same failure.
+const NON_RETRYABLE_SEARCH_ERROR = /\b(400|401|403|404|422)\b|invalid api key|unauthorized/i;
+
+const SEARCH_RETRY_POLICY = {
+  schedule: SEARCH_RETRY_SCHEDULE,
+  while: (error: Error) => !NON_RETRYABLE_SEARCH_ERROR.test(error.message),
+} as const;
 
 /**
  * Execute an Exa search

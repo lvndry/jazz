@@ -86,6 +86,10 @@ export type StreamEvent =
       result: string;
       durationMs: number;
       summary?: string;
+      /** Absent means success (backward compatibility with older emitters). */
+      success?: boolean;
+      /** Human-readable failure reason; set when success is false. */
+      error?: string;
     }
 
   // Usage updates (optional, for real-time token tracking)
