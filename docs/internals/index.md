@@ -103,6 +103,7 @@ Details and conventions: [Code map](./code-map.md).
 | [Evals](./evals.md) | Measuring whether a harness change helped: Pass^k, A/B, grounding checks, judge calibration |
 | [Design decisions](./design-decisions.md) | Every harness choice, and what it trades away |
 | [Code map](./code-map.md) | Directory structure, Effect patterns, how to add an adapter, testing |
+| [Service template](./service-template.md) | Worked example of adding a service: contract, adapter, wiring, tests |
 
 ---
 

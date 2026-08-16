@@ -42,7 +42,7 @@ Then ask Jazz to scan for security issues. Jazz will:
 
 ## Example Output
 
-```
+```text
 You: Scan the codebase for security issues and fix critical ones
 
 Agent: 🔒 Security Audit Report
@@ -88,6 +88,3 @@ Agent: ✓ Committed: "security: fix critical vulnerabilities"
 - All fixes require your approval before applying
 - Tests are run after fixes to ensure nothing broke
 - Jazz can commit fixes automatically with descriptive messages
-
-
-

@@ -7,23 +7,23 @@ This example is a self-contained template showing how to design, implement, wire
 - App wiring — layer composition in `createAppLayer` (main)
 - Tests — how to mock the service with `Layer.succeed`
 
-IMPORTANT: This example lives under `examples/` only and is intended as a reference/template. Do NOT copy this file into production code paths without review.
+IMPORTANT: This is a reference/template for contributors. Do NOT copy this file into production code paths without review.
 
 ---
 
 Table of contents
 
 - Overview
-- 1. Contract: core interface (example)
-- 2. Adapter: HTTP-backed example implementation (template)
-- 3. Wiring: add the layer to `createAppLayer` (example)
-- 4. Usage: how core and CLI access the service
-- 5. Testing: unit test example using `Layer.succeed`
-- 6. Notes, safety, and checklist
+- Contract: core interface
+- Adapter: HTTP-backed example implementation
+- Wiring: add the layer to `createAppLayer`
+- Usage: how core and CLI access the service
+- Testing: unit test example using `Layer.succeed`
+- Notes, safety, and checklist
 
 ---
 
-Overview
+## Overview
 
 Feature flags are a common cross-cutting concern. The pattern below shows how to:
 
@@ -34,7 +34,7 @@ Feature flags are a common cross-cutting concern. The pattern below shows how to
 
 ---
 
-1. Contract — core interface
+## 1. Contract — core interface
 
 Place this under `src/core/interfaces/feature-flag.ts` in your real codebase. In this example it's shown inline.
 
@@ -68,7 +68,7 @@ Design guidance
 
 ---
 
-2. Adapter — HTTP-backed example (template)
+## 2. Adapter — HTTP-backed example (template)
 
 This is an example service implementation showing:
 
@@ -154,7 +154,7 @@ Notes:
 
 ---
 
-3. Wiring — provide the layer in createAppLayer (example)
+## 3. Wiring — provide the layer in createAppLayer (example)
 
 In your app bootstrap (e.g., `src/main.ts`) you compose layers. Example snippet:
 
@@ -190,7 +190,7 @@ Important:
 
 ---
 
-4. Usage — how core and CLI access the service
+## 4. Usage — how core and CLI access the service
 
 **Architecture overview**:
 
@@ -338,15 +338,15 @@ const result = yield * program.pipe(Effect.provide(appLayer));
 
 ---
 
-5. Testing — mock the service with Layer.succeed
+## 5. Testing — mock the service with Layer.succeed
 
 Unit tests should not call the remote flag service. Provide a mock implementation with `Layer.succeed`.
 
 ```ts
-// examples/feature-flag/tests/feature-flag.spec.ts
+// src/services/feature-flag-service.test.ts
 import { describe, it, expect } from "bun:test";
 import { Effect, Layer } from "effect";
-import { FeatureFlagServiceTag } from "../../src/core/interfaces/feature-flag"; // path depends on test runner
+import { FeatureFlagServiceTag } from "@/core/interfaces/feature-flag";
 
 const mockService = {
   isEnabled: (name: string) => Effect.succeed(name === "beta-dashboard"),
@@ -375,7 +375,7 @@ Notes:
 
 ---
 
-6. Notes, safety, and checklist
+## 6. Notes, safety, and checklist
 
 Checklist before copying into production `src/`:
 
@@ -391,4 +391,4 @@ Checklist before copying into production `src/`:
 **Q: What if feature flags are not critical and their failure shouldn't break the app?**  
 A: Use conservative defaults (false/0) to avoid unexpected behavior. Consider adding metrics to detect when flags are unavailable.
 
-For detailed answers to common questions about architecture, Effect-TS patterns, testing, and development workflow, see the [FAQ in the docs](../docs/FAQ.md).
+For the directory structure, Effect patterns, and testing conventions this template follows, see the [Code map](./code-map.md).
