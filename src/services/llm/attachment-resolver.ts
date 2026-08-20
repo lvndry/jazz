@@ -39,6 +39,7 @@ import {
 } from "@/core/types/attachment";
 import type { LLMConfig } from "@/core/types/config";
 import type { ChatMessage } from "@/core/types/message";
+import { isLocalProvider } from "@/core/utils/attachment-providers";
 import { LLM_PROVIDER_ENV_VARS } from "@/services/secrets/registry";
 
 /**
@@ -53,14 +54,6 @@ export type ResolvedAttachment =
   | { readonly kind: "inline"; readonly base64: string }
   | { readonly kind: "reference"; readonly reference: unknown }
   | { readonly kind: "unavailable"; readonly reason: string };
-
-/**
- * Providers served from the local machine.
- *
- * They never take the upload path: there is nothing to upload to, and no network request cap
- * that would make inlining a large file a problem in the first place.
- */
-const LOCAL_PROVIDERS = new Set(["ollama", "llamacpp"]);
 
 /** Keyed by attachment path, which is the identity `toCoreMessages` looks up. */
 export type ResolvedAttachments = ReadonlyMap<string, ResolvedAttachment>;
@@ -113,7 +106,8 @@ async function resolveOne(
   llmConfig: LLMConfig | undefined,
   logger?: LoggerService,
 ): Promise<ResolvedAttachment> {
-  const rejection = rejectAttachmentReason(attachment);
+  const isLocal = isLocalProvider(providerName);
+  const rejection = rejectAttachmentReason(attachment, isLocal);
   if (rejection !== null) {
     return { kind: "unavailable", reason: rejection };
   }
@@ -130,7 +124,6 @@ async function resolveOne(
 
   // A locally-served model has no request-size cap to respect and no file API to upload to, so
   // everything inlines regardless of size.
-  const isLocal = LOCAL_PROVIDERS.has(providerName.toLowerCase());
   if (!requiresProviderUpload(attachment, isLocal)) {
     try {
       const bytes = await readFile(attachment.path);

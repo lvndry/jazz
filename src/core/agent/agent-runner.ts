@@ -30,6 +30,7 @@ import { LLMRateLimitError } from "@/core/types/errors";
 import type { ChatMessage } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
 import type { AutoApprovePolicy, ToolExecutionContext } from "@/core/types/tools";
+import { isLocalProvider } from "@/core/utils/attachment-providers";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import { parseProviderModel } from "@/core/utils/provider-model";
 import { shouldEnableStreaming } from "@/core/utils/stream-detector";
@@ -347,6 +348,7 @@ function initializeAgentRun(
     const supportedAttachmentKinds = ingestsAttachments
       ? yield* resolveSupportedAttachmentKinds(agent)
       : [];
+    const attachmentsAreLocal = isLocalProvider(parseProviderModel(agent.model)?.provider ?? "");
 
     // Build messages — reuses the PersonaService resolved earlier so custom
     // personas can be looked up by name when assembling the system prompt.
@@ -364,6 +366,7 @@ function initializeAgentRun(
           workingDirectory: attachmentWorkingDirectory,
         }),
         supportedAttachmentKinds,
+        attachmentsAreLocal,
         ...(triggeredSkillNames.length > 0 && { triggeredSkillNames }),
         ...(projectInstructions.length > 0 && { projectInstructions }),
       },

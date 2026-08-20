@@ -104,6 +104,20 @@ export const MAX_ATTACHMENT_BYTES: Readonly<Record<AttachmentKind, number>> = {
 };
 
 /**
+ * Ceiling for a model served from this machine.
+ *
+ * Every limit above is somebody's API limit. A local model has none — so enforcing Anthropic's
+ * 5MB image cap against Ollama rejects an image that would have worked, for a reason that does
+ * not apply. This is only a guard against reading something absurd off disk.
+ */
+const LOCAL_MAX_ATTACHMENT_BYTES = 512 * 1024 * 1024;
+
+/** The byte ceiling for this attachment, given where the model runs. */
+export function maxAttachmentBytes(kind: AttachmentKind, isLocalProvider = false): number {
+  return isLocalProvider ? LOCAL_MAX_ATTACHMENT_BYTES : MAX_ATTACHMENT_BYTES[kind];
+}
+
+/**
  * Above this size an attachment is uploaded to the provider and referenced rather than inlined
  * as request bytes.
  *
@@ -179,12 +193,18 @@ export function isAttachmentPath(filePath: string): boolean {
  * Why an attachment was rejected, as a message safe to show the model and the user.
  * Returns null when the attachment is acceptable.
  */
-export function rejectAttachmentReason(attachment: MessageAttachment): string | null {
-  const limit = MAX_ATTACHMENT_BYTES[attachment.kind];
+export function rejectAttachmentReason(
+  attachment: MessageAttachment,
+  isLocalProvider = false,
+): string | null {
+  const limit = maxAttachmentBytes(attachment.kind, isLocalProvider);
   if (attachment.byteSize > limit) {
     const actualMb = (attachment.byteSize / (1024 * 1024)).toFixed(1);
     const limitMb = (limit / (1024 * 1024)).toFixed(0);
-    return `${attachment.path} is ${actualMb} MB, over the ${limitMb} MB limit for ${attachment.kind} attachments`;
+    // Says what to do, not just what went wrong: "too big" leaves the model with nothing to
+    // offer, and it tends to relay that as a flat "I cannot see the image" — which reads like a
+    // missing capability rather than a fixable file.
+    return `${attachment.path} is ${actualMb} MB, over the ${limitMb} MB per-${attachment.kind} limit the provider accepts. Tell the user it needs resizing or compressing below ${limitMb} MB, and offer to do it if a suitable tool is available.`;
   }
   if (attachment.byteSize === 0) {
     return `${attachment.path} is empty`;

@@ -62,6 +62,7 @@ export interface UserInputAttachments {
 export async function collectUserInputAttachments(
   userInput: string,
   workingDirectory: string,
+  isLocalProvider = false,
 ): Promise<UserInputAttachments> {
   const matches = userInput.match(PATH_CANDIDATE);
   if (matches === null) return { attachments: [], warnings: [] };
@@ -105,7 +106,7 @@ export async function collectUserInputAttachments(
       ...shape,
     };
 
-    const rejection = rejectAttachmentReason(attachment);
+    const rejection = rejectAttachmentReason(attachment, isLocalProvider);
     if (rejection !== null) {
       warnings.push(rejection);
       continue;

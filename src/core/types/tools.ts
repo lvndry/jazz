@@ -227,6 +227,13 @@ export interface ToolExecutionContext {
    */
   readonly supportedAttachmentKinds?: readonly AttachmentKind[];
   /**
+   * Whether the active model is served from this machine.
+   *
+   * Relaxes attachment size limits, which are otherwise copied from the strictest remote API and
+   * would reject a large local file for a reason that does not apply to localhost.
+   */
+  readonly attachmentsAreLocal?: boolean;
+  /**
    * Record the USD cost of a nested run (e.g. a sub-agent spawned via
    * spawn_subagent) against the parent run. The parent's finalized costUSD
    * adds this so aggregated pricing reflects all sub-agent spend, not just

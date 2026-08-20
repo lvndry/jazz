@@ -100,7 +100,7 @@ export async function attachMediaFile(
     ...shape,
   };
 
-  const rejection = rejectAttachmentReason(attachment);
+  const rejection = rejectAttachmentReason(attachment, context.attachmentsAreLocal ?? false);
   if (rejection !== null) {
     return {
       kind: "failed",

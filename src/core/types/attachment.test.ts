@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
   ATTACHMENT_INLINE_TURN_WINDOW,
+  maxAttachmentBytes,
   classifyAttachmentPath,
   describeAttachment,
   INLINE_BYTE_LIMIT,
@@ -58,7 +59,7 @@ describe("rejectAttachmentReason", () => {
   it("rejects a file over its modality's limit, naming the size", () => {
     const oversized = attachment({ byteSize: MAX_ATTACHMENT_BYTES.image + 1 });
     const reason = rejectAttachmentReason(oversized);
-    expect(reason).toContain("over the 5 MB limit");
+    expect(reason).toContain("over the 5 MB per-image limit");
     expect(reason).toContain("/tmp/shot.png");
   });
 
@@ -73,8 +74,40 @@ describe("rejectAttachmentReason", () => {
     ).toBeNull();
   });
 
+  it("relaxes the limit for a locally-served model", () => {
+    // Every remote limit is somebody's API limit. Localhost has none, so enforcing Anthropic's
+    // 5MB image cap against Ollama rejects a file that would have worked.
+    const oversized = attachment({ byteSize: MAX_ATTACHMENT_BYTES.image * 2 });
+    expect(rejectAttachmentReason(oversized, false)).not.toBeNull();
+    expect(rejectAttachmentReason(oversized, true)).toBeNull();
+  });
+
+  it("tells the model what to do about an oversized file, not just that it failed", () => {
+    // "Too big" alone gets relayed as a flat "I cannot see the image", which reads as a missing
+    // capability rather than a fixable file.
+    const reason = rejectAttachmentReason(attachment({ byteSize: MAX_ATTACHMENT_BYTES.image + 1 }));
+    expect(reason).toContain("resizing");
+  });
+
+  it("still guards against an absurd local file", () => {
+    const absurd = attachment({ byteSize: 1024 * 1024 * 1024 });
+    expect(rejectAttachmentReason(absurd, true)).not.toBeNull();
+  });
+
   it("rejects an empty file", () => {
     expect(rejectAttachmentReason(attachment({ byteSize: 0 }))).toContain("is empty");
+  });
+});
+
+describe("maxAttachmentBytes", () => {
+  it("returns the modality's remote limit by default", () => {
+    expect(maxAttachmentBytes("image")).toBe(MAX_ATTACHMENT_BYTES.image);
+    expect(maxAttachmentBytes("pdf")).toBe(MAX_ATTACHMENT_BYTES.pdf);
+  });
+
+  it("returns one generous ceiling for local models, regardless of modality", () => {
+    expect(maxAttachmentBytes("image", true)).toBe(maxAttachmentBytes("video", true));
+    expect(maxAttachmentBytes("image", true)).toBeGreaterThan(MAX_ATTACHMENT_BYTES.video);
   });
 });
 
@@ -82,6 +115,12 @@ describe("requiresProviderUpload", () => {
   it("inlines below the limit and uploads above it", () => {
     expect(requiresProviderUpload(attachment({ byteSize: INLINE_BYTE_LIMIT }))).toBe(false);
     expect(requiresProviderUpload(attachment({ byteSize: INLINE_BYTE_LIMIT + 1 }))).toBe(true);
+  });
+
+  it("never uploads for a local provider — there is nothing to upload to", () => {
+    const large = attachment({ byteSize: INLINE_BYTE_LIMIT * 10 });
+    expect(requiresProviderUpload(large, false)).toBe(true);
+    expect(requiresProviderUpload(large, true)).toBe(false);
   });
 
   it("routes a large video to upload — no provider takes video inline", () => {

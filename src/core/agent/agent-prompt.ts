@@ -46,7 +46,12 @@ function resolveUserInputAttachments(
     return Effect.succeed({ attachments: [], notes: [] });
   }
   return Effect.tryPromise({
-    try: () => collectUserInputAttachments(options.userInput, options.workingDirectory as string),
+    try: () =>
+      collectUserInputAttachments(
+        options.userInput,
+        options.workingDirectory as string,
+        options.attachmentsAreLocal ?? false,
+      ),
     catch: (error) => error,
   }).pipe(
     Effect.map((collected) => {
@@ -124,6 +129,8 @@ export interface AgentPromptOptions {
    * an explanatory note rather than sent, since a provider rejects them outright.
    */
   readonly supportedAttachmentKinds?: readonly AttachmentKind[];
+  /** Whether the target model runs locally, which relaxes attachment size limits. */
+  readonly attachmentsAreLocal?: boolean;
 }
 
 /**
