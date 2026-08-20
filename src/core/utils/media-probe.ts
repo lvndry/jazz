@@ -10,12 +10,15 @@
  * - **No new dependencies.** Image dimensions come from parsing the file header directly —
  *   every format here puts them in the first few dozen bytes, so there is no decode and no
  *   image library. Duration needs a container parser, which is genuinely hard, so we shell out
- *   to `ffprobe` *if it happens to be installed* and give up gracefully if not.
+ *   to whatever the host already has: `ffprobe` when present (it is not installed on a stock
+ *   macOS or Debian), then `afinfo` for audio on macOS, where it is always present. Video has
+ *   no fallback — see `probeWithAfinfo`.
  * - **Failure is always allowed.** Every probe returns undefined rather than throwing. A
  *   missing dimension costs estimate accuracy, and the estimator compensates by assuming the
  *   expensive case. It must never cost the user their request.
  */
 
+import { existsSync } from "node:fs";
 import { open } from "node:fs/promises";
 import { checkExternalTool } from "@/core/agent/tools/fs/utils";
 import type { AttachmentKind } from "@/core/types/attachment";
@@ -24,6 +27,9 @@ export interface MediaDimensions {
   readonly width: number;
   readonly height: number;
 }
+
+/** Shipped with macOS as part of the CoreAudio command-line tools. */
+const AFINFO_PATH = "/usr/bin/afinfo";
 
 /** Bytes read from the head of a file when looking for dimensions. */
 const HEADER_BYTES = 65_536;
@@ -207,6 +213,46 @@ export async function probeWithFfprobe(filePath: string): Promise<FfprobeResult>
   });
 }
 
+/**
+ * Audio duration via `afinfo`, which ships with macOS as part of the CoreAudio tools.
+ *
+ * Worth a separate path from ffprobe because ffmpeg is not installed on a stock Mac, while
+ * `afinfo` always is — and it reads Ogg/Opus, which is the format Telegram voice notes arrive
+ * in. So on the most common jazz-on-macOS audio path, this is the probe that actually runs.
+ *
+ * **Audio only.** On a video file `afinfo` reports the duration of the *audio track*, not the
+ * clip: a 5s video with a 1.7s audio track reports 1.7s. Under-reporting duration
+ * under-estimates tokens, which fails a request rather than merely compacting early — so video
+ * must never come through here.
+ */
+export async function probeWithAfinfo(filePath: string): Promise<number | undefined> {
+  if (process.platform !== "darwin") return undefined;
+  // Not `checkExternalTool`: that treats a non-zero exit as "missing", and `afinfo` exits 1 for
+  // every probe form including `-h` and no arguments — so it would always read as absent. It
+  // lives at a fixed path as part of the OS, so checking for the file is both correct and
+  // cheaper than a spawn.
+  if (!existsSync(AFINFO_PATH)) return undefined;
+
+  const { spawn } = await import("node:child_process");
+  return new Promise<number | undefined>((resolve) => {
+    const child = spawn(AFINFO_PATH, [filePath], {
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 10_000,
+    });
+    let stdout = "";
+    child.stdout?.on("data", (chunk: Buffer) => {
+      if (stdout.length < 16_000) stdout += chunk.toString("utf8");
+    });
+    child.on("error", () => resolve(undefined));
+    child.on("close", () => {
+      // afinfo prints "estimated duration: 1.693061 sec" among several key/value lines.
+      const match = /estimated duration:\s*([0-9.]+)/i.exec(stdout);
+      const seconds = match?.[1] === undefined ? Number.NaN : Number.parseFloat(match[1]);
+      resolve(Number.isFinite(seconds) ? seconds : undefined);
+    });
+  });
+}
+
 export interface ProbedMediaShape {
   readonly width?: number;
   readonly height?: number;
@@ -229,8 +275,17 @@ export async function probeMediaShape(
     const dimensions = await probeImageDimensions(filePath);
     return dimensions ?? {};
   }
-  if (kind === "audio" || kind === "video") {
+  if (kind === "video") {
+    // ffprobe or nothing: the macOS fallback reads only the audio track and would report a
+    // clip as shorter than it is.
     return await probeWithFfprobe(filePath);
+  }
+  if (kind === "audio") {
+    const viaFfprobe = await probeWithFfprobe(filePath);
+    if (viaFfprobe.durationSeconds !== undefined) return viaFfprobe;
+
+    const seconds = await probeWithAfinfo(filePath);
+    return seconds === undefined ? {} : { durationSeconds: seconds };
   }
   return {};
 }

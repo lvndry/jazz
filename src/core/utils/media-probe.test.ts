@@ -11,7 +11,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "bun:test";
-import { probeImageDimensions } from "./media-probe";
+import { probeImageDimensions, probeWithAfinfo } from "./media-probe";
 
 async function writeTemp(name: string, bytes: Buffer): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), "jazz-media-probe-"));
@@ -90,5 +90,38 @@ describe("probeImageDimensions", () => {
 
   it("returns undefined for a missing file instead of throwing", async () => {
     expect(await probeImageDimensions("/nonexistent/nope.png")).toBeUndefined();
+  });
+});
+
+/**
+ * `afinfo` is the macOS-only audio fallback, exercised directly because a machine with ffmpeg
+ * installed would otherwise never reach it — ffprobe answers first.
+ *
+ * Skipped off macOS, where `afinfo` does not exist. The AIFF fixture is generated with `say`,
+ * which is also macOS-only, so both live behind the same guard.
+ */
+describe.skipIf(process.platform !== "darwin")("probeWithAfinfo", () => {
+  it("reads the duration of an audio file", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "jazz-afinfo-"));
+    const audioPath = join(directory, "spoken.aiff");
+    const said = Bun.spawnSync(["say", "-o", audioPath, "one two three four"]);
+    if (said.exitCode !== 0) return;
+
+    const seconds = await probeWithAfinfo(audioPath);
+    expect(seconds).toBeDefined();
+    // A four-word utterance is comfortably inside this range at any speech rate.
+    expect(seconds!).toBeGreaterThan(0.3);
+    expect(seconds!).toBeLessThan(10);
+  });
+
+  it("returns undefined for a file that is not audio", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "jazz-afinfo-"));
+    const path = join(directory, "notaudio.wav");
+    await writeFile(path, Buffer.from("definitely not a wav file"));
+    expect(await probeWithAfinfo(path)).toBeUndefined();
+  });
+
+  it("returns undefined for a missing file instead of throwing", async () => {
+    expect(await probeWithAfinfo("/nonexistent/nope.mp3")).toBeUndefined();
   });
 });
