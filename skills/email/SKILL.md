@@ -11,6 +11,8 @@ Manage emails using [Himalaya CLI](https://github.com/pimalaya/himalaya) - a pow
 
 **When using this skill as an agent**, run commands via `execute_command`. Prefer these patterns:
 
+0. **Install and set up if needed.** Run [Prerequisites Check](#prerequisites-check) before the first Himalaya command. If `himalaya` is missing, fetch the live README and install it. If no account is configured, walk the user through [Account Setup](#account-setup), then continue the original request (check mail, etc.). Do not stop at "go install Himalaya".
+
 1. **Always use `--output json`** when you need to parse results (subject, from, id). Example:
    ```bash
    himalaya envelope list --folder INBOX --page-size 20 --output json | jq '.[] | {id, subject, from, date}'
@@ -32,71 +34,98 @@ Manage emails using [Himalaya CLI](https://github.com/pimalaya/himalaya) - a pow
 
 ## Prerequisites Check
 
-Before any email operation, verify Himalaya is installed and configured:
+Before any email operation:
 
-```bash
-# Check if installed
-which himalaya
+1. Check whether Himalaya is on PATH:
 
-# Check if configured (lists accounts)
-himalaya account list
-```
+   ```bash
+   command -v himalaya
+   ```
 
-If not installed → Guide through [Installation](#installation)
-If no accounts → Guide through [Account Setup](#account-setup)
+2. **If it is missing, install it.** Do not just tell the user to install it. Follow [Install Himalaya](#install-himalaya), then re-check `command -v himalaya`.
+
+3. Check configuration:
+
+   ```bash
+   himalaya account list
+   ```
+
+   If no accounts → walk them through [Account Setup](#account-setup), then continue what they asked. Do not invent credentials. The wizard needs a real TTY; do not run it via `execute_command`. In a headless run, write a one-line failure note and stop.
 
 ---
 
-## Installation
+## Install Himalaya
 
-### pre-built binary
+Himalaya is a third-party CLI ([pimalaya/himalaya](https://github.com/pimalaya/himalaya)). Install methods change; **fetch the live README and follow its Installation section** rather than memorizing this page.
 
-curl -sSL https://raw.githubusercontent.com/pimalaya/himalaya/master/install.sh | PREFIX=~/.local sh
+1. Fetch the README with `web_fetch` (or `http_request` GET if `web_fetch` is unavailable):
+   `https://raw.githubusercontent.com/pimalaya/himalaya/master/README.md`
+   If that fails, try `https://github.com/pimalaya/himalaya`. Read the **Installation** section. If fetch is unavailable, use the table below.
 
-### macOS (Homebrew)
+2. Detect the host (`uname -s`) and which of `brew`, `pacman`, `scoop`, `nix`, `cargo` exist.
 
-```bash
-brew install himalaya
-```
+3. Install using the README method that matches, in this preference order:
 
-### Arch Linux
+   | Host | Typical command (confirm against the README) |
+   | --- | --- |
+   | macOS with Homebrew | `brew install himalaya` |
+   | Arch | `pacman -S himalaya` |
+   | Windows with Scoop | `scoop install himalaya` |
+   | Nix | `nix profile install github:pimalaya/himalaya` |
+   | Any OS, no root | `curl -sSL https://raw.githubusercontent.com/pimalaya/himalaya/master/install.sh \| PREFIX=~/.local sh` |
+   | Cargo last resort | `cargo install --locked --git https://github.com/pimalaya/himalaya.git` |
 
-```bash
-pacman -S himalaya
-```
+4. **Never `sudo` the installer** unless the user explicitly asks. Prefer the user-prefix install (`PREFIX=~/.local`).
 
-### Cargo (Any OS)
+5. If you installed to `~/.local/bin` and `command -v himalaya` still fails, prepend that directory for the rest of this session. Each `execute_command` is a fresh shell, so include it on later commands:
 
-```bash
-cargo install himalaya --locked
-```
+   ```bash
+   export PATH="$HOME/.local/bin:$PATH"
+   command -v himalaya
+   ```
 
-### Other Methods
+   Tell the user to add `~/.local/bin` to PATH permanently if it is not already.
 
-Direct user to: https://github.com/pimalaya/himalaya#installation
+6. Verify with `himalaya --version` (or `himalaya -V`). If a later command fails with unknown flags, re-read the README Usage section and `himalaya --help` — prefer those over this skill's examples.
+
+If fetch and every install method fail, tell the user what you tried and point them at https://github.com/pimalaya/himalaya#installation.
 
 ---
 
 ## Account Setup
 
-**Recommended approach**: Use Himalaya's built-in wizard which auto-discovers settings.
+Himalaya with no config starts an interactive TTY wizard. **Do not run bare `himalaya` via `execute_command`** — it will hang waiting for a terminal. Guide the user instead, then continue the original request.
 
-### Interactive Setup (Easiest)
+Fetch the live README Configuration section if the wizard flags have changed: `https://raw.githubusercontent.com/pimalaya/himalaya/master/README.md`. Prefer that over this page.
 
-```bash
-# First-time setup - wizard starts automatically
-himalaya
+### First-run (interactive chat)
 
-# Or configure a specific account
-himalaya account configure <account-name>
-```
+When `himalaya account list` is empty or errors because nothing is configured — e.g. the user just asked "check my latest emails":
 
-The wizard will:
+1. Say in one or two lines that mail isn't set up yet, and you will walk them through it so you can then do what they asked. Setup is part of the request, not a detour.
+2. Ask the provider with `ask_user_question`: Gmail, Outlook / Microsoft 365, iCloud, Proton Mail, Fastmail, other IMAP.
+3. Load [references/providers.md](references/providers.md) for that provider. Tell them the one thing they need *before* the wizard:
+   - **Gmail** — App Password at https://myaccount.google.com/apppasswords (2-Step Verification must be on).
+   - **Outlook** — OAuth 2.0; basic auth is retired.
+   - **iCloud** — app-specific password; IMAP login is the local-part only (`johnappleseed`, not the full address).
+   - **Proton Mail** — Proton Bridge running locally; the password is the Bridge password.
+   - **Fastmail** — app password for IMAP/SMTP, or an API token for JMAP.
+4. Ask them to run the wizard in **their** terminal (a new tab is fine):
 
-1. Ask for email address
-2. Auto-discover IMAP/SMTP settings
-3. Prompt for password (stored securely in system keyring)
-4. Test the connection
+   ```bash
+   himalaya
+   ```
+
+   If their version has `himalaya account configure <name>`, that works too. Prefer whatever `himalaya --help` and the live README show. The wizard asks for an email address and discovers IMAP/SMTP. **Never ask them to paste a password into this chat.** Secrets belong in the wizard, `pass`, or `secret-tool`.
+5. When they say the wizard finished, re-run `himalaya account list` (and `himalaya account check` if it exists). If it works, immediately continue the original request. Do not wait to be asked again.
+
+### Headless / unattended
+
+Do not start a wizard. Write a one-line failure that Himalaya has no account configured, and stop.
+
+### Writing config yourself
+
+If they already use `pass` (or similar) and want you to write `~/.config/himalaya/config.toml`, fetch the live README Configuration section — the TOML shape changes across versions — and `load_skill_section` for [references/providers.md](references/providers.md). Never put a raw password in the file or in chat.
 
 ### Provider-Specific Notes
 
@@ -107,7 +136,7 @@ The wizard will:
 | **iCloud**      | IMAP login is username only (not full email) |
 | **Proton Mail** | Requires Proton Bridge running locally       |
 
-**💡 Tip**: Many providers use the same app-specific password for both email and calendar. Store credentials in `pass` with consistent naming (e.g., `google/app-password`, `icloud/app-password`) to reuse them across both email and calendar skills. For multiple accounts, use a hierarchical structure (e.g., `google/personal/app-password`, `google/work/app-password`)—the `/` creates folders to keep things organized.
+Many providers use the same app-specific password for both email and calendar. Store credentials in `pass` with consistent naming (e.g., `google/app-password`, `icloud/app-password`) to reuse them across both skills. For multiple accounts, use a hierarchical structure (e.g., `google/personal/app-password`) — the `/` creates folders.
 
 For detailed provider configs, see [references/providers.md](references/providers.md)
 
