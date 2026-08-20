@@ -194,14 +194,25 @@ describe("theme", () => {
     it("switches inline-code colour too, rather than baking it at import", () => {
       // codeColor used to be resolved once at module load, so `/theme` left it
       // on the previous palette until the next process.
+      //
+      // chalk.level is process-global and the rest of the suite runs at 0.
+      // Restore it in a finally rather than in afterAll: other files' tests can
+      // interleave with this one, and leaving truecolor on turns their colour
+      // assertions from vacuous into real, which fails them for the wrong
+      // reason.
+      const previousLevel = chalk.level;
       chalk.level = 3;
-      setThemeVariant("dark");
-      const dark = codeColor("x");
-      setThemeVariant("light");
-      const light = codeColor("x");
-      expect(dark).not.toBe(light);
-      expect(dark).toContain("x");
-      expect(light).toContain("x");
+      try {
+        setThemeVariant("dark");
+        const dark = codeColor("x");
+        setThemeVariant("light");
+        const light = codeColor("x");
+        expect(dark).not.toBe(light);
+        expect(dark).toContain("x");
+        expect(light).toContain("x");
+      } finally {
+        chalk.level = previousLevel;
+      }
     });
   });
 });
