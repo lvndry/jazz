@@ -210,9 +210,13 @@ const UNICODE: GlyphSet = {
   // weight rather than as pictograms, which is the point: `╺` is heavier
   // than `╴`, so success reads as more present than inert without relying
   // on a checkmark glyph that SF Mono does not have.
+  // Heavy stubs are settled outcomes, light stubs are transient states. `warn`
+  // and `pending` must differ: "needs your attention" and "has not started" are
+  // not the same thing, and amber alone cannot carry the distinction in a
+  // monochrome terminal.
   success: "╺",
   error: "╻",
-  warn: "╴",
+  warn: "╵",
   info: "╶",
   debug: "∙",
   bullet: "∙",

@@ -148,7 +148,8 @@ const LIGHT_PALETTE: ThemeColors = {
   syntaxType: "#2F6690", // 24
 };
 
-const PALETTES: Record<ThemeVariant, ThemeColors> = {
+/** Exported so `scripts/gen-design-docs.ts` can document the real values. */
+export const PALETTES: Record<ThemeVariant, ThemeColors> = {
   dark: DARK_PALETTE,
   light: LIGHT_PALETTE,
 };

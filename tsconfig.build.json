@@ -10,6 +10,12 @@
     "declaration": true,
     "tsBuildInfoFile": ".tsbuildinfo.scripts"
   },
-  "include": ["scripts/**/*.ts", "package.json"],
+  "//": "gen-design-docs.ts imports the theme and glyph modules so the generated docs cannot drift from them; those two files are listed so this project can see across the src boundary.",
+  "include": [
+    "scripts/**/*.ts",
+    "package.json",
+    "src/cli/ui/theme.ts",
+    "src/cli/ui/glyphs.ts"
+  ],
   "exclude": ["node_modules", "dist"]
 }
