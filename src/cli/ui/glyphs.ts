@@ -4,23 +4,53 @@
  * A CLI cannot ship a font and force the terminal to render with it — the
  * terminal application owns rendering. So every Unicode glyph we emit
  * relies on the user's font having that codepoint and rendering it at the
- * expected width. macOS Menlo (the default in Terminal.app), Consolas,
- * and many CJK fonts fall back to a different font for box-drawing chars
- * (U+2500 range), arrows, and decorative dingbats — and the fallback's
- * advance width often differs by a fraction of a column, which mis-aligns
- * everything that depends on column math (tables, progress bars, anything
- * inside a Box).
+ * expected width.
  *
- * Solution: route every UI glyph through this module, detect whether the
- * terminal can render Unicode (UTF-8 locale or a known-capable emulator),
- * and fall back to ASCII (every monospace font has had `+`, `-`, `|`, `*`,
- * `>` since the 1970s) when uncertain. `JAZZ_UI_GLYPHS=unicode|ascii`
- * overrides detection either way.
+ * Two independent things can go wrong, and both were measured rather than
+ * assumed. Coverage, from the `cmap` tables of the fonts people actually
+ * use (glyphs present / glyphs in block):
  *
- * Scope of this module: visual chrome only. The markdown renderer's
- * inline emphasis (bold/italic/strikethrough) and color choices are
- * unaffected — those are ANSI escapes the terminal renders without
- * font-level glyph dependence.
+ *   Block                        Menlo    SF Mono   Courier
+ *   Box Drawing    U+2500–257F   128/128  128/128     0/128
+ *   Block Elements U+2580–259F    32/32    32/32      0/32
+ *   Geometric      U+25A0–25FF    96/96    14/96      1/96
+ *   Arrows         U+2190–21FF   112/112   11/112     0/112
+ *   Misc Technical U+2300–23FF   117/256    7/256     0/256
+ *   Misc Symbols   U+2600–26FF   149/256    0/256     1/256
+ *   Dingbats       U+2700–27BF   144/192   15/192     0/192
+ *   Braille        U+2800–28FF     0/256    0/256     0/256
+ *
+ * And width, from Unicode's EastAsianWidth data: an "Ambiguous" glyph
+ * occupies two columns in a CJK-width locale and one everywhere else, so it
+ * silently doubles its footprint.
+ *
+ * Three consequences drive every choice below:
+ *
+ *   1. Box Drawing and Block Elements are the only ranges with full coverage
+ *      everywhere. Dingbats (`✓ ✗ ❯`), Geometric Shapes (`◆ ◐ ● ○`), Arrows
+ *      and Misc Symbols (`♪`) are not safe — SF Mono, the default macOS
+ *      coding font, is missing most of them and substitutes a fallback font
+ *      at a mismatched advance width.
+ *   2. Braille has ZERO coverage in Menlo, SF Mono, Courier, Consolas and
+ *      JetBrains Mono. Only DejaVu ships it. Every braille spinner in the
+ *      ecosystem is drawn by font fallback — which is the origin of the
+ *      familiar right-hand gap.
+ *   3. Within Block Elements the *quadrants* (`▖▗▘▝▚▞▙▛▜▟`) plus `▐ ░` are
+ *      East-Asian Neutral: exactly one column in every locale. The eighth-
+ *      block ladder (`▁▂▃▄▅▆▇█`) and shading (`▒▓`) are Ambiguous, so they
+ *      are used only where nothing aligns beneath them.
+ *
+ * So: animation and anything inside a column-aligned region uses the Neutral
+ * quadrant set. Frames and rules use Box Drawing. Ambiguous glyphs appear
+ * only at line starts and line ends.
+ *
+ * ASCII remains the fallback for terminals where Unicode is uncertain —
+ * every monospace font has had `+`, `-`, `|`, `*`, `>` since the 1970s.
+ * `JAZZ_UI_GLYPHS=unicode|ascii` overrides detection either way.
+ *
+ * Scope of this module: visual chrome only. The markdown renderer's inline
+ * emphasis and color choices are unaffected — those are ANSI escapes the
+ * terminal renders without font-level glyph dependence.
  */
 
 export type GlyphMode = "ascii" | "unicode";
@@ -39,12 +69,13 @@ export interface GlyphSet {
   /** Vertical bar */ readonly boxV: string;
   /** Horizontal bar */ readonly boxH: string;
   /** Heavy/section divider line — used for full-width separators */ readonly divider: string;
+  /** Heavy horizontal, for emphasis and the filled run of a meter */ readonly ruleHeavy: string;
 
   // ─── Status / output ─────────────────────────────────────────────────
   /** Success indicator */ readonly success: string;
   /** Error indicator */ readonly error: string;
   /** Warning indicator */ readonly warn: string;
-  /** Info indicator */ readonly info: string;
+  /** Informational indicator */ readonly info: string;
   /** Debug / metric line marker */ readonly debug: string;
   /** Generic bullet */ readonly bullet: string;
   /** Question / unknown */ readonly question: string;
@@ -59,22 +90,36 @@ export interface GlyphSet {
   /** Left bar for blockquote content */ readonly blockquote: string;
 
   // ─── Prompt / input ──────────────────────────────────────────────────
-  /** Prompt cursor (input line) */ readonly promptCursor: string;
+  /** Prompt marker on the input line */ readonly promptCursor: string;
   /** Inline arrow (e.g. user message header) */ readonly arrow: string;
+  /** Citation reference brackets, as [open, close] */ readonly citeOpen: string;
+  readonly citeClose: string;
 
   // ─── Activity / spinner ──────────────────────────────────────────────
-  /** Spinner animation frames */ readonly spinnerFrames: readonly string[];
-  /** Pending / paused indicator */ readonly pending: string;
-  /** Pending tool call (proposed but not yet approved/run) */ readonly proposed: string;
-  /** Active / connected indicator (status dot on) */ readonly active: string;
+  /** Single-cell spinner frames — quadrant rotation */ readonly spinnerFrames: readonly string[];
+  /** Pending / not yet started */ readonly pending: string;
+  /** Proposed tool call — the agent is asking for authority */ readonly proposed: string;
+  /** Active / connected indicator */ readonly active: string;
+  /** A delegated lane closing */ readonly laneEnd: string;
 
   // ─── Markers ─────────────────────────────────────────────────────────
-  /** Agent response header marker */ readonly diamond: string;
-  /** Turn/note marker — Jazz's signature glyph */ readonly note: string;
+  /** The agent is speaking */ readonly diamond: string;
+  /** Jazz's mark — the swing quadrant */ readonly note: string;
   /** Speaker rail drawn down the left of transcript lines */ readonly rail: string;
+  /** Subordinate rail, one level deeper (reasoning, delegated lanes) */ readonly railDeep: string;
 
-  // ─── Equalizer animation (level-meter pulse for waiting states) ──────
-  /** Animation frames for the equalizer pulse */ readonly meterFrames: readonly string[];
+  // ─── Activity indicator (multi-cell, expresses parallel work) ────────
+  /**
+   * Per-lane periods for the activity indicator. Each lane rests, then plays
+   * a three-step burst, on its own period. These five are pairwise coprime,
+   * so the composite pattern runs 4620 frames — about 13 minutes at 170ms —
+   * before it repeats. Non-coprime periods (the previous 4,6,3,4,6) looped
+   * in 12 frames, roughly two seconds, and locked two pairs of lanes
+   * together permanently.
+   */
+  readonly lanePeriods: readonly number[];
+  /** The burst a lane plays: opening, live, closing. */ readonly laneBurst: readonly string[];
+  /** A lane at rest. */ readonly laneRest: string;
 
   // ─── Context-usage grid cells ────────────────────────────────────────
   /** Grid cell: used tokens */ readonly gridFilled: string;
@@ -96,6 +141,7 @@ const ASCII: GlyphSet = {
   boxV: "|",
   boxH: "-",
   divider: "-",
+  ruleHeavy: "=",
 
   // Status: pick chars that read at-a-glance even monochrome.
   success: "+",
@@ -118,18 +164,23 @@ const ASCII: GlyphSet = {
 
   promptCursor: ">",
   arrow: ">",
+  citeOpen: "[",
+  citeClose: "]",
 
-  // 8-frame ASCII spinner — universal, smooth enough.
-  spinnerFrames: ["|", "/", "-", "\\", "|", "/", "-", "\\"],
+  spinnerFrames: ["|", "/", "-", "\\"],
   pending: "o",
-  proposed: "?",
+  proposed: "|",
   active: "*",
+  laneEnd: "+",
 
-  diamond: "*",
+  diamond: "-",
   note: "*",
   rail: "|",
+  railDeep: ":",
 
-  meterFrames: ["=...", ".=..", "..=.", "...=", "..=.", ".=.."],
+  lanePeriods: [3, 4, 5, 7, 11],
+  laneBurst: [".", "o", "O"],
+  laneRest: " ",
 
   gridFilled: "#",
   gridEmpty: ".",
@@ -137,6 +188,10 @@ const ASCII: GlyphSet = {
 };
 
 const UNICODE: GlyphSet = {
+  // Box Drawing — 128/128 in Menlo and SF Mono. Light and heavy weights
+  // only: rounded (`╭╮╰╯`), double (`╔═╗`) and dashed (`╌╍`) corners are
+  // excluded from what terminals draw procedurally and are the most
+  // fallback-prone glyphs in the range.
   boxTL: "┌",
   boxTJ: "┬",
   boxTR: "┐",
@@ -149,36 +204,58 @@ const UNICODE: GlyphSet = {
   boxV: "│",
   boxH: "─",
   divider: "─",
+  ruleHeavy: "━",
 
-  success: "✓",
-  error: "✗",
-  warn: "⚠",
-  info: "ℹ",
-  debug: "✧",
-  bullet: "•",
+  // Status marks are Box Drawing stubs, all East-Asian Neutral. They read as
+  // weight rather than as pictograms, which is the point: `╺` is heavier
+  // than `╴`, so success reads as more present than inert without relying
+  // on a checkmark glyph that SF Mono does not have.
+  success: "╺",
+  error: "╻",
+  warn: "╴",
+  info: "╶",
+  debug: "∙",
+  bullet: "∙",
   question: "?",
 
-  heading1: "◆",
-  heading2: "▸",
-  heading3: "•",
+  // Hierarchy by rule weight rather than by decorative markers.
+  heading1: "▎",
+  heading2: "▏",
+  heading3: "∙",
   heading4: "·",
 
   blockquote: "▏",
 
-  promptCursor: "❯",
+  // `»` is Latin-1, present everywhere, and replaces `❯` (Dingbats, 15/192
+  // in SF Mono).
+  promptCursor: "»",
   arrow: "›",
+  citeOpen: "‹",
+  citeClose: "›",
 
-  spinnerFrames: ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"],
-  pending: "○",
-  proposed: "◐",
-  active: "●",
+  // Quadrant rotation. Replaces the braille `⠋⠙⠹` family, which has zero
+  // coverage in every target font.
+  spinnerFrames: ["▘", "▝", "▗", "▖"],
+  pending: "╴",
+  // The agent is asking for authority. `▐` is the only place this glyph
+  // appears in the product, so it is unambiguous wherever it shows up.
+  proposed: "▐",
+  active: "╺",
+  laneEnd: "╹",
 
-  diamond: "◆",
-  note: "♪",
-  rail: "▍",
+  // The agent is speaking. Paired with `▐` (asking) at an 8:1 stroke-weight
+  // ratio: same geometry, hugging the text on the same side, so the
+  // distinction reads as weight rather than as a different shape.
+  diamond: "╶",
+  // The mark: two filled squares offset off the grid. Syncopation, and the
+  // stroke of a `z`. Replaces `♪`, which does not exist in SF Mono at all.
+  note: "▞",
+  rail: "▎",
+  railDeep: "▏",
 
-  // A little audio level meter — the Jazz waiting animation.
-  meterFrames: ["▁▂▃▅", "▂▃▅▇", "▃▅▇▆", "▅▇▆▄", "▇▆▄▂", "▆▄▂▁", "▄▂▁▂", "▂▁▂▃"],
+  lanePeriods: [3, 4, 5, 7, 11],
+  laneBurst: ["▖", "▚", "▘"],
+  laneRest: "░",
 
   gridFilled: "█",
   gridEmpty: "░",
@@ -215,6 +292,7 @@ const UNICODE_CAPABLE_TERM_PROGRAMS = new Set([
   "kitty",
   "tabby",
   "vscode",
+  "warpterminal",
   "wezterm",
 ]);
 
@@ -237,6 +315,29 @@ function detectGlyphMode(): GlyphMode {
 /** Return the active glyph set. */
 export function getGlyphs(): GlyphSet {
   return resolveGlyphMode() === "unicode" ? UNICODE : ASCII;
+}
+
+/**
+ * One frame of the activity indicator.
+ *
+ * Each lane rests until the tail of its own period, then plays the burst, so
+ * a longer period means a longer rest and the number of moving lanes tracks
+ * how much work is actually in flight. Two properties hold for every frame,
+ * and both matter: no frame is ever entirely at rest, and no frame has all
+ * lanes in the same state. An activity indicator that can look frozen is
+ * broken.
+ */
+export function laneFrame(tick: number, glyphs: GlyphSet = getGlyphs()): string {
+  const { lanePeriods, laneBurst, laneRest } = glyphs;
+  let frame = "";
+  for (let lane = 0; lane < lanePeriods.length; lane++) {
+    const period = lanePeriods[lane] as number;
+    // Offset each lane by its index so they do not all start together.
+    const position = (((tick + lane) % period) + period) % period;
+    const restCells = period - laneBurst.length;
+    frame += position < restCells ? laneRest : (laneBurst[position - restCells] as string);
+  }
+  return frame;
 }
 
 /** Direct access to either set, e.g. for tests asserting both branches. */

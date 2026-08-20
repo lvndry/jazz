@@ -1,7 +1,7 @@
 import { Box, Text } from "ink";
 import React, { useEffect, useRef, useState } from "react";
 import type { ActivityState } from "./activity-state";
-import { Equalizer } from "./components/Equalizer";
+import { ActivityIndicator } from "./components/ActivityIndicator";
 import { getGlyphs } from "./glyphs";
 import { PADDING, THEME } from "./theme";
 
@@ -87,7 +87,7 @@ function AgentHeader({
     <Box>
       {animated ? (
         <>
-          <Equalizer color={THEME.agent} />
+          <ActivityIndicator color={THEME.agent} />
           <Text> </Text>
         </>
       ) : (
@@ -133,7 +133,7 @@ export const ActivityView = React.memo(function ActivityView({
           paddingX={PADDING.content}
         >
           <Box>
-            <Equalizer color={THEME.agent} />
+            <ActivityIndicator color={THEME.agent} />
             <Text> </Text>
             <Text
               bold
@@ -202,7 +202,7 @@ export const ActivityView = React.memo(function ActivityView({
           paddingX={PADDING.content}
         >
           <Box>
-            <Equalizer color={THEME.agent} />
+            <ActivityIndicator color={THEME.agent} />
             <Text color={THEME.agent}> {label}</Text>
             <ElapsedText seconds={elapsedSeconds} />
           </Box>
