@@ -49,6 +49,9 @@ describe("completion instructions injection", () => {
     expect(result).toContain("# Seeing work through");
     expect(result).toContain("Never guess a value you can fetch");
     expect(result).toContain("answer from the record");
+    expect(result).toContain("Do not stay stuck");
+    expect(result).toContain("Do not dump a URL and stop");
+    expect(result).toContain("Look up live docs");
   });
 
   test("summarizer never receives the completion contract", () => {
@@ -91,6 +94,7 @@ describe("tool guidance injection", () => {
     const withTool = build("default", { toolNames: ["http_request", "ask_user_question"] });
     expect(withTool).toContain("# Asking the user questions");
     expect(withTool).toContain("Permission to do work the user already requested");
+    expect(withTool).toContain("A required CLI or account is not set up");
   });
 });
 

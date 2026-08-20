@@ -20,7 +20,7 @@ Jazz uses **skills** for email and calendar—agents run Himalaya and khal via `
 
 Use the **email** skill with [Himalaya CLI](https://github.com/pimalaya/himalaya) for inbox management. Himalaya works with Gmail, Outlook, iCloud, Proton Mail, and more via IMAP/SMTP.
 
-- **Setup**: Install Himalaya (`brew install himalaya`), run `himalaya account configure` for your provider
+- **Setup**: Load the `email` skill — it installs Himalaya if missing (from the live README) and walks you through account setup, then you can check mail
 - **Agents**: Load the `email` skill—it teaches agents to use Himalaya for list, read, send, reply, search, and organize
 - **Provider-agnostic**: One setup works across Gmail, Outlook, iCloud, Fastmail, etc.
 

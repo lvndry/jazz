@@ -94,9 +94,10 @@ Write a markdown summary to `$HOME/.jazz/inbox-triage/$(date +%Y-%m-%d).md` with
 ## How to install
 
 ```bash
-# 1. Install Himalaya if you don't have it
-brew install himalaya            # macOS
-# or: cargo install himalaya --locked
+# 1. Himalaya: optional. The email skill fetches the live README and
+#    installs the CLI if `himalaya` is not on PATH. To do it yourself:
+# brew install himalaya            # macOS
+# or: cargo install --locked --git https://github.com/pimalaya/himalaya.git
 
 # 2. Configure at least one account (interactive wizard)
 himalaya account configure default
@@ -133,5 +134,5 @@ tail -f ~/.jazz/logs/inbox-triage.log
 
 ## Limits
 
-- Requires the `email` skill and a working `himalaya` install. The skill ships with Jazz; Himalaya is a third-party CLI you install yourself.
+- Requires the `email` skill. The skill ships with Jazz and will fetch the Himalaya README and install the CLI if it is missing; you still need to configure at least one account (`himalaya account configure` / the wizard).
 - `low-risk` policy auto-approves the `move` command. If you'd rather hand-approve, drop to `read-only` and run interactively.
