@@ -159,6 +159,10 @@ async function resolveOne(
       filename: attachment.path.split("/").pop() ?? "attachment",
     })) as { providerReference: unknown };
 
+    // Verified against OpenAI's files API: the result carries providerReference alongside
+    // mediaType/filename/providerMetadata/warnings, and providerReference is a per-provider
+    // handle ({ openai: "file-…" }) that a model can read a file through. Only the handle is
+    // cached — the rest is per-call metadata.
     uploadCache.set(cacheKey, uploaded.providerReference);
     void logger?.debug(`Uploaded attachment to provider file API`, {
       path: attachment.path,
