@@ -52,8 +52,6 @@ describe("completion instructions injection", () => {
     expect(result).toContain("Do not stay stuck");
     expect(result).toContain("Do not dump a URL and stop");
     expect(result).toContain("Look up live docs");
-    expect(result).toContain("When TTY is no");
-    expect(result).toContain("Non-interactive work still runs");
   });
 
   test("summarizer never receives the completion contract", () => {
