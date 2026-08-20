@@ -26,6 +26,10 @@ export interface ModelInfo {
   readonly supportsVision?: boolean;
   /** Whether the model accepts PDF input natively. */
   readonly supportsPdf?: boolean;
+  /** Whether the model accepts audio input. */
+  readonly supportsAudio?: boolean;
+  /** Whether the model accepts video input. */
+  readonly supportsVideo?: boolean;
   /** Whether the model accepts a custom temperature. Defaults to true when unknown. */
   readonly supportsTemperature?: boolean;
   /** Context window size in tokens. If not specified, defaults to 128000. */

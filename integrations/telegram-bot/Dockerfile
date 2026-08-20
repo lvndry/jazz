@@ -6,8 +6,16 @@ WORKDIR /app
 
 # System Chromium for the create_web_app tool (puppeteer-core screenshots HTML
 # the agent writes). puppeteer-core ships no browser, so this is the only one.
+#
+# ffmpeg is here for ffprobe, which jazz uses to read the duration of audio and
+# video attachments — that duration is what its token estimate is based on, so
+# without it every voice note is priced at a conservative 60-second default and
+# compaction fires earlier than it needs to. macOS hosts fall back to the
+# built-in afinfo for audio; Debian has no equivalent, so the bridge that
+# actually receives voice notes installs the real thing. Debian ships ffprobe
+# only as part of the ffmpeg package.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    chromium fonts-liberation \
+    chromium fonts-liberation ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 

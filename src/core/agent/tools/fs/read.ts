@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { FileSystemContextService } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import { defineTool, makeZodValidator } from "../base-tool";
+import { attachMediaFile } from "./attach-media";
 import { resolveReadableFile, stripUtf8Bom } from "./read-common";
 
 /**
@@ -31,7 +32,9 @@ export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
   return defineTool<FileSystem.FileSystem | FileSystemContextService, ReadFileParams>({
     name: "read_file",
     description:
-      "Read a text file with optional line range (startLine/endLine). Handles BOM, enforces size limits.",
+      "Read a file with optional line range (startLine/endLine). Text files are returned as " +
+      "text; images, PDFs, audio and video are attached to the conversation so the model can " +
+      "see or hear them directly, when the active model supports that modality.",
     tags: ["filesystem", "read"],
     parameters,
     validate: makeZodValidator(parameters),
@@ -41,6 +44,12 @@ export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
         if (resolved.kind === "failure") return resolved.result;
         const filePathResult = resolved.path;
         const fs = yield* FileSystem.FileSystem;
+
+        // Images, PDFs, audio and video are not text. Reading their bytes as UTF-8 produces
+        // mojibake that costs thousands of tokens and tells the model nothing, so they are
+        // attached to the turn instead and delivered to the model as file parts.
+        const mediaOutcome = yield* Effect.promise(() => attachMediaFile(filePathResult, context));
+        if (mediaOutcome.kind !== "not-media") return mediaOutcome.result;
 
         try {
           let content = stripUtf8Bom(yield* fs.readFileString(filePathResult));

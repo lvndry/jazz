@@ -54,6 +54,8 @@ function resolveToModelInfo(
       isReasoningModel: dev.isReasoningModel,
       supportsVision: dev.supportsVision,
       supportsPdf: dev.supportsPdf,
+      supportsAudio: dev.supportsAudio,
+      supportsVideo: dev.supportsVideo,
       supportsTemperature: dev.supportsTemperature,
     };
   }
@@ -66,6 +68,8 @@ function resolveToModelInfo(
     isReasoningModel: fb?.isReasoningModel ?? false,
     supportsVision: fb?.supportsVision ?? false,
     supportsPdf: fb?.supportsPdf ?? false,
+    supportsAudio: fb?.supportsAudio ?? false,
+    supportsVideo: fb?.supportsVideo ?? false,
     supportsTemperature: fb?.supportsTemperature ?? true,
   };
 }
@@ -123,6 +127,8 @@ export async function fetchModelsDevModels(catalogId: string): Promise<ModelInfo
       isReasoningModel: entry.metadata.isReasoningModel,
       supportsVision: entry.metadata.supportsVision,
       supportsPdf: entry.metadata.supportsPdf,
+      supportsAudio: entry.metadata.supportsAudio,
+      supportsVideo: entry.metadata.supportsVideo,
       supportsTemperature: entry.metadata.supportsTemperature,
     }));
 }
@@ -154,7 +160,7 @@ type OllamaShowResponse = {
   capabilities?: string[];
 };
 
-type OllamaShowExtras = {
+export type OllamaShowExtras = {
   contextWindow?: number;
   template?: string;
   capabilities?: readonly string[];
@@ -213,7 +219,7 @@ function extractOllamaContextLength(
  * Returns context window, template, and capabilities when available.
  * `baseUrl` is the canonical `/api` root (see resolveLocalProviderBaseUrl), so `/show` appends directly.
  */
-async function fetchOllamaModelDetails(
+export async function fetchOllamaModelDetails(
   baseUrl: string,
   modelName: string,
 ): Promise<OllamaShowExtras> {
@@ -279,6 +285,39 @@ function ollamaToolSupportFromMetadata(model: OllamaModel): boolean {
  * supportsTools through the same fetched ModelInfo, so a tool-capable local model is never
  * silently stripped of its tools.
  */
+/**
+ * Attachment modalities for a local Ollama model, from `/api/show` `capabilities`.
+ *
+ * The same reasoning as `resolveOllamaToolSupport`, and it matters more here: local models are
+ * largely absent from models.dev, so without this a genuinely multimodal local model
+ * (`gemma4:12b` reports `vision` *and* `audio`) would be treated as text-only and jazz would
+ * refuse to send it an image it can perfectly well read. Ollama describes the model file
+ * actually on the host, so it outranks the catalog.
+ *
+ * Ollama has no `video` capability tag, so video is never inferred here — a local model that
+ * genuinely accepts video would need the catalog to say so.
+ */
+export function resolveOllamaAttachmentSupport(
+  capabilities: readonly string[] | undefined,
+  dev: ModelsDevMetadata | undefined,
+): { supportsVision: boolean; supportsPdf: boolean; supportsAudio: boolean } {
+  if (capabilities !== undefined) {
+    return {
+      supportsVision: capabilities.includes("vision"),
+      // Not `capabilities.includes("audio")`: see the transport note above.
+      supportsAudio: false,
+      supportsPdf: false,
+    };
+  }
+  // No capabilities reported (older Ollama, or /api/show failed). The catalog is the only
+  // remaining signal, still narrowed to what the provider can actually transport.
+  return {
+    supportsVision: dev?.supportsVision ?? false,
+    supportsPdf: false,
+    supportsAudio: false,
+  };
+}
+
 export function resolveOllamaToolSupport(
   capabilities: readonly string[] | undefined,
   dev: ModelsDevMetadata | undefined,
@@ -415,6 +454,7 @@ async function transformOllamaModels(
         const entry: RawModelEntry = { id: model.name, displayName: model.name };
         const dev = getMetadataFromMap(modelsDevMap, model.name);
         const supportsTools = resolveOllamaToolSupport(extras.capabilities, dev, model);
+        const attachmentSupport = resolveOllamaAttachmentSupport(extras.capabilities, dev);
         let base: ModelInfo;
         if (dev) {
           base = resolveToModelInfo(entry, modelsDevMap);
@@ -434,6 +474,7 @@ async function transformOllamaModels(
         return {
           ...base,
           supportsTools,
+          ...attachmentSupport,
           // `/api/show` describes the model file actually on this host, so it outranks
           // the catalog's normalized bare-name match for the same reason tool support does.
           ...(extras.contextWindow !== undefined ? { contextWindow: extras.contextWindow } : {}),

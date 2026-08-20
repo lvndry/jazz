@@ -7,6 +7,7 @@ import type { PresentationService } from "@/core/interfaces/presentation";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import type { ToolRegistry, ToolRequirements } from "@/core/interfaces/tool-registry";
 import type { Agent } from "@/core/types";
+import { describeAttachment } from "@/core/types/attachment";
 import type { ChatMessage, ConversationMessages } from "@/core/types/message";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import { parseProviderModel } from "@/core/utils/provider-model";
@@ -311,6 +312,13 @@ export const Summarizer = {
     return messages
       .map((message) => {
         let content = message.content || "";
+        // An attachment cannot be summarized — but its path can, and must be. Summarization
+        // discards the original messages, so a path that does not reach the summary is gone
+        // for good, and with it the model's only way to look at that file again.
+        if (message.attachments && message.attachments.length > 0) {
+          const described = message.attachments.map(describeAttachment).join(", ");
+          content += `\n[Attachments: ${described}]`;
+        }
         if (message.tool_calls) {
           const calls = message.tool_calls
             .map((call) => {

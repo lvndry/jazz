@@ -40,6 +40,10 @@ export interface ModelsDevMetadata {
   readonly supportsVision: boolean;
   /** Whether the model accepts PDF input natively. Derived from modalities.input containing "pdf". */
   readonly supportsPdf: boolean;
+  /** Whether the model accepts audio input. Derived from modalities.input containing "audio". */
+  readonly supportsAudio: boolean;
+  /** Whether the model accepts video input. Derived from modalities.input containing "video". */
+  readonly supportsVideo: boolean;
   /** Whether the model accepts a custom temperature (from models.dev `temperature`). Defaults to true when absent. */
   readonly supportsTemperature: boolean;
   /** Input price in USD per 1M tokens (from models.dev cost.input). */
@@ -139,6 +143,8 @@ function toMetadata(spec: ModelsDevModelSpec): ModelsDevMetadata {
     isReasoningModel: Boolean(spec.reasoning),
     supportsVision: inputModalities.includes("image"),
     supportsPdf: inputModalities.includes("pdf"),
+    supportsAudio: inputModalities.includes("audio"),
+    supportsVideo: inputModalities.includes("video"),
     supportsTemperature: spec.temperature !== false,
     ...(inputPrice !== undefined && { inputPricePerMillion: inputPrice }),
     ...(outputPrice !== undefined && { outputPricePerMillion: outputPrice }),

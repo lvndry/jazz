@@ -22,6 +22,7 @@ Telegram  ◀──(getUpdates long-poll)──▶  bridge  ──jazz run --jso
 - ⏰ **Reminders** — `/remind 30m …` or plain language ("remind me in 2 hours …"), scheduled by the agent itself via a native tool, resolved in your own timezone (`/tz`, or auto-set from a shared location) and delivered even across restarts.
 - 📍 **Location aware** — share a pin to get oriented, find nearby places, and set your timezone automatically.
 - 📊 **On-demand UI** — the agent can write a self-contained webpage (a chart, a form, a small interactive tool) via `create_web_app` and deliver it as either a chat image (no tap) or a tappable Telegram Web App button.
+- 🎙️ **Send voice notes, photos and files** — a voice message is listened to and acted on; a photo or PDF is read. Needs a model with that input modality (Gemini for audio, most models for images), and the bot says so plainly when the current model can't.
 - 💬 **Per-chat memory**, ✍️ **Markdown rendering** (with plain-text fallback), 🔒 **allowlist-gated**, 🐳 **one-command Docker deploy**.
 
 ## Requirements
@@ -31,6 +32,10 @@ Telegram  ◀──(getUpdates long-poll)──▶  bridge  ──jazz run --jso
 - A model backend — **either** an API key for a cloud provider (OpenAI by default)
   **or** a local [Ollama](https://ollama.com) with a tool-capable model pulled.
 - Outbound HTTPS to `api.telegram.org`.
+- For voice notes: a model that accepts audio input. In practice that means the
+  Gemini family — Anthropic has no audio models and OpenAI has one. Images and
+  PDFs work on almost anything. The image installs `ffmpeg` so Jazz can measure
+  how long a clip is and budget context for it accurately.
 
 ## Quick start
 
