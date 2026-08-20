@@ -69,6 +69,8 @@
     "prepublishOnly": "bun run build"
   },
   "dependencies": {
+    "@opentui/core": "^0.5.4",
+    "@opentui/react": "^0.5.4",
     "ink": "^7.1.1",
     "pdf-parse": "^2.4.5",
     "react": "^19.2.8"
