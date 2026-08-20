@@ -16,8 +16,10 @@
  */
 
 import { stat } from "node:fs/promises";
-import { isAbsolute, resolve } from "node:path";
+import { homedir } from "node:os";
+import { isAbsolute, join, resolve } from "node:path";
 import {
+  ATTACHMENT_MEDIA_TYPES,
   classifyAttachmentPath,
   MAX_ATTACHMENTS_PER_MESSAGE,
   type MessageAttachment,
@@ -26,20 +28,52 @@ import {
 import { probeMediaShape } from "@/core/utils/media-probe";
 
 /**
- * Candidate path tokens in a line of user text.
+ * Candidate spans in a line of user text, in three flavours.
  *
- * Matches an optional `@`, then a run of non-whitespace ending in a known media extension.
- * Quotes and trailing sentence punctuation are stripped by the caller — a user writing
- * "look at ./shot.png." means the file, not a file whose name ends in a period.
+ * Filenames with spaces are the norm, not an edge case — macOS names every screenshot
+ * "Screenshot 2026-08-18 at 16.12.12.png" — so matching only unbroken non-whitespace runs would
+ * miss the single most common thing a Mac user attaches.
+ *
+ * The patterns overlap deliberately, and over-matching is safe: a candidate only becomes an
+ * attachment if a file actually exists at that path. That existence check is what lets the
+ * space-tolerant pattern be greedy without turning prose into surprise uploads.
  */
-const PATH_CANDIDATE = /@?(?:[^\s"']|\\ )+\.[A-Za-z0-9]{2,5}/g;
+const PATH_CANDIDATE_PATTERNS: readonly RegExp[] = [
+  // Quoted, the way a shell or a person quotes a path containing spaces.
+  /['"]([^'"\n]+\.[A-Za-z0-9]{2,5})['"]/g,
+  // An unbroken run, optionally @-prefixed, with shell-escaped spaces allowed. This is what
+  // drag-and-drop inserts in most terminals.
+  /@?(?:[^\s"']|\\ )+\.[A-Za-z0-9]{2,5}/g,
+  // Anchored at something that looks like the start of a path, then lazily up to a *known*
+  // media extension at a word boundary, so literal spaces in the middle survive.
+  //
+  // The extension list has to be explicit here. A generic `\.[A-Za-z0-9]{2,5}` matches lazily
+  // and would stop at the first dot-ish run it finds: in
+  // "Screenshot 2026-08-18 at 16.12.12.png" that is ".12", leaving a truncated path that fails
+  // to resolve and never extends to ".png".
+  new RegExp(
+    `(?:~/|\\.{0,2}/)[^\\n"']*?\\.(?:${Object.keys(ATTACHMENT_MEDIA_TYPES).join("|")})(?=[\\s"'.,;:!?)\\]}]|$)`,
+    "gi",
+  ),
+];
+
+function collectCandidates(userInput: string): string[] {
+  const candidates: string[] = [];
+  for (const pattern of PATH_CANDIDATE_PATTERNS) {
+    for (const match of userInput.matchAll(pattern)) {
+      // The quoted pattern captures the inside; the others match the whole span.
+      candidates.push(match[1] ?? match[0]);
+    }
+  }
+  return candidates;
+}
 
 function stripDecoration(token: string): string {
   let candidate = token.startsWith("@") ? token.slice(1) : token;
   candidate = candidate.replace(/^["']|["']$/g, "");
   candidate = candidate.replace(/[.,;:!?)\]}]+$/g, "");
-  // Shell-style escaped spaces survive drag-and-drop of a path with spaces in it.
-  return candidate.replace(/\\ /g, " ");
+  candidate = candidate.replace(/\\ /g, " ");
+  return candidate.trim();
 }
 
 export interface UserInputAttachments {
@@ -64,8 +98,8 @@ export async function collectUserInputAttachments(
   workingDirectory: string,
   isLocalProvider = false,
 ): Promise<UserInputAttachments> {
-  const matches = userInput.match(PATH_CANDIDATE);
-  if (matches === null) return { attachments: [], warnings: [] };
+  const matches = collectCandidates(userInput);
+  if (matches.length === 0) return { attachments: [], warnings: [] };
 
   const attachments: MessageAttachment[] = [];
   const warnings: string[] = [];
@@ -83,7 +117,9 @@ export async function collectUserInputAttachments(
     const classified = classifyAttachmentPath(candidate);
     if (classified === null) continue;
 
-    const absolutePath = isAbsolute(candidate) ? candidate : resolve(workingDirectory, candidate);
+    // `~` is what people type; nothing downstream expands it.
+    const expanded = candidate.startsWith("~/") ? join(homedir(), candidate.slice(2)) : candidate;
+    const absolutePath = isAbsolute(expanded) ? expanded : resolve(workingDirectory, expanded);
     if (seenPaths.has(absolutePath)) continue;
 
     let byteSize: number;

@@ -119,6 +119,57 @@ describe("collectUserInputAttachments", () => {
     expect(result.warnings.join(" ")).toContain("limit");
   });
 
+  // macOS names every screenshot "Screenshot 2026-08-18 at 16.12.12.png", so a path containing
+  // spaces is the common case, not an edge case. All three ways a person might present one have
+  // to work, and only the escaped form did originally.
+  describe("paths containing spaces", () => {
+    async function screenshotFixture(): Promise<{ directory: string; path: string }> {
+      const directory = await fixtureDir();
+      const path = join(directory, "Screenshot 2026-08-18 at 16.12.12.png");
+      await writeFile(path, pngBytes());
+      return { directory, path };
+    }
+
+    it("finds a bare, unquoted path with spaces", async () => {
+      // The hard one. A lazy match on a generic extension stops at ".12" in the timestamp and
+      // never reaches ".png", which is why the pattern anchors on known media extensions.
+      const { directory, path } = await screenshotFixture();
+      const result = await collectUserInputAttachments(`what is in ${path} ?`, directory);
+      expect(result.attachments.map((attachment) => attachment.path)).toEqual([path]);
+    });
+
+    it("finds a quoted path with spaces", async () => {
+      const { directory, path } = await screenshotFixture();
+      const result = await collectUserInputAttachments(`describe '${path}'`, directory);
+      expect(result.attachments.map((attachment) => attachment.path)).toEqual([path]);
+    });
+
+    it("finds a path with shell-escaped spaces, as drag-and-drop inserts", async () => {
+      const { directory, path } = await screenshotFixture();
+      const escaped = path.replace(/ /g, "\\ ");
+      const result = await collectUserInputAttachments(`describe ${escaped}`, directory);
+      expect(result.attachments.map((attachment) => attachment.path)).toEqual([path]);
+    });
+
+    it("reports it once however many patterns matched it", async () => {
+      // The three patterns overlap by design; dedup by resolved path is what keeps that from
+      // attaching the same file twice.
+      const { directory, path } = await screenshotFixture();
+      const result = await collectUserInputAttachments(`'${path}' and ${path}`, directory);
+      expect(result.attachments).toHaveLength(1);
+    });
+
+    it("does not turn a sentence into a path just because it ends in a media word", async () => {
+      // The greedy space-tolerant pattern is only safe because the file has to exist.
+      const directory = await fixtureDir();
+      const result = await collectUserInputAttachments(
+        "look in /var/log and then check the old screenshot.png",
+        directory,
+      );
+      expect(result.attachments).toHaveLength(0);
+    });
+  });
+
   it("skips ingestion entirely for input with no path-like tokens", async () => {
     const result = await collectUserInputAttachments("hello there", await fixtureDir());
     expect(result.attachments).toHaveLength(0);
