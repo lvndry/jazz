@@ -33,6 +33,12 @@ import type { AutoApprovePolicy, ToolExecutionContext } from "@/core/types/tools
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import { parseProviderModel } from "@/core/utils/provider-model";
 import { shouldEnableStreaming } from "@/core/utils/stream-detector";
+import {
+  fetchOllamaModelDetails,
+  type OllamaShowExtras,
+  resolveOllamaAttachmentSupport,
+} from "@/services/llm/model-fetcher";
+import { resolveLocalProviderBaseUrl } from "@/services/llm/models";
 import type { ConversationMessages, StreamingConfig } from "../types";
 import { type Agent } from "../types";
 import { agentPromptBuilder } from "./agent-prompt";
@@ -75,6 +81,28 @@ function resolveSupportedAttachmentKinds(
       try: () => getModelsDevMetadata(parsed.model, parsed.provider),
       catch: (error) => error,
     }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+
+    // Ollama reports the capabilities of the model file actually on this host, which the
+    // catalog usually knows nothing about — most local tags are absent from models.dev
+    // entirely. Without this, a local multimodal model reads as text-only and jazz refuses to
+    // send it an image it can read perfectly well.
+    if (parsed.provider === "ollama") {
+      const baseUrl = resolveLocalProviderBaseUrl("ollama", undefined);
+      const extras = yield* Effect.tryPromise({
+        try: () => fetchOllamaModelDetails(baseUrl, parsed.model),
+        catch: (error) => error,
+      }).pipe(Effect.catchAll(() => Effect.succeed<OllamaShowExtras>({})));
+
+      // Today this only ever yields "image" — the provider cannot transport anything else — but
+      // the mapping stays exhaustive so widening it is a one-line change in one place.
+      const support = resolveOllamaAttachmentSupport(extras.capabilities, metadata);
+      const localKinds: AttachmentKind[] = [];
+      if (support.supportsVision) localKinds.push("image");
+      if (support.supportsPdf) localKinds.push("pdf");
+      if (support.supportsAudio) localKinds.push("audio");
+      return localKinds;
+    }
+
     if (metadata === undefined) return [];
 
     const kinds: AttachmentKind[] = [];

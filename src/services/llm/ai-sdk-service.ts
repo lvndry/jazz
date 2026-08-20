@@ -244,7 +244,7 @@ function buildAttachmentParts(
       type: "file",
       mediaType: attachment.mediaType,
       filename: attachment.path.split("/").pop() ?? "attachment",
-      data: payload.kind === "bytes" ? payload.data : (payload.reference as FilePart["data"]),
+      data: payload.kind === "inline" ? payload.base64 : (payload.reference as FilePart["data"]),
     });
   }
 

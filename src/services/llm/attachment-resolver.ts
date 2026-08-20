@@ -7,7 +7,11 @@
  *
  * There are two payload shapes, chosen by file size rather than by modality:
  *
- * - **Inline bytes** below `INLINE_BYTE_LIMIT`. Stateless and supported everywhere.
+ * - **An inline base64 string** below `INLINE_BYTE_LIMIT`. Stateless and supported everywhere.
+ *   Base64 rather than a `Uint8Array` deliberately: the AI SDK accepts either as `FilePart.data`,
+ *   but `ollama-ai-provider-v2` only handles the string form — passing bytes (bare *or* in the
+ *   tagged `{ type: 'data' }` wrapper) throws inside its base64 conversion. Cloud providers take
+ *   the string just as happily, so one shape serves everything.
  * - **A provider file reference** above it, obtained via the AI SDK's `uploadFile`. This path
  *   exists because no provider accepts video inline, but keying on size means a very large PDF
  *   uses it too.
@@ -46,9 +50,17 @@ import { LLM_PROVIDER_ENV_VARS } from "@/services/secrets/registry";
  * text marker the model can understand — never abort the run.
  */
 export type ResolvedAttachment =
-  | { readonly kind: "bytes"; readonly data: Uint8Array }
+  | { readonly kind: "inline"; readonly base64: string }
   | { readonly kind: "reference"; readonly reference: unknown }
   | { readonly kind: "unavailable"; readonly reason: string };
+
+/**
+ * Providers served from the local machine.
+ *
+ * They never take the upload path: there is nothing to upload to, and no network request cap
+ * that would make inlining a large file a problem in the first place.
+ */
+const LOCAL_PROVIDERS = new Set(["ollama", "llamacpp"]);
 
 /** Keyed by attachment path, which is the identity `toCoreMessages` looks up. */
 export type ResolvedAttachments = ReadonlyMap<string, ResolvedAttachment>;
@@ -116,10 +128,13 @@ async function resolveOne(
     };
   }
 
-  if (!requiresProviderUpload(attachment)) {
+  // A locally-served model has no request-size cap to respect and no file API to upload to, so
+  // everything inlines regardless of size.
+  const isLocal = LOCAL_PROVIDERS.has(providerName.toLowerCase());
+  if (!requiresProviderUpload(attachment, isLocal)) {
     try {
       const bytes = await readFile(attachment.path);
-      return { kind: "bytes", data: new Uint8Array(bytes) };
+      return { kind: "inline", base64: bytes.toString("base64") };
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
       return { kind: "unavailable", reason: `${attachment.path} could not be read: ${detail}` };

@@ -192,8 +192,19 @@ export function rejectAttachmentReason(attachment: MessageAttachment): string | 
   return null;
 }
 
-/** Whether this attachment must be uploaded to the provider rather than inlined. */
-export function requiresProviderUpload(attachment: MessageAttachment): boolean {
+/**
+ * Whether this attachment must be uploaded to the provider rather than inlined.
+ *
+ * `isLocalProvider` matters because the inline limit is a *network* constraint — a cap on how
+ * much data a remote API will accept in one request. A model served from localhost has no such
+ * cap, and no file API to upload to either, so applying the limit there would reject a large
+ * local image that would have worked fine. Local providers always inline.
+ */
+export function requiresProviderUpload(
+  attachment: MessageAttachment,
+  isLocalProvider = false,
+): boolean {
+  if (isLocalProvider) return false;
   return attachment.byteSize > INLINE_BYTE_LIMIT;
 }
 

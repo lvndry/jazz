@@ -24,9 +24,7 @@ function imageAttachment(path = "/tmp/shot.png"): MessageAttachment {
 }
 
 function resolvedBytes(path: string): ReadonlyMap<string, ResolvedAttachment> {
-  return new Map([
-    [path, { kind: "bytes", data: new Uint8Array([1, 2, 3]) } as ResolvedAttachment],
-  ]);
+  return new Map([[path, { kind: "inline", base64: "AQID" } as ResolvedAttachment]]);
 }
 
 type UserContent = Array<{ type: string; text?: string; mediaType?: string }>;
@@ -129,6 +127,28 @@ describe("toCoreMessages — attachments", () => {
     expect(parts.find((part) => part.type === "text")?.text).toContain("/tmp/shot.png");
   });
 
+  it("sends inline payloads as a base64 string, not bytes", () => {
+    // Not cosmetic. ollama-ai-provider-v2 only accepts the string form: a Uint8Array — bare or
+    // in the tagged { type: 'data' } wrapper — throws inside its base64 conversion
+    // ("undefined is not an object (evaluating 'base64String.replace')"), which surfaced as a
+    // retry storm rather than a clear error. Verified against a live Ollama host; cloud
+    // providers accept the string too, so one shape serves all of them.
+    const attachment = imageAttachment();
+    const resolved = new Map<string, ResolvedAttachment>([
+      [attachment.path, { kind: "inline", base64: "AQID" }],
+    ]);
+    const filePart = userParts(
+      toCoreMessages(
+        [{ role: "user", content: "look", attachments: [attachment] }],
+        "ollama",
+        resolved,
+      )[0]!,
+    ).find((part) => part.type === "file") as { data?: unknown } | undefined;
+
+    expect(typeof filePart?.data).toBe("string");
+    expect(filePart?.data).toBe("AQID");
+  });
+
   it("leaves plain messages as a bare string, unchanged", () => {
     const converted = toCoreMessages([{ role: "user", content: "just text" }], "anthropic");
     expect(converted[0]?.content).toBe("just text");
@@ -145,8 +165,8 @@ describe("toCoreMessages — attachments", () => {
       { role: "user", content: "third", attachments: [recent] },
     ];
     const resolved = new Map<string, ResolvedAttachment>([
-      [old.path, { kind: "bytes", data: new Uint8Array([1]) }],
-      [recent.path, { kind: "bytes", data: new Uint8Array([1]) }],
+      [old.path, { kind: "inline", base64: "AQ==" }],
+      [recent.path, { kind: "inline", base64: "AQ==" }],
     ]);
 
     const converted = toCoreMessages(messages, "anthropic", resolved);
