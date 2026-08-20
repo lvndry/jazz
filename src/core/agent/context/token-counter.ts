@@ -26,7 +26,9 @@
 
 import { countTokens as countCl100k } from "gpt-tokenizer/encoding/cl100k_base";
 import { countTokens as countO200k } from "gpt-tokenizer/encoding/o200k_base";
+import { describeAttachment, inlineAttachmentMessageIndices } from "@/core/types/attachment";
 import type { ChatMessage } from "@/core/types/message";
+import { estimateAttachmentsTokens } from "./attachment-tokens";
 
 /** Tokenizer family — drives both encoding choice and default ratio. */
 export type ModelFamily =
@@ -198,6 +200,21 @@ export class TokenCounter {
    * Memoized per (message reference, model).
    */
   countMessage(msg: ChatMessage, hint: ModelHint): number {
+    // Attachments are priced as if sent, which is right for a message considered on its own.
+    // `countMessages` overrides this for messages whose attachments have aged out of the
+    // inline window — it is the only caller that knows a message's position.
+    return this.countMessageText(msg, hint) + estimateAttachmentsTokens(msg.attachments);
+  }
+
+  /**
+   * Text-only cost of a message: content, tool calls, and per-message overhead.
+   *
+   * Separate from attachment cost because the two have different lifetimes. Text is sent on
+   * every turn for as long as the message survives; an attachment is sent only while it is
+   * inside `ATTACHMENT_INLINE_TURN_WINDOW`. Memoization applies here, where the value is
+   * genuinely a property of the message alone.
+   */
+  private countMessageText(msg: ChatMessage, hint: ModelHint): number {
     const cached = this.messageCache.get(msg);
     if (cached !== undefined) return cached;
 
@@ -215,10 +232,34 @@ export class TokenCounter {
     return tokens;
   }
 
-  /** Sum tokens across an array of messages. */
+  /**
+   * Sum tokens across a message list, pricing attachments the way the request will actually
+   * send them.
+   *
+   * Attachments contribute no characters but thousands of real prompt tokens, so a list
+   * containing them would otherwise be estimated as comfortably small while the request
+   * overflows the window. Past the inline window an attachment costs only its text
+   * description, matching what `toCoreMessages` emits.
+   */
   countMessages(msgs: readonly ChatMessage[], hint: ModelHint): number {
+    const inlineIndices = inlineAttachmentMessageIndices(msgs);
     let total = 0;
-    for (const msg of msgs) total += this.countMessage(msg, hint);
+    for (let messageIndex = 0; messageIndex < msgs.length; messageIndex++) {
+      const msg = msgs[messageIndex];
+      if (msg === undefined) continue;
+      total += this.countMessageText(msg, hint);
+
+      const attachments = msg.attachments;
+      if (attachments === undefined || attachments.length === 0) continue;
+
+      if (inlineIndices.has(messageIndex)) {
+        total += estimateAttachmentsTokens(attachments);
+      } else {
+        for (const attachment of attachments) {
+          total += this.countText(describeAttachment(attachment), hint);
+        }
+      }
+    }
     return total;
   }
 

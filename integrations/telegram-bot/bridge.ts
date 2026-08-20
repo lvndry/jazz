@@ -31,6 +31,7 @@ import {
   syncAgentDisplayName,
   writeAgentFile,
 } from "./agents";
+import { buildMediaPrompt, downloadTelegramFile, type TelegramFileRef } from "./media";
 import { startReminderSweep } from "./reminders";
 import { conversationKey, isIncognito, setIncognito, startNewConversation } from "./sessions";
 import { escapeHtml, markdownToTelegramHtml, splitForTelegram } from "./telegram-html";
@@ -1518,6 +1519,92 @@ interface TelegramMessage {
   readonly chat?: { readonly id?: number };
   readonly text?: string;
   readonly location?: { readonly latitude?: number; readonly longitude?: number };
+  /** Caption on a media message — the user's actual request, when they wrote one. */
+  readonly caption?: string;
+  /** A voice note, i.e. the record button. Always OGG/Opus, never has a filename. */
+  readonly voice?: TelegramFileRef;
+  /** An audio file sent as music, which Telegram treats separately from a voice note. */
+  readonly audio?: TelegramFileRef;
+  /**
+   * Photos arrive as an array of the same image at several resolutions, smallest first.
+   * The last entry is the largest Telegram kept.
+   */
+  readonly photo?: readonly TelegramFileRef[];
+  /** Any file sent as a document, including images sent with "send as file". */
+  readonly document?: TelegramFileRef;
+}
+
+/**
+ * Media on a message, plus what to ask jazz when the user sent no caption.
+ *
+ * Voice notes get an explicit transcribe-and-act instruction because a bare voice note with no
+ * caption is the single most common case, and the model needs to know it should act on what was
+ * said rather than just describe the audio.
+ */
+function extractMedia(
+  message: TelegramMessage,
+): { file: TelegramFileRef; fallbackInstruction: string } | undefined {
+  if (message.voice !== undefined) {
+    return {
+      file: message.voice,
+      fallbackInstruction:
+        "This is a voice message. Listen to it, then do what it asks — or answer it if it is a question.",
+    };
+  }
+  if (message.audio !== undefined) {
+    return {
+      file: message.audio,
+      fallbackInstruction: "Listen to this audio and tell me what is in it.",
+    };
+  }
+  if (message.photo !== undefined && message.photo.length > 0) {
+    // Largest available resolution: the smaller entries are thumbnails and would waste the
+    // request on an unreadable image.
+    const largest = message.photo[message.photo.length - 1];
+    if (largest !== undefined) {
+      return {
+        file: largest,
+        fallbackInstruction: "Look at this image and tell me what it shows.",
+      };
+    }
+  }
+  if (message.document !== undefined) {
+    return {
+      file: message.document,
+      fallbackInstruction: "Look at this file and tell me what is in it.",
+    };
+  }
+  return undefined;
+}
+
+/**
+ * Download a media message and hand it to jazz as a path in the prompt.
+ *
+ * A download failure is reported to the chat rather than swallowed: the user watched their voice
+ * note upload and will otherwise be left waiting on a reply that never comes.
+ */
+async function handleMedia(
+  config: BridgeConfig,
+  chatId: number,
+  message: TelegramMessage,
+  media: { file: TelegramFileRef; fallbackInstruction: string },
+): Promise<void> {
+  const outcome = await downloadTelegramFile(
+    config.botToken,
+    config.jazzHome,
+    media.file,
+    chatId,
+    Date.now(),
+  );
+  if (!outcome.ok) {
+    await sendReply(config, chatId, `⚠️ I couldn't fetch that file — ${outcome.reason}.`);
+    return;
+  }
+  await handleMessage(
+    config,
+    chatId,
+    buildMediaPrompt(outcome.path, message.caption, media.fallbackInstruction),
+  );
 }
 
 interface TelegramUpdate {
@@ -1559,9 +1646,14 @@ function dispatchMessage(config: BridgeConfig, message: TelegramMessage | undefi
     Number.isFinite(longitude)
   ) {
     work = handleLocation(config, chatId, latitude, longitude);
+  } else {
+    const media = extractMedia(message ?? {});
+    if (media !== undefined) {
+      work = handleMedia(config, chatId, message ?? {}, media);
+    }
   }
 
-  // Other message types (photo, sticker, …) aren't handled yet.
+  // Other message types (stickers, contacts, …) aren't handled yet.
   if (work === undefined) return;
 
   work.catch((error) => {

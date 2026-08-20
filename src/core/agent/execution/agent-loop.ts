@@ -5,6 +5,12 @@ import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import type { PresentationService, StreamingRenderer } from "@/core/interfaces/presentation";
 import type { ToolRegistry, ToolRequirements } from "@/core/interfaces/tool-registry";
 import type { ChatMessage, ConversationMessages } from "@/core/types";
+import {
+  type AttachmentKind,
+  describeAttachment,
+  MAX_ATTACHMENTS_PER_MESSAGE,
+  type MessageAttachment,
+} from "@/core/types/attachment";
 import type { ChatCompletionResponse } from "@/core/types/chat";
 import { LLMRateLimitError } from "@/core/types/errors";
 import type { DisplayConfig } from "@/core/types/output";
@@ -137,6 +143,11 @@ interface LoopDeps {
   logger: LoggerService;
   maxIterations: number;
   runRecursive: RecursiveRunner;
+  /**
+   * Attachment modalities this run's model accepts. Passed to tools so `read_file` on a
+   * screenshot can attach it, or explain why it cannot.
+   */
+  supportedAttachmentKinds: readonly AttachmentKind[];
 }
 
 export const MELTDOWN_WINDOW_SIZE = 10;
@@ -329,6 +340,7 @@ function handleToolPhase(
     runMetrics,
     options,
     logger,
+    supportedAttachmentKinds,
   } = deps;
 
   return Effect.gen(function* () {
@@ -367,6 +379,12 @@ function handleToolPhase(
     }
 
     const toolRenderer = strategy.getRenderer();
+
+    // Media a tool attached during this batch of tool calls. Collected here rather than
+    // returned through tool results because tool results are text-only — the actual bytes have
+    // to ride on a user message, which is appended once the batch finishes.
+    const pendingAttachments: MessageAttachment[] = [];
+
     const contextWithTokenStats = {
       ...context,
       tokenStats: {
@@ -384,6 +402,11 @@ function handleToolPhase(
       recordChildCost: (costUSD: number) => {
         runMetrics.childCostUSD += costUSD;
       },
+      attachMedia: (attachment: MessageAttachment) => {
+        if (pendingAttachments.length >= MAX_ATTACHMENTS_PER_MESSAGE) return;
+        pendingAttachments.push(attachment);
+      },
+      supportedAttachmentKinds: supportedAttachmentKinds,
       // Let tools surface live progress (e.g. spawn_subagent lifecycle) through
       // the same event stream, when a streaming renderer is present.
       ...(toolRenderer
@@ -456,6 +479,24 @@ function handleToolPhase(
           recordToolResultTokens(runMetrics, toolCall.function.name, formattedResult.length);
         }
       }
+    }
+
+    // Media attached by tools rides on a user message after the tool results. A `role: "tool"`
+    // message cannot carry file parts across providers, and a user message can — so this is the
+    // one shape that delivers a screenshot the model just asked to read.
+    if (pendingAttachments.length > 0) {
+      const descriptions = pendingAttachments.map(describeAttachment).join("\n");
+      state.currentMessages.push({
+        role: "user",
+        content: `Attached from the tool call above:\n${descriptions}`,
+        attachments: [...pendingAttachments],
+      });
+      yield* logger.debug("Attached media to conversation", {
+        agentId: agent.id,
+        count: pendingAttachments.length,
+        kinds: pendingAttachments.map((attachment) => attachment.kind),
+      });
+      pendingAttachments.length = 0;
     }
 
     state.response = {
@@ -885,6 +926,16 @@ export function executeAgentLoop(
         let finished = false;
         let interrupted = false;
 
+        // models.dev reports input modalities; absence means text-only. Unlike tool support —
+        // which defaults to available so an unknown model is not needlessly crippled — an
+        // unknown model is assumed to have no media input, because sending an image to a
+        // text-only model is a hard provider error rather than a worse answer.
+        const supportedAttachmentKinds: AttachmentKind[] = [];
+        if (modelMetadata?.supportsVision) supportedAttachmentKinds.push("image");
+        if (modelMetadata?.supportsPdf) supportedAttachmentKinds.push("pdf");
+        if (modelMetadata?.supportsAudio) supportedAttachmentKinds.push("audio");
+        if (modelMetadata?.supportsVideo) supportedAttachmentKinds.push("video");
+
         const deps: LoopDeps = {
           agent,
           options,
@@ -902,6 +953,7 @@ export function executeAgentLoop(
           logger,
           maxIterations,
           runRecursive,
+          supportedAttachmentKinds,
         };
 
         for (let i = 0; i < maxIterations; i++) {

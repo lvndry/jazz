@@ -2,6 +2,7 @@ import type { Effect } from "effect";
 import type z from "zod";
 import type { ToolRiskLevel } from "@/core/interfaces/tool-registry";
 import type { Agent } from "@/core/types/agent";
+import type { AttachmentKind, MessageAttachment } from "@/core/types/attachment";
 import type { ChatMessage } from "@/core/types/message";
 import type { StreamEvent } from "@/core/types/streaming";
 
@@ -205,6 +206,26 @@ export interface ToolExecutionContext {
    * Used by summarize_context to actually update the executor's message array.
    */
   readonly compactConversation?: (compacted: readonly ChatMessage[]) => void;
+  /**
+   * Attach a media file (image/pdf/audio/video) to the current turn so the model actually
+   * receives its contents on the next request.
+   *
+   * Needed because tool results are text-only: `read_file` on a screenshot can describe the
+   * file but cannot put pixels into a `role: "tool"` message. The executor collects whatever
+   * tools register here and emits it as a following user message, which every provider accepts
+   * as a carrier for file parts.
+   *
+   * Undefined when the executor has no way to extend the message list (one-shot tool calls,
+   * some test harnesses); tools must fall back to describing the file in text.
+   */
+  readonly attachMedia?: (attachment: MessageAttachment) => void;
+  /**
+   * Attachment modalities the active model accepts, from its models.dev capabilities.
+   *
+   * Tools check this before calling `attachMedia` so they can fail loudly rather than send an
+   * image to a text-only model — which is a provider error, not a degraded answer.
+   */
+  readonly supportedAttachmentKinds?: readonly AttachmentKind[];
   /**
    * Record the USD cost of a nested run (e.g. a sub-agent spawned via
    * spawn_subagent) against the parent run. The parent's finalized costUSD

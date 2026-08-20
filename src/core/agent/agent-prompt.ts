@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import * as os from "os";
 import { Effect } from "effect";
 import type { PersonaService } from "@/core/interfaces/persona-service";
+import type { AttachmentKind, MessageAttachment } from "@/core/types/attachment";
 import type { ChatMessage, ConversationMessages } from "@/core/types/message";
 import { renderProjectInstructions, type ProjectInstructionFile } from "./project-instructions";
 import {
@@ -14,6 +15,7 @@ import {
   TASK_STATE_INSTRUCTIONS,
   TOOL_SELECTION_INSTRUCTIONS,
 } from "./prompts/shared";
+import { collectUserInputAttachments } from "./user-input-attachments";
 
 function formatUtcOffsetLabel(date: Date): string {
   const offsetMinutes = -date.getTimezoneOffset();
@@ -28,6 +30,44 @@ function formatUtcOffsetLabel(date: Date): string {
     return `UTC${sign}${hours}`;
   }
   return `UTC${sign}${hours}:${String(minutes).padStart(2, "0")}`;
+}
+
+/**
+ * Attachments and user-facing notes for the current turn's user message.
+ *
+ * Split out of `buildMessages` because the interesting part is the filtering: an attachment the
+ * active model cannot read is dropped and *announced*, never silently omitted. A model promised
+ * a screenshot and handed nothing will describe one it never saw.
+ */
+function resolveUserInputAttachments(
+  options: AgentPromptOptions,
+): Effect.Effect<{ attachments: MessageAttachment[]; notes: string[] }, never> {
+  if (options.workingDirectory === undefined) {
+    return Effect.succeed({ attachments: [], notes: [] });
+  }
+  return Effect.tryPromise({
+    try: () => collectUserInputAttachments(options.userInput, options.workingDirectory as string),
+    catch: (error) => error,
+  }).pipe(
+    Effect.map((collected) => {
+      const supported = options.supportedAttachmentKinds ?? [];
+      const attachments: MessageAttachment[] = [];
+      const notes: string[] = [...collected.warnings];
+
+      for (const attachment of collected.attachments) {
+        if (supported.includes(attachment.kind)) {
+          attachments.push(attachment);
+          continue;
+        }
+        notes.push(
+          `[${attachment.path} is a ${attachment.kind} file and this model has no ${attachment.kind} input, so its contents were not sent. Say it could not be read rather than guessing at it.]`,
+        );
+      }
+      return { attachments, notes };
+    }),
+    // Ingestion is best-effort: a probe or stat failure must not stop the turn.
+    Effect.catchAll(() => Effect.succeed({ attachments: [], notes: [] })),
+  );
 }
 
 export interface AgentPersona {
@@ -71,6 +111,19 @@ export interface AgentPromptOptions {
    * model without the user restating them every session.
    */
   readonly projectInstructions?: readonly ProjectInstructionFile[];
+  /**
+   * Directory that relative attachment paths in `userInput` resolve against.
+   *
+   * When omitted, path-based attachment ingestion is skipped entirely rather than guessed at:
+   * resolving against `process.cwd()` would silently attach the wrong file in any context that
+   * runs an agent from somewhere other than the user's shell.
+   */
+  readonly workingDirectory?: string;
+  /**
+   * Attachment modalities the target model accepts. Attachments of other kinds are dropped with
+   * an explanatory note rather than sent, since a provider rejects them outright.
+   */
+  readonly supportedAttachmentKinds?: readonly AttachmentKind[];
 }
 
 /**
@@ -416,7 +469,17 @@ ${triggeredBlock}`;
           lastHistoryMsg?.role === "user" && lastHistoryMsg.content === effectiveUserContent;
 
         if (!alreadyInHistory && effectiveUserContent && effectiveUserContent.trim().length > 0) {
-          messages.push({ role: "user", content: effectiveUserContent });
+          // Media paths the user typed (or dropped into the terminal) become attachments on
+          // this message, so the model receives the file itself rather than its name.
+          const ingested = yield* resolveUserInputAttachments(options);
+          messages.push({
+            role: "user",
+            content:
+              ingested.notes.length > 0
+                ? `${effectiveUserContent}\n\n${ingested.notes.join("\n")}`
+                : effectiveUserContent,
+            ...(ingested.attachments.length > 0 ? { attachments: ingested.attachments } : {}),
+          });
         }
 
         return messages;

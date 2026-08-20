@@ -54,6 +54,8 @@ function resolveToModelInfo(
       isReasoningModel: dev.isReasoningModel,
       supportsVision: dev.supportsVision,
       supportsPdf: dev.supportsPdf,
+      supportsAudio: dev.supportsAudio,
+      supportsVideo: dev.supportsVideo,
       supportsTemperature: dev.supportsTemperature,
     };
   }
@@ -66,6 +68,8 @@ function resolveToModelInfo(
     isReasoningModel: fb?.isReasoningModel ?? false,
     supportsVision: fb?.supportsVision ?? false,
     supportsPdf: fb?.supportsPdf ?? false,
+    supportsAudio: fb?.supportsAudio ?? false,
+    supportsVideo: fb?.supportsVideo ?? false,
     supportsTemperature: fb?.supportsTemperature ?? true,
   };
 }
@@ -123,6 +127,8 @@ export async function fetchModelsDevModels(catalogId: string): Promise<ModelInfo
       isReasoningModel: entry.metadata.isReasoningModel,
       supportsVision: entry.metadata.supportsVision,
       supportsPdf: entry.metadata.supportsPdf,
+      supportsAudio: entry.metadata.supportsAudio,
+      supportsVideo: entry.metadata.supportsVideo,
       supportsTemperature: entry.metadata.supportsTemperature,
     }));
 }
