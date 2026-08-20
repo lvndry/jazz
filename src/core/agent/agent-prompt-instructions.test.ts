@@ -95,6 +95,7 @@ describe("tool guidance injection", () => {
     expect(withTool).toContain("# Asking the user questions");
     expect(withTool).toContain("Permission to do work the user already requested");
     expect(withTool).toContain("A required CLI or account is not set up");
+    expect(withTool).toContain("When TTY is no — there is no one to respond");
   });
 });
 

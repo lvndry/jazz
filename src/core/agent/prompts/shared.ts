@@ -14,6 +14,7 @@ export const ENVIRONMENT_TEMPLATE = `# Environment
 - Home: {homeDirectory}
 - Hostname: {hostname}
 - User: {username}
+- TTY: {tty}
 `;
 
 export const SKILLS_INSTRUCTIONS = `
@@ -120,6 +121,7 @@ Do NOT ask:
 - Permission to do work the user already requested — do the work.
 - Confirmation of safe, reversible actions.
 - Anything the user already answered, or anything a tool call can resolve.
+- When TTY is no — there is no one to respond.
 
 Format: one decision per call. Offer 2–4 concrete, self-contained options. Summarize the relevant findings in text first, then ask.
 `;

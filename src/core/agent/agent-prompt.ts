@@ -109,6 +109,7 @@ export class AgentPromptBuilder {
       hostname: string;
       username: string;
       homeDirectory: string;
+      tty: string;
     },
     never
   > {
@@ -135,8 +136,9 @@ export class AgentPromptBuilder {
       const coreCount = os.cpus().length;
       const totalMemoryGb = Math.round(os.totalmem() / 1024 ** 3);
       const hardware = `${cpuModel} · ${coreCount} cores · ${totalMemoryGb} GB RAM`;
+      const tty = process.stdout.isTTY === true ? "yes" : "no";
 
-      return { currentDate, osInfo, hardware, shell, hostname, username, homeDirectory };
+      return { currentDate, osInfo, hardware, shell, hostname, username, homeDirectory, tty };
     });
   }
 
@@ -258,7 +260,7 @@ export class AgentPromptBuilder {
         );
         const cached = this.systemPromptCache.get(cacheKey);
         if (cached) return cached;
-        const { currentDate, osInfo, hardware, shell, hostname, username, homeDirectory } =
+        const { currentDate, osInfo, hardware, shell, hostname, username, homeDirectory, tty } =
           yield* this.getSystemInfo();
 
         const fillEnvironment = (text: string): string =>
@@ -269,7 +271,8 @@ export class AgentPromptBuilder {
             .replace("{shell}", shell)
             .replace("{homeDirectory}", homeDirectory)
             .replace("{hostname}", hostname)
-            .replace("{username}", username);
+            .replace("{username}", username)
+            .replace("{tty}", tty);
 
         let systemPrompt = persona.systemPrompt
           .replace("{agentName}", options.agentName)

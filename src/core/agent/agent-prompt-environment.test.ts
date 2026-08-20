@@ -46,9 +46,11 @@ describe("environment block injection", () => {
     expect(result).toContain("- Date:");
     expect(result).toContain("- Hardware:");
     expect(result).toContain("- Hostname:");
+    expect(result).toContain("- TTY:");
     // Live values, not raw placeholders.
     expect(result).not.toContain("{currentDate}");
     expect(result).not.toContain("{osInfo}");
+    expect(result).not.toContain("{tty}");
   });
 
   test("substitutes in place and adds no second block when persona hand-places the block", () => {
