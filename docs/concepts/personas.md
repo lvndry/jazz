@@ -126,6 +126,8 @@ When building the system prompt, Jazz replaces these placeholders if present in 
 | `{hostname}`         | Machine hostname        |
 | `{username}`         | Current username        |
 | `{homeDirectory}`    | User's home directory   |
+| `{tty}`              | `yes` if stdout is a TTY, else `no` |
+| `{session}`          | `interactive` or `unattended` (from the presentation surface, not TTY) |
 
 Example:
 

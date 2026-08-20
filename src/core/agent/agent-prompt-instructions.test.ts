@@ -52,6 +52,7 @@ describe("completion instructions injection", () => {
     expect(result).toContain("Do not stay stuck");
     expect(result).toContain("Do not dump a URL and stop");
     expect(result).toContain("Look up live docs");
+    expect(result).toContain("When Session is unattended");
   });
 
   test("summarizer never receives the completion contract", () => {
@@ -95,6 +96,7 @@ describe("tool guidance injection", () => {
     expect(withTool).toContain("# Asking the user questions");
     expect(withTool).toContain("Permission to do work the user already requested");
     expect(withTool).toContain("A required CLI or account is not set up");
+    expect(withTool).toContain("When Session is unattended");
   });
 });
 

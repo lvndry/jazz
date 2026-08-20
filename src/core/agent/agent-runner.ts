@@ -12,7 +12,7 @@ import type { LLMService } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import { type MCPServerManager } from "@/core/interfaces/mcp-server";
 import { PersonaServiceTag, type PersonaService } from "@/core/interfaces/persona-service";
-import { type PresentationService } from "@/core/interfaces/presentation";
+import { PresentationServiceTag, type PresentationService } from "@/core/interfaces/presentation";
 import type { TerminalService } from "@/core/interfaces/terminal";
 import {
   ToolRegistryTag,
@@ -261,6 +261,8 @@ function initializeAgentRun(
       );
     }
 
+    const presentation = yield* PresentationServiceTag;
+
     // Build messages — reuses the PersonaService resolved earlier so custom
     // personas can be looked up by name when assembling the system prompt.
     const messages: ConversationMessages = yield* agentPromptBuilder.buildAgentMessages(
@@ -273,6 +275,7 @@ function initializeAgentRun(
         toolNames: expandedToolNames,
         availableTools,
         knownSkills: relevantSkills,
+        session: presentation.isInteractive ? "interactive" : "unattended",
         ...(triggeredSkillNames.length > 0 && { triggeredSkillNames }),
         ...(projectInstructions.length > 0 && { projectInstructions }),
       },

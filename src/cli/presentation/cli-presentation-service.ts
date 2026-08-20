@@ -27,6 +27,7 @@ import { CHALK_THEME } from "../ui/theme";
  * Provides terminal-based presentation for agent output by delegating to CLIRenderer
  */
 export class CLIPresentationService implements PresentationService {
+  readonly isInteractive: boolean;
   private renderer: CLIRenderer | null = null;
 
   constructor(
@@ -39,7 +40,10 @@ export class CLIPresentationService implements PresentationService {
       message: string,
       options?: { defaultValue?: string },
     ) => Effect.Effect<string | undefined, never>,
-  ) {}
+    isInteractive: boolean = process.stdout.isTTY === true && process.stdin.isTTY === true,
+  ) {
+    this.isInteractive = isInteractive;
+  }
 
   /**
    * Get or create a singleton CLI renderer for formatting operations

@@ -98,6 +98,7 @@ describe("Error Handler", () => {
       signalToolExecutionStarted: vi.fn().mockReturnValue(Effect.void),
       requestUserInput: vi.fn().mockReturnValue(Effect.succeed("")),
       requestFilePicker: vi.fn().mockReturnValue(Effect.succeed("")),
+      isInteractive: false,
     } satisfies PresentationService;
 
     const presentationLayer = Layer.succeed(PresentationServiceTag, mockPresentationService);

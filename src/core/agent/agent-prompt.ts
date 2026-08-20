@@ -71,6 +71,12 @@ export interface AgentPromptOptions {
    * model without the user restating them every session.
    */
   readonly projectInstructions?: readonly ProjectInstructionFile[];
+  /**
+   * Whether a person can answer questions and finish interactive setup.
+   * Distinct from TTY: `jazz run` in a terminal still has a TTY, but the
+   * session is unattended. Defaults to unattended when omitted (tests, tools).
+   */
+  readonly session?: "interactive" | "unattended";
 }
 
 /**
@@ -109,6 +115,7 @@ export class AgentPromptBuilder {
       hostname: string;
       username: string;
       homeDirectory: string;
+      tty: string;
     },
     never
   > {
@@ -135,8 +142,9 @@ export class AgentPromptBuilder {
       const coreCount = os.cpus().length;
       const totalMemoryGb = Math.round(os.totalmem() / 1024 ** 3);
       const hardware = `${cpuModel} · ${coreCount} cores · ${totalMemoryGb} GB RAM`;
+      const tty = process.stdout.isTTY === true ? "yes" : "no";
 
-      return { currentDate, osInfo, hardware, shell, hostname, username, homeDirectory };
+      return { currentDate, osInfo, hardware, shell, hostname, username, homeDirectory, tty };
     });
   }
 
@@ -176,6 +184,7 @@ export class AgentPromptBuilder {
         hash.update(`agentsmd:${file.path}:${file.content}`);
       }
     }
+    hash.update(`session:${options.session ?? "unattended"}`);
     // Invalidate daily since prompts include current date
     hash.update(new Date().toDateString());
     return hash.digest("hex");
@@ -258,8 +267,9 @@ export class AgentPromptBuilder {
         );
         const cached = this.systemPromptCache.get(cacheKey);
         if (cached) return cached;
-        const { currentDate, osInfo, hardware, shell, hostname, username, homeDirectory } =
+        const { currentDate, osInfo, hardware, shell, hostname, username, homeDirectory, tty } =
           yield* this.getSystemInfo();
+        const session = options.session ?? "unattended";
 
         const fillEnvironment = (text: string): string =>
           text
@@ -269,7 +279,9 @@ export class AgentPromptBuilder {
             .replace("{shell}", shell)
             .replace("{homeDirectory}", homeDirectory)
             .replace("{hostname}", hostname)
-            .replace("{username}", username);
+            .replace("{username}", username)
+            .replace("{tty}", tty)
+            .replace("{session}", session);
 
         let systemPrompt = persona.systemPrompt
           .replace("{agentName}", options.agentName)

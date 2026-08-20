@@ -46,9 +46,39 @@ describe("environment block injection", () => {
     expect(result).toContain("- Date:");
     expect(result).toContain("- Hardware:");
     expect(result).toContain("- Hostname:");
+    expect(result).toContain("- TTY:");
+    expect(result).toContain("- Session: unattended");
     // Live values, not raw placeholders.
     expect(result).not.toContain("{currentDate}");
     expect(result).not.toContain("{osInfo}");
+    expect(result).not.toContain("{tty}");
+    expect(result).not.toContain("{session}");
+  });
+
+  test("session interactive is injected when passed on the options", () => {
+    const builder = new AgentPromptBuilder();
+    const result = Effect.runSync(
+      builder.buildSystemPrompt(
+        "default",
+        { ...OPTIONS, session: "interactive" },
+        personaServiceReturning("You are {agentName}."),
+      ),
+    );
+    expect(result).toContain("- Session: interactive");
+    expect(result).not.toContain("- Session: unattended");
+  });
+
+  test("interactive and unattended sessions do not share a cached prompt", () => {
+    const builder = new AgentPromptBuilder();
+    const service = personaServiceReturning("You are {agentName}.");
+    const interactive = Effect.runSync(
+      builder.buildSystemPrompt("default", { ...OPTIONS, session: "interactive" }, service),
+    );
+    const unattended = Effect.runSync(
+      builder.buildSystemPrompt("default", { ...OPTIONS, session: "unattended" }, service),
+    );
+    expect(interactive).toContain("- Session: interactive");
+    expect(unattended).toContain("- Session: unattended");
   });
 
   test("substitutes in place and adds no second block when persona hand-places the block", () => {

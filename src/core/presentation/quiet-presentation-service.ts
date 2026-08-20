@@ -22,6 +22,7 @@ import type { ApprovalRequest, ApprovalOutcome } from "@/core/types/tools";
  * All presentation methods no-op; approval requests are auto-approved.
  */
 class QuietPresentationService implements PresentationService {
+  readonly isInteractive = false;
   constructor(_displayConfig = DEFAULT_DISPLAY_CONFIG) {}
 
   presentThinking(_agentName: string, _isFirstIteration: boolean): Effect.Effect<void, never> {

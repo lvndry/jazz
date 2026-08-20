@@ -27,6 +27,8 @@ const PLACEHOLDERS = [
   "{homeDirectory}",
   "{hostname}",
   "{username}",
+  "{tty}",
+  "{session}",
 ] as const;
 
 function countOccurrences(haystack: string, needle: string): number {

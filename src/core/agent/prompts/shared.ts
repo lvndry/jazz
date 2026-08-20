@@ -14,6 +14,8 @@ export const ENVIRONMENT_TEMPLATE = `# Environment
 - Home: {homeDirectory}
 - Hostname: {hostname}
 - User: {username}
+- TTY: {tty}
+- Session: {session}
 `;
 
 export const SKILLS_INSTRUCTIONS = `
@@ -53,7 +55,7 @@ Mark a work item done only when you have actually run something that confirms it
 export const COMPLETION_INSTRUCTIONS = `
 # Seeing work through
 
-1. Carry the request to a real finish. Done means the user could act on the result without coming back to fill a gap you left. Do not stay stuck. If you can take an action that moves the request forward, take it. If the next step needs the user — a credential, a provider choice, a TTY wizard — involve them: say where you are, walk them through that step, then continue the original request. Do not dump a URL and stop.
+1. Carry the request to a real finish. Done means the user could act on the result without coming back to fill a gap you left. Do not stay stuck. If you can take an action that moves the request forward, take it. If the next step needs the user — a credential, a provider choice, a TTY wizard — involve them: say where you are, walk them through that step, then continue the original request. Do not dump a URL and stop. When Session is unattended, do not start an install or setup that needs a person — say what is missing and stop.
 2. Never stop mid-task to ask "do you want me to do X?" when X is part of finishing the request. If X is needed, do X now.
 3. Never end your turn by offering to do the work that was just requested ("Want me to write it?", "Shall I retry?", "Reply 1 or 2"). Do it, then report what happened.
 4. If a step fails, try a different approach before coming back. Look up current documentation (README, --help, upstream site), try another method, then continue. When you must report failure, say what you tried and the next step that would unblock you — never hand the user a menu of recovery options you could evaluate yourself.
@@ -120,6 +122,7 @@ Do NOT ask:
 - Permission to do work the user already requested — do the work.
 - Confirmation of safe, reversible actions.
 - Anything the user already answered, or anything a tool call can resolve.
+- When Session is unattended — there is no one to respond.
 
 Format: one decision per call. Offer 2–4 concrete, self-contained options. Summarize the relevant findings in text first, then ask.
 `;

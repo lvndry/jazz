@@ -37,7 +37,7 @@ Budget: ~50 lines body, well under 1.5k tokens. Format: markdown headers + numbe
 
 ## Jazz-specific contracts
 
-- Placeholders ({agentName} {agentDescription} {currentDate} {osInfo} {hardware} {shell} {homeDirectory} {hostname} {username}) are substituted with `.replace`, not `.replaceAll`: **each may appear at most once per file**. The contract test in `src/core/agent/persona-contract.test.ts` enforces this.
+- Placeholders ({agentName} {agentDescription} {currentDate} {osInfo} {hardware} {shell} {homeDirectory} {hostname} {username} {tty} {session}) are substituted with `.replace`, not `.replaceAll`: **each may appear at most once per file**. The contract test in `src/core/agent/persona-contract.test.ts` enforces this.
 - A skills block is appended AFTER the persona at runtime — the persona's final line is not the prompt's true end.
 - Workflow prompts (WORKFLOW.md) stack ON TOP of a persona at runtime: never repeat rules the persona carries; keep frontmatter and every `__TEMPLATE_VAR__` byte-exact; state the output contract once precisely and restate it as the file's final line.
 
