@@ -31,10 +31,17 @@ export interface MediaDimensions {
 /** Shipped with macOS as part of the CoreAudio command-line tools. */
 const AFINFO_PATH = "/usr/bin/afinfo";
 
-/** Bytes read from the head of a file when looking for dimensions. */
-const HEADER_BYTES = 65_536;
+/**
+ * How much of a file's head to read when looking for dimensions.
+ *
+ * PNG, GIF and WebP need only the first few dozen bytes. JPEG is the reason for the slack: its
+ * dimensions live in an SOFn segment that sits *after* any APP0/EXIF metadata, and an embedded
+ * EXIF thumbnail can push that well past a kilobyte. 4KB clears every real-world case without
+ * reading a whole photo off disk.
+ */
+const IMAGE_HEADER_READ_BYTES = 4096;
 
-async function readHeader(filePath: string, byteCount = HEADER_BYTES): Promise<Buffer | null> {
+async function readHeader(filePath: string, byteCount: number): Promise<Buffer | null> {
   let handle: Awaited<ReturnType<typeof open>> | null = null;
   try {
     handle = await open(filePath, "r");
@@ -48,84 +55,202 @@ async function readHeader(filePath: string, byteCount = HEADER_BYTES): Promise<B
   }
 }
 
+/**
+ * PNG (spec 5.2, 11.2.2): an 8-byte signature, then the IHDR chunk — 4-byte length, 4-byte type
+ * ("IHDR"), then chunk data opening with big-endian width and height.
+ *
+ * So width sits at 8 + 4 + 4 = 16, and height 4 bytes after it.
+ */
+const PNG = {
+  /** First 4 bytes of the signature: \x89 P N G. */
+  MAGIC: 0x89504e47,
+  WIDTH_OFFSET: 16,
+  HEIGHT_OFFSET: 20,
+  /** Through the end of the height field. */
+  MIN_BYTES: 24,
+} as const;
+
 function parsePngDimensions(header: Buffer): MediaDimensions | undefined {
-  // PNG: 8-byte signature, then an IHDR chunk whose data begins at offset 16 with
-  // big-endian width and height.
-  if (header.length < 24) return undefined;
-  if (header.readUInt32BE(0) !== 0x89504e47) return undefined;
-  return { width: header.readUInt32BE(16), height: header.readUInt32BE(20) };
+  if (header.length < PNG.MIN_BYTES) return undefined;
+  if (header.readUInt32BE(0) !== PNG.MAGIC) return undefined;
+  return {
+    width: header.readUInt32BE(PNG.WIDTH_OFFSET),
+    height: header.readUInt32BE(PNG.HEIGHT_OFFSET),
+  };
 }
 
+/**
+ * GIF (spec 17, 18): a 6-byte header ("GIF87a" or "GIF89a") followed by the Logical Screen
+ * Descriptor, which opens with width then height as *little-endian* 16-bit values — the
+ * opposite byte order to PNG, which is the easy mistake here.
+ */
+const GIF = {
+  MAGIC_ASCII: "GIF",
+  MAGIC_LENGTH: 3,
+  WIDTH_OFFSET: 6,
+  HEIGHT_OFFSET: 8,
+  /** Through the end of the height field. */
+  MIN_BYTES: 10,
+} as const;
+
 function parseGifDimensions(header: Buffer): MediaDimensions | undefined {
-  // GIF: "GIF87a"/"GIF89a" then little-endian logical screen width and height.
-  if (header.length < 10) return undefined;
-  if (header.toString("ascii", 0, 3) !== "GIF") return undefined;
-  return { width: header.readUInt16LE(6), height: header.readUInt16LE(8) };
+  if (header.length < GIF.MIN_BYTES) return undefined;
+  if (header.toString("ascii", 0, GIF.MAGIC_LENGTH) !== GIF.MAGIC_ASCII) return undefined;
+  return {
+    width: header.readUInt16LE(GIF.WIDTH_OFFSET),
+    height: header.readUInt16LE(GIF.HEIGHT_OFFSET),
+  };
+}
+
+/**
+ * JPEG (ITU-T T.81) is not a fixed layout — it is a chain of marker segments, so dimensions can
+ * only be found by walking it. Each segment is `0xFF <marker>`, then a 2-byte big-endian length
+ * covering the length field itself, then the payload. Dimensions live in a Start-Of-Frame
+ * segment, whose payload is: 1 byte precision, 2 bytes height, 2 bytes width — height first,
+ * which is the opposite of every other format here.
+ */
+const JPEG = {
+  /** Start of Image, the first two bytes of any JPEG. */
+  SOI: 0xffd8,
+  /** Every marker is introduced by this byte. */
+  MARKER_PREFIX: 0xff,
+  /** Markers that stand alone with no length field or payload. */
+  SOI_MARKER: 0xd8,
+  TEM_MARKER: 0x01,
+  RESTART_FIRST: 0xd0,
+  RESTART_LAST: 0xd7,
+  /** SOFn occupies 0xC0-0xCF, but three values in that range are other things. */
+  SOF_FIRST: 0xc0,
+  SOF_LAST: 0xcf,
+  /** Define Huffman Table — inside the SOF range but not a frame header. */
+  DHT_MARKER: 0xc4,
+  /** JPG extension — likewise. */
+  JPG_MARKER: 0xc8,
+  /** Define Arithmetic Coding — likewise. */
+  DAC_MARKER: 0xcc,
+  /** Bytes from the marker start to the segment's length field. */
+  LENGTH_FIELD_OFFSET: 2,
+  /** Marker (2) + length (2) + precision (1) = height. */
+  SOF_HEIGHT_OFFSET: 5,
+  SOF_WIDTH_OFFSET: 7,
+  /** Smallest segment length that is not corrupt: the length field counts itself. */
+  MIN_SEGMENT_LENGTH: 2,
+  /** Enough for the SOI marker alone; the walk re-checks bounds as it goes. */
+  MIN_BYTES: 4,
+} as const;
+
+/** Bytes the walker must be able to read before inspecting a candidate SOF segment. */
+const JPEG_SOF_FIELDS_BYTES = JPEG.SOF_WIDTH_OFFSET + 2;
+
+function isStandaloneJpegMarker(marker: number): boolean {
+  return (
+    marker === JPEG.SOI_MARKER ||
+    marker === JPEG.TEM_MARKER ||
+    (marker >= JPEG.RESTART_FIRST && marker <= JPEG.RESTART_LAST)
+  );
+}
+
+function isJpegStartOfFrame(marker: number): boolean {
+  if (marker < JPEG.SOF_FIRST || marker > JPEG.SOF_LAST) return false;
+  return marker !== JPEG.DHT_MARKER && marker !== JPEG.JPG_MARKER && marker !== JPEG.DAC_MARKER;
 }
 
 function parseJpegDimensions(header: Buffer): MediaDimensions | undefined {
-  // JPEG is a chain of segments. Walk them until an SOFn frame header, which carries
-  // height then width as big-endian 16-bit values three bytes into its payload.
-  if (header.length < 4) return undefined;
-  if (header.readUInt16BE(0) !== 0xffd8) return undefined;
+  if (header.length < JPEG.MIN_BYTES) return undefined;
+  if (header.readUInt16BE(0) !== JPEG.SOI) return undefined;
 
-  let offset = 2;
-  while (offset + 9 < header.length) {
-    if (header[offset] !== 0xff) {
+  let offset = JPEG.LENGTH_FIELD_OFFSET;
+  while (offset + JPEG_SOF_FIELDS_BYTES < header.length) {
+    if (header[offset] !== JPEG.MARKER_PREFIX) {
+      // Padding or a corrupt byte; resynchronize on the next marker prefix.
       offset++;
       continue;
     }
     const marker = header[offset + 1];
     if (marker === undefined) return undefined;
 
-    // Standalone markers carry no length field.
-    if (marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) {
-      offset += 2;
+    if (isStandaloneJpegMarker(marker)) {
+      offset += JPEG.LENGTH_FIELD_OFFSET;
       continue;
     }
-    const segmentLength = header.readUInt16BE(offset + 2);
 
-    // SOF0..SOF15, excluding the DHT/JPG/DAC markers interleaved in that range.
-    const isStartOfFrame =
-      marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc;
-    if (isStartOfFrame) {
-      return { height: header.readUInt16BE(offset + 5), width: header.readUInt16BE(offset + 7) };
+    if (isJpegStartOfFrame(marker)) {
+      return {
+        height: header.readUInt16BE(offset + JPEG.SOF_HEIGHT_OFFSET),
+        width: header.readUInt16BE(offset + JPEG.SOF_WIDTH_OFFSET),
+      };
     }
-    if (segmentLength < 2) return undefined;
-    offset += 2 + segmentLength;
+
+    const segmentLength = header.readUInt16BE(offset + JPEG.LENGTH_FIELD_OFFSET);
+    if (segmentLength < JPEG.MIN_SEGMENT_LENGTH) return undefined;
+    offset += JPEG.LENGTH_FIELD_OFFSET + segmentLength;
   }
   return undefined;
 }
 
-function parseWebpDimensions(header: Buffer): MediaDimensions | undefined {
-  // WebP is RIFF-framed with three possible payload chunks, each storing dimensions
-  // differently. All are 14-30 bytes in.
-  if (header.length < 30) return undefined;
-  if (header.toString("ascii", 0, 4) !== "RIFF") return undefined;
-  if (header.toString("ascii", 8, 12) !== "WEBP") return undefined;
+/**
+ * WebP is a RIFF container — "RIFF", 4-byte file size, "WEBP", then one of three payload chunks
+ * that each store dimensions differently. The chunk type at offset 12 decides which.
+ *
+ * Dimensions are 14-bit in the VP8 variants, hence the 0x3FFF masks, and the lossless and
+ * extended variants store them minus one.
+ */
+const WEBP = {
+  RIFF_ASCII: "RIFF",
+  RIFF_END: 4,
+  WEBP_ASCII: "WEBP",
+  WEBP_START: 8,
+  WEBP_END: 12,
+  /** Four-character chunk type: "VP8 " (lossy), "VP8L" (lossless) or "VP8X" (extended). */
+  CHUNK_TYPE_START: 12,
+  CHUNK_TYPE_END: 16,
+  /** 14-bit fields; the top 2 bits of each 16-bit read are scaling hints, not size. */
+  DIMENSION_MASK: 0x3fff,
 
-  const chunkType = header.toString("ascii", 12, 16);
+  /** Lossy: dimensions follow the 3-byte frame-tag and start code. */
+  VP8_WIDTH_OFFSET: 26,
+  VP8_HEIGHT_OFFSET: 28,
+
+  /** Lossless: width and height packed into one 32-bit little-endian field, each minus one. */
+  VP8L_PACKED_OFFSET: 21,
+  VP8L_HEIGHT_SHIFT: 14,
+
+  /** Extended: 24-bit canvas width and height, each minus one. */
+  VP8X_WIDTH_OFFSET: 24,
+  VP8X_HEIGHT_OFFSET: 27,
+  VP8X_FIELD_BYTES: 3,
+
+  /** Through the end of the furthest field any variant reads (VP8 height at 28). */
+  MIN_BYTES: 30,
+} as const;
+
+function parseWebpDimensions(header: Buffer): MediaDimensions | undefined {
+  if (header.length < WEBP.MIN_BYTES) return undefined;
+  if (header.toString("ascii", 0, WEBP.RIFF_END) !== WEBP.RIFF_ASCII) return undefined;
+  if (header.toString("ascii", WEBP.WEBP_START, WEBP.WEBP_END) !== WEBP.WEBP_ASCII) {
+    return undefined;
+  }
+
+  const chunkType = header.toString("ascii", WEBP.CHUNK_TYPE_START, WEBP.CHUNK_TYPE_END);
 
   if (chunkType === "VP8 ") {
-    // Lossy: 14-bit width and height after a 3-byte start code, masked to drop scale bits.
     return {
-      width: header.readUInt16LE(26) & 0x3fff,
-      height: header.readUInt16LE(28) & 0x3fff,
+      width: header.readUInt16LE(WEBP.VP8_WIDTH_OFFSET) & WEBP.DIMENSION_MASK,
+      height: header.readUInt16LE(WEBP.VP8_HEIGHT_OFFSET) & WEBP.DIMENSION_MASK,
     };
   }
   if (chunkType === "VP8L") {
-    // Lossless: 14-bit width and height packed into a 32-bit little-endian field.
-    const packed = header.readUInt32LE(21);
+    const packed = header.readUInt32LE(WEBP.VP8L_PACKED_OFFSET);
     return {
-      width: (packed & 0x3fff) + 1,
-      height: ((packed >> 14) & 0x3fff) + 1,
+      width: (packed & WEBP.DIMENSION_MASK) + 1,
+      height: ((packed >> WEBP.VP8L_HEIGHT_SHIFT) & WEBP.DIMENSION_MASK) + 1,
     };
   }
   if (chunkType === "VP8X") {
-    // Extended: 24-bit canvas width and height, minus one.
-    const width = header.readUIntLE(24, 3) + 1;
-    const height = header.readUIntLE(27, 3) + 1;
-    return { width, height };
+    return {
+      width: header.readUIntLE(WEBP.VP8X_WIDTH_OFFSET, WEBP.VP8X_FIELD_BYTES) + 1,
+      height: header.readUIntLE(WEBP.VP8X_HEIGHT_OFFSET, WEBP.VP8X_FIELD_BYTES) + 1,
+    };
   }
   return undefined;
 }
@@ -137,7 +262,7 @@ function parseWebpDimensions(header: Buffer): MediaDimensions | undefined {
  * format not listed here, which is deliberate: guessing is worse than a conservative estimate.
  */
 export async function probeImageDimensions(filePath: string): Promise<MediaDimensions | undefined> {
-  const header = await readHeader(filePath, 4096);
+  const header = await readHeader(filePath, IMAGE_HEADER_READ_BYTES);
   if (header === null || header.length < 10) return undefined;
 
   return (

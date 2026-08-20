@@ -1,7 +1,7 @@
 import { APICallError, RetryError } from "ai";
 import { Duration, Schedule } from "effect";
 import { MAX_RETRY_DELAY_SECONDS } from "@/core/constants/agent";
-import { LOCAL_SERVER_PROVIDERS } from "@/core/constants/local-providers";
+import { isLocalServerProvider, LOCAL_SERVER_PROVIDERS } from "@/core/constants/local-providers";
 import type { ProviderName } from "@/core/constants/models";
 import {
   LLMAuthenticationError,
@@ -204,7 +204,7 @@ export function isConnectionError(error: unknown): boolean {
 
 // Start-the-server guidance for local providers; undefined for everything else.
 export function localServerUnreachableMessage(providerName: ProviderName): string | undefined {
-  if (!(providerName in LOCAL_SERVER_PROVIDERS)) {
+  if (!isLocalServerProvider(providerName)) {
     return undefined;
   }
   const local = LOCAL_SERVER_PROVIDERS[providerName as keyof typeof LOCAL_SERVER_PROVIDERS];

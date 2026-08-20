@@ -1,4 +1,5 @@
 import { Cause, Effect, Fiber, Option, Ref } from "effect";
+import { isLocalServerProvider } from "@/core/constants/local-providers";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import type { LLMService } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
@@ -15,7 +16,6 @@ import type { ChatCompletionResponse } from "@/core/types/chat";
 import { LLMRateLimitError } from "@/core/types/errors";
 import type { DisplayConfig } from "@/core/types/output";
 import type { StreamEvent } from "@/core/types/streaming";
-import { isLocalProvider } from "@/core/utils/attachment-providers";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import { formatToolResultForContext } from "@/core/utils/tool-result-formatter";
 import { computeUsageCostUSD, type UsageCostPricing } from "@/core/utils/usage-cost";
@@ -409,7 +409,7 @@ function handleToolPhase(
         pendingAttachments.push(attachment);
       },
       supportedAttachmentKinds: supportedAttachmentKinds,
-      attachmentsAreLocal: isLocalProvider(provider),
+      attachmentsAreLocal: isLocalServerProvider(provider),
       // Let tools surface live progress (e.g. spawn_subagent lifecycle) through
       // the same event stream, when a streaming renderer is present.
       ...(toolRenderer

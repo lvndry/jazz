@@ -5,6 +5,7 @@ import {
   DEFAULT_MAX_SUBAGENT_DEPTH,
   DEFAULT_MAX_SUBAGENT_ITERATIONS,
 } from "@/core/constants/agent";
+import { isLocalServerProvider } from "@/core/constants/local-providers";
 import type { ProviderName } from "@/core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { FileSystemContextServiceTag } from "@/core/interfaces/fs";
@@ -30,7 +31,6 @@ import { LLMRateLimitError } from "@/core/types/errors";
 import type { ChatMessage } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
 import type { AutoApprovePolicy, ToolExecutionContext } from "@/core/types/tools";
-import { isLocalProvider } from "@/core/utils/attachment-providers";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import { parseProviderModel } from "@/core/utils/provider-model";
 import { shouldEnableStreaming } from "@/core/utils/stream-detector";
@@ -348,7 +348,9 @@ function initializeAgentRun(
     const supportedAttachmentKinds = ingestsAttachments
       ? yield* resolveSupportedAttachmentKinds(agent)
       : [];
-    const attachmentsAreLocal = isLocalProvider(parseProviderModel(agent.model)?.provider ?? "");
+    const attachmentsAreLocal = isLocalServerProvider(
+      parseProviderModel(agent.model)?.provider ?? "",
+    );
 
     // Build messages — reuses the PersonaService resolved earlier so custom
     // personas can be looked up by name when assembling the system prompt.

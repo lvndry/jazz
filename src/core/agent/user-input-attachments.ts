@@ -72,7 +72,11 @@ function stripDecoration(token: string): string {
   let candidate = token.startsWith("@") ? token.slice(1) : token;
   candidate = candidate.replace(/^["']|["']$/g, "");
   candidate = candidate.replace(/[.,;:!?)\]}]+$/g, "");
-  candidate = candidate.replace(/\\ /g, " ");
+  // Undo shell-style escaping in one left-to-right pass: a backslash makes the next character
+  // literal, whatever it is. Handling only "\\ " would mangle a filename that genuinely
+  // contains a backslash — legal on POSIX — and doing it as two sequential replaces would turn
+  // an escaped backslash followed by a space into the wrong thing.
+  candidate = candidate.replace(/\\(.)/g, "$1");
   return candidate.trim();
 }
 

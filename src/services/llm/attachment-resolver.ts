@@ -30,6 +30,7 @@ import { readFile, stat } from "node:fs/promises";
 import { createGoogleGenerativeAI, google } from "@ai-sdk/google";
 import { createOpenAI, openai } from "@ai-sdk/openai";
 import { uploadFile } from "ai";
+import { isLocalServerProvider } from "@/core/constants/local-providers";
 import type { ProviderName } from "@/core/constants/models";
 import type { LoggerService } from "@/core/interfaces/logger";
 import {
@@ -39,7 +40,6 @@ import {
 } from "@/core/types/attachment";
 import type { LLMConfig } from "@/core/types/config";
 import type { ChatMessage } from "@/core/types/message";
-import { isLocalProvider } from "@/core/utils/attachment-providers";
 import { LLM_PROVIDER_ENV_VARS } from "@/services/secrets/registry";
 
 /**
@@ -106,7 +106,7 @@ async function resolveOne(
   llmConfig: LLMConfig | undefined,
   logger?: LoggerService,
 ): Promise<ResolvedAttachment> {
-  const isLocal = isLocalProvider(providerName);
+  const isLocal = isLocalServerProvider(providerName);
   const rejection = rejectAttachmentReason(attachment, isLocal);
   if (rejection !== null) {
     return { kind: "unavailable", reason: rejection };

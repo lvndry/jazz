@@ -146,7 +146,21 @@ describe("collectUserInputAttachments", () => {
 
     it("finds a path with shell-escaped spaces, as drag-and-drop inserts", async () => {
       const { directory, path } = await screenshotFixture();
-      const escaped = path.replace(/ /g, "\\ ");
+      // Escape every shell metacharacter, not just spaces. Escaping spaces alone leaves any
+      // backslash in the input unescaped, which is both wrong and what CodeQL flags.
+      const escaped = path.replace(/([\\ ])/g, "\\$1");
+      const result = await collectUserInputAttachments(`describe ${escaped}`, directory);
+      expect(result.attachments.map((attachment) => attachment.path)).toEqual([path]);
+    });
+
+    it("resolves a filename that genuinely contains a backslash", async () => {
+      // Backslashes are legal in POSIX filenames, so unescaping only "\\ " would corrupt this
+      // path rather than fail to find it.
+      const directory = await fixtureDir();
+      const path = join(directory, "odd\\name.png");
+      await writeFile(path, pngBytes());
+
+      const escaped = path.replace(/([\\ ])/g, "\\$1");
       const result = await collectUserInputAttachments(`describe ${escaped}`, directory);
       expect(result.attachments.map((attachment) => attachment.path)).toEqual([path]);
     });
