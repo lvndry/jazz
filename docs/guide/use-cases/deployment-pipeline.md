@@ -41,7 +41,7 @@ Then ask Jazz to deploy. Jazz will:
 
 ## Example Output
 
-```
+```text
 You: Deploy latest main to staging
 
 Agent: Pre-deployment checks...
@@ -96,6 +96,3 @@ Duration: 4m 12s
 - All dangerous operations require explicit approval
 - Smoke tests verify the deployment was successful
 - Jazz can handle rollbacks if deployment fails
-
-
-

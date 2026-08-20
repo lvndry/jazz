@@ -40,7 +40,7 @@ Then ask Jazz to analyze your infrastructure costs. Jazz will:
 
 ## Example Output
 
-```
+```text
 You: Analyze our AWS infrastructure and suggest cost optimizations
 
 Agent: [Analyzing AWS resources via CLI]
@@ -95,6 +95,3 @@ Review the changes and I can apply them when ready.
 - All changes require your approval before applying
 - Jazz can generate infrastructure-as-code changes
 - Cost savings are calculated and documented
-
-
-

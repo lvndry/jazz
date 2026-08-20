@@ -42,7 +42,7 @@ Then ask Jazz to research and integrate an API. Jazz will:
 
 ## Example Output
 
-```
+```text
 You: Research the Stripe Payment Intents API and create a complete
      integration for our Node.js app
 

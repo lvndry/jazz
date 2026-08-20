@@ -41,7 +41,7 @@ Then describe the refactoring you want to perform. Jazz will:
 
 ## Example Output
 
-```
+```text
 You: Find all repositories in ~/projects that use the old Logger class
      and refactor them to use the new LoggerService
 
@@ -107,6 +107,3 @@ Summary:
 - Jazz will ask for approval before making changes
 - All changes are committed with descriptive messages
 - Tests are run to verify nothing broke
-
-
-

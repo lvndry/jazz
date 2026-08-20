@@ -43,7 +43,7 @@ Then ask Jazz to set up a project. Jazz will:
 
 ## Example Output
 
-```
+```text
 You: Clone https://github.com/user/awesome-project and follow the README setup
 
 Agent: ✓ Repository cloned to ./awesome-project
@@ -87,6 +87,3 @@ Agent: ✓ Migrations completed (applied 12 migrations)
 - You can specify which steps to skip or require approval for
 - Jazz detects the tech stack automatically
 - Setup instructions are parsed from README, docs, or setup scripts
-
-
-

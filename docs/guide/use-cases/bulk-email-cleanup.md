@@ -38,7 +38,7 @@ Then ask Jazz to find and clean up emails. Jazz will:
 
 ## Example Output
 
-```
+```text
 You: Find all emails older than 90 days from automated services
 
 Agent: Found 247 emails:

@@ -44,7 +44,7 @@ Then ask Jazz to generate a PR description. Jazz will:
 
 ## Example Output
 
-```
+```text
 You: I'm about to create a PR. Generate a description from my changes
 
 Agent: [Analyzes git diff and commits]
@@ -107,6 +107,3 @@ Ready to paste into GitHub!
 - The description follows standard PR template formats
 - Breaking changes are automatically highlighted
 - You can ask Jazz to modify the description before using it
-
-
-

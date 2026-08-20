@@ -25,7 +25,7 @@ chat. Any model, including local ones. These docs are organized by what you're t
 - [Quick Start](./guide/quick-start.md) — install, configure a provider, first answer
 - [Creating Agents](./guide/creating-agents.md) — build an agent for a job
 - [Airgapped & Self-Hosted](./guide/airgapped.md) — fully offline with Ollama or llama.cpp
-- **Use cases:** [Deep Research & Obsidian](./guide/use-cases/deep-research.md) · [Security Audits](./guide/use-cases/security-audit.md) · [Investment Analysis](./guide/use-cases/investment.md) · [Meeting Assistant](./guide/use-cases/meetings.md)
+- **Use cases:** [Deep Research & Obsidian](./guide/use-cases/deep-research.md) · [Security Audits](./guide/use-cases/security-audit.md) · [Investment Analysis](./guide/use-cases/investment.md) · [Meeting Assistant](./guide/use-cases/meetings.md) · [and a dozen more](./guide/index.md#end-to-end-use-cases)
 
 ### [Surfaces](./surfaces/index.md) — where Jazz runs
 
