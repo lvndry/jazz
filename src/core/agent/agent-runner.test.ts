@@ -60,7 +60,6 @@ const mockPresentationService = {
   formatToolResult: mock(() => "Tool result"),
   formatToolExecutionError: mock(() => Effect.succeed("Tool failed")),
   formatToolsDetected: mock(() => Effect.succeed("Tools detected")),
-  isInteractive: false,
 } as unknown as PresentationService;
 
 const mockTerminalService = {} as unknown as TerminalService;

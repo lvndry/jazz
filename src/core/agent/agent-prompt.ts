@@ -71,12 +71,6 @@ export interface AgentPromptOptions {
    * model without the user restating them every session.
    */
   readonly projectInstructions?: readonly ProjectInstructionFile[];
-  /**
-   * Whether a person can answer questions and finish interactive setup.
-   * Distinct from TTY: `jazz run` in a terminal still has a TTY, but the
-   * session is unattended. Defaults to unattended when omitted (tests, tools).
-   */
-  readonly session?: "interactive" | "unattended";
 }
 
 /**
@@ -184,7 +178,6 @@ export class AgentPromptBuilder {
         hash.update(`agentsmd:${file.path}:${file.content}`);
       }
     }
-    hash.update(`session:${options.session ?? "unattended"}`);
     // Invalidate daily since prompts include current date
     hash.update(new Date().toDateString());
     return hash.digest("hex");
@@ -269,7 +262,6 @@ export class AgentPromptBuilder {
         if (cached) return cached;
         const { currentDate, osInfo, hardware, shell, hostname, username, homeDirectory, tty } =
           yield* this.getSystemInfo();
-        const session = options.session ?? "unattended";
 
         const fillEnvironment = (text: string): string =>
           text
@@ -280,8 +272,7 @@ export class AgentPromptBuilder {
             .replace("{homeDirectory}", homeDirectory)
             .replace("{hostname}", hostname)
             .replace("{username}", username)
-            .replace("{tty}", tty)
-            .replace("{session}", session);
+            .replace("{tty}", tty);
 
         let systemPrompt = persona.systemPrompt
           .replace("{agentName}", options.agentName)

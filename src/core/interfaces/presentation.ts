@@ -54,16 +54,6 @@ export interface FilePickerRequest {
  */
 export interface PresentationService {
   /**
-   * Whether a person can answer questions, approve tools, and finish
-   * interactive setup in this session.
-   *
-   * True for the Ink TUI and a TTY CLI. False for `jazz run`, scheduled
-   * workflows, CI, and quiet mode — even when stdout is a TTY (`jazz run`
-   * in a terminal is still unattended).
-   */
-  readonly isInteractive: boolean;
-
-  /**
    * Present a thinking/processing status to the user
    */
   readonly presentThinking: (

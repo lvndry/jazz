@@ -93,7 +93,6 @@ function parseApprovalDecisionLine(line: string): ApprovalDecisionLine | undefin
  * and is meant for trusted background runs.
  */
 export class OneShotPresentationService implements PresentationService {
-  readonly isInteractive = false;
   private readonly pendingApprovals = new Map<string, (outcome: ApprovalOutcome) => void>();
   private stdinReaderStarted = false;
 

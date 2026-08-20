@@ -28,7 +28,6 @@ const PLACEHOLDERS = [
   "{hostname}",
   "{username}",
   "{tty}",
-  "{session}",
 ] as const;
 
 function countOccurrences(haystack: string, needle: string): number {

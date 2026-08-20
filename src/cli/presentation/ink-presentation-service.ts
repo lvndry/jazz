@@ -980,7 +980,6 @@ interface QueuedUserInput {
  * Instead, it pushes output into the Ink store.
  */
 class InkPresentationService implements PresentationService {
-  readonly isInteractive = true;
   // Approval queue to handle parallel tool calls
   private approvalQueue: QueuedApproval[] = [];
   private isProcessingApproval: boolean = false;
