@@ -94,25 +94,25 @@ Write a markdown summary to `$HOME/.jazz/inbox-triage/$(date +%Y-%m-%d).md` with
 ## How to install
 
 ```bash
-# 1. Himalaya: optional. The email skill fetches the live README and
-#    installs the CLI if `himalaya` is not on PATH. To do it yourself:
-# brew install himalaya            # macOS
+# 1. Install Himalaya and configure at least one account *before* scheduling.
+#    This recipe cannot bootstrap a fresh machine — the weekday run is
+#    unattended. First-time setup is a separate interactive session
+#    (ask Jazz "check my latest emails", or do it yourself):
+brew install himalaya            # macOS
 # or: cargo install --locked --git https://github.com/pimalaya/himalaya.git
-
-# 2. Configure at least one account (interactive wizard)
 himalaya account configure default
 
-# 3. Drop the workflow into your global Jazz workflows dir
+# 2. Drop the workflow into your global Jazz workflows dir
 mkdir -p ~/.jazz/workflows/inbox-triage
 $EDITOR ~/.jazz/workflows/inbox-triage/WORKFLOW.md   # paste the file above
 
-# 4. Verify Jazz sees it
+# 3. Verify Jazz sees it
 jazz workflow list | grep inbox-triage
 
-# 5. Run it once foreground, watch what it does
+# 4. Run it once foreground, watch what it does
 jazz workflow run inbox-triage
 
-# 6. Once you trust it, schedule it
+# 5. Once you trust it, schedule it
 jazz workflow schedule inbox-triage
 
 # Tail the log on the next run
@@ -134,5 +134,5 @@ tail -f ~/.jazz/logs/inbox-triage.log
 
 ## Limits
 
-- Requires the `email` skill. The skill ships with Jazz and will fetch the Himalaya README and install the CLI if it is missing; you still need to configure at least one account (`himalaya account configure` / the wizard).
+- Requires a working Himalaya install and at least one configured account *before* you schedule it. The email skill can walk you through that in an interactive session; the weekday cron run will not.
 - `low-risk` policy auto-approves the `move` command. If you'd rather hand-approve, drop to `read-only` and run interactively.
