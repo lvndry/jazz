@@ -230,6 +230,15 @@ export class LLMRequestError extends Data.TaggedError("LLMRequestError")<{
   readonly message: string;
   readonly statusCode?: number;
   readonly suggestion?: string;
+  /**
+   * Set when the request failed for a reason no retry can change — the request was rejected
+   * locally, before it ever reached the provider.
+   *
+   * Needed because an absent `statusCode` otherwise means "the request never got a response",
+   * which the retry policy treats as a transient connection failure. A malformed request looks
+   * identical by that measure and would be retried to exhaustion.
+   */
+  readonly permanent?: boolean;
 }> {}
 
 export class LLMRateLimitError extends Data.TaggedError("LLMRateLimitError")<{

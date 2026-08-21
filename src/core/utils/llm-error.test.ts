@@ -1,3 +1,4 @@
+import { UnsupportedFunctionalityError } from "@ai-sdk/provider";
 import { APICallError, RetryError } from "ai";
 import { describe, expect, it } from "bun:test";
 import { LLMRateLimitError, LLMRequestError } from "@/core/types/errors";
@@ -6,6 +7,7 @@ import {
   describeRetryableLLMError,
   extractCleanErrorMessage,
   isConnectionError,
+  isPermanentRequestError,
   isRetryableLLMError,
   localServerUnreachableMessage,
   truncateRequestBodyValues,
@@ -122,5 +124,70 @@ describe("describeRetryableLLMError", () => {
 
   it("falls back to a generic description for unrecognized errors", () => {
     expect(describeRetryableLLMError(new Error("boom"))).toBe("unknown issue");
+  });
+});
+
+describe("locally-rejected requests are not retried", () => {
+  /**
+   * The real shape: an audio attachment sent to Ollama, whose provider transports only images.
+   * Constructed with the SDK's own error class rather than a hand-written stub, so the test
+   * still holds if the SDK renames or restructures it.
+   */
+  function unsupportedMediaError(): UnsupportedFunctionalityError {
+    return new UnsupportedFunctionalityError({
+      functionality: "file part media type audio/ogg",
+    });
+  }
+
+  it("recognizes a request the SDK rejected before sending it", () => {
+    expect(isPermanentRequestError(unsupportedMediaError())).toBe(true);
+  });
+
+  it("finds the cause even when it is wrapped", () => {
+    // Providers raise these from deep inside the SDK, so the interesting name is usually nested.
+    const wrapped = new Error("Failed to generate text", { cause: unsupportedMediaError() });
+    expect(isPermanentRequestError(wrapped)).toBe(true);
+  });
+
+  it("does not flag an ordinary connection failure", () => {
+    expect(isPermanentRequestError(new Error("fetch failed"))).toBe(false);
+  });
+
+  it("survives a cyclic cause chain", () => {
+    const first = new Error("first") as Error & { cause?: unknown };
+    const second = new Error("second", { cause: first }) as Error & { cause?: unknown };
+    first.cause = second;
+    expect(isPermanentRequestError(first)).toBe(false);
+  });
+
+  it("marks the converted error permanent", () => {
+    const converted = convertToLLMError(unsupportedMediaError(), "ollama");
+    expect(converted).toBeInstanceOf(LLMRequestError);
+    expect((converted as LLMRequestError).permanent).toBe(true);
+  });
+
+  it("does not retry it", () => {
+    // The bug: with no statusCode this was indistinguishable from a dropped connection, so it
+    // burned the whole backoff schedule — eleven identical attempts — before surfacing.
+    expect(isRetryableLLMError(convertToLLMError(unsupportedMediaError(), "ollama"))).toBe(false);
+  });
+
+  it("does not call it a network issue", () => {
+    // Describing a local rejection as a network problem sent users hunting for a connectivity
+    // fault that did not exist.
+    const converted = convertToLLMError(unsupportedMediaError(), "ollama");
+    expect(describeRetryableLLMError(converted)).toBe("rejected request");
+  });
+
+  it("still retries a genuine connection failure with no status code", () => {
+    // The guard must not narrow the transient case it was carved out of.
+    const transient = new LLMRequestError({ provider: "ollama", message: "fetch failed" });
+    expect(isRetryableLLMError(transient)).toBe(true);
+  });
+
+  it("leaves the API-key path alone", () => {
+    // AI_LoadAPIKeyError is excluded on purpose so the friendlier key guidance still wins.
+    const converted = convertToLLMError(new Error("Missing API key"), "openai");
+    expect((converted as LLMRequestError).permanent).toBeUndefined();
   });
 });
