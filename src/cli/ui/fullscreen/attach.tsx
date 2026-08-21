@@ -22,27 +22,23 @@ export interface FullscreenHandle {
 }
 
 /**
- * Fullscreen is opt-in while it is being built out.
+ * The fullscreen interface is the default. `--no-tui`, `--output raw|quiet` and
+ * a non-interactive run are the opt-outs — there is no separate flag that turns
+ * it *on*, because it is not a mode you ask for, it is what jazz is.
  *
- * It is not yet at parity with the Ink tree, and a half-working alternate screen
- * is worse than no alternate screen: if it fails to paint, the user is left
- * looking at a blank terminal with no obvious way back. So the default path
- * stays the one that works, and fullscreen is asked for explicitly with
- * `--fullscreen` or `JAZZ_FULLSCREEN=1`.
- *
- * `--no-tui`, `--plain` and `--output raw|quiet` already mean "do not take over
- * the screen" and win over the opt-in, so a script that asks for plain output
- * cannot be surprised by a flag set in someone's shell profile.
+ * `--no-tui` is commander's negated form of a `tui` boolean, so it surfaces as
+ * `opts.tui === false`; there is no bare `--tui` to ask for the default back.
+ * `JAZZ_FULLSCREEN=0` remains for a single run where even `--no-tui` is
+ * inconvenient to pass (a wrapper script, a cron job).
  */
 export function wantsPlainOutput(): boolean {
   const argv = process.argv;
-  if (argv.includes("--no-tui") || argv.includes("--plain")) return true;
+  if (argv.includes("--no-tui")) return true;
   const output = argv[argv.indexOf("--output") + 1];
   if (output === "raw" || output === "quiet") return true;
 
   const flag = process.env["JAZZ_FULLSCREEN"];
-  const askedFor = argv.includes("--fullscreen") || flag === "1" || flag === "true";
-  return !askedFor;
+  return flag === "0" || flag === "false";
 }
 
 export function mountFullscreenApp(): FullscreenHandle {

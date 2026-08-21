@@ -11,6 +11,28 @@ import React from "react";
 import { store } from "../store";
 import { FullscreenBridge } from "./bridge";
 
+/**
+ * Settles a state update dispatched from a keyboard event.
+ *
+ * `flush()` drains microtasks and the renderer's paint-pending flag, but a
+ * `setState` called from an external event-emitter callback (which is what a
+ * keypress is) is committed by React's scheduler through a macrotask —
+ * `setTimeout`/`MessageChannel` — which a microtask-only wait can never see.
+ * A bare tick supplies that for an ordinary character, and was confirmed
+ * against a minimal useState+useKeyboard repro outside this file before
+ * trusting it here.
+ *
+ * `Escape` needs longer: a lone ESC byte is indistinguishable from the first
+ * byte of a multi-byte sequence (every arrow and function key starts with one),
+ * so the input parser holds it for a short real window before deciding it was
+ * Escape alone — also confirmed against the same repro, where a 0ms tick never
+ * saw the key at all and 100ms reliably did.
+ */
+async function settleKeypress(flush: () => Promise<void>, delayMs: 0 | 100 = 0): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, delayMs));
+  await flush();
+}
+
 const WIDTH = 100;
 const HEIGHT = 24;
 
@@ -175,15 +197,29 @@ describe("fullscreen bridge", () => {
     });
     expect(text.toLowerCase()).toContain("apps");
   });
-  it("wires the search backend without blocking a frame", async () => {
-    // Deliberately not asserting the keypress path: `onKey` is proven to fire
-    // with the right key and the right prompt state, but a state update made
-    // from an input callback is not reflected in this harness the way a
-    // store-driven one is — an act() scheduling difference, not something this
-    // test can tell apart from a real bug. Typing needs verifying in a real
-    // terminal, and claiming otherwise here would be worse than saying so.
-    const text = await frame();
-    expect(text.split("\n").filter((row) => row.length > 0)).toHaveLength(HEIGHT);
+  it("routes / to history search instead of typing a slash", async () => {
+    const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await testRender(
+      <FullscreenBridge />,
+      { width: WIDTH, height: HEIGHT },
+    );
+    await renderOnce();
+    store.setPrompt({ type: "chat", message: "", resolve: () => undefined });
+    await flush();
+
+    await mockInput.pressKey("/");
+    await settleKeypress(flush);
+    const opened = captureCharFrame();
+
+    await mockInput.pressKey("ESCAPE");
+    await settleKeypress(flush, 100);
+    const closed = captureCharFrame();
+    renderer.destroy();
+    store.setPrompt(null);
+
+    // Opening search changes the frame, and Escape puts it back — the slash
+    // must not have been typed into the composer instead.
+    expect(opened).not.toBe(closed);
+    expect(closed).not.toContain("> / ");
   });
   it("draws the wizard menu as the home screen", async () => {
     // The wizard publishes its menu as data alongside the Ink tree, so a
@@ -204,21 +240,7 @@ describe("fullscreen bridge", () => {
     expect(text).toContain("Create an agent");
     store.setActiveMenu(null);
   });
-  // KNOWN BUG, deliberately left failing-visible rather than deleted.
-  //
-  // `onKey` fires with the right key and the right prompt state — instrumenting
-  // the printable branch proves it is reached — but the `setDraft` updater is
-  // never invoked, so React discards the update and the composer drops every
-  // keystroke. Store-driven updates in this same harness do render (the menu and
-  // receipt tests prove it), so this is specific to state changed from the
-  // renderer's key dispatch. Calling the handler through a ref and deferring the
-  // update to a microtask both failed to fix it, so the cause is upstream of the
-  // handler identity and of the dispatch phase.
-  //
-  // Skipped rather than removed: this is the one thing standing between the
-  // fullscreen interface and being the default, and a deleted test would hide
-  // that.
-  it.skip("accepts typing into the composer while a chat prompt is live", async () => {
+  it("accepts typing into the composer while a chat prompt is live", async () => {
     const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await testRender(
       <FullscreenBridge />,
       { width: WIDTH, height: HEIGHT },
@@ -227,12 +249,14 @@ describe("fullscreen bridge", () => {
     store.setPrompt({ type: "chat", message: "", resolve: () => undefined });
     await flush();
 
-    for (const key of ["h", "e", "y"]) await mockInput.pressKey(key);
-    await flush();
+    for (const key of ["h", "e", "y"]) {
+      await mockInput.pressKey(key);
+      await settleKeypress(flush);
+    }
     const typed = captureCharFrame();
 
     await mockInput.pressKey("BACKSPACE");
-    await flush();
+    await settleKeypress(flush);
     const afterBackspace = captureCharFrame();
     renderer.destroy();
     store.setPrompt(null);
