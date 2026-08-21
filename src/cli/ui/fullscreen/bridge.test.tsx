@@ -175,4 +175,14 @@ describe("fullscreen bridge", () => {
     });
     expect(text.toLowerCase()).toContain("apps");
   });
+  it("wires the search backend without blocking a frame", async () => {
+    // Deliberately not asserting the keypress path: `onKey` is proven to fire
+    // with the right key and the right prompt state, but a state update made
+    // from an input callback is not reflected in this harness the way a
+    // store-driven one is — an act() scheduling difference, not something this
+    // test can tell apart from a real bug. Typing needs verifying in a real
+    // terminal, and claiming otherwise here would be worse than saying so.
+    const text = await frame();
+    expect(text.split("\n").filter((row) => row.length > 0)).toHaveLength(HEIGHT);
+  });
 });

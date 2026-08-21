@@ -15,8 +15,8 @@
  * scroll anchoring, collapse and copy-out possible at all.
  */
 
-import { useKeyboard } from "@opentui/react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { search, type SearchHit } from "@/services/history/session-search";
 import type { ActivityState } from "../activity-state";
 import {
   store,
@@ -209,7 +209,26 @@ export function FullscreenBridge(): React.ReactNode {
   const [draft, setDraft] = useState("");
   const [customView, setCustomView] = useState<React.ReactNode | null>(null);
   const [connectors, setConnectors] = useState<ReadonlyMap<string, ConnectorStatus>>(new Map());
+  const [searchQuery, setSearchQuery] = useState<string | null>(null);
+  const [searchHits, setSearchHits] = useState<readonly SearchHit[]>([]);
+  const [searchIndex, setSearchIndex] = useState(0);
   const [tick, setTick] = useState(0);
+
+  // `useKeyboard` registers its callback once, so a closure over state would keep
+  // reading the values from the first render — where `prompt` is null, and a null
+  // prompt makes the handler return before it reads a single keystroke. Refs are
+  // correct regardless of the hook's registration semantics.
+  const promptRef = useRef<PromptState | null>(null);
+  const draftRef = useRef("");
+  const approvalRef = useRef<PendingApproval | null>(null);
+  const searchQueryRef = useRef<string | null>(null);
+  const searchHitsRef = useRef<readonly SearchHit[]>([]);
+
+  promptRef.current = prompt;
+  draftRef.current = draft;
+  approvalRef.current = approval;
+  searchQueryRef.current = searchQuery;
+  searchHitsRef.current = searchHits;
 
   const interrupt = useRef<(() => void) | null>(null);
   const quitArmed = useRef(false);
@@ -273,9 +292,37 @@ export function FullscreenBridge(): React.ReactNode {
     return () => clearInterval(timer);
   }, [running]);
 
+  // Searching runs on every keystroke, and the backend reads files, so let the
+  // typing settle first. A stale result must never overwrite a newer one, hence
+  // the cancellation flag rather than just awaiting.
+  useEffect(() => {
+    const query = searchQuery;
+    if (query === null || query.trim().length === 0) {
+      setSearchHits([]);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      void search(query, { scope: "all", limit: 40 })
+        .then((hits) => {
+          if (!cancelled) {
+            setSearchHits(hits);
+            setSearchIndex(0);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) setSearchHits([]);
+        });
+    }, 120);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [searchQuery]);
+
   const submit = useCallback(
     (text: string) => {
-      const active = prompt;
+      const active = promptRef.current;
       if (active === null || text.trim().length === 0) return;
       setDraft("");
       active.resolve(text);
@@ -286,48 +333,98 @@ export function FullscreenBridge(): React.ReactNode {
   // The approval card owns the keyboard while it is up. Enter accepts, Esc
   // rejects, `a` is the always-allow path — and typing must not reach the
   // composer underneath.
-  useKeyboard((key) => {
-    const name = typeof key === "string" ? key : (key.name ?? "");
-    const ctrl = typeof key === "string" ? false : key.ctrl === true;
-    const active = prompt;
+  // First refusal on every key, handed to `App`, which owns the one keyboard
+  // registration in the tree. Returning true consumes the key.
+  const onKey = useCallback(
+    ({ name, ctrl }: { name: string; ctrl: boolean }): boolean => {
+      const active = promptRef.current;
 
-    // Ctrl+C, before anything else and regardless of state.
-    //
-    // The renderer is told not to exit on Ctrl+C so the agent loop can cancel
-    // in-flight work instead of the process dying mid-tool-call. That makes
-    // handling it here mandatory rather than optional: an alternate screen you
-    // cannot leave is the worst failure this interface can have, so the first
-    // press cancels if there is anything to cancel and the second always quits.
-    if (ctrl && (name === "c" || name === "\u0003")) {
-      if (interrupt.current !== null && quitArmed.current === false) {
-        quitArmed.current = true;
-        interrupt.current();
-        return;
+      // Ctrl+C, before anything else and regardless of state.
+      //
+      // The renderer is told not to exit on Ctrl+C so the agent loop can cancel
+      // in-flight work instead of the process dying mid-tool-call. That makes
+      // handling it here mandatory: an alternate screen you cannot leave is the
+      // worst failure this interface can have, so the first press cancels if
+      // there is anything to cancel and the second always quits.
+      if (ctrl && name === "c") {
+        if (interrupt.current !== null && quitArmed.current === false) {
+          quitArmed.current = true;
+          interrupt.current();
+          return true;
+        }
+        process.kill(process.pid, "SIGINT");
+        return true;
       }
-      process.kill(process.pid, "SIGINT");
-      return;
-    }
 
-    if (approval !== null && active !== null) {
-      if (name === "return" || name === "enter") active.resolve("yes");
-      else if (name === "a") active.resolve("always_tool");
-      return;
-    }
-    if (active === null || active.type !== "chat") return;
+      // The approval card owns the keyboard while it is up: enter accepts, `a`
+      // is the always-allow path, and typing must not reach the composer behind
+      // it. Esc falls through to the ladder, which rejects.
+      if (approvalRef.current !== null && active !== null) {
+        if (name === "return" || name === "enter") {
+          active.resolve("yes");
+          return true;
+        }
+        if (name === "a") {
+          active.resolve("always_tool");
+          return true;
+        }
+        return name !== "escape";
+      }
 
-    if (name === "return" || name === "enter") {
-      submit(draft);
-      return;
-    }
-    if (name === "backspace") {
-      setDraft((value) => [...value].slice(0, -1).join(""));
-      return;
-    }
-    if ([...name].length === 1) {
-      const code = name.codePointAt(0) ?? 0;
-      if (code >= 0x20 && code !== 0x7f) setDraft((value) => value + name);
-    }
-  });
+      // Search likewise owns the keyboard while it is open.
+      if (searchQueryRef.current !== null) {
+        if (name === "escape") {
+          setSearchQuery(null);
+          return true;
+        }
+        if (name === "down") {
+          setSearchIndex((index) =>
+            Math.min(index + 1, Math.max(0, searchHitsRef.current.length - 1)),
+          );
+          return true;
+        }
+        if (name === "up") {
+          setSearchIndex((index) => Math.max(0, index - 1));
+          return true;
+        }
+        if (name === "backspace") {
+          setSearchQuery((value) => (value === null ? null : [...value].slice(0, -1).join("")));
+          return true;
+        }
+        if ([...name].length === 1) {
+          const code = name.codePointAt(0) ?? 0;
+          if (code >= 0x20 && code !== 0x7f) setSearchQuery((value) => (value ?? "") + name);
+        }
+        return true;
+      }
+
+      if (active === null || active.type !== "chat") return false;
+
+      // `/` on an empty composer opens history search rather than typing a
+      // slash, which is what the footer advertises.
+      if (name === "/" && draftRef.current.length === 0) {
+        setSearchQuery("");
+        return true;
+      }
+      if (name === "return" || name === "enter") {
+        submit(draftRef.current);
+        return true;
+      }
+      if (name === "backspace") {
+        setDraft((value) => [...value].slice(0, -1).join(""));
+        return true;
+      }
+      if ([...name].length === 1) {
+        const code = name.codePointAt(0) ?? 0;
+        if (code >= 0x20 && code !== 0x7f) {
+          setDraft((value) => value + name);
+          return true;
+        }
+      }
+      return false;
+    },
+    [submit],
+  );
 
   const onAction = useCallback(
     (action: KeyAction) => {
@@ -359,7 +456,22 @@ export function FullscreenBridge(): React.ReactNode {
       settle.current = null;
     }
 
-    const overlay: Overlay | undefined = approval === null ? undefined : approvalFrom(approval);
+    // An approval outranks search: it is a decision the agent is blocked on, and
+    // it arrived because the user asked for something.
+    const overlay: Overlay | undefined =
+      approval !== null
+        ? approvalFrom(approval)
+        : searchQuery !== null
+          ? {
+              kind: "search",
+              query: searchQuery,
+              scope: "all",
+              // `current` means the hit is in this session; `selected` is the cursor.
+              // Conflating them would show recency wrong on every row but one.
+              hits: searchHits,
+              selected: searchIndex,
+            }
+          : undefined;
 
     return {
       header: {
@@ -406,6 +518,9 @@ export function FullscreenBridge(): React.ReactNode {
     prompt,
     approval,
     connectors,
+    searchQuery,
+    searchHits,
+    searchIndex,
   ]);
 
   // Custom views — the wizard, the config wizard, the workflow picker — are Ink
@@ -427,6 +542,7 @@ export function FullscreenBridge(): React.ReactNode {
     <App
       view={view}
       onAction={onAction}
+      onKey={onKey}
     />
   );
 }

@@ -30,6 +30,14 @@ import { MIN_HEIGHT, MIN_WIDTH, type Focus, type ViewModel } from "./types";
 export interface AppProps {
   readonly view: ViewModel;
   readonly onAction: (action: KeyAction) => void;
+  /**
+   * First refusal on every key. Return true to consume it.
+   *
+   * There is exactly one keyboard registration in this tree on purpose: two
+   * independent `useKeyboard` hooks leave it ambiguous which one sees a key,
+   * and the loser silently receives nothing.
+   */
+  readonly onKey?: (key: { name: string; ctrl: boolean }) => boolean;
 }
 
 /**
@@ -49,7 +57,7 @@ function TooSmall({ width, height }: { width: number; height: number }): React.R
   );
 }
 
-export function App({ view, onAction }: AppProps): React.ReactNode {
+export function App({ view, onAction, onKey }: AppProps): React.ReactNode {
   const { width, height } = useTerminalDimensions();
   const [focus, setFocus] = useState<Focus>("input");
   const armedAt = useRef<number | undefined>(undefined);
@@ -82,6 +90,11 @@ export function App({ view, onAction }: AppProps): React.ReactNode {
 
   useKeyboard((key) => {
     const name = typeof key === "string" ? key : (key.name ?? "");
+    const ctrl = typeof key === "string" ? false : key.ctrl === true;
+
+    // The caller gets the key first, so the composer and the overlays see
+    // typing before focus and Esc handling do.
+    if (onKey?.({ name, ctrl }) === true) return;
 
     if (name === "escape") {
       dispatch(

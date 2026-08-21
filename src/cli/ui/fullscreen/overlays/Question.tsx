@@ -23,12 +23,12 @@
  *     the line below it is what you can do about it.
  */
 
-import { TextAttributes, type BorderCharacters } from "@opentui/core";
+import type { BorderCharacters } from "@opentui/core";
 import type { ReactNode } from "react";
 import { getGlyphs, type GlyphSet } from "../../glyphs";
 import { THEME } from "../../theme";
 import type { Viewport } from "../types";
-import { CaretValue } from "./TextPrompt";
+import { CaretValue, HintRow, type Hint } from "./TextPrompt";
 
 /** Windowed width, and the floor below which windowing stops making sense. */
 const MAX_WIDTH = 76;
@@ -66,6 +66,9 @@ const MESSAGE_MAX_ROWS = 3;
 
 /** Keep this much context past the selection before the list starts to follow it. */
 const LIST_MARGIN = 1;
+
+/** The custom row says what it is for, in the house voice, rather than "Other". */
+const CUSTOM_HINT = "Type your own answer";
 
 const ELLIPSIS = "...";
 
@@ -187,7 +190,6 @@ export function Question({ model, viewport }: QuestionProps): ReactNode {
   const message = wrapProse(model.message, Math.max(4, inner - GUTTER), MESSAGE_MAX_ROWS);
   const total = model.choices.length + (custom ? 1 : 0);
   const selected = Math.max(0, Math.min(model.selected, total - 1));
-  const customSelected = custom && selected === model.choices.length;
 
   const fixedRows = FIXED_CARD_ROWS + message.length;
   const windowedHeight = fixedRows + total + HINT_ROWS;
@@ -195,7 +197,13 @@ export function Question({ model, viewport }: QuestionProps): ReactNode {
   const cardHeight = Math.max(1, height - HINT_ROWS);
   const listRows = Math.max(1, cardHeight - fixedRows);
   const start = windowStartFor(selected, total, listRows);
-  const visible = model.choices.slice(start, start + listRows);
+
+  // The custom row is the last item in one list, not a separate region — so it
+  // scrolls with everything else and the arithmetic stays in one place.
+  const items: readonly (QuestionChoice | null)[] = custom
+    ? [...model.choices, null]
+    : model.choices;
+  const visible = items.slice(start, start + listRows);
 
   const left = fullscreen ? 0 : Math.max(0, Math.floor((viewport.width - width) / 2));
   const top = fullscreen ? 0 : Math.max(0, Math.floor((viewport.height - height) / 2));
@@ -215,17 +223,17 @@ export function Question({ model, viewport }: QuestionProps): ReactNode {
     : bodyWidth;
   const descriptionWidth = described ? Math.max(0, bodyWidth - labelWidth - DESCRIPTION_GAP) : 0;
 
-  const hints: readonly (readonly [string, string])[] = checkbox
+  const hints: readonly Hint[] = checkbox
     ? [
-        ["up/down", "move"],
-        ["space", "toggle"],
-        ["enter", "submit"],
-        ["esc", "cancel"],
+        { key: "up/down", label: "move", expendable: 3 },
+        { key: "space", label: "toggle", expendable: 2 },
+        { key: "enter", label: "submit", expendable: 1 },
+        { key: "esc", label: "cancel", expendable: 0 },
       ]
     : [
-        ["up/down", "move"],
-        ["enter", "select"],
-        ["esc", "cancel"],
+        { key: "up/down", label: "move", expendable: 3 },
+        { key: "enter", label: "select", expendable: 1 },
+        { key: "esc", label: "cancel", expendable: 0 },
       ];
 
   const tally = checkbox
@@ -274,6 +282,35 @@ export function Question({ model, viewport }: QuestionProps): ReactNode {
           {visible.map((choice, offset) => {
             const index = start + offset;
             const isSelected = index === selected;
+
+            if (choice === null) {
+              return (
+                <box
+                  key="custom"
+                  style={{ height: 1, flexShrink: 0, flexDirection: "row" }}
+                >
+                  <text style={{ fg: THEME.primary, width: GUTTER, flexShrink: 0 }}>
+                    {isSelected ? `${glyphs.rail} ` : " ".repeat(GUTTER)}
+                  </text>
+                  <text style={{ fg: THEME.primary, width: NUMBER_COLUMN, flexShrink: 0 }}>
+                    {`${glyphs.promptCursor} `}
+                  </text>
+                  {isSelected ? (
+                    <CaretValue
+                      value={model.customValue ?? ""}
+                      caret={model.customCaret ?? displayWidth(model.customValue ?? "")}
+                      width={Math.max(4, inner - GUTTER - NUMBER_COLUMN)}
+                      placeholder={CUSTOM_HINT}
+                    />
+                  ) : (
+                    <text style={{ fg: THEME.muted, flexShrink: 0 }}>
+                      {clip(CUSTOM_HINT, Math.max(4, inner - GUTTER - NUMBER_COLUMN))}
+                    </text>
+                  )}
+                </box>
+              );
+            }
+
             const isChecked = checked.has(choice.value);
             const disabled = choice.disabled === true;
             const labelColor = disabled
@@ -318,55 +355,16 @@ export function Question({ model, viewport }: QuestionProps): ReactNode {
               </box>
             );
           })}
-
-          {custom && start + listRows > model.choices.length ? (
-            <box style={{ height: 1, flexShrink: 0, flexDirection: "row" }}>
-              <text style={{ fg: THEME.primary, width: GUTTER, flexShrink: 0 }}>
-                {customSelected ? `${glyphs.rail} ` : " ".repeat(GUTTER)}
-              </text>
-              <text style={{ fg: THEME.primary, width: NUMBER_COLUMN, flexShrink: 0 }}>
-                {`${glyphs.promptCursor} `}
-              </text>
-              {customSelected ? (
-                <CaretValue
-                  value={model.customValue ?? ""}
-                  caret={model.customCaret ?? displayWidth(model.customValue ?? "")}
-                  width={bodyWidth - NUMBER_COLUMN + NUMBER_COLUMN}
-                  placeholder="Type your own answer"
-                />
-              ) : (
-                <text style={{ fg: THEME.muted }}>{clip("Type your own answer", bodyWidth)}</text>
-              )}
-            </box>
-          ) : null}
         </box>
 
         <box style={{ height: 1, flexShrink: 0 }} />
       </box>
 
-      <box
-        style={{
-          height: HINT_ROWS,
-          flexShrink: 0,
-          flexDirection: "row",
-          paddingLeft: CARD_PAD + 1,
-          paddingRight: CARD_PAD + 1,
-        }}
-      >
-        <text>
-          {hints.map(([key, label], index) => (
-            <span key={key}>
-              {index > 0 ? <span style={{ fg: THEME.muted }}>{"    "}</span> : null}
-              <b style={{ fg: THEME.selected }}>{key}</b>
-              <span style={{ fg: THEME.secondary }}>{` ${label}`}</span>
-            </span>
-          ))}
-        </text>
-        <box style={{ flexGrow: 1 }} />
-        <text style={{ fg: THEME.muted, flexShrink: 0, attributes: TextAttributes.DIM }}>
-          {tally}
-        </text>
-      </box>
+      <HintRow
+        hints={hints}
+        width={width}
+        tally={tally}
+      />
     </box>
   );
 }
