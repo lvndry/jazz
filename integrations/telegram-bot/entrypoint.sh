@@ -24,10 +24,6 @@ chmod 700 "${GNUPGHOME:-/data/gnupg}"
 # live-progress events (non-TTY runs otherwise fall back to batch mode and emit
 # nothing). When BRAVE_API_KEY is set, also configure Brave as the web_search
 # provider — the key comes from the environment so it's never baked into the image.
-#
-# himalaya/khal/vdirsyncer are not allowlisted here: like every other
-# execute_command call they stay high-risk and prompt for approval in
-# Telegram before running, same as any other shell command.
 if [ -n "${BRAVE_API_KEY:-}" ]; then
   cat > "${JAZZ_HOME}/config.json" <<JSON
 {"output":{"streaming":{"enabled":true}},"web_search":{"provider":"brave","brave":{"api_key":"${BRAVE_API_KEY}"}}}
