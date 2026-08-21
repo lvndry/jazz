@@ -1316,6 +1316,17 @@ class InkPresentationService implements PresentationService {
 
     choices.push({ label: "No", value: "no" });
 
+    // Publish the request itself alongside the menu. The fullscreen approval
+    // card needs the account, the resulting fields and the consequence, none of
+    // which survive being flattened into a list of choices.
+    store.setApprovalRequest({
+      toolName: request.toolName,
+      executeToolName: request.executeToolName,
+      message: request.message,
+      args: request.executeArgs,
+      ...(request.previewDiff === undefined ? {} : { previewDiff: request.previewDiff }),
+    });
+
     store.setPrompt({
       type: "select",
       message: "Approve this action?",
@@ -1330,18 +1341,21 @@ class InkPresentationService implements PresentationService {
 
         if (choice === "yes") {
           store.setPrompt(null);
+          store.setApprovalRequest(null);
           this.completeApproval(resume, { approved: true });
           return;
         }
 
         if (choice === "always_command" && approvalKey) {
           store.setPrompt(null);
+          store.setApprovalRequest(null);
           this.completeApproval(resume, { approved: true, alwaysApproveCommand: approvalKey });
           return;
         }
 
         if (choice === "always_tool") {
           store.setPrompt(null);
+          store.setApprovalRequest(null);
           this.completeApproval(resume, { approved: true, alwaysApproveTool: toolDisplayName });
           return;
         }
@@ -1365,6 +1379,7 @@ class InkPresentationService implements PresentationService {
       options: {},
       resolve: (input: unknown) => {
         store.setPrompt(null);
+        store.setApprovalRequest(null);
         const userMessage = typeof input === "string" ? input.trim() : "";
         if (userMessage) {
           const rawMsg = `${followUpMessage} ${CHALK_THEME.success(userMessage)}`;
@@ -1469,12 +1484,14 @@ class InkPresentationService implements PresentationService {
           timestamp: new Date(),
         });
         store.setPrompt(null);
+        store.setApprovalRequest(null);
         this.isProcessingUserInput = false;
         resume(Effect.succeed(response));
         this.processNextUserInput();
       },
       reject: () => {
         store.setPrompt(null);
+        store.setApprovalRequest(null);
         this.isProcessingUserInput = false;
         resume(Effect.succeed("")); // Return empty on cancel
         this.processNextUserInput();
@@ -1520,10 +1537,12 @@ class InkPresentationService implements PresentationService {
             timestamp: new Date(),
           });
           store.setPrompt(null);
+          store.setApprovalRequest(null);
           resume(Effect.succeed(selectedPath));
         },
         reject: () => {
           store.setPrompt(null);
+          store.setApprovalRequest(null);
           resume(Effect.succeed("")); // Return empty on cancel
         },
       });

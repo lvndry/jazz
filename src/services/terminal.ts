@@ -6,6 +6,12 @@ import { wrapToWidth, getTerminalWidth } from "@/cli/presentation/markdown-forma
 import App from "@/cli/ui/App";
 import { InputProvider } from "@/cli/ui/contexts/InputContext";
 import { TerminalDimensionsProvider } from "@/cli/ui/contexts/TerminalDimensionsContext";
+import {
+  decideFullscreen,
+  mountFullscreenApp,
+  wantsPlainOutput,
+  type FullscreenHandle,
+} from "@/cli/ui/fullscreen/attach";
 import { store } from "@/cli/ui/store";
 import type { OutputEntry } from "@/cli/ui/types";
 import {
@@ -84,6 +90,7 @@ export class InkTerminalService implements TerminalService {
   readonly isInteractive = true;
 
   private inkInstance: ReturnType<typeof render> | null = null;
+  private fullscreen: FullscreenHandle | null = null;
 
   constructor() {
     // Guard against multiple instantiation
@@ -94,18 +101,24 @@ export class InkTerminalService implements TerminalService {
       );
     }
 
-    // Initialize the Ink app on service creation
-    // patchConsole: false prevents Ink from intercepting console.* methods,
-    // which can cause flickering when external code writes to console during renders
-    // Wrap App with InputProvider to provide the input service context
-    this.inkInstance = render(
-      React.createElement(
-        TerminalDimensionsProvider,
-        null,
-        React.createElement(InputProvider, null, React.createElement(App)),
-      ),
-      INK_RENDER_OPTIONS,
-    );
+    // Two renderers, one store. The fullscreen interface and the Ink tree both
+    // read the same UI store, so choosing between them is a mount-time decision
+    // and nothing downstream needs to know which one is running.
+    if (decideFullscreen({ requestPlain: wantsPlainOutput() }).fullscreen) {
+      this.fullscreen = mountFullscreenApp();
+    } else {
+      // patchConsole: false prevents Ink from intercepting console.* methods,
+      // which can cause flickering when external code writes to console during renders
+      // Wrap App with InputProvider to provide the input service context
+      this.inkInstance = render(
+        React.createElement(
+          TerminalDimensionsProvider,
+          null,
+          React.createElement(InputProvider, null, React.createElement(App)),
+        ),
+        INK_RENDER_OPTIONS,
+      );
+    }
     instanceExists = true;
   }
 
@@ -114,6 +127,12 @@ export class InkTerminalService implements TerminalService {
    * Called when the command completes
    */
   cleanup(): void {
+    if (this.fullscreen) {
+      // Releases the alternate screen, the cursor and raw mode. Idempotent, so
+      // it is safe if a signal handler already ran.
+      this.fullscreen.release();
+      this.fullscreen = null;
+    }
     if (this.inkInstance) {
       this.inkInstance.unmount();
       this.inkInstance = null;

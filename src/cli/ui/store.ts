@@ -83,6 +83,19 @@ export interface CollapseEphemeralSummary {
  * the footer simply omits any field that hasn't been populated yet.
  * Most fields are session-totals, updated after each LLM round-trip.
  */
+/**
+ * A pending approval, reduced to what an interface needs to render a decision.
+ * Deliberately not the full `ApprovalRequest`: the store should not depend on
+ * the tools layer, and the resume callback is not the UI's business.
+ */
+export interface PendingApproval {
+  readonly toolName: string;
+  readonly executeToolName: string;
+  readonly message: string;
+  readonly args: Record<string, unknown>;
+  readonly previewDiff?: string;
+}
+
 export interface RunStats {
   /** Display name of the active model (e.g. "claude-sonnet-4-5"). */
   readonly model?: string;
@@ -579,6 +592,9 @@ export class UIStore {
 
   // ── Registration methods (called by island components) ────────────
 
+  private approvalRequestSnapshot: PendingApproval | null = null;
+  private approvalRequestSetter: ((request: PendingApproval | null) => void) | null = null;
+
   registerPrintOutput(handler: PrintOutputHandler): void {
     this.printOutputHandler = handler;
   }
@@ -627,6 +643,29 @@ export class UIStore {
       const top = this.interruptHandlerStack[this.interruptHandlerStack.length - 1] ?? null;
       setter(top);
     }
+  }
+
+  /**
+   * The approval currently awaiting a decision, as structured data.
+   *
+   * The `select` prompt that the Ink tree renders carries only a message and a
+   * list of choices. The fullscreen approval card has to name the real account,
+   * list every field that will exist afterwards, and state irreversibility in
+   * prose — none of which survives being flattened into a menu. So the request
+   * travels alongside the prompt rather than inside it.
+   */
+  setApprovalRequest = (request: PendingApproval | null): void => {
+    this.approvalRequestSnapshot = request;
+    if (this.approvalRequestSetter) this.approvalRequestSetter(request);
+  };
+
+  registerApprovalRequestSetter(setter: (request: PendingApproval | null) => void): void {
+    this.approvalRequestSetter = setter;
+    setter(this.approvalRequestSnapshot);
+  }
+
+  getApprovalRequestSnapshot(): PendingApproval | null {
+    return this.approvalRequestSnapshot;
   }
 
   registerEphemeralRegionsSetter(setter: (regions: readonly EphemeralRegion[]) => void): void {
