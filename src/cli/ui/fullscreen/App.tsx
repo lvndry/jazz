@@ -37,7 +37,7 @@ export interface AppProps {
    * independent `useKeyboard` hooks leave it ambiguous which one sees a key,
    * and the loser silently receives nothing.
    */
-  readonly onKey?: (key: { name: string; ctrl: boolean }) => boolean;
+  readonly onKey?: (key: { name: string; ctrl: boolean; meta: boolean }) => boolean;
   /**
    * Replaces the five-region layout with arbitrary content — the wizard menu,
    * the screen-unavailable notice — while this component's own `useKeyboard`
@@ -114,10 +114,11 @@ export function App({ view, onAction, onKey, overrideContent }: AppProps): React
   useKeyboard((key) => {
     const name = typeof key === "string" ? key : (key.name ?? "");
     const ctrl = typeof key === "string" ? false : key.ctrl === true;
+    const meta = typeof key === "string" ? false : key.meta === true;
 
     // The caller gets the key first, so the composer and the overlays see
     // typing before focus and Esc handling do.
-    if (onKeyRef.current?.({ name, ctrl }) === true) return;
+    if (onKeyRef.current?.({ name, ctrl, meta }) === true) return;
 
     if (name === "escape") {
       dispatch(

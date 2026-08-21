@@ -157,6 +157,8 @@ export function inputRows(
   const contentWidth = Math.max(1, width - GUTTER_CELLS);
   const live = focused && !model.disabled;
   const empty = model.value.length === 0;
+  const valueCells = [...model.value].length;
+  const caretAt = Math.max(0, Math.min(model.caret ?? valueCells, valueCells));
 
   // An empty composer shows the placeholder in the text's place; a disabled one
   // keeps whatever was already typed, because losing sight of a draft to a
@@ -165,6 +167,11 @@ export function inputRows(
     ? [clip(model.placeholder, contentWidth)]
     : wrapCells(model.value, contentWidth);
   if (!empty && live && cells(lines[lines.length - 1] ?? "") >= contentWidth) lines.push("");
+
+  // Which wrapped line the caret falls on, and its column within that line —
+  // char wrap means this is exact division, no word-boundary guessing.
+  const caretLine = empty ? 0 : Math.min(lines.length - 1, Math.floor(caretAt / contentWidth));
+  const caretColumn = empty ? 0 : caretAt - caretLine * contentWidth;
 
   const queued = Math.max(0, model.queued);
   // The chrome row and the text rows share one budget, so the marker that says
@@ -194,7 +201,12 @@ export function inputRows(
     rows.push(alignRow("chrome", left, right, width));
   }
 
-  const lastIndex = visible.length - 1;
+  // The caret's own line may have scrolled out of `visible` — the window
+  // always shows the *last* capWithChrome lines, so a caret placed earlier in
+  // a long multi-line draft can be above it. Clamping it to the top of what is
+  // shown keeps a caret visible always, rather than rendering none at all.
+  const visibleCaretLine = Math.max(0, caretLine - hidden);
+
   visible.forEach((line, index) => {
     const marker: InputSegment =
       index === 0
@@ -202,6 +214,7 @@ export function inputRows(
         : { text: " ".repeat(GUTTER_CELLS), fg: THEME.muted };
 
     const body: InputSegment[] = [];
+    const onCaretLine = live && index === visibleCaretLine;
     if (empty) {
       const characters = [...line];
       const head = characters[0] ?? " ";
@@ -209,9 +222,17 @@ export function inputRows(
       // so an empty composer is one column wide instead of two.
       if (live) body.push(caret(head), { text: characters.slice(1).join(""), fg: THEME.muted });
       else body.push({ text: line, fg: THEME.muted });
+    } else if (onCaretLine) {
+      const characters = [...line];
+      const column = Math.min(caretColumn, characters.length);
+      const before = characters.slice(0, column).join("");
+      const onCell = characters[column] ?? " ";
+      const after = characters.slice(column + 1).join("");
+      const fg = model.disabled ? THEME.muted : THEME.selected;
+      body.push({ text: before, fg }, caret(onCell));
+      if (after.length > 0) body.push({ text: after, fg });
     } else {
       body.push({ text: line, fg: model.disabled ? THEME.muted : THEME.selected });
-      if (live && index === lastIndex) body.push(caret(" "));
     }
 
     rows.push({ key: `line:${String(index)}`, segments: [marker, ...body] });

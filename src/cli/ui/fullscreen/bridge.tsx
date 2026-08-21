@@ -214,6 +214,10 @@ export function FullscreenBridge(): React.ReactNode {
   const [prompt, setPrompt] = useState<PromptState | null>(null);
   const [approval, setApproval] = useState<PendingApproval | null>(null);
   const [draft, setDraft] = useState("");
+  // Code-point offset, not a JS string index — every splice below operates on
+  // `[...text]` for exactly that reason, so a multi-byte character never gets
+  // cut in half.
+  const [draftCaret, setDraftCaret] = useState(0);
   const [customView, setCustomView] = useState<React.ReactNode | null>(null);
   const [connectors, setConnectors] = useState<ReadonlyMap<string, ConnectorStatus>>(new Map());
   const [searchQuery, setSearchQuery] = useState<string | null>(null);
@@ -229,6 +233,7 @@ export function FullscreenBridge(): React.ReactNode {
   // correct regardless of the hook's registration semantics.
   const promptRef = useRef<PromptState | null>(null);
   const draftRef = useRef("");
+  const draftCaretRef = useRef(0);
   const approvalRef = useRef<PendingApproval | null>(null);
   const searchQueryRef = useRef<string | null>(null);
   const searchHitsRef = useRef<readonly SearchHit[]>([]);
@@ -237,6 +242,7 @@ export function FullscreenBridge(): React.ReactNode {
 
   promptRef.current = prompt;
   draftRef.current = draft;
+  draftCaretRef.current = draftCaret;
   approvalRef.current = approval;
   searchQueryRef.current = searchQuery;
   searchHitsRef.current = searchHits;
@@ -337,11 +343,39 @@ export function FullscreenBridge(): React.ReactNode {
     };
   }, [searchQuery]);
 
+  const insertAtCaret = useCallback((text: string) => {
+    setDraft((value) => {
+      const characters = [...value];
+      const at = Math.max(0, Math.min(draftCaretRef.current, characters.length));
+      return [...characters.slice(0, at), text, ...characters.slice(at)].join("");
+    });
+    setDraftCaret((at) => at + [...text].length);
+  }, []);
+
+  /**
+   * Deletes the previous word, the way option+Backspace and Ctrl+Backspace do
+   * in every text field on both platforms: skip the run of whitespace
+   * immediately before the caret, then delete the non-whitespace run before
+   * that. Operates in code points throughout.
+   */
+  const deleteWordBeforeCaret = useCallback(() => {
+    setDraft((value) => {
+      const characters = [...value];
+      const at = Math.max(0, Math.min(draftCaretRef.current, characters.length));
+      let start = at;
+      while (start > 0 && /\s/.test(characters[start - 1] as string)) start -= 1;
+      while (start > 0 && !/\s/.test(characters[start - 1] as string)) start -= 1;
+      setDraftCaret(start);
+      return [...characters.slice(0, start), ...characters.slice(at)].join("");
+    });
+  }, []);
+
   const submit = useCallback(
     (text: string) => {
       const active = promptRef.current;
       if (active === null || text.trim().length === 0) return;
       setDraft("");
+      setDraftCaret(0);
       active.resolve(text);
     },
     [prompt],
@@ -353,7 +387,7 @@ export function FullscreenBridge(): React.ReactNode {
   // First refusal on every key, handed to `App`, which owns the one keyboard
   // registration in the tree. Returning true consumes the key.
   const onKey = useCallback(
-    ({ name, ctrl }: { name: string; ctrl: boolean }): boolean => {
+    ({ name, ctrl, meta }: { name: string; ctrl: boolean; meta: boolean }): boolean => {
       // Ctrl+C, before anything else and regardless of state — including a
       // modal that would otherwise swallow every key it does not recognise.
       //
@@ -450,26 +484,62 @@ export function FullscreenBridge(): React.ReactNode {
         submit(draftRef.current);
         return true;
       }
+
+      // Option+Backspace on macOS and Ctrl+Backspace elsewhere both mean
+      // "delete the previous word" — this keyboard library reports the first
+      // as `meta`, not `option`, which is easy to miss without checking the
+      // actual event rather than assuming a name.
+      if (name === "backspace" && (meta || ctrl)) {
+        deleteWordBeforeCaret();
+        return true;
+      }
       if (name === "backspace") {
-        setDraft((value) => [...value].slice(0, -1).join(""));
+        setDraft((value) => {
+          const characters = [...value];
+          const at = Math.max(0, Math.min(draftCaretRef.current, characters.length));
+          if (at === 0) return value;
+          return [...characters.slice(0, at - 1), ...characters.slice(at)].join("");
+        });
+        setDraftCaret((at) => Math.max(0, at - 1));
+        return true;
+      }
+      if (name === "left") {
+        setDraftCaret((at) => Math.max(0, at - 1));
+        return true;
+      }
+      if (name === "right") {
+        setDraftCaret((at) => Math.min([...draftRef.current].length, at + 1));
+        return true;
+      }
+
+      // `space` is reported by name rather than as the literal character —
+      // every other printable key's `name` already is that character, which
+      // is what makes this one worth calling out explicitly rather than
+      // folding it into the codepoint check below, where it would silently
+      // never match.
+      if (name === "space") {
+        insertAtCaret(" ");
         return true;
       }
       if ([...name].length === 1) {
         const code = name.codePointAt(0) ?? 0;
         if (code >= 0x20 && code !== 0x7f) {
-          setDraft((value) => value + name);
+          insertAtCaret(name);
           return true;
         }
       }
       return false;
     },
-    [submit],
+    [submit, insertAtCaret, deleteWordBeforeCaret],
   );
 
   const onAction = useCallback(
     (action: KeyAction) => {
       if (action.type === "interrupt") interrupt.current?.();
-      if (action.type === "stash-draft") setDraft("");
+      if (action.type === "stash-draft") {
+        setDraft("");
+        setDraftCaret(0);
+      }
       if (action.type === "close-overlay" && approval !== null) prompt?.resolve("no");
     },
     [approval, prompt],
@@ -532,6 +602,7 @@ export function FullscreenBridge(): React.ReactNode {
       },
       input: {
         value: draft,
+        caret: draftCaret,
         placeholder: busy ? "working — esc esc interrupts" : "Ask anything",
         queued: queue.length,
         disabled: overlay !== undefined || prompt === null || prompt.type !== "chat",
@@ -555,6 +626,7 @@ export function FullscreenBridge(): React.ReactNode {
     regions,
     tick,
     draft,
+    draftCaret,
     prompt,
     approval,
     connectors,

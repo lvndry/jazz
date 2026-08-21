@@ -339,4 +339,97 @@ describe("fullscreen bridge", () => {
     store.setActiveMenu(null);
     expect(killed).toBe(true);
   });
+  it("space inserts a literal space rather than being dropped", async () => {
+    // This keyboard library reports space as `name: "space"`, not the literal
+    // character — every other printable key's name already is the character
+    // it types, which is what made this one easy to miss.
+    const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await testRender(
+      <FullscreenBridge />,
+      { width: WIDTH, height: HEIGHT },
+    );
+    await renderOnce();
+    store.setPrompt({ type: "chat", message: "", resolve: () => undefined });
+    await flush();
+    for (const key of ["h", "i"]) {
+      await mockInput.pressKey(key);
+      await settleKeypress(flush);
+    }
+    await mockInput.pressKey(" ");
+    await settleKeypress(flush);
+    for (const key of ["t", "h", "e", "r", "e"]) {
+      await mockInput.pressKey(key);
+      await settleKeypress(flush);
+    }
+    const frame = captureCharFrame();
+    renderer.destroy();
+    store.setPrompt(null);
+    expect(frame).toContain("hi there");
+  });
+
+  it("left and right arrows move the caret, so mid-word insertion lands correctly", async () => {
+    const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await testRender(
+      <FullscreenBridge />,
+      { width: WIDTH, height: HEIGHT },
+    );
+    await renderOnce();
+    store.setPrompt({ type: "chat", message: "", resolve: () => undefined });
+    await flush();
+    for (const key of ["c", "a", "t"]) {
+      await mockInput.pressKey(key);
+      await settleKeypress(flush);
+    }
+    // Caret is after "cat"; two lefts put it between "c" and "a".
+    await mockInput.pressKey("ARROW_LEFT");
+    await settleKeypress(flush, 100);
+    await mockInput.pressKey("ARROW_LEFT");
+    await settleKeypress(flush, 100);
+    await mockInput.pressKey("h");
+    await settleKeypress(flush);
+    const frame = captureCharFrame();
+    renderer.destroy();
+    store.setPrompt(null);
+    expect(frame).toContain("chat");
+  });
+
+  it("option+Backspace (reported as meta) deletes the previous word", async () => {
+    const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await testRender(
+      <FullscreenBridge />,
+      { width: WIDTH, height: HEIGHT },
+    );
+    await renderOnce();
+    store.setPrompt({ type: "chat", message: "", resolve: () => undefined });
+    await flush();
+    for (const key of ["h", "e", "l", "l", "o", " ", "w", "o", "r", "l", "d"]) {
+      await mockInput.pressKey(key);
+      await settleKeypress(flush);
+    }
+    await mockInput.pressKey("BACKSPACE", { meta: true });
+    await settleKeypress(flush, 100);
+    const frame = captureCharFrame();
+    renderer.destroy();
+    store.setPrompt(null);
+    expect(frame).toContain("hello");
+    expect(frame).not.toContain("world");
+  });
+
+  it("Ctrl+Backspace also deletes the previous word", async () => {
+    const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await testRender(
+      <FullscreenBridge />,
+      { width: WIDTH, height: HEIGHT },
+    );
+    await renderOnce();
+    store.setPrompt({ type: "chat", message: "", resolve: () => undefined });
+    await flush();
+    for (const key of ["f", "o", "o", " ", "b", "a", "r"]) {
+      await mockInput.pressKey(key);
+      await settleKeypress(flush);
+    }
+    await mockInput.pressKey("BACKSPACE", { ctrl: true });
+    await settleKeypress(flush, 100);
+    const frame = captureCharFrame();
+    renderer.destroy();
+    store.setPrompt(null);
+    expect(frame).toContain("foo");
+    expect(frame).not.toContain("bar");
+  });
 });

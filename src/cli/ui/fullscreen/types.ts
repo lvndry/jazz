@@ -182,6 +182,12 @@ export type Mode = "chat" | "plan" | "auto" | "yolo";
 
 export interface InputModel {
   readonly value: string;
+  /**
+   * Code-point offset into `value` where the next typed character lands.
+   * Defaults to the end when omitted, which is what every screen that does not
+   * need real editing (samples, tests rendering a finished draft) wants.
+   */
+  readonly caret?: number;
   readonly placeholder: string;
   readonly queued: number;
   /** Suppressed while a modal overlay owns the keyboard. */
