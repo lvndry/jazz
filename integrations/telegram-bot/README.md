@@ -118,9 +118,8 @@ run Ollama; cloud users typically just keep the default.)
 (email) and [khal](https://github.com/pimutils/khal) + [vdirsyncer](https://github.com/pimutils/vdirsyncer)
 (calendar) — the same CLIs the `email`/`calendar` skills already know how to drive
 via `execute_command` (see [Email & Calendar](../../docs/integrations/email-calendar.md)).
-The entrypoint allowlists exactly those three binaries in `autoApprovedCommands`
-so the skills work under the default `low-risk` policy without loosening it for
-anything else; set `JAZZ_AUTO_APPROVE_MAIL_CALENDAR=false` to turn that off.
+They aren't allowlisted anywhere: like every other shell command, each call is
+`high-risk` and shows up in Telegram as an Accept/Reject prompt before it runs.
 
 Their config/data/keyring/password-store live under `/data` (the same volume
 Jazz already persists) via `XDG_CONFIG_HOME` etc., so setup survives restarts
@@ -153,7 +152,6 @@ khal configure           # or hand-write ~/.config/khal/config per the calendar 
 | `OLLAMA_BASE_URL`                    | `http://host.docker.internal:11434/api` | Ollama endpoint (only for `provider=ollama` / `/model`).                                                                                                                                                                                                    |
 | `JAZZ_APPROVAL_POLICY`               | `low-risk`                              | Auto-approve tools up to: `read-only`\|`low-risk`\|`high-risk`.                                                                                                                                                                                             |
 | `JAZZ_AUTO_APPROVE_TOOLS`            | —                                       | Comma-separated tool names to auto-approve regardless of policy (e.g. `execute_command`) — narrower than raising the whole tier. Tools needing approval that aren't in this list are sent to the chat as an accept/reject prompt instead of being declined. |
-| `JAZZ_AUTO_APPROVE_MAIL_CALENDAR`    | `true`                                  | Allowlists `himalaya`/`khal`/`vdirsyncer` in `autoApprovedCommands` so the email/calendar skills work under `low-risk`. Set `false` to require approval for them like any other shell command.                                                            |
 | `JAZZ_RUN_TIMEOUT_MS`                | `300000`                                | Per-message agent timeout.                                                                                                                                                                                                                                  |
 | `TELEGRAM_MODE`                      | `polling`                               | `polling` or `webhook`.                                                                                                                                                                                                                                     |
 | `PORT`                               | `8080`                                  | In-container health-check port.                                                                                                                                                                                                                             |
