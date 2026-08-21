@@ -28,7 +28,7 @@ import {
   type RunStats,
 } from "../store";
 import type { OutputEntry, PromptState } from "../types";
-import { App } from "./App";
+import { App, type KeyChord } from "./App";
 import type { KeyAction } from "./keymap";
 import { Home } from "./screens/Home";
 import {
@@ -45,6 +45,52 @@ const WAITING = ["comping behind you", "turning it over", "two horns out", "digg
 
 /** How long the band holds its height after the last tool finishes. */
 const SETTLE_MS = 800;
+
+/**
+ * Caret motion, as pure functions over code points.
+ *
+ * All four take and return a code-point offset, never a JS string index, so a
+ * multi-byte character is a single step rather than a surrogate half.
+ */
+
+/** Start of the word before `at`: skip whitespace, then the run before it. */
+function wordStartBefore(characters: readonly string[], at: number): number {
+  let index = Math.max(0, Math.min(at, characters.length));
+  while (index > 0 && /\s/.test(characters[index - 1] as string)) index -= 1;
+  while (index > 0 && !/\s/.test(characters[index - 1] as string)) index -= 1;
+  return index;
+}
+
+/** End of the word after `at`: skip whitespace, then the run after it. */
+function wordEndAfter(characters: readonly string[], at: number): number {
+  const limit = characters.length;
+  let index = Math.max(0, Math.min(at, limit));
+  while (index < limit && /\s/.test(characters[index] as string)) index += 1;
+  while (index < limit && !/\s/.test(characters[index] as string)) index += 1;
+  return index;
+}
+
+/**
+ * Start of the current logical line — just past the previous newline.
+ *
+ * "Logical" and not "visual": the composer wraps by cell, so a visual row is an
+ * artefact of the current width. Jumping to the start of a wrapped fragment
+ * would move the caret somewhere that changes when the window is resized, which
+ * is not what Cmd+Left means anywhere else.
+ */
+function lineStartBefore(characters: readonly string[], at: number): number {
+  let index = Math.max(0, Math.min(at, characters.length));
+  while (index > 0 && characters[index - 1] !== "\n") index -= 1;
+  return index;
+}
+
+/** End of the current logical line — just before the next newline. */
+function lineEndAfter(characters: readonly string[], at: number): number {
+  const limit = characters.length;
+  let index = Math.max(0, Math.min(at, limit));
+  while (index < limit && characters[index] !== "\n") index += 1;
+  return index;
+}
 
 /**
  * A completed tool call, as the activity reducer recorded it.
@@ -378,9 +424,7 @@ export function FullscreenBridge(): React.ReactNode {
     setDraft((value) => {
       const characters = [...value];
       const at = Math.max(0, Math.min(draftCaretRef.current, characters.length));
-      let start = at;
-      while (start > 0 && /\s/.test(characters[start - 1] as string)) start -= 1;
-      while (start > 0 && !/\s/.test(characters[start - 1] as string)) start -= 1;
+      const start = wordStartBefore(characters, at);
       setDraftCaret(start);
       return [...characters.slice(0, start), ...characters.slice(at)].join("");
     });
@@ -403,7 +447,7 @@ export function FullscreenBridge(): React.ReactNode {
   // First refusal on every key, handed to `App`, which owns the one keyboard
   // registration in the tree. Returning true consumes the key.
   const onKey = useCallback(
-    ({ name, ctrl, meta }: { name: string; ctrl: boolean; meta: boolean }): boolean => {
+    ({ name, sequence, ctrl, meta, option, super: superKey }: KeyChord): boolean => {
       // Ctrl+C, before anything else and regardless of state — including a
       // modal that would otherwise swallow every key it does not recognise.
       //
@@ -505,7 +549,7 @@ export function FullscreenBridge(): React.ReactNode {
       // "delete the previous word" — this keyboard library reports the first
       // as `meta`, not `option`, which is easy to miss without checking the
       // actual event rather than assuming a name.
-      if (name === "backspace" && (meta || ctrl)) {
+      if (name === "backspace" && (meta || option || ctrl)) {
         deleteWordBeforeCaret();
         return true;
       }
@@ -519,6 +563,39 @@ export function FullscreenBridge(): React.ReactNode {
         setDraftCaret((at) => Math.max(0, at - 1));
         return true;
       }
+      // Caret motion, from widest jump to narrowest so a chord is never
+      // shadowed by the plainer key it contains.
+      //
+      // macOS convention, and the reason `super` and `option` are carried
+      // separately: Cmd jumps to the edge of the line, Option moves by word.
+      // Ctrl+arrow is the Linux/Windows word-jump, and Home/End plus Ctrl+A /
+      // Ctrl+E are the bindings that work in every terminal regardless of
+      // whether it forwards Cmd at all — which many do not.
+      const wordJump = meta || option || ctrl;
+      if (name === "left" && superKey) {
+        setDraftCaret((at) => lineStartBefore([...draftRef.current], at));
+        return true;
+      }
+      if (name === "right" && superKey) {
+        setDraftCaret((at) => lineEndAfter([...draftRef.current], at));
+        return true;
+      }
+      if (name === "left" && wordJump) {
+        setDraftCaret((at) => wordStartBefore([...draftRef.current], at));
+        return true;
+      }
+      if (name === "right" && wordJump) {
+        setDraftCaret((at) => wordEndAfter([...draftRef.current], at));
+        return true;
+      }
+      if (name === "home" || (ctrl && name === "a")) {
+        setDraftCaret((at) => lineStartBefore([...draftRef.current], at));
+        return true;
+      }
+      if (name === "end" || (ctrl && name === "e")) {
+        setDraftCaret((at) => lineEndAfter([...draftRef.current], at));
+        return true;
+      }
       if (name === "left") {
         setDraftCaret((at) => Math.max(0, at - 1));
         return true;
@@ -528,19 +605,20 @@ export function FullscreenBridge(): React.ReactNode {
         return true;
       }
 
-      // `space` is reported by name rather than as the literal character —
-      // every other printable key's `name` already is that character, which
-      // is what makes this one worth calling out explicitly rather than
-      // folding it into the codepoint check below, where it would silently
-      // never match.
-      if (name === "space") {
-        insertAtCaret(" ");
-        return true;
-      }
-      if ([...name].length === 1) {
-        const code = name.codePointAt(0) ?? 0;
+      // Typing, from the sequence the terminal actually sent rather than from
+      // `name`. `name` is lowercased for capitals and is the word "space" for
+      // a space, so composing from it types in lower case and drops spaces.
+      //
+      // One printable code point is the whole test: a control key's sequence is
+      // either a control code (Enter is "\r", Ctrl+A is "\u0001") or a
+      // multi-character escape sequence (every arrow and function key), so both
+      // are excluded without maintaining a list of names. Ctrl and Cmd are
+      // rejected outright — a chord that reached here unhandled is a binding
+      // this does not implement, not text to insert.
+      if (!ctrl && !superKey && [...sequence].length === 1) {
+        const code = sequence.codePointAt(0) ?? 0;
         if (code >= 0x20 && code !== 0x7f) {
-          insertAtCaret(name);
+          insertAtCaret(sequence);
           return true;
         }
       }

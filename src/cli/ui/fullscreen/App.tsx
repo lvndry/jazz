@@ -27,6 +27,37 @@ import { MIN_HEIGHT, MIN_WIDTH, type Focus, type ViewModel } from "./types";
  * conversation yields the rows — the thing under the user's hands never moves.
  */
 
+/**
+ * The modifiers a text field has to tell apart, which is more than "was a
+ * modifier held".
+ *
+ * On macOS `super` is Cmd and `option`/`meta` is Option, and they mean
+ * different things in every text field on the platform: Cmd+Left goes to the
+ * start of the line, Option+Left goes back one word. Collapsing them into one
+ * flag makes those two chords indistinguishable, which is exactly the bug that
+ * made Cmd+Arrow behave wrongly. `ctrl` carries the Linux/Windows equivalents.
+ */
+export interface KeyChord {
+  readonly name: string;
+  /**
+   * The bytes the terminal actually sent.
+   *
+   * This is what must be inserted when typing, never `name`: `name` is
+   * lowercased for capitals — a shifted "X" arrives as `name: "x"` with
+   * `shift: true` — so composing from `name` silently types everything in
+   * lower case. `sequence` carries the true character. It is also what makes
+   * the printable test trustworthy: a control key's sequence is either a
+   * control code or a multi-character escape sequence, so "one printable code
+   * point" excludes every arrow, function key and Ctrl chord without needing a
+   * list of their names.
+   */
+  readonly sequence: string;
+  readonly ctrl: boolean;
+  readonly meta: boolean;
+  readonly option: boolean;
+  readonly super: boolean;
+}
+
 export interface AppProps {
   readonly view: ViewModel;
   readonly onAction: (action: KeyAction) => void;
@@ -37,7 +68,7 @@ export interface AppProps {
    * independent `useKeyboard` hooks leave it ambiguous which one sees a key,
    * and the loser silently receives nothing.
    */
-  readonly onKey?: (key: { name: string; ctrl: boolean; meta: boolean }) => boolean;
+  readonly onKey?: (key: KeyChord) => boolean;
   /**
    * Replaces the five-region layout with arbitrary content — the wizard menu,
    * the screen-unavailable notice — while this component's own `useKeyboard`
@@ -113,12 +144,20 @@ export function App({ view, onAction, onKey, overrideContent }: AppProps): React
 
   useKeyboard((key) => {
     const name = typeof key === "string" ? key : (key.name ?? "");
-    const ctrl = typeof key === "string" ? false : key.ctrl === true;
-    const meta = typeof key === "string" ? false : key.meta === true;
+    const event = key as Partial<
+      Record<"ctrl" | "meta" | "option" | "super", boolean> & { sequence: string }
+    >;
+    const ctrl = typeof key === "string" ? false : event.ctrl === true;
+    const meta = typeof key === "string" ? false : event.meta === true;
+    const option = typeof key === "string" ? false : event.option === true;
+    const superKey = typeof key === "string" ? false : event.super === true;
+    const sequence = typeof key === "string" ? key : (event.sequence ?? "");
 
     // The caller gets the key first, so the composer and the overlays see
     // typing before focus and Esc handling do.
-    if (onKeyRef.current?.({ name, ctrl, meta }) === true) return;
+    if (onKeyRef.current?.({ name, sequence, ctrl, meta, option, super: superKey }) === true) {
+      return;
+    }
 
     if (name === "escape") {
       dispatch(

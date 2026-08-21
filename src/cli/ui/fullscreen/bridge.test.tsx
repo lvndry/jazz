@@ -464,4 +464,125 @@ describe("fullscreen bridge", () => {
     });
     expect(text).not.toContain("[object Object]");
   });
+  /** Types a literal string into a live composer, one real keypress each. */
+  async function typeInto(
+    mockInput: { pressKey: (key: string, mods?: object) => Promise<void> },
+    flush: () => Promise<void>,
+    text: string,
+  ): Promise<void> {
+    for (const character of text) {
+      await mockInput.pressKey(character);
+      await settleKeypress(flush);
+    }
+  }
+
+  async function liveComposer() {
+    const rendered = await testRender(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
+    await rendered.renderOnce();
+    store.setPrompt({ type: "chat", message: "", resolve: () => undefined });
+    await rendered.flush();
+    return rendered;
+  }
+
+  it("types capital letters as capitals", async () => {
+    // `key.name` is lowercased for a shifted letter — "X" arrives as
+    // `name: "x"` with `shift: true` — so a composer built on `name` types
+    // everything in lower case. `sequence` carries the real character.
+    const rendered = await liveComposer();
+    await typeInto(rendered.mockInput, rendered.flush, "Hello World");
+    const frame = rendered.captureCharFrame();
+    rendered.renderer.destroy();
+    store.setPrompt(null);
+    expect(frame).toContain("Hello World");
+  });
+
+  it("Cmd+Left and Cmd+Right jump to the line edges", async () => {
+    // macOS: Cmd is `super`, and it means line-edge, not word. Carrying it
+    // separately from `option` is what makes the two distinguishable at all.
+    const rendered = await liveComposer();
+    await typeInto(rendered.mockInput, rendered.flush, "hello world");
+
+    await rendered.mockInput.pressKey("ARROW_LEFT", { super: true } as never);
+    await settleKeypress(rendered.flush, 100);
+    await rendered.mockInput.pressKey("X");
+    await settleKeypress(rendered.flush);
+    expect(rendered.captureCharFrame()).toContain("Xhello world");
+
+    await rendered.mockInput.pressKey("ARROW_RIGHT", { super: true } as never);
+    await settleKeypress(rendered.flush, 100);
+    await rendered.mockInput.pressKey("!");
+    await settleKeypress(rendered.flush);
+    const frame = rendered.captureCharFrame();
+    rendered.renderer.destroy();
+    store.setPrompt(null);
+    expect(frame).toContain("Xhello world!");
+  });
+
+  it("Option+Left moves by word, which must differ from Cmd+Left", async () => {
+    const rendered = await liveComposer();
+    await typeInto(rendered.mockInput, rendered.flush, "hello world");
+    await rendered.mockInput.pressKey("ARROW_LEFT", { meta: true } as never);
+    await settleKeypress(rendered.flush, 100);
+    await rendered.mockInput.pressKey("X");
+    await settleKeypress(rendered.flush);
+    const frame = rendered.captureCharFrame();
+    rendered.renderer.destroy();
+    store.setPrompt(null);
+    expect(frame).toContain("hello Xworld");
+    // The distinction that was broken: a word jump is not a line jump.
+    expect(frame).not.toContain("Xhello");
+  });
+
+  it("Home, End, Ctrl+A and Ctrl+E reach the line edges too", async () => {
+    // These matter because many macOS terminals never forward Cmd at all, so
+    // the line-edge motions need a binding that does not depend on it.
+    const rendered = await liveComposer();
+    await typeInto(rendered.mockInput, rendered.flush, "abc");
+
+    await rendered.mockInput.pressKey("HOME");
+    await settleKeypress(rendered.flush, 100);
+    await rendered.mockInput.pressKey("1");
+    await settleKeypress(rendered.flush);
+    await rendered.mockInput.pressKey("END");
+    await settleKeypress(rendered.flush, 100);
+    await rendered.mockInput.pressKey("9");
+    await settleKeypress(rendered.flush);
+    expect(rendered.captureCharFrame()).toContain("1abc9");
+
+    await rendered.mockInput.pressKey("a", { ctrl: true });
+    await settleKeypress(rendered.flush, 100);
+    await rendered.mockInput.pressKey("A");
+    await settleKeypress(rendered.flush);
+    await rendered.mockInput.pressKey("e", { ctrl: true });
+    await settleKeypress(rendered.flush, 100);
+    await rendered.mockInput.pressKey("Z");
+    await settleKeypress(rendered.flush);
+    const frame = rendered.captureCharFrame();
+    rendered.renderer.destroy();
+    store.setPrompt(null);
+    expect(frame).toContain("A1abc9Z");
+  });
+
+  it("does not insert text for an unbound Ctrl chord", async () => {
+    // Ctrl chords arrive as control codes — Ctrl+J is "\n", Ctrl+B is
+    // "\u0002" — which the one-printable-code-point test excludes without
+    // needing to know their names. The composer stays empty and shows its
+    // placeholder.
+    //
+    // Cmd+letter is deliberately not asserted here: outside the kitty keyboard
+    // protocol there is no escape sequence that can carry Cmd on a plain
+    // letter, so it arrives as the bare character or not at all, and no
+    // application can tell it apart from ordinary typing. Cmd is only
+    // observable on keys with a CSI form, which is why the Cmd+Arrow test
+    // above is the one that can prove that path.
+    const rendered = await liveComposer();
+    await rendered.mockInput.pressKey("j", { ctrl: true });
+    await settleKeypress(rendered.flush, 100);
+    await rendered.mockInput.pressKey("b", { ctrl: true });
+    await settleKeypress(rendered.flush, 100);
+    const frame = rendered.captureCharFrame();
+    rendered.renderer.destroy();
+    store.setPrompt(null);
+    expect(frame).toContain("Ask anything");
+  });
 });
