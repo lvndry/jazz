@@ -152,9 +152,11 @@ export function FullscreenBridge(): React.ReactNode {
   const [prompt, setPrompt] = useState<PromptState | null>(null);
   const [approval, setApproval] = useState<PendingApproval | null>(null);
   const [draft, setDraft] = useState("");
+  const [customView, setCustomView] = useState<React.ReactNode | null>(null);
   const [tick, setTick] = useState(0);
 
   const interrupt = useRef<(() => void) | null>(null);
+  const quitArmed = useRef(false);
   const reserved = useRef(0);
   const settle = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -191,6 +193,7 @@ export function FullscreenBridge(): React.ReactNode {
     store.registerEphemeralRegionsSetter(setRegions);
     store.registerPromptSetter(setPrompt);
     store.registerApprovalRequestSetter(setApproval);
+    store.registerCustomView(setCustomView);
     store.registerInterruptHandler((handler) => {
       interrupt.current = handler;
     });
@@ -228,7 +231,25 @@ export function FullscreenBridge(): React.ReactNode {
   // composer underneath.
   useKeyboard((key) => {
     const name = typeof key === "string" ? key : (key.name ?? "");
+    const ctrl = typeof key === "string" ? false : key.ctrl === true;
     const active = prompt;
+
+    // Ctrl+C, before anything else and regardless of state.
+    //
+    // The renderer is told not to exit on Ctrl+C so the agent loop can cancel
+    // in-flight work instead of the process dying mid-tool-call. That makes
+    // handling it here mandatory rather than optional: an alternate screen you
+    // cannot leave is the worst failure this interface can have, so the first
+    // press cancels if there is anything to cancel and the second always quits.
+    if (ctrl && (name === "c" || name === "\u0003")) {
+      if (interrupt.current !== null && quitArmed.current === false) {
+        quitArmed.current = true;
+        interrupt.current();
+        return;
+      }
+      process.kill(process.pid, "SIGINT");
+      return;
+    }
 
     if (approval !== null && active !== null) {
       if (name === "return" || name === "enter") active.resolve("yes");
@@ -316,6 +337,21 @@ export function FullscreenBridge(): React.ReactNode {
       focus: "input",
     };
   }, [outputs, streaming, activity, stats, queue, busy, regions, tick, draft, prompt, approval]);
+
+  // Custom views — the wizard, the config wizard, the workflow picker — are Ink
+  // element trees built by their callers and handed to whichever renderer is
+  // mounted. OpenTUI cannot paint an Ink tree, so rather than showing an empty
+  // frame and looking hung, say so and name the way out. Porting those screens
+  // is what closes the gap; until then this is the honest failure.
+  if (customView !== null) {
+    return (
+      <box style={{ flexDirection: "column", padding: 1 }}>
+        <text>This screen is not available in the fullscreen interface yet.</text>
+        <text>Run the same command without --fullscreen to use it.</text>
+        <text>ctrl-c quits.</text>
+      </box>
+    );
+  }
 
   return (
     <App
