@@ -432,4 +432,36 @@ describe("fullscreen bridge", () => {
     expect(frame).toContain("foo");
     expect(frame).not.toContain("bar");
   });
+  it("shows the real answer when a response completes without streaming a chunk", async () => {
+    // A short, fast reply is the common way to hit this: the provider returns
+    // the whole answer before any text_chunk event fires, so
+    // ink-presentation-service.ts's non-streaming path wraps it in an Ink
+    // element instead of a plain string. `String()` on that element is where
+    // "[object Object]" came from. The fix carries the real text alongside it
+    // in `meta.plainText`, which the bridge now prefers.
+    const text = await frame(() => {
+      store.printOutput({
+        type: "log",
+        message: { _tag: "ink", node: { anything: "not renderable outside Ink" } } as never,
+        meta: { plainText: "I'm doing well, thanks for asking!" },
+        timestamp: new Date(),
+      });
+    });
+    expect(text).toContain("I'm doing well, thanks for asking!");
+    expect(text).not.toContain("[object Object]");
+  });
+
+  it("never renders [object Object], even with no plainText fallback available", async () => {
+    // The defensive floor: textOf() must never call String() on a non-string
+    // message, because no object shape in this codebase has a meaningful
+    // default toString(). Silence is the correct degradation, not garbage.
+    const text = await frame(() => {
+      store.printOutput({
+        type: "log",
+        message: { _tag: "ink", node: {} } as never,
+        timestamp: new Date(),
+      });
+    });
+    expect(text).not.toContain("[object Object]");
+  });
 });

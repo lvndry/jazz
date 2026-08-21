@@ -84,13 +84,28 @@ function isEntryList(value: OutputEntry | readonly OutputEntry[]): value is read
   return Array.isArray(value);
 }
 
+/**
+ * `OutputEntry.message` is typed `string | TerminalInkNode` — the second half
+ * is an opaque wrapper (`{ _tag: "ink", node: <a React element> }`) that only
+ * an Ink-based terminal knows how to render. It reaches here whenever a
+ * response completes without ever streaming a chunk — a short, fast reply is
+ * the common case — so it is not an edge case to shrug off.
+ *
+ * `String()` on that object is where "[object Object]" came from: a plain
+ * object's default stringification, applied to a React element. The real fix
+ * is at the source, which now attaches the same text as `meta.plainText`
+ * (checked in `blocksFrom` before this function ever runs). This is the
+ * defensive floor for anything that does not: never stringify an object,
+ * because there is no object shape in this codebase whose default
+ * `toString()` is meaningful to a reader.
+ */
 function textOf(message: unknown): string {
   if (typeof message === "string") return message;
   if (message !== null && typeof message === "object" && "text" in message) {
     const text = (message as { text?: unknown }).text;
     if (typeof text === "string") return text;
   }
-  return String(message);
+  return "";
 }
 
 /**
@@ -103,7 +118,8 @@ function blocksFrom(entries: readonly OutputEntry[], streaming: string): Block[]
   let seq = 0;
 
   for (const entry of entries) {
-    const text = textOf(entry.message);
+    const plainText = entry.meta?.["plainText"];
+    const text = typeof plainText === "string" ? plainText : textOf(entry.message);
     if (text.trim().length === 0) continue;
     const id = entry.id ?? `b${String(seq)}`;
 

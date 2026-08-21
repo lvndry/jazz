@@ -698,6 +698,11 @@ export class InkStreamingRenderer implements StreamingRenderer {
             content: formattedFull,
           }),
         ),
+        // The message above renders only in an Ink-based terminal — it is an
+        // opaque React element to anything else. `formattedFull` is the actual
+        // text and travels alongside it in meta, so a non-Ink renderer has a
+        // real answer to show instead of an unrenderable object.
+        meta: { plainText: formattedFull },
         timestamp: new Date(),
       });
     }
