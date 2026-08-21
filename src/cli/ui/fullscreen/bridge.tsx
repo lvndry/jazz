@@ -15,11 +15,13 @@
  * scroll anchoring, collapse and copy-out possible at all.
  */
 
+import { useTerminalDimensions } from "@opentui/react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { search, type SearchHit } from "@/services/history/session-search";
 import type { ActivityState } from "../activity-state";
 import {
   store,
+  type ActiveMenu,
   type ConnectorStatus,
   type EphemeralRegion,
   type PendingApproval,
@@ -28,6 +30,7 @@ import {
 import type { OutputEntry, PromptState } from "../types";
 import { App } from "./App";
 import type { KeyAction } from "./keymap";
+import { Home } from "./screens/Home";
 import {
   LIVE_ZONE_MAX_ROWS,
   type ApprovalOverlay,
@@ -196,7 +199,11 @@ function approvalFrom(pending: PendingApproval): ApprovalOverlay {
   };
 }
 
+const VERSION = "0.14.2";
+
 export function FullscreenBridge(): React.ReactNode {
+  const { width, height } = useTerminalDimensions();
+  const viewport = { width, height };
   const [outputs, setOutputs] = useState<readonly OutputEntry[]>([]);
   const [streaming, setStreaming] = useState("");
   const [activity, setActivity] = useState<ActivityState>({ phase: "idle" });
@@ -212,6 +219,8 @@ export function FullscreenBridge(): React.ReactNode {
   const [searchQuery, setSearchQuery] = useState<string | null>(null);
   const [searchHits, setSearchHits] = useState<readonly SearchHit[]>([]);
   const [searchIndex, setSearchIndex] = useState(0);
+  const [menu, setMenu] = useState<ActiveMenu | null>(null);
+  const [menuIndex, setMenuIndex] = useState(0);
   const [tick, setTick] = useState(0);
 
   // `useKeyboard` registers its callback once, so a closure over state would keep
@@ -223,12 +232,16 @@ export function FullscreenBridge(): React.ReactNode {
   const approvalRef = useRef<PendingApproval | null>(null);
   const searchQueryRef = useRef<string | null>(null);
   const searchHitsRef = useRef<readonly SearchHit[]>([]);
+  const menuRef = useRef<ActiveMenu | null>(null);
+  const menuIndexRef = useRef(0);
 
   promptRef.current = prompt;
   draftRef.current = draft;
   approvalRef.current = approval;
   searchQueryRef.current = searchQuery;
   searchHitsRef.current = searchHits;
+  menuRef.current = menu;
+  menuIndexRef.current = menuIndex;
 
   const interrupt = useRef<(() => void) | null>(null);
   const quitArmed = useRef(false);
@@ -270,6 +283,10 @@ export function FullscreenBridge(): React.ReactNode {
     store.registerApprovalRequestSetter(setApproval);
     store.registerCustomView(setCustomView);
     store.registerConnectorsSetter(setConnectors);
+    store.registerActiveMenuSetter((next) => {
+      setMenu(next);
+      setMenuIndex(0);
+    });
     store.registerInterruptHandler((handler) => {
       interrupt.current = handler;
     });
@@ -337,6 +354,28 @@ export function FullscreenBridge(): React.ReactNode {
   // registration in the tree. Returning true consumes the key.
   const onKey = useCallback(
     ({ name, ctrl }: { name: string; ctrl: boolean }): boolean => {
+      // A menu is a modal question: it owns the keyboard until it is answered.
+      const openMenu = menuRef.current;
+      if (openMenu !== null) {
+        if (name === "up") {
+          setMenuIndex((index) => Math.max(0, index - 1));
+          return true;
+        }
+        if (name === "down") {
+          setMenuIndex((index) => Math.min(openMenu.options.length - 1, index + 1));
+          return true;
+        }
+        if (name === "return" || name === "enter") {
+          const choice = openMenu.options[menuIndexRef.current];
+          if (choice !== undefined) openMenu.onSelect(choice.value);
+          return true;
+        }
+        if (name === "escape" || name === "q") {
+          openMenu.onExit();
+          return true;
+        }
+        return true;
+      }
       const active = promptRef.current;
 
       // Ctrl+C, before anything else and regardless of state.
@@ -523,16 +562,32 @@ export function FullscreenBridge(): React.ReactNode {
     searchIndex,
   ]);
 
-  // Custom views — the wizard, the config wizard, the workflow picker — are Ink
-  // element trees built by their callers and handed to whichever renderer is
-  // mounted. OpenTUI cannot paint an Ink tree, so rather than showing an empty
-  // frame and looking hung, say so and name the way out. Porting those screens
-  // is what closes the gap; until then this is the honest failure.
+  // A menu the app is waiting on gets the real screen. The wizard publishes it
+  // as data precisely so a renderer that cannot paint an Ink tree can still draw
+  // it — which is what makes the flow work here at all.
+  if (menu !== null) {
+    return (
+      <Home
+        model={{
+          version: VERSION,
+          tagline: "One agent. Every surface. Your rules.",
+          requirements: [],
+          choices: menu.options.map((option) => ({ label: option.label, value: option.value })),
+          selected: menuIndex,
+        }}
+        viewport={viewport}
+      />
+    );
+  }
+
+  // Anything still delivered only as a pre-built Ink tree cannot be painted
+  // here. Say so and name the way out rather than showing an empty frame and
+  // looking hung.
   if (customView !== null) {
     return (
       <box style={{ flexDirection: "column", padding: 1 }}>
         <text>This screen is not available in the fullscreen interface yet.</text>
-        <text>Run the same command without --fullscreen to use it.</text>
+        <text>Run the same command with --no-tui to use it.</text>
         <text>ctrl-c quits.</text>
       </box>
     );

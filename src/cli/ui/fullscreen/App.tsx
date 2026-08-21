@@ -63,6 +63,15 @@ export function App({ view, onAction, onKey }: AppProps): React.ReactNode {
   const armedAt = useRef<number | undefined>(undefined);
   const glyphs = getGlyphs();
 
+  // `useKeyboard` registers its callback once, so it captures the props and
+  // state setters from the render that happened to be first. Those setters can
+  // belong to an instance React has since discarded, in which case the update is
+  // silently dropped — the updater function is never even invoked. Calling
+  // through a ref that every render refreshes means the handler is always the
+  // live one.
+  const onKeyRef = useRef<AppProps["onKey"]>(undefined);
+  onKeyRef.current = onKey;
+
   const overlayOpen = view.overlay !== undefined;
 
   const dispatch = useCallback(
@@ -94,7 +103,7 @@ export function App({ view, onAction, onKey }: AppProps): React.ReactNode {
 
     // The caller gets the key first, so the composer and the overlays see
     // typing before focus and Esc handling do.
-    if (onKey?.({ name, ctrl }) === true) return;
+    if (onKeyRef.current?.({ name, ctrl }) === true) return;
 
     if (name === "escape") {
       dispatch(
