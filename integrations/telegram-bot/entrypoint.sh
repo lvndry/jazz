@@ -12,17 +12,39 @@ AGENT_TEMPLATE="/app/integrations/telegram-bot/agent.telegram.json"
 
 mkdir -p "${JAZZ_HOME}/agents"
 
+# Directories for the email/calendar skills' XDG-relocated config, data, GPG
+# keyring, and pass store (see Dockerfile) — created up front so the first
+# `docker compose exec` setup session has somewhere to write.
+mkdir -p "${XDG_CONFIG_HOME:-/data/xdg-config}" "${XDG_DATA_HOME:-/data/xdg-data}" \
+  "${XDG_STATE_HOME:-/data/xdg-state}" "${PASSWORD_STORE_DIR:-/data/password-store}"
+mkdir -p "${GNUPGHOME:-/data/gnupg}"
+chmod 700 "${GNUPGHOME:-/data/gnupg}"
+
+# `execute_command` treats every shelled-out command as high-risk, so a
+# low-risk approval policy blocks the email/calendar skills entirely — they
+# only ever run himalaya/khal/vdirsyncer. Allowlisting those three (and only
+# those three) lets the skills work unattended without loosening the policy
+# for anything else. Set JAZZ_AUTO_APPROVE_MAIL_CALENDAR=false to opt out.
+AUTO_APPROVE_MAIL_CALENDAR="${JAZZ_AUTO_APPROVE_MAIL_CALENDAR:-true}"
+if [ "${AUTO_APPROVE_MAIL_CALENDAR}" = "true" ]; then
+  AUTO_APPROVED_COMMANDS_JSON='["himalaya","khal","vdirsyncer"]'
+else
+  AUTO_APPROVED_COMMANDS_JSON='[]'
+fi
+
 # Write config.json. Streaming is required so `jazz run --events` emits
 # live-progress events (non-TTY runs otherwise fall back to batch mode and emit
 # nothing). When BRAVE_API_KEY is set, also configure Brave as the web_search
 # provider — the key comes from the environment so it's never baked into the image.
 if [ -n "${BRAVE_API_KEY:-}" ]; then
   cat > "${JAZZ_HOME}/config.json" <<JSON
-{"output":{"streaming":{"enabled":true}},"web_search":{"provider":"brave","brave":{"api_key":"${BRAVE_API_KEY}"}}}
+{"output":{"streaming":{"enabled":true}},"web_search":{"provider":"brave","brave":{"api_key":"${BRAVE_API_KEY}"}},"autoApprovedCommands":${AUTO_APPROVED_COMMANDS_JSON}}
 JSON
   echo "Configured Brave web search"
 else
-  printf '{"output":{"streaming":{"enabled":true}}}\n' > "${JAZZ_HOME}/config.json"
+  cat > "${JAZZ_HOME}/config.json" <<JSON
+{"output":{"streaming":{"enabled":true}},"autoApprovedCommands":${AUTO_APPROVED_COMMANDS_JSON}}
+JSON
 fi
 
 # Seed / refresh the template agent that per-chat agents are cloned from.

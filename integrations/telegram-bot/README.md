@@ -114,6 +114,31 @@ experience. `JAZZ_TELEGRAM_PROVIDER` / `JAZZ_TELEGRAM_MODEL` / `JAZZ_REASONING` 
 the defaults new chats start from. (`/model` lists Ollama models — handy when you
 run Ollama; cloud users typically just keep the default.)
 
+**Mail & calendar.** The image ships [Himalaya](https://github.com/pimalaya/himalaya)
+(email) and [khal](https://github.com/pimutils/khal) + [vdirsyncer](https://github.com/pimutils/vdirsyncer)
+(calendar) — the same CLIs the `email`/`calendar` skills already know how to drive
+via `execute_command` (see [Email & Calendar](../../docs/integrations/email-calendar.md)).
+The entrypoint allowlists exactly those three binaries in `autoApprovedCommands`
+so the skills work under the default `low-risk` policy without loosening it for
+anything else; set `JAZZ_AUTO_APPROVE_MAIL_CALENDAR=false` to turn that off.
+
+Their config/data/keyring/password-store live under `/data` (the same volume
+Jazz already persists) via `XDG_CONFIG_HOME` etc., so setup survives restarts
+and rebuilds. **Account credentials still have to go in yourself** — these
+tools' setup wizards need a real terminal and neither the bot nor the skills
+will accept a password typed into Telegram chat:
+
+```sh
+docker compose exec jazz-telegram sh
+# then, inside the container:
+himalaya                 # interactive account wizard (IMAP/SMTP, or Gmail app password)
+gpg --full-generate-key  # one-time, for `pass` (khal/vdirsyncer store CalDAV
+                          # passwords via pass, not plaintext config)
+pass init <your-gpg-id>
+vdirsyncer discover && vdirsyncer sync
+khal configure           # or hand-write ~/.config/khal/config per the calendar skill
+```
+
 ## Configuration
 
 | Variable                             | Default                                 | Purpose                                                                                                                                                                                                                                                     |
@@ -128,6 +153,7 @@ run Ollama; cloud users typically just keep the default.)
 | `OLLAMA_BASE_URL`                    | `http://host.docker.internal:11434/api` | Ollama endpoint (only for `provider=ollama` / `/model`).                                                                                                                                                                                                    |
 | `JAZZ_APPROVAL_POLICY`               | `low-risk`                              | Auto-approve tools up to: `read-only`\|`low-risk`\|`high-risk`.                                                                                                                                                                                             |
 | `JAZZ_AUTO_APPROVE_TOOLS`            | —                                       | Comma-separated tool names to auto-approve regardless of policy (e.g. `execute_command`) — narrower than raising the whole tier. Tools needing approval that aren't in this list are sent to the chat as an accept/reject prompt instead of being declined. |
+| `JAZZ_AUTO_APPROVE_MAIL_CALENDAR`    | `true`                                  | Allowlists `himalaya`/`khal`/`vdirsyncer` in `autoApprovedCommands` so the email/calendar skills work under `low-risk`. Set `false` to require approval for them like any other shell command.                                                            |
 | `JAZZ_RUN_TIMEOUT_MS`                | `300000`                                | Per-message agent timeout.                                                                                                                                                                                                                                  |
 | `TELEGRAM_MODE`                      | `polling`                               | `polling` or `webhook`.                                                                                                                                                                                                                                     |
 | `PORT`                               | `8080`                                  | In-container health-check port.                                                                                                                                                                                                                             |

@@ -14,10 +14,31 @@ WORKDIR /app
 # built-in afinfo for audio; Debian has no equivalent, so the bridge that
 # actually receives voice notes installs the real thing. Debian ships ffprobe
 # only as part of the ffmpeg package.
+#
+# jq, khal, vdirsyncer, pass, and gnupg back the email/calendar skills
+# (docs/integrations/email-calendar.md): himalaya's own output is piped
+# through jq, khal/vdirsyncer manage the calendar, and pass+gnupg hold the
+# CalDAV/IMAP credentials the skills tell the user to store there rather than
+# in plaintext config.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    chromium fonts-liberation ffmpeg \
+    chromium fonts-liberation ffmpeg curl jq khal vdirsyncer pass gnupg \
     && rm -rf /var/lib/apt/lists/*
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+
+# Himalaya has no Debian package; install the upstream binary the same way
+# the email skill's own install fallback does.
+RUN curl -sSL https://raw.githubusercontent.com/pimalaya/himalaya/master/install.sh \
+    | PREFIX=/usr/local sh
+
+# himalaya/khal/vdirsyncer/pass/gnupg all default to files under $HOME, which
+# lives on the container's writable layer and is lost on every rebuild or
+# recreate. Point their config/data/secrets at the same /data volume Jazz
+# already persists (JAZZ_HOME below) so `docker compose exec` setup survives.
+ENV XDG_CONFIG_HOME=/data/xdg-config \
+    XDG_DATA_HOME=/data/xdg-data \
+    XDG_STATE_HOME=/data/xdg-state \
+    GNUPGHOME=/data/gnupg \
+    PASSWORD_STORE_DIR=/data/password-store
 
 # Dependencies first so the install layer caches across source edits.
 COPY package.json bun.lock bunfig.toml ./
