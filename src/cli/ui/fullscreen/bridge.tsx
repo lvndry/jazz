@@ -17,6 +17,7 @@
 
 import { useTerminalDimensions } from "@opentui/react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { stripAnsiCodes } from "@/cli/utils/string-utils";
 import { search, type SearchHit } from "@/services/history/session-search";
 import type { ActivityState } from "../activity-state";
 import {
@@ -155,6 +156,31 @@ function textOf(message: unknown): string {
 }
 
 /**
+ * Strips the styling another renderer already applied.
+ *
+ * The presentation service styles its strings with chalk before they reach the
+ * store — the reasoning summary is `chalk.dim(chalk.italic(...))`, tool results
+ * arrive pre-rendered, markdown comes back with colour already baked in. Those
+ * escapes are instructions to a terminal, not characters, so rendering them
+ * into a composited frame puts `\u001b[2m` on screen as cells and lets the
+ * terminal eat the ones that follow — which is what turned "Reasoning" into
+ * "easoning".
+ *
+ * Stripping rather than parsing is the right call here, and not just the easy
+ * one: this interface decides colour from its own semantic tokens, six of them,
+ * each answering one question. Inheriting another renderer's palette would
+ * defeat that by construction.
+ *
+ * Worth knowing why this was invisible for so long: `chalk.level` is 0 under
+ * `bun test`, so chalk emits no escapes and every one of these strings arrives
+ * clean in a test while arriving styled in production. `bridge.test.tsx` now
+ * forces truecolor for exactly that reason.
+ */
+function plainOf(message: unknown): string {
+  return stripAnsiCodes(textOf(message));
+}
+
+/**
  * Output entries become blocks. Consecutive stream chunks are one agent turn
  * rather than one block each: the model emits prose in pieces, and a block per
  * piece would make the transcript unscrollable and the markdown unparseable.
@@ -165,7 +191,7 @@ function blocksFrom(entries: readonly OutputEntry[], streaming: string): Block[]
 
   for (const entry of entries) {
     const plainText = entry.meta?.["plainText"];
-    const text = typeof plainText === "string" ? plainText : textOf(entry.message);
+    const text = stripAnsiCodes(typeof plainText === "string" ? plainText : plainOf(entry.message));
     if (text.trim().length === 0) continue;
     const id = entry.id ?? `b${String(seq)}`;
 
@@ -275,11 +301,25 @@ export function FullscreenBridge(): React.ReactNode {
   const [regions, setRegions] = useState<readonly EphemeralRegion[]>([]);
   const [prompt, setPrompt] = useState<PromptState | null>(null);
   const [approval, setApproval] = useState<PendingApproval | null>(null);
-  const [draft, setDraft] = useState("");
-  // Code-point offset, not a JS string index — every splice below operates on
-  // `[...text]` for exactly that reason, so a multi-byte character never gets
-  // cut in half.
-  const [draftCaret, setDraftCaret] = useState(0);
+  /**
+   * The composer's text and caret as one value, updated only through pure
+   * updaters.
+   *
+   * They were two `useState`s with the caret also mirrored into a ref, and the
+   * ref only refreshes on render — so two keypresses landing before a repaint
+   * both read the same stale offset and the second insert overwrote the first.
+   * Fast typing dropped characters. Text and caret are a single fact and have
+   * to move together.
+   *
+   * The caret is a code-point offset, never a JS string index, which is why
+   * every splice below works on `[...text]`.
+   */
+  const [composer, setComposer] = useState<{ text: string; caret: number }>({
+    text: "",
+    caret: 0,
+  });
+  const draft = composer.text;
+  const draftCaret = composer.caret;
   const [customView, setCustomView] = useState<React.ReactNode | null>(null);
   const [connectors, setConnectors] = useState<ReadonlyMap<string, ConnectorStatus>>(new Map());
   const [searchQuery, setSearchQuery] = useState<string | null>(null);
@@ -295,7 +335,6 @@ export function FullscreenBridge(): React.ReactNode {
   // correct regardless of the hook's registration semantics.
   const promptRef = useRef<PromptState | null>(null);
   const draftRef = useRef("");
-  const draftCaretRef = useRef(0);
   const approvalRef = useRef<PendingApproval | null>(null);
   const searchQueryRef = useRef<string | null>(null);
   const searchHitsRef = useRef<readonly SearchHit[]>([]);
@@ -304,7 +343,6 @@ export function FullscreenBridge(): React.ReactNode {
 
   promptRef.current = prompt;
   draftRef.current = draft;
-  draftCaretRef.current = draftCaret;
   approvalRef.current = approval;
   searchQueryRef.current = searchQuery;
   searchHitsRef.current = searchHits;
@@ -329,7 +367,7 @@ export function FullscreenBridge(): React.ReactNode {
     // Streaming bypasses printOutput entirely, so without this the agent's prose
     // would never appear.
     store.registerStreamingHandler({
-      appendStream: (_kind, delta) => setStreaming((previous) => previous + delta),
+      appendStream: (_kind, delta) => setStreaming((previous) => previous + stripAnsiCodes(delta)),
       finalizeStream: () => {
         setStreaming((text) => {
           if (text.trim().length > 0) {
@@ -370,7 +408,13 @@ export function FullscreenBridge(): React.ReactNode {
     };
   }, []);
 
-  const running = activity.phase === "tool-execution" || activity.phase === "awaiting";
+  // Reasoning is the model working with nothing yet to show, which is exactly
+  // when an indicator earns its place — it was excluded here, so the loader
+  // vanished the moment thinking began and only came back if a tool ran.
+  const running =
+    activity.phase === "tool-execution" ||
+    activity.phase === "awaiting" ||
+    activity.phase === "thinking";
   useEffect(() => {
     if (!running) return;
     const timer = setInterval(() => setTick((value) => value + 1), 170);
@@ -406,12 +450,14 @@ export function FullscreenBridge(): React.ReactNode {
   }, [searchQuery]);
 
   const insertAtCaret = useCallback((text: string) => {
-    setDraft((value) => {
+    setComposer(({ text: value, caret }) => {
       const characters = [...value];
-      const at = Math.max(0, Math.min(draftCaretRef.current, characters.length));
-      return [...characters.slice(0, at), text, ...characters.slice(at)].join("");
+      const at = Math.max(0, Math.min(caret, characters.length));
+      return {
+        text: [...characters.slice(0, at), text, ...characters.slice(at)].join(""),
+        caret: at + [...text].length,
+      };
     });
-    setDraftCaret((at) => at + [...text].length);
   }, []);
 
   /**
@@ -421,12 +467,14 @@ export function FullscreenBridge(): React.ReactNode {
    * that. Operates in code points throughout.
    */
   const deleteWordBeforeCaret = useCallback(() => {
-    setDraft((value) => {
+    setComposer(({ text: value, caret }) => {
       const characters = [...value];
-      const at = Math.max(0, Math.min(draftCaretRef.current, characters.length));
+      const at = Math.max(0, Math.min(caret, characters.length));
       const start = wordStartBefore(characters, at);
-      setDraftCaret(start);
-      return [...characters.slice(0, start), ...characters.slice(at)].join("");
+      return {
+        text: [...characters.slice(0, start), ...characters.slice(at)].join(""),
+        caret: start,
+      };
     });
   }, []);
 
@@ -434,8 +482,7 @@ export function FullscreenBridge(): React.ReactNode {
     (text: string) => {
       const active = promptRef.current;
       if (active === null || text.trim().length === 0) return;
-      setDraft("");
-      setDraftCaret(0);
+      setComposer({ text: "", caret: 0 });
       active.resolve(text);
     },
     [prompt],
@@ -463,6 +510,38 @@ export function FullscreenBridge(): React.ReactNode {
           return true;
         }
         process.kill(process.pid, "SIGINT");
+        return true;
+      }
+
+      // Ctrl+R expands the most recently collapsed reasoning back into the
+      // transcript. Skipped while a reasoning panel is still open, because the
+      // live panel already *is* the expanded view — same rule the Ink tree
+      // applies, so the binding means one thing across both renderers.
+      if (ctrl && name === "r") {
+        const reasoningOpen = store
+          .getEphemeralRegionsSnapshot()
+          .some((region) => region.kind === "reasoning");
+        if (!reasoningOpen) store.expandLastReasoning();
+        return true;
+      }
+
+      // Ctrl+O expands the last truncated tool output, which is the other half
+      // of the promise the footer makes.
+      if (ctrl && name === "o") {
+        const payload = store.getExpandableDiff();
+        if (payload === null || payload === undefined) {
+          store.printOutput({
+            type: "warn",
+            message: "No truncated output available to expand.",
+            timestamp: new Date(),
+          });
+        } else {
+          store.printOutput({
+            type: "log",
+            message: payload.fullDiff,
+            timestamp: new Date(),
+          });
+        }
         return true;
       }
 
@@ -554,13 +633,15 @@ export function FullscreenBridge(): React.ReactNode {
         return true;
       }
       if (name === "backspace") {
-        setDraft((value) => {
+        setComposer(({ text: value, caret }) => {
           const characters = [...value];
-          const at = Math.max(0, Math.min(draftCaretRef.current, characters.length));
-          if (at === 0) return value;
-          return [...characters.slice(0, at - 1), ...characters.slice(at)].join("");
+          const at = Math.max(0, Math.min(caret, characters.length));
+          if (at === 0) return { text: value, caret: 0 };
+          return {
+            text: [...characters.slice(0, at - 1), ...characters.slice(at)].join(""),
+            caret: at - 1,
+          };
         });
-        setDraftCaret((at) => Math.max(0, at - 1));
         return true;
       }
       // Caret motion, from widest jump to narrowest so a chord is never
@@ -573,35 +654,38 @@ export function FullscreenBridge(): React.ReactNode {
       // whether it forwards Cmd at all — which many do not.
       const wordJump = meta || option || ctrl;
       if (name === "left" && superKey) {
-        setDraftCaret((at) => lineStartBefore([...draftRef.current], at));
+        setComposer(({ text, caret }) => ({ text, caret: lineStartBefore([...text], caret) }));
         return true;
       }
       if (name === "right" && superKey) {
-        setDraftCaret((at) => lineEndAfter([...draftRef.current], at));
+        setComposer(({ text, caret }) => ({ text, caret: lineEndAfter([...text], caret) }));
         return true;
       }
       if (name === "left" && wordJump) {
-        setDraftCaret((at) => wordStartBefore([...draftRef.current], at));
+        setComposer(({ text, caret }) => ({ text, caret: wordStartBefore([...text], caret) }));
         return true;
       }
       if (name === "right" && wordJump) {
-        setDraftCaret((at) => wordEndAfter([...draftRef.current], at));
+        setComposer(({ text, caret }) => ({ text, caret: wordEndAfter([...text], caret) }));
         return true;
       }
       if (name === "home" || (ctrl && name === "a")) {
-        setDraftCaret((at) => lineStartBefore([...draftRef.current], at));
+        setComposer(({ text, caret }) => ({ text, caret: lineStartBefore([...text], caret) }));
         return true;
       }
       if (name === "end" || (ctrl && name === "e")) {
-        setDraftCaret((at) => lineEndAfter([...draftRef.current], at));
+        setComposer(({ text, caret }) => ({ text, caret: lineEndAfter([...text], caret) }));
         return true;
       }
       if (name === "left") {
-        setDraftCaret((at) => Math.max(0, at - 1));
+        setComposer(({ text, caret }) => ({ text, caret: Math.max(0, caret - 1) }));
         return true;
       }
       if (name === "right") {
-        setDraftCaret((at) => Math.min([...draftRef.current].length, at + 1));
+        setComposer(({ text, caret }) => ({
+          text,
+          caret: Math.min([...text].length, caret + 1),
+        }));
         return true;
       }
 
@@ -630,10 +714,7 @@ export function FullscreenBridge(): React.ReactNode {
   const onAction = useCallback(
     (action: KeyAction) => {
       if (action.type === "interrupt") interrupt.current?.();
-      if (action.type === "stash-draft") {
-        setDraft("");
-        setDraftCaret(0);
-      }
+      if (action.type === "stash-draft") setComposer({ text: "", caret: 0 });
       if (action.type === "close-overlay" && approval !== null) prompt?.resolve("no");
     },
     [approval, prompt],
@@ -641,9 +722,11 @@ export function FullscreenBridge(): React.ReactNode {
 
   const view = useMemo<ViewModel>(() => {
     const tools = liveToolsFrom(activity, Date.now());
-    const extras =
-      (activity.phase === "awaiting" ? 1 : 0) +
-      (regions.some((region) => region.kind === "reasoning") ? 1 : 0);
+    // Only rows the live zone actually draws may be reserved. Counting the
+    // reasoning region here as well reserved a row nothing fills, which showed
+    // up as a blank gap above the composer.
+    const waitingNow = activity.phase === "awaiting" || activity.phase === "thinking";
+    const extras = waitingNow ? 1 : 0;
     const needed = Math.min(LIVE_ZONE_MAX_ROWS, tools.length + extras);
 
     // High-water mark: grow to fit, fall only once the run settles, so the input
@@ -688,7 +771,7 @@ export function FullscreenBridge(): React.ReactNode {
       live: {
         tools,
         hiddenTools: [],
-        ...(activity.phase === "awaiting"
+        ...(waitingNow
           ? { waiting: WAITING[Math.floor(tick / 24) % WAITING.length] as string }
           : {}),
         tick,

@@ -6,7 +6,8 @@
  */
 
 import { testRender } from "@opentui/react/test-utils";
-import { beforeEach, describe, expect, it } from "bun:test";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
+import chalk from "chalk";
 import React from "react";
 import { store } from "../store";
 import { FullscreenBridge } from "./bridge";
@@ -62,6 +63,21 @@ async function frame(feed: () => void = () => undefined): Promise<string> {
 }
 
 describe("fullscreen bridge", () => {
+  const originalChalkLevel = chalk.level;
+
+  // Production has truecolor; `bun test` defaults chalk to level 0, which emits
+  // no escape codes at all. Every string the presentation service styles
+  // therefore arrives clean in a test and styled in the real app — which is how
+  // ANSI escapes leaking into the transcript went unnoticed while producing
+  // visibly mangled text on screen. Forcing the level here makes these tests
+  // see what a user sees.
+  beforeAll(() => {
+    chalk.level = 3;
+  });
+  afterAll(() => {
+    chalk.level = originalChalkLevel;
+  });
+
   beforeEach(() => {
     store.setActivity({ phase: "idle" });
     store.resetRunStats({});
@@ -584,5 +600,76 @@ describe("fullscreen bridge", () => {
     rendered.renderer.destroy();
     store.setPrompt(null);
     expect(frame).toContain("Ask anything");
+  });
+  it("renders no ANSI escape codes, whatever styling the producer applied", async () => {
+    // The presentation service styles strings with chalk before they reach the
+    // store. Those escapes are terminal instructions, not characters: rendered
+    // into a composited frame they occupy cells and the terminal eats the ones
+    // that follow, which is what turned "Reasoning" into "easoning".
+    const text = await frame(() => {
+      store.printOutput({
+        type: "log",
+        message: chalk.dim(chalk.italic("Reasoning · 7.2s · ctrl+r to expand")),
+        timestamp: new Date(),
+      });
+      store.printOutput({
+        type: "streamContent",
+        message: chalk.bold("A styled answer") + " and " + chalk.hex("#00D7FF")("a coloured tail"),
+        timestamp: new Date(),
+      });
+    });
+
+    // Nothing that came out of chalk survives as a literal escape.
+    expect(text).not.toContain("\u001b[");
+    expect(text).not.toContain("\u001b");
+    // And the words themselves are intact — stripping must not eat characters.
+    expect(text).toContain("Reasoning · 7.2s · ctrl+r to expand");
+    expect(text).toContain("A styled answer and a coloured tail");
+  });
+
+  it("keeps streamed deltas clean when the formatter has styled them", async () => {
+    const text = await frame(() => {
+      store.appendStream("response", chalk.bold("bold start "));
+      store.appendStream("response", chalk.dim("dim finish"));
+    });
+    expect(text).not.toContain("\u001b");
+    expect(text).toContain("bold start dim finish");
+  });
+  it("keeps the indicator visible while the model is reasoning", async () => {
+    // Reasoning is the model working with nothing yet to show, which is when an
+    // indicator earns its place most. It was excluded from the running set, so
+    // the loader vanished the moment thinking began.
+    const text = await frame(() => {
+      store.setActivity({ phase: "thinking", agentName: "jazz" });
+    });
+    const rows = text.split("\n").filter((row) => row.length > 0);
+    // The waiting row sits directly above the composer.
+    const composerIndex = rows.findIndex((row) => row.includes("Ask anything"));
+    expect(composerIndex).toBeGreaterThan(0);
+    const waitingRow = rows[composerIndex - 1] ?? "";
+    expect(waitingRow.trim().length).toBeGreaterThan(0);
+  });
+
+  it("Ctrl+R expands the last collapsed reasoning", async () => {
+    const rendered = await liveComposer();
+    // A collapsed reasoning block, exactly as collapseEphemeral records one.
+    const regionId = store.openEphemeral("reasoning", "Reasoning", 8);
+    store.collapseEphemeral(regionId, {
+      line: "Reasoning · 3.2s · ctrl+r to expand",
+      fullText: "the full chain of thought",
+      durationMs: 3_200,
+    });
+    store.flushOutputBatchNow();
+    await rendered.flush();
+
+    await rendered.mockInput.pressKey("r", { ctrl: true });
+    await settleKeypress(rendered.flush, 100);
+    store.flushOutputBatchNow();
+    await rendered.flush();
+
+    const frameText = rendered.captureCharFrame();
+    rendered.renderer.destroy();
+    store.setPrompt(null);
+    expect(frameText).toContain("the full chain of thought");
   });
 });
