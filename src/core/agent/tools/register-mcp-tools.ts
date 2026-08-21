@@ -130,6 +130,15 @@ export function registerMCPToolsForAgent(
         // This ensures tools are available when needed and connections persist during the session
         // If connection fails (e.g., invalid credentials), we show a clear message but continue
         const connectResult = yield* Effect.either(mcpManager.connectServer(serverConfig));
+        // Tell the interface whether this connector is actually reachable. A
+        // failure here is not fatal — the agent carries on without those tools —
+        // so the header is the only place the user would otherwise learn of it.
+        if (presentation.reportConnector) {
+          yield* presentation.reportConnector(
+            serverName,
+            connectResult._tag === "Left" ? "offline" : "live",
+          );
+        }
         if (connectResult._tag === "Left") {
           const error = connectResult.left;
           const errorMessage = String(error);

@@ -88,6 +88,8 @@ export interface CollapseEphemeralSummary {
  * Deliberately not the full `ApprovalRequest`: the store should not depend on
  * the tools layer, and the resume callback is not the UI's business.
  */
+export type ConnectorStatus = "live" | "renew" | "offline";
+
 export interface PendingApproval {
   readonly toolName: string;
   readonly executeToolName: string;
@@ -592,6 +594,9 @@ export class UIStore {
 
   // ── Registration methods (called by island components) ────────────
 
+  private connectorsSnapshot: ReadonlyMap<string, ConnectorStatus> = new Map();
+  private connectorsSetter: ((connectors: ReadonlyMap<string, ConnectorStatus>) => void) | null =
+    null;
   private approvalRequestSnapshot: PendingApproval | null = null;
   private approvalRequestSetter: ((request: PendingApproval | null) => void) | null = null;
 
@@ -654,6 +659,25 @@ export class UIStore {
    * prose — none of which survives being flattened into a menu. So the request
    * travels alongside the prompt rather than inside it.
    */
+  /** Reachability of the named connectors, newest state wins per name. */
+  setConnector = (name: string, status: ConnectorStatus): void => {
+    const next = new Map(this.connectorsSnapshot);
+    next.set(name, status);
+    this.connectorsSnapshot = next;
+    if (this.connectorsSetter) this.connectorsSetter(next);
+  };
+
+  registerConnectorsSetter(
+    setter: (connectors: ReadonlyMap<string, ConnectorStatus>) => void,
+  ): void {
+    this.connectorsSetter = setter;
+    setter(this.connectorsSnapshot);
+  }
+
+  getConnectorsSnapshot(): ReadonlyMap<string, ConnectorStatus> {
+    return this.connectorsSnapshot;
+  }
+
   setApprovalRequest = (request: PendingApproval | null): void => {
     this.approvalRequestSnapshot = request;
     if (this.approvalRequestSetter) this.approvalRequestSetter(request);

@@ -225,6 +225,18 @@ export interface PresentationService {
    * to synchronize the approval queue. The next approval prompt will not be shown
    * until this signal is received, preventing log interleaving.
    */
+  /**
+   * Report the reachability of a named connector, so an interface can show
+   * whether the things the agent depends on are actually available.
+   *
+   * Optional: only presentations that render persistent chrome have anywhere to
+   * put it, and a one-shot run has nothing to gain from it.
+   */
+  readonly reportConnector?: (
+    name: string,
+    status: "live" | "renew" | "offline",
+  ) => Effect.Effect<void, never>;
+
   readonly signalToolExecutionStarted: () => Effect.Effect<void, never>;
 
   /**

@@ -1399,6 +1399,12 @@ class InkPresentationService implements PresentationService {
     });
   }
 
+  reportConnector(name: string, status: "live" | "renew" | "offline"): Effect.Effect<void, never> {
+    return Effect.sync(() => {
+      store.setConnector(name, status);
+    });
+  }
+
   signalToolExecutionStarted(): Effect.Effect<void, never> {
     return Effect.sync(() => {
       // If there's a pending signal callback, invoke it to allow the next

@@ -415,6 +415,19 @@ export function reduceEvent(
       const glyph = failed ? getGlyphs().error : getGlyphs().success;
       const glyphColor = failed ? THEME.error : THEME.success;
 
+      // The rendered string above is for the Ink tree. Carry the same result as
+      // structured data so a renderer that lays out its own rows does not have
+      // to parse ANSI back into meaning. `meta` keeps it in the output stream,
+      // which is what preserves ordering relative to the surrounding turns.
+      const receipt = {
+        app: toolName ?? "tool",
+        summary: summary && summary.length > 0 ? summary.split("\n")[0] : (toolName ?? "tool"),
+        status: failed ? "failed" : "ok",
+        durationMs: event.durationMs,
+        ...(failed && event.error ? { reason: event.error.trim() } : {}),
+        ...(summary && summary.includes("\n") ? { detail: summary } : {}),
+      };
+
       const displayText = summary && summary.length > 0 ? summary : (toolName ?? "Tool");
       const hasMultiLine = displayText.includes("\n");
 
@@ -463,6 +476,7 @@ export function reduceEvent(
             ),
           ),
           timestamp: new Date(),
+          meta: { toolReceipt: receipt },
         });
       } else {
         const singleLineSummary = summary && summary.length > 0 ? summary : (toolName ?? "Tool");
@@ -483,6 +497,7 @@ export function reduceEvent(
             ),
           ),
           timestamp: new Date(),
+          meta: { toolReceipt: receipt },
         });
       }
 

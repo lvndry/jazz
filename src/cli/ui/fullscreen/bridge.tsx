@@ -18,7 +18,13 @@
 import { useKeyboard } from "@opentui/react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ActivityState } from "../activity-state";
-import { store, type EphemeralRegion, type PendingApproval, type RunStats } from "../store";
+import {
+  store,
+  type ConnectorStatus,
+  type EphemeralRegion,
+  type PendingApproval,
+  type RunStats,
+} from "../store";
 import type { OutputEntry, PromptState } from "../types";
 import { App } from "./App";
 import type { KeyAction } from "./keymap";
@@ -36,6 +42,39 @@ const WAITING = ["comping behind you", "turning it over", "two horns out", "digg
 
 /** How long the band holds its height after the last tool finishes. */
 const SETTLE_MS = 800;
+
+/**
+ * A completed tool call, as the activity reducer recorded it.
+ *
+ * The reducer also pushes a rendered ANSI string for the Ink tree. Reading the
+ * structured form instead is what turns a tool call into a receipt — the app and
+ * what came back, dim, with the invocation and timing behind a key — rather than
+ * a generic notice carrying somebody else's layout.
+ */
+interface ToolReceiptMeta {
+  readonly app: string;
+  readonly summary: string;
+  readonly status: "ok" | "failed";
+  readonly durationMs?: number;
+  readonly reason?: string;
+  readonly detail?: string;
+}
+
+function receiptOf(entry: OutputEntry): ToolReceiptMeta | null {
+  const candidate = entry.meta?.["toolReceipt"];
+  if (candidate === null || typeof candidate !== "object") return null;
+  const record = candidate as Record<string, unknown>;
+  if (typeof record["app"] !== "string" || typeof record["summary"] !== "string") return null;
+  const status = record["status"] === "failed" ? "failed" : "ok";
+  return {
+    app: record["app"],
+    summary: record["summary"],
+    status,
+    ...(typeof record["durationMs"] === "number" ? { durationMs: record["durationMs"] } : {}),
+    ...(typeof record["reason"] === "string" ? { reason: record["reason"] } : {}),
+    ...(typeof record["detail"] === "string" ? { detail: record["detail"] } : {}),
+  };
+}
 
 /** `Array.isArray` alone widens a readonly array to `any[]`. */
 function isEntryList(value: OutputEntry | readonly OutputEntry[]): value is readonly OutputEntry[] {
@@ -76,6 +115,22 @@ function blocksFrom(entries: readonly OutputEntry[], streaming: string): Block[]
         continue;
       }
       blocks.push({ id, seq: seq++, kind: "agent", markdown: text });
+      continue;
+    }
+
+    const receipt = receiptOf(entry);
+    if (receipt !== null) {
+      blocks.push({
+        id,
+        seq: seq++,
+        kind: "tool",
+        app: receipt.app,
+        summary: receipt.summary,
+        status: receipt.status,
+        ...(receipt.reason === undefined ? {} : { reason: receipt.reason }),
+        ...(receipt.durationMs === undefined ? {} : { durationMs: receipt.durationMs }),
+        ...(receipt.detail === undefined ? {} : { detail: receipt.detail }),
+      });
       continue;
     }
 
@@ -153,6 +208,7 @@ export function FullscreenBridge(): React.ReactNode {
   const [approval, setApproval] = useState<PendingApproval | null>(null);
   const [draft, setDraft] = useState("");
   const [customView, setCustomView] = useState<React.ReactNode | null>(null);
+  const [connectors, setConnectors] = useState<ReadonlyMap<string, ConnectorStatus>>(new Map());
   const [tick, setTick] = useState(0);
 
   const interrupt = useRef<(() => void) | null>(null);
@@ -194,6 +250,7 @@ export function FullscreenBridge(): React.ReactNode {
     store.registerPromptSetter(setPrompt);
     store.registerApprovalRequestSetter(setApproval);
     store.registerCustomView(setCustomView);
+    store.registerConnectorsSetter(setConnectors);
     store.registerInterruptHandler((handler) => {
       interrupt.current = handler;
     });
@@ -307,7 +364,7 @@ export function FullscreenBridge(): React.ReactNode {
     return {
       header: {
         model: stats.model ?? "no model",
-        connectors: [],
+        connectors: [...connectors].map(([name, status]) => ({ name, status })),
         contextUsed: stats.tokensInContext ?? 0,
         contextMax: stats.maxContextTokens ?? 0,
       },
@@ -336,7 +393,20 @@ export function FullscreenBridge(): React.ReactNode {
       ...(overlay === undefined ? {} : { overlay }),
       focus: "input",
     };
-  }, [outputs, streaming, activity, stats, queue, busy, regions, tick, draft, prompt, approval]);
+  }, [
+    outputs,
+    streaming,
+    activity,
+    stats,
+    queue,
+    busy,
+    regions,
+    tick,
+    draft,
+    prompt,
+    approval,
+    connectors,
+  ]);
 
   // Custom views — the wizard, the config wizard, the workflow picker — are Ink
   // element trees built by their callers and handed to whichever renderer is

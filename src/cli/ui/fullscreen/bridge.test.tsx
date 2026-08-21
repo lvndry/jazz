@@ -120,4 +120,59 @@ describe("fullscreen bridge", () => {
     // Still a full frame, and the input is still on the second-to-last row.
     expect(rows).toHaveLength(HEIGHT);
   });
+  it("renders a completed tool call as a receipt, not a generic notice", async () => {
+    // The reducer pushes a rendered ANSI string for the Ink tree and the same
+    // result as structured meta. Reading the meta is what makes a settled tool
+    // call read as `gmail  4 flagged of 26` rather than as somebody else's
+    // layout pasted into the transcript.
+    const text = await frame(() => {
+      store.printOutput({
+        type: "log",
+        message: "ignored-ansi-rendering",
+        timestamp: new Date(),
+        meta: {
+          toolReceipt: {
+            app: "gmail",
+            summary: "4 flagged of 26",
+            status: "ok",
+            durationMs: 1_900,
+          },
+        },
+      });
+    });
+    expect(text).toContain("gmail");
+    expect(text).toContain("4 flagged of 26");
+    // The string the Ink tree would have shown must not leak through.
+    expect(text).not.toContain("ignored-ansi-rendering");
+  });
+
+  it("keeps the reason and remedy on a failed tool call", async () => {
+    const text = await frame(() => {
+      store.printOutput({
+        type: "log",
+        message: "ignored",
+        timestamp: new Date(),
+        meta: {
+          toolReceipt: {
+            app: "slack",
+            summary: "could not read",
+            status: "failed",
+            reason: "read-only connection",
+          },
+        },
+      });
+    });
+    expect(text).toContain("slack");
+    expect(text).toContain("read-only connection");
+  });
+  it("shows connector health in the header once something reports it", async () => {
+    // MCP servers are the real connectors jazz has. A failed connection is not
+    // fatal — the agent carries on without those tools — so the header is the
+    // only place the user would otherwise learn about it.
+    const text = await frame(() => {
+      store.setConnector("notion", "offline");
+      store.setConnector("github", "live");
+    });
+    expect(text.toLowerCase()).toContain("apps");
+  });
 });
