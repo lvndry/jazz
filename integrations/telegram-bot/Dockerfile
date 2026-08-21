@@ -14,12 +14,6 @@ WORKDIR /app
 # built-in afinfo for audio; Debian has no equivalent, so the bridge that
 # actually receives voice notes installs the real thing. Debian ships ffprobe
 # only as part of the ffmpeg package.
-#
-# jq, khal, vdirsyncer, pass, and gnupg back the email/calendar skills
-# (docs/integrations/email-calendar.md): himalaya's own output is piped
-# through jq, khal/vdirsyncer manage the calendar, and pass+gnupg hold the
-# CalDAV/IMAP credentials the skills tell the user to store there rather than
-# in plaintext config.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     chromium fonts-liberation ffmpeg curl jq khal vdirsyncer pass gnupg \
     && rm -rf /var/lib/apt/lists/*
