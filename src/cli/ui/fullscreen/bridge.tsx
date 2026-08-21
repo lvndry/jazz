@@ -354,6 +354,24 @@ export function FullscreenBridge(): React.ReactNode {
   // registration in the tree. Returning true consumes the key.
   const onKey = useCallback(
     ({ name, ctrl }: { name: string; ctrl: boolean }): boolean => {
+      // Ctrl+C, before anything else and regardless of state — including a
+      // modal that would otherwise swallow every key it does not recognise.
+      //
+      // The renderer is told not to exit on Ctrl+C so the agent loop can cancel
+      // in-flight work instead of the process dying mid-tool-call. That makes
+      // handling it here mandatory: an alternate screen you cannot leave is the
+      // worst failure this interface can have, so the first press cancels if
+      // there is anything to cancel and the second always quits.
+      if (ctrl && name === "c") {
+        if (interrupt.current !== null && quitArmed.current === false) {
+          quitArmed.current = true;
+          interrupt.current();
+          return true;
+        }
+        process.kill(process.pid, "SIGINT");
+        return true;
+      }
+
       // A menu is a modal question: it owns the keyboard until it is answered.
       const openMenu = menuRef.current;
       if (openMenu !== null) {
@@ -377,23 +395,6 @@ export function FullscreenBridge(): React.ReactNode {
         return true;
       }
       const active = promptRef.current;
-
-      // Ctrl+C, before anything else and regardless of state.
-      //
-      // The renderer is told not to exit on Ctrl+C so the agent loop can cancel
-      // in-flight work instead of the process dying mid-tool-call. That makes
-      // handling it here mandatory: an alternate screen you cannot leave is the
-      // worst failure this interface can have, so the first press cancels if
-      // there is anything to cancel and the second always quits.
-      if (ctrl && name === "c") {
-        if (interrupt.current !== null && quitArmed.current === false) {
-          quitArmed.current = true;
-          interrupt.current();
-          return true;
-        }
-        process.kill(process.pid, "SIGINT");
-        return true;
-      }
 
       // The approval card owns the keyboard while it is up: enter accepts, `a`
       // is the always-allow path, and typing must not reach the composer behind
@@ -565,8 +566,12 @@ export function FullscreenBridge(): React.ReactNode {
   // A menu the app is waiting on gets the real screen. The wizard publishes it
   // as data precisely so a renderer that cannot paint an Ink tree can still draw
   // it — which is what makes the flow work here at all.
-  if (menu !== null) {
-    return (
+  //
+  // This is content passed *into* App as `overrideContent`, never returned in
+  // its place. App's own `useKeyboard` call has to stay mounted for any of this
+  // to receive a key at all — arrows, enter, or Ctrl+C.
+  const overrideContent: React.ReactNode | undefined =
+    menu !== null ? (
       <Home
         model={{
           version: VERSION,
@@ -577,27 +582,23 @@ export function FullscreenBridge(): React.ReactNode {
         }}
         viewport={viewport}
       />
-    );
-  }
-
-  // Anything still delivered only as a pre-built Ink tree cannot be painted
-  // here. Say so and name the way out rather than showing an empty frame and
-  // looking hung.
-  if (customView !== null) {
-    return (
+    ) : customView !== null ? (
+      // Anything still delivered only as a pre-built Ink tree cannot be painted
+      // here. Say so and name the way out rather than showing an empty frame
+      // and looking hung.
       <box style={{ flexDirection: "column", padding: 1 }}>
         <text>This screen is not available in the fullscreen interface yet.</text>
         <text>Run the same command with --no-tui to use it.</text>
         <text>ctrl-c quits.</text>
       </box>
-    );
-  }
+    ) : undefined;
 
   return (
     <App
       view={view}
       onAction={onAction}
       onKey={onKey}
+      {...(overrideContent === undefined ? {} : { overrideContent })}
     />
   );
 }

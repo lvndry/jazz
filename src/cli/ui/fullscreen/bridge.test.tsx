@@ -265,4 +265,78 @@ describe("fullscreen bridge", () => {
     expect(afterBackspace).toContain("he");
     expect(afterBackspace).not.toContain("hey");
   });
+  it("navigates the wizard menu with arrows and selects with enter", async () => {
+    // The wizard menu renders through Home, which is content passed *into*
+    // App as overrideContent rather than returned in App's place — because
+    // App's own useKeyboard call has to stay mounted for anything to receive a
+    // key at all. An earlier version returned the menu screen directly from
+    // this component, above App, so nothing on it could be navigated: not
+    // arrows, not enter, not even Ctrl+C.
+    const selected: string[] = [];
+    const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await testRender(
+      <FullscreenBridge />,
+      { width: 100, height: 28 },
+    );
+    await renderOnce();
+    store.setActiveMenu({
+      kind: "menu",
+      options: [
+        { label: "Start chatting", value: "chat" },
+        { label: "Create an agent", value: "create" },
+        { label: "Exit", value: "exit" },
+      ],
+      onSelect: (value) => selected.push(value),
+      onExit: () => selected.push("EXIT-CALLED"),
+    });
+    await flush();
+    const before = captureCharFrame();
+
+    await mockInput.pressKey("ARROW_DOWN");
+    await settleKeypress(flush, 100);
+    const afterDown = captureCharFrame();
+
+    await mockInput.pressKey("RETURN");
+    await settleKeypress(flush, 100);
+
+    renderer.destroy();
+    store.setActiveMenu(null);
+
+    expect(afterDown).not.toBe(before);
+    expect(selected).toEqual(["create"]);
+  });
+
+  it("Ctrl+C reaches the handler even while a modal owns the keyboard", async () => {
+    // The menu's own catch-all — consuming any key it does not recognise, so an
+    // unrecognised key does not leak into the composer behind it — was placed
+    // ahead of the Ctrl+C check and swallowed Ctrl+C along with everything
+    // else. Ctrl+C is checked first now, specifically so no future modal can
+    // make the same mistake.
+    const { renderer, renderOnce, flush, mockInput } = await testRender(<FullscreenBridge />, {
+      width: 100,
+      height: 28,
+    });
+    await renderOnce();
+    store.setActiveMenu({
+      kind: "menu",
+      options: [{ label: "x", value: "x" }],
+      onSelect: () => undefined,
+      onExit: () => undefined,
+    });
+    await flush();
+
+    const originalKill = process.kill;
+    let killed = false;
+    process.kill = ((..._args: unknown[]) => {
+      killed = true;
+      return true;
+    }) as typeof process.kill;
+
+    await mockInput.pressKey("c", { ctrl: true });
+    await settleKeypress(flush, 100);
+
+    process.kill = originalKill;
+    renderer.destroy();
+    store.setActiveMenu(null);
+    expect(killed).toBe(true);
+  });
 });

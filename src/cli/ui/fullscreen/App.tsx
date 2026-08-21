@@ -38,6 +38,20 @@ export interface AppProps {
    * and the loser silently receives nothing.
    */
   readonly onKey?: (key: { name: string; ctrl: boolean }) => boolean;
+  /**
+   * Replaces the five-region layout with arbitrary content — the wizard menu,
+   * the screen-unavailable notice — while this component's own `useKeyboard`
+   * call stays mounted.
+   *
+   * A hook runs for as long as the component that calls it is mounted,
+   * regardless of which branch of that component's own render it takes — but
+   * not at all if a *different* component is rendered instead. Returning
+   * `<Home />` directly from the bridge, above this component, was exactly
+   * that mistake: `App` never mounted, so `useKeyboard` never ran, so every
+   * key — including Ctrl+C — was silently unhandled. Routing every screen
+   * through here is what keeps that from happening again.
+   */
+  readonly overrideContent?: React.ReactNode;
 }
 
 /**
@@ -57,7 +71,7 @@ function TooSmall({ width, height }: { width: number; height: number }): React.R
   );
 }
 
-export function App({ view, onAction, onKey }: AppProps): React.ReactNode {
+export function App({ view, onAction, onKey, overrideContent }: AppProps): React.ReactNode {
   const { width, height } = useTerminalDimensions();
   const [focus, setFocus] = useState<Focus>("input");
   const armedAt = useRef<number | undefined>(undefined);
@@ -130,6 +144,10 @@ export function App({ view, onAction, onKey }: AppProps): React.ReactNode {
     const focusAction = resolveFocusKey(name, focus);
     if (focusAction.type !== "noop") dispatch(focusAction);
   });
+
+  if (overrideContent !== undefined) {
+    return overrideContent;
+  }
 
   if (width < MIN_WIDTH || height < MIN_HEIGHT) {
     return (
