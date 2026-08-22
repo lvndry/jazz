@@ -593,26 +593,18 @@ describe("fullscreen bridge", () => {
         kind: "menu",
         requirements: [
           {
-            label: "provider",
-            ready: false,
-            detail: "no key yet",
-            remedy: "add a key with jazz config",
-          },
-          {
             label: "agent",
             ready: false,
             detail: "none yet",
             remedy: "create your first one below",
           },
-          { label: "apps", ready: false, detail: "none connected", remedy: "optional, add later" },
         ],
         options: [{ label: "Create agent", value: "create-agent" }],
         onSelect: () => undefined,
         onExit: () => undefined,
       });
     });
-    expect(text).toContain("provider");
-    expect(text).toContain("add a key with jazz config");
+    expect(text).toContain("agent");
     expect(text).toContain("create your first one below");
     expect(text).toContain("Press enter on");
     store.setActiveMenu(null);
@@ -1915,7 +1907,7 @@ describe("fullscreen bridge", () => {
   });
   /** Types a literal string into a live composer, one real keypress each. */
   async function typeInto(
-    mockInput: { pressKey: (key: string, mods?: object) => Promise<void> },
+    mockInput: { pressKey: (key: string, mods?: object) => void },
     flush: () => Promise<void>,
     text: string,
   ): Promise<void> {

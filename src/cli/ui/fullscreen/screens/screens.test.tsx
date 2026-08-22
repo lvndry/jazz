@@ -47,14 +47,7 @@ const FIRST_RUN: HomeModel = {
   version: "0.14.2",
   tagline: "your everyday agentic CLI",
   requirements: [
-    {
-      label: "provider",
-      ready: false,
-      detail: "no key yet",
-      remedy: "add a key with jazz config",
-    },
     { label: "agent", ready: false, detail: "none yet", remedy: "create your first one below" },
-    { label: "apps", ready: false, detail: "none connected", remedy: "optional, add later" },
   ],
   choices: [
     { label: "Create agent", value: "create-agent", hint: "about a minute" },
@@ -68,11 +61,7 @@ const FIRST_RUN: HomeModel = {
 const SETTLED: HomeModel = {
   version: "0.14.2",
   tagline: "your everyday agentic CLI",
-  requirements: [
-    { label: "provider", ready: true, detail: "anthropic, claude-sonnet-4" },
-    { label: "agent", ready: true, detail: "4 of them" },
-    { label: "apps", ready: false, detail: "none connected", remedy: "optional, add later" },
-  ],
+  requirements: [{ label: "agent", ready: true, detail: "4 of them" }],
   choices: [
     { label: "Resume: Basil", value: "continue", hint: "12 minutes ago" },
     { label: "New conversation", value: "new-conversation" },
@@ -231,10 +220,9 @@ describe("home screen", () => {
     expect(drawn.text).toContain("0.14.2");
     expect(drawn.text).toContain("your everyday agentic CLI");
 
-    // Every unmet requirement, named — and each one carries the remedy rather
-    // than only the complaint.
-    expect(drawn.text).toContain("provider");
-    expect(drawn.text).toContain("add a key with jazz config");
+    // The unmet requirement, named — carrying the remedy rather than only the
+    // complaint.
+    expect(drawn.text).toContain("agent");
     expect(drawn.text).toContain("create your first one below");
 
     // And the key to press, naming the thing it is on.
@@ -254,7 +242,7 @@ describe("home screen", () => {
 
     // The one thing on an unconfigured row that you would act on.
     const remedy = allSpans(drawn.frame).find((span) =>
-      span.text.startsWith("add a key with jazz config"),
+      span.text.startsWith("create your first one below"),
     );
     expect(remedy).toBeDefined();
     expect(hexOf(remedy as CapturedSpan)).toBe(THEME.primary.toUpperCase());
@@ -281,8 +269,8 @@ describe("home screen", () => {
       );
       const ready = drawn.rows.filter((row) => row.startsWith(glyphs.active));
       const pending = drawn.rows.filter((row) => row.startsWith(glyphs.pending));
-      expect(ready).toHaveLength(2);
-      expect(pending).toHaveLength(1);
+      expect(ready).toHaveLength(1);
+      expect(pending).toHaveLength(0);
       // The distinction survives a monochrome terminal.
       expect(glyphs.active).not.toBe(glyphs.pending);
       expect(hexOf(spanWithText(drawn.frame, glyphs.active))).toBe(THEME.success.toUpperCase());
@@ -633,7 +621,14 @@ describe("both screens in ascii glyph mode", () => {
     // ASCII spends `*` on the mark, the ready state and the bullet, so readiness
     // is asserted from the side that stays unambiguous: what is NOT ready.
     expect(glyphs.active).not.toBe(glyphs.pending);
-    expect(home.rows.filter((row) => row.startsWith(glyphs.pending))).toHaveLength(1);
+    const firstRun = await draw(
+      <Home
+        model={FIRST_RUN}
+        viewport={WIDE}
+      />,
+      WIDE,
+    );
+    expect(firstRun.rows.filter((row) => row.startsWith(glyphs.pending))).toHaveLength(1);
     expect(home.rows.filter((row) => row.startsWith(glyphs.rail))).toHaveLength(1);
 
     const picker = await draw(

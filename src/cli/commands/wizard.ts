@@ -13,7 +13,7 @@ import { deleteAgentCommand } from "./agent-management";
 import { configWizardCommand } from "./config-wizard";
 import { createAgentCommand } from "./create-agent";
 import { editAgentCommand } from "./edit-agent";
-import { configuredProviderNames, homeRequirements } from "../ui/fullscreen/home-readiness";
+import { homeRequirements } from "../ui/fullscreen/home-readiness";
 import { store, type ActiveAgentChoice } from "../ui/store";
 import { TIPS, WizardHome, type WizardMenuOption } from "../ui/WizardHome";
 
@@ -120,19 +120,8 @@ export function wizardCommand() {
 
       menuOptions.push({ label: "Exit", value: "exit" });
 
-      const config = yield* configService.appConfig;
-      const providers = configuredProviderNames(config);
-      const preferred = lastUsedAgent ?? agents[0];
       const requirements = homeRequirements({
-        configuredProviders: providers,
-        ...(preferred === undefined
-          ? {}
-          : {
-              preferredProvider: preferred.config.llmProvider,
-              preferredModel: preferred.config.llmModel,
-            }),
         agentCount: agents.length,
-        connectors: store.getConnectorsSnapshot(),
       });
 
       const selection = yield* showWizardMenu(menuOptions, requirements);

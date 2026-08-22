@@ -4,53 +4,25 @@ import { configuredProviderNames, homeRequirements } from "./home-readiness";
 describe("homeRequirements", () => {
   it("matches the first-run setup list when nothing is configured", () => {
     const rows = homeRequirements({
-      configuredProviders: [],
       agentCount: 0,
-      connectors: new Map(),
     });
     expect(rows).toEqual([
-      {
-        label: "provider",
-        ready: false,
-        detail: "no key yet",
-        remedy: "add a key with jazz config",
-      },
       { label: "agent", ready: false, detail: "none yet", remedy: "create your first one below" },
-      { label: "apps", ready: false, detail: "none connected", remedy: "optional, add later" },
     ]);
   });
 
-  it("matches the settled setup list when a provider and agents exist", () => {
+  it("matches the settled setup list when agents exist", () => {
     const rows = homeRequirements({
-      configuredProviders: ["anthropic"],
-      preferredProvider: "anthropic",
-      preferredModel: "claude-sonnet-4",
       agentCount: 4,
-      connectors: new Map(),
     });
-    expect(rows).toEqual([
-      { label: "provider", ready: true, detail: "anthropic, claude-sonnet-4" },
-      { label: "agent", ready: true, detail: "4 of them" },
-      { label: "apps", ready: false, detail: "none connected", remedy: "optional, add later" },
-    ]);
+    expect(rows).toEqual([{ label: "agent", ready: true, detail: "4 of them" }]);
   });
 
-  it("counts live connectors and names a partial set", () => {
+  it("names a single agent", () => {
     const rows = homeRequirements({
-      configuredProviders: ["openai"],
       agentCount: 1,
-      connectors: new Map([
-        ["gmail", "live"],
-        ["calendar", "offline"],
-        ["notion", "live"],
-      ]),
     });
-    expect(rows[2]).toEqual({
-      label: "apps",
-      ready: true,
-      detail: "2 of 3 connected",
-    });
-    expect(rows[1]?.detail).toBe("1 of them");
+    expect(rows).toEqual([{ label: "agent", ready: true, detail: "1 of them" }]);
   });
 });
 
