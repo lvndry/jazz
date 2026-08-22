@@ -115,28 +115,83 @@ the defaults new chats start from. (`/model` lists Ollama models — handy when 
 run Ollama; cloud users typically just keep the default.)
 
 **Mail & calendar.** The image ships [Himalaya](https://github.com/pimalaya/himalaya)
-(email) and [khal](https://github.com/pimutils/khal) + [vdirsyncer](https://github.com/pimutils/vdirsyncer)
-(calendar) — the same CLIs the `email`/`calendar` skills already know how to drive
-via `execute_command` (see [Email & Calendar](../../docs/integrations/email-calendar.md)).
-They aren't allowlisted anywhere: like every other shell command, each call is
+(email), [khal](https://github.com/pimutils/khal) + [vdirsyncer](https://github.com/pimutils/vdirsyncer)
+(calendar, non-Google), and [gcalcli](https://github.com/insanum/gcalcli) (calendar,
+Google) — the CLIs the `email`/`calendar` skills already know how to drive via
+`execute_command` (see [Email & Calendar](../../docs/integrations/email-calendar.md)
+and the calendar skill's [Google Calendar (gcalcli)](../../skills/calendar/SKILL.md#google-calendar-gcalcli)
+section). None of them are allowlisted: like every other shell command, each call is
 `high-risk` and shows up in Telegram as an Accept/Reject prompt before it runs.
 
 Their config/data/keyring/password-store live under `/data` (the same volume
-Jazz already persists) via `XDG_CONFIG_HOME` etc., so setup survives restarts
-and rebuilds. **Account credentials still have to go in yourself** — these
-tools' setup wizards need a real terminal and neither the bot nor the skills
-will accept a password typed into Telegram chat:
+Jazz already persists) via `XDG_CONFIG_HOME`/`XDG_DATA_HOME`, so setup survives
+restarts and rebuilds. **Account credentials still have to go in yourself** —
+these tools' setup wizards need a real terminal and neither the bot nor the
+skills will accept a password typed into Telegram chat. None of this is
+trivial, especially Google Calendar — follow it closely.
 
 ```sh
 docker compose exec jazz-telegram sh
-# then, inside the container:
-himalaya                 # interactive account wizard (IMAP/SMTP, or Gmail app password)
-gpg --full-generate-key  # one-time, for `pass` (khal/vdirsyncer store CalDAV
-                          # passwords via pass, not plaintext config)
-pass init <your-gpg-id>
-vdirsyncer discover && vdirsyncer sync
-khal configure           # or hand-write ~/.config/khal/config per the calendar skill
 ```
+
+*Email (any provider, via Himalaya):*
+
+```sh
+himalaya   # interactive account wizard — IMAP/SMTP, or a Gmail app password
+```
+For Gmail specifically, generate an [app password](https://myaccount.google.com/apppasswords)
+first (needs 2-Step Verification on). For multiple accounts, run `himalaya`
+again — bare `himalaya` offers to add another named account when a config
+already exists; target one with `himalaya --account <name> ...`.
+
+*Calendar, non-Google (iCloud, Nextcloud, Fastmail, any real CalDAV server), via khal/vdirsyncer:*
+
+```sh
+gpg --full-generate-key   # one-time, for `pass` — khal/vdirsyncer store CalDAV
+                          # passwords via pass, not plaintext config
+pass init <your-gpg-id>
+pass insert <provider>/app-password
+vdirsyncer discover && vdirsyncer sync
+khal configure            # or hand-write ~/.config/khal/config per the calendar skill
+```
+
+*Calendar, Google, via gcalcli:* **do not use khal/vdirsyncer for Google Calendar
+— it doesn't work.** Google's CalDAV endpoint rejects the standard discovery
+handshake khal/vdirsyncer need (confirmed: `403 Given URL is not a homeset URL`,
+even with a valid OAuth token), on top of no longer accepting app-password auth
+at all. gcalcli talks to the real Calendar REST API instead. One-time setup:
+
+1. [Google Cloud Console](https://console.cloud.google.com) → new/existing
+   project → enable **Google Calendar API** → **OAuth consent screen**
+   (External, add every Gmail address that will use this as a test user) →
+   **Credentials → Create Credentials → OAuth client ID**, type **Desktop app**.
+   This gives one `client_id`/`client_secret` shared across every account.
+2. Per account, authorize with its own isolated data directory — gcalcli's
+   cache path is keyed off `$XDG_DATA_HOME`, not `--config-folder`, so skipping
+   this step means the second account's login silently overwrites the first's:
+   ```sh
+   XDG_DATA_HOME=/data/xdg-data/gcalcli-personal gcalcli --client-id "$CLIENT_ID" --client-secret "$CLIENT_SECRET" init
+   ```
+3. **If `init` hangs after you click Allow in the browser, this is a known
+   issue, not a misconfiguration** — its local callback server can grab the
+   wrong one of two connections a browser opens and block forever. Kill it and
+   recover manually instead of retrying: build the authorization URL yourself
+   (`https://accounts.google.com/o/oauth2/auth?response_type=code&client_id=CLIENT_ID&redirect_uri=http://localhost:8080&scope=https://www.googleapis.com/auth/calendar&access_type=offline&prompt=select_account%20consent&login_hint=ACCOUNT_EMAIL`
+   — the `redirect_uri` never needs to actually respond), click Allow, copy the
+   failed `http://localhost:8080/?...&code=...` URL from the address bar, then
+   exchange the code directly:
+   ```sh
+   curl -s -X POST https://oauth2.googleapis.com/token \
+     -d "code=$CODE" -d "client_id=$CLIENT_ID" -d "client_secret=$CLIENT_SECRET" \
+     -d "redirect_uri=http://localhost:8080" -d "grant_type=authorization_code"
+   ```
+   and write the JSON response into `$XDG_DATA_HOME/gcalcli/oauth` with keys
+   `access_token`, `client_id`, `client_secret`, `refresh_token`, `token_uri`
+   (`https://oauth2.googleapis.com/token`), `scopes` (a list) — gcalcli accepts
+   this legacy JSON shape and converts it to its normal cache on next use. Full
+   walkthrough (including the "authorizing a second account reuses the first
+   one's login" pitfall and its fix) is in the calendar skill.
+4. Verify: `XDG_DATA_HOME=/data/xdg-data/gcalcli-personal gcalcli agenda`.
 
 ## Configuration
 

@@ -1,11 +1,13 @@
 ---
 name: calendar
-description: Manage calendars using khal CLI and vdirsyncer. Use when the user wants to view, create, edit, or delete calendar events, sync calendars with CalDAV servers, manage multiple calendars, or mentions "calendar", "event", "appointment", "meeting", "schedule", "CalDAV", "khal", "vdirsyncer".
+description: Manage calendars using khal CLI and vdirsyncer for CalDAV providers, or gcalcli for Google Calendar. Use when the user wants to view, create, edit, or delete calendar events, sync calendars, manage multiple calendars, or mentions "calendar", "event", "appointment", "meeting", "schedule", "CalDAV", "khal", "vdirsyncer", "gcalcli", "Google Calendar".
 ---
 
 # Calendar Management
 
 Manage calendars using [khal](https://github.com/pimutils/khal) - a standards-based CLI calendar application, and [vdirsyncer](https://github.com/pimutils/vdirsyncer) - a tool for synchronizing calendars with CalDAV servers.
+
+**Google Calendar is the one exception: use [gcalcli](https://github.com/insanum/gcalcli) instead, not khal/vdirsyncer.** Google's CalDAV endpoint rejects the RFC 6764 principal-discovery handshake every generic CalDAV client (including vdirsyncer's own `google_calendar` OAuth backend) needs to auto-configure — confirmed via a `403 Given URL is not a homeset URL` even with a valid OAuth token, on top of app-password Basic Auth being rejected outright. gcalcli talks to the real Calendar REST API v3, not CalDAV, so it's unaffected. See [Google Calendar (gcalcli)](#google-calendar-gcalcli) below. Every other provider in the table below (iCloud, Nextcloud, Fastmail, Radicale) works fine with khal/vdirsyncer.
 
 ## Agent Usage (Power User Patterns)
 
@@ -211,17 +213,74 @@ EOF
 
 ### Provider-Specific Setup
 
-| Provider            | CalDAV URL                                         | Notes                              |
-| ------------------- | -------------------------------------------------- | ---------------------------------- |
-| **Google Calendar** | `https://apidata.googleusercontent.com/caldav/v2/` | Requires App Password or OAuth 2.0 |
+| Provider            | CalDAV URL                                        | Notes                                            |
+| ------------------- | -------------------------------------------------- | ----------------------------------------------- |
+| **Google Calendar** | not supported via CalDAV                           | Use [gcalcli](#google-calendar-gcalcli) instead |
 | **Nextcloud**       | `https://nextcloud.example.com/remote.php/dav/`    | Standard username/password         |
 | **iCloud**          | `https://caldav.icloud.com/`                       | Requires app-specific password     |
 | **Fastmail**        | `https://caldav.fastmail.com/dav/calendars/user/`  | Standard username/password         |
 | **Radicale**        | `http://localhost:5232/`                           | Self-hosted, standard auth         |
 
-**💡 Tip**: Most providers use the same app-specific password for both email and calendar. Store credentials in `pass` with consistent naming (e.g., `google/app-password`, `icloud/app-password`) to reuse them across both email and calendar skills. For multiple accounts, use a hierarchical structure (e.g., `google/personal/app-password`, `google/work/app-password`)—the `/` creates folders to keep things organized.
+**💡 Tip**: Most non-Google providers use the same app-specific password for both email and calendar. Store credentials in `pass` with consistent naming (e.g., `icloud/app-password`) to reuse them across both email and calendar skills. For multiple accounts, use a hierarchical structure (e.g., `icloud/personal/app-password`, `icloud/work/app-password`)—the `/` creates folders to keep things organized.
 
 For detailed provider configurations, see [references/providers.md](references/providers.md)
+
+---
+
+## Google Calendar (gcalcli)
+
+Google's CalDAV endpoint doesn't support the discovery handshake generic CalDAV clients rely on, and no longer accepts app-password Basic Auth either — so this is the one provider that needs a completely different tool and setup path.
+
+### Prerequisites Check
+
+```bash
+command -v gcalcli
+```
+
+If missing, install it (`pip install --break-system-packages gcalcli` on Debian-family systems where apt owns the Python environment, plain `pip install gcalcli`/`pipx install gcalcli` elsewhere).
+
+### One-time OAuth client (per deployment, not per account)
+
+1. In [Google Cloud Console](https://console.cloud.google.com): create/reuse a project, enable the **Google Calendar API**.
+2. **OAuth consent screen**: User type External, add every Google account that will use this as a **test user** (keeps the app in Testing mode — no Google verification review needed).
+3. **Credentials → Create Credentials → OAuth client ID**, application type **Desktop app**. This gives a `client_id` and `client_secret` shared across every account below.
+
+### Per-account authorization
+
+gcalcli's credential cache path is keyed off `$XDG_DATA_HOME` (specifically `$XDG_DATA_HOME/gcalcli/oauth`), **not** `--config-folder` — running it for a second account without isolating that path overwrites the first account's cache. Give each account its own data directory:
+
+```bash
+XDG_DATA_HOME=~/.local/share/gcalcli-personal gcalcli --client-id "$CLIENT_ID" --client-secret "$CLIENT_SECRET" init
+XDG_DATA_HOME=~/.local/share/gcalcli-work gcalcli --client-id "$CLIENT_ID" --client-secret "$CLIENT_SECRET" init
+```
+
+`init` opens a browser consent flow. If it hangs after clicking Allow (a known issue: the local callback server can grab the wrong one of two connections a browser opens and block forever waiting for data that never arrives on it), don't keep retrying it — Google still put the authorization `code` in the browser's address bar even though the page failed to load. Recover manually:
+
+1. Build the URL yourself instead of using gcalcli's printed one — no PKCE, no port-forwarding needed, since the redirect target never has to actually respond:
+   ```
+   https://accounts.google.com/o/oauth2/auth?response_type=code&client_id=CLIENT_ID&redirect_uri=http://localhost:8080&scope=https://www.googleapis.com/auth/calendar&access_type=offline&prompt=select_account%20consent&login_hint=ACCOUNT_EMAIL
+   ```
+   (`prompt=select_account consent` is required when authorizing more than one Google account with the same client — otherwise Google silently reuses whichever account is already logged into the browser instead of prompting, and the token ends up authenticating as the wrong account.)
+2. After clicking Allow, copy the failed `http://localhost:8080/?...&code=...` URL from the address bar and extract `code`.
+3. Exchange it directly:
+   ```bash
+   curl -s -X POST https://oauth2.googleapis.com/token \
+     -d "code=$CODE" -d "client_id=$CLIENT_ID" -d "client_secret=$CLIENT_SECRET" \
+     -d "redirect_uri=http://localhost:8080" -d "grant_type=authorization_code"
+   ```
+4. Write the response into `$XDG_DATA_HOME/gcalcli/oauth` for that account as JSON with keys `access_token`, `client_id`, `client_secret`, `refresh_token`, `token_uri` (`https://oauth2.googleapis.com/token`), `scopes` (a list) — gcalcli's legacy-JSON loader accepts this shape and converts it to its normal pickle cache on next use.
+
+### Usage
+
+Always set `XDG_DATA_HOME` to the right account's directory before invoking `gcalcli` — there's no `--account` flag, isolation is entirely by data directory:
+
+```bash
+XDG_DATA_HOME=~/.local/share/gcalcli-personal gcalcli agenda
+XDG_DATA_HOME=~/.local/share/gcalcli-personal gcalcli list
+XDG_DATA_HOME=~/.local/share/gcalcli-personal gcalcli quick "Lunch with John tomorrow at noon"
+XDG_DATA_HOME=~/.local/share/gcalcli-personal gcalcli add --title "Sprint Planning" --where "Room A" --when "2026-02-15 14:00" --duration 1h
+XDG_DATA_HOME=~/.local/share/gcalcli-personal gcalcli delete "Sprint Planning"
+```
 
 ---
 
