@@ -9,6 +9,8 @@ export interface ActiveTool {
   toolCallId: string;
   toolName: string;
   startedAt: number;
+  /** Compact argument preview for the live zone and the settled receipt. */
+  argsPreview?: string;
   todoSnapshot?: TodoSnapshotItem[];
 }
 
@@ -88,7 +90,10 @@ export function isActivityEqual(a: ActivityState, b: ActivityState): boolean {
       if (a.agentName !== (b as typeof a).agentName) return false;
       if (a.tools.length !== bTools.length) return false;
       const sameTools = a.tools.every(
-        (t, i) => t.toolCallId === bTools[i]!.toolCallId && t.toolName === bTools[i]!.toolName,
+        (t, i) =>
+          t.toolCallId === bTools[i]!.toolCallId &&
+          t.toolName === bTools[i]!.toolName &&
+          t.argsPreview === bTools[i]!.argsPreview,
       );
       if (!sameTools) return false;
 

@@ -196,6 +196,28 @@ describe("activity-reducer", () => {
       expect(result.outputs.length).toBe(1);
       expect(result.outputs[0]!.type).toBe("info");
       expect(String(result.outputs[0]!.message)).toContain("execute_bash");
+      expect(result.outputs[0]!.meta?.["toolStart"]).toBe(true);
+    });
+
+    test("tool_execution_start for view_memory shows root when path is empty", () => {
+      const a = acc();
+      const result = reduceEvent(
+        a,
+        {
+          type: "tool_execution_start",
+          toolName: "view_memory",
+          toolCallId: "mem-1",
+          arguments: { path: "" },
+        },
+        stubInk,
+      );
+
+      expect(a.activeTools.get("mem-1")?.argsPreview).toContain("path: /");
+      expect(String(result.outputs[0]!.message)).toContain("path:");
+      expect(String(result.outputs[0]!.message)).toContain("/");
+      if (result.activity?.phase === "tool-execution") {
+        expect(result.activity.tools[0]?.argsPreview).toContain("path: /");
+      }
     });
 
     test("tool_execution_start for web_search appends provider from metadata", () => {
@@ -239,6 +261,37 @@ describe("activity-reducer", () => {
       expect(result.activity!.phase).toBe("idle");
       expect(result.outputs.length).toBeGreaterThan(0);
       expect(result.outputs[0]!.type).toBe("log");
+    });
+
+    test("tool_execution_complete receipt carries args and an output snippet", () => {
+      const a = acc();
+      a.activeTools.set("mem-1", {
+        toolName: "view_memory",
+        startedAt: Date.now(),
+        argsPreview: "path: /",
+      });
+
+      const result = reduceEvent(
+        a,
+        {
+          type: "tool_execution_complete",
+          toolCallId: "mem-1",
+          result: JSON.stringify({
+            formatted: "Here're the files and directories up to 2 levels deep in /:\n/notes.txt",
+            outcome: { kind: "directory" },
+          }),
+          durationMs: 12,
+          success: true,
+        },
+        stubInk,
+      );
+
+      const receipt = result.outputs[0]?.meta?.["toolReceipt"] as
+        { app?: string; args?: string; summary?: string } | undefined;
+      expect(receipt?.app).toBe("view_memory");
+      expect(receipt?.args).toBe("path: /");
+      expect(receipt?.summary).toContain("Here're the files");
+      expect(receipt?.summary).not.toBe("{");
     });
 
     test("tool_execution_complete keeps tool-execution phase when other tools remain", () => {

@@ -888,19 +888,25 @@ function reasoningRows(
 
 /** A settled receipt: what it did and what came back, and nothing else. */
 function receiptSegments(block: ToolReceiptBlock, glyphs: GlyphSet): Segment[] {
+  const args = block.args?.trim();
   if (block.status === "ok") {
-    return [
-      { text: block.app, fg: THEME.muted },
-      { text: `  ${block.summary}`, fg: THEME.muted },
-    ];
+    const segments: Segment[] = [{ text: block.app, fg: THEME.muted }];
+    if (args !== undefined && args.length > 0) {
+      segments.push({ text: `  ${args}`, fg: THEME.secondary });
+    }
+    if (block.summary.length > 0) {
+      segments.push({ text: `  ${block.summary}`, fg: THEME.muted });
+    }
+    return segments;
   }
   // Failure is the one exception that keeps a colour, and it carries the reason
   // and the way out on the same row.
   const tone = block.status === "denied" ? THEME.warning : THEME.error;
-  const segments: Segment[] = [
-    { text: block.app, fg: tone },
-    { text: `  ${block.summary}`, fg: tone },
-  ];
+  const segments: Segment[] = [{ text: block.app, fg: tone }];
+  if (args !== undefined && args.length > 0) {
+    segments.push({ text: `  ${args}`, fg: tone });
+  }
+  segments.push({ text: `  ${block.summary}`, fg: tone });
   if (block.reason !== undefined) {
     segments.push({ text: ` ${glyphs.bullet} ${block.reason}`, fg: THEME.secondary });
   }

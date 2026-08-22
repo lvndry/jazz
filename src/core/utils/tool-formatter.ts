@@ -52,6 +52,25 @@ export function formatToolDisplayName(
   return provider ? `${toolName}(${provider})` : toolName;
 }
 
+const MAX_ARG_VALUE_LENGTH = 120;
+
+function formatArgValue(value: unknown, maxLength: number = MAX_ARG_VALUE_LENGTH): string {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (trimmed.length === 0) return "";
+    return trimmed.length > maxLength ? `${trimmed.slice(0, maxLength)}…` : trimmed;
+  }
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  try {
+    const json = JSON.stringify(value);
+    if (json === undefined || json === "{}" || json === "[]") return "";
+    return json.length > maxLength ? `${json.slice(0, maxLength)}…` : json;
+  } catch {
+    return "";
+  }
+}
+
 /**
  * Format tool arguments for display
  * Shows relevant parameters for each tool type
@@ -68,7 +87,7 @@ export function formatToolArguments(
   const style = options.style ?? "colored";
   const usePlain = style === "plain";
 
-  if (!args || Object.keys(args).length === 0) {
+  if ((!args || Object.keys(args).length === 0) && toolName !== "view_memory") {
     return "";
   }
 
@@ -89,11 +108,28 @@ export function formatToolArguments(
     return parts.join("");
   }
 
+  const toolArgs = args ?? {};
+
   // Format arguments based on tool type
   switch (toolName) {
+    case "view_memory": {
+      const path = safeString(toolArgs["path"]);
+      const displayPath = path.trim().length === 0 || path === "/" ? "/" : path;
+      const parts: string[] = [formatKeyValue("path", displayPath)];
+      const range = toolArgs["view_range"];
+      if (Array.isArray(range) && range.length === 2) {
+        const start = formatArgValue(range[0]);
+        const end = formatArgValue(range[1]);
+        if (start.length > 0 && end.length > 0) {
+          const span = `${start}–${end}`;
+          parts.push(usePlain ? `lines: ${span}` : ` ${chalk.dim(`lines: ${span}`)}`);
+        }
+      }
+      return formatParts(parts);
+    }
     case "read_file": {
       const parts: string[] = [];
-      const path = safeString(args["path"] || args["filePath"]);
+      const path = safeString(toolArgs["path"] || toolArgs["filePath"]);
       if (path) {
         if (usePlain) {
           parts.push(`file: ${path}`);
@@ -101,8 +137,8 @@ export function formatToolArguments(
           parts.push(formatKeyValue("file", path));
         }
       }
-      const startLine = args["startLine"];
-      const endLine = args["endLine"];
+      const startLine = toolArgs["startLine"];
+      const endLine = toolArgs["endLine"];
       if (typeof startLine === "number" || typeof endLine === "number") {
         const start = typeof startLine === "number" ? startLine : undefined;
         const end = typeof endLine === "number" ? endLine : undefined;
@@ -120,7 +156,7 @@ export function formatToolArguments(
     }
     case "grep": {
       const parts: string[] = [];
-      const pattern = safeString(args["pattern"]);
+      const pattern = safeString(toolArgs["pattern"]);
       if (pattern) {
         if (usePlain) {
           parts.push(`pattern: ${pattern}`);
@@ -128,7 +164,7 @@ export function formatToolArguments(
           parts.push(formatKeyValue("pattern", pattern));
         }
       }
-      const path = safeString(args["path"]);
+      const path = safeString(toolArgs["path"]);
       if (path) {
         if (usePlain) {
           parts.push(`in: ${path}`);
@@ -137,25 +173,25 @@ export function formatToolArguments(
         }
       }
       const flags: string[] = [];
-      if (args["recursive"] === true) flags.push("--recursive");
-      if (args["ignoreCase"] === true) flags.push("--ignore-case");
-      const rawPattern = args["pattern"];
+      if (toolArgs["recursive"] === true) flags.push("--recursive");
+      if (toolArgs["ignoreCase"] === true) flags.push("--ignore-case");
+      const rawPattern = toolArgs["pattern"];
       if (
-        args["regex"] === true ||
+        toolArgs["regex"] === true ||
         (typeof rawPattern === "string" && rawPattern.startsWith("re:"))
       ) {
         flags.push("--regex");
       }
-      if (args["filePattern"]) {
-        const filePattern = safeString(args["filePattern"]);
+      if (toolArgs["filePattern"]) {
+        const filePattern = safeString(toolArgs["filePattern"]);
         if (filePattern) flags.push(`--include=${filePattern}`);
       }
-      if (args["exclude"]) {
-        const exclude = safeString(args["exclude"]);
+      if (toolArgs["exclude"]) {
+        const exclude = safeString(toolArgs["exclude"]);
         if (exclude) flags.push(`--exclude=${exclude}`);
       }
-      if (args["excludeDir"]) {
-        const excludeDir = safeString(args["excludeDir"]);
+      if (toolArgs["excludeDir"]) {
+        const excludeDir = safeString(toolArgs["excludeDir"]);
         if (excludeDir) flags.push(`--exclude-dir=${excludeDir}`);
       }
       if (flags.length > 0) {
@@ -163,15 +199,15 @@ export function formatToolArguments(
           usePlain ? `flags: ${flags.join(" ")}` : ` ${chalk.dim(`flags: ${flags.join(" ")}`)}`,
         );
       }
-      if (args["maxResults"]) {
-        const maxResults = safeString(args["maxResults"]);
+      if (toolArgs["maxResults"]) {
+        const maxResults = safeString(toolArgs["maxResults"]);
         if (maxResults) {
           parts.push(usePlain ? `max: ${maxResults}` : ` ${chalk.dim(`max: ${maxResults}`)}`);
         }
       }
 
-      if (args["contextLines"]) {
-        const contextLines = safeString(args["contextLines"]);
+      if (toolArgs["contextLines"]) {
+        const contextLines = safeString(toolArgs["contextLines"]);
         if (contextLines) {
           parts.push(
             usePlain ? `context: ${contextLines}` : ` ${chalk.dim(`context: ${contextLines}`)}`,
@@ -184,18 +220,18 @@ export function formatToolArguments(
     case "execute_write_file":
     case "edit_file":
     case "execute_edit_file": {
-      const path = safeString(args["path"] || args["filePath"]);
+      const path = safeString(toolArgs["path"] || toolArgs["filePath"]);
       if (!path) return "";
       return usePlain ? `{ file: ${path} }` : formatKeyValue("file", path);
     }
     case "cd": {
-      const to = safeString(args["path"] || args["directory"]);
+      const to = safeString(toolArgs["path"] || toolArgs["directory"]);
       if (!to) return "";
       return usePlain ? `{ path: ${to} }` : ` ${chalk.dim("→")} ${chalk.cyan(to)}`;
     }
     case "ls": {
       const parts: string[] = [];
-      const dir = safeString(args["path"]);
+      const dir = safeString(toolArgs["path"]);
       if (dir) {
         if (usePlain) {
           parts.push(`dir: ${dir}`);
@@ -203,13 +239,13 @@ export function formatToolArguments(
           parts.push(formatKeyValue("dir", dir));
         }
       }
-      if (args["all"] === true) parts.push(usePlain ? "--all" : ` ${chalk.dim("--all")}`);
-      if (args["long"] === true) parts.push(usePlain ? "--long" : ` ${chalk.dim("--long")}`);
+      if (toolArgs["all"] === true) parts.push(usePlain ? "--all" : ` ${chalk.dim("--all")}`);
+      if (toolArgs["long"] === true) parts.push(usePlain ? "--long" : ` ${chalk.dim("--long")}`);
       return formatParts(parts);
     }
     case "find": {
       const parts: string[] = [];
-      const searchPath = safeString(args["path"]);
+      const searchPath = safeString(toolArgs["path"]);
       if (searchPath) {
         if (usePlain) {
           parts.push(`path: ${searchPath}`);
@@ -217,7 +253,7 @@ export function formatToolArguments(
           parts.push(formatKeyValue("path", searchPath));
         }
       }
-      const name = safeString(args["name"]);
+      const name = safeString(toolArgs["name"]);
       if (name) {
         if (usePlain) {
           parts.push(`name: ${name}`);
@@ -225,7 +261,7 @@ export function formatToolArguments(
           parts.push(formatKeyValue("name", name));
         }
       }
-      const type = safeString(args["type"]);
+      const type = safeString(toolArgs["type"]);
       if (type) {
         if (usePlain) {
           parts.push(`type: ${type}`);
@@ -237,7 +273,7 @@ export function formatToolArguments(
     }
     case "execute_command":
     case "execute_execute_command": {
-      const command = safeString(args["command"]);
+      const command = safeString(toolArgs["command"]);
       if (!command) return "";
       return usePlain
         ? `{ command: "${command}" }`
@@ -245,15 +281,15 @@ export function formatToolArguments(
     }
     case "http_request": {
       const parts: string[] = [];
-      const method = safeString(args["method"] || "GET");
+      const method = safeString(toolArgs["method"] || "GET");
       if (usePlain) {
         parts.push(`method: ${method}`);
       } else {
         parts.push(` ${chalk.dim(`${method}:`)}`);
       }
-      const url = safeString(args["url"]);
+      const url = safeString(toolArgs["url"]);
       if (url) {
-        const resolvedUrl = appendQueryParams(url, args["query"]);
+        const resolvedUrl = appendQueryParams(url, toolArgs["query"]);
         if (usePlain) {
           parts.push(`url: ${resolvedUrl}`);
         } else {
@@ -265,17 +301,17 @@ export function formatToolArguments(
     case "web_search": {
       // Check common query argument names across providers. The provider
       // itself renders inside the tool name via formatToolDisplayName.
-      const query = safeString(args["query"] || args["search_query"] || args["q"]);
+      const query = safeString(toolArgs["query"] || toolArgs["search_query"] || toolArgs["q"]);
       if (!query) return "";
       return usePlain ? `{ query: "${query}" }` : formatKeyValue("query", query);
     }
     case "mkdir": {
-      const dirPath = safeString(args["path"]);
+      const dirPath = safeString(toolArgs["path"]);
       if (!dirPath) return "";
       return usePlain ? `{ path: ${dirPath} }` : formatKeyValue("path", dirPath);
     }
     case "manage_todos": {
-      const todos = args["todos"];
+      const todos = toolArgs["todos"];
       if (!Array.isArray(todos)) return "";
       const total = todos.length;
       let completed = 0;
@@ -290,23 +326,32 @@ export function formatToolArguments(
       return usePlain ? `{ todos: ${value} }` : formatKeyValue("todos", value);
     }
     default: {
-      // For unknown tools, show first few arguments (truncate long values)
-      const MAX_VALUE_LENGTH = 120;
-      const keys = Object.keys(args).slice(0, usePlain ? 3 : 2);
-      if (keys.length === 0) return "";
-      const parts = keys.map((key) => {
-        let valueStr = safeString(args[key]);
-        if (valueStr.length > MAX_VALUE_LENGTH) {
-          valueStr = valueStr.slice(0, MAX_VALUE_LENGTH) + "…";
-        }
-        if (usePlain) {
-          return `${key}: ${valueStr}`;
-        }
-        return `${chalk.dim(`${key}:`)} ${chalk.cyan(valueStr)}`;
-      });
+      const keys = Object.keys(toolArgs).slice(0, usePlain ? 3 : 2);
+      const parts: string[] = [];
+      for (const key of keys) {
+        const valueStr = formatArgValue(toolArgs[key]);
+        if (valueStr.length === 0) continue;
+        parts.push(
+          usePlain ? `${key}: ${valueStr}` : `${chalk.dim(`${key}:`)} ${chalk.cyan(valueStr)}`,
+        );
+      }
+      if (parts.length === 0) return "";
       return usePlain ? `{ ${parts.join(", ")} }` : ` ${parts.join(", ")}`;
     }
   }
+}
+
+/**
+ * Arguments for a live tool row or a settled receipt: the same fields
+ * `formatToolArguments` would show, without the wrapping braces plain style
+ * adds around a list.
+ */
+export function compactToolArguments(toolName: string, args?: Record<string, unknown>): string {
+  const formatted = formatToolArguments(toolName, args, { style: "plain" }).trim();
+  if (formatted.startsWith("{") && formatted.endsWith("}")) {
+    return formatted.slice(1, -1).trim();
+  }
+  return formatted;
 }
 
 /**
@@ -478,6 +523,29 @@ export function formatToolResult(toolName: string, result: string): string {
   }
 
   function formatGenericObject(parsedResult: Record<string, unknown>): string {
+    const formatted = parsedResult["formatted"];
+    if (typeof formatted === "string" && formatted.trim().length > 0) {
+      return formatted;
+    }
+    const content = parsedResult["content"];
+    if (typeof content === "string" && content.trim().length > 0) {
+      return content;
+    }
+    const message = parsedResult["message"];
+    if (typeof message === "string" && message.trim().length > 0) {
+      return message;
+    }
+    const scalars: string[] = [];
+    for (const [key, value] of Object.entries(parsedResult)) {
+      if (typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean") {
+        continue;
+      }
+      const text = typeof value === "string" ? value.trim() : String(value);
+      if (text.length === 0) continue;
+      scalars.push(`${key}: ${text}`);
+      if (scalars.length >= 3) break;
+    }
+    if (scalars.length > 0) return scalars.join(" · ");
     return JSON.stringify(parsedResult, null, 2);
   }
 
@@ -596,4 +664,28 @@ export function formatToolResult(toolName: string, result: string): string {
   } catch {
     return truncateDisplayText(result);
   }
+}
+
+const SNIPPET_MAX_CHARS = 88;
+const SNIPPET_MAX_LINES = 2;
+
+function isStructuralJsonLine(line: string): boolean {
+  return line === "{" || line === "}" || line === "[" || line === "]" || line === "{},";
+}
+
+/**
+ * One or two content lines from a formatted tool result, for a receipt row.
+ * Skips brace-only JSON so a pretty-printed object cannot collapse to `{`.
+ */
+export function toolResultSnippet(text: string): string {
+  const lines: string[] = [];
+  for (const raw of text.replace(/\r\n/g, "\n").split("\n")) {
+    const trimmed = raw.trim();
+    if (trimmed.length === 0 || isStructuralJsonLine(trimmed)) continue;
+    lines.push(trimmed.replace(/\s+/g, " "));
+    if (lines.length >= SNIPPET_MAX_LINES) break;
+  }
+  const joined = lines.join(" · ");
+  if (joined.length <= SNIPPET_MAX_CHARS) return joined;
+  return `${joined.slice(0, SNIPPET_MAX_CHARS - 1)}…`;
 }

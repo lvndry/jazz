@@ -75,14 +75,15 @@ export interface ReasoningBlock extends BlockBase {
 }
 
 /**
- * A settled tool call is a receipt: what it did and what came back. The
- * invocation, arguments, timing and full output live behind an expand key,
- * because once a tool has run those are no longer the interesting part.
+ * A settled tool call is a receipt: the app, the args it used, and a snippet
+ * of what came back. Timing and the full output live behind an expand key.
  */
 export interface ToolReceiptBlock extends BlockBase {
   readonly kind: "tool";
   readonly app: string;
   readonly summary: string;
+  /** Compact argument preview shown next to the app name. */
+  readonly args?: string;
   readonly status: "ok" | "failed" | "denied";
   /** Shown only on failure, with the remedy inline. */
   readonly reason?: string;
