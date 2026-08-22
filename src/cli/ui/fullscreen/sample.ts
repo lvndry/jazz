@@ -177,7 +177,7 @@ export function sampleView(tick = 0): ViewModel {
       // tools churn.
       reservedRows: 3,
     },
-    input: { value: "", placeholder: "Ask anything", queued: 0, disabled: false },
+    input: { value: "", placeholder: "Ask anything", queued: [], disabled: false },
     footer: {
       mode: "chat",
       hints: [],

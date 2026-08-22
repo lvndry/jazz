@@ -1958,7 +1958,7 @@ export function FullscreenBridge(): React.ReactNode {
         caret: draftCaret,
         anchor: draftAnchor,
         placeholder: busy ? "Type to queue for next turn" : "Ask anything",
-        queued: queue.length,
+        queued: queue,
         queueing: busy,
         disabled: overlay !== undefined || (!busy && prompt?.type !== "chat"),
         ...(commands === undefined ? {} : { commands }),
