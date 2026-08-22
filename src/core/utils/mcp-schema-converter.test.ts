@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { z } from "zod";
-import { convertMCPSchemaToZod } from "./mcp-schema-converter";
+import { convertMCPSchemaToZod, unwrapMCPJsonSchema } from "./mcp-schema-converter";
 
 describe("MCP Schema Converter", () => {
   describe("Basic Types", () => {
@@ -281,6 +281,26 @@ describe("MCP Schema Converter", () => {
       // Should fail without required query
       expect(zodSchema.safeParse({ limit: 10 }).success).toBe(false);
       expect(zodSchema.safeParse({}).success).toBe(false);
+    });
+
+    it("exposes the unwrapped JSON Schema for model advertising", () => {
+      const schema = {
+        jsonSchema: {
+          type: "object",
+          properties: {
+            query: { type: "string", description: "Search query" },
+          },
+          required: ["query"],
+        },
+      };
+      const unwrapped = unwrapMCPJsonSchema(schema);
+      expect(unwrapped).toEqual({
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Search query" },
+        },
+        required: ["query"],
+      });
     });
 
     it("should handle nested object schemas", () => {

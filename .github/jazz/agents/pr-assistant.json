@@ -11,10 +11,8 @@
     "tools": [
       "context_info",
       "find",
-      "git_diff",
-      "git_log",
-      "git_tag_list",
       "grep",
+      "execute_command",
       "http_request",
       "ls",
       "read_file",

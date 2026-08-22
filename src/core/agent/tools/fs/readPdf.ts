@@ -76,7 +76,7 @@ export function createReadPdfTool(): Tool<FileSystem.FileSystem | FileSystemCont
   return defineTool<FileSystem.FileSystem | FileSystemContextService, ReadPdfParams>({
     name: "read_pdf",
     description:
-      "Extract text and tables from a PDF. Use pdf_page_count first for large files. Supports page ranges.",
+      'Extract text and tables from a PDF. Do not use read_file on PDFs. Use pdf_page_count first for large files, then pass pages as a list of 1-based page numbers (e.g. [1,2,3], not "1-3"). No OCR/images.',
     tags: ["filesystem", "read", "pdf"],
     parameters,
     validate: makeZodValidator(parameters),

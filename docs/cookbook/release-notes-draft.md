@@ -3,7 +3,7 @@
 **What it does:** Triggered by a manual GitHub Actions dispatch (or a `git tag` push), drafts release notes from the commits since the previous tag, grouped by feature area, and creates a GitHub Release.
 **Schedule:** Triggered by CI, not cron.
 **Risk:** `autoApprove: true` inside the workflow — but the runner only has the tools and secrets you give it, so this is safe by construction. The agent can read git, search, and write to `/tmp`; it can't push code.
-**Tools used:** `git_log`, `git_diff`, `read_file`, `grep`, `find`, `web_search`, `write_file`.
+**Tools used:** `execute_command`, `read_file`, `grep`, `find`, `web_search`, `write_file`.
 
 ## Why this is useful
 
@@ -28,8 +28,8 @@ Generate release notes for **__NEW_TAG__** by comparing commits since **__PREVIO
 
 ## Steps
 
-1. Use `git_log` to get all commits between `__PREVIOUS_TAG__` and `__NEW_TAG__`.
-2. Use `git_diff` with `commit` set to `__PREVIOUS_TAG__...__NEW_TAG__` to understand the scope of changes. If the diff is large, scope to individual files using the `path` parameter.
+1. Use `execute_command` (`git log __PREVIOUS_TAG__..__NEW_TAG__`) to get all commits between `__PREVIOUS_TAG__` and `__NEW_TAG__`.
+2. Use `execute_command` (`git diff __PREVIOUS_TAG__...__NEW_TAG__`) to understand the scope of changes. If the diff is large, scope to individual files with path args.
 3. Read relevant source files to understand the context of changes.
 4. Group commits by **feature** — cluster related changes into cohesive product areas (e.g. "Agent workflows", "CLI experience", "Scheduler"). Each group = one feature or capability area.
 5. Write **funny, exciting, product- and UX-focused** descriptions. Explain what changed and **why it matters** to the user. No dry dev-speak — make it feel alive and clear.
@@ -204,8 +204,7 @@ A minimal `release-notes.json` agent config:
     "llmProvider": "openai",
     "llmModel": "gpt-4o-mini",
     "tools": [
-      "git_log",
-      "git_diff",
+      "execute_command",
       "read_file",
       "find",
       "grep",

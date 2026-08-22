@@ -63,7 +63,7 @@ export function createUpdateTaskStateTool(): Tool<never> {
       "that changes the plan — not at the end, since you may never get a clean ending. " +
       "Only the fields you pass are changed; the rest are left as they were. This is for " +
       "THIS task's state, not durable facts about the person or project — those belong in " +
-      "memory. Mark work 'done' only when you have run something that confirms it; use " +
+      "memory. Call with no fields to read the current state. Mark work 'done' only when you have run something that confirms it; use " +
       "'unverified' when you believe it works but have not checked.",
     parameters: updateTaskStateParameters,
     riskLevel: "low-risk",

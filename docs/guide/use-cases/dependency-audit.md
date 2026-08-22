@@ -18,12 +18,12 @@ Automate security audits of your project dependencies and safely fix vulnerabili
 
 ## Setup
 
-Create an agent with file system, shell, and git tools:
+Create an agent with file system, shell, and web search:
 
 ```bash
 jazz agent create
 # Name: security-auditor
-# Tools: File System, Shell, Git, Web Search
+# Tools: File System, Shell, Web Search
 ```
 
 ## Usage

@@ -28,7 +28,9 @@ let subagentCounter = 0;
 const spawnSubagentSchema = z.object({
   task: z
     .string()
-    .describe("Specific task description for the sub-agent, including expected output."),
+    .describe(
+      "Self-contained brief. Must include expected output format. The child has no other context.",
+    ),
   name: z
     .string()
     .optional()
@@ -76,9 +78,11 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
       longRunning: true,
       timeoutMs: SUBAGENT_TIMEOUT_MS,
       description:
-        "Spawn a sub-agent with fresh context for a specific task. Personas: coder, researcher, default. " +
-        "Pass a short 'name' to label each sub-agent by its role so parallel sub-agents stay distinguishable. " +
-        "Pass 'reasoningEffort' to override the parent's effort for this sub-agent only.",
+        "Delegate a self-contained task to a child agent with a fresh context window. " +
+        "The child cannot see this conversation — put every fact, path, constraint, and the exact output shape in `task`. Only the child's final answer returns. " +
+        "Use when: (1) the work would flood this context, (2) two or more independent investigations can run in parallel in one turn, (3) you need a specialist persona (coder = code/git, researcher = read-only investigation). " +
+        "Do NOT use when: a few greps/reads would finish it; the child would need 'as we discussed'; the work must mutate the same files in order; you are already under budget pressure. " +
+        "The child inherits at most your tools, the same model, a 30-minute timeout, and 30 iterations. Nesting beyond depth 3 is refused. Label parallel children with `name`.",
       parameters: spawnSubagentSchema,
       hidden: false,
       riskLevel: "low-risk",
@@ -270,9 +274,7 @@ ${args.task}`;
       name: "summarize_context",
       longRunning: true,
       description:
-        "Compact conversation by summarizing older messages to free token budget. " +
-        "Always performs summarization when called — use proactively before complex tasks " +
-        "to reduce context size, save costs, and prevent context rot.",
+        "Compact conversation by summarizing older messages. The harness already auto-compacts at ~80% of the context window — call this only when you need to free budget *before* that, not as a habit. Empty or short histories return an error instead of summarizing.",
       parameters: summarizeContextSchema,
       hidden: false,
       riskLevel: "read-only",

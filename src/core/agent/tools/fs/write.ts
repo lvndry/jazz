@@ -39,7 +39,11 @@ type WriteFileDeps = FileSystem.FileSystem | FileSystemContextService;
 export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
   const config: ApprovalToolConfig<WriteFileDeps, WriteFileArgs> = {
     name: "write_file",
-    description: "Write content to a file, creating it if needed. Replaces entire file content.",
+    description:
+      "Create a new UTF-8 file, or replace an entire existing file, relative to session cwd. " +
+      "WHEN TO USE: the file does not exist yet, or you are intentionally replacing 100% of its contents. " +
+      "WHEN NOT: modifying part of an existing file → edit_file. Prefer createDirs:true over a separate mkdir for new files. " +
+      "content is the COMPLETE file. Omitting the tail deletes it. createDirs defaults to FALSE (unlike mkdir, which defaults recursive true).",
     tags: ["filesystem", "write"],
     parameters: writeFileParameters,
     validate: makeZodValidator(writeFileParameters),

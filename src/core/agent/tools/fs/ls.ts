@@ -18,7 +18,12 @@ export function createLsTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
       path: z.string().optional().describe("Directory path (defaults to cwd)"),
       showHidden: z.boolean().optional().describe("Include hidden files"),
       recursive: z.boolean().optional().describe("Recurse into subdirectories"),
-      pattern: z.string().optional().describe("Name filter (substring or 're:<regex>')"),
+      pattern: z
+        .string()
+        .optional()
+        .describe(
+          "Name filter: substring or 're:<regex>'. NOT a glob — *.ts is literal. Use find for globs.",
+        ),
       maxResults: z
         .number()
         .int()
@@ -39,7 +44,9 @@ export function createLsTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
   return defineTool<FileSystem.FileSystem | FileSystemContextService, LsParams>({
     name: "ls",
     description:
-      "List directory contents. Supports recursive traversal, name filtering, hidden files. Default 200 results, cap 2000.",
+      "List one directory. Default: this directory only, hidden files excluded, 200 results. " +
+      "WHEN TO USE: see what is in a folder. WHEN NOT: locate files by glob → find (alias glob). Search file contents → grep. Recursing the whole repo is find, not ls. " +
+      "pattern is a substring or re:<regex> — NOT a glob. *.ts as a pattern looks for the literal characters *.ts. Use find.name for globs. .gitignore and node_modules are skipped unless showHidden is true.",
     tags: ["filesystem", "listing"],
     parameters,
     validate: makeZodValidator(parameters),

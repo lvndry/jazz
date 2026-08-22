@@ -114,14 +114,14 @@ on the gate.
 
 ### Pick the lowest policy tier that lets the job finish
 
-| Tier | Auto-approves |
-| --- | --- |
-| unset / `false` | Nothing |
-| `read-only` | Reads, search, web requests, `git status`/`log`/`diff` |
-| `low-risk` | + `manage_todos`, `spawn_subagent` |
-| `high-risk` | + writes, deletes, shell, `git commit`/`push` |
+| Tier            | Auto-approves                                                               |
+| --------------- | --------------------------------------------------------------------------- |
+| unset / `false` | Nothing                                                                     |
+| `read-only`     | Reads, search, web requests, inspect-only shell classified at approval time |
+| `low-risk`      | + `manage_todos`, `update_task_state`, `spawn_subagent`                     |
+| `high-risk`     | + writes, deletes, shell, mutating commands                                 |
 
-`low-risk` is narrower than it sounds — it adds exactly two tools. Email, calendar, and
+`low-risk` is narrower than it sounds — it adds three tools. Email, calendar, and
 Obsidian are skills that shell out via `execute_command` (`high-risk`), so prefer allowlisting
 one binary over raising the whole tier:
 

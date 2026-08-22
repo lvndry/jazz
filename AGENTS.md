@@ -29,7 +29,7 @@ Know these before proposing to build them:
 | Area | Reality |
 | --- | --- |
 | Providers | 18 behind one AI SDK adapter, including local Ollama and llama.cpp |
-| Tools | 43 agent-facing, 15 of them approval-gated, plus MCP and declarative custom tools |
+| Tools | 34 agent-facing, 7 of them approval-gated, plus MCP and declarative custom tools |
 | Context | Two-tier token counting with per-model calibration, turn-aware trimming, compaction at 80% |
 | Long runs | 80-iteration budget with pressure injection at 70%/90%, meltdown detection, sub-agents with isolated context |
 | Surfaces | Terminal TUI, headless `jazz run`, launchd/cron, GitHub Actions, a Telegram bridge |

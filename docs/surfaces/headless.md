@@ -85,16 +85,16 @@ spent money, and an unattended deployment needs to account for it.
 
 ## Flags
 
-| Flag | Purpose |
-| --- | --- |
-| `--agent <id>` | **Required.** Agent id or name. |
-| `--json` | Emit the single-object envelope instead of raw text. |
-| `--conversation <id>` | Stable conversation key. Loads prior history before the run, saves the updated transcript after. Omit for a stateless one-shot. |
-| `--approval-policy <p>` | `read-only` \| `low-risk` \| `high-risk`. Tools above the tier are **declined**, not queued. |
-| `--events <categories>` | Emit NDJSON progress on stderr: `tools,reasoning,text,usage,approval,subagent,all`. |
-| `--reasoning <effort>` | `low` \| `medium` \| `high` \| `disable`. Overrides the agent's config for this run. |
-| `--timeout <ms>` | Abort the run after this many milliseconds. |
-| `--max-iterations <n>` | Cap the agent's reasoning iterations (default 80). |
+| Flag                       | Purpose                                                                                                                                            |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--agent <id>`             | **Required.** Agent id or name.                                                                                                                    |
+| `--json`                   | Emit the single-object envelope instead of raw text.                                                                                               |
+| `--conversation <id>`      | Stable conversation key. Loads prior history before the run, saves the updated transcript after. Omit for a stateless one-shot.                    |
+| `--approval-policy <p>`    | `read-only` \| `low-risk` \| `high-risk`. Tools above the tier are **declined**, not queued.                                                       |
+| `--events <categories>`    | Emit NDJSON progress on stderr: `tools,reasoning,text,usage,approval,subagent,all`.                                                                |
+| `--reasoning <effort>`     | `low` \| `medium` \| `high` \| `disable`. Overrides the agent's config for this run.                                                               |
+| `--timeout <ms>`           | Abort the run after this many milliseconds.                                                                                                        |
+| `--max-iterations <n>`     | Cap the agent's reasoning iterations (default 80).                                                                                                 |
 | `--stream` / `--no-stream` | Force streaming on/off. Streaming auto-disables for non-TTY stdout, which also suppresses `--events` — pass `--stream` to re-enable it in scripts. |
 
 ---
@@ -158,15 +158,15 @@ jazz run --json --stream --events tools,subagent --agent dev "audit this repo" \
   2> >(while read -r line; do render_progress "$line"; done)
 ```
 
-| Category | Event types emitted |
-| --- | --- |
-| `tools` | `tools_detected`, `tool_call`, `tool_execution_start`, `tool_execution_complete` |
-| `reasoning` | `thinking_start`, `thinking_chunk`, `thinking_complete` |
-| `text` | `text_start`, `text_chunk` |
-| `usage` | `stream_start`, `usage_update`, `complete` |
-| `approval` | `approval_required`, `approval_resolved` |
-| `subagent` | `subagent_start`, `subagent_complete` |
-| `all` | every category above |
+| Category    | Event types emitted                                                              |
+| ----------- | -------------------------------------------------------------------------------- |
+| `tools`     | `tools_detected`, `tool_call`, `tool_execution_start`, `tool_execution_complete` |
+| `reasoning` | `thinking_start`, `thinking_chunk`, `thinking_complete`                          |
+| `text`      | `text_start`, `text_chunk`                                                       |
+| `usage`     | `stream_start`, `usage_update`, `complete`                                       |
+| `approval`  | `approval_required`, `approval_resolved`                                         |
+| `subagent`  | `subagent_start`, `subagent_complete`                                            |
+| `all`       | every category above                                                             |
 
 `error` events are **always** included regardless of what you select, so a failure can
 never be invisible on the live stream.
@@ -182,15 +182,15 @@ Unattended runs have nobody to ask, so `--approval-policy` decides in advance. T
 above the tier are **declined** — the agent gets a refusal it can reason about and route
 around, rather than hanging forever on a prompt nobody will answer.
 
-| Policy | Auto-approves |
-| --- | --- |
-| *(omitted)* | Nothing. Every gated tool is declined. |
+| Policy      | Auto-approves                                                  |
+| ----------- | -------------------------------------------------------------- |
+| *(omitted)* | Nothing. Every gated tool is declined.                         |
 | `read-only` | Reading files, search, web requests, `git status`/`log`/`diff` |
-| `low-risk` | + `manage_todos`, `spawn_subagent` |
-| `high-risk` | + file writes, shell commands, git commit and push |
+| `low-risk`  | + `manage_todos`, `spawn_subagent`                             |
+| `high-risk` | + file writes, shell commands, git commit and push             |
 
 > ⚠️ **`low-risk` is narrower than it sounds.** In the built-in toolset it adds only
-> `manage_todos` and `spawn_subagent`. Email, calendar, and Obsidian are *skills* that shell
+> `manage_todos`, `update_task_state`, and `spawn_subagent`. Email, calendar, and Obsidian are *skills* that shell
 > out via `execute_command` (`high-risk`), so a `low-risk` run cannot archive an email. Keep
 > the tier low and allowlist the binary instead: `{"autoApprovedCommands": ["himalaya"]}` in
 > `~/.jazz/config.json`. See [Tools reference](../reference/tools.md#what-is-not-a-built-in-tool).

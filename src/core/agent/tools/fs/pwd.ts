@@ -13,7 +13,8 @@ export function createPwdTool(): Tool<FileSystemContextService> {
   const parameters = z.object({}).strict();
   return defineTool<FileSystemContextService, Record<string, never>>({
     name: "pwd",
-    description: "Print the current working directory.",
+    description:
+      "Print this session's working directory (the cwd that cd mutates, shared by filesystem tools and execute_command). Not a new shell's process.cwd().",
     tags: ["filesystem", "navigation"],
     parameters,
     validate: makeZodValidator(parameters),

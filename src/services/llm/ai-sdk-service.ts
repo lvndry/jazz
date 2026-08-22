@@ -31,6 +31,7 @@ import {
   generateText,
   stepCountIs,
   streamText,
+  jsonSchema,
   tool,
   type LanguageModel,
   type ModelMessage,
@@ -441,7 +442,9 @@ function getProviderNativeWebSearchTool(
 
 const openrouterWebFetchTool = createProviderDefinedToolFactory<unknown, Record<string, never>>({
   id: "openrouter.web_fetch",
-  inputSchema: z.object({ url: z.string().url().describe("The URL to fetch content from") }),
+  inputSchema: z.object({
+    url: z.url().describe("The URL to fetch content from"),
+  }),
 });
 
 /**
@@ -993,6 +996,23 @@ export function buildProviderOptions(
   return undefined;
 }
 
+function schemaCharCount(toolDef: {
+  function: { parameters: z.ZodTypeAny; jsonSchema?: Readonly<Record<string, unknown>> };
+}): number {
+  if (toolDef.function.jsonSchema !== undefined) {
+    try {
+      return JSON.stringify(toolDef.function.jsonSchema).length;
+    } catch {
+      return 0;
+    }
+  }
+  try {
+    return JSON.stringify(z.toJSONSchema(toolDef.function.parameters)).length;
+  } catch {
+    return 0;
+  }
+}
+
 class AISDKService implements LLMService {
   private config: AISDKConfig;
   private readonly providerModels = PROVIDER_MODELS;
@@ -1166,9 +1186,13 @@ class AISDKService implements LLMService {
 
     // First, map all requested tools to the AI SDK format.
     for (const toolDef of requestedTools) {
+      const inputSchema =
+        toolDef.function.jsonSchema !== undefined
+          ? jsonSchema(toolDef.function.jsonSchema)
+          : toolDef.function.parameters;
       tools[toolDef.function.name] = tool({
         description: toolDef.function.description,
-        inputSchema: toolDef.function.parameters,
+        inputSchema,
       });
     }
 
@@ -1236,7 +1260,7 @@ class AISDKService implements LLMService {
       toolDefinitionChars +=
         toolDef.function.name.length +
         toolDef.function.description.length +
-        JSON.stringify(toolDef.function.parameters).length;
+        schemaCharCount(toolDef);
     }
 
     void this.logger.debug(

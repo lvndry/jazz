@@ -51,12 +51,21 @@ export type ToolRequirements =
   | ReminderService;
 
 export interface Tool<R = never> {
+  /** Function name the model calls (`read_file`, `execute_command`). Must be unique in the registry. */
   readonly name: string;
+  /** Model-facing summary of when to use the tool, what it returns, and when not to. */
   readonly description: string;
+  /** Optional labels for grouping (UI, docs). Not sent to the model. */
   readonly tags?: readonly string[];
   /** Alternative names the LLM may use to call this tool. Resolved transparently at execution time. */
   readonly aliases?: readonly string[];
+  /** Zod schema for arguments. Validated before `execute` unless a custom `validate` is used. */
   readonly parameters: z.ZodTypeAny;
+  /**
+   * Original JSON Schema advertised to the model when Zod conversion is lossy.
+   * MCP tools set this so the provider sees the server's schema, not a reconstruction.
+   */
+  readonly jsonSchema?: Readonly<Record<string, unknown>>;
   /** If true, this tool is hidden from UI listings (but still usable programmatically). */
   readonly hidden: boolean;
   /**

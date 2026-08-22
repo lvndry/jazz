@@ -221,10 +221,16 @@ function initializeAgentRun(
     const allToolNames = yield* toolRegistry.listAllTools();
     combinedToolNames = combinedToolNames.filter((toolName) => allToolNames.includes(toolName));
 
-    // Expand tool names to include approval execute tools
+    // Expand tool names to include approval execute tools and advertised aliases
     const expandedToolNameSet = new Set(combinedToolNames);
     for (const toolName of combinedToolNames) {
       const tool = yield* toolRegistry.getTool(toolName);
+      expandedToolNameSet.add(tool.name);
+      if (tool.aliases) {
+        for (const alias of tool.aliases) {
+          expandedToolNameSet.add(alias);
+        }
+      }
       if (tool.approvalExecuteToolName) {
         expandedToolNameSet.add(tool.approvalExecuteToolName);
       }

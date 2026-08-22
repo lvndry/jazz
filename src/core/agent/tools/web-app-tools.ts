@@ -162,8 +162,8 @@ export function createWebAppTool(
       "Create an interactive UI — a chart, form, dashboard, small game, or any other webpage — " +
       "for delivery back to the person as either a static image (mode: static) or a live, " +
       "tappable page (mode: interactive). Use this whenever a plain text/markdown answer " +
-      "genuinely isn't the right medium for the request (e.g. 'show me a chart', 'make an " +
-      "interactive UI for X'). You write the full HTML yourself.",
+      "genuinely isn't the right medium. You write the full HTML yourself. " +
+      "mode:static needs Chrome/Chromium (or PUPPETEER_EXECUTABLE_PATH). mode:interactive is a Mini App / WebView on Telegram/Discord; in the terminal this only writes a local HTML file. Do not use this to fetch or search the web.",
     tags: ["ui", "webapp"],
     parameters: createWebAppParameters,
     riskLevel: "low-risk",

@@ -36,11 +36,15 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
       path: z
         .string()
         .optional()
-        .describe("Start directory (omit for smart search from cwd→parents→home). Never use '/'."),
+        .describe(
+          "Start directory. Strongly recommended for repo work. Relative to session cwd. Omit only for smart cwd→parents→home. Never /.",
+        ),
       name: z
         .string()
         .optional()
-        .describe("Name filter: substring, glob ('*.ts'), or regex ('re:test.*\\.ts$')"),
+        .describe(
+          "Basename filter. Substring, glob (*.ts), or re:regex$. Unlike ls.pattern, globs work here.",
+        ),
       type: z
         .enum(["file", "dir", "all", "symlink"])
         .optional()
@@ -527,7 +531,12 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
     name: "find",
     aliases: ["glob"],
     description:
-      "Find files/directories by name, glob, or regex. Searches names/paths, NOT file contents (use grep for that). Supports type, size, mtime filters. Default 200 results, cap 2000.",
+      "Find files and directories by NAME, glob, or path — not by contents (use grep). Also advertised as glob. " +
+      'WHEN TO USE: where is tsconfig.json? all **/*.test.ts under src. Pass path: "." or a subdir for repo work. ' +
+      "WHEN NOT: search file bodies → grep. List the current directory once → ls. Do not execute_command find/fd. " +
+      "Default: max 200 results (cap 2000), maxDepth 25, hidden files excluded, .gitignore plus node_modules and .git ignored. " +
+      'WARNING: if path is omitted, smart search (default true) scans cwd, then up to 3 parents, then $HOME. Never pass path "/". ' +
+      "name: substring, glob if it contains * ? [ { (e.g. *.ts), or re:<regex>. Unlike ls.pattern, globs work here.",
     tags: ["filesystem", "search"],
     parameters,
     validate: makeZodValidator(parameters),

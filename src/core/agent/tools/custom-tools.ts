@@ -356,7 +356,7 @@ export function registerCustomToolsForAgent(
 
       // Resolving through `getTool` (rather than `listAllTools`, which only
       // returns primary names) also catches a custom tool shadowing an ALIAS
-      // of an existing tool (e.g. "glob", an alias for "find_files") — the
+      // of an existing tool (e.g. "glob", an alias for "find") — the
       // registry resolves aliases transparently, so this lookup finds the
       // collision either way.
       const existingTool = yield* registry.getTool(definition.name).pipe(Effect.option);

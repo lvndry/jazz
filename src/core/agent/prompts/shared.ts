@@ -19,10 +19,10 @@ export const ENVIRONMENT_TEMPLATE = `# Environment
 
 export const SKILLS_INSTRUCTIONS = `
 Skills:
-1. If a request matches a skill, load it with load_skill.
+1. If a request matches a skill in the index, load it with load_skill. Use find_skills when the index is not enough to decide.
 2. Follow the loaded skill's step-by-step workflow.
-3. For complex skills, load referenced sections via load_skill_section.
-Note: Prefer skill workflows over ad-hoc handling for matched tasks.
+3. For complex skills, load referenced sections via load_skill_section (e.g. references/foo.md) only after load_skill.
+Note: Prefer skill workflows over ad-hoc handling for matched tasks. Do not load every skill.
 `;
 
 export const MEMORY_INSTRUCTIONS = `
@@ -78,23 +78,21 @@ export const TOOL_SELECTION_INSTRUCTIONS = `
  */
 export const TOOL_NOTES: Readonly<Record<string, string>> = {
   web_search:
-    'web_search: Refine queries to be specific. Bad: "Total" → Good: "French energy company Total website". Use fromDate/toDate for time-sensitive topics.',
+    'web_search: Refine queries to be specific. Bad: "Total" → Good: "French energy company Total website". Put site:/filetype: in the query string. Date filters are provider-dependent — if the schema has no fromDate, put recency in the query instead.',
   write_file:
     "write_file vs edit_file: write_file for new files or full rewrites. edit_file for surgical changes to existing files.",
   edit_file:
-    "edit_file: Supports 4 operation types: replace_lines (use line numbers from read_file/grep), replace_pattern (literal or regex find-replace, set count=-1 for all occurrences), insert (afterLine=0 inserts before first line), and delete_lines. Operations apply in order.",
-  grep: "grep: Searches file CONTENTS (find searches file NAMES). Start narrow — small maxResults and specific paths first, then expand. outputMode='files' to find matching files, 'count' for match counts, 'content' (default) for matching lines.",
-  find: "find: Searches file/directory NAMES and paths. To search file CONTENTS, use grep instead.",
-  git_status:
-    "git workflow: Run git_status before git_add/git_commit. Use git_diff with staged:true to review before committing. git_checkout force / git_push force are destructive — only when explicitly requested. The path param on all git tools defaults to cwd.",
-  read_pdf:
-    "PDFs: Use pdf_page_count first, then read_pdf in 10-20 page chunks (via pages param) to avoid context overload.",
+    "edit_file: Line numbers come from read_file's numbered output (`   12|content`) — do not copy the `N|` prefix into replacements. replace_pattern defaults to first match; count:-1 for all. Do not sed via execute_command.",
+  grep: "grep: Searches file CONTENTS (find/glob searches file NAMES). Start narrow — small maxResults and specific paths first. Pattern is literal unless re: prefix or regex:true (never both).",
+  find: "find (alias glob): Searches file/directory NAMES. Pass path for repo work or smart-search may walk to $HOME. To search file CONTENTS, use grep.",
   execute_command:
-    "execute_command: Timeout defaults to 15 minutes. Dangerous commands (rm -rf, sudo, fork bombs) and interpreter inline-code flags (python3 -c, node -e, bash -c, etc.) are blocked — write a script to a unique temporary file and run that instead. Prefer atomic, composable commands chained with pipes.",
+    "execute_command: Do not use for ls/grep/find/read_file/mkdir — those have dedicated tools. Git has no dedicated tools. Timeout defaults to 15 minutes. Dangerous commands (rm -rf, sudo, fork bombs) and interpreter inline-code flags (python3 -c, node -e, bash -c, etc.) are blocked — write a script to a unique temporary file and run that instead.",
+  read_pdf:
+    "PDFs: Use pdf_page_count first, then read_pdf in 10-20 page chunks (via pages param) to avoid context overload. Do not read_file a PDF.",
   http_request:
-    "http_request: Body supports 3 types: json (serialized automatically), text (plain text), form (URL-encoded). Content-Type is set automatically based on body type.",
+    "http_request: Body supports 3 types: json (serialized automatically), text (plain text), form (URL-encoded). Content-Type is set automatically based on body type. Not for HTML article extraction.",
   spawn_subagent:
-    "spawn_subagent: Use persona 'coder' for code search/editing/git tasks, 'researcher' for web search/information gathering, 'default' for general tasks. Give a clear, specific task including expected output format. Use subagents liberally for investigation before you start editing.",
+    "spawn_subagent: Use persona 'coder' for code search/editing/git, 'researcher' for read-only investigation. The child cannot see this conversation — put every fact in `task`. Do not spawn for work a few greps would finish.",
 };
 
 export function renderToolNotes(toolNames: readonly string[]): string {

@@ -75,7 +75,7 @@ export function createViewMemoryTool(): Tool<MemoryToolDeps> {
       '(e.g. "people/alex.md" or "project-context.md") to read one file\'s full contents. ' +
       "Call this once, early, whenever you're not certain this is the first time you've talked " +
       "with this person — before assuming a clean slate. An empty or missing directory just means " +
-      "nothing has been saved yet; that is a normal answer, not an error.",
+      "nothing has been saved yet; that is a normal answer, not an error. Not a todo list and not this-task progress — those are manage_todos / update_task_state.",
     parameters: viewMemoryParameters,
     riskLevel: "read-only",
     hidden: false,
@@ -127,37 +127,43 @@ const manageMemoryParameters = z.discriminatedUnion("command", [
   z
     .object({
       command: z.literal("create"),
-      path: z.string().min(1),
-      file_text: z.string(),
+      path: z.string().min(1).describe("Memory file path relative to the memory directory."),
+      file_text: z.string().describe("Full file contents. Errors if the path already exists."),
     })
     .strict(),
   z
     .object({
       command: z.literal("str_replace"),
-      path: z.string().min(1),
-      old_str: z.string().min(1),
-      new_str: z.string().optional(),
+      path: z.string().min(1).describe("Memory file path relative to the memory directory."),
+      old_str: z.string().min(1).describe("Exact unique snippet to replace."),
+      new_str: z.string().optional().describe("Replacement text. Omit to delete the snippet."),
     })
     .strict(),
   z
     .object({
       command: z.literal("insert"),
-      path: z.string().min(1),
-      insert_line: z.number().int().nonnegative(),
-      insert_text: z.string(),
+      path: z.string().min(1).describe("Memory file path relative to the memory directory."),
+      insert_line: z
+        .number()
+        .int()
+        .nonnegative()
+        .describe(
+          "0-based line index to insert after (0 = beginning). view_memory view_range is 1-based.",
+        ),
+      insert_text: z.string().describe("Text to insert."),
     })
     .strict(),
   z
     .object({
       command: z.literal("delete"),
-      path: z.string().min(1),
+      path: z.string().min(1).describe("Memory file path to delete."),
     })
     .strict(),
   z
     .object({
       command: z.literal("rename"),
-      old_path: z.string().min(1),
-      new_path: z.string().min(1),
+      old_path: z.string().min(1).describe("Current path."),
+      new_path: z.string().min(1).describe("New path."),
     })
     .strict(),
 ]);
@@ -180,7 +186,7 @@ export function createManageMemoryTool(): Tool<MemoryToolDeps> {
       "or per project, not a running log. Delete or rewrite a file the moment its contents are " +
       "contradicted or no longer true; stale memory is worse than no memory. Never write transient " +
       "conversation content, task-specific details, or anything guessable from context — only facts " +
-      "and preferences durable enough to matter three conversations from now.",
+      "and preferences durable enough to matter three conversations from now. Never store account numbers, passwords, or health data.",
     parameters: manageMemoryParameters,
     riskLevel: "low-risk",
     hidden: false,

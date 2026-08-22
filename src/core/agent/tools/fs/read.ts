@@ -6,23 +6,111 @@ import type { Tool } from "@/core/interfaces/tool-registry";
 import { defineTool, makeZodValidator } from "../base-tool";
 import { resolveReadableFile, stripUtf8Bom } from "./read-common";
 
+const DEFAULT_MAX_CHARS = 131_072;
+const HARD_MAX_CHARS = 524_288;
+
+const lineIndexSchema = z
+  .number()
+  .int()
+  .refine((value) => value !== 0, {
+    message: "Line numbers are 1-based; use negative values to count from the end. 0 is invalid.",
+  });
+
 /**
- * Read file contents tool
+ * Number lines the way coding models expect: `   12|content`.
+ * `startLine` is the 1-based file line of `lines[0]`.
  */
+export function formatNumberedContent(lines: readonly string[], startLine: number): string {
+  if (lines.length === 0) return "";
+  const lastLine = startLine + lines.length - 1;
+  const width = String(Math.max(lastLine, 1)).length;
+  return lines
+    .map((line, index) => `${String(startLine + index).padStart(width)}|${line}`)
+    .join("\n");
+}
+
+/**
+ * Resolve optional 1-based / negative-from-end line bounds against `totalLines`.
+ * Negative N means "Nth line from the end" (`-1` is the last line).
+ */
+export function resolveLineRange(
+  startLine: number | undefined,
+  endLine: number | undefined,
+  totalLines: number,
+): { startLine: number; endLine: number } {
+  if (totalLines <= 0) {
+    return { startLine: 1, endLine: 0 };
+  }
+
+  function resolve(value: number | undefined, fallback: number): number {
+    if (value === undefined) return fallback;
+    if (value > 0) return Math.min(value, totalLines);
+    return Math.max(1, totalLines + value + 1);
+  }
+
+  const start = resolve(startLine, 1);
+  const end = resolve(endLine, totalLines);
+  if (start <= end) {
+    return { startLine: start, endLine: end };
+  }
+  return { startLine: start, endLine: start };
+}
+
+function trimToMaxChars(
+  lines: readonly string[],
+  maxChars: number,
+): { lines: string[]; truncated: boolean } {
+  const joined = lines.join("\n");
+  if (joined.length <= maxChars) {
+    return { lines: [...lines], truncated: false };
+  }
+  if (lines.length === 0) {
+    return { lines: [], truncated: false };
+  }
+
+  const kept: string[] = [];
+  let used = 0;
+  for (const line of lines) {
+    const extra = kept.length === 0 ? line.length : line.length + 1;
+    if (used + extra > maxChars) {
+      if (kept.length === 0) {
+        return { lines: [line.slice(0, maxChars)], truncated: true };
+      }
+      return { lines: kept, truncated: true };
+    }
+    kept.push(line);
+    used += extra;
+  }
+  return { lines: kept, truncated: true };
+}
 
 export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
   const parameters = z
     .object({
-      path: z.string().min(1).describe("File path to read"),
-      startLine: z.number().int().positive().optional().describe("1-based start line (inclusive)"),
-      endLine: z.number().int().positive().optional().describe("1-based end line (inclusive)"),
+      path: z
+        .string()
+        .min(1)
+        .describe(
+          "File path, absolute or relative to session cwd. Must be a file, not a directory.",
+        ),
+      startLine: lineIndexSchema
+        .optional()
+        .describe(
+          "1-based inclusive start line. Negative counts from the end (-1 = last line, -20 = start of the last 20 lines). Omit both startLine and endLine to read from the top until maxBytes.",
+        ),
+      endLine: lineIndexSchema
+        .optional()
+        .describe(
+          "1-based inclusive end line. Negative counts from the end. Omit to read through the last line (or through maxBytes).",
+        ),
       maxBytes: z
         .number()
         .int()
         .positive()
         .optional()
-        .describe("Max bytes to return (default: 128KB, cap: 512KB)"),
-      encoding: z.string().optional().describe("Text encoding (currently utf-8)"),
+        .describe(
+          "Max characters of file text to return after the line slice (JS string length, not UTF-8 bytes). Default 131072, hard cap 524288.",
+        ),
     })
     .strict();
 
@@ -31,7 +119,12 @@ export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
   return defineTool<FileSystem.FileSystem | FileSystemContextService, ReadFileParams>({
     name: "read_file",
     description:
-      "Read a text file with optional line range (startLine/endLine). Handles BOM, enforces size limits.",
+      "Read a UTF-8 text file relative to the session working directory (pwd/cd). Returns numbered lines (`   12|content`) so edit_file.replace_lines / insert / delete_lines can use those numbers. " +
+      "WHEN TO USE: inspecting or editing text/code. " +
+      "WHEN NOT: PDFs → read_pdf; directories → ls; filenames → find; images/binary (will look like garbage); do not shell out to cat/sed/nl. " +
+      "Pass startLine/endLine for large files. Negative startLine reads from the end (startLine:-20 is the last 20 lines). " +
+      "Do not copy the `N|` prefix into edit_file or write_file content — it is metadata. " +
+      "If truncated is true, re-read the next range; do not assume you saw the whole file. UTF-8 only; a leading BOM is stripped.",
     tags: ["filesystem", "read"],
     parameters,
     validate: makeZodValidator(parameters),
@@ -43,51 +136,39 @@ export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
         const fs = yield* FileSystem.FileSystem;
 
         try {
-          let content = stripUtf8Bom(yield* fs.readFileString(filePathResult));
+          const raw = stripUtf8Bom(yield* fs.readFileString(filePathResult));
+          const allLines = raw === "" ? [] : raw.split(/\r?\n/);
+          const totalLines = allLines.length;
+          const hasRange = args.startLine !== undefined || args.endLine !== undefined;
+          const range = hasRange
+            ? resolveLineRange(args.startLine, args.endLine, totalLines)
+            : { startLine: 1, endLine: totalLines };
 
-          let totalLines = 0;
-          let returnedLines = 0;
-          let rangeStart: number | undefined = undefined;
-          let rangeEnd: number | undefined = undefined;
+          const selected =
+            totalLines === 0 ? [] : allLines.slice(range.startLine - 1, range.endLine);
 
-          // Apply line range if provided
-          if (args.startLine !== undefined || args.endLine !== undefined) {
-            const lines = content.split(/\r?\n/);
-            totalLines = lines.length;
-            const start = Math.max(1, args.startLine ?? 1);
-            const rawEnd = args.endLine ?? totalLines;
-            const end = Math.max(start, Math.min(rawEnd, totalLines));
-            content = lines.slice(start - 1, end).join("\n");
-            returnedLines = end - start + 1;
-            rangeStart = start;
-            rangeEnd = end;
-          } else {
-            // If no range, we can still report total lines lazily without splitting twice
-            totalLines = content === "" ? 0 : content.split(/\r?\n/).length;
-            returnedLines = totalLines;
-          }
-
-          // Enforce maxBytes safeguard (approximate by string length)
-          const requestedMaxBytes =
-            typeof args.maxBytes === "number" && args.maxBytes > 0 ? args.maxBytes : 131_072;
-          const maxBytes = Math.min(requestedMaxBytes, 524_288);
-          let truncated = false;
-          if (content.length > maxBytes) {
-            content = content.slice(0, maxBytes);
-            truncated = true;
-          }
+          const requestedMaxChars =
+            typeof args.maxBytes === "number" && args.maxBytes > 0
+              ? args.maxBytes
+              : DEFAULT_MAX_CHARS;
+          const maxChars = Math.min(requestedMaxChars, HARD_MAX_CHARS);
+          const trimmed = trimToMaxChars(selected, maxChars);
+          const returnedLines = trimmed.lines.length;
+          const rangeEnd =
+            returnedLines === 0 ? range.startLine - 1 : range.startLine + returnedLines - 1;
 
           return {
             success: true,
             result: {
               path: filePathResult,
-              encoding: (args.encoding ?? "utf-8").toLowerCase(),
-              content,
-              truncated,
+              content: formatNumberedContent(trimmed.lines, range.startLine),
+              truncated: trimmed.truncated,
               totalLines,
               returnedLines,
               range:
-                rangeStart !== undefined ? { startLine: rangeStart, endLine: rangeEnd } : undefined,
+                totalLines === 0
+                  ? undefined
+                  : { startLine: range.startLine, endLine: Math.max(range.startLine, rangeEnd) },
             },
           };
         } catch (error) {

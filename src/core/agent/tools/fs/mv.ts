@@ -35,7 +35,8 @@ type MvDeps = FileSystem.FileSystem | FileSystemContextService;
 export function createMvTools(): ApprovalToolPair<MvDeps> {
   const config: ApprovalToolConfig<MvDeps, MvArgs> = {
     name: "mv",
-    description: "Move or rename a file or directory. Equivalent to shell mv.",
+    description:
+      "Rename or move a path on the same filesystem (fs.rename). Destination is the exact target path — if dest is an existing directory, this does NOT move into it (unlike shell mv). force deletes the destination first. Cross-device moves fail; use execute_command for those.",
     tags: ["filesystem", "write"],
     parameters: mvParameters,
     validate: makeZodValidator(mvParameters),

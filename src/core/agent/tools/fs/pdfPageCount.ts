@@ -28,7 +28,8 @@ export function createPdfPageCountTool(): Tool<FileSystem.FileSystem | FileSyste
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, PdfPageCountParams>({
     name: "pdf_page_count",
-    description: "Get total page count of a PDF without reading content.",
+    description:
+      "PDF metadata: page count (and file size). Use before read_pdf so you can pass a page list instead of dumping hundreds of pages. Still loads the file; it does not extract text.",
     tags: ["filesystem", "pdf", "info"],
     parameters,
     validate: makeZodValidator(parameters),

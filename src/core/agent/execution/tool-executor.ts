@@ -1,6 +1,8 @@
 import { Effect, Either, Fiber } from "effect";
+import { classifyCommandRisk, shouldClassifyExecuteCommand } from "@/core/agent/tools/command-risk";
 import { MAX_CONCURRENT_TOOLS, TOOL_TIMEOUT_MS } from "@/core/constants/agent";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
+import type { LLMService } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import {
   PresentationServiceTag,
@@ -130,7 +132,12 @@ export class ToolExecutor {
   ): Effect.Effect<
     { toolCallId: string; result: unknown; success: boolean; name: string },
     Error,
-    ToolRegistry | LoggerService | AgentConfigService | ToolRequirements | PresentationService
+    | ToolRegistry
+    | LoggerService
+    | AgentConfigService
+    | ToolRequirements
+    | PresentationService
+    | LLMService
   > {
     return Effect.gen(function* () {
       const presentationService = yield* PresentationServiceTag;
@@ -212,11 +219,23 @@ export class ToolExecutor {
           const toolInfo = yield* registry
             .getTool(name)
             .pipe(Effect.catchAll(() => Effect.succeed({ riskLevel: "high-risk" as const })));
-          const riskLevel = toolInfo.riskLevel;
+          let riskLevel = toolInfo.riskLevel;
 
-          // Get current policy via getter for real-time updates (e.g., Shift+Tab toggle)
           const getCurrentPolicy = () => context.getAutoApprovePolicy?.();
           const autoApprovePolicy = getCurrentPolicy();
+          const allowlisted =
+            isToolNameAutoApproved(name, context.autoApprovedTools) ||
+            isCommandAutoApproved(name, approvalResult.executeArgs, context.autoApprovedCommands);
+
+          if (
+            shouldClassifyExecuteCommand(name, autoApprovePolicy, allowlisted) &&
+            context.parentAgent
+          ) {
+            const command = approvalResult.executeArgs["command"];
+            if (typeof command === "string") {
+              riskLevel = yield* classifyCommandRisk(command, context.parentAgent);
+            }
+          }
 
           // Check if auto-approve policy allows this tool, per-tool session allowlist,
           // or per-command prefix allowlist matches
@@ -507,7 +526,12 @@ export class ToolExecutor {
   ): Effect.Effect<
     Array<{ toolCallId: string; result: unknown; name: string; success: boolean }>,
     Error,
-    ToolRegistry | LoggerService | AgentConfigService | ToolRequirements | PresentationService
+    | ToolRegistry
+    | LoggerService
+    | AgentConfigService
+    | ToolRequirements
+    | PresentationService
+    | LLMService
   > {
     return Effect.gen(function* () {
       const presentationService = yield* PresentationServiceTag;

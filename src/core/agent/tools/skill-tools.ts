@@ -19,7 +19,7 @@ export function createSkillTools(skillNames: readonly string[]): Tool<SkillServi
     {
       name: "find_skills",
       description:
-        "Search the skill catalog by query and return the top matches with their full descriptions. Use this when the system-prompt skill index doesn't have enough detail to decide which skill to load.",
+        "Search the skill catalog by query and return the top matches with their full descriptions. Use this when the system-prompt skill index doesn't have enough detail to decide which skill to load. Keyword match, not semantic. Then load_skill.",
       parameters: z.object({
         query: z
           .string()
@@ -72,7 +72,8 @@ export function createSkillTools(skillNames: readonly string[]): Tool<SkillServi
     },
     {
       name: "load_skill",
-      description: "Load a skill's full instructions by name.",
+      description:
+        "Load a skill's full instruction body by name (the markdown after frontmatter). Load only when the index or find_skills names a match for the current task. Do not preload every skill.",
       parameters: z.object({
         skill_name: skillNameSchema.describe("Skill name to load"),
       }),
@@ -101,7 +102,8 @@ export function createSkillTools(skillNames: readonly string[]): Tool<SkillServi
     },
     {
       name: "load_skill_section",
-      description: "Load a supplementary file referenced in a skill's instructions.",
+      description:
+        "Load a supplementary file referenced in a skill's instructions (e.g. references/foo.md). Call only after load_skill. Allowed extensions: .md .txt .json .yaml .yml.",
       parameters: z.object({
         skill_name: skillNameSchema.describe("Skill name"),
         section_name: z.string().describe("Section name/path to load"),

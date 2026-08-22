@@ -52,11 +52,11 @@ one that does and load it directly. You pay for depth only when depth is used.
 
 ## The three tools
 
-| Tool | Input | Returns | Risk |
-| --- | --- | --- | --- |
-| `find_skills` | `query`, optional `limit` (max 10, default 5) | Ranked `name: description` lines | `read-only` |
-| `load_skill` | `skill_name` | The skill's full instructions | `read-only` |
-| `load_skill_section` | `skill_name`, `section_name` | One supplementary file referenced by the skill | `read-only` |
+| Tool                 | Input                                         | Returns                                        | Risk        |
+| -------------------- | --------------------------------------------- | ---------------------------------------------- | ----------- |
+| `find_skills`        | `query`, optional `limit` (max 10, default 5) | Ranked `name: description` lines               | `read-only` |
+| `load_skill`         | `skill_name`                                  | The skill's full instructions                  | `read-only` |
+| `load_skill_section` | `skill_name`, `section_name`                  | One supplementary file referenced by the skill | `read-only` |
 
 A detail worth noticing: **`skill_name` is a `z.enum` built from the actually-discovered
 skill names**, not a free string. The model literally cannot hallucinate a skill name — an
@@ -102,12 +102,12 @@ what's available.
 
 ## Cost profile
 
-| Scenario | Tool calls | Context cost |
-| --- | --- | --- |
-| No skill needed | 0 | the index only |
-| Agent knows the skill by name | 1 | index + skill body |
-| Agent needs to search first | 2 | index + matches + skill body |
-| Skill pulls in a reference file | 3 | index + matches + body + file |
+| Scenario                        | Tool calls | Context cost                  |
+| ------------------------------- | ---------- | ----------------------------- |
+| No skill needed                 | 0          | the index only                |
+| Agent knows the skill by name   | 1          | index + skill body            |
+| Agent needs to search first     | 2          | index + matches + skill body  |
+| Skill pulls in a reference file | 3          | index + matches + body + file |
 
 **The trade-off:** up to two extra round trips before the agent starts working. That's the
 price of not spending the window on skills nobody asked for. When the agent already knows

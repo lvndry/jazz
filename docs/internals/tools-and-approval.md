@@ -90,9 +90,9 @@ Every tool declares a level. One dial decides what runs without asking.
 flowchart LR
     subgraph tiers["Tool risk levels"]
         direction TB
-        RO["<b>read-only</b><br/>read_file · grep · find · ls<br/>web_search · web_fetch · http_request<br/>git_status · git_log · git_diff"]
+        RO["<b>read-only</b><br/>read_file · grep · find · ls<br/>web_search · web_fetch · http_request<br/>classified inspect-only shell"]
         LR["<b>low-risk</b><br/>manage_todos<br/>spawn_subagent"]
-        HR["<b>high-risk</b><br/>write_file · edit_file · rm<br/>mv · cp · mkdir<br/>execute_command<br/>git_commit · git_push"]
+        HR["<b>high-risk</b><br/>write_file · edit_file · rm<br/>mv · cp · mkdir<br/>execute_command<br/>(mutating git, other shell)"]
     end
 
     subgraph policies["--approval-policy"]
@@ -122,14 +122,32 @@ The policy is read through a **getter**, not captured once, so a mid-run change 
 immediately — that's how Shift+Tab mode switching works in the TUI, and why a tool queued
 behind another can pick up a policy that changed while it waited.
 
+### Command classifier
+
+`execute_command` is declared `high-risk`. When the auto-approve policy is `read-only` or
+`low-risk`, Jazz asks the cheap harness model (`summarizerModel`, else the agent's own) whether
+this particular command is inspect-only. A `read-only` verdict lets the policy auto-approve it
+so a scheduled workflow can run `git log` or `ls /tmp` without also unlocking `rm`.
+
+The classifier runs only when its answer could skip a prompt — not on every interactive
+shell command, and not when the policy is already `high-risk` or unset.
+
+Fail closed: timeouts, provider errors, empty replies, and anything other than the exact
+token `read-only` stay `high-risk`. The command is wrapped as data in `<command>` tags so
+the model is told not to follow instructions inside it. A wrong `read-only` verdict is still
+possible; the shell denylist is the backstop for known-destructive patterns, not for
+`git push`.
+
+Implementation: [`command-risk.ts`](../../src/core/agent/tools/command-risk.ts).
+
 ### Two sharper controls
 
 Tiers are coarse on purpose. When you need precision:
 
-| Control | Scope | Behavior |
-| --- | --- | --- |
-| **Per-tool allowlist** | this session | "Always approve this tool" — chosen from an approval prompt |
-| **Per-command allowlist** | persisted | "Always approve this command" — `execute_command` only |
+| Control                   | Scope        | Behavior                                                    |
+| ------------------------- | ------------ | ----------------------------------------------------------- |
+| **Per-tool allowlist**    | this session | "Always approve this tool" — chosen from an approval prompt |
+| **Per-command allowlist** | persisted    | "Always approve this command" — `execute_command` only      |
 
 The command allowlist does **not** prefix-match raw strings. It extracts an approval key
 (binary + first subcommand) and matches exactly or on a word boundary:
@@ -162,11 +180,11 @@ flowchart TB
     class FORK act
 ```
 
-| Setting | Value | Notes |
-| --- | --- | --- |
-| `MAX_CONCURRENT_TOOLS` | 10 | Prevents resource exhaustion when a model asks for 40 file reads |
-| `TOOL_TIMEOUT_MS` | 3 min | Default; a tool can declare its own |
-| `longRunning` tools | no timeout | e.g. `ask_user_question` — waiting for a human isn't a hang |
+| Setting                | Value      | Notes                                                            |
+| ---------------------- | ---------- | ---------------------------------------------------------------- |
+| `MAX_CONCURRENT_TOOLS` | 10         | Prevents resource exhaustion when a model asks for 40 file reads |
+| `TOOL_TIMEOUT_MS`      | 3 min      | Default; a tool can declare its own                              |
+| `longRunning` tools    | no timeout | e.g. `ask_user_question` — waiting for a human isn't a hang      |
 
 A timeout is **not** a crash. It comes back as a failed result with the message, the agent
 sees it, and the run continues. A tool that can't finish shouldn't take the whole run down.
@@ -221,32 +239,31 @@ invents a value, and the `SSH_` block applies regardless. Implementation:
 
 Tools are registered by category at startup, except MCP:
 
-| Category | Tools | Examples |
-| --- | --- | --- |
-| File Management | 17 | `read_file` `write_file` `edit_file` `find` `grep` `read_pdf` `pdf_page_count` `mkdir` `rm` `mv` `cp` |
-| Git | 15 | `git_status` `git_diff` `git_commit` `git_push` `git_branch` `git_merge` `git_blame` `git_reflog` `git_tag` `git_add` `git_pull` `git_rm` `git_checkout` `git_tag_list` |
-| Shell Commands | 1 | `execute_command` |
-| Web Search / Web Fetch | 2 | `web_search` `web_fetch` |
-| HTTP | 1 | `http_request` |
-| Todo | 2 | `manage_todos` `list_todos` |
-| Memory | 2 | `view_memory` `manage_memory` |
-| Reminders | 3 | `add_reminder` `list_reminders` `cancel_reminder` |
-| Context | 2 | `context_info` `get_time` |
-| Sub Agents | 2 | `spawn_subagent` `summarize_context` |
-| User Interaction | 2 | `ask_user_question` `ask_file_picker` |
-| Web App | 1 | `create_web_app` |
-| **Total agent-facing** | **50** | plus 15 hidden `execute_*` counterparts |
-| **Skills** | 3 | `find_skills` `load_skill` `load_skill_section` — per agent |
-| **MCP** | dynamic | `mcp_<server>_<tool>` — per agent, connected lazily |
+| Category               | Tools   | Examples                                                                                              |
+| ---------------------- | ------- | ----------------------------------------------------------------------------------------------------- |
+| File Management        | 15      | `read_file` `write_file` `edit_file` `find` `grep` `read_pdf` `pdf_page_count` `mkdir` `rm` `mv` `cp` |
+| Shell Commands         | 1       | `execute_command` (inspect-only commands may be classified read-only)                                 |
+| Web Search / Web Fetch | 2       | `web_search` `web_fetch`                                                                              |
+| HTTP                   | 1       | `http_request`                                                                                        |
+| Todo                   | 2       | `manage_todos` `list_todos`                                                                           |
+| Memory                 | 2       | `view_memory` `manage_memory`                                                                         |
+| Reminders              | 3       | `add_reminder` `list_reminders` `cancel_reminder`                                                     |
+| Context                | 2       | `context_info` `get_time`                                                                             |
+| Sub Agents             | 2       | `spawn_subagent` `summarize_context`                                                                  |
+| User Interaction       | 2       | `ask_user_question` `ask_file_picker`                                                                 |
+| Web App                | 1       | `create_web_app`                                                                                      |
+| **Total agent-facing** | **34**  | plus 7 hidden `execute_*` counterparts                                                                |
+| **Skills**             | 3       | `find_skills` `load_skill` `load_skill_section` — per agent                                           |
+| **MCP**                | dynamic | `mcp_<server>_<tool>` — per agent, connected lazily                                                   |
 
 **MCP is lazy by design.** Servers are child processes; connecting six of them at boot makes
 `jazz` slow to start and hangs the CLI when one misbehaves. Instead, an agent's MCP tools are
 registered from its tool list and the server connects on first invocation. Connected servers
 are tracked so they can be cleaned up when the conversation ends.
 
-**Captured process output is bounded.** `execute_command`, git, and find/grep each keep at
+**Captured process output is bounded.** `execute_command` and find/grep each keep at
 most 256 KB of stdout and 256 KB of stderr, collected as bytes so a flood cannot grow until
-the timeout. Truncated `execute_command` streams include a marker. The git, grep, and find
+the timeout. Truncated `execute_command` streams include a marker. The grep and find
 parsers keep stdout clean (so a partial last line is not treated as a path or match) and set
 `truncated` on the tool result — without that flag a cut-short enumeration is
 indistinguishable from an exhaustive one. Custom `command` tools use the same collector with

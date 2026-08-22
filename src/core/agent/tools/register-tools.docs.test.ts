@@ -95,7 +95,11 @@ describe("docs/reference/tools.md", () => {
 
   it("reports the agent-facing tool count accurately", async () => {
     const tools = await registeredTools();
-    const markdown = readFileSync(DOCS_PATH, "utf-8");
+    // Prettier pads markdown table cells to align the column, so the row is
+    // compared with its runs of spaces collapsed. Matching the unpadded row
+    // literally could never succeed once the file had been formatted, which
+    // made this read as a stale count when the count was in fact correct.
+    const markdown = readFileSync(DOCS_PATH, "utf-8").replace(/[ \t]+/g, " ");
 
     expect(markdown, `${DOCS_PATH} should state the real tool count (${tools.length})`).toContain(
       `| **Agent-facing tools** | **${tools.length}** |`,

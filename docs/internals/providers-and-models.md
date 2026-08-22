@@ -143,12 +143,12 @@ Jazz owns retry policy. The AI SDK's internal retries are turned **off**
 (`AI_SDK_MAX_RETRIES = 0`) so there aren't two retry loops with different opinions about
 backoff.
 
-| Setting | Value | Meaning |
-| --- | --- | --- |
-| `DEFAULT_MAX_LLM_RETRIES` | 10 | Attempts on transient failures (429, 5xx, network) |
-| `MAX_RETRY_DELAY_SECONDS` | 30 | Caps exponential backoff between attempts |
-| `LLM_TIMEOUT_SECONDS` | 900 | The whole call including every retry and all backoff |
-| `LLM_SLOW_MODEL_HINT_SECONDS` | 45 | Show a "this model is slow" hint; not a failure |
+| Setting                       | Value | Meaning                                              |
+| ----------------------------- | ----- | ---------------------------------------------------- |
+| `DEFAULT_MAX_LLM_RETRIES`     | 10    | Attempts on transient failures (429, 5xx, network)   |
+| `MAX_RETRY_DELAY_SECONDS`     | 30    | Caps exponential backoff between attempts            |
+| `LLM_TIMEOUT_SECONDS`         | 900   | The whole call including every retry and all backoff |
+| `LLM_SLOW_MODEL_HINT_SECONDS` | 45    | Show a "this model is slow" hint; not a failure      |
 
 A 15-minute ceiling exists because slow reasoning models on a long prompt genuinely take
 minutes, and a tighter timeout would fail runs that were about to succeed. Rate-limit errors
@@ -176,13 +176,13 @@ Per-run records land in `~/.jazz/telemetry/` as local JSON. Nothing is transmitt
 
 ## Switching models
 
-| Where | How |
-| --- | --- |
-| Mid-conversation | `/model` |
-| Per agent | the agent's `llmProvider` / `llmModel` fields |
-| For compaction only | the agent's `summarizerModel` — run a cheap model for summaries |
-| For one headless run | `--reasoning` (effort); model comes from the agent config |
-| Whole install | `~/.jazz/config.json` |
+| Where                | How                                                             |
+| -------------------- | --------------------------------------------------------------- |
+| Mid-conversation     | `/model`                                                        |
+| Per agent            | the agent's `llmProvider` / `llmModel` fields                   |
+| For compaction only  | the agent's `summarizerModel` — run a cheap model for summaries |
+| For one headless run | `--reasoning` (effort); model comes from the agent config       |
+| Whole install        | `~/.jazz/config.json`                                           |
 
 Running a cheap model for compaction while the main agent runs an expensive one is the
 highest-value version of this, and it's one field.

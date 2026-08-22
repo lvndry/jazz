@@ -72,7 +72,7 @@ export function spawnOutputTruncationNotice(
   streamName: "stdout" | "stderr",
   capBytes: number = DEFAULT_SPAWN_OUTPUT_CAP_BYTES,
 ): string {
-  return `[truncated: ${streamName} exceeded ${capBytes} bytes; showing the first ${capBytes} bytes. Narrow the command (path, range, head/tail/grep) if you need a different slice.]`;
+  return `[truncated: ${streamName} exceeded ${capBytes} bytes; showing the first ${capBytes} bytes. Narrow the command (path, range, grep, or read_file with startLine/endLine) if you need a different slice.]`;
 }
 
 export interface DecodeCappedTextOptions {

@@ -31,7 +31,7 @@ Jazz is a single-user agentic CLI running on local or server machines, not a mul
 
 ### 1. Establish scope
 
-Read `/tmp/jazz-pr-context.json` for intent and previously raised issues. Run `git_diff` with `nameOnly: true` — this list is authoritative for the PR's scope. Then call `git_diff` (without `maxLines`) to read the full diff. If you ever see `truncated: true` (only happens when a call is deliberately capped), re-fetch without the cap or scope with `paths: [...]`. Never conclude anything from a truncated diff. The number of files reviewed must match the `nameOnly` list.
+Read `/tmp/jazz-pr-context.json` for intent and previously raised issues. Run `execute_command` with `workingDirectory: "__WORKSPACE__"` and `command: "git diff --name-only __PR_BASE_SHA__...__PR_HEAD_SHA__"` — this list is authoritative for the PR's scope. Then call `execute_command` with `command: "git diff __PR_BASE_SHA__...__PR_HEAD_SHA__"` to read the full diff. stdout is capped at 256 KB; if truncated, re-fetch scoped to individual paths. Never conclude anything from a truncated diff. The number of files reviewed must match the name-only list.
 
 ### 2. Assemble the board
 

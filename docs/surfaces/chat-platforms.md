@@ -6,13 +6,13 @@ A Jazz agent in a chat window isn't a chatbot with your logo on it. It's the sam
 that reads your filesystem, runs git, searches the web, and spawns sub-agents — reachable
 from your phone.
 
-| Platform | Status | Where |
-| --- | --- | --- |
-| **Telegram** | ✅ Deployable reference bridge | [`integrations/telegram-bot/`](../../integrations/telegram-bot/) |
-| **Discord** | ✅ Deployable reference bridge | [`integrations/discord-bot/`](../../integrations/discord-bot/) |
-| **Slack** | 🔧 Bring your own bridge | pattern below |
-| **Google Chat** | 🔧 Bring your own bridge | pattern below |
-| **Your own app** | 🔧 Bring your own bridge | pattern below |
+| Platform         | Status                        | Where                                                            |
+| ---------------- | ----------------------------- | ---------------------------------------------------------------- |
+| **Telegram**     | ✅ Deployable reference bridge | [`integrations/telegram-bot/`](../../integrations/telegram-bot/) |
+| **Discord**      | ✅ Deployable reference bridge | [`integrations/discord-bot/`](../../integrations/discord-bot/)   |
+| **Slack**        | 🔧 Bring your own bridge       | pattern below                                                    |
+| **Google Chat**  | 🔧 Bring your own bridge       | pattern below                                                    |
+| **Your own app** | 🔧 Bring your own bridge       | pattern below                                                    |
 
 **Be clear on what ships.** Telegram and Discord are complete, production-deployed
 services with a Dockerfile, per-conversation model switching, reminders, and live
@@ -76,16 +76,16 @@ That's a working agent in your DMs. Full setup, configuration table, and securit
 
 What the Telegram bridge demonstrates — worth reading before you write your own:
 
-| Feature | How it works |
-| --- | --- |
-| **Per-user agents** | Each chat gets `tg_<chat_id>.json`, cloned from a template on first contact. `/model` and `/persona` change only that user's experience. |
-| **Per-chat memory** | `--conversation <chat_id>`. The bridge itself is stateless. |
-| **Live progress** | `--events` NDJSON on stderr drives a status bubble that updates with thinking, tool calls, and sub-agents, then closes with a `✅ Done · 7 tools · 12k tokens · $0.03` summary. |
-| **Cancellation** | A ⏹ button kills the child process mid-run. |
-| **Reminders** | `/remind 30m …`, persisted to disk so they survive restarts and fire late if the bridge was down. |
-| **Spend cap** | `JAZZ_DAILY_COST_CAP_USD` — the envelope's `costUSD` is accumulated per day. |
-| **Local-only mode** | Point `JAZZ_TELEGRAM_PROVIDER=ollama` at a local model: no keys, no cloud, no per-message cost. |
-| **Allowlist** | Only `TELEGRAM_ALLOWED_CHAT_IDS` are answered; everyone else is silently ignored. |
+| Feature             | How it works                                                                                                                                                                   |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Per-user agents** | Each chat gets `tg_<chat_id>.json`, cloned from a template on first contact. `/model` and `/persona` change only that user's experience.                                       |
+| **Per-chat memory** | `--conversation <chat_id>`. The bridge itself is stateless.                                                                                                                    |
+| **Live progress**   | `--events` NDJSON on stderr drives a status bubble that updates with thinking, tool calls, and sub-agents, then closes with a `✅ Done · 7 tools · 12k tokens · $0.03` summary. |
+| **Cancellation**    | A ⏹ button kills the child process mid-run.                                                                                                                                    |
+| **Reminders**       | `/remind 30m …`, persisted to disk so they survive restarts and fire late if the bridge was down.                                                                              |
+| **Spend cap**       | `JAZZ_DAILY_COST_CAP_USD` — the envelope's `costUSD` is accumulated per day.                                                                                                   |
+| **Local-only mode** | Point `JAZZ_TELEGRAM_PROVIDER=ollama` at a local model: no keys, no cloud, no per-message cost.                                                                                |
+| **Allowlist**       | Only `TELEGRAM_ALLOWED_CHAT_IDS` are answered; everyone else is silently ignored.                                                                                              |
 
 ### The message flow
 
@@ -125,12 +125,12 @@ mention-gating): [`integrations/discord-bot/README.md`](../../integrations/disco
 
 Same `jazz run` contract as Telegram. What Discord adds on top:
 
-| Feature | How it works |
-| --- | --- |
-| **Mention-gating** | In servers the bot ignores chatter unless mentioned, replied-to, or already in the thread. DMs always respond. |
+| Feature            | How it works                                                                                                           |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------- |
+| **Mention-gating** | In servers the bot ignores chatter unless mentioned, replied-to, or already in the thread. DMs always respond.         |
 | **Thread binding** | An `@mention` in a channel starts a thread; `--conversation` is the thread id so the rest of the room is not the chat. |
-| **3-second ack** | Slash commands and buttons are acknowledged immediately, then the agent run continues asynchronously. |
-| **Allowlists** | Users, channels, and/or guilds. At least one is required. |
+| **3-second ack**   | Slash commands and buttons are acknowledged immediately, then the agent run continues asynchronously.                  |
+| **Allowlists**     | Users, channels, and/or guilds. At least one is required.                                                              |
 
 ---
 
@@ -139,14 +139,14 @@ Same `jazz run` contract as Telegram. What Discord adds on top:
 No adapter ships. Here's what changes from the shipped bridges, and it really is just the
 edges:
 
-| Concern | Telegram | Discord | Slack | Google Chat |
-| --- | --- | --- | --- | --- |
-| **Inbound** | `getUpdates` long-poll or webhook | Gateway websocket | Events API webhook (or Socket Mode) | Chat app webhook |
-| **Conversation key** | `chat_id` | DM channel id, or thread id | `channel + thread_ts` | `space + thread name` |
-| **Reply formatting** | Markdown / HTML | Markdown (close to standard) | `mrkdwn` (`*bold*`, no `#` headings) | app card or plain text |
-| **Live progress** | edit the status message | edit the status message | `chat.update` on a placeholder | update the card |
-| **Ack deadline** | none | **3 s** for interactions | **3 s** — ack, then reply async | **30 s** |
-| **Authorization** | chat-id allowlist | user / channel / guild allowlist + mention-gating | verify signing secret, then allowlist | verify bearer token |
+| Concern              | Telegram                          | Discord                                           | Slack                                 | Google Chat            |
+| -------------------- | --------------------------------- | ------------------------------------------------- | ------------------------------------- | ---------------------- |
+| **Inbound**          | `getUpdates` long-poll or webhook | Gateway websocket                                 | Events API webhook (or Socket Mode)   | Chat app webhook       |
+| **Conversation key** | `chat_id`                         | DM channel id, or thread id                       | `channel + thread_ts`                 | `space + thread name`  |
+| **Reply formatting** | Markdown / HTML                   | Markdown (close to standard)                      | `mrkdwn` (`*bold*`, no `#` headings)  | app card or plain text |
+| **Live progress**    | edit the status message           | edit the status message                           | `chat.update` on a placeholder        | update the card        |
+| **Ack deadline**     | none                              | **3 s** for interactions                          | **3 s** — ack, then reply async       | **30 s**               |
+| **Authorization**    | chat-id allowlist                 | user / channel / guild allowlist + mention-gating | verify signing secret, then allowlist | verify bearer token    |
 
 Two things to get right, both platform-side:
 

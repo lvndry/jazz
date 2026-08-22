@@ -12,12 +12,12 @@ Generate release notes for **__NEW_TAG__** from the commits since **__PREVIOUS_T
 
 ## Context
 
-- Repository checkout path: `__WORKSPACE__` — every git/file tool call MUST pass this as the `path` argument; the runner's default cwd is not the repository.
+- Repository checkout path: `__WORKSPACE__` — every git/file tool call MUST use this as `workingDirectory` (git) or `path` (file tools); the runner's default cwd is not the repository.
 
 ## Steps
 
-1. Run `git_log` with `path: "__WORKSPACE__"` to get all commits between `__PREVIOUS_TAG__` and `__NEW_TAG__`.
-2. Run `git_diff` with `path: "__WORKSPACE__"` and `commit: "__PREVIOUS_TAG__...__NEW_TAG__"` to understand the scope. If the diff is large, narrow it with the `paths` parameter (an array of file paths, e.g. `paths: ["src/foo.ts", "src/bar.ts"]`).
+1. Run `execute_command` with `workingDirectory: "__WORKSPACE__"` and `command: "git log __PREVIOUS_TAG__..__NEW_TAG__ --oneline"` to get all commits between `__PREVIOUS_TAG__` and `__NEW_TAG__`.
+2. Run `execute_command` with `workingDirectory: "__WORKSPACE__"` and `command: "git diff __PREVIOUS_TAG__...__NEW_TAG__"` to understand the scope. If the diff is large, narrow with path args (`git diff ... -- src/foo.ts`).
 3. Read source files under `__WORKSPACE__/...` where a commit's purpose is unclear.
 4. Group commits by feature/product area (e.g. "Agent workflows", "CLI experience", "Scheduler") — one group per cohesive capability, never by change type (Features, Bug Fixes).
 5. Write funny, exciting, product- and UX-focused descriptions: what changed, what problem it solves, and why users should care. Reference PR numbers when available.
