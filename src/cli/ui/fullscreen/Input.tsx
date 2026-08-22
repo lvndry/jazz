@@ -122,8 +122,10 @@ function commandSuggestRows(
   commands: NonNullable<InputModel["commands"]>,
   width: number,
   glyphs: GlyphSet,
+  size: number = MAX_VISIBLE_COMMANDS,
 ): InputRow[] {
-  const visible = carouselWindow(commands.items, commands.selected, MAX_VISIBLE_COMMANDS);
+  if (size <= 0) return [];
+  const visible = carouselWindow(commands.items, commands.selected, size);
   const rows: InputRow[] = visible.map((command) => {
     const selected = command === commands.items[commands.selected];
     const usage = command.usage === undefined ? "" : ` ${command.usage}`;
@@ -187,6 +189,8 @@ export interface InputProps {
    * until it has a reason to say otherwise.
    */
   readonly focused?: boolean;
+  /** Rows the shell can spare; see `inputRows`. */
+  readonly maxRows?: number;
 }
 
 /**
@@ -199,6 +203,14 @@ export function inputRows(
   viewport: Viewport,
   focused = !model.disabled,
   glyphs: GlyphSet = getGlyphs(),
+  /**
+   * Rows the shell can spare. Without it the composer plus an open command list
+   * can want more rows than the terminal has, and at the documented 60x12
+   * minimum the overflow pushes the footer off the bottom of the screen. The
+   * default is the unconstrained demand, so standalone callers see the natural
+   * size.
+   */
+  maxRows: number = INPUT_MAX_ROWS + MAX_VISIBLE_COMMANDS,
 ): readonly InputRow[] {
   const width = Math.max(1, viewport.width);
   const contentWidth = Math.max(1, width - GUTTER_CELLS);
@@ -236,10 +248,16 @@ export function inputRows(
   caretLine = Math.min(lines.length - 1, caretLine);
 
   const queued = Math.max(0, model.queued);
+  const budget = Math.max(1, Math.trunc(maxRows));
+  const commandItems = model.commands?.items.length ?? 0;
+  const wantsCommands = model.commands !== undefined && commandItems > 0;
+  // The text always keeps at least one row, and the list keeps at least one
+  // whenever it is open — whichever of them has to shrink, neither vanishes.
+  const textBudget = Math.max(1, Math.min(INPUT_MAX_ROWS, budget - (wantsCommands ? 1 : 0)));
   // The chrome row and the text rows share one budget, so the marker that says
   // "there is more above" can never itself push the composer past the cap.
-  const capWithChrome = INPUT_MAX_ROWS - 1;
-  const capWithoutChrome = queued > 0 ? INPUT_MAX_ROWS - 1 : INPUT_MAX_ROWS;
+  const capWithChrome = Math.max(1, textBudget - 1);
+  const capWithoutChrome = queued > 0 ? Math.max(1, textBudget - 1) : textBudget;
   let visible = wrapped;
   let hidden = 0;
   if (lines.length > capWithoutChrome) {
@@ -248,8 +266,7 @@ export function inputRows(
     visible = wrapped.slice(hidden, hidden + cap);
   }
 
-  const rows: InputRow[] =
-    model.commands === undefined ? [] : commandSuggestRows(model.commands, width, glyphs);
+  const rows: InputRow[] = [];
   if (hidden > 0 || queued > 0) {
     const left: InputSegment[] = [
       { text: `${glyphs.rail} `, fg: THEME.border },
@@ -323,11 +340,15 @@ export function inputRows(
     rows.push({ key: `line:${String(index)}`, segments: [rail, marker, ...body] });
   });
 
-  return rows;
+  // The list is laid on top last so it can be sized against what the text
+  // actually took, then it goes above the composer where it belongs.
+  if (!wantsCommands || model.commands === undefined) return rows;
+  const listSize = Math.min(MAX_VISIBLE_COMMANDS, Math.max(0, budget - rows.length));
+  return [...commandSuggestRows(model.commands, width, glyphs, listSize), ...rows];
 }
 
-export function Input({ model, viewport, focused }: InputProps): ReactNode {
-  const rows = inputRows(model, viewport, focused ?? !model.disabled);
+export function Input({ model, viewport, focused, maxRows }: InputProps): ReactNode {
+  const rows = inputRows(model, viewport, focused ?? !model.disabled, undefined, maxRows);
 
   return (
     <box

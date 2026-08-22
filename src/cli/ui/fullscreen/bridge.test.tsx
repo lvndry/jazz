@@ -1522,6 +1522,53 @@ describe("fullscreen bridge", () => {
     expect(decisions).toEqual(["always_command"]);
   });
 
+  // Ctrl+A and Cmd+A are "go to start of line" in the composer. The allowlist
+  // `a` writes outlives the turn, so a caret keystroke must never grant it.
+  it("does not always-allow on a modified `a`", async () => {
+    const modified: readonly (string | Record<string, boolean>)[] = [
+      { ctrl: true },
+      { meta: true },
+      // The raw bytes the real terminals send: the Ctrl+A control code, and
+      // kitty's CSI-u encoding of Ctrl+A and Cmd+A.
+      "\x01",
+      "\x1b[97;5u",
+      "\x1b[97;9u",
+    ];
+    for (const key of modified) {
+      const decisions: string[] = [];
+      const rendered = await testRender(<FullscreenBridge />, { width: 100, height: 24 });
+      await rendered.renderOnce();
+      store.setPrompt({
+        type: "select",
+        message: "Approve this action?",
+        options: {
+          choices: [
+            { label: "Yes", value: "yes" },
+            { label: "Always command", value: "always_command" },
+          ],
+        },
+        resolve: (value) => decisions.push(String(value)),
+      });
+      store.setApprovalRequest({
+        toolName: "execute_command",
+        executeToolName: "execute_command",
+        message: "This command will modify the working tree.",
+        args: { command: "git push --force" },
+      });
+      await rendered.flush();
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await rendered.flush();
+      if (typeof key === "string") await rendered.mockInput.pressKey(key);
+      else await rendered.mockInput.pressKey("a", key);
+      await settleKeypress(rendered.flush);
+
+      rendered.renderer.destroy();
+      store.setApprovalRequest(null);
+      store.setPrompt(null);
+      expect(decisions).toEqual([]);
+    }
+  });
+
   it("stops a run on Ctrl+C from a control byte or the letter+flag shape", async () => {
     for (const key of ["\x03", { name: "c", ctrl: true }] as const) {
       let interrupted = 0;

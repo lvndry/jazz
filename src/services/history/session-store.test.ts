@@ -252,6 +252,24 @@ describe("deleteSession", () => {
     expect(fs.existsSync(getSessionLogPath(sessionId, tmpDir))).toBe(false);
     await runEffect(deleteSession(sessionId, tmpDir));
   });
+
+  // Eviction deletes a log the process may still hold append state for. If the
+  // cache survived the delete, the next append would skip the header and the
+  // messages it thinks are already there, leaving a log that reads back as
+  // nothing at all.
+  test("a session written again after deletion is readable", async () => {
+    const messages = [userMessage("hi"), assistantMessage("hello")];
+    const sessionId = await runEffect(recordSessionTranscript(record(messages), tmpDir));
+    await runEffect(deleteSession(sessionId, tmpDir));
+
+    await runEffect(recordSessionTranscript(record(messages), tmpDir));
+
+    const reread = await runEffect(readSession(sessionId, tmpDir));
+    expect(reread).not.toBeNull();
+    expect(reread?.messages).toHaveLength(2);
+    expect(reread?.title).toBe("Trip planning");
+    expect(messageLineCount(sessionId)).toBe(2);
+  });
 });
 
 describe("parseSessionEventLine", () => {

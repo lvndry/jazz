@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import {
+  allocateRegions,
   applyScrollDelta,
   clampScrollFromBottom,
   transcriptVisibleCount,
@@ -95,7 +96,7 @@ describe("transcriptVisibleCount", () => {
     ).toBe(17);
   });
 
-  it("yields every leftover row rather than forcing one that would hide the composer", () => {
+  it("keeps a transcript row by taking it from the live band, not from the composer", () => {
     const live: LiveModel = { tools: [], hiddenTools: [], tick: 0, reservedRows: 5 };
     const input: InputModel = {
       value: "",
@@ -103,13 +104,74 @@ describe("transcriptVisibleCount", () => {
       queued: 0,
       disabled: false,
     };
-    expect(
-      transcriptVisibleCount({
-        viewport: { width: 80, height: 8 },
-        live,
-        input,
-        inputFocused: true,
-      }),
-    ).toBe(0);
+    const regions = allocateRegions({
+      viewport: { width: 80, height: 8 },
+      live,
+      input,
+      inputFocused: true,
+    });
+
+    expect(regions.input).toBe(1);
+    expect(regions.transcript).toBe(1);
+    // The band asked for five rows and gets what is left, not what it asked for.
+    expect(regions.live).toBe(2);
+  });
+});
+
+describe("allocateRegions", () => {
+  const live: LiveModel = { tools: [], hiddenTools: [], tick: 0, reservedRows: 5 };
+  const commands = {
+    items: Array.from({ length: 12 }, (_, index) => ({
+      name: `command-${String(index)}`,
+      description: "does a thing",
+    })),
+    selected: 0,
+  };
+
+  /**
+   * Every region below the header is `flexShrink: 0`, so rows that add up to
+   * more than the viewport do not compress — they push the footer off screen.
+   */
+  function expectFits(viewport: { width: number; height: number }, input: InputModel): void {
+    const regions = allocateRegions({ viewport, live, input, inputFocused: true });
+    const header = 1;
+    const rule = 1;
+    const gap = 1;
+    const footer = 1;
+    const total = header + rule + regions.transcript + regions.live + gap + regions.input + footer;
+    expect(total).toBeLessThanOrEqual(viewport.height);
+  }
+
+  it("fits at the smallest supported geometry, with and without the command list", () => {
+    const base: InputModel = {
+      value: "",
+      placeholder: "Ask anything",
+      queued: 0,
+      disabled: false,
+    };
+    // 60x12 is exactly what `decideFullscreen` admits as fullscreen-capable.
+    expectFits({ width: 60, height: 12 }, base);
+    expectFits({ width: 60, height: 12 }, { ...base, value: "/dep", commands });
+    expectFits({ width: 60, height: 12 }, { ...base, value: "x".repeat(400), queued: 3, commands });
+    expectFits({ width: 80, height: 24 }, { ...base, value: "/dep", commands });
+  });
+
+  it("still shows the composer and one row of the list when both are squeezed", () => {
+    const input: InputModel = {
+      value: "/dep",
+      placeholder: "Ask anything",
+      queued: 0,
+      disabled: false,
+      commands,
+    };
+    const regions = allocateRegions({
+      viewport: { width: 60, height: 12 },
+      live,
+      input,
+      inputFocused: true,
+    });
+
+    expect(regions.input).toBeGreaterThanOrEqual(2);
+    expect(regions.transcript).toBeGreaterThanOrEqual(1);
   });
 });

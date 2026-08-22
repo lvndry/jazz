@@ -28,7 +28,7 @@ import { Question } from "./overlays/Question";
 import { Search } from "./overlays/Search";
 import { TextPrompt } from "./overlays/TextPrompt";
 import { Transcript, type TranscriptHandle } from "./Transcript";
-import { transcriptVisibleCount, wheelScrollDelta } from "./transcript-window";
+import { allocateRegions, wheelScrollDelta } from "./transcript-window";
 import { MIN_HEIGHT, MIN_WIDTH, type Focus, type Overlay, type ViewModel } from "./types";
 
 /**
@@ -410,12 +410,17 @@ export function App({
 
   const viewport = { width, height };
   const inputFocused = focus === "input" && !overlayOpen;
-  const visibleCount = transcriptVisibleCount({
+  const inputModel = { ...view.input, disabled: view.input.disabled || overlayOpen };
+  // One allocation, shared by all three regions. Computing the transcript's
+  // share here and letting the other two size themselves independently is how
+  // the rows stopped adding up to more than the terminal has.
+  const regions = allocateRegions({
     viewport,
     live: view.live,
-    input: { ...view.input, disabled: view.input.disabled || overlayOpen },
+    input: inputModel,
     inputFocused,
   });
+  const visibleCount = regions.transcript;
   const footer = {
     ...view.footer,
     hints: hintsFor(
@@ -474,12 +479,14 @@ export function App({
       <LiveZone
         model={view.live}
         viewport={viewport}
+        maxRows={regions.live}
       />
       <box style={{ width, height: 1, flexShrink: 0 }} />
       <Input
-        model={{ ...view.input, disabled: view.input.disabled || overlayOpen }}
+        model={inputModel}
         viewport={viewport}
         focused={inputFocused}
+        maxRows={regions.input}
       />
       <Footer
         model={footer}

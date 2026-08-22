@@ -58,18 +58,53 @@ export function applyScrollDelta(
   return clampScrollFromBottom(scrollFromBottom - delta * step, rowCount, count);
 }
 
+export interface RegionHeights {
+  readonly transcript: number;
+  readonly live: number;
+  readonly input: number;
+}
+
+/**
+ * Divide the rows between the three regions that compete for them.
+ *
+ * Every region below the header is `flexShrink: 0`, so this arithmetic is the
+ * only thing standing between a cramped terminal and a footer pushed off the
+ * bottom of the screen. At 60x12 — the smallest geometry the interface will
+ * start in — an open command list alone wants more rows than exist.
+ *
+ * The order of service is the design: the composer is under the user's hands,
+ * so it is served first, but never down to the last transcript row; the live
+ * band yields last because it is the only region whose content is transient.
+ */
+export function allocateRegions(args: {
+  readonly viewport: Viewport;
+  readonly live: LiveModel;
+  readonly input: InputModel;
+  readonly inputFocused: boolean;
+}): RegionHeights {
+  const available = Math.max(
+    0,
+    args.viewport.height - TRANSCRIPT_CHROME_ABOVE - TRANSCRIPT_CHROME_BELOW,
+  );
+  if (available <= 0) return { transcript: 0, live: 0, input: 0 };
+
+  const inputBudget = Math.max(1, available - 1);
+  const input = Math.min(
+    inputRows(args.input, args.viewport, args.inputFocused, undefined, inputBudget).length,
+    inputBudget,
+  );
+  const live = reservedHeight(args.live, Math.max(0, available - input - 1));
+  const transcript = Math.max(0, available - input - live);
+  return { transcript, live, input };
+}
+
 export function transcriptVisibleCount(args: {
   readonly viewport: Viewport;
   readonly live: LiveModel;
   readonly input: InputModel;
   readonly inputFocused: boolean;
 }): number {
-  const live = reservedHeight(args.live);
-  const composer = inputRows(args.input, args.viewport, args.inputFocused).length;
-  return Math.max(
-    0,
-    args.viewport.height - TRANSCRIPT_CHROME_ABOVE - TRANSCRIPT_CHROME_BELOW - live - composer,
-  );
+  return allocateRegions(args).transcript;
 }
 
 /** Wheel up is older; wheel down walks back to the live edge. */

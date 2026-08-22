@@ -27,7 +27,7 @@ import { TextAttributes, type BorderCharacters } from "@opentui/core";
 import type { ReactNode } from "react";
 import { getGlyphs, type GlyphSet } from "../../glyphs";
 import { THEME } from "../../theme";
-import { clipTerminalCells, terminalCellWidth } from "../terminal-cells";
+import { clipTerminalCells, sliceTerminalCells, terminalCellWidth } from "../terminal-cells";
 import type { ApprovalOverlay, Viewport } from "../types";
 
 /** Windowed width, and the floor below which windowing stops making sense. */
@@ -40,11 +40,14 @@ const CARD_PAD = 1;
 /** Labels share a column so the values line up and read as a record. */
 const LABEL_COLUMN = 11;
 
-/** Border, header, blank, account, rule, blank, border. */
-const FIXED_CARD_ROWS = 7;
+/** Border, header, blank, account, rule, border. Everything else scrolls. */
+const FIXED_CARD_ROWS = 6;
 
 /** The controls line, beneath the frame. */
 const CONTROL_ROWS = 1;
+
+/** Cells the left half of the controls line ("enter accept    esc reject") needs. */
+const CONTROLS_LEFT_CELLS = 27;
 
 function displayWidth(text: string): number {
   return terminalCellWidth(text);
@@ -59,7 +62,8 @@ function oneLine(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
 
-function wrapProse(text: string, width: number): string[] {
+export function wrapProse(text: string, width: number): string[] {
+  const measure = Math.max(1, width);
   const words = oneLine(text)
     .split(" ")
     .filter((word) => word.length > 0);
@@ -67,15 +71,75 @@ function wrapProse(text: string, width: number): string[] {
   let line = "";
   for (const word of words) {
     const candidate = line.length === 0 ? word : `${line} ${word}`;
-    if (displayWidth(candidate) <= width) {
+    if (displayWidth(candidate) <= measure) {
       line = candidate;
       continue;
     }
     if (line.length > 0) lines.push(line);
-    line = displayWidth(word) <= width ? word : clip(word, width);
+    // A word wider than the measure is broken across rows, never clipped. On
+    // this card the oversized word is typically a URL or a shell command with
+    // no spaces in it — the one string the reader most needs whole.
+    let rest = word;
+    while (displayWidth(rest) > measure) {
+      const head = sliceTerminalCells(rest, measure);
+      if (head.length === 0) break;
+      lines.push(head);
+      rest = rest.slice(head.length);
+    }
+    line = rest;
   }
   if (line.length > 0) lines.push(line);
   return lines.length > 0 ? lines : [""];
+}
+
+/**
+ * One row of the scrollable half of the card.
+ *
+ * Fields and prose share a list rather than occupying two fixed regions,
+ * because the promise the card makes — nothing is discoverable only after
+ * pressing enter — is only true if *everything* below the rule can be reached
+ * by scrolling. Two regions meant one of them was clipped by the frame.
+ */
+type BodyRow =
+  | { readonly kind: "field"; readonly key: string; readonly label: string; readonly value: string }
+  | { readonly kind: "prose"; readonly key: string; readonly text: string }
+  | { readonly kind: "blank"; readonly key: string };
+
+/**
+ * A field is wrapped, never truncated: the argument that decides what runs is
+ * usually the longest one on the card, and a shell command whose tail is off
+ * screen is the exact thing an approval gate exists to prevent.
+ */
+export function approvalBodyRows(
+  fields: readonly { readonly label: string; readonly value: string }[],
+  consequence: readonly string[],
+  valueWidth: number,
+  labelWidth: number,
+): BodyRow[] {
+  const rows: BodyRow[] = [];
+
+  fields.forEach((field, index) => {
+    const label = clip(oneLine(field.label), labelWidth);
+    wrapProse(field.value, valueWidth).forEach((line, lineIndex) => {
+      rows.push({
+        kind: "field",
+        key: `field:${String(index)}:${String(lineIndex)}`,
+        // Continuation rows keep the value column and drop the label, so a
+        // wrapped command still reads as one record entry.
+        label: lineIndex === 0 ? label : "",
+        value: line,
+      });
+    });
+  });
+
+  if (consequence.length > 0) {
+    if (rows.length > 0) rows.push({ kind: "blank", key: "gap" });
+    consequence.forEach((line, index) => {
+      rows.push({ kind: "prose", key: `consequence:${String(index)}`, text: line });
+    });
+  }
+
+  return rows;
 }
 
 function frameChars(glyphs: GlyphSet): BorderCharacters {
@@ -110,33 +174,59 @@ export function Approval({ model, viewport }: ApprovalProps): ReactNode {
   const valueWidth = Math.max(4, inner - LABEL_COLUMN);
 
   const consequence = wrapProse(model.consequence, inner);
-  const fixedRows = FIXED_CARD_ROWS + consequence.length;
-  const windowedHeight = fixedRows + model.fields.length + CONTROL_ROWS;
+  const bodyRows = approvalBodyRows(model.fields, consequence, valueWidth, LABEL_COLUMN - 1);
+  const windowedHeight = FIXED_CARD_ROWS + bodyRows.length + CONTROL_ROWS;
   const height = fullscreen ? viewport.height : Math.min(windowedHeight, viewport.height);
   const cardHeight = Math.max(1, height - CONTROL_ROWS);
 
-  // Every field is on screen before you commit — so when the viewport cannot
-  // hold them all the region scrolls rather than the list being cut short.
-  const fieldRows = Math.max(1, cardHeight - fixedRows);
-  const fieldsScroll = fieldRows < model.fields.length;
-  const maxFieldOffset = Math.max(0, model.fields.length - fieldRows);
-  const fieldOffset = Math.max(0, Math.min(model.fieldOffset ?? 0, maxFieldOffset));
-  const visibleFields = model.fields.slice(fieldOffset, fieldOffset + fieldRows);
+  // Everything below the rule is on screen before you commit — so when the
+  // viewport cannot hold it all the region scrolls rather than being cut short.
+  const bodyCapacity = Math.max(1, cardHeight - FIXED_CARD_ROWS);
+  const maxBodyOffset = Math.max(0, bodyRows.length - bodyCapacity);
+  const bodyScrolls = maxBodyOffset > 0;
+  const bodyOffset = Math.max(0, Math.min(model.fieldOffset ?? 0, maxBodyOffset));
+  const visibleBody = bodyRows.slice(bodyOffset, bodyOffset + bodyCapacity);
+  const bodyPad = Math.max(0, bodyCapacity - visibleBody.length);
+  const belowCount = Math.max(0, bodyRows.length - (bodyOffset + visibleBody.length));
 
   const left = fullscreen ? 0 : Math.max(0, Math.floor((viewport.width - width) / 2));
   const top = fullscreen ? 0 : Math.max(0, Math.floor((viewport.height - height) / 2));
 
-  const fieldRowsContent = visibleFields.map((field, index) => (
-    <box
-      key={`${String(fieldOffset + index)}:${field.label}`}
-      style={{ height: 1, flexShrink: 0, flexDirection: "row" }}
-    >
-      <text style={{ fg: THEME.muted, width: LABEL_COLUMN, flexShrink: 0 }}>
-        {clip(oneLine(field.label), LABEL_COLUMN - 1)}
-      </text>
-      <text style={{ fg: THEME.selected }}>{clip(oneLine(field.value), valueWidth)}</text>
-    </box>
-  ));
+  const bodyContent = visibleBody.map((row) => {
+    if (row.kind === "blank") {
+      return (
+        <box
+          key={row.key}
+          style={{ height: 1, flexShrink: 0 }}
+        />
+      );
+    }
+    if (row.kind === "prose") {
+      return (
+        <text
+          key={row.key}
+          style={{ fg: THEME.secondary, height: 1, flexShrink: 0 }}
+        >
+          {row.text}
+        </text>
+      );
+    }
+    return (
+      <box
+        key={row.key}
+        style={{ height: 1, flexShrink: 0, flexDirection: "row" }}
+      >
+        <text style={{ fg: THEME.muted, width: LABEL_COLUMN, flexShrink: 0 }}>{row.label}</text>
+        <text style={{ fg: THEME.selected }}>{row.value}</text>
+      </box>
+    );
+  });
+
+  const scrollHint = bodyScrolls
+    ? belowCount > 0
+      ? `${String(belowCount)} more below · up/down · `
+      : "up/down · "
+    : "";
 
   return (
     <box
@@ -182,20 +272,15 @@ export function Approval({ model, viewport }: ApprovalProps): ReactNode {
           {glyphs.divider.repeat(inner)}
         </text>
 
-        <box style={{ height: fieldRows, flexShrink: 0, flexDirection: "column" }}>
-          {fieldRowsContent}
+        <box style={{ height: bodyCapacity, flexShrink: 0, flexDirection: "column" }}>
+          {bodyContent}
+          {Array.from({ length: bodyPad }, (_, index) => (
+            <box
+              key={`pad:${String(index)}`}
+              style={{ height: 1, flexShrink: 0 }}
+            />
+          ))}
         </box>
-
-        <box style={{ height: 1, flexShrink: 0 }} />
-
-        {consequence.map((line, index) => (
-          <text
-            key={`consequence-${String(index)}`}
-            style={{ fg: THEME.secondary, height: 1, flexShrink: 0 }}
-          >
-            {line}
-          </text>
-        ))}
       </box>
 
       <box
@@ -220,10 +305,7 @@ export function Approval({ model, viewport }: ApprovalProps): ReactNode {
         </text>
         <box style={{ flexGrow: 1 }} />
         <text style={{ fg: THEME.muted, flexShrink: 0 }}>
-          {clip(
-            `${fieldsScroll ? "up/down fields · " : ""}a ${model.alwaysLabel}`,
-            Math.max(0, inner - 27),
-          )}
+          {clip(`${scrollHint}a ${model.alwaysLabel}`, Math.max(0, inner - CONTROLS_LEFT_CELLS))}
         </text>
       </box>
     </box>

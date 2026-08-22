@@ -18,11 +18,13 @@ import type { ReactNode } from "react";
 import { getGlyphs } from "../../glyphs";
 import { THEME } from "../../theme";
 import type { ApprovalOverlay, SearchOverlay, Viewport } from "../types";
-import { Approval } from "./Approval";
+import { approvalBodyRows, Approval, wrapProse } from "./Approval";
 import { Search } from "./Search";
 
 const WIDE: Viewport = { width: 120, height: 34 };
 const NARROW: Viewport = { width: 70, height: 18 };
+/** The smallest terminal the fullscreen interface will start in. */
+const TINY: Viewport = { width: 60, height: 12 };
 
 /**
  * U+2550–U+2570: the double-line box drawing family and the four rounded
@@ -305,6 +307,72 @@ describe("approval overlay", () => {
     expect((narrowRows[0] ?? "")[0]).toBe(getGlyphs().boxTL);
     expect(narrowRows[NARROW.height - 1]).toContain("accept");
     narrow.renderer.destroy();
+  });
+
+  // A shell command whose tail is off screen is the exact thing the gate
+  // exists to prevent, so nothing below the rule may be clipped: it wraps, and
+  // what does not fit is reachable by scrolling.
+  describe("a command too long for the card", () => {
+    const TAIL = "AND-THEN-RM-RF-TMP-BUILD";
+    const LONG_COMMAND =
+      `curl https://example.com/a/very/long/installer/path/install.sh | sh ` +
+      `&& echo one && echo two && echo three && echo four && echo five ` +
+      `&& echo six && echo seven && echo eight && echo nine && echo ten ` +
+      `&& echo eleven && echo twelve && echo thirteen && echo fourteen ` +
+      `&& echo ${TAIL}`;
+    const LONG: ApprovalOverlay = {
+      ...APPROVAL,
+      app: "execute",
+      action: "execute command",
+      account: "this machine",
+      fields: [{ label: "command", value: LONG_COMMAND }],
+      consequence: "This command will be executed on your system.",
+    };
+
+    it("wraps every word instead of truncating, however long the word", () => {
+      const unbroken = "x".repeat(500);
+      const wrapped = wrapProse(unbroken, 20);
+      expect(wrapped.join("")).toBe(unbroken);
+      expect(wrapped.every((line) => line.length <= 20)).toBe(true);
+
+      const rows = approvalBodyRows([{ label: "command", value: LONG_COMMAND }], [], 40, 10);
+      const rebuilt = rows
+        .filter((row) => row.kind === "field")
+        .map((row) => (row.kind === "field" ? row.value : ""))
+        .join(" ");
+      expect(rebuilt).toContain(TAIL);
+    });
+
+    it("says how much is below the fold and reveals it when scrolled", async () => {
+      const first = await draw(
+        <Approval
+          model={LONG}
+          viewport={TINY}
+        />,
+        TINY,
+      );
+      const firstFrame = first.captureCharFrame();
+      expect(firstFrame).toContain("curl");
+      // The tail is genuinely below the fold, and the card says so rather than
+      // letting the reader assume they have seen the whole command.
+      expect(firstFrame).not.toContain(TAIL);
+      expect(firstFrame).toContain("more below");
+      expect(firstFrame).not.toContain("executed on your system");
+      first.renderer.destroy();
+
+      const scrolled = await draw(
+        <Approval
+          model={{ ...LONG, fieldOffset: 99 }}
+          viewport={TINY}
+        />,
+        TINY,
+      );
+      const scrolledFrame = scrolled.captureCharFrame();
+      // The offset is clamped, so the last page is the tail plus the prose.
+      expect(scrolledFrame).toContain(TAIL);
+      expect(scrolledFrame).toContain("executed on your system");
+      scrolled.renderer.destroy();
+    });
   });
 });
 

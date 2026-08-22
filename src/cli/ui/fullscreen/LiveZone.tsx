@@ -218,6 +218,12 @@ export interface LiveZoneProps {
    * boundary, so a stale `waiting` cannot animate beside running text.
    */
   readonly streaming?: boolean;
+  /**
+   * Rows the shell can spare. The band is the region that yields first: the
+   * transcript and the composer both have to stay on screen, and this is the
+   * only one whose content is transient.
+   */
+  readonly maxRows?: number;
 }
 
 /**
@@ -227,8 +233,9 @@ export interface LiveZoneProps {
  * mid-turn, a reservation of three with one tool left running is three rows
  * holding still rather than two rows of movement under the user's hands.
  */
-export function reservedHeight(model: LiveModel): number {
-  return Math.min(LIVE_ZONE_MAX_ROWS, Math.max(0, Math.trunc(model.reservedRows)));
+export function reservedHeight(model: LiveModel, maxRows = LIVE_ZONE_MAX_ROWS): number {
+  const cap = Math.max(0, Math.min(LIVE_ZONE_MAX_ROWS, Math.trunc(maxRows)));
+  return Math.min(cap, Math.max(0, Math.trunc(model.reservedRows)));
 }
 
 /**
@@ -243,9 +250,10 @@ export function liveRows(
   viewport: Viewport,
   streaming = false,
   glyphs: GlyphSet = getGlyphs(),
+  maxRows = LIVE_ZONE_MAX_ROWS,
 ): readonly LiveRow[] {
   const width = Math.max(1, viewport.width);
-  const capacity = reservedHeight(model);
+  const capacity = reservedHeight(model, maxRows);
   if (capacity === 0) return [];
 
   // Rows are claimed in the order the reader needs them: what is running, then
@@ -294,9 +302,9 @@ export function liveRows(
   return rows;
 }
 
-export function LiveZone({ model, viewport, streaming }: LiveZoneProps): ReactNode {
-  const height = reservedHeight(model);
-  const rows = liveRows(model, viewport, streaming ?? false);
+export function LiveZone({ model, viewport, streaming, maxRows }: LiveZoneProps): ReactNode {
+  const height = reservedHeight(model, maxRows);
+  const rows = liveRows(model, viewport, streaming ?? false, undefined, maxRows);
 
   // The run has settled: the whole band goes away and the transcript takes the
   // rows back. Note this is keyed on the reservation rather than on the rows,
