@@ -19,7 +19,11 @@ import {
 import { getGlyphs } from "../ui/glyphs";
 import { CHALK_THEME } from "../ui/theme";
 
-export { formatToolDisplayName } from "@/core/utils/tool-formatter";
+export {
+  compactToolArguments,
+  formatToolDisplayName,
+  toolResultSnippet,
+} from "@/core/utils/tool-formatter";
 
 // ---------------------------------------------------------------------------
 // Tool formatting (delegates to core)

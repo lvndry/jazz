@@ -474,6 +474,24 @@ describe("tool receipts", () => {
     expect(row).toContain("3.2s");
     expect(colorOf(spans, "thought")).toBe(THEME.muted.toUpperCase());
   });
+
+  it("shows the arguments used and a snippet of what came back", async () => {
+    const blocks: readonly Block[] = [
+      {
+        id: "t",
+        seq: 1,
+        kind: "tool",
+        app: "view_memory",
+        args: "path: /",
+        summary: "Here're the files · /notes.txt",
+        status: "ok",
+      },
+    ];
+    const { rows } = await render(transcript(blocks, WIDE), WIDE);
+    const row = rows.find((line) => line.includes("view_memory")) ?? "";
+    expect(row).toContain("path: /");
+    expect(row).toContain("/notes.txt");
+  });
 });
 
 describe("reasoning is subordinate by geometry", () => {

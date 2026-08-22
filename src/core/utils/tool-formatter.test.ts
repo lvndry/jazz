@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { formatToolArguments, formatToolResult } from "./tool-formatter";
+import { formatToolArguments, formatToolResult, toolResultSnippet } from "./tool-formatter";
 
 describe("formatToolArguments http_request", () => {
   test("merges query params into the displayed URL", () => {
@@ -72,5 +72,88 @@ describe("formatToolResult execute_command", () => {
   test("zero exit without output reports no output", () => {
     const formatted = formatCommand({ exitCode: 0 });
     expect(formatted).toBe("no output");
+  });
+});
+
+describe("formatToolArguments view_memory", () => {
+  test("empty path displays as root", () => {
+    const formatted = formatToolArguments("view_memory", { path: "" }, { style: "plain" });
+    expect(formatted).toContain("path: /");
+  });
+
+  test("missing args still display as root", () => {
+    const formatted = formatToolArguments("view_memory", undefined, { style: "plain" });
+    expect(formatted).toContain("path: /");
+  });
+
+  test("a file path is shown as-is", () => {
+    const formatted = formatToolArguments(
+      "view_memory",
+      { path: "people/alex.md" },
+      { style: "plain" },
+    );
+    expect(formatted).toContain("path: people/alex.md");
+  });
+
+  test("view_range is shown as a line span", () => {
+    const formatted = formatToolArguments(
+      "view_memory",
+      { path: "notes.md", view_range: [1, 40] },
+      { style: "plain" },
+    );
+    expect(formatted).toContain("path: notes.md");
+    expect(formatted).toContain("lines: 1–40");
+  });
+});
+
+describe("formatToolArguments default", () => {
+  test("skips empty string values", () => {
+    const formatted = formatToolArguments(
+      "custom_tool",
+      { path: "", limit: 5 },
+      { style: "plain" },
+    );
+    expect(formatted).not.toContain("path:");
+    expect(formatted).toContain("limit: 5");
+  });
+
+  test("stringifies object values instead of dropping them", () => {
+    const formatted = formatToolArguments(
+      "custom_tool",
+      { filter: { status: "open" } },
+      { style: "plain" },
+    );
+    expect(formatted).toContain('{"status":"open"}');
+  });
+});
+
+describe("formatToolResult generic objects", () => {
+  test("prefers a formatted string over pretty-printed JSON", () => {
+    const formatted = formatToolResult(
+      "view_memory",
+      JSON.stringify({
+        formatted: "Here're the files and directories up to 2 levels deep in /:\n/notes.txt",
+        outcome: { kind: "directory", path: "/", entries: [] },
+      }),
+    );
+    expect(formatted).toContain("Here're the files and directories");
+    expect(formatted).toContain("/notes.txt");
+    expect(formatted.trimStart().startsWith("{")).toBe(false);
+  });
+});
+
+describe("toolResultSnippet", () => {
+  test("skips brace-only JSON lines", () => {
+    expect(toolResultSnippet('{\n  "ok": true\n}')).toBe('"ok": true');
+  });
+
+  test("joins the first two content lines", () => {
+    expect(toolResultSnippet("Here're the files\n/notes.txt\n/people")).toBe(
+      "Here're the files · /notes.txt",
+    );
+  });
+
+  test("returns empty for braces only", () => {
+    expect(toolResultSnippet("{\n}")).toBe("");
   });
 });

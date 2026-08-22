@@ -526,6 +526,7 @@ interface ToolReceiptMeta {
   readonly app: string;
   readonly summary: string;
   readonly status: "ok" | "failed";
+  readonly args?: string;
   readonly durationMs?: number;
   readonly reason?: string;
   readonly detail?: string;
@@ -541,6 +542,7 @@ function receiptOf(entry: OutputEntry): ToolReceiptMeta | null {
     app: record["app"],
     summary: record["summary"],
     status,
+    ...(typeof record["args"] === "string" ? { args: record["args"] } : {}),
     ...(typeof record["durationMs"] === "number" ? { durationMs: record["durationMs"] } : {}),
     ...(typeof record["reason"] === "string" ? { reason: record["reason"] } : {}),
     ...(typeof record["detail"] === "string" ? { detail: record["detail"] } : {}),
@@ -633,12 +635,15 @@ function blocksFrom(
         app: receipt.app,
         summary: receipt.summary,
         status: receipt.status,
+        ...(receipt.args === undefined ? {} : { args: receipt.args }),
         ...(receipt.reason === undefined ? {} : { reason: receipt.reason }),
         ...(receipt.durationMs === undefined ? {} : { durationMs: receipt.durationMs }),
         ...(receipt.detail === undefined ? {} : { detail: receipt.detail }),
       });
       continue;
     }
+
+    if (entry.meta?.["toolStart"] === true) continue;
 
     const plainText = entry.meta?.["plainText"];
     const text = stripAnsiCodes(typeof plainText === "string" ? plainText : plainOf(entry.message));
@@ -738,9 +743,15 @@ function liveToolsFrom(activity: ActivityState, now: number): LiveTool[] {
   if (activity.phase !== "tool-execution") return [];
   return activity.tools.map((tool, index) => {
     const parts = tool.toolName.split(/[_.-]+/).filter((part) => part.length > 0);
+    const nameRest = parts.length > 1 ? parts.slice(1).join(" ") : "";
+    const args = tool.argsPreview?.trim();
+    let operation = nameRest.length > 0 ? nameRest : tool.toolName;
+    if (args !== undefined && args.length > 0) {
+      operation = nameRest.length > 0 ? `${nameRest} ${args}` : args;
+    }
     return {
       app: parts[0] ?? tool.toolName,
-      operation: parts.length > 1 ? parts.slice(1).join(" ") : tool.toolName,
+      operation,
       elapsedMs: Math.max(0, now - tool.startedAt),
       phase: index,
     };

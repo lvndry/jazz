@@ -15,9 +15,16 @@
 
 import { Box, Text } from "ink";
 import React from "react";
+import { stripAnsiCodes } from "@/cli/utils/string-utils";
 import type { TerminalOutput } from "@/core/interfaces/terminal";
 import type { StreamEvent } from "@/core/types/streaming";
-import { formatToolArguments, formatToolDisplayName, formatToolResult } from "./format-utils";
+import {
+  compactToolArguments,
+  formatToolArguments,
+  formatToolDisplayName,
+  formatToolResult,
+  toolResultSnippet,
+} from "./format-utils";
 import type { ActiveTool, ActivityState } from "../ui/activity-state";
 import { getGlyphs } from "../ui/glyphs";
 import { PADDING, THEME } from "../ui/theme";
@@ -81,6 +88,7 @@ export interface ReducerAccumulator {
       /** Name with backend folded in (e.g. web_search(brave)); falls back to toolName. */
       displayName?: string;
       startedAt: number;
+      argsPreview?: string;
       todoSnapshot?: TodoSnapshotItem[];
     }
   >;
@@ -138,20 +146,15 @@ function buildThinkingOrStreamingActivity(acc: ReducerAccumulator): ActivityStat
 }
 
 function buildToolExecutionActivity(acc: ReducerAccumulator): ActivityState {
-  const tools: ActiveTool[] = Array.from(acc.activeTools.entries()).map(([toolCallId, entry]) =>
-    entry.todoSnapshot
-      ? {
-          toolCallId,
-          toolName: entry.displayName ?? entry.toolName,
-          startedAt: entry.startedAt,
-          todoSnapshot: entry.todoSnapshot,
-        }
-      : {
-          toolCallId,
-          toolName: entry.displayName ?? entry.toolName,
-          startedAt: entry.startedAt,
-        },
-  );
+  const tools: ActiveTool[] = Array.from(acc.activeTools.entries()).map(([toolCallId, entry]) => ({
+    toolCallId,
+    toolName: entry.displayName ?? entry.toolName,
+    startedAt: entry.startedAt,
+    ...(entry.argsPreview !== undefined && entry.argsPreview.length > 0
+      ? { argsPreview: entry.argsPreview }
+      : {}),
+    ...(entry.todoSnapshot ? { todoSnapshot: entry.todoSnapshot } : {}),
+  }));
   const todoSnapshot = findLatestTodoSnapshot(acc.activeTools);
   return todoSnapshot
     ? { phase: "tool-execution", agentName: acc.agentName, tools, todoSnapshot }
@@ -362,26 +365,21 @@ export function reduceEvent(
         event.arguments,
         event.metadata !== undefined ? { metadata: event.metadata } : undefined,
       );
+      const argsPreview = compactToolArguments(event.toolName, event.arguments);
       const displayName = formatToolDisplayName(event.toolName, event.metadata);
-      if (todoSnapshot) {
-        acc.activeTools.set(event.toolCallId, {
-          toolName: event.toolName,
-          ...(displayName !== event.toolName ? { displayName } : {}),
-          startedAt: Date.now(),
-          todoSnapshot,
-        });
-      } else {
-        acc.activeTools.set(event.toolCallId, {
-          toolName: event.toolName,
-          ...(displayName !== event.toolName ? { displayName } : {}),
-          startedAt: Date.now(),
-        });
-      }
+      acc.activeTools.set(event.toolCallId, {
+        toolName: event.toolName,
+        ...(displayName !== event.toolName ? { displayName } : {}),
+        startedAt: Date.now(),
+        ...(argsPreview.length > 0 ? { argsPreview } : {}),
+        ...(todoSnapshot ? { todoSnapshot } : {}),
+      });
 
       outputs.push({
         type: "info",
         message: `${displayName}${args.length > 0 ? ` ${args}` : ""}`,
         timestamp: new Date(),
+        meta: { toolStart: true },
       });
 
       return { activity: buildToolExecutionActivity(acc), outputs };
@@ -419,13 +417,17 @@ export function reduceEvent(
       // structured data so a renderer that lays out its own rows does not have
       // to parse ANSI back into meaning. `meta` keeps it in the output stream,
       // which is what preserves ordering relative to the surrounding turns.
+      const plainBody = stripAnsiCodes(summary ?? "");
+      const snippet = toolResultSnippet(plainBody);
+      const argsPreview = toolEntry?.argsPreview?.trim();
       const receipt = {
         app: toolName ?? "tool",
-        summary: summary && summary.length > 0 ? summary.split("\n")[0] : (toolName ?? "tool"),
+        summary: snippet.length > 0 ? snippet : (toolName ?? "tool"),
         status: failed ? "failed" : "ok",
         durationMs: event.durationMs,
+        ...(argsPreview !== undefined && argsPreview.length > 0 ? { args: argsPreview } : {}),
         ...(failed && event.error ? { reason: event.error.trim() } : {}),
-        ...(summary && summary.includes("\n") ? { detail: summary } : {}),
+        ...(plainBody.length > 0 && plainBody !== snippet ? { detail: summary } : {}),
       };
 
       const displayText = summary && summary.length > 0 ? summary : (toolName ?? "Tool");

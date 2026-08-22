@@ -267,6 +267,25 @@ describe("fullscreen bridge", () => {
     expect(text).toContain("Rank urgent threads");
   });
 
+  it("shows the arguments a running tool was called with", async () => {
+    const text = await frame(() => {
+      store.setActivity({
+        phase: "tool-execution",
+        agentName: "jazz",
+        tools: [
+          {
+            toolCallId: "1",
+            toolName: "view_memory",
+            startedAt: Date.now(),
+            argsPreview: "path: /",
+          },
+        ],
+      });
+    });
+    expect(text).toContain("view");
+    expect(text).toContain("path: /");
+  });
+
   it("ticks turn elapsed time while a run remains active", async () => {
     const rendered = await testRender(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
     await rendered.renderOnce();
@@ -2221,6 +2240,39 @@ describe("fullscreen bridge", () => {
       // anything consults the entry's text.
       expect(text).toContain("gmail");
       expect(text).toContain("4 flagged of 26");
+    });
+
+    it("shows the args used and a snippet of the tool output", async () => {
+      const text = await frame(() => {
+        const accumulator = createAccumulator("cassandra");
+        const result = JSON.stringify({
+          formatted:
+            "Here're the files and directories up to 2 levels deep in /, excluding hidden items:\n/notes.txt\t(1.2KB)",
+          outcome: { kind: "directory", path: "/", entries: [{ name: "notes.txt" }] },
+        });
+        for (const event of [
+          {
+            type: "tool_execution_start" as const,
+            toolName: "view_memory",
+            toolCallId: "call-mem",
+            arguments: { path: "" },
+          },
+          {
+            type: "tool_execution_complete" as const,
+            toolCallId: "call-mem",
+            result,
+            durationMs: 40,
+            success: true,
+          },
+        ]) {
+          const { outputs } = reduceEvent(accumulator, event, ink);
+          for (const entry of outputs) store.printOutput(entry);
+        }
+      });
+      expect(text).toContain("view_memory");
+      expect(text).toContain("path: /");
+      expect(text).toContain("Here're the files");
+      expect(text).not.toMatch(/view_memory\s+\{/);
     });
 
     it("leaves no escape sequence in a frame built from formatted markdown", async () => {
