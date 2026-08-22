@@ -15,7 +15,7 @@ WORKDIR /app
 # actually receives voice notes installs the real thing. Debian ships ffprobe
 # only as part of the ffmpeg package.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    chromium fonts-liberation ffmpeg curl jq khal vdirsyncer pass gnupg \
+    chromium fonts-liberation ffmpeg curl jq khal vdirsyncer pass gnupg python3-pip \
     && rm -rf /var/lib/apt/lists/*
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
@@ -23,6 +23,12 @@ ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 # the email skill's own install fallback does.
 RUN curl -sSL https://raw.githubusercontent.com/pimalaya/himalaya/master/install.sh \
     | PREFIX=/usr/local sh
+
+# Debian's vdirsyncer package doesn't pull aiohttp-oauthlib, so its
+# google_calendar storage (OAuth) errors "aiohttp-oauthlib not installed" —
+# CalDAV+password auth no longer works against Google's calendar backend at
+# all, so this is required for calendar access to Google accounts.
+RUN pip3 install --break-system-packages --no-cache-dir aiohttp-oauthlib
 
 # himalaya/khal/vdirsyncer/pass/gnupg all default to files under $HOME, which
 # lives on the container's writable layer and is lost on every rebuild or
