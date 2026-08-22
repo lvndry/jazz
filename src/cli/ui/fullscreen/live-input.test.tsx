@@ -17,7 +17,7 @@ import { describe, expect, it } from "bun:test";
 import React from "react";
 import { getGlyphs } from "../glyphs";
 import { THEME } from "../theme";
-import { Input, inputRows, wrapCells, wrapCommandIndex } from "./Input";
+import { Input, inputRows, MAX_VISIBLE_QUEUED, wrapCells, wrapCommandIndex } from "./Input";
 import { liveRows, LiveZone } from "./LiveZone";
 import { terminalCellWidth } from "./terminal-cells";
 import {
@@ -366,7 +366,7 @@ describe("input", () => {
   const base: InputModel = {
     value: "",
     placeholder: "ask jazz anything",
-    queued: 0,
+    queued: [],
     disabled: false,
   };
 
@@ -467,30 +467,85 @@ describe("input", () => {
     ).toBe(true);
   });
 
-  it("shows the queued count only when there is one", () => {
+  it("lists queued messages below the count", () => {
     const none = inputRows(base, { width: WIDTH, height: HEIGHT });
     expect(none.map((row) => row.segments.map((s) => s.text).join("")).join("")).not.toContain(
       "queued",
     );
 
-    const some = inputRows({ ...base, queued: 3 }, { width: WIDTH, height: HEIGHT });
+    const some = inputRows(
+      { ...base, queued: ["follow up", "send the itinerary"] },
+      { width: WIDTH, height: HEIGHT },
+    );
     const text = some.map((row) => row.segments.map((s) => s.text).join("")).join("\n");
-    expect(text).toContain("3 queued");
-    expect(some).toHaveLength(2);
+    expect(text).toContain("2 queued");
+    expect(text).toContain("follow up");
+    expect(text).toContain("send the itinerary");
+    expect(text.indexOf("2 queued")).toBeLessThan(text.indexOf("follow up"));
+    expect(text.indexOf("follow up")).toBeLessThan(text.indexOf("send the itinerary"));
+    expect(text.indexOf("send the itinerary")).toBeLessThan(text.indexOf("ask jazz"));
+    expect(some).toHaveLength(4);
+  });
+
+  it("keeps the newest queued messages when the queue is longer than the cap", () => {
+    const queued = ["one", "two", "three", "four"];
+    const some = inputRows({ ...base, queued }, { width: WIDTH, height: HEIGHT });
+    const text = some.map((row) => row.segments.map((s) => s.text).join("")).join("\n");
+    expect(text).toContain("4 queued");
+    expect(text).not.toContain(`${glyphs.bullet} one`);
+    expect(text).toContain("two");
+    expect(text).toContain("three");
+    expect(text).toContain("four");
+    expect(some).toHaveLength(2 + MAX_VISIBLE_QUEUED);
+  });
+
+  it("collapses queued newlines and warns when a slash command is mixed in", () => {
+    const some = inputRows(
+      { ...base, queued: ["/clear", "keep going"] },
+      { width: WIDTH, height: HEIGHT },
+    );
+    const text = some.map((row) => row.segments.map((s) => s.text).join("")).join("\n");
+    expect(text).toContain("/clear");
+    expect(text).toContain("sent as text, not run");
+    expect(text).toContain("keep going");
+
+    const wrapped = inputRows(
+      { ...base, queued: ["first line\nsecond line"] },
+      { width: WIDTH, height: HEIGHT },
+    );
+    const wrappedText = wrapped.map((row) => row.segments.map((s) => s.text).join("")).join("\n");
+    expect(wrappedText).toContain("first line second line");
+    expect(wrappedText).not.toContain("first line\nsecond line");
+  });
+
+  it("drops queued previews before the count when the shell is squeezed", () => {
+    const squeezed = inputRows(
+      { ...base, queued: ["follow up", "send the itinerary"] },
+      { width: WIDTH, height: HEIGHT },
+      true,
+      glyphs,
+      2,
+    );
+    const text = squeezed.map((row) => row.segments.map((s) => s.text).join("")).join("\n");
+    expect(text).toContain("2 queued");
+    expect(text).not.toContain("follow up");
+    expect(squeezed).toHaveLength(2);
   });
 
   it("never exceeds the width at the minimum width, caret included", () => {
     const value = "a".repeat(400);
+    const queued = ["one", "two", "three", "four"];
     const models = [
       { ...base, value },
       { ...base, value: "b".repeat(MIN_WIDTH - 2) },
-      { ...base, value, queued: 4 },
+      { ...base, value, queued },
       { ...base, placeholder: "x".repeat(200) },
       { ...base, disabled: true, placeholder: "x".repeat(200) },
     ];
     for (const model of models) {
       const rows = inputRows(model, { width: MIN_WIDTH, height: HEIGHT });
-      expect(rows.length).toBeLessThanOrEqual(INPUT_MAX_ROWS_EXPECTED);
+      const queuedRows = model.queued.length === 0 ? 0 : MAX_VISIBLE_QUEUED;
+      expect(rows.length).toBeLessThanOrEqual(INPUT_MAX_ROWS_EXPECTED + queuedRows);
       for (const row of rows) {
         const width = row.segments.reduce(
           (total, segment) => total + terminalCellWidth(segment.text),

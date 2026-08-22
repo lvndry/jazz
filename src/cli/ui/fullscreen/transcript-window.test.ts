@@ -83,7 +83,7 @@ describe("transcriptVisibleCount", () => {
     const input: InputModel = {
       value: "",
       placeholder: "Ask anything",
-      queued: 0,
+      queued: [],
       disabled: false,
     };
     expect(
@@ -101,7 +101,7 @@ describe("transcriptVisibleCount", () => {
     const input: InputModel = {
       value: "",
       placeholder: "Ask anything",
-      queued: 0,
+      queued: [],
       disabled: false,
     };
     const regions = allocateRegions({
@@ -146,13 +146,16 @@ describe("allocateRegions", () => {
     const base: InputModel = {
       value: "",
       placeholder: "Ask anything",
-      queued: 0,
+      queued: [],
       disabled: false,
     };
     // 60x12 is exactly what `decideFullscreen` admits as fullscreen-capable.
     expectFits({ width: 60, height: 12 }, base);
     expectFits({ width: 60, height: 12 }, { ...base, value: "/dep", commands });
-    expectFits({ width: 60, height: 12 }, { ...base, value: "x".repeat(400), queued: 3, commands });
+    expectFits(
+      { width: 60, height: 12 },
+      { ...base, value: "x".repeat(400), queued: ["one", "two", "three"], commands },
+    );
     expectFits({ width: 80, height: 24 }, { ...base, value: "/dep", commands });
   });
 
@@ -160,7 +163,7 @@ describe("allocateRegions", () => {
     const input: InputModel = {
       value: "/dep",
       placeholder: "Ask anything",
-      queued: 0,
+      queued: [],
       disabled: false,
       commands,
     };

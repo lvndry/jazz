@@ -270,7 +270,7 @@ describe("transcript wheel and type-to-input", () => {
           input: {
             value: draft,
             placeholder: "Ask anything",
-            queued: 0,
+            queued: [],
             disabled: false,
           },
         }}
@@ -360,7 +360,7 @@ describe("Ctrl+C", () => {
           view={{
             ...sampleIdleView(),
             runActive: true,
-            input: { value: "hello", placeholder: "Ask anything", queued: 0, disabled: false },
+            input: { value: "hello", placeholder: "Ask anything", queued: [], disabled: false },
           }}
           onAction={(action) => {
             actions.push(action);
@@ -417,7 +417,7 @@ describe("Ctrl+C", () => {
           view={{
             ...sampleIdleView(),
             runActive: true,
-            input: { value: "hello", placeholder: "Ask anything", queued: 0, disabled: false },
+            input: { value: "hello", placeholder: "Ask anything", queued: [], disabled: false },
           }}
           onAction={(action) => {
             actions.push(action);
@@ -492,7 +492,7 @@ function CompletedTurnApp(): React.ReactNode {
         input: {
           value: draft,
           placeholder: "Ask anything",
-          queued: 0,
+          queued: [],
           disabled: false,
         },
       }}

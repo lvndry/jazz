@@ -215,7 +215,8 @@ export interface InputModel {
    */
   readonly anchor?: number;
   readonly placeholder: string;
-  readonly queued: number;
+  /** Messages waiting for the current turn to finish. Empty when idle. */
+  readonly queued: readonly string[];
   /** Busy chat turns queue Enter instead of resolving the active prompt. */
   readonly queueing?: boolean;
   /** Suppressed while a modal overlay owns the keyboard. */

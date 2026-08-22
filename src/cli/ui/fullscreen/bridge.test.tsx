@@ -457,6 +457,7 @@ describe("fullscreen bridge", () => {
     await rendered.mockInput.pressKey("RETURN");
     await settleKeypress(rendered.flush, 100);
     expect(rendered.captureCharFrame()).toContain("1 queued");
+    expect(rendered.captureCharFrame()).toContain("follow up");
     expect(store.getMessageQueueSnapshot()).toEqual(["follow up"]);
 
     await rendered.mockInput.pressKey("ARROW_UP");

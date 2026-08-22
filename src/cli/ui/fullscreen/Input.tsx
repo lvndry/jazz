@@ -4,6 +4,8 @@
  * The composer: the one region the user's hands are on.
  *
  *   ▏ 4 more lines                                              2 queued
+ *   ▏ ∙ move the smaller meeting
+ *   ▏ ∙ send the itinerary
  *   » and then check whether anything on Thursday afternoon collides with
  *     the flight, and if it does, move the smaller thing█
  *
@@ -61,6 +63,12 @@ export const INPUT_MAX_ROWS = 6;
 
 /** Same cap as the Ink dropdown: a 20-row list is unscannable. */
 const MAX_VISIBLE_COMMANDS = 8;
+
+/**
+ * Newest queued entries shown under the count. Older ones remain in the
+ * count, so a long queue cannot push the composer off the screen.
+ */
+export const MAX_VISIBLE_QUEUED = 3;
 
 export function wrapCommandIndex(index: number, length: number): number {
   return wrapIndex(index, length);
@@ -142,6 +150,35 @@ function commandSuggestRows(
   return rows;
 }
 
+function previewQueuedEntry(entry: string): string {
+  return entry.replace(/\s+/g, " ").trim();
+}
+
+function queuePreviewRows(
+  entries: readonly string[],
+  width: number,
+  glyphs: GlyphSet,
+  mixedQueue: boolean,
+): InputRow[] {
+  return entries.map((entry, index) => {
+    const oneLine = previewQueuedEntry(entry);
+    // Slash commands only run when they are the whole queue; mixed in they
+    // go to the model as prose, so say so while the entry is still editable.
+    const slashWarning =
+      mixedQueue && oneLine.startsWith("/") ? " (sent as text, not run — queue it alone)" : "";
+    const segments: InputSegment[] = [
+      { text: `${glyphs.rail} `, fg: THEME.border },
+      { text: `${glyphs.bullet} `, fg: THEME.muted },
+      { text: oneLine, fg: THEME.muted },
+      ...(slashWarning.length > 0 ? [{ text: slashWarning, fg: THEME.warning }] : []),
+    ];
+    return {
+      key: `queue:${String(index)}:${oneLine}`,
+      segments: fitTerminalSegments(segments, width),
+    };
+  });
+}
+
 function caret(character: string): InputSegment {
   return { text: character, fg: THEME.canvas, bg: THEME.prompt };
 }
@@ -210,7 +247,7 @@ export function inputRows(
    * default is the unconstrained demand, so standalone callers see the natural
    * size.
    */
-  maxRows: number = INPUT_MAX_ROWS + MAX_VISIBLE_COMMANDS,
+  maxRows: number = INPUT_MAX_ROWS + MAX_VISIBLE_COMMANDS + MAX_VISIBLE_QUEUED,
 ): readonly InputRow[] {
   const width = Math.max(1, viewport.width);
   const contentWidth = Math.max(1, width - GUTTER_CELLS);
@@ -247,17 +284,25 @@ export function inputRows(
   }
   caretLine = Math.min(lines.length - 1, caretLine);
 
-  const queued = Math.max(0, model.queued);
+  const queued = model.queued;
+  const queuedCount = queued.length;
   const budget = Math.max(1, Math.trunc(maxRows));
   const commandItems = model.commands?.items.length ?? 0;
   const wantsCommands = model.commands !== undefined && commandItems > 0;
+  const commandReserve = wantsCommands ? 1 : 0;
+  // Previews yield before the composer or an open command list. The count row
+  // is reserved separately so a squeezed frame can still say how many wait.
+  const queueChrome = queuedCount > 0 ? 1 : 0;
+  const previewRoom = Math.max(0, budget - 1 - commandReserve - queueChrome);
+  const previewCount = Math.min(queuedCount, MAX_VISIBLE_QUEUED, previewRoom);
+  const visibleQueued = previewCount === 0 ? [] : queued.slice(-previewCount);
   // The text always keeps at least one row, and the list keeps at least one
   // whenever it is open — whichever of them has to shrink, neither vanishes.
-  const textBudget = Math.max(1, Math.min(INPUT_MAX_ROWS, budget - (wantsCommands ? 1 : 0)));
+  const textBudget = Math.max(1, Math.min(INPUT_MAX_ROWS, budget - commandReserve - previewCount));
   // The chrome row and the text rows share one budget, so the marker that says
   // "there is more above" can never itself push the composer past the cap.
   const capWithChrome = Math.max(1, textBudget - 1);
-  const capWithoutChrome = queued > 0 ? Math.max(1, textBudget - 1) : textBudget;
+  const capWithoutChrome = queuedCount > 0 ? capWithChrome : textBudget;
   let visible = wrapped;
   let hidden = 0;
   if (lines.length > capWithoutChrome) {
@@ -267,7 +312,7 @@ export function inputRows(
   }
 
   const rows: InputRow[] = [];
-  if (hidden > 0 || queued > 0) {
+  if (hidden > 0 || queuedCount > 0) {
     const left: InputSegment[] = [
       { text: `${glyphs.rail} `, fg: THEME.border },
       ...(hidden > 0
@@ -280,8 +325,11 @@ export function inputRows(
         : []),
     ];
     const right: InputSegment[] =
-      queued > 0 ? [{ text: `${queued} queued`, fg: THEME.secondary }] : [];
+      queuedCount > 0 ? [{ text: `${String(queuedCount)} queued`, fg: THEME.secondary }] : [];
     rows.push(alignRow("chrome", left, right, width));
+  }
+  if (visibleQueued.length > 0) {
+    rows.push(...queuePreviewRows(visibleQueued, width, glyphs, queuedCount > 1));
   }
 
   // The caret's own line may have scrolled out of `visible` — the window
