@@ -22,6 +22,7 @@ import { NodeFileSystem } from "@effect/platform-node";
 import { Effect } from "effect";
 import tzlookup from "tz-lookup";
 import type { ReminderRecord } from "@/core/interfaces/reminder-service";
+import { extractCommandApprovalKey } from "@/core/utils/shell";
 import { ReminderServiceImpl } from "@/services/reminder-service";
 import {
   agentIdForChat,
@@ -56,7 +57,13 @@ const activeRuns = new Map<
 >();
 // Pending human approvals keyed by toolCallId, so an Accept/Reject tap can
 // find the run to write the decision back to and the message to clear.
-const pendingApprovals = new Map<string, { chatId: number; messageId: number; runToken: string }>();
+// `commandKey` (set only for execute_command approvals) is the binary name an
+// "Always allow" tap persists to autoApprovedCommands — present only when we
+// could parse one out, since not every approval is a shell command.
+const pendingApprovals = new Map<
+  string,
+  { chatId: number; messageId: number; runToken: string; commandKey?: string }
+>();
 // Transcript for chats currently in /incognito mode. Lives only in this
 // process's memory — never written to disk — so a bridge restart drops the
 // context rather than ever falling back to a persisted history file. Cleared
@@ -440,15 +447,51 @@ function cancelKeyboard(runToken: string): Record<string, unknown> {
   return { inline_keyboard: [[{ text: "⏹ Cancel", callback_data: `x:${runToken}` }]] };
 }
 
-function approvalKeyboard(toolCallId: string): Record<string, unknown> {
-  return {
-    inline_keyboard: [
-      [
-        { text: "✅ Accept", callback_data: `a:${toolCallId}:1` },
-        { text: "❌ Reject", callback_data: `a:${toolCallId}:0` },
-      ],
+function approvalKeyboard(toolCallId: string, commandKey?: string): Record<string, unknown> {
+  const rows = [
+    [
+      { text: "✅ Accept", callback_data: `a:${toolCallId}:1` },
+      { text: "❌ Reject", callback_data: `a:${toolCallId}:0` },
     ],
-  };
+  ];
+  if (commandKey) {
+    rows.push([{ text: `♾️ Always allow "${commandKey}"`, callback_data: `a:${toolCallId}:2` }]);
+  }
+  return { inline_keyboard: rows };
+}
+
+/** Extract the binary from an execute_command approval's "Command: ..." line, if present. */
+function commandKeyFromApprovalMessage(
+  toolName: string | undefined,
+  message: string,
+): string | undefined {
+  if (toolName !== "execute_command") return undefined;
+  const match = /^Command: (.+)$/m.exec(message);
+  if (!match?.[1]) return undefined;
+  return extractCommandApprovalKey(match[1]).split(" ")[0];
+}
+
+/**
+ * Persist a command key to autoApprovedCommands in config.json so future
+ * `jazz run` invocations (each a fresh process — nothing in-memory here
+ * would survive to the next message) auto-approve it without prompting.
+ */
+async function addAutoApprovedCommand(jazzHome: string, commandKey: string): Promise<void> {
+  const configPath = join(jazzHome, "config.json");
+  let config: Record<string, unknown> = {};
+  try {
+    config = JSON.parse(await Bun.file(configPath).text());
+  } catch (error) {
+    console.error(
+      `Failed to read ${configPath} before adding auto-approved command: ${String(error)}`,
+    );
+  }
+  const existing = Array.isArray(config["autoApprovedCommands"])
+    ? (config["autoApprovedCommands"] as unknown[]).filter((entry) => typeof entry === "string")
+    : [];
+  if (existing.includes(commandKey)) return;
+  config["autoApprovedCommands"] = [...existing, commandKey];
+  await Bun.write(configPath, JSON.stringify(config));
 }
 
 function webAppKeyboard(url: string, title: string): Record<string, unknown> {
@@ -650,6 +693,7 @@ async function sendApprovalRequest(
 
   const toolName = event.toolName ?? "tool";
   const message = event.message ?? "";
+  const commandKey = commandKeyFromApprovalMessage(event.toolName, message);
   const lines = ["⚠️ <b>Approval needed</b>", `<code>${escapeHtml(toolName)}</code>`];
   if (message.length > 0) lines.push(escapeHtml(message));
   if (event.previewDiff) {
@@ -657,10 +701,15 @@ async function sendApprovalRequest(
   }
 
   const messageId = await sendReply(config, chatId, lines.join("\n"), {
-    markup: approvalKeyboard(toolCallId),
+    markup: approvalKeyboard(toolCallId, commandKey),
   });
   if (typeof messageId === "number") {
-    pendingApprovals.set(toolCallId, { chatId, messageId, runToken });
+    pendingApprovals.set(toolCallId, {
+      chatId,
+      messageId,
+      runToken,
+      ...(commandKey && { commandKey }),
+    });
   }
 }
 
@@ -1387,7 +1436,9 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
 
   if (kind === "a") {
     const toolCallId = parts[1] ?? "";
-    const approved = parts[2] === "1";
+    const decision = parts[2];
+    const approved = decision === "1" || decision === "2";
+    const always = decision === "2";
     const pending = pendingApprovals.get(toolCallId);
     const run = pending ? activeRuns.get(pending.runToken) : undefined;
     if (!pending || !run) {
@@ -1408,9 +1459,18 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
     } catch (error) {
       console.error(`Failed to write approval decision: ${String(error)}`);
     }
+    if (always && pending.commandKey) {
+      await addAutoApprovedCommand(config.jazzHome, pending.commandKey).catch((error: unknown) =>
+        console.error(`Failed to persist auto-approved command: ${String(error)}`),
+      );
+    }
     await callTelegram(config, "answerCallbackQuery", {
       callback_query_id: callback.id,
-      text: approved ? "Approved" : "Rejected",
+      text: always
+        ? `Approved — "${pending.commandKey}" always allowed from now on`
+        : approved
+          ? "Approved"
+          : "Rejected",
     });
     await callTelegram(config, "editMessageReplyMarkup", {
       chat_id: chatId,
