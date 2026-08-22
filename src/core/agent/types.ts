@@ -1,5 +1,6 @@
 import type { Effect } from "effect";
 import type { ProviderName } from "@/core/constants/models";
+import type { GeneratedArtifact } from "@/core/types/artifact";
 import type { ChatMessage, ConversationMessages } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
 import type {
@@ -178,6 +179,14 @@ export interface AgentResponse {
    *
    */
   readonly toolResults?: Record<string, unknown>;
+  /**
+   * Files produced during this run, in the order they were made.
+   *
+   * A list rather than a map because `toolResults` is keyed by tool name and keeps only the last
+   * call — fine for inspecting what a tool returned, lossy for artifacts, where calling
+   * `create_pdf` twice must yield two files.
+   */
+  readonly artifacts?: readonly GeneratedArtifact[];
   /**
    * Indicates tools were provided but disabled for the selected model.
    */

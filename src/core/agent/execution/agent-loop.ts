@@ -6,6 +6,7 @@ import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import type { PresentationService, StreamingRenderer } from "@/core/interfaces/presentation";
 import type { ToolRegistry, ToolRequirements } from "@/core/interfaces/tool-registry";
 import type { ChatMessage, ConversationMessages } from "@/core/types";
+import { parseGeneratedArtifacts } from "@/core/types/artifact";
 import {
   type AttachmentKind,
   describeAttachment,
@@ -526,6 +527,14 @@ function handleToolPhase(
       pendingAttachments.length = 0;
     }
 
+    // Accumulated across the whole run, unlike toolResults, which keeps only the last call per
+    // tool name — two create_pdf calls have to produce two files, not one.
+    const producedArtifacts = toolResults.flatMap((toolResult) =>
+      parseGeneratedArtifacts(
+        (toolResult.result as { artifacts?: unknown } | undefined)?.artifacts,
+      ),
+    );
+
     state.response = {
       ...state.response,
       toolCalls: [...(state.response.toolCalls ?? []), ...toolCalls],
@@ -533,6 +542,9 @@ function handleToolPhase(
         ...state.response.toolResults,
         ...Object.fromEntries(toolResults.map((r) => [r.name, r.result])),
       },
+      ...(producedArtifacts.length > 0
+        ? { artifacts: [...(state.response.artifacts ?? []), ...producedArtifacts] }
+        : {}),
     };
 
     const queuedMessage = options.checkQueuedMessage?.();

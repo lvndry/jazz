@@ -4,6 +4,7 @@ import { getAgentByIdentifier } from "@/core/agent/agent-service";
 import { buildWorkStatePreamble } from "@/core/agent/context/work-state-preamble";
 import { CommonSuggestions, getErrorMessage } from "@/core/presentation/error-handler";
 import { makeOneShotPresentationServiceLayer } from "@/core/presentation/oneshot-presentation-service";
+import { describeArtifact, type GeneratedArtifact } from "@/core/types/artifact";
 import { AgentNotFoundError } from "@/core/types/errors";
 import type { ChatMessage } from "@/core/types/message";
 import type { StreamEvent } from "@/core/types/streaming";
@@ -65,6 +66,15 @@ export interface OneShotSuccess {
   readonly tokenUsage: OneShotTokenUsage;
   readonly toolCalls: readonly OneShotToolCall[];
   readonly webApp?: OneShotWebApp;
+  /**
+   * Files this run produced, in the order they were made.
+   *
+   * Supersedes `webApp` for anything that only needs "a file appeared, here is where and what
+   * kind" — a script or bridge reads this instead of learning each producing tool by name.
+   * `webApp` stays because its interactive mode carries a URL-bearing shape no generic artifact
+   * can express.
+   */
+  readonly artifacts?: readonly GeneratedArtifact[];
   /**
    * Full message transcript for this run, included only for `--ephemeral`
    * calls. Since ephemeral runs never load/save `--conversation` history on
@@ -141,7 +151,15 @@ export interface OneShotOutputOptions {
  */
 export function formatOneShotResult(result: OneShotSuccess, options: OneShotOutputOptions): string {
   if (!options.json) {
-    return `${result.answer.trim()}\n`;
+    const answer = result.answer.trim();
+    const artifacts = result.artifacts ?? [];
+    if (artifacts.length === 0) return `${answer}\n`;
+
+    // Paths go below the answer whether or not the model mentioned them. A run that writes a
+    // file and does not say where is a run the user has to go hunting after, and models are
+    // inconsistent about repeating a path they already saw in a tool result.
+    const lines = artifacts.map((artifact) => `  ${describeArtifact(artifact)}`).join("\n");
+    return `${answer}\n\n${lines}\n`;
   }
 
   return `${JSON.stringify({
@@ -151,6 +169,7 @@ export function formatOneShotResult(result: OneShotSuccess, options: OneShotOutp
     tokenUsage: result.tokenUsage,
     toolCalls: result.toolCalls,
     ...(result.webApp ? { webApp: result.webApp } : {}),
+    ...(result.artifacts && result.artifacts.length > 0 ? { artifacts: result.artifacts } : {}),
     ...(result.messages ? { messages: result.messages } : {}),
   })}\n`;
 }
@@ -502,6 +521,7 @@ export function runAgentOnceCommand(
       arguments: toolCall.function?.arguments ?? "",
     }));
     const webApp = extractWebAppResult(runResult.toolResults);
+    const artifacts = runResult.artifacts ?? [];
 
     yield* writeStdout(
       formatOneShotResult(
@@ -518,6 +538,7 @@ export function runAgentOnceCommand(
           },
           toolCalls,
           ...(webApp ? { webApp } : {}),
+          ...(artifacts.length > 0 ? { artifacts } : {}),
           ...(ephemeral ? { messages: runResult.messages ?? [] } : {}),
         },
         outputOptions,

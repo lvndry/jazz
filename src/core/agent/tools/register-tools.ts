@@ -5,6 +5,7 @@ import { createContextInfoTool, createGetTimeTool } from "./context-tools";
 import { fs } from "./fs";
 import { createHttpRequestTool } from "./http-tools";
 import { createManageMemoryTool, createViewMemoryTool } from "./memory-tools";
+import { createPdfTool } from "./pdf-tools";
 import {
   createAddReminderTool,
   createCancelReminderTool,
@@ -199,6 +200,8 @@ export function registerWebAppTools(): Effect.Effect<void, Error, ToolRegistry> 
     const registerTool = registry.registerForCategory(WEB_APP_CATEGORY);
 
     yield* registerTool(createWebAppTool());
+    // Same category: both turn HTML the agent wrote into a file, and both need Chromium.
+    yield* registerTool(createPdfTool());
   });
 }
 
