@@ -143,6 +143,12 @@ describe("Shell Tools", () => {
     expect(result.result).toHaveProperty("approvalRequired", true);
     expect(result.result).toHaveProperty("message");
     expect(result.error).toContain("Command execution requires explicit user approval");
+
+    // Timeout is shown to the human approving the command, so it must read as
+    // an answer ("15m") rather than a raw millisecond count ("900000ms").
+    const message = (result.result as { message: string }).message;
+    expect(message).toContain("Timeout: 15m");
+    expect(message).not.toContain("ms\n");
   });
 
   it("should validate command arguments", async () => {

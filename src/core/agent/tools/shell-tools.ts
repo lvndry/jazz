@@ -21,6 +21,19 @@ import {
 import { buildKeyFromContext } from "./context-utils";
 
 /**
+ * Format a timeout duration for the approval prompt. Unlike `formatDuration`
+ * (built for logging elapsed time, where fractional seconds are meaningful),
+ * timeouts are always round config values — "15m 0.0s" reads as noise where
+ * "15m" reads as an answer.
+ */
+function formatTimeoutForApproval(ms: number): string {
+  if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
+  const minutes = Math.floor(ms / 60_000);
+  const seconds = Math.round((ms % 60_000) / 1000);
+  return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
+}
+
+/**
  * Patterns that block obviously dangerous shell commands before execution.
  *
  * This is a defense-in-depth denylist, not a sandbox. It cannot stop a
@@ -440,7 +453,7 @@ export function createShellCommandTools(): ApprovalToolPair<ShellCommandDeps> {
         return `Command: ${args.command}
 Description: ${description}
 Working Directory: ${workingDir}
-Timeout: ${timeout}ms
+Timeout: ${formatTimeoutForApproval(timeout)}
 
 This command will be executed on your system. Only approve commands you trust.`;
       }),
