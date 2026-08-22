@@ -250,6 +250,21 @@ describe("Footer", () => {
     expect(colorOf(spans, "$0.42")).toBe(THEME.muted.toUpperCase());
   });
 
+  it("replaces hints with a copy confirmation in the live accent", async () => {
+    const { row, spans } = await render(
+      <Footer
+        model={footer({ notice: "copied" })}
+        viewport={{ width: 80, height: 24 }}
+      />,
+      80,
+    );
+
+    expect(row).toContain("copied");
+    expect(row).not.toContain("enter send");
+    expect(row).toContain("plan");
+    expect(colorOf(spans, "copied")).toBe(THEME.primary.toUpperCase());
+  });
+
   it("drops elapsed before it drops a hint", async () => {
     const { row } = await render(
       <Footer

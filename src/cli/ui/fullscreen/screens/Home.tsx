@@ -4,10 +4,10 @@
  * The home screen.
  *
  * `jazz` with no arguments starts here, which makes this the one screen that has
- * to work when *nothing* is set up — no key, no agent, no connected app. So the
- * design question is not "what is missing" but "what do I do now", and the
- * answer is on screen in three forms: a remedy beside each thing that is not
- * ready, a sentence naming the key to press, and the menu itself.
+ * to work when *nothing* is set up — no agent yet. So the design question is not
+ * "what is missing" but "what do I do now", and the answer is on screen in three
+ * forms: a remedy beside each thing that is not ready, a sentence naming the key
+ * to press, and the menu itself.
  *
  * Four things, in this order, because that is the order a reader needs them:
  *
@@ -54,7 +54,7 @@ const GUIDANCE_MAX_ROWS = 2;
 
 /** One thing jazz needs before it is useful, and the one thing to do about it. */
 export interface HomeRequirement {
-  /** A noun, lowercase: "provider", "agent", "apps". */
+  /** A noun, lowercase: "agent". */
   readonly label: string;
   readonly ready: boolean;
   /** What is true now — "anthropic ∙ claude-sonnet-4", "none yet". */
@@ -195,7 +195,7 @@ function requirementRows(
   );
   return requirements.map((requirement, index) => {
     // The remedy replaces the detail rather than joining it: on a row that is
-    // not ready, "no key yet" and "add one with jazz config" say the same thing
+    // not ready, "none yet" and "create your first one below" say the same thing
     // and only one of them is useful.
     const text = requirement.ready
       ? requirement.detail

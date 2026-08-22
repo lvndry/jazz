@@ -225,6 +225,8 @@ export interface InputModel {
 export interface FooterModel {
   readonly mode: Mode;
   readonly hints: readonly string[];
+  /** Replaces hints for a beat — copy confirmation, not a key legend. */
+  readonly notice?: string;
   readonly costUsd?: number;
   readonly elapsedMs?: number;
 }
