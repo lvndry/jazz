@@ -43,6 +43,10 @@ export function makeUserVisibleLlmRetrySchedule(
       isRetryableLLMError(error)
         ? Effect.gen(function* () {
             const attempt = yield* Ref.updateAndGet(attemptRef, (count) => count + 1);
+            // The schedule also receives the failure that exhausts it, so this fires once more
+            // than there are retries. Announcing "attempt 11 of up to 10" promised a retry that
+            // was never going to happen.
+            if (attempt > maxRetries) return;
             const reason = describeRetryableLLMError(error);
             yield* presentStatus(
               `${agentName} hit a ${reason}. Trying again (attempt ${attempt} of up to ${maxRetries})…`,

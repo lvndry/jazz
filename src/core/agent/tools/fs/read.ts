@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { FileSystemContextService } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import { defineTool, makeZodValidator } from "../base-tool";
+import { attachMediaFile } from "./attach-media";
 import { resolveReadableFile, stripUtf8Bom } from "./read-common";
 
 const DEFAULT_MAX_CHARS = 131_072;
@@ -119,9 +120,10 @@ export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
   return defineTool<FileSystem.FileSystem | FileSystemContextService, ReadFileParams>({
     name: "read_file",
     description:
-      "Read a UTF-8 text file relative to the session working directory (pwd/cd). Returns numbered lines (`   12|content`) so edit_file.replace_lines / insert / delete_lines can use those numbers. " +
+      "Read a file relative to the session working directory (pwd/cd). UTF-8 text is returned as numbered lines (`   12|content`) so edit_file.replace_lines / insert / delete_lines can use those numbers. " +
+      "Images, PDFs, audio and video are attached to the conversation when the active model supports that modality. " +
       "WHEN TO USE: inspecting or editing text/code. " +
-      "WHEN NOT: PDFs → read_pdf; directories → ls; filenames → find; images/binary (will look like garbage); do not shell out to cat/sed/nl. " +
+      "WHEN NOT: directories → ls; filenames → find; unsupported binary formats; do not shell out to cat/sed/nl. " +
       "Pass startLine/endLine for large files. Negative startLine reads from the end (startLine:-20 is the last 20 lines). " +
       "Do not copy the `N|` prefix into edit_file or write_file content — it is metadata. " +
       "If truncated is true, re-read the next range; do not assume you saw the whole file. UTF-8 only; a leading BOM is stripped.",
@@ -134,6 +136,12 @@ export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
         if (resolved.kind === "failure") return resolved.result;
         const filePathResult = resolved.path;
         const fs = yield* FileSystem.FileSystem;
+
+        // Images, PDFs, audio and video are not text. Reading their bytes as UTF-8 produces
+        // mojibake that costs thousands of tokens and tells the model nothing, so they are
+        // attached to the turn instead and delivered to the model as file parts.
+        const mediaOutcome = yield* Effect.promise(() => attachMediaFile(filePathResult, context));
+        if (mediaOutcome.kind !== "not-media") return mediaOutcome.result;
 
         try {
           const raw = stripUtf8Bom(yield* fs.readFileString(filePathResult));

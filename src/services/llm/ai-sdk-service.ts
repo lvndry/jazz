@@ -34,6 +34,7 @@ import {
   jsonSchema,
   tool,
   type LanguageModel,
+  type FilePart,
   type ModelMessage,
   type SystemModelMessage,
   type ToolCallPart,
@@ -62,6 +63,11 @@ import type {
   StreamEvent,
   StreamingResult,
 } from "@/core/types";
+import {
+  describeAttachment,
+  inlineAttachmentMessageIndices,
+  type MessageAttachment,
+} from "@/core/types/attachment";
 import type { WebSearchConfig } from "@/core/types/config";
 import { LLMAuthenticationError, LLMConfigurationError, type LLMError } from "@/core/types/errors";
 import type { JsonValue } from "@/core/types/message";
@@ -76,6 +82,7 @@ import { createDeferred } from "@/core/utils/promise";
 import { formatProviderDisplayName } from "@/core/utils/provider-model";
 import { sanitize } from "@/core/utils/string";
 import { LLM_PROVIDER_ENV_VARS } from "@/services/secrets/registry";
+import { resolveAttachments, type ResolvedAttachments } from "./attachment-resolver";
 import {
   createModelFetcher,
   fetchModelsDevModels,
@@ -200,6 +207,51 @@ function buildToolConfig(
 
 const REASONING_ROUND_TRIP_PROVIDERS = new Set(["anthropic"]);
 
+/**
+ * File parts for a message's attachments, plus text notes for any that could not be sent.
+ *
+ * Both halves matter. The parts are what the model sees; the notes are what stops it from
+ * inventing the contents of something it never received.
+ */
+function buildAttachmentParts(
+  attachments: ReadonlyArray<MessageAttachment> | undefined,
+  resolved: ResolvedAttachments | undefined,
+  inlineAllowed: boolean,
+): { parts: FilePart[]; notes: string[] } {
+  if (attachments === undefined || attachments.length === 0) return { parts: [], notes: [] };
+
+  const parts: FilePart[] = [];
+  const notes: string[] = [];
+
+  for (const attachment of attachments) {
+    if (!inlineAllowed) {
+      notes.push(
+        `${describeAttachment(attachment)} was attached earlier in this conversation and is no longer inlined. Read the path again if you need its contents.`,
+      );
+      continue;
+    }
+
+    const payload = resolved?.get(attachment.path);
+    if (payload === undefined) {
+      notes.push(`${describeAttachment(attachment)} could not be loaded.`);
+      continue;
+    }
+    if (payload.kind === "unavailable") {
+      notes.push(`${describeAttachment(attachment)} was not sent: ${payload.reason}`);
+      continue;
+    }
+
+    parts.push({
+      type: "file",
+      mediaType: attachment.mediaType,
+      filename: attachment.path.split("/").pop() ?? "attachment",
+      data: payload.kind === "inline" ? payload.base64 : (payload.reference as FilePart["data"]),
+    });
+  }
+
+  return { parts, notes };
+}
+
 export function toCoreMessages(
   messages: ReadonlyArray<{
     role: "system" | "user" | "assistant" | "tool";
@@ -217,8 +269,10 @@ export function toCoreMessages(
       provider: string;
       providerOptions?: Record<string, Record<string, JsonValue>>;
     }>;
+    attachments?: ReadonlyArray<MessageAttachment>;
   }>,
   providerName?: ProviderName,
+  resolvedAttachments?: ResolvedAttachments,
 ): ModelMessage[] {
   let lastUserMessageIndex = -1;
   for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex--) {
@@ -227,6 +281,12 @@ export function toCoreMessages(
       break;
     }
   }
+
+  // Aging an attachment out rewrites an earlier message, which moves the prompt-cache
+  // breakpoint and costs one cache miss. That happens once per attachment and buys its tokens
+  // back on every subsequent turn.
+  const inlineAttachmentIndices = inlineAttachmentMessageIndices(messages);
+
   const normalizedProviderName = providerName?.toLowerCase();
 
   const result = messages.map((m, messageIndex) => {
@@ -267,9 +327,37 @@ export function toCoreMessages(
     }
 
     if (role === "user") {
+      // Attachments are emitted as AI SDK `FilePart`s, which is the one shape that covers every
+      // modality: `mediaType` carries image/pdf/audio/video alike and each provider maps it to
+      // its own wire format. (`ImagePart` exists but is deprecated, and would only handle one
+      // of the four.)
+      const attachmentParts = buildAttachmentParts(
+        m.attachments,
+        resolvedAttachments,
+        inlineAttachmentIndices.has(messageIndex),
+      );
+      if (attachmentParts.parts.length === 0 && attachmentParts.notes.length === 0) {
+        return {
+          role: "user" as const,
+          content,
+        };
+      }
+
+      // Unresolvable attachments become text so the model learns the file existed and could not
+      // be read. Dropping them silently is the one behaviour to avoid: a model told nothing
+      // about a promised screenshot will describe one it never saw.
+      const textSegments = [content, ...attachmentParts.notes].filter(
+        (segment) => segment.length > 0,
+      );
+      const userContent: Array<{ type: "text"; text: string } | FilePart> = [];
+      if (textSegments.length > 0) {
+        userContent.push({ type: "text", text: textSegments.join("\n\n") });
+      }
+      userContent.push(...attachmentParts.parts);
+
       return {
         role: "user" as const,
-        content,
+        content: userContent,
       };
     }
 
@@ -1319,7 +1407,15 @@ class AISDKService implements LLMService {
         );
 
         const messageConversionStart = Date.now();
-        const coreMessages = toCoreMessages(options.messages, providerName);
+        // Attachments are stored as paths, so their payloads are loaded (or uploaded) here,
+        // outside the pure conversion function.
+        const resolvedAttachments = await resolveAttachments(
+          options.messages,
+          providerName,
+          effectiveLLMConfig,
+          this.logger,
+        );
+        const coreMessages = toCoreMessages(options.messages, providerName, resolvedAttachments);
         void this.logger.debug(
           `[LLM Timing] Message conversion (${options.messages.length} messages) took ${Date.now() - messageConversionStart}ms`,
         );
@@ -1516,7 +1612,13 @@ class AISDKService implements LLMService {
 
         // Message conversion timing
         const messageConversionStart = Date.now();
-        const coreMessages = toCoreMessages(options.messages, providerName);
+        const resolvedAttachments = await resolveAttachments(
+          options.messages,
+          providerName,
+          effectiveLLMConfig,
+          this.logger,
+        );
+        const coreMessages = toCoreMessages(options.messages, providerName, resolvedAttachments);
         void this.logger.debug(
           `[LLM Timing] Message conversion (${options.messages.length} messages) took ${Date.now() - messageConversionStart}ms`,
         );

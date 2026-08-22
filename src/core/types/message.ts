@@ -7,6 +7,8 @@
  * LLM providers through adapter layers.
  */
 
+import type { MessageAttachment } from "./attachment";
+
 /**
  * LLM message types
  */
@@ -72,6 +74,17 @@ export interface ChatMessage {
    * signatures, OpenAI encrypted reasoning, OpenRouter reasoning_details).
    */
   reasoning_parts?: ReadonlyArray<StoredReasoningPart>;
+  /**
+   * Non-text files (image/pdf/audio/video) carried alongside `content`.
+   *
+   * Held as paths, not bytes — this type is JSON-serialized to conversation history, so
+   * inlining media would balloon it. Bytes are loaded (or uploaded) at request time.
+   *
+   * Because these live outside `content`, anything reasoning about total context size must
+   * account for them explicitly; `TokenCounter.countMessage` does, and code that only reads
+   * `content` will silently undercount.
+   */
+  attachments?: ReadonlyArray<MessageAttachment>;
 }
 
 /**

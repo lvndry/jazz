@@ -5,6 +5,7 @@ import {
   DEFAULT_MAX_SUBAGENT_DEPTH,
   DEFAULT_MAX_SUBAGENT_ITERATIONS,
 } from "@/core/constants/agent";
+import { isLocalServerProvider } from "@/core/constants/local-providers";
 import type { ProviderName } from "@/core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { FileSystemContextServiceTag } from "@/core/interfaces/fs";
@@ -25,11 +26,20 @@ import {
   SkillServiceTag,
   type SkillService,
 } from "@/core/skills/skill-service";
+import type { AttachmentKind } from "@/core/types/attachment";
 import { LLMRateLimitError } from "@/core/types/errors";
 import type { ChatMessage } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
 import type { AutoApprovePolicy, ToolExecutionContext } from "@/core/types/tools";
+import { getModelsDevMetadata } from "@/core/utils/models-dev";
+import { parseProviderModel } from "@/core/utils/provider-model";
 import { shouldEnableStreaming } from "@/core/utils/stream-detector";
+import {
+  fetchOllamaModelDetails,
+  type OllamaShowExtras,
+  resolveOllamaAttachmentSupport,
+} from "@/services/llm/model-fetcher";
+import { resolveLocalProviderBaseUrl } from "@/services/llm/models";
 import type { ConversationMessages, StreamingConfig } from "../types";
 import { type Agent } from "../types";
 import { agentPromptBuilder } from "./agent-prompt";
@@ -52,6 +62,79 @@ import { normalizeToolConfig } from "./utils/tool-config";
  * it stays correct after the agent changes directories — and falls back to the
  * process cwd for surfaces (and tests) that do not provide the service.
  */
+/**
+ * Attachment modalities this agent's model accepts, from the models.dev catalog.
+ *
+ * Returns nothing on a catalog miss rather than assuming capability. Unlike tool support — which
+ * defaults to available so an unrecognized model is not needlessly crippled — sending media to a
+ * model without that input is a hard provider error, so an unknown model is treated as
+ * text-only. The known cost is locally-served models: ollama and llama.cpp are largely absent
+ * from the catalog, so a capable local VLM reads as text-only here.
+ */
+function resolveSupportedAttachmentKinds(
+  agent: AgentRunnerOptions["agent"],
+): Effect.Effect<readonly AttachmentKind[], never> {
+  return Effect.gen(function* () {
+    const parsed = parseProviderModel(agent.model);
+    if (parsed === null) return [];
+
+    const metadata = yield* Effect.tryPromise({
+      try: () => getModelsDevMetadata(parsed.model, parsed.provider),
+      catch: (error) => error,
+    }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+
+    // Ollama reports the capabilities of the model file actually on this host, which the
+    // catalog usually knows nothing about — most local tags are absent from models.dev
+    // entirely. Without this, a local multimodal model reads as text-only and jazz refuses to
+    // send it an image it can read perfectly well.
+    if (parsed.provider === "ollama") {
+      const baseUrl = resolveLocalProviderBaseUrl("ollama", undefined);
+      const extras = yield* Effect.tryPromise({
+        try: () => fetchOllamaModelDetails(baseUrl, parsed.model),
+        catch: (error) => error,
+      }).pipe(Effect.catchAll(() => Effect.succeed<OllamaShowExtras>({})));
+
+      // Today this only ever yields "image" — the provider cannot transport anything else — but
+      // the mapping stays exhaustive so widening it is a one-line change in one place.
+      const support = resolveOllamaAttachmentSupport(extras.capabilities, metadata);
+      const localKinds: AttachmentKind[] = [];
+      if (support.supportsVision) localKinds.push("image");
+      if (support.supportsPdf) localKinds.push("pdf");
+      if (support.supportsAudio) localKinds.push("audio");
+      return localKinds;
+    }
+
+    if (metadata === undefined) return [];
+
+    const kinds: AttachmentKind[] = [];
+    if (metadata.supportsVision) kinds.push("image");
+    if (metadata.supportsPdf) kinds.push("pdf");
+    if (metadata.supportsAudio) kinds.push("audio");
+    if (metadata.supportsVideo) kinds.push("video");
+    return kinds;
+  });
+}
+
+/**
+ * The agent's tracked working directory, or the process cwd when no filesystem context exists.
+ *
+ * The agent can `cd` mid-session, so this is not the same as `process.cwd()` — which matters
+ * for anything resolving a relative path the user typed.
+ */
+function resolveAgentWorkingDirectory(
+  agentId: string,
+  options: AgentRunnerOptions,
+): Effect.Effect<string, never> {
+  return Effect.gen(function* () {
+    const fileSystemContextOption = yield* Effect.serviceOption(FileSystemContextServiceTag);
+    if (!Option.isSome(fileSystemContextOption)) return process.cwd();
+    return yield* fileSystemContextOption.value.getCwd({
+      agentId,
+      ...(options.conversationId !== undefined ? { conversationId: options.conversationId } : {}),
+    });
+  });
+}
+
 function resolveProjectInstructions(
   persona: string,
   agentId: string,
@@ -60,16 +143,7 @@ function resolveProjectInstructions(
   return Effect.gen(function* () {
     if (persona === "summarizer") return [];
 
-    const fileSystemContextOption = yield* Effect.serviceOption(FileSystemContextServiceTag);
-    const workingDirectory = Option.isSome(fileSystemContextOption)
-      ? yield* fileSystemContextOption.value.getCwd({
-          agentId,
-          ...(options.conversationId !== undefined
-            ? { conversationId: options.conversationId }
-            : {}),
-        })
-      : process.cwd();
-
+    const workingDirectory = yield* resolveAgentWorkingDirectory(agentId, options);
     return yield* Effect.sync(() => discoverProjectInstructions(workingDirectory));
   });
 }
@@ -267,6 +341,23 @@ function initializeAgentRun(
       );
     }
 
+    // Attachment ingestion needs the agent's cwd to resolve relative paths the user typed, and
+    // the model's modalities to know which of them are worth sending.
+    //
+    // Never for the summarizer: its "user input" is a rendered transcript, so any media path a
+    // *tool* printed would be scanned as though the user had asked for it. Attaching files on
+    // the strength of tool output is exactly what path ingestion must not do.
+    const ingestsAttachments = persona !== "summarizer";
+    const attachmentWorkingDirectory = ingestsAttachments
+      ? yield* resolveAgentWorkingDirectory(agent.id, options)
+      : undefined;
+    const supportedAttachmentKinds = ingestsAttachments
+      ? yield* resolveSupportedAttachmentKinds(agent)
+      : [];
+    const attachmentsAreLocal = isLocalServerProvider(
+      parseProviderModel(agent.model)?.provider ?? "",
+    );
+
     // Build messages — reuses the PersonaService resolved earlier so custom
     // personas can be looked up by name when assembling the system prompt.
     const messages: ConversationMessages = yield* agentPromptBuilder.buildAgentMessages(
@@ -279,6 +370,11 @@ function initializeAgentRun(
         toolNames: expandedToolNames,
         availableTools,
         knownSkills: relevantSkills,
+        ...(attachmentWorkingDirectory !== undefined && {
+          workingDirectory: attachmentWorkingDirectory,
+        }),
+        supportedAttachmentKinds,
+        attachmentsAreLocal,
         ...(triggeredSkillNames.length > 0 && { triggeredSkillNames }),
         ...(projectInstructions.length > 0 && { projectInstructions }),
       },

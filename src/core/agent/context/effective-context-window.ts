@@ -1,4 +1,4 @@
-import { LOCAL_SERVER_PROVIDERS } from "@/core/constants/local-providers";
+import { isLocalServerProvider } from "@/core/constants/local-providers";
 import { DEFAULT_CONTEXT_WINDOW } from "@/core/constants/models";
 
 /**
@@ -51,10 +51,6 @@ export interface EffectiveContextWindowInput {
    * would put us back to silent truncation.
    */
   readonly agentMaxTokens?: number;
-}
-
-export function isLocalServerProvider(provider: string): boolean {
-  return provider in LOCAL_SERVER_PROVIDERS;
 }
 
 function positiveTokenCount(value: number | undefined): number | undefined {

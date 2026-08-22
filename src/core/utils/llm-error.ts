@@ -1,7 +1,7 @@
 import { APICallError, RetryError } from "ai";
 import { Duration, Schedule } from "effect";
 import { MAX_RETRY_DELAY_SECONDS } from "@/core/constants/agent";
-import { LOCAL_SERVER_PROVIDERS } from "@/core/constants/local-providers";
+import { isLocalServerProvider, LOCAL_SERVER_PROVIDERS } from "@/core/constants/local-providers";
 import type { ProviderName } from "@/core/constants/models";
 import {
   LLMAuthenticationError,
@@ -202,9 +202,61 @@ export function isConnectionError(error: unknown): boolean {
   return false;
 }
 
+/**
+ * AI SDK errors raised while *building* a request, rather than in response to one.
+ *
+ * These carry no HTTP status because they never reached the provider, which is exactly what the
+ * retry policy reads as "connection failure, try again". They are deterministic: the same inputs
+ * fail the same way every time, so retrying burns the full backoff schedule — around 30 seconds
+ * and eleven identical attempts — before surfacing the error the caller could have seen
+ * immediately.
+ *
+ * The observed case: sending an audio attachment to Ollama, whose provider transports only
+ * images, raises UnsupportedFunctionalityError and was retried eleven times.
+ *
+ * Deliberately excluded: `AI_LoadAPIKeyError`, so the friendlier API-key guidance below still
+ * wins; and response-side failures (`AI_JSONParseError`, `AI_EmptyResponseBodyError`,
+ * `AI_NoContentGeneratedError`), where a retry can legitimately succeed against a flaky server.
+ */
+const PERMANENT_REQUEST_ERROR_NAMES = new Set([
+  "AI_UnsupportedFunctionalityError",
+  "AI_UnsupportedModelVersionError",
+  "AI_InvalidArgumentError",
+  "AI_InvalidPromptError",
+  "AI_InvalidDataContentError",
+  "AI_InvalidMessageRoleError",
+  "AI_MessageConversionError",
+  "AI_TypeValidationError",
+  "AI_NoSuchModelError",
+  "AI_NoSuchProviderError",
+  "AI_NoSuchToolError",
+  "AI_InvalidToolInputError",
+  "AI_TooManyEmbeddingValuesForCallError",
+]);
+
+/**
+ * Whether this error was raised locally and will fail identically on every attempt.
+ *
+ * Walks the cause chain for the same reason `isConnectionError` does: a provider raises these
+ * from deep inside the SDK, so by the time the error surfaces the interesting name is nested.
+ */
+export function isPermanentRequestError(error: unknown): boolean {
+  const seen = new Set<unknown>();
+  let current: unknown = error;
+  while (current && typeof current === "object" && !seen.has(current)) {
+    seen.add(current);
+    const record = current as { name?: unknown; cause?: unknown };
+    if (typeof record.name === "string" && PERMANENT_REQUEST_ERROR_NAMES.has(record.name)) {
+      return true;
+    }
+    current = record.cause;
+  }
+  return false;
+}
+
 // Start-the-server guidance for local providers; undefined for everything else.
 export function localServerUnreachableMessage(providerName: ProviderName): string | undefined {
-  if (!(providerName in LOCAL_SERVER_PROVIDERS)) {
+  if (!isLocalServerProvider(providerName)) {
     return undefined;
   }
   const local = LOCAL_SERVER_PROVIDERS[providerName as keyof typeof LOCAL_SERVER_PROVIDERS];
@@ -224,6 +276,16 @@ export function localServerUnreachableMessage(providerName: ProviderName): strin
 export function convertToLLMError(error: unknown, providerName: ProviderName): LLMError {
   // Use clean message for user-facing error (keeps terminal output readable)
   const cleanMessage = extractCleanErrorMessage(error);
+
+  // Checked before anything else: these carry no status code, so every branch below would
+  // classify them as a transient connection failure.
+  if (isPermanentRequestError(error)) {
+    return new LLMRequestError({
+      provider: providerName,
+      message: cleanMessage || "The provider rejected this request",
+      permanent: true,
+    });
+  }
 
   // No statusCode keeps this retryable, so a server that starts mid-retry recovers.
   if (isConnectionError(error)) {
@@ -310,6 +372,8 @@ Or update it in the interactive wizard: jazz wizard -> Update configuration`;
 export function isRetryableLLMError(error: unknown): boolean {
   if (error instanceof LLMRateLimitError) return true;
   if (error instanceof LLMRequestError) {
+    // Rejected locally: the same request will be rejected the same way next time.
+    if (error.permanent === true) return false;
     // No status code means the request never got a response (connection / DNS / timeout).
     // 5xx means the server had a transient failure.
     // Both are worth retrying.
@@ -325,6 +389,9 @@ export function isRetryableLLMError(error: unknown): boolean {
 export function describeRetryableLLMError(error: unknown): string {
   if (error instanceof LLMRateLimitError) return "rate limit";
   if (error instanceof LLMRequestError) {
+    // A locally-rejected request is not a network issue, and calling it one sent users looking
+    // for a connectivity problem that did not exist.
+    if (error.permanent === true) return "rejected request";
     if (error.statusCode === undefined) return "network issue";
     return `server error (${error.statusCode})`;
   }

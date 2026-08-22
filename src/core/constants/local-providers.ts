@@ -13,3 +13,15 @@ export const LOCAL_SERVER_PROVIDERS = {
     startHint: "ollama serve",
   },
 } as const satisfies Partial<Record<ProviderName, unknown>>;
+
+/**
+ * Whether this provider serves models from the user's own machine.
+ *
+ * Several behaviours hinge on this beyond the unreachable-server diagnostics: local models get
+ * their context window from the running server rather than the catalog, and attachment size
+ * limits are relaxed for them because every one of those limits is really a remote API's
+ * request cap.
+ */
+export function isLocalServerProvider(provider: string): boolean {
+  return provider in LOCAL_SERVER_PROVIDERS;
+}
