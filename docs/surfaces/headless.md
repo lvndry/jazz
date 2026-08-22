@@ -189,6 +189,13 @@ around, rather than hanging forever on a prompt nobody will answer.
 | `low-risk`  | + `manage_todos`, `spawn_subagent`                             |
 | `high-risk` | + file writes, shell commands, git commit and push             |
 
+Omitting the policy really does grant nothing here. The interactive default auto-approves
+read-only and low-risk tools, but that is a statement about prompts it is not worth showing
+a person — with nobody to show, an absent policy falls back to declining everything. Shell
+commands under `read-only` and `low-risk` are admitted per command by the
+[classifier](../internals/tools-and-approval.md#command-classifier), which is what lets
+`git log` through without also unlocking `git push`.
+
 > ⚠️ **`low-risk` is narrower than it sounds.** In the built-in toolset it adds only
 > `manage_todos`, `update_task_state`, and `spawn_subagent`. Email, calendar, and Obsidian are *skills* that shell
 > out via `execute_command` (`unknown`), so a `low-risk` run cannot archive an email. Keep

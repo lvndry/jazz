@@ -41,7 +41,7 @@ function ActivityIslandComponent(): React.ReactElement | null {
   // Cleanup on unmount to prevent stale setter calls
   useEffect(() => {
     return () => {
-      store.registerActivitySetter(() => {});
+      store.registerActivitySetter(null);
     };
   }, []);
 
@@ -79,10 +79,10 @@ function PromptIslandComponent(): React.ReactElement | null {
   // Cleanup on unmount to prevent stale setter calls
   useEffect(() => {
     return () => {
-      store.registerPromptSetter(() => {});
-      store.registerWorkingDirectorySetter(() => {});
-      store.registerChatBusySetter(() => {});
-      store.registerMessageQueueSetter(() => {});
+      store.registerPromptSetter(null);
+      store.registerWorkingDirectorySetter(null);
+      store.registerChatBusySetter(null);
+      store.registerMessageQueueSetter(null);
     };
   }, []);
 
@@ -131,7 +131,7 @@ function StatusFooterIslandComponent(): React.ReactElement | null {
 
   useEffect(() => {
     return () => {
-      store.registerRunStatsSetter(() => {});
+      store.registerRunStatsSetter(null);
       store.registerModeSetter(null);
     };
   }, []);
@@ -204,8 +204,8 @@ function OutputIslandComponent(): React.ReactElement {
 
   useEffect(() => {
     return () => {
-      store.registerPrintOutput(() => "");
-      store.registerClearOutputs(() => {});
+      store.registerPrintOutput(null);
+      store.registerClearOutputs(null);
       store.registerStreamingHandler(null);
     };
   }, []);

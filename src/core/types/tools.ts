@@ -12,22 +12,33 @@ export type { ToolRiskLevel } from "@/core/interfaces/tool-registry";
 /**
  * Auto-approve policy for workflow execution.
  *
- * - `false` or undefined: Safe mode — auto-approve read-only and low-risk, prompt for high-risk and unknown
+ * - `false` or undefined: Safe mode — **interactive sessions only** auto-approve
+ *   read-only and low-risk and prompt for the rest. Where nobody can be asked,
+ *   an absent policy still approves nothing, which is what makes leaving it
+ *   unset a safe default for a webhook or a cron.
  * - `true` or `"high-risk"`: Auto-approve all tools (including high-risk)
  * - `"low-risk"`: Auto-approve read-only and low-risk tools, prompt for high-risk
- * - `"read-only"`: Auto-approve only read-only tools, prompt for low-risk, high-risk, and unknown
- * - `unknown` risk is never auto-approved except under `true` / `"high-risk"`
+ * - `"read-only"`: Auto-approve only read-only tools, prompt for low-risk and high-risk
+ * - `unknown` risk resolves through the command classifier first; an unresolved
+ *   `unknown` is never auto-approved except under `true` / `"high-risk"`
  */
 export type AutoApprovePolicy = boolean | "read-only" | "low-risk" | "high-risk";
 
 /**
  * Check if a tool's risk level should be auto-approved given a policy.
+ *
+ * `canPrompt` says whether this surface can actually put the decision in front
+ * of a human. Safe mode is the one tier whose meaning depends on it: skipping a
+ * prompt is only a kindness where a prompt was the alternative. Callers that
+ * cannot answer the question leave it out and get the conservative reading.
  */
 export function shouldAutoApprove(
   riskLevel: ToolRiskLevel,
   policy: AutoApprovePolicy | undefined,
+  options: { readonly canPrompt?: boolean } = {},
 ): boolean {
   if (!policy) {
+    if (options.canPrompt !== true) return false;
     return riskLevel === "read-only" || riskLevel === "low-risk";
   }
 

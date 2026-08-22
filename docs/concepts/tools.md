@@ -56,11 +56,12 @@ workflow) decides what runs without asking.
 | `read-only` | Reads, searches, web requests                                                               | 20    |
 | `low-risk`  | `manage_todos`, `update_task_state`, `spawn_subagent`, plus opt-in memory/reminders/web_app | 7     |
 | `high-risk` | Anything that mutates: writes, deletes, moves                                               | 6     |
-| `unknown`   | `execute_command` — classified in safe mode; read-only/low-risk skip the prompt             | 1     |
+| `unknown`   | `execute_command` — classified per command, then judged by the tier                         | 1     |
 
 > ⚠️ **`low-risk` is narrower than most people expect.** It is *not* "moderately dangerous
 > things". Email, calendar, and Obsidian are skills that shell out via `execute_command`,
-> so they are gated at `unknown` and a `low-risk` run declines them. See
+> so they are gated at `unknown` and a `low-risk` run declines anything the classifier does
+> not call inspect-only or minor. See
 > [Tools reference](../reference/tools.md#what-is-not-a-built-in-tool).
 
 ### When a tier is too coarse

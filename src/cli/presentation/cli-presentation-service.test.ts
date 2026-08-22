@@ -19,6 +19,7 @@ describe("CLIPresentationService", () => {
     DEFAULT_DISPLAY_CONFIG,
     mockTerminal.confirm.bind(mockTerminal),
     mockTerminal.ask.bind(mockTerminal),
+    true,
   );
 
   const testLayer = Layer.succeed(PresentationServiceTag, mockPresentationService);
@@ -81,5 +82,30 @@ describe("CLIPresentationService", () => {
     } finally {
       process.stdout.write = originalWrite;
     }
+  });
+});
+
+describe("CLIPresentationService in a non-interactive session", () => {
+  // `confirm` answers with its default rather than blocking when there is no
+  // TTY, and the approval default is "yes" — so this must not ask at all.
+  const nonInteractive = new CLIPresentationService(
+    DEFAULT_DISPLAY_CONFIG,
+    () => Effect.succeed(true),
+    () => Effect.succeed(""),
+    false,
+  );
+
+  it("declines approvals instead of taking the confirm default", async () => {
+    const outcome = await Effect.runPromise(
+      nonInteractive.requestApproval({
+        toolName: "execute_command",
+        message: "rm -rf /tmp/x",
+        executeToolName: "execute_execute_command",
+        executeArgs: { command: "rm -rf /tmp/x" },
+      }),
+    );
+
+    expect(outcome.approved).toBe(false);
+    expect(nonInteractive.canPromptForApproval()).toBe(false);
   });
 });

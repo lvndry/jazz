@@ -82,13 +82,34 @@ async function frame(feed: () => void = () => undefined): Promise<string> {
   await renderOnce();
   feed();
   store.flushOutputBatchNow();
-  // The store calls setState from outside React, so the update is not inside an
-  // act() scope and renderOnce alone will not see it. flush() drives the
-  // reconciler until it settles.
+  // Store-driven updates dispatch from outside React; one macrotask tick plus a
+  // second flush matches settleKeypress and prevents ordering flakes in the full
+  // suite when another test left handlers registered on the shared store.
+  await flush();
+  await new Promise((resolve) => setTimeout(resolve, 0));
   await flush();
   const text = captureCharFrame();
   renderer.destroy();
   return text;
+}
+
+function unregisterAllStoreHandlers(): void {
+  store.registerPrintOutput(null);
+  store.registerUpdateOutput(null);
+  store.registerClearOutputs(null);
+  store.registerStreamingHandler(null);
+  store.registerActivitySetter(null);
+  store.registerRunStatsSetter(null);
+  store.registerMessageQueueSetter(null);
+  store.registerChatBusySetter(null);
+  store.registerModeSetter(null);
+  store.registerEphemeralRegionsSetter(null);
+  store.registerPromptSetter(null);
+  store.registerApprovalRequestSetter(null);
+  store.registerConnectorsSetter(null);
+  store.registerActiveMenuSetter(null);
+  store.registerWorkingDirectorySetter(null);
+  store.registerInterruptHandler(null);
 }
 
 describe("fullscreen bridge", () => {
@@ -108,6 +129,7 @@ describe("fullscreen bridge", () => {
   });
 
   beforeEach(() => {
+    unregisterAllStoreHandlers();
     store.setActivity({ phase: "idle" });
     store.resetRunStats({});
     store.setPrompt(null);

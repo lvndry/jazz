@@ -82,7 +82,7 @@ You never call `execute_*` names yourself; they are hidden from the model's tool
 
 | Tool              | Risk        | Approval pair             | What it does                                                                                                                                                  |
 | ----------------- | ----------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `execute_command` | `unknown` | `execute_execute_command` | Run a shell command when no dedicated tool exists. In safe mode the command is classified `read-only` or `low-risk` (auto-approved) or `high-risk` (prompt). Stdout/stderr capped at 256 KB each. |
+| `execute_command` | `unknown` | `execute_execute_command` | Run a shell command when no dedicated tool exists. Each command is classified `read-only`, `low-risk`, or `high-risk`, and the active tier then applies to that verdict. Stdout/stderr capped at 256 KB each. |
 
 ### Web Search
 
@@ -192,7 +192,7 @@ That keeps the tier low while letting the one command through. Matching is on a 
 ## Notes
 
 - **`find` vs `grep`** — `find` locates files by name, glob, or path pattern. `grep` searches *inside* file contents. Non-overlapping on purpose.
-- **`execute_command` classifier** — there are no `git_*` tools. The tool is `unknown`. In interactive safe mode a harness-model classifier may label the command `read-only` or `low-risk` (auto-approved) or `high-risk` (prompt). It sees the last five user requests plus a short answer snippet (800 characters). Yolo and unattended tiers skip the classifier. Timeouts and ambiguous replies stay `high-risk` unless the conversation clearly asked for the milder action. See [Tools & approval](../internals/tools-and-approval.md#command-classifier).
+- **`execute_command` classifier** — there are no `git_*` tools. The tool is `unknown`, so a harness-model classifier labels each command `read-only`, `low-risk`, or `high-risk` and the active tier judges that verdict: `--approval-policy read-only` auto-approves an inspect-only command, an interactive session skips its prompt, yolo skips the classifier entirely. It sees the last five *user* requests (800 characters) on an interactive session and the command alone everywhere else — never the assistant's own turns. Timeouts and ambiguous replies stay `high-risk`. See [Tools & approval](../internals/tools-and-approval.md#command-classifier).
 - **`http_request` is `read-only`** by risk classification even though it can issue POSTs. It reaches whatever URL the agent targets; network policy belongs at the firewall, not the tier. Treat it accordingly on surfaces that accept untrusted input.
 - **Timeouts** — 3 minutes by default per tool. `ask_user_question` and `ask_file_picker` are `longRunning` and never time out, because waiting for a human is not a hang.
 - **Concurrency** — up to 10 tools execute in parallel per iteration.

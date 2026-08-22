@@ -98,14 +98,14 @@ flowchart LR
 
     subgraph policies["--approval-policy"]
         direction TB
-        P0["<i>unset / false</i><br/>safe: read-only + low-risk"]
+        P0["<i>unset / false</i><br/>interactive: read-only + low-risk<br/>unattended: nothing"]
         P1["read-only"]
         P2["low-risk"]
         P3["high-risk"]
     end
 
-    P0 -.->|approves| RO
-    P0 -.->|approves| LR
+    P0 -.->|"approves (interactive only)"| RO
+    P0 -.->|"approves (interactive only)"| LR
     P1 -.->|approves| RO
     P2 -.->|approves| RO
     P2 -.->|approves| LR
@@ -113,6 +113,9 @@ flowchart LR
     P3 -.->|approves| LR
     P3 -.->|approves| HR
     P3 -.->|approves| UN
+    UN -.->|classified as| RO
+    UN -.->|classified as| LR
+    UN -.->|classified as| HR
 
     classDef safe fill:#4f9d9d,stroke:#2f6d6d,color:#ffffff
     classDef warn fill:#f9a03f,stroke:#b3541e,color:#1a1a1a
@@ -130,23 +133,38 @@ behind another can pick up a policy that changed while it waited.
 
 ### Command classifier
 
-`execute_command` is declared `unknown` because the command decides the blast radius. In
-**safe mode** (policy unset or `false`), Jazz asks the cheap harness model
-(`summarizerModel`, else the agent's own) whether this command is `read-only`, `low-risk`,
-or `high-risk`. Safe mode auto-approves the first two and prompts for `high-risk`.
+`execute_command` is declared `unknown` because the command decides the blast radius. Jazz
+asks the cheap harness model (`summarizerModel`, else the agent's own) whether this
+particular command is `read-only`, `low-risk`, or `high-risk`, and the tier then applies to
+the verdict as it would to any declared level. So `--approval-policy read-only` runs
+`git log` unattended without also unlocking `rm`, and an interactive session skips the
+prompt for a listing but still asks about a push.
 
-The classifier is skipped when the policy already decides the outcome (yolo / `high-risk`
-approves everything; `read-only` and `low-risk` decline `unknown`) or when the command is
-already allowlisted.
+The classifier is skipped when it cannot change anything: yolo approves either way, the
+command is already allowlisted, or the level was never `unknown`. It is also skipped in
+**safe mode** (policy unset or `false`) on any surface that cannot prompt — headless, cron,
+quiet. There the absent policy approves nothing at all, so a verdict could only widen what
+runs unsupervised, never save a keystroke.
 
 Fail closed: timeouts, provider errors, empty replies, and anything other than the exact
-token `read-only` or `low-risk` stay `high-risk`. The last five user requests plus a
-short snippet of each answer are included (hard-capped at 800 characters) so an
-ambiguous command can be lowered only when the conversation clearly asked for that
-milder action. A clearly mutating command stays `high-risk` regardless. The command and
-conversation are wrapped as data in tags so the model is told not to follow instructions
-inside them. A wrong milder verdict is still possible; the shell denylist is the backstop
-for known-destructive patterns, not for `git push`.
+token `read-only` or `low-risk` stay `high-risk`. A clearly mutating command stays
+`high-risk` regardless of context.
+
+**What the classifier is allowed to read.** The command, always. Plus the last five *user*
+requests (hard-capped at 800 characters) when the session is interactive, so an ambiguous
+command can be lowered only when the person at the keyboard asked for that milder action.
+Two exclusions are deliberate:
+
+- **Assistant turns are never included.** The agent proposing the command also writes those
+  turns, so quoting them back would let a model that has been talked into something by a web
+  page or a tool result supply its own corroborating evidence.
+- **No conversation at all on a bridge or a headless run.** There the "user" turns come from
+  whoever is messaging the bot, and corroboration from a stranger is not corroboration.
+
+Both blocks are wrapped as tagged data with `<` escaped, so the model is told not to follow
+instructions inside them and cannot close the tag early. A wrong milder verdict is still
+possible; the shell denylist is the backstop for known-destructive patterns, not for
+`git push`.
 
 Implementation: [`command-risk.ts`](../../src/core/agent/tools/command-risk.ts).
 
@@ -252,7 +270,7 @@ Tools are registered by category at startup, except MCP:
 | Category               | Tools   | Examples                                                                                              |
 | ---------------------- | ------- | ----------------------------------------------------------------------------------------------------- |
 | File Management        | 15      | `read_file` `write_file` `edit_file` `find` `grep` `read_pdf` `pdf_page_count` `mkdir` `rm` `mv` `cp` |
-| Shell Commands         | 1       | `execute_command` (`unknown`; classified in safe mode before the prompt)                              |
+| Shell Commands         | 1       | `execute_command` (`unknown`; classified before the approval decision)                               |
 | Web Search / Web Fetch | 2       | `web_search` `web_fetch`                                                                              |
 | HTTP                   | 1       | `http_request`                                                                                        |
 | Todo                   | 2       | `manage_todos` `list_todos`                                                                           |

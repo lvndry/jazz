@@ -366,6 +366,14 @@ another window.
 
 Turn all of them off and the design is unchanged in structure.
 
+### Mouse and scroll
+
+Wheel scrolling is on in the fullscreen interface so a long transcript can move
+without arrow keys. OpenTUI does not expose wheel-only mouse reporting — scroll
+also replaces the terminal's native click-drag selection with the renderer's own
+selection layer. Shift+drag still reaches native selection on many hosts. Copy
+also works through footer bindings and OSC 52 where the terminal supports it.
+
 ### Headless
 
 Every state carries a word — `ok`, `failed`, `running`, `asking`, `renew`,

@@ -1008,10 +1008,22 @@ export function FullscreenBridge(): React.ReactNode {
 
     return () => {
       unregisterCustomView();
+      store.registerPrintOutput(null);
+      store.registerUpdateOutput(null);
+      store.registerClearOutputs(null);
       store.registerStreamingHandler(null);
+      store.registerActivitySetter(null);
+      store.registerRunStatsSetter(null);
+      store.registerMessageQueueSetter(null);
+      store.registerChatBusySetter(null);
       store.registerModeSetter(null);
+      store.registerEphemeralRegionsSetter(null);
+      store.registerPromptSetter(null);
+      store.registerApprovalRequestSetter(null);
+      store.registerConnectorsSetter(null);
+      store.registerActiveMenuSetter(null);
+      store.registerWorkingDirectorySetter(null);
       store.registerInterruptHandler(null);
-      store.registerWorkingDirectorySetter(() => undefined);
     };
   }, [setApprovalArmedState, setPromptState]);
 
@@ -1369,7 +1381,10 @@ export function FullscreenBridge(): React.ReactNode {
           active.resolve("yes");
           return true;
         }
-        if (name === "a") {
+        // Unmodified `a` only. Ctrl+A and Cmd+A are "go to start of line" in
+        // the composer, and the standing allowlist this writes outlives the
+        // turn — a caret keystroke must never be able to grant it.
+        if (name === "a" && !ctrl && !superKey && !meta && !option) {
           const alwaysCommand = active.options?.choices?.some(
             (choice) => choice.value === "always_command",
           );

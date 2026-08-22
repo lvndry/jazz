@@ -34,7 +34,7 @@
  */
 
 import { TextAttributes } from "@opentui/core";
-import { forwardRef, useImperativeHandle, useRef, useState, type ReactNode } from "react";
+import { forwardRef, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from "react";
 import { highlightFenceLines, looksLikeUnifiedDiff } from "./syntax-spans";
 import { getGlyphs, type GlyphSet } from "../glyphs";
 import { THEME } from "../theme";
@@ -1238,7 +1238,14 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(function
   { blocks, viewport, focus, newBelow, followLive = true, visibleCount },
   ref,
 ): ReactNode {
-  const rows = transcriptRows(blocks, viewport);
+  // Deriving rows re-parses every block's markdown, tables and fences. The
+  // shell re-renders on each streaming delta, each keystroke and a ~6Hz tick,
+  // so without this the cost of a frame grows with the length of the whole
+  // conversation rather than with what changed.
+  const rows = useMemo(
+    () => transcriptRows(blocks, viewport),
+    [blocks, viewport.width, viewport.height],
+  );
   const page = pageWidth(viewport);
   const windowHeight =
     visibleCount === undefined ? Math.max(1, viewport.height) : Math.max(0, visibleCount);

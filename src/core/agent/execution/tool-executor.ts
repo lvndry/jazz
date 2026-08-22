@@ -227,8 +227,13 @@ export class ToolExecutor {
             isToolNameAutoApproved(name, context.autoApprovedTools) ||
             isCommandAutoApproved(name, approvalResult.executeArgs, context.autoApprovedCommands);
 
+          // Whether this surface can actually put the decision in front of a
+          // person. Safe mode means "skip the prompts that are not worth
+          // asking"; where there is no prompt to skip it has to mean nothing.
+          const canPrompt = presentationService.canPromptForApproval?.() === true;
+
           if (
-            shouldClassifyExecuteCommand(riskLevel, autoApprovePolicy, allowlisted) &&
+            shouldClassifyExecuteCommand(riskLevel, autoApprovePolicy, allowlisted, canPrompt) &&
             context.parentAgent
           ) {
             const command = approvalResult.executeArgs["command"];
@@ -236,7 +241,11 @@ export class ToolExecutor {
               riskLevel = yield* classifyCommandRisk(
                 command,
                 context.parentAgent,
-                context.conversationMessages,
+                // Conversation context is only evidence when the person the
+                // approval protects is the one who wrote it. On a bridge those
+                // turns come from whoever is messaging the bot, so the command
+                // has to stand on its own.
+                canPrompt ? context.conversationMessages : undefined,
               );
             }
           }
@@ -244,7 +253,7 @@ export class ToolExecutor {
           // Check if auto-approve policy allows this tool, per-tool session allowlist,
           // or per-command prefix allowlist matches
           const checkAutoApproved = () =>
-            shouldAutoApprove(riskLevel, getCurrentPolicy()) ||
+            shouldAutoApprove(riskLevel, getCurrentPolicy(), { canPrompt }) ||
             isToolNameAutoApproved(name, context.autoApprovedTools) ||
             isCommandAutoApproved(name, approvalResult.executeArgs, context.autoApprovedCommands);
 

@@ -718,11 +718,11 @@ export class UIStore {
   private approvalRequestSnapshot: PendingApproval | null = null;
   private approvalRequestSetter: ((request: PendingApproval | null) => void) | null = null;
 
-  registerPrintOutput(handler: PrintOutputHandler): void {
+  registerPrintOutput(handler: PrintOutputHandler | null): void {
     this.printOutputHandler = handler;
   }
 
-  registerUpdateOutput(handler: UpdateOutputHandler): void {
+  registerUpdateOutput(handler: UpdateOutputHandler | null): void {
     this.updateOutputHandler = handler;
   }
 
@@ -730,25 +730,33 @@ export class UIStore {
     this.streamingHandler = handler;
   }
 
-  registerClearOutputs(handler: () => void): void {
+  registerClearOutputs(handler: (() => void) | null): void {
     this.clearOutputsHandler = handler;
   }
 
-  registerActivitySetter(setter: (activity: ActivityState) => void): void {
+  registerActivitySetter(setter: ((activity: ActivityState) => void) | null): void {
     this.activitySetter = setter;
   }
 
-  registerPromptSetter(setter: (prompt: PromptState | null) => void): void {
+  registerPromptSetter(setter: ((prompt: PromptState | null) => void) | null): void {
     this.promptSetter = setter;
-    setter(this.promptSnapshot);
+    if (setter) {
+      setter(this.promptSnapshot);
+    }
   }
 
-  registerWorkingDirectorySetter(setter: (wd: string | null) => void): void {
+  registerWorkingDirectorySetter(setter: ((wd: string | null) => void) | null): void {
     this.workingDirectorySetter = setter;
+    if (setter) {
+      setter(this.workingDirectorySnapshot);
+    }
   }
 
-  registerRunStatsSetter(setter: (stats: RunStats) => void): void {
+  registerRunStatsSetter(setter: ((stats: RunStats) => void) | null): void {
     this.runStatsSetter = setter;
+    if (setter) {
+      setter(this.runStatsSnapshot);
+    }
   }
 
   registerCustomView(setter: (view: React.ReactNode | null) => void): () => void {
@@ -761,14 +769,18 @@ export class UIStore {
     };
   }
 
-  registerMessageQueueSetter(setter: (queue: readonly string[]) => void): void {
+  registerMessageQueueSetter(setter: ((queue: readonly string[]) => void) | null): void {
     this.messageQueueSetter = setter;
-    setter(this.messageQueueSnapshot);
+    if (setter) {
+      setter(this.messageQueueSnapshot);
+    }
   }
 
-  registerChatBusySetter(setter: (busy: boolean) => void): void {
+  registerChatBusySetter(setter: ((busy: boolean) => void) | null): void {
     this.chatBusySetter = setter;
-    setter(this.chatBusySnapshot);
+    if (setter) {
+      setter(this.chatBusySnapshot);
+    }
   }
 
   registerInterruptHandler(setter: ((handler: (() => void) | null) => void) | null): void {
@@ -798,9 +810,11 @@ export class UIStore {
     if (this.activeMenuSetter) this.activeMenuSetter(menu);
   };
 
-  registerActiveMenuSetter(setter: (menu: ActiveMenu | null) => void): void {
+  registerActiveMenuSetter(setter: ((menu: ActiveMenu | null) => void) | null): void {
     this.activeMenuSetter = setter;
-    setter(this.activeMenuSnapshot);
+    if (setter) {
+      setter(this.activeMenuSnapshot);
+    }
   }
 
   getActiveMenuSnapshot(): ActiveMenu | null {
@@ -816,10 +830,12 @@ export class UIStore {
   };
 
   registerConnectorsSetter(
-    setter: (connectors: ReadonlyMap<string, ConnectorStatus>) => void,
+    setter: ((connectors: ReadonlyMap<string, ConnectorStatus>) => void) | null,
   ): void {
     this.connectorsSetter = setter;
-    setter(this.connectorsSnapshot);
+    if (setter) {
+      setter(this.connectorsSnapshot);
+    }
   }
 
   getConnectorsSnapshot(): ReadonlyMap<string, ConnectorStatus> {
@@ -837,23 +853,33 @@ export class UIStore {
     if (this.approvalRequestSetter) this.approvalRequestSetter(request);
   };
 
-  registerApprovalRequestSetter(setter: (request: PendingApproval | null) => void): void {
+  registerApprovalRequestSetter(setter: ((request: PendingApproval | null) => void) | null): void {
     this.approvalRequestSetter = setter;
-    setter(this.approvalRequestSnapshot);
+    if (setter) {
+      setter(this.approvalRequestSnapshot);
+    }
   }
 
   getApprovalRequestSnapshot(): PendingApproval | null {
     return this.approvalRequestSnapshot;
   }
 
-  registerEphemeralRegionsSetter(setter: (regions: readonly EphemeralRegion[]) => void): void {
+  registerEphemeralRegionsSetter(
+    setter: ((regions: readonly EphemeralRegion[]) => void) | null,
+  ): void {
     this.ephemeralRegionsSetter = setter;
-    setter(this.ephemeralRegionsSnapshot);
+    if (setter) {
+      setter(this.ephemeralRegionsSnapshot);
+    }
   }
 
-  registerExpandableReasoningSetter(setter: (value: ExpandableReasoning | null) => void): void {
+  registerExpandableReasoningSetter(
+    setter: ((value: ExpandableReasoning | null) => void) | null,
+  ): void {
     this.expandableReasoningSetter = setter;
-    setter(this.expandableReasoningSnapshot);
+    if (setter) {
+      setter(this.expandableReasoningSnapshot);
+    }
   }
 
   // ── Snapshot accessors (for hydrating late-registering components) ─

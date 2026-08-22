@@ -24,7 +24,7 @@ function EphemeralPanelIslandComponent(): React.ReactElement | null {
 
   useEffect(() => {
     return () => {
-      store.registerEphemeralRegionsSetter(() => {});
+      store.registerEphemeralRegionsSetter(null);
     };
   }, []);
 

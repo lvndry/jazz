@@ -68,13 +68,16 @@ function paletteTable(variant: ThemeVariant): string {
   return [`| Token | ${variant} | Role |`, "| --- | --- | --- |", ...rows].join("\n");
 }
 
+function escapeMarkdownTableCell(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/\|/g, "\\|");
+}
+
 function glyphTable(): string {
   const rows = GLYPH_ROLES.map(([key, meaning]) => {
     const unicode = GLYPHS.unicode[key];
     const ascii = GLYPHS.ascii[key];
-    // A pipe inside a table cell ends the cell, backticks or not.
     const show = (value: GlyphSet[keyof GlyphSet]): string =>
-      typeof value === "string" ? `\`${value.replace(/\|/g, "\\|")}\`` : "";
+      typeof value === "string" ? `\`${escapeMarkdownTableCell(value)}\`` : "";
     return `| ${show(unicode)} | ${show(ascii)} | ${meaning} |`;
   });
   return ["| Glyph | ASCII | Meaning |", "| --- | --- | --- |", ...rows].join("\n");

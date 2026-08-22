@@ -1412,6 +1412,11 @@ export class InkPresentationService implements PresentationService {
     });
   }
 
+  /** Both interactive interfaces render an approval the user answers in place. */
+  canPromptForApproval(): boolean {
+    return true;
+  }
+
   signalToolExecutionStarted(): Effect.Effect<void, never> {
     return Effect.sync(() => {
       // If there's a pending signal callback, invoke it to allow the next

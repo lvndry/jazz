@@ -74,7 +74,8 @@ export interface Tool<R = never> {
    * - `read-only`: Always auto-approved (default for non-approval tools)
    * - `low-risk`: Auto-approved when workflow allows low-risk operations
    * - `high-risk`: Only auto-approved when explicitly allowed (default for approval tools)
-   * - `unknown`: Never auto-approved except yolo; classified in safe mode (read-only/low-risk skip the prompt)
+   * - `unknown`: Resolved by the command classifier under every tier below yolo;
+   *   an unresolved `unknown` is only auto-approved under yolo
    */
   readonly riskLevel: ToolRiskLevel;
   /**

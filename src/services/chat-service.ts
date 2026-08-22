@@ -360,6 +360,11 @@ export class ChatServiceImpl implements ChatService {
             }
             if (commandResult.newHistory !== undefined) {
               conversationHistory = commandResult.newHistory;
+              // The transcript is the user's picture of what the agent knows.
+              // Any command that replaces the history — /new, /fork, /compact,
+              // /resume — has to repaint it, or the screen keeps showing turns
+              // the agent can no longer see.
+              hydrateTranscriptFromHistory(conversationHistory);
               if (commandResult.resendMessage !== undefined) {
                 // /retry replays the SAME conversation — keep the title (so
                 // the exit-time save still fires) and clamp the session-log
@@ -374,9 +379,6 @@ export class ChatServiceImpl implements ChatService {
             }
             if (commandResult.resetStartedAt) {
               startedAt = new Date().toISOString();
-              if (commandResult.newHistory !== undefined) {
-                hydrateTranscriptFromHistory(conversationHistory);
-              }
             }
             if (commandResult.newAutoApprovePolicy !== undefined) {
               autoApprovePolicy = commandResult.newAutoApprovePolicy || undefined;

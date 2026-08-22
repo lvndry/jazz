@@ -72,10 +72,15 @@ export function getPresentationConfig(
 ): PresentationConfig {
   const isQuiet = env.JAZZ_OUTPUT_MODE === "quiet";
   const rawOutput = env.JAZZ_OUTPUT_MODE === "raw";
-  const requestLegacyTui =
-    env.JAZZ_NO_TUI === "1" || env.JAZZ_FULLSCREEN === "0" || env.JAZZ_FULLSCREEN === "false";
+  // Two different opt-outs, one step apart. `--no-tui` means what it says and
+  // what its help text promises: no terminal UI at all, so nothing ever renders
+  // into stdout. `jazz run` and `jazz workflow --json` rely on exactly that to
+  // keep their payload parseable. `JAZZ_FULLSCREEN=0` is the narrower one —
+  // keep an interactive interface, just not the alternate screen.
+  const requestNoTui = env.JAZZ_NO_TUI === "1";
+  const requestLegacyTui = env.JAZZ_FULLSCREEN === "0" || env.JAZZ_FULLSCREEN === "false";
   const decision = decideFullscreen(
-    { requestPlain: requestLegacyTui || rawOutput || isQuiet },
+    { requestPlain: requestNoTui || requestLegacyTui || rawOutput || isQuiet },
     env,
     stdout,
     stdin,
@@ -84,8 +89,8 @@ export function getPresentationConfig(
 
   return {
     isQuiet,
-    usePlainTerminal: isQuiet || rawOutput || capabilityBlocked,
-    useCLIPresentation: !isQuiet && (rawOutput || capabilityBlocked),
+    usePlainTerminal: isQuiet || rawOutput || requestNoTui || capabilityBlocked,
+    useCLIPresentation: !isQuiet && (rawOutput || requestNoTui || capabilityBlocked),
     useFullscreen: decision.fullscreen && !isQuiet && !rawOutput,
   };
 }

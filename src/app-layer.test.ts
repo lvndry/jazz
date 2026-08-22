@@ -14,15 +14,18 @@ describe("getPresentationConfig", () => {
     expect(config.useFullscreen).toBe(true);
   });
 
-  test("JAZZ_NO_TUI=1 keeps the legacy interactive interface", () => {
+  // `jazz run` and `jazz workflow --json` set JAZZ_NO_TUI to keep stdout clean
+  // for their payload, so this has to stay a *plain* terminal even on a capable
+  // TTY — an interactive interface here would render over the JSON.
+  test("JAZZ_NO_TUI=1 forces plain terminal and CLI presentation", () => {
     const config = getPresentationConfig(
       { ...terminalEnvironment, JAZZ_NO_TUI: "1" },
       terminalOutput,
       terminalInput,
     );
     expect(config.isQuiet).toBe(false);
-    expect(config.usePlainTerminal).toBe(false);
-    expect(config.useCLIPresentation).toBe(false);
+    expect(config.usePlainTerminal).toBe(true);
+    expect(config.useCLIPresentation).toBe(true);
     expect(config.useFullscreen).toBe(false);
   });
 

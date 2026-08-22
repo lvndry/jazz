@@ -336,9 +336,12 @@ export function deleteSession(
 ): Effect.Effect<void, never, FileSystem.FileSystem> {
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
-    yield* fs
-      .remove(getSessionLogPath(sessionId, historyDirectory))
-      .pipe(Effect.catchAll(() => Effect.void));
+    const logPath = getSessionLogPath(sessionId, historyDirectory);
+    yield* fs.remove(logPath).pipe(Effect.catchAll(() => Effect.void));
+    // The append cache says "this file already holds N messages and a header".
+    // Leaving it behind a delete would make the next append skip both, writing
+    // a headerless log that reduces to nothing.
+    appendStates.delete(logPath);
   });
 }
 
