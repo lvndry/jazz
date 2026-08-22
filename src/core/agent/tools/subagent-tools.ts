@@ -29,7 +29,7 @@ const spawnSubagentSchema = z.object({
   task: z
     .string()
     .describe(
-      "Self-contained brief. Must include expected output format. The child has no other context.",
+      "Self-contained brief for the child. Include every fact, path, constraint, and the exact output shape. The child cannot see this conversation.",
     ),
   name: z
     .string()
@@ -44,7 +44,7 @@ const spawnSubagentSchema = z.object({
     .optional()
     .default("default")
     .describe(
-      "'coder' for code/git tasks, 'researcher' for research tasks, 'default' for general (default: 'default')",
+      "Which persona the child uses. coder for code and git, researcher for read-only investigation, default for general work. Default: default.",
     ),
   reasoningEffort: z
     .enum(["disable", "low", "medium", "high"])
@@ -79,10 +79,10 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
       timeoutMs: SUBAGENT_TIMEOUT_MS,
       description:
         "Delegate a self-contained task to a child agent with a fresh context window. " +
-        "The child cannot see this conversation — put every fact, path, constraint, and the exact output shape in `task`. Only the child's final answer returns. " +
-        "Use when: (1) the work would flood this context, (2) two or more independent investigations can run in parallel in one turn, (3) you need a specialist persona (coder = code/git, researcher = read-only investigation). " +
-        "Do NOT use when: a few greps/reads would finish it; the child would need 'as we discussed'; the work must mutate the same files in order; you are already under budget pressure. " +
-        "The child inherits at most your tools, the same model, a 30-minute timeout, and 30 iterations. Nesting beyond depth 3 is refused. Label parallel children with `name`.",
+        "The child cannot see this conversation, so put every fact, path, constraint, and the exact output shape in task. Only the child's final answer comes back. " +
+        "Use this when the work would flood this context, when two or more independent investigations can run in parallel in one turn, or when you need a specialist (coder for code and git, researcher for read-only investigation). " +
+        "Do not use this when a few greps or reads would finish the work, when the child would need to remember this conversation, when the work must mutate the same files in order, or when you are already under context pressure. " +
+        "The child inherits at most your tools, the same model, a 30-minute timeout, and 30 iterations. Nesting deeper than 3 is refused. Label parallel children with name.",
       parameters: spawnSubagentSchema,
       hidden: false,
       riskLevel: "low-risk",
@@ -274,7 +274,7 @@ ${args.task}`;
       name: "summarize_context",
       longRunning: true,
       description:
-        "Compact conversation by summarizing older messages. The harness already auto-compacts at ~80% of the context window — call this only when you need to free budget *before* that, not as a habit. Empty or short histories return an error instead of summarizing.",
+        "Summarize older messages to free context. The harness already auto-compacts around 80% of the window — call this only when you need space before that, not as a habit. Empty or short histories return an error instead of summarizing.",
       parameters: summarizeContextSchema,
       hidden: false,
       riskLevel: "read-only",

@@ -57,7 +57,10 @@ function buildTablesSection(getTableResult: {
 export function createReadPdfTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
   const parameters = z
     .object({
-      path: z.string().min(1).describe("PDF file path to read"),
+      path: z
+        .string()
+        .min(1)
+        .describe("PDF to read. Absolute or relative to the session working directory."),
       pages: z
         .array(z.number().int().positive())
         .optional()
@@ -69,7 +72,7 @@ export function createReadPdfTool(): Tool<FileSystem.FileSystem | FileSystemCont
         .int()
         .positive()
         .optional()
-        .describe("Max characters to return (default: 500KB). Truncated if exceeded."),
+        .describe("Maximum number of characters to return. Default 512000. Truncated if exceeded."),
     })
     .strict();
 

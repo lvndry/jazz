@@ -30,14 +30,20 @@ const askUserSchema = z.object({
 type AskUserArgs = z.infer<typeof askUserSchema>;
 
 const filePickerSchema = z.object({
-  message: z.string().describe("Prompt message for file selection"),
-  base_path: z.string().optional().describe("Starting directory (defaults to cwd)"),
-  extensions: z.array(z.string()).optional().describe("Filter by extensions (e.g. ['ts', 'js'])"),
+  message: z.string().describe("Prompt shown above the picker."),
+  base_path: z
+    .string()
+    .optional()
+    .describe("Directory to start in. Defaults to the session working directory."),
+  extensions: z
+    .array(z.string())
+    .optional()
+    .describe("Only show files with these extensions, without the dot. Example: ['ts', 'js']."),
   include_directories: z
     .boolean()
     .optional()
     .default(false)
-    .describe("Include directories (default: false)"),
+    .describe("Also let the user pick directories. Default false."),
 });
 
 type FilePickerArgs = z.infer<typeof filePickerSchema>;
@@ -51,9 +57,10 @@ export const userInteractionTools: Tool<ToolRequirements>[] = [
     name: "ask_user_question",
     longRunning: true,
     description:
-      "Ask the human one blocking question with 2–4 concrete options. Use the tool, never bury the question in prose. " +
-      "Ask only when you are actually blocked: a scope/approach fork with no clearly best option; a destructive action that needs explicit sign-off; a secret or provider choice no tool can fetch. " +
-      "Do NOT ask: permission to do work they already requested; confirmation of safe reversible actions; anything already answered; anything a tool can resolve; when TTY is no (headless — decide or fail). One decision per call.",
+      "Ask the human one blocking question with 2–4 concrete options. Use this tool; do not bury the question in prose. " +
+      "Ask only when you are actually blocked: a scope or approach decision with no clearly best option, a destructive action that needs explicit sign-off, or a secret or provider choice no tool can fetch. " +
+      "Do not ask permission to do work they already requested, confirmation of safe reversible actions, anything already answered, or anything a tool can resolve. " +
+      "When there is no TTY (headless), do not call this — decide or fail. One decision per call.",
     parameters: askUserSchema,
     hidden: false,
     riskLevel: "read-only",
@@ -81,7 +88,7 @@ export const userInteractionTools: Tool<ToolRequirements>[] = [
     name: "ask_file_picker",
     longRunning: true,
     description:
-      "Show an interactive file picker so the human can choose a path. Use when they need to pick among files you cannot uniquely identify. Prefer find/ls when you can locate the file yourself. Headless (TTY no): do not call this — fail or decide.",
+      "Show an interactive file picker so the human can choose a path. Use this when they need to pick among files you cannot uniquely identify. Prefer find or ls when you can locate the file yourself. When there is no TTY (headless), do not call this — decide or fail.",
     parameters: filePickerSchema,
     hidden: false,
     riskLevel: "read-only",

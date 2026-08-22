@@ -155,9 +155,17 @@ const editOperationSchema = z.discriminatedUnion("type", [
   z
     .object({
       type: z.literal("replace_lines"),
-      startLine: z.number().int().positive().describe("Start line (1-based)"),
-      endLine: z.number().int().positive().describe("End line (1-based)"),
-      content: z.string().describe("Replacement content"),
+      startLine: z
+        .number()
+        .int()
+        .positive()
+        .describe("First line to replace, 1-based and inclusive. Use the numbers from read_file."),
+      endLine: z.number().int().positive().describe("Last line to replace, 1-based and inclusive."),
+      content: z
+        .string()
+        .describe(
+          "Text that replaces the startLine–endLine range. Do not include the `N|` prefix from read_file.",
+        ),
     })
     .refine((data) => data.startLine <= data.endLine, {
       message: "startLine must be less than or equal to endLine",
@@ -168,11 +176,13 @@ const editOperationSchema = z.discriminatedUnion("type", [
       .string()
       .min(1)
       .describe(
-        "Short literal string or 're:<regex>' for simple bulk find-and-replace only (e.g., renaming a variable, changing quotes). " +
-          "Do NOT use for multi-line or structural edits — use replace_lines instead. " +
-          "Nested quantifiers like (a+)+ cause an error.",
+        "Text to find. A plain string matches literally. Prefix with re: for a regex. Use this for a short single-line swap (rename a variable, change quotes). For multi-line or structural edits, use replace_lines. Nested quantifiers such as (a+)+ are rejected.",
       ),
-    replacement: z.string().describe("Replacement text"),
+    replacement: z
+      .string()
+      .describe(
+        "Text to put in place of each match. Literal text — $1 and similar are not expanded.",
+      ),
     count: z
       .number()
       .int()
@@ -180,18 +190,28 @@ const editOperationSchema = z.discriminatedUnion("type", [
       .refine((v) => v === undefined || v === -1 || v >= 1, {
         message: "count must be a positive integer or -1 (all). Got 0 or invalid negative value.",
       })
-      .describe("Matches to replace. Default 1 (first only). Use -1 for all occurrences."),
+      .describe(
+        "How many matches to replace. Default 1 (the first match only). Pass -1 to replace every match.",
+      ),
   }),
   z.object({
     type: z.literal("insert"),
-    line: z.number().int().nonnegative().describe("Insert after this line (0 = before first line)"),
-    content: z.string().describe("Content to insert"),
+    line: z
+      .number()
+      .int()
+      .nonnegative()
+      .describe("Insert after this line. 0 means before the first line. 5 means after line 5."),
+    content: z.string().describe("Text to insert. Do not include the `N|` prefix from read_file."),
   }),
   z
     .object({
       type: z.literal("delete_lines"),
-      startLine: z.number().int().positive().describe("Start line (1-based)"),
-      endLine: z.number().int().positive().describe("End line (1-based)"),
+      startLine: z
+        .number()
+        .int()
+        .positive()
+        .describe("First line to delete, 1-based and inclusive."),
+      endLine: z.number().int().positive().describe("Last line to delete, 1-based and inclusive."),
     })
     .refine((data) => data.startLine <= data.endLine, {
       message: "startLine must be less than or equal to endLine",
@@ -200,12 +220,17 @@ const editOperationSchema = z.discriminatedUnion("type", [
 
 const editFileParameters = z
   .object({
-    path: z.string().min(1).describe("File path to edit (must exist)"),
+    path: z
+      .string()
+      .min(1)
+      .describe(
+        "File to edit. Absolute or relative to the session working directory. The file must already exist.",
+      ),
     edits: z
       .array(editOperationSchema)
       .min(1)
       .describe(
-        "Edit operations to apply in order: replace_lines, replace_pattern, insert, delete_lines.",
+        "One or more edits, applied in the order given: replace_lines, replace_pattern, insert, or delete_lines. After each edit, later line numbers refer to the file as it now is.",
       ),
   })
   .strict();
@@ -473,11 +498,10 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
   const config: ApprovalToolConfig<EditFileDeps, EditFileArgs> = {
     name: "edit_file",
     description:
-      "Surgically change an EXISTING UTF-8 text file. Does not create files (use write_file). Edits apply in order; after the first op, later line numbers refer to the already-mutated buffer. " +
-      "WHEN TO USE: any modification of an existing file. " +
-      "WHEN NOT: creating a new file → write_file. Rewriting the whole file because an edit failed → read the errorType and retry; do not write_file the whole buffer unless the file is tiny and new. Do not sed via execute_command. " +
-      "Prefer replace_pattern with a UNIQUE literal substring (count omitted = first match only; count:-1 = all). Use replace_lines / insert / delete_lines when you have exact 1-based numbers from read_file (numbered `N|` output — do not include the prefix in content). " +
-      "insert.line is special: 0 = before line 1; N = after line N. replace_pattern is for short single-line literals or re:<regex>; replacement is literal (no $1).",
+      "Change part of a file that already exists. To create a new file, use write_file. You can pass several edits in one call; they run one after another. If an earlier edit inserts or deletes lines, later edits must use the line numbers of the file as it is after those edits — not the numbers from the original read_file. " +
+      "Use this whenever you are changing an existing file. Do not use this to create a file (write_file), to rewrite the whole file after a failed edit (read the errorType and retry), or to run sed via execute_command. " +
+      "Prefer replace_pattern with a unique literal substring. Omit count to replace the first match only; pass count: -1 to replace all. Use replace_lines, insert, or delete_lines when you have exact 1-based line numbers from read_file. The `N|` prefix on those lines is metadata — do not copy it into content. " +
+      "insert.line: 0 puts text before line 1; N puts text after line N. replace_pattern accepts a short single-line literal or a re:<regex>. The replacement is literal text, not a regex substitution — $1 is not expanded.",
     tags: ["filesystem", "write", "edit"],
     parameters: editFileParameters,
     validate: makeZodValidator(editFileParameters),

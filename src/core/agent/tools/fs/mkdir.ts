@@ -18,8 +18,11 @@ import { buildKeyFromContext } from "../context-utils";
 
 const mkdirParameters = z
   .object({
-    path: z.string().min(1).describe("Directory path to create"),
-    recursive: z.boolean().optional().describe("Create parent directories (default: true)"),
+    path: z
+      .string()
+      .min(1)
+      .describe("Directory to create. Absolute or relative to the session working directory."),
+    recursive: z.boolean().optional().describe("Create missing parent directories. Default true."),
   })
   .strict();
 
@@ -34,7 +37,7 @@ export function createMkdirTools(): ApprovalToolPair<MkdirDeps> {
   const config: ApprovalToolConfig<MkdirDeps, MkdirArgs> = {
     name: "mkdir",
     description:
-      "Create a directory. Parents created automatically unless recursive:false. Existing directories succeed (idempotent). For a new file, prefer write_file with createDirs:true instead of a separate mkdir.",
+      "Create a directory. Parent directories are created automatically unless you set recursive to false. Calling this on a directory that already exists succeeds. For a new file, prefer write_file with createDirs: true instead of a separate mkdir.",
     tags: ["filesystem", "write"],
     parameters: mkdirParameters,
     validate: makeZodValidator(mkdirParameters),

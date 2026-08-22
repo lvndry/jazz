@@ -11,14 +11,11 @@ import { defineTool, makeZodValidator } from "./base-tool";
  * Todo item schema — matches the shape persisted to the temp file.
  */
 const TodoItemSchema = z.object({
-  content: z.string().describe("Brief description of the task"),
+  content: z.string().describe("What this step is."),
   status: z
     .enum(["pending", "in_progress", "completed", "cancelled"])
-    .describe("Current status of the task"),
-  priority: z
-    .enum(["high", "medium", "low"])
-    .describe("Priority level of the task")
-    .default("medium"),
+    .describe("pending, in_progress, completed, or cancelled."),
+  priority: z.enum(["high", "medium", "low"]).describe("high, medium, or low.").default("medium"),
 });
 
 type TodoItem = z.infer<typeof TodoItemSchema>;
@@ -90,16 +87,18 @@ export function createManageTodosTool(): Tool<never> {
   const parameters = z.object({
     todos: z
       .array(TodoItemSchema)
-      .describe("The complete, updated todo list — replaces the current list"),
+      .describe(
+        "The complete updated list. This replaces the current list; do not send only the changed items.",
+      ),
   });
 
   return defineTool<never, z.infer<typeof parameters>>({
     name: "manage_todos",
     description:
-      "Replace the in-session task list used to steer THIS run and show progress in the UI. Every call is a full replace — send the complete list. " +
-      "Use when the work has 3+ distinct steps. Skip for one-liners. Exactly one item in_progress at a time; mark completed immediately when finished. " +
-      "This list is session-scratch and does not survive compaction on its own — not memory, not task_state, not a user reminder. " +
-      "For a plan that must survive compaction, also patch update_task_state. For 'ping me at 18:00', use add_reminder.",
+      "Replace the in-session task list used to steer this run and show progress in the UI. Every call replaces the whole list — send every item, not just the ones that changed. " +
+      "Use this when the work has three or more distinct steps; skip it for one-liners. Keep exactly one item in_progress, and mark it completed as soon as it is finished. " +
+      "This list is session scratch and does not survive compaction on its own. It is not memory, not task state, and not a reminder. " +
+      "For a plan that must survive compaction, also call update_task_state. To ping someone at a clock time, use add_reminder.",
     parameters,
     riskLevel: "low-risk",
     hidden: false,

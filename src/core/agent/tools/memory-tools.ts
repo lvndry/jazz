@@ -59,7 +59,7 @@ const viewMemoryParameters = z
       .tuple([z.number().int(), z.number().int()])
       .optional()
       .describe(
-        "Optional [start_line, end_line], 1-indexed. Use -1 as end_line for end of file. Ignored for directories.",
+        "Optional [start_line, end_line], 1-based. Use -1 as end_line for the end of the file. Ignored for directories.",
       ),
   })
   .strict();
@@ -148,7 +148,7 @@ const manageMemoryParameters = z.discriminatedUnion("command", [
         .int()
         .nonnegative()
         .describe(
-          "0-based line index to insert after (0 = beginning). view_memory view_range is 1-based.",
+          "0-based line index to insert after (0 = beginning of the file). Note that view_memory view_range is 1-based.",
         ),
       insert_text: z.string().describe("Text to insert."),
     })
@@ -162,8 +162,8 @@ const manageMemoryParameters = z.discriminatedUnion("command", [
   z
     .object({
       command: z.literal("rename"),
-      old_path: z.string().min(1).describe("Current path."),
-      new_path: z.string().min(1).describe("New path."),
+      old_path: z.string().min(1).describe("Current path, relative to the memory directory."),
+      new_path: z.string().min(1).describe("New path, relative to the memory directory."),
     })
     .strict(),
 ]);
@@ -174,19 +174,12 @@ export function createManageMemoryTool(): Tool<MemoryToolDeps> {
   return defineTool<MemoryToolDeps, ManageMemoryArgs>({
     name: "manage_memory",
     description:
-      "Create, edit, rename, or delete files under your persistent memory directory — the durable " +
-      "notes about this person or project that survive after this conversation ends. Takes a " +
-      '"command": "create" (path, file_text) writes a new file (errors if the path already exists — ' +
-      'use str_replace or insert to update it instead); "str_replace" (path, old_str, new_str) replaces ' +
-      "one exact, unique snippet in place — use this to correct or update a fact instead of appending a " +
-      'new note about it; "insert" (path, insert_line, insert_text) adds a line at a specific position; ' +
-      '"delete" (path) removes a file entirely; "rename" (old_path, new_path) moves or renames one. ' +
-      "Prefer updating an existing file over creating a new one for the same topic — call view_memory " +
-      "first to check what's already there. Keep the directory small and organized: one file per person " +
-      "or per project, not a running log. Delete or rewrite a file the moment its contents are " +
-      "contradicted or no longer true; stale memory is worse than no memory. Never write transient " +
-      "conversation content, task-specific details, or anything guessable from context — only facts " +
-      "and preferences durable enough to matter three conversations from now. Never store account numbers, passwords, or health data.",
+      "Create, edit, rename, or delete files under your persistent memory directory — durable notes about this person or project that survive after this conversation ends. " +
+      "command is one of: create (path, file_text) writes a new file and errors if it already exists — use str_replace or insert to update; " +
+      "str_replace (path, old_str, new_str) replaces one exact unique snippet; insert (path, insert_line, insert_text) adds text at a position; " +
+      "delete (path) removes a file; rename (old_path, new_path) moves or renames one. " +
+      "Prefer updating an existing file over creating a new one for the same topic — call view_memory first. Keep one file per person or project, not a running log. " +
+      "Delete or rewrite a file the moment it is contradicted. Never write transient conversation content, task-specific details, or anything you could re-derive. Never store account numbers, passwords, or health data.",
     parameters: manageMemoryParameters,
     riskLevel: "low-risk",
     hidden: false,

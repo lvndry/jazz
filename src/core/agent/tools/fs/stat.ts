@@ -14,7 +14,12 @@ import { normalizeStatSize } from "./utils";
 export function createStatTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
   const parameters = z
     .object({
-      path: z.string().min(1).describe("Path to check"),
+      path: z
+        .string()
+        .min(1)
+        .describe(
+          "File or directory to inspect. Absolute or relative to the session working directory.",
+        ),
     })
     .strict();
 
@@ -23,7 +28,7 @@ export function createStatTool(): Tool<FileSystem.FileSystem | FileSystemContext
   return defineTool<FileSystem.FileSystem | FileSystemContextService, StatArgs>({
     name: "stat",
     description:
-      "Existence probe plus metadata (type, size in bytes, mtimes). Missing paths return success with exists:false — do not treat that as an error. Prefer this over ls -la or test -f via execute_command.",
+      "Check whether a path exists and return its type, size in bytes, and modification times. A missing path is a successful result with exists set to false — not an error. Prefer this over ls -la or test -f via execute_command.",
     tags: ["filesystem", "info"],
     parameters,
     validate: makeZodValidator(parameters),

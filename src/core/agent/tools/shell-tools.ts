@@ -379,19 +379,22 @@ export function isDangerousCommand(command: string): boolean {
 
 const executeCommandParameters = z
   .object({
-    command: z.string().min(1, "command cannot be empty").describe("Shell command to execute"),
+    command: z.string().min(1, "command cannot be empty").describe("The shell command to run."),
     description: z
       .string()
       .trim()
       .min(1, "description cannot be empty")
-      .describe("Human-readable explanation of what the command will do"),
-    workingDirectory: z.string().optional().describe("Working directory (defaults to cwd)"),
+      .describe("Short explanation of what this command will do, shown at the approval gate."),
+    workingDirectory: z
+      .string()
+      .optional()
+      .describe("Directory to run the command in. Defaults to the session working directory."),
     timeout: z
       .number()
       .int()
       .positive()
       .optional()
-      .describe("Timeout in ms (default: 900000 = 15 min)"),
+      .describe("How long to wait, in milliseconds. Default 900000 (15 minutes)."),
   })
   .strict();
 
@@ -419,15 +422,12 @@ export function createShellCommandTools(): ApprovalToolPair<ShellCommandDeps> {
   const config: ApprovalToolConfig<ShellCommandDeps, ExecuteCommandArgs> = {
     name: "execute_command",
     description:
-      "Run a shell command. Do NOT use this when a dedicated tool exists: " +
-      "list files → ls; search names → find (alias glob); search contents → grep; " +
-      "read a file → read_file (startLine:-N for the end of a file); create dirs → mkdir. " +
-      "Git has no dedicated tools — use this for all git (status, diff, log, commit, push, rebase, stash, …). " +
-      "Under autoApprove read-only/low-risk, inspect-only commands may be classified read-only by the harness model; mutating commands stay high-risk. " +
-      "Non-interactive only: stdin is discarded; never run pagers, REPLs, or git rebase -i without a non-interactive editor. " +
-      "sudo/su are blocked. Interpreter inline-code flags (python3 -c, node -e, bash -c, and similar) are blocked — write a script to a unique temporary file and run that instead. " +
-      "Env is sanitized (no KEY/TOKEN/SECRET); you cannot pass env vars. " +
-      "Timeout default 15 minutes. stdout and stderr are each capped at 256 KB; a truncation marker means re-run with a narrower command.",
+      "Run a shell command. Do not use this when a dedicated tool exists: use ls to list files, find (also available as glob) to search names, grep to search contents, read_file to read a file (startLine: -N for the end), and mkdir to create directories. " +
+      "Git has no dedicated tools — use this for status, diff, log, commit, push, rebase, stash, and the rest. " +
+      "Under autoApprove read-only or low-risk, inspect-only commands may be classified read-only; mutating commands stay high-risk. " +
+      "Commands are non-interactive: stdin is discarded, so do not run pagers, REPLs, or git rebase -i without a non-interactive editor. " +
+      "sudo and su are blocked. Interpreter inline-code flags (python3 -c, node -e, bash -c, and similar) are blocked — write a script to a unique temporary file and run that instead. " +
+      "The environment is sanitized (no KEY, TOKEN, or SECRET); you cannot pass env vars. Timeout defaults to 15 minutes. stdout and stderr are each capped at 256 KB; a truncation marker means re-run with a narrower command.",
     tags: ["shell", "execution"],
     timeoutMs: 15 * 60 * 1000, // 15 minutes — executor cap so long-running commands can complete
     parameters: executeCommandParameters,

@@ -20,7 +20,10 @@ import { normalizeStatSize } from "./utils";
 export function createPdfPageCountTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
   const parameters = z
     .object({
-      path: z.string().min(1).describe("PDF file path"),
+      path: z
+        .string()
+        .min(1)
+        .describe("PDF to inspect. Absolute or relative to the session working directory."),
     })
     .strict();
 
@@ -29,7 +32,7 @@ export function createPdfPageCountTool(): Tool<FileSystem.FileSystem | FileSyste
   return defineTool<FileSystem.FileSystem | FileSystemContextService, PdfPageCountParams>({
     name: "pdf_page_count",
     description:
-      "PDF metadata: page count (and file size). Use before read_pdf so you can pass a page list instead of dumping hundreds of pages. Still loads the file; it does not extract text.",
+      "Return the page count and file size of a PDF without extracting its text. Call this before read_pdf on large files so you can request a page list instead of dumping hundreds of pages.",
     tags: ["filesystem", "pdf", "info"],
     parameters,
     validate: makeZodValidator(parameters),

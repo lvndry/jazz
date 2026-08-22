@@ -79,13 +79,15 @@ const HttpBodySchema = z.discriminatedUnion("type", [
   z
     .object({
       type: z.literal("json"),
-      value: z.unknown().describe("JSON body value"),
+      value: z
+        .unknown()
+        .describe("JSON value to send. Serialized automatically; Content-Type is set for you."),
     })
     .strict(),
   z
     .object({
       type: z.literal("text"),
-      value: z.string().min(1, "Text body cannot be empty").describe("Text body"),
+      value: z.string().min(1, "Text body cannot be empty").describe("Plain text body."),
     })
     .strict(),
   z
@@ -94,45 +96,54 @@ const HttpBodySchema = z.discriminatedUnion("type", [
       value: z
         .record(z.string(), z.string())
         .refine((v) => Object.keys(v).length > 0, "Form body requires at least one field")
-        .describe("Form fields (URL-encoded)"),
+        .describe("Form fields, sent as application/x-www-form-urlencoded."),
     })
     .strict(),
 ]);
 
 const HttpRequestSchema = z
   .object({
-    method: z.enum(HTTP_METHODS).describe("HTTP method"),
+    method: z
+      .enum(HTTP_METHODS)
+      .describe("HTTP method: GET, POST, PUT, PATCH, DELETE, HEAD, or OPTIONS."),
     url: z
       .url("URL must be absolute and include the protocol (http or https).")
-      .describe("Absolute URL (http/https)"),
-    headers: z.record(z.string(), z.string()).optional().describe("Request headers"),
+      .describe("Absolute http or https URL."),
+    headers: z
+      .record(z.string(), z.string())
+      .optional()
+      .describe("Request headers as name/value pairs. Do not send secrets unless the user asked."),
     query: z
       .record(z.string(), z.union([z.string(), z.number(), z.boolean()]) as z.ZodType<QueryValue>)
       .optional()
-      .describe("Query parameters"),
-    body: HttpBodySchema.optional().describe("Request body"),
+      .describe("Query-string parameters."),
+    body: HttpBodySchema.optional().describe(
+      "Request body. Use type json, text, or form. GET and HEAD cannot include a body. Multipart and file upload are not supported.",
+    ),
     timeoutMs: z
       .number()
       .int("Timeout must be an integer number of milliseconds.")
       .positive("Timeout must be greater than zero.")
       .max(120_000, "Timeout cannot exceed two minutes.")
       .optional()
-      .describe("Timeout in ms (default: 15000)"),
-    followRedirects: z.boolean().optional().describe("Follow redirects (default: true)"),
+      .describe("Timeout in milliseconds. Default 15000, maximum 120000."),
+    followRedirects: z.boolean().optional().describe("Follow HTTP redirects. Default true."),
     maxResponseBytes: z
       .number()
       .int("maxResponseBytes must be an integer number of bytes.")
       .positive("maxResponseBytes must be greater than zero.")
       .max(5_000_000, "maxResponseBytes cannot exceed 5MB.")
       .optional()
-      .describe("Max response bytes (default: 1MB)"),
+      .describe("Maximum response size in bytes. Default 1MB, maximum 5MB."),
     cacheTtlSeconds: z
       .number()
       .int("Cache TTL must be an integer number of seconds.")
       .positive("Cache TTL must be greater than zero.")
       .max(3600, "Cache TTL cannot exceed one hour.")
       .optional()
-      .describe("Cache duration in seconds (adds Cache-Control: max-age header)"),
+      .describe(
+        "Adds a Cache-Control: max-age request header. Does not cache the response locally.",
+      ),
   })
   .strict();
 
@@ -333,7 +344,10 @@ export function createHttpRequestTool(): Tool<never> {
   return defineTool<never, HttpRequestArgs>({
     name: "http_request",
     description:
-      "Call an HTTP API: GET/POST/PUT/PATCH/DELETE/HEAD/OPTIONS with headers, query string, and a json | text | form body (no multipart, no file upload). Auto-parses JSON; images/audio/video come back as base64; other bodies as text. Default timeout 15s (max 120s). Default response cap 1MB (max 5MB). Redirects followed by default. Reaches any http(s) URL the host can, including private networks — do not send secrets in headers unless the user asked. Not for HTML article extraction (web_fetch) or discovery (web_search). GET/HEAD cannot include a body. cacheTtlSeconds adds a Cache-Control request header; it does not cache locally.",
+      "Call an HTTP API. Supports GET, POST, PUT, PATCH, DELETE, HEAD, and OPTIONS, plus headers, a query string, and a json, text, or form body. Multipart and file upload are not supported. " +
+      "JSON responses are parsed; images, audio, and video come back as base64; other bodies as text. Default timeout 15 seconds (max 120). Default response cap 1MB (max 5MB). Redirects are followed by default. " +
+      "Reaches any http or https URL the host can, including private networks — do not send secrets in headers unless the user asked. Do not use this to extract an HTML article (web_fetch) or to discover URLs (web_search). " +
+      "GET and HEAD cannot include a body. cacheTtlSeconds adds a Cache-Control request header; it does not cache locally.",
     tags: ["http", "network", "api"],
     parameters: HttpRequestSchema,
     validate: makeZodValidator(HttpRequestSchema),
