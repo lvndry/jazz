@@ -12,6 +12,14 @@ AGENT_TEMPLATE="/app/integrations/telegram-bot/agent.telegram.json"
 
 mkdir -p "${JAZZ_HOME}/agents"
 
+# Directories for the email/calendar skills' XDG-relocated config, data, GPG
+# keyring, and pass store (see Dockerfile) — created up front so the first
+# `docker compose exec` setup session has somewhere to write.
+mkdir -p "${XDG_CONFIG_HOME:-/data/xdg-config}" "${XDG_DATA_HOME:-/data/xdg-data}" \
+  "${XDG_STATE_HOME:-/data/xdg-state}" "${PASSWORD_STORE_DIR:-/data/password-store}"
+mkdir -p "${GNUPGHOME:-/data/gnupg}"
+chmod 700 "${GNUPGHOME:-/data/gnupg}"
+
 # Write config.json. Streaming is required so `jazz run --events` emits
 # live-progress events (non-TTY runs otherwise fall back to batch mode and emit
 # nothing). When BRAVE_API_KEY is set, also configure Brave as the web_search

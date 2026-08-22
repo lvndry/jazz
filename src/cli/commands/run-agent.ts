@@ -1,4 +1,4 @@
-import { Duration, Effect } from "effect";
+import { Effect } from "effect";
 import { AgentRunner } from "@/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@/core/agent/agent-service";
 import { buildWorkStatePreamble } from "@/core/agent/context/work-state-preamble";
@@ -8,6 +8,7 @@ import { AgentNotFoundError } from "@/core/types/errors";
 import type { ChatMessage } from "@/core/types/message";
 import type { StreamEvent } from "@/core/types/streaming";
 import type { AutoApprovePolicy } from "@/core/types/tools";
+import { createRunDeadline } from "@/core/utils/run-deadline";
 import {
   loadConversation,
   saveConversation,
@@ -365,6 +366,10 @@ export function runAgentOnceCommand(
   options: RunAgentOnceOptions,
 ) {
   const outputOptions: OneShotOutputOptions = { json: options.json };
+  // Deadline can be pushed out while blocked on a human approval decision (see
+  // requestApproval in OneShotPresentationService) so waiting on a person
+  // doesn't count against the same budget as the agent's own work.
+  const deadline = options.timeoutMs != null ? createRunDeadline(options.timeoutMs) : undefined;
 
   return Effect.gen(function* () {
     const normalizedIdentifier = agentIdentifier.trim();
@@ -464,14 +469,7 @@ export function runAgentOnceCommand(
       ...(ephemeral ? { disablePersistence: true } : {}),
     });
 
-    const runResult = yield* options.timeoutMs != null
-      ? runEffect.pipe(
-          Effect.timeoutFail({
-            duration: Duration.millis(options.timeoutMs),
-            onTimeout: () => new Error(`Run exceeded the ${options.timeoutMs}ms timeout.`),
-          }),
-        )
-      : runEffect;
+    const runResult = yield* deadline ? Effect.race(runEffect, deadline.watch) : runEffect;
 
     if (conversationKey !== undefined) {
       const record = buildConversationRecord({
@@ -527,6 +525,13 @@ export function runAgentOnceCommand(
     );
   }).pipe(
     Effect.catchAll((error) => failOneShot(getErrorMessage(error), outputOptions)),
-    Effect.provide(makeOneShotPresentationServiceLayer(options.eventTypes ?? new Set())),
+    Effect.provide(
+      makeOneShotPresentationServiceLayer(
+        options.eventTypes ?? new Set(),
+        deadline && options.timeoutMs != null
+          ? () => deadline.extend(options.timeoutMs!)
+          : undefined,
+      ),
+    ),
   );
 }

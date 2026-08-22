@@ -9,7 +9,7 @@ through `execute_command`.
 > ⚠️ **This has an approval consequence.** Because these skills shell out,
 > every action they take is gated at `high-risk` — a `low-risk` unattended run **cannot
 > archive an email**. Keep the tier low and allowlist the binary instead:
-> `{"autoApprovedCommands": ["himalaya", "khal"]}` in `~/.jazz/config.json`. See
+> `{"autoApprovedCommands": ["himalaya", "khal", "gcalcli"]}` in `~/.jazz/config.json`. See
 > [Tools reference](../reference/tools.md#what-is-not-a-built-in-tool).
 
 ---
@@ -26,11 +26,13 @@ Use the **email** skill with [Himalaya CLI](https://github.com/pimalaya/himalaya
 
 ## Calendar (khal Skill)
 
-Use the **calendar** skill with [khal](https://github.com/pimutils/khal) and [vdirsyncer](https://github.com/pimutils/vdirsyncer) for event management. Works with Google Calendar, iCloud, Nextcloud, Fastmail, and any CalDAV server.
+Use the **calendar** skill with [khal](https://github.com/pimutils/khal) and [vdirsyncer](https://github.com/pimutils/vdirsyncer) for event management. Works with iCloud, Nextcloud, Fastmail, and any standards-compliant CalDAV server.
 
 - **Setup**: Install khal and vdirsyncer, configure CalDAV in vdirsyncer, point khal at the synced calendars
 - **Agents**: Load the `calendar` skill—it teaches agents to use khal for listing, creating, editing, and searching events
 - **Sync**: Run `vdirsyncer sync` before reads to ensure up-to-date data
+
+**Google Calendar is the exception** — its CalDAV endpoint rejects the discovery handshake khal/vdirsyncer need to auto-configure, and no longer accepts app-password auth either. The `calendar` skill uses [gcalcli](https://github.com/insanum/gcalcli) for Google accounts instead, which talks to the Calendar REST API directly. See the skill's [Google Calendar (gcalcli)](../../skills/calendar/SKILL.md#google-calendar-gcalcli) section for the OAuth setup.
 
 ---
 
