@@ -112,6 +112,31 @@ describe("OneShotPresentationService streaming renderer", () => {
     expect(parsed.result.startsWith("x".repeat(200))).toBe(true);
   });
 
+  it("does not truncate approval_required fields, unlike other event types", () => {
+    const longMessage = `Command: ${"x".repeat(500)}\nDescription: something a human needs to read in full before approving`;
+    const service = new OneShotPresentationService(
+      DEFAULT_DISPLAY_CONFIG,
+      new Set<StreamEvent["type"]>(["approval_required"]),
+    );
+    const renderer = Effect.runSync(service.createStreamingRenderer(rendererConfig));
+
+    const captured = captureStderr();
+    Effect.runSync(
+      renderer.handleEvent({
+        type: "approval_required",
+        toolCallId: "call_1",
+        toolName: "execute_command",
+        message: longMessage,
+        riskLevel: "high-risk",
+      }),
+    );
+
+    expect(captured.lines).toHaveLength(1);
+    const parsed = JSON.parse(captured.lines[0] as string) as { message: string };
+    expect(parsed.message).toBe(longMessage);
+    expect(parsed.message).not.toContain("…");
+  });
+
   it("serializes Error-valued event fields to a plain object with a non-empty message", () => {
     const service = new OneShotPresentationService(
       DEFAULT_DISPLAY_CONFIG,
