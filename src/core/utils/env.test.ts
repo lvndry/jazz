@@ -73,6 +73,22 @@ describe("createSanitizedEnv", () => {
     }
   });
 
+  it("passes PASSWORD_STORE_DIR through despite matching the sensitive-name scrub", () => {
+    const originalValue = process.env["PASSWORD_STORE_DIR"];
+    process.env["PASSWORD_STORE_DIR"] = "/data/password-store";
+
+    try {
+      const sanitized = createSanitizedEnv();
+      expect(sanitized["PASSWORD_STORE_DIR"]).toBe("/data/password-store");
+    } finally {
+      if (originalValue === undefined) {
+        delete process.env["PASSWORD_STORE_DIR"];
+      } else {
+        process.env["PASSWORD_STORE_DIR"] = originalValue;
+      }
+    }
+  });
+
   it("still blocks SSH_* vars even when allowlisted", () => {
     const originalValue = process.env["SSH_AUTH_SOCK"];
     process.env["SSH_AUTH_SOCK"] = "/tmp/ssh-agent.sock";

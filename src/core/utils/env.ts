@@ -7,6 +7,19 @@
 export type ProcessEnvRecord = Record<string, string | undefined>;
 
 /**
+ * Var names that match the sensitive-name scrub by coincidence but never
+ * hold a secret value themselves — a directory path, not a credential. The
+ * scrub matches on substring, so `PASSWORD_STORE_DIR` (the standard `pass`
+ * env var jazz's own email/calendar skills tell users to rely on) contains
+ * "PASSWORD" and was being silently stripped, pointing `pass` at its default
+ * (empty) store instead of wherever the operator actually configured it —
+ * `pass`/`himalaya` then failed in a way that looked like missing secrets
+ * rather than a stripped env var. Safe to always pass through, independent
+ * of any agent's `envAllowlist`.
+ */
+const ALWAYS_SAFE_DESPITE_SENSITIVE_NAME = new Set(["PASSWORD_STORE_DIR"]);
+
+/**
  * Build a sanitized environment for child process execution.
  * Strips sensitive vars while preserving essentials like PATH.
  *
@@ -45,7 +58,7 @@ export function createSanitizedEnv(
       continue;
     }
 
-    const isAllowlisted = allowlist.includes(key);
+    const isAllowlisted = allowlist.includes(key) || ALWAYS_SAFE_DESPITE_SENSITIVE_NAME.has(key);
 
     if (
       (!isAllowlisted && /API|KEY|SECRET|TOKEN|PASSWORD|CREDENTIAL|AUTH/i.test(key)) ||

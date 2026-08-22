@@ -100,6 +100,7 @@ export class OneShotPresentationService implements PresentationService {
     _displayConfig = DEFAULT_DISPLAY_CONFIG,
     private readonly emitEventTypes: ReadonlySet<StreamEvent["type"]> = new Set(),
     private readonly stdinStream: NodeJS.ReadableStream = process.stdin,
+    private readonly onApprovalWaitStart?: () => void,
   ) {}
 
   /**
@@ -286,7 +287,10 @@ export class OneShotPresentationService implements PresentationService {
     // Events are active, so an external consumer (e.g. the Telegram bridge) may
     // be watching the `approval_required` NDJSON event and can write a matching
     // `approval_decision` line back on stdin. Block until that happens (or the
-    // run is interrupted/killed by its own timeout — no separate timeout here).
+    // run's deadline expires — onApprovalWaitStart pushes that deadline out
+    // first, so time spent waiting on a human doesn't count against the same
+    // budget as the agent's own work).
+    this.onApprovalWaitStart?.();
     this.ensureStdinReaderStarted();
     const toolCallId = request.toolCallId;
     const pendingApprovals = this.pendingApprovals;
@@ -336,6 +340,7 @@ export class OneShotPresentationService implements PresentationService {
  */
 export function makeOneShotPresentationServiceLayer(
   emitEventTypes: ReadonlySet<StreamEvent["type"]> = new Set(),
+  onApprovalWaitStart?: () => void,
 ) {
   return Layer.effect(
     PresentationServiceTag,
@@ -344,7 +349,12 @@ export function makeOneShotPresentationServiceLayer(
       const displayConfig = Option.isSome(configServiceOption)
         ? resolveDisplayConfig(yield* configServiceOption.value.appConfig)
         : DEFAULT_DISPLAY_CONFIG;
-      return new OneShotPresentationService(displayConfig, emitEventTypes);
+      return new OneShotPresentationService(
+        displayConfig,
+        emitEventTypes,
+        undefined,
+        onApprovalWaitStart,
+      );
     }),
   );
 }
