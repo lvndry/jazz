@@ -1,9 +1,20 @@
 /** @jsxImportSource @opentui/react */
-import { useKeyboard, usePaste, useRenderer, useTerminalDimensions } from "@opentui/react";
+import {
+  useKeyboard,
+  usePaste,
+  useRenderer,
+  useSelectionHandler,
+  useTerminalDimensions,
+} from "@opentui/react";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { getGlyphs } from "../glyphs";
 import { THEME } from "../theme";
-import { pasteTextFromEvent, selectedTextFromRenderer, writeClipboard } from "./clipboard";
+import {
+  copyText,
+  pasteTextFromEvent,
+  selectedTextFromRenderer,
+  textFromSelection,
+} from "./clipboard";
 import { selectedText as selectedComposerText } from "./composer-edit";
 import { Footer } from "./Footer";
 import { Header } from "./Header";
@@ -189,6 +200,8 @@ export function App({
   const [newBelow, setNewBelow] = useState<number | undefined>(view.newBelow);
   const seenBlocks = useRef(view.blocks.length);
   const armedAt = useRef<number | undefined>(undefined);
+  const [copyNotice, setCopyNotice] = useState<string | undefined>(undefined);
+  const copyNoticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const glyphs = getGlyphs();
 
   // `useKeyboard` registers its callback once, so it captures the props and
@@ -242,6 +255,22 @@ export function App({
     },
     [dispatch],
   );
+
+  const announceCopy = useCallback((copied: boolean): void => {
+    if (!copied) return;
+    if (copyNoticeTimer.current !== undefined) clearTimeout(copyNoticeTimer.current);
+    setCopyNotice("copied");
+    copyNoticeTimer.current = setTimeout(() => {
+      setCopyNotice(undefined);
+      copyNoticeTimer.current = undefined;
+    }, 2000);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (copyNoticeTimer.current !== undefined) clearTimeout(copyNoticeTimer.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (view.runActive !== true) armedAt.current = undefined;
@@ -303,7 +332,7 @@ export function App({
         composer.length > 0 ? composer : selectedTextFromRenderer(rendererRef.current);
       if (selected.length > 0) {
         consumeKeyEvent(key);
-        void writeClipboard(selected);
+        void copyText(selected, rendererRef.current).then(announceCopy);
       }
       return;
     }
@@ -395,6 +424,14 @@ export function App({
     }
   });
 
+  // Mouse reporting replaces native drag-select, so Cmd+C in the host often
+  // copies nothing. Releasing a highlight writes the clipboard immediately;
+  // Cmd+C / Ctrl+Shift+C still copy whatever is highlighted. The footer says
+  // "copied" for a beat so a silent pasteboard write is not the only signal.
+  useSelectionHandler((selection) => {
+    void copyText(textFromSelection(selection), rendererRef.current).then(announceCopy);
+  });
+
   if (overrideContent !== undefined) {
     return overrideContent;
   }
@@ -430,6 +467,7 @@ export function App({
       view.overlay?.kind,
       view.input.commands !== undefined,
     ),
+    ...(copyNotice === undefined ? {} : { notice: copyNotice }),
   };
 
   return (

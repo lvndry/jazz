@@ -1,10 +1,12 @@
 import { describe, expect, it } from "bun:test";
 import {
   clipboardWriteCommands,
+  copyText,
   flattenPaste,
   normalizePaste,
   pasteTextFromEvent,
   selectedTextFromRenderer,
+  textFromSelection,
 } from "./clipboard";
 
 describe("normalizePaste", () => {
@@ -42,6 +44,32 @@ describe("clipboardWriteCommands", () => {
       { cmd: "xclip", args: ["-selection", "clipboard"] },
       { cmd: "xsel", args: ["--clipboard", "--input"] },
     ]);
+  });
+});
+
+describe("textFromSelection", () => {
+  it("normalises OpenTUI's highlight and ignores a missing one", () => {
+    expect(textFromSelection(undefined)).toBe("");
+    expect(textFromSelection(null)).toBe("");
+    expect(textFromSelection({ getSelectedText: () => "" })).toBe("");
+    expect(textFromSelection({ getSelectedText: () => "\u001b[31mcopied\r\nline\u001b[0m" })).toBe(
+      "copied\nline",
+    );
+  });
+});
+
+describe("copyText", () => {
+  it("does not touch OSC 52 when there is nothing to copy", async () => {
+    const written: string[] = [];
+    expect(
+      await copyText("", {
+        copyToClipboardOSC52: (text) => {
+          written.push(text);
+          return true;
+        },
+      }),
+    ).toBe(false);
+    expect(written).toEqual([]);
   });
 });
 

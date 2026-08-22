@@ -36,7 +36,8 @@ export function formatElapsed(elapsedMs: number): string {
 
 /**
  * Fit the row: drop elapsed first, then hints from the end. Everything sits on
- * the neutral ramp except the mode, which takes the one accent.
+ * the neutral ramp except the mode and a transient notice, which take the one
+ * accent.
  */
 export function footerSegments(model: FooterModel, viewport: Viewport): readonly FooterSegment[] {
   const glyphs = getGlyphs();
@@ -53,12 +54,18 @@ export function footerSegments(model: FooterModel, viewport: Viewport): readonly
       ? undefined
       : { text: formatElapsed(model.elapsedMs), fg: THEME.muted };
 
-  let hints = [...model.hints];
+  const notice = model.notice !== undefined && model.notice.length > 0 ? model.notice : undefined;
+  let hints = notice === undefined ? [...model.hints] : [];
   let keepElapsed = elapsed !== undefined;
 
-  const leftWidth = (): number =>
-    terminalSegmentsWidth(mode) +
-    hints.reduce((total, hint) => total + separatorWidth + terminalCellWidth(hint), 0);
+  const leftWidth = (): number => {
+    const noticeWidth = notice === undefined ? 0 : separatorWidth + terminalCellWidth(notice);
+    return (
+      terminalSegmentsWidth(mode) +
+      noticeWidth +
+      hints.reduce((total, hint) => total + separatorWidth + terminalCellWidth(hint), 0)
+    );
+  };
   const rightWidth = (): number => {
     const parts: string[] = [];
     if (cost !== undefined) parts.push(cost.text);
@@ -78,6 +85,10 @@ export function footerSegments(model: FooterModel, viewport: Viewport): readonly
   while (total() > viewport.width && hints.length > 0) hints = hints.slice(0, -1);
 
   const left: FooterSegment[] = [...mode];
+  if (notice !== undefined) {
+    left.push({ text: separator, fg: THEME.muted });
+    left.push({ text: notice, fg: THEME.primary });
+  }
   for (const hint of hints) {
     left.push({ text: separator, fg: THEME.muted });
     left.push({ text: hint, fg: THEME.secondary });

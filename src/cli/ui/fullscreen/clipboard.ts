@@ -39,14 +39,34 @@ export function clipboardWriteCommands(
   }
 }
 
+export function textFromSelection(
+  selection: { getSelectedText(): string } | null | undefined,
+): string {
+  if (selection === undefined || selection === null) return "";
+  return normalizePaste(selection.getSelectedText());
+}
+
 export function selectedTextFromRenderer(renderer: {
   readonly hasSelection?: boolean;
   readonly getSelection?: () => { getSelectedText(): string } | null;
 }): string {
   if (renderer.hasSelection !== true) return "";
-  const selection = renderer.getSelection?.();
-  if (selection === undefined || selection === null) return "";
-  return normalizePaste(selection.getSelectedText());
+  return textFromSelection(renderer.getSelection?.());
+}
+
+export interface ClipboardTerminal {
+  readonly copyToClipboardOSC52?: (text: string) => boolean;
+}
+
+/**
+ * Host clipboard and OSC 52 together. Empty text is a no-op so a click
+ * without a highlight cannot wipe the pasteboard. True if either path landed.
+ */
+export async function copyText(text: string, terminal?: ClipboardTerminal): Promise<boolean> {
+  if (text.length === 0) return false;
+  const osc = terminal?.copyToClipboardOSC52?.(text) === true;
+  const host = await writeClipboard(text);
+  return osc || host;
 }
 
 export function normalizePaste(text: string): string {

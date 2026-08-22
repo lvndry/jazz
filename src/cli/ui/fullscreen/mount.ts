@@ -124,8 +124,9 @@ export async function mountFullscreen(): Promise<MountedRenderer> {
     maxFps: MAX_FPS,
     // Wheel events only arrive with mouse reporting on. OpenTUI has no
     // wheel-only mode; this also replaces the terminal's native drag-select
-    // with OpenTUI's own selection (text is selectable by default). Scroll
-    // wins that trade. Shift+drag still reaches native selection in many hosts.
+    // with OpenTUI's own selection (text is selectable by default). Releasing
+    // that highlight copies it; Cmd+C does the same when the host forwards it.
+    // Shift+drag still reaches native selection in many hosts.
     useMouse: true,
     // Leave whatever was on the main screen alone; the alternate screen restores
     // it on exit, and clearing it would destroy the user's scrollback.
