@@ -15,6 +15,7 @@ chat. Any model, including local ones. These docs are organized by what you're t
 | **Understand a concept** | [Concepts](./concepts/index.md) |
 | **Look up a flag or tool** | [Reference](./reference/index.md) |
 | **See how it works inside** | [Internals](./internals/index.md) |
+| **Understand the interface design** | [Design](./design/index.md) |
 
 ---
 
@@ -63,6 +64,13 @@ watchdog, competitor watch, tech-debt radar, research digest, CI reviewer, relea
 - [Evals](./internals/evals.md) — measuring whether a harness change actually helped
 - [Design decisions](./internals/design-decisions.md) — every harness choice and what it trades away
 - [Code map](./internals/code-map.md) — for contributors
+
+### [Design](./design/index.md) — how the interface is built
+
+The terminal interface: the mark, the single-column layout, the six-hue palette, the
+activity indicators, and the approval card. Includes the two rules that decide every case
+not covered explicitly, and how the same design holds over SSH, in a cutting-edge terminal,
+and with no terminal at all.
 
 ### [Security](../SECURITY.md)
 

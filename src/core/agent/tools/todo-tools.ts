@@ -96,8 +96,10 @@ export function createManageTodosTool(): Tool<never> {
   return defineTool<never, z.infer<typeof parameters>>({
     name: "manage_todos",
     description:
-      "Create or update the todo list. Send the FULL list of items each time (replaces the previous list). " +
-      "Use this to plan multi-step work, track progress, and mark items complete as you go.",
+      "Replace the in-session task list used to steer THIS run and show progress in the UI. Every call is a full replace — send the complete list. " +
+      "Use when the work has 3+ distinct steps. Skip for one-liners. Exactly one item in_progress at a time; mark completed immediately when finished. " +
+      "This list is session-scratch and does not survive compaction on its own — not memory, not task_state, not a user reminder. " +
+      "For a plan that must survive compaction, also patch update_task_state. For 'ping me at 18:00', use add_reminder.",
     parameters,
     riskLevel: "low-risk",
     hidden: false,
@@ -112,6 +114,15 @@ export function createManageTodosTool(): Tool<never> {
         const { todos } = args;
         const sessionId = context?.sessionId ?? "default";
 
+        const inProgressCount = todos.filter((item) => item.status === "in_progress").length;
+        if (inProgressCount > 1) {
+          return {
+            success: false,
+            result: null,
+            error: "At most one todo may be in_progress at a time.",
+          } satisfies ToolExecutionResult;
+        }
+
         yield* writeTodos(sessionId, todos);
 
         const stats = computeStats(todos);
@@ -119,6 +130,7 @@ export function createManageTodosTool(): Tool<never> {
           success: true,
           result: {
             ...stats,
+            todos,
             message: `Todo list saved (${stats.totalItems} items: ${stats.completed} done, ${stats.inProgress} in progress, ${stats.pending} pending, ${stats.cancelled} cancelled)`,
           },
         } satisfies ToolExecutionResult;

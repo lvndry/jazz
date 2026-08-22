@@ -54,6 +54,7 @@
     "dev": "bun --watch src/main.ts",
     "start": "bun dist/main.js",
     "cli": "bun src/main.ts",
+    "ui:demo": "bun run src/cli/ui/fullscreen/demo.tsx",
     "prepare": "git config core.hooksPath .githooks || true",
     "lint": "bun eslint src scripts --cache",
     "lint:fix": "bun eslint src scripts --fix --cache",
@@ -61,6 +62,7 @@
     "test": "bun test",
     "test:watch": "bun test --watch",
     "docs:check-links": "bun run scripts/check-docs-links.ts",
+    "docs:design": "bun run scripts/gen-design-docs.ts",
     "docs:lint": "bunx markdownlint-cli2",
     "docs:lint:fix": "bunx markdownlint-cli2 --fix",
     "test:typecheck": "bunx tsc --project tsconfig.test.json",
@@ -69,6 +71,8 @@
     "prepublishOnly": "bun run build"
   },
   "dependencies": {
+    "@opentui/core": "^0.5.4",
+    "@opentui/react": "^0.5.4",
     "ink": "^7.1.1",
     "pdf-parse": "^2.4.5",
     "react": "^19.2.8"

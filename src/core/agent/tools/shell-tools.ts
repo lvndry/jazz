@@ -419,7 +419,14 @@ export function createShellCommandTools(): ApprovalToolPair<ShellCommandDeps> {
   const config: ApprovalToolConfig<ShellCommandDeps, ExecuteCommandArgs> = {
     name: "execute_command",
     description:
-      "Execute a shell command. Use only when no dedicated tool exists. Captured stdout and stderr are each capped at 256 KB; truncated output includes a marker so you can re-run with head/tail/grep.",
+      "Run a shell command. Do NOT use this when a dedicated tool exists: " +
+      "list files → ls; search names → find (alias glob); search contents → grep; " +
+      "read a file → read_file (startLine:-N for the end of a file); create dirs → mkdir. " +
+      "Git has no dedicated tools — use this for all git (status, diff, log, commit, push, rebase, stash, …). " +
+      "Under autoApprove read-only/low-risk, inspect-only commands may be classified read-only by the harness model; mutating commands stay high-risk. " +
+      "Non-interactive only: stdin is discarded; never run pagers, REPLs, or git rebase -i without a non-interactive editor. " +
+      "sudo/su are blocked. Env is sanitized (no KEY/TOKEN/SECRET); you cannot pass env vars. " +
+      "Timeout default 15 minutes. stdout and stderr are each capped at 256 KB; a truncation marker means re-run with a narrower command.",
     tags: ["shell", "execution"],
     timeoutMs: 15 * 60 * 1000, // 15 minutes — executor cap so long-running commands can complete
     parameters: executeCommandParameters,

@@ -33,7 +33,8 @@ type MkdirDeps = FileSystem.FileSystem | FileSystemContextService;
 export function createMkdirTools(): ApprovalToolPair<MkdirDeps> {
   const config: ApprovalToolConfig<MkdirDeps, MkdirArgs> = {
     name: "mkdir",
-    description: "Create a directory. Parents created automatically by default.",
+    description:
+      "Create a directory. Parents created automatically unless recursive:false. Existing directories succeed (idempotent). For a new file, prefer write_file with createDirs:true instead of a separate mkdir.",
     tags: ["filesystem", "write"],
     parameters: mkdirParameters,
     validate: makeZodValidator(mkdirParameters),

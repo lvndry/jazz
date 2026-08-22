@@ -96,7 +96,11 @@ class DefaultToolRegistry implements ToolRegistry {
    */
   listAllTools(): Effect.Effect<readonly string[], never> {
     return Effect.sync(() => {
-      return Array.from(this.tools.keys());
+      const names = new Set<string>(this.tools.keys());
+      for (const alias of this.aliasMap.keys()) {
+        names.add(alias);
+      }
+      return Array.from(names);
     });
   }
 
@@ -112,14 +116,27 @@ class DefaultToolRegistry implements ToolRegistry {
         // Filter out hidden tools - they should not be exposed to the LLM
         // Hidden tools (like execute_* approval tools) are only called by the system
         if (!tool.hidden) {
-          definitions.push({
-            type: "function",
+          const definition = {
+            type: "function" as const,
             function: {
               name: tool.name,
               description: tool.description,
               parameters: tool.parameters,
+              ...(tool.jsonSchema !== undefined ? { jsonSchema: tool.jsonSchema } : {}),
             },
-          });
+          };
+          definitions.push(definition);
+          if (tool.aliases) {
+            for (const alias of tool.aliases) {
+              definitions.push({
+                type: "function",
+                function: {
+                  ...definition.function,
+                  name: alias,
+                },
+              });
+            }
+          }
         }
       });
 

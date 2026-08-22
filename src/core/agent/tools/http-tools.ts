@@ -333,7 +333,7 @@ export function createHttpRequestTool(): Tool<never> {
   return defineTool<never, HttpRequestArgs>({
     name: "http_request",
     description:
-      "Send HTTP requests. Supports all methods, headers, query params, and body formats.",
+      "Call an HTTP API: GET/POST/PUT/PATCH/DELETE/HEAD/OPTIONS with headers, query string, and a json | text | form body (no multipart, no file upload). Auto-parses JSON; images/audio/video come back as base64; other bodies as text. Default timeout 15s (max 120s). Default response cap 1MB (max 5MB). Redirects followed by default. Reaches any http(s) URL the host can, including private networks — do not send secrets in headers unless the user asked. Not for HTML article extraction (web_fetch) or discovery (web_search). GET/HEAD cannot include a body. cacheTtlSeconds adds a Cache-Control request header; it does not cache locally.",
     tags: ["http", "network", "api"],
     parameters: HttpRequestSchema,
     validate: makeZodValidator(HttpRequestSchema),

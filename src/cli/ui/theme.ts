@@ -9,30 +9,56 @@ import chalk from "chalk";
  * when the terminal has truecolor support (chalk.level >= 3). On lower-level
  * terminals chalk auto-downgrades to the closest 256/16-color match.
  */
+/**
+ * Colour is semantics.
+ *
+ * Every hue here answers one question a reader actually asks — who is
+ * speaking, is this a tool, did it work, should I worry, is this about to
+ * touch my real accounts. Six hues is the budget, because six is a set you
+ * can hold in your head: after an hour in the app you read colour without
+ * deciding to. Everything else — headings, rules, borders, labels,
+ * timestamps, paths — lives on the neutral ramp, and emphasis comes from
+ * stroke weight, rule weight and shade rather than from adding a hue.
+ *
+ * There is deliberately ONE accent. The speaker is distinguished by the
+ * marker glyph (`»` for you, `╶` for the agent), not by giving each party
+ * its own colour — so the accent means "live" wherever it appears.
+ *
+ * There is deliberately no green in the syntax colours, so success green
+ * keeps a single unambiguous meaning.
+ *
+ * Every value has an exact xterm-256 index, noted inline. The accent is
+ * index 45 exactly, so it is byte-identical over SSH rather than
+ * approximated by chalk's downgrade.
+ */
 export interface ThemeColors {
-  /** Primary brand accent used for prompts, selection, and key affordances. */
+  /** The window's own ground. Painted only where a surface is needed. */
+  canvas: string;
+  /** Primary accent — live, and the user's own affordances. */
   primary: string;
-  /** Secondary accent used for live agent identity and active surfaces. */
+  /** Live agent identity. Same accent: the glyph says who, the colour says live. */
   agent: string;
+  /** Dimmed accent — subordinate live content, links, citations. */
+  accentDim: string;
   /** Links and code-adjacent interactive elements. */
   link: string;
   /** Success feedback. */
   success: string;
   /** Error feedback. */
   error: string;
-  /** Warning feedback. */
+  /** Warning feedback — a scope worth noticing, never a failure. */
   warning: string;
-  /** Informational feedback. */
+  /** Informational feedback. Sits on the neutral ramp; info is not a hue. */
   info: string;
-  /** Selected / highlighted menu items. */
+  /** Primary text. */
   selected: string;
-  /** Input prompt chevron and active cursor-adjacent accents. */
+  /** Input prompt marker and active cursor-adjacent accents. */
   prompt: string;
-  /** Muted secondary text. */
+  /** Secondary text. */
   secondary: string;
-  /** Non-selected / default text in lists. */
+  /** Dim text — metadata, settled receipts, timestamps. */
   muted: string;
-  /** Reasoning content should feel quieter than response text, but not dead. */
+  /** Reasoning is live but subordinate to an answer. */
   reasoning: string;
   /** Tool execution chrome. */
   toolBorder: string;
@@ -42,54 +68,88 @@ export interface ThemeColors {
   surfaceStrong: string;
   border: string;
   borderSoft: string;
+  /** Syntax: keywords and structure. */
+  syntaxStructure: string;
+  /** Syntax: strings, numbers, and inline code. */
+  syntaxValue: string;
+  /** Syntax: types and constructors. */
+  syntaxType: string;
 }
 
 export type ThemeVariant = "dark" | "light";
 
 const DARK_PALETTE: ThemeColors = {
-  primary: "#DE9A2C",
-  agent: "#22D3EE",
-  link: "#60A5FA",
-  success: "#22C55E",
-  error: "#FB7185",
-  warning: "#F59E0B",
-  info: "#38BDF8",
-  selected: "#F8FAFC",
-  prompt: "#DE9A2C",
-  secondary: "#94A3B8",
-  muted: "#64748B",
-  reasoning: "#A5B4FC",
-  toolBorder: "#475569",
-  surface: "#111827",
-  surfaceSoft: "#1F2937",
-  surfaceStrong: "#334155",
-  border: "#334155",
-  borderSoft: "#1F2937",
+  canvas: "#0B0D10", // 233
+  primary: "#00D7FF", // 45  — exact cube vertex, byte-identical over SSH
+  agent: "#00D7FF", // 45
+  accentDim: "#00AFD7", // 38  — exact
+  link: "#00AFD7", // 38
+  // Green rather than mint. A mint success sits only 113 perceptual units
+  // from the steel blue used for types, so a type in a code fence could read
+  // as a success mark — and it drifted toward the cyan accent besides.
+  success: "#5FD787", // 78  — exact
+  error: "#FF6B6B", // 203
+  warning: "#D7AF5F", // 179 — exact
+  info: "#A9B2BD", // 249 — the neutral ramp; info is not a hue
+  selected: "#E8EBEF", // 255
+  prompt: "#00D7FF", // 45
+  secondary: "#A9B2BD", // 249
+  muted: "#5C6673", // 242
+  reasoning: "#00AFD7", // 38  — live, but subordinate to an answer
+  toolBorder: "#22272E", // 235
+  surface: "#14171B", // 234
+  surfaceSoft: "#14171B", // 234
+  surfaceStrong: "#22272E", // 235
+  border: "#22272E", // 235
+  borderSoft: "#22272E", // 235
+  syntaxStructure: "#9B8CFF", // 105
+  // Rose, not sand. A sand value sits 66 perceptual units from the warning
+  // amber — which is the amber-overload bug in a subtler form, since inline
+  // code and a warning would have read as the same colour. Rose is clear of
+  // the amber, the error red, the success green and the cyan accent, and it
+  // matches the hue family the light palette uses for the same role.
+  syntaxValue: "#D787AF", // 175 — exact
+  syntaxType: "#92B4C8", // 110
 };
 
-/** Same semantic roles tuned for light terminal backgrounds. */
+/**
+ * The same semantic roles on a light ground. Not an inversion: the accent has
+ * to carry real contrast against paper, so cyan darkens to a teal that still
+ * reads as the same role, and the syntax tints are re-chosen rather than
+ * merely darkened.
+ */
 const LIGHT_PALETTE: ThemeColors = {
-  primary: "#B45309",
-  agent: "#0E7490",
-  link: "#1D4ED8",
-  success: "#15803D",
-  error: "#BE123C",
-  warning: "#D97706",
-  info: "#0369A1",
-  selected: "#0F172A",
-  prompt: "#B45309",
-  secondary: "#475569",
-  muted: "#64748B",
-  reasoning: "#6366F1",
-  toolBorder: "#94A3B8",
-  surface: "#F1F5F9",
-  surfaceSoft: "#E2E8F0",
-  surfaceStrong: "#CBD5E1",
-  border: "#CBD5E1",
-  borderSoft: "#E2E8F0",
+  canvas: "#FBFCFD",
+  primary: "#00718F", // 31
+  agent: "#00718F", // 31
+  accentDim: "#005F87", // 24  — exact cube vertex
+  link: "#005F87", // 24
+  success: "#116B3E", // 29
+  error: "#B3261E", // 124
+  warning: "#8A5F00", // 94
+  info: "#4A525E", // 240
+  selected: "#12151A", // 233
+  prompt: "#00718F", // 31
+  secondary: "#4A525E", // 240
+  muted: "#767F8C", // 245
+  reasoning: "#005F87", // 24
+  toolBorder: "#D9DEE5", // 253
+  surface: "#F1F3F6", // 255
+  surfaceSoft: "#F1F3F6", // 255
+  surfaceStrong: "#D9DEE5", // 253
+  border: "#D9DEE5", // 253
+  borderSoft: "#D9DEE5", // 253
+  // On paper the syntax tints have to separate by hue rather than by
+  // lightness — a first pass used an ochre for values that sat 49 units from
+  // the warning amber, which is to say indistinguishable. Plum is far from
+  // both the amber and the green, and far from the violet used for structure.
+  syntaxStructure: "#5B3FBF", // 61
+  syntaxValue: "#9B2C6F", // 126
+  syntaxType: "#2F6690", // 24
 };
 
-const PALETTES: Record<ThemeVariant, ThemeColors> = {
+/** Exported so `scripts/gen-design-docs.ts` can document the real values. */
+export const PALETTES: Record<ThemeVariant, ThemeColors> = {
   dark: DARK_PALETTE,
   light: LIGHT_PALETTE,
 };
@@ -177,6 +237,14 @@ export const MOTION = {
   quick: 90,
   standard: 140,
   gentle: 180,
+  /**
+   * Frame interval for the activity indicator. Deliberately slow: terminals
+   * that buffer a synchronized frame allocate per frame, and the fastest
+   * host TUIs are invalidation-driven on a ~250ms heartbeat rather than
+   * running an animation loop at all. Nothing here needs to beat 12fps, and
+   * a calmer indicator is easier to sit beside for three minutes.
+   */
+  indicator: 170,
 } as const;
 
 /**
@@ -187,19 +255,14 @@ export const PADDING_BUDGET = PADDING.page * 2 + PADDING.content;
 
 /**
  * Chalk function for code/codespan colouring.
- * Adapts to the terminal's colour depth automatically.
+ *
+ * Resolved per call rather than baked at import, so `/theme` switches it like
+ * everything else. It reads `syntaxValue` — the same tint strings and numbers
+ * get inside a fenced block — which keeps inline code distinct from both the
+ * accent and the warning hue. Previously all three were the same amber, which
+ * is why a bulleted list with bold text rendered as a wall of orange.
  */
-function getCodeColor(): (text: string) => string {
-  if (chalk.level === 3) {
-    return chalk.hex("#F59E0B");
-  }
-  if (chalk.level === 2) {
-    return chalk.ansi256(214);
-  }
-  return chalk.yellowBright;
-}
-
-export const codeColor: (text: string) => string = getCodeColor();
+export const codeColor = (text: string): string => chalk.hex(THEME.syntaxValue)(text);
 
 /**
  * Chalk-based color helpers for non-Ink rendering paths.

@@ -54,17 +54,17 @@ jazz workflow history email-cleanup
 
 ### Frontmatter Fields
 
-| Field | Required | Description |
-| --- | --- | --- |
-| `name` | ✓ | Unique workflow identifier |
-| `description` | ✓ | Human-readable summary |
-| `schedule` | | Cron expression, required only to schedule it |
-| `agent` | | Agent id/name (defaults to user selection) |
-| `autoApprove` | | Autonomy tier for unattended runs |
-| `skills` | | Skills to make available |
-| `catchUpOnStartup` | | Offer a missed run on next launch |
-| `maxCatchUpAge` | | Max age in seconds for catch-up (default 86400) |
-| `maxIterations` | | Iteration cap (default 80) |
+| Field              | Required | Description                                     |
+| ------------------ | -------- | ----------------------------------------------- |
+| `name`             | ✓        | Unique workflow identifier                      |
+| `description`      | ✓        | Human-readable summary                          |
+| `schedule`         |          | Cron expression, required only to schedule it   |
+| `agent`            |          | Agent id/name (defaults to user selection)      |
+| `autoApprove`      |          | Autonomy tier for unattended runs               |
+| `skills`           |          | Skills to make available                        |
+| `catchUpOnStartup` |          | Offer a missed run on next launch               |
+| `maxCatchUpAge`    |          | Max age in seconds for catch-up (default 86400) |
+| `maxIterations`    |          | Iteration cap (default 80)                      |
 
 **Full field reference, with types and the `autoApprove` gotcha:**
 [Reference → Workflow frontmatter](../reference/workflow-frontmatter.md).
@@ -86,15 +86,15 @@ Standard 5-field cron format: `minute hour day-of-month month day-of-week`
 `autoApprove` controls which tools may execute without confirmation during unattended runs.
 Tools above the tier are **declined**, not queued — there is nobody to ask.
 
-| Policy | Auto-approves | Use case |
-| --- | --- | --- |
-| `false` or omitted | Nothing | Interactive only — a scheduled run will stall |
-| `read-only` | Reads, search, web requests, `git status`/`log`/`diff` | Research, monitoring, digests |
-| `low-risk` | + `manage_todos`, `spawn_subagent` | Digests that track state |
-| `high-risk` | + writes, deletes, shell, `git commit`/`push` | Trusted automation, CI |
-| `true` | Same as `high-risk` | Trusted automation |
+| Policy             | Auto-approves                                          | Use case                                      |
+| ------------------ | ------------------------------------------------------ | --------------------------------------------- |
+| `false` or omitted | Nothing                                                | Interactive only — a scheduled run will stall |
+| `read-only`        | Reads, search, web requests, `git status`/`log`/`diff` | Research, monitoring, digests                 |
+| `low-risk`         | + `manage_todos`, `spawn_subagent`                     | Digests that track state                      |
+| `high-risk`        | + writes, deletes, shell, `git commit`/`push`          | Trusted automation, CI                        |
+| `true`             | Same as `high-risk`                                    | Trusted automation                            |
 
-> ⚠️ **`low-risk` adds exactly two tools.** It is not "moderately dangerous actions". Email,
+> ⚠️ **`low-risk` adds three tools** (`manage_todos`, `update_task_state`, `spawn_subagent`). It is not "moderately dangerous actions". Email,
 > calendar, and Obsidian are skills that shell out through `execute_command`, so they are
 > gated at `high-risk` — a `low-risk` workflow **cannot archive an email**. Keep the tier low
 > and allowlist the binary instead: `{"autoApprovedCommands": ["himalaya"]}` in
@@ -370,7 +370,7 @@ jazz workflow history
 
 ### 1. Start Conservative
 
-Use `autoApprove: read-only` for research/monitoring workflows, then increase once you trust it. Note that `low-risk` adds only `manage_todos` and `spawn_subagent` — anything that writes a file or shells out needs `high-risk`, or a `autoApprovedCommands` entry.
+Use `autoApprove: read-only` for research/monitoring workflows, then increase once you trust it. Note that `low-risk` adds `manage_todos`, `update_task_state`, and `spawn_subagent` — anything that writes a file or shells out needs `high-risk`, or a `autoApprovedCommands` entry.
 
 ### 2. Be Explicit About Safety
 
@@ -398,7 +398,7 @@ Different workflows may need different agents:
 
 - Research workflows → agent with strong reasoning
 - Email management → agent with email tools enabled
-- Code tasks → agent with filesystem and git tools
+- Code tasks → agent with filesystem and shell tools
 
 ### 5. Monitor Logs
 

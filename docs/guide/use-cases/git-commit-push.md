@@ -18,12 +18,12 @@ Automate the process of committing your changes with intelligent commit messages
 
 ## Setup
 
-Create an agent with git tools:
+Create an agent with git via the shell:
 
 ```bash
 jazz agent create
 # Name: git-assistant
-# Tools: Git
+# Tools: Shell Commands
 ```
 
 ## Usage

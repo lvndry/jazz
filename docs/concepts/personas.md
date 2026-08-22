@@ -49,12 +49,12 @@ You are a jovial pirate assistant. Use nautical vocabulary (ahoy, matey, landlub
 
 **Frontmatter fields:**
 
-| Field         | Required | Description                                                          |
-| ------------- | -------- | -------------------------------------------------------------------- |
-| `name`        | Yes      | Alphanumeric, underscores, hyphens. Used for CLI references.        |
-| `description` | Yes      | Brief human-readable description (max 500 chars).                    |
-| `tone`        | No       | Descriptor for display (e.g., "sarcastic", "formal", "friendly").    |
-| `style`       | No       | Descriptor for display (e.g., "concise", "verbose", "technical").    |
+| Field         | Required | Description                                                       |
+| ------------- | -------- | ----------------------------------------------------------------- |
+| `name`        | Yes      | Alphanumeric, underscores, hyphens. Used for CLI references.      |
+| `description` | Yes      | Brief human-readable description (max 500 chars).                 |
+| `tone`        | No       | Descriptor for display (e.g., "sarcastic", "formal", "friendly"). |
+| `style`       | No       | Descriptor for display (e.g., "concise", "verbose", "technical"). |
 
 **Body:** The system prompt. Can use markdown (headings, lists, etc.). Max 10,000 characters.
 
@@ -116,16 +116,16 @@ The `persona` field drives both communication style (via the system prompt) and 
 
 When building the system prompt, Jazz replaces these placeholders if present in your persona's `systemPrompt`:
 
-| Placeholder          | Description             |
-| -------------------- | ----------------------- |
-| `{agentName}`        | The agent's name        |
-| `{agentDescription}` | The agent's description |
-| `{currentDate}`      | Current date            |
-| `{osInfo}`           | OS platform and version |
-| `{shell}`            | User's shell            |
-| `{hostname}`         | Machine hostname        |
-| `{username}`         | Current username        |
-| `{homeDirectory}`    | User's home directory   |
+| Placeholder          | Description                         |
+| -------------------- | ----------------------------------- |
+| `{agentName}`        | The agent's name                    |
+| `{agentDescription}` | The agent's description             |
+| `{currentDate}`      | Current date                        |
+| `{osInfo}`           | OS platform and version             |
+| `{shell}`            | User's shell                        |
+| `{hostname}`         | Machine hostname                    |
+| `{username}`         | Current username                    |
+| `{homeDirectory}`    | User's home directory               |
 | `{tty}`              | `yes` if stdout is a TTY, else `no` |
 
 Example:

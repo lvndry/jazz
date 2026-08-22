@@ -66,19 +66,21 @@ describe("markdown-formatter", () => {
     it("should style second-level headings with stronger hierarchy", () => {
       const input = "## Response Overview";
       const result = formatMarkdown(input);
-      expect(result).toBe(CHALK_THEME.agentBold("## Response Overview"));
+      expect(result).toBe(chalk.bold.hex(THEME.selected)("## Response Overview"));
     });
 
     it("should style headings with extra leading spaces (LLM-indented markdown)", () => {
-      expect(formatMarkdown("    ## Code Review")).toBe(CHALK_THEME.agentBold("## Code Review"));
+      expect(formatMarkdown("    ## Code Review")).toBe(
+        chalk.bold.hex(THEME.selected)("## Code Review"),
+      );
       expect(formatMarkdown("      ### Suggestions")).toBe(
-        chalk.hex(THEME.link).bold("### Suggestions"),
+        chalk.bold.hex(THEME.secondary)("### Suggestions"),
       );
     });
 
     it("should style heavily indented headings in hybrid mode", () => {
       const result = formatMarkdownHybrid("    ## Hybrid H2");
-      expect(result).toBe(`## ${CHALK_THEME.agentBold("Hybrid H2")}`);
+      expect(result).toBe(`## ${chalk.bold.hex(THEME.selected)("Hybrid H2")}`);
     });
   });
 

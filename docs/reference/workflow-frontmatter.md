@@ -26,17 +26,17 @@ maxIterations: 40
 ---
 ```
 
-| Field | Type | Required | Purpose |
-| --- | --- | --- | --- |
-| `name` | string | ✅ | Workflow identifier used by every `jazz workflow` command |
-| `description` | string | ✅ | One-line summary shown in `jazz workflow list` |
-| `agent` | string | — | Agent id or name to run this workflow with. Overridable at runtime with `--agent` |
-| `schedule` | cron string | — | When to run. Required only if you intend to `jazz workflow schedule` it |
-| `autoApprove` | see below | — | Autonomy tier for unattended runs |
-| `skills` | string[] | — | Skills to make available to the agent for this workflow |
-| `catchUpOnStartup` | boolean | — | Whether a missed run should be offered on next launch |
-| `maxCatchUpAge` | seconds | — | Past this age a missed run is skipped. Default 86400 (24 h) |
-| `maxIterations` | number | — | Iteration cap for this workflow. Default 80. Overridable with `--max-iterations` |
+| Field              | Type        | Required | Purpose                                                                           |
+| ------------------ | ----------- | -------- | --------------------------------------------------------------------------------- |
+| `name`             | string      | ✅        | Workflow identifier used by every `jazz workflow` command                         |
+| `description`      | string      | ✅        | One-line summary shown in `jazz workflow list`                                    |
+| `agent`            | string      | —        | Agent id or name to run this workflow with. Overridable at runtime with `--agent` |
+| `schedule`         | cron string | —        | When to run. Required only if you intend to `jazz workflow schedule` it           |
+| `autoApprove`      | see below   | —        | Autonomy tier for unattended runs                                                 |
+| `skills`           | string[]    | —        | Skills to make available to the agent for this workflow                           |
+| `catchUpOnStartup` | boolean     | —        | Whether a missed run should be offered on next launch                             |
+| `maxCatchUpAge`    | seconds     | —        | Past this age a missed run is skipped. Default 86400 (24 h)                       |
+| `maxIterations`    | number      | —        | Iteration cap for this workflow. Default 80. Overridable with `--max-iterations`  |
 
 There is **no** `autoApprovedCommands` field in frontmatter — that is a global config setting.
 See [the note below](#the-low-risk-trap).
@@ -47,13 +47,13 @@ See [the note below](#the-low-risk-trap).
 
 Accepts a boolean or a tier string.
 
-| Value | Auto-approves |
-| --- | --- |
-| `false` | Nothing. Not useful for a scheduled run — it will stall on the first gated tool |
-| `read-only` | Reads, search, web requests, `git status`/`log`/`diff`/`blame`/`branch` |
-| `low-risk` | + `manage_todos`, `spawn_subagent` |
-| `high-risk` | + every gated tool: `write_file`, `edit_file`, `rm`, `mv`, `cp`, `mkdir`, `execute_command`, `git_commit`, `git_push`, `git_merge`, … |
-| `true` | Same as `high-risk` |
+| Value       | Auto-approves                                                                               |
+| ----------- | ------------------------------------------------------------------------------------------- |
+| `false`     | Nothing. Not useful for a scheduled run — it will stall on the first gated tool             |
+| `read-only` | Reads, search, web requests, `git status`/`log`/`diff`/`blame`/`branch`                     |
+| `low-risk`  | + `manage_todos`, `spawn_subagent`                                                          |
+| `high-risk` | + every gated tool: `write_file`, `edit_file`, `rm`, `mv`, `cp`, `mkdir`, `execute_command` |
+| `true`      | Same as `high-risk`                                                                         |
 
 Exact per-tool tiers: [Tools reference](./tools.md).
 
@@ -61,8 +61,8 @@ Exact per-tool tiers: [Tools reference](./tools.md).
 
 ## The `low-risk` trap
 
-`low-risk` is narrower than it sounds. In the built-in toolset it adds exactly **two** tools
-(`manage_todos` and `spawn_subagent`). It does **not** cover email, calendar, or file writes.
+`low-risk` is narrower than it sounds. In the built-in toolset it adds **three** tools
+(`manage_todos`, `update_task_state`, and `spawn_subagent`). It does **not** cover email, calendar, or file writes.
 
 This matters because the capabilities people most want on a schedule are skills that shell
 out through `execute_command`, which is `high-risk`:

@@ -98,32 +98,37 @@ const INLINE_CODE_EXTRACT_REGEX = /`([^`\n]+?)`/g;
 // LINK_REGEX is reused for the extract/restore cycle (see extractLinks).
 const EMOJI_SHORTCODE_REGEX = /:([A-Za-z0-9_\-+]+?):/g;
 /**
- * Bold styling for **bold** text. Uses the theme's primary accent so it
- * visibly pops against body text on both light and dark terminals — the
- * previous near-white (#F8FAFC) was indistinguishable from default body
- * text on most dark themes, especially in `hybrid` display mode where the
- * `**` markers stay visible alongside the styled inner text.
- */
-const EMPHASIS_BRIGHT = chalk.bold.hex(THEME.primary);
-/**
- * Heading styles with deliberate weight/decoration variation so that H1–H4
- * are visually distinguishable beyond color alone (terminals don't render
- * font sizes — we have to fake hierarchy via weight, underline, and bullet).
+ * Every style below is a function that reads `THEME` when it is called.
  *
- * Hierarchy: H1 is bold + underline + warm primary; H2 is bold + agent
- * accent; H3 is bold + link blue; H4 is dim/non-bold + secondary so it
- * reads as the smallest level.
+ * They used to be chalk instances built once at module load, which meant they
+ * captured whichever palette was active at import and `/theme` silently left
+ * them behind until the next process. Resolving per call costs nothing at this
+ * frequency and makes the theme switch actually total.
  */
-const HEADING_PRIMARY = chalk.bold.underline.hex(THEME.primary);
-const HEADING_AGENT = CHALK_THEME.agentBold;
-const HEADING_LINK = chalk.hex(THEME.link).bold;
+
 /**
- * H4 intentionally not bold so readers feel a weight drop from H3 → H4 even
- * without font-size changes. Secondary color only — stacking dim on top made
- * H4 nearly invisible on many terminals.
+ * Bold **text** gets weight, not a hue. Emphasis is not a semantic category —
+ * it does not answer "what is this?" — and spending the accent on it would be
+ * worse than the amber it replaced, because the accent means "live" everywhere
+ * else in the interface. Terminals render bold as a real weight change, which
+ * is the distinction being asked for.
  */
-const HEADING_MUTED = chalk.hex(THEME.secondary);
-const ITALIC_MUTED = chalk.italic.hex(THEME.secondary);
+const EMPHASIS_BRIGHT = (text: string): string => chalk.bold.hex(THEME.selected)(text);
+
+/**
+ * H1–H4 as a weight ramp rather than four different hues, since terminals
+ * cannot render font sizes. Only H1 spends the accent; the rest step down the
+ * neutral ramp, so a heading in a response never competes with a live
+ * indicator for attention.
+ *
+ * H1 bold + underline + accent · H2 bold + primary text · H3 bold + secondary ·
+ * H4 secondary, not bold, so the weight drop from H3 is felt.
+ */
+const HEADING_PRIMARY = (text: string): string => chalk.bold.underline.hex(THEME.primary)(text);
+const HEADING_AGENT = (text: string): string => chalk.bold.hex(THEME.selected)(text);
+const HEADING_LINK = (text: string): string => chalk.bold.hex(THEME.secondary)(text);
+const HEADING_MUTED = (text: string): string => chalk.hex(THEME.secondary)(text);
+const ITALIC_MUTED = (text: string): string => chalk.italic.hex(THEME.secondary)(text);
 
 /**
  * Streaming state for progressive markdown formatting
@@ -182,7 +187,10 @@ const RESET_RE = /\x1b\[0m|\x1b\[(?:22|23|24|27|29|39|49)m/g;
  * helper, every inner reset is followed by a re-emit of the outer's open
  * codes so the outer color (and weight) carry through to the next reset.
  */
-function wrapPreservingInner(text: string, outer: import("chalk").ChalkInstance): string {
+// Only ever calls `outer`, so the parameter is typed as what it actually needs
+// rather than as a chalk instance. That is what lets the styles above be plain
+// functions that resolve the palette per call.
+function wrapPreservingInner(text: string, outer: (value: string) => string): string {
   // Probe the outer style's open and close sequences by wrapping a sentinel.
   // Sentinel uses a PUA char that won't appear in real content.
   const SENTINEL = "";
@@ -234,10 +242,13 @@ export function formatBold(text: string): string {
 // Tables — GitHub-flavored markdown
 // ============================================================================
 
-/** Border / separator chalk style. Subtle so it doesn't compete with content. */
-const TABLE_BORDER = chalk.hex(THEME.secondary).dim;
-/** Header cell style. Bold + accent color so headers stand out from body rows. */
-const TABLE_HEADER_CELL = chalk.bold.hex(THEME.primary);
+/** Border / separator style. Subtle so it doesn't compete with content. */
+const TABLE_BORDER = (text: string): string => chalk.hex(THEME.secondary).dim(text);
+/**
+ * Header cells stand out from body rows by weight. A table is chrome around
+ * content, so it does not get the accent — which is reserved for live things.
+ */
+const TABLE_HEADER_CELL = (text: string): string => chalk.bold.hex(THEME.selected)(text);
 
 /**
  * Visible-character width of a string, ignoring ANSI escape codes.

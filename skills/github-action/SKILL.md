@@ -81,7 +81,7 @@ The key design:
     "llmModel": "openrouter/owl-alpha",
     "reasoningEffort": "high",
     "tools": [
-      "context_info", "find", "git_diff", "git_log", "grep",
+      "context_info", "find", "execute_command", "grep",
       "http_request", "ls", "read_file", "summarize_context", "write_file"
     ]
   }
@@ -101,7 +101,7 @@ The key design:
     "llmModel": "openrouter/owl-alpha",
     "reasoningEffort": "medium",
     "tools": [
-      "context_info", "find", "git_diff", "git_log", "git_tag_list",
+      "context_info", "find", "execute_command",
       "grep", "http_request", "ls", "read_file", "summarize_context"
     ]
   }
@@ -112,7 +112,7 @@ The key design:
 
 `.github/jazz/workflows/code-review/WORKFLOW.md` — instructs the agent to:
 - Read PR context from `/tmp/jazz-pr-context.json`
-- Run `git_diff` with `commit: "__PR_BASE_SHA__...__PR_HEAD_SHA__"`
+- Run `execute_command` with `git diff __PR_BASE_SHA__...__PR_HEAD_SHA__`
 - Review for correctness, security, and maintainability
 - Use `spawn_subagent` for large PRs (10+ files or 500+ lines)
 - Output exactly two four-backtick fenced blocks: `markdown` verdict then `json` inline comments

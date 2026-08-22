@@ -21,12 +21,12 @@ Generate detailed PR descriptions automatically from your git changes and commit
 
 ## Setup
 
-Create an agent with git and file system tools:
+Create an agent with shell and file system tools:
 
 ```bash
 jazz agent create
 # Name: pr-generator
-# Tools: Git, File System
+# Tools: Shell, File System
 ```
 
 ## Usage

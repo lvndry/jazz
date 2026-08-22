@@ -71,6 +71,18 @@ describe("grep tool", () => {
     expect(data.matches.length).toBeGreaterThanOrEqual(2); // add and subtract
   });
 
+  it("should strip a re: prefix even when regex:true is also set", async () => {
+    const result = await runTool(
+      tool,
+      { pattern: "re:function\\s+\\w+", path: testDir, regex: true },
+      testDir,
+    );
+    expect(result.success).toBe(true);
+
+    const data = result.result as { matches: Array<{ file: string; text: string }> };
+    expect(data.matches.length).toBeGreaterThanOrEqual(2);
+  });
+
   it("should find regex matches with regex flag", async () => {
     const result = await runTool(
       tool,

@@ -29,7 +29,7 @@ export const tasks: EvalTask[] = [
     },
     check(result) {
       return toolGroundedAnswerCheck(result, {
-        toolNames: ["read_file", "grep", "find", "glob", "head", "tail"],
+        toolNames: ["read_file", "grep", "find", "glob"],
         answerPatterns: [/\bava\b/i],
       });
     },

@@ -17,12 +17,12 @@ Refactor code patterns across multiple repositories simultaneously.
 
 ## Setup
 
-Create an agent with git, file management, and shell tools:
+Create an agent with file management and shell tools:
 
 ```bash
 jazz agent create
 # Name: refactor-master
-# Tools: Git, File Management, Shell
+# Tools: File Management, Shell
 ```
 
 ## Usage

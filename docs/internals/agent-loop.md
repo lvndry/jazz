@@ -138,7 +138,7 @@ design:
 | `web_search("effect-ts")` × 10 | 1/10 = 10% | 🔴 Stuck — same query over and over |
 | `web_search(q1)` → `web_fetch(u1)` → `web_search(q2)` → … | 10/10 = 100% | 🟢 Productive — that's research |
 | `read_file(a)` `read_file(b)` … 10 distinct files | 10/10 = 100% | 🟢 Productive — that's reading a codebase |
-| `git_status()` × 6, `read_file(x)` × 4 | 2/10 = 20% | 🔴 Stuck |
+| `execute_command()` × 6, `read_file(x)` × 4 | 2/10 = 20% | 🔴 Stuck |
 
 Keying on tool *name* alone would flag the second and third rows as meltdowns, which are
 exactly the behaviors you want. When a meltdown does trip, Jazz injects a message telling

@@ -115,7 +115,8 @@ export function createWebSearchTool(): ReturnType<
 > {
   return defineTool<AgentConfigService | LoggerService, WebSearchArgs>({
     name: "web_search",
-    description: "Search the web for real-time information.",
+    description:
+      "Search the public web and return `{title, url, snippet, publishedDate?}`. Does not fetch full pages — follow up with web_fetch (HTML/text/JSON) or http_request (APIs, POST). Put operators (site:, filetype:) in query. fromDate/toDate, searchDepth, sourceType, and searchQueries are hints; some backends ignore them. If search is unavailable the tool returns an error — do not invent sources.",
     tags: ["web", "search"],
     parameters: webSearchSchema,
     validate: makeZodValidator(webSearchSchema),

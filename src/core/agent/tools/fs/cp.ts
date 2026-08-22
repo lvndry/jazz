@@ -36,7 +36,7 @@ export function createCpTools(): ApprovalToolPair<CpDeps> {
   const config: ApprovalToolConfig<CpDeps, CpArgs> = {
     name: "cp",
     description:
-      "Copy a file or directory. Equivalent to shell cp/cp -r. Directories are copied recursively.",
+      "Copy a file or directory (directories always recursive). Destination is the exact target path — if dest exists as a directory, this does NOT copy into it (unlike shell cp). force deletes the destination first.",
     tags: ["filesystem", "write"],
     parameters: cpParameters,
     validate: makeZodValidator(cpParameters),

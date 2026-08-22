@@ -22,7 +22,7 @@ export function createCdTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
   return defineTool<FileSystem.FileSystem | FileSystemContextService, CdParams>({
     name: "cd",
     description:
-      "Change the working directory for this session. Persists across subsequent tool calls.",
+      "Change the working directory for this session. Persists across subsequent relative paths in ALL tools (read_file, grep, find, execute_command). Prefer passing path to a tool over cd'ing around. Sticky until you cd again.",
     tags: ["filesystem", "navigation"],
     parameters,
     validate: makeZodValidator(parameters),

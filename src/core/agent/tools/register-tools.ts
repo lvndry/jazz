@@ -3,7 +3,6 @@ import type { ToolRegistry } from "@/core/interfaces/tool-registry";
 import { ToolRegistryTag } from "@/core/interfaces/tool-registry";
 import { createContextInfoTool, createGetTimeTool } from "./context-tools";
 import { fs } from "./fs";
-import { git } from "./git";
 import { createHttpRequestTool } from "./http-tools";
 import { createManageMemoryTool, createViewMemoryTool } from "./memory-tools";
 import {
@@ -19,7 +18,6 @@ import { createListTodosTool, createManageTodosTool } from "./todo-tools";
 import {
   CONTEXT_CATEGORY,
   FILE_MANAGEMENT_CATEGORY,
-  GIT_CATEGORY,
   HTTP_CATEGORY,
   MEMORY_CATEGORY,
   REMINDER_CATEGORY,
@@ -48,7 +46,6 @@ export function registerAllTools(): Effect.Effect<void, Error, ToolRegistry> {
   return Effect.gen(function* () {
     yield* registerFileTools();
     yield* registerShellTools();
-    yield* registerGitTools();
     yield* registerSearchTools();
     yield* registerHttpTools();
     yield* registerTodoTools();
@@ -87,8 +84,6 @@ export function registerFileTools(): Effect.Effect<void, Error, ToolRegistry> {
     yield* registerTool(fs.read());
     yield* registerTool(fs.readPdf());
     yield* registerTool(fs.pdfPageCount());
-    yield* registerTool(fs.head());
-    yield* registerTool(fs.tail());
 
     // Search tools
     yield* registerTool(fs.grep());
@@ -132,55 +127,6 @@ export function registerShellTools(): Effect.Effect<void, Error, ToolRegistry> {
   });
 }
 
-export function registerGitTools(): Effect.Effect<void, Error, ToolRegistry> {
-  return Effect.gen(function* () {
-    const registry = yield* ToolRegistryTag;
-    const registerTool = registry.registerForCategory(GIT_CATEGORY);
-
-    // Safe Git operations (no approval needed)
-    yield* registerTool(git.status());
-    yield* registerTool(git.log());
-    yield* registerTool(git.diff());
-    yield* registerTool(git.branch());
-    yield* registerTool(git.blame());
-    yield* registerTool(git.reflog());
-    yield* registerTool(git.tagList());
-
-    // Approval-required operations - each returns { approval, execute }
-    const addTools = git.add();
-    yield* registerTool(addTools.approval);
-    yield* registerTool(addTools.execute);
-
-    const commitTools = git.commit();
-    yield* registerTool(commitTools.approval);
-    yield* registerTool(commitTools.execute);
-
-    const pushTools = git.push();
-    yield* registerTool(pushTools.approval);
-    yield* registerTool(pushTools.execute);
-
-    const pullTools = git.pull();
-    yield* registerTool(pullTools.approval);
-    yield* registerTool(pullTools.execute);
-
-    const checkoutTools = git.checkout();
-    yield* registerTool(checkoutTools.approval);
-    yield* registerTool(checkoutTools.execute);
-
-    const mergeTools = git.merge();
-    yield* registerTool(mergeTools.approval);
-    yield* registerTool(mergeTools.execute);
-
-    const rmTools = git.rm();
-    yield* registerTool(rmTools.approval);
-    yield* registerTool(rmTools.execute);
-
-    const tagTools = git.tag();
-    yield* registerTool(tagTools.approval);
-    yield* registerTool(tagTools.execute);
-  });
-}
-
 export function registerSearchTools(): Effect.Effect<void, Error, ToolRegistry> {
   return Effect.gen(function* () {
     const registry = yield* ToolRegistryTag;
@@ -212,6 +158,7 @@ export function registerTodoTools(): Effect.Effect<void, Error, ToolRegistry> {
 
     yield* registerTool(createManageTodosTool());
     yield* registerTool(createListTodosTool());
+    yield* registerTool(createUpdateTaskStateTool());
   });
 }
 
@@ -222,7 +169,6 @@ export function registerMemoryTools(): Effect.Effect<void, Error, ToolRegistry> 
 
     yield* registerTool(createViewMemoryTool());
     yield* registerTool(createManageMemoryTool());
-    yield* registerTool(createUpdateTaskStateTool());
   });
 }
 

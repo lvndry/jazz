@@ -17,12 +17,12 @@ Scan codebase for security issues and automatically apply fixes.
 
 ## Setup
 
-Create an agent with file system, shell, and git tools:
+Create an agent with file system and shell:
 
 ```bash
 jazz agent create
 # Name: security-auditor
-# Tools: File System, Shell, Git
+# Tools: File System, Shell
 ```
 
 ## Usage

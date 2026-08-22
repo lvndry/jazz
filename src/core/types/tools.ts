@@ -54,6 +54,7 @@ export interface ToolDefinition {
     name: string;
     description: string;
     parameters: z.ZodTypeAny;
+    jsonSchema?: Readonly<Record<string, unknown>>;
   };
 }
 

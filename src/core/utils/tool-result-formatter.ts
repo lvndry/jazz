@@ -137,11 +137,11 @@ function stripGrep(r: Record<string, unknown>): void {
 }
 
 /**
- * read_file — strip constant encoding, derivable line counts.
- * Keep: path, content, truncated (signals whether re-read needed), range.
+ * read_file — strip unused encoding. Keep totalLines so the model can
+ * plan the next window, and truncated so it knows to re-read.
  */
 function stripReadFile(r: Record<string, unknown>): void {
-  deleteKeys(r, ["encoding", "totalLines", "returnedLines"]);
+  deleteKeys(r, ["encoding"]);
 }
 
 /**
@@ -168,73 +168,17 @@ function stripFindEntry(entry: Record<string, unknown>): void {
 }
 
 /**
- * head — strip input echo and derivable fields.
- * Keep: path, content.
- */
-function stripHead(r: Record<string, unknown>): void {
-  deleteKeys(r, ["requestedLines", "totalLines", "returnedLines", "truncated"]);
-}
-
-/**
- * tail — strip input echo and derivable fields.
- * Keep: path, content, startLine (useful to know position in file).
- */
-function stripTail(r: Record<string, unknown>): void {
-  deleteKeys(r, ["requestedLines", "totalLines", "returnedLines", "truncated", "endLine"]);
-}
-
-/**
- * read_pdf — strip constant fileType, derivable totalLines/truncated.
- * Keep: path, content, pageCount, tables.
+ * read_pdf — strip constant fileType, derivable totalLines.
+ * Keep: path, content, pageCount, tables, truncated.
  * Drop pagesExtracted (echo of input).
  */
 function stripReadPdf(r: Record<string, unknown>): void {
-  deleteKeys(r, ["fileType", "totalLines", "truncated", "pagesExtracted"]);
+  deleteKeys(r, ["fileType", "totalLines", "pagesExtracted"]);
   // tables duplicate content that's already rendered as markdown in `content`.
   // Only strip if content is present (tables are rendered inline).
   if (typeof r["content"] === "string" && r["content"].length > 0) {
     delete r["tables"];
   }
-}
-
-/**
- * git_diff — strip input echo (options), derivable fields.
- * Keep: workingDirectory, paths (scoped files), diff.
- */
-function stripGitDiff(r: Record<string, unknown>): void {
-  deleteKeys(r, ["options", "hasChanges", "truncated", "totalLines", "returnedLines"]);
-}
-
-/**
- * git_log — strip derivable commitCount; per-commit strip shortHash, oneline.
- * Keep: workingDirectory, commits[].{hash, author, relativeDate, subject}.
- */
-function stripGitLog(r: Record<string, unknown>): void {
-  delete r["commitCount"];
-  const commits = r["commits"];
-  if (Array.isArray(commits)) {
-    for (const commit of commits) {
-      if (isRecord(commit)) {
-        deleteKeys(commit, ["shortHash", "oneline"]);
-      }
-    }
-  }
-}
-
-/**
- * git_status — strip derivable hasChanges, duplicate rawStatus.
- * Keep: workingDirectory, branch, summary.
- */
-function stripGitStatus(r: Record<string, unknown>): void {
-  deleteKeys(r, ["hasChanges", "rawStatus"]);
-}
-
-/**
- * git_blame — strip input echoes (file, options), derivable lineCount.
- * Keep: workingDirectory, lines[].{commitHash, author, lineNumber, content}.
- */
-function stripGitBlame(r: Record<string, unknown>): void {
-  deleteKeys(r, ["file", "options", "lineCount"]);
 }
 
 /**
@@ -284,13 +228,7 @@ const STRIPPERS: Readonly<Record<string, StripFn>> = {
   read_file: stripReadFile,
   edit_file: stripEditFile,
   execute_edit_file: stripEditFile,
-  head: stripHead,
-  tail: stripTail,
   read_pdf: stripReadPdf,
-  git_diff: stripGitDiff,
-  git_log: stripGitLog,
-  git_status: stripGitStatus,
-  git_blame: stripGitBlame,
   execute_command: stripExecuteCommand,
   execute_execute_command: stripExecuteCommand,
   http_request: stripHttpRequest,
@@ -462,14 +400,6 @@ export function formatToolResultForContext(toolName: string, result: unknown): s
 
   // Serialize
   const serialized = typeof stripped === "string" ? stripped : safeStringify(stripped);
-
-  // git_diff governs its own size via the maxLines parameter, so it is exempt
-  // from Phase 2 truncation — a caller that requested the whole diff (e.g. a
-  // review agent on a large-context model) receives it in full instead of being
-  // re-truncated here to the 24k-char budget.
-  if (toolName === "git_diff") {
-    return serialized;
-  }
 
   // Phase 2: Truncate only when payload actually exceeds adaptive budget.
   const maxChars = resolveMaxChars(stripped);

@@ -17,8 +17,6 @@
       "find",
       "grep",
       "glob",
-      "head",
-      "tail",
       "mkdir",
       "mv",
       "cp",

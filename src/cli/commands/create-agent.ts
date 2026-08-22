@@ -10,7 +10,6 @@ import {
   BUILTIN_TOOL_CATEGORIES,
   createCategoryMappings,
   FILE_MANAGEMENT_CATEGORY,
-  GIT_CATEGORY,
   HTTP_CATEGORY,
   mcpToolCategory,
   SHELL_COMMANDS_CATEGORY,
@@ -70,7 +69,6 @@ const PREDEFINED_AGENTS: Record<string, PredefinedAgent> = {
     toolCategoryIds: [
       FILE_MANAGEMENT_CATEGORY.id,
       SHELL_COMMANDS_CATEGORY.id,
-      GIT_CATEGORY.id,
       HTTP_CATEGORY.id,
       WEB_SEARCH_CATEGORY.id,
     ],

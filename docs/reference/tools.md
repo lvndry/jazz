@@ -13,28 +13,28 @@ and [Security](../../SECURITY.md) for the threat model.
 
 ## At a glance
 
-| | Count |
-| --- | --- |
-| **Agent-facing tools** | **51** |
-| Hidden `execute_*` counterparts (the second half of each approval pair) | 15 |
-| Total registered | 66 |
-| `read-only` | 29 |
-| `low-risk` | 7 |
-| `high-risk` | 15 |
+|                                                                         | Count  |
+| ----------------------------------------------------------------------- | ------ |
+| **Agent-facing tools**                                                  | **34** |
+| Hidden `execute_*` counterparts (the second half of each approval pair) | 7      |
+| Total registered                                                        | 41     |
+| `read-only`                                                             | 20     |
+| `low-risk`                                                              | 7      |
+| `high-risk`                                                             | 7      |
 
 Plus, registered per agent rather than globally:
 
-| Source | Tools | Notes |
-| --- | --- | --- |
+| Source     | Tools                                             | Notes                                                                                              |
+| ---------- | ------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
 | **Skills** | `find_skills`, `load_skill`, `load_skill_section` | Present when the agent has skills available — see [Skills loading](../internals/skills-loading.md) |
-| **MCP** | `mcp_<server>_<tool>` | Discovered from the agent's tool list, connected lazily — see [MCP](../integrations/mcp.md) |
-| **Custom** | whatever you define | Agent-config `customTools` — see [Configuration](./configuration.md#agent-config-customtools) |
+| **MCP**    | `mcp_<server>_<tool>`                             | Discovered from the agent's tool list, connected lazily — see [MCP](../integrations/mcp.md)        |
+| **Custom** | whatever you define                               | Agent-config `customTools` — see [Configuration](./configuration.md#agent-config-customtools)      |
 
 ---
 
 ## How approval pairs work
 
-Fifteen tools are **gated**: calling them does not act. They return a description of the
+Seven tools are **gated**: calling them does not act. They return a description of the
 intended action (including a preview diff for edits), and only after approval — from a human
 or from `--approval-policy` — does Jazz invoke the hidden `execute_*` counterpart.
 
@@ -59,128 +59,105 @@ You never call `execute_*` names yourself; they are hidden from the model's tool
 
 ### File Management
 
-| Tool | Risk | Approval pair | What it does |
-| --- | --- | --- | --- |
-| `cd` | `read-only` | — | Change the working directory for this session. Persists across subsequent tool calls. |
-| `cp` | `high-risk` | `execute_cp` | Copy a file or directory. Equivalent to shell cp/cp -r. Directories are copied recursively. |
-| `edit_file` | `high-risk` | `execute_edit_file` | Edit file via replace_lines, replace_pattern, insert, or delete_lines. Applied in order. IMPORTANT: Use rep… |
-| `find` | `read-only` | — | Find files/directories by name, glob, or regex. Searches names/paths, NOT file contents (use grep for that)… |
-| `grep` | `read-only` | — | Search file contents for text patterns (ripgrep with grep fallback). Supports regex, file filters, context… |
-| `head` | `read-only` | — | Read the first N lines of a file (default 10). |
-| `ls` | `read-only` | — | List directory contents. Supports recursive traversal, name filtering, hidden files. Default 200 results, c… |
-| `mkdir` | `high-risk` | `execute_mkdir` | Create a directory. Parents created automatically by default. |
-| `mv` | `high-risk` | `execute_mv` | Move or rename a file or directory. Equivalent to shell mv. |
-| `pdf_page_count` | `read-only` | — | Get total page count of a PDF without reading content. |
-| `pwd` | `read-only` | — | Print the current working directory. |
-| `read_file` | `read-only` | — | Read a text file with optional line range (startLine/endLine). Handles BOM, enforces size limits. |
-| `read_pdf` | `read-only` | — | Extract text and tables from a PDF. Use pdf_page_count first for large files. Supports page ranges. |
-| `rm` | `high-risk` | `execute_rm` | Remove a file or directory. May be irreversible. |
-| `stat` | `read-only` | — | Check file/directory existence and get metadata (type, size, times). |
-| `tail` | `read-only` | — | Read the last N lines of a file (default 10). |
-| `write_file` | `high-risk` | `execute_write_file` | Write content to a file, creating it if needed. Replaces entire file content. |
+| Tool             | Risk        | Approval pair        | What it does                                                                                                              |
+| ---------------- | ----------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `cd`             | `read-only` | —                    | Change the working directory for this session. Persists across subsequent tool calls.                                     |
+| `cp`             | `high-risk` | `execute_cp`         | Copy a file or directory. Equivalent to shell cp/cp -r. Directories are copied recursively.                               |
+| `edit_file`      | `high-risk` | `execute_edit_file`  | Edit file via replace_lines, replace_pattern, insert, or delete_lines. Applied in order. IMPORTANT: Use rep…              |
+| `find`           | `read-only` | —                    | Find files/directories by name, glob, or regex. Also advertised as `glob`. Searches names/paths, NOT contents (use grep). |
+| `grep`           | `read-only` | —                    | Search file contents for text patterns (ripgrep with grep fallback). Supports regex, file filters, context…               |
+| `ls`             | `read-only` | —                    | List directory contents. Supports recursive traversal, name filtering, hidden files. Default 200 results, c…              |
+| `mkdir`          | `high-risk` | `execute_mkdir`      | Create a directory. Parents created automatically by default.                                                             |
+| `mv`             | `high-risk` | `execute_mv`         | Move or rename a file or directory. Equivalent to shell mv.                                                               |
+| `pdf_page_count` | `read-only` | —                    | Get total page count of a PDF without reading content.                                                                    |
+| `pwd`            | `read-only` | —                    | Print the current working directory.                                                                                      |
+| `read_file`      | `read-only` | —                    | Read a UTF-8 text file with numbered lines. startLine/endLine; negative startLine reads from the end.                     |
+| `read_pdf`       | `read-only` | —                    | Extract text and tables from a PDF. Use pdf_page_count first for large files. Supports page ranges.                       |
+| `rm`             | `high-risk` | `execute_rm`         | Remove a file or directory. May be irreversible.                                                                          |
+| `stat`           | `read-only` | —                    | Check file/directory existence and get metadata (type, size, times).                                                      |
+| `write_file`     | `high-risk` | `execute_write_file` | Write content to a file, creating it if needed. Replaces entire file content.                                             |
 
 ### Shell Commands
 
-| Tool | Risk | Approval pair | What it does |
-| --- | --- | --- | --- |
-| `execute_command` | `high-risk` | `execute_execute_command` | Execute a shell command. Use only when no dedicated tool exists. Stdout/stderr capped at 256 KB each. |
-
-### Git
-
-| Tool | Risk | Approval pair | What it does |
-| --- | --- | --- | --- |
-| `git_add` | `high-risk` | `execute_git_add` | Stage files for the next commit. Specify files or use all:true. |
-| `git_blame` | `read-only` | — | Show revision and author for each line of a file. Supports line ranges. |
-| `git_branch` | `read-only` | — | List branches (local, remote, or both) and show current branch. |
-| `git_checkout` | `high-risk` | `execute_git_checkout` | Switch branches or create a new branch (create:true). force discards uncommitted changes. |
-| `git_commit` | `high-risk` | `execute_git_commit` | Create a commit from staged changes. Use git_add first to stage files. |
-| `git_diff` | `read-only` | — | Show differences between commits, branches, or working tree. Returns the whole diff by default; maxLines ca… |
-| `git_log` | `read-only` | — | Show commit history. Default 20 commits, cap 50. |
-| `git_merge` | `high-risk` | `execute_git_merge` | Merge a branch into the current branch. Supports squash, no-ff, and abort. |
-| `git_pull` | `high-risk` | `execute_git_pull` | Pull changes from a remote. Supports rebase mode. |
-| `git_push` | `high-risk` | `execute_git_push` | Push commits to a remote. Supports force push. |
-| `git_reflog` | `read-only` | — | Show reference log for HEAD or a branch. Useful for recovering lost commits. |
-| `git_rm` | `high-risk` | `execute_git_rm` | Remove files from Git tracking. Supports cached (index only), recursive, and force. |
-| `git_status` | `read-only` | — | Show current branch, modified files, staged changes, and untracked files. |
-| `git_tag` | `high-risk` | `execute_git_tag` | Create or delete Git tags. Supports lightweight and annotated. |
-| `git_tag_list` | `read-only` | — | List all Git tags, newest first. |
+| Tool              | Risk        | Approval pair             | What it does                                                                                                                                                  |
+| ----------------- | ----------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `execute_command` | `high-risk` | `execute_execute_command` | Run a shell command when no dedicated tool exists. Inspect-only commands may be classified `read-only` for auto-approve. Stdout/stderr capped at 256 KB each. |
 
 ### Web Search
 
-| Tool | Risk | Approval pair | What it does |
-| --- | --- | --- | --- |
-| `web_search` | `read-only` | — | Search the web for real-time information. |
+| Tool         | Risk        | Approval pair | What it does                              |
+| ------------ | ----------- | ------------- | ----------------------------------------- |
+| `web_search` | `read-only` | —             | Search the web for real-time information. |
 
 ### Web Fetch
 
-| Tool | Risk | Approval pair | What it does |
-| --- | --- | --- | --- |
-| `web_fetch` | `read-only` | — | Fetch and extract text content from a URL. |
+| Tool        | Risk        | Approval pair | What it does                               |
+| ----------- | ----------- | ------------- | ------------------------------------------ |
+| `web_fetch` | `read-only` | —             | Fetch and extract text content from a URL. |
 
 ### HTTP
 
-| Tool | Risk | Approval pair | What it does |
-| --- | --- | --- | --- |
-| `http_request` | `read-only` | — | Send HTTP requests. Supports all methods, headers, query params, and body formats. |
+| Tool           | Risk        | Approval pair | What it does                                                                       |
+| -------------- | ----------- | ------------- | ---------------------------------------------------------------------------------- |
+| `http_request` | `read-only` | —             | Send HTTP requests. Supports all methods, headers, query params, and body formats. |
 
 ### Todo
 
-| Tool | Risk | Approval pair | What it does |
-| --- | --- | --- | --- |
-| `list_todos` | `read-only` | — | Read the current todo list. Returns all items with their status and priority. |
-| `manage_todos` | `low-risk` | — | Create or update the todo list. Send the FULL list of items each time (replaces the previous list). Use thi… |
+| Tool                | Risk        | Approval pair | What it does                                                                                                 |
+| ------------------- | ----------- | ------------- | ------------------------------------------------------------------------------------------------------------ |
+| `list_todos`        | `read-only` | —             | Read the current todo list. Returns all items with their status and priority.                                |
+| `manage_todos`      | `low-risk`  | —             | Create or update the todo list. Send the FULL list of items each time (replaces the previous list). Use thi… |
+| `update_task_state` | `low-risk`  | —             | Record where you are in the current task so it survives compaction and resuming later. Patches o…            |
 
 ### Memory
 
-Opt-in per agent (like File Management or Git) rather than always-on — see [Memory](../internals/memory.md).
+Opt-in per agent (like File Management) rather than always-on — see [Memory](../internals/memory.md).
 
-| Tool | Risk | Approval pair | What it does |
-| --- | --- | --- | --- |
-| `view_memory` | `read-only` | — | Read what you've saved about this person or project from earlier conversations. Call with no pa… |
-| `manage_memory` | `low-risk` | — | Create, edit, rename, or delete files under your persistent memory directory — the durable notes… |
-| `update_task_state` | `low-risk` | — | Record where you are in the current task so it survives compaction and resuming later. Patches o… |
+| Tool            | Risk        | Approval pair | What it does                                                                                      |
+| --------------- | ----------- | ------------- | ------------------------------------------------------------------------------------------------- |
+| `view_memory`   | `read-only` | —             | Read what you've saved about this person or project from earlier conversations. Call with no pa…  |
+| `manage_memory` | `low-risk`  | —             | Create, edit, rename, or delete files under your persistent memory directory — the durable notes… |
 
-`update_task_state` is scoped to one conversation and discarded when the task ends, unlike
-memory which persists across conversations — see [Context management](../internals/context-management.md).
+`update_task_state` lives with the todo tools (always-on). It is scoped to one conversation and discarded when the task ends, unlike memory which persists across conversations — see [Context management](../internals/context-management.md).
 
 ### Reminders
 
 Opt-in per agent. Reminders persist on disk and fire later on the same surface that scheduled them — see [Reminders](../internals/reminders.md).
 
-| Tool | Risk | Approval pair | What it does |
-| --- | --- | --- | --- |
-| `add_reminder` | `low-risk` | — | Schedule a reminder from a duration (`30m`), clock time (`18:00`), or `tomorrow HH:MM`. |
-| `list_reminders` | `read-only` | — | List this person's pending reminders, including their id, fire time, and text. |
-| `cancel_reminder` | `low-risk` | — | Cancel a pending reminder by id (get the id from list_reminders first). |
+| Tool              | Risk        | Approval pair | What it does                                                                            |
+| ----------------- | ----------- | ------------- | --------------------------------------------------------------------------------------- |
+| `add_reminder`    | `low-risk`  | —             | Schedule a reminder from a duration (`30m`), clock time (`18:00`), or `tomorrow HH:MM`. |
+| `list_reminders`  | `read-only` | —             | List this person's pending reminders, including their id, fire time, and text.          |
+| `cancel_reminder` | `low-risk`  | —             | Cancel a pending reminder by id (get the id from list_reminders first).                 |
 
 ### Context
 
-| Tool | Risk | Approval pair | What it does |
-| --- | --- | --- | --- |
-| `context_info` | `read-only` | — | Get current context window token usage statistics. |
-| `get_time` | `read-only` | — | Get current date and time. Use for scheduling, relative times (yesterday, next Monday), and timestamps. |
+| Tool           | Risk        | Approval pair | What it does                                                                                            |
+| -------------- | ----------- | ------------- | ------------------------------------------------------------------------------------------------------- |
+| `context_info` | `read-only` | —             | Get current context window token usage statistics.                                                      |
+| `get_time`     | `read-only` | —             | Get current date and time. Use for scheduling, relative times (yesterday, next Monday), and timestamps. |
 
 ### Sub Agents
 
-| Tool | Risk | Approval pair | What it does |
-| --- | --- | --- | --- |
-| `spawn_subagent` | `low-risk` | — | Spawn a sub-agent with fresh context for a specific task. Personas: coder, researcher, default. Pass a shor… |
-| `summarize_context` | `read-only` | — | Compact conversation by summarizing older messages to free token budget. Always performs summarization when… |
+| Tool                | Risk        | Approval pair | What it does                                                                                                 |
+| ------------------- | ----------- | ------------- | ------------------------------------------------------------------------------------------------------------ |
+| `spawn_subagent`    | `low-risk`  | —             | Spawn a sub-agent with fresh context for a specific task. Personas: coder, researcher, default. Pass a shor… |
+| `summarize_context` | `read-only` | —             | Compact conversation by summarizing older messages to free token budget. Always performs summarization when… |
 
 ### User Interaction
 
-| Tool | Risk | Approval pair | What it does |
-| --- | --- | --- | --- |
-| `ask_file_picker` | `read-only` | — | Show an interactive file picker for the user to select a file. |
-| `ask_user_question` | `read-only` | — | Ask the user a question with interactive selectable suggestions. One question per call. |
+| Tool                | Risk        | Approval pair | What it does                                                                            |
+| ------------------- | ----------- | ------------- | --------------------------------------------------------------------------------------- |
+| `ask_file_picker`   | `read-only` | —             | Show an interactive file picker for the user to select a file.                          |
+| `ask_user_question` | `read-only` | —             | Ask the user a question with interactive selectable suggestions. One question per call. |
 
 ### Web App
 
 Opt-in per agent via `tools`. Used by chat bridges that can render a Mini App or a static image.
 
-| Tool | Risk | Approval pair | What it does |
-| --- | --- | --- | --- |
-| `create_web_app` | `low-risk` | — | Create an interactive UI — a chart, form, dashboard, small game, or any other webpage — for delivery as a static image or a live page. |
+| Tool             | Risk       | Approval pair | What it does                                                                                                                           |
+| ---------------- | ---------- | ------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `create_web_app` | `low-risk` | —             | Create an interactive UI — a chart, form, dashboard, small game, or any other webpage — for delivery as a static image or a live page. |
 
 ---
 
@@ -190,11 +167,11 @@ A common and consequential misreading. These capabilities exist, but **not as bu
 tools** — they are [skills](../concepts/skills.md) that shell out through
 `execute_command`, which is `high-risk`:
 
-| Capability | How it actually works | Effective risk tier |
-| --- | --- | --- |
-| Email (read, archive, send) | `email` skill → [Himalaya](https://github.com/pimalaya/himalaya) CLI via `execute_command` | `high-risk` |
-| Calendar (list, create) | `calendar` skill → [khal](https://github.com/pimutils/khal) via `execute_command` | `high-risk` |
-| Obsidian vault writes | `obsidian` skill → CLI via `execute_command`, or `write_file` | `high-risk` |
+| Capability                  | How it actually works                                                                      | Effective risk tier |
+| --------------------------- | ------------------------------------------------------------------------------------------ | ------------------- |
+| Email (read, archive, send) | `email` skill → [Himalaya](https://github.com/pimalaya/himalaya) CLI via `execute_command` | `high-risk`         |
+| Calendar (list, create)     | `calendar` skill → [khal](https://github.com/pimutils/khal) via `execute_command`          | `high-risk`         |
+| Obsidian vault writes       | `obsidian` skill → CLI via `execute_command`, or `write_file`                              | `high-risk`         |
 
 So a scheduled workflow set to `autoApprove: low-risk` **cannot archive an email** — every
 himalaya invocation is declined. The fix is usually *not* to raise the whole tier to
@@ -214,6 +191,7 @@ That keeps the tier low while letting the one command through. Matching is on a 
 ## Notes
 
 - **`find` vs `grep`** — `find` locates files by name, glob, or path pattern. `grep` searches *inside* file contents. Non-overlapping on purpose.
+- **`execute_command` classifier** — there are no `git_*` tools. Under `autoApprove: read-only` or `low-risk`, a harness-model classifier may treat an inspect-only command as `read-only`. Timeouts and ambiguous replies stay `high-risk`. See [Tools & approval](../internals/tools-and-approval.md#command-classifier).
 - **`http_request` is `read-only`** by risk classification even though it can issue POSTs. It reaches whatever URL the agent targets; network policy belongs at the firewall, not the tier. Treat it accordingly on surfaces that accept untrusted input.
 - **Timeouts** — 3 minutes by default per tool. `ask_user_question` and `ask_file_picker` are `longRunning` and never time out, because waiting for a human is not a hang.
 - **Concurrency** — up to 10 tools execute in parallel per iteration.

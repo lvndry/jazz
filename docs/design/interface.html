@@ -1,0 +1,1174 @@
+<title>The Jazz Interface</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Public+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&family=Martian+Mono:wght@300;400;600&display=swap">
+
+<style>
+  :root {
+    --void: #050608;
+    --plinth: #0C0E12;
+    --plinth-2: #12151A;
+    --rule: #1E222A;
+    --rule-2: #171B21;
+    --chalk: #F2F4F7;
+    --chalk-2: #A8B0BC;
+    --chalk-3: #6B7381;
+    --cyan: #00D7FF;
+    --orange: #FF5F1F;
+
+    --display: "Instrument Serif", Georgia, serif;
+    --body: "Public Sans", -apple-system, sans-serif;
+    --mono: "Martian Mono", ui-monospace, Menlo, monospace;
+    --term: ui-monospace, "SF Mono", Menlo, "DejaVu Sans Mono", monospace;
+
+    --gutter: clamp(20px, 5vw, 72px);
+    --lift: 0 2px 6px rgba(0,0,0,.5), 0 30px 70px -24px rgba(0,0,0,.9);
+  }
+
+  /* Deliberately single-theme: this is a dark gallery, and it commits.
+     Every colour is painted explicitly so it holds on any host ground. */
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--void);
+    color: var(--chalk);
+    font-family: var(--body);
+    font-size: 16.5px;
+    line-height: 1.65;
+    font-weight: 300;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 1240px; margin: 0 auto; padding: 0 var(--gutter); }
+  .narrow { max-width: 760px; }
+
+  h1, h2, h3 { font-family: var(--display); font-weight: 400; margin: 0; text-wrap: balance; }
+  h1 { font-size: clamp(58px, 12vw, 148px); line-height: .88; letter-spacing: -.025em; }
+  h2 { font-size: clamp(34px, 5.5vw, 62px); line-height: 1.02; letter-spacing: -.015em; }
+  h3 { font-size: clamp(24px, 3vw, 33px); line-height: 1.12; }
+  h4 {
+    font-family: var(--body); font-size: 15px; font-weight: 600; margin: 0;
+    letter-spacing: -.005em; color: var(--chalk);
+  }
+  em { font-style: italic; }
+  p { margin: 0 0 1.1em; max-width: 64ch; color: var(--chalk-2); }
+  p:last-child { margin-bottom: 0; }
+  p b, p strong { color: var(--chalk); font-weight: 500; }
+  a { color: var(--cyan); }
+  code {
+    font-family: var(--term); font-size: .88em;
+    background: var(--rule-2); padding: .12em .38em; border-radius: 3px; color: var(--chalk);
+  }
+
+  .label {
+    font-family: var(--mono); font-size: 9.5px; font-weight: 600;
+    letter-spacing: .16em; text-transform: uppercase; color: var(--chalk-3);
+    font-variant-numeric: tabular-nums;
+  }
+  .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+  /* ---------- hero ---------- */
+  .hero {
+    position: relative; overflow: hidden;
+    padding: clamp(60px, 14vh, 170px) 0 clamp(40px, 8vh, 90px);
+  }
+  .hero::before {
+    content: ""; position: absolute; inset: 0;
+    background-image:
+      repeating-linear-gradient(to right, var(--rule) 0 1px, transparent 1px 10px),
+      repeating-linear-gradient(to bottom, var(--rule) 0 1px, transparent 1px 20px);
+    opacity: .55;
+    mask-image: radial-gradient(100% 80% at 76% 4%, #000 0%, transparent 70%);
+    -webkit-mask-image: radial-gradient(100% 80% at 76% 4%, #000 0%, transparent 70%);
+  }
+  .hero .wrap { position: relative; }
+  .hero-mark {
+    font-family: var(--term); font-size: clamp(64px, 13vw, 150px); line-height: 1;
+    color: var(--cyan); display: block; margin-bottom: clamp(8px, 2vh, 24px);
+  }
+  .hero h1 span { font-style: italic; }
+  .standfirst {
+    font-size: clamp(19px, 2.2vw, 26px); line-height: 1.45; color: var(--chalk-2);
+    max-width: 42ch; margin-top: clamp(26px, 4vh, 44px); font-weight: 300;
+  }
+  .standfirst b { color: var(--chalk); font-weight: 400; }
+
+  .meta {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+    gap: 1px; background: var(--rule); border: 1px solid var(--rule);
+    margin-top: clamp(38px, 7vh, 72px);
+  }
+  .meta > div { background: var(--void); padding: 15px 17px; }
+  .meta dt { margin-bottom: 7px; }
+  .meta dd { margin: 0; font-family: var(--mono); font-size: 11.5px; color: var(--chalk); }
+
+  /* ---------- sections ---------- */
+  section { padding: clamp(60px, 11vh, 130px) 0; border-top: 1px solid var(--rule); }
+  .sec-head { margin-bottom: clamp(32px, 5vh, 56px); }
+  .sec-head .label { display: block; margin-bottom: 18px; }
+  .sec-head p { font-size: clamp(18px, 2vw, 22px); margin-top: 22px; }
+
+  /* ---------- plate ---------- */
+  .plate-frame {
+    border-radius: 12px; overflow: hidden; box-shadow: var(--lift);
+    border: 1px solid var(--rule); background: var(--plinth);
+  }
+  .plate-bar {
+    display: flex; align-items: center; gap: 9px; padding: 10px 14px;
+    background: var(--plinth-2); border-bottom: 1px solid var(--rule);
+  }
+  .plate-bar .dots { display: flex; gap: 5px; }
+  .plate-bar .dots i { width: 9px; height: 9px; border-radius: 50%; background: var(--chalk-3); opacity: .45; }
+  .plate-bar .name {
+    font-family: var(--mono); font-size: 9.5px; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--chalk-3);
+  }
+  .plate-tabs { margin-left: auto; display: flex; gap: 5px; flex-wrap: wrap; }
+  .plate-tabs button {
+    font-family: var(--mono); font-size: 9px; font-weight: 600; letter-spacing: .1em;
+    text-transform: uppercase; background: transparent; color: var(--chalk-3);
+    border: 1px solid var(--rule); border-radius: 100px; padding: 4px 10px; cursor: pointer;
+  }
+  .plate-tabs button:hover { color: var(--chalk); border-color: var(--chalk-3); }
+  .plate-tabs button[aria-pressed="true"] { color: var(--chalk); border-color: var(--chalk-2); }
+  .plate-body[hidden] { display: none; }
+  .plate-caption {
+    display: flex; justify-content: space-between; gap: 18px; flex-wrap: wrap;
+    margin-top: 14px;
+  }
+
+  /* ---------- cards ---------- */
+  .grid { display: grid; gap: clamp(16px, 2.4vw, 26px); }
+  .g2 { grid-template-columns: minmax(0,1fr); }
+  .g3 { grid-template-columns: minmax(0,1fr); }
+  @media (min-width: 780px) { .g2 { grid-template-columns: repeat(2, minmax(0,1fr)); } }
+  @media (min-width: 980px) { .g3 { grid-template-columns: repeat(3, minmax(0,1fr)); } }
+
+  .card {
+    background: var(--plinth); border: 1px solid var(--rule);
+    border-radius: 9px; padding: 22px;
+  }
+  .card > .label { display: block; margin-bottom: 15px; }
+  .card p { font-size: 14.5px; }
+
+  /* ---------- swatches ---------- */
+  .swatches { display: grid; gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: 5px; overflow: hidden; }
+  .sw { display: grid; grid-template-columns: 30px 1fr auto; gap: 11px; align-items: center; background: var(--plinth); padding: 8px 10px; }
+  .sw i { width: 30px; height: 21px; border-radius: 3px; box-shadow: inset 0 0 0 1px rgba(255,255,255,.14); }
+  .sw b { font-family: var(--mono); font-size: 10px; font-weight: 400; color: var(--chalk-2); }
+  .sw code { background: none; padding: 0; font-family: var(--mono); font-size: 9.5px; color: var(--chalk-3); }
+
+  /* ---------- glyph wall ---------- */
+  .wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(70px, 1fr)); gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: 5px; overflow: hidden; }
+  .wall div { background: var(--plinth); padding: 11px 4px; text-align: center; }
+  .wall span { display: block; font-family: var(--term); font-size: 20px; line-height: 1.25; color: var(--chalk); }
+  .wall small { display: block; font-family: var(--mono); font-size: 7.5px; letter-spacing: .05em; color: var(--chalk-3); margin-top: 4px; }
+
+  /* ---------- indicators ---------- */
+  .inds { display: grid; gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; }
+  .ind { background: var(--plinth); display: grid; grid-template-columns: 5em 1fr auto; gap: 14px; align-items: start; padding: 14px 15px; }
+  .ind .anim {
+    font-family: var(--term); font-size: 17px; line-height: 1.1; white-space: pre;
+    color: var(--cyan); font-variant-numeric: tabular-nums;
+  }
+  .ind b { font-family: var(--mono); font-size: 10.5px; font-weight: 400; color: var(--chalk); display: block; }
+  .ind small { display: block; font-size: 13px; color: var(--chalk-3); line-height: 1.45; margin-top: 5px; }
+  .ind .ms { font-family: var(--mono); font-size: 9.5px; color: var(--chalk-3); }
+  .strip { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 9px; }
+  .strip i {
+    font-family: var(--term); font-style: normal; font-size: 12px; white-space: pre;
+    color: var(--chalk-2); background: var(--rule-2); border-radius: 2px; padding: 2px 4px;
+  }
+
+  /* ---------- rules / callouts ---------- */
+  .note { border-left: 2px solid var(--cyan); padding: 3px 0 3px 20px; margin-top: 28px; }
+  .note.warm { border-left-color: var(--orange); }
+  .note.quiet { border-left-color: var(--chalk-3); }
+  .note .label { display: block; margin-bottom: 9px; }
+  .note p { font-size: 17px; color: var(--chalk-2); max-width: 58ch; }
+
+  .tablewrap { overflow-x: auto; border: 1px solid var(--rule); border-radius: 8px; background: var(--plinth); }
+  table { border-collapse: collapse; width: 100%; min-width: 560px; }
+  th, td { text-align: left; padding: 12px 15px; border-bottom: 1px solid var(--rule-2); vertical-align: top; }
+  th { font-family: var(--mono); font-size: 9px; font-weight: 600; letter-spacing: .13em; text-transform: uppercase; color: var(--chalk-3); background: var(--plinth-2); white-space: nowrap; }
+  td { font-size: 14.5px; color: var(--chalk-2); }
+  td:first-child { color: var(--chalk); }
+  tr:last-child td { border-bottom: none; }
+
+  .controls { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 24px; }
+  button.ctl {
+    font-family: var(--mono); font-size: 9.5px; font-weight: 600; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--chalk-2); background: var(--plinth);
+    border: 1px solid var(--rule); border-radius: 100px; padding: 9px 15px; cursor: pointer;
+  }
+  button.ctl:hover { color: var(--chalk); border-color: var(--chalk-3); }
+  a:focus-visible, button:focus-visible { outline: 2px solid var(--cyan); outline-offset: 3px; border-radius: 3px; }
+
+  footer { padding: 60px 0 90px; border-top: 1px solid var(--rule); }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation-duration: .001ms !important; transition-duration: .001ms !important; }
+  }
+</style>
+
+<header class="hero">
+  <div class="wrap">
+    <span class="hero-mark">▞</span>
+    <h1>The Jazz<br><span>Interface</span></h1>
+    <p class="standfirst">
+      A generalist computer agent, redrawn. One mark, one column, six colours, and two
+      rules that decide every case: <b>colour is semantics, and motion is only allowed
+      where text is not.</b>
+    </p>
+    <dl class="meta">
+      <div><dt class="label">Mark</dt><dd><span style="font-family:var(--term);color:var(--cyan)">▞</span> &nbsp;U+259E</dd></div>
+      <div><dt class="label">Structure</dt><dd>fullscreen</dd></div>
+      <div><dt class="label">Floor</dt><dd>256-color, SSH</dd></div>
+      <div><dt class="label">Palette</dt><dd>six hues</dd></div>
+      <div><dt class="label">Ink density</dt><dd>16% of cells</dd></div>
+    </dl>
+  </div>
+</header>
+
+<section id="identity">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="label">01 &nbsp;/&nbsp; Identity</span>
+      <h2>One codepoint, three durations</h2>
+      <p>
+        The mark is a single quadrant pair. The wordmark is that pair extended into a
+        two-voice rhythm. The activity indicator is that same pair given a life-cycle and
+        multiplied across five lanes. One idea &mdash; <em>offset, off the grid, more
+        than one voice</em> &mdash; expressed at three timescales, which is why the family
+        reads as designed rather than assembled.
+      </p>
+    </div>
+
+    <div class="grid g2" style="align-items:start">
+      <div class="card" style="padding:clamp(26px,4vw,46px)">
+        <span class="label">The mark</span>
+        <div style="display:flex;gap:clamp(20px,4vw,40px);align-items:center;flex-wrap:wrap">
+          <div style="font-family:var(--term);font-size:clamp(80px,14vw,132px);line-height:1;color:var(--cyan)">▞</div>
+          <div style="flex:1;min-width:200px">
+            <h3 style="margin-bottom:12px">Swing quadrant</h3>
+            <p style="font-size:15px">
+              Two filled squares offset off the grid. That is <em>syncopation</em> &mdash;
+              the actual musical content of jazz &mdash; rather than a picture of a
+              musical note. The ascending diagonal is also the stroke of a
+              <strong>z</strong>, and jazz has two.
+            </p>
+          </div>
+        </div>
+        <div class="tablewrap" style="margin-top:24px;border:none">
+          <table style="min-width:0">
+            <tbody>
+              <tr><td>Codepoint</td><td class="mono">U+259E</td></tr>
+              <tr><td>Block</td><td>Block Elements &mdash; 32/32 in every target font</td></tr>
+              <tr><td>East-Asian width</td><td>Neutral &mdash; one column in every locale</td></tr>
+              <tr><td>Collides with</td><td>nothing in the ecosystem</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div>
+        <div class="card">
+          <span class="label">The family it generates</span>
+          <div class="grid g3" style="gap:1px;background:var(--rule);border:1px solid var(--rule);border-radius:6px;overflow:hidden">
+            <div style="background:var(--plinth);padding:20px;text-align:center">
+              <div style="font-family:var(--term);font-size:34px;color:var(--cyan);line-height:1.2">▞▚</div>
+              <h4 style="margin-top:12px">Trade fours</h4>
+              <p style="font-size:13px;margin-top:6px">Call and response. Two soloists trading.</p>
+            </div>
+            <div style="background:var(--plinth);padding:20px;text-align:center">
+              <div style="font-family:var(--term);font-size:34px;color:var(--cyan);line-height:1.2">▖▘▝</div>
+              <h4 style="margin-top:12px">The section</h4>
+              <p style="font-size:13px;margin-top:6px">Three voices, three heights. An ensemble, not a soloist.</p>
+            </div>
+            <div style="background:var(--plinth);padding:20px;text-align:center">
+              <div style="font-family:var(--term);font-size:34px;color:var(--cyan);line-height:1.2">▙▚▖</div>
+              <h4 style="margin-top:12px">Lead &amp; section</h4>
+              <p style="font-size:13px;margin-top:6px">Weight decaying heavy to light. One lead, the section behind.</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="card" style="margin-top:clamp(16px,2.4vw,26px)">
+          <span class="label">Wordmark &mdash; startup, once per session</span>
+          <pre style="font-family:var(--term);font-size:14px;line-height:1.55;margin:0;color:var(--chalk);overflow-x:auto"><span style="color:var(--cyan)">▄▀▀▄▀▄▄▀▀▄▄▀▄▀▀▄▀▀▄▀▄▄▀▀▄▄▀▄▀▀▄▀▀▄▀▄▄▀▀▄</span>
+<span style="color:var(--cyan)">▞</span>  jazz  0.14.2
+   <span style="color:var(--chalk-3)">One agent. Every surface. Your rules.</span></pre>
+          <p style="font-size:14px;margin-top:16px">
+            The ornament is not decoration, and it isn't the name spelled a second time.
+            Upper half-cells and lower half-cells are <strong>two independent rhythmic
+            voices sharing one line of text</strong> &mdash; a five-cell figure against a
+            three-cell one, so the pattern never settles into a square loop. It's a
+            polyrhythm you can read. Three lines total, and no alignment dependency
+            anything can break.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <div class="note">
+      <span class="label">One codepoint that works everywhere</span>
+      <p>
+        <code>▞</code> is present in Menlo, SF Mono, Consolas, DejaVu Sans Mono and
+        JetBrains Mono &mdash; Block Elements is one of only two ranges at full coverage
+        in all five. It is East-Asian <strong>Neutral</strong>, so it occupies exactly one
+        column in every terminal and every locale. And Warp draws it
+        <strong>procedurally</strong>, as an exact rectangle rather than a font glyph, so
+        it tiles seamlessly at any size.
+      </p>
+    </div>
+  </div>
+</section>
+
+<section id="motion">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="label">02 &nbsp;/&nbsp; Waiting</span>
+      <h2>An indicator that can count</h2>
+      <p>
+        A generalist agent's characteristic state is three things in flight at once
+        &mdash; reaching into your inbox, a search and your calendar simultaneously.
+        No existing tool's spinner expresses concurrency at all. This one does:
+        <b>idle lanes stay dark, so the number of moving lanes is the number of things
+        actually running.</b> The animation is an instrument, not a loading GIF.
+      </p>
+    </div>
+
+    <div class="controls">
+      <button class="ctl" data-toggle-motion>Pause motion</button>
+    </div>
+
+    <div class="inds">
+      <div class="ind">
+        <span class="anim" data-lanes='[3,4,5,7,11]' data-interval="170">▖░░░░</span>
+        <span>
+          <b>Five Lanes &mdash; the default</b>
+          <small>Five lanes, each resting and then playing a three-step burst &mdash; <code>▖</code> opening, <code>▚</code> live, <code>▘</code> closing &mdash; on its own period of 3, 4, 5, 7 and 11 frames. Those are pairwise coprime, so the composite pattern runs <strong>13 minutes</strong> before it repeats. A longer period just means a longer rest, so lane activity reads as how much is actually in flight.</small>
+          <span class="strip"><i>3</i><i>4</i><i>5</i><i>7</i><i>11</i></span>
+        </span>
+        <span class="ms">170ms</span>
+      </div>
+      <div class="ind">
+        <span class="anim" data-frames='["▞ ","▚ ","  "," ▞"," ▚","  "]' data-interval="180">▞ </span>
+        <span>
+          <b>Trade Fours &mdash; one tool</b>
+          <small>Left cell calls, right cell answers. Maps exactly onto request and response, which is what a single tool call is.</small>
+          <span class="strip"><i>▞ </i><i>▚ </i><i>  </i><i> ▞</i><i> ▚</i><i>  </i></span>
+        </span>
+        <span class="ms">180ms</span>
+      </div>
+      <div class="ind">
+        <span class="anim" data-frames='["▖","▖","▘","▝","▝","▗"]' data-interval="130">▖</span>
+        <span>
+          <b>Swung Eighths &mdash; thinking</b>
+          <small>One cell. Swing encoded by <em>frame duplication</em>: each downbeat is held two ticks and each upbeat one, which is literally what swung eighths are. The only design here that carries a groove in a single cell.</small>
+          <span class="strip"><i>▖</i><i>▖</i><i>▘</i><i>▝</i><i>▝</i><i>▗</i></span>
+        </span>
+        <span class="ms">130ms</span>
+      </div>
+      <div class="ind">
+        <span class="anim" data-frames='["▚▞░░░░░░","░▚▞░░░░░","░░▚▞░░░░","░░░▚▞░░░","░░░░▚▞░░","░░░░░▚▞░","░░░░░░▚▞","▞░░░░░░▚"]' data-interval="120">▚▞░░░░░░</span>
+        <span>
+          <b>Drift &mdash; indeterminate</b>
+          <small>A lit window slides through a fixed track and <em>wraps</em>. Motion is continuous and directional, but because the window wraps instead of accumulating there is never a filled fraction to misread as a percentage. The split frame at the seam is what proves it's a loop and not a bar.</small>
+          <span class="strip"><i>▚▞░░░░░░</i><i>░▚▞░░░░░</i><i>░░▚▞░░░░</i><i>░░░▚▞░░░</i><i>░░░░▚▞░░</i><i>░░░░░▚▞░</i><i>░░░░░░▚▞</i><i>▞░░░░░░▚</i></span>
+        </span>
+        <span class="ms">120ms</span>
+      </div>
+      <div class="ind">
+        <span class="anim" data-frames='["▖░░░░░","░▖░░░░","░░▖░░░","░░░▖░░","░░░░▖░","░░░░░▖"]' data-interval="750">▖░░░░░</span>
+        <span>
+          <b>Tide &mdash; the long wait</b>
+          <small>Two cells change per frame at 750ms, no reversal, no rotation, low contrast. It genuinely runs for three minutes without irritating anyone &mdash; so calm that it needs an elapsed counter beside it to confirm anything is happening.</small>
+          <span class="strip"><i>▖░░░░░</i><i>░▖░░░░</i><i>░░▖░░░</i><i>░░░▖░░</i><i>░░░░▖░</i><i>░░░░░▖</i></span>
+        </span>
+        <span class="ms">750ms</span>
+      </div>
+    </div>
+
+    <div class="note">
+      <span class="label">The rule</span>
+      <p>
+        Never show a filling bar for something whose duration you don't know. Drift and
+        Tide exist so there is always a truthful alternative &mdash; and because every
+        glyph here is a <em>filled area</em> rather than a thin stroke, the identity
+        survives on ink coverage alone. Monochrome costs contrast, never information.
+      </p>
+    </div>
+    <div class="note quiet">
+      <span class="label">Built to render identically everywhere</span>
+      <p>
+        Every frame above is drawn from the quadrant and shade set &mdash;
+        <code>▖▗▘▝▚▞</code> and <code>░</code>. That range is fully present in all five
+        target monospace fonts, it is East-Asian <strong>Neutral</strong> so a frame is the
+        same width in every locale, and Warp renders it <strong>procedurally</strong> as
+        exact rectangles that tile without seams. An indicator that is the same width on
+        every machine is an indicator that can sit inside an aligned layout.
+      </p>
+    </div>
+  </div>
+</section>
+<section id="layout">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="label">03 &nbsp;/&nbsp; Layout</span>
+      <h2>One window. One column. No panels.</h2>
+      <p>
+        A conversation is a vertical thing. Everything else in the interface is either
+        above it or below it, and nothing sits beside it.
+      </p>
+    </div>
+
+    <div class="grid g2" style="align-items:start">
+      <div class="card" style="padding:clamp(24px,3.5vw,40px)">
+        <span class="label">The whole structure</span>
+        <pre style="font-family:var(--term);font-size:12.5px;line-height:1.7;margin:0;color:var(--chalk-2);overflow-x:auto"><span style="color:var(--chalk)">┌──────────────────────────────────────────┐</span>
+<span style="color:var(--chalk)">│</span> <span style="color:var(--cyan)">header</span>  identity · model · apps · context <span style="color:var(--chalk)">│</span>
+<span style="color:var(--chalk)">├──────────────────────────────────────────┤</span>
+<span style="color:var(--chalk)">│</span>                                          <span style="color:var(--chalk)">│</span>
+<span style="color:var(--chalk)">│</span>    <span style="color:var(--chalk)">the conversation, full width</span>          <span style="color:var(--chalk)">│</span>
+<span style="color:var(--chalk)">│</span>    <span style="color:var(--chalk-3)">prose measured to ~88 columns</span>         <span style="color:var(--chalk)">│</span>
+<span style="color:var(--chalk)">│</span>                                          <span style="color:var(--chalk)">│</span>
+<span style="color:var(--chalk)">├──────────────────────────────────────────┤</span>
+<span style="color:var(--chalk)">│</span> <span style="color:var(--cyan)">live zone</span>  what is running right now     <span style="color:var(--chalk)">│</span>
+<span style="color:var(--chalk)">├──────────────────────────────────────────┤</span>
+<span style="color:var(--chalk)">│</span> <span style="color:var(--cyan)">input</span>                                    <span style="color:var(--chalk)">│</span>
+<span style="color:var(--chalk)">├──────────────────────────────────────────┤</span>
+<span style="color:var(--chalk)">│</span> <span style="color:var(--cyan)">footer</span>  mode · keys · cost · elapsed     <span style="color:var(--chalk)">│</span>
+<span style="color:var(--chalk)">└──────────────────────────────────────────┘</span></pre>
+      </div>
+
+      <div>
+        <div class="card">
+          <span class="label">The live zone</span>
+          <h3 style="margin-bottom:12px;font-size:23px">A permanent answer to &ldquo;what is happening&rdquo;</h3>
+          <p>
+            A bounded region pinned directly above the input, holding one row per tool in
+            flight and the current step of any multi-step task. It is always in the same
+            place, so the question <em>what is jazz doing right now</em> has exactly one
+            place to look &mdash; and because it sits against the input, it is already
+            where your eyes are.
+          </p>
+          <p>
+            The input and footer are anchored to the bottom of the screen, so the zone
+            grows <em>upward</em> and the transcript yields the rows &mdash; your typing
+            never moves under your hands. It caps at five rows and collapses the rest to
+            <code>2 more running</code>.
+          </p>
+          <p>
+            And its height is a <strong>high-water mark</strong> for the turn, only
+            shrinking after 800ms of stability, so a burst of fast tool calls can't make
+            the transcript jitter. When nothing is in flight the whole zone disappears and
+            the conversation reclaims the space.
+          </p>
+        </div>
+        <div class="card" style="margin-top:clamp(16px,2.4vw,26px)">
+          <span class="label">One layout, every width</span>
+          <p>
+            The same five regions at 80 columns and at 200. The header sheds detail by
+            priority, the live zone caps its rows, the measure holds steady, and the
+            conversation takes whatever is left. Nothing reflows into a different shape,
+            so a session looks like itself on a laptop, on a monitor, and over SSH.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <div class="note">
+      <span class="label">Two tracks, not one</span>
+      <p>
+        Running text is set to <strong>88 columns</strong> &mdash; the same decision a book
+        makes, for the same reason: past roughly 90 characters the eye loses the line on
+        the return sweep. But the leftover width isn't dead space. It becomes a
+        <strong>flush-right metadata column</strong> carrying timestamps, elapsed times,
+        <code>ok</code> and <code>failed</code>, and result counts.
+      </p>
+      <p>
+        So the page has a hard left margin for reading and a hard right margin for status,
+        and the two can never collide. Tool rows, entity lists, tables and code fences opt
+        into the full width instead, because those are scanned rather than read.
+      </p>
+    </div>
+  </div>
+</section>
+
+
+<section id="instrument">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="label">04 &nbsp;/&nbsp; The design</span>
+      <h2>Instrument</h2>
+      <p>Near-monochrome graphite under a single electric cyan, where every emphasis is carried by <em>stroke weight</em> rather than another colour. The signature runs the full height of the window &mdash; a one-cell rail through logo, transcript, input and footer &mdash; whose weight encodes depth and whose colour encodes state. Its designer calls it <b>a bar line</b>: music&rsquo;s own notation for &ldquo;a passage begins here.&rdquo;</p>
+    </div>
+
+    <div class="plate-frame" data-plate="instrument">
+      <div class="plate-bar">
+        <span class="dots"><i></i><i></i><i></i></span>
+        <span class="name">instrument · 120×34</span>
+        <span class="plate-tabs"><button data-scene="main" aria-pressed="true">Session</button><button data-scene="approval" aria-pressed="false">Approval</button><button data-scene="subagent" aria-pressed="false">Subagents</button><button data-scene="reasoning" aria-pressed="false">Reasoning</button><button data-scene="search" aria-pressed="false">Search</button><button data-scene="narrow" aria-pressed="false">80 cols</button></span>
+      </div>
+      <div class="plate-body" data-scene-panel="main"><pre style="background:#0B0D10;color:#E8EBEF;font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:min(12px, calc((100vw - 120px) / 72));line-height:1.5;margin:0;padding:16px 18px;overflow-x:auto">
+ <span style="color:#00D7FF">▎</span> <span style="color:#E8EBEF;font-weight:600">jazz</span>                                                             <span style="color:#A9B2BD">claude-opus-5</span>     <span style="color:#5C6673">apps 3 of 4</span>     <span style="color:#A9B2BD">━━━━━</span><span style="color:#22272E">───────</span>  <span style="color:#A9B2BD">41%</span> 
+<span style="color:#22272E">▎</span><span style="color:#22272E">───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────</span>
+<span style="color:#22272E">▎</span>                                                                                                                       
+<span style="color:#22272E">▎</span> <span style="color:#00D7FF">»</span> <span style="color:#A9B2BD">what did I miss this week? anything urgent on my calendar</span>                                                         <span style="color:#22272E">▏</span> 
+<span style="color:#22272E">▎</span>                                                                                                                       
+<span style="color:#22272E">▎</span> <span style="color:#5C6673">gmail</span>   <span style="color:#5C6673">4 flagged of 26</span>        <span style="color:#5C6673">web</span>   <span style="color:#5C6673">3 sources</span>                                                        <span style="color:#5C6673">ctrl-o</span><span style="color:#5C6673"> expands</span><span style="color:#22272E">▏</span> 
+<span style="color:#22272E">▎</span>                                                                                                                       
+<span style="color:#00D7FF">▎</span> <span style="color:#00D7FF">╶</span> <span style="color:#E8EBEF">Two are time-critical. The board deck is the real one.</span>                                                            <span style="color:#22272E">▏</span> 
+<span style="color:#00D7FF">▎</span>                                                                                                                       
+<span style="color:#00D7FF">▎</span>     <span style="color:#5C6673">Dana Okafor     </span><span style="color:#A9B2BD">board deck needs your numbers</span>                                                                 <span style="color:#5C6673">2d</span><span style="color:#22272E">▏</span> 
+<span style="color:#00D7FF">▎</span>     <span style="color:#5C6673">Mara Ricci      </span><span style="color:#A9B2BD">contract redlines v4</span>                                                                          <span style="color:#5C6673">3d</span><span style="color:#22272E">▏</span> 
+<span style="color:#00D7FF">▎</span>     <span style="color:#5C6673">AWS Billing     </span><span style="color:#A9B2BD">August invoice is available</span>                                                                   <span style="color:#5C6673">4d</span><span style="color:#22272E">▏</span> 
+<span style="color:#00D7FF">▎</span>     <span style="color:#5C6673">City Clinic     </span><span style="color:#A9B2BD">appointment moved to Friday 08:15</span>                                                             <span style="color:#5C6673">5d</span><span style="color:#22272E">▏</span> 
+<span style="color:#00D7FF">▎</span>                                                                                                                       
+<span style="color:#00D7FF">▎</span>   <span style="color:#E8EBEF">Dana cannot finish without your revenue lines. Tonight is the slot.</span>                                               <span style="color:#22272E">▏</span> 
+<span style="color:#00D7FF">▎</span>                                                                                                                       
+<span style="color:#00D7FF">▎</span>     <span style="color:#5C6673">what                                    </span><span style="color:#5C6673">who         </span><span style="color:#5C6673">when</span>                                                        <span style="color:#22272E">▏</span> 
+<span style="color:#00D7FF">▎</span>     <span style="color:#A9B2BD">send Dana the revenue lines             </span><span style="color:#5C6673">you         </span><span style="color:#5C6673">Thu 09:30</span>                                                   <span style="color:#5C6673">▎</span> 
+<span style="color:#00D7FF">▎</span>     <span style="color:#A9B2BD">confirm the clinic slot                 </span><span style="color:#5C6673">you         </span><span style="color:#5C6673">Fri 08:15</span>                                                   <span style="color:#5C6673">▎</span> 
+<span style="color:#00D7FF">▎</span>     <span style="color:#A9B2BD">redlines v4 sign-off                    </span><span style="color:#5C6673">Mara        </span><span style="color:#5C6673">Mon 12 Sep</span>                                                  <span style="color:#5C6673">▎</span> 
+<span style="color:#00D7FF">▎</span>                                                                                                                       
+<span style="color:#00D7FF">▎</span>   <span style="color:#E8EBEF">Boards read the appendix first, so lead with numbers </span><span style="color:#5C6673">‹2›</span> <span style="color:#00D7FF">░</span>                                                        <span style="color:#5C6673">▎</span> 
+<span style="color:#00D7FF">▎</span>                                                                                                                       
+<span style="color:#22272E">▎</span><span style="color:#22272E">───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────</span>
+<span style="color:#00D7FF">▎</span> <span style="color:#5C6673">step 3 of 7</span>   <span style="color:#A9B2BD">rank by urgency</span>                                                                     <span style="color:#5C6673">2 running</span>   <span style="color:#5C6673">0:11.6</span><span style="color:#22272E">▏</span> 
+<span style="color:#00D7FF">▎</span>   <span style="color:#00D7FF">▚</span>  <span style="color:#A9B2BD">gmail</span>   <span style="color:#5C6673">threads.fetch</span>                                                                                    <span style="color:#5C6673">0:04.1</span><span style="color:#22272E">▏</span> 
+<span style="color:#00D7FF">▎</span>   <span style="color:#00D7FF">▘</span>  <span style="color:#A9B2BD">web</span>   <span style="color:#5C6673">research.deep</span>                                                                                      <span style="color:#5C6673">0:11.6</span><span style="color:#22272E">▏</span> 
+<span style="color:#22272E">▎</span><span style="color:#22272E">───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────</span>
+<span style="color:#00D7FF">▎</span> <span style="color:#00D7FF">»</span> <span style="color:#E8EBEF">and hold 45 minutes on Thursday</span><span style="background:#00D7FF"> </span>                                                                                    
+<span style="color:#00D7FF">▎</span>                                                                                                                       
+<span style="color:#00D7FF">▎</span>                                                                                                                       
+<span style="color:#00D7FF">▎</span><span style="color:#22272E">───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────</span>
+ <span style="color:#A9B2BD">chat</span>   <span style="color:#5C6673">inbox triage</span>                                                   <span style="color:#5C6673">ctrl-r</span><span style="color:#5C6673"> history</span>   <span style="color:#5C6673">ctrl-k</span><span style="color:#5C6673"> details</span>     <span style="color:#5C6673">$0.18</span>   <span style="color:#5C6673">4:12</span> 
+                                                                                                                        
+</pre></div><div class="plate-body" data-scene-panel="approval" hidden><pre style="background:#0B0D10;color:#E8EBEF;font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:min(12px, calc((100vw - 120px) / 72));line-height:1.5;margin:0;padding:16px 18px;overflow-x:auto">
+ <span style="color:#00D7FF">▎</span> <span style="color:#E8EBEF;font-weight:600">jazz</span>                                                             <span style="color:#A9B2BD">claude-opus-5</span>     <span style="color:#5C6673">apps 3 of 4</span>     <span style="color:#A9B2BD">━━━━━</span><span style="color:#22272E">───────</span>  <span style="color:#A9B2BD">41%</span> 
+<span style="color:#22272E">▎</span><span style="color:#22272E">───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────</span>
+<span style="color:#22272E">▎</span>                                                                                                                     <span style="color:#22272E">▏</span> 
+<span style="color:#22272E">▎</span>     <span style="color:#2A3138">Dana cannot finish without your revenue lines.</span>                                                                  <span style="color:#22272E">▏</span> 
+<span style="color:#22272E">▎</span>                                                                                                                     <span style="color:#22272E">▏</span> 
+<span style="color:#22272E">▎</span> <span style="color:#2A3138">╶</span> <span style="color:#2A3138">Here is the Thursday hold I would create:</span>                                                                         <span style="color:#22272E">▏</span> 
+<span style="color:#00D7FF">▐</span>                                                                                                                       
+<span style="color:#00D7FF">▐</span>  <span style="color:#E8EBEF;font-weight:600">create a calendar event</span>                                                            <span style="color:#5C6673">google calendar</span>   <span style="color:#A9B2BD">you@example.com</span> 
+<span style="color:#00D7FF">▐</span>                                                                                                                       
+<span style="color:#00D7FF">▐</span>   <span style="color:#22272E">┌</span><span style="color:#22272E">─</span><span style="color:#5C6673"> what will exist afterwards </span><span style="color:#22272E">─────────────────────────────────────────────────────────────────</span><span style="color:#22272E">┐</span>                    
+<span style="color:#00D7FF">▐</span>   <span style="color:#22272E">│</span>  <span style="color:#5C6673">account      </span><span style="color:#E8EBEF">you@example.com                   </span><span style="color:#5C6673"></span>                                             <span style="color:#22272E">│</span>                    
+<span style="color:#00D7FF">▐</span>   <span style="color:#22272E">│</span>  <span style="color:#5C6673">calendar     </span><span style="color:#E8EBEF">Work                              </span><span style="color:#5C6673">not shared with anyone</span>                       <span style="color:#22272E">│</span>                    
+<span style="color:#00D7FF">▐</span>   <span style="color:#22272E">│</span>  <span style="color:#5C6673">title        </span><span style="color:#E8EBEF">Q3 board deck review              </span><span style="color:#5C6673"></span>                                             <span style="color:#22272E">│</span>                    
+<span style="color:#00D7FF">▐</span>   <span style="color:#22272E">│</span>  <span style="color:#5C6673">when         </span><span style="color:#E8EBEF">Thu 21 Aug 2026, 09:30 - 10:15    </span><span style="color:#5C6673"></span>                                             <span style="color:#22272E">│</span>                    
+<span style="color:#00D7FF">▐</span>   <span style="color:#22272E">│</span>  <span style="color:#5C6673">duration     </span><span style="color:#E8EBEF">45 minutes                        </span><span style="color:#5C6673"></span>                                             <span style="color:#22272E">│</span>                    
+<span style="color:#00D7FF">▐</span>   <span style="color:#22272E">│</span>  <span style="color:#5C6673">location     </span><span style="color:#E8EBEF">Google Meet                       </span><span style="color:#5C6673">a new link is created</span>                        <span style="color:#22272E">│</span>                    
+<span style="color:#00D7FF">▐</span>   <span style="color:#22272E">│</span>  <span style="color:#5C6673">guests       </span><span style="color:#E8EBEF">dana.okafor@example.com           </span><span style="color:#5C6673">invited and emailed</span>                          <span style="color:#22272E">│</span>                    
+<span style="color:#00D7FF">▐</span>   <span style="color:#22272E">│</span>  <span style="color:#5C6673">reminder     </span><span style="color:#E8EBEF">pop-up 10 minutes before          </span><span style="color:#5C6673"></span>                                             <span style="color:#22272E">│</span>                    
+<span style="color:#00D7FF">▐</span>   <span style="color:#22272E">│</span>  <span style="color:#5C6673">visibility   </span><span style="color:#E8EBEF">busy                              </span><span style="color:#5C6673">the title is visible</span>                         <span style="color:#22272E">│</span>                    
+<span style="color:#00D7FF">▐</span>   <span style="color:#22272E">│</span>  <span style="color:#5C6673">description  </span><span style="color:#E8EBEF">empty                             </span><span style="color:#5C6673"></span>                                             <span style="color:#22272E">│</span>                    
+<span style="color:#00D7FF">▐</span>   <span style="color:#22272E">│</span>  <span style="color:#5C6673">repeats      </span><span style="color:#E8EBEF">does not repeat                   </span><span style="color:#5C6673"></span>                                             <span style="color:#22272E">│</span>                    
+<span style="color:#00D7FF">▐</span>   <span style="color:#22272E">└</span><span style="color:#22272E">──────────────────────────────────────────────────────────────────────────────────────────────</span><span style="color:#22272E">┘</span>                    
+<span style="color:#00D7FF">▐</span>                                                                                                                       
+<span style="color:#00D7FF">▐</span>   <span style="color:#A9B2BD">Dana is emailed an invitation straight away. Deleting the event later</span>                                               
+<span style="color:#00D7FF">▐</span>   <span style="color:#A9B2BD">sends a cancellation, but cannot unsend that first email.</span>                                                           
+<span style="color:#00D7FF">▐</span>                                                                                                                       
+<span style="color:#00D7FF">▐</span>   <span style="color:#00D7FF">enter</span><span style="color:#E8EBEF">  create it</span>        <span style="color:#00D7FF">esc</span><span style="color:#E8EBEF">  do not</span>        <span style="color:#00D7FF">e</span><span style="color:#E8EBEF">  edit</span>                                           <span style="color:#5C6673">a</span><span style="color:#5C6673">  always allow writes</span> 
+<span style="color:#00D7FF">▐</span>                                                                                                                       
+<span style="color:#22272E">▎</span><span style="color:#22272E">───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────</span>
+<span style="color:#22272E">▎</span>                                                                                                                       
+<span style="color:#22272E">▎</span>                                                                                                                       
+<span style="color:#22272E">▎</span><span style="color:#22272E">───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────</span>
+ <span style="color:#A9B2BD">waiting for you</span>   <span style="color:#5C6673">inbox triage</span>                                              <span style="color:#5C6673">enter</span><span style="color:#5C6673"> create</span>   <span style="color:#5C6673">esc</span><span style="color:#5C6673"> cancel</span>     <span style="color:#5C6673">$0.18</span>   <span style="color:#5C6673">4:31</span> 
+                                                                                                                        
+</pre></div><div class="plate-body" data-scene-panel="subagent" hidden><pre style="background:#0B0D10;color:#E8EBEF;font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:min(12px, calc((100vw - 120px) / 72));line-height:1.5;margin:0;padding:16px 18px;overflow-x:auto">
+ <span style="color:#00D7FF">▎</span> <span style="color:#E8EBEF;font-weight:600">jazz</span>                                                                  <span style="color:#A9B2BD">claude-opus-5</span>     <span style="color:#5C6673">apps 4</span>     <span style="color:#A9B2BD">━━━━━━━</span><span style="color:#22272E">─────</span>  <span style="color:#A9B2BD">58%</span> 
+<span style="color:#22272E">▎</span><span style="color:#22272E">───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────</span>
+<span style="color:#22272E">▎</span>                                                                                                                       
+<span style="color:#22272E">▎</span>   <span style="color:#00D7FF">»</span> <span style="color:#A9B2BD">flights and a hotel for the Lisbon offsite, plus entry rules</span>                                                    <span style="color:#22272E">▏</span> 
+<span style="color:#22272E">▎</span>                                                                                                                       
+<span style="color:#22272E">▎</span>   <span style="color:#00D7FF">╶</span> <span style="color:#E8EBEF">Two jobs, so I am running them side by side.</span>                                                                    <span style="color:#22272E">▏</span> 
+<span style="color:#22272E">▎</span>                                                                                                                       
+<span style="color:#22272E">▎</span><span style="color:#00D7FF">╻</span>  <span style="color:#A9B2BD">travel-scout</span>   <span style="color:#5C6673">flights and hotels near Baixa</span>                                                                      <span style="color:#22272E">▏</span> 
+<span style="color:#22272E">▎</span><span style="color:#00D7FF">▏</span><span style="color:#00D7FF">╻</span> <span style="color:#A9B2BD">entry-rules</span>   <span style="color:#5C6673">what a French resident needs to enter</span>                                                               <span style="color:#22272E">▏</span> 
+<span style="color:#22272E">▎</span><span style="color:#00D7FF">▏</span><span style="color:#00D7FF">▏</span>                                                                                                                     
+<span style="color:#22272E">▎</span><span style="color:#00D7FF">▏</span><span style="color:#00D7FF">▏</span> <span style="color:#5C6673">web</span>   <span style="color:#5C6673">4 fares</span>                                                                                                     <span style="color:#22272E">▏</span> 
+<span style="color:#22272E">▎</span><span style="color:#00D7FF">▏</span><span style="color:#00D7FF">▏</span> <span style="color:#5C6673">web</span>   <span style="color:#5C6673">2 sources</span>                                                                                                   <span style="color:#22272E">▏</span> 
+<span style="color:#22272E">▎</span><span style="color:#00D7FF">▏</span><span style="color:#00D7FF">▏</span>                                                                                                                     
+<span style="color:#22272E">▎</span><span style="color:#00D7FF">▏</span><span style="color:#5FD7AF">╹</span> <span style="color:#A9B2BD">entry-rules</span>   <span style="color:#5FD7AF">done</span>   <span style="color:#5C6673">no visa needed, an ID card is enough</span>                                                         <span style="color:#22272E">▏</span> 
+<span style="color:#22272E">▎</span><span style="color:#00D7FF">▏</span><span style="color:#22272E">▏</span>    <span style="color:#5C6673">ctrl-1</span><span style="color:#5C6673"> reopens it</span>                                                                                              <span style="color:#22272E">▏</span> 
+<span style="color:#22272E">▎</span><span style="color:#00D7FF">▏</span>                                                                                                                      
+<span style="color:#00D7FF">▎</span><span style="color:#00D7FF">▏</span>  <span style="color:#00D7FF">╶</span> <span style="color:#E8EBEF">The entry side is settled. Travel is still pricing.</span>                                                             <span style="color:#22272E">▏</span> 
+<span style="color:#00D7FF">▎</span><span style="color:#00D7FF">▏</span>                                                                                                                      
+<span style="color:#00D7FF">▎</span><span style="color:#00D7FF">▏</span>    <span style="color:#E8EBEF">Your ID card is enough, so no visa and no ETA </span><span style="color:#5C6673">‹1›</span><span style="color:#E8EBEF">.</span>                                                              <span style="color:#5C6673">▎</span> 
+<span style="color:#00D7FF">▎</span><span style="color:#00D7FF">▏</span>                                                                                                                      
+<span style="color:#00D7FF">▎</span><span style="color:#00D7FF">▏</span>    <span style="color:#E8EBEF">Carry the passport anyway for the automated lane </span><span style="color:#5C6673">‹2›</span><span style="color:#E8EBEF">.</span>                                                           <span style="color:#5C6673">▎</span> 
+<span style="color:#00D7FF">▎</span><span style="color:#00D7FF">▏</span>                                                                                                                      
+<span style="color:#00D7FF">▎</span><span style="color:#00D7FF">▏</span>    <span style="color:#E8EBEF">The cheapest pair so far is 268 EUR, out at 07:40 </span><span style="color:#00D7FF">░</span>                                                             <span style="color:#5C6673">▎</span> 
+<span style="color:#00D7FF">▎</span><span style="color:#00D7FF">▏</span>                                                                                                                      
+<span style="color:#22272E">▎</span><span style="color:#22272E">───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────</span>
+<span style="color:#00D7FF">▎</span><span style="color:#00D7FF">▏</span>  <span style="color:#5C6673">step 2 of 3</span>   <span style="color:#A9B2BD">merge both answers</span>                                                          <span style="color:#5C6673">1 lane, 2 tools</span>   <span style="color:#5C6673">0:12.0</span><span style="color:#22272E">▏</span> 
+<span style="color:#00D7FF">▎</span><span style="color:#00D7FF">▏</span>    <span style="color:#00D7FF">▚</span>  <span style="color:#A9B2BD">travel-scout</span>   <span style="color:#5C6673">web.fetch</span>                                                                               <span style="color:#5C6673">0:07.9</span><span style="color:#22272E">▏</span> 
+<span style="color:#00D7FF">▎</span><span style="color:#00D7FF">▏</span>    <span style="color:#00D7FF">▘</span>  <span style="color:#A9B2BD">travel-scout</span>   <span style="color:#5C6673">hotels</span>                                                                                  <span style="color:#5C6673">0:11.2</span><span style="color:#22272E">▏</span> 
+<span style="color:#22272E">▎</span><span style="color:#22272E">───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────</span>
+<span style="color:#00D7FF">▎</span><span style="color:#00D7FF">▏</span>  <span style="color:#00D7FF">»</span> <span style="color:#E8EBEF">put the whole thing in one note</span><span style="background:#00D7FF"> </span>                                                                                  
+<span style="color:#00D7FF">▎</span><span style="color:#00D7FF">▏</span>                                                                                                                      
+<span style="color:#00D7FF">▎</span><span style="color:#22272E">───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────</span>
+ <span style="color:#A9B2BD">delegating</span>   <span style="color:#5C6673">lisbon offsite</span>                                          <span style="color:#5C6673">ctrl-c</span><span style="color:#5C6673"> stop all</span>   <span style="color:#5C6673">ctrl-1/2</span><span style="color:#5C6673"> lanes</span>     <span style="color:#5C6673">$0.27</span>   <span style="color:#5C6673">2:41</span> 
+                                                                                                                        
+</pre></div><div class="plate-body" data-scene-panel="reasoning" hidden><pre style="background:#0B0D10;color:#E8EBEF;font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:min(12px, calc((100vw - 120px) / 72));line-height:1.5;margin:0;padding:16px 18px;overflow-x:auto">
+ <span style="color:#00D7FF">▎</span> <span style="color:#E8EBEF;font-weight:600">jazz</span>                                                             <span style="color:#A9B2BD">claude-opus-5</span>     <span style="color:#5C6673">apps 3 of 4</span>     <span style="color:#A9B2BD">━━━━━━━</span><span style="color:#22272E">─────</span>  <span style="color:#A9B2BD">62%</span> 
+<span style="color:#22272E">▎</span><span style="color:#22272E">───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────</span>
+<span style="color:#22272E">▎</span>                                                                                                                       
+<span style="color:#22272E">▎</span> <span style="color:#00D7FF">»</span> <span style="color:#A9B2BD">what can wait until Monday, and what do I do tonight?</span>                                                             <span style="color:#22272E">▏</span> 
+<span style="color:#22272E">▎</span>                                                                                                                       
+<span style="color:#22272E">▎</span> <span style="color:#5C6673">reasoning</span>   <span style="color:#5C6673">8 steps</span>                                                                                   <span style="color:#5C6673">ctrl-r</span><span style="color:#5C6673"> expands</span><span style="color:#22272E">▏</span> 
+<span style="color:#22272E">▎</span>                                                                                                                       
+<span style="color:#22272E">▎</span> <span style="color:#5C6673">gmail</span>   <span style="color:#5C6673">26 threads</span>        <span style="color:#5C6673">calendar</span>   <span style="color:#5C6673">11 blocks</span>                                                                      <span style="color:#22272E">▏</span> 
+<span style="color:#22272E">▎</span> <span style="color:#5C6673">notion</span>   <span style="color:#5C6673">6 goals</span>           <span style="color:#5C6673">slack</span>   <span style="color:#5C6673">4 messages</span>                                                                       <span style="color:#22272E">▏</span> 
+<span style="color:#22272E">▎</span> <span style="color:#5C6673">gmail</span>   <span style="color:#FF6B6B">could not send</span>       <span style="color:#5C6673">read-only connection</span>                                                  <span style="color:#5C6673">ctrl-a</span><span style="color:#5C6673"> reconnects</span><span style="color:#22272E">▏</span> 
+<span style="color:#22272E">▎</span>                                                                                                                       
+<span style="color:#22272E">▎</span> <span style="color:#00D7FF">╶</span> <span style="color:#E8EBEF">Tonight is one thing: the revenue lines.</span>                                                                          <span style="color:#22272E">▏</span> 
+<span style="color:#22272E">▎</span>                                                                                                                       
+<span style="color:#22272E">▎</span>   <span style="color:#E8EBEF">Everything else holds until Monday, except the clinic slot,</span>                                                       <span style="color:#22272E">▏</span> 
+<span style="color:#22272E">▎</span>   <span style="color:#E8EBEF">which needs a calendar entry now.</span>                                                                                 <span style="color:#22272E">▏</span> 
+<span style="color:#00D7FF">▎</span>                                                                                                                       
+<span style="color:#00D7FF">▎</span>   <span style="color:#00D7FF">▚</span>  <span style="color:#A9B2BD">reasoning</span>                                                                                                <span style="color:#5C6673">0:07.4</span><span style="color:#22272E">▏</span> 
+<span style="color:#00D7FF">▎</span>    <span style="color:#22272E">│</span>   <span style="color:#5C6673">26 unread, 4 flagged, and only one has an outside dependency.</span>                                                <span style="color:#22272E">▏</span> 
+<span style="color:#00D7FF">▎</span>    <span style="color:#22272E">│</span>   <span style="color:#5C6673">dana cannot finish the deck without the revenue lines, and it</span>                                                <span style="color:#22272E">▏</span> 
+<span style="color:#00D7FF">▎</span>    <span style="color:#22272E">│</span>   <span style="color:#5C6673">goes to the board on thursday morning.</span>                                                                       <span style="color:#22272E">▏</span> 
+<span style="color:#00D7FF">▎</span>    <span style="color:#22272E">│</span>                                                                                                                <span style="color:#5C6673">▎</span> 
+<span style="color:#00D7FF">▎</span>    <span style="color:#22272E">│</span>   <span style="color:#5C6673">the clinic move is a fact, not a decision, so it belongs</span>                                                     <span style="color:#5C6673">▎</span> 
+<span style="color:#00D7FF">▎</span>    <span style="color:#22272E">│</span>   <span style="color:#5C6673">on the calendar and not on a list for tonight.</span>                                                               <span style="color:#5C6673">▎</span> 
+<span style="color:#00D7FF">▎</span>    <span style="color:#22272E">│</span>                                                                                                                <span style="color:#5C6673">▎</span> 
+<span style="color:#00D7FF">▎</span>    <span style="color:#22272E">│</span>   <span style="color:#5C6673">the invoice has no deadline and the redlines are still </span><span style="color:#00D7FF">░</span>                                                     <span style="color:#5C6673">▎</span> 
+<span style="color:#00D7FF">▎</span>                                                                                                                       
+<span style="color:#22272E">▎</span><span style="color:#22272E">───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────</span>
+<span style="color:#00D7FF">▎</span> <span style="color:#5C6673">step 5 of 7</span>   <span style="color:#A9B2BD">decide what waits</span>                                                                <span style="color:#5C6673">no tools out</span>   <span style="color:#5C6673">0:07.4</span><span style="color:#22272E">▏</span> 
+<span style="color:#22272E">▎</span><span style="color:#22272E">───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────</span>
+<span style="color:#22272E">▎</span> <span style="color:#22272E">»</span> <span style="color:#5C6673">start with the revenue lines</span>                                                                                        
+<span style="color:#22272E">▎</span>                                                                                                                       
+<span style="color:#22272E">▎</span><span style="color:#22272E">───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────</span>
+ <span style="color:#A9B2BD">thinking</span>   <span style="color:#5C6673">inbox triage</span>                                                <span style="color:#5C6673">ctrl-r</span><span style="color:#5C6673"> reasoning</span>   <span style="color:#5C6673">ctrl-c</span><span style="color:#5C6673"> stop</span>     <span style="color:#5C6673">$0.21</span>   <span style="color:#5C6673">5:03</span> 
+                                                                                                                        
+</pre></div><div class="plate-body" data-scene-panel="search" hidden><pre style="background:#0B0D10;color:#E8EBEF;font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:min(12px, calc((100vw - 120px) / 72));line-height:1.5;margin:0;padding:16px 18px;overflow-x:auto">
+ <span style="color:#00D7FF">▎</span> <span style="color:#E8EBEF;font-weight:600">jazz</span>                                                             <span style="color:#A9B2BD">claude-opus-5</span>     <span style="color:#5C6673">apps 3 of 4</span>     <span style="color:#A9B2BD">━━━━━</span><span style="color:#22272E">───────</span>  <span style="color:#A9B2BD">41%</span> 
+<span style="color:#22272E">▎</span><span style="color:#22272E">───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────</span>
+<span style="color:#22272E">▎</span>                                                                                                                     <span style="color:#22272E">▏</span> 
+<span style="color:#22272E">▎</span>     <span style="color:#2A3138">Dana cannot finish without your revenue lines.</span>                                                                  <span style="color:#22272E">▏</span> 
+<span style="color:#00D7FF">▎</span>                                                                                                                       
+<span style="color:#00D7FF">▎</span>  <span style="color:#5C6673">find</span>   <span style="color:#E8EBEF;font-weight:600">board deck</span><span style="background:#00D7FF"> </span>                                                                              <span style="color:#5C6673">31 matches in 9 sets</span> 
+<span style="color:#00D7FF">▎</span>                                                                                                                       
+<span style="color:#00D7FF">▎</span>  <span style="color:#22272E">────────────────────────────────────────────────────────────────────────────────────────────────────────────────────</span> 
+<span style="color:#00D7FF">▎</span>                                                                                                                       
+<span style="color:#00D7FF">▎</span>  <span style="color:#00D7FF">»</span> <span style="color:#E8EBEF">inbox triage</span>                                                                                <span style="color:#5C6673">this set, 4 turns back</span> 
+<span style="color:#00D7FF">▎</span>      <span style="color:#5C6673">send Dana the revenue lines for the </span><span style="color:#00D7FF">board deck</span><span style="color:#5C6673"> before Thursday</span>                                                   
+<span style="color:#00D7FF">▎</span>                                                                                                                       
+<span style="color:#00D7FF">▎</span>    <span style="color:#A9B2BD">board prep with Mara</span>                                                                                        <span style="color:#5C6673">12 Aug</span> 
+<span style="color:#00D7FF">▎</span>      <span style="color:#5C6673">pull last quarter's </span><span style="color:#00D7FF">board deck</span><span style="color:#5C6673"> and diff the revenue page</span>                                                         
+<span style="color:#00D7FF">▎</span>                                                                                                                       
+<span style="color:#00D7FF">▎</span>    <span style="color:#A9B2BD">quarterly numbers</span>                                                                                           <span style="color:#5C6673">08 Aug</span> 
+<span style="color:#00D7FF">▎</span>      <span style="color:#5C6673">Dana Okafor, Q3 </span><span style="color:#00D7FF">board deck</span><span style="color:#5C6673">, needs your numbers</span>                                                                   
+<span style="color:#00D7FF">▎</span>                                                                                                                       
+<span style="color:#00D7FF">▎</span>    <span style="color:#A9B2BD">notion cleanup</span>                                                                                              <span style="color:#5C6673">29 Jul</span> 
+<span style="color:#00D7FF">▎</span>      <span style="color:#5C6673">archived 3 pages named </span><span style="color:#00D7FF">board deck</span><span style="color:#5C6673"> v1, v2, v3</span>                                                                     
+<span style="color:#00D7FF">▎</span>                                                                                                                       
+<span style="color:#00D7FF">▎</span>    <span style="color:#A9B2BD">flight to Lisbon</span>                                                                                            <span style="color:#5C6673">21 Jul</span> 
+<span style="color:#00D7FF">▎</span>      <span style="color:#5C6673">before the </span><span style="color:#00D7FF">board deck</span><span style="color:#5C6673"> review book the 07:40</span>                                                                      
+<span style="color:#00D7FF">▎</span>  <span style="color:#22272E">────────────────────────────────────────────────────────────────────────────────────────────────────────────────────</span> 
+<span style="color:#00D7FF">▎</span>  <span style="color:#5C6673">enter</span><span style="color:#5C6673"> opens</span>    <span style="color:#5C6673">tab</span><span style="color:#5C6673"> filters</span>    <span style="color:#5C6673">esc</span><span style="color:#5C6673"> closes</span>                                                               <span style="color:#5C6673">26 more below</span> 
+<span style="color:#00D7FF">▎</span>                                                                                                                       
+<span style="color:#22272E">▎</span><span style="color:#22272E">───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────</span>
+<span style="color:#22272E">▎</span> <span style="color:#2A3138">step 3 of 7</span>   <span style="color:#2A3138">rank by urgency</span>                                                                     <span style="color:#2A3138">2 running</span>   <span style="color:#2A3138">0:11.6</span><span style="color:#22272E">▏</span> 
+<span style="color:#22272E">▎</span><span style="color:#22272E">───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────</span>
+<span style="color:#22272E">▎</span>                                                                                                                       
+<span style="color:#22272E">▎</span>                                                                                                                       
+<span style="color:#22272E">▎</span><span style="color:#22272E">───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────</span>
+ <span style="color:#A9B2BD">history</span>   <span style="color:#5C6673">inbox triage</span>                                                            <span style="color:#5C6673">esc</span><span style="color:#5C6673"> back to the set</span>     <span style="color:#5C6673">$0.18</span>   <span style="color:#5C6673">4:48</span> 
+                                                                                                                        
+</pre></div><div class="plate-body" data-scene-panel="narrow" hidden><pre style="background:#0B0D10;color:#E8EBEF;font-family:ui-monospace,'SF Mono',Menlo,monospace;font-size:min(12px, calc((100vw - 120px) / 48));line-height:1.5;margin:0;padding:16px 18px;overflow-x:auto">
+ <span style="color:#00D7FF">▎</span> <span style="color:#E8EBEF;font-weight:600">jazz</span>                                     <span style="color:#A9B2BD">opus-5</span>    <span style="color:#5C6673">apps 3 of 4</span>    <span style="color:#A9B2BD">━━</span><span style="color:#22272E">───</span>  <span style="color:#A9B2BD">41%</span> 
+<span style="color:#22272E">▎</span><span style="color:#22272E">───────────────────────────────────────────────────────────────────────────────</span>
+<span style="color:#22272E">▎</span>                                                                               
+<span style="color:#22272E">▎</span> <span style="color:#00D7FF">»</span> <span style="color:#A9B2BD">what did I miss this week?</span>                                                <span style="color:#22272E">▏</span> 
+<span style="color:#22272E">▎</span>                                                                               
+<span style="color:#22272E">▎</span> <span style="color:#5C6673">gmail</span>   <span style="color:#5C6673">4 flagged of 26</span>                                       <span style="color:#5C6673">ctrl-o</span><span style="color:#5C6673"> expands</span><span style="color:#22272E">▏</span> 
+<span style="color:#22272E">▎</span>                                                                               
+<span style="color:#00D7FF">▎</span> <span style="color:#00D7FF">╶</span> <span style="color:#E8EBEF">Two are time-critical.</span>                                                    <span style="color:#22272E">▏</span> 
+<span style="color:#00D7FF">▎</span>                                                                               
+<span style="color:#00D7FF">▎</span>   <span style="color:#5C6673">Dana Okafor   </span><span style="color:#A9B2BD">board deck needs numbers</span>                                  <span style="color:#5C6673">2d</span><span style="color:#22272E">▏</span> 
+<span style="color:#00D7FF">▎</span>   <span style="color:#5C6673">Mara Ricci    </span><span style="color:#A9B2BD">contract redlines v4</span>                                  <span style="color:#5C6673">2 more</span><span style="color:#5C6673">▎</span> 
+<span style="color:#00D7FF">▎</span>                                                                               
+<span style="color:#00D7FF">▎</span>   <span style="color:#5C6673">what                              </span><span style="color:#5C6673">when</span>                                    <span style="color:#5C6673">▎</span> 
+<span style="color:#00D7FF">▎</span>   <span style="color:#A9B2BD">send Dana the revenue lines       </span><span style="color:#5C6673">Thu 09:30</span>                               <span style="color:#5C6673">▎</span> 
+<span style="color:#00D7FF">▎</span>   <span style="color:#A9B2BD">confirm the clinic slot           </span><span style="color:#5C6673">Fri 08:15</span>                         <span style="color:#5C6673">1 more</span><span style="color:#5C6673">▎</span> 
+<span style="color:#22272E">▎</span><span style="color:#22272E">───────────────────────────────────────────────────────────────────────────────</span>
+<span style="color:#00D7FF">▎</span> <span style="color:#5C6673">step 3 of 7</span>  <span style="color:#A9B2BD">rank by urgency</span>                                       <span style="color:#5C6673">2 running</span><span style="color:#22272E">▏</span> 
+<span style="color:#00D7FF">▎</span>   <span style="color:#00D7FF">▚</span>  <span style="color:#A9B2BD">gmail</span>   <span style="color:#5C6673">threads.fetch</span>                                            <span style="color:#5C6673">0:04.1</span><span style="color:#22272E">▏</span> 
+<span style="color:#00D7FF">▎</span>   <span style="color:#00D7FF">▘</span>  <span style="color:#A9B2BD">web</span>   <span style="color:#5C6673">research.deep</span>                                              <span style="color:#5C6673">0:11.6</span><span style="color:#22272E">▏</span> 
+<span style="color:#22272E">▎</span><span style="color:#22272E">───────────────────────────────────────────────────────────────────────────────</span>
+<span style="color:#00D7FF">▎</span> <span style="color:#00D7FF">»</span> <span style="color:#E8EBEF">hold 45 min Thursday</span><span style="background:#00D7FF"> </span>                                                       
+<span style="color:#00D7FF">▎</span><span style="color:#22272E">───────────────────────────────────────────────────────────────────────────────</span>
+ <span style="color:#A9B2BD">chat</span>                                            <span style="color:#5C6673">ctrl-r</span><span style="color:#5C6673"> history</span>    <span style="color:#5C6673">$0.18</span>   <span style="color:#5C6673">4:12</span> 
+                                                                                
+</pre></div>
+    </div>
+    <div class="plate-caption">
+      <span class="label">120 &times; 34 &mdash; alternate screen</span>
+      <span class="label">Graphite, one cyan, weight instead of hue</span>
+    </div>
+
+    <div class="grid g2" style="margin-top:clamp(26px,4vh,48px);align-items:start">
+      <div class="card">
+        <span class="label">Semantic tokens</span>
+        <div class="swatches"><div class="sw"><i style="background:#0B0D10"></i><b>canvas</b><code>#0B0D10 &middot; 233</code></div><div class="sw"><i style="background:#14171B"></i><b>surface</b><code>#14171B &middot; 234</code></div><div class="sw"><i style="background:#22272E"></i><b>borderSubtle</b><code>#22272E &middot; 235</code></div><div class="sw"><i style="background:#3A424C"></i><b>borderStrong</b><code>#3A424C &middot; 238</code></div><div class="sw"><i style="background:#E8EBEF"></i><b>textPrimary</b><code>#E8EBEF &middot; 255</code></div><div class="sw"><i style="background:#A9B2BD"></i><b>textSecondary</b><code>#A9B2BD &middot; 249</code></div><div class="sw"><i style="background:#5C6673"></i><b>textDim</b><code>#5C6673 &middot; 242</code></div><div class="sw"><i style="background:#00D7FF"></i><b>accent</b><code>#00D7FF &middot; 45 exact</code></div><div class="sw"><i style="background:#00AFD7"></i><b>accentDim</b><code>#00AFD7 &middot; 38</code></div><div class="sw"><i style="background:#5FD7AF"></i><b>success</b><code>#5FD7AF &middot; 79</code></div><div class="sw"><i style="background:#D7AF5F"></i><b>warning</b><code>#D7AF5F &middot; 179</code></div><div class="sw"><i style="background:#FF6B6B"></i><b>error</b><code>#FF6B6B &middot; 203</code></div><div class="sw"><i style="background:#9B8CFF"></i><b>synStructure</b><code>#9B8CFF &middot; 105</code></div><div class="sw"><i style="background:#D7B98A"></i><b>synValue</b><code>#D7B98A &middot; 180</code></div><div class="sw"><i style="background:#92B4C8"></i><b>synType</b><code>#92B4C8 &middot; 110</code></div><div class="sw"><i style="background:#2A3138"></i><b>scrimFg</b><code>#2A3138 &middot; 236</code></div></div>
+      </div>
+      <div>
+        <div class="card">
+          <span class="label">Glyph set &mdash; every character font-verified</span>
+          <div class="wall"><div><span>»</span><small>prompt</small></div><div><span>╶</span><small>speaking</small></div><div><span>▐</span><small>asking</small></div><div><span>╺</span><small>ok</small></div><div><span>╻</span><small>failed</small></div><div><span>╴</span><small>inert</small></div><div><span>╹</span><small>lane ends</small></div><div><span>▎</span><small>rail d0</small></div><div><span>▏</span><small>rail d1</small></div><div><span>░</span><small>write head</small></div><div><span>─</span><small>rule</small></div><div><span>━</span><small>meter used</small></div><div><span>│</span><small>containment</small></div><div><span>┌┐└┘</span><small>data frame</small></div><div><span>‹1›</span><small>citation</small></div><div><span>∙</span><small>separator</small></div></div>
+        </div>
+        <div class="card" style="margin-top:clamp(16px,2.4vw,26px);padding:0;overflow:hidden">
+          <div class="inds" style="border:none;border-radius:0">
+      <div class="ind">
+        <span class="anim" style="color:#00D7FF" data-frames='["░░░","▖░░","▚▖░","▘▖▖","░▚▖","▖▚▖","▚▘▚","▘▘▚","░░▚","▖░▘","▚▖▘","▘▖▘","░▚░","▖▚░","▚▘░","▘▘▖","░░▖","▖░▖","▚▖▚","▘▖▚","░▚▚","▖▚▘","▚▘▘","▘▘▘"]' data-interval="100">░░░</span>
+        <span>
+          <b>section — N tools in parallel</b>
+          <small>Three cells advancing at periods 1, 2 and 3 over the same open → live → close ladder, so it reads as independent voices rather than one rotating thing.</small>
+          <span class="strip"><i>░░░</i><i>▖░░</i><i>▚▖░</i><i>▘▖▖</i><i>░▚▖</i><i>▖▚▖</i><i>▚▘▚</i><i>▘▘▚</i><i>░░▚</i><i>▖░▘</i><i>▚▖▘</i><i>▘▖▘</i><i>░▚░</i><i>▖▚░</i><i>▚▘░</i><i>▘▘▖</i><i>░░▖</i><i>▖░▖</i><i>▚▖▚</i><i>▘▖▚</i><i>░▚▚</i><i>▖▚▘</i><i>▚▘▘</i><i>▘▘▘</i></span>
+        </span>
+        <span class="ms">100ms</span>
+      </div>
+      <div class="ind">
+        <span class="anim" style="color:#00D7FF" data-frames='["░","▖","▚","▛","▚","▘"]' data-interval="140">░</span>
+        <span>
+          <b>cycle — one tool running</b>
+          <small>A single cell climbing the ink-coverage ladder and back down. One tool, one voice.</small>
+          <span class="strip"><i>░</i><i>▖</i><i>▚</i><i>▛</i><i>▚</i><i>▘</i></span>
+        </span>
+        <span class="ms">140ms</span>
+      </div>
+      <div class="ind">
+        <span class="anim" style="color:#00D7FF" data-frames='["▘","▝","▗","▖"]' data-interval="120">▘</span>
+        <span>
+          <b>brush — thinking</b>
+          <small>Quadrant rotation, the calmest thing in the set. Also serves reasoning.</small>
+          <span class="strip"><i>▘</i><i>▝</i><i>▗</i><i>▖</i></span>
+        </span>
+        <span class="ms">120ms</span>
+      </div>
+      <div class="ind">
+        <span class="anim" style="color:#00D7FF" data-frames='["░"," "]' data-interval="500">░</span>
+        <span>
+          <b>head — streaming write head</b>
+          <small>The only motion prose ever gets: a half-second blink at the tail of the stream.</small>
+          <span class="strip"><i>░</i><i>&nbsp;</i></span>
+        </span>
+        <span class="ms">500ms</span>
+      </div>
+      <div class="ind">
+        <span class="anim" style="color:#00D7FF" data-frames='["▚░░░░░░░","░▚░░░░░░","░░▚░░░░░","░░░▚░░░░","░░░░▚░░░","░░░░░▚░░","░░░░░░▚░","░░░░░░░▚"]' data-interval="110">▚░░░░░░░</span>
+        <span>
+          <b>sweep — compaction</b>
+          <small>Eight cells, a single mark travelling once across the context meter while history is folded.</small>
+          <span class="strip"><i>▚░░░░░░░</i><i>░▚░░░░░░</i><i>░░▚░░░░░</i><i>░░░▚░░░░</i><i>░░░░▚░░░</i><i>░░░░░▚░░</i><i>░░░░░░▚░</i><i>░░░░░░░▚</i></span>
+        </span>
+        <span class="ms">110ms</span>
+      </div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid g3" style="margin-top:clamp(20px,3vw,30px)"><div class="card"><span class="label">One glyph, one meaning</span><p><code>╶</code> means the agent is <em>speaking</em>. <code>▐</code> means the agent is <em>asking for authority</em>. Same geometry &mdash; a mark hugging the text on the same side &mdash; at an <strong>8:1 stroke-weight ratio</strong>, so the house law is expressed literally rather than as a change of shape. And <code>▐</code> appears nowhere else in the entire product, which makes it the one mark you learn instantly and never misread.</p></div><div class="card"><span class="label">jazz without a single extra colour</span><p>The vocabulary carries the personality. Sessions are <strong>sets</strong>. Delegations are <strong>lanes</strong>. Parallel work is a <strong>section</strong>. The rail is a bar line. Waiting copy is idiomatic and never jokey &mdash; <em>comping behind you</em>, <em>two horns out</em>, <em>digging the crates</em> &mdash; and the dial that tunes it sits in the footer next to the mode, so the personality is visible and adjustable rather than imposed.</p></div><div class="card"><span class="label">The surplus width has a job</span><p>Prose is measured to 88 columns; the 27 columns left over become a <strong>flush-right metadata column</strong> for timestamps, elapsed times and <code>ok</code>/<code>failed</code>. A hard left margin for reading, a hard right margin for status, and no possibility of the two colliding. Full-width tracks &mdash; tool rows, entity lists, tables, code &mdash; opt in separately.</p></div><div class="card"><span class="label">A settled tool call is a receipt</span><p>This is where most of the clutter went. A finished tool call used to show its invocation, arguments, status word, duration and result count &mdash; five facts at the same visual weight as a sentence of the answer. Now it reads <code>gmail&nbsp;&nbsp;4 flagged of 26</code> in dim text, with everything else behind one key. Tools are loud only while they are working, and become quiet receipts the moment they finish.</p></div></div>
+
+    <div style="margin-top:clamp(26px,4vh,44px)">
+      <span class="label" style="display:block;margin-bottom:16px">Restraint, measured</span>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>&nbsp;</th><th>First draft</th><th>Shipped</th><th>What it counts</th></tr></thead>
+          <tbody>
+            <tr><td>Ink density</td><td class="mono" style="color:var(--chalk-3)">32%</td><td class="mono" style="color:#00D7FF">16%</td><td>share of cells carrying content rather than space or frame</td></tr><tr><td>Breathing rows</td><td class="mono" style="color:var(--chalk-3)">28%</td><td class="mono" style="color:#00D7FF">47%</td><td>rows that are blank or only structure</td></tr><tr><td>Words, median row</td><td class="mono" style="color:var(--chalk-3)">11</td><td class="mono" style="color:#00D7FF">5</td><td>how much text a typical row asks you to read</td></tr><tr><td>Words, busiest row</td><td class="mono" style="color:var(--chalk-3)">20</td><td class="mono" style="color:#00D7FF">14</td><td>the worst row on the screen</td></tr><tr><td>Header facts</td><td class="mono" style="color:var(--chalk-3)">9</td><td class="mono" style="color:#00D7FF">4</td><td>things competing for attention in the top row</td></tr><tr><td>Distinct colours</td><td class="mono" style="color:var(--chalk-3)">11</td><td class="mono" style="color:#00D7FF">5</td><td>hues visible at once on a settled screen</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="margin-top:14px;font-size:14px;color:var(--chalk-3)">Measured on the session screen. A well-set book page is around 10% ink; the first draft of this design was at 32%.</p>
+    </div>
+
+    <div class="note" style="border-left-color:#00D7FF">
+      <span class="label">Verdict</span>
+      <p>The one I would ship. It is the calmer of the two, it needs the fewest colours to work, and its accent is an exact xterm-256 cube vertex so it is byte-identical over SSH. The rail gives it a signature that costs one column, never animates, and replaces the badge-and-spinner clutter it would otherwise sit beside &mdash; it subtracts interface rather than adding it. And the personality reads as jazz through structure and language, which ages better than decoration.</p>
+    </div>
+  </div>
+</section>
+
+<section id="laws">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="label">05 &nbsp;/&nbsp; The two laws</span>
+      <h2>Every case decided in advance</h2>
+      <p>
+        Two rules do almost all the work. They're worth stating as laws because they
+        settle arguments that would otherwise be re-litigated on every pull request.
+      </p>
+    </div>
+
+    <div class="grid g2">
+      <div class="card" style="padding:clamp(24px,3.5vw,40px)">
+        <span class="label">Law one</span>
+        <h3 style="margin-bottom:16px">Colour is semantics</h3>
+        <p>
+          Every hue must answer the question <em>&ldquo;what is this?&rdquo;</em> &mdash;
+          who is speaking, is this a tool, did it work, should I worry, is this about to
+          touch my real accounts. That's six questions, so <strong>six hues</strong>.
+          Everything else &mdash; every heading, rule, border, label, timestamp, path
+          &mdash; lives on the neutral ramp.
+        </p>
+        <p>
+          Six hues is a small enough set to hold in your head, which is the whole point:
+          after an hour in the app you read colour without deciding to. Cyan is jazz
+          speaking. Amber is a scope you should notice. Green happened, red broke. Nothing
+          is coloured to look nice, so every colour on screen is information.
+        </p>
+        <div style="margin-top:22px">
+          <span class="label" style="display:block;margin-bottom:10px">Emphasis comes from here</span>
+          <div style="font-family:var(--term);font-size:26px;line-height:1.6;color:var(--chalk)">
+            ▏▎▍▌&nbsp;&nbsp;&nbsp;─ ━ ═&nbsp;&nbsp;&nbsp;░▒▓█
+          </div>
+          <p style="font-size:13.5px;margin-top:10px">
+            Stroke weight, rule weight, shade density. Plus indentation, which carries
+            more hierarchy than colour ever will and costs nothing.
+          </p>
+        </div>
+      </div>
+
+      <div class="card" style="padding:clamp(24px,3.5vw,40px)">
+        <span class="label">Law two</span>
+        <h3 style="margin-bottom:16px">Motion is allowed where text is not</h3>
+        <p>
+          While the model is silent, the interface is free to move &mdash; that is the one
+          moment when motion is pure information and costs you nothing.
+          <strong>The instant a token lands, everything except the status line goes
+          still</strong>, and the only thing in the frame that changes is the sentence
+          you're reading.
+        </p>
+        <div class="tablewrap" style="margin-top:20px;border:none">
+          <table style="min-width:0">
+            <tbody>
+              <tr><td>Waiting</td><td>Full indicator. The only free delight budget you have.</td></tr>
+              <tr><td>Streaming</td><td>Indicator stops. Nothing in the frame moves but the text.</td></tr>
+              <tr><td>Tool starts</td><td>Block appears at full height. No expand animation &mdash; growing blocks reflow text above them.</td></tr>
+              <tr><td>Tool ends</td><td>Glyph swaps in place. A swap is legible; a fade is latency you invented.</td></tr>
+              <tr><td>Interrupt</td><td>Indicator freezes mid-frame and dims. A frozen frame is the truest picture of &ldquo;stopped&rdquo;.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="approval">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="label">06 &nbsp;/&nbsp; The approval card</span>
+      <h2>The most important object in the product</h2>
+      <p>
+        A coding agent asks permission to edit a file you can revert with
+        <code>git checkout</code>. jazz asks permission to send an email, write to your
+        calendar, or post in a Slack your colleagues read. <b>There is no undo.</b>
+        Four designers worked this block independently, in four incompatible aesthetics,
+        and converged on nearly the same rules. That agreement is worth more than any one
+        of the treatments, so it is the spec.
+      </p>
+    </div>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Rule</th><th>Why</th></tr></thead>
+        <tbody>
+          <tr><td>It is a different <em>class</em> of object</td><td>Whatever the direction's visual language is, this block breaks it in one deliberate way &mdash; elevation, bezel weight, or the absence of the signature effect. It must never look like another log line.</td></tr>
+          <tr><td>Name the real account, verbatim</td><td>Not &ldquo;your calendar&rdquo; &mdash; <code>you@example.com</code>. The entire trust argument is that jazz always tells you which real-world object is in scope.</td></tr>
+          <tr><td>Every resulting field, before you commit</td><td>Title, exact time with timezone, every attendee, which calendar. Nothing may be discoverable only after pressing enter.</td></tr>
+          <tr><td>Irreversibility stated in prose</td><td>&ldquo;Not undoable from jazz &mdash; the invite leaves immediately.&rdquo; A sentence, not an icon.</td></tr>
+          <tr><td>It reads as a decision, not a fault</td><td>Red belongs to things that already broke. An approval is a choice you are being offered, and colouring it like an error is how people learn to dismiss errors.</td></tr>
+          <tr><td>It animates in, then holds perfectly still</td><td>Stillness is what makes a card feel like a document you can read at your own pace. Motion that persists reads as pressure, and pressure on an irreversible choice is a dark pattern.</td></tr>
+          <tr><td>Controls outside the data frame</td><td>The card is what <em>will happen</em>; the line beneath is what <em>you can do</em>. Stops the accept affordance from ever reading as data.</td></tr>
+          <tr><td>Reject as available as accept</td><td>Symmetric placement, weight only via font-weight. Hiding the alternative is how consent theatre works.</td></tr>
+          <tr><td>&ldquo;Always allow&rdquo; is the least attractive thing on screen</td><td>The irreversible convenience option gets dim text. Findable, never inviting.</td></tr>
+          <tr><td>A distinct glyph for <em>asking</em> vs <em>speaking</em></td><td>Hollow = the agent is speaking, solid = the agent is requesting authority. One codepoint carrying a real semantic distinction.</td></tr>
+          <tr><td>On failure, say what did <em>not</em> happen</td><td>&ldquo;nothing was written.&rdquo; Silence about state is what destroys trust, and auth failure is this product's characteristic error.</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="note warm">
+      <span class="label">Two rules that are latent safety bugs, not aesthetics</span>
+      <p>
+        Pending keystrokes must be <strong>flushed</strong> when the card opens, or a
+        character typed before it appeared gets consumed as the answer. And there must be
+        a <strong>250ms window where only <em>deny</em> is accepted</strong>. Denial
+        should be instant; approval should never be a race with a stray <code>y</code>.
+      </p>
+    </div>
+  </div>
+</section>
+
+<section id="degrade">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="label">07 &nbsp;/&nbsp; Reach</span>
+      <h2>One design, four tiers</h2>
+      <p>
+        The base tier <em>is</em> the design, not a stripped-down apology for it.
+        Everything above is absorbed silently when the terminal offers it.
+      </p>
+    </div>
+    <div class="grid g2">
+      <div class="card">
+        <span class="label">Tier 0 &mdash; monochrome, CI, screen readers</span>
+        <p>Structure carries all meaning. Every glyph in the system is a filled area, so identity survives on ink coverage. No animation &mdash; state transitions become one log line each, which is strictly more informative in a CI log anyway.</p>
+      </div>
+      <div class="card">
+        <span class="label">Tier 1 &mdash; 256 colour, the floor</span>
+        <p>Every token has a verified xterm-256 index; the accent is an exact cube vertex, so it is byte-identical over SSH. This tier is where most sessions actually land, and it must not look like a compromise.</p>
+      </div>
+      <div class="card">
+        <span class="label">Tier 2 &mdash; truecolor + synchronized output</span>
+        <p>Exact hex, and flicker-free animation via DEC mode 2026, which brackets a frame so the terminal composites it atomically. Table stakes in Ghostty, kitty, WezTerm and iTerm2.</p>
+      </div>
+      <div class="card">
+        <span class="label">Tier 3 &mdash; protocol extras</span>
+        <p>Never load-bearing: OSC 8 so file paths are clickable, the kitty keyboard protocol for real chords, graphics protocols for inline image previews, OSC 66 so headings can actually be larger.</p>
+      </div>
+    </div>
+    <div class="note quiet">
+      <span class="label">And the escape hatch, which is automatic</span>
+      <p>
+        Fullscreen turns itself off with no flag when stdout isn't a TTY, when
+        <code>CI</code> is set, under a screen reader, or below 60&times;12. An alternate
+        screen with live repaint is actively hostile to a screen reader &mdash; the same
+        region gets re-announced endlessly &mdash; so that one is not negotiable.
+      </p>
+    </div>
+  </div>
+</section>
+
+<section id="reach">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="label">08 &nbsp;/&nbsp; Everywhere</span>
+      <h2>One design, from SSH to no terminal at all</h2>
+      <p>
+        The same interface has to hold on a box you reached through three jump hosts, in a
+        terminal that shipped last month, and in a cron job with no screen attached. That
+        is three different problems, and the design answers all three with the same
+        material.
+      </p>
+    </div>
+
+    <div class="grid g3">
+      <div class="card" style="padding:clamp(22px,3vw,32px)">
+        <span class="label">The floor &mdash; any 256-color terminal</span>
+        <h3 style="margin-bottom:14px;font-size:25px">Built for the far end of an SSH session</h3>
+        <p>
+          Every token in both palettes is an exact xterm-256 index, and both accents sit on
+          real cube vertices &mdash; cyan is index 45, orange is 202 &mdash; so they are
+          <strong>byte-identical</strong> over a link, not approximated. No truecolor is
+          required for anything.
+        </p>
+        <p>
+          Every glyph is single-width in every locale, so a frame that lines up on your
+          laptop lines up on a server with a different <code>LANG</code>. And because
+          animation is quantised to whole cells and discrete colour steps, a high-latency
+          link degrades the frame rate and nothing else.
+        </p>
+      </div>
+
+      <div class="card" style="padding:clamp(22px,3vw,32px)">
+        <span class="label">The ceiling &mdash; Warp, Ghostty, kitty, WezTerm</span>
+        <h3 style="margin-bottom:14px;font-size:25px">More polish where the terminal offers it</h3>
+        <p>
+          Modern terminals get capabilities jazz detects and uses, never depends on:
+          <strong>synchronized output</strong> for frames that composite atomically instead
+          of tearing; <strong>procedural block rendering</strong>, where the mark, meters
+          and rails are drawn as exact rectangles that tile seamlessly rather than as font
+          glyphs; <strong>OSC 8</strong> so file paths and sources are clickable; the
+          <strong>kitty keyboard protocol</strong> for real modifier chords; and native
+          desktop notifications when a long research run finishes while you are in another
+          window.
+        </p>
+        <p>
+          All of it is progressive enhancement. Turn every one of them off and the design
+          is unchanged in structure.
+        </p>
+      </div>
+
+      <div class="card" style="padding:clamp(22px,3vw,32px)">
+        <span class="label">No terminal at all</span>
+        <h3 style="margin-bottom:14px;font-size:25px">Headless is a first-class surface</h3>
+        <p>
+          jazz already runs as a one-shot command inside a script, a scheduled workflow, a
+          GitHub Action reviewing pull requests, and a bot on a server you own. So the
+          design has to survive having no screen &mdash; and it does, because
+          <strong>every state already carries a word</strong>:
+          <code>ok</code>, <code>failed</code>, <code>running</code>, <code>asking</code>,
+          <code>renew</code>, <code>stopped</code>.
+        </p>
+        <p>
+          Nothing is encoded in colour alone, so the fullscreen app collapses to a clean
+          append-only log with one line per state transition &mdash; which is
+          <em>more</em> useful in a CI log than a spinner ever was, and diffable.
+        </p>
+      </div>
+    </div>
+
+    <div class="note">
+      <span class="label">The best consequence of designing for headless</span>
+      <p>
+        The approval card doesn&rsquo;t disappear when there is nobody watching &mdash;
+        <strong>it travels.</strong> The same object, carrying the same fields and the same
+        named account, reaches you wherever you are: as a full-width band in the terminal,
+        as a message from a bot, or as a scoped decision a scheduled run is allowed to make
+        on its own. It is the one component that has to render in three places, which is
+        exactly why its content is specified as <em>facts about what will happen</em>
+        rather than as a layout.
+      </p>
+    </div>
+
+    <div class="note quiet">
+      <span class="label">Same session, same memory</span>
+      <p>
+        Because history became real data on disk rather than terminal scrollback, a
+        conversation you started in the fullscreen app is the same conversation a headless
+        run picks up, searches, and appends to. The interface changes shape; the session
+        does not.
+      </p>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p class="label">jazz &middot; interface direction &middot; 20 Aug 2026</p>
+  </div>
+</footer>
+
+<script>
+(function () {
+  var reduce = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var running = !reduce;
+  var nodes = [];
+
+  // Each lane rests, then plays a three-step burst: opening, live, closing.
+  // A longer period simply means a longer rest, so the lane count reads as how much
+  // work is in flight rather than as decoration.
+  var BURST = ["▖", "▚", "▘"];
+  function laneGlyph(period, tick) {
+    var position = ((tick % period) + period) % period;
+    var restCells = period - BURST.length;
+    return position < restCells ? "░" : BURST[position - restCells];
+  }
+
+  function collect() {
+    nodes = [];
+    document.querySelectorAll("[data-lanes]").forEach(function (el) {
+      var periods;
+      try { periods = JSON.parse(el.getAttribute("data-lanes")); } catch (e) { return; }
+      if (!Array.isArray(periods) || !periods.length) return;
+      var interval = parseInt(el.getAttribute("data-interval") || "170", 10);
+      if (!(interval > 0)) interval = 170;
+      nodes.push({ el: el, periods: periods, interval: interval, index: 0, acc: 0, pad: 0 });
+    });
+    document.querySelectorAll("[data-frames]").forEach(function (el) {
+      var frames;
+      try { frames = JSON.parse(el.getAttribute("data-frames")); } catch (e) { return; }
+      if (!Array.isArray(frames) || !frames.length) return;
+      var interval = parseInt(el.getAttribute("data-interval") || "120", 10);
+      if (!(interval > 0)) interval = 120;
+      var pad = 0;
+      frames.forEach(function (frame) { if (frame.length > pad) pad = frame.length; });
+      nodes.push({ el: el, frames: frames, interval: interval, index: 0, acc: 0, pad: pad });
+    });
+  }
+
+  function paint(node) {
+    if (node.periods) {
+      var out = "";
+      for (var lane = 0; lane < node.periods.length; lane++) {
+        out += laneGlyph(node.periods[lane], node.index + lane);
+      }
+      node.el.textContent = out;
+      return;
+    }
+    var frame = node.frames[node.index % node.frames.length];
+    while (frame.length < node.pad) frame += " ";
+    node.el.textContent = frame;
+  }
+
+  var last = 0;
+  function tick(now) {
+    if (!last) last = now;
+    var delta = now - last;
+    last = now;
+    if (running) {
+      for (var i = 0; i < nodes.length; i++) {
+        var node = nodes[i];
+        node.acc += delta;
+        if (node.acc >= node.interval) {
+          node.acc = node.acc % node.interval;
+          node.index++;
+          paint(node);
+        }
+      }
+    }
+    requestAnimationFrame(tick);
+  }
+
+  function wireTabs() {
+    document.querySelectorAll("[data-plate]").forEach(function (plate) {
+      var tabs = plate.querySelectorAll("[data-scene]");
+      tabs.forEach(function (tab) {
+        tab.addEventListener("click", function () {
+          var want = tab.getAttribute("data-scene");
+          tabs.forEach(function (other) {
+            other.setAttribute("aria-pressed", other === tab ? "true" : "false");
+          });
+          plate.querySelectorAll("[data-scene-panel]").forEach(function (panel) {
+            panel.hidden = panel.getAttribute("data-scene-panel") !== want;
+          });
+        });
+      });
+    });
+  }
+
+  function wireMotion() {
+    document.querySelectorAll("[data-toggle-motion]").forEach(function (btn) {
+      function sync() {
+        btn.setAttribute("aria-pressed", running ? "true" : "false");
+        btn.textContent = running ? "Pause motion" : "Play motion";
+      }
+      sync();
+      btn.addEventListener("click", function () {
+        running = !running;
+        document.querySelectorAll("[data-toggle-motion]").forEach(function (other) {
+          other.setAttribute("aria-pressed", running ? "true" : "false");
+          other.textContent = running ? "Pause motion" : "Play motion";
+        });
+      });
+    });
+  }
+
+  function boot() {
+    collect();
+    wireTabs();
+    wireMotion();
+    requestAnimationFrame(tick);
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", boot);
+  } else { boot(); }
+})();
+</script>

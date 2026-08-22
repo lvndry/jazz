@@ -33,7 +33,8 @@ type RmDeps = FileSystem.FileSystem | FileSystemContextService;
 export function createRmTools(): ApprovalToolPair<RmDeps> {
   const config: ApprovalToolConfig<RmDeps, RmArgs> = {
     name: "rm",
-    description: "Remove a file or directory. May be irreversible.",
+    description:
+      "Remove a file or directory. Not recursive by default — directories need recursive:true. force reports success even when the path is missing or the remove fails. This is not trash. For tracked files you also want unstaged, use execute_command with git rm.",
     tags: ["filesystem", "destructive"],
     parameters: rmParameters,
     validate: makeZodValidator(rmParameters),

@@ -22,7 +22,8 @@ export function createStatTool(): Tool<FileSystem.FileSystem | FileSystemContext
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, StatArgs>({
     name: "stat",
-    description: "Check file/directory existence and get metadata (type, size, times).",
+    description:
+      "Existence probe plus metadata (type, size in bytes, mtimes). Missing paths return success with exists:false — do not treat that as an error. Prefer this over ls -la or test -f via execute_command.",
     tags: ["filesystem", "info"],
     parameters,
     validate: makeZodValidator(parameters),

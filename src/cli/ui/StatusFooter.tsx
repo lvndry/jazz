@@ -1,6 +1,6 @@
 import { Box, Text } from "ink";
 import React from "react";
-import { Equalizer } from "./components/Equalizer";
+import { ActivityIndicator } from "./components/ActivityIndicator";
 import type { RunStats } from "./store";
 import { THEME } from "./theme";
 
@@ -114,7 +114,7 @@ function StatusFooter({
       <Box flexShrink={1}>
         {status ? (
           <Box>
-            <Equalizer color={THEME.primary} />
+            <ActivityIndicator color={THEME.primary} />
             <Text color={THEME.primary}> {status}</Text>
           </Box>
         ) : (

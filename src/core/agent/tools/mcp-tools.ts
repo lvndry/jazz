@@ -14,7 +14,7 @@ import type { Tool } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
 import { MCPToolExecutionError } from "@/core/types/errors";
 import type { MCPTool } from "@/core/types/mcp";
-import { convertMCPSchemaToZod } from "@/core/utils/mcp-schema-converter";
+import { convertMCPSchemaToZod, unwrapMCPJsonSchema } from "@/core/utils/mcp-schema-converter";
 import { safeStringify, toPascalCase } from "@/core/utils/string";
 import { defineTool, type ToolValidatorResult } from "./base-tool";
 
@@ -93,10 +93,13 @@ function adaptMCPToolToJazz(
     }
   }
 
+  const unwrappedJsonSchema = unwrapMCPJsonSchema(mcpTool.inputSchema);
+
   return defineTool<MCPToolDependencies, Record<string, unknown>>({
     name: jazzToolName,
     description: mcpTool.description || `MCP tool: ${mcpToolName}`,
     parameters,
+    ...(unwrappedJsonSchema !== undefined ? { jsonSchema: unwrappedJsonSchema } : {}),
     hidden: false,
     validate: passThroughMCPArguments,
     handler: (args: Record<string, unknown>, context: ToolExecutionContext) =>

@@ -83,6 +83,38 @@ export interface CollapseEphemeralSummary {
  * the footer simply omits any field that hasn't been populated yet.
  * Most fields are session-totals, updated after each LLM round-trip.
  */
+/**
+ * A pending approval, reduced to what an interface needs to render a decision.
+ * Deliberately not the full `ApprovalRequest`: the store should not depend on
+ * the tools layer, and the resume callback is not the UI's business.
+ */
+export type ConnectorStatus = "live" | "renew" | "offline";
+
+/**
+ * A menu the app is waiting on, published as data rather than as a rendered tree.
+ *
+ * `setCustomView` hands the UI a React element built with Ink components, which
+ * only the Ink renderer can paint — so a second renderer sees an opaque node and
+ * can do nothing useful with it. Publishing the *intent* instead lets each
+ * renderer draw its own version, which is the only way two renderers can share
+ * a flow.
+ */
+export interface ActiveMenu {
+  readonly kind: "menu";
+  readonly title?: string;
+  readonly options: readonly { readonly label: string; readonly value: string }[];
+  readonly onSelect: (value: string) => void;
+  readonly onExit: () => void;
+}
+
+export interface PendingApproval {
+  readonly toolName: string;
+  readonly executeToolName: string;
+  readonly message: string;
+  readonly args: Record<string, unknown>;
+  readonly previewDiff?: string;
+}
+
 export interface RunStats {
   /** Display name of the active model (e.g. "claude-sonnet-4-5"). */
   readonly model?: string;
@@ -579,6 +611,14 @@ export class UIStore {
 
   // ── Registration methods (called by island components) ────────────
 
+  private activeMenuSnapshot: ActiveMenu | null = null;
+  private activeMenuSetter: ((menu: ActiveMenu | null) => void) | null = null;
+  private connectorsSnapshot: ReadonlyMap<string, ConnectorStatus> = new Map();
+  private connectorsSetter: ((connectors: ReadonlyMap<string, ConnectorStatus>) => void) | null =
+    null;
+  private approvalRequestSnapshot: PendingApproval | null = null;
+  private approvalRequestSetter: ((request: PendingApproval | null) => void) | null = null;
+
   registerPrintOutput(handler: PrintOutputHandler): void {
     this.printOutputHandler = handler;
   }
@@ -627,6 +667,63 @@ export class UIStore {
       const top = this.interruptHandlerStack[this.interruptHandlerStack.length - 1] ?? null;
       setter(top);
     }
+  }
+
+  /**
+   * The approval currently awaiting a decision, as structured data.
+   *
+   * The `select` prompt that the Ink tree renders carries only a message and a
+   * list of choices. The fullscreen approval card has to name the real account,
+   * list every field that will exist afterwards, and state irreversibility in
+   * prose — none of which survives being flattened into a menu. So the request
+   * travels alongside the prompt rather than inside it.
+   */
+  /** Reachability of the named connectors, newest state wins per name. */
+  /** The menu currently awaiting a choice, or null. */
+  setActiveMenu = (menu: ActiveMenu | null): void => {
+    this.activeMenuSnapshot = menu;
+    if (this.activeMenuSetter) this.activeMenuSetter(menu);
+  };
+
+  registerActiveMenuSetter(setter: (menu: ActiveMenu | null) => void): void {
+    this.activeMenuSetter = setter;
+    setter(this.activeMenuSnapshot);
+  }
+
+  getActiveMenuSnapshot(): ActiveMenu | null {
+    return this.activeMenuSnapshot;
+  }
+
+  setConnector = (name: string, status: ConnectorStatus): void => {
+    const next = new Map(this.connectorsSnapshot);
+    next.set(name, status);
+    this.connectorsSnapshot = next;
+    if (this.connectorsSetter) this.connectorsSetter(next);
+  };
+
+  registerConnectorsSetter(
+    setter: (connectors: ReadonlyMap<string, ConnectorStatus>) => void,
+  ): void {
+    this.connectorsSetter = setter;
+    setter(this.connectorsSnapshot);
+  }
+
+  getConnectorsSnapshot(): ReadonlyMap<string, ConnectorStatus> {
+    return this.connectorsSnapshot;
+  }
+
+  setApprovalRequest = (request: PendingApproval | null): void => {
+    this.approvalRequestSnapshot = request;
+    if (this.approvalRequestSetter) this.approvalRequestSetter(request);
+  };
+
+  registerApprovalRequestSetter(setter: (request: PendingApproval | null) => void): void {
+    this.approvalRequestSetter = setter;
+    setter(this.approvalRequestSnapshot);
+  }
+
+  getApprovalRequestSnapshot(): PendingApproval | null {
+    return this.approvalRequestSnapshot;
   }
 
   registerEphemeralRegionsSetter(setter: (regions: readonly EphemeralRegion[]) => void): void {

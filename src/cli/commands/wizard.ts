@@ -297,6 +297,7 @@ function showWizardMenu(options: WizardMenuOption[]): Effect.Effect<MenuAction, 
       if (resumed) return;
       resumed = true;
       store.setCustomView(null);
+      store.setActiveMenu(null);
       resume(Effect.succeed(action));
     };
 
@@ -307,6 +308,16 @@ function showWizardMenu(options: WizardMenuOption[]): Effect.Effect<MenuAction, 
         onExit: () => safeResume("exit"),
       }),
     );
+
+    // The same menu as data, so a renderer that cannot paint an Ink tree can
+    // still draw it. Both channels resolve through `safeResume`, which is
+    // guarded against a double answer.
+    store.setActiveMenu({
+      kind: "menu",
+      options,
+      onSelect: (value: string) => safeResume(value as MenuAction),
+      onExit: () => safeResume("exit"),
+    });
   });
 }
 

@@ -19,12 +19,12 @@ Clone a repository and automatically execute all setup instructions from the REA
 
 ## Setup
 
-Create an agent with git, shell, and file management tools:
+Create an agent with shell and file management tools:
 
 ```bash
 jazz agent create
 # Name: project-setup
-# Tools: Git, Shell, File Management
+# Tools: Shell, File Management
 ```
 
 ## Usage

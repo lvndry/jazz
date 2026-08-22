@@ -473,10 +473,11 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
   const config: ApprovalToolConfig<EditFileDeps, EditFileArgs> = {
     name: "edit_file",
     description:
-      "Edit file via replace_lines, replace_pattern, insert, or delete_lines. Applied in order. " +
-      "IMPORTANT: Use replace_lines for structural edits (replacing sections, blocks, or multi-line content) — you already know the line numbers from reading the file. " +
-      "Only use replace_pattern for simple bulk find-and-replace across the file (e.g., replacing all ' with \", renaming a variable, changing all [[x]] to [x]). " +
-      "replace_pattern defaults to first match only; use count:-1 for all.",
+      "Surgically change an EXISTING UTF-8 text file. Does not create files (use write_file). Edits apply in order; after the first op, later line numbers refer to the already-mutated buffer. " +
+      "WHEN TO USE: any modification of an existing file. " +
+      "WHEN NOT: creating a new file → write_file. Rewriting the whole file because an edit failed → read the errorType and retry; do not write_file the whole buffer unless the file is tiny and new. Do not sed via execute_command. " +
+      "Prefer replace_pattern with a UNIQUE literal substring (count omitted = first match only; count:-1 = all). Use replace_lines / insert / delete_lines when you have exact 1-based numbers from read_file (numbered `N|` output — do not include the prefix in content). " +
+      "insert.line is special: 0 = before line 1; N = after line N. replace_pattern is for short single-line literals or re:<regex>; replacement is literal (no $1).",
     tags: ["filesystem", "write", "edit"],
     parameters: editFileParameters,
     validate: makeZodValidator(editFileParameters),

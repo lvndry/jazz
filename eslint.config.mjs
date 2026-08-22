@@ -22,7 +22,7 @@ export default [
   ...tseslint.configs.recommendedTypeChecked.map((config) => ({
     ...config,
     files: ["**/*.{ts,tsx}"],
-    ignores: ["**/*.test.ts", "test-preload.ts", "integrations/**"],
+    ignores: ["**/*.test.{ts,tsx}", "test-preload.ts", "integrations/**"],
   })),
   prettierConfig,
   nodePlugin.configs["flat/recommended-script"],
@@ -35,7 +35,7 @@ export default [
   },
   {
     files: ["**/*.{ts,tsx}"],
-    ignores: ["**/*.test.ts", "test-preload.ts", "integrations/**"],
+    ignores: ["**/*.test.{ts,tsx}", "test-preload.ts", "integrations/**"],
     languageOptions: {
       parserOptions: {
         project: ["./tsconfig.app.json", "./tsconfig.build.json"],
@@ -107,7 +107,7 @@ export default [
     },
   },
   {
-    files: ["**/*.test.ts"],
+    files: ["**/*.test.{ts,tsx}"],
     languageOptions: {
       parserOptions: {
         project: "./tsconfig.test.json",
@@ -137,7 +137,7 @@ export default [
   },
   {
     files: ["evals/**/*.ts"],
-    ignores: ["**/*.test.ts"],
+    ignores: ["**/*.test.{ts,tsx}"],
     languageOptions: {
       parserOptions: {
         project: "./evals/tsconfig.json",

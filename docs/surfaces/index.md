@@ -14,14 +14,14 @@ want.
 
 ## The surface matrix
 
-| Surface | Entry point | Human in the loop? | Status |
-| --- | --- | --- | --- |
-| **[Terminal](../guide/quick-start.md)** — interactive TUI, streaming, slash commands | `jazz` | Yes, per tool call | ✅ Shipped |
-| **[Headless](./headless.md)** — one-shot, clean stdout, JSON envelope | `jazz run` | Optional (`--approval-policy`) | ✅ Shipped |
-| **[Scheduled](./scheduled.md)** — launchd / cron, with catch-up for missed slots | `jazz workflow schedule` | No | ✅ Shipped |
-| **[CI/CD](./ci-cd.md)** — PR review with inline comments, `/jazz` PR assistant | `jazz workflow run --auto-approve` | No | ✅ Shipped (used on this repo) |
-| **[Chat platforms](./chat-platforms.md)** — Telegram, Discord | `docker compose up` | No (policy-gated) | ✅ Reference bridges |
-| **[Chat platforms](./chat-platforms.md)** — Slack, Google Chat, your own app | your webhook → `jazz run` | No (policy-gated) | 🔧 Bring your own bridge |
+| Surface                                                                              | Entry point                        | Human in the loop?             | Status                        |
+| ------------------------------------------------------------------------------------ | ---------------------------------- | ------------------------------ | ----------------------------- |
+| **[Terminal](../guide/quick-start.md)** — interactive TUI, streaming, slash commands | `jazz`                             | Yes, per tool call             | ✅ Shipped                     |
+| **[Headless](./headless.md)** — one-shot, clean stdout, JSON envelope                | `jazz run`                         | Optional (`--approval-policy`) | ✅ Shipped                     |
+| **[Scheduled](./scheduled.md)** — launchd / cron, with catch-up for missed slots     | `jazz workflow schedule`           | No                             | ✅ Shipped                     |
+| **[CI/CD](./ci-cd.md)** — PR review with inline comments, `/jazz` PR assistant       | `jazz workflow run --auto-approve` | No                             | ✅ Shipped (used on this repo) |
+| **[Chat platforms](./chat-platforms.md)** — Telegram, Discord                        | `docker compose up`                | No (policy-gated)              | ✅ Reference bridges           |
+| **[Chat platforms](./chat-platforms.md)** — Slack, Google Chat, your own app         | your webhook → `jazz run`          | No (policy-gated)              | 🔧 Bring your own bridge       |
 
 > **On "bring your own bridge":** no Slack/Google Chat adapter ships in this repo
 > today. What ships is the contract they'd all use, and complete, deployed
@@ -136,10 +136,10 @@ how the run started:
 
 ## Next
 
-| Page | What it answers |
-| --- | --- |
-| [Headless](./headless.md) | The `jazz run` contract: stdout/stderr, `--json`, memory, live events, exit codes |
-| [Chat platforms](./chat-platforms.md) | How to put an agent in Telegram, Discord, Slack, or your own app |
-| [CI/CD](./ci-cd.md) | PR review, the `/jazz` assistant, release notes, generic CI |
-| [Scheduled](./scheduled.md) | launchd/cron, catch-up, logs, unattended safety |
-| [Airgapped & self-hosted](../guide/airgapped.md) | Running the whole stack inside your own network |
+| Page                                             | What it answers                                                                   |
+| ------------------------------------------------ | --------------------------------------------------------------------------------- |
+| [Headless](./headless.md)                        | The `jazz run` contract: stdout/stderr, `--json`, memory, live events, exit codes |
+| [Chat platforms](./chat-platforms.md)            | How to put an agent in Telegram, Discord, Slack, or your own app                  |
+| [CI/CD](./ci-cd.md)                              | PR review, the `/jazz` assistant, release notes, generic CI                       |
+| [Scheduled](./scheduled.md)                      | launchd/cron, catch-up, logs, unattended safety                                   |
+| [Airgapped & self-hosted](../guide/airgapped.md) | Running the whole stack inside your own network                                   |

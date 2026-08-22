@@ -1,0 +1,250 @@
+/** @jsxImportSource @opentui/react */
+import { useKeyboard, useTerminalDimensions } from "@opentui/react";
+import React, { useCallback, useRef, useState } from "react";
+import { getGlyphs } from "../glyphs";
+import { THEME } from "../theme";
+import { Footer } from "./Footer";
+import { Header } from "./Header";
+import { Input } from "./Input";
+import { hintsFor, resolveEscape, resolveFocusKey, type KeyAction } from "./keymap";
+import { LiveZone } from "./LiveZone";
+import { Approval } from "./overlays/Approval";
+import { Search } from "./overlays/Search";
+import { Transcript } from "./Transcript";
+import { MIN_HEIGHT, MIN_WIDTH, type Focus, type ViewModel } from "./types";
+
+/**
+ * The shell: five stacked regions and a floating overlay layer.
+ *
+ * Everything here is layout and intent-routing. The regions are pure functions
+ * of the view model, so a frame is reproducible from data alone — which is why
+ * the layout can be asserted character by character in tests rather than
+ * eyeballed.
+ *
+ * The ordering matters and is the design: the input and footer are anchored to
+ * the bottom, the live zone sits directly above them, and the transcript takes
+ * whatever is left. So when work starts, the live zone grows *upward* and the
+ * conversation yields the rows — the thing under the user's hands never moves.
+ */
+
+/**
+ * The modifiers a text field has to tell apart, which is more than "was a
+ * modifier held".
+ *
+ * On macOS `super` is Cmd and `option`/`meta` is Option, and they mean
+ * different things in every text field on the platform: Cmd+Left goes to the
+ * start of the line, Option+Left goes back one word. Collapsing them into one
+ * flag makes those two chords indistinguishable, which is exactly the bug that
+ * made Cmd+Arrow behave wrongly. `ctrl` carries the Linux/Windows equivalents.
+ */
+export interface KeyChord {
+  readonly name: string;
+  /**
+   * The bytes the terminal actually sent.
+   *
+   * This is what must be inserted when typing, never `name`: `name` is
+   * lowercased for capitals — a shifted "X" arrives as `name: "x"` with
+   * `shift: true` — so composing from `name` silently types everything in
+   * lower case. `sequence` carries the true character. It is also what makes
+   * the printable test trustworthy: a control key's sequence is either a
+   * control code or a multi-character escape sequence, so "one printable code
+   * point" excludes every arrow, function key and Ctrl chord without needing a
+   * list of their names.
+   */
+  readonly sequence: string;
+  readonly ctrl: boolean;
+  readonly meta: boolean;
+  readonly option: boolean;
+  readonly super: boolean;
+}
+
+export interface AppProps {
+  readonly view: ViewModel;
+  readonly onAction: (action: KeyAction) => void;
+  /**
+   * First refusal on every key. Return true to consume it.
+   *
+   * There is exactly one keyboard registration in this tree on purpose: two
+   * independent `useKeyboard` hooks leave it ambiguous which one sees a key,
+   * and the loser silently receives nothing.
+   */
+  readonly onKey?: (key: KeyChord) => boolean;
+  /**
+   * Replaces the five-region layout with arbitrary content — the wizard menu,
+   * the screen-unavailable notice — while this component's own `useKeyboard`
+   * call stays mounted.
+   *
+   * A hook runs for as long as the component that calls it is mounted,
+   * regardless of which branch of that component's own render it takes — but
+   * not at all if a *different* component is rendered instead. Returning
+   * `<Home />` directly from the bridge, above this component, was exactly
+   * that mistake: `App` never mounted, so `useKeyboard` never ran, so every
+   * key — including Ctrl+C — was silently unhandled. Routing every screen
+   * through here is what keeps that from happening again.
+   */
+  readonly overrideContent?: React.ReactNode;
+}
+
+/**
+ * Below the minimum there is no honest frame to draw, so draw none.
+ *
+ * A partial frame is worse than a message: box edges land in the wrong places
+ * and the reader cannot tell a layout bug from a small window. This says the
+ * size it needs, the size it has, and the way out.
+ */
+function TooSmall({ width, height }: { width: number; height: number }): React.ReactNode {
+  return (
+    <box style={{ width, height, flexDirection: "column" }}>
+      <text style={{ fg: THEME.selected }}>{`jazz needs ${MIN_WIDTH}x${MIN_HEIGHT}`}</text>
+      <text style={{ fg: THEME.muted }}>{`this terminal is ${width}x${height}`}</text>
+      <text style={{ fg: THEME.muted }}>resize, or run with --plain</text>
+    </box>
+  );
+}
+
+export function App({ view, onAction, onKey, overrideContent }: AppProps): React.ReactNode {
+  const { width, height } = useTerminalDimensions();
+  const [focus, setFocus] = useState<Focus>("input");
+  const armedAt = useRef<number | undefined>(undefined);
+  const glyphs = getGlyphs();
+
+  // `useKeyboard` registers its callback once, so it captures the props and
+  // state setters from the render that happened to be first. Those setters can
+  // belong to an instance React has since discarded, in which case the update is
+  // silently dropped — the updater function is never even invoked. Calling
+  // through a ref that every render refreshes means the handler is always the
+  // live one.
+  const onKeyRef = useRef<AppProps["onKey"]>(undefined);
+  onKeyRef.current = onKey;
+
+  const overlayOpen = view.overlay !== undefined;
+
+  const dispatch = useCallback(
+    (action: KeyAction) => {
+      switch (action.type) {
+        case "focus-input":
+          setFocus("input");
+          break;
+        case "focus-transcript":
+          setFocus("transcript");
+          break;
+        case "arm-interrupt":
+          armedAt.current = Date.now();
+          break;
+        case "interrupt":
+          armedAt.current = undefined;
+          break;
+        default:
+          break;
+      }
+      onAction(action);
+    },
+    [onAction],
+  );
+
+  useKeyboard((key) => {
+    const name = typeof key === "string" ? key : (key.name ?? "");
+    const event = key as Partial<
+      Record<"ctrl" | "meta" | "option" | "super", boolean> & { sequence: string }
+    >;
+    const ctrl = typeof key === "string" ? false : event.ctrl === true;
+    const meta = typeof key === "string" ? false : event.meta === true;
+    const option = typeof key === "string" ? false : event.option === true;
+    const superKey = typeof key === "string" ? false : event.super === true;
+    const sequence = typeof key === "string" ? key : (event.sequence ?? "");
+
+    // The caller gets the key first, so the composer and the overlays see
+    // typing before focus and Esc handling do.
+    if (onKeyRef.current?.({ name, sequence, ctrl, meta, option, super: superKey }) === true) {
+      return;
+    }
+
+    if (name === "escape") {
+      dispatch(
+        resolveEscape(
+          {
+            overlayOpen,
+            searchActive: view.overlay?.kind === "search",
+            completionOpen: false,
+            runActive: view.live.tools.length > 0 || view.live.waiting !== undefined,
+            ...(armedAt.current === undefined ? {} : { interruptArmedAt: armedAt.current }),
+            inputEmpty: view.input.value.length === 0,
+            focus,
+          },
+          Date.now(),
+        ),
+      );
+      return;
+    }
+
+    // An overlay owns the keyboard while it is open; the regions behind it must
+    // not act on keys the user is aiming at the card.
+    if (overlayOpen) return;
+
+    const focusAction = resolveFocusKey(name, focus);
+    if (focusAction.type !== "noop") dispatch(focusAction);
+  });
+
+  if (overrideContent !== undefined) {
+    return overrideContent;
+  }
+
+  if (width < MIN_WIDTH || height < MIN_HEIGHT) {
+    return (
+      <TooSmall
+        width={width}
+        height={height}
+      />
+    );
+  }
+
+  const viewport = { width, height };
+  const footer = { ...view.footer, hints: hintsFor(focus, view.live.tools.length > 0) };
+
+  return (
+    <box style={{ width, height, flexDirection: "column" }}>
+      <Header
+        model={view.header}
+        viewport={viewport}
+      />
+
+      {/* One hairline under the header. The regions do not draw their own. */}
+      <box style={{ height: 1, flexShrink: 0 }}>
+        <text style={{ fg: THEME.border }}>{glyphs.divider.repeat(width)}</text>
+      </box>
+
+      <Transcript
+        blocks={view.blocks}
+        viewport={viewport}
+        focus={focus}
+        {...(view.newBelow === undefined ? {} : { newBelow: view.newBelow })}
+      />
+
+      <LiveZone
+        model={view.live}
+        viewport={viewport}
+      />
+      <Input
+        model={{ ...view.input, disabled: view.input.disabled || overlayOpen }}
+        viewport={viewport}
+      />
+      <Footer
+        model={footer}
+        viewport={viewport}
+      />
+
+      {view.overlay?.kind === "approval" ? (
+        <Approval
+          model={view.overlay}
+          viewport={viewport}
+        />
+      ) : null}
+      {view.overlay?.kind === "search" ? (
+        <Search
+          model={view.overlay}
+          viewport={viewport}
+        />
+      ) : null}
+    </box>
+  );
+}
