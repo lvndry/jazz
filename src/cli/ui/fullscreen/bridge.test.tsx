@@ -9,6 +9,9 @@ import { testRender } from "@opentui/react/test-utils";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
 import chalk from "chalk";
 import React from "react";
+import { createAccumulator, reduceEvent } from "@/cli/presentation/activity-reducer";
+import { formatMarkdown } from "@/cli/presentation/markdown-formatter";
+import { ink } from "@/core/interfaces/terminal";
 import { store } from "../store";
 import { FullscreenBridge } from "./bridge";
 
@@ -671,5 +674,105 @@ describe("fullscreen bridge", () => {
     rendered.renderer.destroy();
     store.setPrompt(null);
     expect(frameText).toContain("the full chain of thought");
+  });
+  /**
+   * These drive the *real* producers rather than hand-written payloads.
+   *
+   * Every regression this file was written to catch got through anyway, and all
+   * of them for one reason: the assertions fed shapes production never sends. A
+   * receipt test passed a plain string where the activity reducer sends an Ink
+   * node carrying no text at all, so the transcript was blank for every settled
+   * tool call while the test stayed green. Forcing `chalk.level` was necessary
+   * but not sufficient — the payload has to come from the code that builds it.
+   */
+  describe("driven by the real producers", () => {
+    const ESC = String.fromCharCode(27);
+
+    /** A tool that starts and settles, exactly as the reducer records one. */
+    function runToolThroughReducer(): void {
+      const accumulator = createAccumulator("cassandra");
+      for (const event of [
+        {
+          type: "tool_execution_start" as const,
+          toolName: "gmail_search",
+          toolCallId: "call-1",
+          arguments: { query: "is:unread newer_than:7d" },
+        },
+        {
+          type: "tool_execution_complete" as const,
+          toolCallId: "call-1",
+          result: "4 flagged of 26",
+          summary: "4 flagged of 26",
+          durationMs: 1_900,
+          success: true,
+        },
+      ]) {
+        const { outputs } = reduceEvent(accumulator, event, ink);
+        for (const entry of outputs) store.printOutput(entry);
+      }
+    }
+
+    it("renders a settled tool call as a receipt", async () => {
+      const text = await frame(runToolThroughReducer);
+      // The reducer puts the receipt in `meta.toolReceipt` and leaves `message`
+      // as an Ink node, so this only passes if the receipt is read before
+      // anything consults the entry's text.
+      expect(text).toContain("gmail");
+      expect(text).toContain("4 flagged of 26");
+    });
+
+    it("leaves no escape sequence in a frame built from formatted markdown", async () => {
+      const markdown = formatMarkdown(
+        "Docs at https://example.com/deep/path and [the guide](https://example.com/guide).",
+      );
+      // Proves the producer really does style its output, so a clean frame below
+      // means the transcript stripped it rather than that there was nothing to
+      // strip.
+      expect(markdown).toContain(ESC);
+
+      const text = await frame(() => {
+        store.printOutput({ type: "streamContent", message: markdown, timestamp: new Date() });
+      });
+      expect(text).not.toContain(ESC);
+      // An OSC 8 hyperlink wraps the label around the target. Stripping only
+      // CSI left the sequence painted as cells and the bare URL beside it.
+      expect(text).toContain("the guide");
+      expect(text).not.toContain("example.com/guide");
+    });
+
+    it("shows live reasoning while the region is open", async () => {
+      const text = await frame(() => {
+        const region = store.openEphemeral("reasoning", "Reasoning", 8);
+        store.appendEphemeral(region, "weighing the two calendars");
+      });
+      expect(text).toContain("weighing the two calendars");
+    });
+
+    it("shows a delegated subagent as a lane while it runs", async () => {
+      const text = await frame(() => {
+        const region = store.openEphemeral("subagent", "travel-scout", 12);
+        store.appendEphemeral(region, "checking whether the Basel dates moved");
+      });
+      expect(text).toContain("travel-scout");
+      expect(text).toContain("Basel");
+    });
+
+    it("keeps a multi-line entry on separate rows", async () => {
+      const text = await frame(() => {
+        store.printOutput({
+          type: "log",
+          message: "first line here\nsecond line here",
+          timestamp: new Date(),
+        });
+      });
+      const rows = text.split("\n");
+      const first = rows.findIndex((row) => row.includes("first line here"));
+      const second = rows.findIndex((row) => row.includes("second line here"));
+      expect(first).toBeGreaterThan(-1);
+      // A newline is a hard break. Flowed together as whitespace, the second
+      // half landed inside the first row after a literal newline and was cut
+      // off at it.
+      expect(second).toBe(first + 1);
+    });
   });
 });

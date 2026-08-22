@@ -185,30 +185,24 @@ function plainOf(message: unknown): string {
  * rather than one block each: the model emits prose in pieces, and a block per
  * piece would make the transcript unscrollable and the markdown unparseable.
  */
-function blocksFrom(entries: readonly OutputEntry[], streaming: string): Block[] {
+function blocksFrom(
+  entries: readonly OutputEntry[],
+  streaming: string,
+  regions: readonly EphemeralRegion[],
+  now: number,
+): Block[] {
   const blocks: Block[] = [];
   let seq = 0;
 
   for (const entry of entries) {
-    const plainText = entry.meta?.["plainText"];
-    const text = stripAnsiCodes(typeof plainText === "string" ? plainText : plainOf(entry.message));
-    if (text.trim().length === 0) continue;
     const id = entry.id ?? `b${String(seq)}`;
 
-    if (entry.type === "user") {
-      blocks.push({ id, seq: seq++, kind: "user", text });
-      continue;
-    }
-    if (entry.type === "streamContent") {
-      const last = blocks.at(-1);
-      if (last?.kind === "agent") {
-        blocks[blocks.length - 1] = { ...last, markdown: `${last.markdown}${text}` };
-        continue;
-      }
-      blocks.push({ id, seq: seq++, kind: "agent", markdown: text });
-      continue;
-    }
-
+    // A receipt is read before anything looks at the entry's text, because a
+    // receipt has no text: the activity reducer puts the structured form in
+    // `meta.toolReceipt` and leaves `message` as the Ink node it built for the
+    // other renderer. Behind the empty-text guard below, every settled tool
+    // call was therefore skipped in silence, and the transcript showed nothing
+    // at all between the question and the answer.
     const receipt = receiptOf(entry);
     if (receipt !== null) {
       blocks.push({
@@ -225,6 +219,34 @@ function blocksFrom(entries: readonly OutputEntry[], streaming: string): Block[]
       continue;
     }
 
+    const plainText = entry.meta?.["plainText"];
+    const text = stripAnsiCodes(typeof plainText === "string" ? plainText : plainOf(entry.message));
+    if (text.trim().length === 0) continue;
+
+    if (entry.type === "user") {
+      blocks.push({ id, seq: seq++, kind: "user", text });
+      continue;
+    }
+
+    // Reasoning re-emitted by Ctrl+R arrives as `streamContent` so the Ink tree
+    // can stream it in. Merging it into the preceding agent block the way
+    // ordinary prose is merged would graft the model's private thinking onto
+    // the end of its answer with no seam between them, so `meta.kind` decides
+    // which of the two this is.
+    if (entry.type === "streamContent" && entry.meta?.["kind"] === "reasoning") {
+      blocks.push({ id, seq: seq++, kind: "reasoning", text, collapsed: false });
+      continue;
+    }
+    if (entry.type === "streamContent") {
+      const last = blocks.at(-1);
+      if (last?.kind === "agent") {
+        blocks[blocks.length - 1] = { ...last, markdown: `${last.markdown}${text}` };
+        continue;
+      }
+      blocks.push({ id, seq: seq++, kind: "agent", markdown: text });
+      continue;
+    }
+
     const tone = entry.type === "error" ? "error" : entry.type === "warn" ? "warn" : "info";
     blocks.push({ id, seq: seq++, kind: "notice", text, tone });
   }
@@ -233,10 +255,45 @@ function blocksFrom(entries: readonly OutputEntry[], streaming: string): Block[]
   if (streaming.trim().length > 0) {
     blocks.push({
       id: "streaming",
-      seq,
+      seq: seq++,
       kind: "agent",
       markdown: streaming,
       streaming: true,
+    });
+  }
+
+  // Open regions last, because they are the work happening now and everything
+  // above them has already settled.
+  //
+  // These were subscribed and then dropped: `regions` reached this component
+  // and appeared only in a dependency array, so extended thinking and every
+  // delegated subagent showed a spinner and nothing else for their whole
+  // duration. The blocks that render them were already built.
+  let lane = 0;
+  for (const region of regions) {
+    if (region.kind === "reasoning") {
+      blocks.push({
+        id: region.id,
+        seq: seq++,
+        kind: "reasoning",
+        text: region.tail.join("\n"),
+        collapsed: false,
+        durationMs: Math.max(0, now - region.startedAt),
+      });
+      continue;
+    }
+    // A lane's header is who it is and what it is doing right now, which is the
+    // region's newest line. `result` stays unset while it runs: that field
+    // draws the lane-closing glyph, and a lane that is still open has not
+    // closed.
+    blocks.push({
+      id: region.id,
+      seq: seq++,
+      kind: "lane",
+      name: region.label,
+      ask: region.tail.at(-1) ?? "",
+      lane: lane++,
+      state: "running",
     });
   }
   return blocks;
@@ -767,7 +824,7 @@ export function FullscreenBridge(): React.ReactNode {
         contextUsed: stats.tokensInContext ?? 0,
         contextMax: stats.maxContextTokens ?? 0,
       },
-      blocks: blocksFrom(outputs, streaming),
+      blocks: blocksFrom(outputs, streaming, regions, Date.now()),
       live: {
         tools,
         hiddenTools: [],

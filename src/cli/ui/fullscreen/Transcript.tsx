@@ -129,36 +129,56 @@ function wrap(segments: readonly Segment[], measure: number): Segment[][] {
     line.push(segment);
   };
 
+  const breakLine = (): void => {
+    lines.push(line);
+    line = [];
+    used = 0;
+  };
+
   for (const segment of segments) {
-    // Keep the separators: a wrapped line must not lose the spaces inside it.
-    for (const word of segment.text.split(/(\s+)/)) {
-      if (word.length === 0) continue;
-      const size = cells(word);
-      if (/^\s+$/.test(word)) {
-        if (used > 0 && used + size <= width) {
-          push({ ...segment, text: word });
-          used += size;
+    // A newline is a hard break, not whitespace to flow through.
+    //
+    // Splitting on /(\s+)/ alone put the newline characters *into* a row as an
+    // ordinary space run, so a multi-line string became one row containing a
+    // literal newline — which truncates where it sits. Expanded reasoning
+    // showed only its first line, and a diff arrived as one running paragraph
+    // with every +/- marker stranded mid-sentence.
+    //
+    // Pushing the line even when it is empty is deliberate: two newlines in a
+    // row are a paragraph break, and the blank row is the break.
+    const hardLines = segment.text.split("\n");
+    for (const [index, hardLine] of hardLines.entries()) {
+      if (index > 0) breakLine();
+      // Keep the separators: a wrapped line must not lose the spaces inside it.
+      for (const word of hardLine.split(/(\s+)/)) {
+        if (word.length === 0) continue;
+        const size = cells(word);
+        if (/^\s+$/.test(word)) {
+          if (used > 0 && used + size <= width) {
+            push({ ...segment, text: word });
+            used += size;
+          }
+          continue;
         }
-        continue;
+        if (used > 0 && used + size > width) {
+          lines.push(line);
+          line = [];
+          used = 0;
+        }
+        // A single word longer than the measure is broken rather than allowed to
+        // push past the right edge — a URL must not break the column.
+        let rest = word;
+        while (cells(rest) > width) {
+          const head = [...rest].slice(0, width - used).join("");
+          push({ ...segment, text: head });
+          lines.push(line);
+          line = [];
+          used = 0;
+          rest = [...rest].slice(cells(head)).join("");
+        }
+        push({ ...segment, text: rest });
+        used += cells(rest);
       }
-      if (used > 0 && used + size > width) {
-        lines.push(line);
-        line = [];
-        used = 0;
-      }
-      // A single word longer than the measure is broken rather than allowed to
-      // push past the right edge — a URL must not break the column.
-      let rest = word;
-      while (cells(rest) > width) {
-        const head = [...rest].slice(0, width - used).join("");
-        push({ ...segment, text: head });
-        lines.push(line);
-        line = [];
-        used = 0;
-        rest = [...rest].slice(cells(head)).join("");
-      }
-      push({ ...segment, text: rest });
-      used += cells(rest);
     }
   }
   if (line.length > 0) lines.push(line);
