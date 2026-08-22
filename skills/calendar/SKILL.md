@@ -239,6 +239,18 @@ command -v gcalcli
 
 If missing, install it (`pip install --break-system-packages gcalcli` on Debian-family systems where apt owns the Python environment, plain `pip install gcalcli`/`pipx install gcalcli` elsewhere).
 
+### Check for already-configured accounts before assuming there are none
+
+gcalcli's cache lives at `$XDG_DATA_HOME/gcalcli/oauth`, and **many deployments (e.g. Docker containers) set `$XDG_DATA_HOME` to something other than the Unix default `~/.local/share`.** Checking `~/.local/share/gcalcli-*` and finding nothing does not mean no account is set up — it may just mean you checked the wrong base directory. Before concluding "gcalcli isn't authenticated" or starting a new OAuth setup:
+
+```bash
+echo "$XDG_DATA_HOME"                                  # the actual base dir this deployment uses, if set
+find "${XDG_DATA_HOME:-$HOME/.local/share}"/.. -maxdepth 2 -iname "gcalcli*" 2>/dev/null
+find / -maxdepth 4 -iname "gcalcli-*" -type d 2>/dev/null   # last resort if the above finds nothing
+```
+
+Each match is one already-authorized account (directory name is usually the account's own name); use it directly with the `XDG_DATA_HOME=<that directory> gcalcli ...` pattern below rather than re-running OAuth setup.
+
 ### One-time OAuth client (per deployment, not per account)
 
 1. In [Google Cloud Console](https://console.cloud.google.com): create/reuse a project, enable the **Google Calendar API**.
