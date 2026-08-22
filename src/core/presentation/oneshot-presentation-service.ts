@@ -227,7 +227,14 @@ export class OneShotPresentationService implements PresentationService {
       handleEvent: (event: StreamEvent) =>
         Effect.sync(() => {
           if (emitEventTypes.has(event.type)) {
-            process.stderr.write(`${JSON.stringify(event, truncateLongStrings)}\n`);
+            // approval_required is exempt from the length scrub: its message/
+            // previewDiff are exactly what a human is being asked to read
+            // before approving, and truncating them defeats the point of
+            // asking — a consumer (e.g. the Telegram bridge) that needs to
+            // bound how much it displays can do so itself, having seen the
+            // whole thing.
+            const replacer = event.type === "approval_required" ? undefined : truncateLongStrings;
+            process.stderr.write(`${JSON.stringify(event, replacer)}\n`);
           }
         }),
       setInterruptHandler: (_handler: (() => void) | null) => Effect.void,
