@@ -30,6 +30,19 @@ RUN curl -sSL https://raw.githubusercontent.com/pimalaya/himalaya/master/install
 # all, so this is required for calendar access to Google accounts.
 RUN pip3 install --break-system-packages --no-cache-dir aiohttp-oauthlib
 
+# Google's CalDAV endpoint rejects the RFC 6764 principal-discovery handshake
+# every generic CalDAV client (including vdirsyncer's own google_calendar
+# OAuth backend) depends on to auto-configure — confirmed via 403 "Given URL
+# is not a homeset URL" even with a valid OAuth token. gcalcli talks to the
+# real Calendar REST API v3 instead of CalDAV, so it's what Google accounts
+# actually need for calendar access; khal/vdirsyncer stay installed above for
+# non-Google CalDAV providers (iCloud, Nextcloud, Fastmail, ...) where
+# discovery isn't broken. --ignore-installed avoids fighting Debian's
+# python3-typing-extensions for a package apt didn't install with pip
+# metadata; the aiostream pin keeps pip from upgrading past what vdirsyncer
+# requires.
+RUN pip3 install --break-system-packages --ignore-installed --no-cache-dir "aiostream<0.5.0" gcalcli
+
 # himalaya/khal/vdirsyncer/pass/gnupg all default to files under $HOME, which
 # lives on the container's writable layer and is lost on every rebuild or
 # recreate. Point their config/data/secrets at the same /data volume Jazz
