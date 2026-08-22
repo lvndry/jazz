@@ -27,6 +27,7 @@ import { TextAttributes, type BorderCharacters } from "@opentui/core";
 import type { ReactNode } from "react";
 import { getGlyphs, type GlyphSet } from "../../glyphs";
 import { THEME } from "../../theme";
+import { clipTerminalCells, terminalCellWidth } from "../terminal-cells";
 import type { ApprovalOverlay, Viewport } from "../types";
 
 /** Windowed width, and the floor below which windowing stops making sense. */
@@ -45,18 +46,12 @@ const FIXED_CARD_ROWS = 7;
 /** The controls line, beneath the frame. */
 const CONTROL_ROWS = 1;
 
-const ELLIPSIS = "...";
-
 function displayWidth(text: string): number {
-  return [...text].length;
+  return terminalCellWidth(text);
 }
 
 function clip(text: string, width: number): string {
-  if (width <= 0) return "";
-  const chars = [...text];
-  if (chars.length <= width) return text;
-  if (width <= ELLIPSIS.length) return chars.slice(0, width).join("");
-  return chars.slice(0, width - ELLIPSIS.length).join("") + ELLIPSIS;
+  return clipTerminalCells(text, width);
 }
 
 /** A field value is one row of a record, so newlines collapse rather than wrap. */
@@ -124,13 +119,16 @@ export function Approval({ model, viewport }: ApprovalProps): ReactNode {
   // hold them all the region scrolls rather than the list being cut short.
   const fieldRows = Math.max(1, cardHeight - fixedRows);
   const fieldsScroll = fieldRows < model.fields.length;
+  const maxFieldOffset = Math.max(0, model.fields.length - fieldRows);
+  const fieldOffset = Math.max(0, Math.min(model.fieldOffset ?? 0, maxFieldOffset));
+  const visibleFields = model.fields.slice(fieldOffset, fieldOffset + fieldRows);
 
   const left = fullscreen ? 0 : Math.max(0, Math.floor((viewport.width - width) / 2));
   const top = fullscreen ? 0 : Math.max(0, Math.floor((viewport.height - height) / 2));
 
-  const fieldRowsContent = model.fields.map((field) => (
+  const fieldRowsContent = visibleFields.map((field, index) => (
     <box
-      key={field.label}
+      key={`${String(fieldOffset + index)}:${field.label}`}
       style={{ height: 1, flexShrink: 0, flexDirection: "row" }}
     >
       <text style={{ fg: THEME.muted, width: LABEL_COLUMN, flexShrink: 0 }}>
@@ -184,13 +182,9 @@ export function Approval({ model, viewport }: ApprovalProps): ReactNode {
           {glyphs.divider.repeat(inner)}
         </text>
 
-        {fieldsScroll ? (
-          <scrollbox style={{ height: fieldRows, flexShrink: 0 }}>{fieldRowsContent}</scrollbox>
-        ) : (
-          <box style={{ height: fieldRows, flexShrink: 0, flexDirection: "column" }}>
-            {fieldRowsContent}
-          </box>
-        )}
+        <box style={{ height: fieldRows, flexShrink: 0, flexDirection: "column" }}>
+          {fieldRowsContent}
+        </box>
 
         <box style={{ height: 1, flexShrink: 0 }} />
 
@@ -225,7 +219,12 @@ export function Approval({ model, viewport }: ApprovalProps): ReactNode {
           <span style={{ fg: THEME.secondary }}>{" reject"}</span>
         </text>
         <box style={{ flexGrow: 1 }} />
-        <text style={{ fg: THEME.muted, flexShrink: 0 }}>a always allow</text>
+        <text style={{ fg: THEME.muted, flexShrink: 0 }}>
+          {clip(
+            `${fieldsScroll ? "up/down fields · " : ""}a ${model.alwaysLabel}`,
+            Math.max(0, inner - 27),
+          )}
+        </text>
       </box>
     </box>
   );

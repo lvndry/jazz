@@ -22,7 +22,7 @@ interface WizardHomeProps {
   title?: string;
 }
 
-const TIPS = [
+export const TIPS = [
   // CLI Shortcuts
   "Type '/help' in chat to see every command and keyboard shortcut",
   "Use Arrow Up in chat to recall your previous messages",

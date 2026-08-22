@@ -1,5 +1,15 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { filterCommandsByPrefix, setSkillCommands } from "./constants";
+import { filterCommandsByPrefix, setSkillCommands, slashCommandQuery } from "./constants";
+
+describe("slashCommandQuery", () => {
+  it("reads the prefix until arguments or a newline start", () => {
+    expect(slashCommandQuery("/")).toBe("");
+    expect(slashCommandQuery("/hel")).toBe("hel");
+    expect(slashCommandQuery("/help extra")).toBeNull();
+    expect(slashCommandQuery("/help\n")).toBeNull();
+    expect(slashCommandQuery("help")).toBeNull();
+  });
+});
 
 describe("filterCommandsByPrefix", () => {
   afterEach(() => {

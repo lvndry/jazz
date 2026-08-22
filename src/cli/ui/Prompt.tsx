@@ -11,6 +11,7 @@ import { SearchSelect } from "./components/SearchSelect";
 import { TextInput } from "./components/TextInput";
 import { getGlyphs } from "./glyphs";
 import { InputResults, useInputHandler, useTextInput } from "./hooks/use-input-service";
+import { PICKER_WINDOW_SIZE } from "./picker-window";
 import { isCursorOnFirstLine, isCursorOnLastLine } from "./queue-recall";
 import { store } from "./store";
 import { PADDING, THEME } from "./theme";
@@ -67,8 +68,8 @@ function CommandSuggestionItem({
  * Used for "Press Enter to continue" scenarios.
  */
 function HiddenInput({ onSubmit }: { onSubmit: () => void }): React.ReactElement {
-  useInput((_input: string, key: { return?: boolean }) => {
-    if (key.return) {
+  useInput((_input: string, key: { return?: boolean; escape?: boolean }) => {
+    if (key.return || key.escape) {
       onSubmit();
     }
   });
@@ -397,15 +398,14 @@ function PromptComponent({
           <TextInput
             inputId={`password-${prompt.message}`}
             mask="*"
-            maskRevealTail={5}
             onSubmit={(value: string) => prompt.resolve(value)}
             onCancel={() => prompt.reject?.()}
           />
         )}
         {prompt.type === "select" && (
-          <ScrollableSelect
+          <SearchSelect
             options={prompt.options?.choices ?? []}
-            pageSize={10}
+            pageSize={PICKER_WINDOW_SIZE}
             onSelect={(value) => prompt.resolve(value)}
             onCancel={() => prompt.reject?.()}
           />
@@ -414,14 +414,14 @@ function PromptComponent({
           <ScrollableMultiSelect
             options={prompt.options?.choices ?? []}
             defaultSelected={prompt.options?.defaultSelected}
-            pageSize={10}
+            pageSize={PICKER_WINDOW_SIZE}
             onSubmit={(selectedValues) => prompt.resolve(selectedValues)}
           />
         )}
         {prompt.type === "search" && (
           <SearchSelect
             options={prompt.options?.choices ?? []}
-            pageSize={10}
+            pageSize={PICKER_WINDOW_SIZE}
             placeholder={(prompt.options?.["placeholder"] as string) ?? "Type to search..."}
             onSelect={(value) => prompt.resolve(value)}
             onCancel={() => prompt.reject?.()}
@@ -431,7 +431,7 @@ function PromptComponent({
           <ScrollableSelect
             options={CONFIRM_OPTIONS}
             initialIndex={prompt.options?.["defaultValue"] === true ? 0 : 1}
-            pageSize={10}
+            pageSize={PICKER_WINDOW_SIZE}
             onSelect={(value) => prompt.resolve(value)}
             onCancel={() => prompt.reject?.()}
           />
@@ -440,11 +440,13 @@ function PromptComponent({
           (() => {
             const validate = prompt.options?.["validate"] as
               ((input: string) => boolean | string) | undefined;
+            const isSecret = prompt.options?.["secret"] === true;
             return (
               <TextInput
                 inputId={prompt.message}
                 defaultValue={(prompt.options?.["defaultValue"] as string) ?? ""}
                 placeholder={(prompt.options?.["placeholder"] as string) ?? ""}
+                {...(isSecret ? { mask: "*" } : {})}
                 {...(validate ? { validate } : {})}
                 onSubmit={(value: string) => prompt.resolve(value)}
                 onCancel={() => prompt.reject?.()}

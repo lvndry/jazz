@@ -7,11 +7,11 @@
  *   » and then check whether anything on Thursday afternoon collides with
  *     the flight, and if it does, move the smaller thing█
  *
- * Anchored to the bottom, above the footer, and it never moves: the live zone
- * above it grows upward and the transcript yields the rows, so the caret stays
- * at the same screen position for a whole session. `flexShrink: 0` is what
- * enforces that from this side — the composer is the last region that should
- * give up space.
+ * Anchored to the bottom, above the footer, and it never moves: a quiet row
+ * sits above it, the live zone grows upward from there, and the transcript
+ * yields the rows, so the caret stays at the same screen position for a whole
+ * session. `flexShrink: 0` is what enforces that from this side — the composer
+ * is the last region that should give up space.
  *
  * ── Why the buffer is drawn here rather than by `<textarea>` ──────────────
  *
@@ -41,7 +41,16 @@
 
 import type { ReactNode } from "react";
 import { getGlyphs, type GlyphSet } from "../glyphs";
+import { carouselWindow, wrapIndex } from "../picker-window";
 import { THEME } from "../theme";
+import {
+  clipTerminalCells,
+  fitTerminalSegments,
+  terminalCellWidth,
+  terminalGraphemes,
+  terminalSegmentsWidth,
+  wrapTerminalCells,
+} from "./terminal-cells";
 import type { InputModel, Viewport } from "./types";
 
 /**
@@ -51,10 +60,15 @@ import type { InputModel, Viewport } from "./types";
  */
 export const INPUT_MAX_ROWS = 6;
 
-/** Prompt marker plus one space. Continuation rows pay the same two columns. */
-const GUTTER_CELLS = 2;
+/** Same cap as the Ink dropdown: a 20-row list is unscannable. */
+const MAX_VISIBLE_COMMANDS = 8;
 
-const CLIP = "...";
+export function wrapCommandIndex(index: number, length: number): number {
+  return wrapIndex(index, length);
+}
+
+/** Frame rail, prompt marker, and the spaces that keep the text column still. */
+const GUTTER_CELLS = 4;
 
 export interface InputSegment {
   readonly text: string;
@@ -65,21 +79,6 @@ export interface InputSegment {
 export interface InputRow {
   readonly key: string;
   readonly segments: readonly InputSegment[];
-}
-
-function cells(text: string): number {
-  return [...text].length;
-}
-
-function segmentsWidth(segments: readonly InputSegment[]): number {
-  return segments.reduce((total, segment) => total + cells(segment.text), 0);
-}
-
-function clip(text: string, max: number): string {
-  const characters = [...text];
-  if (characters.length <= max) return text;
-  if (max <= CLIP.length) return characters.slice(0, Math.max(0, max)).join("");
-  return `${characters.slice(0, max - CLIP.length).join("")}${CLIP}`;
 }
 
 /**
@@ -96,14 +95,7 @@ export function wrapCells(value: string, columns: number): string[] {
   const width = Math.max(1, columns);
   const lines: string[] = [];
   for (const paragraph of value.split("\n")) {
-    const characters = [...paragraph];
-    if (characters.length === 0) {
-      lines.push("");
-      continue;
-    }
-    for (let start = 0; start < characters.length; start += width) {
-      lines.push(characters.slice(start, start + width).join(""));
-    }
+    lines.push(...wrapTerminalCells(paragraph, width));
   }
   return lines;
 }
@@ -114,11 +106,11 @@ function alignRow(
   right: readonly InputSegment[],
   width: number,
 ): InputRow {
-  const rightWidth = segmentsWidth(right);
+  const rightWidth = terminalSegmentsWidth(right);
   if (rightWidth + 1 > width) return { key, segments: [] };
   const budget = width - rightWidth - 1;
-  const kept = left.map((segment) => ({ ...segment, text: clip(segment.text, budget) }));
-  const gap = Math.max(0, width - segmentsWidth(kept) - rightWidth);
+  const kept = fitTerminalSegments(left, budget);
+  const gap = Math.max(0, width - terminalSegmentsWidth(kept) - rightWidth);
   const padding: InputSegment[] = gap > 0 ? [{ text: " ".repeat(gap), fg: THEME.muted }] : [];
   return { key, segments: [...kept, ...padding, ...right] };
 }
@@ -127,6 +119,28 @@ function alignRow(
  * The caret is a painted cell rather than the terminal's own cursor: the frame
  * is composited, so the one thing the reader looks for has to be part of it.
  */
+function commandSuggestRows(
+  commands: NonNullable<InputModel["commands"]>,
+  width: number,
+  glyphs: GlyphSet,
+): InputRow[] {
+  const visible = carouselWindow(commands.items, commands.selected, MAX_VISIBLE_COMMANDS);
+  const rows: InputRow[] = visible.map((command) => {
+    const selected = command === commands.items[commands.selected];
+    const usage = command.usage === undefined ? "" : ` ${command.usage}`;
+    const skill = command.source === "skill" ? " (skill)" : "";
+    const segments: InputSegment[] = [
+      { text: selected ? `${glyphs.rail} ` : "  ", fg: THEME.primary },
+      { text: `/${command.name}`, fg: selected ? THEME.selected : THEME.secondary },
+      ...(usage.length > 0 ? [{ text: usage, fg: THEME.muted }] : []),
+      ...(skill.length > 0 ? [{ text: skill, fg: THEME.muted }] : []),
+      { text: `  ${command.description}`, fg: THEME.muted },
+    ];
+    return { key: `cmd:${command.name}`, segments: fitTerminalSegments(segments, width) };
+  });
+  return rows;
+}
+
 function caret(character: string): InputSegment {
   return { text: character, fg: THEME.canvas, bg: THEME.prompt };
 }
@@ -157,21 +171,28 @@ export function inputRows(
   const contentWidth = Math.max(1, width - GUTTER_CELLS);
   const live = focused && !model.disabled;
   const empty = model.value.length === 0;
-  const valueCells = [...model.value].length;
-  const caretAt = Math.max(0, Math.min(model.caret ?? valueCells, valueCells));
+  const valueCodePoints = [...model.value].length;
+  const caretAt = Math.max(0, Math.min(model.caret ?? valueCodePoints, valueCodePoints));
 
   // An empty composer shows the placeholder in the text's place; a disabled one
   // keeps whatever was already typed, because losing sight of a draft to a
   // modal is worse than losing the caret.
   const lines = empty
-    ? [clip(model.placeholder, contentWidth)]
+    ? [clipTerminalCells(model.placeholder, contentWidth)]
     : wrapCells(model.value, contentWidth);
-  if (!empty && live && cells(lines[lines.length - 1] ?? "") >= contentWidth) lines.push("");
+  if (!empty && live && terminalCellWidth(lines[lines.length - 1] ?? "") >= contentWidth) {
+    lines.push("");
+  }
 
-  // Which wrapped line the caret falls on, and its column within that line —
-  // char wrap means this is exact division, no word-boundary guessing.
-  const caretLine = empty ? 0 : Math.min(lines.length - 1, Math.floor(caretAt / contentWidth));
-  const caretColumn = empty ? 0 : caretAt - caretLine * contentWidth;
+  const valueBeforeCaret = [...model.value].slice(0, caretAt).join("");
+  const linesBeforeCaret = empty ? [""] : wrapCells(valueBeforeCaret, contentWidth);
+  let caretLine = Math.max(0, linesBeforeCaret.length - 1);
+  let caretColumn = terminalCellWidth(linesBeforeCaret.at(-1) ?? "");
+  if (!empty && caretColumn >= contentWidth) {
+    caretLine += 1;
+    caretColumn = 0;
+  }
+  caretLine = Math.min(lines.length - 1, caretLine);
 
   const queued = Math.max(0, model.queued);
   // The chrome row and the text rows share one budget, so the marker that says
@@ -185,17 +206,20 @@ export function inputRows(
     hidden = lines.length - capWithChrome;
   }
 
-  const rows: InputRow[] = [];
+  const rows: InputRow[] =
+    model.commands === undefined ? [] : commandSuggestRows(model.commands, width, glyphs);
   if (hidden > 0 || queued > 0) {
-    const left: InputSegment[] =
-      hidden > 0
+    const left: InputSegment[] = [
+      { text: `${glyphs.rail} `, fg: THEME.border },
+      ...(hidden > 0
         ? [
             {
               text: `${glyphs.railDeep} ${hidden} more line${hidden === 1 ? "" : "s"}`,
               fg: THEME.muted,
             },
           ]
-        : [];
+        : []),
+    ];
     const right: InputSegment[] =
       queued > 0 ? [{ text: `${queued} queued`, fg: THEME.secondary }] : [];
     rows.push(alignRow("chrome", left, right, width));
@@ -208,26 +232,38 @@ export function inputRows(
   const visibleCaretLine = Math.max(0, caretLine - hidden);
 
   visible.forEach((line, index) => {
+    const rail: InputSegment = {
+      text: `${glyphs.rail} `,
+      fg: live ? THEME.primary : THEME.border,
+    };
     const marker: InputSegment =
       index === 0
         ? { text: `${glyphs.promptCursor} `, fg: live ? THEME.prompt : THEME.muted }
-        : { text: " ".repeat(GUTTER_CELLS), fg: THEME.muted };
+        : { text: "  ", fg: THEME.muted };
 
     const body: InputSegment[] = [];
     const onCaretLine = live && index === visibleCaretLine;
     if (empty) {
-      const characters = [...line];
-      const head = characters[0] ?? " ";
+      const graphemes = terminalGraphemes(line);
+      const head = graphemes[0] ?? " ";
       // The caret sits *on* the placeholder's first cell rather than beside it,
       // so an empty composer is one column wide instead of two.
-      if (live) body.push(caret(head), { text: characters.slice(1).join(""), fg: THEME.muted });
+      if (live) body.push(caret(head), { text: graphemes.slice(1).join(""), fg: THEME.muted });
       else body.push({ text: line, fg: THEME.muted });
     } else if (onCaretLine) {
-      const characters = [...line];
-      const column = Math.min(caretColumn, characters.length);
-      const before = characters.slice(0, column).join("");
-      const onCell = characters[column] ?? " ";
-      const after = characters.slice(column + 1).join("");
+      const graphemes = terminalGraphemes(line);
+      let column = 0;
+      let usedCells = 0;
+      while (
+        column < graphemes.length &&
+        usedCells + terminalCellWidth(graphemes[column] as string) <= caretColumn
+      ) {
+        usedCells += terminalCellWidth(graphemes[column] as string);
+        column += 1;
+      }
+      const before = graphemes.slice(0, column).join("");
+      const onCell = graphemes[column] ?? " ";
+      const after = graphemes.slice(column + 1).join("");
       const fg = model.disabled ? THEME.muted : THEME.selected;
       body.push({ text: before, fg }, caret(onCell));
       if (after.length > 0) body.push({ text: after, fg });
@@ -235,7 +271,7 @@ export function inputRows(
       body.push({ text: line, fg: model.disabled ? THEME.muted : THEME.selected });
     }
 
-    rows.push({ key: `line:${String(index)}`, segments: [marker, ...body] });
+    rows.push({ key: `line:${String(index)}`, segments: [rail, marker, ...body] });
   });
 
   return rows;

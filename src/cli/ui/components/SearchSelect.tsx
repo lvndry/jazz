@@ -1,6 +1,12 @@
 import { Box, Text, useInput } from "ink";
 import React, { useEffect, useMemo, useState } from "react";
 import { getGlyphs } from "../glyphs";
+import {
+  PICKER_WINDOW_SIZE,
+  pickerWindowStart,
+  rankPickerMatches,
+  wrapIndex,
+} from "../picker-window";
 import { THEME } from "../theme";
 import type { Choice } from "../types";
 
@@ -20,90 +26,40 @@ interface SearchSelectProps<T = unknown> {
  */
 export function SearchSelect<T = unknown>({
   options,
-  pageSize = 10,
+  pageSize = PICKER_WINDOW_SIZE,
   placeholder = "Type to search...",
   onSelect,
   onCancel,
 }: SearchSelectProps<T>): React.ReactElement {
   const [query, setQuery] = useState("");
   const [cursorIndex, setCursorIndex] = useState(0);
-  const [windowStart, setWindowStart] = useState(0);
 
-  // Filter + rank from the first character (case-insensitive). Plain
-  // substring filtering alone barely narrows short queries — every label
-  // contains most letters — so matches are ranked: label-prefix first, then
-  // word-prefix (after space/dash/slash), then anywhere. The match position
-  // is kept so the render can highlight it, making one-character filtering
-  // visibly do something.
-  const filteredOptions = useMemo(() => {
-    const lowerQuery = query.trim().toLowerCase();
-    if (!lowerQuery) {
-      return options.map((option) => ({ option, matchIndex: -1 }));
-    }
-    const WORD_BOUNDARY = new Set([" ", "-", "_", "/", ".", "("]);
-    const scored: { option: Choice<T>; matchIndex: number; rank: number }[] = [];
-    for (const option of options) {
-      const lowerLabel = option.label.toLowerCase();
-      const matchIndex = lowerLabel.indexOf(lowerQuery);
-      if (matchIndex === -1) continue;
-      const rank =
-        matchIndex === 0 ? 0 : WORD_BOUNDARY.has(option.label[matchIndex - 1] ?? "") ? 1 : 2;
-      scored.push({ option, matchIndex, rank });
-    }
-    scored.sort((a, b) => a.rank - b.rank || a.matchIndex - b.matchIndex);
-    return scored.map(({ option, matchIndex }) => ({ option, matchIndex }));
-  }, [options, query]);
+  const filteredOptions = useMemo(() => rankPickerMatches(options, query), [options, query]);
 
   const effectivePageSize = Math.max(1, Math.min(pageSize, filteredOptions.length || 1));
+  const windowStart = pickerWindowStart(cursorIndex, filteredOptions.length, effectivePageSize);
   const windowEndExclusive = Math.min(filteredOptions.length, windowStart + effectivePageSize);
   const hasMoreAbove = windowStart > 0;
   const hasMoreBelow = windowEndExclusive < filteredOptions.length;
 
-  // Reset cursor and window when query changes
   useEffect(() => {
     setCursorIndex(0);
-    setWindowStart(0);
   }, [query]);
 
-  // Reset state when options change (new prompt)
   useEffect(() => {
     setQuery("");
     setCursorIndex(0);
-    setWindowStart(0);
   }, [options]);
 
-  function clampCursor(nextIndex: number): number {
-    if (filteredOptions.length === 0) return 0;
-    return Math.max(0, Math.min(filteredOptions.length - 1, nextIndex));
-  }
-
-  function ensureCursorVisible(nextCursor: number): void {
-    if (filteredOptions.length <= effectivePageSize) {
-      setWindowStart(0);
-      return;
-    }
-
-    if (nextCursor < windowStart) {
-      setWindowStart(nextCursor);
-      return;
-    }
-
-    const endInclusive = windowStart + effectivePageSize - 1;
-    if (nextCursor > endInclusive) {
-      setWindowStart(Math.max(0, nextCursor - (effectivePageSize - 1)));
-    }
-  }
-
   function moveCursor(delta: number): void {
-    const nextCursor = clampCursor(cursorIndex + delta);
-    setCursorIndex(nextCursor);
-    ensureCursorVisible(nextCursor);
+    if (filteredOptions.length === 0) return;
+    setCursorIndex(wrapIndex(cursorIndex + delta, filteredOptions.length));
   }
 
   function submit(): void {
     const selected = filteredOptions[cursorIndex];
     if (selected) {
-      onSelect(selected.option.value);
+      onSelect(selected.item.value);
     }
   }
 
@@ -182,7 +138,7 @@ export function SearchSelect<T = unknown>({
         filteredOptions.slice(windowStart, windowEndExclusive).map((entry, localIndex) => {
           const absoluteIndex = windowStart + localIndex;
           const isActive = absoluteIndex === cursorIndex;
-          const { option, matchIndex } = entry;
+          const { item: option, matchIndex } = entry;
           const queryLength = query.trim().length;
           const labelColor = isActive ? THEME.selected : THEME.secondary;
 

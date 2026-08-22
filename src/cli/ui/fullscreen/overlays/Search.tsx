@@ -18,6 +18,13 @@ import type { BorderCharacters, ScrollBoxRenderable } from "@opentui/core";
 import { useEffect, useRef, type ReactNode } from "react";
 import { getGlyphs, type GlyphSet } from "../../glyphs";
 import { THEME } from "../../theme";
+import {
+  clipTerminalCells,
+  clipTerminalCellsFromStart,
+  sliceTerminalCells,
+  terminalCellWidth,
+  terminalGraphemes,
+} from "../terminal-cells";
 import type { SearchHit, SearchOverlay, Viewport } from "../types";
 
 const MAX_WIDTH = 76;
@@ -42,18 +49,12 @@ const LINE_INDENT = 3;
 /** Keep this much of the line to the left of the match when it has to scroll. */
 const MATCH_LEAD = 12;
 
-const ELLIPSIS = "...";
-
 function displayWidth(text: string): number {
-  return [...text].length;
+  return terminalCellWidth(text);
 }
 
 function clip(text: string, width: number): string {
-  if (width <= 0) return "";
-  const chars = [...text];
-  if (chars.length <= width) return text;
-  if (width <= ELLIPSIS.length) return chars.slice(0, width).join("");
-  return chars.slice(0, width - ELLIPSIS.length).join("") + ELLIPSIS;
+  return clipTerminalCells(text, width);
 }
 
 function oneLine(text: string): string {
@@ -87,21 +88,37 @@ interface MarkedLine {
  * even when it sits three hundred characters into a wrapped paragraph.
  */
 function markLine(hit: SearchHit, width: number): MarkedLine {
-  const chars = [...oneLine(hit.line)];
-  const start = Math.max(0, Math.min(hit.matchStart, chars.length));
-  const length = Math.max(0, Math.min(hit.matchLength, chars.length - start));
-
-  const from =
-    chars.length <= width ? 0 : Math.max(0, Math.min(start - MATCH_LEAD, chars.length - width));
-  const head = from > 0 ? ELLIPSIS : "";
-  const budget = Math.max(0, width - head.length);
-  const visible = chars.slice(from, from + budget);
-  const relative = start - from;
+  const text = oneLine(hit.line);
+  const graphemes = terminalGraphemes(text);
+  const codePointLength = [...text].length;
+  const start = Math.max(0, Math.min(hit.matchStart, codePointLength));
+  const end = Math.max(start, Math.min(start + hit.matchLength, codePointLength));
+  let codePointOffset = 0;
+  let matchStart = 0;
+  while (
+    matchStart < graphemes.length &&
+    codePointOffset + [...(graphemes[matchStart] as string)].length <= start
+  ) {
+    codePointOffset += [...(graphemes[matchStart] as string)].length;
+    matchStart += 1;
+  }
+  let matchEnd = matchStart;
+  while (matchEnd < graphemes.length && codePointOffset < end) {
+    codePointOffset += [...(graphemes[matchEnd] as string)].length;
+    matchEnd += 1;
+  }
+  const prefix = graphemes.slice(0, matchStart).join("");
+  const matched = graphemes.slice(matchStart, matchEnd).join("");
+  const suffix = graphemes.slice(matchEnd).join("");
+  const visibleMatch = sliceTerminalCells(matched, width);
+  const remaining = Math.max(0, width - terminalCellWidth(visibleMatch));
+  const before = clipTerminalCellsFromStart(prefix, Math.min(MATCH_LEAD, remaining));
+  const after = sliceTerminalCells(suffix, Math.max(0, remaining - terminalCellWidth(before)));
 
   return {
-    before: head + visible.slice(0, relative).join(""),
-    match: visible.slice(relative, relative + length).join(""),
-    after: visible.slice(relative + length).join(""),
+    before,
+    match: visibleMatch,
+    after,
   };
 }
 
@@ -273,7 +290,7 @@ export function Search({ model, viewport }: SearchProps): ReactNode {
       >
         <text>
           <b style={{ fg: THEME.selected }}>enter</b>
-          <span style={{ fg: THEME.secondary }}>{" open"}</span>
+          <span style={{ fg: THEME.secondary }}>{" insert"}</span>
           <span style={{ fg: THEME.muted }}>{"    "}</span>
           <b style={{ fg: THEME.selected }}>tab</b>
           <span style={{ fg: THEME.secondary }}>{" scope"}</span>

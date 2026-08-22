@@ -11,6 +11,7 @@
  */
 
 import type { ApprovalOverlay, Block, SearchOverlay, ViewModel } from "./types";
+import packageJson from "../../../../package.json";
 
 let seq = 0;
 const next = (): number => (seq += 1);
@@ -105,6 +106,7 @@ const APPROVAL: ApprovalOverlay = {
     { label: "reminder", value: "10 minutes before" },
   ],
   consequence: "Not undoable from jazz — the invite leaves immediately.",
+  alwaysLabel: "always allow calendar_create",
   armed: true,
 };
 
@@ -148,6 +150,8 @@ const SEARCH: SearchOverlay = {
 export function sampleView(tick = 0): ViewModel {
   return {
     header: {
+      version: packageJson.version,
+      cwd: "~/github/jazz",
       model: "claude-opus-5",
       connectors: [
         { name: "gmail", status: "live" },
@@ -179,7 +183,6 @@ export function sampleView(tick = 0): ViewModel {
       hints: [],
       costUsd: 0.042,
       elapsedMs: 11_600,
-      personality: "house",
     },
     focus: "input",
   };
@@ -212,7 +215,6 @@ export function sampleIdleView(): ViewModel {
     footer: {
       mode: base.footer.mode,
       hints: base.footer.hints,
-      personality: base.footer.personality,
     },
   };
 }

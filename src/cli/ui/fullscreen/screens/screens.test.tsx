@@ -7,7 +7,7 @@
  * characters and attributes rather than about a React tree: which sentence a
  * new user reads when nothing is configured, whether the selected row is bold,
  * whether anything painted a background, whether a 200-column terminal
- * stretches a sentence to 200 columns.
+ * still keeps a right margin.
  *
  * `captureSpans()` carries the real per-span colour, which most of this repo's
  * suite cannot see — it runs with colour disabled. So the colour law is
@@ -203,7 +203,7 @@ describe("home screen", () => {
     }
   });
 
-  it("keeps prose measured on a very wide terminal instead of stretching it", async () => {
+  it("uses the extra columns on a very wide terminal", async () => {
     const drawn = await draw(
       <Home
         model={FIRST_RUN}
@@ -211,10 +211,9 @@ describe("home screen", () => {
       />,
       HUGE,
     );
-    // 200 columns of window, never 200 columns of sentence.
-    for (const row of drawn.rows) {
-      expect(row.trimEnd().length).toBeLessThanOrEqual(92);
-    }
+    expectFillsViewport(drawn, HUGE);
+    expectNothingOverflows(drawn, HUGE);
+    expect(drawn.rows.some((row) => row.trimEnd().length > 92)).toBe(true);
   });
 
   it("says what to do when nothing at all is configured", async () => {
@@ -227,6 +226,7 @@ describe("home screen", () => {
     );
 
     // The identity, so you know what you are looking at.
+    expect(drawn.text).toContain("▄▀▀▄▀▄▄▀▀▄▄▀▄▀▀▄▀▀▄▀▄▄▀▀▄▄▀▄▀▀▄▀▀▄▀▄▄▀▀▄");
     expect(drawn.text).toContain("jazz");
     expect(drawn.text).toContain("0.14.2");
     expect(drawn.text).toContain("your everyday agentic CLI");
@@ -511,6 +511,27 @@ describe("agent picker", () => {
     expect(top.text).not.toContain("agent-37");
   });
 
+  it("lists every agent by name and model when opened to browse", async () => {
+    const drawn = await draw(
+      <AgentPicker
+        agents={AGENTS}
+        selectedIndex={0}
+        viewport={WIDE}
+        title="agents"
+        action="back"
+      />,
+      WIDE,
+    );
+    expect(drawn.text).toContain("agents");
+    expect(drawn.text).toContain("Basil");
+    expect(drawn.text).toContain("Cass");
+    expect(drawn.text).toContain("claude-sonnet-4");
+    expect(drawn.text).toContain("gpt-5");
+    expect(drawn.text).toContain("enter back");
+    expect(drawn.text).not.toContain("No agents yet.");
+    expect(drawn.text).not.toContain("enter start");
+  });
+
   it("says what the list is for, so edit and delete cannot look like start", async () => {
     const drawn = await draw(
       <AgentPicker
@@ -608,7 +629,7 @@ describe("both screens in ascii glyph mode", () => {
       />,
       WIDE,
     );
-    expect(home.text).toContain(`${glyphs.note} jazz`);
+    expect(home.text).toContain(`${glyphs.note}  jazz`);
     // ASCII spends `*` on the mark, the ready state and the bullet, so readiness
     // is asserted from the side that stays unambiguous: what is NOT ready.
     expect(glyphs.active).not.toBe(glyphs.pending);

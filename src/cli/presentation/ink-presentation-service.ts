@@ -984,7 +984,7 @@ interface QueuedUserInput {
  * Critical: does NOT write to stdout directly (which would clobber Ink rendering).
  * Instead, it pushes output into the Ink store.
  */
-class InkPresentationService implements PresentationService {
+export class InkPresentationService implements PresentationService {
   // Approval queue to handle parallel tool calls
   private approvalQueue: QueuedApproval[] = [];
   private isProcessingApproval: boolean = false;
@@ -1366,6 +1366,8 @@ class InkPresentationService implements PresentationService {
         }
 
         // Rejected: prompt for optional message to guide the agent
+        store.setPrompt(null);
+        store.setApprovalRequest(null);
         this.promptRejectionMessage(resume);
       },
     });

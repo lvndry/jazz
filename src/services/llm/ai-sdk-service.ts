@@ -88,7 +88,11 @@ import {
   fetchModelsDevModels,
   type ModelFetcherService,
 } from "./model-fetcher";
-import { PROVIDER_MODELS, resolveLocalProviderBaseUrl } from "./models";
+import {
+  PROVIDER_MODELS,
+  resolveLocalProviderBaseUrl,
+  resolveOllamaRequestBaseUrl,
+} from "./models";
 import { selectParser } from "./reasoning";
 import { extractReasoningParts } from "./reasoning-parts";
 import { StreamProcessor } from "./stream-processor";
@@ -746,15 +750,19 @@ function selectModel(
       break;
     }
     case "ollama": {
-      const headers = llmConfig?.ollama?.api_key
-        ? { Authorization: `Bearer ${llmConfig.ollama.api_key}` }
-        : {};
-      const baseURL = resolveLocalProviderBaseUrl("ollama", llmConfig);
+      const apiKey = resolveApiKey("ollama")?.trim();
+      const headers = apiKey ? { Authorization: `Bearer ${apiKey}` } : {};
+      const baseURL = resolveOllamaRequestBaseUrl(modelId, llmConfig);
       const keepAlive = llmConfig?.ollama?.keep_alive;
+      const fetchImpl = apiKey
+        ? makeOllamaAuthorizedFetch(apiKey, keepAlive)
+        : keepAlive
+          ? makeOllamaKeepAliveFetch(keepAlive)
+          : undefined;
       const ollamaInstance = createOllama({
         baseURL,
         headers,
-        ...(keepAlive ? { fetch: makeOllamaKeepAliveFetch(keepAlive) } : {}),
+        ...(fetchImpl ? { fetch: fetchImpl } : {}),
       });
       model = ollamaInstance(modelId);
       break;
@@ -811,6 +819,21 @@ function selectModel(
   // Store in cache
   cache?.set(cacheKey, model);
   return model;
+}
+
+/** Guarantee the Bearer token is on every request, including after redirects. */
+export function makeOllamaAuthorizedFetch(
+  apiKey: string,
+  keepAlive?: string,
+): typeof globalThis.fetch {
+  const inner = keepAlive ? makeOllamaKeepAliveFetch(keepAlive) : globalThis.fetch;
+  return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const headers = new Headers(init?.headers);
+    if (!headers.has("Authorization")) {
+      headers.set("Authorization", `Bearer ${apiKey}`);
+    }
+    return inner(input, { ...init, headers });
+  };
 }
 
 // ollama-ai-provider-v2 drops keep_alive from the chat body, so splice it into

@@ -43,6 +43,7 @@ const APPROVAL: ApprovalOverlay = {
     { label: "Body", value: "Here are the numbers you asked for." },
   ],
   consequence: "Once this is sent it cannot be unsent.",
+  alwaysLabel: "always allow send_email",
   armed: false,
 };
 
@@ -239,10 +240,11 @@ describe("approval overlay", () => {
       );
       const frame = captureSpans();
 
-      const always = spanWithText(frame, "a always allow");
-      expect(always.attributes & TextAttributes.BOLD).toBe(0);
-      expect(luminance(always)).toBeLessThan(luminance(spanWithText(frame, "enter")));
-      expect(luminance(always)).toBeLessThan(luminance(spanWithText(frame, "esc")));
+      const always = allSpans(frame).find((span) => span.text.includes("always allow"));
+      expect(always).toBeDefined();
+      expect(always!.attributes & TextAttributes.BOLD).toBe(0);
+      expect(luminance(always!)).toBeLessThan(luminance(spanWithText(frame, "enter")));
+      expect(luminance(always!)).toBeLessThan(luminance(spanWithText(frame, "esc")));
 
       renderer.destroy();
     }
@@ -323,7 +325,7 @@ describe("search overlay", () => {
     expect(frame).toContain("Shipping 0.14");
     expect(frame).toContain("Weekend planning");
     expect(frame).toContain("12 min ago");
-    expect(frame).toContain("open");
+    expect(frame).toContain("insert");
     expect(frame).toContain("scope");
     expect(frame).toContain("close");
 
@@ -450,7 +452,7 @@ describe("search overlay", () => {
     expect(narrowRows).toHaveLength(NARROW.height);
     for (const row of narrowRows) expect([...row]).toHaveLength(NARROW.width);
     expect((narrowRows[0] ?? "")[0]).toBe(getGlyphs().boxTL);
-    expect(narrowRows[NARROW.height - 1]).toContain("open");
+    expect(narrowRows[NARROW.height - 1]).toContain("insert");
     narrow.renderer.destroy();
   });
 

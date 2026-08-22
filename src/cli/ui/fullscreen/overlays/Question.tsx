@@ -7,10 +7,10 @@
  * ask something before it can continue, and until it is answered nothing else
  * happens. So it is built to be answered without reading it twice.
  *
- *   - One row per choice. The label and its description share that row, with
- *     the descriptions aligned into a column so the set reads as a table
- *     rather than as a paragraph per option. Nothing wraps and nothing is
- *     hidden behind the selection: every description is on screen at once.
+ *   - The label and its description share a row when they fit, with the
+ *     descriptions aligned into a column so the set reads as a table rather
+ *     than as a paragraph per option. When either overflows it wraps in place
+ *     — the whole suggestion stays on screen, never hidden behind an ellipsis.
  *   - Selection is a rail in the gutter plus the label's weight. No background
  *     wash, because a wash on a 256-colour terminal is a guess about the
  *     user's own background, and because a rail survives monochrome.
@@ -26,7 +26,9 @@
 import type { BorderCharacters } from "@opentui/core";
 import type { ReactNode } from "react";
 import { getGlyphs, type GlyphSet } from "../../glyphs";
+import { PICKER_WINDOW_SIZE, pickerWindowStart } from "../../picker-window";
 import { THEME } from "../../theme";
+import { clipTerminalCells, terminalCellWidth, wrapTerminalCells } from "../terminal-cells";
 import type { Viewport } from "../types";
 import { CaretValue, HintRow, type Hint } from "./TextPrompt";
 
@@ -46,14 +48,11 @@ const HINT_ROWS = 1;
 /** Rail, space. The gutter every row shares. */
 const GUTTER = 2;
 
-/** `1 ` — a quick-pick number, or two spaces past the ninth choice. */
-const NUMBER_COLUMN = 2;
+/** `10 ` — two digits plus a space, so the tenth visible row stays aligned. */
+const NUMBER_COLUMN = 3;
 
 /** `[x] ` — the checkbox mark and the space after it. */
 const CHECKBOX_COLUMN = 4;
-
-/** Quick-pick covers the digit keys, so only the first nine are numbered. */
-const QUICK_PICK_LIMIT = 9;
 
 /** Descriptions never take more of the row than the labels they annotate. */
 const DESCRIPTION_SHARE = 0.45;
@@ -69,8 +68,7 @@ const LIST_MARGIN = 1;
 
 /** The custom row says what it is for, in the house voice, rather than "Other". */
 const CUSTOM_HINT = "Type your own answer";
-
-const ELLIPSIS = "...";
+const FILTER_PLACEHOLDER = "Type to filter";
 
 export type QuestionMode = "select" | "checkbox";
 
@@ -97,18 +95,18 @@ export interface QuestionModel {
   /** The custom row's text. Only rendered while that row is selected. */
   readonly customValue?: string;
   readonly customCaret?: number;
+  /** Incremental filter shown on a row under the question. */
+  readonly filter?: string;
+  /** When set, typing filters the list and an empty match is not a custom row. */
+  readonly filterable?: boolean;
 }
 
 function displayWidth(text: string): number {
-  return [...text].length;
+  return terminalCellWidth(text);
 }
 
 function clip(text: string, width: number): string {
-  if (width <= 0) return "";
-  const chars = [...text];
-  if (chars.length <= width) return text;
-  if (width <= ELLIPSIS.length) return chars.slice(0, width).join("");
-  return chars.slice(0, width - ELLIPSIS.length).join("") + ELLIPSIS;
+  return clipTerminalCells(text, width);
 }
 
 function oneLine(text: string): string {
@@ -116,27 +114,105 @@ function oneLine(text: string): string {
 }
 
 function wrapProse(text: string, width: number, maxRows: number): string[] {
-  const words = oneLine(text)
-    .split(" ")
-    .filter((word) => word.length > 0);
-  const lines: string[] = [];
-  let line = "";
-  for (const word of words) {
-    const candidate = line.length === 0 ? word : `${line} ${word}`;
-    if (displayWidth(candidate) <= width) {
-      line = candidate;
-      continue;
-    }
-    if (line.length > 0) lines.push(line);
-    line = displayWidth(word) <= width ? word : clip(word, width);
-  }
-  if (line.length > 0) lines.push(line);
-  if (lines.length === 0) return [""];
+  const lines = wrapLines(text, width);
   if (lines.length <= maxRows) return lines;
   const kept = lines.slice(0, maxRows);
   const last = kept[maxRows - 1] ?? "";
   kept[maxRows - 1] = clip(`${last} ${lines.slice(maxRows).join(" ")}`, width);
   return kept;
+}
+
+/** Word-wrap, then hard-wrap leftover words. Never ellipsizes. */
+function wrapLines(text: string, width: number): string[] {
+  const budget = Math.max(1, width);
+  const words = oneLine(text)
+    .split(" ")
+    .filter((word) => word.length > 0);
+  if (words.length === 0) return [""];
+  const lines: string[] = [];
+  let line = "";
+  for (const word of words) {
+    const candidate = line.length === 0 ? word : `${line} ${word}`;
+    if (displayWidth(candidate) <= budget) {
+      line = candidate;
+      continue;
+    }
+    if (line.length > 0) lines.push(line);
+    if (displayWidth(word) <= budget) {
+      line = word;
+      continue;
+    }
+    const pieces = wrapTerminalCells(word, budget);
+    lines.push(...pieces.slice(0, -1));
+    line = pieces[pieces.length - 1] ?? "";
+  }
+  if (line.length > 0) lines.push(line);
+  return lines.length > 0 ? lines : [""];
+}
+
+interface ChoiceLayout {
+  readonly labelLines: readonly string[];
+  readonly descriptionLines: readonly string[];
+  readonly rows: number;
+}
+
+function layoutChoice(
+  choice: QuestionChoice | null,
+  labelWidth: number,
+  descriptionWidth: number,
+): ChoiceLayout {
+  if (choice === null) return { labelLines: [""], descriptionLines: [], rows: 1 };
+  const labelLines = wrapLines(oneLine(choice.label), labelWidth);
+  const descriptionLines =
+    descriptionWidth > 0 && (choice.description ?? "").length > 0
+      ? wrapLines(oneLine(choice.description ?? ""), descriptionWidth)
+      : [];
+  return {
+    labelLines,
+    descriptionLines,
+    rows: Math.max(labelLines.length, descriptionLines.length, 1),
+  };
+}
+
+function windowStartForRows(heights: readonly number[], selected: number, rows: number): number {
+  const total = heights.reduce((sum, height) => sum + height, 0);
+  if (total <= rows) return 0;
+  let start = 0;
+  while (start < selected) {
+    const untilSelected = heights
+      .slice(start, selected + 1)
+      .reduce((sum, height) => sum + height, 0);
+    const margin = heights
+      .slice(selected + 1, selected + 1 + LIST_MARGIN)
+      .reduce((sum, height) => sum + height, 0);
+    if (untilSelected + margin <= rows) break;
+    start += 1;
+  }
+  return start;
+}
+
+function windowChoiceNumber(offset: number): string {
+  return `${String(offset + 1).padStart(NUMBER_COLUMN - 1)} `;
+}
+
+function takeVisible<Item>(
+  items: readonly Item[],
+  heights: readonly number[],
+  start: number,
+  rows: number,
+): readonly Item[] {
+  const visible: Item[] = [];
+  let used = 0;
+  for (let index = start; index < items.length; index += 1) {
+    const height = heights[index] ?? 1;
+    if (visible.length > 0 && used + height > rows) break;
+    const item = items[index];
+    if (item === undefined) break;
+    visible.push(item);
+    used += height;
+    if (used >= rows) break;
+  }
+  return visible;
 }
 
 function frameChars(glyphs: GlyphSet): BorderCharacters {
@@ -155,20 +231,6 @@ function frameChars(glyphs: GlyphSet): BorderCharacters {
   };
 }
 
-/**
- * Where the visible slice of a long list starts.
- *
- * The component holds no state, so the window cannot "remember" where it was
- * and drift: it is derived. Top-anchored until the selection comes within a
- * row of the bottom edge, then it follows — which keeps the first screenful
- * perfectly still while still guaranteeing the selection is on screen.
- */
-function windowStartFor(selected: number, total: number, rows: number): number {
-  if (total <= rows) return 0;
-  const wanted = selected + 1 + LIST_MARGIN - rows;
-  return Math.max(0, Math.min(wanted, total - rows));
-}
-
 export interface QuestionProps {
   readonly model: QuestionModel;
   readonly viewport: Viewport;
@@ -181,32 +243,17 @@ export function Question({ model, viewport }: QuestionProps): ReactNode {
   const width = fullscreen ? viewport.width : Math.min(MAX_WIDTH, viewport.width - 4);
   const inner = Math.max(8, width - 2 - CARD_PAD * 2);
 
+  const filterable = model.filterable === true;
   // With no choices at all the user would otherwise be stuck looking at a
-  // question they cannot answer, so the custom row appears regardless.
-  const custom = model.allowCustom === true || model.choices.length === 0;
+  // question they cannot answer, so the custom row appears regardless — unless
+  // this is a filtered list, where empty means "no matches".
+  const custom = model.allowCustom === true || (model.choices.length === 0 && !filterable);
   const checkbox = model.mode === "checkbox";
   const checked = new Set(model.checked ?? []);
 
   const message = wrapProse(model.message, Math.max(4, inner - GUTTER), MESSAGE_MAX_ROWS);
   const total = model.choices.length + (custom ? 1 : 0);
-  const selected = Math.max(0, Math.min(model.selected, total - 1));
-
-  const fixedRows = FIXED_CARD_ROWS + message.length;
-  const windowedHeight = fixedRows + total + HINT_ROWS;
-  const height = fullscreen ? viewport.height : Math.min(windowedHeight, viewport.height);
-  const cardHeight = Math.max(1, height - HINT_ROWS);
-  const listRows = Math.max(1, cardHeight - fixedRows);
-  const start = windowStartFor(selected, total, listRows);
-
-  // The custom row is the last item in one list, not a separate region — so it
-  // scrolls with everything else and the arithmetic stays in one place.
-  const items: readonly (QuestionChoice | null)[] = custom
-    ? [...model.choices, null]
-    : model.choices;
-  const visible = items.slice(start, start + listRows);
-
-  const left = fullscreen ? 0 : Math.max(0, Math.floor((viewport.width - width) / 2));
-  const top = fullscreen ? 0 : Math.max(0, Math.floor((viewport.height - height) / 2));
+  const selected = Math.max(0, Math.min(model.selected, Math.max(0, total - 1)));
 
   // Descriptions align into their own column so the choices read as a table.
   // Labels keep the majority of the row: the label is the answer, the
@@ -223,6 +270,35 @@ export function Question({ model, viewport }: QuestionProps): ReactNode {
     : bodyWidth;
   const descriptionWidth = described ? Math.max(0, bodyWidth - labelWidth - DESCRIPTION_GAP) : 0;
 
+  // The custom row is the last item in one list, not a separate region — so it
+  // scrolls with everything else and the arithmetic stays in one place.
+  const items: readonly (QuestionChoice | null)[] = custom
+    ? [...model.choices, null]
+    : model.choices;
+  const layouts = items.map((choice) => layoutChoice(choice, labelWidth, descriptionWidth));
+  const heights = layouts.map((layout) => layout.rows);
+
+  const filterRows = filterable ? 1 : 0;
+  const fixedRows = FIXED_CARD_ROWS + message.length + filterRows;
+  const pageStart = pickerWindowStart(selected, items.length, PICKER_WINDOW_SIZE);
+  const pageCount = Math.min(PICKER_WINDOW_SIZE, items.length);
+  const pageHeights = heights.slice(pageStart, pageStart + pageCount);
+  const desiredListRows = Math.max(1, pageHeights.reduce((sum, rows) => sum + rows, 0) || 1);
+  const maxListRows = Math.max(1, viewport.height - HINT_ROWS - fixedRows);
+  const listRows = Math.min(desiredListRows, maxListRows);
+  const selectedInPage = Math.max(0, selected - pageStart);
+  const startInPage = windowStartForRows(pageHeights, selectedInPage, listRows);
+  const pageItems = items.slice(pageStart, pageStart + pageCount);
+  const visible = takeVisible(pageItems, pageHeights, startInPage, listRows);
+  const start = pageStart + startInPage;
+
+  const windowedHeight = fixedRows + listRows + HINT_ROWS;
+  const height = fullscreen ? viewport.height : Math.min(windowedHeight, viewport.height);
+  const cardHeight = Math.max(1, height - HINT_ROWS);
+
+  const left = fullscreen ? 0 : Math.max(0, Math.floor((viewport.width - width) / 2));
+  const top = fullscreen ? 0 : Math.max(0, viewport.height - height);
+
   const hints: readonly Hint[] = checkbox
     ? [
         { key: "up/down", label: "move", expendable: 3 },
@@ -230,15 +306,24 @@ export function Question({ model, viewport }: QuestionProps): ReactNode {
         { key: "enter", label: "submit", expendable: 1 },
         { key: "esc", label: "cancel", expendable: 0 },
       ]
-    : [
-        { key: "up/down", label: "move", expendable: 3 },
-        { key: "enter", label: "select", expendable: 1 },
-        { key: "esc", label: "cancel", expendable: 0 },
-      ];
+    : filterable
+      ? [
+          { key: "up/down", label: "choose", expendable: 3 },
+          { key: "type", label: "filter", expendable: 2 },
+          { key: "enter", label: "select", expendable: 1 },
+          { key: "esc", label: "cancel", expendable: 0 },
+        ]
+      : [
+          { key: "up/down", label: "move", expendable: 3 },
+          { key: "enter", label: "select", expendable: 1 },
+          { key: "esc", label: "cancel", expendable: 0 },
+        ];
 
   const tally = checkbox
     ? `${String(checked.size)} selected`
-    : `${String(selected + 1)} of ${String(total)}`;
+    : total === 0
+      ? "no matches"
+      : `${String(selected + 1)} of ${String(total)}`;
 
   return (
     <box
@@ -276,85 +361,132 @@ export function Question({ model, viewport }: QuestionProps): ReactNode {
           </box>
         ))}
 
+        {filterable ? (
+          <box style={{ height: 1, flexShrink: 0, flexDirection: "row" }}>
+            <text style={{ fg: THEME.primary, width: GUTTER, flexShrink: 0 }}>
+              {`${glyphs.promptCursor} `}
+            </text>
+            <text
+              style={{
+                fg: (model.filter ?? "").length > 0 ? THEME.selected : THEME.muted,
+                flexShrink: 0,
+              }}
+            >
+              {clip(
+                oneLine(
+                  (model.filter ?? "").length > 0 ? (model.filter ?? "") : FILTER_PLACEHOLDER,
+                ),
+                Math.max(4, inner - GUTTER),
+              )}
+            </text>
+          </box>
+        ) : null}
+
         <box style={{ height: 1, flexShrink: 0 }} />
 
         <box style={{ height: listRows, flexShrink: 0, flexDirection: "column" }}>
-          {visible.map((choice, offset) => {
-            const index = start + offset;
-            const isSelected = index === selected;
+          {filterable && items.length === 0 ? (
+            <text style={{ fg: THEME.muted, height: 1, flexShrink: 0 }}>No matching options</text>
+          ) : (
+            visible.map((choice, offset) => {
+              const index = start + offset;
+              const isSelected = index === selected;
+              const remaining = heights
+                .slice(start, index)
+                .reduce((left, rows) => left - rows, listRows);
+              const shownRows = Math.max(1, Math.min(layouts[index]?.rows ?? 1, remaining));
 
-            if (choice === null) {
+              if (choice === null) {
+                return (
+                  <box
+                    key="custom"
+                    style={{ height: 1, flexShrink: 0, flexDirection: "row" }}
+                  >
+                    <text style={{ fg: THEME.primary, width: GUTTER, flexShrink: 0 }}>
+                      {isSelected ? `${glyphs.rail} ` : " ".repeat(GUTTER)}
+                    </text>
+                    <text style={{ fg: THEME.primary, width: NUMBER_COLUMN, flexShrink: 0 }}>
+                      {`${glyphs.promptCursor} `}
+                    </text>
+                    {isSelected ? (
+                      <CaretValue
+                        value={model.customValue ?? ""}
+                        caret={model.customCaret ?? displayWidth(model.customValue ?? "")}
+                        width={Math.max(4, inner - GUTTER - NUMBER_COLUMN)}
+                        placeholder={CUSTOM_HINT}
+                      />
+                    ) : (
+                      <text style={{ fg: THEME.muted, flexShrink: 0 }}>
+                        {clip(CUSTOM_HINT, Math.max(4, inner - GUTTER - NUMBER_COLUMN))}
+                      </text>
+                    )}
+                  </box>
+                );
+              }
+
+              const isChecked = checked.has(choice.value);
+              const disabled = choice.disabled === true;
+              const labelColor = disabled
+                ? THEME.muted
+                : isSelected
+                  ? THEME.selected
+                  : THEME.secondary;
+              const layout = layouts[index] ?? layoutChoice(choice, labelWidth, descriptionWidth);
+              const labelLines = layout.labelLines.slice(0, shownRows);
+              const descriptionLines = layout.descriptionLines.slice(0, shownRows);
               return (
                 <box
-                  key="custom"
-                  style={{ height: 1, flexShrink: 0, flexDirection: "row" }}
+                  key={choice.value}
+                  style={{ height: shownRows, flexShrink: 0, flexDirection: "column" }}
                 >
-                  <text style={{ fg: THEME.primary, width: GUTTER, flexShrink: 0 }}>
-                    {isSelected ? `${glyphs.rail} ` : " ".repeat(GUTTER)}
-                  </text>
-                  <text style={{ fg: THEME.primary, width: NUMBER_COLUMN, flexShrink: 0 }}>
-                    {`${glyphs.promptCursor} `}
-                  </text>
-                  {isSelected ? (
-                    <CaretValue
-                      value={model.customValue ?? ""}
-                      caret={model.customCaret ?? displayWidth(model.customValue ?? "")}
-                      width={Math.max(4, inner - GUTTER - NUMBER_COLUMN)}
-                      placeholder={CUSTOM_HINT}
-                    />
-                  ) : (
-                    <text style={{ fg: THEME.muted, flexShrink: 0 }}>
-                      {clip(CUSTOM_HINT, Math.max(4, inner - GUTTER - NUMBER_COLUMN))}
-                    </text>
-                  )}
+                  {Array.from({ length: shownRows }, (_, row) => {
+                    const label = labelLines[row] ?? "";
+                    const description = descriptionLines[row] ?? "";
+                    return (
+                      <box
+                        key={`${choice.value}-${String(row)}`}
+                        style={{ height: 1, flexShrink: 0, flexDirection: "row" }}
+                      >
+                        <text style={{ fg: THEME.primary, width: GUTTER, flexShrink: 0 }}>
+                          {isSelected ? `${glyphs.rail} ` : " ".repeat(GUTTER)}
+                        </text>
+                        <text style={{ fg: THEME.muted, width: NUMBER_COLUMN, flexShrink: 0 }}>
+                          {row === 0 ? windowChoiceNumber(offset) : " ".repeat(NUMBER_COLUMN)}
+                        </text>
+                        {checkbox ? (
+                          <text style={{ width: CHECKBOX_COLUMN, flexShrink: 0 }}>
+                            {row === 0 ? (
+                              <>
+                                <span style={{ fg: THEME.muted }}>[</span>
+                                <span style={{ fg: isChecked ? THEME.primary : THEME.muted }}>
+                                  {isChecked ? glyphs.success : " "}
+                                </span>
+                                <span style={{ fg: THEME.muted }}>{"] "}</span>
+                              </>
+                            ) : (
+                              " ".repeat(CHECKBOX_COLUMN)
+                            )}
+                          </text>
+                        ) : null}
+                        <text style={{ width: labelWidth, flexShrink: 0 }}>
+                          {isSelected ? (
+                            <b style={{ fg: labelColor }}>{label}</b>
+                          ) : (
+                            <span style={{ fg: labelColor }}>{label}</span>
+                          )}
+                        </text>
+                        {descriptionWidth > 0 ? (
+                          <text style={{ fg: THEME.muted, flexShrink: 0 }}>
+                            {`${" ".repeat(DESCRIPTION_GAP)}${description}`}
+                          </text>
+                        ) : null}
+                      </box>
+                    );
+                  })}
                 </box>
               );
-            }
-
-            const isChecked = checked.has(choice.value);
-            const disabled = choice.disabled === true;
-            const labelColor = disabled
-              ? THEME.muted
-              : isSelected
-                ? THEME.selected
-                : THEME.secondary;
-            const label = clip(oneLine(choice.label), labelWidth);
-            const description = clip(oneLine(choice.description ?? ""), descriptionWidth);
-            return (
-              <box
-                key={choice.value}
-                style={{ height: 1, flexShrink: 0, flexDirection: "row" }}
-              >
-                <text style={{ fg: THEME.primary, width: GUTTER, flexShrink: 0 }}>
-                  {isSelected ? `${glyphs.rail} ` : " ".repeat(GUTTER)}
-                </text>
-                <text style={{ fg: THEME.muted, width: NUMBER_COLUMN, flexShrink: 0 }}>
-                  {index < QUICK_PICK_LIMIT ? `${String(index + 1)} ` : " ".repeat(NUMBER_COLUMN)}
-                </text>
-                {checkbox ? (
-                  <text style={{ width: CHECKBOX_COLUMN, flexShrink: 0 }}>
-                    <span style={{ fg: THEME.muted }}>[</span>
-                    <span style={{ fg: isChecked ? THEME.primary : THEME.muted }}>
-                      {isChecked ? glyphs.success : " "}
-                    </span>
-                    <span style={{ fg: THEME.muted }}>{"] "}</span>
-                  </text>
-                ) : null}
-                <text style={{ width: labelWidth, flexShrink: 0 }}>
-                  {isSelected ? (
-                    <b style={{ fg: labelColor }}>{label}</b>
-                  ) : (
-                    <span style={{ fg: labelColor }}>{label}</span>
-                  )}
-                </text>
-                {descriptionWidth > 0 ? (
-                  <text style={{ fg: THEME.muted, flexShrink: 0 }}>
-                    {`${" ".repeat(DESCRIPTION_GAP)}${description}`}
-                  </text>
-                ) : null}
-              </box>
-            );
-          })}
+            })
+          )}
         </box>
 
         <box style={{ height: 1, flexShrink: 0 }} />

@@ -66,14 +66,14 @@ Himalaya is a third-party CLI ([pimalaya/himalaya](https://github.com/pimalaya/h
 
 3. Install using the README method that matches, in this preference order:
 
-   | Host | Typical command (confirm against the README) |
-   | --- | --- |
-   | macOS with Homebrew | `brew install himalaya` |
-   | Arch | `pacman -S himalaya` |
-   | Windows with Scoop | `scoop install himalaya` |
-   | Nix | `nix profile install github:pimalaya/himalaya` |
-   | Any OS, no root | `curl -sSL https://raw.githubusercontent.com/pimalaya/himalaya/master/install.sh \| PREFIX=~/.local sh` |
-   | Cargo last resort | `cargo install --locked --git https://github.com/pimalaya/himalaya.git` |
+   | Host                | Typical command (confirm against the README)                                                            |
+   | ------------------- | ------------------------------------------------------------------------------------------------------- |
+   | macOS with Homebrew | `brew install himalaya`                                                                                 |
+   | Arch                | `pacman -S himalaya`                                                                                    |
+   | Windows with Scoop  | `scoop install himalaya`                                                                                |
+   | Nix                 | `nix profile install github:pimalaya/himalaya`                                                          |
+   | Any OS, no root     | `curl -sSL https://raw.githubusercontent.com/pimalaya/himalaya/master/install.sh \| PREFIX=~/.local sh` |
+   | Cargo last resort   | `cargo install --locked --git https://github.com/pimalaya/himalaya.git`                                 |
 
 4. **Never `sudo` the installer** unless the user explicitly asks. Prefer the user-prefix install (`PREFIX=~/.local`).
 

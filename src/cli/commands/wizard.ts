@@ -9,12 +9,13 @@ import { TerminalServiceTag, type TerminalService } from "@/core/interfaces/term
 import type { Agent } from "@/core/types/index";
 import type { ChatMessage } from "@/core/types/message";
 import { loadHistory } from "@/services/history/conversation-history-service";
-import { listAgentsCommand, deleteAgentCommand } from "./agent-management";
+import { deleteAgentCommand } from "./agent-management";
 import { configWizardCommand } from "./config-wizard";
 import { createAgentCommand } from "./create-agent";
 import { editAgentCommand } from "./edit-agent";
-import { store } from "../ui/store";
-import { WizardHome, type WizardMenuOption } from "../ui/WizardHome";
+import { configuredProviderNames, homeRequirements } from "../ui/fullscreen/home-readiness";
+import { store, type ActiveAgentChoice } from "../ui/store";
+import { TIPS, WizardHome, type WizardMenuOption } from "../ui/WizardHome";
 
 /**
  * Wizard menu option identifiers
@@ -119,8 +120,22 @@ export function wizardCommand() {
 
       menuOptions.push({ label: "Exit", value: "exit" });
 
-      // Show wizard menu and wait for selection
-      const selection = yield* showWizardMenu(menuOptions);
+      const config = yield* configService.appConfig;
+      const providers = configuredProviderNames(config);
+      const preferred = lastUsedAgent ?? agents[0];
+      const requirements = homeRequirements({
+        configuredProviders: providers,
+        ...(preferred === undefined
+          ? {}
+          : {
+              preferredProvider: preferred.config.llmProvider,
+              preferredModel: preferred.config.llmModel,
+            }),
+        agentCount: agents.length,
+        connectors: store.getConnectorsSnapshot(),
+      });
+
+      const selection = yield* showWizardMenu(menuOptions, requirements);
 
       // Handle the selected action
       switch (selection) {
@@ -135,9 +150,9 @@ export function wizardCommand() {
         case "new-conversation": {
           const selectedAgent = yield* selectAgent(
             agents,
-            terminal,
-            "Select an agent to chat with:",
             lastUsedAgentId,
+            "pick an agent",
+            "start",
           );
           if (selectedAgent) {
             yield* startChatWithAgent(selectedAgent);
@@ -203,9 +218,9 @@ export function wizardCommand() {
         case "edit-agent": {
           const selectedAgent = yield* selectAgent(
             agents,
-            terminal,
-            "Select an agent to edit:",
             lastUsedAgentId,
+            "edit an agent",
+            "edit",
           );
           if (selectedAgent) {
             yield* editAgentCommand(selectedAgent.id).pipe(
@@ -221,25 +236,24 @@ export function wizardCommand() {
         }
 
         case "list-agents": {
-          yield* listAgentsCommand().pipe(
+          const listedAgents = yield* agentService.listAgents().pipe(
             Effect.catchAll((error) =>
               Effect.gen(function* () {
                 yield* terminal.error(`Failed to list agents: ${String(error)}`);
+                return [] as Agent[];
               }),
             ),
           );
-          // Pause to let user see the list
-          yield* terminal.ask("Press Enter to continue...", { hidden: true });
-          yield* terminal.clear();
+          yield* showAgentList(listedAgents, lastUsedAgentId);
           break;
         }
 
         case "delete-agent": {
           const selectedAgent = yield* selectAgent(
             agents,
-            terminal,
-            "Select an agent to delete:",
             lastUsedAgentId,
+            "delete an agent",
+            "delete",
           );
           if (selectedAgent) {
             // Deletion is irreversible — always confirm, defaulting to No.
@@ -249,19 +263,16 @@ export function wizardCommand() {
             );
             if (!confirmed) {
               yield* terminal.info("Deletion cancelled.");
-              yield* terminal.ask("Press Enter to continue...", { hidden: true });
               yield* terminal.clear();
               break;
             }
-            yield* deleteAgentCommand(selectedAgent.id).pipe(
+            yield* deleteAgentCommand(selectedAgent.id, { skipConfirmation: true }).pipe(
               Effect.catchAll((error) =>
                 Effect.gen(function* () {
                   yield* terminal.error(`Failed to delete agent: ${String(error)}`);
                 }),
               ),
             );
-            // Pause so the outcome (deleted/cancelled) is visible before the clear
-            yield* terminal.ask("Press Enter to continue...", { hidden: true });
             yield* terminal.clear();
           }
           break;
@@ -288,9 +299,11 @@ export function wizardCommand() {
 /**
  * Show the wizard menu and return the selected action
  */
-function showWizardMenu(options: WizardMenuOption[]): Effect.Effect<MenuAction, never, never> {
+function showWizardMenu(
+  options: WizardMenuOption[],
+  requirements: ReturnType<typeof homeRequirements>,
+): Effect.Effect<MenuAction, never, never> {
   return Effect.async<MenuAction>((resume) => {
-    // Guard against double-resume (e.g., if both escape key and menu selection fire)
     let resumed = false;
 
     const safeResume = (action: MenuAction) => {
@@ -309,14 +322,67 @@ function showWizardMenu(options: WizardMenuOption[]): Effect.Effect<MenuAction, 
       }),
     );
 
-    // The same menu as data, so a renderer that cannot paint an Ink tree can
-    // still draw it. Both channels resolve through `safeResume`, which is
-    // guarded against a double answer.
+    const tip = TIPS[Math.floor(Math.random() * TIPS.length)] ?? TIPS[0] ?? "";
     store.setActiveMenu({
       kind: "menu",
       options,
+      requirements,
+      tip,
       onSelect: (value: string) => safeResume(value as MenuAction),
       onExit: () => safeResume("exit"),
+    });
+  });
+}
+
+function agentChoicesFor(
+  agents: readonly Agent[],
+  lastUsedAgentId: string | null | undefined,
+): readonly ActiveAgentChoice[] {
+  return agents.map((agent) => ({
+    id: agent.id,
+    name: agent.name,
+    model: agent.config.llmModel,
+    ...(agent.description !== undefined && agent.description !== agent.name
+      ? { description: agent.description }
+      : {}),
+    ...(agent.id === lastUsedAgentId ? { lastUsed: true as const } : {}),
+  }));
+}
+
+export function showAgentList(
+  agents: readonly Agent[],
+  lastUsedAgentId: string | null | undefined,
+): Effect.Effect<void, never, never> {
+  return Effect.async<void>((resume) => {
+    let resumed = false;
+    const dismiss = (): void => {
+      if (resumed) return;
+      resumed = true;
+      store.setCustomView(null);
+      store.setActiveMenu(null);
+      resume(Effect.succeed(undefined));
+    };
+
+    const sorted = sortAgents(agents, lastUsedAgentId);
+    const options = sorted.map((agent) => ({ label: agent.name, value: agent.id }));
+
+    store.setCustomView(
+      React.createElement(WizardHome, {
+        options,
+        title: "agents",
+        onSelect: () => dismiss(),
+        onExit: () => dismiss(),
+      }),
+    );
+
+    store.setActiveMenu({
+      kind: "agents",
+      title: "agents",
+      action: "back",
+      browse: true,
+      agents: agentChoicesFor(sorted, lastUsedAgentId),
+      onSelect: () => dismiss(),
+      onExit: () => dismiss(),
     });
   });
 }
@@ -326,41 +392,40 @@ function showWizardMenu(options: WizardMenuOption[]): Effect.Effect<MenuAction, 
  */
 function selectAgent(
   agents: readonly Agent[],
-  terminal: TerminalService,
-  message: string,
-  lastUsedAgentId?: string | null,
+  lastUsedAgentId: string | null | undefined,
+  title: string,
+  action: string,
 ): Effect.Effect<Agent | null, never, never> {
-  return Effect.gen(function* () {
-    if (agents.length === 0) {
-      yield* terminal.warn("No agents available.");
-      return null;
-    }
+  return Effect.async<Agent | null>((resume) => {
+    let resumed = false;
+    const safeResume = (agentId: string | null): void => {
+      if (resumed) return;
+      resumed = true;
+      store.setCustomView(null);
+      store.setActiveMenu(null);
+      resume(Effect.succeed(agents.find((agent) => agent.id === agentId) ?? null));
+    };
 
-    // Sort alphabetically by name, but keep the last-used agent first
     const sorted = sortAgents(agents, lastUsedAgentId);
+    const options = sorted.map((agent) => ({ label: agent.name, value: agent.id }));
 
-    const choices = sorted.map((agent) => {
-      // `agent.model` is provider/model; llmModel alone avoids provider
-      // duplication when the model id itself is namespaced (openrouter/free).
-      // Skip the description when it just repeats the name.
-      const description =
-        agent.description && agent.description !== agent.name ? ` · ${agent.description}` : "";
-      return {
-        name: `${agent.name} · ${agent.config.llmModel}${description}`,
-        value: agent.id,
-      };
+    store.setCustomView(
+      React.createElement(WizardHome, {
+        options,
+        title,
+        onSelect: (value: string) => safeResume(value),
+        onExit: () => safeResume(null),
+      }),
+    );
+
+    store.setActiveMenu({
+      kind: "agents",
+      title,
+      action,
+      agents: agentChoicesFor(sorted, lastUsedAgentId),
+      onSelect: (value: string) => safeResume(value),
+      onExit: () => safeResume(null),
     });
-
-    const selectedId = yield* terminal.search<string>(message, {
-      choices,
-      placeholder: "Type to filter agents…",
-    });
-
-    if (!selectedId) {
-      return null;
-    }
-
-    return agents.find((a) => a.id === selectedId) ?? null;
   });
 }
 
@@ -495,6 +560,7 @@ function promptNotificationsOnFirstRun(
       DEEPSEEK_API_KEY: "deepseek",
       GROQ_API_KEY: "groq",
       OPENROUTER_API_KEY: "openrouter",
+      OLLAMA_API_KEY: "ollama",
     };
     const detectedProviders: string[] = [];
     for (const [envVar, provider] of Object.entries(envVarMap)) {

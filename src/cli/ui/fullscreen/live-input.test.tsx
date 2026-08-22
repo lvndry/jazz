@@ -17,8 +17,9 @@ import { describe, expect, it } from "bun:test";
 import React from "react";
 import { getGlyphs } from "../glyphs";
 import { THEME } from "../theme";
-import { Input, inputRows } from "./Input";
+import { Input, inputRows, wrapCells, wrapCommandIndex } from "./Input";
 import { liveRows, LiveZone } from "./LiveZone";
+import { terminalCellWidth } from "./terminal-cells";
 import {
   LIVE_ZONE_MAX_ROWS,
   MIN_WIDTH,
@@ -38,6 +39,24 @@ const HEIGHT = 8;
 const INPUT_MAX_ROWS_EXPECTED = 6;
 
 const glyphs = getGlyphs();
+
+describe("wide and composed text", () => {
+  it("wraps the composer by terminal cells without splitting graphemes", () => {
+    expect(wrapCells("A漢👨‍👩‍👧‍👦e\u0301Z", 3)).toEqual(["A漢", "👨‍👩‍👧‍👦e\u0301", "Z"]);
+  });
+
+  it("keeps a narrow live row at exact terminal-cell width", () => {
+    const [row] = liveRows(
+      live({
+        tools: [tool("音楽", "open 👨‍👩‍👧‍👦 cafe\u0301 records", 0)],
+      }),
+      { width: MIN_WIDTH, height: HEIGHT },
+    );
+    const text = row?.segments.map((segment) => segment.text).join("") ?? "";
+    expect(terminalCellWidth(text)).toBe(MIN_WIDTH);
+    if (text.includes("👨")) expect(text).toContain("👨‍👩‍👧‍👦");
+  });
+});
 
 function tool(app: string, operation: string, phase: number, elapsedMs = 1000): LiveTool {
   return { app, operation, elapsedMs, phase };
@@ -246,6 +265,7 @@ describe("live zone", () => {
     const text = withStep.map((row) => row.segments.map((segment) => segment.text).join(""));
     expect(text.filter((row) => row.includes("step 3 of 7"))).toHaveLength(1);
     expect(text.some((row) => row.includes("rank by urgency"))).toBe(true);
+    expect(text.some((row) => row.includes("1 running"))).toBe(true);
 
     const withoutStep = liveRows(live({ tools: [tool("gmail", "list threads", 0)] }), {
       width: WIDTH,
@@ -307,13 +327,16 @@ describe("live zone", () => {
     });
 
     for (const row of liveRows(model, { width: MIN_WIDTH, height: HEIGHT })) {
-      const width = row.segments.reduce((total, segment) => total + [...segment.text].length, 0);
+      const width = row.segments.reduce(
+        (total, segment) => total + terminalCellWidth(segment.text),
+        0,
+      );
       expect(width).toBeLessThanOrEqual(MIN_WIDTH);
     }
 
     const { height, frame } = await bandHeight(model, { width: MIN_WIDTH });
     expect(height).toBe(LIVE_ZONE_MAX_ROWS);
-    for (const row of rowsOf(frame)) expect([...row]).toHaveLength(MIN_WIDTH);
+    for (const row of rowsOf(frame)) expect(terminalCellWidth(row)).toBe(MIN_WIDTH);
   });
 });
 
@@ -347,12 +370,55 @@ describe("input", () => {
     disabled: false,
   };
 
+  it("lists slash commands above the composer and marks the selection", () => {
+    const rows = inputRows(
+      {
+        ...base,
+        value: "/",
+        commands: {
+          items: [
+            { name: "help", description: "Show available commands", usage: "[command]" },
+            { name: "clear", description: "Clear the screen" },
+          ],
+          selected: 1,
+        },
+      },
+      { width: WIDTH, height: HEIGHT },
+    );
+    const text = rows.map((row) => row.segments.map((segment) => segment.text).join("")).join("\n");
+    expect(text).toContain("/help");
+    expect(text).toContain("/clear");
+    expect(text).toContain("Clear the screen");
+    expect(rows[1]?.segments[0]?.text).toBe(`${glyphs.rail} `);
+    expect(rows.at(-1)?.segments[1]?.text).toBe(`${glyphs.promptCursor} `);
+  });
+
+  it("wraps the command list as a carousel instead of stopping at the ends", () => {
+    expect(wrapCommandIndex(-1, 5)).toBe(4);
+    expect(wrapCommandIndex(5, 5)).toBe(0);
+    const items = Array.from({ length: 10 }, (_, index) => ({
+      name: `cmd-${String(index)}`,
+      description: "x",
+    }));
+    const rows = inputRows(
+      { ...base, value: "/", commands: { items, selected: 0 } },
+      { width: WIDTH, height: HEIGHT },
+    );
+    const names = rows
+      .slice(0, -1)
+      .map((row) => row.segments.map((segment) => segment.text).join(""));
+    expect(names[0]).toContain("/cmd-3");
+    expect(names.at(-1)).toContain("/cmd-0");
+    expect(rows[names.length - 1]?.segments[0]?.text).toBe(`${glyphs.rail} `);
+  });
+
   it("shows one prompt gutter and a caret when the keyboard is live", () => {
     const rows = inputRows(base, { width: WIDTH, height: HEIGHT });
     expect(rows).toHaveLength(1);
     const first = rows[0];
-    expect(first?.segments[0]?.text).toBe(`${glyphs.promptCursor} `);
-    expect(first?.segments[0]?.fg).toBe(THEME.prompt);
+    expect(first?.segments[0]?.text).toBe(`${glyphs.rail} `);
+    expect(first?.segments[1]?.text).toBe(`${glyphs.promptCursor} `);
+    expect(first?.segments[1]?.fg).toBe(THEME.prompt);
     expect(first?.segments.some((segment) => segment.bg === THEME.prompt)).toBe(true);
   });
 
@@ -362,7 +428,7 @@ describe("input", () => {
     expect(rows.flatMap((row) => row.segments).some((segment) => segment.bg !== undefined)).toBe(
       false,
     );
-    expect(rows[0]?.segments[0]?.fg).toBe(THEME.muted);
+    expect(rows[0]?.segments[1]?.fg).toBe(THEME.muted);
 
     // And the same statement made against the painted frame. The live case is
     // asserted alongside it, because "no accent background anywhere" would pass
@@ -426,7 +492,10 @@ describe("input", () => {
       const rows = inputRows(model, { width: MIN_WIDTH, height: HEIGHT });
       expect(rows.length).toBeLessThanOrEqual(INPUT_MAX_ROWS_EXPECTED);
       for (const row of rows) {
-        const width = row.segments.reduce((total, segment) => total + [...segment.text].length, 0);
+        const width = row.segments.reduce(
+          (total, segment) => total + terminalCellWidth(segment.text),
+          0,
+        );
         expect(width).toBeLessThanOrEqual(MIN_WIDTH);
       }
     }

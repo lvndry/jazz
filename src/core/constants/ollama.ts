@@ -47,3 +47,15 @@ export function defaultOllamaContextWindow(detectedContextWindow?: number): numb
   }
   return Math.min(OLLAMA_DEFAULT_CONTEXT_WINDOW, detectedContextWindow);
 }
+
+/**
+ * Ollama Cloud models use a `:cloud` tag, or a tag that ends in `-cloud`.
+ * Those run on ollama.com and need an API key.
+ * A local daemon ignores `Authorization: Bearer` and uses `ollama signin`.
+ */
+export function isOllamaCloudModel(modelId: string): boolean {
+  const separator = modelId.lastIndexOf(":");
+  if (separator === -1) return false;
+  const tag = modelId.slice(separator + 1).toLowerCase();
+  return tag === "cloud" || tag.endsWith("-cloud");
+}

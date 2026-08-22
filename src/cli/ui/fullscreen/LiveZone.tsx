@@ -10,8 +10,8 @@
  *   ▎ +2 more ∙ drive, slack
  *
  * This band replaced a sidebar, and it earns that by never moving. It is
- * pinned directly above the input, so "what is it doing" is a glance at a
- * fixed spot rather than a hunt across the frame.
+ * pinned above the composer with one quiet row between them, so "what is it
+ * doing" is a glance at a fixed spot rather than a hunt across the frame.
  *
  * Two decisions carry the whole region.
  *
@@ -36,6 +36,7 @@
 import type { ReactNode } from "react";
 import { getGlyphs, laneFrame, type GlyphSet } from "../glyphs";
 import { THEME } from "../theme";
+import { fitTerminalSegments, terminalSegmentsWidth } from "./terminal-cells";
 import {
   LIVE_ZONE_MAX_ROWS,
   type LiveModel,
@@ -44,12 +45,7 @@ import {
   type Viewport,
 } from "./types";
 
-/** A plan longer than this is a list, not a ladder; the digits carry it alone. */
-const LADDER_MAX_STEPS = 10;
-
 /** Truncation marker. ASCII, because every monospace font has had it since 1970. */
-const CLIP = "...";
-
 export interface LiveSegment {
   readonly text: string;
   readonly fg: string;
@@ -58,39 +54,6 @@ export interface LiveSegment {
 export interface LiveRow {
   readonly key: string;
   readonly segments: readonly LiveSegment[];
-}
-
-function cells(text: string): number {
-  return [...text].length;
-}
-
-function segmentsWidth(segments: readonly LiveSegment[]): number {
-  return segments.reduce((total, segment) => total + cells(segment.text), 0);
-}
-
-/** Truncate, never wrap: a wrapped row would steal a row from the next thing. */
-function clip(text: string, max: number): string {
-  const characters = [...text];
-  if (characters.length <= max) return text;
-  if (max <= CLIP.length) return characters.slice(0, Math.max(0, max)).join("");
-  return `${characters.slice(0, max - CLIP.length).join("")}${CLIP}`;
-}
-
-function clipSegments(segments: readonly LiveSegment[], max: number): readonly LiveSegment[] {
-  const kept: LiveSegment[] = [];
-  let remaining = Math.max(0, max);
-  for (const segment of segments) {
-    if (remaining === 0) break;
-    const characters = [...segment.text];
-    if (characters.length <= remaining) {
-      kept.push(segment);
-      remaining -= characters.length;
-      continue;
-    }
-    kept.push({ text: clip(segment.text, remaining), fg: segment.fg });
-    remaining = 0;
-  }
-  return kept;
 }
 
 /**
@@ -119,14 +82,14 @@ function alignRow(
   right: readonly LiveSegment[],
   width: number,
 ): LiveRow {
-  const rightWidth = segmentsWidth(right);
+  const rightWidth = terminalSegmentsWidth(right);
   // One column of breathing room, or the metadata column is dropped entirely.
   const leftBudget = width - rightWidth - 1;
   if (leftBudget < 1) {
-    return { key, segments: clipSegments(left, width) };
+    return { key, segments: fitTerminalSegments(left, width) };
   }
-  const kept = clipSegments(left, leftBudget);
-  const gap = width - segmentsWidth(kept) - rightWidth;
+  const kept = fitTerminalSegments(left, leftBudget);
+  const gap = width - terminalSegmentsWidth(kept) - rightWidth;
   const padding: LiveSegment[] = gap > 0 ? [{ text: " ".repeat(gap), fg: THEME.muted }] : [];
   return { key, segments: [...kept, ...padding, ...right] };
 }
@@ -173,27 +136,29 @@ function toolRow(tool: LiveTool, tick: number, glyphs: GlyphSet, width: number):
  * is short enough for the marks to be countable at a glance; past that the
  * marks stop being readable and the digits do the work alone. Neither moves.
  */
-function stepRow(step: StepLine, glyphs: GlyphSet, width: number): LiveRow {
+function stepRow(
+  step: StepLine,
+  runningCount: number,
+  elapsedMs: number | undefined,
+  glyphs: GlyphSet,
+  width: number,
+): LiveRow {
   const total = Math.max(1, step.total);
   const index = Math.min(Math.max(1, step.index), total);
-  const ladder: LiveSegment[] =
-    total <= LADDER_MAX_STEPS
-      ? [
-          { text: glyphs.success.repeat(index - 1), fg: THEME.success },
-          { text: glyphs.pending.repeat(total - index + 1), fg: THEME.muted },
-          { text: " ", fg: THEME.muted },
-        ]
-      : [];
+  const runningLabel = runningCount > 0 ? `${String(runningCount)} running` : "no tools out";
+  const right: LiveSegment[] = [{ text: runningLabel, fg: THEME.muted }];
+  if (elapsedMs !== undefined) {
+    right.push(separator(glyphs), { text: formatElapsed(elapsedMs), fg: THEME.muted });
+  }
   return alignRow(
     "step",
     [
       ...gutter(glyphs),
-      ...ladder,
-      { text: `step ${index} of ${total}`, fg: THEME.secondary },
-      separator(glyphs),
-      { text: step.label, fg: THEME.selected },
+      { text: `step ${index} of ${total}`, fg: THEME.muted },
+      { text: "   ", fg: THEME.muted },
+      { text: step.label, fg: THEME.secondary },
     ],
-    [],
+    right,
     width,
   );
 }
@@ -312,7 +277,17 @@ export function liveRows(
   if (showWaiting && model.waiting !== undefined) {
     rows.push(waitingRow(model.waiting, model.elapsedMs, model.tick, glyphs, width));
   }
-  if (showStep && model.step !== undefined) rows.push(stepRow(model.step, glyphs, width));
+  if (showStep && model.step !== undefined) {
+    rows.push(
+      stepRow(
+        model.step,
+        model.tools.length + model.hiddenTools.length,
+        model.elapsedMs,
+        glyphs,
+        width,
+      ),
+    );
+  }
   for (const tool of shown) rows.push(toolRow(tool, model.tick, glyphs, width));
   if (hiddenNames.length > 0) rows.push(overflowRow(hiddenNames, glyphs, width));
 

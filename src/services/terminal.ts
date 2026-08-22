@@ -6,12 +6,8 @@ import { wrapToWidth, getTerminalWidth } from "@/cli/presentation/markdown-forma
 import App from "@/cli/ui/App";
 import { InputProvider } from "@/cli/ui/contexts/InputContext";
 import { TerminalDimensionsProvider } from "@/cli/ui/contexts/TerminalDimensionsContext";
-import {
-  decideFullscreen,
-  mountFullscreenApp,
-  wantsPlainOutput,
-  type FullscreenHandle,
-} from "@/cli/ui/fullscreen/attach";
+import { mountFullscreenApp, type FullscreenHandle } from "@/cli/ui/fullscreen/attach";
+import { maskSecret } from "@/cli/ui/mask-secret";
 import { store } from "@/cli/ui/store";
 import type { OutputEntry } from "@/cli/ui/types";
 import {
@@ -38,22 +34,7 @@ export const INK_RENDER_OPTIONS = {
   exitOnCtrlC: false,
 } as const;
 
-/**
- * Render a secret for echo to terminal scrollback. Reveals the last few
- * characters so the user can recognise the value they entered while keeping
- * the bulk of it masked. Short inputs are masked entirely.
- *
- * Exported for testability.
- */
-export function maskSecret(value: string): string {
-  const VISIBLE_TAIL = 4;
-  const MIN_LENGTH_FOR_TAIL = 12;
-  if (value.length === 0) return "";
-  if (value.length >= MIN_LENGTH_FOR_TAIL) {
-    return "•".repeat(8) + value.slice(-VISIBLE_TAIL);
-  }
-  return "•".repeat(Math.max(value.length, 4));
-}
+export { maskSecret };
 
 /**
  * Width offset used when wrapping user-echo messages.
@@ -91,8 +72,11 @@ export class InkTerminalService implements TerminalService {
 
   private inkInstance: ReturnType<typeof render> | null = null;
   private fullscreen: FullscreenHandle | null = null;
+  private fallbackScheduled = false;
+  private disposed = false;
+  private unregisterRendererFallback: (() => void) | null = null;
 
-  constructor() {
+  constructor(options: { fullscreen?: boolean } = {}) {
     // Guard against multiple instantiation
     if (instanceExists) {
       throw new Error(
@@ -101,25 +85,39 @@ export class InkTerminalService implements TerminalService {
       );
     }
 
-    // Two renderers, one store. The fullscreen interface and the Ink tree both
-    // read the same UI store, so choosing between them is a mount-time decision
-    // and nothing downstream needs to know which one is running.
-    if (decideFullscreen({ requestPlain: wantsPlainOutput() }).fullscreen) {
-      this.fullscreen = mountFullscreenApp();
+    if (options.fullscreen === false) {
+      this.mountInk();
     } else {
-      // patchConsole: false prevents Ink from intercepting console.* methods,
-      // which can cause flickering when external code writes to console during renders
-      // Wrap App with InputProvider to provide the input service context
-      this.inkInstance = render(
-        React.createElement(
-          TerminalDimensionsProvider,
-          null,
-          React.createElement(InputProvider, null, React.createElement(App)),
-        ),
-        INK_RENDER_OPTIONS,
-      );
+      this.fullscreen = mountFullscreenApp({
+        onFailure: this.fallbackToInk,
+      });
+      this.unregisterRendererFallback = store.registerRendererFallbackHandler(this.fallbackToInk);
     }
     instanceExists = true;
+  }
+
+  private fallbackToInk = (): void => {
+    if (this.fallbackScheduled || this.disposed || this.inkInstance !== null) return;
+    this.fallbackScheduled = true;
+    queueMicrotask(() => {
+      this.fallbackScheduled = false;
+      if (this.disposed || this.inkInstance !== null) return;
+      this.fullscreen?.release();
+      this.fullscreen = null;
+      this.mountInk();
+    });
+  };
+
+  private mountInk(): void {
+    if (this.inkInstance !== null) return;
+    this.inkInstance = render(
+      React.createElement(
+        TerminalDimensionsProvider,
+        null,
+        React.createElement(InputProvider, null, React.createElement(App)),
+      ),
+      INK_RENDER_OPTIONS,
+    );
   }
 
   /**
@@ -127,6 +125,10 @@ export class InkTerminalService implements TerminalService {
    * Called when the command completes
    */
   cleanup(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    this.unregisterRendererFallback?.();
+    this.unregisterRendererFallback = null;
     if (this.fullscreen) {
       // Releases the alternate screen, the cursor and raw mode. Idempotent, so
       // it is safe if a signal handler already ran.
@@ -239,7 +241,7 @@ export class InkTerminalService implements TerminalService {
   ): Effect.Effect<string | undefined, never> {
     return Effect.async<string, Error>((resume) => {
       const validateFn = options?.validate;
-      const isCancellable = options?.cancellable === true;
+      const isCancellable = options?.cancellable === true || options?.secret === true;
       const isSimple = options?.simple === true;
       const isHidden = options?.hidden === true;
       const isSecret = options?.secret === true;
@@ -255,6 +257,7 @@ export class InkTerminalService implements TerminalService {
           validate?: (input: string) => boolean | string;
           commandSuggestions?: boolean;
           placeholder?: string;
+          secret?: boolean;
         };
         resolve: (val: unknown) => void;
         reject?: () => void;
@@ -270,6 +273,7 @@ export class InkTerminalService implements TerminalService {
                 ...(validateFn ? { validate: validateFn } : {}),
                 ...(options.commandSuggestions === true ? { commandSuggestions: true } : {}),
                 ...(placeholder ? { placeholder } : {}),
+                ...(isSecret ? { secret: true } : {}),
               },
             }
           : {}),
@@ -336,7 +340,11 @@ export class InkTerminalService implements TerminalService {
           // The Prompt component validates before calling resolve, so we can trust the input
           const inputValue = String(val);
           store.setPrompt(null);
-          store.printOutput({ type: "log", message: `${message} *****`, timestamp: new Date() });
+          store.printOutput({
+            type: "log",
+            message: `${message} ${maskSecret(inputValue)}`,
+            timestamp: new Date(),
+          });
           resume(Effect.succeed(inputValue));
         },
       };
@@ -359,14 +367,22 @@ export class InkTerminalService implements TerminalService {
       const choices = options.choices.map((choice) => {
         if (typeof choice === "string")
           return { label: choice, value: choice as unknown as T, disabled: false };
-        return { label: choice.name, value: choice.value, disabled: choice.disabled ?? false };
+        return {
+          label: choice.name,
+          value: choice.value,
+          ...(choice.description === undefined ? {} : { description: choice.description }),
+          disabled: choice.disabled ?? false,
+        };
       });
 
       store.setPrompt({
         type: "select",
         message,
 
-        options: { choices: choices },
+        options: {
+          choices,
+          ...(options.default === undefined ? {} : { defaultSelected: options.default }),
+        },
         resolve: (val: unknown) => {
           store.setPrompt(null);
           // find label for log
@@ -631,19 +647,13 @@ export class PlainTerminalService implements TerminalService {
   }
 }
 
-/**
- * Create the terminal service layer.
- *
- * Uses the Ink-based terminal when both stdout and stdin are TTYs (interactive terminal).
- * Falls back to a plain terminal service in non-TTY environments (CI, piped output, cron)
- * to avoid Ink's raw mode error.
- */
-export function createTerminalServiceLayer(): Layer.Layer<TerminalService, never, never> {
-  const isTTY = process.stdout.isTTY && process.stdin.isTTY;
-
+/** Create the interactive terminal service layer. */
+export function createTerminalServiceLayer(
+  options: { fullscreen?: boolean } = {},
+): Layer.Layer<TerminalService, never, never> {
   return Layer.effect(
     TerminalServiceTag,
-    Effect.sync(() => (isTTY ? new InkTerminalService() : new PlainTerminalService())),
+    Effect.sync(() => new InkTerminalService(options)),
   );
 }
 

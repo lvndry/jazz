@@ -33,6 +33,7 @@
 import type { ReactNode } from "react";
 import { getGlyphs, type GlyphSet } from "../../glyphs";
 import { THEME } from "../../theme";
+import { clipTerminalCells, terminalCellWidth } from "../terminal-cells";
 import { pageWidth } from "../Transcript";
 import { measureFor, type Viewport } from "../types";
 
@@ -50,8 +51,6 @@ const KEYS_ROWS = 1;
 
 /** The guidance sentence gets two rows at most; past that it is a paragraph. */
 const GUIDANCE_MAX_ROWS = 2;
-
-const ELLIPSIS = "...";
 
 /** One thing jazz needs before it is useful, and the one thing to do about it. */
 export interface HomeRequirement {
@@ -101,15 +100,11 @@ export interface HomeRow {
 }
 
 function cells(text: string): number {
-  return [...text].length;
+  return terminalCellWidth(text);
 }
 
 function clip(text: string, width: number): string {
-  if (width <= 0) return "";
-  const characters = [...text];
-  if (characters.length <= width) return text;
-  if (width <= ELLIPSIS.length) return characters.slice(0, width).join("");
-  return characters.slice(0, width - ELLIPSIS.length).join("") + ELLIPSIS;
+  return clipTerminalCells(text, width);
 }
 
 function pad(text: string, width: number): string {
@@ -161,15 +156,20 @@ function sectionLabel(key: string, text: string): HomeRow {
   };
 }
 
+/** Two rhythmic voices on one line: five-cell figure against a three-cell one. */
+const WORDMARK_ORNAMENT = "▄▀▀▄▀▄▄▀▀▄▄▀▄▀▀▄▀▀▄▀▄▄▀▀▄▄▀▄▀▀▄▀▀▄▀▄▄▀▀▄";
+
 function identityRows(model: HomeModel, glyphs: GlyphSet, content: number): HomeRow[] {
   return [
+    {
+      key: "ornament",
+      segments: [{ text: clip(WORDMARK_ORNAMENT, content + GUTTER), fg: THEME.primary }],
+    },
     {
       key: "identity",
       segments: [
         { text: glyphs.note, fg: THEME.primary },
-        { text: " ", fg: THEME.muted },
-        { text: "jazz", fg: THEME.selected, bold: true },
-        { text: "  ", fg: THEME.muted },
+        { text: "  jazz  ", fg: THEME.selected, bold: true },
         { text: model.version, fg: THEME.muted },
       ],
     },
@@ -177,7 +177,7 @@ function identityRows(model: HomeModel, glyphs: GlyphSet, content: number): Home
       key: "tagline",
       segments: [
         { text: " ".repeat(GUTTER), fg: THEME.muted },
-        { text: clip(model.tagline, content), fg: THEME.secondary },
+        { text: clip(model.tagline, content), fg: THEME.muted },
       ],
     },
   ];

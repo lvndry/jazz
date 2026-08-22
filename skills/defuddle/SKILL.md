@@ -7,7 +7,7 @@ description: Extract clean markdown content from web pages using Defuddle CLI, r
 
 Use Defuddle CLI to extract clean readable content from web pages. Prefer over WebFetch for standard web pages — it removes navigation, ads, and clutter, reducing token usage.
 
-Use `npx defuddle-cli` by default. Install globally only if already available or asked by user `npm install -g defuddle-cli`
+Use `npx defuddle-cli` by default.
 
 ## Usage
 

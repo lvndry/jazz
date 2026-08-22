@@ -6,6 +6,8 @@ import type { OutputEntry, PromptState } from "./types";
 /** Accepts single entry or batch; returns first id when available. */
 type PrintOutputHandler = (entry: OutputEntry | readonly OutputEntry[]) => string;
 
+type UpdateOutputHandler = (id: string, patch: OutputEntry) => void;
+
 type StreamingHandler = {
   appendStream: (kind: StreamKind, delta: string) => void;
   finalizeStream: () => void;
@@ -58,6 +60,8 @@ export interface ExpandableReasoning {
   readonly label: string;
   readonly durationMs: number;
   readonly tokens?: number;
+  /** Output entry to rewrite in place. Missing when the block was never logged. */
+  readonly entryId?: string;
 }
 
 /** Upper bound on retained collapsed-reasoning blocks. */
@@ -99,13 +103,47 @@ export type ConnectorStatus = "live" | "renew" | "offline";
  * renderer draw its own version, which is the only way two renderers can share
  * a flow.
  */
-export interface ActiveMenu {
+export interface ActiveMenuOption {
+  readonly label: string;
+  readonly value: string;
+}
+
+export interface ActiveMenuRequirement {
+  readonly label: string;
+  readonly ready: boolean;
+  readonly detail: string;
+  readonly remedy?: string;
+}
+
+export interface ActiveAgentChoice {
+  readonly id: string;
+  readonly name: string;
+  readonly model: string;
+  readonly description?: string;
+  readonly lastUsed?: boolean;
+}
+
+export interface ActiveWizardMenu {
   readonly kind: "menu";
   readonly title?: string;
-  readonly options: readonly { readonly label: string; readonly value: string }[];
+  readonly options: readonly ActiveMenuOption[];
+  readonly requirements?: readonly ActiveMenuRequirement[];
+  readonly tip?: string;
   readonly onSelect: (value: string) => void;
   readonly onExit: () => void;
 }
+
+export interface ActiveAgentMenu {
+  readonly kind: "agents";
+  readonly title: string;
+  readonly action: string;
+  readonly agents: readonly ActiveAgentChoice[];
+  readonly onSelect: (value: string) => void;
+  readonly onExit: () => void;
+  readonly browse?: boolean;
+}
+
+export type ActiveMenu = ActiveWizardMenu | ActiveAgentMenu;
 
 export interface PendingApproval {
   readonly toolName: string;
@@ -131,7 +169,9 @@ export interface RunStats {
 export class UIStore {
   // Output handlers
   private printOutputHandler: PrintOutputHandler | null = null;
+  private updateOutputHandler: UpdateOutputHandler | null = null;
   private clearOutputsHandler: (() => void) | null = null;
+  private pinnedReasoningIds = new Set<EphemeralRegionId>();
   private streamingHandler: StreamingHandler | null = null;
   private pendingOutputQueue: OutputEntry[] = [];
   private _pendingClear = false;
@@ -164,6 +204,7 @@ export class UIStore {
   private inputHistory: string[] = [];
   private messageQueueSnapshot: readonly string[] = [];
   private chatBusySnapshot: boolean = false;
+  private customViewSnapshot: React.ReactNode | null = null;
 
   // Insertion-ordered map of live ephemeral regions, keyed by id.
   private ephemeralRegions: Map<EphemeralRegionId, EphemeralRegion> = new Map();
@@ -178,8 +219,10 @@ export class UIStore {
   private expandableReasoningSetter: ((value: ExpandableReasoning | null) => void) | null = null;
   private messageQueueSetter: ((queue: readonly string[]) => void) | null = null;
   private chatBusySetter: ((busy: boolean) => void) | null = null;
+  private customViewSetter: ((view: React.ReactNode | null) => void) | null = null;
   private modeToastSetter: ((message: string | null) => void) | null = null;
   private modeSetter: ((isYolo: boolean) => void) | null = null;
+  private rendererFallbackHandler: (() => void) | null = null;
 
   // ── Public API (called by consumers) ──────────────────────────────
 
@@ -308,7 +351,10 @@ export class UIStore {
     }
   };
 
-  setCustomView = (_view: React.ReactNode | null): void => {};
+  setCustomView = (view: React.ReactNode | null): void => {
+    this.customViewSnapshot = view;
+    this.customViewSetter?.(view);
+  };
 
   /**
    * Stack of active interrupt handlers, ordered oldest-first. Each call to
@@ -495,20 +541,43 @@ export class UIStore {
     this.ephemeralRegions.delete(id);
     this.publishEphemeralRegions();
 
+    const capturedText = summary.fullText?.trim() || region.tail.join("\n").trim();
+    const pinned = this.pinnedReasoningIds.delete(id);
+
+    if (region.kind === "reasoning" && capturedText.length > 0) {
+      const entryId = `reasoning-${id}`;
+      const seconds = (summary.durationMs / 1000).toFixed(1);
+      this.printOutput({
+        id: entryId,
+        type: "streamContent",
+        message: pinned
+          ? `*${region.label} · ${seconds}s*\n\n${capturedText}`
+          : (summary.line ?? `${region.label} · ${seconds}s · ctrl+r to expand`),
+        meta: {
+          kind: "reasoning",
+          collapsed: !pinned,
+          fullText: capturedText,
+          durationMs: summary.durationMs,
+          label: region.label,
+        },
+        timestamp: new Date(),
+      });
+      this.flushOutputBatchNow();
+      this.pushExpandableReasoning({
+        fullText: capturedText,
+        label: region.label,
+        durationMs: summary.durationMs,
+        entryId,
+        ...(summary.tokens !== undefined && { tokens: summary.tokens }),
+      });
+      return;
+    }
+
     if (summary.line) {
       this.printOutput({
         type: "log",
         message: summary.line,
         timestamp: new Date(),
-      });
-    }
-
-    if (region.kind === "reasoning" && summary.fullText) {
-      this.pushExpandableReasoning({
-        fullText: summary.fullText,
-        label: region.label,
-        durationMs: summary.durationMs,
-        ...(summary.tokens !== undefined && { tokens: summary.tokens }),
       });
     }
   };
@@ -558,21 +627,50 @@ export class UIStore {
   };
 
   /**
-   * Pop the most recent unexpanded reasoning block and emit it into
-   * scrollback. Pressing Ctrl-R repeatedly walks backwards through the
-   * turn's collapsed reasoning blocks. No-op once the stack is empty.
+   * Keep the live reasoning panel expanded when it settles, so Ctrl+R during
+   * a run does not wait for the turn to finish and then dump the thought
+   * under the answer.
    */
-  expandLastReasoning = (): void => {
+  pinOpenReasoning = (): boolean => {
+    let pinned = false;
+    for (const region of this.ephemeralRegions.values()) {
+      if (region.kind !== "reasoning") continue;
+      this.pinnedReasoningIds.add(region.id);
+      pinned = true;
+    }
+    return pinned;
+  };
+
+  /**
+   * Expand the most recently collapsed reasoning *in the place it was
+   * thought*. Appending it as a new log line put the thought under the
+   * answer, which is the opposite of the order it happened.
+   */
+  expandLastReasoning = (): boolean => {
     const value = this.expandableReasoningStack.pop();
-    if (!value) return;
+    if (value === undefined) return this.pinOpenReasoning();
     const seconds = (value.durationMs / 1000).toFixed(1);
-    this.printOutput({
+    const entry: OutputEntry = {
       type: "streamContent",
       message: `*${value.label} · ${seconds}s*\n\n${value.fullText}`,
-      meta: { kind: "reasoning" },
+      meta: {
+        kind: "reasoning",
+        collapsed: false,
+        fullText: value.fullText,
+        durationMs: value.durationMs,
+        label: value.label,
+      },
       timestamp: new Date(),
-    });
+      ...(value.entryId === undefined ? {} : { id: value.entryId }),
+    };
+    if (value.entryId !== undefined && this.updateOutputHandler !== null) {
+      this.updateOutputHandler(value.entryId, entry);
+    } else {
+      this.printOutput(entry);
+      this.flushOutputBatchNow();
+    }
     this.setExpandableReasoning(this.expandableReasoningStack.at(-1) ?? null);
+    return true;
   };
 
   appendStream = (kind: StreamKind, delta: string): void => {
@@ -599,6 +697,7 @@ export class UIStore {
     // Reasoning from before the clear is stale context — drop it so Ctrl+R
     // can't resurrect output the user just wiped.
     this.expandableReasoningStack = [];
+    this.pinnedReasoningIds.clear();
     this.setExpandableReasoning(null);
 
     if (!this.clearOutputsHandler) {
@@ -623,6 +722,10 @@ export class UIStore {
     this.printOutputHandler = handler;
   }
 
+  registerUpdateOutput(handler: UpdateOutputHandler): void {
+    this.updateOutputHandler = handler;
+  }
+
   registerStreamingHandler(handler: StreamingHandler | null): void {
     this.streamingHandler = handler;
   }
@@ -637,6 +740,7 @@ export class UIStore {
 
   registerPromptSetter(setter: (prompt: PromptState | null) => void): void {
     this.promptSetter = setter;
+    setter(this.promptSnapshot);
   }
 
   registerWorkingDirectorySetter(setter: (wd: string | null) => void): void {
@@ -647,8 +751,14 @@ export class UIStore {
     this.runStatsSetter = setter;
   }
 
-  registerCustomView(setter: (view: React.ReactNode | null) => void): void {
-    this.setCustomView = setter;
+  registerCustomView(setter: (view: React.ReactNode | null) => void): () => void {
+    this.customViewSetter = setter;
+    setter(this.customViewSnapshot);
+    return () => {
+      if (this.customViewSetter === setter) {
+        this.customViewSetter = null;
+      }
+    };
   }
 
   registerMessageQueueSetter(setter: (queue: readonly string[]) => void): void {
@@ -669,16 +779,19 @@ export class UIStore {
     }
   }
 
-  /**
-   * The approval currently awaiting a decision, as structured data.
-   *
-   * The `select` prompt that the Ink tree renders carries only a message and a
-   * list of choices. The fullscreen approval card has to name the real account,
-   * list every field that will exist afterwards, and state irreversibility in
-   * prose — none of which survives being flattened into a menu. So the request
-   * travels alongside the prompt rather than inside it.
-   */
-  /** Reachability of the named connectors, newest state wins per name. */
+  requestRendererFallback = (): void => {
+    this.rendererFallbackHandler?.();
+  };
+
+  registerRendererFallbackHandler = (handler: () => void): (() => void) => {
+    this.rendererFallbackHandler = handler;
+    return () => {
+      if (this.rendererFallbackHandler === handler) {
+        this.rendererFallbackHandler = null;
+      }
+    };
+  };
+
   /** The menu currently awaiting a choice, or null. */
   setActiveMenu = (menu: ActiveMenu | null): void => {
     this.activeMenuSnapshot = menu;
@@ -694,6 +807,7 @@ export class UIStore {
     return this.activeMenuSnapshot;
   }
 
+  /** Reachability of the named connectors, newest state wins per name. */
   setConnector = (name: string, status: ConnectorStatus): void => {
     const next = new Map(this.connectorsSnapshot);
     next.set(name, status);
@@ -712,6 +826,12 @@ export class UIStore {
     return this.connectorsSnapshot;
   }
 
+  /**
+   * The approval currently awaiting a decision, as structured data.
+   *
+   * The fullscreen approval card needs details that do not survive flattening
+   * the request into a select prompt, so the request travels alongside it.
+   */
   setApprovalRequest = (request: PendingApproval | null): void => {
     this.approvalRequestSnapshot = request;
     if (this.approvalRequestSetter) this.approvalRequestSetter(request);

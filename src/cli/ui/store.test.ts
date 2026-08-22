@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type React from "react";
 import { UIStore } from "./store";
 import type { OutputEntry } from "./types";
 
@@ -106,6 +107,41 @@ describe("UIStore", () => {
       expect(received[0]!.message).toBe("a");
       expect(received[1]!.message).toBe("b");
       expect(received[2]!.message).toBe("c");
+    });
+
+    test("stale renderer cleanup does not unregister a newer fallback handler", () => {
+      const s = new UIStore();
+      let fallbackRequests = 0;
+      const unregisterFirst = s.registerRendererFallbackHandler(() => {
+        fallbackRequests += 100;
+      });
+      const unregisterSecond = s.registerRendererFallbackHandler(() => {
+        fallbackRequests += 1;
+      });
+
+      unregisterFirst();
+      s.requestRendererFallback();
+      expect(fallbackRequests).toBe(1);
+
+      unregisterSecond();
+      s.requestRendererFallback();
+      expect(fallbackRequests).toBe(1);
+    });
+
+    test("carries a custom view across renderer replacement", () => {
+      const s = new UIStore();
+      const firstRenderer: Array<React.ReactNode | null> = [];
+      const secondRenderer: Array<React.ReactNode | null> = [];
+      const unregisterFirst = s.registerCustomView((view) => firstRenderer.push(view));
+
+      s.setCustomView("Ink-only screen");
+      const unregisterSecond = s.registerCustomView((view) => secondRenderer.push(view));
+      unregisterFirst();
+      s.setCustomView(null);
+
+      expect(firstRenderer).toEqual([null, "Ink-only screen"]);
+      expect(secondRenderer).toEqual(["Ink-only screen", null]);
+      unregisterSecond();
     });
   });
 
@@ -337,6 +373,15 @@ describe("UIStore", () => {
       });
     });
 
+    test("collapseEphemeral keeps the live tail when fullText is missing", () => {
+      const s = new UIStore();
+      const id = s.openEphemeral("reasoning", "Reasoning", 8);
+      s.appendEphemeral(id, "kept from the live panel");
+      s.collapseEphemeral(id, { durationMs: 800 });
+
+      expect(s.getExpandableReasoningSnapshot()?.fullText).toBe("kept from the live panel");
+    });
+
     test("collapseEphemeral with reasoning + fullText populates expandableReasoning", () => {
       const s = new UIStore();
       const id = s.openEphemeral("reasoning", "Reasoning", 8);
@@ -385,13 +430,22 @@ describe("UIStore", () => {
       });
     });
 
-    test("expandLastReasoning emits full text once and clears the slot", () => {
+    test("expandLastReasoning rewrites the collapsed entry in place", () => {
       const s = new UIStore();
       const printed: OutputEntry[] = [];
       s.registerPrintOutput((eOrBatch) => {
         const arr = Array.isArray(eOrBatch) ? eOrBatch : [eOrBatch];
         printed.push(...arr);
         return arr[0]?.id ?? "id";
+      });
+      s.registerUpdateOutput((id, patch) => {
+        const index = printed.findIndex((entry) => entry.id === id);
+        if (index < 0) return;
+        printed[index] = {
+          ...printed[index]!,
+          ...patch,
+          meta: { ...printed[index]!.meta, ...patch.meta },
+        };
       });
 
       const id = s.openEphemeral("reasoning", "Reasoning", 8);
@@ -400,25 +454,36 @@ describe("UIStore", () => {
         fullText: "full reasoning body",
       });
 
+      expect(printed).toHaveLength(1);
+      expect(printed[0]!.meta?.["collapsed"]).toBe(true);
+
       s.expandLastReasoning();
       s.expandLastReasoning(); // second call is no-op
 
-      return Promise.resolve().then(() => {
-        expect(printed).toHaveLength(1);
-        expect(printed[0]!.type).toBe("streamContent");
-        expect(printed[0]!.message).toContain("full reasoning body");
-        expect(printed[0]!.message).toContain("Reasoning · 1.0s");
-        expect(s.getExpandableReasoningSnapshot()).toBeNull();
-      });
+      expect(printed).toHaveLength(1);
+      expect(printed[0]!.type).toBe("streamContent");
+      expect(printed[0]!.message).toContain("full reasoning body");
+      expect(printed[0]!.message).toContain("Reasoning · 1.0s");
+      expect(printed[0]!.meta?.["collapsed"]).toBe(false);
+      expect(s.getExpandableReasoningSnapshot()).toBeNull();
     });
 
-    test("expandLastReasoning walks back through multiple collapsed blocks", () => {
+    test("expandLastReasoning expands later blocks without moving them", () => {
       const s = new UIStore();
       const printed: OutputEntry[] = [];
       s.registerPrintOutput((eOrBatch) => {
         const arr = Array.isArray(eOrBatch) ? eOrBatch : [eOrBatch];
         printed.push(...arr);
         return arr[0]?.id ?? "id";
+      });
+      s.registerUpdateOutput((id, patch) => {
+        const index = printed.findIndex((entry) => entry.id === id);
+        if (index < 0) return;
+        printed[index] = {
+          ...printed[index]!,
+          ...patch,
+          meta: { ...printed[index]!.meta, ...patch.meta },
+        };
       });
 
       const first = s.openEphemeral("reasoning", "Reasoning", 8);
@@ -430,12 +495,29 @@ describe("UIStore", () => {
       s.expandLastReasoning();
       s.expandLastReasoning(); // stack empty — no-op
 
-      return Promise.resolve().then(() => {
-        expect(printed).toHaveLength(2);
-        expect(printed[0]!.message).toContain("second block");
-        expect(printed[1]!.message).toContain("first block");
-        expect(s.getExpandableReasoningSnapshot()).toBeNull();
+      expect(printed).toHaveLength(2);
+      expect(printed[0]!.message).toContain("first block");
+      expect(printed[1]!.message).toContain("second block");
+      expect(s.getExpandableReasoningSnapshot()).toBeNull();
+    });
+
+    test("Ctrl+R during a live panel pins it so collapse stays expanded", () => {
+      const s = new UIStore();
+      const printed: OutputEntry[] = [];
+      s.registerPrintOutput((eOrBatch) => {
+        const arr = Array.isArray(eOrBatch) ? eOrBatch : [eOrBatch];
+        printed.push(...arr);
+        return arr[0]?.id ?? "id";
       });
+
+      const id = s.openEphemeral("reasoning", "Reasoning", 8);
+      s.appendEphemeral(id, "live thought");
+      expect(s.expandLastReasoning()).toBe(true);
+      s.collapseEphemeral(id, { durationMs: 400, fullText: "live thought" });
+
+      expect(printed).toHaveLength(1);
+      expect(printed[0]!.meta?.["collapsed"]).toBe(false);
+      expect(printed[0]!.message).toContain("live thought");
     });
 
     test("setter is notified on open, append, and collapse", () => {

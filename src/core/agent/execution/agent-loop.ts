@@ -113,6 +113,30 @@ export function buildContextPressureMessage(
   return null;
 }
 
+/**
+ * After a successful compaction the history has been rewritten underneath the
+ * model. The warn/critical nudges tell it to wrap up — the opposite of what
+ * just happened: space was freed so the original task can continue.
+ */
+export function buildPostCompactionMessage(
+  currentTokens: number,
+  budgetTokens: number,
+): { role: "user"; content: string } {
+  const resume =
+    "[CONTEXT COMPACTED: Older history was summarized to free space. The original task is still in progress. Continue from the summary and recent messages until the user's request is fully complete. Do not treat this compaction as a reason to wrap up.]";
+  if (budgetTokens <= 0) return { role: "user", content: resume };
+
+  const ratio = currentTokens / budgetTokens;
+  if (ratio < CONTEXT_CRITICAL_RATIO) return { role: "user", content: resume };
+
+  const percent = Math.round(ratio * 100);
+  const budget = budgetTokens.toLocaleString();
+  return {
+    role: "user",
+    content: `${resume} Context is still ${percent}% of the ${budget}-token budget — prefer finishing current work over opening new investigations, but do not stop short of the original request.`,
+  };
+}
+
 export interface TrackedToolCall {
   name: string;
   arguments: string;
@@ -616,6 +640,7 @@ function runIteration(
       }
     }
 
+    const messagesBeforeCompact = state.currentMessages;
     state.currentMessages = yield* Summarizer.compactIfNeeded(
       state.currentMessages,
       agent,
@@ -624,6 +649,13 @@ function runIteration(
       runRecursive,
       contextWindowMaxTokens,
     );
+    const justCompacted = state.currentMessages !== messagesBeforeCompact;
+
+    // The summarizer is its own agent run; its completion idles the live zone.
+    // Restore thinking so the parent looks mid-task, not finished.
+    if (justCompacted && !options.internal && strategy.shouldShowThinking) {
+      yield* observer.onThinking(agent.name, false);
+    }
 
     let lastUserContent: string | undefined;
     for (let j = state.currentMessages.length - 1; j >= 0; j--) {
@@ -649,11 +681,16 @@ function runIteration(
     // history. A persisted warning would cost tokens exactly when they are scarce,
     // be re-sent every turn, and end up summarized into the compaction it warned about.
     const postCompactionUsage = runContextWindowManager.usage(state.currentMessages);
-    const contextMsg = buildContextPressureMessage(
-      postCompactionUsage.currentTokens,
-      postCompactionUsage.budgetTokens,
-      runContextWindowManager.thresholdRatios,
-    );
+    const contextMsg = justCompacted
+      ? buildPostCompactionMessage(
+          postCompactionUsage.currentTokens,
+          postCompactionUsage.budgetTokens,
+        )
+      : buildContextPressureMessage(
+          postCompactionUsage.currentTokens,
+          postCompactionUsage.budgetTokens,
+          runContextWindowManager.thresholdRatios,
+        );
     const budgetMsg = buildBudgetPressureMessage(iterationIndex + 1, maxIterations);
     const pressureContent = [contextMsg?.content, budgetMsg?.content].filter(Boolean).join("\n");
     const messagesForLLM = pressureContent
@@ -794,10 +831,14 @@ function runIteration(
       ...(completion.reasoning ? { reasoning: completion.reasoning } : {}),
     };
 
-    // Let strategy present the response (batch renders markdown, streaming is already rendered)
-    yield* strategy.presentResponse(agent.name, visibleContent, completion);
-    yield* observer.onCompletion(agent.name);
-    yield* strategy.onComplete(agent.name, completion);
+    // Internal runs (compaction, other sub-agents) return content to the
+    // parent. Presenting them as a finished turn makes the live conversation
+    // look done and fires the "task complete" notification mid-work.
+    if (!options.internal) {
+      yield* strategy.presentResponse(agent.name, visibleContent, completion);
+      yield* observer.onCompletion(agent.name);
+      yield* strategy.onComplete(agent.name, completion);
+    }
 
     state.iterationsUsed = iterationIndex + 1;
     return { kind: "final" } as const;

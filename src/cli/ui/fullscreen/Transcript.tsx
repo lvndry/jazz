@@ -5,12 +5,13 @@
  *
  * Two decisions carry the whole design.
  *
- * The first is the measure. `measureFor` sets running prose to ~88 columns and
- * hands the surplus to a flush-right metadata column, so a timestamp and a
- * sentence can never collide and the eye always returns to the same left edge.
- * Tool output, tables and code fences opt out and take the full content width —
- * those are scanned, not read, and a table squeezed to 88 columns is worse than
- * a table that reaches the frame.
+ * The first is the measure. `measureFor` gives running prose the content
+ * column (viewport minus rail and right margin) and keeps a short flush-right
+ * strip for timestamps, so a sentence and its metadata never collide and the
+ * eye always returns to the same left edge. Tool output, tables and code
+ * fences take the full content width — those are scanned, not read, and a
+ * table squeezed to the prose measure is worse than a table that reaches the
+ * frame.
  *
  * The second is density. The first draft of this layout measured 32% ink and
  * read as "very busy"; the target is ≤22% ink with ≥40% breathing rows. That is
@@ -32,10 +33,18 @@
  * the viewport, and is what the tests assert against.
  */
 
-import type { ScrollBoxRenderable } from "@opentui/core";
-import { useEffect, useRef, type ReactNode } from "react";
+import { TextAttributes } from "@opentui/core";
+import { forwardRef, useImperativeHandle, useRef, useState, type ReactNode } from "react";
 import { getGlyphs, type GlyphSet } from "../glyphs";
 import { THEME } from "../theme";
+import {
+  fitTerminalSegments,
+  sliceTerminalCells,
+  terminalCellWidth,
+  terminalGraphemes,
+  terminalSegmentsWidth,
+} from "./terminal-cells";
+import { applyScrollDelta, clampScrollFromBottom, windowTranscriptRows } from "./transcript-window";
 import { measureFor, type Block, type Focus, type ToolReceiptBlock, type Viewport } from "./types";
 
 /** The rail lives in the left page margin, so the content column never moves. */
@@ -43,9 +52,6 @@ const GUTTER = 2;
 
 /** Metadata stops here, so nothing ever touches the page's right edge. */
 const RIGHT_MARGIN = 2;
-
-/** Past this the transcript stops widening: see `pageWidth`. */
-const PAGE_MAX_WIDTH = 120;
 
 /** Reasoning is subordinate by geometry: indented, and set to a narrower measure. */
 const REASONING_INDENT = 2;
@@ -61,6 +67,34 @@ export interface Segment {
   readonly fg: string;
   readonly bold?: boolean;
   readonly italic?: boolean;
+  readonly underline?: boolean;
+  readonly strikethrough?: boolean;
+}
+
+interface InlineMarks {
+  readonly bold?: boolean;
+  readonly italic?: boolean;
+  readonly underline?: boolean;
+  readonly strikethrough?: boolean;
+}
+
+function sameInlineStyle(left: Segment, right: Segment): boolean {
+  return (
+    left.fg === right.fg &&
+    left.bold === right.bold &&
+    left.italic === right.italic &&
+    left.underline === right.underline &&
+    left.strikethrough === right.strikethrough
+  );
+}
+
+function segmentAttributes(segment: Segment): number {
+  let attributes = 0;
+  if (segment.bold === true) attributes |= TextAttributes.BOLD;
+  if (segment.italic === true) attributes |= TextAttributes.ITALIC;
+  if (segment.underline === true) attributes |= TextAttributes.UNDERLINE;
+  if (segment.strikethrough === true) attributes |= TextAttributes.STRIKETHROUGH;
+  return attributes;
 }
 
 /**
@@ -78,32 +112,6 @@ export interface RenderRow {
   readonly meta: readonly Segment[];
 }
 
-function cells(text: string): number {
-  return [...text].length;
-}
-
-function segmentsWidth(segments: readonly Segment[]): number {
-  return segments.reduce((total, segment) => total + cells(segment.text), 0);
-}
-
-function truncate(segments: readonly Segment[], max: number): readonly Segment[] {
-  if (segmentsWidth(segments) <= max) return segments;
-  const kept: Segment[] = [];
-  let remaining = Math.max(0, max);
-  for (const segment of segments) {
-    if (remaining === 0) break;
-    const characters = [...segment.text];
-    if (characters.length <= remaining) {
-      kept.push(segment);
-      remaining -= characters.length;
-    } else {
-      kept.push({ ...segment, text: characters.slice(0, remaining).join("") });
-      remaining = 0;
-    }
-  }
-  return kept;
-}
-
 /**
  * Greedy word wrap that survives inline styling: the line breaks between words,
  * not between spans, so a bold run spanning a wrap point stays bold on both
@@ -117,12 +125,7 @@ function wrap(segments: readonly Segment[], measure: number): Segment[][] {
 
   const push = (segment: Segment): void => {
     const last = line[line.length - 1];
-    if (
-      last !== undefined &&
-      last.fg === segment.fg &&
-      last.bold === segment.bold &&
-      last.italic === segment.italic
-    ) {
+    if (last !== undefined && sameInlineStyle(last, segment)) {
       line[line.length - 1] = { ...last, text: last.text + segment.text };
       return;
     }
@@ -152,7 +155,7 @@ function wrap(segments: readonly Segment[], measure: number): Segment[][] {
       // Keep the separators: a wrapped line must not lose the spaces inside it.
       for (const word of hardLine.split(/(\s+)/)) {
         if (word.length === 0) continue;
-        const size = cells(word);
+        const size = terminalCellWidth(word);
         if (/^\s+$/.test(word)) {
           if (used > 0 && used + size <= width) {
             push({ ...segment, text: word });
@@ -168,16 +171,23 @@ function wrap(segments: readonly Segment[], measure: number): Segment[][] {
         // A single word longer than the measure is broken rather than allowed to
         // push past the right edge — a URL must not break the column.
         let rest = word;
-        while (cells(rest) > width) {
-          const head = [...rest].slice(0, width - used).join("");
+        while (terminalCellWidth(rest) > width) {
+          let head = sliceTerminalCells(rest, width - used);
+          if (head.length === 0 && used > 0) {
+            lines.push(line);
+            line = [];
+            used = 0;
+            continue;
+          }
+          if (head.length === 0) head = terminalGraphemes(rest)[0] ?? "";
           push({ ...segment, text: head });
           lines.push(line);
           line = [];
           used = 0;
-          rest = [...rest].slice(cells(head)).join("");
+          rest = rest.slice(head.length);
         }
         push({ ...segment, text: rest });
-        used += cells(rest);
+        used += terminalCellWidth(rest);
       }
     }
   }
@@ -213,7 +223,208 @@ type ProseItem =
   | { readonly kind: "fence"; readonly lines: readonly string[] }
   | { readonly kind: "table"; readonly rows: readonly (readonly string[])[] };
 
-const INLINE = /(\*\*[^*]+\*\*|__[^_]+__|\*[^*]+\*|_[^_]+_|`[^`]+`|\[[^\]]+\]\([^)]+\))/;
+function isWordCharacter(character: string | undefined): boolean {
+  return character !== undefined && /[A-Za-z0-9]/.test(character);
+}
+
+function delimiterRunLength(text: string, index: number, marker: "*" | "_"): number {
+  let length = 0;
+  while (text[index + length] === marker) length += 1;
+  return length;
+}
+
+function skipCodeSpan(text: string, index: number): number {
+  if (text[index] !== "`") return index;
+  const close = text.indexOf("`", index + 1);
+  return close === -1 ? index + 1 : close + 1;
+}
+
+function findDelimiterClose(text: string, from: number, marker: string): number {
+  let index = from;
+  const runCharacter = marker[0];
+  while (index < text.length) {
+    index = skipCodeSpan(text, index);
+    if (index >= text.length) break;
+    if (text.startsWith(marker, index) && (runCharacter === "*" || runCharacter === "_")) {
+      const run = delimiterRunLength(text, index, runCharacter);
+      if (run === marker.length) return index;
+      index += run;
+      continue;
+    }
+    if (text.startsWith(marker, index)) return index;
+    index += 1;
+  }
+  return -1;
+}
+
+function canOpenUnderscoreItalic(text: string, index: number): boolean {
+  return !isWordCharacter(text[index - 1]);
+}
+
+function canCloseUnderscoreItalic(text: string, closeIndex: number): boolean {
+  return !isWordCharacter(text[closeIndex + 1]);
+}
+
+function findUnderscoreItalicClose(text: string, from: number): number {
+  let index = from;
+  while (index < text.length) {
+    index = skipCodeSpan(text, index);
+    if (index >= text.length) break;
+    if (text[index] === "_") {
+      const run = delimiterRunLength(text, index, "_");
+      if (run === 1 && canCloseUnderscoreItalic(text, index)) return index;
+      index += run;
+      continue;
+    }
+    index += 1;
+  }
+  return -1;
+}
+
+function matchLink(
+  text: string,
+  index: number,
+): { readonly label: string; readonly end: number } | undefined {
+  if (text[index] !== "[") return undefined;
+  const close = text.indexOf("]", index + 1);
+  if (close === -1 || text[close + 1] !== "(") return undefined;
+  const urlEnd = text.indexOf(")", close + 2);
+  if (urlEnd === -1) return undefined;
+  return { label: text.slice(index + 1, close), end: urlEnd + 1 };
+}
+
+function matchWrapped(
+  text: string,
+  index: number,
+  open: string,
+  close: string,
+): { readonly inner: string; readonly end: number } | undefined {
+  if (!text.startsWith(open, index)) return undefined;
+  const closeAt = text.indexOf(close, index + open.length);
+  if (closeAt === -1) return undefined;
+  return { inner: text.slice(index + open.length, closeAt), end: closeAt + close.length };
+}
+
+function styledSegment(text: string, fg: string, marks: InlineMarks): Segment {
+  return {
+    text,
+    fg,
+    ...(marks.bold === true ? { bold: true } : {}),
+    ...(marks.italic === true ? { italic: true } : {}),
+    ...(marks.underline === true ? { underline: true } : {}),
+    ...(marks.strikethrough === true ? { strikethrough: true } : {}),
+  };
+}
+
+function parseInline(text: string, fg: string, glyphs: GlyphSet, marks: InlineMarks): Segment[] {
+  const segments: Segment[] = [];
+  let plain = "";
+  let index = 0;
+
+  const flushPlain = (): void => {
+    if (plain.length === 0) return;
+    if (
+      marks.bold === true ||
+      marks.italic === true ||
+      marks.underline === true ||
+      marks.strikethrough === true
+    ) {
+      segments.push(styledSegment(plain, fg, marks));
+    } else {
+      segments.push(...citations(plain, fg, glyphs));
+    }
+    plain = "";
+  };
+
+  const takeMarked = (inner: string, extra: InlineMarks, nextIndex: number): void => {
+    flushPlain();
+    if (inner.length > 0) {
+      segments.push(...parseInline(inner, fg, glyphs, { ...marks, ...extra }));
+    }
+    index = nextIndex;
+  };
+
+  while (index < text.length) {
+    if (text[index] === "\\" && index + 1 < text.length) {
+      plain += text[index + 1];
+      index += 2;
+      continue;
+    }
+
+    if (text[index] === "`") {
+      const close = text.indexOf("`", index + 1);
+      if (close !== -1) {
+        flushPlain();
+        const code = text.slice(index + 1, close);
+        if (code.length > 0) segments.push({ text: code, fg: THEME.syntaxValue });
+        index = close + 1;
+        continue;
+      }
+    }
+
+    const link = matchLink(text, index);
+    if (link !== undefined) {
+      flushPlain();
+      if (link.label.length > 0) segments.push({ text: link.label, fg: THEME.link });
+      index = link.end;
+      continue;
+    }
+
+    const under = matchWrapped(text, index, "<u>", "</u>");
+    if (under !== undefined) {
+      takeMarked(under.inner, { underline: true }, under.end);
+      continue;
+    }
+
+    const struck = matchWrapped(text, index, "~~", "~~");
+    if (struck !== undefined) {
+      takeMarked(struck.inner, { strikethrough: true }, struck.end);
+      continue;
+    }
+
+    const stars = delimiterRunLength(text, index, "*");
+    if (stars >= 1) {
+      const size = Math.min(stars, 3);
+      const marker = "*".repeat(size);
+      const closeAt = findDelimiterClose(text, index + size, marker);
+      if (closeAt !== -1) {
+        const extra: InlineMarks =
+          size === 3
+            ? { bold: true, italic: true }
+            : size === 2
+              ? { bold: true }
+              : { italic: true };
+        takeMarked(text.slice(index + size, closeAt), extra, closeAt + size);
+        continue;
+      }
+    }
+
+    const unders = delimiterRunLength(text, index, "_");
+    if (unders >= 2) {
+      const size = Math.min(unders, 3);
+      const marker = "_".repeat(size);
+      const closeAt = findDelimiterClose(text, index + size, marker);
+      if (closeAt !== -1) {
+        const extra: InlineMarks = size === 3 ? { bold: true, italic: true } : { bold: true };
+        takeMarked(text.slice(index + size, closeAt), extra, closeAt + size);
+        continue;
+      }
+    }
+    if (unders === 1 && canOpenUnderscoreItalic(text, index)) {
+      const closeAt = findUnderscoreItalicClose(text, index + 1);
+      if (closeAt !== -1) {
+        takeMarked(text.slice(index + 1, closeAt), { italic: true }, closeAt + 1);
+        continue;
+      }
+    }
+
+    plain += text[index];
+    index += 1;
+  }
+
+  flushPlain();
+  return segments;
+}
 
 /** Inline emphasis, code, links and citations, as styled spans. */
 export function inlineSegments(
@@ -221,23 +432,7 @@ export function inlineSegments(
   fg: string,
   glyphs: GlyphSet = getGlyphs(),
 ): Segment[] {
-  const segments: Segment[] = [];
-  for (const piece of text.split(INLINE)) {
-    if (piece.length === 0) continue;
-    if (/^(\*\*|__).+\1$/.test(piece)) {
-      segments.push({ text: piece.slice(2, -2), fg: THEME.selected, bold: true });
-    } else if (/^[*_].+[*_]$/.test(piece)) {
-      segments.push({ text: piece.slice(1, -1), fg, italic: true });
-    } else if (piece.startsWith("`") && piece.endsWith("`")) {
-      segments.push({ text: piece.slice(1, -1), fg: THEME.syntaxValue });
-    } else if (piece.startsWith("[")) {
-      const label = piece.slice(1, piece.indexOf("]"));
-      segments.push({ text: label, fg: THEME.link });
-    } else {
-      segments.push(...citations(piece, fg, glyphs));
-    }
-  }
-  return segments;
+  return parseInline(text, fg, glyphs, {});
 }
 
 /** A citation is a pointer, not prose, so it drops to the dimmed accent. */
@@ -348,7 +543,7 @@ export function parseProse(markdown: string, glyphs: GlyphSet = getGlyphs()): Pr
 
     const bullet = /^(\s*)(?:[-*+]|\d+\.)\s+(.*)$/.exec(line);
     if (bullet !== null) {
-      const depth = Math.floor(cells(bullet[1] ?? "") / 2);
+      const depth = Math.floor(terminalCellWidth(bullet[1] ?? "") / 2);
       items.push({
         kind: "text",
         indent: depth * 2 + 2,
@@ -384,6 +579,71 @@ export function parseProse(markdown: string, glyphs: GlyphSet = getGlyphs()): Pr
   return items;
 }
 
+/**
+ * Gaps first, then columns: a table that is wider than the measure must still
+ * keep every column. Flooring a proportional scale (and a min of 3) used to
+ * overflow the row, after which `fitTerminalSegments` ate the last cells.
+ */
+function tableColumnLayout(
+  natural: readonly number[],
+  width: number,
+): { readonly sizes: readonly number[]; readonly gap: number } {
+  const columns = natural.length;
+  if (columns === 0) return { sizes: [], gap: 0 };
+
+  let gap = columns > 1 ? RECEIPT_GAP : 0;
+  let available = width - gap * Math.max(0, columns - 1);
+  while (gap > 0 && available < columns) {
+    gap -= 1;
+    available = width - gap * (columns - 1);
+  }
+  available = Math.max(columns, available);
+
+  const total = natural.reduce((sum, size) => sum + size, 0);
+  const floor = available < columns * 3 ? 1 : 3;
+  const sizes = natural.map((size) => {
+    if (total <= available) return Math.max(size, 1);
+    return Math.max(floor, Math.floor((size / total) * available));
+  });
+
+  let used = sizes.reduce((sum, size) => sum + size, 0);
+  while (used > available) {
+    let widest = 0;
+    for (let index = 1; index < sizes.length; index += 1) {
+      if ((sizes[index] ?? 0) > (sizes[widest] ?? 0)) widest = index;
+    }
+    if ((sizes[widest] ?? 0) <= 1) break;
+    sizes[widest] = (sizes[widest] ?? 1) - 1;
+    used -= 1;
+  }
+
+  let leftover = available - used;
+  while (leftover > 0) {
+    let grown = false;
+    for (let index = 0; index < sizes.length; index += 1) {
+      if (leftover === 0) break;
+      if ((sizes[index] ?? 0) < (natural[index] ?? 0)) {
+        sizes[index] = (sizes[index] ?? 0) + 1;
+        leftover -= 1;
+        grown = true;
+      }
+    }
+    if (!grown) break;
+  }
+
+  return { sizes, gap };
+}
+
+function padTableCell(lines: Segment[][], size: number, fg: string, lineIndex: number): Segment[] {
+  const line = lines[lineIndex];
+  if (line === undefined || line.length === 0) {
+    return [{ text: " ".repeat(size), fg }];
+  }
+  const used = terminalSegmentsWidth(line);
+  const pad = Math.max(0, size - used);
+  return pad > 0 ? [...line, { text: " ".repeat(pad), fg }] : line;
+}
+
 /** Borderless columns: a table is scanned, so its chrome is whitespace. */
 function tableRows(
   rows: readonly (readonly string[])[],
@@ -393,29 +653,43 @@ function tableRows(
 ): RenderRow[] {
   const columns = Math.max(...rows.map((row) => row.length), 1);
   const natural = Array.from({ length: columns }, (_, column) =>
-    Math.max(...rows.map((row) => cells(row[column] ?? "")), 1),
+    Math.max(...rows.map((row) => terminalCellWidth(row[column] ?? "")), 1),
   );
-  const total = natural.reduce((sum, size) => sum + size, 0) + RECEIPT_GAP * (columns - 1);
-  const scale = total > width ? width / total : 1;
-  const sizes = natural.map((size) => Math.max(3, Math.floor(size * scale)));
+  const { sizes, gap } = tableColumnLayout(natural, width);
 
-  return rows.map((row, rowIndex) => {
+  const rendered: RenderRow[] = [];
+  rows.forEach((row, rowIndex) => {
     const fg = rowIndex === 0 ? THEME.muted : THEME.secondary;
-    const segments: Segment[] = [];
-    row.slice(0, columns).forEach((cell, column) => {
-      const size = sizes[column] ?? 3;
-      const text = [...cell].slice(0, size).join("").padEnd(size, " ");
-      segments.push({ text, fg });
-      if (column < columns - 1) segments.push({ text: " ".repeat(RECEIPT_GAP), fg });
+    const wrapped = Array.from({ length: columns }, (_, column) => {
+      const size = sizes[column] ?? 1;
+      return wrap([{ text: row[column] ?? "", fg }], size);
     });
-    return {
-      key: `${key}:table:${String(rowIndex)}`,
-      gutter: [rail, BLANK_CELL],
-      content: truncate(segments, width),
-      contentWidth: width,
-      meta: [],
-    };
+    const height = Math.max(...wrapped.map((cell) => cell.length), 1);
+    for (let lineIndex = 0; lineIndex < height; lineIndex += 1) {
+      const segments: Segment[] = [];
+      wrapped.forEach((cell, column) => {
+        segments.push(...padTableCell(cell, sizes[column] ?? 1, fg, lineIndex));
+        if (column < columns - 1) segments.push({ text: " ".repeat(gap), fg });
+      });
+      rendered.push({
+        key: `${key}:table:${String(rowIndex)}:${String(lineIndex)}`,
+        gutter: [rail, BLANK_CELL],
+        content: fitTerminalSegments(segments, width),
+        contentWidth: width,
+        meta: [],
+      });
+    }
+    if (rowIndex < rows.length - 1) {
+      rendered.push({
+        key: `${key}:table:${String(rowIndex)}:gap`,
+        gutter: [rail, BLANK_CELL],
+        content: [],
+        contentWidth: width,
+        meta: [],
+      });
+    }
   });
+  return rendered;
 }
 
 // ─── Blocks to rows ──────────────────────────────────────────────────────────
@@ -426,8 +700,14 @@ function railCell(color: string, glyphs: GlyphSet, deep = false): Segment {
   return { text: deep ? glyphs.railDeep : glyphs.rail, fg: color };
 }
 
-function blankRow(key: string, contentWidth: number): RenderRow {
-  return { key, gutter: [], content: [], contentWidth, meta: [] };
+function blankRow(key: string, contentWidth: number, glyphs: GlyphSet): RenderRow {
+  return {
+    key,
+    gutter: [railCell(THEME.border, glyphs), BLANK_CELL],
+    content: [],
+    contentWidth,
+    meta: [],
+  };
 }
 
 /**
@@ -505,7 +785,13 @@ function agentRows(
     const key = `${block.id}:${String(itemIndex)}`;
     switch (item.kind) {
       case "blank":
-        rows.push(blankRow(key, geometry.prose));
+        rows.push({
+          key,
+          gutter: gutterFor(),
+          content: [],
+          contentWidth: geometry.prose,
+          meta: [],
+        });
         return;
       case "rule":
         rows.push({
@@ -521,7 +807,7 @@ function agentRows(
           rows.push({
             key: `${key}:${String(lineIndex)}`,
             gutter: gutterFor(),
-            content: truncate([{ text: line, fg: THEME.syntaxValue }], geometry.content),
+            content: fitTerminalSegments([{ text: line, fg: THEME.syntaxValue }], geometry.content),
             contentWidth: geometry.content,
             meta: [],
           });
@@ -565,7 +851,7 @@ function reasoningRows(
 
   if (block.collapsed) {
     const steps = block.steps ?? 0;
-    const parts = [steps > 0 ? `thought ${String(steps)} steps` : "thought", "ctrl+o expands"];
+    const parts = [steps > 0 ? `thought ${String(steps)} steps` : "thought", "ctrl+r expands"];
     return [
       {
         key: `${block.id}:0`,
@@ -666,7 +952,7 @@ function receiptRows(
       rows.push({
         key: `${block.id}:0`,
         gutter: [block.status === "ok" ? rail : marker, BLANK_CELL],
-        content: truncate(segments, geometry.prose),
+        content: fitTerminalSegments(segments, geometry.prose),
         contentWidth: geometry.prose,
         meta,
       });
@@ -676,7 +962,7 @@ function receiptRows(
           rows.push({
             key: `${block.id}:detail:${String(index)}`,
             gutter: [rail, BLANK_CELL],
-            content: truncate([{ text: line, fg: THEME.muted }], geometry.content),
+            content: fitTerminalSegments([{ text: line, fg: THEME.muted }], geometry.content),
             contentWidth: geometry.content,
             meta: [],
           });
@@ -685,10 +971,10 @@ function receiptRows(
       continue;
     }
 
-    const size = segmentsWidth(segments);
-    const used = segmentsWidth(packed);
+    const size = terminalSegmentsWidth(segments);
+    const used = terminalSegmentsWidth(packed);
     if (used > 0 && used + RECEIPT_GAP * 2 + size > geometry.prose) flush();
-    if (segmentsWidth(packed) > 0) {
+    if (terminalSegmentsWidth(packed) > 0) {
       packed.push({ text: `  ${glyphs.bullet} `, fg: THEME.border });
     } else {
       packedKey = block.id;
@@ -723,7 +1009,7 @@ function dividerRows(
   glyphs: GlyphSet,
 ): RenderRow[] {
   const label = block.label.length > 0 ? `${block.label} ` : "";
-  const rule = glyphs.divider.repeat(Math.max(0, geometry.content - cells(label)));
+  const rule = glyphs.divider.repeat(Math.max(0, geometry.content - terminalCellWidth(label)));
   return [
     {
       key: `${block.id}:0`,
@@ -781,7 +1067,7 @@ function laneRows(
     {
       key: `${block.id}:0`,
       gutter: [marker, tag],
-      content: truncate(
+      content: fitTerminalSegments(
         [
           { text: block.name, fg: THEME.secondary },
           { text: `  ${block.ask}`, fg: THEME.muted },
@@ -811,14 +1097,12 @@ function laneRows(
 }
 
 /**
- * The width the transcript actually lays out on, which is not the width of the
- * terminal. The transcript is a *page*: past 120 columns the surplus is left
- * empty rather than spent, because a metadata column pushed 100 columns away
- * from the sentence it annotates is no longer flush right, it is lost. So the
- * page stops and the frame gets wider around it.
+ * The width the transcript lays out on: the terminal, minus nothing but the
+ * rail and right margin that `measureFor` already subtracts. There is no page
+ * cap — unused columns past 120 were empty space, not a reading measure.
  */
 export function pageWidth(viewport: Viewport): number {
-  return Math.min(viewport.width, PAGE_MAX_WIDTH);
+  return viewport.width;
 }
 
 /** The whole transcript as physical rows. Pure: blocks and a width, nothing else. */
@@ -838,7 +1122,7 @@ export function transcriptRows(blocks: readonly Block[], viewport: Viewport): Re
     const block = blocks[index];
     if (block === undefined) break;
     if (needsBreathingRow(block, blocks[index - 1])) {
-      rows.push(blankRow(`gap:${block.id}`, geometry.prose));
+      rows.push(blankRow(`gap:${block.id}`, geometry.prose, glyphs));
     }
 
     if (block.kind === "tool") {
@@ -885,18 +1169,21 @@ function Spans({ segments }: { segments: readonly Segment[] }): ReactNode {
   if (segments.length === 0) return null;
   return (
     <text style={{ wrapMode: "none", truncate: true }}>
-      {segments.map((segment, index) => (
-        <span
-          key={`${String(index)}:${segment.text}`}
-          style={{
-            fg: segment.fg,
-            ...(segment.bold === true ? { bold: true } : {}),
-            ...(segment.italic === true ? { italic: true } : {}),
-          }}
-        >
-          {segment.text}
-        </span>
-      ))}
+      {segments.map((segment, index) => {
+        const attributes = segmentAttributes(segment);
+        return (
+          <span
+            key={`${String(index)}:${segment.text}`}
+            style={{
+              fg: segment.fg,
+              // OpenTUI text nodes honour `attributes`, not `bold`/`italic` booleans.
+              ...(attributes === 0 ? {} : { attributes }),
+            }}
+          >
+            {segment.text}
+          </span>
+        );
+      })}
     </text>
   );
 }
@@ -925,33 +1212,102 @@ export interface TranscriptProps {
   readonly focus: Focus;
   /** Set while the reader is scrolled away from the live edge. */
   readonly newBelow?: number;
+  /** Stick to the newest row. False once the reader has taken the scroll. */
+  readonly followLive?: boolean;
+  /**
+   * Rows the transcript may paint. Defaults to `viewport.height` for standalone
+   * tests; the shell passes the leftover after chrome, live band, and composer.
+   */
+  readonly visibleCount?: number;
 }
 
-export function Transcript({ blocks, viewport, focus, newBelow }: TranscriptProps): ReactNode {
-  const scroll = useRef<ScrollBoxRenderable | null>(null);
+export interface TranscriptHandle {
+  scrollBy(delta: number, unit?: "line" | "page" | "end"): void;
+}
+
+export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(function Transcript(
+  { blocks, viewport, focus, newBelow, followLive = true, visibleCount },
+  ref,
+): ReactNode {
   const rows = transcriptRows(blocks, viewport);
   const page = pageWidth(viewport);
+  const windowHeight =
+    visibleCount === undefined ? Math.max(1, viewport.height) : Math.max(0, visibleCount);
+  const [, setScrollVersion] = useState(0);
+  const scrollFromBottomRef = useRef(0);
+  const rowsRef = useRef(rows);
+  const heightRef = useRef(windowHeight);
+  const rowCountRef = useRef(rows.length);
+  rowsRef.current = rows;
+  heightRef.current = windowHeight;
 
-  // Following the live edge is the default; `newBelow` is the one signal that
-  // the reader has taken the scroll position for themselves.
-  useEffect(() => {
-    if (newBelow === undefined) scroll.current?.scrollTo({ x: 0, y: scroll.current.scrollHeight });
-  }, [newBelow, rows.length]);
+  if (followLive) {
+    scrollFromBottomRef.current = 0;
+  } else if (rows.length !== rowCountRef.current) {
+    const growth = rows.length - rowCountRef.current;
+    if (growth > 0) scrollFromBottomRef.current += growth;
+  }
+  rowCountRef.current = rows.length;
+
+  const offset = clampScrollFromBottom(scrollFromBottomRef.current, rows.length, windowHeight);
+  const visible = windowTranscriptRows(rows, windowHeight, offset);
+  const padCount = Math.max(0, windowHeight - visible.length);
+
+  useImperativeHandle(ref, () => ({
+    scrollBy(delta: number, unit: "line" | "page" | "end" = "line"): void {
+      const currentRows = rowsRef.current;
+      const next = applyScrollDelta(
+        scrollFromBottomRef.current,
+        currentRows.length,
+        heightRef.current,
+        delta,
+        unit,
+      );
+      if (next === scrollFromBottomRef.current) return;
+      scrollFromBottomRef.current = next;
+      setScrollVersion((version) => version + 1);
+    },
+  }));
 
   const marker =
     newBelow !== undefined && newBelow > 0 ? `${String(newBelow)} new below  end jumps` : undefined;
 
   return (
-    <box style={{ width: viewport.width, flexGrow: 1, flexShrink: 1, flexDirection: "column" }}>
+    <box
+      style={{
+        width: viewport.width,
+        height: windowHeight,
+        flexGrow: 1,
+        flexShrink: 1,
+        minHeight: 0,
+        maxHeight: windowHeight,
+        overflow: "hidden",
+        flexDirection: "column",
+      }}
+    >
+      {/* OpenTUI only settles this region's layout when a scrollbox owns it.
+          Sticky scroll is off: we window the rows ourselves so wheel and
+          keyboard offsets are not snapped back to the live edge. */}
       <scrollbox
-        ref={scroll}
         focused={focus === "transcript"}
-        style={{ flexGrow: 1, flexShrink: 1 }}
-        stickyScroll={true}
-        stickyStart="bottom"
+        style={{
+          flexGrow: 1,
+          flexShrink: 1,
+          minHeight: 0,
+          height: windowHeight,
+          overflow: "hidden",
+        }}
+        stickyScroll={false}
+        scrollY={false}
         scrollbarOptions={{ visible: false }}
       >
-        {rows.map((row) => (
+        {Array.from({ length: padCount }, (_, index) => (
+          <box
+            key={`pad:${String(index)}`}
+            style={{ width: page, height: 1, flexShrink: 0 }}
+          />
+        ))}
+        {visible.map((row) => (
           <Row
             key={row.key}
             row={row}
@@ -960,9 +1316,8 @@ export function Transcript({ blocks, viewport, focus, newBelow }: TranscriptProp
         ))}
       </scrollbox>
 
-      {/* The only bright accent allowed while scrolled up, and it costs one row
-          of overlay rather than a row of layout — the transcript must not shift
-          under the reader when this appears. */}
+      {/* Overlay rather than a layout row so the transcript does not shift
+          under the reader when the count appears. */}
       {marker === undefined ? null : (
         <box
           style={{
@@ -978,4 +1333,4 @@ export function Transcript({ blocks, viewport, focus, newBelow }: TranscriptProp
       )}
     </box>
   );
-}
+});

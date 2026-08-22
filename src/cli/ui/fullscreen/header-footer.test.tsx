@@ -24,6 +24,8 @@ import { getGlyphs } from "../glyphs";
 import { setThemeVariant, THEME } from "../theme";
 import { Footer } from "./Footer";
 import { Header, headerGroups } from "./Header";
+import { hintsFor } from "./keymap";
+import { terminalCellWidth } from "./terminal-cells";
 import type { Connector, FooterModel, HeaderModel } from "./types";
 
 beforeAll(() => {
@@ -40,6 +42,8 @@ const LIVE: readonly Connector[] = [
 
 function header(overrides: Partial<HeaderModel> = {}): HeaderModel {
   return {
+    version: "0.14.2",
+    cwd: "~/github/jazz",
     model: "opus-4",
     connectors: LIVE,
     contextUsed: 40_000,
@@ -51,10 +55,9 @@ function header(overrides: Partial<HeaderModel> = {}): HeaderModel {
 function footer(overrides: Partial<FooterModel> = {}): FooterModel {
   return {
     mode: "plan",
-    hints: ["tab accept", "ctrl+r search"],
+    hints: ["enter send", "up scroll"],
     costUsd: 0.42,
     elapsedMs: 95_000,
-    personality: "house",
     ...overrides,
   };
 }
@@ -99,10 +102,10 @@ describe("Header", () => {
       80,
     );
 
-    expect([...row]).toHaveLength(80);
+    expect(terminalCellWidth(row)).toBe(80);
     // Right-aligned: the meter's percentage is the last thing on the row.
     expect(row.trimEnd()).toEndWith("%");
-    expect([...row.trimEnd()]).toHaveLength(80);
+    expect(terminalCellWidth(row.trimEnd())).toBe(80);
     // One row, never two.
     expect((rows[1] ?? "").trim()).toBe("");
   });
@@ -203,8 +206,24 @@ describe("Header", () => {
       60,
     );
 
-    expect([...row]).toHaveLength(60);
+    expect(terminalCellWidth(row)).toBe(60);
     expect(row).not.toContain("anthropic/");
+    expect(row).toContain("apps 4 of 4");
+    expect(row).toContain("40%");
+  });
+
+  it("keeps identity, connectors, and context cell-aligned with wide text", async () => {
+    const { row } = await render(
+      <Header
+        model={header({ cwd: "~/音楽/👨‍👩‍👧‍👦-e\u0301", model: "模型" })}
+        viewport={{ width: 60, height: 24 }}
+      />,
+      60,
+    );
+
+    expect(terminalCellWidth(row)).toBe(60);
+    expect(row).toContain("jazz");
+    expect(row).not.toContain("v0.14.2");
     expect(row).toContain("apps 4 of 4");
     expect(row).toContain("40%");
   });
@@ -220,35 +239,18 @@ describe("Footer", () => {
       80,
     );
 
-    expect([...row]).toHaveLength(80);
+    expect(terminalCellWidth(row)).toBe(80);
     expect(row).toContain("plan");
-    expect(row).toContain("tab accept");
+    expect(row).toContain("enter send");
     expect(row).toContain("$0.42");
     expect(row).toContain("1m 35s");
     expect((rows[1] ?? "").trim()).toBe("");
 
     expect(colorOf(spans, "plan")).toBe(THEME.primary.toUpperCase());
-    // The dial is visible but dim — set, not imposed.
-    expect(colorOf(spans, "house")).toBe(THEME.muted.toUpperCase());
     expect(colorOf(spans, "$0.42")).toBe(THEME.muted.toUpperCase());
   });
 
   it("drops elapsed before it drops a hint", async () => {
-    const { row } = await render(
-      <Footer
-        model={footer()}
-        viewport={{ width: 50, height: 24 }}
-      />,
-      50,
-    );
-
-    expect([...row]).toHaveLength(50);
-    expect(row).not.toContain("1m 35s");
-    expect(row).toContain("ctrl+r search");
-    expect(row).toContain("$0.42");
-  });
-
-  it("drops hints from the end once elapsed is gone, keeping mode and cost", async () => {
     const { row } = await render(
       <Footer
         model={footer()}
@@ -257,10 +259,25 @@ describe("Footer", () => {
       40,
     );
 
-    expect([...row]).toHaveLength(40);
+    expect(terminalCellWidth(row)).toBe(40);
     expect(row).not.toContain("1m 35s");
-    expect(row).not.toContain("ctrl+r search");
-    expect(row).toContain("tab accept");
+    expect(row).toContain("up scroll");
+    expect(row).toContain("$0.42");
+  });
+
+  it("drops hints from the end once elapsed is gone, keeping mode and cost", async () => {
+    const { row } = await render(
+      <Footer
+        model={footer()}
+        viewport={{ width: 32, height: 24 }}
+      />,
+      32,
+    );
+
+    expect(terminalCellWidth(row)).toBe(32);
+    expect(row).not.toContain("1m 35s");
+    expect(row).not.toContain("up scroll");
+    expect(row).toContain("enter send");
     expect(row).toContain("plan");
     expect(row).toContain("$0.42");
   });
@@ -268,6 +285,21 @@ describe("Footer", () => {
 
 describe("at the minimum width", () => {
   const viewport = { width: 60, height: 24 } as const;
+
+  it("keeps the idle footer inside 60 columns with the live key legend", async () => {
+    const { row } = await render(
+      <Footer
+        model={footer({ hints: hintsFor("input", false), costUsd: 0.18, elapsedMs: 252_000 })}
+        viewport={viewport}
+      />,
+      60,
+    );
+    expect(terminalCellWidth(row)).toBe(60);
+    expect(row).toContain("plan");
+    expect(row).toContain("$0.18");
+    expect(row).not.toContain("copy");
+    expect(row).not.toContain("palette");
+  });
 
   it("neither row overflows", async () => {
     const head = await render(
@@ -279,15 +311,15 @@ describe("at the minimum width", () => {
     );
     const foot = await render(
       <Footer
-        model={footer({ hints: ["tab accept", "ctrl+r search", "esc stop"] })}
+        model={footer({ hints: ["enter send", "up scroll", "esc cancel"] })}
         viewport={viewport}
       />,
       60,
     );
 
     for (const { rows } of [head, foot]) {
-      for (const line of rows) expect([...line].length).toBeLessThanOrEqual(60);
-      expect([...(rows[0] ?? "")]).toHaveLength(60);
+      for (const line of rows) expect(terminalCellWidth(line)).toBeLessThanOrEqual(60);
+      expect(terminalCellWidth(rows[0] ?? "")).toBe(60);
       expect((rows[1] ?? "").trim()).toBe("");
     }
   });

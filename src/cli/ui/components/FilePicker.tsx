@@ -1,8 +1,11 @@
-import type { Dirent } from "node:fs";
-import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { Box, Text, useInput } from "ink";
 import React, { useEffect, useState } from "react";
+import {
+  type FilePickerEntry,
+  resolveFilePickerPath,
+  scanFilePickerEntries,
+} from "../file-picker-files";
 import { THEME } from "../theme";
 
 interface FilePickerProps {
@@ -13,93 +16,8 @@ interface FilePickerProps {
   readonly onCancel?: (() => void) | undefined;
 }
 
-interface FileEntry {
-  name: string;
-  path: string;
-  isDirectory: boolean;
-}
-
 /**
- * Recursively scan directory for files matching the query and extensions.
- * Limits depth and results to keep UI responsive.
- * Uses async fs APIs to avoid blocking the main thread.
- */
-async function scanDirectory(
-  basePath: string,
-  query: string,
-  extensions: readonly string[] | undefined,
-  includeDirectories: boolean,
-  maxResults: number = 100,
-  maxDepth: number = 5,
-): Promise<FileEntry[]> {
-  const results: FileEntry[] = [];
-  const normalizedQuery = query.toLowerCase();
-
-  async function scan(dir: string, depth: number): Promise<void> {
-    if (depth > maxDepth || results.length >= maxResults) return;
-
-    let entries: Dirent[];
-    try {
-      entries = await fs.readdir(dir, { withFileTypes: true });
-    } catch {
-      return; // Skip directories we can't read
-    }
-
-    for (const entry of entries) {
-      if (results.length >= maxResults) break;
-
-      // Skip hidden files/directories
-      if (entry.name.startsWith(".")) continue;
-      // Skip node_modules and common build directories
-      if (entry.name === "node_modules" || entry.name === "dist" || entry.name === "build")
-        continue;
-
-      const fullPath = path.join(dir, entry.name);
-      const relativePath = path.relative(basePath, fullPath);
-
-      if (entry.isDirectory()) {
-        // Include directory in results if requested and matches query (full or relative)
-        if (
-          includeDirectories &&
-          (relativePath.toLowerCase().includes(normalizedQuery) ||
-            fullPath.toLowerCase().includes(normalizedQuery))
-        ) {
-          results.push({
-            name: entry.name,
-            path: fullPath,
-            isDirectory: true,
-          });
-        }
-        // Recurse into subdirectory
-        await scan(fullPath, depth + 1);
-      } else {
-        // Check extension filter
-        if (extensions && extensions.length > 0) {
-          const ext = path.extname(entry.name).slice(1).toLowerCase();
-          if (!extensions.includes(ext)) continue;
-        }
-
-        // Check if matches query (full or relative)
-        if (
-          relativePath.toLowerCase().includes(normalizedQuery) ||
-          fullPath.toLowerCase().includes(normalizedQuery)
-        ) {
-          results.push({
-            name: entry.name,
-            path: fullPath,
-            isDirectory: false,
-          });
-        }
-      }
-    }
-  }
-
-  await scan(basePath, 0);
-  return results;
-}
-
-/**
- * FilePicker - an interactive file selection component with fuzzy path filtering.
+ * Interactive file selection with path filtering.
  * Type to filter files, use arrow keys to navigate, Enter to select, Escape to cancel.
  */
 export function FilePicker({
@@ -112,7 +30,7 @@ export function FilePicker({
   const [query, setQuery] = useState("");
   const [cursorIndex, setCursorIndex] = useState(0);
   const [windowStart, setWindowStart] = useState(0);
-  const [files, setFiles] = useState<FileEntry[]>([]);
+  const [files, setFiles] = useState<FilePickerEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const pageSize = 10;
 
@@ -122,29 +40,12 @@ export function FilePicker({
     setIsLoading(true);
 
     async function doScan() {
-      let result: FileEntry[];
-
-      if (query.startsWith("/")) {
-        const queryDir = path.dirname(query);
-        const queryBase = path.basename(query);
-
-        let isDir = false;
-        try {
-          isDir = (await fs.stat(queryDir)).isDirectory();
-        } catch {
-          // Directory doesn't exist
-        }
-
-        if (isDir) {
-          result = await scanDirectory(queryDir, queryBase, extensions, includeDirectories);
-        } else if (query === "/") {
-          result = await scanDirectory("/", "", extensions, includeDirectories);
-        } else {
-          result = [];
-        }
-      } else {
-        result = await scanDirectory(basePath, query, extensions, includeDirectories);
-      }
+      const result = await scanFilePickerEntries({
+        basePath,
+        query,
+        ...(extensions === undefined ? {} : { extensions }),
+        includeDirectories,
+      });
 
       if (!cancelled) {
         setFiles(result);
@@ -211,24 +112,10 @@ export function FilePicker({
 
     // If no files in list, check if the query itself is a valid path (direct entry)
     if (query) {
-      // Try as absolute path
-      if (path.isAbsolute(query)) {
-        try {
-          await fs.access(query);
-          onSelect(query);
-          return;
-        } catch {
-          // Path doesn't exist, fall through
-        }
-      }
-      // Try as relative to basePath
-      const resolvedPath = path.resolve(basePath, query);
-      try {
-        await fs.access(resolvedPath);
+      const resolvedPath = await resolveFilePickerPath(basePath, query);
+      if (resolvedPath !== null) {
         onSelect(resolvedPath);
         return;
-      } catch {
-        // Path doesn't exist
       }
       setSubmitError(`No file found: ${query}`);
       return;

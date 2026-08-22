@@ -19,14 +19,15 @@ drifted design doc is worse than none.
 
 This document covers both, and says which is which.
 
-**Shipped.** The mark, both palettes, the glyph set, the activity indicator, and
-the rules about colour and emphasis. These are in the code and under test.
+**Shipped.** The fullscreen single-column layout, live zone, approval card,
+renderer-neutral prompts, in-app history search, both palettes, and the glyph and
+emphasis rules are in the code and under test. Unsupported terminals use the
+append-only interface; an OpenTUI startup failure or an Ink-only workflow hands
+the session to the complete legacy interface rather than leaving an inert frame.
 
-**Specified, not yet built.** The fullscreen single-column layout, the live zone,
-the approval card as a distinct object, in-app history search, and session
-persistence. The layout section below describes the intended structure so the
-pieces being built now fit it; the current interface still appends to terminal
-scrollback.
+**Still staged.** Search finds and browses persisted session matches, but does
+not yet reopen a selected historical session. Copy-out and the command palette
+are intentionally absent from the key legend until their actions exist.
 
 ---
 
@@ -271,15 +272,13 @@ runs with colour disabled, which makes ordinary colour assertions vacuous.
 
 ## Layout
 
-*Specified; not yet built.*
-
 ```text
 ┌────────────────────────────────────────────┐
 │ header   identity · model · apps · context │
 ├────────────────────────────────────────────┤
 │                                            │
 │     the conversation, full width           │
-│     prose measured to 88 columns           │
+│     prose tracks the terminal              │
 │                                            │
 ├────────────────────────────────────────────┤
 │ live zone   what is running right now      │
@@ -306,18 +305,16 @@ to look — and it sits against the input, where the eye already is. The input a
 footer are anchored to the bottom, so the zone grows *upward* and the
 conversation yields the rows; typing never moves under your hands.
 
-**The measure.** Running text is set to 88 columns; past roughly 90 characters
-the eye loses the line on the return sweep. The leftover width becomes a
-flush-right metadata column for timestamps, elapsed times and `ok` / `failed`, so
-the page has a hard left margin for reading and a hard right margin for status.
-Tool output, entity lists, tables and code fences opt into the full width
-instead, because those are scanned rather than read.
+**The measure.** The transcript is the width of the terminal. Running text
+takes that content column (minus the rail and a two-column right margin); a
+short flush-right strip holds timestamps and lane labels once the frame is
+wide enough that they would otherwise sit on the sentence. Tool output,
+entity lists, tables and code fences take the same full content width,
+because those are scanned rather than read.
 
 ---
 
 ## The approval card
-
-*Specified; not yet built as a distinct object.*
 
 A coding agent asks permission to edit a file you can revert. Jazz asks
 permission to send an email, write to a calendar, or post in a channel other
@@ -338,10 +335,11 @@ product.
 | A distinct glyph for asking versus speaking | `▐` asking, `╶` speaking — one codepoint carrying a real semantic distinction |
 | On failure, say what did *not* happen | Silence about state destroys trust, and auth failure is this product's characteristic error |
 
-Two of these are latent safety bugs rather than aesthetics: pending keystrokes
-must be flushed when the card opens, so a character typed before it appeared is
-never consumed as the answer; and there must be a short window where only *deny*
-is accepted, so approval can never be won by a stray keypress.
+Two of these are safety requirements rather than aesthetics. The card opens in a
+deny-only state for 250ms, so buffered Enter and always-allow keys are discarded
+while Escape remains immediate. Rejection removes the approval card before the
+optional guidance prompt appears, and every action field remains available in a
+scrolling record rather than being truncated.
 
 ---
 

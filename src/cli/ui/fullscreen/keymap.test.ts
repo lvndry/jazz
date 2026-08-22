@@ -2,9 +2,16 @@ import { describe, expect, it } from "bun:test";
 import {
   hintsFor,
   INTERRUPT_WINDOW_MS,
+  isComposerNewline,
+  isCopyChord,
+  isCtrlLetter,
+  isInterruptChord,
+  isPrintableSequence,
+  normalizeKey,
   resolveEscape,
   resolveEscapeChunk,
   resolveFocusKey,
+  resolveScrollKey,
   type EscapeContext,
 } from "./keymap";
 
@@ -109,6 +116,14 @@ describe("focus by intent", () => {
     expect(resolveFocusKey("?", "transcript")).toEqual({ type: "focus-input" });
   });
 
+  it("accepts printable grapheme and paste sequences but rejects terminal controls", () => {
+    expect(isPrintableSequence("👨‍👩‍👧‍👦")).toBe(true);
+    expect(isPrintableSequence("e\u0301")).toBe(true);
+    expect(isPrintableSequence("pasted text")).toBe(true);
+    expect(isPrintableSequence("\u001b[A")).toBe(false);
+    expect(isPrintableSequence("\u0002")).toBe(false);
+  });
+
   it("ignores non-printable keys on the transcript", () => {
     expect(resolveFocusKey("pageup", "transcript")).toEqual({ type: "noop" });
   });
@@ -123,31 +138,222 @@ describe("focus by intent", () => {
   });
 });
 
+describe("normalizeKey", () => {
+  it("reads arrows from CSI, SS3, aliases, and empty-name sequences", () => {
+    expect(normalizeKey("\x1b[A").name).toBe("up");
+    expect(normalizeKey("\x1bOB").name).toBe("down");
+    expect(normalizeKey({ name: "arrowup", sequence: "" }).name).toBe("up");
+    expect(normalizeKey({ name: "", sequence: "\x1b[5~" }).name).toBe("pageup");
+  });
+
+  it("treats a control byte as ctrl plus the letter, even with no flags", () => {
+    const key = normalizeKey("\x12");
+    expect(key.name).toBe("r");
+    expect(key.ctrl).toBe(true);
+    expect(normalizeKey({ name: "r", ctrl: true, sequence: "\x12" }).ctrl).toBe(true);
+  });
+
+  it("reads Ctrl+R from kitty CSI-u, modifyOtherKeys, and the live letter+flag shape", () => {
+    expect(normalizeKey("\x1b[114;5u")).toMatchObject({ name: "r", ctrl: true });
+    expect(normalizeKey("\x1b[18u")).toMatchObject({ name: "r", ctrl: true });
+    expect(normalizeKey("\x1b[27;5;114~")).toMatchObject({ name: "r", ctrl: true });
+    expect(normalizeKey({ name: "r", ctrl: true, sequence: "r" })).toMatchObject({
+      name: "r",
+      ctrl: true,
+    });
+    expect(normalizeKey({ name: "", sequence: "\x1b[114;5u" })).toMatchObject({
+      name: "r",
+      ctrl: true,
+    });
+    expect(normalizeKey("\x1b[114;5:3u").name).toBe("");
+    expect(normalizeKey("\x1b[114;5:3u").ctrl).toBe(false);
+  });
+
+  it("matches Ctrl+R from the flag, a control-character name, and a ctrl+r alias", () => {
+    expect(isCtrlLetter(normalizeKey({ name: "r", ctrl: true, sequence: "r" }), "r")).toBe(true);
+    expect(isCtrlLetter(normalizeKey({ name: "\x12", sequence: "\x12" }), "r")).toBe(true);
+    expect(isCtrlLetter({ name: "ctrl+r", ctrl: false }, "r")).toBe(true);
+    expect(isCtrlLetter({ name: "r", ctrl: false }, "r")).toBe(false);
+    expect(isCtrlLetter(normalizeKey("\x16"), "v")).toBe(true);
+    expect(isCtrlLetter(normalizeKey({ name: "v", ctrl: true, sequence: "v" }), "v")).toBe(true);
+    expect(isCtrlLetter({ name: "v", ctrl: true, shift: true }, "v")).toBe(true);
+    expect(isCtrlLetter({ name: "v", super: true }, "v")).toBe(false);
+  });
+
+  it("reads Ctrl+C from the control byte, letter+flag, kitty, and modifyOtherKeys", () => {
+    expect(normalizeKey("\x03")).toMatchObject({ name: "c", ctrl: true });
+    expect(normalizeKey({ name: "c", ctrl: true, sequence: "c" })).toMatchObject({
+      name: "c",
+      ctrl: true,
+    });
+    expect(normalizeKey({ name: "\x03", sequence: "\x03" })).toMatchObject({
+      name: "c",
+      ctrl: true,
+    });
+    expect(normalizeKey("\x1b[99;5u")).toMatchObject({ name: "c", ctrl: true, super: false });
+    expect(normalizeKey("\x1b[3u")).toMatchObject({ name: "c", ctrl: true });
+    expect(normalizeKey("\x1b[27;5;99~")).toMatchObject({ name: "c", ctrl: true });
+    expect(normalizeKey("\x1b[99;9u")).toMatchObject({ name: "c", ctrl: false, super: true });
+    expect(normalizeKey("\x1b[3;9u")).toMatchObject({ name: "c", ctrl: false, super: true });
+    expect(normalizeKey("\x1b[99;6u")).toMatchObject({
+      name: "c",
+      ctrl: true,
+      shift: true,
+      super: false,
+    });
+    expect(normalizeKey("\x1b[27;9;99~")).toMatchObject({ name: "c", ctrl: false, super: true });
+    expect(normalizeKey("\x1b[27;6;99~")).toMatchObject({
+      name: "c",
+      ctrl: true,
+      shift: true,
+      super: false,
+    });
+    expect(isCtrlLetter(normalizeKey("\x03"), "c")).toBe(true);
+    expect(isCtrlLetter({ name: "c", ctrl: true }, "c")).toBe(true);
+    expect(isCtrlLetter({ name: "", ctrl: false, sequence: "\x03" }, "c")).toBe(true);
+    expect(isCtrlLetter({ name: "c", ctrl: false }, "c")).toBe(false);
+    expect(isCtrlLetter({ name: "c", ctrl: true, super: true }, "c")).toBe(false);
+    expect(isCtrlLetter({ name: "c", super: true }, "c")).toBe(false);
+  });
+
+  it("treats Cmd+C and Ctrl+Shift+C as copy, never as interrupt", () => {
+    expect(isCopyChord({ name: "c", ctrl: false, shift: false, super: true })).toBe(true);
+    expect(isCopyChord({ name: "c", ctrl: true, shift: true, super: false })).toBe(true);
+    expect(isCopyChord({ name: "super+c", ctrl: false, shift: false, super: false })).toBe(true);
+    expect(isCopyChord({ name: "c", ctrl: true, shift: false, super: false })).toBe(false);
+    expect(isInterruptChord({ name: "c", ctrl: true, shift: false, super: false })).toBe(true);
+    expect(isInterruptChord({ name: "c", ctrl: true, shift: true, super: false })).toBe(false);
+    expect(isInterruptChord({ name: "c", ctrl: false, shift: false, super: true })).toBe(false);
+    expect(isInterruptChord({ name: "c", ctrl: true, shift: false, super: true })).toBe(false);
+    expect(isInterruptChord(normalizeKey("\x03"))).toBe(true);
+    expect(isCopyChord(normalizeKey({ name: "c", super: true, sequence: "c" }))).toBe(true);
+    expect(isCopyChord(normalizeKey("\x1b[99;9u"))).toBe(true);
+    expect(isInterruptChord(normalizeKey("\x1b[99;9u"))).toBe(false);
+    expect(isCopyChord(normalizeKey("\x1b[99;6u"))).toBe(true);
+    expect(isInterruptChord(normalizeKey("\x1b[99;6u"))).toBe(false);
+    expect(isCopyChord(normalizeKey("\x1b[27;6;99~"))).toBe(true);
+    expect(isInterruptChord(normalizeKey("\x1b[27;6;99~"))).toBe(false);
+    expect(isInterruptChord(normalizeKey("\x1b[99;5u"))).toBe(true);
+    expect(isCopyChord(normalizeKey("\x1b[99;5u"))).toBe(false);
+  });
+
+  it("does not turn tab, enter or backspace into ctrl chords", () => {
+    expect(normalizeKey("\t")).toEqual({
+      name: "tab",
+      sequence: "\t",
+      ctrl: false,
+      shift: false,
+      meta: false,
+      option: false,
+      super: false,
+    });
+    expect(normalizeKey("\r").name).toBe("return");
+    expect(normalizeKey("\r").ctrl).toBe(false);
+    expect(normalizeKey("\b").name).toBe("backspace");
+    expect(normalizeKey("\b").ctrl).toBe(false);
+  });
+});
+
+describe("scroll keys", () => {
+  it("pages from the input and lines only once the transcript has focus", () => {
+    expect(resolveScrollKey("pageup", "input")).toEqual({
+      type: "scroll-transcript",
+      delta: -1,
+      unit: "page",
+    });
+    expect(resolveScrollKey("up", "input")).toBeNull();
+    expect(resolveScrollKey("up", "transcript")).toEqual({
+      type: "scroll-transcript",
+      delta: -1,
+      unit: "line",
+    });
+  });
+});
+
+describe("composer newline", () => {
+  it("inserts a newline only when enter is modified", () => {
+    expect(isComposerNewline({ name: "return", shift: false, option: false, meta: false })).toBe(
+      false,
+    );
+    expect(isComposerNewline({ name: "return", shift: true, option: false, meta: false })).toBe(
+      true,
+    );
+    expect(isComposerNewline({ name: "enter", shift: false, option: true, meta: false })).toBe(
+      true,
+    );
+    expect(isComposerNewline({ name: "enter", shift: false, option: false, meta: true })).toBe(
+      true,
+    );
+  });
+});
+
 describe("footer hints", () => {
-  it("advertises only what is pressable in the current focus", () => {
-    const transcript = hintsFor("transcript", false);
-    expect(transcript.some((hint) => hint.includes("scroll"))).toBe(true);
-    expect(transcript.some((hint) => hint.includes("send"))).toBe(false);
+  it("advertises exactly the implemented bindings for each state", () => {
+    expect(hintsFor("transcript", false)).toEqual([
+      "up down to scroll",
+      "pgup to page",
+      "type to input",
+      "^f to search",
+    ]);
+    expect(hintsFor("input", true, true)).toEqual([
+      "enter to queue",
+      "up to recall",
+      "^x to clear",
+      "esc esc to interrupt",
+    ]);
+    expect(hintsFor("input", false)).toEqual([
+      "enter to send",
+      "up for history",
+      "^f to search",
+      "^r for reasoning",
+    ]);
+    expect(hintsFor("input", false, false, "approval")).toEqual([
+      "enter to accept",
+      "esc to cancel",
+    ]);
+    expect(hintsFor("input", false, false, "text")).toEqual(["enter to confirm", "esc to go back"]);
+    expect(hintsFor("input", true, false, "search")).toEqual([
+      "enter to insert",
+      "tab to scope",
+      "esc to close",
+    ]);
+    expect(hintsFor("input", false, false, undefined, true)).toEqual([
+      "up down to choose",
+      "enter to run",
+      "tab to complete",
+    ]);
   });
 
   it("offers the interrupt only while a run is active", () => {
     expect(hintsFor("input", true).some((hint) => hint.includes("interrupt"))).toBe(true);
     expect(hintsFor("input", false).some((hint) => hint.includes("interrupt"))).toBe(false);
   });
+
+  it("never advertises actions that do not exist", () => {
+    const advertised = [
+      ...hintsFor("input", false),
+      ...hintsFor("input", true),
+      ...hintsFor("transcript", false),
+      ...hintsFor("input", false, false, "approval"),
+    ].join(" ");
+    expect(advertised).not.toMatch(/\bcopy\b/);
+    expect(advertised).not.toContain("palette");
+    expect(advertised).not.toContain("history search");
+  });
 });
 
 describe("hints are font-safe", () => {
   it("spells key names in ASCII rather than drawing them as symbols", () => {
-    // `⏎` is Miscellaneous Technical and the arrows are Arrows — 7/256 and
-    // 11/112 coverage in SF Mono — so both render through font fallback at a
-    // mismatched advance width on a very common setup. This caught exactly that
-    // mistake in the first version of hintsFor.
     for (const focus of ["input", "transcript"] as const) {
       for (const runActive of [true, false]) {
-        for (const hint of hintsFor(focus, runActive)) {
-          for (const character of hint) {
-            const codePoint = character.codePointAt(0) ?? 0;
-            expect(codePoint).toBeLessThan(128);
+        for (const overlay of [undefined, "approval", "search"] as const) {
+          for (const commandsOpen of [false, true]) {
+            for (const hint of hintsFor(focus, runActive, false, overlay, commandsOpen)) {
+              for (const character of hint) {
+                const codePoint = character.codePointAt(0) ?? 0;
+                expect(codePoint).toBeLessThan(128);
+              }
+            }
           }
         }
       }

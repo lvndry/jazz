@@ -254,6 +254,24 @@ export function isPermanentRequestError(error: unknown): boolean {
   return false;
 }
 
+/** 403s about plans, upgrades, or quota are not missing-key failures. */
+export function isBillingOrPlanError(message: string): boolean {
+  const lower = message.toLowerCase();
+  return (
+    lower.includes("upgrade") ||
+    lower.includes("extra usage") ||
+    /\b(pro|max|team) plan\b/.test(lower) ||
+    lower.includes("quota") ||
+    lower.includes("insufficient")
+  );
+}
+
+function isProviderAuthFailure(statusCode: number | undefined, message: string): boolean {
+  if (statusCode === 401) return true;
+  if (statusCode !== 403) return false;
+  return !isBillingOrPlanError(message);
+}
+
 // Start-the-server guidance for local providers; undefined for everything else.
 export function localServerUnreachableMessage(providerName: ProviderName): string | undefined {
   if (!isLocalServerProvider(providerName)) {
@@ -296,10 +314,18 @@ export function convertToLLMError(error: unknown, providerName: ProviderName): L
   }
 
   if (APICallError.isInstance(error)) {
-    if (error.statusCode === 401 || error.statusCode === 403) {
+    if (isProviderAuthFailure(error.statusCode, cleanMessage)) {
       return new LLMAuthenticationError({
         provider: providerName,
         message: cleanMessage,
+      });
+    }
+    if (error.statusCode === 403 && isBillingOrPlanError(cleanMessage)) {
+      return new LLMRequestError({
+        provider: providerName,
+        message: cleanMessage,
+        statusCode: 403,
+        permanent: true,
       });
     }
   }
@@ -315,8 +341,15 @@ export function convertToLLMError(error: unknown, providerName: ProviderName): L
   }
 
   let llmError: LLMError;
-  if (httpStatus === 401 || httpStatus === 403) {
+  if (isProviderAuthFailure(httpStatus, cleanMessage)) {
     llmError = new LLMAuthenticationError({ provider: providerName, message: cleanMessage });
+  } else if (httpStatus === 403 && isBillingOrPlanError(cleanMessage)) {
+    llmError = new LLMRequestError({
+      provider: providerName,
+      message: cleanMessage,
+      statusCode: 403,
+      permanent: true,
+    });
   } else if (httpStatus === 429) {
     llmError = new LLMRateLimitError({ provider: providerName, message: cleanMessage });
   } else if (httpStatus && httpStatus >= 400 && httpStatus < 500) {

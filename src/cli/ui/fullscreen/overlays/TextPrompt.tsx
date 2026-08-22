@@ -10,10 +10,10 @@
  *     drawn from some font range, occupies a column the text also wants, and
  *     disappears against a block character; inverting the cell the caret is
  *     *on* costs nothing and cannot be confused with content.
- *   - A masked value never reaches the frame. The mask string is built from
- *     the value's length before anything is measured or windowed, so there is
- *     no code path on which a password character can be rendered — not even
- *     one clipped off the right edge, since clipping happens after masking.
+ *   - A masked value is replaced before it is measured or windowed. The
+ *     prefix stays hidden (`***`) and only the last few characters are
+ *     shown, so a pasted API key can be recognised without flashing the
+ *     whole secret.
  *   - The value scrolls horizontally rather than wrapping. A wrapped input
  *     changes the height of the overlay as you type, which moves everything
  *     under the reader's hands; a fixed row does not.
@@ -24,7 +24,15 @@
 import { TextAttributes, type BorderCharacters } from "@opentui/core";
 import type { ReactNode } from "react";
 import { getGlyphs, type GlyphSet } from "../../glyphs";
+import { maskSecret, maskSecretCaret } from "../../mask-secret";
 import { THEME } from "../../theme";
+import {
+  clipTerminalCells,
+  clipTerminalCellsFromStart,
+  sliceTerminalCells,
+  terminalCellWidth,
+  terminalGraphemes,
+} from "../terminal-cells";
 import type { Viewport } from "../types";
 
 const MAX_WIDTH = 76;
@@ -43,15 +51,13 @@ const MARKER_COLUMN = 2;
 /** A long question is worth a few rows; past that it is not a question. */
 const MESSAGE_MAX_ROWS = 3;
 
-const ELLIPSIS = "...";
-
 export interface TextPromptModel {
   readonly kind: "text";
   readonly message: string;
   readonly value: string;
   /** Caret offset in characters. Equal to the length when it sits at the end. */
   readonly caret: number;
-  /** Set for `password`: the characters are replaced before they are measured. */
+  /** Set for secrets: the prefix is masked before it is measured. */
   readonly masked?: boolean;
   /** Shown only while the value is empty. */
   readonly placeholder?: string;
@@ -60,15 +66,11 @@ export interface TextPromptModel {
 }
 
 function displayWidth(text: string): number {
-  return [...text].length;
+  return terminalCellWidth(text);
 }
 
 function clip(text: string, width: number): string {
-  if (width <= 0) return "";
-  const chars = [...text];
-  if (chars.length <= width) return text;
-  if (width <= ELLIPSIS.length) return chars.slice(0, width).join("");
-  return chars.slice(0, width - ELLIPSIS.length).join("") + ELLIPSIS;
+  return clipTerminalCells(text, width);
 }
 
 function oneLine(text: string): string {
@@ -115,17 +117,6 @@ function frameChars(glyphs: GlyphSet): BorderCharacters {
   };
 }
 
-/**
- * Replace every character of a value with the mask glyph.
- *
- * The mask comes from the glyph set rather than a literal, so it degrades to
- * `*` on a terminal we do not trust with Unicode. Length is preserved so the
- * caret still lands where the user thinks it is.
- */
-function maskOf(value: string, glyphs: GlyphSet): string {
-  return glyphs.bullet.repeat(displayWidth(value));
-}
-
 interface CaretCells {
   readonly before: string;
   readonly at: string;
@@ -144,23 +135,26 @@ interface CaretCells {
  */
 function caretCells(display: string, caret: number, width: number): CaretCells {
   if (width <= 0) return { before: "", at: "", after: "" };
-  const chars = [...display, " "];
-  const index = Math.max(0, Math.min(caret, chars.length - 1));
-
-  const from = Math.max(0, Math.min(index - width + 1, Math.max(0, chars.length - width)));
-  const visible = chars.slice(from, from + width);
-  const relative = Math.max(0, Math.min(index - from, visible.length - 1));
-  const before = visible.slice(0, relative);
-  if (from > 0) {
-    for (let cell = 0; cell < ELLIPSIS.length && cell < before.length; cell++) {
-      before[cell] = ELLIPSIS[cell] ?? ".";
-    }
+  const graphemes = terminalGraphemes(display);
+  let index = 0;
+  let codePoints = 0;
+  while (index < graphemes.length) {
+    const graphemeLength = [...(graphemes[index] as string)].length;
+    if (codePoints + graphemeLength > caret) break;
+    codePoints += graphemeLength;
+    index += 1;
   }
+  const at = graphemes[index] ?? " ";
+  const atWidth = terminalCellWidth(at);
+  const beforeBudget = Math.max(0, width - atWidth);
+  const before = clipTerminalCellsFromStart(graphemes.slice(0, index).join(""), beforeBudget);
+  const afterBudget = Math.max(0, width - terminalCellWidth(before) - atWidth);
+  const after = sliceTerminalCells(graphemes.slice(index + 1).join(""), afterBudget);
 
   return {
-    before: before.join(""),
-    at: visible[relative] ?? " ",
-    after: visible.slice(relative + 1).join(""),
+    before,
+    at,
+    after,
   };
 }
 
@@ -186,11 +180,9 @@ export function CaretValue({
   masked,
   placeholder,
 }: CaretValueProps): ReactNode {
-  const glyphs = getGlyphs();
-
   if (value.length === 0 && (placeholder ?? "").length > 0) {
     const hint = clip(oneLine(placeholder ?? ""), width);
-    const chars = [...hint];
+    const chars = terminalGraphemes(hint);
     return (
       <text style={{ flexShrink: 0 }}>
         <span style={{ fg: THEME.muted, attributes: TextAttributes.INVERSE }}>
@@ -201,9 +193,9 @@ export function CaretValue({
     );
   }
 
-  // Masking happens first: nothing downstream of here has the real value.
-  const display = masked === true ? maskOf(value, glyphs) : value;
-  const cells = caretCells(display, caret, width);
+  const display = masked === true ? maskSecret(value) : value;
+  const displayCaret = masked === true ? maskSecretCaret(value, caret) : caret;
+  const cells = caretCells(display, displayCaret, width);
 
   return (
     <text style={{ flexShrink: 0 }}>
@@ -324,7 +316,7 @@ export function HintRow({ hints, width, tally }: HintRowProps): ReactNode {
 
 const HINTS: readonly Hint[] = [
   { key: "enter", label: "submit", expendable: 1 },
-  { key: "esc", label: "cancel", expendable: 0 },
+  { key: "esc", label: "to go back", expendable: 0 },
 ];
 
 export interface TextPromptProps {

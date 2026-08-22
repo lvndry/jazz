@@ -128,9 +128,11 @@ export class AgentConfigServiceImpl implements AgentConfigService {
   }
 
   has(key: string): Effect.Effect<boolean, never> {
-    return Effect.sync(() =>
-      deepHas(this.currentConfig as unknown as Record<string, unknown>, key),
-    );
+    return Effect.sync(() => {
+      const value = deepGet(this.currentConfig as unknown as Record<string, unknown>, key);
+      if (typeof value === "string") return value.trim().length > 0;
+      return value !== undefined && value !== null;
+    });
   }
 
   /**
@@ -1031,14 +1033,6 @@ function deepGet(obj: Record<string, unknown>, path: string): unknown {
     }
   }
   return cur;
-}
-
-/**
- * Checks if a property exists at the given dot notation path.
- * Uses deepGet internally to determine existence.
- */
-function deepHas(obj: Record<string, unknown>, path: string): boolean {
-  return deepGet(obj, path) !== undefined;
 }
 
 /**

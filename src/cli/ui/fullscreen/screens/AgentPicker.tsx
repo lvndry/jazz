@@ -31,6 +31,7 @@
 import type { ReactNode } from "react";
 import { getGlyphs } from "../../glyphs";
 import { THEME } from "../../theme";
+import { clipTerminalCells, terminalCellWidth } from "../terminal-cells";
 import { pageWidth } from "../Transcript";
 import { measureFor, type Viewport } from "../types";
 
@@ -68,8 +69,6 @@ const DEFAULT_TITLE = "pick an agent";
 /** What enter does, when the caller does not say. */
 const DEFAULT_ACTION = "start";
 
-const ELLIPSIS = "...";
-
 export interface AgentChoice {
   readonly id: string;
   readonly name: string;
@@ -95,15 +94,11 @@ export interface AgentPickerProps {
 }
 
 function cells(text: string): number {
-  return [...text].length;
+  return terminalCellWidth(text);
 }
 
 function clip(text: string, width: number): string {
-  if (width <= 0) return "";
-  const characters = [...text];
-  if (characters.length <= width) return text;
-  if (width <= ELLIPSIS.length) return characters.slice(0, width).join("");
-  return characters.slice(0, width - ELLIPSIS.length).join("") + ELLIPSIS;
+  return clipTerminalCells(text, width);
 }
 
 function oneLine(text: string): string {

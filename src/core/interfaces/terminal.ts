@@ -97,7 +97,7 @@ export interface TerminalService {
 
   /**
    * Prompt the user for text input.
-   * Returns undefined if cancelled (e.g., Escape key) when cancellable is true.
+   * Returns undefined if cancelled (e.g., Escape key) when cancellable or secret is true.
    */
   readonly ask: (
     message: string,
@@ -114,7 +114,7 @@ export interface TerminalService {
       hidden?: boolean;
       /** Optional placeholder text to show when input is empty. */
       placeholder?: string;
-      /** When true, mask the echoed value in the terminal history (e.g. for API keys). */
+      /** When true, mask the live input and the echoed value (e.g. for API keys). Secret prompts are always Esc-cancellable. */
       secret?: boolean;
     },
   ) => Effect.Effect<string | undefined, never>;

@@ -433,7 +433,7 @@
 <span style="color:var(--chalk)">├──────────────────────────────────────────┤</span>
 <span style="color:var(--chalk)">│</span>                                          <span style="color:var(--chalk)">│</span>
 <span style="color:var(--chalk)">│</span>    <span style="color:var(--chalk)">the conversation, full width</span>          <span style="color:var(--chalk)">│</span>
-<span style="color:var(--chalk)">│</span>    <span style="color:var(--chalk-3)">prose measured to ~88 columns</span>         <span style="color:var(--chalk)">│</span>
+<span style="color:var(--chalk)">│</span>    <span style="color:var(--chalk-3)">prose tracks the terminal</span>              <span style="color:var(--chalk)">│</span>
 <span style="color:var(--chalk)">│</span>                                          <span style="color:var(--chalk)">│</span>
 <span style="color:var(--chalk)">├──────────────────────────────────────────┤</span>
 <span style="color:var(--chalk)">│</span> <span style="color:var(--cyan)">live zone</span>  what is running right now     <span style="color:var(--chalk)">│</span>
@@ -472,8 +472,8 @@
           <span class="label">One layout, every width</span>
           <p>
             The same five regions at 80 columns and at 200. The header sheds detail by
-            priority, the live zone caps its rows, the measure holds steady, and the
-            conversation takes whatever is left. Nothing reflows into a different shape,
+            priority, the live zone caps its rows, and the conversation takes the
+            width of the terminal. Nothing reflows into a different shape,
             so a session looks like itself on a laptop, on a monitor, and over SSH.
           </p>
         </div>
@@ -483,16 +483,15 @@
     <div class="note">
       <span class="label">Two tracks, not one</span>
       <p>
-        Running text is set to <strong>88 columns</strong> &mdash; the same decision a book
-        makes, for the same reason: past roughly 90 characters the eye loses the line on
-        the return sweep. But the leftover width isn't dead space. It becomes a
-        <strong>flush-right metadata column</strong> carrying timestamps, elapsed times,
-        <code>ok</code> and <code>failed</code>, and result counts.
+        The transcript is the width of the terminal. Running text takes that
+        content column &mdash; rail on the left, two columns clear on the right &mdash;
+        and a short <strong>flush-right strip</strong> holds timestamps and lane
+        labels once the frame is wide enough that they would otherwise sit on the
+        sentence.
       </p>
       <p>
-        So the page has a hard left margin for reading and a hard right margin for status,
-        and the two can never collide. Tool rows, entity lists, tables and code fences opt
-        into the full width instead, because those are scanned rather than read.
+        Tool rows, entity lists, tables and code fences take the same full
+        content width, because those are scanned rather than read.
       </p>
     </div>
   </div>

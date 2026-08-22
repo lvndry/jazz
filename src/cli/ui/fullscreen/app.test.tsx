@@ -12,8 +12,10 @@
 
 import { testRender } from "@opentui/react/test-utils";
 import { describe, expect, it } from "bun:test";
-import React from "react";
+import React, { useState } from "react";
+import { getGlyphs } from "../glyphs";
 import { App } from "./App";
+import { isPrintableSequence } from "./keymap";
 import {
   sampleApprovalView,
   sampleBusyView,
@@ -21,7 +23,7 @@ import {
   sampleSearchView,
   sampleView,
 } from "./sample";
-import { MIN_HEIGHT, MIN_WIDTH } from "./types";
+import { MIN_HEIGHT, MIN_WIDTH, type Block, type ViewModel } from "./types";
 
 const WIDTH = 120;
 const HEIGHT = 34;
@@ -100,9 +102,12 @@ describe("fullscreen frame", () => {
     const busy = await frameOf(sampleBusyView());
     expect(idle.rows).toHaveLength(HEIGHT);
     expect(busy.rows).toHaveLength(HEIGHT);
-    // Same number of rows, and the footer is the last row in both.
-    expect(idle.rows[HEIGHT - 1]).toBeDefined();
-    expect(busy.rows[HEIGHT - 1]).toBeDefined();
+    const idleInput = idle.rows.findIndex((row) => row.includes("Ask anything"));
+    const busyInput = busy.rows.findIndex((row) => row.includes("Ask anything"));
+    expect(idleInput).toBeGreaterThan(0);
+    expect(busyInput).toBe(idleInput);
+    // The composer never sits on the live band — one quiet row between them.
+    expect(busy.rows[busyInput - 1]?.trim()).toBe("");
   });
 
   it("shows the whole approval card, naming the real account verbatim", async () => {
@@ -139,7 +144,7 @@ describe("fullscreen frame", () => {
     expect(frame.text).toContain(`${MIN_WIDTH}x${MIN_HEIGHT}`);
     expect(frame.text).toContain("40x8");
     // It says the way out rather than just complaining.
-    expect(frame.text).toContain("plain");
+    expect(frame.text).toContain("--no-tui");
   });
 
   it("draws nothing from a font range the target fonts do not cover", async () => {
@@ -180,15 +185,325 @@ describe("fullscreen frame", () => {
     for (const row of frame.rows) expect([...row]).toHaveLength(80);
   });
 
-  it("holds its shape on a very wide terminal without stretching prose", async () => {
+  it("holds its shape on a very wide terminal and spends the extra columns", async () => {
     const frame = await frameOf(sampleView(), 200, 40);
     expect(frame.rows).toHaveLength(40);
     for (const row of frame.rows) expect([...row]).toHaveLength(200);
-    // Prose is measured, so a 200-column window does not produce 200-column lines
-    // of running text.
-    const prose = frame.rows.filter((row) => /[a-z]{4,}\s+[a-z]{4,}\s+[a-z]{4,}/.test(row));
-    for (const row of prose) {
-      expect(row.trimEnd().length).toBeLessThanOrEqual(120);
+    expect(frame.rows.some((row) => row.trimEnd().length > 120)).toBe(true);
+  });
+});
+
+function tallTranscriptView(): ViewModel {
+  const blocks: Block[] = Array.from({ length: 40 }, (_, index) => ({
+    id: `n${String(index)}`,
+    seq: index + 1,
+    kind: "notice",
+    text: `line-${String(index).padStart(2, "0")} unique-marker`,
+    tone: "info",
+  }));
+  const base = sampleIdleView();
+  return { ...base, blocks };
+}
+
+async function settle(flush: () => Promise<void>, delayMs: 0 | 100 = 0): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, delayMs));
+  await flush();
+}
+
+describe("transcript wheel and type-to-input", () => {
+  it("scrolls older conversation lines into view with the mouse wheel", async () => {
+    const { renderer, renderOnce, flush, mockMouse, captureCharFrame } = await testRender(
+      <App
+        view={tallTranscriptView()}
+        onAction={() => undefined}
+      />,
+      { width: 80, height: 16 },
+    );
+    await renderOnce();
+    const atBottom = captureCharFrame();
+    expect(atBottom).toContain("line-39");
+    expect(atBottom).not.toContain("line-00");
+
+    for (let step = 0; step < 40; step++) {
+      await mockMouse.scroll(20, 6, "up");
+      await settle(flush);
     }
+    const scrolled = captureCharFrame();
+    expect(scrolled).toContain("line-00");
+    expect(scrolled).not.toContain("line-39");
+
+    for (let step = 0; step < 40; step++) {
+      await mockMouse.scroll(20, 6, "down");
+      await settle(flush);
+    }
+    const back = captureCharFrame();
+    renderer.destroy();
+    expect(back).toContain("line-39");
+    expect(back).not.toContain("line-00");
+  });
+
+  function TypeableApp(): React.ReactNode {
+    const [draft, setDraft] = useState("");
+    return (
+      <App
+        view={{
+          ...tallTranscriptView(),
+          input: {
+            value: draft,
+            placeholder: "Ask anything",
+            queued: 0,
+            disabled: false,
+          },
+        }}
+        onAction={() => undefined}
+        onKey={(key) => {
+          if (!isPrintableSequence(key.sequence, key.ctrl, key.super)) return false;
+          setDraft((value) => value + key.sequence);
+          return true;
+        }}
+        onPaste={(text) => {
+          setDraft((value) => value + text);
+          return true;
+        }}
+      />
+    );
+  }
+
+  it("jumps to the composer and shows the typed character", async () => {
+    const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await testRender(
+      <TypeableApp />,
+      { width: 80, height: 16 },
+    );
+    await renderOnce();
+    await mockInput.pressKey("ESCAPE");
+    await settle(flush, 100);
+    expect(captureCharFrame()).toContain("type to input");
+
+    await mockInput.pressKey("a");
+    await settle(flush);
+    const typed = captureCharFrame();
+    renderer.destroy();
+    expect(typed).toContain("a");
+    expect(typed).toContain("enter to send");
+  });
+
+  it("pastes into the composer while the transcript has focus", async () => {
+    const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await testRender(
+      <TypeableApp />,
+      { width: 80, height: 16 },
+    );
+    await renderOnce();
+    await mockInput.pressKey("ESCAPE");
+    await settle(flush, 100);
+    expect(captureCharFrame()).toContain("type to input");
+
+    await mockInput.pasteBracketedText("pasted-draft");
+    await settle(flush);
+    const pasted = captureCharFrame();
+    renderer.destroy();
+    expect(pasted).toContain("pasted-draft");
+    expect(pasted).toContain("enter to send");
+  });
+});
+
+describe("Ctrl+C", () => {
+  async function pressCtrlC(
+    mockInput: { pressKey: (key: string, mods?: object) => void },
+    flush: () => Promise<void>,
+    key: string | { name: string; ctrl: boolean },
+  ): Promise<void> {
+    if (typeof key === "string") mockInput.pressKey(key);
+    else mockInput.pressKey(key.name, { ctrl: key.ctrl });
+    await settle(flush, 100);
+  }
+
+  function stubSigint(): { readonly signals: string[]; readonly restore: () => void } {
+    const originalKill = process.kill;
+    const signals: string[] = [];
+    process.kill = ((...args: unknown[]) => {
+      signals.push(String(args[1] ?? ""));
+      return true;
+    }) as typeof process.kill;
+    return {
+      signals,
+      restore: () => {
+        process.kill = originalKill;
+      },
+    };
+  }
+
+  it("stops a run from a control byte or the letter+flag shape", async () => {
+    for (const key of ["\x03", { name: "c", ctrl: true }] as const) {
+      const actions: Array<{ type: string }> = [];
+      const sigint = stubSigint();
+      const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await testRender(
+        <App
+          view={{
+            ...sampleIdleView(),
+            runActive: true,
+            input: { value: "hello", placeholder: "Ask anything", queued: 0, disabled: false },
+          }}
+          onAction={(action) => {
+            actions.push(action);
+          }}
+        />,
+        { width: 80, height: 16, exitOnCtrlC: false },
+      );
+      await renderOnce();
+      await pressCtrlC(mockInput, flush, key);
+      const frame = captureCharFrame();
+      renderer.destroy();
+      sigint.restore();
+      expect(actions).toContainEqual({ type: "interrupt" });
+      expect(sigint.signals).toEqual([]);
+      expect(frame).toContain("hello");
+      expect(frame).not.toMatch(/helloc/);
+    }
+  });
+
+  it("quits at idle from a control byte or the letter+flag shape", async () => {
+    for (const key of ["\x03", { name: "c", ctrl: true }] as const) {
+      const actions: Array<{ type: string }> = [];
+      const sigint = stubSigint();
+      const { renderer, renderOnce, flush, mockInput } = await testRender(
+        <App
+          view={sampleIdleView()}
+          onAction={(action) => {
+            actions.push(action);
+          }}
+        />,
+        { width: 80, height: 16, exitOnCtrlC: false },
+      );
+      await renderOnce();
+      await pressCtrlC(mockInput, flush, key);
+      renderer.destroy();
+      sigint.restore();
+      expect(actions.some((action) => action.type === "interrupt")).toBe(false);
+      expect(sigint.signals).toEqual(["SIGINT"]);
+    }
+  });
+
+  it("does not stop or quit on Cmd+C or Ctrl+Shift+C", async () => {
+    const chords = [
+      "\x1b[99;9u",
+      "\x1b[99;6u",
+      { name: "c", super: true },
+      { name: "c", ctrl: true, shift: true },
+    ] as const;
+    for (const key of chords) {
+      const actions: Array<{ type: string }> = [];
+      const sigint = stubSigint();
+      const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await testRender(
+        <App
+          view={{
+            ...sampleIdleView(),
+            runActive: true,
+            input: { value: "hello", placeholder: "Ask anything", queued: 0, disabled: false },
+          }}
+          onAction={(action) => {
+            actions.push(action);
+          }}
+        />,
+        { width: 80, height: 16, exitOnCtrlC: false, kittyKeyboard: true },
+      );
+      await renderOnce();
+      if (typeof key === "string") mockInput.pressKey(key);
+      else mockInput.pressKey(key.name, key);
+      await settle(flush, 100);
+      const frame = captureCharFrame();
+      renderer.destroy();
+      sigint.restore();
+      expect(actions.some((action) => action.type === "interrupt")).toBe(false);
+      expect(sigint.signals).toEqual([]);
+      expect(frame).toContain("hello");
+      expect(frame).not.toMatch(/helloc/);
+    }
+  });
+
+  it("does not quit at idle on Cmd+C or Ctrl+Shift+C", async () => {
+    const chords = [
+      "\x1b[99;9u",
+      "\x1b[99;6u",
+      { name: "c", super: true },
+      { name: "c", ctrl: true, shift: true },
+    ] as const;
+    for (const key of chords) {
+      const actions: Array<{ type: string }> = [];
+      const sigint = stubSigint();
+      const { renderer, renderOnce, flush, mockInput } = await testRender(
+        <App
+          view={sampleIdleView()}
+          onAction={(action) => {
+            actions.push(action);
+          }}
+        />,
+        { width: 80, height: 16, exitOnCtrlC: false, kittyKeyboard: true },
+      );
+      await renderOnce();
+      if (typeof key === "string") mockInput.pressKey(key);
+      else mockInput.pressKey(key.name, key);
+      await settle(flush, 100);
+      renderer.destroy();
+      sigint.restore();
+      expect(actions.some((action) => action.type === "interrupt")).toBe(false);
+      expect(sigint.signals).toEqual([]);
+    }
+  });
+});
+
+function completedTurnView(): ViewModel {
+  const base = sampleView();
+  return {
+    ...base,
+    live: { tools: [], hiddenTools: [], tick: 0, reservedRows: 0 },
+    runActive: false,
+    footer: {
+      mode: base.footer.mode,
+      hints: [],
+    },
+  };
+}
+
+function CompletedTurnApp(): React.ReactNode {
+  const [draft, setDraft] = useState("");
+  return (
+    <App
+      view={{
+        ...completedTurnView(),
+        input: {
+          value: draft,
+          placeholder: "Ask anything",
+          queued: 0,
+          disabled: false,
+        },
+      }}
+      onAction={() => undefined}
+      onKey={(key) => {
+        if (!isPrintableSequence(key.sequence, key.ctrl, key.super)) return false;
+        setDraft((value) => value + key.sequence);
+        return true;
+      }}
+    />
+  );
+}
+
+describe("composer after a completed turn", () => {
+  it("stays on screen and shows the next typed character", async () => {
+    const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await testRender(
+      <CompletedTurnApp />,
+      { width: 80, height: 16 },
+    );
+    await renderOnce();
+    const idle = captureCharFrame();
+    expect(idle).toContain(getGlyphs().promptCursor);
+    expect(idle).toContain("enter to send");
+
+    await mockInput.pressKey("x");
+    await settle(flush);
+    const typed = captureCharFrame();
+    renderer.destroy();
+    expect(typed).toContain(getGlyphs().promptCursor);
+    expect(typed).toContain("x");
+    expect(typed).toContain("enter to send");
   });
 });

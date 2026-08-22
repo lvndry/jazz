@@ -8,6 +8,7 @@ import { resolveDisplayConfig } from "@/core/presentation/display-config";
 import type { LoggingConfig, WebSearchProviderName } from "@/core/types/config";
 import type { ColorProfile, OutputMode } from "@/core/types/output";
 import { formatProviderDisplayName } from "@/core/utils/provider-model";
+import { sortProvidersForPicker } from "@/core/utils/provider-picker";
 import { store } from "../ui/store";
 import { WizardHome, type WizardMenuOption } from "../ui/WizardHome";
 
@@ -70,20 +71,29 @@ function showConfigMenu(
   options: WizardMenuOption[],
 ): Effect.Effect<ConfigMenuAction, never, never> {
   return Effect.async<ConfigMenuAction>((resume) => {
+    let resumed = false;
+    const safeResume = (action: ConfigMenuAction): void => {
+      if (resumed) return;
+      resumed = true;
+      store.setCustomView(null);
+      store.setActiveMenu(null);
+      resume(Effect.succeed(action));
+    };
+
     store.setCustomView(
       React.createElement(WizardHome, {
         options,
         title: "Configuration",
-        onSelect: (value: string) => {
-          store.setCustomView(null);
-          resume(Effect.succeed(value as ConfigMenuAction));
-        },
-        onExit: () => {
-          store.setCustomView(null);
-          resume(Effect.succeed("back"));
-        },
+        onSelect: (value: string) => safeResume(value as ConfigMenuAction),
+        onExit: () => safeResume("back"),
       }),
     );
+    store.setActiveMenu({
+      kind: "menu",
+      options,
+      onSelect: (value: string) => safeResume(value as ConfigMenuAction),
+      onExit: () => safeResume("back"),
+    });
   });
 }
 
@@ -96,15 +106,15 @@ function configureLLMProviders() {
       // Get current config to show status
       const config = yield* configService.appConfig;
 
-      const choices: { name: string; value: ProviderName | "back" }[] = AVAILABLE_PROVIDERS.map(
-        (p) => {
-          const hasKey = !!config.llm?.[p]?.api_key;
-          return {
-            name: `${formatProviderDisplayName(p)} ${hasKey ? "(configured)" : ""}`,
-            value: p,
-          };
-        },
-      );
+      const choices: { name: string; value: ProviderName | "back" }[] = sortProvidersForPicker(
+        AVAILABLE_PROVIDERS,
+      ).map((provider) => {
+        const hasKey = !!config.llm?.[provider]?.api_key;
+        return {
+          name: `${formatProviderDisplayName(provider)} ${hasKey ? "(configured)" : ""}`,
+          value: provider,
+        };
+      });
 
       choices.push({ name: "Back", value: "back" });
 

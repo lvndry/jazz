@@ -1,17 +1,34 @@
 /** @jsxImportSource @opentui/react */
-import { useKeyboard, useTerminalDimensions } from "@opentui/react";
-import React, { useCallback, useRef, useState } from "react";
+import { useKeyboard, usePaste, useRenderer, useTerminalDimensions } from "@opentui/react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { getGlyphs } from "../glyphs";
 import { THEME } from "../theme";
+import { pasteTextFromEvent, selectedTextFromRenderer, writeClipboard } from "./clipboard";
 import { Footer } from "./Footer";
 import { Header } from "./Header";
 import { Input } from "./Input";
-import { hintsFor, resolveEscape, resolveFocusKey, type KeyAction } from "./keymap";
+import {
+  consumeKeyEvent,
+  hintsFor,
+  isCopyChord,
+  isCtrlLetter,
+  isInterruptChord,
+  isPrintableSequence,
+  normalizeKey,
+  resolveEscape,
+  resolveFocusKey,
+  resolveScrollKey,
+  type KeyAction,
+} from "./keymap";
 import { LiveZone } from "./LiveZone";
 import { Approval } from "./overlays/Approval";
+import { FilePicker } from "./overlays/FilePicker";
+import { Question } from "./overlays/Question";
 import { Search } from "./overlays/Search";
-import { Transcript } from "./Transcript";
-import { MIN_HEIGHT, MIN_WIDTH, type Focus, type ViewModel } from "./types";
+import { TextPrompt } from "./overlays/TextPrompt";
+import { Transcript, type TranscriptHandle } from "./Transcript";
+import { transcriptVisibleCount, wheelScrollDelta } from "./transcript-window";
+import { MIN_HEIGHT, MIN_WIDTH, type Focus, type Overlay, type ViewModel } from "./types";
 
 /**
  * The shell: five stacked regions and a floating overlay layer.
@@ -22,9 +39,10 @@ import { MIN_HEIGHT, MIN_WIDTH, type Focus, type ViewModel } from "./types";
  * eyeballed.
  *
  * The ordering matters and is the design: the input and footer are anchored to
- * the bottom, the live zone sits directly above them, and the transcript takes
- * whatever is left. So when work starts, the live zone grows *upward* and the
- * conversation yields the rows — the thing under the user's hands never moves.
+ * the bottom, a one-row gap sits above the composer, the live zone sits above
+ * that, and the transcript takes whatever is left. So when work starts, the
+ * live zone grows *upward* and the conversation yields the rows — the thing
+ * under the user's hands never moves.
  */
 
 /**
@@ -53,9 +71,11 @@ export interface KeyChord {
    */
   readonly sequence: string;
   readonly ctrl: boolean;
+  readonly shift: boolean;
   readonly meta: boolean;
   readonly option: boolean;
   readonly super: boolean;
+  readonly focus: Focus;
 }
 
 export interface AppProps {
@@ -69,6 +89,12 @@ export interface AppProps {
    * and the loser silently receives nothing.
    */
   readonly onKey?: (key: KeyChord) => boolean;
+  /**
+   * First refusal on a bracketed paste (Cmd+V, Shift+Insert, middle-click).
+   * Return true to consume it. Lives next to `onKey` so there is still one
+   * place that decides whether the composer sees the text.
+   */
+  readonly onPaste?: (text: string) => boolean;
   /**
    * Replaces the five-region layout with arbitrary content — the wizard menu,
    * the screen-unavailable notice — while this component's own `useKeyboard`
@@ -97,14 +123,70 @@ function TooSmall({ width, height }: { width: number; height: number }): React.R
     <box style={{ width, height, flexDirection: "column" }}>
       <text style={{ fg: THEME.selected }}>{`jazz needs ${MIN_WIDTH}x${MIN_HEIGHT}`}</text>
       <text style={{ fg: THEME.muted }}>{`this terminal is ${width}x${height}`}</text>
-      <text style={{ fg: THEME.muted }}>resize, or run with --plain</text>
+      <text style={{ fg: THEME.muted }}>resize, or run with --no-tui</text>
     </box>
   );
 }
 
-export function App({ view, onAction, onKey, overrideContent }: AppProps): React.ReactNode {
+function renderOverlay(
+  overlay: Overlay,
+  viewport: { width: number; height: number },
+): React.ReactNode {
+  switch (overlay.kind) {
+    case "approval":
+      return (
+        <Approval
+          model={overlay}
+          viewport={viewport}
+        />
+      );
+    case "search":
+      return (
+        <Search
+          model={overlay}
+          viewport={viewport}
+        />
+      );
+    case "question":
+      return (
+        <Question
+          model={overlay}
+          viewport={viewport}
+        />
+      );
+    case "text":
+      return (
+        <TextPrompt
+          model={overlay}
+          viewport={viewport}
+        />
+      );
+    case "filepicker":
+      return (
+        <FilePicker
+          model={overlay}
+          viewport={viewport}
+        />
+      );
+  }
+}
+
+export function App({
+  view,
+  onAction,
+  onKey,
+  onPaste,
+  overrideContent,
+}: AppProps): React.ReactNode {
   const { width, height } = useTerminalDimensions();
+  const renderer = useRenderer();
+  const rendererRef = useRef(renderer);
+  rendererRef.current = renderer;
   const [focus, setFocus] = useState<Focus>("input");
+  const focusRef = useRef<Focus>("input");
+  const transcriptRef = useRef<TranscriptHandle | null>(null);
+  const [newBelow, setNewBelow] = useState<number | undefined>(view.newBelow);
+  const seenBlocks = useRef(view.blocks.length);
   const armedAt = useRef<number | undefined>(undefined);
   const glyphs = getGlyphs();
 
@@ -115,61 +197,147 @@ export function App({ view, onAction, onKey, overrideContent }: AppProps): React
   // through a ref that every render refreshes means the handler is always the
   // live one.
   const onKeyRef = useRef<AppProps["onKey"]>(undefined);
+  const onPasteRef = useRef<AppProps["onPaste"]>(undefined);
+  const onActionRef = useRef(onAction);
+  const viewRef = useRef(view);
   onKeyRef.current = onKey;
+  onPasteRef.current = onPaste;
+  onActionRef.current = onAction;
+  viewRef.current = view;
 
   const overlayOpen = view.overlay !== undefined;
 
-  const dispatch = useCallback(
-    (action: KeyAction) => {
-      switch (action.type) {
-        case "focus-input":
-          setFocus("input");
-          break;
-        case "focus-transcript":
-          setFocus("transcript");
-          break;
-        case "arm-interrupt":
-          armedAt.current = Date.now();
-          break;
-        case "interrupt":
-          armedAt.current = undefined;
-          break;
-        default:
-          break;
-      }
-      onAction(action);
+  const dispatch = useCallback((action: KeyAction) => {
+    switch (action.type) {
+      case "focus-input":
+        focusRef.current = "input";
+        setFocus("input");
+        break;
+      case "focus-transcript":
+        focusRef.current = "transcript";
+        setFocus("transcript");
+        break;
+      case "arm-interrupt":
+        armedAt.current = Date.now();
+        break;
+      case "interrupt":
+        armedAt.current = undefined;
+        break;
+      case "scroll-transcript":
+        transcriptRef.current?.scrollBy(action.delta, action.unit);
+        break;
+      default:
+        break;
+    }
+    onActionRef.current(action);
+  }, []);
+
+  const scrollTranscriptByWheel = useCallback(
+    (direction: string, delta: number): void => {
+      const amount = wheelScrollDelta(direction, delta);
+      if (amount === null) return;
+      if (focusRef.current !== "transcript") dispatch({ type: "focus-transcript" });
+      transcriptRef.current?.scrollBy(amount, "line");
     },
-    [onAction],
+    [dispatch],
   );
 
+  useEffect(() => {
+    if (view.runActive !== true) armedAt.current = undefined;
+  }, [view.runActive]);
+
+  useEffect(() => {
+    if (focus === "input") {
+      seenBlocks.current = view.blocks.length;
+      setNewBelow(undefined);
+      return;
+    }
+    const added = view.blocks.length - seenBlocks.current;
+    setNewBelow(added > 0 ? added : undefined);
+  }, [focus, view.blocks.length]);
+
   useKeyboard((key) => {
-    const name = typeof key === "string" ? key : (key.name ?? "");
-    const event = key as Partial<
-      Record<"ctrl" | "meta" | "option" | "super", boolean> & { sequence: string }
-    >;
-    const ctrl = typeof key === "string" ? false : event.ctrl === true;
-    const meta = typeof key === "string" ? false : event.meta === true;
-    const option = typeof key === "string" ? false : event.option === true;
-    const superKey = typeof key === "string" ? false : event.super === true;
-    const sequence = typeof key === "string" ? key : (event.sequence ?? "");
+    const currentView = viewRef.current;
+    const currentOverlayOpen = currentView.overlay !== undefined;
+    const currentFocus = focusRef.current;
+    const { name, sequence, ctrl, shift, meta, option, super: superKey } = normalizeKey(key);
+
+    // Ctrl+C is stop. Cmd+C and Ctrl+Shift+C are copy — different keys, and
+    // OpenTUI is mounted with exitOnCtrlC: false so none of them quit by default.
+    if (isInterruptChord({ name, ctrl, shift, super: superKey, sequence })) {
+      consumeKeyEvent(key);
+      if (
+        onKeyRef.current?.({
+          name,
+          sequence,
+          ctrl,
+          shift,
+          meta,
+          option,
+          super: superKey,
+          focus: currentFocus,
+        }) === true
+      ) {
+        return;
+      }
+      const running =
+        currentView.runActive === true ||
+        currentView.live.tools.length > 0 ||
+        currentView.live.waiting !== undefined;
+      if (running) dispatch({ type: "interrupt" });
+      else process.kill(process.pid, "SIGINT");
+      return;
+    }
+
+    if (isCopyChord({ name, ctrl, shift, super: superKey })) {
+      const selected = selectedTextFromRenderer(rendererRef.current);
+      if (selected.length > 0) {
+        consumeKeyEvent(key);
+        void writeClipboard(selected);
+      }
+      return;
+    }
 
     // The caller gets the key first, so the composer and the overlays see
     // typing before focus and Esc handling do.
-    if (onKeyRef.current?.({ name, sequence, ctrl, meta, option, super: superKey }) === true) {
+    if (
+      onKeyRef.current?.({
+        name,
+        sequence,
+        ctrl,
+        shift,
+        meta,
+        option,
+        super: superKey,
+        focus: currentFocus,
+      }) === true
+    ) {
+      consumeKeyEvent(key);
+      if (
+        !currentOverlayOpen &&
+        currentFocus === "transcript" &&
+        (isPrintableSequence(sequence, ctrl, superKey) || isCtrlLetter({ name, ctrl }, "v"))
+      ) {
+        dispatch({ type: "focus-input" });
+      }
       return;
     }
 
     if (name === "escape") {
+      consumeKeyEvent(key);
       dispatch(
         resolveEscape(
           {
-            overlayOpen,
-            searchActive: view.overlay?.kind === "search",
+            overlayOpen: currentOverlayOpen,
+            searchActive: currentView.overlay?.kind === "search",
             completionOpen: false,
-            runActive: view.live.tools.length > 0 || view.live.waiting !== undefined,
+            runActive:
+              currentView.runActive === true ||
+              currentView.live.tools.length > 0 ||
+              currentView.live.waiting !== undefined,
             ...(armedAt.current === undefined ? {} : { interruptArmedAt: armedAt.current }),
-            inputEmpty: view.input.value.length === 0,
-            focus,
+            inputEmpty: currentView.input.value.length === 0,
+            focus: currentFocus,
           },
           Date.now(),
         ),
@@ -177,12 +345,44 @@ export function App({ view, onAction, onKey, overrideContent }: AppProps): React
       return;
     }
 
-    // An overlay owns the keyboard while it is open; the regions behind it must
-    // not act on keys the user is aiming at the card.
-    if (overlayOpen) return;
+    // An overlay owns the keyboard while it is open, except page keys: those
+    // still move the conversation so a question cannot bury the chat.
+    if (currentOverlayOpen) {
+      if (name === "pageup" || name === "pagedown") {
+        consumeKeyEvent(key);
+        dispatch({
+          type: "scroll-transcript",
+          delta: name === "pageup" ? -1 : 1,
+          unit: "page",
+        });
+      }
+      return;
+    }
 
-    const focusAction = resolveFocusKey(name, focus);
-    if (focusAction.type !== "noop") dispatch(focusAction);
+    const scrollAction = resolveScrollKey(name, currentFocus);
+    if (scrollAction !== null) {
+      consumeKeyEvent(key);
+      if (currentFocus !== "transcript") dispatch({ type: "focus-transcript" });
+      dispatch(scrollAction);
+      return;
+    }
+
+    const focusAction = resolveFocusKey(name, currentFocus);
+    if (focusAction.type !== "noop") {
+      consumeKeyEvent(key);
+      dispatch(focusAction);
+    }
+  });
+
+  usePaste((event) => {
+    const text = pasteTextFromEvent(event);
+    if (text.length === 0) return;
+    if (onPasteRef.current?.(text) === true) {
+      consumeKeyEvent(event);
+      if (viewRef.current.overlay === undefined && focusRef.current === "transcript") {
+        dispatch({ type: "focus-input" });
+      }
+    }
   });
 
   if (overrideContent !== undefined) {
@@ -199,52 +399,84 @@ export function App({ view, onAction, onKey, overrideContent }: AppProps): React
   }
 
   const viewport = { width, height };
-  const footer = { ...view.footer, hints: hintsFor(focus, view.live.tools.length > 0) };
+  const inputFocused = focus === "input" && !overlayOpen;
+  const visibleCount = transcriptVisibleCount({
+    viewport,
+    live: view.live,
+    input: { ...view.input, disabled: view.input.disabled || overlayOpen },
+    inputFocused,
+  });
+  const footer = {
+    ...view.footer,
+    hints: hintsFor(
+      focus,
+      view.runActive === true,
+      view.input.queueing === true,
+      view.overlay?.kind,
+      view.input.commands !== undefined,
+    ),
+  };
 
   return (
-    <box style={{ width, height, flexDirection: "column" }}>
+    <box
+      style={{ width, height, flexDirection: "column" }}
+      onMouseScroll={(event) => {
+        if (overlayOpen) return;
+        const scroll = event.scroll;
+        if (scroll === undefined) return;
+        scrollTranscriptByWheel(scroll.direction, scroll.delta);
+      }}
+    >
       <Header
         model={view.header}
         viewport={viewport}
       />
 
-      {/* One hairline under the header. The regions do not draw their own. */}
       <box style={{ height: 1, flexShrink: 0 }}>
-        <text style={{ fg: THEME.border }}>{glyphs.divider.repeat(width)}</text>
+        <text style={{ fg: THEME.border }}>
+          {`${glyphs.rail}${glyphs.divider.repeat(Math.max(0, width - 1))}`}
+        </text>
       </box>
 
-      <Transcript
-        blocks={view.blocks}
-        viewport={viewport}
-        focus={focus}
-        {...(view.newBelow === undefined ? {} : { newBelow: view.newBelow })}
-      />
+      <box
+        style={{
+          width,
+          height: visibleCount,
+          flexGrow: 1,
+          flexShrink: 1,
+          minHeight: 0,
+          maxHeight: visibleCount,
+          overflow: "hidden",
+          flexDirection: "column",
+        }}
+      >
+        <Transcript
+          ref={transcriptRef}
+          blocks={view.blocks}
+          viewport={viewport}
+          focus={focus}
+          visibleCount={visibleCount}
+          followLive={focus === "input" && newBelow === undefined && !overlayOpen}
+          {...(newBelow === undefined ? {} : { newBelow })}
+        />
+      </box>
 
       <LiveZone
         model={view.live}
         viewport={viewport}
       />
+      <box style={{ width, height: 1, flexShrink: 0 }} />
       <Input
         model={{ ...view.input, disabled: view.input.disabled || overlayOpen }}
         viewport={viewport}
+        focused={inputFocused}
       />
       <Footer
         model={footer}
         viewport={viewport}
       />
 
-      {view.overlay?.kind === "approval" ? (
-        <Approval
-          model={view.overlay}
-          viewport={viewport}
-        />
-      ) : null}
-      {view.overlay?.kind === "search" ? (
-        <Search
-          model={view.overlay}
-          viewport={viewport}
-        />
-      ) : null}
+      {view.overlay === undefined ? null : renderOverlay(view.overlay, viewport)}
     </box>
   );
 }

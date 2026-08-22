@@ -251,12 +251,13 @@ export function App(): React.ReactElement {
   const [customView, setCustomView] = useState<React.ReactNode | null>(null);
   const interruptHandlerRef = useRef<(() => void) | null>(null);
   const initializedRef = useRef(false);
+  const unregisterCustomViewRef = useRef<() => void>(() => undefined);
   const [modeToast, setModeToast] = useState<string | null>(null);
   const modeToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Setup store methods synchronously during render
   if (!initializedRef.current) {
-    store.registerCustomView(setCustomView);
+    unregisterCustomViewRef.current = store.registerCustomView(setCustomView);
     store.registerInterruptHandler((handler) => {
       interruptHandlerRef.current = handler;
     });
@@ -288,7 +289,7 @@ export function App(): React.ReactElement {
   // Cleanup on unmount to prevent stale handler calls
   useEffect(() => {
     return () => {
-      store.registerCustomView(() => {});
+      unregisterCustomViewRef.current();
       store.registerInterruptHandler(null);
     };
   }, []);
@@ -362,10 +363,6 @@ export function App(): React.ReactElement {
   // expanded view). No-op if no expandable reasoning is available.
   useInput((input, key) => {
     if (key.ctrl && (input === "r" || input === "\x12")) {
-      const hasOpenReasoning = store
-        .getEphemeralRegionsSnapshot()
-        .some((r) => r.kind === "reasoning");
-      if (hasOpenReasoning) return;
       store.expandLastReasoning();
     }
   });

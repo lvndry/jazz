@@ -230,8 +230,6 @@ const UNICODE: GlyphSet = {
 
   blockquote: "▏",
 
-  // `»` is Latin-1, present everywhere, and replaces `❯` (Dingbats, 15/192
-  // in SF Mono).
   promptCursor: "»",
   arrow: "›",
   citeOpen: "‹",

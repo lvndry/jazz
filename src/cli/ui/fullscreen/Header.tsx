@@ -5,16 +5,16 @@
  *
  *   ▎ jazz                    model ∙ apps 3 of 4 ∙ ████░░░░ 47%
  *
- * The restraint is the design. Version, cwd, reasoning level and raw token
- * counts are all things you look up once and then stop reading, so they live
- * behind a key; what stays on screen is what changes or what you would act on.
- * Connector health is therefore a count rather than four names with four status
- * marks — a name appears only when that connector needs something from you.
+ * The restraint is the design. The mark stays alone on the left; version and
+ * cwd are on the home wordmark, not here. Connector health is a count rather
+ * than four names with four status marks — a name appears only when that
+ * connector needs something from you.
  */
 
 import type { ReactNode } from "react";
 import { getGlyphs, type GlyphSet } from "../glyphs";
 import { THEME } from "../theme";
+import { fitTerminalSegments, terminalCellWidth, terminalSegmentsWidth } from "./terminal-cells";
 import type { Connector, HeaderModel, Viewport } from "./types";
 
 /** Small enough to read as a gauge rather than as a progress bar. */
@@ -32,34 +32,6 @@ export interface HeaderSegment {
 export interface HeaderGroup {
   readonly key: "mark" | "model" | "connectors" | "meter";
   readonly segments: readonly HeaderSegment[];
-}
-
-function cells(text: string): number {
-  return [...text].length;
-}
-
-function segmentsWidth(segments: readonly HeaderSegment[]): number {
-  return segments.reduce((total, segment) => total + cells(segment.text), 0);
-}
-
-function truncateSegments(
-  segments: readonly HeaderSegment[],
-  max: number,
-): readonly HeaderSegment[] {
-  const kept: HeaderSegment[] = [];
-  let remaining = Math.max(0, max);
-  for (const segment of segments) {
-    if (remaining === 0) break;
-    const characters = [...segment.text];
-    if (characters.length <= remaining) {
-      kept.push(segment);
-      remaining -= characters.length;
-    } else {
-      kept.push({ text: characters.slice(0, remaining).join(""), fg: segment.fg });
-      remaining = 0;
-    }
-  }
-  return kept;
 }
 
 export function contextPercent(used: number, max: number): number {
@@ -141,14 +113,14 @@ export function headerSegments(model: HeaderModel, viewport: Viewport): readonly
   if (mark === undefined) return [];
 
   let facts = groups.slice(1);
-  const markWidth = segmentsWidth(mark.segments);
+  const minimumMarkWidth = terminalCellWidth(`${glyphs.rail} jazz`);
   const factsWidth = (list: readonly HeaderGroup[]): number =>
     list.length === 0
       ? 0
-      : list.reduce((total, group) => total + segmentsWidth(group.segments), 0) +
-        cells(separator) * (list.length - 1);
+      : list.reduce((total, group) => total + terminalSegmentsWidth(group.segments), 0) +
+        terminalCellWidth(separator) * (list.length - 1);
 
-  while (facts.length > 0 && markWidth + 1 + factsWidth(facts) > viewport.width) {
+  while (facts.length > 0 && minimumMarkWidth + 1 + factsWidth(facts) > viewport.width) {
     facts = facts.slice(1);
   }
 
@@ -158,8 +130,15 @@ export function headerSegments(model: HeaderModel, viewport: Viewport): readonly
     right.push(...group.segments);
   });
 
-  const left = truncateSegments(mark.segments, viewport.width);
-  const gap = Math.max(0, viewport.width - segmentsWidth(left) - segmentsWidth(right));
+  const leftBudget = Math.max(
+    0,
+    viewport.width - terminalSegmentsWidth(right) - (right.length > 0 ? 1 : 0),
+  );
+  const left = fitTerminalSegments(mark.segments, leftBudget);
+  const gap = Math.max(
+    0,
+    viewport.width - terminalSegmentsWidth(left) - terminalSegmentsWidth(right),
+  );
   const padding: HeaderSegment[] = gap > 0 ? [{ text: " ".repeat(gap), fg: THEME.muted }] : [];
   return [...left, ...padding, ...right];
 }

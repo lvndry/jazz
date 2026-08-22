@@ -6,6 +6,12 @@ import { promptInteractiveCatchUp } from "./cli/catch-up-prompt";
 import { promptFailedRunsWarning } from "./cli/failed-run-prompt";
 import { CLIPresentationServiceLayer } from "./cli/presentation/cli-presentation-service";
 import { InkPresentationServiceLayer } from "./cli/presentation/ink-presentation-service";
+import {
+  decideFullscreen,
+  type FullscreenEnvironment,
+  type TerminalInputCapabilities,
+  type TerminalOutputCapabilities,
+} from "./cli/ui/fullscreen/mount";
 import { createToolRegistrationLayer } from "./core/agent/tools/register-tools";
 import { createToolRegistryLayer } from "./core/agent/tools/tool-registry";
 import { AgentConfigServiceTag } from "./core/interfaces/agent-config";
@@ -46,26 +52,41 @@ export interface PresentationConfig {
   readonly isQuiet: boolean;
   readonly usePlainTerminal: boolean;
   readonly useCLIPresentation: boolean;
+  readonly useFullscreen: boolean;
 }
 
 /**
  * Determine which terminal and presentation layers to use.
  * Pure and testable; createAppLayer uses this with process.env / process.stdout.
  */
-type EnvShape = { JAZZ_OUTPUT_MODE?: string; JAZZ_NO_TUI?: string };
-type StdoutShape = { isTTY?: boolean; rows?: number };
+interface EnvShape extends FullscreenEnvironment {
+  readonly JAZZ_OUTPUT_MODE?: string;
+  readonly JAZZ_NO_TUI?: string;
+  readonly JAZZ_FULLSCREEN?: string;
+}
 
 export function getPresentationConfig(
   env: EnvShape = process.env,
-  stdout: StdoutShape = process.stdout,
+  stdout: TerminalOutputCapabilities = process.stdout,
+  stdin: TerminalInputCapabilities = process.stdin,
 ): PresentationConfig {
   const isQuiet = env.JAZZ_OUTPUT_MODE === "quiet";
-  const forceNoTUI = env.JAZZ_NO_TUI === "1" || (stdout.isTTY === true && (stdout.rows ?? 24) < 10);
+  const rawOutput = env.JAZZ_OUTPUT_MODE === "raw";
+  const requestLegacyTui =
+    env.JAZZ_NO_TUI === "1" || env.JAZZ_FULLSCREEN === "0" || env.JAZZ_FULLSCREEN === "false";
+  const decision = decideFullscreen(
+    { requestPlain: requestLegacyTui || rawOutput || isQuiet },
+    env,
+    stdout,
+    stdin,
+  );
+  const capabilityBlocked = !decision.fullscreen && decision.reason !== "requested";
 
   return {
     isQuiet,
-    usePlainTerminal: isQuiet || forceNoTUI,
-    useCLIPresentation: !isQuiet && (!stdout.isTTY || forceNoTUI),
+    usePlainTerminal: isQuiet || rawOutput || capabilityBlocked,
+    useCLIPresentation: !isQuiet && (rawOutput || capabilityBlocked),
+    useFullscreen: decision.fullscreen && !isQuiet && !rawOutput,
   };
 }
 
@@ -119,11 +140,11 @@ export function createAppLayer(config: AppLayerConfig = {}) {
     }),
   ).pipe(Layer.provide(configLayer));
 
-  const presentationConfig = getPresentationConfig();
+  const presentationConfig = getPresentationConfig(process.env, process.stdout, process.stdin);
 
   const terminalLayer = presentationConfig.usePlainTerminal
     ? createPlainTerminalServiceLayer()
-    : createTerminalServiceLayer();
+    : createTerminalServiceLayer({ fullscreen: presentationConfig.useFullscreen });
 
   const storageLayer = Layer.effect(
     StorageServiceTag,

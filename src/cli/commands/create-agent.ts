@@ -2,6 +2,7 @@ import { Effect } from "effect";
 import { Box, Text } from "ink";
 import Spinner from "ink-spinner";
 import React from "react";
+import { ensureProviderApiKey } from "@/cli/helpers/provider-api-key";
 import { handleWebSearchConfiguration } from "@/cli/helpers/web-search";
 import { THEME } from "@/cli/ui/theme";
 import { registerMCPServerTools } from "@/core/agent/tools/mcp-tools";
@@ -16,7 +17,11 @@ import {
   WEB_SEARCH_CATEGORY,
 } from "@/core/agent/tools/tool-categories";
 import type { ProviderName } from "@/core/constants/models";
-import { buildOllamaContextChoices, defaultOllamaContextWindow } from "@/core/constants/ollama";
+import {
+  buildOllamaContextChoices,
+  defaultOllamaContextWindow,
+  isOllamaCloudModel,
+} from "@/core/constants/ollama";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "@/core/interfaces/agent-service";
 import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
@@ -38,6 +43,7 @@ import type { LLMProvider, LLMProviderListItem } from "@/core/types/llm";
 import type { MCPTool } from "@/core/types/mcp";
 import { isAuthenticationRequired } from "@/core/utils/mcp";
 import { formatProviderDisplayName } from "@/core/utils/provider-model";
+import { sortProvidersForPicker } from "@/core/utils/provider-picker";
 import { toPascalCase } from "@/core/utils/string";
 
 /**
@@ -420,7 +426,11 @@ async function promptForAgentInfo(
       case "provider": {
         const result = await Effect.runPromise(
           terminal.search<ProviderName>("Which LLM provider would you like to use?", {
-            choices: state.allProviders.map((provider) => ({
+            choices: sortProvidersForPicker(
+              state.allProviders,
+              (provider) => provider.name,
+              (provider) => provider.displayName,
+            ).map((provider) => ({
               name: provider.displayName ?? provider.name,
               value: provider.name,
             })),
@@ -435,51 +445,18 @@ async function promptForAgentInfo(
 
         state.llmProvider = result;
 
-        // Check/prompt for API key
         const providerDisplayName =
           state.allProviders.find((p) => p.name === result)?.displayName ?? result;
-        const apiKeyPath = `llm.${result}.api_key`;
-        const hasApiKey = await Effect.runPromise(configService.has(apiKeyPath));
-
-        if (!hasApiKey) {
-          await Effect.runPromise(
-            Effect.gen(function* () {
-              yield* terminal.log("");
-              yield* terminal.warn(`API key not set in config file for ${providerDisplayName}.`);
-              yield* terminal.log("Please paste your API key below:");
-            }),
-          );
-
-          const isOptional = result === "ollama" || result === "llamacpp";
-          const apiKey = await Effect.runPromise(
-            terminal.ask(`${providerDisplayName} API Key${isOptional ? " (optional)" : ""}:`, {
-              simple: true,
-              secret: true,
-              cancellable: true,
-              placeholder: "Paste your API key... (Esc to go back)",
-              validate: (inputValue: string): boolean | string => {
-                if (isOptional) return true;
-                if (!inputValue || inputValue.trim().length === 0) {
-                  return "API key cannot be empty";
-                }
-                return true;
-              },
-            }),
-          );
-
-          if (apiKey === undefined) {
-            // Esc — back to provider selection without saving anything.
-            await Effect.runPromise(terminal.info("Cancelled — pick another provider."));
-            break;
-          }
-
-          await Effect.runPromise(configService.set(apiKeyPath, apiKey));
-          await Effect.runPromise(
-            Effect.gen(function* () {
-              yield* terminal.success("API key saved to config file.");
-              yield* terminal.log("");
-            }),
-          );
+        const keyResult = await ensureProviderApiKey({
+          configService,
+          terminal,
+          provider: result,
+          displayName: providerDisplayName,
+          required: result !== "ollama" && result !== "llamacpp",
+        });
+        if (keyResult === "cancelled") {
+          await Effect.runPromise(terminal.info("Cancelled — pick another provider."));
+          break;
         }
 
         // Cache provider info for next step
@@ -515,6 +492,24 @@ async function promptForAgentInfo(
         }
 
         state.llmModel = result;
+
+        if (state.llmProvider === "ollama" && isOllamaCloudModel(result)) {
+          const providerDisplayName =
+            state.allProviders?.find((p) => p.name === "ollama")?.displayName ?? "Ollama";
+          const keyResult = await ensureProviderApiKey({
+            configService,
+            terminal,
+            provider: "ollama",
+            displayName: providerDisplayName,
+            required: true,
+            reason:
+              "This is an Ollama Cloud model. Requests go to ollama.com and need an API key from https://ollama.com/settings/keys.",
+          });
+          if (keyResult === "cancelled") {
+            state.step = "model";
+            break;
+          }
+        }
 
         // Check if reasoning model
         const selectedModel = state.providerInfo!.supportedModels.find((m) => m.id === result);

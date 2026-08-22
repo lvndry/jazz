@@ -25,6 +25,11 @@ import type { BorderCharacters } from "@opentui/core";
 import type { ReactNode } from "react";
 import { getGlyphs, type GlyphSet } from "../../glyphs";
 import { THEME } from "../../theme";
+import {
+  clipTerminalCells,
+  clipTerminalCellsFromStart,
+  terminalCellWidth,
+} from "../terminal-cells";
 import type { Viewport } from "../types";
 import { HintRow, type Hint } from "./TextPrompt";
 
@@ -55,8 +60,6 @@ const MESSAGE_MAX_ROWS = 2;
 /** Keep this much context past the selection before the list starts to follow it. */
 const LIST_MARGIN = 1;
 
-const ELLIPSIS = "...";
-
 export interface FileEntryModel {
   /** What to display — usually the path relative to `basePath`. */
   readonly name: string;
@@ -79,24 +82,16 @@ export interface FilePickerModel {
 }
 
 function displayWidth(text: string): number {
-  return [...text].length;
+  return terminalCellWidth(text);
 }
 
 function clip(text: string, width: number): string {
-  if (width <= 0) return "";
-  const chars = [...text];
-  if (chars.length <= width) return text;
-  if (width <= ELLIPSIS.length) return chars.slice(0, width).join("");
-  return chars.slice(0, width - ELLIPSIS.length).join("") + ELLIPSIS;
+  return clipTerminalCells(text, width);
 }
 
 /** Keep the tail: for a path, the last segment is the part being chosen. */
 function clipLeft(text: string, width: number): string {
-  if (width <= 0) return "";
-  const chars = [...text];
-  if (chars.length <= width) return text;
-  if (width <= ELLIPSIS.length) return chars.slice(chars.length - width).join("");
-  return ELLIPSIS + chars.slice(chars.length - (width - ELLIPSIS.length)).join("");
+  return clipTerminalCellsFromStart(text, width);
 }
 
 function oneLine(text: string): string {

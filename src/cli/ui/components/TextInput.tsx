@@ -1,35 +1,16 @@
 import { Box, Text, useInput } from "ink";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTextInput } from "../hooks/use-input-service";
+import { maskSecret, maskSecretCaret } from "../mask-secret";
 import { THEME } from "../theme";
-
-/** Build display string for masked input; length always matches `value` for cursor alignment. */
-function formatMaskedDisplayValue(
-  value: string,
-  maskChar: string,
-  revealTailCount?: number,
-): string {
-  const n = value.length;
-  if (n === 0) {
-    return "";
-  }
-  if (revealTailCount === undefined || revealTailCount <= 0) {
-    return maskChar.repeat(n);
-  }
-  const tailLen = Math.min(revealTailCount, n);
-  const hiddenLen = n - tailLen;
-  return maskChar.repeat(hiddenLen) + value.slice(-tailLen);
-}
 
 export interface TextInputProps {
   /** Unique identifier for this input (used to prevent state sharing) */
   inputId: string;
   defaultValue?: string;
   placeholder?: string;
-  /** Mask character for password input (e.g., "*") */
+  /** When set, display a masked value (last 6 characters, or last 2 if shorter). */
   mask?: string;
-  /** When set with `mask`, show this many characters from the end in plaintext (rest stay masked). */
-  maskRevealTail?: number;
   validate?: (input: string) => boolean | string;
   onSubmit: (value: string) => void;
   onCancel?: () => void;
@@ -47,7 +28,6 @@ export const TextInput = React.memo(function TextInput({
   defaultValue = "",
   placeholder = "",
   mask,
-  maskRevealTail,
   validate,
   onSubmit,
   onCancel,
@@ -132,11 +112,13 @@ export const TextInput = React.memo(function TextInput({
       );
     }
 
-    const displayValue = mask ? formatMaskedDisplayValue(value, mask, maskRevealTail) : value;
+    const displayValue = mask ? maskSecret(value) : value;
+    const displayCaret = mask ? maskSecretCaret(value, cursor) : cursor;
 
-    const beforeCursor = displayValue.slice(0, cursor);
-    const cursorChar = cursor < displayValue.length ? displayValue[cursor] : " ";
-    const afterCursor = cursor < displayValue.length ? displayValue.slice(cursor + 1) : "";
+    const beforeCursor = displayValue.slice(0, displayCaret);
+    const cursorChar = displayCaret < displayValue.length ? displayValue[displayCaret] : " ";
+    const afterCursor =
+      displayCaret < displayValue.length ? displayValue.slice(displayCaret + 1) : "";
 
     return (
       <Text wrap="wrap">

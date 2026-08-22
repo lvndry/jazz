@@ -26,6 +26,23 @@ export interface CapabilityDecision {
   readonly height: number;
 }
 
+export interface FullscreenEnvironment {
+  readonly CI?: string;
+  readonly TERM?: string;
+  readonly INK_SCREEN_READER?: string;
+  readonly JAZZ_A11Y?: string;
+}
+
+export interface TerminalOutputCapabilities {
+  readonly isTTY?: boolean;
+  readonly columns?: number;
+  readonly rows?: number;
+}
+
+export interface TerminalInputCapabilities {
+  readonly isTTY?: boolean;
+}
+
 /**
  * Fullscreen is opt-out, not opt-in, but it turns itself off wherever it would
  * be actively worse than plain output. None of these are flags a user has to
@@ -35,23 +52,28 @@ export interface CapabilityDecision {
  * repaint re-announces the same region endlessly, which is hostile rather than
  * merely imperfect.
  */
-export function decideFullscreen(options: { requestPlain?: boolean } = {}): CapabilityDecision {
-  const width = process.stdout.columns ?? 0;
-  const height = process.stdout.rows ?? 0;
+export function decideFullscreen(
+  options: { requestPlain?: boolean } = {},
+  environment: FullscreenEnvironment = process.env,
+  stdout: TerminalOutputCapabilities = process.stdout,
+  stdin: TerminalInputCapabilities = process.stdin,
+): CapabilityDecision {
+  const width = stdout.columns ?? 0;
+  const height = stdout.rows ?? 0;
   const base = { width, height };
 
   if (options.requestPlain === true) return { ...base, fullscreen: false, reason: "requested" };
-  if (process.stdout.isTTY !== true || process.stdin.isTTY !== true) {
+  if (stdout.isTTY !== true || stdin.isTTY !== true) {
     return { ...base, fullscreen: false, reason: "not-a-tty" };
   }
-  if (process.env["CI"] !== undefined && process.env["CI"] !== "") {
+  if (environment.CI !== undefined && environment.CI !== "") {
     return { ...base, fullscreen: false, reason: "ci" };
   }
-  const term = (process.env["TERM"] ?? "").toLowerCase();
+  const term = (environment.TERM ?? "").toLowerCase();
   if (term === "" || term === "dumb") {
     return { ...base, fullscreen: false, reason: "dumb-terminal" };
   }
-  if (process.env["INK_SCREEN_READER"] === "1" || process.env["JAZZ_A11Y"] === "1") {
+  if (environment.INK_SCREEN_READER === "1" || environment.JAZZ_A11Y === "1") {
     return { ...base, fullscreen: false, reason: "screen-reader" };
   }
   if (width < MIN_WIDTH || height < MIN_HEIGHT) {
@@ -100,10 +122,11 @@ export async function mountFullscreen(): Promise<MountedRenderer> {
     exitOnCtrlC: false,
     exitSignals: ["SIGINT", "SIGTERM", "SIGHUP", "SIGQUIT"],
     maxFps: MAX_FPS,
-    // Mouse reporting is off by default and that is a deliberate trade, not an
-    // omission: enabling it takes the wheel but destroys the terminal's own
-    // click-drag selection, which is the copy mechanism people already know.
-    useMouse: false,
+    // Wheel events only arrive with mouse reporting on. OpenTUI has no
+    // wheel-only mode; this also replaces the terminal's native drag-select
+    // with OpenTUI's own selection (text is selectable by default). Scroll
+    // wins that trade. Shift+drag still reaches native selection in many hosts.
+    useMouse: true,
     // Leave whatever was on the main screen alone; the alternate screen restores
     // it on exit, and clearing it would destroy the user's scrollback.
     clearOnShutdown: false,

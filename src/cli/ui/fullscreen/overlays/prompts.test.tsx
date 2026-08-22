@@ -308,15 +308,119 @@ describe("question overlay", () => {
     const frame = captureCharFrame();
 
     expect(frame).toContain("Option 34");
-    // The window followed the selection, so the top of the list is gone.
     expect(frame).not.toContain("Option 01");
+    expect(frame).not.toContain("Option 20");
     expect(frame).toContain("34 of 40");
     expect(rows(frame)).toHaveLength(WIDE.height);
 
     renderer.destroy();
   });
 
-  it("truncates a long description into its row instead of wrapping it", async () => {
+  it("shows only the first ten choices until the window moves", async () => {
+    const many = Array.from({ length: 40 }, (_, index) => ({
+      label: `Option ${String(index + 1).padStart(2, "0")}`,
+      value: `option-${String(index)}`,
+    }));
+    const { renderer, captureCharFrame } = await draw(
+      <Question
+        model={{ ...QUESTION, choices: many, selected: 0 }}
+        viewport={WIDE}
+      />,
+      WIDE,
+    );
+    const frame = captureCharFrame();
+
+    expect(frame).toContain("Option 01");
+    expect(frame).toContain("Option 10");
+    expect(frame).not.toContain("Option 11");
+    expect(frame).toContain("1 of 40");
+
+    renderer.destroy();
+  });
+
+  it("numbers every visible row including the tenth", async () => {
+    const labels = [
+      "Anthropic",
+      "OpenAI",
+      "Google",
+      "Mistral",
+      "Groq",
+      "xAI",
+      "Cohere",
+      "Together",
+      "DeepSeek",
+      "Fireworks",
+      "Cerebras",
+    ];
+    const { renderer, captureCharFrame } = await draw(
+      <Question
+        model={{
+          ...QUESTION,
+          message: "Which LLM provider would you like to use?",
+          choices: labels.map((label) => ({ label, value: label.toLowerCase() })),
+          selected: 0,
+        }}
+        viewport={WIDE}
+      />,
+      WIDE,
+    );
+    const lines = rows(captureCharFrame());
+    const tenth = lines.find((line) => line.includes("Fireworks")) ?? "";
+    const first = lines.find((line) => line.includes("Anthropic")) ?? "";
+
+    expect(tenth).toMatch(/10\s+Fireworks/);
+    expect(first).toMatch(/1\s+Anthropic/);
+    expect(tenth.indexOf("Fireworks")).toBe(first.indexOf("Anthropic"));
+    expect(lines.some((line) => line.includes("Cerebras"))).toBe(false);
+
+    renderer.destroy();
+  });
+
+  it("filters a long list and reports when nothing matches", async () => {
+    const many = Array.from({ length: 40 }, (_, index) => ({
+      label: `Option ${String(index + 1).padStart(2, "0")}`,
+      value: `option-${String(index)}`,
+    }));
+    const filtered = await draw(
+      <Question
+        model={{
+          ...QUESTION,
+          choices: [many[11] ?? many[0]!],
+          selected: 0,
+          filterable: true,
+          filter: "12",
+        }}
+        viewport={WIDE}
+      />,
+      WIDE,
+    );
+    const filteredFrame = filtered.captureCharFrame();
+    expect(filteredFrame).toContain("Option 12");
+    expect(filteredFrame).not.toContain("Option 01");
+    expect(filteredFrame).toContain("12");
+    expect(filteredFrame).toContain("filter");
+    filtered.renderer.destroy();
+
+    const empty = await draw(
+      <Question
+        model={{
+          ...QUESTION,
+          choices: [],
+          selected: 0,
+          filterable: true,
+          filter: "zzzz",
+        }}
+        viewport={WIDE}
+      />,
+      WIDE,
+    );
+    const emptyFrame = empty.captureCharFrame();
+    expect(emptyFrame).toContain("No matching options");
+    expect(emptyFrame).toContain("zzzz");
+    empty.renderer.destroy();
+  });
+
+  it("wraps a long description instead of cropping it", async () => {
     const tail = "ENDOFDESCRIPTION";
     const description = `${"a reason this option exists ".repeat(12)}${tail}`;
     const { renderer, captureCharFrame } = await draw(
@@ -334,14 +438,30 @@ describe("question overlay", () => {
       WIDE,
     );
     const lines = rows(captureCharFrame());
+    const frame = lines.join("\n");
 
-    // The description is clipped, so its tail never reaches the frame, and it
-    // occupies exactly the one row its label is on.
-    expect(lines.join("\n")).not.toContain(tail);
+    expect(frame).toContain(tail);
+    expect(frame).not.toContain("…");
     const carrying = lines.filter((line) => line.includes("a reason this option exists"));
-    expect(carrying).toHaveLength(1);
-    expect(carrying[0]).toContain("Work");
-    expect(carrying[0]).toContain("...");
+    expect(carrying.length).toBeGreaterThan(1);
+
+    renderer.destroy();
+  });
+
+  it("sits on the bottom so the conversation stays visible above it", async () => {
+    const { renderer, captureCharFrame } = await draw(
+      <Question
+        model={QUESTION}
+        viewport={WIDE}
+      />,
+      WIDE,
+    );
+    const lines = rows(captureCharFrame());
+    const glyphs = getGlyphs();
+
+    expect(lines[0]?.includes(glyphs.boxTL) ?? true).toBe(false);
+    expect(lines.some((line) => line.includes(glyphs.boxTL))).toBe(true);
+    expect(lines.at(-1)).toContain("move");
 
     renderer.destroy();
   });
@@ -479,7 +599,7 @@ describe("text prompt overlay", () => {
     expect(frame).toContain(TEXT.message);
     expect(frame).toContain("trip planner");
     expect(frame).toContain("submit");
-    expect(frame).toContain("cancel");
+    expect(frame).toContain("to go back");
 
     renderer.destroy();
   });
@@ -502,23 +622,20 @@ describe("text prompt overlay", () => {
     renderer.destroy();
   });
 
-  it("leaks not one character of a masked value", async () => {
-    const glyphs = getGlyphs();
+  it("masks the prefix of a secret and reveals only the last 6 characters", async () => {
+    const longSecret = "c9706a74-71d7-4523-8044-29b01abff127";
     const { renderer, captureCharFrame } = await draw(
       <TextPrompt
-        model={PASSWORD}
+        model={{ ...PASSWORD, value: longSecret, caret: longSecret.length }}
         viewport={WIDE}
       />,
       WIDE,
     );
     const frame = captureCharFrame();
 
-    for (const character of new Set([...SECRET])) {
-      expect(frame).not.toContain(character);
-    }
-    // Masked, but the length is still legible so the caret means something.
-    const masked = frame.split("\n").find((line) => line.includes(glyphs.bullet.repeat(3))) ?? "";
-    expect(masked).toContain(glyphs.bullet.repeat(SECRET.length));
+    expect(frame).toContain("***bff127");
+    expect(frame).not.toContain(longSecret);
+    expect(frame).not.toContain("c9706a74");
     expect(frame).toContain("hidden while you type");
 
     renderer.destroy();
@@ -665,12 +782,12 @@ describe("file picker overlay", () => {
     const base = lines.find((line) => line.includes("base ")) ?? "";
 
     // The head is elided and the filename — the part being chosen — survives.
-    expect(entry).toContain("...");
+    expect(entry).toContain("…");
     expect(entry).toContain("invoice.pdf");
     expect(entry.split("a-long-directory-name").length - 1).toBeLessThan(8);
     // The tail of the base path survives; its head is the part the reader knows.
     expect(base).toContain("root");
-    expect(base).toContain("...");
+    expect(base).toContain("…");
 
     renderer.destroy();
   });

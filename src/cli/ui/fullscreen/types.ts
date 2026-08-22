@@ -1,25 +1,33 @@
 /**
  * The view model for the fullscreen interface.
  *
- * Every component below the shell is a pure function of this structure. Nothing
- * in `fullscreen/` reads the store, the clock, or the environment directly —
- * the adapter in `view-model.ts` is the single place where live state becomes a
- * frame. That is what makes the layout testable: a frame is reproducible from
- * data alone, so an assertion about the rendered characters is an assertion
- * about the design.
+ * Components below the shell are pure functions of this structure.
+ * `bridge.tsx` is the single place where live state becomes a frame, which
+ * keeps layout assertions reproducible from data.
  *
  * Layout, fixed at every width:
  *
  *   header      1 row, never hidden
  *   transcript  flex, owns its own scrolling
  *   live zone   0–5 rows, grows upward, present only while work is in flight
+ *   gap         1 row, so the live band never sits on the composer
  *   input       1–N rows, anchored to the bottom
  *   footer      1 row, anchored to the bottom
  *   overlay     floats above all of it, and must not disturb the transcript
  */
 
-/** Prose is measured, not stretched: past ~90 characters the eye loses the line. */
+import type { FilePickerModel } from "./overlays/FilePicker";
+import type { QuestionModel } from "./overlays/Question";
+import type { TextPromptModel } from "./overlays/TextPrompt";
+
+/**
+ * Once the content column is at least this wide, leftover columns become a
+ * short flush-right metadata strip. Below it the frame *is* the measure.
+ */
 export const PROSE_MEASURE = 88;
+
+/** Timestamps and lane labels sit here; the rest of the surplus widens prose. */
+export const METADATA_RESERVE = 20;
 
 /** The live zone caps rather than grows, so the input never moves. */
 export const LIVE_ZONE_MAX_ROWS = 5;
@@ -125,11 +133,12 @@ export interface Connector {
 }
 
 /**
- * Four facts, one row. Version, cwd, reasoning level and raw token counts moved
- * behind a key: the header is not an inventory, it is the things that change or
- * that you would act on.
+ * Four facts, one row. Identity carries version and cwd; the right-aligned
+ * groups carry model, connector health, and context pressure.
  */
 export interface HeaderModel {
+  readonly version: string;
+  readonly cwd: string;
   readonly model: string;
   readonly connectors: readonly Connector[];
   readonly contextUsed: number;
@@ -178,10 +187,22 @@ export interface LiveModel {
 
 // ─── Input, footer ───────────────────────────────────────────────────────────
 
-export type Mode = "chat" | "plan" | "auto" | "yolo";
+export type Mode = "chat" | "plan" | "auto" | "safe" | "yolo";
+
+export interface CommandSuggestion {
+  readonly name: string;
+  readonly description: string;
+  readonly usage?: string;
+  readonly source?: "skill";
+}
 
 export interface InputModel {
   readonly value: string;
+  /** Slash-command picker, present only while the draft is a `/` prefix. */
+  readonly commands?: {
+    readonly items: readonly CommandSuggestion[];
+    readonly selected: number;
+  };
   /**
    * Code-point offset into `value` where the next typed character lands.
    * Defaults to the end when omitted, which is what every screen that does not
@@ -190,6 +211,8 @@ export interface InputModel {
   readonly caret?: number;
   readonly placeholder: string;
   readonly queued: number;
+  /** Busy chat turns queue Enter instead of resolving the active prompt. */
+  readonly queueing?: boolean;
   /** Suppressed while a modal overlay owns the keyboard. */
   readonly disabled: boolean;
 }
@@ -199,7 +222,6 @@ export interface FooterModel {
   readonly hints: readonly string[];
   readonly costUsd?: number;
   readonly elapsedMs?: number;
-  readonly personality: "straight" | "house" | "loose";
 }
 
 // ─── Overlays ────────────────────────────────────────────────────────────────
@@ -221,6 +243,8 @@ export interface ApprovalOverlay {
   readonly account: string;
   readonly fields: readonly ApprovalField[];
   readonly consequence: string;
+  readonly fieldOffset?: number;
+  readonly alwaysLabel: string;
   /** True once the arming delay has passed; before that only deny is accepted. */
   readonly armed: boolean;
 }
@@ -243,7 +267,8 @@ export interface SearchOverlay {
   readonly selected: number;
 }
 
-export type Overlay = ApprovalOverlay | SearchOverlay;
+export type Overlay =
+  ApprovalOverlay | SearchOverlay | QuestionModel | TextPromptModel | FilePickerModel;
 
 // ─── The frame ───────────────────────────────────────────────────────────────
 
@@ -253,6 +278,8 @@ export interface ViewModel {
   readonly header: HeaderModel;
   readonly blocks: readonly Block[];
   readonly live: LiveModel;
+  /** True while a turn can still be interrupted, including streaming-only work. */
+  readonly runActive?: boolean;
   readonly input: InputModel;
   readonly footer: FooterModel;
   readonly overlay?: Overlay;
@@ -267,9 +294,9 @@ export interface Viewport {
   readonly height: number;
 }
 
-/** Running text is measured; the surplus becomes a flush-right metadata column. */
+/** Running text takes the content column; a short strip on the right is metadata. */
 export function measureFor(width: number): { prose: number; metadata: number } {
   const content = Math.max(MIN_WIDTH, width) - 4;
-  const prose = Math.min(PROSE_MEASURE, content);
-  return { prose, metadata: Math.max(0, content - prose) };
+  const metadata = Math.min(METADATA_RESERVE, Math.max(0, content - PROSE_MEASURE));
+  return { prose: content - metadata, metadata };
 }

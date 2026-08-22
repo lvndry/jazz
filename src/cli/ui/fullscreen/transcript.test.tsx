@@ -12,14 +12,15 @@
  * this repo's suite (colour off) cannot do.
  */
 
-import type { CapturedSpan } from "@opentui/core";
+import { TextAttributes, type CapturedSpan } from "@opentui/core";
 import { testRender } from "@opentui/react/test-utils";
 import { beforeAll, describe, expect, it } from "bun:test";
 import type { ReactNode } from "react";
 import { getGlyphs } from "../glyphs";
 import { setThemeVariant, THEME } from "../theme";
-import { Transcript, transcriptRows } from "./Transcript";
-import { PROSE_MEASURE, type Block, type Viewport } from "./types";
+import { terminalCellWidth } from "./terminal-cells";
+import { inlineSegments, Transcript, transcriptRows } from "./Transcript";
+import { measureFor, PROSE_MEASURE, type Block, type Viewport } from "./types";
 
 beforeAll(() => {
   process.env["JAZZ_UI_GLYPHS"] = "unicode";
@@ -209,6 +210,31 @@ function report(label: string, measured: Density): void {
   );
 }
 
+describe("terminal-cell wrapping", () => {
+  it("keeps narrow frame rows exact and graphemes intact", async () => {
+    const viewport = { width: 60, height: 8 };
+    const family = "👨‍👩‍👧‍👦";
+    const rendered = await render(
+      transcript(
+        [
+          {
+            id: "wide",
+            seq: 1,
+            kind: "user",
+            text: `漢字 ${family} cafe\u0301 `.repeat(12),
+          },
+        ],
+        viewport,
+      ),
+      viewport,
+    );
+
+    for (const row of rendered.rows) expect(terminalCellWidth(row)).toBe(viewport.width);
+    const text = rendered.rows.join("\n");
+    if (text.includes("👨")) expect(text).toContain(family);
+  });
+});
+
 describe("density", () => {
   it("holds a realistic session under 22% ink with over 40% breathing rows", async () => {
     const { rows } = await render(transcript(SESSION, WIDE), WIDE);
@@ -258,8 +284,11 @@ describe("the measure", () => {
     }
   });
 
-  it("keeps running prose inside 88 columns however wide the terminal is", () => {
-    for (const width of [80, 120, 200]) {
+  it("widens running prose with the terminal instead of leaving a dead band", () => {
+    const widths = [80, 120, 200] as const;
+    const proseWidths: number[] = [];
+    for (const width of widths) {
+      const expected = measureFor(width).prose;
       const rows = transcriptRows(SESSION, { width, height: 34 });
       const prose = rows.filter(
         (row) =>
@@ -267,46 +296,145 @@ describe("the measure", () => {
       );
       expect(prose.length).toBeGreaterThan(0);
       for (const row of prose) {
-        expect(row.contentWidth).toBeLessThanOrEqual(PROSE_MEASURE);
+        expect(row.contentWidth).toBe(expected);
         const used = row.content.reduce((total, segment) => total + [...segment.text].length, 0);
         expect(used).toBeLessThanOrEqual(row.contentWidth);
       }
+      proseWidths.push(expected);
     }
+    expect(proseWidths[0]).toBeLessThan(PROSE_MEASURE);
+    expect(proseWidths[1]).toBeGreaterThan(PROSE_MEASURE);
+    expect(proseWidths[2]).toBeGreaterThan(proseWidths[1] ?? 0);
   });
 
   it("gives tables and expanded output the full width instead", () => {
     const rows = transcriptRows(SESSION, WIDE);
-    const table = rows.filter((row) => row.key.includes(":table:"));
+    const table = rows.filter((row) => /:table:\d+:\d+$/.test(row.key));
     const detail = rows.filter((row) => row.key.includes(":detail:"));
     expect(table.length).toBe(4);
     expect(detail.length).toBe(3);
+    const measure = measureFor(WIDE.width);
     for (const row of [...table, ...detail]) {
-      expect(row.contentWidth).toBeGreaterThan(PROSE_MEASURE);
+      expect(row.contentWidth).toBe(measure.prose + measure.metadata);
+      expect(row.contentWidth).toBeGreaterThan(measure.prose);
     }
   });
 
+  it("separates logical table rows with a blank row", () => {
+    const rows = transcriptRows(SESSION, WIDE);
+    const first = rows.findIndex((row) => row.key.includes(":table:0:0"));
+    const second = rows.findIndex((row) => row.key.includes(":table:1:0"));
+    expect(first).toBeGreaterThanOrEqual(0);
+    expect(second).toBe(first + 2);
+    expect(rows[first + 1]?.content).toEqual([]);
+  });
+
+  it("keeps every cell that fits the content measure", () => {
+    const rows = transcriptRows(SESSION, WIDE);
+    const text = rows
+      .filter((row) => row.key.includes(":table:"))
+      .map((row) => row.content.map((segment) => segment.text).join(""))
+      .join("\n");
+    expect(text).toContain("From");
+    expect(text).toContain("Subject");
+    expect(text).toContain("Action");
+    expect(text).toContain("Dana Okafor");
+    expect(text).toContain("Q3 board deck");
+    expect(text).toContain("numbers Thursday");
+    expect(text).toContain("confirm or rebook");
+  });
+
+  it("wraps a wide cell instead of cropping it", async () => {
+    const note = "Thursday numbers must land before the board packet goes out to every director.";
+    const blocks: readonly Block[] = [
+      {
+        id: "a",
+        seq: 1,
+        kind: "agent",
+        markdown: ["| Name | Notes |", "| --- | --- |", `| Dana | ${note} |`].join("\n"),
+      },
+    ];
+    const rows = transcriptRows(blocks, NARROW);
+    const table = rows.filter((row) => row.key.includes(":table:"));
+    const text = table
+      .map((row) => row.content.map((segment) => segment.text).join(""))
+      .join(" ")
+      .replace(/\s+/g, " ");
+    expect(text).toContain("Thursday numbers");
+    expect(text).toContain("every director");
+    expect(table.length).toBeGreaterThan(2);
+
+    const rendered = await render(transcript(blocks, NARROW), NARROW);
+    const frame = rendered.rows.join("\n");
+    expect(frame).toContain("Thursday numbers");
+    expect(frame).toContain("director");
+  });
+
+  it("does not eat a short header when leftover width would have kept it", () => {
+    const long = "x".repeat(70);
+    const blocks: readonly Block[] = [
+      {
+        id: "a",
+        seq: 1,
+        kind: "agent",
+        markdown: ["| Hello | Notes |", "| --- | --- |", `| Hello | ${long} |`].join("\n"),
+      },
+    ];
+    const text = transcriptRows(blocks, NARROW)
+      .filter((row) => row.key.includes(":table:"))
+      .map((row) => row.content.map((segment) => segment.text).join(""))
+      .join("\n");
+    expect(text).toContain("Hello");
+    expect(text).not.toMatch(/Hell[^o]/);
+  });
+
+  it("keeps the last column when many narrow columns share the measure", () => {
+    const headers = Array.from({ length: 20 }, (_, index) => String.fromCharCode(65 + index));
+    const cells = headers.map((header) => header.toLowerCase());
+    const blocks: readonly Block[] = [
+      {
+        id: "a",
+        seq: 1,
+        kind: "agent",
+        markdown: [
+          `| ${headers.join(" | ")} |`,
+          `| ${headers.map(() => "---").join(" | ")} |`,
+          `| ${cells.join(" | ")} |`,
+        ].join("\n"),
+      },
+    ];
+    const text = transcriptRows(blocks, NARROW)
+      .filter((row) => row.key.includes(":table:"))
+      .map((row) => row.content.map((segment) => segment.text).join(""))
+      .join("\n");
+    expect(text).toContain("A");
+    expect(text).toContain("T");
+    expect(text).toContain("t");
+  });
+
   /**
-   * A 200-column window does not get a 200-column transcript: the page stops at
-   * 120 and the frame widens around it. Otherwise the metadata column ends up a
-   * hundred columns from the sentence it annotates, which is not flush right —
-   * it is lost.
+   * A 200-column window gets a 200-column transcript. The empty band past 120
+   * was unused page, not a reading measure; prose and tables take the surplus
+   * so metadata stays on the same row as the sentence it annotates.
    */
-  it("stops widening past a page, so nothing stretches on a huge terminal", async () => {
+  it("uses the full terminal width, so nothing is stranded on a huge terminal", async () => {
     const wide: Viewport = { width: 200, height: 34 };
     const { rows } = await render(transcript(SESSION, wide), wide);
+    const measure = measureFor(wide.width);
     for (const row of rows) {
       expect([...row]).toHaveLength(200);
-      expect(row.trimEnd().length).toBeLessThanOrEqual(120);
+      expect(row.slice(wide.width - 2)).toBe("  ");
     }
-    expect(rows.some((row) => row.includes("14:32"))).toBe(true);
+    expect(rows.some((row) => row.trimEnd().length > 120)).toBe(true);
+    const stamped = rows.find((line) => line.includes("14:32")) ?? "";
+    expect(stamped.indexOf("14:32")).toBeGreaterThan(measure.prose);
   });
 
   it("puts the timestamp in the metadata column, not in the sentence", async () => {
     const { rows } = await render(transcript(SESSION, WIDE), WIDE);
     const row = rows.find((line) => line.includes("14:32"));
     expect(row).toBeDefined();
-    // Flush right: the timestamp sits past the prose measure.
-    expect((row ?? "").indexOf("14:32")).toBeGreaterThan(PROSE_MEASURE);
+    expect((row ?? "").indexOf("14:32")).toBeGreaterThan(measureFor(WIDE.width).prose);
   });
 });
 
@@ -342,7 +470,7 @@ describe("tool receipts", () => {
     const row = rows.find((line) => line.includes("thought")) ?? "";
 
     expect(row).toContain("8 steps");
-    expect(row).toContain("ctrl+o expands");
+    expect(row).toContain("ctrl+r expands");
     expect(row).toContain("3.2s");
     expect(colorOf(spans, "thought")).toBe(THEME.muted.toUpperCase());
   });
@@ -366,7 +494,7 @@ describe("reasoning is subordinate by geometry", () => {
     const widest = Math.max(
       ...rows.map((row) => row.content.reduce((total, seg) => total + [...seg.text].length, 0)),
     );
-    expect(widest).toBeLessThan(PROSE_MEASURE);
+    expect(widest).toBeLessThan(measureFor(WIDE.width).prose);
     for (const row of rows) {
       for (const segment of row.content) expect(segment.bold).not.toBe(true);
       // The deep rail, not a new hue, is what says "one level down".
@@ -386,8 +514,8 @@ describe("notices and dividers", () => {
     ];
     const rows = transcriptRows(blocks, WIDE);
     expect(rows.find((row) => row.key.startsWith("n:"))?.gutter[0]?.text).toBe(getGlyphs().warn);
-    expect(rows.find((row) => row.key.startsWith("d:"))?.contentWidth).toBeGreaterThan(
-      PROSE_MEASURE,
+    expect(rows.find((row) => row.key.startsWith("d:"))?.contentWidth).toBe(
+      measureFor(WIDE.width).prose + measureFor(WIDE.width).metadata,
     );
 
     const { rows: frame, spans } = await render(transcript(blocks, WIDE), WIDE);
@@ -478,5 +606,191 @@ describe("newBelow", () => {
     expect(loud.rows).toHaveLength(quiet.rows.length);
     expect(loud.rows.slice(0, WIDE.height - 1)).toEqual(quiet.rows.slice(0, WIDE.height - 1));
     expect(quiet.rows.join("\n")).not.toContain("new below");
+  });
+});
+
+describe("inline emphasis", () => {
+  function flagsOf(segment: {
+    bold?: boolean;
+    italic?: boolean;
+    underline?: boolean;
+    strikethrough?: boolean;
+  }): {
+    readonly bold: boolean;
+    readonly italic: boolean;
+    readonly underline: boolean;
+    readonly strikethrough: boolean;
+  } {
+    return {
+      bold: segment.bold === true,
+      italic: segment.italic === true,
+      underline: segment.underline === true,
+      strikethrough: segment.strikethrough === true,
+    };
+  }
+
+  function spanWith(spans: readonly CapturedSpan[], needle: string): CapturedSpan {
+    const exact = spans.find((candidate) => candidate.text.trim() === needle);
+    const span = exact ?? spans.find((candidate) => candidate.text.includes(needle));
+    if (span === undefined) throw new Error(`no span containing ${JSON.stringify(needle)}`);
+    return span;
+  }
+
+  it("tokenises weight, slant, underline and strike without spending a hue", () => {
+    const fg = THEME.secondary;
+    const segments = inlineSegments(
+      "plain **bold** __also bold__ *italic* _also italic_ ***both*** <u>under</u> ~~old~~ `code` [label](https://example.com)",
+      fg,
+    );
+
+    expect(segments.map((segment) => segment.text).join("")).toBe(
+      "plain bold also bold italic also italic both under old code label",
+    );
+
+    const byText = Object.fromEntries(segments.map((segment) => [segment.text.trim(), segment]));
+    expect(flagsOf(byText["plain"]!)).toEqual({
+      bold: false,
+      italic: false,
+      underline: false,
+      strikethrough: false,
+    });
+    expect(flagsOf(byText["bold"]!)).toEqual({
+      bold: true,
+      italic: false,
+      underline: false,
+      strikethrough: false,
+    });
+    expect(flagsOf(byText["also bold"]!)).toEqual({
+      bold: true,
+      italic: false,
+      underline: false,
+      strikethrough: false,
+    });
+    expect(flagsOf(byText["italic"]!)).toEqual({
+      bold: false,
+      italic: true,
+      underline: false,
+      strikethrough: false,
+    });
+    expect(flagsOf(byText["also italic"]!)).toEqual({
+      bold: false,
+      italic: true,
+      underline: false,
+      strikethrough: false,
+    });
+    expect(flagsOf(byText["both"]!)).toEqual({
+      bold: true,
+      italic: true,
+      underline: false,
+      strikethrough: false,
+    });
+    expect(flagsOf(byText["under"]!)).toEqual({
+      bold: false,
+      italic: false,
+      underline: true,
+      strikethrough: false,
+    });
+    expect(flagsOf(byText["old"]!)).toEqual({
+      bold: false,
+      italic: false,
+      underline: false,
+      strikethrough: true,
+    });
+
+    expect(byText["bold"]?.fg).toBe(fg);
+    expect(byText["italic"]?.fg).toBe(fg);
+    expect(byText["both"]?.fg).toBe(fg);
+    expect(byText["under"]?.fg).toBe(fg);
+    expect(byText["old"]?.fg).toBe(fg);
+    expect(byText["code"]?.fg).toBe(THEME.syntaxValue);
+    expect(byText["label"]?.fg).toBe(THEME.link);
+  });
+
+  it("nests overlapping emphasis without leftover markers", () => {
+    const nested = inlineSegments("**bold *and italic* still**", THEME.selected);
+    expect(nested.map((segment) => segment.text).join("")).toBe("bold and italic still");
+    expect(nested.every((segment) => !segment.text.includes("*"))).toBe(true);
+    expect(nested.find((segment) => segment.text.includes("bold"))?.bold).toBe(true);
+    expect(nested.find((segment) => segment.text.includes("and italic"))).toMatchObject({
+      bold: true,
+      italic: true,
+    });
+    expect(nested.find((segment) => segment.text.includes("still"))?.italic).not.toBe(true);
+
+    const reversed = inlineSegments("*italic **and bold** still*", THEME.selected);
+    expect(reversed.map((segment) => segment.text).join("")).toBe("italic and bold still");
+    expect(reversed.find((segment) => segment.text.includes("and bold"))).toMatchObject({
+      bold: true,
+      italic: true,
+    });
+  });
+
+  it("leaves intraword underscores alone", () => {
+    const segments = inlineSegments("see bail_logement_loue and foo_bar_baz", THEME.selected);
+    expect(segments).toEqual([
+      { text: "see bail_logement_loue and foo_bar_baz", fg: THEME.selected },
+    ]);
+  });
+
+  it("keeps a wrap point inside a bold run bold on both rows", () => {
+    const blocks: readonly Block[] = [
+      {
+        id: "a",
+        seq: 1,
+        kind: "agent",
+        markdown: `**${"urgent ".repeat(20).trim()}**`,
+      },
+    ];
+    const rows = transcriptRows(blocks, NARROW).filter((row) => row.key.startsWith("a:"));
+    expect(rows.length).toBeGreaterThan(1);
+    for (const row of rows) {
+      for (const segment of row.content) {
+        if (segment.text.trim().length === 0) continue;
+        expect(segment.bold).toBe(true);
+      }
+    }
+  });
+
+  it("paints bold italic underline and strike as attributes, not a hue", async () => {
+    const blocks: readonly Block[] = [
+      {
+        id: "a",
+        seq: 1,
+        kind: "agent",
+        markdown: "Use **bold** and *italic* and ***both*** and <u>under</u> and ~~gone~~ here.",
+      },
+    ];
+    const { spans } = await render(transcript(blocks, WIDE), WIDE);
+
+    expect(spanWith(spans, "bold").attributes & TextAttributes.BOLD).not.toBe(0);
+    expect(spanWith(spans, "bold").attributes & TextAttributes.ITALIC).toBe(0);
+    expect(spanWith(spans, "italic").attributes & TextAttributes.ITALIC).not.toBe(0);
+    expect(spanWith(spans, "italic").attributes & TextAttributes.BOLD).toBe(0);
+    expect(spanWith(spans, "both").attributes & TextAttributes.BOLD).not.toBe(0);
+    expect(spanWith(spans, "both").attributes & TextAttributes.ITALIC).not.toBe(0);
+    expect(spanWith(spans, "under").attributes & TextAttributes.UNDERLINE).not.toBe(0);
+    expect(spanWith(spans, "gone").attributes & TextAttributes.STRIKETHROUGH).not.toBe(0);
+
+    expect(colorOf(spans, "Use")).toBe(THEME.selected.toUpperCase());
+    expect(colorOf(spans, "bold")).toBe(THEME.selected.toUpperCase());
+    expect(colorOf(spans, "italic")).toBe(THEME.selected.toUpperCase());
+    expect(colorOf(spans, "both")).toBe(THEME.selected.toUpperCase());
+    expect(colorOf(spans, "under")).toBe(THEME.selected.toUpperCase());
+    expect(colorOf(spans, "gone")).toBe(THEME.selected.toUpperCase());
+  });
+
+  it("keeps quoted emphasis on the quote colour", () => {
+    const rows = transcriptRows(
+      [{ id: "a", seq: 1, kind: "agent", markdown: "> a **warning** and *aside*" }],
+      WIDE,
+    );
+    const warning = rows
+      .flatMap((row) => row.content)
+      .find((segment) => segment.text.includes("warning"));
+    const aside = rows
+      .flatMap((row) => row.content)
+      .find((segment) => segment.text.includes("aside"));
+    expect(warning).toMatchObject({ fg: THEME.secondary, bold: true });
+    expect(aside).toMatchObject({ fg: THEME.secondary, italic: true });
   });
 });
