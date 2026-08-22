@@ -634,9 +634,6 @@ function createProgressReporter(
 
 // --- Human approval --------------------------------------------------------
 
-const APPROVAL_MESSAGE_MAX_CHARS = 500;
-const APPROVAL_PREVIEW_DIFF_MAX_CHARS = 500;
-
 /**
  * Send a new Telegram message with Accept/Reject buttons for a tool awaiting
  * human approval. A new message (not an edit of the progress bubble) so
@@ -652,21 +649,16 @@ async function sendApprovalRequest(
   if (!toolCallId) return;
 
   const toolName = event.toolName ?? "tool";
-  const message = (event.message ?? "").slice(0, APPROVAL_MESSAGE_MAX_CHARS);
+  const message = event.message ?? "";
   const lines = ["⚠️ <b>Approval needed</b>", `<code>${escapeHtml(toolName)}</code>`];
   if (message.length > 0) lines.push(escapeHtml(message));
   if (event.previewDiff) {
-    const diff = event.previewDiff.slice(0, APPROVAL_PREVIEW_DIFF_MAX_CHARS);
-    lines.push(`<pre>${escapeHtml(diff)}</pre>`);
+    lines.push(`<pre>${escapeHtml(event.previewDiff)}</pre>`);
   }
 
-  const sent = (await callTelegram(config, "sendMessage", {
-    chat_id: chatId,
-    text: lines.join("\n"),
-    parse_mode: "HTML",
-    reply_markup: approvalKeyboard(toolCallId),
-  })) as { result?: { message_id?: number } } | undefined;
-  const messageId = sent?.result?.message_id;
+  const messageId = await sendReply(config, chatId, lines.join("\n"), {
+    markup: approvalKeyboard(toolCallId),
+  });
   if (typeof messageId === "number") {
     pendingApprovals.set(toolCallId, { chatId, messageId, runToken });
   }
