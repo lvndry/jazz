@@ -16,12 +16,12 @@ Clean up your git history by analyzing commits and intelligently squashing relat
 
 ## Setup
 
-Create an agent with git tools:
+Create an agent with git via the shell:
 
 ```bash
 jazz agent create
 # Name: git-assistant
-# Tools: Git
+# Tools: Shell Commands
 ```
 
 ## Usage

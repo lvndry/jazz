@@ -33,7 +33,7 @@ export function createAddReminderTool(): Tool<ReminderToolDeps> {
       "Schedule a reminder that will be delivered back to this person later. " +
       `${WHEN_DESCRIPTION} Use this whenever someone asks to be reminded, pinged, or ` +
       "notified about something at a future time — do not try to fire notifications any " +
-      "other way.",
+      "other way. This is an out-of-band ping to a human (chat surfaces), not a todo and not task_state.",
     parameters: addReminderParameters,
     riskLevel: "low-risk",
     hidden: false,

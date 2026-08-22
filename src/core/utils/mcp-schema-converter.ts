@@ -183,6 +183,26 @@ function isArrayType(type: string | readonly string[] | undefined): boolean {
 }
 
 /**
+ * Unwrap MCP SDK's nested `{ jsonSchema: { ... } }` envelope so callers can
+ * advertise the server's original schema to the model.
+ */
+export function unwrapMCPJsonSchema(mcpSchema: unknown): Record<string, unknown> | undefined {
+  if (typeof mcpSchema !== "object" || mcpSchema === null) {
+    return undefined;
+  }
+  const schemaObj = mcpSchema as Record<string, unknown>;
+  const nestedJsonSchema = schemaObj["jsonSchema"];
+  if (
+    nestedJsonSchema !== undefined &&
+    typeof nestedJsonSchema === "object" &&
+    nestedJsonSchema !== null
+  ) {
+    return unwrapMCPJsonSchema(nestedJsonSchema);
+  }
+  return schemaObj;
+}
+
+/**
  * Main function to convert MCP JSON Schema to Zod schema
  *
  * Unsupported or malformed fragments intentionally degrade to permissive

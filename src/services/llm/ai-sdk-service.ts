@@ -31,6 +31,7 @@ import {
   generateText,
   stepCountIs,
   streamText,
+  jsonSchema,
   tool,
   type LanguageModel,
   type FilePart,
@@ -87,7 +88,11 @@ import {
   fetchModelsDevModels,
   type ModelFetcherService,
 } from "./model-fetcher";
-import { PROVIDER_MODELS, resolveLocalProviderBaseUrl } from "./models";
+import {
+  PROVIDER_MODELS,
+  resolveLocalProviderBaseUrl,
+  resolveOllamaRequestBaseUrl,
+} from "./models";
 import { selectParser } from "./reasoning";
 import { extractReasoningParts } from "./reasoning-parts";
 import { StreamProcessor } from "./stream-processor";
@@ -529,7 +534,9 @@ function getProviderNativeWebSearchTool(
 
 const openrouterWebFetchTool = createProviderDefinedToolFactory<unknown, Record<string, never>>({
   id: "openrouter.web_fetch",
-  inputSchema: z.object({ url: z.string().url().describe("The URL to fetch content from") }),
+  inputSchema: z.object({
+    url: z.url().describe("The URL to fetch content from"),
+  }),
 });
 
 /**
@@ -743,15 +750,19 @@ function selectModel(
       break;
     }
     case "ollama": {
-      const headers = llmConfig?.ollama?.api_key
-        ? { Authorization: `Bearer ${llmConfig.ollama.api_key}` }
-        : {};
-      const baseURL = resolveLocalProviderBaseUrl("ollama", llmConfig);
+      const apiKey = resolveApiKey("ollama")?.trim();
+      const headers = apiKey ? { Authorization: `Bearer ${apiKey}` } : {};
+      const baseURL = resolveOllamaRequestBaseUrl(modelId, llmConfig);
       const keepAlive = llmConfig?.ollama?.keep_alive;
+      const fetchImpl = apiKey
+        ? makeOllamaAuthorizedFetch(apiKey, keepAlive)
+        : keepAlive
+          ? makeOllamaKeepAliveFetch(keepAlive)
+          : undefined;
       const ollamaInstance = createOllama({
         baseURL,
         headers,
-        ...(keepAlive ? { fetch: makeOllamaKeepAliveFetch(keepAlive) } : {}),
+        ...(fetchImpl ? { fetch: fetchImpl } : {}),
       });
       model = ollamaInstance(modelId);
       break;
@@ -808,6 +819,21 @@ function selectModel(
   // Store in cache
   cache?.set(cacheKey, model);
   return model;
+}
+
+/** Guarantee the Bearer token is on every request, including after redirects. */
+export function makeOllamaAuthorizedFetch(
+  apiKey: string,
+  keepAlive?: string,
+): typeof globalThis.fetch {
+  const inner = keepAlive ? makeOllamaKeepAliveFetch(keepAlive) : globalThis.fetch;
+  return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const headers = new Headers(init?.headers);
+    if (!headers.has("Authorization")) {
+      headers.set("Authorization", `Bearer ${apiKey}`);
+    }
+    return inner(input, { ...init, headers });
+  };
 }
 
 // ollama-ai-provider-v2 drops keep_alive from the chat body, so splice it into
@@ -1081,6 +1107,23 @@ export function buildProviderOptions(
   return undefined;
 }
 
+function schemaCharCount(toolDef: {
+  function: { parameters: z.ZodTypeAny; jsonSchema?: Readonly<Record<string, unknown>> };
+}): number {
+  if (toolDef.function.jsonSchema !== undefined) {
+    try {
+      return JSON.stringify(toolDef.function.jsonSchema).length;
+    } catch {
+      return 0;
+    }
+  }
+  try {
+    return JSON.stringify(z.toJSONSchema(toolDef.function.parameters)).length;
+  } catch {
+    return 0;
+  }
+}
+
 class AISDKService implements LLMService {
   private config: AISDKConfig;
   private readonly providerModels = PROVIDER_MODELS;
@@ -1254,9 +1297,13 @@ class AISDKService implements LLMService {
 
     // First, map all requested tools to the AI SDK format.
     for (const toolDef of requestedTools) {
+      const inputSchema =
+        toolDef.function.jsonSchema !== undefined
+          ? jsonSchema(toolDef.function.jsonSchema)
+          : toolDef.function.parameters;
       tools[toolDef.function.name] = tool({
         description: toolDef.function.description,
-        inputSchema: toolDef.function.parameters,
+        inputSchema,
       });
     }
 
@@ -1324,7 +1371,7 @@ class AISDKService implements LLMService {
       toolDefinitionChars +=
         toolDef.function.name.length +
         toolDef.function.description.length +
-        JSON.stringify(toolDef.function.parameters).length;
+        schemaCharCount(toolDef);
     }
 
     void this.logger.debug(

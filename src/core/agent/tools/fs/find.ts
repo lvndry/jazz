@@ -36,53 +36,70 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
       path: z
         .string()
         .optional()
-        .describe("Start directory (omit for smart search from cwd→parents→home). Never use '/'."),
+        .describe(
+          "Directory to search from. Absolute or relative to the session working directory. Pass '.' or a subdirectory for project work. If omitted, the search walks the working directory, then parent directories, then the home directory. Do not pass '/'.",
+        ),
       name: z
         .string()
         .optional()
-        .describe("Name filter: substring, glob ('*.ts'), or regex ('re:test.*\\.ts$')"),
+        .describe(
+          "Filter on the file or directory name, not the contents. A plain string matches as a substring. Patterns that contain * ? [ or { are globs (for example '*.ts'). Prefix with re: for a regex (for example 're:\\.test\\.ts$'). Unlike ls.pattern, globs work here.",
+        ),
       type: z
         .enum(["file", "dir", "all", "symlink"])
         .optional()
-        .describe("Type filter (default: 'all')"),
+        .describe("Limit results to files, directories, symbolic links, or all. Default: all."),
       maxDepth: z
         .number()
         .int()
         .nonnegative()
         .optional()
-        .describe("Max depth (default: 25, 0=current dir only)"),
+        .describe(
+          "How many directory levels to descend from the start path. Default 25. 0 means the start directory only.",
+        ),
       minDepth: z
         .number()
         .int()
         .nonnegative()
         .optional()
-        .describe("Min depth (default: 0). Triggers fd/find."),
+        .describe("Skip results shallower than this many levels. Default 0."),
       maxResults: z
         .number()
         .int()
         .positive()
         .optional()
-        .describe("Max results (default: 200, cap: 2000)"),
-      includeHidden: z.boolean().optional().describe("Include hidden files/dirs"),
+        .describe("Maximum number of results to return. Default 200, hard cap 2000."),
+      includeHidden: z
+        .boolean()
+        .optional()
+        .describe("Include hidden files and directories (names starting with '.')."),
       smart: z
         .boolean()
         .default(true)
         .describe(
-          "Smart hierarchical search (default: true). Disable if providing a specific path.",
+          "When path is omitted, also search parent directories and the home directory if the working directory has few matches. Default true. Ignored when path is set.",
         ),
       // --- Advanced filters (trigger fd/find backend automatically) ---
       pathPattern: z
         .string()
         .optional()
-        .describe("Full-path pattern (e.g. '**/test/**'). Triggers fd/find."),
-      excludePaths: z.array(z.string()).optional().describe("Paths to exclude. Triggers fd/find."),
-      caseSensitive: z.boolean().optional().describe("Case-sensitive (default: false)"),
-      size: z.string().optional().describe("Size filter ('+100M', '-1k'). Triggers fd/find."),
+        .describe("Match against the full path, not just the file name. Example: '**/test/**'."),
+      excludePaths: z.array(z.string()).optional().describe("Directories or paths to skip."),
+      caseSensitive: z
+        .boolean()
+        .optional()
+        .describe("Match names case-sensitively. Default false."),
+      size: z
+        .string()
+        .optional()
+        .describe(
+          "Filter by file size. Examples: '+100M' (larger than 100 megabytes), '-1k' (smaller than 1 kilobyte).",
+        ),
       mtime: z
         .string()
         .optional()
         .describe(
-          "Modification time filter ('-7'=last 7 days, '+30'=older than 30 days). Triggers fd/find.",
+          "Filter by last modified time. Examples: '-7' (changed in the last 7 days), '+30' (older than 30 days).",
         ),
     })
     .strict();
@@ -527,7 +544,12 @@ export function createFindTool(): Tool<FileSystem.FileSystem | FileSystemContext
     name: "find",
     aliases: ["glob"],
     description:
-      "Find files/directories by name, glob, or regex. Searches names/paths, NOT file contents (use grep for that). Supports type, size, mtime filters. Default 200 results, cap 2000.",
+      "Locate files and directories by name, glob, or path. Does not search file contents — use grep for that. Also available as glob. " +
+      "Use this to answer 'where is tsconfig.json?' or 'list all **/*.test.ts under src'. Always pass path ('.' or a subdirectory) for project work. " +
+      "Do not use this to search inside files (grep), to list one directory (ls), or to run find/fd via execute_command. " +
+      "Defaults: up to 200 results (cap 2000), maxDepth 25, hidden files excluded, .gitignore plus node_modules and .git ignored. " +
+      "If path is omitted, the search walks the working directory, then up to 3 parents, then the home directory. Never pass path '/'. " +
+      "name matches a substring, a glob if it contains * ? [ {, or a regex with a re: prefix.",
     tags: ["filesystem", "search"],
     parameters,
     validate: makeZodValidator(parameters),

@@ -6,6 +6,8 @@ import type { OutputEntry, PromptState } from "./types";
 /** Accepts single entry or batch; returns first id when available. */
 type PrintOutputHandler = (entry: OutputEntry | readonly OutputEntry[]) => string;
 
+type UpdateOutputHandler = (id: string, patch: OutputEntry) => void;
+
 type StreamingHandler = {
   appendStream: (kind: StreamKind, delta: string) => void;
   finalizeStream: () => void;
@@ -58,6 +60,8 @@ export interface ExpandableReasoning {
   readonly label: string;
   readonly durationMs: number;
   readonly tokens?: number;
+  /** Output entry to rewrite in place. Missing when the block was never logged. */
+  readonly entryId?: string;
 }
 
 /** Upper bound on retained collapsed-reasoning blocks. */
@@ -83,6 +87,72 @@ export interface CollapseEphemeralSummary {
  * the footer simply omits any field that hasn't been populated yet.
  * Most fields are session-totals, updated after each LLM round-trip.
  */
+/**
+ * A pending approval, reduced to what an interface needs to render a decision.
+ * Deliberately not the full `ApprovalRequest`: the store should not depend on
+ * the tools layer, and the resume callback is not the UI's business.
+ */
+export type ConnectorStatus = "live" | "renew" | "offline";
+
+/**
+ * A menu the app is waiting on, published as data rather than as a rendered tree.
+ *
+ * `setCustomView` hands the UI a React element built with Ink components, which
+ * only the Ink renderer can paint — so a second renderer sees an opaque node and
+ * can do nothing useful with it. Publishing the *intent* instead lets each
+ * renderer draw its own version, which is the only way two renderers can share
+ * a flow.
+ */
+export interface ActiveMenuOption {
+  readonly label: string;
+  readonly value: string;
+}
+
+export interface ActiveMenuRequirement {
+  readonly label: string;
+  readonly ready: boolean;
+  readonly detail: string;
+  readonly remedy?: string;
+}
+
+export interface ActiveAgentChoice {
+  readonly id: string;
+  readonly name: string;
+  readonly model: string;
+  readonly description?: string;
+  readonly lastUsed?: boolean;
+}
+
+export interface ActiveWizardMenu {
+  readonly kind: "menu";
+  readonly title?: string;
+  readonly options: readonly ActiveMenuOption[];
+  readonly requirements?: readonly ActiveMenuRequirement[];
+  readonly tip?: string;
+  readonly onSelect: (value: string) => void;
+  readonly onExit: () => void;
+}
+
+export interface ActiveAgentMenu {
+  readonly kind: "agents";
+  readonly title: string;
+  readonly action: string;
+  readonly agents: readonly ActiveAgentChoice[];
+  readonly onSelect: (value: string) => void;
+  readonly onExit: () => void;
+  readonly browse?: boolean;
+}
+
+export type ActiveMenu = ActiveWizardMenu | ActiveAgentMenu;
+
+export interface PendingApproval {
+  readonly toolName: string;
+  readonly executeToolName: string;
+  readonly message: string;
+  readonly args: Record<string, unknown>;
+  readonly previewDiff?: string;
+}
+
 export interface RunStats {
   /** Display name of the active model (e.g. "claude-sonnet-4-5"). */
   readonly model?: string;
@@ -99,7 +169,9 @@ export interface RunStats {
 export class UIStore {
   // Output handlers
   private printOutputHandler: PrintOutputHandler | null = null;
+  private updateOutputHandler: UpdateOutputHandler | null = null;
   private clearOutputsHandler: (() => void) | null = null;
+  private pinnedReasoningIds = new Set<EphemeralRegionId>();
   private streamingHandler: StreamingHandler | null = null;
   private pendingOutputQueue: OutputEntry[] = [];
   private _pendingClear = false;
@@ -132,6 +204,7 @@ export class UIStore {
   private inputHistory: string[] = [];
   private messageQueueSnapshot: readonly string[] = [];
   private chatBusySnapshot: boolean = false;
+  private customViewSnapshot: React.ReactNode | null = null;
 
   // Insertion-ordered map of live ephemeral regions, keyed by id.
   private ephemeralRegions: Map<EphemeralRegionId, EphemeralRegion> = new Map();
@@ -146,8 +219,10 @@ export class UIStore {
   private expandableReasoningSetter: ((value: ExpandableReasoning | null) => void) | null = null;
   private messageQueueSetter: ((queue: readonly string[]) => void) | null = null;
   private chatBusySetter: ((busy: boolean) => void) | null = null;
+  private customViewSetter: ((view: React.ReactNode | null) => void) | null = null;
   private modeToastSetter: ((message: string | null) => void) | null = null;
   private modeSetter: ((isYolo: boolean) => void) | null = null;
+  private rendererFallbackHandler: (() => void) | null = null;
 
   // ── Public API (called by consumers) ──────────────────────────────
 
@@ -276,7 +351,10 @@ export class UIStore {
     }
   };
 
-  setCustomView = (_view: React.ReactNode | null): void => {};
+  setCustomView = (view: React.ReactNode | null): void => {
+    this.customViewSnapshot = view;
+    this.customViewSetter?.(view);
+  };
 
   /**
    * Stack of active interrupt handlers, ordered oldest-first. Each call to
@@ -463,20 +541,43 @@ export class UIStore {
     this.ephemeralRegions.delete(id);
     this.publishEphemeralRegions();
 
+    const capturedText = summary.fullText?.trim() || region.tail.join("\n").trim();
+    const pinned = this.pinnedReasoningIds.delete(id);
+
+    if (region.kind === "reasoning" && capturedText.length > 0) {
+      const entryId = `reasoning-${id}`;
+      const seconds = (summary.durationMs / 1000).toFixed(1);
+      this.printOutput({
+        id: entryId,
+        type: "streamContent",
+        message: pinned
+          ? `*${region.label} · ${seconds}s*\n\n${capturedText}`
+          : (summary.line ?? `${region.label} · ${seconds}s · ctrl+r to expand`),
+        meta: {
+          kind: "reasoning",
+          collapsed: !pinned,
+          fullText: capturedText,
+          durationMs: summary.durationMs,
+          label: region.label,
+        },
+        timestamp: new Date(),
+      });
+      this.flushOutputBatchNow();
+      this.pushExpandableReasoning({
+        fullText: capturedText,
+        label: region.label,
+        durationMs: summary.durationMs,
+        entryId,
+        ...(summary.tokens !== undefined && { tokens: summary.tokens }),
+      });
+      return;
+    }
+
     if (summary.line) {
       this.printOutput({
         type: "log",
         message: summary.line,
         timestamp: new Date(),
-      });
-    }
-
-    if (region.kind === "reasoning" && summary.fullText) {
-      this.pushExpandableReasoning({
-        fullText: summary.fullText,
-        label: region.label,
-        durationMs: summary.durationMs,
-        ...(summary.tokens !== undefined && { tokens: summary.tokens }),
       });
     }
   };
@@ -526,21 +627,50 @@ export class UIStore {
   };
 
   /**
-   * Pop the most recent unexpanded reasoning block and emit it into
-   * scrollback. Pressing Ctrl-R repeatedly walks backwards through the
-   * turn's collapsed reasoning blocks. No-op once the stack is empty.
+   * Keep the live reasoning panel expanded when it settles, so Ctrl+R during
+   * a run does not wait for the turn to finish and then dump the thought
+   * under the answer.
    */
-  expandLastReasoning = (): void => {
+  pinOpenReasoning = (): boolean => {
+    let pinned = false;
+    for (const region of this.ephemeralRegions.values()) {
+      if (region.kind !== "reasoning") continue;
+      this.pinnedReasoningIds.add(region.id);
+      pinned = true;
+    }
+    return pinned;
+  };
+
+  /**
+   * Expand the most recently collapsed reasoning *in the place it was
+   * thought*. Appending it as a new log line put the thought under the
+   * answer, which is the opposite of the order it happened.
+   */
+  expandLastReasoning = (): boolean => {
     const value = this.expandableReasoningStack.pop();
-    if (!value) return;
+    if (value === undefined) return this.pinOpenReasoning();
     const seconds = (value.durationMs / 1000).toFixed(1);
-    this.printOutput({
+    const entry: OutputEntry = {
       type: "streamContent",
       message: `*${value.label} · ${seconds}s*\n\n${value.fullText}`,
-      meta: { kind: "reasoning" },
+      meta: {
+        kind: "reasoning",
+        collapsed: false,
+        fullText: value.fullText,
+        durationMs: value.durationMs,
+        label: value.label,
+      },
       timestamp: new Date(),
-    });
+      ...(value.entryId === undefined ? {} : { id: value.entryId }),
+    };
+    if (value.entryId !== undefined && this.updateOutputHandler !== null) {
+      this.updateOutputHandler(value.entryId, entry);
+    } else {
+      this.printOutput(entry);
+      this.flushOutputBatchNow();
+    }
     this.setExpandableReasoning(this.expandableReasoningStack.at(-1) ?? null);
+    return true;
   };
 
   appendStream = (kind: StreamKind, delta: string): void => {
@@ -567,6 +697,7 @@ export class UIStore {
     // Reasoning from before the clear is stale context — drop it so Ctrl+R
     // can't resurrect output the user just wiped.
     this.expandableReasoningStack = [];
+    this.pinnedReasoningIds.clear();
     this.setExpandableReasoning(null);
 
     if (!this.clearOutputsHandler) {
@@ -579,46 +710,77 @@ export class UIStore {
 
   // ── Registration methods (called by island components) ────────────
 
-  registerPrintOutput(handler: PrintOutputHandler): void {
+  private activeMenuSnapshot: ActiveMenu | null = null;
+  private activeMenuSetter: ((menu: ActiveMenu | null) => void) | null = null;
+  private connectorsSnapshot: ReadonlyMap<string, ConnectorStatus> = new Map();
+  private connectorsSetter: ((connectors: ReadonlyMap<string, ConnectorStatus>) => void) | null =
+    null;
+  private approvalRequestSnapshot: PendingApproval | null = null;
+  private approvalRequestSetter: ((request: PendingApproval | null) => void) | null = null;
+
+  registerPrintOutput(handler: PrintOutputHandler | null): void {
     this.printOutputHandler = handler;
+  }
+
+  registerUpdateOutput(handler: UpdateOutputHandler | null): void {
+    this.updateOutputHandler = handler;
   }
 
   registerStreamingHandler(handler: StreamingHandler | null): void {
     this.streamingHandler = handler;
   }
 
-  registerClearOutputs(handler: () => void): void {
+  registerClearOutputs(handler: (() => void) | null): void {
     this.clearOutputsHandler = handler;
   }
 
-  registerActivitySetter(setter: (activity: ActivityState) => void): void {
+  registerActivitySetter(setter: ((activity: ActivityState) => void) | null): void {
     this.activitySetter = setter;
   }
 
-  registerPromptSetter(setter: (prompt: PromptState | null) => void): void {
+  registerPromptSetter(setter: ((prompt: PromptState | null) => void) | null): void {
     this.promptSetter = setter;
+    if (setter) {
+      setter(this.promptSnapshot);
+    }
   }
 
-  registerWorkingDirectorySetter(setter: (wd: string | null) => void): void {
+  registerWorkingDirectorySetter(setter: ((wd: string | null) => void) | null): void {
     this.workingDirectorySetter = setter;
+    if (setter) {
+      setter(this.workingDirectorySnapshot);
+    }
   }
 
-  registerRunStatsSetter(setter: (stats: RunStats) => void): void {
+  registerRunStatsSetter(setter: ((stats: RunStats) => void) | null): void {
     this.runStatsSetter = setter;
+    if (setter) {
+      setter(this.runStatsSnapshot);
+    }
   }
 
-  registerCustomView(setter: (view: React.ReactNode | null) => void): void {
-    this.setCustomView = setter;
+  registerCustomView(setter: (view: React.ReactNode | null) => void): () => void {
+    this.customViewSetter = setter;
+    setter(this.customViewSnapshot);
+    return () => {
+      if (this.customViewSetter === setter) {
+        this.customViewSetter = null;
+      }
+    };
   }
 
-  registerMessageQueueSetter(setter: (queue: readonly string[]) => void): void {
+  registerMessageQueueSetter(setter: ((queue: readonly string[]) => void) | null): void {
     this.messageQueueSetter = setter;
-    setter(this.messageQueueSnapshot);
+    if (setter) {
+      setter(this.messageQueueSnapshot);
+    }
   }
 
-  registerChatBusySetter(setter: (busy: boolean) => void): void {
+  registerChatBusySetter(setter: ((busy: boolean) => void) | null): void {
     this.chatBusySetter = setter;
-    setter(this.chatBusySnapshot);
+    if (setter) {
+      setter(this.chatBusySnapshot);
+    }
   }
 
   registerInterruptHandler(setter: ((handler: (() => void) | null) => void) | null): void {
@@ -629,14 +791,95 @@ export class UIStore {
     }
   }
 
-  registerEphemeralRegionsSetter(setter: (regions: readonly EphemeralRegion[]) => void): void {
-    this.ephemeralRegionsSetter = setter;
-    setter(this.ephemeralRegionsSnapshot);
+  requestRendererFallback = (): void => {
+    this.rendererFallbackHandler?.();
+  };
+
+  registerRendererFallbackHandler = (handler: () => void): (() => void) => {
+    this.rendererFallbackHandler = handler;
+    return () => {
+      if (this.rendererFallbackHandler === handler) {
+        this.rendererFallbackHandler = null;
+      }
+    };
+  };
+
+  /** The menu currently awaiting a choice, or null. */
+  setActiveMenu = (menu: ActiveMenu | null): void => {
+    this.activeMenuSnapshot = menu;
+    if (this.activeMenuSetter) this.activeMenuSetter(menu);
+  };
+
+  registerActiveMenuSetter(setter: ((menu: ActiveMenu | null) => void) | null): void {
+    this.activeMenuSetter = setter;
+    if (setter) {
+      setter(this.activeMenuSnapshot);
+    }
   }
 
-  registerExpandableReasoningSetter(setter: (value: ExpandableReasoning | null) => void): void {
+  getActiveMenuSnapshot(): ActiveMenu | null {
+    return this.activeMenuSnapshot;
+  }
+
+  /** Reachability of the named connectors, newest state wins per name. */
+  setConnector = (name: string, status: ConnectorStatus): void => {
+    const next = new Map(this.connectorsSnapshot);
+    next.set(name, status);
+    this.connectorsSnapshot = next;
+    if (this.connectorsSetter) this.connectorsSetter(next);
+  };
+
+  registerConnectorsSetter(
+    setter: ((connectors: ReadonlyMap<string, ConnectorStatus>) => void) | null,
+  ): void {
+    this.connectorsSetter = setter;
+    if (setter) {
+      setter(this.connectorsSnapshot);
+    }
+  }
+
+  getConnectorsSnapshot(): ReadonlyMap<string, ConnectorStatus> {
+    return this.connectorsSnapshot;
+  }
+
+  /**
+   * The approval currently awaiting a decision, as structured data.
+   *
+   * The fullscreen approval card needs details that do not survive flattening
+   * the request into a select prompt, so the request travels alongside it.
+   */
+  setApprovalRequest = (request: PendingApproval | null): void => {
+    this.approvalRequestSnapshot = request;
+    if (this.approvalRequestSetter) this.approvalRequestSetter(request);
+  };
+
+  registerApprovalRequestSetter(setter: ((request: PendingApproval | null) => void) | null): void {
+    this.approvalRequestSetter = setter;
+    if (setter) {
+      setter(this.approvalRequestSnapshot);
+    }
+  }
+
+  getApprovalRequestSnapshot(): PendingApproval | null {
+    return this.approvalRequestSnapshot;
+  }
+
+  registerEphemeralRegionsSetter(
+    setter: ((regions: readonly EphemeralRegion[]) => void) | null,
+  ): void {
+    this.ephemeralRegionsSetter = setter;
+    if (setter) {
+      setter(this.ephemeralRegionsSnapshot);
+    }
+  }
+
+  registerExpandableReasoningSetter(
+    setter: ((value: ExpandableReasoning | null) => void) | null,
+  ): void {
     this.expandableReasoningSetter = setter;
-    setter(this.expandableReasoningSnapshot);
+    if (setter) {
+      setter(this.expandableReasoningSnapshot);
+    }
   }
 
   // ── Snapshot accessors (for hydrating late-registering components) ─

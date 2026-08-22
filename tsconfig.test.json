@@ -12,6 +12,7 @@
   "include": [
     "test-preload.ts",
     "src/**/*.test.ts",
+    "src/**/*.test.tsx",
     "evals/**/*.test.ts",
     "integrations/**/*.test.ts"
   ],

@@ -2,6 +2,7 @@ import { Effect } from "effect";
 import { Box, Text } from "ink";
 import Spinner from "ink-spinner";
 import React from "react";
+import { ensureProviderApiKey } from "@/cli/helpers/provider-api-key";
 import { handleWebSearchConfiguration } from "@/cli/helpers/web-search";
 import { THEME } from "@/cli/ui/theme";
 import * as fmt from "@/cli/utils/list-format";
@@ -18,7 +19,11 @@ import {
 import { normalizeToolConfig } from "@/core/agent/utils/tool-config";
 import type { ProviderName } from "@/core/constants/models";
 import { AVAILABLE_PROVIDERS } from "@/core/constants/models";
-import { buildOllamaContextChoices, defaultOllamaContextWindow } from "@/core/constants/ollama";
+import {
+  buildOllamaContextChoices,
+  defaultOllamaContextWindow,
+  isOllamaCloudModel,
+} from "@/core/constants/ollama";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "@/core/interfaces/agent-service";
 import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
@@ -43,6 +48,7 @@ import type { MCPTool } from "@/core/types/mcp";
 import { extractServerNamesFromToolNames, isAuthenticationRequired } from "@/core/utils/mcp";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import { formatProviderDisplayName } from "@/core/utils/provider-model";
+import { sortProvidersForPicker } from "@/core/utils/provider-picker";
 import { toPascalCase } from "@/core/utils/string";
 
 /**
@@ -89,456 +95,447 @@ export function editAgentCommand(
 > {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
-    const agent = yield* getAgentByIdentifier(agentIdentifier);
     const agentService = yield* AgentServiceTag;
+    let agent = yield* getAgentByIdentifier(agentIdentifier);
 
-    const formatDate = (date: Date): string =>
-      date.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+    while (true) {
+      const formatDate = (date: Date): string =>
+        date.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
 
-    const summaryRows: string[] = [
-      fmt.heading(`Edit agent · ${agent.name}`),
-      "",
-      ...(agent.description && agent.description !== agent.name
-        ? [fmt.keyValueCompact("Description", agent.description)]
-        : []),
-      fmt.keyValueCompact(
-        "Model",
-        `${formatProviderDisplayName(agent.config.llmProvider)} · ${agent.config.llmModel}`,
-      ),
-      fmt.keyValueCompact("Persona", agent.config.persona || "default"),
-      fmt.keyValueCompact("Reasoning", agent.config.reasoningEffort || "disabled"),
-      fmt.keyValueCompact("Tools", `${agent.config.tools ? agent.config.tools.length : 0}`),
-      fmt.keyValueCompact(
-        "Updated",
-        `${formatDate(agent.updatedAt)} (created ${formatDate(agent.createdAt)})`,
-      ),
-      fmt.keyValueCompact("ID", agent.id),
-    ];
-    yield* terminal.log(summaryRows.join("\n"));
-    yield* terminal.log("");
-
-    // Get available LLM providers and models
-    const llmService = yield* LLMServiceTag;
-    const configService = yield* AgentConfigServiceTag;
-    const providers = yield* llmService.listProviders();
-
-    // Get available personas (built-in + custom)
-    const personaService = yield* PersonaServiceTag;
-    const personas = yield* personaService.listPersonas();
-    const personaNames = personas.map((p) => p.name);
-
-    // Get available tools by category
-    const toolRegistry = yield* ToolRegistryTag;
-    let toolsByCategory = yield* toolRegistry.listToolsByCategory();
-
-    // Create mappings between category display names and IDs
-    const categoryMappings = createCategoryMappings();
-    const categoryDisplayNameToId: Map<string, string> = categoryMappings.displayNameToId;
-
-    const mcpServerData = yield* getMCPServerCategories();
-    toolsByCategory = { ...toolsByCategory, ...mcpServerData.categories };
-
-    // Add MCP server category mappings (category ID format: mcp_<servername>)
-    for (const [displayName, serverName] of mcpServerData.displayNameToServerName.entries()) {
-      categoryDisplayNameToId.set(displayName, mcpToolCategory(serverName).id);
-    }
-
-    // Get current provider info for model selection
-    const currentProviderInfo = yield* llmService
-      .getProvider(agent.config.llmProvider)
-      .pipe(Effect.catchAll(() => Effect.succeed(null as LLMProvider | null)));
-
-    // Check if current model is reasoning model (needed for field choices)
-    // Use models.dev metadata directly for more accuracy (especially for newer models)
-    const currentModelMeta = yield* Effect.promise(() =>
-      getModelsDevMetadata(agent.config.llmModel, agent.config.llmProvider),
-    );
-    const currentModelIsReasoning = currentModelMeta?.isReasoningModel ?? false;
-    const supportsTools = currentModelMeta?.supportsTools ?? true; // Default to true if unknown to avoid blocking tools
-
-    // Auto-cleanup: if model doesn't support tools but agent has them, clear them
-    if (!supportsTools && agent.config.tools && agent.config.tools.length > 0) {
-      yield* terminal.warn(
-        `\n⚠️  The current model (${agent.config.llmModel}) does not support tools. Clearing configured tools.`,
-      );
-
-      // Clear tools in the database
-      yield* agentService.updateAgent(agent.id, {
-        config: { ...agent.config, tools: [] },
-      });
-    }
-
-    // First, ask what field to update
-    const fieldToUpdate = yield* terminal.select<string>("What would you like to update?", {
-      choices: [
-        { name: "Name", value: "name" },
-        { name: "Description", value: "description" },
-        { name: "Persona", value: "persona" },
-        { name: "LLM Provider", value: "llmProvider" },
-        { name: "LLM Model", value: "llmModel" },
-        { name: "LLM API Key (Agent Override)", value: "llmApiKey" },
-        {
-          name: currentModelIsReasoning
-            ? "Reasoning Effort"
-            : "Reasoning Effort (Not supported by current model)",
-          value: "reasoningEffort",
-          disabled: !currentModelIsReasoning,
-        },
-        {
-          name: supportsTools ? "Tools" : "Tools (Not supported by current model)",
-          value: "tools",
-          disabled: !supportsTools,
-        },
-        ...(agent.config.llmProvider === "ollama"
-          ? [{ name: "Context Window", value: "contextWindow" }]
+      const summaryRows: string[] = [
+        fmt.heading(`Edit agent · ${agent.name}`),
+        "",
+        ...(agent.description && agent.description !== agent.name
+          ? [fmt.keyValueCompact("Description", agent.description)]
           : []),
-        { name: "Max Context Tokens", value: "maxContextTokens" },
-      ],
-    });
+        fmt.keyValueCompact(
+          "Model",
+          `${formatProviderDisplayName(agent.config.llmProvider)} · ${agent.config.llmModel}`,
+        ),
+        fmt.keyValueCompact("Persona", agent.config.persona || "default"),
+        fmt.keyValueCompact("Reasoning", agent.config.reasoningEffort || "disabled"),
+        fmt.keyValueCompact("Tools", `${agent.config.tools ? agent.config.tools.length : 0}`),
+        fmt.keyValueCompact(
+          "Updated",
+          `${formatDate(agent.updatedAt)} (created ${formatDate(agent.createdAt)})`,
+        ),
+        fmt.keyValueCompact("ID", agent.id),
+      ];
+      yield* terminal.log(summaryRows.join("\n"));
+      yield* terminal.log("");
 
-    if (!fieldToUpdate) {
-      yield* terminal.info("Edit cancelled.");
-      return;
-    }
+      // Get available LLM providers and models
+      const llmService = yield* LLMServiceTag;
+      const configService = yield* AgentConfigServiceTag;
+      const providers = yield* llmService.listProviders();
 
-    // Get logger and MCP manager for use throughout
-    const logger = yield* LoggerServiceTag;
-    const mcpManager = yield* MCPServerManagerTag;
+      // Get available personas (built-in + custom)
+      const personaService = yield* PersonaServiceTag;
+      const personas = yield* personaService.listPersonas();
+      const personaNames = personas.map((p) => p.name);
 
-    // If user selected "tools", connect to all configured MCP servers and discover their tools
-    // BEFORE showing the tool selection, so all MCP tools are available
-    if (fieldToUpdate === "tools") {
-      if (!supportsTools) {
+      // Get available tools by category
+      const toolRegistry = yield* ToolRegistryTag;
+      let toolsByCategory = yield* toolRegistry.listToolsByCategory();
+
+      // Create mappings between category display names and IDs
+      const categoryMappings = createCategoryMappings();
+      const categoryDisplayNameToId: Map<string, string> = categoryMappings.displayNameToId;
+
+      const mcpServerData = yield* getMCPServerCategories();
+      toolsByCategory = { ...toolsByCategory, ...mcpServerData.categories };
+
+      // Add MCP server category mappings (category ID format: mcp_<servername>)
+      for (const [displayName, serverName] of mcpServerData.displayNameToServerName.entries()) {
+        categoryDisplayNameToId.set(displayName, mcpToolCategory(serverName).id);
+      }
+
+      // Get current provider info for model selection
+      const currentProviderInfo = yield* llmService
+        .getProvider(agent.config.llmProvider)
+        .pipe(Effect.catchAll(() => Effect.succeed(null as LLMProvider | null)));
+
+      // Check if current model is reasoning model (needed for field choices)
+      // Use models.dev metadata directly for more accuracy (especially for newer models)
+      const currentModelMeta = yield* Effect.promise(() =>
+        getModelsDevMetadata(agent.config.llmModel, agent.config.llmProvider),
+      );
+      const currentModelIsReasoning = currentModelMeta?.isReasoningModel ?? false;
+      const supportsTools = currentModelMeta?.supportsTools ?? true; // Default to true if unknown to avoid blocking tools
+
+      // Auto-cleanup: if model doesn't support tools but agent has them, clear them
+      if (!supportsTools && agent.config.tools && agent.config.tools.length > 0) {
         yield* terminal.warn(
-          `\n⚠️  The current model (${agent.config.llmModel}) does not support tools.`,
+          `\n⚠️  The current model (${agent.config.llmModel}) does not support tools. Clearing configured tools.`,
         );
-        // Re-run the command to let user pick something else, or just exit
+
+        // Clear tools in the database
+        yield* agentService.updateAgent(agent.id, {
+          config: { ...agent.config, tools: [] },
+        });
+      }
+
+      // First, ask what field to update
+      const fieldToUpdate = yield* terminal.select<string>("What would you like to update?", {
+        choices: [
+          { name: "Name", value: "name" },
+          { name: "Description", value: "description" },
+          { name: "Persona", value: "persona" },
+          { name: "LLM Provider", value: "llmProvider" },
+          { name: "LLM Model", value: "llmModel" },
+          { name: "LLM API Key (Agent Override)", value: "llmApiKey" },
+          {
+            name: currentModelIsReasoning
+              ? "Reasoning Effort"
+              : "Reasoning Effort (Not supported by current model)",
+            value: "reasoningEffort",
+            disabled: !currentModelIsReasoning,
+          },
+          {
+            name: supportsTools ? "Tools" : "Tools (Not supported by current model)",
+            value: "tools",
+            disabled: !supportsTools,
+          },
+          ...(agent.config.llmProvider === "ollama"
+            ? [{ name: "Context Window", value: "contextWindow" }]
+            : []),
+          { name: "Max Context Tokens", value: "maxContextTokens" },
+          { name: "Done", value: "done" },
+        ],
+      });
+
+      if (!fieldToUpdate || fieldToUpdate === "done") {
         return;
       }
 
-      const allServers = yield* mcpManager.listServers();
-      const enabledServers = allServers.filter((server) => server.enabled !== false);
+      // Get logger and MCP manager for use throughout
+      const logger = yield* LoggerServiceTag;
+      const mcpManager = yield* MCPServerManagerTag;
 
-      if (enabledServers.length > 0) {
-        yield* terminal.log(
-          ink(
-            React.createElement(
-              Box,
-              {},
+      // If user selected "tools", connect to all configured MCP servers and discover their tools
+      // BEFORE showing the tool selection, so all MCP tools are available
+      if (fieldToUpdate === "tools") {
+        if (!supportsTools) {
+          yield* terminal.warn(
+            `\n⚠️  The current model (${agent.config.llmModel}) does not support tools.`,
+          );
+          continue;
+        }
+
+        const allServers = yield* mcpManager.listServers();
+        const enabledServers = allServers.filter((server) => server.enabled !== false);
+
+        if (enabledServers.length > 0) {
+          yield* terminal.log(
+            ink(
               React.createElement(
-                Text,
-                { color: THEME.primary },
-                React.createElement(Spinner, { type: "dots" }),
+                Box,
+                {},
+                React.createElement(
+                  Text,
+                  { color: THEME.primary },
+                  React.createElement(Spinner, { type: "dots" }),
+                ),
+                React.createElement(Text, {}, " Discovering tools from MCP servers..."),
               ),
-              React.createElement(Text, {}, " Discovering tools from MCP servers..."),
             ),
-          ),
-        );
+          );
 
-        // Discover and register tools from all enabled MCP servers
-        const discoveryEffects = enabledServers.map((serverConfig) =>
-          Effect.gen(function* () {
-            yield* logger.debug(`Discovering tools from MCP server ${serverConfig.name}...`);
-            yield* terminal.debug(`Discovering tools from MCP server ${serverConfig.name}...`);
+          // Discover and register tools from all enabled MCP servers
+          const discoveryEffects = enabledServers.map((serverConfig) =>
+            Effect.gen(function* () {
+              yield* logger.debug(`Discovering tools from MCP server ${serverConfig.name}...`);
+              yield* terminal.debug(`Discovering tools from MCP server ${serverConfig.name}...`);
 
-            // Find the display name for this server
-            let categoryDisplayName: string | undefined;
-            for (const [
-              displayName,
-              serverName,
-            ] of mcpServerData.displayNameToServerName.entries()) {
-              if (serverName === serverConfig.name) {
-                categoryDisplayName = displayName;
-                break;
+              // Find the display name for this server
+              let categoryDisplayName: string | undefined;
+              for (const [
+                displayName,
+                serverName,
+              ] of mcpServerData.displayNameToServerName.entries()) {
+                if (serverName === serverConfig.name) {
+                  categoryDisplayName = displayName;
+                  break;
+                }
               }
-            }
-            if (!categoryDisplayName) {
-              categoryDisplayName = `${toPascalCase(serverConfig.name)} (MCP)`;
-            }
+              if (!categoryDisplayName) {
+                categoryDisplayName = `${toPascalCase(serverConfig.name)} (MCP)`;
+              }
 
-            // Discover tools from server with timeout (45 seconds per server to allow for authentication)
-            const mcpTools = yield* mcpManager.discoverTools(serverConfig).pipe(
-              Effect.timeout("45 seconds"),
-              Effect.catchAll((error) =>
-                Effect.gen(function* () {
-                  // Log detailed error information
-                  const errorMessage = error instanceof Error ? error.message : String(error);
-                  const errorString = String(error);
-                  const errorStack = error instanceof Error ? error.stack : undefined;
-                  const isAuthRequired = isAuthenticationRequired(error);
+              // Discover tools from server with timeout (45 seconds per server to allow for authentication)
+              const mcpTools = yield* mcpManager.discoverTools(serverConfig).pipe(
+                Effect.timeout("45 seconds"),
+                Effect.catchAll((error) =>
+                  Effect.gen(function* () {
+                    // Log detailed error information
+                    const errorMessage = error instanceof Error ? error.message : String(error);
+                    const errorString = String(error);
+                    const errorStack = error instanceof Error ? error.stack : undefined;
+                    const isAuthRequired = isAuthenticationRequired(error);
 
-                  // Check for Effect tagged errors
-                  let errorDetails = `Type: ${error instanceof Error ? error.constructor.name : typeof error}, Message: ${errorMessage}`;
-                  if (typeof error === "object" && error !== null) {
-                    if ("_tag" in error) {
-                      errorDetails += `, Tag: ${(error as { _tag: string })._tag}`;
+                    // Check for Effect tagged errors
+                    let errorDetails = `Type: ${error instanceof Error ? error.constructor.name : typeof error}, Message: ${errorMessage}`;
+                    if (typeof error === "object" && error !== null) {
+                      if ("_tag" in error) {
+                        errorDetails += `, Tag: ${(error as { _tag: string })._tag}`;
+                      }
+                      if ("reason" in error) {
+                        errorDetails += `, Reason: ${(error as { reason: string }).reason}`;
+                      }
+                      if ("serverName" in error) {
+                        errorDetails += `, Server: ${(error as { serverName: string }).serverName}`;
+                      }
+                      if ("suggestion" in error) {
+                        errorDetails += `, Suggestion: ${(error as { suggestion: string }).suggestion}`;
+                      }
                     }
-                    if ("reason" in error) {
-                      errorDetails += `, Reason: ${(error as { reason: string }).reason}`;
-                    }
-                    if ("serverName" in error) {
-                      errorDetails += `, Server: ${(error as { serverName: string }).serverName}`;
-                    }
-                    if ("suggestion" in error) {
-                      errorDetails += `, Suggestion: ${(error as { suggestion: string }).suggestion}`;
-                    }
-                  }
 
-                  yield* terminal.debug(
-                    `Error discovering tools from ${toPascalCase(serverConfig.name)}: ${errorDetails}${errorStack ? `\nStack: ${errorStack}` : ""}`,
-                  );
-                  yield* logger.warn(
-                    `Error discovering tools from ${toPascalCase(serverConfig.name)}: ${errorDetails}`,
-                  );
+                    yield* terminal.debug(
+                      `Error discovering tools from ${toPascalCase(serverConfig.name)}: ${errorDetails}${errorStack ? `\nStack: ${errorStack}` : ""}`,
+                    );
+                    yield* logger.warn(
+                      `Error discovering tools from ${toPascalCase(serverConfig.name)}: ${errorDetails}`,
+                    );
 
-                  if (
-                    errorMessage.includes("timeout") ||
-                    errorMessage.includes("Timeout") ||
-                    errorString.includes("timeout") ||
-                    errorString.includes("Timeout")
-                  ) {
-                    if (isAuthRequired) {
+                    if (
+                      errorMessage.includes("timeout") ||
+                      errorMessage.includes("Timeout") ||
+                      errorString.includes("timeout") ||
+                      errorString.includes("Timeout")
+                    ) {
+                      if (isAuthRequired) {
+                        yield* terminal.warn(
+                          `MCP server ${toPascalCase(serverConfig.name)} connection timed out after 45 seconds. The server may be waiting for authentication. Please check if manual authentication is required.`,
+                        );
+                      } else {
+                        yield* terminal.warn(
+                          `MCP server ${toPascalCase(serverConfig.name)} connection timed out after 45 seconds`,
+                        );
+                      }
+                    } else if (isAuthRequired) {
                       yield* terminal.warn(
-                        `MCP server ${toPascalCase(serverConfig.name)} connection timed out after 45 seconds. The server may be waiting for authentication. Please check if manual authentication is required.`,
+                        `MCP server ${toPascalCase(serverConfig.name)} requires authentication: ${errorMessage}`,
                       );
                     } else {
                       yield* terminal.warn(
-                        `MCP server ${toPascalCase(serverConfig.name)} connection timed out after 45 seconds`,
+                        `Failed to discover tools from MCP server ${toPascalCase(serverConfig.name)}: ${errorMessage}`,
                       );
                     }
-                  } else if (isAuthRequired) {
-                    yield* terminal.warn(
-                      `MCP server ${toPascalCase(serverConfig.name)} requires authentication: ${errorMessage}`,
-                    );
-                  } else {
-                    yield* terminal.warn(
-                      `Failed to discover tools from MCP server ${toPascalCase(serverConfig.name)}: ${errorMessage}`,
-                    );
-                  }
-                  // Return empty array on error/timeout
-                  return [] as readonly MCPTool[];
+                    // Return empty array on error/timeout
+                    return [] as readonly MCPTool[];
+                  }),
+                ),
+              );
+
+              if (mcpTools.length === 0) {
+                yield* terminal.debug(
+                  `No tools discovered from ${serverConfig.name} - this could mean the server has no tools, or there was an error during discovery (check logs above)`,
+                );
+                yield* logger.warn(
+                  `No tools discovered from ${serverConfig.name} - server may have no tools available or discovery failed silently`,
+                );
+                return;
+              }
+
+              yield* terminal.debug(
+                `Discovered ${mcpTools.length} tools from ${toPascalCase(serverConfig.name)}: ${mcpTools
+                  .map((t) => t.name)
+                  .slice(0, 5)
+                  .join(", ")}${mcpTools.length > 5 ? "..." : ""}`,
+              );
+
+              // Determine category for tools using the exact display name from the UI
+              const category = {
+                id: `mcp_${serverConfig.name.toLowerCase()}`,
+                displayName: categoryDisplayName,
+              };
+
+              // Register tools
+              const registerTool = toolRegistry.registerForCategory(category);
+              const jazzTools = yield* registerMCPServerTools(serverConfig, mcpTools);
+
+              for (const tool of jazzTools) {
+                yield* registerTool(tool);
+              }
+
+              yield* logger.info(
+                `Registered ${jazzTools.length} tools from MCP server ${serverConfig.name} in category "${categoryDisplayName}"`,
+              );
+              yield* terminal.debug(
+                `Registered ${jazzTools.length} tools from MCP server ${serverConfig.name}`,
+              );
+            }).pipe(
+              Effect.catchAll(() =>
+                Effect.gen(function* () {
+                  // If discovery/registration fails, continue without this server's tools
+                  yield* logger.warn(
+                    `Failed to discover/register tools from MCP server ${serverConfig.name}`,
+                  );
+                  yield* terminal.debug(
+                    `Failed to discover/register tools from MCP server ${serverConfig.name}`,
+                  );
                 }),
               ),
-            );
-
-            if (mcpTools.length === 0) {
-              yield* terminal.debug(
-                `No tools discovered from ${serverConfig.name} - this could mean the server has no tools, or there was an error during discovery (check logs above)`,
-              );
-              yield* logger.warn(
-                `No tools discovered from ${serverConfig.name} - server may have no tools available or discovery failed silently`,
-              );
-              return;
-            }
-
-            yield* terminal.debug(
-              `Discovered ${mcpTools.length} tools from ${toPascalCase(serverConfig.name)}: ${mcpTools
-                .map((t) => t.name)
-                .slice(0, 5)
-                .join(", ")}${mcpTools.length > 5 ? "..." : ""}`,
-            );
-
-            // Determine category for tools using the exact display name from the UI
-            const category = {
-              id: `mcp_${serverConfig.name.toLowerCase()}`,
-              displayName: categoryDisplayName,
-            };
-
-            // Register tools
-            const registerTool = toolRegistry.registerForCategory(category);
-            const jazzTools = yield* registerMCPServerTools(serverConfig, mcpTools);
-
-            for (const tool of jazzTools) {
-              yield* registerTool(tool);
-            }
-
-            yield* logger.info(
-              `Registered ${jazzTools.length} tools from MCP server ${serverConfig.name} in category "${categoryDisplayName}"`,
-            );
-            yield* terminal.debug(
-              `Registered ${jazzTools.length} tools from MCP server ${serverConfig.name}`,
-            );
-          }).pipe(
-            Effect.catchAll(() =>
-              Effect.gen(function* () {
-                // If discovery/registration fails, continue without this server's tools
-                yield* logger.warn(
-                  `Failed to discover/register tools from MCP server ${serverConfig.name}`,
-                );
-                yield* terminal.debug(
-                  `Failed to discover/register tools from MCP server ${serverConfig.name}`,
-                );
-              }),
             ),
+          );
+
+          // Run all discoveries in parallel
+          yield* Effect.all(discoveryEffects, { concurrency: "unbounded" });
+
+          // Refresh tools list after MCP discovery
+          toolsByCategory = yield* toolRegistry.listToolsByCategory();
+          yield* terminal.debug(
+            `After MCP discovery, available categories: ${Object.keys(toolsByCategory).join(", ")}`,
+          );
+        }
+      }
+
+      const editAnswers = yield* Effect.tryPromise({
+        try: () =>
+          promptForAgentUpdates(
+            agent,
+            providers,
+            personaNames,
+            toolsByCategory,
+            terminal,
+            llmService,
+            configService,
+            currentProviderInfo,
+            fieldToUpdate,
+            mcpServerData,
           ),
-        );
+        catch: (error) =>
+          new ValidationError({
+            field: "agent",
+            message: `Agent edit wizard failed: ${error instanceof Error ? error.message : String(error)}`,
+          }),
+      });
 
-        // Run all discoveries in parallel
-        yield* Effect.all(discoveryEffects, { concurrency: "unbounded" });
+      if (editAnswers === null) {
+        yield* terminal.info("Edit cancelled.");
+        continue;
+      }
 
-        // Refresh tools list after MCP discovery
+      // Tools are already discovered and registered (if fieldToUpdate was "tools")
+      // Just convert selected categories to tool names
+      // Convert selected categories (display names) to tool names
+      // Only process if user selected tools (editAnswers.tools contains category display names)
+      if (editAnswers.tools && editAnswers.tools.length > 0) {
+        // Refresh toolsByCategory to ensure we have the latest tools (including newly registered MCP tools)
         toolsByCategory = yield* toolRegistry.listToolsByCategory();
-        yield* terminal.debug(
-          `After MCP discovery, available categories: ${Object.keys(toolsByCategory).join(", ")}`,
+
+        yield* logger.debug(
+          `Available categories in toolsByCategory: ${Object.keys(toolsByCategory).join(", ")}`,
         );
-      }
-    }
+        yield* terminal.debug(
+          `Available categories in toolsByCategory: ${Object.keys(toolsByCategory).join(", ")}`,
+        );
+        yield* logger.debug(`Selected category display names: ${editAnswers.tools.join(", ")}`);
+        yield* terminal.debug(`Selected category display names: ${editAnswers.tools.join(", ")}`);
 
-    // Prompt for updates
-    const editAnswers = yield* Effect.tryPromise({
-      try: () =>
-        promptForAgentUpdates(
-          agent,
-          providers,
-          personaNames,
-          toolsByCategory,
-          terminal,
-          llmService,
-          configService,
-          currentProviderInfo,
-          fieldToUpdate,
-          mcpServerData,
-        ),
-      catch: (error) =>
-        new ValidationError({
-          field: "agent",
-          message: `Agent edit wizard failed: ${error instanceof Error ? error.message : String(error)}`,
-        }),
-    });
+        // Get tools directly from toolsByCategory using the selected display names
+        // This ensures we get all tools from selected categories, including newly registered MCP tools
+        // Use case-insensitive lookup to handle any capitalization mismatches
+        const selectedToolNames: string[] = [];
+        const categoryKeys = Object.keys(toolsByCategory);
+        const categoryMap = new Map<string, string>();
+        for (const key of categoryKeys) {
+          categoryMap.set(key.toLowerCase(), key);
+        }
 
-    // Tools are already discovered and registered (if fieldToUpdate was "tools")
-    // Just convert selected categories to tool names
-    // Convert selected categories (display names) to tool names
-    // Only process if user selected tools (editAnswers.tools contains category display names)
-    if (editAnswers.tools && editAnswers.tools.length > 0) {
-      // Refresh toolsByCategory to ensure we have the latest tools (including newly registered MCP tools)
-      toolsByCategory = yield* toolRegistry.listToolsByCategory();
+        for (const selectedDisplayName of editAnswers.tools) {
+          // Try exact match first
+          let toolsInCategory = toolsByCategory[selectedDisplayName];
 
-      yield* logger.debug(
-        `Available categories in toolsByCategory: ${Object.keys(toolsByCategory).join(", ")}`,
-      );
-      yield* terminal.debug(
-        `Available categories in toolsByCategory: ${Object.keys(toolsByCategory).join(", ")}`,
-      );
-      yield* logger.debug(`Selected category display names: ${editAnswers.tools.join(", ")}`);
-      yield* terminal.debug(`Selected category display names: ${editAnswers.tools.join(", ")}`);
+          // If not found, try case-insensitive match
+          if (!toolsInCategory || toolsInCategory.length === 0) {
+            const normalizedKey = categoryMap.get(selectedDisplayName.toLowerCase());
+            if (normalizedKey) {
+              toolsInCategory = toolsByCategory[normalizedKey];
+              yield* logger.debug(
+                `Found category "${normalizedKey}" using case-insensitive match for "${selectedDisplayName}"`,
+              );
+              yield* terminal.debug(
+                `Found category "${normalizedKey}" using case-insensitive match for "${selectedDisplayName}"`,
+              );
+            }
+          }
 
-      // Get tools directly from toolsByCategory using the selected display names
-      // This ensures we get all tools from selected categories, including newly registered MCP tools
-      // Use case-insensitive lookup to handle any capitalization mismatches
-      const selectedToolNames: string[] = [];
-      const categoryKeys = Object.keys(toolsByCategory);
-      const categoryMap = new Map<string, string>();
-      for (const key of categoryKeys) {
-        categoryMap.set(key.toLowerCase(), key);
-      }
-
-      for (const selectedDisplayName of editAnswers.tools) {
-        // Try exact match first
-        let toolsInCategory = toolsByCategory[selectedDisplayName];
-
-        // If not found, try case-insensitive match
-        if (!toolsInCategory || toolsInCategory.length === 0) {
-          const normalizedKey = categoryMap.get(selectedDisplayName.toLowerCase());
-          if (normalizedKey) {
-            toolsInCategory = toolsByCategory[normalizedKey];
+          if (toolsInCategory && toolsInCategory.length > 0) {
             yield* logger.debug(
-              `Found category "${normalizedKey}" using case-insensitive match for "${selectedDisplayName}"`,
+              `Found ${toolsInCategory.length} tools in category "${selectedDisplayName}": ${toolsInCategory.slice(0, 5).join(", ")}${toolsInCategory.length > 5 ? "..." : ""}`,
             );
             yield* terminal.debug(
-              `Found category "${normalizedKey}" using case-insensitive match for "${selectedDisplayName}"`,
+              `Found ${toolsInCategory.length} tools in category "${selectedDisplayName}": ${toolsInCategory.slice(0, 5).join(", ")}${toolsInCategory.length > 5 ? "..." : ""}`,
+            );
+            selectedToolNames.push(...toolsInCategory);
+          } else {
+            yield* logger.warn(
+              `No tools found in category "${selectedDisplayName}". Available categories: ${categoryKeys.join(", ")}`,
+            );
+            yield* terminal.warn(
+              `No tools found in category "${selectedDisplayName}". Available categories: ${categoryKeys.join(", ")}`,
             );
           }
         }
 
-        if (toolsInCategory && toolsInCategory.length > 0) {
-          yield* logger.debug(
-            `Found ${toolsInCategory.length} tools in category "${selectedDisplayName}": ${toolsInCategory.slice(0, 5).join(", ")}${toolsInCategory.length > 5 ? "..." : ""}`,
-          );
-          yield* terminal.debug(
-            `Found ${toolsInCategory.length} tools in category "${selectedDisplayName}": ${toolsInCategory.slice(0, 5).join(", ")}${toolsInCategory.length > 5 ? "..." : ""}`,
-          );
-          selectedToolNames.push(...toolsInCategory);
-        } else {
-          yield* logger.warn(
-            `No tools found in category "${selectedDisplayName}". Available categories: ${categoryKeys.join(", ")}`,
-          );
-          yield* terminal.warn(
-            `No tools found in category "${selectedDisplayName}". Available categories: ${categoryKeys.join(", ")}`,
-          );
-        }
+        const uniqueToolNames = Array.from(new Set(selectedToolNames));
+
+        yield* logger.debug(
+          `Total unique tool names from selected categories: ${uniqueToolNames.length} tools: ${uniqueToolNames.slice(0, 10).join(", ")}${uniqueToolNames.length > 10 ? "..." : ""}`,
+        );
+        yield* terminal.debug(
+          `Total unique tool names from selected categories: ${uniqueToolNames.length} tools: ${uniqueToolNames.slice(0, 10).join(", ")}${uniqueToolNames.length > 10 ? "..." : ""}`,
+        );
+
+        // Always update tools with the actual tool names (including newly registered MCP tools)
+        editAnswers.tools = uniqueToolNames;
       }
 
-      const uniqueToolNames = Array.from(new Set(selectedToolNames));
+      // Build updated configuration
+      let updatedConfig: AgentConfig = {
+        ...agent.config,
+        ...(editAnswers.persona && { persona: editAnswers.persona }),
+        ...(editAnswers.llmProvider && { llmProvider: editAnswers.llmProvider }),
+        ...(editAnswers.llmModel && { llmModel: editAnswers.llmModel }),
+        ...(editAnswers.reasoningEffort && { reasoningEffort: editAnswers.reasoningEffort }),
+        ...(typeof editAnswers.numCtx === "number" && { numCtx: editAnswers.numCtx }),
+        ...(typeof editAnswers.maxContextTokens === "number" && {
+          maxContextTokens: editAnswers.maxContextTokens,
+        }),
+        ...(editAnswers.tools &&
+          editAnswers.tools.length > 0 && { tools: Array.from(new Set(editAnswers.tools)) }),
+        ...(editAnswers.webSearchProvider && { webSearchProvider: editAnswers.webSearchProvider }),
+      };
+      if (editAnswers.maxContextTokens === null) {
+        const { maxContextTokens: _cleared, ...withoutCeiling } = updatedConfig;
+        void _cleared;
+        updatedConfig = withoutCeiling;
+      }
+      if (editAnswers.llmApiKeyProvider) {
+        updatedConfig = setAgentApiKeyOverride(
+          updatedConfig,
+          editAnswers.llmApiKeyProvider,
+          editAnswers.llmApiKeyValue,
+        );
+      }
 
-      yield* logger.debug(
-        `Total unique tool names from selected categories: ${uniqueToolNames.length} tools: ${uniqueToolNames.slice(0, 10).join(", ")}${uniqueToolNames.length > 10 ? "..." : ""}`,
-      );
-      yield* terminal.debug(
-        `Total unique tool names from selected categories: ${uniqueToolNames.length} tools: ${uniqueToolNames.slice(0, 10).join(", ")}${uniqueToolNames.length > 10 ? "..." : ""}`,
-      );
+      // Build update object. The description guard uses !== undefined (not a
+      // truthy check) so a user clearing the description by submitting empty
+      // input actually clears the stored value; a truthy guard would silently
+      // ignore the submission and leave the previous description in place.
+      const updates: Partial<Agent> = {
+        ...(editAnswers.name && { name: editAnswers.name }),
+        ...(editAnswers.description !== undefined && { description: editAnswers.description }),
+        config: updatedConfig,
+      };
 
-      // Always update tools with the actual tool names (including newly registered MCP tools)
-      editAnswers.tools = uniqueToolNames;
+      yield* agentService.updateAgent(agent.id, updates);
+      yield* terminal.success("Agent updated successfully!");
+      yield* terminal.log("");
+
+      agent = yield* getAgentByIdentifier(agent.id);
     }
-
-    // Build updated configuration
-    let updatedConfig: AgentConfig = {
-      ...agent.config,
-      ...(editAnswers.persona && { persona: editAnswers.persona }),
-      ...(editAnswers.llmProvider && { llmProvider: editAnswers.llmProvider }),
-      ...(editAnswers.llmModel && { llmModel: editAnswers.llmModel }),
-      ...(editAnswers.reasoningEffort && { reasoningEffort: editAnswers.reasoningEffort }),
-      ...(typeof editAnswers.numCtx === "number" && { numCtx: editAnswers.numCtx }),
-      ...(typeof editAnswers.maxContextTokens === "number" && {
-        maxContextTokens: editAnswers.maxContextTokens,
-      }),
-      ...(editAnswers.tools &&
-        editAnswers.tools.length > 0 && { tools: Array.from(new Set(editAnswers.tools)) }),
-      ...(editAnswers.webSearchProvider && { webSearchProvider: editAnswers.webSearchProvider }),
-    };
-    if (editAnswers.maxContextTokens === null) {
-      const { maxContextTokens: _cleared, ...withoutCeiling } = updatedConfig;
-      void _cleared;
-      updatedConfig = withoutCeiling;
-    }
-    if (editAnswers.llmApiKeyProvider) {
-      updatedConfig = setAgentApiKeyOverride(
-        updatedConfig,
-        editAnswers.llmApiKeyProvider,
-        editAnswers.llmApiKeyValue,
-      );
-    }
-
-    // Build update object. The description guard uses !== undefined (not a
-    // truthy check) so a user clearing the description by submitting empty
-    // input actually clears the stored value; a truthy guard would silently
-    // ignore the submission and leave the previous description in place.
-    const updates: Partial<Agent> = {
-      ...(editAnswers.name && { name: editAnswers.name }),
-      ...(editAnswers.description !== undefined && { description: editAnswers.description }),
-      config: updatedConfig,
-    };
-
-    // Update the agent
-    const updatedAgent = yield* agentService.updateAgent(agent.id, updates);
-
-    // Display success message
-    yield* terminal.success("Agent updated successfully!");
-    yield* terminal.log(`   ID: ${updatedAgent.id}`);
-    yield* terminal.log(`   Name: ${updatedAgent.name}`);
-    yield* terminal.log(`   Description: ${updatedAgent.description}`);
-    yield* terminal.log(`   Persona: ${updatedConfig.persona || "N/A"}`);
-    yield* terminal.log(
-      `   LLM Provider: ${formatProviderDisplayName(updatedConfig.llmProvider) || "N/A"}`,
-    );
-    yield* terminal.log(`   LLM Model: ${updatedConfig.llmModel || "N/A"}`);
-    yield* terminal.log(`   Reasoning: ${updatedConfig.reasoningEffort || "N/A"}`);
-    yield* terminal.log(`   Tools: ${updatedConfig.tools ? updatedConfig.tools.length : 0} tools`);
-    yield* terminal.log(`   Updated: ${updatedAgent.updatedAt.toISOString()}`);
-    yield* terminal.log("");
-    yield* terminal.info("You can now chat with your updated agent using:");
-    yield* terminal.log(`jazz agent chat ${updatedAgent.name}`);
   });
 }
 
@@ -559,7 +556,7 @@ async function promptForAgentUpdates(
     categories: Record<string, readonly string[]>;
     displayNameToServerName: Map<string, string>;
   },
-): Promise<AgentEditAnswers> {
+): Promise<AgentEditAnswers | null> {
   const answers: AgentEditAnswers = {};
 
   // Update name
@@ -567,6 +564,7 @@ async function promptForAgentUpdates(
     const name = await Effect.runPromise(
       terminal.ask("Enter new agent name:", {
         defaultValue: currentAgent.name,
+        cancellable: true,
         validate: (inputValue: string) => {
           if (!inputValue.trim()) {
             return "Agent name cannot be empty";
@@ -579,7 +577,7 @@ async function promptForAgentUpdates(
       }),
     );
     if (name === undefined) {
-      throw new Error("Edit cancelled");
+      return null;
     }
     answers.name = name;
   }
@@ -589,6 +587,7 @@ async function promptForAgentUpdates(
     const description = await Effect.runPromise(
       terminal.ask("Enter new agent description:", {
         defaultValue: currentAgent.description || "",
+        cancellable: true,
         validate: (inputValue: string) => {
           if (inputValue.length > 500) {
             return "Agent description must be 500 characters or less";
@@ -598,7 +597,7 @@ async function promptForAgentUpdates(
       }),
     );
     if (description === undefined) {
-      throw new Error("Edit cancelled");
+      return null;
     }
     answers.description = description;
   }
@@ -615,7 +614,7 @@ async function promptForAgentUpdates(
     );
 
     if (!persona) {
-      throw new Error("Edit cancelled");
+      return null;
     }
 
     answers.persona = persona;
@@ -623,97 +622,88 @@ async function promptForAgentUpdates(
 
   // Update LLM provider
   if (fieldToUpdate === "llmProvider") {
-    const llmProvider = await Effect.runPromise(
-      terminal.search<ProviderName>("Select LLM provider:", {
-        choices: providers.map((provider) => ({
-          name: provider.displayName ?? provider.name,
-          value: provider.name,
-        })),
-      }),
-    );
-
-    if (!llmProvider) {
-      throw new Error("Edit cancelled");
-    }
-
-    answers.llmProvider = llmProvider;
-    const providerDisplayName =
-      providers.find((p) => p.name === llmProvider)?.displayName ?? llmProvider;
-
-    // Check if API key exists for the selected provider
-    const apiKeyPath = `llm.${llmProvider}.api_key`;
-    const hasApiKey = await Effect.runPromise(configService.has(apiKeyPath));
-
-    if (!hasApiKey) {
-      // Show message and prompt for API key
-      await Effect.runPromise(
-        Effect.gen(function* () {
-          yield* terminal.log("");
-          yield* terminal.warn(`API key not set in config file for ${providerDisplayName}.`);
-          yield* terminal.log("Please paste your API key below:");
+    while (true) {
+      const llmProvider = await Effect.runPromise(
+        terminal.search<ProviderName>("Select LLM provider:", {
+          choices: sortProvidersForPicker(
+            providers,
+            (provider) => provider.name,
+            (provider) => provider.displayName,
+          ).map((provider) => ({
+            name: provider.displayName ?? provider.name,
+            value: provider.name,
+          })),
         }),
       );
 
-      const apiKey = await Effect.runPromise(
-        terminal.ask(`${providerDisplayName} API Key:`, {
-          simple: true,
-          secret: true,
-          cancellable: true,
-          placeholder: "Paste your API key... (Esc to go back)",
-          validate: (inputValue: string): boolean | string => {
-            if (!inputValue || inputValue.trim().length === 0) {
-              return "API key cannot be empty";
-            }
-            return true;
-          },
-        }),
-      );
-
-      if (apiKey === undefined) {
-        throw new Error("Edit cancelled");
+      if (!llmProvider) {
+        return null;
       }
 
-      // Update config with the new API key
-      await Effect.runPromise(configService.set(apiKeyPath, apiKey));
+      answers.llmProvider = llmProvider;
+      const providerDisplayName =
+        providers.find((p) => p.name === llmProvider)?.displayName ?? llmProvider;
 
-      await Effect.runPromise(
-        Effect.gen(function* () {
-          yield* terminal.success("API key saved to config file.");
-          yield* terminal.log("");
+      const keyResult = await ensureProviderApiKey({
+        configService,
+        terminal,
+        provider: llmProvider,
+        displayName: providerDisplayName,
+        required: llmProvider !== "ollama" && llmProvider !== "llamacpp",
+      });
+      if (keyResult === "cancelled") {
+        continue;
+      }
+
+      const providerInfo = await Effect.runPromise(llmService.getProvider(llmProvider)).catch(
+        (error: unknown) => {
+          const message = error instanceof Error ? error.message : String(error);
+          throw new Error(`Failed to get provider info: ${message}`);
+        },
+      );
+
+      const llmModel = await Effect.runPromise(
+        terminal.search<string>(`Select model for ${providerDisplayName}:`, {
+          choices: providerInfo.supportedModels.map((model) => ({
+            name: model.displayName || model.id,
+            value: model.id,
+          })),
         }),
       );
-    }
 
-    // When provider is changed, we must also select a model for that provider
-    const providerInfo = await Effect.runPromise(llmService.getProvider(llmProvider)).catch(
-      (error: unknown) => {
-        const message = error instanceof Error ? error.message : String(error);
-        throw new Error(`Failed to get provider info: ${message}`);
-      },
-    );
+      if (!llmModel) {
+        return null;
+      }
 
-    const llmModel = await Effect.runPromise(
-      terminal.search<string>(`Select model for ${providerDisplayName}:`, {
-        choices: providerInfo.supportedModels.map((model) => ({
-          name: model.displayName || model.id,
-          value: model.id,
-        })),
-      }),
-    );
+      answers.llmModel = llmModel;
 
-    if (!llmModel) {
-      throw new Error("Edit cancelled");
-    }
+      if (llmProvider === "ollama" && isOllamaCloudModel(llmModel)) {
+        const cloudKey = await ensureProviderApiKey({
+          configService,
+          terminal,
+          provider: "ollama",
+          displayName: providerDisplayName,
+          required: true,
+          reason:
+            "This is an Ollama Cloud model. Requests go to ollama.com and need an API key from https://ollama.com/settings/keys.",
+        });
+        if (cloudKey === "cancelled") {
+          continue;
+        }
+      }
 
-    answers.llmModel = llmModel;
+      const selectedModelInfo = providerInfo.supportedModels.find((model) => model.id === llmModel);
+      const isReasoningModel = selectedModelInfo?.isReasoningModel ?? false;
 
-    // Check if the selected model is a reasoning model
-    const selectedModelInfo = providerInfo.supportedModels.find((model) => model.id === llmModel);
-    const isReasoningModel = selectedModelInfo?.isReasoningModel ?? false;
+      if (isReasoningModel) {
+        const reasoningEffort = await promptForReasoningEffort(terminal, currentAgent);
+        if (reasoningEffort === null) {
+          return null;
+        }
+        answers.reasoningEffort = reasoningEffort;
+      }
 
-    // If it's a reasoning model, ask for reasoning effort level
-    if (isReasoningModel) {
-      answers.reasoningEffort = await promptForReasoningEffort(terminal, currentAgent);
+      break;
     }
   }
 
@@ -738,10 +728,25 @@ async function promptForAgentUpdates(
     );
 
     if (!llmModel) {
-      throw new Error("Edit cancelled");
+      return null;
     }
 
     answers.llmModel = llmModel;
+
+    if (providerToUse === "ollama" && isOllamaCloudModel(llmModel)) {
+      const cloudKey = await ensureProviderApiKey({
+        configService,
+        terminal,
+        provider: "ollama",
+        displayName: formatProviderDisplayName(providerToUse),
+        required: true,
+        reason:
+          "This is an Ollama Cloud model. Requests go to ollama.com and need an API key from https://ollama.com/settings/keys.",
+      });
+      if (cloudKey === "cancelled") {
+        return null;
+      }
+    }
 
     // Check if the selected model is a reasoning model
     const selectedModelInfo = providerInfo.supportedModels.find((model) => model.id === llmModel);
@@ -749,58 +754,68 @@ async function promptForAgentUpdates(
 
     // If it's a reasoning model, ask for reasoning effort level
     if (isReasoningModel) {
-      answers.reasoningEffort = await promptForReasoningEffort(terminal, currentAgent);
+      const reasoningEffort = await promptForReasoningEffort(terminal, currentAgent);
+      if (reasoningEffort === null) {
+        return null;
+      }
+      answers.reasoningEffort = reasoningEffort;
     }
   }
 
   if (fieldToUpdate === "llmApiKey") {
-    const provider = await Effect.runPromise(
-      terminal.select<ProviderName>("Select provider for agent API key override:", {
-        choices: AVAILABLE_PROVIDERS.map((p) => ({ name: formatProviderDisplayName(p), value: p })),
-        default: currentAgent.config.llmProvider,
-      }),
-    );
-    if (!provider) {
-      throw new Error("Edit cancelled");
-    }
+    while (true) {
+      const provider = await Effect.runPromise(
+        terminal.select<ProviderName>("Select provider for agent API key override:", {
+          choices: sortProvidersForPicker(AVAILABLE_PROVIDERS).map((provider) => ({
+            name: formatProviderDisplayName(provider),
+            value: provider,
+          })),
+          default: currentAgent.config.llmProvider,
+        }),
+      );
+      if (!provider) {
+        return null;
+      }
 
-    const existingAgentOverride = currentAgent.config.llmApiKeys?.[provider];
-    const isOptional = provider === "ollama" || provider === "llamacpp";
-    if (existingAgentOverride) {
-      await Effect.runPromise(
-        terminal.info(
-          `Agent override exists for ${formatProviderDisplayName(provider)}. Submit empty value to clear and use global/env fallback.`,
+      const existingAgentOverride = currentAgent.config.llmApiKeys?.[provider];
+      const isOptional = provider === "ollama" || provider === "llamacpp";
+      if (existingAgentOverride) {
+        await Effect.runPromise(
+          terminal.info(
+            `Agent override exists for ${formatProviderDisplayName(provider)}. Submit empty value to clear and use global/env fallback.`,
+          ),
+        );
+      }
+
+      const apiKey = await Effect.runPromise(
+        terminal.ask(
+          `Enter ${formatProviderDisplayName(provider)} API key override (leave empty to clear override):`,
+          {
+            simple: true,
+            secret: true,
+            cancellable: true,
+            placeholder: "Paste your API key... (Esc to go back)",
+            validate: (inputValue: string): boolean | string => {
+              if (!isOptional && inputValue.trim().length === 0) {
+                return true;
+              }
+              return true;
+            },
+          },
         ),
       );
-    }
 
-    const apiKey = await Effect.runPromise(
-      terminal.ask(
-        `Enter ${formatProviderDisplayName(provider)} API key override (leave empty to clear override):`,
-        {
-          simple: true,
-          secret: true,
-          cancellable: true,
-          placeholder: "Paste your API key... (Esc to go back)",
-          validate: (inputValue: string): boolean | string => {
-            if (!isOptional && inputValue.trim().length === 0) {
-              return true; // empty means clear override
-            }
-            return true;
-          },
-        },
-      ),
-    );
+      if (apiKey === undefined) {
+        continue;
+      }
 
-    if (apiKey === undefined) {
-      throw new Error("Edit cancelled");
-    }
-
-    answers.llmApiKeyProvider = provider;
-    if (apiKey.trim()) {
-      answers.llmApiKeyValue = apiKey;
-    } else {
-      delete answers.llmApiKeyValue;
+      answers.llmApiKeyProvider = provider;
+      if (apiKey.trim()) {
+        answers.llmApiKeyValue = apiKey;
+      } else {
+        delete answers.llmApiKeyValue;
+      }
+      break;
     }
   }
 
@@ -900,7 +915,11 @@ async function promptForAgentUpdates(
   }
 
   if (fieldToUpdate === "reasoningEffort") {
-    answers.reasoningEffort = await promptForReasoningEffort(terminal, currentAgent);
+    const reasoningEffort = await promptForReasoningEffort(terminal, currentAgent);
+    if (reasoningEffort === null) {
+      return null;
+    }
+    answers.reasoningEffort = reasoningEffort;
   }
 
   if (fieldToUpdate === "contextWindow") {
@@ -913,16 +932,18 @@ async function promptForAgentUpdates(
         default: currentAgent.config.numCtx ?? defaultOllamaContextWindow(detectedContextWindow),
       }),
     );
-    if (result !== undefined) {
-      answers.numCtx = result;
+    if (result === undefined) {
+      return null;
     }
+    answers.numCtx = result;
   }
 
   if (fieldToUpdate === "maxContextTokens") {
     const result = await Effect.runPromise(promptForMaxContextTokens(terminal, currentAgent));
-    if (result !== undefined) {
-      answers.maxContextTokens = result;
+    if (result === undefined) {
+      return null;
     }
+    answers.maxContextTokens = result;
   }
 
   return answers;
@@ -991,7 +1012,7 @@ function promptForMaxContextTokens(
 async function promptForReasoningEffort(
   terminal: TerminalService,
   currentAgent: Agent,
-): Promise<"disable" | "low" | "medium" | "high"> {
+): Promise<"disable" | "low" | "medium" | "high" | null> {
   const result = await Effect.runPromise(
     terminal.select<"disable" | "low" | "medium" | "high">(
       "What reasoning effort level would you like?",
@@ -1011,7 +1032,7 @@ async function promptForReasoningEffort(
   );
 
   if (!result) {
-    throw new Error("Edit cancelled");
+    return null;
   }
 
   return result;

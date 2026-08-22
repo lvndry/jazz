@@ -45,8 +45,15 @@ function run(
  *   loads `dist/worker/pdf.worker.mjs` from its own package directory at
  *   runtime, and depends on `@napi-rs/canvas`, whose `.node` file is a
  *   platform-specific native binary. Neither can be inlined into JavaScript.
+ * - `@opentui/core` and `@opentui/react` render the fullscreen interface and
+ *   cannot be bundled either. The core reaches a native Zig library through
+ *   Bun's FFI, and that library ships as one optional dependency per platform
+ *   (`@opentui/core-darwin-arm64` and friends), resolved at install time for
+ *   the machine doing the installing. A bundler cannot inline a shared library
+ *   it picks by platform, so both stay external and the package manager keeps
+ *   doing the job it is good at.
  */
-const EXTERNAL_PACKAGES = ["ink", "pdf-parse", "react"] as const;
+const EXTERNAL_PACKAGES = ["@opentui/core", "@opentui/react", "ink", "pdf-parse", "react"] as const;
 
 /**
  * Not bundled and not installed either. `linkup-sdk`, the client behind the

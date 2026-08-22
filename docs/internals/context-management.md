@@ -40,13 +40,13 @@ flowchart TB
     class CO pricey
 ```
 
-| | Trimming | Compaction |
-| --- | --- | --- |
-| Runs | after appending the assistant message, once tokens exceed **95%** of the context budget | when tokens exceed 80% of the context budget (the model's window, or the agent's `maxContextTokens` ceiling when it is lower) |
-| Costs | nothing | one LLM call |
-| Budget | a fixed working-set target (50k tokens by default) | the context window the provider will actually honour |
-| What's lost | old messages, entirely | detail — the gist survives as a summary |
-| Preserves | system message + last N complete turns | system message + a summary + recent messages |
+|             | Trimming                                                                                | Compaction                                                                                                                    |
+| ----------- | --------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| Runs        | after appending the assistant message, once tokens exceed **95%** of the context budget | when tokens exceed 80% of the context budget (the model's window, or the agent's `maxContextTokens` ceiling when it is lower) |
+| Costs       | nothing                                                                                 | one LLM call                                                                                                                  |
+| Budget      | a fixed working-set target (50k tokens by default)                                      | the context window the provider will actually honour                                                                          |
+| What's lost | old messages, entirely                                                                  | detail — the gist survives as a summary                                                                                       |
+| Preserves   | system message + last N complete turns                                                  | system message + a summary + recent messages                                                                                  |
 
 **Trimming sits above compaction, deliberately.** Its budget is 95% of the context budget,
 compaction's is 80%, so compaction always gets first refusal and trimming only fires when
@@ -251,12 +251,12 @@ ceiling and go back to the model's own window.
 
 Four mechanisms now share one budget, escalating by cost:
 
-| Rung | Fires at | Costs | Effect |
-| --- | --- | --- | --- |
-| Warn | 70% | nothing | User *and* agent are told; the agent is nudged to consolidate |
-| Clear tool results | 65% | nothing | Old raw tool output replaced by a placeholder, structure kept |
-| Compact | 80% | one LLM call | Older history summarized into the running summary |
-| Trim | 95% | nothing, but lossy | Messages dropped unsummarized — the floor, not the path |
+| Rung               | Fires at | Costs              | Effect                                                        |
+| ------------------ | -------- | ------------------ | ------------------------------------------------------------- |
+| Warn               | 70%      | nothing            | User *and* agent are told; the agent is nudged to consolidate |
+| Clear tool results | 65%      | nothing            | Old raw tool output replaced by a placeholder, structure kept |
+| Compact            | 80%      | one LLM call       | Older history summarized into the running summary             |
+| Trim               | 95%      | nothing, but lossy | Messages dropped unsummarized — the floor, not the path       |
 
 Clearing runs before compaction because it is free: a long run's tokens are mostly raw
 tool output, and most of it stops mattering once the model has read it. It fires **once per
@@ -278,17 +278,25 @@ Counting messages alone meant an agent believed it was at 79% when it was at 102
 
 Two thresholds share one budget, both defined in `context-window-manager.ts`:
 
-| | Warning | Compaction |
-| --- | --- | --- |
-| Fires at | 70% of the budget (`CONTEXT_WARN_THRESHOLD_RATIO`) | 80% (`CONTEXT_COMPACT_THRESHOLD_RATIO`) |
-| Costs | nothing | an extra LLM call |
-| Effect | `context 74% full of 60,000 tokens — will auto-compact soon`, once per run | history is summarized |
+|          | Warning                                                                    | Compaction                              |
+| -------- | -------------------------------------------------------------------------- | --------------------------------------- |
+| Fires at | 70% of the budget (`CONTEXT_WARN_THRESHOLD_RATIO`)                         | 80% (`CONTEXT_COMPACT_THRESHOLD_RATIO`) |
+| Costs    | nothing                                                                    | an extra LLM call                       |
+| Effect   | `context 74% full of 60,000 tokens — will auto-compact soon`, once per run | history is summarized                   |
 
 Both the user *and the agent* are told. Past 70% the request carries an ephemeral
 `[CONTEXT WARNING: …]` line telling the model to record what it needs and consolidate
 rather than gather more; past 90% a `[CONTEXT CRITICAL: …]` line telling it to write its
 output now. This mirrors the iteration-budget nudge in `buildBudgetPressureMessage`, and the
 two are merged into one appended message when both fire.
+
+**After a successful compaction the wrap-up nudges are replaced.** The history has just
+been rewritten and space was freed so the original task can continue — telling the model
+to "write your final output NOW" at that moment is the opposite of what happened. The
+request instead carries `[CONTEXT COMPACTED: …]` asking it to resume from the summary
+until the user's request is fully complete. If usage is still above 90% after the
+summary, the same message notes that context is still tight, but it does not tell the
+model to stop.
 
 The nudge is appended to the outgoing request only — never pushed into `currentMessages`.
 A persisted warning would cost tokens exactly when they are scarce, be re-sent every turn,
@@ -349,11 +357,11 @@ which tool is actually eating your window. Usually it's one, and usually it's a 
 
 ## Inspecting it live
 
-| Command | Shows |
-| --- | --- |
+| Command    | Shows                                                  |
+| ---------- | ------------------------------------------------------ |
 | `/context` | Current tokens, window size, and the biggest consumers |
-| `/compact` | Force compaction now |
-| `/cost` | Tokens and USD for this session, including sub-agents |
+| `/compact` | Force compaction now                                   |
+| `/cost`    | Tokens and USD for this session, including sub-agents  |
 
 And in the logs: `Conversation context approaching limit`, `Context compacted successfully`
 (with tokens saved), and trim decisions at debug level.

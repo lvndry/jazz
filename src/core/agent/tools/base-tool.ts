@@ -40,6 +40,11 @@ export interface BaseToolConfig<R, Args extends Record<string, unknown>> {
    * Zod schema defining the structure and validation rules for tool arguments.
    */
   readonly parameters: z.ZodTypeAny;
+  /**
+   * Original JSON Schema to advertise to the model when Zod conversion would be
+   * lossy (MCP tools). When set, this is what the provider sees.
+   */
+  readonly jsonSchema?: Readonly<Record<string, unknown>>;
   /** If true, hide this tool from UI listings while keeping it callable. */
   readonly hidden?: boolean;
   /**
@@ -104,6 +109,7 @@ export function defineTool<R, Args extends Record<string, unknown>>(
     tags: config.tags ?? [],
     ...(config.aliases ? { aliases: config.aliases } : {}),
     parameters: config.parameters,
+    ...(config.jsonSchema !== undefined ? { jsonSchema: config.jsonSchema } : {}),
     hidden: config.hidden === true,
     riskLevel: config.riskLevel ?? defaultRiskLevel,
     ...(config.approvalExecuteToolName
@@ -144,13 +150,6 @@ export function makeZodValidator<Args extends Record<string, unknown>>(
     }
     return { valid: true, value: result.data } as const;
   };
-}
-
-/**
- * Format a tool description with the "APPROVAL REQUIRED" prefix.
- */
-export function formatApprovalRequiredDescription(description: string): string {
-  return `⚠️ APPROVAL REQUIRED: ${description}`;
 }
 
 /**
@@ -250,7 +249,7 @@ export function defineApprovalTool<R, Args extends Record<string, unknown>>(
   // Create the approval tool (shown to LLM)
   const approvalTool = defineTool<R, Args>({
     name: config.name,
-    description: formatApprovalRequiredDescription(config.description),
+    description: config.description,
     ...(config.tags ? { tags: config.tags } : {}),
     parameters: config.parameters,
     riskLevel,

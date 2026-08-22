@@ -3,7 +3,7 @@
 **What it does:** On every opened PR (or on `/jazz-review` comment from a trusted user), runs a Jazz agent that reviews the diff and posts inline review comments on the actual changed lines.
 **Schedule:** Triggered by GitHub Actions.
 **Risk:** `autoApprove: true` inside the workflow — but the runner has only read tools and `write_file` to `/tmp`. The agent cannot push, comment, or merge. Posting comments is done by a downstream `actions/github-script` step parsing the agent's JSON output.
-**Tools used:** `git_diff`, `git_log`, `read_file`, `find`, `grep`, `ls`, `http_request`, `web_search`, `load_skill`, `write_file`, `spawn_subagent`.
+**Tools used:** `execute_command`, `read_file`, `find`, `grep`, `ls`, `http_request`, `web_search`, `load_skill`, `write_file`, `spawn_subagent`.
 
 ## Why this is useful
 
@@ -38,11 +38,11 @@ Review the changes in this pull request.
 
 **Large PRs — `spawn_subagent`**: If the PR has 10+ files or 500+ lines, spawn subagents to review batches in parallel. Aggregate.
 
-To get the diff, use the `git_diff` tool with `commit` set to `__PR_BASE_SHA__...__PR_HEAD_SHA__`.
+To get the diff, use `execute_command` with `git diff __PR_BASE_SHA__...__PR_HEAD_SHA__`.
 
 ## Workflow
 
-1. Get the file list: `git_diff` with `commit` and `nameOnly: true`.
+1. Get the file list: `git diff --name-only __PR_BASE_SHA__...__PR_HEAD_SHA__`.
 2. Get the diff content. If small (<~500 lines), full diff. If large, batches of 5–10 files.
 3. Use the `code-review` skill for the full checklist.
 
@@ -90,8 +90,7 @@ If there are no issues, output `[]`.
       "grep",
       "ls",
       "read_file",
-      "git_diff",
-      "git_log",
+      "execute_command",
       "http_request",
       "web_search",
       "load_skill",

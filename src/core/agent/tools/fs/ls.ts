@@ -15,22 +15,35 @@ import { normalizeFilterPattern, readGitignorePatterns } from "./utils";
 export function createLsTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
   const parameters = z
     .object({
-      path: z.string().optional().describe("Directory path (defaults to cwd)"),
-      showHidden: z.boolean().optional().describe("Include hidden files"),
-      recursive: z.boolean().optional().describe("Recurse into subdirectories"),
-      pattern: z.string().optional().describe("Name filter (substring or 're:<regex>')"),
+      path: z
+        .string()
+        .optional()
+        .describe(
+          "Directory to list. Absolute or relative to the session working directory. Defaults to the working directory.",
+        ),
+      showHidden: z
+        .boolean()
+        .optional()
+        .describe("Include hidden files and directories (names starting with '.')."),
+      recursive: z.boolean().optional().describe("Also list files in subdirectories."),
+      pattern: z
+        .string()
+        .optional()
+        .describe(
+          "Filter entries by name. A plain string matches as a substring. Prefix with re: for a regex. This is not a glob — '*.ts' looks for those exact characters. Use find with name for globs.",
+        ),
       maxResults: z
         .number()
         .int()
         .positive()
         .optional()
-        .describe("Max results (default: 200, cap: 2000)"),
+        .describe("Maximum number of entries to return. Default 200, hard cap 2000."),
       maxDepth: z
         .number()
         .int()
         .positive()
         .optional()
-        .describe("Max depth for recursive listing (default: 10)"),
+        .describe("How many directory levels to descend when recursive is true. Default 10."),
     })
     .strict();
 
@@ -39,7 +52,10 @@ export function createLsTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
   return defineTool<FileSystem.FileSystem | FileSystemContextService, LsParams>({
     name: "ls",
     description:
-      "List directory contents. Supports recursive traversal, name filtering, hidden files. Default 200 results, cap 2000.",
+      "List the contents of one directory. Defaults: this directory only, hidden files excluded, 200 results. " +
+      "Use this to see what is in a folder. Do not use this to locate files by glob (find, also available as glob), to search file contents (grep), or to recurse the whole repository (find). " +
+      "pattern is a substring or a re:<regex> — not a glob. '*.ts' matches the literal characters *.ts. Use find with name for globs. " +
+      ".gitignore and node_modules are skipped unless showHidden is true.",
     tags: ["filesystem", "listing"],
     parameters,
     validate: makeZodValidator(parameters),

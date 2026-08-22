@@ -23,33 +23,71 @@ import { checkExternalTool, spawnCollect } from "./utils";
  *   so the user never sees a "rg not found" error even if PATH is misconfigured.
  */
 
+function resolveGrepPattern(
+  pattern: string,
+  regexFlag: boolean | undefined,
+): { pattern: string; isRegex: boolean } {
+  if (pattern.startsWith("re:")) {
+    return { pattern: pattern.slice(3), isRegex: true };
+  }
+  return { pattern, isRegex: regexFlag === true };
+}
+
 export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
   const parameters = z
     .object({
-      pattern: z.string().min(1).describe("Search pattern (literal or 're:<regex>')"),
-      path: z.string().optional().describe("Path to search (defaults to cwd)"),
-      recursive: z.boolean().optional().describe("Recurse into directories"),
-      regex: z.boolean().optional().describe("Treat pattern as regex"),
-      ignoreCase: z.boolean().optional().describe("Case-insensitive match"),
+      pattern: z
+        .string()
+        .min(1)
+        .describe(
+          "Text to search for inside files. Treated as a literal substring unless you prefix it with re: (for example 're:function\\s+\\w+') or set regex to true. Do not do both.",
+        ),
+      path: z
+        .string()
+        .optional()
+        .describe(
+          "File or directory to search. Absolute or relative to the session working directory. Prefer a narrow directory. Defaults to the working directory. Do not pass '/'.",
+        ),
+      recursive: z
+        .boolean()
+        .optional()
+        .describe(
+          "Search subdirectories. Default true. Set false to search only the given directory.",
+        ),
+      regex: z
+        .boolean()
+        .optional()
+        .describe(
+          "Treat pattern as a regular expression. Prefer prefixing pattern with re: instead of setting this flag.",
+        ),
+      ignoreCase: z.boolean().optional().describe("Match without regard to case."),
       maxResults: z
         .number()
         .int()
         .positive()
         .optional()
-        .describe("Max matches (default: 200, cap: 2000)"),
-      filePattern: z.string().optional().describe("File glob filter (e.g. '*.js', '*.ts')"),
-      exclude: z.string().optional().describe("Exclude files matching pattern"),
-      excludeDir: z.string().optional().describe("Exclude directories matching pattern"),
+        .describe("Maximum number of matches to return. Default 200, hard cap 2000."),
+      filePattern: z
+        .string()
+        .optional()
+        .describe("Only search files whose names match this glob. Examples: '*.js', '*.ts'."),
+      exclude: z.string().optional().describe("Skip files whose names match this pattern."),
+      excludeDir: z
+        .string()
+        .optional()
+        .describe("Skip directories whose names match this pattern."),
       contextLines: z
         .number()
         .int()
         .nonnegative()
         .optional()
-        .describe("Context lines above/below each match"),
+        .describe("Number of lines to include above and below each match."),
       outputMode: z
         .enum(["content", "files", "count"])
         .optional()
-        .describe("'content' (default), 'files', or 'count'"),
+        .describe(
+          "What to return: 'content' (matching lines, default), 'files' (paths only), or 'count' (match counts).",
+        ),
     })
     .strict();
 
@@ -99,11 +137,9 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
 
     cmdArgs.push("-m", maxResults.toString());
 
-    let searchPattern: string;
-    if (args.regex === true || args.pattern.startsWith("re:")) {
-      searchPattern = args.regex === true ? args.pattern : args.pattern.slice(3) || "";
-    } else {
-      searchPattern = args.pattern;
+    const resolved = resolveGrepPattern(args.pattern, args.regex);
+    const searchPattern = resolved.pattern;
+    if (!resolved.isRegex) {
       cmdArgs.push("--fixed-strings");
     }
 
@@ -145,12 +181,11 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
 
     cmdArgs.push("-m", maxResults.toString());
 
-    let searchPattern: string;
-    if (args.regex === true || args.pattern.startsWith("re:")) {
-      searchPattern = args.regex === true ? args.pattern : args.pattern.slice(3) || "";
+    const resolved = resolveGrepPattern(args.pattern, args.regex);
+    const searchPattern = resolved.pattern;
+    if (resolved.isRegex) {
       cmdArgs.push("-E");
     } else {
-      searchPattern = args.pattern;
       cmdArgs.push("-F");
     }
 
@@ -340,7 +375,12 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GrepArgs>({
     name: "grep",
     description:
-      "Search file contents for text patterns (ripgrep with grep fallback). Supports regex, file filters, context lines. outputMode: content/files/count. Default 200 results, cap 2000.",
+      "Search inside file contents. Uses ripgrep when installed, otherwise grep. " +
+      "Use this to find a symbol or string. Prefer this over execute_command with rg or grep. " +
+      "Do not use this to locate files by name or glob (find, also available as glob) or to list a directory (ls). " +
+      "Defaults: literal substring, recursive, 200 matches, content mode. Recursion has no depth limit — always pass path, never '/'. " +
+      "Start with a specific path and a small maxResults, then widen if needed. " +
+      "Do not set both regex:true and a re: prefix. Hidden files are skipped unless path points at them. With ripgrep, .gitignore is honoured; the grep fallback is not.",
     tags: ["search", "text"],
     parameters,
     validate: makeZodValidator(parameters),

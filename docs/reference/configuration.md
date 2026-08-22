@@ -50,10 +50,10 @@ continue.
 }
 ```
 
-| Key | Default | Applies to |
-| --- | --- | --- |
-| `maxIterations` | 100 | A top-level run |
-| `maxSubagentIterations` | 30 | Each sub-agent run |
+| Key                     | Default | Applies to         |
+| ----------------------- | ------- | ------------------ |
+| `maxIterations`         | 100     | A top-level run    |
+| `maxSubagentIterations` | 30      | Each sub-agent run |
 
 They are **separate knobs on purpose.** A sub-agent gets its own budget rather than the parent's
 remainder — a child spawned on the parent's last iteration would be useless with one round — so
@@ -94,10 +94,10 @@ When to warn the model that its context is filling, and when to compact history 
 }
 ```
 
-| Key | Default | Effect |
-| --- | --- | --- |
-| `warnThresholdRatio` | 0.7 | The model is told to consolidate what it has while detail still exists |
-| `compactThresholdRatio` | 0.8 | Older history is summarized automatically |
+| Key                     | Default | Effect                                                                 |
+| ----------------------- | ------- | ---------------------------------------------------------------------- |
+| `warnThresholdRatio`    | 0.7     | The model is told to consolidate what it has while detail still exists |
+| `compactThresholdRatio` | 0.8     | Older history is summarized automatically                              |
 
 The ordering `warn < compact < 0.95` is enforced. The 0.95 ceiling is the trim ratio: trimming *discards* messages rather than summarizing them, so a compaction threshold at or above it would let trimming pre-empt compaction and turn the whole scheme into a sliding window. A value that breaks the ordering — or that isn't a number strictly between 0 and 1 — is ignored with a logged warning and the default is used; the run never fails on a bad ratio.
 
@@ -113,21 +113,21 @@ Override settings or provide API keys via `.env` or the process environment.
 
 ### Paths and data
 
-| Variable | Effect |
-| --- | --- |
-| `JAZZ_HOME` | Jazz home directory (default `~/.jazz`). Holds agents, history, logs, telemetry, and the model-catalog snapshot. Use it to isolate test data when developing Jazz |
-| `JAZZ_CONFIG_PATH` | Global config file path (same as `--config`) |
-| `JAZZ_LOG_DIR` | Log directory override |
+| Variable           | Effect                                                                                                                                                            |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `JAZZ_HOME`        | Jazz home directory (default `~/.jazz`). Holds agents, history, logs, telemetry, and the model-catalog snapshot. Use it to isolate test data when developing Jazz |
+| `JAZZ_CONFIG_PATH` | Global config file path (same as `--config`)                                                                                                                      |
+| `JAZZ_LOG_DIR`     | Log directory override                                                                                                                                            |
 
 ### Network behavior
 
-| Variable | Effect |
-| --- | --- |
-| `JAZZ_OFFLINE` | `1`/`true`: make no outbound request of Jazz's own — skips the update check *and* the models.dev catalog fetch. See [Airgapped](../guide/airgapped.md) |
-| `JAZZ_DISABLE_UPDATE_CHECK` | `1`: skip only the npm version check |
-| `JAZZ_MODELS_DEV_URL` | Point the model catalog at an internal mirror of `https://models.dev/api.json` |
+| Variable                     | Effect                                                                                                                                                                                |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `JAZZ_OFFLINE`               | `1`/`true`: make no outbound request of Jazz's own — skips the update check *and* the models.dev catalog fetch. See [Airgapped](../guide/airgapped.md)                                |
+| `JAZZ_DISABLE_UPDATE_CHECK`  | `1`: skip only the npm version check                                                                                                                                                  |
+| `JAZZ_MODELS_DEV_URL`        | Point the model catalog at an internal mirror of `https://models.dev/api.json`                                                                                                        |
 | `HTTPS_PROXY` / `HTTP_PROXY` | Send every outbound request — provider APIs, web tools, remote MCP servers, the update check — through an HTTP proxy. Lowercase names work too, and `ALL_PROXY` covers both protocols |
-| `NO_PROXY` | Comma-separated hosts and domain suffixes to reach directly, bypassing the proxy |
+| `NO_PROXY`                   | Comma-separated hosts and domain suffixes to reach directly, bypassing the proxy                                                                                                      |
 
 Only `http://` and `https://` proxies are supported; a SOCKS proxy is reported at
 startup rather than silently ignored. If the proxy terminates TLS with a private
@@ -135,41 +135,42 @@ CA, point Node at that CA with `NODE_EXTRA_CA_CERTS=/path/to/ca.pem`.
 
 ### Providers
 
-| Variable | Effect |
-| --- | --- |
-| `OPENAI_API_KEY` | OpenAI |
-| `ANTHROPIC_API_KEY` | Anthropic |
-| `GOOGLE_GENERATIVE_AI_API_KEY` | Google Gemini |
-| `OPENROUTER_API_KEY` | OpenRouter |
-| `OLLAMA_BASE_URL` | Ollama endpoint (default `http://localhost:11434/api`; `/api` is appended automatically) |
-| `LLAMACPP_BASE_URL` | llama.cpp endpoint (default `http://localhost:8080/v1`) |
+| Variable                       | Effect                                                                                   |
+| ------------------------------ | ---------------------------------------------------------------------------------------- |
+| `OPENAI_API_KEY`               | OpenAI                                                                                   |
+| `ANTHROPIC_API_KEY`            | Anthropic                                                                                |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | Google Gemini                                                                            |
+| `OPENROUTER_API_KEY`           | OpenRouter                                                                               |
+| `OLLAMA_BASE_URL`              | Ollama endpoint (default `http://localhost:11434/api`; `/api` is appended automatically) |
+| `LLAMACPP_BASE_URL`            | llama.cpp endpoint (default `http://localhost:8080/v1`)                                  |
 
 Other providers follow the same `<PROVIDER>_API_KEY` convention — see
 [Integrations → Providers](../integrations/providers.md).
 
 ### Output and terminal
 
-| Variable | Effect |
-| --- | --- |
-| `JAZZ_NO_TUI` | `1`: disable the Ink TUI, plain output (same as `--no-tui`) |
-| `JAZZ_OUTPUT_MODE` | `rendered` \| `hybrid` \| `raw` \| `quiet` (same as `--output`) |
-| `JAZZ_THEME` | Colour theme |
-| `JAZZ_UI_GLYPHS` | `unicode` \| `ascii` — override glyph detection for terminals that misreport |
-| `JAZZ_TABLE_STYLE` | Table rendering style |
-| `NO_COLOR` | Standard: disable colour output |
+| Variable           | Effect                                                                       |
+| ------------------ | ---------------------------------------------------------------------------- |
+| `JAZZ_NO_TUI`      | `1`: no terminal UI at all, plain output (same as `--no-tui`)                |
+| `JAZZ_FULLSCREEN`  | `0`: keep an interactive interface but not the alternate screen             |
+| `JAZZ_OUTPUT_MODE` | `rendered` \| `hybrid` \| `raw` \| `quiet` (same as `--output`)              |
+| `JAZZ_THEME`       | Colour theme                                                                 |
+| `JAZZ_UI_GLYPHS`   | `unicode` \| `ascii` — override glyph detection for terminals that misreport |
+| `JAZZ_TABLE_STYLE` | Table rendering style                                                        |
+| `NO_COLOR`         | Standard: disable colour output                                              |
 
 ### Scheduling
 
-| Variable | Effect |
-| --- | --- |
+| Variable                | Effect                                            |
+| ----------------------- | ------------------------------------------------- |
 | `JAZZ_DISABLE_CATCH_UP` | `1`: never offer missed scheduled runs on startup |
 
 ### Notifications
 
-| Variable | Effect |
-| --- | --- |
+| Variable                                       | Effect                                                         |
+| ---------------------------------------------- | -------------------------------------------------------------- |
 | `JAZZ_TERMINAL_NOTIFIER` / `TERMINAL_NOTIFIER` | Path to a `terminal-notifier` binary for desktop notifications |
-| `JAZZ_TERMINAL` | Terminal identity used for notification attribution |
+| `JAZZ_TERMINAL`                                | Terminal identity used for notification attribution            |
 
 ## `telemetry`
 
@@ -194,22 +195,22 @@ collector and Langfuse setup.
 }
 ```
 
-| Field | Default | Effect |
-| --- | --- | --- |
-| `enabled` | `true` | Master switch. `false` records nothing, locally or remotely |
-| `storagePath` | `~/.jazz/telemetry` | Where the local NDJSON files live |
-| `bufferSize` | `100` | Events buffered in memory before a flush |
-| `flushIntervalMs` | `30000` | Periodic flush interval |
-| `retentionDays` | `90` | Local files older than this are deleted |
-| `otlp.enabled` | `true` when an endpoint is set | Explicit opt-out that keeps the endpoint configured |
-| `otlp.signals` | `["traces"]` | Signals to export: `traces`, `logs`, or both |
-| `otlp.endpoint` | — | Collector base URL; `/v1/traces` and `/v1/logs` are appended |
-| `otlp.tracesEndpoint` | — | Full traces URL including path, overriding `endpoint` |
-| `otlp.logsEndpoint` | — | Full logs URL including path, overriding `endpoint` |
-| `otlp.headers` | `{}` | Extra HTTP headers, typically auth |
-| `otlp.serviceName` | `jazz` | `service.name` on exported records |
-| `otlp.captureContent` | `false` | Include prompt, completion, and tool argument text |
-| `otlp.timeoutMs` | `10000` | Per-request timeout |
+| Field                 | Default                        | Effect                                                       |
+| --------------------- | ------------------------------ | ------------------------------------------------------------ |
+| `enabled`             | `true`                         | Master switch. `false` records nothing, locally or remotely  |
+| `storagePath`         | `~/.jazz/telemetry`            | Where the local NDJSON files live                            |
+| `bufferSize`          | `100`                          | Events buffered in memory before a flush                     |
+| `flushIntervalMs`     | `30000`                        | Periodic flush interval                                      |
+| `retentionDays`       | `90`                           | Local files older than this are deleted                      |
+| `otlp.enabled`        | `true` when an endpoint is set | Explicit opt-out that keeps the endpoint configured          |
+| `otlp.signals`        | `["traces"]`                   | Signals to export: `traces`, `logs`, or both                 |
+| `otlp.endpoint`       | —                              | Collector base URL; `/v1/traces` and `/v1/logs` are appended |
+| `otlp.tracesEndpoint` | —                              | Full traces URL including path, overriding `endpoint`        |
+| `otlp.logsEndpoint`   | —                              | Full logs URL including path, overriding `endpoint`          |
+| `otlp.headers`        | `{}`                           | Extra HTTP headers, typically auth                           |
+| `otlp.serviceName`    | `jazz`                         | `service.name` on exported records                           |
+| `otlp.captureContent` | `false`                        | Include prompt, completion, and tool argument text           |
+| `otlp.timeoutMs`      | `10000`                        | Per-request timeout                                          |
 
 ### OTLP environment variables
 
@@ -217,13 +218,13 @@ Every `otlp` field falls back to the standard `OTEL_*` variable, so a Jazz proce
 already-configured collector without touching `config.json`. Precedence is config → environment
 → default.
 
-| Variable | Effect |
-| --- | --- |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | Collector base URL. Setting this alone turns export on |
-| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | Full traces URL, used verbatim; wins over the base URL |
-| `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT` | Full logs URL, used verbatim; wins over the base URL |
-| `OTEL_EXPORTER_OTLP_HEADERS` | `key=value` pairs, comma-separated, values percent-encoded |
-| `OTEL_SERVICE_NAME` | `service.name` on exported records |
+| Variable                             | Effect                                                     |
+| ------------------------------------ | ---------------------------------------------------------- |
+| `OTEL_EXPORTER_OTLP_ENDPOINT`        | Collector base URL. Setting this alone turns export on     |
+| `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` | Full traces URL, used verbatim; wins over the base URL     |
+| `OTEL_EXPORTER_OTLP_LOGS_ENDPOINT`   | Full logs URL, used verbatim; wins over the base URL       |
+| `OTEL_EXPORTER_OTLP_HEADERS`         | `key=value` pairs, comma-separated, values percent-encoded |
+| `OTEL_SERVICE_NAME`                  | `service.name` on exported records                         |
 
 There is no environment variable for `captureContent` — it can only be turned on in config, and
 never follows from configuring an endpoint.
@@ -261,7 +262,7 @@ A persisted allowlist for `execute_command`, set at the top level of `~/.jazz/co
 
 Each entry lets one command through **without** raising the whole approval tier. This is the
 right tool when a scheduled workflow needs a skill that shells out — email, calendar, and
-Obsidian all run through `execute_command`, which is `high-risk`, so a `low-risk` workflow
+Obsidian all run through `execute_command`, which is `unknown`, so a `low-risk` workflow
 cannot use them otherwise.
 
 Matching uses a parsed key (binary + first subcommand) with exact or word-boundary

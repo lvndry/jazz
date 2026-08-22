@@ -114,15 +114,19 @@ on the gate.
 
 ### Pick the lowest policy tier that lets the job finish
 
-| Tier | Auto-approves |
-| --- | --- |
-| unset / `false` | Nothing |
-| `read-only` | Reads, search, web requests, `git status`/`log`/`diff` |
-| `low-risk` | + `manage_todos`, `spawn_subagent` |
-| `high-risk` | + writes, deletes, shell, `git commit`/`push` |
+| Tier            | Auto-approves                                                                         |
+| --------------- | ------------------------------------------------------------------------------------- |
+| unset / `false` | Interactive: read-only and low-risk, prompts for the rest. Unattended: **nothing**    |
+| `read-only`     | Reads, search, web requests, shell classified inspect-only                            |
+| `low-risk`      | + `manage_todos`, `update_task_state`, `spawn_subagent`, shell classified low-risk    |
+| `high-risk`     | + writes, deletes, shell, unresolved `unknown` tools                                  |
 
-`low-risk` is narrower than it sounds — it adds exactly two tools. Email, calendar, and
-Obsidian are skills that shell out via `execute_command` (`high-risk`), so prefer allowlisting
+Leaving the tier unset is the safe default on a webhook or a cron precisely because it
+grants nothing there: skipping a prompt is a convenience where a prompt was the
+alternative, and a widening of unsupervised authority where it was not.
+
+`low-risk` is narrower than it sounds — it adds three tools. Email, calendar, and
+Obsidian are skills that shell out via `execute_command` (`unknown`), so prefer allowlisting
 one binary over raising the whole tier:
 
 ```json

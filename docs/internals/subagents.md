@@ -48,11 +48,11 @@ spawn_subagent({
 })
 ```
 
-| Field | Purpose |
-| --- | --- |
-| `task` | The full brief, **including the expected output shape**. The child cannot see the parent's conversation, so an underspecified task produces an unusable answer. |
-| `name` | Short role label shown in the sub-agent panel, so parallel children are distinguishable. |
-| `persona` | `coder` for code and git work, `researcher` for investigation, `default` for general. |
+| Field     | Purpose                                                                                                                                                         |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `task`    | The full brief, **including the expected output shape**. The child cannot see the parent's conversation, so an underspecified task produces an unusable answer. |
+| `name`    | Short role label shown in the sub-agent panel, so parallel children are distinguishable.                                                                        |
+| `persona` | `coder` for code and git work, `researcher` for investigation, `default` for general.                                                                           |
 
 A sub-agent always runs as the parent agent itself — same provider, same model, same config —
 varying only the persona. Delegating to a *different* saved agent, or running the child on a
@@ -148,12 +148,12 @@ sequenceDiagram
 
 ## What crosses the boundary
 
-| Crosses in | Crosses out | Never crosses |
-| --- | --- | --- |
-| The `task` string | The child's final answer | The parent's message history |
-| The chosen persona | Its cost, into the parent's total | The parent's tool results |
-| The agent's provider/model | | The child's intermediate work |
-| The parent's toolset, as a ceiling | | Any tool the parent itself lacks |
+| Crosses in                         | Crosses out                       | Never crosses                    |
+| ---------------------------------- | --------------------------------- | -------------------------------- |
+| The `task` string                  | The child's final answer          | The parent's message history     |
+| The chosen persona                 | Its cost, into the parent's total | The parent's tool results        |
+| The agent's provider/model         |                                   | The child's intermediate work    |
+| The parent's toolset, as a ceiling |                                   | Any tool the parent itself lacks |
 
 **Cost rolls up.** Each child reports spend via `recordChildCost`, and the parent's
 `costUSD` is its own tokens plus all child cost. A run on a free local model that delegated
@@ -167,13 +167,13 @@ usual symptom is a confidently wrong answer to a question the child misunderstoo
 
 ## Limits
 
-| Limit | Value | Why |
-| --- | --- | --- |
-| Timeout | 30 min | A delegated task that hasn't finished in half an hour isn't going to |
-| Iterations | 30, via `maxSubagentIterations` | Its own budget, not the parent's remainder — and far below a top-level run's 100 |
-| Nesting | 3 levels, via `maxSubagentDepth` | Depth is what bounds total spend, since each level gets a fresh budget |
-| Toolset | at most the parent's | A child must never be an escalation path |
-| Panel height | 12 lines | UI only |
+| Limit        | Value                            | Why                                                                              |
+| ------------ | -------------------------------- | -------------------------------------------------------------------------------- |
+| Timeout      | 30 min                           | A delegated task that hasn't finished in half an hour isn't going to             |
+| Iterations   | 30, via `maxSubagentIterations`  | Its own budget, not the parent's remainder — and far below a top-level run's 100 |
+| Nesting      | 3 levels, via `maxSubagentDepth` | Depth is what bounds total spend, since each level gets a fresh budget           |
+| Toolset      | at most the parent's             | A child must never be an escalation path                                         |
+| Panel height | 12 lines                         | UI only                                                                          |
 
 Budget pressure interacts deliberately with delegation: at 70% of its iteration budget the
 parent is told to **stop spawning new research sub-agents** and start consolidating. Without

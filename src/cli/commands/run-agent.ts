@@ -186,7 +186,7 @@ export interface RunAgentOnceOptions {
   /**
    * Tool names to auto-approve without prompting, regardless of `approvalPolicy`.
    * Narrower than raising the whole risk tier — e.g. `["execute_command"]` unblocks
-   * shell commands without also auto-approving `rm`/`git_push`/etc.
+   * shell commands without also auto-approving `rm`/etc.
    */
   readonly autoApprovedTools?: readonly string[] | undefined;
   /**

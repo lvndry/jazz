@@ -3,6 +3,7 @@ export {
   filterCommandsByPrefix,
   getSkillCommandNames,
   setSkillCommands,
+  slashCommandQuery,
 } from "./constants";
 export type { ChatCommandInfo } from "./constants";
 export { handleSpecialCommand } from "./handler";

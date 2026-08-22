@@ -1,6 +1,7 @@
 import { Box, Text, useInput } from "ink";
 import React, { useEffect, useState } from "react";
 import { getGlyphs } from "../glyphs";
+import { PICKER_WINDOW_SIZE, pickerWindowStart, wrapIndex } from "../picker-window";
 import { THEME } from "../theme";
 import type { Choice } from "../types";
 
@@ -21,73 +22,38 @@ interface ScrollableSelectProps<T = unknown> {
  */
 export function ScrollableSelect<T = unknown>({
   options,
-  pageSize = 10,
+  pageSize = PICKER_WINDOW_SIZE,
   initialIndex = 0,
   onSelect,
   onCancel,
 }: ScrollableSelectProps<T>): React.ReactElement {
   const effectivePageSize = Math.max(1, Math.min(pageSize, options.length || 1));
 
-  const clampedInitialIndex = Math.max(0, Math.min(options.length - 1, initialIndex));
-  const initialWindowStart = Math.max(0, clampedInitialIndex - (effectivePageSize - 1));
-
+  const clampedInitialIndex = Math.max(0, Math.min(Math.max(0, options.length - 1), initialIndex));
   const [cursorIndex, setCursorIndex] = useState(clampedInitialIndex);
-  const [windowStart, setWindowStart] = useState(initialWindowStart);
+  const windowStart = pickerWindowStart(cursorIndex, options.length, effectivePageSize);
 
   const windowEndExclusive = Math.min(options.length, windowStart + effectivePageSize);
   const hasMoreAbove = windowStart > 0;
   const hasMoreBelow = windowEndExclusive < options.length;
 
-  // Reset state when options change (new prompt)
   useEffect(() => {
     setCursorIndex(clampedInitialIndex);
-    setWindowStart(initialWindowStart);
-  }, [options, clampedInitialIndex, initialWindowStart]);
-
-  function clampCursor(nextIndex: number): number {
-    if (options.length === 0) return 0;
-    return Math.max(0, Math.min(options.length - 1, nextIndex));
-  }
-
-  function ensureCursorVisible(nextCursor: number): void {
-    if (options.length <= effectivePageSize) {
-      setWindowStart(0);
-      return;
-    }
-
-    if (nextCursor < windowStart) {
-      setWindowStart(nextCursor);
-      return;
-    }
-
-    const endInclusive = windowStart + effectivePageSize - 1;
-    if (nextCursor > endInclusive) {
-      setWindowStart(Math.max(0, nextCursor - (effectivePageSize - 1)));
-    }
-  }
+  }, [options, clampedInitialIndex]);
 
   function findNextEnabledIndex(from: number, direction: 1 | -1): number {
+    if (options.length === 0) return 0;
     let index = from;
-    const maxIterations = options.length;
-    let iterations = 0;
-    while (iterations < maxIterations) {
-      index = clampCursor(index + direction);
-      const item = options[index];
-      if (!item?.disabled) return index;
-      // If we've wrapped or hit boundary without finding enabled, stop
-      if (index === 0 && direction === -1) break;
-      if (index === options.length - 1 && direction === 1) break;
-      iterations++;
+    for (let step = 0; step < options.length; step += 1) {
+      index = wrapIndex(index + direction, options.length);
+      if (options[index]?.disabled !== true) return index;
     }
-    // Fallback: stay at current position if all disabled
     return from;
   }
 
   function moveCursor(delta: number): void {
     const direction = delta > 0 ? 1 : -1;
-    const nextCursor = findNextEnabledIndex(cursorIndex, direction);
-    setCursorIndex(nextCursor);
-    ensureCursorVisible(nextCursor);
+    setCursorIndex(findNextEnabledIndex(cursorIndex, direction));
   }
 
   function submit(): void {

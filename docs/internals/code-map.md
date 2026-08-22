@@ -80,7 +80,7 @@ src/
 │   │   ├── prompts/              # System prompts by agent type
 │   │   └── tools/                # Tool implementations
 │   │       ├── fs/               # Filesystem tools (read, write, grep, etc.)
-│   │       ├── git/              # Git tools (status, commit, push, etc.)
+│   │       ├── command-risk.ts   # execute_command risk classifier (LLM)
 │   │       ├── tool-categories.ts # Builtin category ids + mappings
 │   │       ├── register-tools.ts # Builtin tool registration
 │   │       └── register-mcp-tools.ts # Per-agent MCP connect + register

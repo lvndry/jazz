@@ -10,7 +10,6 @@ export const SHELL_COMMANDS_CATEGORY: ToolCategory = {
   id: "shell_commands",
   displayName: "Shell Commands",
 };
-export const GIT_CATEGORY: ToolCategory = { id: "git", displayName: "Git" };
 export const WEB_SEARCH_CATEGORY: ToolCategory = { id: "search", displayName: "Web Search" };
 export const WEB_FETCH_CATEGORY: ToolCategory = { id: "web_fetch", displayName: "Web Fetch" };
 export const SKILLS_CATEGORY: ToolCategory = { id: "skills", displayName: "Skills" };
@@ -31,7 +30,6 @@ export const WEB_APP_CATEGORY: ToolCategory = { id: "web_app", displayName: "Web
 export const ALL_CATEGORIES: readonly ToolCategory[] = [
   FILE_MANAGEMENT_CATEGORY,
   SHELL_COMMANDS_CATEGORY,
-  GIT_CATEGORY,
   HTTP_CATEGORY,
   WEB_SEARCH_CATEGORY,
   WEB_FETCH_CATEGORY,

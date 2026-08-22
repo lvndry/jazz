@@ -176,7 +176,15 @@ You can set or update your API keys in config by running `jazz` -> `update confi
 }
 ```
 
-All fields are optional. When `base_url` is omitted, Jazz uses `http://localhost:11434/api`. You can also set `OLLAMA_BASE_URL` (config takes precedence over env).
+All fields are optional for local models. When `base_url` is omitted, Jazz uses `http://localhost:11434/api`. You can also set `OLLAMA_BASE_URL` (config takes precedence over env).
+
+### Ollama Cloud
+
+Models tagged `:cloud` (or `*-cloud`, e.g. `kimi-k3:cloud`) run on [ollama.com](https://ollama.com), not on your machine. An API key from [ollama.com/settings/keys](https://ollama.com/settings/keys) is required. Some cloud models also need a Pro, Max, or Team plan plus extra usage — a valid key still gets a 403 in that case. Jazz sends those requests to `https://ollama.com/api` with `Authorization: Bearer`. Set the key via `jazz` → *Update configuration*, `jazz config set llm.ollama.api_key <key>`, or `OLLAMA_API_KEY`.
+
+If you skip the Jazz key and use `ollama signin` instead, cloud models stay on the local daemon and Ollama authenticates them itself.
+
+The create-agent wizard asks for the key after you pick a cloud model. Local models still do not need one.
 
 **Context window**: When you create an Ollama agent, Jazz asks you to pick a context window from a list capped to the model's real maximum. Ollama otherwise caps the runtime context to a small default (~4096 tokens) and silently truncates long conversations regardless of the model's trained size. The choice is stored per agent (`numCtx`) and sent as `num_ctx` on every request; change it later with `jazz agent edit`.
 

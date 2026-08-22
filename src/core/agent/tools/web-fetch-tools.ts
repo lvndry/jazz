@@ -21,14 +21,23 @@ function isSupportedContentType(contentType: string): boolean {
 
 const webFetchSchema = z
   .object({
-    url: z.string().url().describe("The URL to fetch content from"),
+    url: z
+      .url({
+        protocol: /^https?$/,
+        error: "URL must be absolute and include the protocol (http or https).",
+      })
+      .describe(
+        "Absolute http or https URL to fetch. This is not search — the URL must already be known.",
+      ),
     max_length: z
       .number()
       .int()
       .min(1)
       .max(200_000)
       .optional()
-      .describe(`Max content length in characters (default: ${DEFAULT_MAX_CONTENT_LENGTH})`),
+      .describe(
+        `Maximum number of characters to return. Default ${DEFAULT_MAX_CONTENT_LENGTH}, hard cap 200000.`,
+      ),
   })
   .strict();
 
@@ -37,7 +46,9 @@ type WebFetchArgs = z.infer<typeof webFetchSchema>;
 export function createWebFetchTool(): ReturnType<typeof defineTool<LoggerService, WebFetchArgs>> {
   return defineTool<LoggerService, WebFetchArgs>({
     name: "web_fetch",
-    description: "Fetch and extract text content from a URL.",
+    description:
+      "Fetch a URL with HTTP GET and return its title and body as plain text. HTML has tags stripped (not markdown, not reader mode). JavaScript is not run. PDFs and images are not supported. Allowed types: HTML, plain text, JSON, XML. " +
+      "Default 50000 characters (max 200000); the full body is still downloaded first. Redirects are followed. For APIs, custom headers, POST, or binary, use http_request. To find URLs, use web_search.",
     tags: ["web", "fetch"],
     parameters: webFetchSchema,
     validate: makeZodValidator(webFetchSchema),
@@ -45,6 +56,24 @@ export function createWebFetchTool(): ReturnType<typeof defineTool<LoggerService
       Effect.gen(function* () {
         const logger = yield* LoggerServiceTag;
         const maxLength = args.max_length ?? DEFAULT_MAX_CONTENT_LENGTH;
+
+        let parsedUrl: URL;
+        try {
+          parsedUrl = new URL(args.url);
+        } catch {
+          return {
+            success: false,
+            result: null,
+            error: `Invalid URL: ${args.url}`,
+          } satisfies ToolExecutionResult;
+        }
+        if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+          return {
+            success: false,
+            result: null,
+            error: "Only http and https URLs are supported.",
+          } satisfies ToolExecutionResult;
+        }
 
         yield* logger.debug(`[Web Fetch] Fetching ${args.url}`);
 

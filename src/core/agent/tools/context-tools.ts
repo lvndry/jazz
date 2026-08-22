@@ -21,7 +21,7 @@ export function createGetTimeTool(): Tool<never> {
   return {
     name: "get_time",
     description:
-      "Get current date and time. Use for scheduling, relative times (yesterday, next Monday), and timestamps.",
+      "Get the current date and time. The Environment block already has today's date — use this only when you need a fresh clock during a long run, for scheduling, relative times such as 'yesterday', or timestamps.",
     parameters: z.object({}).strict(),
     riskLevel: "read-only",
     hidden: false,
@@ -56,7 +56,8 @@ export function createGetTimeTool(): Tool<never> {
 export function createContextInfoTool(): Tool<never> {
   return {
     name: "context_info",
-    description: "Get current context window token usage statistics.",
+    description:
+      "Report how much of the context window is in use. The harness already warns at 70% and 90% and auto-compacts around 80%. Do not poll this. If you need to free space now, call summarize_context.",
     parameters: z.object({}),
     riskLevel: "read-only",
     hidden: false,

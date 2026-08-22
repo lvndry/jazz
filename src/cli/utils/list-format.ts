@@ -35,7 +35,7 @@ export function heading(text: string): string {
 /**
  * Format a group/section header within a list.
  *
- * Example output: `   Git (4 tools):`
+ * Example output: `   Shell Commands (1 tool):`
  */
 export function section(label: string, count?: number, unit?: string): string {
   const countStr =

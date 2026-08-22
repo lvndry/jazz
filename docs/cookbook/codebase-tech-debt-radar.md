@@ -3,7 +3,7 @@
 **What it does:** Once a week, walks one or more local repos, counts and categorizes `TODO` / `FIXME` / `HACK` / `XXX` markers, and writes a trend report so you can see whether tech debt is growing or shrinking.
 **Schedule:** `0 18 * * 5` — 18:00 every Friday (end of week).
 **Risk:** `read-only` — only `grep`, `git log`, and a single `write_file` to a scratch dir.
-**Tools used:** `grep`, `find`, `git_log`, `read_file`, `write_file`.
+**Tools used:** `grep`, `find`, `execute_command`, `read_file`, `write_file`.
 
 ## Why this is useful
 
@@ -104,7 +104,7 @@ totals:
    - ...
 
 ## New this week
-[List markers added in commits in the last 7 days. Use `git_log -p --since='7 days ago'` and grep additions for marker patterns. Show file:line + the line text. Cap at 20.]
+[List markers added in commits in the last 7 days. Use `execute_command` with `git log -p --since='7 days ago'` and grep additions for marker patterns. Show file:line + the line text. Cap at 20.]
 
 ## Resolved this week
 [Same approach but for marker lines deleted in the last 7 days. Cap at 20.]

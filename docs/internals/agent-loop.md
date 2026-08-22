@@ -17,8 +17,8 @@ Everything that makes it survive a long autonomous run is in the guards around i
 flowchart TD
     START(["Iteration i of 80"]) --> COMPACT
 
-    COMPACT["<b>Compact if needed</b><br/>tokens &gt; 80% of window?<br/>→ summarize and continue"]
-    COMPACT --> PRESSURE["<b>Build budget pressure</b><br/>i/80 ≥ 70% → 'consolidate'<br/>i/80 ≥ 90% → 'finish now'<br/><i>ephemeral — not stored</i>"]
+    COMPACT["<b>Compact if needed</b><br/>tokens &gt; 80% of window?<br/>→ summarize, then resume"]
+    COMPACT --> PRESSURE["<b>Build budget pressure</b><br/>just compacted → 'continue the task'<br/>else i/80 ≥ 70% → 'consolidate'<br/>i/80 ≥ 90% → 'finish now'<br/><i>ephemeral — not stored</i>"]
     PRESSURE --> ASK["<b>Ask the model</b><br/>messages + tools + reasoning effort"]
 
     ASK --> INT{"Interrupted?<br/>(double-Esc)"}
@@ -133,12 +133,12 @@ return uniqueness < 0.4;
 The key is composite — **tool name *plus* arguments**. This distinction is the whole
 design:
 
-| Recent calls | Unique keys | Verdict |
-| --- | --- | --- |
-| `web_search("effect-ts")` × 10 | 1/10 = 10% | 🔴 Stuck — same query over and over |
-| `web_search(q1)` → `web_fetch(u1)` → `web_search(q2)` → … | 10/10 = 100% | 🟢 Productive — that's research |
-| `read_file(a)` `read_file(b)` … 10 distinct files | 10/10 = 100% | 🟢 Productive — that's reading a codebase |
-| `git_status()` × 6, `read_file(x)` × 4 | 2/10 = 20% | 🔴 Stuck |
+| Recent calls                                              | Unique keys  | Verdict                                  |
+| --------------------------------------------------------- | ------------ | ---------------------------------------- |
+| `web_search("effect-ts")` × 10                            | 1/10 = 10%   | 🔴 Stuck — same query over and over       |
+| `web_search(q1)` → `web_fetch(u1)` → `web_search(q2)` → … | 10/10 = 100% | 🟢 Productive — that's research           |
+| `read_file(a)` `read_file(b)` … 10 distinct files         | 10/10 = 100% | 🟢 Productive — that's reading a codebase |
+| `execute_command()` × 6, `read_file(x)` × 4               | 2/10 = 20%   | 🔴 Stuck                                  |
 
 Keying on tool *name* alone would flag the second and third rows as meltdowns, which are
 exactly the behaviors you want. When a meltdown does trip, Jazz injects a message telling
@@ -155,13 +155,13 @@ and the agent should keep remembering that its last approach didn't work.
 The loop is shared. Only how it talks to the model and renders output differs, expressed
 as a `CompletionStrategy`:
 
-| | Streaming | Batch |
-| --- | --- | --- |
-| Model call | token-by-token stream | single response |
-| Rendering | live, as tokens arrive | markdown rendered at the end |
-| Thinking indicator | yes | no |
-| Interruptible | yes — double-Esc races tool execution | no |
-| Used by | terminal TUI, `--events` bridges | `jazz run` piped output, CI |
+|                    | Streaming                             | Batch                        |
+| ------------------ | ------------------------------------- | ---------------------------- |
+| Model call         | token-by-token stream                 | single response              |
+| Rendering          | live, as tokens arrive                | markdown rendered at the end |
+| Thinking indicator | yes                                   | no                           |
+| Interruptible      | yes — double-Esc races tool execution | no                           |
+| Used by            | terminal TUI, `--events` bridges      | `jazz run` piped output, CI  |
 
 Adding a third mode means implementing one interface, not forking the loop. That's the
 reason for the indirection.
@@ -202,15 +202,15 @@ Two details worth noting:
 
 ## Reading a run in the logs
 
-| Log line | Means |
-| --- | --- |
-| `Sending LLM request` | Top of an iteration — includes iteration number, message count, tool count |
-| `Agent decided to use tools` | Tool phase starting, with the chosen tool names |
-| `Meltdown detected — injecting recovery signal` | Guard 2 fired; the agent was looping |
-| `Compacting context` | Crossed 80% of the window; a summary is being produced |
-| `Tool timeout: <name>` | A tool exceeded its timeout; returned as a failed result, not a crash |
-| `Agent provided final response` | Loop exiting normally |
-| `Missing tool results for some tool calls` | Bug — please open an issue with the log |
+| Log line                                        | Means                                                                      |
+| ----------------------------------------------- | -------------------------------------------------------------------------- |
+| `Sending LLM request`                           | Top of an iteration — includes iteration number, message count, tool count |
+| `Agent decided to use tools`                    | Tool phase starting, with the chosen tool names                            |
+| `Meltdown detected — injecting recovery signal` | Guard 2 fired; the agent was looping                                       |
+| `Compacting context`                            | Crossed 80% of the window; a summary is being produced                     |
+| `Tool timeout: <name>`                          | A tool exceeded its timeout; returned as a failed result, not a crash      |
+| `Agent provided final response`                 | Loop exiting normally                                                      |
+| `Missing tool results for some tool calls`      | Bug — please open an issue with the log                                    |
 
 ---
 

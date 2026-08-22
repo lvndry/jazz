@@ -57,17 +57,22 @@ function buildTablesSection(getTableResult: {
 export function createReadPdfTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
   const parameters = z
     .object({
-      path: z.string().min(1).describe("PDF file path to read"),
+      path: z
+        .string()
+        .min(1)
+        .describe("PDF to read. Absolute or relative to the session working directory."),
       pages: z
         .array(z.number().int().positive())
         .optional()
-        .describe("Page numbers to extract (1-based). Omit for all pages."),
+        .describe(
+          "1-based page numbers to extract (for example [1, 2, 3], not a range string). Omit for all pages. For large files, request 10–20 pages at a time.",
+        ),
       maxChars: z
         .number()
         .int()
         .positive()
         .optional()
-        .describe("Max characters to return (default: 500KB). Truncated if exceeded."),
+        .describe("Maximum number of characters to return. Default 512000. Truncated if exceeded."),
     })
     .strict();
 
@@ -76,7 +81,7 @@ export function createReadPdfTool(): Tool<FileSystem.FileSystem | FileSystemCont
   return defineTool<FileSystem.FileSystem | FileSystemContextService, ReadPdfParams>({
     name: "read_pdf",
     description:
-      "Extract text and tables from a PDF. Use pdf_page_count first for large files. Supports page ranges.",
+      "Extract text and tables from a PDF. Do not use read_file on PDFs. Use pdf_page_count first for large files, then read 10–20 pages at a time via pages (a list of 1-based numbers such as [1, 2, 3], not a range string). No OCR or images.",
     tags: ["filesystem", "read", "pdf"],
     parameters,
     validate: makeZodValidator(parameters),

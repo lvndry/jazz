@@ -38,7 +38,7 @@ See [Personas](./personas.md).
 
 ### Toolset
 
-An explicit list of tool names the agent may call, e.g. `read_file`, `grep`, `git_commit`.
+An explicit list of tool names the agent may call, e.g. `read_file`, `grep`, `execute_command`.
 **This is the strongest safety control available:** an agent whose list omits
 `execute_command` cannot run shell commands, no matter what approval policy is set. Give each
 agent the fewest tools its job needs. See [Tools](./tools.md).

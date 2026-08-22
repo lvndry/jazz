@@ -6,6 +6,7 @@ import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interface
 import { ink, TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
 import type { LoggingConfig } from "@/core/types/config";
 import { ConfigurationValidationError } from "@/core/types/errors";
+import { sortProvidersForPicker } from "@/core/utils/provider-picker";
 import { ConfigCard } from "../ui/ConfigCard";
 
 /**
@@ -109,7 +110,7 @@ export function setConfigCommand(
         const provider =
           targetKey.split(".")[1] ||
           (yield* terminal.select<ProviderName>("Select LLM provider:", {
-            choices: AVAILABLE_PROVIDERS.map((provider) => ({
+            choices: sortProvidersForPicker(AVAILABLE_PROVIDERS).map((provider) => ({
               name: provider,
               value: provider,
             })),

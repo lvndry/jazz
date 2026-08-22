@@ -106,5 +106,46 @@ describe("handleSpecialCommand resume", () => {
     );
 
     expect(result.resetStartedAt).toBe(true);
+    expect(result.newHistory?.map((message) => message.content)).toEqual([
+      expect.stringContaining("Resuming conversation from"),
+      "Hello",
+      "Hi there",
+    ]);
+  });
+
+  test("does not replace history when this agent has no past conversations", async () => {
+    const info = mock(() => Effect.void);
+    const mockTerminal: Partial<TerminalService> = {
+      info,
+      log: mock(() => Effect.succeed(undefined)),
+    };
+
+    const terminalLayer = Layer.succeed(
+      TerminalServiceTag,
+      mockTerminal as unknown as TerminalService,
+    );
+    const jazzStateLayer = Layer.succeed(JazzStateServiceTag, {
+      get: () => Effect.succeed(undefined),
+      set: () => Effect.void,
+      load: () => Effect.succeed({}),
+      persist: () => Effect.void,
+    } as unknown as JazzStateService);
+    const testLayer = Layer.mergeAll(terminalLayer, jazzStateLayer, NodeFileSystem.layer);
+
+    const context: CommandContext = {
+      agent: testAgent,
+      conversationId: "current-conv-id",
+      conversationHistory: [{ role: "user", content: "still on screen" }],
+      sessionId: "test-session",
+      sessionUsage: { promptTokens: 0, completionTokens: 0 },
+      sessionStartedAt: new Date(Date.now() - 1800_000),
+    };
+
+    const result = await Effect.runPromise(
+      handleSpecialCommand({ type: "resume", args: [] }, context).pipe(Effect.provide(testLayer)),
+    );
+
+    expect(result).toEqual({ shouldContinue: true });
+    expect(info).toHaveBeenCalled();
   });
 });

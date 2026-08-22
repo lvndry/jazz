@@ -28,7 +28,9 @@ let subagentCounter = 0;
 const spawnSubagentSchema = z.object({
   task: z
     .string()
-    .describe("Specific task description for the sub-agent, including expected output."),
+    .describe(
+      "Self-contained brief for the child. Include every fact, path, constraint, and the exact output shape. The child cannot see this conversation.",
+    ),
   name: z
     .string()
     .optional()
@@ -42,7 +44,7 @@ const spawnSubagentSchema = z.object({
     .optional()
     .default("default")
     .describe(
-      "'coder' for code/git tasks, 'researcher' for research tasks, 'default' for general (default: 'default')",
+      "Which persona the child uses. coder for code and git, researcher for read-only investigation, default for general work. Default: default.",
     ),
   reasoningEffort: z
     .enum(["disable", "low", "medium", "high"])
@@ -76,9 +78,11 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
       longRunning: true,
       timeoutMs: SUBAGENT_TIMEOUT_MS,
       description:
-        "Spawn a sub-agent with fresh context for a specific task. Personas: coder, researcher, default. " +
-        "Pass a short 'name' to label each sub-agent by its role so parallel sub-agents stay distinguishable. " +
-        "Pass 'reasoningEffort' to override the parent's effort for this sub-agent only.",
+        "Delegate a self-contained task to a child agent with a fresh context window. " +
+        "The child cannot see this conversation, so put every fact, path, constraint, and the exact output shape in task. Only the child's final answer comes back. " +
+        "Use this when the work would flood this context, when two or more independent investigations can run in parallel in one turn, or when you need a specialist (coder for code and git, researcher for read-only investigation). " +
+        "Do not use this when a few greps or reads would finish the work, when the child would need to remember this conversation, when the work must mutate the same files in order, or when you are already under context pressure. " +
+        "The child inherits at most your tools, the same model, a 30-minute timeout, and 30 iterations. Nesting deeper than 3 is refused. Label parallel children with name.",
       parameters: spawnSubagentSchema,
       hidden: false,
       riskLevel: "low-risk",
@@ -270,9 +274,7 @@ ${args.task}`;
       name: "summarize_context",
       longRunning: true,
       description:
-        "Compact conversation by summarizing older messages to free token budget. " +
-        "Always performs summarization when called — use proactively before complex tasks " +
-        "to reduce context size, save costs, and prevent context rot.",
+        "Summarize older messages to free context. The harness already auto-compacts around 80% of the window — call this only when you need space before that, not as a habit. Empty or short histories return an error instead of summarizing.",
       parameters: summarizeContextSchema,
       hidden: false,
       riskLevel: "read-only",

@@ -28,6 +28,7 @@ export const LLM_PROVIDER_ENV_VARS: Record<string, string> = {
   minimax: "MINIMAX_API_KEY",
   mistral: "MISTRAL_API_KEY",
   moonshotai: "MOONSHOT_API_KEY",
+  ollama: "OLLAMA_API_KEY",
   openai: "OPENAI_API_KEY",
   openrouter: "OPENROUTER_API_KEY",
   togetherai: "TOGETHER_AI_API_KEY",

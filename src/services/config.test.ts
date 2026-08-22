@@ -58,6 +58,21 @@ describe("AgentConfigService", () => {
     expect(missing).toBeUndefined();
   });
 
+  it("treats a blank API key as missing", async () => {
+    const service = new AgentConfigServiceImpl(
+      {
+        ...initialConfig,
+        llm: { ollama: { api_key: "   " } },
+      },
+      {},
+      undefined,
+      mockFS,
+    );
+
+    expect(await Effect.runPromise(service.has("llm.ollama.api_key"))).toBe(false);
+    expect(await Effect.runPromise(service.has("logging.level"))).toBe(true);
+  });
+
   it("should set properties and persist to file", async () => {
     const configPath = "/tmp/config.json";
     const service = new AgentConfigServiceImpl(initialConfig, {}, configPath, mockFS);

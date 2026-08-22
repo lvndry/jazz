@@ -3,18 +3,34 @@ import { shouldAutoApprove, type AutoApprovePolicy, type ToolRiskLevel } from ".
 
 describe("shouldAutoApprove", () => {
   describe("no policy (undefined)", () => {
-    it("should not auto-approve any risk level", () => {
-      expect(shouldAutoApprove("read-only", undefined)).toBe(false);
-      expect(shouldAutoApprove("low-risk", undefined)).toBe(false);
-      expect(shouldAutoApprove("high-risk", undefined)).toBe(false);
+    it("auto-approves read-only and low-risk when a prompt was the alternative", () => {
+      const canPrompt = { canPrompt: true };
+      expect(shouldAutoApprove("read-only", undefined, canPrompt)).toBe(true);
+      expect(shouldAutoApprove("low-risk", undefined, canPrompt)).toBe(true);
+      expect(shouldAutoApprove("high-risk", undefined, canPrompt)).toBe(false);
+      expect(shouldAutoApprove("unknown", undefined, canPrompt)).toBe(false);
+    });
+
+    it("approves nothing where nobody can be asked", () => {
+      for (const level of ["read-only", "low-risk", "high-risk", "unknown"] as const) {
+        expect(shouldAutoApprove(level, undefined)).toBe(false);
+        expect(shouldAutoApprove(level, undefined, { canPrompt: false })).toBe(false);
+      }
     });
   });
 
   describe("policy: false", () => {
-    it("should not auto-approve any risk level", () => {
+    it("auto-approves read-only and low-risk when a prompt was the alternative", () => {
+      const canPrompt = { canPrompt: true };
+      expect(shouldAutoApprove("read-only", false, canPrompt)).toBe(true);
+      expect(shouldAutoApprove("low-risk", false, canPrompt)).toBe(true);
+      expect(shouldAutoApprove("high-risk", false, canPrompt)).toBe(false);
+      expect(shouldAutoApprove("unknown", false, canPrompt)).toBe(false);
+    });
+
+    it("approves nothing where nobody can be asked", () => {
       expect(shouldAutoApprove("read-only", false)).toBe(false);
       expect(shouldAutoApprove("low-risk", false)).toBe(false);
-      expect(shouldAutoApprove("high-risk", false)).toBe(false);
     });
   });
 
@@ -23,6 +39,7 @@ describe("shouldAutoApprove", () => {
       expect(shouldAutoApprove("read-only", true)).toBe(true);
       expect(shouldAutoApprove("low-risk", true)).toBe(true);
       expect(shouldAutoApprove("high-risk", true)).toBe(true);
+      expect(shouldAutoApprove("unknown", true)).toBe(true);
     });
   });
 
@@ -31,14 +48,16 @@ describe("shouldAutoApprove", () => {
       expect(shouldAutoApprove("read-only", "high-risk")).toBe(true);
       expect(shouldAutoApprove("low-risk", "high-risk")).toBe(true);
       expect(shouldAutoApprove("high-risk", "high-risk")).toBe(true);
+      expect(shouldAutoApprove("unknown", "high-risk")).toBe(true);
     });
   });
 
   describe('policy: "low-risk"', () => {
-    it("should auto-approve read-only and low-risk, but not high-risk", () => {
+    it("should auto-approve read-only and low-risk, but not high-risk or unknown", () => {
       expect(shouldAutoApprove("read-only", "low-risk")).toBe(true);
       expect(shouldAutoApprove("low-risk", "low-risk")).toBe(true);
       expect(shouldAutoApprove("high-risk", "low-risk")).toBe(false);
+      expect(shouldAutoApprove("unknown", "low-risk")).toBe(false);
     });
   });
 
@@ -47,6 +66,7 @@ describe("shouldAutoApprove", () => {
       expect(shouldAutoApprove("read-only", "read-only")).toBe(true);
       expect(shouldAutoApprove("low-risk", "read-only")).toBe(false);
       expect(shouldAutoApprove("high-risk", "read-only")).toBe(false);
+      expect(shouldAutoApprove("unknown", "read-only")).toBe(false);
     });
   });
 
@@ -60,7 +80,7 @@ describe("shouldAutoApprove", () => {
         "low-risk",
         "high-risk",
       ];
-      const riskLevels: ToolRiskLevel[] = ["read-only", "low-risk", "high-risk"];
+      const riskLevels: ToolRiskLevel[] = ["read-only", "low-risk", "high-risk", "unknown"];
 
       for (const policy of policies) {
         for (const riskLevel of riskLevels) {

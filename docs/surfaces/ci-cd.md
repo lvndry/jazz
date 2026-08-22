@@ -61,11 +61,11 @@ cp path/to/jazz/.github/workflows/jazz.yml .github/workflows/
 
 Then add **one** repo secret (Settings → Secrets and variables → Actions):
 
-| Secret | When | Purpose |
-| --- | --- | --- |
-| `OPENROUTER_API_KEY` | if using OpenRouter (the default) | model access |
-| `OPENAI_API_KEY` | if pointing the agents at OpenAI | model access |
-| `GITHUB_TOKEN` | automatic | read PR context, post comments |
+| Secret               | When                              | Purpose                        |
+| -------------------- | --------------------------------- | ------------------------------ |
+| `OPENROUTER_API_KEY` | if using OpenRouter (the default) | model access                   |
+| `OPENAI_API_KEY`     | if pointing the agents at OpenAI  | model access                   |
+| `GITHUB_TOKEN`       | automatic                         | read PR context, post comments |
 
 Open a PR, or comment `/jazz summarize this PR`.
 
@@ -142,14 +142,14 @@ Because the answer is on stdout and the noise is on stderr, this composes with `
 
 ## Practical notes for unattended runs
 
-| Concern | What to do |
-| --- | --- |
-| **Runaway cost** | Set `--max-iterations` and `--timeout`. The `--json` envelope reports `costUSD` per run — log it and alert on it. |
-| **Fork PRs** | The `code-review` job deliberately only runs for PRs from the same repository. A fork PR can contain a prompt injection *and* a workflow change; don't hand it a provider secret. |
-| **Prompt injection via the diff** | The diff is untrusted input. Keep the reviewer at the lowest policy that works — a reviewer needs to *read*, not to `git push`. |
-| **Flaky provider** | Jazz retries transient LLM failures with capped exponential backoff (up to 10 attempts, 15-minute ceiling for the whole call), so a single 429 doesn't fail your build. |
-| **Reproducibility** | Pin the model in the agent JSON. `latest` aliases move under you. |
-| **Provider choice** | CI is where a cheap fast model usually wins. This is one field in the agent config. |
+| Concern                           | What to do                                                                                                                                                                        |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Runaway cost**                  | Set `--max-iterations` and `--timeout`. The `--json` envelope reports `costUSD` per run — log it and alert on it.                                                                 |
+| **Fork PRs**                      | The `code-review` job deliberately only runs for PRs from the same repository. A fork PR can contain a prompt injection *and* a workflow change; don't hand it a provider secret. |
+| **Prompt injection via the diff** | The diff is untrusted input. Keep the reviewer at the lowest policy that works — a reviewer needs to *read*, not to `git push`.                                                   |
+| **Flaky provider**                | Jazz retries transient LLM failures with capped exponential backoff (up to 10 attempts, 15-minute ceiling for the whole call), so a single 429 doesn't fail your build.           |
+| **Reproducibility**               | Pin the model in the agent JSON. `latest` aliases move under you.                                                                                                                 |
+| **Provider choice**               | CI is where a cheap fast model usually wins. This is one field in the agent config.                                                                                               |
 
 ---
 

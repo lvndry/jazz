@@ -295,10 +295,16 @@ function initializeAgentRun(
     const allToolNames = yield* toolRegistry.listAllTools();
     combinedToolNames = combinedToolNames.filter((toolName) => allToolNames.includes(toolName));
 
-    // Expand tool names to include approval execute tools
+    // Expand tool names to include approval execute tools and advertised aliases
     const expandedToolNameSet = new Set(combinedToolNames);
     for (const toolName of combinedToolNames) {
       const tool = yield* toolRegistry.getTool(toolName);
+      expandedToolNameSet.add(tool.name);
+      if (tool.aliases) {
+        for (const alias of tool.aliases) {
+          expandedToolNameSet.add(alias);
+        }
+      }
       if (tool.approvalExecuteToolName) {
         expandedToolNameSet.add(tool.approvalExecuteToolName);
       }
@@ -506,14 +512,17 @@ export class AgentRunner {
       // Initialize run context
       const runContext = yield* initializeAgentRun(options);
 
-      // Determine if streaming should be enabled
-      // Internal runs (sub-agents) use the same streaming detection as the parent
-      // to ensure provider-native tools (e.g., OpenAI web search) work correctly.
-      // Batch mode cannot reliably handle provider-native tool calls.
+      // Internal runs without their own panel (compaction) must not take over
+      // the parent's stream — a streamed completion finalizes the transcript,
+      // idles the live zone, and looks like the turn ended. Sub-agents that
+      // need a live panel pass ephemeralRegionId and keep streaming.
       const streamDetection = shouldEnableStreaming(
         appConfig,
         options.stream !== undefined ? { stream: options.stream } : {},
       );
+      const shouldStream =
+        streamDetection.shouldStream &&
+        !(options.internal === true && options.ephemeralRegionId === undefined);
 
       // Get display config with defaults
       const displayConfig: DisplayConfig = resolveDisplayConfig(appConfig);
@@ -539,7 +548,7 @@ export class AgentRunner {
         maxIterations?: number;
       }) => AgentRunner.runRecursive(runOpts);
 
-      if (streamDetection.shouldStream) {
+      if (shouldStream) {
         return yield* executeWithStreaming(
           options,
           runContext,

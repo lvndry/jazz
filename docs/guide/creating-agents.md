@@ -14,13 +14,13 @@ file directly (shape below) or copy an existing one.
 
 ## What the wizard asks
 
-| Choice | Guidance |
-| --- | --- |
-| **Name** | How you'll refer to it: `jazz agent chat reviewer` |
-| **Provider + model** | See [Providers](../integrations/providers.md). `openrouter` with a free model costs nothing; `ollama` keeps everything local |
-| **Persona** | `default`, `coder`, `researcher`, or one of yours — see [Personas](../concepts/personas.md) |
-| **Toolset** | The tools this agent may call. Every category starts checked — **untick down to the minimum.** Omitting `execute_command` means it can never run a shell command, whatever the approval policy. Configured MCP servers start unchecked, since selecting one connects to it |
-| **Skills** | Playbooks it can load on demand — see [Skills](../concepts/skills.md) |
+| Choice               | Guidance                                                                                                                                                                                                                                                                   |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Name**             | How you'll refer to it: `jazz agent chat reviewer`                                                                                                                                                                                                                         |
+| **Provider + model** | See [Providers](../integrations/providers.md). `openrouter` with a free model costs nothing; `ollama` keeps everything local unless you pick a `:cloud` model, which needs an [Ollama API key](../integrations/providers.md#ollama-cloud)                                  |
+| **Persona**          | `default`, `coder`, `researcher`, or one of yours — see [Personas](../concepts/personas.md)                                                                                                                                                                                |
+| **Toolset**          | The tools this agent may call. Every category starts checked — **untick down to the minimum.** Omitting `execute_command` means it can never run a shell command, whatever the approval policy. Configured MCP servers start unchecked, since selecting one connects to it |
+| **Skills**           | Playbooks it can load on demand — see [Skills](../concepts/skills.md)                                                                                                                                                                                                      |
 
 ---
 
@@ -37,7 +37,7 @@ Agents are one JSON file each under `~/.jazz/agents/<id>.json`:
     "persona": "coder",
     "llmProvider": "anthropic",
     "llmModel": "claude-sonnet-4-5",
-    "tools": ["read_file", "grep", "find", "ls", "git_diff", "git_log", "git_status"],
+    "tools": ["read_file", "grep", "find", "ls", "execute_command"],
     "reasoningEffort": "medium"
   }
 }
@@ -48,14 +48,14 @@ hold it split — the separator is a **slash**, not a colon.
 
 Useful optional fields:
 
-| Field | Effect |
-| --- | --- |
-| `reasoningEffort` | `low` \| `medium` \| `high` \| `disable`. Models without reasoning support error unless this is `disable` |
-| `temperature` | Sampling temperature — see [Configuration](../reference/configuration.md#agent-config-temperature). Not asked by the wizard. Unset means Jazz sends nothing and the provider's default applies; models that reject a custom temperature ignore it |
-| `summarizerModel` | `provider/model` used for context compaction — point it at something cheap |
-| `customTools` | Declare extra tools (shell or HTTP) with no code — see [Configuration](../reference/configuration.md#agent-config-customtools) |
-| `envAllowlist` | Exempt specific env vars from secret scrubbing for `execute_command` |
-| `maxIterations` | Override the 80-iteration default |
+| Field             | Effect                                                                                                                                                                                                                                            |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `reasoningEffort` | `low` \| `medium` \| `high` \| `disable`. Models without reasoning support error unless this is `disable`                                                                                                                                         |
+| `temperature`     | Sampling temperature — see [Configuration](../reference/configuration.md#agent-config-temperature). Not asked by the wizard. Unset means Jazz sends nothing and the provider's default applies; models that reject a custom temperature ignore it |
+| `summarizerModel` | `provider/model` used for context compaction **and** `execute_command` risk classification — point it at something cheap                                                                                                                          |
+| `customTools`     | Declare extra tools (`record` or `command` handlers) with no code — see [Configuration](../reference/configuration.md#agent-config-customtools)                                                                                                   |
+| `envAllowlist`    | Exempt specific env vars from secret scrubbing for `execute_command`                                                                                                                                                                              |
+| `maxIterations`   | Override the 80-iteration default                                                                                                                                                                                                                 |
 
 Full field reference: [Configuration](../reference/configuration.md).
 

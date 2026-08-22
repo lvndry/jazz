@@ -1,6 +1,7 @@
 import { FileSystem } from "@effect/platform";
 import chalk from "chalk";
 import { Effect, Layer } from "effect";
+import { hydrateTranscriptFromHistory } from "@/cli/ui/hydrate-transcript";
 import { store } from "@/cli/ui/store";
 import { AgentRunner, type AgentRunnerOptions } from "@/core/agent/agent-runner";
 import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
@@ -27,6 +28,7 @@ import { isRetryableLLMError } from "@/core/utils/llm-error";
 import type { WorkflowService } from "@/core/workflows/workflow-service";
 import { handleSpecialCommand, parseSpecialCommand, setSkillCommands } from "./chat/commands";
 import type { CommandContext, CommandResult } from "./chat/commands/types";
+import { persistConversationIfNeeded } from "./chat/persist-conversation";
 import {
   generateConversationId,
   generateSessionId,
@@ -42,7 +44,6 @@ import {
   bumpPromotionThreshold,
   type CommandApprovals,
 } from "./command-approval-tracker";
-import { saveConversation, type ConversationRecord } from "./history/conversation-history-service";
 
 /**
  * Chat service implementation for managing interactive chat sessions with AI agents
@@ -124,6 +125,9 @@ export class ChatServiceImpl implements ChatService {
 
       let chatActive = true;
       let conversationHistory: ChatMessage[] = options?.initialHistory ?? [];
+      if (conversationHistory.length > 0) {
+        hydrateTranscriptFromHistory(conversationHistory);
+      }
       let loggedMessageCount = 0;
       let sessionUsage = { promptTokens: 0, completionTokens: 0 };
       let autoApprovePolicy: AutoApprovePolicy | undefined = undefined;
@@ -310,22 +314,15 @@ export class ChatServiceImpl implements ChatService {
               context,
             );
 
-            if (
-              !ephemeral &&
-              commandResult.saveCurrentHistory &&
-              conversationTitle !== null &&
-              conversationHistory.length > 0
-            ) {
-              const record: ConversationRecord = {
+            if (commandResult.saveCurrentHistory) {
+              yield* persistConversationIfNeeded({
+                ephemeral,
+                conversationTitle,
+                conversationHistory,
                 conversationId,
-                title: conversationTitle,
                 agentId: agent.id,
                 startedAt,
-                endedAt: new Date().toISOString(),
-                messageCount: conversationHistory.length,
-                messages: conversationHistory,
-              };
-              yield* saveConversation(record).pipe(Effect.catchAll(() => Effect.void));
+              });
             }
 
             if (commandResult.newConversationId !== undefined) {
@@ -363,6 +360,11 @@ export class ChatServiceImpl implements ChatService {
             }
             if (commandResult.newHistory !== undefined) {
               conversationHistory = commandResult.newHistory;
+              // The transcript is the user's picture of what the agent knows.
+              // Any command that replaces the history — /new, /fork, /compact,
+              // /resume — has to repaint it, or the screen keeps showing turns
+              // the agent can no longer see.
+              hydrateTranscriptFromHistory(conversationHistory);
               if (commandResult.resendMessage !== undefined) {
                 // /retry replays the SAME conversation — keep the title (so
                 // the exit-time save still fires) and clamp the session-log
@@ -515,13 +517,21 @@ export class ChatServiceImpl implements ChatService {
                     yield* terminal.log("   Check your network connection and try again.");
                   } else {
                     yield* terminal.error(`LLM request failed: ${cleanMessage}`);
-                    yield* terminal.log("   This might be a temporary issue. Please try again.");
+                    if (error.permanent !== true) {
+                      yield* terminal.log("   This might be a temporary issue. Please try again.");
+                    }
                   }
                 } else if (error instanceof LLMAuthenticationError) {
                   yield* terminal.error(`Authentication failed: ${error.message}`);
-                  yield* terminal.log(
-                    `   Run 'jazz config set llm.${error.provider}.api_key <key>' or 'jazz wizard' to fix.`,
-                  );
+                  if (error.provider === "ollama") {
+                    yield* terminal.log(
+                      "   Cloud models need a key from https://ollama.com/settings/keys (jazz config set llm.ollama.api_key <key>), or `ollama signin` to proxy through a local daemon.",
+                    );
+                  } else {
+                    yield* terminal.log(
+                      `   Run 'jazz config set llm.${error.provider}.api_key <key>' or 'jazz wizard' to fix.`,
+                    );
+                  }
                 } else {
                   yield* terminal.error(`Error: ${String(error)}`);
                 }
@@ -597,6 +607,17 @@ export class ChatServiceImpl implements ChatService {
             loggedMessageCount += 1;
           }
 
+          if (!lastTurnErrored) {
+            yield* persistConversationIfNeeded({
+              ephemeral,
+              conversationTitle,
+              conversationHistory,
+              conversationId,
+              agentId: agent.id,
+              startedAt,
+            });
+          }
+
           // Display is handled entirely by AgentRunner (both streaming and non-streaming)
           // No need to display here - AgentRunner takes care of it
 
@@ -642,18 +663,14 @@ export class ChatServiceImpl implements ChatService {
         });
       }
 
-      if (!ephemeral && conversationTitle !== null && conversationHistory.length > 0) {
-        const record: ConversationRecord = {
-          conversationId,
-          title: conversationTitle,
-          agentId: agent.id,
-          startedAt,
-          endedAt: new Date().toISOString(),
-          messageCount: conversationHistory.length,
-          messages: conversationHistory,
-        };
-        yield* saveConversation(record).pipe(Effect.catchAll(() => Effect.void));
-      }
+      yield* persistConversationIfNeeded({
+        ephemeral,
+        conversationTitle,
+        conversationHistory,
+        conversationId,
+        agentId: agent.id,
+        startedAt,
+      });
     }).pipe(Effect.catchAll(() => Effect.void));
   }
 }

@@ -64,7 +64,7 @@ const webSearchSchema = z
       .min(1, "query cannot be empty")
       .max(5000, "query cannot be longer than 5000 characters")
       .describe(
-        "Natural-language description of the web research goal, including source or freshness guidance and broader context. Use highly specific queries for more targeted results.",
+        "Natural-language description of the web research goal, including source or freshness guidance and broader context. Be specific — 'French energy company Total website' finds the right company; 'Total' does not.",
       ),
     searchQueries: z
       .array(
@@ -72,40 +72,46 @@ const webSearchSchema = z
           .string()
           .min(1)
           .max(200, "each search query must be 200 characters or less")
-          .describe("Concise keyword phrase, 3-6 words"),
+          .describe("A short keyword phrase, 3–6 words."),
       )
       .min(1)
       .max(5)
       .optional()
-      .describe("Concise keyword search queries (3-6 words each)."),
+      .describe("Optional extra keyword phrases, 3–6 words each, if the provider supports them."),
     searchDepth: z
       .enum(["fast", "standard", "deep"])
       .optional()
       .describe(
-        "Search quality vs latency: 'fast' for quick lookups, 'standard' for balanced results (default), 'deep' for thorough multi-step research.",
+        "How thorough the search should be. 'fast' for a quick lookup, 'standard' (default) for a balanced search, 'deep' for multi-step research. Some providers ignore this.",
       ),
     fromDate: z
       .string()
       .regex(/^\d{4}-\d{2}-\d{2}$/, "fromDate must be in ISO 8601 format (YYYY-MM-DD)")
       .optional()
-      .describe("From date filter (YYYY-MM-DD)"),
+      .describe(
+        "Only return results published on or after this date (YYYY-MM-DD). Some providers ignore this.",
+      ),
     toDate: z
       .string()
       .regex(/^\d{4}-\d{2}-\d{2}$/, "toDate must be in ISO 8601 format (YYYY-MM-DD)")
       .optional()
-      .describe("To date filter (YYYY-MM-DD)"),
+      .describe(
+        "Only return results published on or before this date (YYYY-MM-DD). Some providers ignore this.",
+      ),
     maxResults: z
       .number()
       .int()
       .min(1)
       .max(100)
       .optional()
-      .describe(`Max results (default: ${DEFAULT_MAX_RESULTS}, max: 100)`),
+      .describe(
+        `Maximum number of results to return. Default ${DEFAULT_MAX_RESULTS}, hard cap 100.`,
+      ),
     sourceType: z
       .enum(["web", "news", "academic", "company", "people", "financial"])
       .optional()
       .describe(
-        "Source type filter: 'news' for news articles, 'academic' for research papers, 'company' for company pages, 'people' for people profiles, 'financial' for financial reports/filings, 'web' for general web (default).",
+        "Prefer this kind of source: news, academic, company, people, financial, or web (default). Some providers ignore this.",
       ),
   })
   .strict() as z.ZodType<WebSearchArgs>;
@@ -115,7 +121,9 @@ export function createWebSearchTool(): ReturnType<
 > {
   return defineTool<AgentConfigService | LoggerService, WebSearchArgs>({
     name: "web_search",
-    description: "Search the web for real-time information.",
+    description:
+      "Search the public web. Each result has a title, url, snippet, and sometimes a publishedDate. This does not fetch full pages — follow up with web_fetch for HTML or text, or http_request for APIs and POST. " +
+      "Put operators such as site: and filetype: in query. fromDate, toDate, searchDepth, sourceType, and searchQueries are hints; some providers ignore them. If search is unavailable the tool returns an error — do not invent sources.",
     tags: ["web", "search"],
     parameters: webSearchSchema,
     validate: makeZodValidator(webSearchSchema),

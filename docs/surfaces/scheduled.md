@@ -53,16 +53,16 @@ Scheduled runs differ from terminal runs in exactly one meaningful way: **nobody
 to say yes.** The workflow's `autoApprove:` tier decides in advance, and anything above the
 tier is declined rather than queued.
 
-| `autoApprove` | Auto-approves | Good for |
-| --- | --- | --- |
-| `false` | Nothing | Not useful when scheduled — the run will stall out on the first gated tool |
-| `read-only` | Reads, search, web, `git status`/`log`/`diff` | Digests, reports, watchdogs |
-| `low-risk` | + `manage_todos`, `spawn_subagent` | Digests that track state |
-| `high-risk` | + file writes, shell, git commit and push | Anything that writes files, or any skill that shells out |
+| `autoApprove` | Auto-approves                                 | Good for                                                                   |
+| ------------- | --------------------------------------------- | -------------------------------------------------------------------------- |
+| `false`       | Nothing                                       | Not useful when scheduled — the run will stall out on the first gated tool |
+| `read-only`   | Reads, search, web, `git status`/`log`/`diff` | Digests, reports, watchdogs                                                |
+| `low-risk`    | + `manage_todos`, `spawn_subagent`            | Digests that track state                                                   |
+| `high-risk`   | + file writes, shell, git commit and push     | Anything that writes files, or any skill that shells out                   |
 
 > ⚠️ **`low-risk` is narrower than it sounds.** In the built-in toolset it adds only
-> `manage_todos` and `spawn_subagent`. Email, calendar, and Obsidian are *skills* that shell
-> out via `execute_command` (`high-risk`), so a `low-risk` run cannot archive an email. Keep
+> `manage_todos`, `update_task_state`, and `spawn_subagent`. Email, calendar, and Obsidian are *skills* that shell
+> out via `execute_command` (`unknown`), so a `low-risk` run cannot archive an email. Keep
 > the tier low and allowlist the binary instead: `{"autoApprovedCommands": ["himalaya"]}` in
 > `~/.jazz/config.json`. See [Tools reference](../reference/tools.md#what-is-not-a-built-in-tool).
 

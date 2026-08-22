@@ -26,9 +26,10 @@ import type { TerminalService } from "./terminal";
  *
  * - `read-only`: Tools that only read data (web search, list emails, read files)
  * - `low-risk`: Tools that make minor changes (archive email, create calendar event)
- * - `high-risk`: Tools that make significant changes (delete files, send email, execute commands)
+ * - `high-risk`: Tools that make significant changes (delete files, send email)
+ * - `unknown`: Blast radius depends on arguments (e.g. `execute_command`)
  */
-export type ToolRiskLevel = "read-only" | "low-risk" | "high-risk";
+export type ToolRiskLevel = "read-only" | "low-risk" | "high-risk" | "unknown";
 
 /**
  * Union type representing all possible tool requirements.
@@ -51,12 +52,21 @@ export type ToolRequirements =
   | ReminderService;
 
 export interface Tool<R = never> {
+  /** Function name the model calls (`read_file`, `execute_command`). Must be unique in the registry. */
   readonly name: string;
+  /** Model-facing summary of when to use the tool, what it returns, and when not to. */
   readonly description: string;
+  /** Optional labels for grouping (UI, docs). Not sent to the model. */
   readonly tags?: readonly string[];
   /** Alternative names the LLM may use to call this tool. Resolved transparently at execution time. */
   readonly aliases?: readonly string[];
+  /** Zod schema for arguments. Validated before `execute` unless a custom `validate` is used. */
   readonly parameters: z.ZodTypeAny;
+  /**
+   * Original JSON Schema advertised to the model when Zod conversion is lossy.
+   * MCP tools set this so the provider sees the server's schema, not a reconstruction.
+   */
+  readonly jsonSchema?: Readonly<Record<string, unknown>>;
   /** If true, this tool is hidden from UI listings (but still usable programmatically). */
   readonly hidden: boolean;
   /**
@@ -64,6 +74,8 @@ export interface Tool<R = never> {
    * - `read-only`: Always auto-approved (default for non-approval tools)
    * - `low-risk`: Auto-approved when workflow allows low-risk operations
    * - `high-risk`: Only auto-approved when explicitly allowed (default for approval tools)
+   * - `unknown`: Resolved by the command classifier under every tier below yolo;
+   *   an unresolved `unknown` is only auto-approved under yolo
    */
   readonly riskLevel: ToolRiskLevel;
   /**

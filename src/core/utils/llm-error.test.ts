@@ -191,3 +191,36 @@ describe("locally-rejected requests are not retried", () => {
     expect((converted as LLMRequestError).permanent).toBeUndefined();
   });
 });
+
+describe("convertToLLMError - Ollama Cloud plan rejection", () => {
+  const planMessage =
+    "this model requires both a Pro, Max, or Team plan and extra usage (it does not use included plan usage), upgrade for access";
+
+  it("does not call a plan/upgrade 403 an authentication failure", () => {
+    const converted = convertToLLMError(
+      new APICallError({
+        message: planMessage,
+        url: "https://ollama.com/api/chat",
+        statusCode: 403,
+        isRetryable: false,
+      }),
+      "ollama",
+    );
+    expect(converted).toBeInstanceOf(LLMRequestError);
+    expect((converted as LLMRequestError).permanent).toBe(true);
+    expect(converted.message).toContain("upgrade");
+  });
+
+  it("still treats a 401 as authentication", () => {
+    const converted = convertToLLMError(
+      new APICallError({
+        message: "Unauthorized",
+        url: "https://ollama.com/api/chat",
+        statusCode: 401,
+        isRetryable: false,
+      }),
+      "ollama",
+    );
+    expect(converted._tag).toBe("LLMAuthenticationError");
+  });
+});

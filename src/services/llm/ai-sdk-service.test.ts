@@ -23,6 +23,7 @@ import { createLoggerLayer } from "../logger";
 import {
   buildProviderOptions,
   createAISDKServiceLayer,
+  makeOllamaAuthorizedFetch,
   makeOllamaKeepAliveFetch,
   toCoreMessages,
 } from "./ai-sdk-service";
@@ -1152,6 +1153,24 @@ describe("makeOllamaKeepAliveFetch", () => {
       expect(calls[0]!.body).toBeUndefined();
     } finally {
       restore();
+    }
+  });
+});
+
+describe("makeOllamaAuthorizedFetch", () => {
+  it("adds a Bearer token when the request has none", async () => {
+    const original = globalThis.fetch;
+    const seen: string[] = [];
+    globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+      seen.push(new Headers(init?.headers).get("Authorization") ?? "");
+      return new Response("{}", { status: 200 });
+    }) as typeof fetch;
+    try {
+      const wrapped = makeOllamaAuthorizedFetch("ollama-key");
+      await wrapped("https://ollama.com/api/chat", { method: "POST", body: "{}" });
+      expect(seen[0]).toBe("Bearer ollama-key");
+    } finally {
+      globalThis.fetch = original;
     }
   });
 });

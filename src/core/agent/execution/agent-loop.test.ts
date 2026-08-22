@@ -5,9 +5,11 @@ import { FileSystem } from "@effect/platform";
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import { Effect, Layer } from "effect";
 import { DEFAULT_MAX_ITERATIONS } from "@/core/constants/agent";
+import type { ConversationMessages } from "@/core/types/message";
 import { clearModelsDevCache } from "@/core/utils/models-dev";
 import {
   buildBudgetPressureMessage,
+  buildPostCompactionMessage,
   detectMeltdown,
   executeAgentLoop,
   type CompletionStrategy,
@@ -363,6 +365,23 @@ describe("executeAgentLoop", () => {
     expect(message?.role).toBe("user");
   });
 
+  it("tells the model to resume the original task after compaction", () => {
+    const message = buildPostCompactionMessage(4_000, 10_000);
+    expect(message.content).toContain("CONTEXT COMPACTED");
+    expect(message.content).toContain("still in progress");
+    expect(message.content).toContain("fully complete");
+    expect(message.content).not.toContain("Write your final output NOW");
+    expect(message.role).toBe("user");
+  });
+
+  it("still asks the model to finish the task when context stays critical after compaction", () => {
+    const message = buildPostCompactionMessage(9_500, 10_000);
+    expect(message.content).toContain("CONTEXT COMPACTED");
+    expect(message.content).toContain("fully complete");
+    expect(message.content).toContain("95%");
+    expect(message.content).not.toContain("Write your final output NOW");
+  });
+
   it("returns no context nudge when there is no budget to measure against", () => {
     expect(buildContextPressureMessage(500, 0)).toBeNull();
   });
@@ -428,6 +447,45 @@ describe("executeAgentLoop", () => {
     expect(nudge).toBeDefined();
     expect(nudge?.role).toBe("user");
     expect(result.content).toBe("Hello world");
+  });
+
+  it("does not present a final response for an internal compaction run", async () => {
+    const { observer, calls } = recordingObserver();
+    let presented = 0;
+    let completed = 0;
+    const strategy: CompletionStrategy = {
+      shouldShowThinking: true,
+      getCompletion: () =>
+        Effect.succeed({
+          completion: { id: "c1", model: "gpt-4", content: "summary" },
+          interrupted: false,
+        }),
+      presentResponse: () =>
+        Effect.sync(() => {
+          presented++;
+        }),
+      onComplete: () =>
+        Effect.sync(() => {
+          completed++;
+        }),
+      getRenderer: () => null,
+    };
+
+    await Effect.runPromise(
+      executeAgentLoop(
+        makeOptions({ internal: true }),
+        makeRunContext(),
+        { ...displayConfig, showThinking: true },
+        strategy,
+        observer,
+        runRecursive,
+      ).pipe(Effect.provide(TestLayer)),
+    );
+
+    expect(presented).toBe(0);
+    expect(completed).toBe(0);
+    expect(calls.filter((call) => call.startsWith("completion:"))).toEqual([]);
+    expect(calls.filter((call) => call.startsWith("thinking:"))).toEqual([]);
   });
 
   it("does not trim a history that fits the model window", async () => {
@@ -1116,6 +1174,62 @@ describe("executeAgentLoop context window accounting", () => {
   it("compacts against the pinned num_ctx rather than the advertised model maximum", async () => {
     const { compactions } = await runWithHistory(PINNED_CONTEXT_WINDOW);
     expect(compactions).toBeGreaterThan(0);
+  });
+
+  it("tells the model to resume the original task after mid-run compaction", async () => {
+    const seenMessages: ConversationMessages[] = [];
+    let compactions = 0;
+    const countingRunRecursive: RecursiveRunner = () =>
+      Effect.sync(() => {
+        compactions++;
+        return { content: "summary of earlier turns", conversationId: "id" } as AgentResponse;
+      });
+
+    const strategy: CompletionStrategy = {
+      shouldShowThinking: false,
+      getCompletion: (messages) => {
+        seenMessages.push(messages);
+        return Effect.succeed({
+          completion: { id: "c1", model: "qwen3.6:27b", content: "continuing the task" },
+          interrupted: false,
+        });
+      },
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+
+    const result = await Effect.runPromise(
+      executeAgentLoop(
+        makeOptions({
+          agent: ollamaAgent(PINNED_CONTEXT_WINDOW) as AgentRunnerOptions["agent"],
+        }),
+        makeRunContext({
+          provider: "ollama",
+          model: "qwen3.6:27b",
+          agent: ollamaAgent(PINNED_CONTEXT_WINDOW) as AgentRunContext["agent"],
+          messages: longHistory() as AgentRunContext["messages"],
+        }),
+        displayConfig,
+        strategy,
+        defaultObserver,
+        countingRunRecursive,
+      ).pipe(Effect.provide(TestLayer)),
+    );
+
+    expect(compactions).toBeGreaterThan(0);
+    const sent = seenMessages[0] ?? [];
+    const resume = sent.find((message) => message.content?.includes("CONTEXT COMPACTED"));
+    expect(resume).toBeDefined();
+    expect(resume?.role).toBe("user");
+    expect(sent.some((message) => message.content?.includes("CONTEXT CRITICAL"))).toBe(false);
+    expect(sent.some((message) => message.content?.includes("Write your final output NOW"))).toBe(
+      false,
+    );
+    expect(result.messages?.some((message) => message.content?.includes("CONTEXT COMPACTED"))).toBe(
+      false,
+    );
+    expect(result.content).toBe("continuing the task");
   });
 
   it("does not compact a history that genuinely fits the window", async () => {

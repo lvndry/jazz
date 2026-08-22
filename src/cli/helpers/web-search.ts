@@ -53,35 +53,41 @@ export function handleWebSearchConfiguration(
       value: "back",
     });
 
-    const selection = yield* terminal.select("Which web search provider would you like to use?", {
-      choices,
-    });
-
-    if (selection === "back" || !selection) {
-      return false as const;
-    }
-
-    if (selection === "builtin") {
-      yield* terminal.success(`Using built-in web search from ${llmProvider}.`);
-      return "builtin" as const;
-    }
-
-    const provider = selection;
-    const hasApiKey = yield* configService.has(`web_search.${provider}.api_key`);
-
-    if (!hasApiKey) {
-      const apiKey = yield* terminal.ask(`Enter API Key for ${provider}:`, {
-        simple: true,
-        secret: true,
-        placeholder: "Paste your API key...",
-        validate: (input) => (input.trim().length > 0 ? true : "API Key cannot be empty"),
+    while (true) {
+      const selection = yield* terminal.select("Which web search provider would you like to use?", {
+        choices,
       });
 
-      yield* configService.set(`web_search.${provider}.api_key`, apiKey);
-      yield* terminal.success(`API Key for ${provider} saved.`);
-    }
+      if (selection === "back" || !selection) {
+        return false as const;
+      }
 
-    yield* terminal.success(`Web search provider set to ${provider}.`);
-    return provider;
+      if (selection === "builtin") {
+        yield* terminal.success(`Using built-in web search from ${llmProvider}.`);
+        return "builtin" as const;
+      }
+
+      const provider = selection;
+      const hasApiKey = yield* configService.has(`web_search.${provider}.api_key`);
+
+      if (!hasApiKey) {
+        const apiKey = yield* terminal.ask(`Enter API Key for ${provider}:`, {
+          simple: true,
+          secret: true,
+          placeholder: "Paste your API key...",
+          validate: (input) => (input.trim().length > 0 ? true : "API Key cannot be empty"),
+        });
+
+        if (apiKey === undefined) {
+          continue;
+        }
+
+        yield* configService.set(`web_search.${provider}.api_key`, apiKey);
+        yield* terminal.success(`API Key for ${provider} saved.`);
+      }
+
+      yield* terminal.success(`Web search provider set to ${provider}.`);
+      return provider;
+    }
   });
 }

@@ -27,12 +27,12 @@ flowchart LR
 
 Tools come from four places:
 
-| Source | Scope | Example |
-| --- | --- | --- |
-| **Built-in** | always available | `read_file`, `git_commit`, `web_search` |
-| **Skills** | when the agent has skills | `find_skills`, `load_skill` |
-| **MCP** | per agent, from configured servers | `mcp_notion_search` |
-| **Custom** | per agent, defined by you | whatever you declare |
+| Source       | Scope                              | Example                                      |
+| ------------ | ---------------------------------- | -------------------------------------------- |
+| **Built-in** | always available                   | `read_file`, `execute_command`, `web_search` |
+| **Skills**   | when the agent has skills          | `find_skills`, `load_skill`                  |
+| **MCP**      | per agent, from configured servers | `mcp_notion_search`                          |
+| **Custom**   | per agent, defined by you          | whatever you declare                         |
 
 An agent's config lists which tools it may use. **Omitting a tool is the strongest control
 there is** — an agent without `execute_command` cannot run shell commands no matter what
@@ -48,29 +48,31 @@ either way — it runs on every tool.
 
 ## Risk tiers
 
-Every tool declares one of three levels. One dial (`--approval-policy`, or `autoApprove:` in a
+Every tool declares a risk level. One dial (`--approval-policy`, or `autoApprove:` in a
 workflow) decides what runs without asking.
 
-| Tier | Tools | Count |
-| --- | --- | --- |
-| `read-only` | Reads, searches, web requests, non-mutating git | 26 |
-| `low-risk` | `manage_todos`, `spawn_subagent` | 2 |
-| `high-risk` | Anything that mutates: writes, deletes, moves, shell, git commit/push/merge | 15 |
+| Tier        | Tools                                                                                       | Count |
+| ----------- | ------------------------------------------------------------------------------------------- | ----- |
+| `read-only` | Reads, searches, web requests                                                               | 20    |
+| `low-risk`  | `manage_todos`, `update_task_state`, `spawn_subagent`, plus opt-in memory/reminders/web_app | 7     |
+| `high-risk` | Anything that mutates: writes, deletes, moves                                               | 6     |
+| `unknown`   | `execute_command` — classified per command, then judged by the tier                         | 1     |
 
 > ⚠️ **`low-risk` is narrower than most people expect.** It is *not* "moderately dangerous
-> things" — in the built-in toolset it is exactly two tools. Email, calendar, and Obsidian are
-> skills that shell out via `execute_command`, so they are gated at `high-risk`. See
+> things". Email, calendar, and Obsidian are skills that shell out via `execute_command`,
+> so they are gated at `unknown` and a `low-risk` run declines anything the classifier does
+> not call inspect-only or minor. See
 > [Tools reference](../reference/tools.md#what-is-not-a-built-in-tool).
 
 ### When a tier is too coarse
 
 Rather than raising the whole tier, narrow the exception:
 
-| Control | Where | Scope |
-| --- | --- | --- |
-| Per-tool allowlist | "Always approve this tool" in an approval prompt | this session |
-| Per-command allowlist | `autoApprovedCommands` in `~/.jazz/config.json` | persisted, `execute_command` only |
-| Toolset trimming | the agent's config | permanent, strongest |
+| Control               | Where                                            | Scope                             |
+| --------------------- | ------------------------------------------------ | --------------------------------- |
+| Per-tool allowlist    | "Always approve this tool" in an approval prompt | this session                      |
+| Per-command allowlist | `autoApprovedCommands` in `~/.jazz/config.json`  | persisted, `execute_command` only |
+| Toolset trimming      | the agent's config                               | permanent, strongest              |
 
 ```json
 // ~/.jazz/config.json — let one binary through, keep the tier low
@@ -98,7 +100,7 @@ identically to an interactive one apart from who answers.
 ### Custom tools (declarative)
 
 Define a tool in an agent's config with `customTools` — a name, description, parameter schema,
-and a command or HTTP call to run. No code, no rebuild. Full schema and validation rules:
+and a `record` or `command` handler. No code, no rebuild. Full schema and validation rules:
 [Configuration → customTools](../reference/configuration.md#agent-config-customtools).
 
 ### MCP servers (reuse an ecosystem)

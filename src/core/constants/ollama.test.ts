@@ -1,5 +1,9 @@
 import { describe, expect, it } from "bun:test";
-import { buildOllamaContextChoices, defaultOllamaContextWindow } from "./ollama";
+import {
+  buildOllamaContextChoices,
+  defaultOllamaContextWindow,
+  isOllamaCloudModel,
+} from "./ollama";
 
 describe("buildOllamaContextChoices", () => {
   it("offers the full ladder when the model context is unknown", () => {
@@ -22,6 +26,20 @@ describe("buildOllamaContextChoices", () => {
   it("always offers at least one choice for a tiny context window", () => {
     const values = buildOllamaContextChoices(2048).map((choice) => choice.value);
     expect(values).toEqual([2048]);
+  });
+});
+
+describe("isOllamaCloudModel", () => {
+  it("recognizes the :cloud tag and tags that end in -cloud", () => {
+    expect(isOllamaCloudModel("kimi-k3:cloud")).toBe(true);
+    expect(isOllamaCloudModel("gpt-oss:120b-cloud")).toBe(true);
+    expect(isOllamaCloudModel("kimi-k3:CLOUD")).toBe(true);
+  });
+
+  it("rejects local tags and bare names", () => {
+    expect(isOllamaCloudModel("llama3.2")).toBe(false);
+    expect(isOllamaCloudModel("llama3.2:latest")).toBe(false);
+    expect(isOllamaCloudModel("cloud")).toBe(false);
   });
 });
 

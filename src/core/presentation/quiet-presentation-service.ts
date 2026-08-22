@@ -114,6 +114,11 @@ class QuietPresentationService implements PresentationService {
     return Effect.succeed({ approved: true });
   }
 
+  /** Quiet mode renders nothing, so there is no prompt to put a decision in. */
+  canPromptForApproval(): boolean {
+    return false;
+  }
+
   signalToolExecutionStarted(): Effect.Effect<void, never> {
     return Effect.void;
   }

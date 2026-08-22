@@ -39,7 +39,18 @@ export class CLIPresentationService implements PresentationService {
       message: string,
       options?: { defaultValue?: string },
     ) => Effect.Effect<string | undefined, never>,
+    /**
+     * Whether `confirm`/`ask` reach a person. This presentation is also what a
+     * piped or CI session gets, where the terminal service answers every
+     * `confirm` with its default rather than blocking — so without this an
+     * approval would be granted by the default argument, not by anyone.
+     */
+    private readonly interactive: boolean = false,
   ) {}
+
+  canPromptForApproval(): boolean {
+    return this.interactive;
+  }
 
   /**
    * Get or create a singleton CLI renderer for formatting operations
@@ -199,6 +210,19 @@ export class CLIPresentationService implements PresentationService {
 
   requestApproval(request: ApprovalRequest): Effect.Effect<ApprovalOutcome, never> {
     return Effect.gen(this, function* () {
+      if (!this.interactive) {
+        // `confirm` would return its default here rather than blocking, and the
+        // default below is "yes" — so asking would grant the approval on the
+        // strength of a function argument. Decline, and tell the model why so
+        // it routes around instead of retrying into the same wall.
+        const userMessage =
+          `The "${request.toolName}" tool requires approval and was automatically declined ` +
+          `because this session is not interactive. Do not ask the user to approve or retry — ` +
+          `there is no one to respond. Either accomplish the task using tools that do not ` +
+          `require approval, or clearly explain what could not be done and why.`;
+        return { approved: false, userMessage } as const;
+      }
+
       // Format the approval message with details about the action
       const toolLabel = CHALK_THEME.primary(request.toolName);
       const separator = chalk.dim(separatorLine(50));
@@ -353,7 +377,9 @@ export const CLIPresentationServiceLayer = Layer.effect(
     const askFn = Option.isSome(terminalServiceOption)
       ? terminalServiceOption.value.ask.bind(terminalServiceOption.value)
       : (_message: string) => Effect.succeed("");
+    const interactive =
+      Option.isSome(terminalServiceOption) && terminalServiceOption.value.isInteractive === true;
 
-    return new CLIPresentationService(displayConfig, confirmFn, askFn);
+    return new CLIPresentationService(displayConfig, confirmFn, askFn, interactive);
   }),
 );

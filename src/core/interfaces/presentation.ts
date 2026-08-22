@@ -225,6 +225,29 @@ export interface PresentationService {
    * to synchronize the approval queue. The next approval prompt will not be shown
    * until this signal is received, preventing log interleaving.
    */
+  /**
+   * Report the reachability of a named connector, so an interface can show
+   * whether the things the agent depends on are actually available.
+   *
+   * Optional: only presentations that render persistent chrome have anywhere to
+   * put it, and a one-shot run has nothing to gain from it.
+   */
+  readonly reportConnector?: (
+    name: string,
+    status: "live" | "renew" | "offline",
+  ) => Effect.Effect<void, never>;
+
+  /**
+   * Whether `requestApproval` can actually put the decision in front of a
+   * person and wait for an answer.
+   *
+   * The approval tiers read differently depending on the answer: skipping a
+   * prompt is a convenience where a prompt was the alternative, and a widening
+   * of unsupervised authority where it was not. A presentation that omits this
+   * is treated as unable to ask, which is the safe reading.
+   */
+  readonly canPromptForApproval?: () => boolean;
+
   readonly signalToolExecutionStarted: () => Effect.Effect<void, never>;
 
   /**

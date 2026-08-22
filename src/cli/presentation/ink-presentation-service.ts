@@ -698,6 +698,11 @@ export class InkStreamingRenderer implements StreamingRenderer {
             content: formattedFull,
           }),
         ),
+        // The message above renders only in an Ink-based terminal — it is an
+        // opaque React element to anything else. `formattedFull` is the actual
+        // text and travels alongside it in meta, so a non-Ink renderer has a
+        // real answer to show instead of an unrenderable object.
+        meta: { plainText: formattedFull },
         timestamp: new Date(),
       });
     }
@@ -979,7 +984,7 @@ interface QueuedUserInput {
  * Critical: does NOT write to stdout directly (which would clobber Ink rendering).
  * Instead, it pushes output into the Ink store.
  */
-class InkPresentationService implements PresentationService {
+export class InkPresentationService implements PresentationService {
   // Approval queue to handle parallel tool calls
   private approvalQueue: QueuedApproval[] = [];
   private isProcessingApproval: boolean = false;
@@ -1316,6 +1321,17 @@ class InkPresentationService implements PresentationService {
 
     choices.push({ label: "No", value: "no" });
 
+    // Publish the request itself alongside the menu. The fullscreen approval
+    // card needs the account, the resulting fields and the consequence, none of
+    // which survive being flattened into a list of choices.
+    store.setApprovalRequest({
+      toolName: request.toolName,
+      executeToolName: request.executeToolName,
+      message: request.message,
+      args: request.executeArgs,
+      ...(request.previewDiff === undefined ? {} : { previewDiff: request.previewDiff }),
+    });
+
     store.setPrompt({
       type: "select",
       message: "Approve this action?",
@@ -1330,23 +1346,28 @@ class InkPresentationService implements PresentationService {
 
         if (choice === "yes") {
           store.setPrompt(null);
+          store.setApprovalRequest(null);
           this.completeApproval(resume, { approved: true });
           return;
         }
 
         if (choice === "always_command" && approvalKey) {
           store.setPrompt(null);
+          store.setApprovalRequest(null);
           this.completeApproval(resume, { approved: true, alwaysApproveCommand: approvalKey });
           return;
         }
 
         if (choice === "always_tool") {
           store.setPrompt(null);
+          store.setApprovalRequest(null);
           this.completeApproval(resume, { approved: true, alwaysApproveTool: toolDisplayName });
           return;
         }
 
         // Rejected: prompt for optional message to guide the agent
+        store.setPrompt(null);
+        store.setApprovalRequest(null);
         this.promptRejectionMessage(resume);
       },
     });
@@ -1365,6 +1386,7 @@ class InkPresentationService implements PresentationService {
       options: {},
       resolve: (input: unknown) => {
         store.setPrompt(null);
+        store.setApprovalRequest(null);
         const userMessage = typeof input === "string" ? input.trim() : "";
         if (userMessage) {
           const rawMsg = `${followUpMessage} ${CHALK_THEME.success(userMessage)}`;
@@ -1382,6 +1404,17 @@ class InkPresentationService implements PresentationService {
         );
       },
     });
+  }
+
+  reportConnector(name: string, status: "live" | "renew" | "offline"): Effect.Effect<void, never> {
+    return Effect.sync(() => {
+      store.setConnector(name, status);
+    });
+  }
+
+  /** Both interactive interfaces render an approval the user answers in place. */
+  canPromptForApproval(): boolean {
+    return true;
   }
 
   signalToolExecutionStarted(): Effect.Effect<void, never> {
@@ -1469,12 +1502,14 @@ class InkPresentationService implements PresentationService {
           timestamp: new Date(),
         });
         store.setPrompt(null);
+        store.setApprovalRequest(null);
         this.isProcessingUserInput = false;
         resume(Effect.succeed(response));
         this.processNextUserInput();
       },
       reject: () => {
         store.setPrompt(null);
+        store.setApprovalRequest(null);
         this.isProcessingUserInput = false;
         resume(Effect.succeed("")); // Return empty on cancel
         this.processNextUserInput();
@@ -1520,10 +1555,12 @@ class InkPresentationService implements PresentationService {
             timestamp: new Date(),
           });
           store.setPrompt(null);
+          store.setApprovalRequest(null);
           resume(Effect.succeed(selectedPath));
         },
         reject: () => {
           store.setPrompt(null);
+          store.setApprovalRequest(null);
           resume(Effect.succeed("")); // Return empty on cancel
         },
       });

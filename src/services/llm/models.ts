@@ -1,4 +1,5 @@
 import type { ProviderName } from "@/core/constants/models";
+import { isOllamaCloudModel } from "@/core/constants/ollama";
 import type { LLMConfig } from "@/core/types/config";
 
 /**
@@ -19,6 +20,7 @@ export type ModelSource =
   | { type: "dynamic"; endpointPath: string; defaultBaseUrl?: string };
 
 export const DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434/api";
+export const OLLAMA_CLOUD_API_ROOT = "https://ollama.com/api";
 export const DEFAULT_LLAMACPP_BASE_URL = "http://localhost:8080/v1";
 
 export const PROVIDER_MODELS: Record<ProviderName, ModelSource> = {
@@ -108,4 +110,51 @@ export function resolveLocalProviderBaseUrl(
   }
 
   return provider === "ollama" ? toOllamaApiRoot(resolved) : resolved;
+}
+
+function isLoopbackOllamaHost(url: string): boolean {
+  try {
+    const parsed = new URL(url.includes("://") ? url : `http://${url}`);
+    return (
+      parsed.hostname === "localhost" ||
+      parsed.hostname === "127.0.0.1" ||
+      parsed.hostname === "::1"
+    );
+  } catch {
+    return false;
+  }
+}
+
+function ollamaApiKey(llmConfig?: LLMConfig): string | undefined {
+  const fromConfig = llmConfig?.ollama?.api_key;
+  if (typeof fromConfig === "string" && fromConfig.trim().length > 0) return fromConfig;
+  const fromEnv = process.env["OLLAMA_API_KEY"];
+  if (typeof fromEnv === "string" && fromEnv.trim().length > 0) return fromEnv;
+  return undefined;
+}
+
+/**
+ * Where a chat request for this Ollama model should go.
+ *
+ * Cloud models authenticate at ollama.com with an API key. Sending that key to
+ * localhost does nothing — the local daemon uses `ollama signin`, not Bearer
+ * tokens. If the user pointed `base_url` at a non-loopback host, that still wins.
+ */
+export function resolveOllamaRequestBaseUrl(modelId: string, llmConfig?: LLMConfig): string {
+  if (isOllamaCloudModel(modelId) && ollamaApiKey(llmConfig)) {
+    const fromConfig = llmConfig?.ollama?.base_url;
+    const fromEnv = process.env["OLLAMA_BASE_URL"];
+    const explicit =
+      fromConfig && fromConfig.length > 0
+        ? fromConfig
+        : fromEnv && fromEnv.length > 0
+          ? fromEnv
+          : undefined;
+    if (explicit && !isLoopbackOllamaHost(explicit)) {
+      return toOllamaApiRoot(explicit);
+    }
+    return OLLAMA_CLOUD_API_ROOT;
+  }
+
+  return resolveLocalProviderBaseUrl("ollama", llmConfig);
 }

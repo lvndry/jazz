@@ -159,11 +159,10 @@ export function createWebAppTool(
   return defineTool<FileSystem.FileSystem, CreateWebAppArgs>({
     name: "create_web_app",
     description:
-      "Create an interactive UI — a chart, form, dashboard, small game, or any other webpage — " +
-      "for delivery back to the person as either a static image (mode: static) or a live, " +
-      "tappable page (mode: interactive). Use this whenever a plain text/markdown answer " +
-      "genuinely isn't the right medium for the request (e.g. 'show me a chart', 'make an " +
-      "interactive UI for X'). You write the full HTML yourself.",
+      "Create a UI — a chart, form, dashboard, small game, or any other webpage — and deliver it as a static image (mode: 'static') or a live page (mode: 'interactive'). " +
+      "Use this when a plain text or markdown answer is the wrong medium. You write the full HTML yourself. " +
+      "mode 'static' needs Chrome or Chromium installed (or PUPPETEER_EXECUTABLE_PATH set). " +
+      "mode 'interactive' opens as a Mini App or WebView on Telegram and Discord; in the terminal it only writes a local HTML file. Do not use this to fetch or search the web.",
     tags: ["ui", "webapp"],
     parameters: createWebAppParameters,
     riskLevel: "low-risk",

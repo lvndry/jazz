@@ -85,6 +85,20 @@ export function getSkillCommandNames(): ReadonlySet<string> {
  * (built-ins first). Prefix matches rank first (in list order), then substring
  * matches (so "/ode" still surfaces /model and /mode). Case-insensitive.
  */
+/**
+ * The query inside a slash command the user is still choosing.
+ *
+ * Returns null once a space or newline appears — arguments have started, so
+ * the picker should get out of the way.
+ */
+export function slashCommandQuery(text: string): string | null {
+  if (!text.startsWith("/")) return null;
+  if (text.includes("\n")) return null;
+  const rest = text.slice(1);
+  if (/\s/.test(rest)) return null;
+  return rest;
+}
+
 export function filterCommandsByPrefix(query: string): readonly ChatCommandInfo[] {
   const lower = query.toLowerCase();
   const all = [...CHAT_COMMANDS, ...skillCommands];

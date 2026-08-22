@@ -148,6 +148,15 @@ export class OneShotPresentationService implements PresentationService {
     return this.eventsActive;
   }
 
+  /**
+   * Only with `--events`: an external consumer (a chat bridge) is then watching
+   * the `approval_required` line and can write a decision back on stdin. Plain
+   * headless has nobody, and `requestApproval` declines outright.
+   */
+  canPromptForApproval(): boolean {
+    return this.eventsActive;
+  }
+
   private emitNdjson(payload: Record<string, unknown>): void {
     process.stderr.write(`${JSON.stringify(payload, truncateLongStrings)}\n`);
   }

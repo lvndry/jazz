@@ -99,6 +99,34 @@ describe("ToolRegistry", () => {
     expect(result.byAlias2.name).toBe("primary-tool");
   });
 
+  it("lists aliases from listAllTools and advertises them in definitions", async () => {
+    const mockTool: Tool<ToolRequirements> = {
+      name: "find",
+      description: "Find files",
+      aliases: ["glob"],
+      parameters: z.object({}),
+      hidden: false,
+      riskLevel: "read-only",
+      execute: mock(() => Effect.succeed({ success: true, result: "ok" })),
+      createSummary: undefined,
+    };
+
+    const program = Effect.gen(function* () {
+      const registry = yield* ToolRegistryTag;
+      yield* registry.registerTool(mockTool);
+      const allNames = yield* registry.listAllTools();
+      const listed = yield* registry.listTools();
+      const definitions = yield* registry.getToolDefinitions();
+      return { allNames, listed, definitionNames: definitions.map((d) => d.function.name) };
+    });
+
+    const result = await Effect.runPromise(program.pipe(Effect.provide(testLayer)));
+    expect(result.allNames).toContain("glob");
+    expect(result.listed).not.toContain("glob");
+    expect(result.definitionNames).toContain("find");
+    expect(result.definitionNames).toContain("glob");
+  });
+
   it("should manage tool categories", async () => {
     const category = { id: "cat1", displayName: "Category 1" };
     const tool: Tool<ToolRequirements> = {
