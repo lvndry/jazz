@@ -247,20 +247,24 @@ If missing, install it (`pip install --break-system-packages gcalcli` on Debian-
 
 ### Per-account authorization
 
-gcalcli's credential cache path is keyed off `$XDG_DATA_HOME` (specifically `$XDG_DATA_HOME/gcalcli/oauth`), **not** `--config-folder` — running it for a second account without isolating that path overwrites the first account's cache. Give each account its own data directory:
+**Everything in this section is per Google account — run the whole procedure once for each one.** There's no single "add another account" shortcut; each account gets its own data directory and goes through its own consent. The examples below authorize two accounts, `account-a` and `account-b`, side by side specifically so the pattern is obvious to repeat for a third, fourth, etc. — just pick a new `$ACCOUNT_NAME` and a new `$ACCOUNT_EMAIL` each time and redo every step.
+
+gcalcli's credential cache path is keyed off `$XDG_DATA_HOME` (specifically `$XDG_DATA_HOME/gcalcli/oauth`), **not** `--config-folder` — running it for a second account without isolating that path overwrites the first account's cache. Give each account its own data directory, named after the account itself:
 
 ```bash
-XDG_DATA_HOME=~/.local/share/gcalcli-personal gcalcli --client-id "$CLIENT_ID" --client-secret "$CLIENT_SECRET" init
-XDG_DATA_HOME=~/.local/share/gcalcli-work gcalcli --client-id "$CLIENT_ID" --client-secret "$CLIENT_SECRET" init
+XDG_DATA_HOME=~/.local/share/gcalcli-account-a gcalcli --client-id "$CLIENT_ID" --client-secret "$CLIENT_SECRET" init
+XDG_DATA_HOME=~/.local/share/gcalcli-account-b gcalcli --client-id "$CLIENT_ID" --client-secret "$CLIENT_SECRET" init
 ```
 
-`init` opens a browser consent flow. If it hangs after clicking Allow (a known issue: the local callback server can grab the wrong one of two connections a browser opens and block forever waiting for data that never arrives on it), don't keep retrying it — Google still put the authorization `code` in the browser's address bar even though the page failed to load. Recover manually:
+`$CLIENT_ID`/`$CLIENT_SECRET` are the same values for every account (one shared OAuth client from the previous step) — only the data directory and, during consent, which Google account you log in as change per account.
+
+`init` opens a browser consent flow. If it hangs after clicking Allow (a known issue: the local callback server can grab the wrong one of two connections a browser opens and block forever waiting for data that never arrives on it), don't keep retrying it — Google still put the authorization `code` in the browser's address bar even though the page failed to load. Recover manually — **again, do this once per account**, substituting that account's `$ACCOUNT_NAME`/`$ACCOUNT_EMAIL`/`$XDG_DATA_HOME` each time:
 
 1. Build the URL yourself instead of using gcalcli's printed one — no PKCE, no port-forwarding needed, since the redirect target never has to actually respond:
    ```
    https://accounts.google.com/o/oauth2/auth?response_type=code&client_id=CLIENT_ID&redirect_uri=http://localhost:8080&scope=https://www.googleapis.com/auth/calendar&access_type=offline&prompt=select_account%20consent&login_hint=ACCOUNT_EMAIL
    ```
-   (`prompt=select_account consent` is required when authorizing more than one Google account with the same client — otherwise Google silently reuses whichever account is already logged into the browser instead of prompting, and the token ends up authenticating as the wrong account.)
+   Set `ACCOUNT_EMAIL` to the specific account you're authorizing right now (`account-a`'s address the first time through, `account-b`'s the second). `prompt=select_account consent` is **required** whenever more than one Google account will ever be authorized against this same client — omit it and Google silently reuses whichever account is already logged into the browser instead of prompting, so `account-b`'s token ends up authenticating as `account-a` (this is not hypothetical — it's exactly what happened the first time this was set up, and the fix was re-running the flow with this parameter and clearing the wrongly-written cache first).
 2. After clicking Allow, copy the failed `http://localhost:8080/?...&code=...` URL from the address bar and extract `code`.
 3. Exchange it directly:
    ```bash
@@ -268,18 +272,19 @@ XDG_DATA_HOME=~/.local/share/gcalcli-work gcalcli --client-id "$CLIENT_ID" --cli
      -d "code=$CODE" -d "client_id=$CLIENT_ID" -d "client_secret=$CLIENT_SECRET" \
      -d "redirect_uri=http://localhost:8080" -d "grant_type=authorization_code"
    ```
-4. Write the response into `$XDG_DATA_HOME/gcalcli/oauth` for that account as JSON with keys `access_token`, `client_id`, `client_secret`, `refresh_token`, `token_uri` (`https://oauth2.googleapis.com/token`), `scopes` (a list) — gcalcli's legacy-JSON loader accepts this shape and converts it to its normal pickle cache on next use.
+4. Write the response into **that account's** `$XDG_DATA_HOME/gcalcli/oauth` (e.g. `~/.local/share/gcalcli-account-a/gcalcli/oauth` for `account-a`, `~/.local/share/gcalcli-account-b/gcalcli/oauth` for `account-b`) as JSON with keys `access_token`, `client_id`, `client_secret`, `refresh_token`, `token_uri` (`https://oauth2.googleapis.com/token`), `scopes` (a list) — gcalcli's legacy-JSON loader accepts this shape and converts it to its normal pickle cache on next use.
+5. Verify **before moving to the next account**: `XDG_DATA_HOME=~/.local/share/gcalcli-account-a gcalcli list` should show `account-a`'s calendars, not any other account's. If two accounts ever show the same calendars, step 1's `login_hint`/`prompt` was skipped or the wrong `$XDG_DATA_HOME` was used — redo that account.
 
 ### Usage
 
-Always set `XDG_DATA_HOME` to the right account's directory before invoking `gcalcli` — there's no `--account` flag, isolation is entirely by data directory:
+Always set `XDG_DATA_HOME` to the right account's directory before invoking `gcalcli` — there's no `--account` flag, isolation is entirely by data directory. The same command works for any account; only the directory changes:
 
 ```bash
-XDG_DATA_HOME=~/.local/share/gcalcli-personal gcalcli agenda
-XDG_DATA_HOME=~/.local/share/gcalcli-personal gcalcli list
-XDG_DATA_HOME=~/.local/share/gcalcli-personal gcalcli quick "Lunch with John tomorrow at noon"
-XDG_DATA_HOME=~/.local/share/gcalcli-personal gcalcli add --title "Sprint Planning" --where "Room A" --when "2026-02-15 14:00" --duration 1h
-XDG_DATA_HOME=~/.local/share/gcalcli-personal gcalcli delete "Sprint Planning"
+XDG_DATA_HOME=~/.local/share/gcalcli-account-a gcalcli agenda
+XDG_DATA_HOME=~/.local/share/gcalcli-account-b gcalcli agenda
+
+XDG_DATA_HOME=~/.local/share/gcalcli-account-a gcalcli quick "Lunch with John tomorrow at noon"
+XDG_DATA_HOME=~/.local/share/gcalcli-account-b gcalcli add --title "Sprint Planning" --where "Room A" --when "2026-02-15 14:00" --duration 1h
 ```
 
 ---
