@@ -227,7 +227,9 @@ export class OneShotPresentationService implements PresentationService {
       handleEvent: (event: StreamEvent) =>
         Effect.sync(() => {
           if (emitEventTypes.has(event.type)) {
-            process.stderr.write(`${JSON.stringify(event, truncateLongStrings)}\n`);
+            // Don't truncate what a human is being asked to approve.
+            const replacer = event.type === "approval_required" ? undefined : truncateLongStrings;
+            process.stderr.write(`${JSON.stringify(event, replacer)}\n`);
           }
         }),
       setInterruptHandler: (_handler: (() => void) | null) => Effect.void,
