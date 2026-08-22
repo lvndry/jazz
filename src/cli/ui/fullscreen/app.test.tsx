@@ -10,10 +10,12 @@
  * 32% ink and was rejected as "very busy".
  */
 
+import { RGBA } from "@opentui/core";
 import { testRender } from "@opentui/react/test-utils";
 import { describe, expect, it } from "bun:test";
 import React, { useState } from "react";
 import { getGlyphs } from "../glyphs";
+import { THEME } from "../theme";
 import { App } from "./App";
 import { isPrintableSequence } from "./keymap";
 import {
@@ -73,6 +75,23 @@ describe("fullscreen frame", () => {
     const frame = await frameOf(sampleView());
     expect(frame.rows).toHaveLength(HEIGHT);
     for (const row of frame.rows) expect([...row]).toHaveLength(WIDTH);
+  });
+
+  it("paints the specified canvas as the window ground", async () => {
+    const { renderer, renderOnce, captureSpans } = await testRender(
+      <App
+        view={sampleView()}
+        onAction={() => undefined}
+      />,
+      { width: WIDTH, height: HEIGHT },
+    );
+    await renderOnce();
+    const canvas = RGBA.fromHex(THEME.canvas).toInts().slice(0, 3).join(",");
+    const painted = captureSpans()
+      .lines.flatMap((line) => line.spans)
+      .some((span) => span.bg.toInts().slice(0, 3).join(",") === canvas);
+    renderer.destroy();
+    expect(painted).toBe(true);
   });
 
   it("is calm enough to read: the density target the first draft failed", async () => {

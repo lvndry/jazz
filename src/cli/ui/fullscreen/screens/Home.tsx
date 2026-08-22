@@ -394,7 +394,14 @@ function Row({ row }: { row: HomeRow }): ReactNode {
 export function Home({ model, viewport }: HomeProps): ReactNode {
   const rows = homeRows(model, viewport);
   return (
-    <box style={{ width: viewport.width, height: viewport.height, flexDirection: "column" }}>
+    <box
+      style={{
+        width: viewport.width,
+        height: viewport.height,
+        flexDirection: "column",
+        backgroundColor: THEME.canvas,
+      }}
+    >
       {rows.map((row) => (
         <Row
           key={row.key}

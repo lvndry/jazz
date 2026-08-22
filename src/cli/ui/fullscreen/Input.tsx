@@ -33,10 +33,9 @@
  *      here is a pure function of the view model, which is what lets the layout
  *      be asserted character by character instead of eyeballed.
  *
- * The trade is real and named: cursor motion, selection and undo have to live
- * in whatever reducer owns `InputModel`. That is the right home for them
- * anyway — the model has to carry a caret offset eventually, and when it does
- * this region renders it without changing shape.
+ * The trade is real and named: cursor motion, selection and undo live on
+ * `InputModel` (caret, anchor) and the composer history in the bridge. This
+ * region paints both without changing shape.
  */
 
 import type { ReactNode } from "react";
@@ -145,6 +144,40 @@ function caret(character: string): InputSegment {
   return { text: character, fg: THEME.canvas, bg: THEME.prompt };
 }
 
+function selected(character: string, fg: string): InputSegment {
+  return { text: character, fg, bg: THEME.surfaceStrong };
+}
+
+function pushSegment(segments: InputSegment[], segment: InputSegment): void {
+  const last = segments[segments.length - 1];
+  if (last !== undefined && last.fg === segment.fg && last.bg === segment.bg) {
+    segments[segments.length - 1] = { ...last, text: last.text + segment.text };
+    return;
+  }
+  segments.push(segment);
+}
+
+function wrapCellsWithOffsets(
+  value: string,
+  columns: number,
+): readonly { readonly text: string; readonly start: number }[] {
+  const width = Math.max(1, columns);
+  const lines: { text: string; start: number }[] = [];
+  let offset = 0;
+  const paragraphs = value.split("\n");
+  paragraphs.forEach((paragraph, paragraphIndex) => {
+    const wrapped = wrapTerminalCells(paragraph, width);
+    let local = 0;
+    for (const text of wrapped) {
+      lines.push({ text, start: offset + local });
+      local += [...text].length;
+    }
+    offset += [...paragraph].length;
+    if (paragraphIndex < paragraphs.length - 1) offset += 1;
+  });
+  return lines;
+}
+
 export interface InputProps {
   readonly model: InputModel;
   readonly viewport: Viewport;
@@ -173,16 +206,24 @@ export function inputRows(
   const empty = model.value.length === 0;
   const valueCodePoints = [...model.value].length;
   const caretAt = Math.max(0, Math.min(model.caret ?? valueCodePoints, valueCodePoints));
+  const anchorAt = Math.max(0, Math.min(model.anchor ?? caretAt, valueCodePoints));
+  const selStart = Math.min(caretAt, anchorAt);
+  const selEnd = Math.max(caretAt, anchorAt);
 
   // An empty composer shows the placeholder in the text's place; a disabled one
   // keeps whatever was already typed, because losing sight of a draft to a
   // modal is worse than losing the caret.
-  const lines = empty
-    ? [clipTerminalCells(model.placeholder, contentWidth)]
-    : wrapCells(model.value, contentWidth);
-  if (!empty && live && terminalCellWidth(lines[lines.length - 1] ?? "") >= contentWidth) {
-    lines.push("");
+  const wrapped = empty
+    ? [{ text: clipTerminalCells(model.placeholder, contentWidth), start: 0 }]
+    : [...wrapCellsWithOffsets(model.value, contentWidth)];
+  if (
+    !empty &&
+    live &&
+    terminalCellWidth(wrapped[wrapped.length - 1]?.text ?? "") >= contentWidth
+  ) {
+    wrapped.push({ text: "", start: valueCodePoints });
   }
+  const lines = wrapped.map((line) => line.text);
 
   const valueBeforeCaret = [...model.value].slice(0, caretAt).join("");
   const linesBeforeCaret = empty ? [""] : wrapCells(valueBeforeCaret, contentWidth);
@@ -199,11 +240,12 @@ export function inputRows(
   // "there is more above" can never itself push the composer past the cap.
   const capWithChrome = INPUT_MAX_ROWS - 1;
   const capWithoutChrome = queued > 0 ? INPUT_MAX_ROWS - 1 : INPUT_MAX_ROWS;
-  let visible = lines;
+  let visible = wrapped;
   let hidden = 0;
   if (lines.length > capWithoutChrome) {
-    visible = lines.slice(lines.length - capWithChrome);
-    hidden = lines.length - capWithChrome;
+    const cap = capWithChrome;
+    hidden = Math.max(0, Math.min(caretLine - (cap - 1), lines.length - cap));
+    visible = wrapped.slice(hidden, hidden + cap);
   }
 
   const rows: InputRow[] =
@@ -243,32 +285,39 @@ export function inputRows(
 
     const body: InputSegment[] = [];
     const onCaretLine = live && index === visibleCaretLine;
+    const fg = model.disabled ? THEME.muted : THEME.selected;
     if (empty) {
-      const graphemes = terminalGraphemes(line);
+      const graphemes = terminalGraphemes(line.text);
       const head = graphemes[0] ?? " ";
       // The caret sits *on* the placeholder's first cell rather than beside it,
       // so an empty composer is one column wide instead of two.
       if (live) body.push(caret(head), { text: graphemes.slice(1).join(""), fg: THEME.muted });
-      else body.push({ text: line, fg: THEME.muted });
-    } else if (onCaretLine) {
-      const graphemes = terminalGraphemes(line);
-      let column = 0;
-      let usedCells = 0;
-      while (
-        column < graphemes.length &&
-        usedCells + terminalCellWidth(graphemes[column] as string) <= caretColumn
-      ) {
-        usedCells += terminalCellWidth(graphemes[column] as string);
-        column += 1;
-      }
-      const before = graphemes.slice(0, column).join("");
-      const onCell = graphemes[column] ?? " ";
-      const after = graphemes.slice(column + 1).join("");
-      const fg = model.disabled ? THEME.muted : THEME.selected;
-      body.push({ text: before, fg }, caret(onCell));
-      if (after.length > 0) body.push({ text: after, fg });
+      else body.push({ text: line.text, fg: THEME.muted });
     } else {
-      body.push({ text: line, fg: model.disabled ? THEME.muted : THEME.selected });
+      const graphemes = terminalGraphemes(line.text);
+      let caretIndex = graphemes.length;
+      if (onCaretLine) {
+        let usedCells = 0;
+        caretIndex = 0;
+        while (
+          caretIndex < graphemes.length &&
+          usedCells + terminalCellWidth(graphemes[caretIndex] as string) <= caretColumn
+        ) {
+          usedCells += terminalCellWidth(graphemes[caretIndex] as string);
+          caretIndex += 1;
+        }
+      }
+      let codePoint = line.start;
+      graphemes.forEach((grapheme, column) => {
+        const highlighted = codePoint >= selStart && codePoint < selEnd;
+        if (onCaretLine && column === caretIndex) pushSegment(body, caret(grapheme));
+        else if (highlighted) pushSegment(body, selected(grapheme, fg));
+        else pushSegment(body, { text: grapheme, fg });
+        codePoint += [...grapheme].length;
+      });
+      if (onCaretLine && caretIndex >= graphemes.length) {
+        body.push(caret(" "));
+      }
     }
 
     rows.push({ key: `line:${String(index)}`, segments: [rail, marker, ...body] });

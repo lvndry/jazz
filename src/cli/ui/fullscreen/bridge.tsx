@@ -41,6 +41,21 @@ import {
 import type { Choice, OutputEntry, PromptState } from "../types";
 import { App, type KeyChord } from "./App";
 import { flattenPaste, normalizePaste, readClipboard } from "./clipboard";
+import {
+  commit,
+  composerFromText,
+  deleteBackward,
+  deleteForward,
+  deleteRange,
+  EMPTY_COMPOSER,
+  EMPTY_HISTORY,
+  insertText,
+  moveCaret,
+  redo,
+  selectAll,
+  type ComposerHistory,
+  undo,
+} from "./composer-edit";
 import { pickerItemMatches, wrapIndex } from "../picker-window";
 import { wrapCommandIndex } from "./Input";
 import {
@@ -48,6 +63,9 @@ import {
   isCtrlLetter,
   isInterruptChord,
   isPrintableSequence,
+  isRedoChord,
+  isSelectAllChord,
+  isUndoChord,
   type KeyAction,
 } from "./keymap";
 import type { FilePickerModel } from "./overlays/FilePicker";
@@ -830,12 +848,31 @@ export function FullscreenBridge(): React.ReactNode {
    * The caret is a code-point offset, never a JS string index, which is why
    * every splice below works on `[...text]`.
    */
-  const [composer, composerRef, updateComposer] = useSynchronizedState({
-    text: "",
-    caret: 0,
-  });
+  const [history, , updateHistory] = useSynchronizedState<ComposerHistory>(EMPTY_HISTORY);
+  const composer = history.present;
+  const composerRef = useRef(composer);
+  composerRef.current = composer;
   const draft = composer.text;
   const draftCaret = composer.caret;
+  const draftAnchor = composer.anchor;
+
+  const commitComposer = useCallback(
+    (
+      next: Parameters<typeof commit>[1] | ((current: typeof composer) => typeof composer),
+    ): void => {
+      updateHistory((current) =>
+        commit(current, typeof next === "function" ? next(current.present) : next),
+      );
+    },
+    [updateHistory],
+  );
+
+  const moveComposer = useCallback(
+    (caret: number, extend = false): void => {
+      updateHistory((current) => commit(current, moveCaret(current.present, caret, extend)));
+    },
+    [updateHistory],
+  );
   const [commandIndex, commandIndexRef, setCommandIndex] = useSynchronizedState(0);
   const [customView, setCustomView] = useState<React.ReactNode | null>(null);
   const [connectors, setConnectors] = useState<ReadonlyMap<string, ConnectorStatus>>(new Map());
@@ -1109,16 +1146,9 @@ export function FullscreenBridge(): React.ReactNode {
   const insertAtCaret = useCallback(
     (text: string) => {
       historyIndex.current = null;
-      updateComposer(({ text: value, caret }) => {
-        const characters = [...value];
-        const at = Math.max(0, Math.min(caret, characters.length));
-        return {
-          text: [...characters.slice(0, at), text, ...characters.slice(at)].join(""),
-          caret: at + [...text].length,
-        };
-      });
+      commitComposer((current) => insertText(current, text));
     },
-    [updateComposer],
+    [commitComposer],
   );
 
   /**
@@ -1128,26 +1158,22 @@ export function FullscreenBridge(): React.ReactNode {
    * that. Operates in code points throughout.
    */
   const deleteWordBeforeCaret = useCallback(() => {
-    updateComposer(({ text: value, caret }) => {
-      const characters = [...value];
-      const at = Math.max(0, Math.min(caret, characters.length));
-      const start = wordStartBefore(characters, at);
-      return {
-        text: [...characters.slice(0, start), ...characters.slice(at)].join(""),
-        caret: start,
-      };
+    commitComposer((current) => {
+      const characters = [...current.text];
+      const at = Math.max(0, Math.min(current.caret, characters.length));
+      return deleteRange(current, wordStartBefore(characters, at), at);
     });
-  }, [updateComposer]);
+  }, [commitComposer]);
 
   const submit = useCallback(
     (text: string) => {
       const active = promptRef.current;
       if (active === null || text.trim().length === 0) return;
       historyIndex.current = null;
-      updateComposer({ text: "", caret: 0 });
+      commitComposer(EMPTY_COMPOSER);
       active.resolve(text);
     },
-    [promptRef, updateComposer],
+    [promptRef, commitComposer],
   );
 
   /**
@@ -1661,7 +1687,7 @@ export function FullscreenBridge(): React.ReactNode {
           if (command !== undefined) {
             const next = `/${command.name} `;
             historyIndex.current = null;
-            updateComposer({ text: next, caret: [...next].length });
+            commitComposer(composerFromText(next));
           }
           return true;
         }
@@ -1671,12 +1697,25 @@ export function FullscreenBridge(): React.ReactNode {
           const text = `/${command.name}`;
           if (busyRef.current) {
             store.appendToQueue(text);
-            updateComposer({ text: "", caret: 0 });
+            commitComposer(EMPTY_COMPOSER);
             return true;
           }
           submit(text);
           return true;
         }
+      }
+
+      if (isUndoChord({ name, ctrl, shift, super: superKey })) {
+        updateHistory((current) => undo(current));
+        return true;
+      }
+      if (isRedoChord({ name, ctrl, shift, super: superKey })) {
+        updateHistory((current) => redo(current));
+        return true;
+      }
+      if (isSelectAllChord({ name, ctrl, shift, super: superKey })) {
+        updateHistory((current) => commit(current, selectAll(current.present)));
+        return true;
       }
 
       if (isComposerNewline({ name, shift, option, meta })) {
@@ -1688,7 +1727,7 @@ export function FullscreenBridge(): React.ReactNode {
           const queuedDraft = composerRef.current.text;
           if (queuedDraft.length > 0) {
             store.appendToQueue(queuedDraft);
-            updateComposer({ text: "", caret: 0 });
+            commitComposer(EMPTY_COMPOSER);
           }
           return true;
         }
@@ -1702,7 +1741,7 @@ export function FullscreenBridge(): React.ReactNode {
         isCursorOnFirstLine(composerRef.current.text, composerRef.current.caret)
       ) {
         const recalled = composeRecalledBuffer(store.takeQueue(), composerRef.current.text);
-        updateComposer({ text: recalled.value, caret: [...recalled.value].length });
+        commitComposer(composerFromText(recalled.value));
         return true;
       }
       if (
@@ -1714,30 +1753,30 @@ export function FullscreenBridge(): React.ReactNode {
         return true;
       }
       if (!busyRef.current && (name === "up" || name === "down")) {
-        const history = store.getInputHistory();
-        if (history.length > 0) {
+        const recalledHistory = store.getInputHistory();
+        if (recalledHistory.length > 0) {
           const current = composerRef.current;
           const index = historyIndex.current;
-          const navigating = index !== null && current.text === history[index];
+          const navigating = index !== null && current.text === recalledHistory[index];
           if (name === "up" && isCursorOnFirstLine(current.text, current.caret)) {
             if (navigating || current.text.length === 0) {
-              const nextIndex = navigating ? Math.max(0, index - 1) : history.length - 1;
-              const recalled = history[nextIndex] ?? "";
+              const nextIndex = navigating ? Math.max(0, index - 1) : recalledHistory.length - 1;
+              const recalled = recalledHistory[nextIndex] ?? "";
               historyIndex.current = nextIndex;
-              updateComposer({ text: recalled, caret: [...recalled].length });
+              commitComposer(composerFromText(recalled));
               return true;
             }
           }
           if (name === "down" && navigating && isCursorOnLastLine(current.text, current.caret)) {
-            if (index >= history.length - 1) {
+            if (index >= recalledHistory.length - 1) {
               historyIndex.current = null;
-              updateComposer({ text: "", caret: 0 });
+              commitComposer(EMPTY_COMPOSER);
               return true;
             }
             const nextIndex = index + 1;
-            const recalled = history[nextIndex] ?? "";
+            const recalled = recalledHistory[nextIndex] ?? "";
             historyIndex.current = nextIndex;
-            updateComposer({ text: recalled, caret: [...recalled].length });
+            commitComposer(composerFromText(recalled));
             return true;
           }
         }
@@ -1752,15 +1791,11 @@ export function FullscreenBridge(): React.ReactNode {
         return true;
       }
       if (name === "backspace") {
-        updateComposer(({ text: value, caret }) => {
-          const characters = [...value];
-          const at = Math.max(0, Math.min(caret, characters.length));
-          if (at === 0) return { text: value, caret: 0 };
-          return {
-            text: [...characters.slice(0, at - 1), ...characters.slice(at)].join(""),
-            caret: at - 1,
-          };
-        });
+        commitComposer((current) => deleteBackward(current));
+        return true;
+      }
+      if (name === "delete") {
+        commitComposer((current) => deleteForward(current));
         return true;
       }
       // Caret motion, from widest jump to narrowest so a chord is never
@@ -1771,40 +1806,41 @@ export function FullscreenBridge(): React.ReactNode {
       // Ctrl+arrow is the Linux/Windows word-jump, and Home/End plus Ctrl+A /
       // Ctrl+E are the bindings that work in every terminal regardless of
       // whether it forwards Cmd at all — which many do not.
+      // Shift keeps the anchor so the same keys grow a selection.
       const wordJump = meta || option || ctrl;
+      const extend = shift;
+      const current = composerRef.current;
+      const characters = [...current.text];
       if (name === "left" && superKey) {
-        updateComposer(({ text, caret }) => ({ text, caret: lineStartBefore([...text], caret) }));
+        moveComposer(lineStartBefore(characters, current.caret), extend);
         return true;
       }
       if (name === "right" && superKey) {
-        updateComposer(({ text, caret }) => ({ text, caret: lineEndAfter([...text], caret) }));
+        moveComposer(lineEndAfter(characters, current.caret), extend);
         return true;
       }
       if (name === "left" && wordJump) {
-        updateComposer(({ text, caret }) => ({ text, caret: wordStartBefore([...text], caret) }));
+        moveComposer(wordStartBefore(characters, current.caret), extend);
         return true;
       }
       if (name === "right" && wordJump) {
-        updateComposer(({ text, caret }) => ({ text, caret: wordEndAfter([...text], caret) }));
+        moveComposer(wordEndAfter(characters, current.caret), extend);
         return true;
       }
       if (name === "home" || isCtrlLetter({ name, ctrl }, "a")) {
-        updateComposer(({ text, caret }) => ({ text, caret: lineStartBefore([...text], caret) }));
+        moveComposer(lineStartBefore(characters, current.caret), extend);
         return true;
       }
       if (name === "end" || isCtrlLetter({ name, ctrl }, "e")) {
-        updateComposer(({ text, caret }) => ({ text, caret: lineEndAfter([...text], caret) }));
+        moveComposer(lineEndAfter(characters, current.caret), extend);
         return true;
       }
       if (name === "left") {
-        updateComposer(({ text, caret }) => ({ text, caret: Math.max(0, caret - 1) }));
+        moveComposer(current.caret - 1, extend);
         return true;
       }
       if (name === "right") {
-        updateComposer(({ text, caret }) => ({
-          text,
-          caret: Math.min([...text].length, caret + 1),
-        }));
+        moveComposer(current.caret + 1, extend);
         return true;
       }
 
@@ -1832,7 +1868,9 @@ export function FullscreenBridge(): React.ReactNode {
       applyPaste,
       insertAtCaret,
       setCommandIndex,
-      updateComposer,
+      commitComposer,
+      moveComposer,
+      updateHistory,
       deleteWordBeforeCaret,
       updatePromptEditor,
       updatePromptQuestion,
@@ -1843,10 +1881,10 @@ export function FullscreenBridge(): React.ReactNode {
   const onAction = useCallback(
     (action: KeyAction) => {
       if (action.type === "interrupt") interrupt.current?.();
-      if (action.type === "stash-draft") updateComposer({ text: "", caret: 0 });
+      if (action.type === "stash-draft") commitComposer(EMPTY_COMPOSER);
       if (action.type === "close-overlay" && approval !== null) prompt?.resolve("no");
     },
-    [approval, prompt, updateComposer],
+    [approval, prompt, commitComposer],
   );
 
   const view = useMemo<ViewModel>(() => {
@@ -1903,6 +1941,7 @@ export function FullscreenBridge(): React.ReactNode {
       input: {
         value: draft,
         caret: draftCaret,
+        anchor: draftAnchor,
         placeholder: busy ? "Type to queue for next turn" : "Ask anything",
         queued: queue.length,
         queueing: busy,
@@ -1929,6 +1968,7 @@ export function FullscreenBridge(): React.ReactNode {
     tick,
     draft,
     draftCaret,
+    draftAnchor,
     commandQuery,
     commandIndex,
     prompt,

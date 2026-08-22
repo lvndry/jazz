@@ -8,8 +8,8 @@ import { AgentPromptBuilder, type AgentPromptOptions } from "./agent-prompt";
  * Runtime instruction blocks are injected by the prompt builder, not authored
  * into persona files. These tests lock the gating: every acting persona gets
  * the completion contract, tool guidance only appears when the agent has
- * tools, per-tool notes are filtered to the actual toolset, and the
- * ask_user_question guidance only ships alongside the tool itself.
+ * tools, and the ask_user_question guidance only ships alongside the tool
+ * itself.
  */
 
 function personaServiceReturning(systemPrompt: string): PersonaService {
@@ -64,27 +64,12 @@ describe("tool guidance injection", () => {
   test("no tool blocks when the agent has no tools", () => {
     const result = build("default");
     expect(result).not.toContain("# Tool usage");
-    expect(result).not.toContain("## Tool notes");
     expect(result).not.toContain("# Asking the user questions");
   });
 
   test("tool selection guidance appears when tools are present", () => {
     const result = build("default", { toolNames: ["http_request"] });
     expect(result).toContain("# Tool usage");
-  });
-
-  test("per-tool notes are filtered to the agent's actual toolset", () => {
-    const result = build("default", { toolNames: ["http_request", "made_up_tool"] });
-    expect(result).toContain("## Tool notes");
-    expect(result).toContain("http_request: Body supports 3 types");
-    expect(result).not.toContain("grep:");
-    expect(result).not.toContain("git workflow");
-  });
-
-  test("no notes section when no tool has a note", () => {
-    const result = build("default", { toolNames: ["made_up_tool"] });
-    expect(result).toContain("# Tool usage");
-    expect(result).not.toContain("## Tool notes");
   });
 
   test("question guidance is gated on ask_user_question", () => {

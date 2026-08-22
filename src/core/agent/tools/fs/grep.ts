@@ -40,42 +40,54 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
         .string()
         .min(1)
         .describe(
-          "Literal text by default. For regex, EITHER prefix re: OR set regex:true — never both. Example literal: TODO. Example regex: re:function\\s+\\w+.",
+          "Text to search for inside files. Treated as a literal substring unless you prefix it with re: (for example 're:function\\s+\\w+') or set regex to true. Do not do both.",
         ),
       path: z
         .string()
         .optional()
         .describe(
-          "File or directory to search. Default: session cwd. Prefer a narrow directory. Never /.",
+          "File or directory to search. Absolute or relative to the session working directory. Prefer a narrow directory. Defaults to the working directory. Do not pass '/'.",
         ),
       recursive: z
         .boolean()
         .optional()
-        .describe("Recurse into directories. Default true. false = this directory only."),
+        .describe(
+          "Search subdirectories. Default true. Set false to search only the given directory.",
+        ),
       regex: z
         .boolean()
         .optional()
-        .describe("If true, treat pattern as a regex. Prefer the re: prefix instead of this flag."),
-      ignoreCase: z.boolean().optional().describe("Case-insensitive match"),
+        .describe(
+          "Treat pattern as a regular expression. Prefer prefixing pattern with re: instead of setting this flag.",
+        ),
+      ignoreCase: z.boolean().optional().describe("Match without regard to case."),
       maxResults: z
         .number()
         .int()
         .positive()
         .optional()
-        .describe("Max matches (default: 200, cap: 2000)"),
-      filePattern: z.string().optional().describe("File glob filter (e.g. '*.js', '*.ts')"),
-      exclude: z.string().optional().describe("Exclude files matching pattern"),
-      excludeDir: z.string().optional().describe("Exclude directories matching pattern"),
+        .describe("Maximum number of matches to return. Default 200, hard cap 2000."),
+      filePattern: z
+        .string()
+        .optional()
+        .describe("Only search files whose names match this glob. Examples: '*.js', '*.ts'."),
+      exclude: z.string().optional().describe("Skip files whose names match this pattern."),
+      excludeDir: z
+        .string()
+        .optional()
+        .describe("Skip directories whose names match this pattern."),
       contextLines: z
         .number()
         .int()
         .nonnegative()
         .optional()
-        .describe("Context lines above/below each match"),
+        .describe("Number of lines to include above and below each match."),
       outputMode: z
         .enum(["content", "files", "count"])
         .optional()
-        .describe("'content' (default), 'files', or 'count'"),
+        .describe(
+          "What to return: 'content' (matching lines, default), 'files' (paths only), or 'count' (match counts).",
+        ),
     })
     .strict();
 
@@ -363,11 +375,12 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GrepArgs>({
     name: "grep",
     description:
-      "Search INSIDE file contents (ripgrep if installed, else grep). Default: literal substring, recursive, 200 matches, content mode. " +
-      "WHEN TO USE: where is this symbol/string? Prefer this over execute_command rg/grep. " +
-      "WHEN NOT: locate files by name/glob → find (also advertised as glob). List one directory → ls. " +
-      "Do not set both regex:true and a re: prefix. Recursive defaults to true with no depth cap — always pass path, never /. " +
-      "Hidden files are skipped unless path points at them. With ripgrep, .gitignore is honoured; the grep fallback is not.",
+      "Search inside file contents. Uses ripgrep when installed, otherwise grep. " +
+      "Use this to find a symbol or string. Prefer this over execute_command with rg or grep. " +
+      "Do not use this to locate files by name or glob (find, also available as glob) or to list a directory (ls). " +
+      "Defaults: literal substring, recursive, 200 matches, content mode. Recursion has no depth limit — always pass path, never '/'. " +
+      "Start with a specific path and a small maxResults, then widen if needed. " +
+      "Do not set both regex:true and a re: prefix. Hidden files are skipped unless path points at them. With ripgrep, .gitignore is honoured; the grep fallback is not.",
     tags: ["search", "text"],
     parameters,
     validate: makeZodValidator(parameters),

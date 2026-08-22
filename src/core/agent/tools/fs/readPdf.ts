@@ -61,7 +61,9 @@ export function createReadPdfTool(): Tool<FileSystem.FileSystem | FileSystemCont
       pages: z
         .array(z.number().int().positive())
         .optional()
-        .describe("Page numbers to extract (1-based). Omit for all pages."),
+        .describe(
+          "1-based page numbers to extract (for example [1, 2, 3], not a range string). Omit for all pages. For large files, request 10–20 pages at a time.",
+        ),
       maxChars: z
         .number()
         .int()
@@ -76,7 +78,7 @@ export function createReadPdfTool(): Tool<FileSystem.FileSystem | FileSystemCont
   return defineTool<FileSystem.FileSystem | FileSystemContextService, ReadPdfParams>({
     name: "read_pdf",
     description:
-      'Extract text and tables from a PDF. Do not use read_file on PDFs. Use pdf_page_count first for large files, then pass pages as a list of 1-based page numbers (e.g. [1,2,3], not "1-3"). No OCR/images.',
+      "Extract text and tables from a PDF. Do not use read_file on PDFs. Use pdf_page_count first for large files, then read 10–20 pages at a time via pages (a list of 1-based numbers such as [1, 2, 3], not a range string). No OCR or images.",
     tags: ["filesystem", "read", "pdf"],
     parameters,
     validate: makeZodValidator(parameters),

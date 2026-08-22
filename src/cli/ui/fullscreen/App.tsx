@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { getGlyphs } from "../glyphs";
 import { THEME } from "../theme";
 import { pasteTextFromEvent, selectedTextFromRenderer, writeClipboard } from "./clipboard";
+import { selectedText as selectedComposerText } from "./composer-edit";
 import { Footer } from "./Footer";
 import { Header } from "./Header";
 import { Input } from "./Input";
@@ -120,7 +121,7 @@ export interface AppProps {
  */
 function TooSmall({ width, height }: { width: number; height: number }): React.ReactNode {
   return (
-    <box style={{ width, height, flexDirection: "column" }}>
+    <box style={{ width, height, flexDirection: "column", backgroundColor: THEME.canvas }}>
       <text style={{ fg: THEME.selected }}>{`jazz needs ${MIN_WIDTH}x${MIN_HEIGHT}`}</text>
       <text style={{ fg: THEME.muted }}>{`this terminal is ${width}x${height}`}</text>
       <text style={{ fg: THEME.muted }}>resize, or run with --no-tui</text>
@@ -290,7 +291,16 @@ export function App({
     }
 
     if (isCopyChord({ name, ctrl, shift, super: superKey })) {
-      const selected = selectedTextFromRenderer(rendererRef.current);
+      const composer = selectedComposerText({
+        text: currentView.input.value,
+        caret: currentView.input.caret ?? [...currentView.input.value].length,
+        anchor:
+          currentView.input.anchor ??
+          currentView.input.caret ??
+          [...currentView.input.value].length,
+      });
+      const selected =
+        composer.length > 0 ? composer : selectedTextFromRenderer(rendererRef.current);
       if (selected.length > 0) {
         consumeKeyEvent(key);
         void writeClipboard(selected);
@@ -419,7 +429,7 @@ export function App({
 
   return (
     <box
-      style={{ width, height, flexDirection: "column" }}
+      style={{ width, height, flexDirection: "column", backgroundColor: THEME.canvas }}
       onMouseScroll={(event) => {
         if (overlayOpen) return;
         const scroll = event.scroll;

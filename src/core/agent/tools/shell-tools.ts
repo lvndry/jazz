@@ -425,7 +425,8 @@ export function createShellCommandTools(): ApprovalToolPair<ShellCommandDeps> {
       "Git has no dedicated tools — use this for all git (status, diff, log, commit, push, rebase, stash, …). " +
       "Under autoApprove read-only/low-risk, inspect-only commands may be classified read-only by the harness model; mutating commands stay high-risk. " +
       "Non-interactive only: stdin is discarded; never run pagers, REPLs, or git rebase -i without a non-interactive editor. " +
-      "sudo/su are blocked. Env is sanitized (no KEY/TOKEN/SECRET); you cannot pass env vars. " +
+      "sudo/su are blocked. Interpreter inline-code flags (python3 -c, node -e, bash -c, and similar) are blocked — write a script to a unique temporary file and run that instead. " +
+      "Env is sanitized (no KEY/TOKEN/SECRET); you cannot pass env vars. " +
       "Timeout default 15 minutes. stdout and stderr are each capped at 256 KB; a truncation marker means re-run with a narrower command.",
     tags: ["shell", "execution"],
     timeoutMs: 15 * 60 * 1000, // 15 minutes — executor cap so long-running commands can complete

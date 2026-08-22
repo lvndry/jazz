@@ -92,17 +92,17 @@ export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
         .string()
         .min(1)
         .describe(
-          "File path, absolute or relative to session cwd. Must be a file, not a directory.",
+          "File to read. Absolute or relative to the session working directory. Must be a file, not a directory.",
         ),
       startLine: lineIndexSchema
         .optional()
         .describe(
-          "1-based inclusive start line. Negative counts from the end (-1 = last line, -20 = start of the last 20 lines). Omit both startLine and endLine to read from the top until maxBytes.",
+          "First line to return, 1-based and inclusive. Negative counts from the end: -1 is the last line, -20 starts 20 lines from the end. Omit startLine and endLine to read from the top, up to maxBytes.",
         ),
       endLine: lineIndexSchema
         .optional()
         .describe(
-          "1-based inclusive end line. Negative counts from the end. Omit to read through the last line (or through maxBytes).",
+          "Last line to return, 1-based and inclusive. Negative counts from the end. Omit to read through the last line, or until maxBytes is reached.",
         ),
       maxBytes: z
         .number()
@@ -110,7 +110,7 @@ export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
         .positive()
         .optional()
         .describe(
-          "Max characters of file text to return after the line slice (JS string length, not UTF-8 bytes). Default 131072, hard cap 524288.",
+          "Maximum number of characters to return after applying the line range. Measured as JavaScript string length, not UTF-8 bytes, despite the parameter name. Default 131072, hard cap 524288.",
         ),
     })
     .strict();
@@ -120,13 +120,12 @@ export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
   return defineTool<FileSystem.FileSystem | FileSystemContextService, ReadFileParams>({
     name: "read_file",
     description:
-      "Read a file relative to the session working directory (pwd/cd). UTF-8 text is returned as numbered lines (`   12|content`) so edit_file.replace_lines / insert / delete_lines can use those numbers. " +
-      "Images, PDFs, audio and video are attached to the conversation when the active model supports that modality. " +
-      "WHEN TO USE: inspecting or editing text/code. " +
-      "WHEN NOT: directories → ls; filenames → find; unsupported binary formats; do not shell out to cat/sed/nl. " +
-      "Pass startLine/endLine for large files. Negative startLine reads from the end (startLine:-20 is the last 20 lines). " +
-      "Do not copy the `N|` prefix into edit_file or write_file content — it is metadata. " +
-      "If truncated is true, re-read the next range; do not assume you saw the whole file. UTF-8 only; a leading BOM is stripped.",
+      "Read a file relative to the session working directory. UTF-8 text is returned as numbered lines (`   12|content`) so edit_file can use those numbers for replace_lines, insert, and delete_lines. " +
+      "Images, PDFs, audio, and video are attached to the conversation when the active model supports that modality. " +
+      "Use this to inspect or edit text and code. Do not use this for directories (ls), to discover filenames (find), for unsupported binary formats, or via execute_command with cat/sed/nl. " +
+      "For large files, pass startLine and endLine. A negative startLine reads from the end (startLine: -20 is the last 20 lines). " +
+      "Do not copy the `N|` prefix into edit_file or write_file — it is line-number metadata. " +
+      "If truncated is true, read the next range; do not assume you saw the whole file. UTF-8 only; a leading BOM is stripped.",
     tags: ["filesystem", "read"],
     parameters,
     validate: makeZodValidator(parameters),

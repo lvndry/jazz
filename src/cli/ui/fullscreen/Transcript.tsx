@@ -35,6 +35,7 @@
 
 import { TextAttributes } from "@opentui/core";
 import { forwardRef, useImperativeHandle, useRef, useState, type ReactNode } from "react";
+import { highlightFenceLines, looksLikeUnifiedDiff } from "./syntax-spans";
 import { getGlyphs, type GlyphSet } from "../glyphs";
 import { THEME } from "../theme";
 import {
@@ -220,7 +221,7 @@ type ProseItem =
   | { readonly kind: "text"; readonly segments: readonly Segment[]; readonly indent: number }
   | { readonly kind: "blank" }
   | { readonly kind: "rule" }
-  | { readonly kind: "fence"; readonly lines: readonly string[] }
+  | { readonly kind: "fence"; readonly language: string; readonly lines: readonly string[] }
   | { readonly kind: "table"; readonly rows: readonly (readonly string[])[] };
 
 function isWordCharacter(character: string | undefined): boolean {
@@ -479,7 +480,11 @@ export function parseProse(markdown: string, glyphs: GlyphSet = getGlyphs()): Pr
         index += 1;
       }
       index += 1;
-      items.push({ kind: "fence", lines: body });
+      items.push({
+        kind: "fence",
+        language: (fence[1] ?? "").trim().split(/\s+/)[0] ?? "",
+        lines: body,
+      });
       continue;
     }
 
@@ -803,11 +808,11 @@ function agentRows(
         });
         return;
       case "fence":
-        item.lines.forEach((line, lineIndex) => {
+        highlightFenceLines(item.language, item.lines).forEach((spans, lineIndex) => {
           rows.push({
             key: `${key}:${String(lineIndex)}`,
             gutter: gutterFor(),
-            content: fitTerminalSegments([{ text: line, fg: THEME.syntaxValue }], geometry.content),
+            content: fitTerminalSegments([...spans], geometry.content),
             contentWidth: geometry.content,
             meta: [],
           });
@@ -958,11 +963,15 @@ function receiptRows(
       });
       // Expanded output is scanned, so it takes the full content width.
       if (block.expanded === true && block.detail !== undefined) {
-        block.detail.split("\n").forEach((line, index) => {
+        const detailLines = block.detail.split("\n");
+        const painted = looksLikeUnifiedDiff("", detailLines)
+          ? highlightFenceLines("", detailLines)
+          : detailLines.map((line) => [{ text: line, fg: THEME.muted }]);
+        painted.forEach((spans, index) => {
           rows.push({
             key: `${block.id}:detail:${String(index)}`,
             gutter: [rail, BLANK_CELL],
-            content: fitTerminalSegments([{ text: line, fg: THEME.muted }], geometry.content),
+            content: fitTerminalSegments([...spans], geometry.content),
             contentWidth: geometry.content,
             meta: [],
           });

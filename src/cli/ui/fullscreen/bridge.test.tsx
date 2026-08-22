@@ -1736,6 +1736,41 @@ describe("fullscreen bridge", () => {
     expect(frame).toContain("chat");
   });
 
+  it("undoes a typed word and shift-selects so the next key replaces it", async () => {
+    const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await testRender(
+      <FullscreenBridge />,
+      { width: WIDTH, height: HEIGHT },
+    );
+    await renderOnce();
+    store.setPrompt({ type: "chat", message: "", resolve: () => undefined });
+    await flush();
+    for (const key of ["c", "a", "t"]) {
+      await mockInput.pressKey(key);
+      await settleKeypress(flush);
+    }
+    await mockInput.pressKey("z", { ctrl: true });
+    await settleKeypress(flush, 100);
+    expect(captureCharFrame()).not.toContain("cat");
+
+    for (const key of ["c", "a", "t"]) {
+      await mockInput.pressKey(key);
+      await settleKeypress(flush);
+    }
+    await mockInput.pressKey("ARROW_LEFT", { shift: true });
+    await settleKeypress(flush, 100);
+    await mockInput.pressKey("ARROW_LEFT", { shift: true });
+    await settleKeypress(flush, 100);
+    await mockInput.pressKey("ARROW_LEFT", { shift: true });
+    await settleKeypress(flush, 100);
+    await mockInput.pressKey("x");
+    await settleKeypress(flush);
+    const frame = captureCharFrame();
+    renderer.destroy();
+    store.setPrompt(null);
+    expect(frame).toContain("x");
+    expect(frame).not.toContain("cat");
+  });
+
   it("option+Backspace (reported as meta) deletes the previous word", async () => {
     const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await testRender(
       <FullscreenBridge />,

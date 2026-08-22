@@ -245,6 +245,31 @@ export function isInterruptChord(
   return isCtrlLetter(key, "c");
 }
 
+export function isUndoChord(
+  key: Pick<NormalizedKey, "name" | "ctrl" | "shift" | "super">,
+): boolean {
+  if (key.shift) return false;
+  if (key.name !== "z" && key.name !== "super+z" && key.name !== "cmd+z") return false;
+  return key.ctrl || key.super || key.name === "super+z" || key.name === "cmd+z";
+}
+
+export function isRedoChord(
+  key: Pick<NormalizedKey, "name" | "ctrl" | "shift" | "super">,
+): boolean {
+  if (key.name === "y" && key.ctrl && !key.super) return true;
+  if (key.name !== "z" && key.name !== "super+z" && key.name !== "cmd+z") return false;
+  if (!key.shift) return false;
+  return key.ctrl || key.super || key.name === "super+z" || key.name === "cmd+z";
+}
+
+export function isSelectAllChord(
+  key: Pick<NormalizedKey, "name" | "ctrl" | "shift" | "super">,
+): boolean {
+  if (key.ctrl) return false;
+  if (key.name === "super+a" || key.name === "cmd+a") return true;
+  return key.name === "a" && key.super;
+}
+
 export function isCopyChord(
   key: Pick<NormalizedKey, "name" | "ctrl" | "shift" | "super">,
 ): boolean {

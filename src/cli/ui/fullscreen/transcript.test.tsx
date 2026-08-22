@@ -793,4 +793,45 @@ describe("inline emphasis", () => {
     expect(warning).toMatchObject({ fg: THEME.secondary, bold: true });
     expect(aside).toMatchObject({ fg: THEME.secondary, italic: true });
   });
+
+  it("highlights a fenced body with the three syntax roles", () => {
+    const rows = transcriptRows(
+      [
+        {
+          id: "a",
+          seq: 1,
+          kind: "agent",
+          markdown: '```ts\nconst name = "jazz";\nfunction Agent() {}\n```',
+        },
+      ],
+      WIDE,
+    );
+    const content = rows.flatMap((row) => row.content);
+    expect(content.find((segment) => segment.text === "const")?.fg).toBe(THEME.syntaxStructure);
+    expect(content.find((segment) => segment.text.includes("jazz"))?.fg).toBe(THEME.syntaxValue);
+    expect(content.find((segment) => segment.text === "Agent")?.fg).toBe(THEME.syntaxType);
+  });
+
+  it("paints an expanded patch as a unified diff", () => {
+    const rows = transcriptRows(
+      [
+        {
+          id: "t",
+          seq: 1,
+          kind: "tool",
+          app: "files",
+          summary: "edited note",
+          status: "ok",
+          expanded: true,
+          detail: ["--- a/note.md", "+++ b/note.md", "-old line", "+new line"].join("\n"),
+        },
+      ],
+      WIDE,
+    );
+    const content = rows
+      .filter((row) => row.key.includes(":detail:"))
+      .flatMap((row) => row.content);
+    expect(content.find((segment) => segment.text === "-old line")?.fg).toBe(THEME.error);
+    expect(content.find((segment) => segment.text === "+new line")?.fg).toBe(THEME.success);
+  });
 });

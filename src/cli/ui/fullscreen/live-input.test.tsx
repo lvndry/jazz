@@ -500,4 +500,17 @@ describe("input", () => {
       }
     }
   });
+
+  it("paints a selection as a surface wash between anchor and caret", () => {
+    const rows = inputRows(
+      { ...base, value: "hello world", caret: 11, anchor: 6 },
+      { width: WIDTH, height: HEIGHT },
+    );
+    const selected = rows
+      .flatMap((row) => row.segments)
+      .filter((segment) => segment.bg === THEME.surfaceStrong)
+      .map((segment) => segment.text)
+      .join("");
+    expect(selected).toBe("world");
+  });
 });

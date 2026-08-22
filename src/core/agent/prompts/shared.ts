@@ -71,39 +71,6 @@ export const TOOL_SELECTION_INSTRUCTIONS = `
 3. Call independent operations (searches, reads, status checks) in parallel in a single response. Sequence calls only when one result feeds the next.
 `;
 
-/**
- * Per-tool usage notes, injected only for tools the agent actually has.
- * Keyed by tool name so an agent with a narrow toolset never reads guidance
- * about tools it cannot call.
- */
-export const TOOL_NOTES: Readonly<Record<string, string>> = {
-  web_search:
-    'web_search: Refine queries to be specific. Bad: "Total" → Good: "French energy company Total website". Put site:/filetype: in the query string. Date filters are provider-dependent — if the schema has no fromDate, put recency in the query instead.',
-  write_file:
-    "write_file vs edit_file: write_file for new files or full rewrites. edit_file for surgical changes to existing files.",
-  edit_file:
-    "edit_file: Line numbers come from read_file's numbered output (`   12|content`) — do not copy the `N|` prefix into replacements. replace_pattern defaults to first match; count:-1 for all. Do not sed via execute_command.",
-  grep: "grep: Searches file CONTENTS (find/glob searches file NAMES). Start narrow — small maxResults and specific paths first. Pattern is literal unless re: prefix or regex:true (never both).",
-  find: "find (alias glob): Searches file/directory NAMES. Pass path for repo work or smart-search may walk to $HOME. To search file CONTENTS, use grep.",
-  execute_command:
-    "execute_command: Do not use for ls/grep/find/read_file/mkdir — those have dedicated tools. Git has no dedicated tools. Timeout defaults to 15 minutes. Dangerous commands (rm -rf, sudo, fork bombs) and interpreter inline-code flags (python3 -c, node -e, bash -c, etc.) are blocked — write a script to a unique temporary file and run that instead.",
-  read_pdf:
-    "PDFs: Use pdf_page_count first, then read_pdf in 10-20 page chunks (via pages param) to avoid context overload. Do not read_file a PDF.",
-  http_request:
-    "http_request: Body supports 3 types: json (serialized automatically), text (plain text), form (URL-encoded). Content-Type is set automatically based on body type. Not for HTML article extraction.",
-  spawn_subagent:
-    "spawn_subagent: Use persona 'coder' for code search/editing/git, 'researcher' for read-only investigation. The child cannot see this conversation — put every fact in `task`. Do not spawn for work a few greps would finish.",
-};
-
-export function renderToolNotes(toolNames: readonly string[]): string {
-  const notes = toolNames
-    .filter((name) => name in TOOL_NOTES)
-    .sort()
-    .map((name) => `- ${TOOL_NOTES[name]}`);
-  if (notes.length === 0) return "";
-  return `\n## Tool notes\n\n${notes.join("\n")}\n`;
-}
-
 export const INTERACTIVE_QUESTIONS_GUIDELINES = `
 # Asking the user questions
 

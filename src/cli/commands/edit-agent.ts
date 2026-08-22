@@ -50,7 +50,6 @@ import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import { formatProviderDisplayName } from "@/core/utils/provider-model";
 import { sortProvidersForPicker } from "@/core/utils/provider-picker";
 import { toPascalCase } from "@/core/utils/string";
-import { isEditAgentMenuExit, shouldReturnToEditAgentMenu } from "./edit-agent-navigation";
 
 /**
  * CLI commands for editing existing agents
@@ -205,7 +204,7 @@ export function editAgentCommand(
         ],
       });
 
-      if (isEditAgentMenuExit(fieldToUpdate)) {
+      if (!fieldToUpdate || fieldToUpdate === "done") {
         return;
       }
 
@@ -414,10 +413,7 @@ export function editAgentCommand(
 
       if (editAnswers === null) {
         yield* terminal.info("Edit cancelled.");
-        if (shouldReturnToEditAgentMenu("cancelled")) {
-          continue;
-        }
-        return;
+        continue;
       }
 
       // Tools are already discovered and registered (if fieldToUpdate was "tools")
@@ -539,9 +535,6 @@ export function editAgentCommand(
       yield* terminal.log("");
 
       agent = yield* getAgentByIdentifier(agent.id);
-      if (!shouldReturnToEditAgentMenu("updated")) {
-        return;
-      }
     }
   });
 }

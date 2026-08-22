@@ -10,7 +10,6 @@ import {
   ENVIRONMENT_TEMPLATE,
   INTERACTIVE_QUESTIONS_GUIDELINES,
   MEMORY_INSTRUCTIONS,
-  renderToolNotes,
   SKILLS_INSTRUCTIONS,
   TASK_STATE_INSTRUCTIONS,
   TOOL_SELECTION_INSTRUCTIONS,
@@ -360,7 +359,6 @@ export class AgentPromptBuilder {
 
         if (options.toolNames && options.toolNames.length > 0) {
           systemPrompt = systemPrompt + TOOL_SELECTION_INSTRUCTIONS;
-          systemPrompt = systemPrompt + renderToolNotes(options.toolNames);
         }
 
         if (options.toolNames?.includes("ask_user_question")) {

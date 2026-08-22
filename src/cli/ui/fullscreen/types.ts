@@ -209,6 +209,11 @@ export interface InputModel {
    * need real editing (samples, tests rendering a finished draft) wants.
    */
   readonly caret?: number;
+  /**
+   * The other end of the selection. Equal to `caret` (or omitted) when there
+   * is no range. The painted highlight is the span between the two.
+   */
+  readonly anchor?: number;
   readonly placeholder: string;
   readonly queued: number;
   /** Busy chat turns queue Enter instead of resolving the active prompt. */

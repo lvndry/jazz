@@ -6,6 +6,9 @@ import {
   isCopyChord,
   isCtrlLetter,
   isInterruptChord,
+  isRedoChord,
+  isSelectAllChord,
+  isUndoChord,
   isPrintableSequence,
   normalizeKey,
   resolveEscape,
@@ -235,6 +238,17 @@ describe("normalizeKey", () => {
     expect(isInterruptChord(normalizeKey("\x1b[27;6;99~"))).toBe(false);
     expect(isInterruptChord(normalizeKey("\x1b[99;5u"))).toBe(true);
     expect(isCopyChord(normalizeKey("\x1b[99;5u"))).toBe(false);
+  });
+
+  it("treats Ctrl/Cmd+Z as undo and the shifted form as redo", () => {
+    expect(isUndoChord({ name: "z", ctrl: true, shift: false, super: false })).toBe(true);
+    expect(isUndoChord({ name: "z", ctrl: false, shift: false, super: true })).toBe(true);
+    expect(isUndoChord({ name: "z", ctrl: true, shift: true, super: false })).toBe(false);
+    expect(isRedoChord({ name: "z", ctrl: true, shift: true, super: false })).toBe(true);
+    expect(isRedoChord({ name: "z", ctrl: false, shift: true, super: true })).toBe(true);
+    expect(isRedoChord({ name: "y", ctrl: true, shift: false, super: false })).toBe(true);
+    expect(isSelectAllChord({ name: "a", ctrl: false, shift: false, super: true })).toBe(true);
+    expect(isSelectAllChord({ name: "a", ctrl: true, shift: false, super: false })).toBe(false);
   });
 
   it("does not turn tab, enter or backspace into ctrl chords", () => {

@@ -201,6 +201,7 @@ export function AgentPicker({
         width: viewport.width,
         height: viewport.height,
         flexDirection: "column",
+        backgroundColor: THEME.canvas,
       }}
     >
       <box style={{ height: 1, flexShrink: 0 }} />

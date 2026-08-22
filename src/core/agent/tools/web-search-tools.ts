@@ -64,7 +64,7 @@ const webSearchSchema = z
       .min(1, "query cannot be empty")
       .max(5000, "query cannot be longer than 5000 characters")
       .describe(
-        "Natural-language description of the web research goal, including source or freshness guidance and broader context. Use highly specific queries for more targeted results.",
+        "Natural-language description of the web research goal, including source or freshness guidance and broader context. Be specific — 'French energy company Total website' finds the right company; 'Total' does not.",
       ),
     searchQueries: z
       .array(
