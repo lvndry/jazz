@@ -26,9 +26,10 @@ import type { TerminalService } from "./terminal";
  *
  * - `read-only`: Tools that only read data (web search, list emails, read files)
  * - `low-risk`: Tools that make minor changes (archive email, create calendar event)
- * - `high-risk`: Tools that make significant changes (delete files, send email, execute commands)
+ * - `high-risk`: Tools that make significant changes (delete files, send email)
+ * - `unknown`: Blast radius depends on arguments (e.g. `execute_command`)
  */
-export type ToolRiskLevel = "read-only" | "low-risk" | "high-risk";
+export type ToolRiskLevel = "read-only" | "low-risk" | "high-risk" | "unknown";
 
 /**
  * Union type representing all possible tool requirements.
@@ -73,6 +74,7 @@ export interface Tool<R = never> {
    * - `read-only`: Always auto-approved (default for non-approval tools)
    * - `low-risk`: Auto-approved when workflow allows low-risk operations
    * - `high-risk`: Only auto-approved when explicitly allowed (default for approval tools)
+   * - `unknown`: Never auto-approved except yolo; classified in safe mode (read-only/low-risk skip the prompt)
    */
   readonly riskLevel: ToolRiskLevel;
   /**

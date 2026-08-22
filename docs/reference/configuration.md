@@ -261,7 +261,7 @@ A persisted allowlist for `execute_command`, set at the top level of `~/.jazz/co
 
 Each entry lets one command through **without** raising the whole approval tier. This is the
 right tool when a scheduled workflow needs a skill that shells out — email, calendar, and
-Obsidian all run through `execute_command`, which is `high-risk`, so a `low-risk` workflow
+Obsidian all run through `execute_command`, which is `unknown`, so a `low-risk` workflow
 cannot use them otherwise.
 
 Matching uses a parsed key (binary + first subcommand) with exact or word-boundary

@@ -437,11 +437,12 @@ export function createShellCommandTools(): ApprovalToolPair<ShellCommandDeps> {
     description:
       "Run a shell command. Do not use this when a dedicated tool exists: use ls to list files, find (also available as glob) to search names, grep to search contents, read_file to read a file (startLine: -N for the end), and mkdir to create directories. " +
       "Git has no dedicated tools — use this for status, diff, log, commit, push, rebase, stash, and the rest. " +
-      "Under autoApprove read-only or low-risk, inspect-only commands may be classified read-only; mutating commands stay high-risk. " +
+      "Risk is unknown until classified in interactive safe mode: read-only and low-risk commands are auto-approved, mutating or ambiguous commands stay high-risk and prompt. " +
       "Commands are non-interactive: stdin is discarded, so do not run pagers, REPLs, or git rebase -i without a non-interactive editor. " +
       "sudo and su are blocked. Interpreter inline-code flags (python3 -c, node -e, bash -c, and similar) are blocked — write a script to a unique temporary file and run that instead. " +
       "The environment is sanitized (no KEY, TOKEN, or SECRET); you cannot pass env vars. Timeout defaults to 15 minutes. stdout and stderr are each capped at 256 KB; a truncation marker means re-run with a narrower command.",
     tags: ["shell", "execution"],
+    riskLevel: "unknown",
     timeoutMs: 15 * 60 * 1000, // 15 minutes — executor cap so long-running commands can complete
     parameters: executeCommandParameters,
     validate: makeZodValidator(executeCommandParameters),

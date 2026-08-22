@@ -54,7 +54,7 @@ async function registeredTools(): Promise<readonly RegisteredTool[]> {
 /** Rows look like: `| \`read_file\` | \`read-only\` | — | description |` */
 function documentedTools(markdown: string): Map<string, string> {
   const documented = new Map<string, string>();
-  const rowPattern = /^\|\s*`([a-z_0-9]+)`\s*\|\s*`(read-only|low-risk|high-risk)`\s*\|/gm;
+  const rowPattern = /^\|\s*`([a-z_0-9]+)`\s*\|\s*`(read-only|low-risk|high-risk|unknown)`\s*\|/gm;
   for (const match of markdown.matchAll(rowPattern)) {
     const [, name, risk] = match;
     if (name !== undefined && risk !== undefined) documented.set(name, risk);

@@ -90,32 +90,38 @@ Every tool declares a level. One dial decides what runs without asking.
 flowchart LR
     subgraph tiers["Tool risk levels"]
         direction TB
-        RO["<b>read-only</b><br/>read_file · grep · find · ls<br/>web_search · web_fetch · http_request<br/>classified inspect-only shell"]
+        RO["<b>read-only</b><br/>read_file · grep · find · ls<br/>web_search · web_fetch · http_request"]
         LR["<b>low-risk</b><br/>manage_todos<br/>spawn_subagent"]
-        HR["<b>high-risk</b><br/>write_file · edit_file · rm<br/>mv · cp · mkdir<br/>execute_command<br/>(mutating git, other shell)"]
+        HR["<b>high-risk</b><br/>write_file · edit_file · rm<br/>mv · cp · mkdir"]
+        UN["<b>unknown</b><br/>execute_command"]
     end
 
     subgraph policies["--approval-policy"]
         direction TB
-        P0["<i>unset / false</i><br/>approves nothing"]
+        P0["<i>unset / false</i><br/>safe: read-only + low-risk"]
         P1["read-only"]
         P2["low-risk"]
         P3["high-risk"]
     end
 
+    P0 -.->|approves| RO
+    P0 -.->|approves| LR
     P1 -.->|approves| RO
     P2 -.->|approves| RO
     P2 -.->|approves| LR
     P3 -.->|approves| RO
     P3 -.->|approves| LR
     P3 -.->|approves| HR
+    P3 -.->|approves| UN
 
     classDef safe fill:#4f9d9d,stroke:#2f6d6d,color:#ffffff
     classDef warn fill:#f9a03f,stroke:#b3541e,color:#1a1a1a
     classDef bad fill:#c1443c,stroke:#7d2b26,color:#ffffff
+    classDef muted fill:#6b7280,stroke:#374151,color:#ffffff
     class RO safe
     class LR warn
     class HR bad
+    class UN muted
 ```
 
 The policy is read through a **getter**, not captured once, so a mid-run change takes effect
@@ -124,19 +130,23 @@ behind another can pick up a policy that changed while it waited.
 
 ### Command classifier
 
-`execute_command` is declared `high-risk`. When the auto-approve policy is `read-only` or
-`low-risk`, Jazz asks the cheap harness model (`summarizerModel`, else the agent's own) whether
-this particular command is inspect-only. A `read-only` verdict lets the policy auto-approve it
-so a scheduled workflow can run `git log` or `ls /tmp` without also unlocking `rm`.
+`execute_command` is declared `unknown` because the command decides the blast radius. In
+**safe mode** (policy unset or `false`), Jazz asks the cheap harness model
+(`summarizerModel`, else the agent's own) whether this command is `read-only`, `low-risk`,
+or `high-risk`. Safe mode auto-approves the first two and prompts for `high-risk`.
 
-The classifier runs only when its answer could skip a prompt — not on every interactive
-shell command, and not when the policy is already `high-risk` or unset.
+The classifier is skipped when the policy already decides the outcome (yolo / `high-risk`
+approves everything; `read-only` and `low-risk` decline `unknown`) or when the command is
+already allowlisted.
 
 Fail closed: timeouts, provider errors, empty replies, and anything other than the exact
-token `read-only` stay `high-risk`. The command is wrapped as data in `<command>` tags so
-the model is told not to follow instructions inside it. A wrong `read-only` verdict is still
-possible; the shell denylist is the backstop for known-destructive patterns, not for
-`git push`.
+token `read-only` or `low-risk` stay `high-risk`. The last five user requests plus a
+short snippet of each answer are included (hard-capped at 800 characters) so an
+ambiguous command can be lowered only when the conversation clearly asked for that
+milder action. A clearly mutating command stays `high-risk` regardless. The command and
+conversation are wrapped as data in tags so the model is told not to follow instructions
+inside them. A wrong milder verdict is still possible; the shell denylist is the backstop
+for known-destructive patterns, not for `git push`.
 
 Implementation: [`command-risk.ts`](../../src/core/agent/tools/command-risk.ts).
 
@@ -242,7 +252,7 @@ Tools are registered by category at startup, except MCP:
 | Category               | Tools   | Examples                                                                                              |
 | ---------------------- | ------- | ----------------------------------------------------------------------------------------------------- |
 | File Management        | 15      | `read_file` `write_file` `edit_file` `find` `grep` `read_pdf` `pdf_page_count` `mkdir` `rm` `mv` `cp` |
-| Shell Commands         | 1       | `execute_command` (inspect-only commands may be classified read-only)                                 |
+| Shell Commands         | 1       | `execute_command` (`unknown`; classified in safe mode before the prompt)                              |
 | Web Search / Web Fetch | 2       | `web_search` `web_fetch`                                                                              |
 | HTTP                   | 1       | `http_request`                                                                                        |
 | Todo                   | 2       | `manage_todos` `list_todos`                                                                           |

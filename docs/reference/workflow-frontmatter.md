@@ -65,13 +65,13 @@ Exact per-tool tiers: [Tools reference](./tools.md).
 (`manage_todos`, `update_task_state`, and `spawn_subagent`). It does **not** cover email, calendar, or file writes.
 
 This matters because the capabilities people most want on a schedule are skills that shell
-out through `execute_command`, which is `high-risk`:
+out through `execute_command`, which is `unknown`:
 
 ```mermaid
 flowchart LR
     W["WORKFLOW.md<br/>autoApprove: low-risk"] --> S["email skill"]
     S --> C["execute_command<br/>himalaya message move …"]
-    C --> G{"low-risk covers<br/>high-risk?"}
+    C --> G{"low-risk covers<br/>unknown?"}
     G -->|"no"| D["<b>Declined.</b><br/>Nothing gets archived."]
 
     classDef bad fill:#c1443c,stroke:#7d2b26,color:#ffffff

@@ -12,10 +12,11 @@ export type { ToolRiskLevel } from "@/core/interfaces/tool-registry";
 /**
  * Auto-approve policy for workflow execution.
  *
- * - `false` or undefined: No auto-approve, always prompt user
+ * - `false` or undefined: Safe mode — auto-approve read-only and low-risk, prompt for high-risk and unknown
  * - `true` or `"high-risk"`: Auto-approve all tools (including high-risk)
  * - `"low-risk"`: Auto-approve read-only and low-risk tools, prompt for high-risk
- * - `"read-only"`: Auto-approve only read-only tools, prompt for low-risk and high-risk
+ * - `"read-only"`: Auto-approve only read-only tools, prompt for low-risk, high-risk, and unknown
+ * - `unknown` risk is never auto-approved except under `true` / `"high-risk"`
  */
 export type AutoApprovePolicy = boolean | "read-only" | "low-risk" | "high-risk";
 
@@ -26,7 +27,9 @@ export function shouldAutoApprove(
   riskLevel: ToolRiskLevel,
   policy: AutoApprovePolicy | undefined,
 ): boolean {
-  if (!policy) return false;
+  if (!policy) {
+    return riskLevel === "read-only" || riskLevel === "low-risk";
+  }
 
   // true or "high-risk" means approve everything
   if (policy === true || policy === "high-risk") return true;

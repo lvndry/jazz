@@ -96,7 +96,7 @@ Tools above the tier are **declined**, not queued — there is nobody to ask.
 
 > ⚠️ **`low-risk` adds three tools** (`manage_todos`, `update_task_state`, `spawn_subagent`). It is not "moderately dangerous actions". Email,
 > calendar, and Obsidian are skills that shell out through `execute_command`, so they are
-> gated at `high-risk` — a `low-risk` workflow **cannot archive an email**. Keep the tier low
+> gated at `unknown` — a `low-risk` workflow **cannot archive an email**. Keep the tier low
 > and allowlist the binary instead: `{"autoApprovedCommands": ["himalaya"]}` in
 > `~/.jazz/config.json`.
 

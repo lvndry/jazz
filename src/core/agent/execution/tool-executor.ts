@@ -228,12 +228,16 @@ export class ToolExecutor {
             isCommandAutoApproved(name, approvalResult.executeArgs, context.autoApprovedCommands);
 
           if (
-            shouldClassifyExecuteCommand(name, autoApprovePolicy, allowlisted) &&
+            shouldClassifyExecuteCommand(riskLevel, autoApprovePolicy, allowlisted) &&
             context.parentAgent
           ) {
             const command = approvalResult.executeArgs["command"];
             if (typeof command === "string") {
-              riskLevel = yield* classifyCommandRisk(command, context.parentAgent);
+              riskLevel = yield* classifyCommandRisk(
+                command,
+                context.parentAgent,
+                context.conversationMessages,
+              );
             }
           }
 

@@ -77,7 +77,7 @@ export interface AgentRunnerOptions {
    * - `true` or `"high-risk"`: Auto-approve all tools
    * - `"low-risk"`: Auto-approve read-only and low-risk tools
    * - `"read-only"`: Auto-approve only read-only tools
-   * - `undefined`: Always prompt for approval (default)
+   * - `undefined`: Safe mode — auto-approve read-only and low-risk, prompt otherwise
    *
    * Can also be a getter function for real-time policy updates (e.g., Shift+Tab toggle).
    */

@@ -116,13 +116,13 @@ on the gate.
 
 | Tier            | Auto-approves                                                               |
 | --------------- | --------------------------------------------------------------------------- |
-| unset / `false` | Nothing                                                                     |
-| `read-only`     | Reads, search, web requests, inspect-only shell classified at approval time |
+| unset / `false` | Read-only and low-risk; prompts for high-risk and unknown                   |
+| `read-only`     | Reads, search, web requests                                                 |
 | `low-risk`      | + `manage_todos`, `update_task_state`, `spawn_subagent`                     |
-| `high-risk`     | + writes, deletes, shell, mutating commands                                 |
+| `high-risk`     | + writes, deletes, shell, unresolved `unknown` tools                        |
 
 `low-risk` is narrower than it sounds — it adds three tools. Email, calendar, and
-Obsidian are skills that shell out via `execute_command` (`high-risk`), so prefer allowlisting
+Obsidian are skills that shell out via `execute_command` (`unknown`), so prefer allowlisting
 one binary over raising the whole tier:
 
 ```json

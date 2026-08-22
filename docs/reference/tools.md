@@ -20,7 +20,8 @@ and [Security](../../SECURITY.md) for the threat model.
 | Total registered                                                        | 41     |
 | `read-only`                                                             | 20     |
 | `low-risk`                                                              | 7      |
-| `high-risk`                                                             | 7      |
+| `high-risk`                                                             | 6      |
+| `unknown`                                                               | 1      |
 
 Plus, registered per agent rather than globally:
 
@@ -81,7 +82,7 @@ You never call `execute_*` names yourself; they are hidden from the model's tool
 
 | Tool              | Risk        | Approval pair             | What it does                                                                                                                                                  |
 | ----------------- | ----------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `execute_command` | `high-risk` | `execute_execute_command` | Run a shell command when no dedicated tool exists. Inspect-only commands may be classified `read-only` for auto-approve. Stdout/stderr capped at 256 KB each. |
+| `execute_command` | `unknown` | `execute_execute_command` | Run a shell command when no dedicated tool exists. In safe mode the command is classified `read-only` or `low-risk` (auto-approved) or `high-risk` (prompt). Stdout/stderr capped at 256 KB each. |
 
 ### Web Search
 
@@ -165,13 +166,13 @@ Opt-in per agent via `tools`. Used by chat bridges that can render a Mini App or
 
 A common and consequential misreading. These capabilities exist, but **not as built-in
 tools** — they are [skills](../concepts/skills.md) that shell out through
-`execute_command`, which is `high-risk`:
+`execute_command`, which is `unknown`:
 
 | Capability                  | How it actually works                                                                      | Effective risk tier |
 | --------------------------- | ------------------------------------------------------------------------------------------ | ------------------- |
-| Email (read, archive, send) | `email` skill → [Himalaya](https://github.com/pimalaya/himalaya) CLI via `execute_command` | `high-risk`         |
-| Calendar (list, create)     | `calendar` skill → [khal](https://github.com/pimutils/khal) via `execute_command`          | `high-risk`         |
-| Obsidian vault writes       | `obsidian` skill → CLI via `execute_command`, or `write_file`                              | `high-risk`         |
+| Email (read, archive, send) | `email` skill → [Himalaya](https://github.com/pimalaya/himalaya) CLI via `execute_command` | `unknown`           |
+| Calendar (list, create)     | `calendar` skill → [khal](https://github.com/pimutils/khal) via `execute_command`          | `unknown`           |
+| Obsidian vault writes       | `obsidian` skill → CLI via `execute_command`, or `write_file`                              | `unknown` / `high-risk` |
 
 So a scheduled workflow set to `autoApprove: low-risk` **cannot archive an email** — every
 himalaya invocation is declined. The fix is usually *not* to raise the whole tier to
@@ -191,7 +192,7 @@ That keeps the tier low while letting the one command through. Matching is on a 
 ## Notes
 
 - **`find` vs `grep`** — `find` locates files by name, glob, or path pattern. `grep` searches *inside* file contents. Non-overlapping on purpose.
-- **`execute_command` classifier** — there are no `git_*` tools. Under `autoApprove: read-only` or `low-risk`, a harness-model classifier may treat an inspect-only command as `read-only`. Timeouts and ambiguous replies stay `high-risk`. See [Tools & approval](../internals/tools-and-approval.md#command-classifier).
+- **`execute_command` classifier** — there are no `git_*` tools. The tool is `unknown`. In interactive safe mode a harness-model classifier may label the command `read-only` or `low-risk` (auto-approved) or `high-risk` (prompt). It sees the last five user requests plus a short answer snippet (800 characters). Yolo and unattended tiers skip the classifier. Timeouts and ambiguous replies stay `high-risk` unless the conversation clearly asked for the milder action. See [Tools & approval](../internals/tools-and-approval.md#command-classifier).
 - **`http_request` is `read-only`** by risk classification even though it can issue POSTs. It reaches whatever URL the agent targets; network policy belongs at the firewall, not the tier. Treat it accordingly on surfaces that accept untrusted input.
 - **Timeouts** — 3 minutes by default per tool. `ask_user_question` and `ask_file_picker` are `longRunning` and never time out, because waiting for a human is not a hang.
 - **Concurrency** — up to 10 tools execute in parallel per iteration.

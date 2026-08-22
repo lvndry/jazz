@@ -48,18 +48,19 @@ either way — it runs on every tool.
 
 ## Risk tiers
 
-Every tool declares one of three levels. One dial (`--approval-policy`, or `autoApprove:` in a
+Every tool declares a risk level. One dial (`--approval-policy`, or `autoApprove:` in a
 workflow) decides what runs without asking.
 
 | Tier        | Tools                                                                                       | Count |
 | ----------- | ------------------------------------------------------------------------------------------- | ----- |
-| `read-only` | Reads, searches, web requests, inspect-only shell (classified)                              | 20    |
+| `read-only` | Reads, searches, web requests                                                               | 20    |
 | `low-risk`  | `manage_todos`, `update_task_state`, `spawn_subagent`, plus opt-in memory/reminders/web_app | 7     |
-| `high-risk` | Anything that mutates: writes, deletes, moves, shell (including mutating git)               | 7     |
+| `high-risk` | Anything that mutates: writes, deletes, moves                                               | 6     |
+| `unknown`   | `execute_command` — classified in safe mode; read-only/low-risk skip the prompt             | 1     |
 
 > ⚠️ **`low-risk` is narrower than most people expect.** It is *not* "moderately dangerous
 > things". Email, calendar, and Obsidian are skills that shell out via `execute_command`,
-> so they are gated at `high-risk`. See
+> so they are gated at `unknown` and a `low-risk` run declines them. See
 > [Tools reference](../reference/tools.md#what-is-not-a-built-in-tool).
 
 ### When a tier is too coarse
