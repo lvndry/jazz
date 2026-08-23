@@ -42,13 +42,7 @@ const collectTools = Effect.gen(function* () {
 });
 
 async function registeredTools(): Promise<readonly RegisteredTool[]> {
-  return Effect.runPromise(
-    collectTools.pipe(Effect.provide(createToolRegistryLayer())) as Effect.Effect<
-      readonly RegisteredTool[],
-      never,
-      never
-    >,
-  );
+  return Effect.runPromise(collectTools.pipe(Effect.provide(createToolRegistryLayer())));
 }
 
 /** Rows look like: `| \`read_file\` | \`read-only\` | — | description |` */

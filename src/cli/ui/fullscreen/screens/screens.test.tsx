@@ -90,7 +90,7 @@ const AGENTS: readonly AgentChoice[] = [
 ];
 
 function manyAgents(count: number): readonly AgentChoice[] {
-  return Array.from({ length: count }, (unused, index) => ({
+  return Array.from({ length: count }, (_unused, index) => ({
     id: `id-${String(index)}`,
     name: `agent-${String(index).padStart(2, "0")}`,
     model: "claude-sonnet-4",
@@ -341,7 +341,7 @@ describe("home screen", () => {
     const short: Viewport = { width: 100, height: 12 };
     const long: HomeModel = {
       ...SETTLED,
-      choices: Array.from({ length: 20 }, (unused, index) => ({
+      choices: Array.from({ length: 20 }, (_unused, index) => ({
         label: `Option ${String(index)}`,
         value: `option-${String(index)}`,
       })),

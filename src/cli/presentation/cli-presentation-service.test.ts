@@ -32,6 +32,7 @@ describe("CLIPresentationService", () => {
     const program = Effect.gen(function* () {
       const service = yield* PresentationServiceTag;
       return yield* service.requestApproval({
+        toolCallId: "call-1",
         toolName: "test-tool",
         message: "Danger!",
         executeToolName: "real-tool",
@@ -62,6 +63,7 @@ describe("CLIPresentationService", () => {
     const program = Effect.gen(function* () {
       const service = yield* PresentationServiceTag;
       return yield* service.requestApproval({
+        toolCallId: "call-1",
         toolName: "test-tool",
         message: "Danger!",
         executeToolName: "real-tool",
@@ -98,6 +100,7 @@ describe("CLIPresentationService in a non-interactive session", () => {
   it("declines approvals instead of taking the confirm default", async () => {
     const outcome = await Effect.runPromise(
       nonInteractive.requestApproval({
+        toolCallId: "call-1",
         toolName: "execute_command",
         message: "rm -rf /tmp/x",
         executeToolName: "execute_execute_command",

@@ -63,7 +63,8 @@ export function installWebCassette(cassettePath: string, mode: "record" | "repla
     ? (JSON.parse(readFileSync(cassettePath, "utf-8")) as Cassette)
     : {};
 
-  globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+  // Bun's `typeof fetch` demands a `preconnect` member the cassette never needs.
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     if (isBypassHost(input)) return realFetch(input, init);
     const key = requestKey(input, init);
     if (mode === "replay") {
@@ -78,5 +79,5 @@ export function installWebCassette(cassettePath: string, mode: "record" | "repla
     cassette[key] = { status: res.status, body, headers };
     writeFileSync(cassettePath, JSON.stringify(cassette, null, 2));
     return res;
-  };
+  }) as typeof globalThis.fetch;
 }

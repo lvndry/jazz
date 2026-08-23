@@ -1,7 +1,7 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
-import { generateText, tool, type LanguageModel } from "ai";
+import { generateText, tool, type LanguageModel, type ToolSet } from "ai";
 import { describe, expect, it } from "bun:test";
 import { z } from "zod";
 import type { ChatCompletionOptions } from "@/core/types/chat";
@@ -9,7 +9,7 @@ import type { ChatMessage } from "@/core/types/message";
 import { buildProviderOptions, toCoreMessages } from "./ai-sdk-service";
 import { extractReasoningParts } from "./reasoning-parts";
 
-const weatherTool = {
+const weatherTool: ToolSet = {
   get_weather: tool({
     description: "Get the current weather for a city",
     inputSchema: z.object({ city: z.string() }),
@@ -52,7 +52,7 @@ async function runToolLoopRoundTrip(
     {
       role: "assistant",
       content: firstResult.text,
-      reasoning_parts: reasoningParts,
+      ...(reasoningParts ? { reasoning_parts: reasoningParts } : {}),
       tool_calls: [
         {
           id: firstToolCall!.toolCallId,
@@ -84,7 +84,7 @@ async function runToolLoopRoundTrip(
 
 describe.skipIf(!process.env["ANTHROPIC_API_KEY"])("live: anthropic reasoning round-trip", () => {
   it("completes a thinking-enabled tool loop without a signature error", async () => {
-    const provider = createAnthropic({ apiKey: process.env["ANTHROPIC_API_KEY"] });
+    const provider = createAnthropic({ apiKey: process.env["ANTHROPIC_API_KEY"]! });
     const finalText = await runToolLoopRoundTrip(
       provider("claude-haiku-4-5"),
       "anthropic",
@@ -94,7 +94,7 @@ describe.skipIf(!process.env["ANTHROPIC_API_KEY"])("live: anthropic reasoning ro
   }, 120_000);
 
   it("tolerates a mid-loop injected user message that strips thinking blocks", async () => {
-    const provider = createAnthropic({ apiKey: process.env["ANTHROPIC_API_KEY"] });
+    const provider = createAnthropic({ apiKey: process.env["ANTHROPIC_API_KEY"]! });
     const model = provider("claude-haiku-4-5");
     const providerOptions = buildProviderOptions("anthropic", reasoningOptions("claude-haiku-4-5"));
     const userMessage: ChatMessage = {
@@ -126,7 +126,7 @@ describe.skipIf(!process.env["ANTHROPIC_API_KEY"])("live: anthropic reasoning ro
       {
         role: "assistant",
         content: firstResult.text,
-        reasoning_parts: reasoningParts,
+        ...(reasoningParts ? { reasoning_parts: reasoningParts } : {}),
         tool_calls: [
           {
             id: firstToolCall!.toolCallId,
@@ -163,13 +163,13 @@ describe.skipIf(!process.env["ANTHROPIC_API_KEY"])("live: anthropic reasoning ro
 
 describe.skipIf(!process.env["OPENAI_API_KEY"])("live: openai reasoning round-trip", () => {
   it("completes an encrypted-reasoning tool loop without an item error", async () => {
-    const provider = createOpenAI({ apiKey: process.env["OPENAI_API_KEY"] });
+    const provider = createOpenAI({ apiKey: process.env["OPENAI_API_KEY"]! });
     const finalText = await runToolLoopRoundTrip(provider("gpt-5-mini"), "openai", "gpt-5-mini");
     expect(finalText.length).toBeGreaterThan(0);
   }, 120_000);
 
   it("survives a multi-turn history where an old tool call has its reasoning stripped", async () => {
-    const provider = createOpenAI({ apiKey: process.env["OPENAI_API_KEY"] });
+    const provider = createOpenAI({ apiKey: process.env["OPENAI_API_KEY"]! });
     const model = provider("gpt-5-mini");
     const providerOptions = buildProviderOptions("openai", reasoningOptions("gpt-5-mini"));
     const userMessage: ChatMessage = {
@@ -201,7 +201,7 @@ describe.skipIf(!process.env["OPENAI_API_KEY"])("live: openai reasoning round-tr
       {
         role: "assistant",
         content: firstResult.text,
-        reasoning_parts: reasoningParts,
+        ...(reasoningParts ? { reasoning_parts: reasoningParts } : {}),
         tool_calls: [
           {
             id: firstToolCall!.toolCallId,
@@ -242,7 +242,7 @@ describe.skipIf(!process.env["OPENAI_API_KEY"])("live: openai reasoning round-tr
 
 describe.skipIf(!process.env["OPENROUTER_API_KEY"])("live: openrouter reasoning round-trip", () => {
   it("completes a thinking-enabled tool loop without a signature error", async () => {
-    const provider = createOpenRouter({ apiKey: process.env["OPENROUTER_API_KEY"] });
+    const provider = createOpenRouter({ apiKey: process.env["OPENROUTER_API_KEY"]! });
     const finalText = await runToolLoopRoundTrip(
       provider("anthropic/claude-haiku-4.5"),
       "openrouter",

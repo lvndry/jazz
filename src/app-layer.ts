@@ -66,7 +66,7 @@ interface EnvShape extends FullscreenEnvironment {
 }
 
 export function getPresentationConfig(
-  env: EnvShape = process.env,
+  env: EnvShape = process.env as EnvShape,
   stdout: TerminalOutputCapabilities = process.stdout,
   stdin: TerminalInputCapabilities = process.stdin,
   // Alternate screen is discarded on exit. Only a command that stays until the
@@ -152,7 +152,7 @@ export function createAppLayer(
   ).pipe(Layer.provide(configLayer));
 
   const presentationConfig = getPresentationConfig(
-    process.env,
+    process.env as EnvShape,
     process.stdout,
     process.stdin,
     options.session === true,

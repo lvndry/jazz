@@ -35,6 +35,11 @@
 
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
-    "jsx": "react-jsx"
+    "jsx": "react-jsx",
+
+    // Pinned so every project (app, build, test) resolves the same globals;
+    // auto-included @types gave the app program laxer fetch/env typings than
+    // the pinned test program, forcing per-site eslint-disable comments.
+    "types": ["bun", "node"]
   }
 }

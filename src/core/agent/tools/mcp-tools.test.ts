@@ -34,7 +34,10 @@ async function localValidationError(
   args: Record<string, unknown>,
 ): Promise<string | null> {
   const exit = await Effect.runPromiseExit(
-    tool.execute(args, context) as Effect.Effect<{ success: boolean; error?: string }, unknown>,
+    tool.execute(args, context) as unknown as Effect.Effect<
+      { success: boolean; error?: string },
+      unknown
+    >,
   );
   if (exit._tag === "Failure") return null;
   return exit.value.success === false ? (exit.value.error ?? "rejected") : null;
@@ -52,7 +55,7 @@ function parseWithAdvertisedSchema(
 }
 
 /** Schemas a real MCP server can legitimately publish that the Zod conversion handles badly. */
-const LOSSY_SCHEMAS: readonly { label: string; schema: unknown }[] = [
+const LOSSY_SCHEMAS: { label: string; schema: unknown }[] = [
   { label: "no input schema at all", schema: undefined },
   { label: "unresolvable $ref", schema: { $ref: "#/$defs/Args" } },
   { label: "properties without a top-level type", schema: { properties: { query: {} } } },

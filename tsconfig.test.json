@@ -1,13 +1,7 @@
 {
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
-    "rootDir": ".",
-    "outDir": ".tsbuild/test",
-    "emitDeclarationOnly": true,
-    "types": ["bun"],
-    "composite": true,
-    "declaration": true,
-    "tsBuildInfoFile": ".tsbuildinfo.test"
+    "noEmit": true
   },
   "include": [
     "test-preload.ts",
@@ -15,8 +9,8 @@
     "src/**/*.test.tsx",
     "scripts/**/*.test.ts",
     "evals/**/*.test.ts",
-    "integrations/**/*.test.ts"
+    "integrations/**/*.test.ts",
+    "bench/**/*.ts"
   ],
-  "exclude": ["node_modules", "dist"],
-  "references": [{ "path": "./tsconfig.app.json" }]
+  "exclude": ["node_modules", "dist"]
 }

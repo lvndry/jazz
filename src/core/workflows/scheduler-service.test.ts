@@ -202,7 +202,7 @@ describe("SchedulerService", () => {
   describe("getLaunchdPath", () => {
     it("should include the current process PATH", () => {
       const result = getLaunchdPath();
-      const currentPathDirs = (process.env.PATH || "").split(":").filter(Boolean);
+      const currentPathDirs = (process.env["PATH"] || "").split(":").filter(Boolean);
       for (const dir of currentPathDirs) {
         expect(result).toContain(dir);
       }

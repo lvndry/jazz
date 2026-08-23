@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import type { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { Effect, Layer } from "effect";
@@ -10,7 +11,7 @@ import type { Agent } from "@/core/types/agent";
 import type { ChatMessage } from "@/core/types/message";
 import { saveConversation } from "@/services/history/conversation-history-service";
 import { handleSpecialCommand } from "./handler";
-import type { CommandContext } from "./types";
+import type { CommandContext, CommandResult } from "./types";
 
 let tmpDir = "";
 
@@ -57,7 +58,7 @@ const testRecord = {
   ] as ChatMessage[],
 };
 
-function runEffect<A>(eff: Effect.Effect<A, unknown, NodeFileSystem.NodeFileSystem["Type"]>) {
+function runEffect<A>(eff: Effect.Effect<A, unknown, FileSystem.FileSystem>) {
   return Effect.runPromise(eff.pipe(Effect.provide(NodeFileSystem.layer)));
 }
 
@@ -74,7 +75,7 @@ describe("handleSpecialCommand resume", () => {
     await runEffect(saveConversation(testRecord, tmpDir));
 
     const mockTerminal: Partial<TerminalService> = {
-      search: mock(() => Effect.succeed("conv-to-resume")),
+      search: mock(() => Effect.succeed("conv-to-resume")) as TerminalService["search"],
       success: mock(() => Effect.void),
       log: mock(() => Effect.succeed(undefined)),
       info: mock(() => Effect.void),
@@ -94,7 +95,6 @@ describe("handleSpecialCommand resume", () => {
 
     const context: CommandContext = {
       agent: testAgent,
-      conversationId: "current-conv-id",
       conversationHistory: [],
       conversationId: "test-session",
       sessionUsage: { promptTokens: 0, completionTokens: 0 },
@@ -102,7 +102,11 @@ describe("handleSpecialCommand resume", () => {
     };
 
     const result = await Effect.runPromise(
-      handleSpecialCommand({ type: "resume", args: [] }, context).pipe(Effect.provide(testLayer)),
+      handleSpecialCommand({ type: "resume", args: [] }, context).pipe(
+        Effect.provide(testLayer),
+        // The resume path only touches the provided services; the rest of the
+        // handler's requirements are deliberately left unsatisfied.
+      ) as Effect.Effect<CommandResult, unknown, never>,
     );
 
     expect(result.resetStartedAt).toBe(true);
@@ -134,7 +138,6 @@ describe("handleSpecialCommand resume", () => {
 
     const context: CommandContext = {
       agent: testAgent,
-      conversationId: "current-conv-id",
       conversationHistory: [{ role: "user", content: "still on screen" }],
       conversationId: "test-session",
       sessionUsage: { promptTokens: 0, completionTokens: 0 },
@@ -142,7 +145,11 @@ describe("handleSpecialCommand resume", () => {
     };
 
     const result = await Effect.runPromise(
-      handleSpecialCommand({ type: "resume", args: [] }, context).pipe(Effect.provide(testLayer)),
+      handleSpecialCommand({ type: "resume", args: [] }, context).pipe(
+        Effect.provide(testLayer),
+        // The resume path only touches the provided services; the rest of the
+        // handler's requirements are deliberately left unsatisfied.
+      ) as Effect.Effect<CommandResult, unknown, never>,
     );
 
     expect(result).toEqual({ shouldContinue: true });

@@ -39,7 +39,7 @@ const mockFS = {
   truncate: mock(() => Effect.void),
   utimes: mock(() => Effect.void),
   writeFile: mock(() => Effect.void),
-} as unknown as FileSystem;
+} as unknown as FileSystem.FileSystem;
 
 describe("AgentConfigService", () => {
   const initialConfig: AppConfig = {
@@ -144,13 +144,13 @@ describe("AgentConfigService", () => {
 });
 
 describe("createConfigLayer", () => {
-  function createTestFileSystem(fileContents: Map<string, string>): FileSystem {
+  function createTestFileSystem(fileContents: Map<string, string>): FileSystem.FileSystem {
     return {
       exists: (filePath: string) => Effect.succeed(fileContents.has(filePath)),
       readFileString: (filePath: string) => Effect.succeed(fileContents.get(filePath) ?? ""),
       writeFileString: mock(() => Effect.void),
       makeDirectory: mock(() => Effect.void),
-    } as unknown as FileSystem;
+    } as unknown as FileSystem.FileSystem;
   }
 
   it("removes the legacy google client block from the config file", async () => {

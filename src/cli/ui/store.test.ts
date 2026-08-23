@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "bun:test";
 import { UIStore, type ActiveMenu } from "./store";
 import type { OutputEntry } from "./types";
@@ -174,13 +175,14 @@ describe("UIStore", () => {
     });
 
     test("no producer or renderer still calls setCustomView", () => {
+      const testDir = dirname(fileURLToPath(import.meta.url));
       const sources = [
-        join(import.meta.dir, "store.ts"),
-        join(import.meta.dir, "App.tsx"),
-        join(import.meta.dir, "fullscreen/bridge.tsx"),
-        join(import.meta.dir, "../commands/wizard.ts"),
-        join(import.meta.dir, "../commands/config-wizard.ts"),
-        join(import.meta.dir, "../commands/workflow.ts"),
+        join(testDir, "store.ts"),
+        join(testDir, "App.tsx"),
+        join(testDir, "fullscreen/bridge.tsx"),
+        join(testDir, "../commands/wizard.ts"),
+        join(testDir, "../commands/config-wizard.ts"),
+        join(testDir, "../commands/workflow.ts"),
       ];
       for (const sourcePath of sources) {
         const source = readFileSync(sourcePath, "utf8");

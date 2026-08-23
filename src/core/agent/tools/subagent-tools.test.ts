@@ -1,3 +1,4 @@
+import { file as bunFile } from "bun";
 import { describe, expect, it, spyOn } from "bun:test";
 import { Effect, Layer } from "effect";
 import { DEFAULT_MAX_ITERATIONS, DEFAULT_MAX_SUBAGENT_ITERATIONS } from "@/core/constants/agent";
@@ -66,7 +67,7 @@ const parentAgent: Agent = {
   id: "parent-agent",
   name: "Parent",
   description: "",
-  model: "test-model",
+  model: "test-provider/test-model",
   config: { persona: "default" } as Agent["config"],
   createdAt: new Date(),
   updatedAt: new Date(),
@@ -102,9 +103,11 @@ describe("spawn_subagent auto-approve inheritance", () => {
     let captured: Omit<AgentRunnerOptions, "internal"> | undefined;
     const spy = spyOn(AgentRunner, "runRecursive").mockImplementation((options) => {
       captured = options;
-      return Effect.succeed({ content: "done", messages: [] }) as ReturnType<
-        typeof AgentRunner.runRecursive
-      >;
+      return Effect.succeed({
+        content: "done",
+        conversationId: "conv-test",
+        messages: [],
+      }) as ReturnType<typeof AgentRunner.runRecursive>;
     });
 
     try {
@@ -135,9 +138,11 @@ describe("spawn_subagent persona handling", () => {
     let captured: Omit<AgentRunnerOptions, "internal"> | undefined;
     const spy = spyOn(AgentRunner, "runRecursive").mockImplementation((options) => {
       captured = options;
-      return Effect.succeed({ content: "done", messages: [] }) as ReturnType<
-        typeof AgentRunner.runRecursive
-      >;
+      return Effect.succeed({
+        content: "done",
+        conversationId: "conv-test",
+        messages: [],
+      }) as ReturnType<typeof AgentRunner.runRecursive>;
     });
 
     try {
@@ -176,9 +181,11 @@ describe("spawn_subagent reasoning effort", () => {
     let seen: Omit<AgentRunnerOptions, "internal"> | undefined;
     const spy = spyOn(AgentRunner, "runRecursive").mockImplementation((options) => {
       seen = options;
-      return Effect.succeed({ content: "done", messages: [] }) as ReturnType<
-        typeof AgentRunner.runRecursive
-      >;
+      return Effect.succeed({
+        content: "done",
+        conversationId: "conv-test",
+        messages: [],
+      }) as ReturnType<typeof AgentRunner.runRecursive>;
     });
     return { captured: () => seen, spy };
   }
@@ -284,9 +291,11 @@ describe("spawn_subagent tool ceiling", () => {
     let captured: Omit<AgentRunnerOptions, "internal"> | undefined;
     const spy = spyOn(AgentRunner, "runRecursive").mockImplementation((options) => {
       captured = options;
-      return Effect.succeed({ content: "done", messages: [] }) as ReturnType<
-        typeof AgentRunner.runRecursive
-      >;
+      return Effect.succeed({
+        content: "done",
+        conversationId: "conv-test",
+        messages: [],
+      }) as ReturnType<typeof AgentRunner.runRecursive>;
     });
 
     try {
@@ -305,9 +314,11 @@ describe("spawn_subagent tool ceiling", () => {
     let captured: Omit<AgentRunnerOptions, "internal"> | undefined;
     const spy = spyOn(AgentRunner, "runRecursive").mockImplementation((options) => {
       captured = options;
-      return Effect.succeed({ content: "done", messages: [] }) as ReturnType<
-        typeof AgentRunner.runRecursive
-      >;
+      return Effect.succeed({
+        content: "done",
+        conversationId: "conv-test",
+        messages: [],
+      }) as ReturnType<typeof AgentRunner.runRecursive>;
     });
 
     try {
@@ -329,9 +340,11 @@ describe("spawn_subagent nesting depth", () => {
     let seen: Omit<AgentRunnerOptions, "internal"> | undefined;
     const spy = spyOn(AgentRunner, "runRecursive").mockImplementation((options) => {
       seen = options;
-      return Effect.succeed({ content: "done", messages: [] }) as ReturnType<
-        typeof AgentRunner.runRecursive
-      >;
+      return Effect.succeed({
+        content: "done",
+        conversationId: "conv-test",
+        messages: [],
+      }) as ReturnType<typeof AgentRunner.runRecursive>;
     });
     return { captured: () => seen, spy };
   }
@@ -436,9 +449,11 @@ describe("spawn_subagent iteration budget", () => {
     let seen: Omit<AgentRunnerOptions, "internal"> | undefined;
     const spy = spyOn(AgentRunner, "runRecursive").mockImplementation((options) => {
       seen = options;
-      return Effect.succeed({ content: "done", messages: [] }) as ReturnType<
-        typeof AgentRunner.runRecursive
-      >;
+      return Effect.succeed({
+        content: "done",
+        conversationId: "conv-test",
+        messages: [],
+      }) as ReturnType<typeof AgentRunner.runRecursive>;
     });
     return { captured: () => seen, spy };
   }
@@ -473,15 +488,17 @@ describe("spawn_subagent iteration budget", () => {
 
 describe("spawn_subagent presentation", () => {
   it("does not import the TUI from core", async () => {
-    const source = await Bun.file(new URL("./subagent-tools.ts", import.meta.url)).text();
+    const source = await bunFile(new URL("./subagent-tools.ts", import.meta.url)).text();
     expect(source).not.toContain("@/cli/");
   });
 
   it("opens, appends, and collapses the panel on success", async () => {
     const spy = spyOn(AgentRunner, "runRecursive").mockImplementation(() => {
-      return Effect.succeed({ content: "done", messages: [] }) as ReturnType<
-        typeof AgentRunner.runRecursive
-      >;
+      return Effect.succeed({
+        content: "done",
+        conversationId: "conv-test",
+        messages: [],
+      }) as ReturnType<typeof AgentRunner.runRecursive>;
     });
 
     try {

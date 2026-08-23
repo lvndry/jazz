@@ -21,6 +21,11 @@ function modelsDevEntry(
       isReasoningModel: false,
       supportsVision: false,
       supportsPdf: false,
+      supportsAudio: false,
+      supportsVideo: false,
+      generatesImage: false,
+      generatesAudio: false,
+      generatesVideo: false,
       supportsTemperature: true,
     },
     ...overrides,
@@ -186,6 +191,11 @@ describe("ModelFetcher", () => {
       isReasoningModel: false,
       supportsVision: false,
       supportsPdf: false,
+      supportsAudio: false,
+      supportsVideo: false,
+      generatesImage: false,
+      generatesAudio: false,
+      generatesVideo: false,
       supportsTemperature: true,
     };
     const modelsResponse = { data: [{ id: "qwen3.6-27b" }] };
@@ -216,6 +226,11 @@ describe("ModelFetcher", () => {
       isReasoningModel: false,
       supportsVision: false,
       supportsPdf: false,
+      supportsAudio: false,
+      supportsVideo: false,
+      generatesImage: false,
+      generatesAudio: false,
+      generatesVideo: false,
       supportsTemperature: true,
     };
 
@@ -591,6 +606,12 @@ describe("ModelFetcher", () => {
       isReasoningModel: false,
       supportsVision: false,
       supportsPdf: false,
+      supportsAudio: false,
+      supportsVideo: false,
+      generatesImage: false,
+      generatesAudio: false,
+      generatesVideo: false,
+      supportsTemperature: true,
     };
     const nonToolDev: ModelsDevMetadata = { ...toolCapableDev, supportsTools: false };
 
@@ -636,6 +657,11 @@ describe("ModelFetcher", () => {
             isReasoningModel: true,
             supportsVision: true,
             supportsPdf: true,
+            supportsAudio: false,
+            supportsVideo: false,
+            generatesImage: false,
+            generatesAudio: false,
+            generatesVideo: false,
             supportsTemperature: false,
           },
         }),
@@ -652,6 +678,8 @@ describe("ModelFetcher", () => {
           isReasoningModel: true,
           supportsVision: true,
           supportsPdf: true,
+          supportsAudio: false,
+          supportsVideo: false,
           supportsTemperature: false,
         },
       ]);
@@ -708,7 +736,7 @@ describe("ModelFetcher", () => {
 
       // Order-independent: the listing sorts by release date then id, which is unrelated to
       // what this test is about.
-      expect(ids.toSorted()).toEqual(["audio-chat-model", "image-chat-model"]);
+      expect([...ids].sort()).toEqual(["audio-chat-model", "image-chat-model"]);
     });
 
     it("drops dated snapshot duplicates only when the undated base id exists", async () => {

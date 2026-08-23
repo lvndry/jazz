@@ -11,7 +11,9 @@ import type { LLMService } from "../../interfaces/llm";
 import { LLMServiceTag } from "../../interfaces/llm";
 import { LoggerServiceTag } from "../../interfaces/logger";
 import { MCPServerManagerTag } from "../../interfaces/mcp-server";
+import { MemoryServiceTag } from "../../interfaces/memory-service";
 import { PresentationServiceTag } from "../../interfaces/presentation";
+import { ReminderServiceTag } from "../../interfaces/reminder-service";
 import { TerminalServiceTag } from "../../interfaces/terminal";
 import { ToolRegistryTag } from "../../interfaces/tool-registry";
 import type { ChatCompletionResponse } from "../../types/chat";
@@ -150,6 +152,8 @@ function buildLayer(presentationService: OneShotPresentationService) {
     Layer.succeed(TerminalServiceTag, {} as any),
     Layer.succeed(FileSystemContextServiceTag, {} as any),
     Layer.succeed(SkillServiceTag, mockSkillService),
+    Layer.succeed(MemoryServiceTag, {} as any),
+    Layer.succeed(ReminderServiceTag, {} as any),
   );
 }
 

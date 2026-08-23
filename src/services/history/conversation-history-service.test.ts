@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import type { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { Effect } from "effect";
@@ -27,10 +28,8 @@ afterEach(() => {
   resetConversationLogAppendCache();
 });
 
-function runEffect<A>(eff: Effect.Effect<A, unknown, never>) {
-  return Effect.runPromise(
-    (eff as Effect.Effect<A, unknown, never>).pipe(Effect.provide(NodeFileSystem.layer)),
-  );
+function runEffect<A>(eff: Effect.Effect<A, unknown, FileSystem.FileSystem>) {
+  return Effect.runPromise(eff.pipe(Effect.provide(NodeFileSystem.layer)));
 }
 
 function makeConversation(overrides: Partial<Conversation> = {}): Conversation {

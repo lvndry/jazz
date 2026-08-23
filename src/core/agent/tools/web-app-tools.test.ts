@@ -66,13 +66,13 @@ describe("create_web_app without a browser", () => {
   let previousJazzHome: string | undefined;
 
   beforeAll(() => {
-    previousJazzHome = process.env.JAZZ_HOME;
-    process.env.JAZZ_HOME = jazzHome;
+    previousJazzHome = process.env["JAZZ_HOME"];
+    process.env["JAZZ_HOME"] = jazzHome;
   });
 
   afterAll(() => {
-    if (previousJazzHome === undefined) delete process.env.JAZZ_HOME;
-    else process.env.JAZZ_HOME = previousJazzHome;
+    if (previousJazzHome === undefined) delete process.env["JAZZ_HOME"];
+    else process.env["JAZZ_HOME"] = previousJazzHome;
     rmSync(jazzHome, { recursive: true, force: true });
   });
 

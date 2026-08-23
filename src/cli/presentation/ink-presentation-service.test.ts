@@ -1325,7 +1325,7 @@ async function waitForPromptType(type: PromptState["type"]): Promise<PromptState
   while (Date.now() - started < 1000) {
     const prompt = store.getPromptSnapshot();
     if (prompt?.type === type) return prompt;
-    await Bun.sleep(5);
+    await new Promise((resolve) => setTimeout(resolve, 5));
   }
   throw new Error(
     `Timed out waiting for ${type} prompt, have ${store.getPromptSnapshot()?.type ?? "null"}`,

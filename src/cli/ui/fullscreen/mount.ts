@@ -54,7 +54,7 @@ export interface TerminalInputCapabilities {
  */
 export function decideFullscreen(
   options: { requestPlain?: boolean } = {},
-  environment: FullscreenEnvironment = process.env,
+  environment: FullscreenEnvironment = process.env as FullscreenEnvironment,
   stdout: TerminalOutputCapabilities = process.stdout,
   stdin: TerminalInputCapabilities = process.stdin,
 ): CapabilityDecision {

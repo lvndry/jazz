@@ -822,19 +822,21 @@ export function makeOllamaAuthorizedFetch(
   keepAlive?: string,
 ): typeof globalThis.fetch {
   const inner = keepAlive ? makeOllamaKeepAliveFetch(keepAlive) : globalThis.fetch;
-  return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+  // Bun's `typeof fetch` demands a `preconnect` member that providers never call.
+  return (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const headers = new Headers(init?.headers);
     if (!headers.has("Authorization")) {
       headers.set("Authorization", `Bearer ${apiKey}`);
     }
     return inner(input, { ...init, headers });
-  };
+  }) as typeof globalThis.fetch;
 }
 
 // ollama-ai-provider-v2 drops keep_alive from the chat body, so splice it into
 // POST /api/chat requests here (never overriding an existing value).
 export function makeOllamaKeepAliveFetch(keepAlive: string): typeof globalThis.fetch {
-  return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+  // Bun's `typeof fetch` demands a `preconnect` member that providers never call.
+  return (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     if (init?.method === "POST" && typeof init.body === "string") {
       const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
       if (url.includes("/api/chat")) {
@@ -854,7 +856,7 @@ export function makeOllamaKeepAliveFetch(keepAlive: string): typeof globalThis.f
       }
     }
     return fetch(input, init);
-  };
+  }) as typeof globalThis.fetch;
 }
 
 function buildProviderCacheFingerprint(providerName: ProviderName, llmConfig?: LLMConfig): string {

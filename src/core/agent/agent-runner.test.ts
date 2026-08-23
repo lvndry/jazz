@@ -1,6 +1,6 @@
 import os from "node:os";
 import { FileSystem } from "@effect/platform";
-import { describe, expect, it, mock } from "bun:test";
+import { describe, expect, it, mock, type Mock } from "bun:test";
 import { Effect, Layer, Stream } from "effect";
 import { AgentRunner } from "./agent-runner";
 import type { AgentRunnerOptions } from "./types";
@@ -311,7 +311,10 @@ describe("AgentRunner", () => {
     };
 
     function lastRequestedToolNames(): string[] {
-      const lastCall = mockLlmService.createStreamingChatCompletion.mock.calls.at(-1);
+      const streamingMock = mockLlmService.createStreamingChatCompletion as Mock<
+        LLMService["createStreamingChatCompletion"]
+      >;
+      const lastCall = streamingMock.mock.calls.at(-1);
       const llmOptions = lastCall?.[1] as { tools?: { function: { name: string } }[] };
       return (llmOptions.tools ?? []).map((tool) => tool.function.name);
     }
@@ -346,7 +349,10 @@ describe("AgentRunner", () => {
 
   describe("toolAllowlist", () => {
     function lastRequestedToolNames(): string[] {
-      const lastCall = mockLlmService.createStreamingChatCompletion.mock.calls.at(-1);
+      const streamingMock = mockLlmService.createStreamingChatCompletion as Mock<
+        LLMService["createStreamingChatCompletion"]
+      >;
+      const lastCall = streamingMock.mock.calls.at(-1);
       const llmOptions = lastCall?.[1] as { tools?: { function: { name: string } }[] };
       return (llmOptions.tools ?? []).map((tool) => tool.function.name);
     }

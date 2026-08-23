@@ -1,3 +1,4 @@
+import { serve } from "bun";
 import { describe, expect, it } from "bun:test";
 import type { TelemetryEvent } from "@/core/interfaces/telemetry";
 import type { ResolvedOtlpConfig } from "./otlp-config";
@@ -187,7 +188,7 @@ describe("OtlpTelemetrySink", () => {
 
   it("delivers to a real HTTP endpoint end to end", async () => {
     const received: unknown[] = [];
-    const server = Bun.serve({
+    const server = serve({
       port: 0,
       async fetch(request) {
         received.push(await request.json());

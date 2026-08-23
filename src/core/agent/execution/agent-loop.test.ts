@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import { Effect, Layer } from "effect";
 import { DEFAULT_MAX_ITERATIONS } from "@/core/constants/agent";
 import type { ConversationMessages } from "@/core/types/message";
+import type { DisplayConfig } from "@/core/types/output";
 import { clearModelsDevCache } from "@/core/utils/models-dev";
 import {
   buildBudgetPressureMessage,
@@ -25,7 +26,9 @@ import type { LLMService } from "../../interfaces/llm";
 import { LLMServiceTag } from "../../interfaces/llm";
 import { LoggerServiceTag } from "../../interfaces/logger";
 import { MCPServerManagerTag } from "../../interfaces/mcp-server";
+import { MemoryServiceTag } from "../../interfaces/memory-service";
 import { PresentationServiceTag } from "../../interfaces/presentation";
+import { ReminderServiceTag } from "../../interfaces/reminder-service";
 import { TerminalServiceTag } from "../../interfaces/terminal";
 import { ToolRegistryTag } from "../../interfaces/tool-registry";
 import type { RecursiveRunner } from "../context/summarizer";
@@ -107,6 +110,8 @@ const TestLayer = Layer.mergeAll(
   Layer.succeed(TerminalServiceTag, {} as any),
   Layer.succeed(FileSystemContextServiceTag, {} as any),
   Layer.succeed(SkillServiceTag, mockSkillService),
+  Layer.succeed(MemoryServiceTag, {} as any),
+  Layer.succeed(ReminderServiceTag, {} as any),
 );
 
 const defaultObserver = makeDefaultObserver(mockPresentationService);
@@ -123,6 +128,8 @@ function recordingObserver() {
     onEmptyResponse: (name: string) => Effect.sync(() => void calls.push(`empty:${name}`)),
     onContextWindowUnknown: (name: string) =>
       Effect.sync(() => void calls.push(`context-window-unknown:${name}`)),
+    onHistoryTrimmed: (name: string, messagesRemoved: number) =>
+      Effect.sync(() => void calls.push(`history-trimmed:${name}:${messagesRemoved}`)),
     onContextPressure: (name: string, percentUsed: number) =>
       Effect.sync(() => void calls.push(`context-pressure:${name}:${percentUsed}`)),
     onCompletion: (name: string) => Effect.sync(() => void calls.push(`completion:${name}`)),
@@ -192,7 +199,11 @@ function makeRunContext(overrides?: Partial<AgentRunContext>): AgentRunContext {
   };
 }
 
-const displayConfig = { showReasoning: false, showToolExecution: false, mode: "markdown" as const };
+const displayConfig: DisplayConfig = {
+  showReasoning: false,
+  showToolExecution: false,
+  mode: "hybrid",
+};
 const runRecursive: RecursiveRunner = () =>
   Effect.succeed({ content: "recursive", conversationId: "id" } as AgentResponse);
 
@@ -626,6 +637,8 @@ describe("executeAgentLoop", () => {
       Layer.succeed(TerminalServiceTag, {} as any),
       Layer.succeed(FileSystemContextServiceTag, {} as any),
       Layer.succeed(SkillServiceTag, mockSkillService),
+      Layer.succeed(MemoryServiceTag, {} as any),
+      Layer.succeed(ReminderServiceTag, {} as any),
     );
 
     await Effect.runPromise(
@@ -714,6 +727,8 @@ describe("executeAgentLoop", () => {
       Layer.succeed(TerminalServiceTag, {} as any),
       Layer.succeed(FileSystemContextServiceTag, {} as any),
       Layer.succeed(SkillServiceTag, mockSkillService),
+      Layer.succeed(MemoryServiceTag, {} as any),
+      Layer.succeed(ReminderServiceTag, {} as any),
     );
 
     await Effect.runPromise(
@@ -773,6 +788,8 @@ describe("executeAgentLoop", () => {
       Layer.succeed(TerminalServiceTag, {} as any),
       Layer.succeed(FileSystemContextServiceTag, {} as any),
       Layer.succeed(SkillServiceTag, mockSkillService),
+      Layer.succeed(MemoryServiceTag, {} as any),
+      Layer.succeed(ReminderServiceTag, {} as any),
     );
 
     const result = await Effect.runPromise(
@@ -881,7 +898,10 @@ describe("executeAgentLoop", () => {
         makeOptions(),
         // Use a provider/model combo absent from models.dev so pricing metadata
         // resolves to undefined deterministically, without depending on network access.
-        makeRunContext({ provider: "test-provider", model: "totally-fake-model-xyz" }),
+        makeRunContext({
+          provider: "test-provider" as AgentRunContext["provider"],
+          model: "totally-fake-model-xyz",
+        }),
         displayConfig,
         strategy,
         defaultObserver,

@@ -126,6 +126,20 @@ describe("TokenCounter — message-level counting", () => {
     expect(tokens).toBe(4);
   });
 
+  it("memoizes per message object, so re-counting history is free until objects are recreated", () => {
+    const counter = new TokenCounter();
+    const hint: ModelHint = { provider: "openai", modelId: "gpt-4o" };
+    const message = userMsg("a message long enough to have a distinctive count");
+
+    const first = counter.countMessage(message, hint);
+    (message as { content: string }).content = "far longer replacement content ".repeat(20);
+    const second = counter.countMessage(message, hint);
+    expect(second).toBe(first);
+
+    const recreated = counter.countMessage({ ...message }, hint);
+    expect(recreated).not.toBe(first);
+  });
+
   it("adds tool_calls JSON to the count", () => {
     const counter = new TokenCounter();
     const hint: ModelHint = { provider: "openai", modelId: "gpt-4o" };

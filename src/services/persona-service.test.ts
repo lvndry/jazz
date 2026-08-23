@@ -178,7 +178,7 @@ describe("PersonaService", () => {
     it("should fail with PersonaAlreadyExistsError for duplicate name", async () => {
       const program = Effect.gen(function* () {
         const service = yield* PersonaServiceTag;
-        const _created = yield* service.createPersona(validInput);
+        yield* service.createPersona(validInput);
         // Try to create another with same name (case-insensitive)
         return yield* service.createPersona({
           ...validInput,

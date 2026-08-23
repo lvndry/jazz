@@ -10,7 +10,7 @@ interface JsonSchemaNode {
   readonly const?: unknown;
   readonly description?: unknown;
   readonly properties?: Record<string, JsonSchemaNode>;
-  readonly items?: JsonSchemaNode | readonly JsonSchemaNode[];
+  readonly items?: JsonSchemaNode | JsonSchemaNode[];
   readonly oneOf?: readonly JsonSchemaNode[];
   readonly anyOf?: readonly JsonSchemaNode[];
   readonly prefixItems?: readonly JsonSchemaNode[];
