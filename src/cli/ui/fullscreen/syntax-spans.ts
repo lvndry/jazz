@@ -9,7 +9,8 @@
  * the same reasons `<markdown>` and `<textarea>` do.
  *
  * A real language server is not on the table for the same reason: it would
- * leave the row model, and the cost is not worth a 150-character preview.
+ * leave the row model. Fences and expanded bodies carry comment and string
+ * state across lines so a `/*` that opens on one row still paints the next.
  */
 
 import chalk from "chalk";
@@ -160,11 +161,73 @@ function pushSpan(spans: SyntaxSpan[], text: string, fg: string): void {
   spans.push({ text, fg });
 }
 
-export function highlightCodeLine(line: string): readonly SyntaxSpan[] {
+type StringQuote = '"' | "'" | "`";
+
+type LexerMode =
+  | { readonly kind: "code" }
+  | { readonly kind: "blockComment" }
+  | { readonly kind: "string"; readonly quote: StringQuote };
+
+const CODE_MODE: LexerMode = { kind: "code" };
+
+function isStringQuote(character: string): character is StringQuote {
+  return character === '"' || character === "'" || character === "`";
+}
+
+function scanStringEnd(
+  line: string,
+  start: number,
+  quote: StringQuote,
+): { readonly end: number; readonly closed: boolean } {
+  let end = start;
+  while (end < line.length) {
+    if (line[end] === "\\") {
+      end += 2;
+      continue;
+    }
+    if (line[end] === quote) {
+      return { end: end + 1, closed: true };
+    }
+    end += 1;
+  }
+  return { end: line.length, closed: false };
+}
+
+function scanBlockCommentEnd(
+  line: string,
+  start: number,
+): { readonly end: number; readonly closed: boolean } {
+  const close = line.indexOf("*/", start);
+  return close === -1 ? { end: line.length, closed: false } : { end: close + 2, closed: true };
+}
+
+function paintCodeLine(
+  line: string,
+  incoming: LexerMode,
+): { readonly spans: readonly SyntaxSpan[]; readonly mode: LexerMode } {
   const spans: SyntaxSpan[] = [];
   let index = 0;
+  let mode = incoming;
 
   while (index < line.length) {
+    if (mode.kind === "blockComment") {
+      const scanned = scanBlockCommentEnd(line, index);
+      pushSpan(spans, line.slice(index, scanned.end), THEME.muted);
+      index = scanned.end;
+      if (!scanned.closed) break;
+      mode = CODE_MODE;
+      continue;
+    }
+
+    if (mode.kind === "string") {
+      const scanned = scanStringEnd(line, index, mode.quote);
+      pushSpan(spans, line.slice(index, scanned.end), THEME.syntaxValue);
+      index = scanned.end;
+      if (!scanned.closed) break;
+      mode = CODE_MODE;
+      continue;
+    }
+
     const character = line[index] ?? "";
     const next = line[index + 1] ?? "";
 
@@ -177,28 +240,24 @@ export function highlightCodeLine(line: string): readonly SyntaxSpan[] {
       break;
     }
     if (character === "/" && next === "*") {
-      const close = line.indexOf("*/", index + 2);
-      const end = close === -1 ? line.length : close + 2;
-      pushSpan(spans, line.slice(index, end), THEME.muted);
-      index = end;
+      const scanned = scanBlockCommentEnd(line, index + 2);
+      pushSpan(spans, line.slice(index, scanned.end), THEME.muted);
+      index = scanned.end;
+      if (!scanned.closed) {
+        mode = { kind: "blockComment" };
+        break;
+      }
       continue;
     }
 
-    if (character === '"' || character === "'" || character === "`") {
-      let end = index + 1;
-      while (end < line.length) {
-        if (line[end] === "\\") {
-          end += 2;
-          continue;
-        }
-        if (line[end] === character) {
-          end += 1;
-          break;
-        }
-        end += 1;
+    if (isStringQuote(character)) {
+      const scanned = scanStringEnd(line, index + 1, character);
+      pushSpan(spans, line.slice(index, scanned.end), THEME.syntaxValue);
+      index = scanned.end;
+      if (!scanned.closed) {
+        mode = { kind: "string", quote: character };
+        break;
       }
-      pushSpan(spans, line.slice(index, end), THEME.syntaxValue);
-      index = end;
       continue;
     }
 
@@ -223,7 +282,14 @@ export function highlightCodeLine(line: string): readonly SyntaxSpan[] {
     index += 1;
   }
 
-  return spans.length > 0 ? spans : [{ text: line, fg: THEME.selected }];
+  return {
+    spans: spans.length > 0 ? spans : [{ text: line, fg: THEME.selected }],
+    mode,
+  };
+}
+
+export function highlightCodeLine(line: string): readonly SyntaxSpan[] {
+  return paintCodeLine(line, CODE_MODE).spans;
 }
 
 export function highlightFenceLines(
@@ -233,7 +299,12 @@ export function highlightFenceLines(
   if (looksLikeUnifiedDiff(language, lines)) {
     return lines.map((line) => highlightDiffLine(line));
   }
-  return lines.map((line) => highlightCodeLine(line));
+  let mode: LexerMode = CODE_MODE;
+  return lines.map((line) => {
+    const painted = paintCodeLine(line, mode);
+    mode = painted.mode;
+    return painted.spans;
+  });
 }
 
 const SOURCE_EXTENSIONS = new Set([

@@ -91,4 +91,51 @@ describe("syntax-spans", () => {
     expect(sourceLanguageFromPath("notes.md")).toBeUndefined();
     expect(pathFromFileArgsPreview("file: src/app.py  def main():")).toBe("src/app.py");
   });
+
+  it("carries a block comment across fence lines", () => {
+    const rows = highlightFenceLines("js", [
+      "const x = 1; /* start",
+      "  still a comment",
+      "  end */ const y = 2;",
+    ]);
+    expect(rows[0]?.find((span) => span.text.includes("start"))?.fg).toBe(THEME.muted);
+    expect(rows[1]).toEqual([{ text: "  still a comment", fg: THEME.muted }]);
+    const closed = rows[2] ?? [];
+    expect(closed.find((span) => span.text.includes("end"))?.fg).toBe(THEME.muted);
+    expect(closed.find((span) => span.text === "const")?.fg).toBe(THEME.syntaxStructure);
+  });
+
+  it("does not leak a line comment onto the next line", () => {
+    const rows = highlightFenceLines("js", ["return 1; // leftover", "const next = 2;"]);
+    expect(rows[1]?.find((span) => span.text === "const")?.fg).toBe(THEME.syntaxStructure);
+  });
+
+  it("carries an unclosed string across fence lines", () => {
+    const rows = highlightFenceLines("js", ['const name = "jazz', 'still"']);
+    expect(rows[0]?.find((span) => span.text.includes("jazz"))?.fg).toBe(THEME.syntaxValue);
+    expect(rows[1]?.map((span) => span.text).join("")).toBe('still"');
+    expect(rows[1]?.every((span) => span.fg === THEME.syntaxValue)).toBe(true);
+  });
+
+  it("does not treat quotes inside a block comment as a string", () => {
+    const rows = highlightFenceLines("js", ['/* "not a string', "still comment */ let x"]);
+    expect(rows[1]?.find((span) => span.text.includes("still comment"))?.fg).toBe(THEME.muted);
+    expect(rows[1]?.find((span) => span.text === "let")?.fg).toBe(THEME.syntaxStructure);
+  });
+
+  it("does not start a comment inside a string", () => {
+    const spans = highlightCodeLine('"/* not a comment" const x');
+    expect(spans.find((span) => span.text.includes("/*"))?.fg).toBe(THEME.syntaxValue);
+    expect(spans.find((span) => span.text === "const")?.fg).toBe(THEME.syntaxStructure);
+  });
+
+  it("does not carry comment state across diff lines", () => {
+    const rows = highlightFenceLines("diff", [
+      "--- a/file",
+      "+++ b/file",
+      "+const x = 1; /* start",
+      "+const y = 2;",
+    ]);
+    expect(rows[3]?.find((span) => span.text === "const")?.fg).toBe(THEME.syntaxStructure);
+  });
 });
