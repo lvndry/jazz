@@ -52,6 +52,7 @@ import { withRunRecording } from "./run/run-recorder";
 import { runSpendUSD } from "./run/run-spend";
 import { registerCustomToolsForAgent } from "./tools/custom-tools";
 import { registerMCPToolsForAgent } from "./tools/register-mcp-tools";
+import { registerPeerTools } from "./tools/register-tools";
 import { registerSkillSystemTools } from "./tools/register-tools";
 import { BUILTIN_TOOL_CATEGORIES } from "./tools/tool-categories";
 import { type AgentResponse, type AgentRunContext, type AgentRunnerOptions } from "./types";
@@ -247,6 +248,10 @@ function initializeAgentRun(
     const agentToolNames = normalizeToolConfig(agent.config.tools, {
       agentId: agent.id,
     });
+
+    // Registered per run rather than globally, because whether it exists at all depends on
+    // the config: an agent with no peers never sees the tool.
+    yield* registerPeerTools().pipe(Effect.catchAll(() => Effect.void));
 
     // Register MCP tools for this agent if needed (only connects to relevant servers)
     // This happens before validation so MCP tools are available

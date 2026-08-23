@@ -17,6 +17,7 @@ export const CONTEXT_CATEGORY: ToolCategory = { id: "context", displayName: "Con
 export const SUBAGENT_CATEGORY: ToolCategory = { id: "subagent", displayName: "Sub Agents" };
 export const TODO_CATEGORY: ToolCategory = { id: "todo", displayName: "Todo" };
 export const MEMORY_CATEGORY: ToolCategory = { id: "memory", displayName: "Memory" };
+export const PEERS_CATEGORY: ToolCategory = { id: "peers", displayName: "Peers" };
 export const REMINDER_CATEGORY: ToolCategory = { id: "reminders", displayName: "Reminders" };
 export const USER_INTERACTION_CATEGORY: ToolCategory = {
   id: "user_interaction",
