@@ -4,7 +4,6 @@
   "description": "One agent. Every surface. Your rules.",
   "license": "MIT",
   "main": "dist/main.js",
-  "types": "dist/main.d.ts",
   "type": "module",
   "bin": {
     "jazz": "./dist/main.js"
