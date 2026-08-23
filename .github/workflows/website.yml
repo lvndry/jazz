@@ -35,3 +35,6 @@ jobs:
       - name: Build
         run: bun run build
         working-directory: website
+      - name: Check internal links
+        run: bun run check-links
+        working-directory: website

@@ -12,9 +12,6 @@ import Base from "../layouts/Base.astro";
       <span class="brand">▞ jazz</span>
       <a href="https://github.com/lvndry/jazz">github</a>
     </div>
-    <code class="install mono"
-      >curl -fsSL https://github.com/lvndry/jazz/releases/latest/download/install.sh | bash</code
-    >
     <section class="hold">
       <div class="lanes mono" id="lanes" aria-hidden="true"></div>
       <h1 class="shout">
@@ -27,6 +24,9 @@ import Base from "../layouts/Base.astro";
         just for code: email, research, planning, and automation — from the
         terminal, a script, cron, CI, or a chat bot on a server you own.
       </p>
+      <code class="install mono"
+        >curl -fsSL https://github.com/lvndry/jazz/releases/latest/download/install.sh | bash</code
+      >
       <p class="note mono">full site in production — the set is being built</p>
     </section>
   </main>
@@ -96,7 +96,7 @@ import Base from "../layouts/Base.astro";
   .install {
     display: inline-block;
     align-self: flex-start;
-    margin-top: 6px;
+    margin-top: 30px;
     padding: 14px 18px;
     font-size: 13px;
     color: var(--jz-selected);

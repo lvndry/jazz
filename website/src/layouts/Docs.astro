@@ -1,0 +1,354 @@
+---
+import Base from "./Base.astro";
+import type { PrevNext, SidebarSection } from "../lib/docs";
+
+interface Props {
+  title: string;
+  description: string;
+  sidebar: SidebarSection[];
+  currentRoute: string;
+  prevNext: PrevNext;
+  rawMdPath: string;
+}
+
+const { title, description, sidebar, currentRoute, prevNext, rawMdPath } = Astro.props;
+---
+
+<Base title={`${title} — Jazz docs`} description={description}>
+  <header class="top">
+    <a class="brand mono" href="/">▞ jazz</a>
+    <a class="mono docs-home" href="/docs">docs</a>
+    <div class="grow"></div>
+    {import.meta.env.PROD && <div id="search" class="search"></div>}
+    <a class="mono" href="https://github.com/lvndry/jazz">github</a>
+  </header>
+  <div class="shell">
+    <nav class="sidebar" aria-label="Documentation">
+      {
+        sidebar.map((section) => (
+          <section>
+            {section.route ? (
+              <a
+                class="section-label mono"
+                href={section.route}
+                aria-current={section.route === currentRoute ? "page" : undefined}
+              >
+                {section.label}
+              </a>
+            ) : (
+              <span class="section-label mono">{section.label}</span>
+            )}
+            <ul>
+              {section.items.map((item) => (
+                <li>
+                  <a href={item.route} aria-current={item.route === currentRoute ? "page" : undefined}>
+                    {item.title}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ))
+      }
+    </nav>
+    <main>
+      <article data-pagefind-body>
+        <slot />
+      </article>
+      <footer class="pager">
+        {
+          prevNext.prev ? (
+            <a class="prev" href={prevNext.prev.route}>
+              <span class="mono dir">← prev</span>
+              <span>{prevNext.prev.title}</span>
+            </a>
+          ) : (
+            <span />
+          )
+        }
+        {
+          prevNext.next && (
+            <a class="next" href={prevNext.next.route}>
+              <span class="mono dir">next →</span>
+              <span>{prevNext.next.title}</span>
+            </a>
+          )
+        }
+      </footer>
+      <p class="raw mono">
+        machine-readable: <a href={rawMdPath}>{rawMdPath}</a> · <a href="/llms.txt">/llms.txt</a>
+      </p>
+    </main>
+  </div>
+</Base>
+
+<style>
+  .top {
+    display: flex;
+    align-items: center;
+    gap: 22px;
+    padding: 16px 4vw;
+    border-bottom: 1px solid var(--jz-border);
+    font-size: 13px;
+  }
+  .top a {
+    color: var(--jz-secondary);
+    text-decoration: none;
+  }
+  .top a:hover {
+    color: var(--jz-primary);
+  }
+  .top .brand {
+    color: var(--jz-primary);
+    font-size: 14px;
+  }
+  .grow {
+    flex: 1;
+  }
+  .search {
+    min-width: 220px;
+  }
+  .shell {
+    display: grid;
+    grid-template-columns: 260px minmax(0, 1fr);
+    gap: 0;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+  .sidebar {
+    border-right: 1px solid var(--jz-border);
+    padding: 32px 24px 60px;
+    font-size: 14px;
+  }
+  .sidebar section + section {
+    margin-top: 26px;
+  }
+  .section-label {
+    display: block;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--jz-muted);
+    text-decoration: none;
+    margin-bottom: 8px;
+  }
+  a.section-label:hover,
+  a.section-label[aria-current="page"] {
+    color: var(--jz-primary);
+  }
+  .sidebar ul {
+    list-style: none;
+  }
+  .sidebar li a {
+    display: block;
+    padding: 3px 0;
+    color: var(--jz-secondary);
+    text-decoration: none;
+  }
+  .sidebar li a:hover {
+    color: var(--jz-primary);
+  }
+  .sidebar li a[aria-current="page"] {
+    color: var(--jz-primary);
+    font-weight: 500;
+  }
+  main {
+    padding: 40px 4vw 80px 44px;
+  }
+  article {
+    max-width: 72ch;
+  }
+  .pager {
+    display: flex;
+    justify-content: space-between;
+    gap: 20px;
+    max-width: 72ch;
+    margin-top: 56px;
+    padding-top: 20px;
+    border-top: 1px solid var(--jz-border);
+  }
+  .pager a {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    text-decoration: none;
+    color: var(--jz-selected);
+    font-size: 15px;
+  }
+  .pager a:hover {
+    color: var(--jz-primary);
+  }
+  .pager .dir {
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--jz-muted);
+  }
+  .pager .next {
+    text-align: right;
+    margin-left: auto;
+  }
+  .raw {
+    margin-top: 34px;
+    font-size: 11.5px;
+    color: var(--jz-muted);
+  }
+  .raw a {
+    color: var(--jz-accent-dim);
+  }
+  @media (max-width: 860px) {
+    .shell {
+      grid-template-columns: 1fr;
+    }
+    .sidebar {
+      order: 2;
+      border-right: none;
+      border-top: 1px solid var(--jz-border);
+      padding-bottom: 28px;
+    }
+    main {
+      order: 1;
+      padding-left: 4vw;
+    }
+  }
+</style>
+
+<style is:global>
+  /* Docs prose — calm on purpose: no ambient motion on these pages. */
+  article > :global(*) + :global(*) {
+    margin-top: 0.9em;
+  }
+  article h1 {
+    font-size: 34px;
+    line-height: 1.2;
+    letter-spacing: -0.01em;
+    text-wrap: balance;
+  }
+  article h2 {
+    font-size: 23px;
+    margin-top: 1.8em;
+    letter-spacing: -0.01em;
+  }
+  article h3 {
+    font-size: 18px;
+    margin-top: 1.5em;
+  }
+  article h4 {
+    font-size: 16px;
+    margin-top: 1.3em;
+  }
+  article p,
+  article li {
+    color: var(--jz-info);
+  }
+  article li + li {
+    margin-top: 0.35em;
+  }
+  article ul,
+  article ol {
+    padding-left: 1.4em;
+  }
+  article code {
+    font-family: var(--font-mono);
+    font-size: 0.88em;
+    background: var(--jz-surface);
+    border: 1px solid var(--jz-border);
+    border-radius: 4px;
+    padding: 0.08em 0.35em;
+  }
+  article pre {
+    background: var(--jz-surface);
+    border: 1px solid var(--jz-border);
+    border-radius: 6px;
+    padding: 14px 16px;
+    overflow-x: auto;
+    font-size: 13.5px;
+    line-height: 1.7;
+  }
+  article pre code {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: inherit;
+  }
+  article blockquote {
+    border-left: 2px solid var(--jz-border-soft);
+    padding-left: 1em;
+    color: var(--jz-muted);
+  }
+  article table {
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 14px;
+    display: block;
+    overflow-x: auto;
+  }
+  article th,
+  article td {
+    border: 1px solid var(--jz-border);
+    padding: 7px 11px;
+    text-align: left;
+    vertical-align: top;
+  }
+  article th {
+    font-weight: 600;
+    background: var(--jz-surface);
+  }
+  article hr {
+    border: none;
+    border-top: 1px solid var(--jz-border);
+    margin: 2.2em 0;
+  }
+  article img {
+    max-width: 100%;
+  }
+
+  /* Shiki css-variables theme → the product's syntax hues. */
+  :root {
+    --astro-code-foreground: var(--jz-selected);
+    --astro-code-background: var(--jz-surface);
+    --astro-code-token-constant: var(--jz-syntax-value);
+    --astro-code-token-string: var(--jz-syntax-value);
+    --astro-code-token-string-expression: var(--jz-syntax-value);
+    --astro-code-token-comment: var(--jz-muted);
+    --astro-code-token-keyword: var(--jz-syntax-structure);
+    --astro-code-token-parameter: var(--jz-selected);
+    --astro-code-token-function: var(--jz-syntax-type);
+    --astro-code-token-punctuation: var(--jz-secondary);
+    --astro-code-token-link: var(--jz-link);
+  }
+
+  /* Pagefind UI on the token system. */
+  #search {
+    --pagefind-ui-scale: 0.75;
+    --pagefind-ui-primary: var(--jz-primary);
+    --pagefind-ui-text: var(--jz-selected);
+    --pagefind-ui-background: var(--jz-canvas);
+    --pagefind-ui-border: var(--jz-border);
+    --pagefind-ui-tag: var(--jz-surface);
+    --pagefind-ui-border-width: 1px;
+    --pagefind-ui-border-radius: 6px;
+    --pagefind-ui-font: var(--font-body);
+  }
+</style>
+
+{
+  import.meta.env.PROD && (
+    <script is:inline>
+      {`
+        (function () {
+          var link = document.createElement("link");
+          link.rel = "stylesheet";
+          link.href = "/pagefind/pagefind-ui.css";
+          document.head.appendChild(link);
+          var script = document.createElement("script");
+          script.src = "/pagefind/pagefind-ui.js";
+          script.onload = function () {
+            new window.PagefindUI({ element: "#search", showSubResults: true, showImages: false });
+          };
+          document.head.appendChild(script);
+        })();
+      `}
+    </script>
+  )
+}

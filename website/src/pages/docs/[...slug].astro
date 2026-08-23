@@ -1,0 +1,42 @@
+---
+import { getCollection, render } from "astro:content";
+import Docs from "../../layouts/Docs.astro";
+import { buildSidebar, prevNextFor, routeFor, routeSlugFor, titleOf } from "../../lib/docs";
+import type { DocsEntry } from "../../lib/docs";
+
+export async function getStaticPaths() {
+  const entries = await getCollection("docs");
+  return entries.map((entry) => ({
+    params: { slug: routeSlugFor(entry.id) || undefined },
+    props: { entry },
+  }));
+}
+
+interface Props {
+  entry: DocsEntry;
+}
+
+const { entry } = Astro.props;
+const entries = await getCollection("docs");
+const sidebar = buildSidebar(entries);
+const title = titleOf(entry);
+const description =
+  entry.body
+    ?.replace(/^#.*$/m, "")
+    .replace(/[#*_`[\]()>|-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 155) ?? "Jazz documentation";
+const { Content } = await render(entry);
+---
+
+<Docs
+  title={title}
+  description={description}
+  sidebar={sidebar}
+  currentRoute={routeFor(entry.id)}
+  prevNext={prevNextFor(sidebar, entry.id)}
+  rawMdPath={`/docs/${entry.id}.md`}
+>
+  <Content />
+</Docs>
