@@ -415,6 +415,24 @@ describe("UIStore", () => {
       expect(s.getExpandableReasoningSnapshot()).toBeNull();
     });
 
+    test("expandLastReasoning('append') adds a fresh entry so Ink's Static can show it", () => {
+      const s = new UIStore();
+
+      const id = s.openEphemeral("reasoning", "Reasoning", 8);
+      s.collapseEphemeral(id, { durationMs: 1000, fullText: "full reasoning body" });
+
+      expect(s.getOutputSnapshot().entries).toHaveLength(1);
+
+      s.expandLastReasoning("append");
+
+      const printed = s.getOutputSnapshot().entries;
+      expect(printed).toHaveLength(2);
+      expect(printed[0]!.meta?.["collapsed"]).toBe(true);
+      expect(printed[1]!.message).toContain("full reasoning body");
+      expect(printed[1]!.id).not.toBe(printed[0]!.id);
+      expect(s.getExpandableReasoningSnapshot()).toBeNull();
+    });
+
     test("expandLastReasoning expands later blocks without moving them", () => {
       const s = new UIStore();
 

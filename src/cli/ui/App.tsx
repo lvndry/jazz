@@ -247,7 +247,7 @@ export function App(): React.ReactElement {
   // expanded view). No-op if no expandable reasoning is available.
   useInput((input, key) => {
     if (key.ctrl && (input === "r" || input === "\x12")) {
-      store.expandLastReasoning();
+      store.expandLastReasoning("append");
     }
   });
 

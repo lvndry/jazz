@@ -614,7 +614,10 @@ export class UIStore {
     return pinned;
   };
 
-  expandLastReasoning = (): boolean => {
+  // Ink's <Static> never repaints entries it has already emitted, so the
+  // islands renderer must ask for "append": patching the collapsed stub
+  // in place would change the store without changing the screen.
+  expandLastReasoning = (target: "in-place" | "append" = "in-place"): boolean => {
     const value = this.expandableReasoningStack.pop();
     if (value === undefined) return this.pinOpenReasoning();
     const seconds = (value.durationMs / 1000).toFixed(1);
@@ -629,9 +632,9 @@ export class UIStore {
         label: value.label,
       },
       timestamp: new Date(),
-      ...(value.entryId === undefined ? {} : { id: value.entryId }),
+      ...(target === "in-place" && value.entryId !== undefined ? { id: value.entryId } : {}),
     };
-    if (value.entryId !== undefined) {
+    if (target === "in-place" && value.entryId !== undefined) {
       this.flushOutputBatchNow();
       this.updateOutputEntry(value.entryId, entry);
     } else {
