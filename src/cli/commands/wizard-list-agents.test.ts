@@ -27,7 +27,6 @@ function agent(partial: {
 describe("showAgentList", () => {
   it("publishes every agent to the fullscreen menu instead of an empty list", async () => {
     store.setActiveMenu(null);
-    store.setCustomView(null);
 
     const agents = [
       agent({ id: "a2", name: "qwen-coder", model: "qwen2.5-coder" }),
@@ -46,6 +45,8 @@ describe("showAgentList", () => {
     if (menu?.kind !== "agents") {
       throw new Error("expected an agents menu");
     }
+    expect(menu).not.toHaveProperty("onSelect");
+    expect(menu).not.toHaveProperty("onExit");
     expect(menu.title).toBe("agents");
     expect(menu.action).toBe("back");
     expect(menu.browse).toBe(true);
@@ -64,7 +65,7 @@ describe("showAgentList", () => {
       model: "qwen2.5-coder",
     });
 
-    menu.onExit();
+    store.completePrompt({ kind: "exit" });
     await listed;
     expect(store.getActiveMenuSnapshot()).toBe(null);
   });
@@ -79,7 +80,8 @@ describe("showAgentList", () => {
     }
     expect(menu.agents).toEqual([]);
     expect(menu.browse).toBe(true);
-    menu.onExit();
+    expect(menu).not.toHaveProperty("onSelect");
+    store.completePrompt({ kind: "exit" });
     await listed;
     expect(store.getActiveMenuSnapshot()).toBe(null);
   });

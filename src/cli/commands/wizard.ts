@@ -1,5 +1,4 @@
 import { Effect } from "effect";
-import React from "react";
 import { sortAgents } from "@/core/agent/agent-sort";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { AgentServiceTag } from "@/core/interfaces/agent-service";
@@ -15,7 +14,7 @@ import { createAgentCommand } from "./create-agent";
 import { editAgentCommand } from "./edit-agent";
 import { homeRequirements } from "../ui/fullscreen/home-readiness";
 import { store, type ActiveAgentChoice } from "../ui/store";
-import { TIPS, WizardHome, type WizardMenuOption } from "../ui/WizardHome";
+import { TIPS, type WizardMenuOption } from "../ui/WizardHome";
 
 /**
  * Wizard menu option identifiers
@@ -293,33 +292,18 @@ function showWizardMenu(
   requirements: ReturnType<typeof homeRequirements>,
 ): Effect.Effect<MenuAction, never, never> {
   return Effect.async<MenuAction>((resume) => {
-    let resumed = false;
-
-    const safeResume = (action: MenuAction) => {
-      if (resumed) return;
-      resumed = true;
-      store.setCustomView(null);
-      store.setActiveMenu(null);
-      resume(Effect.succeed(action));
-    };
-
-    store.setCustomView(
-      React.createElement(WizardHome, {
-        options,
-        onSelect: (value: string) => safeResume(value as MenuAction),
-        onExit: () => safeResume("exit"),
-      }),
-    );
-
     const tip = TIPS[Math.floor(Math.random() * TIPS.length)] ?? TIPS[0] ?? "";
-    store.setActiveMenu({
-      kind: "menu",
-      options,
-      requirements,
-      tip,
-      onSelect: (value: string) => safeResume(value as MenuAction),
-      onExit: () => safeResume("exit"),
-    });
+    store.setActiveMenu(
+      {
+        kind: "menu",
+        options,
+        requirements,
+        tip,
+      },
+      (result) => {
+        resume(Effect.succeed(result.kind === "exit" ? "exit" : (result.value as MenuAction)));
+      },
+    );
   });
 }
 
@@ -343,36 +327,19 @@ export function showAgentList(
   lastUsedAgentId: string | null | undefined,
 ): Effect.Effect<void, never, never> {
   return Effect.async<void>((resume) => {
-    let resumed = false;
-    const dismiss = (): void => {
-      if (resumed) return;
-      resumed = true;
-      store.setCustomView(null);
-      store.setActiveMenu(null);
-      resume(Effect.succeed(undefined));
-    };
-
     const sorted = sortAgents(agents, lastUsedAgentId);
-    const options = sorted.map((agent) => ({ label: agent.name, value: agent.id }));
-
-    store.setCustomView(
-      React.createElement(WizardHome, {
-        options,
+    store.setActiveMenu(
+      {
+        kind: "agents",
         title: "agents",
-        onSelect: () => dismiss(),
-        onExit: () => dismiss(),
-      }),
+        action: "back",
+        browse: true,
+        agents: agentChoicesFor(sorted, lastUsedAgentId),
+      },
+      () => {
+        resume(Effect.succeed(undefined));
+      },
     );
-
-    store.setActiveMenu({
-      kind: "agents",
-      title: "agents",
-      action: "back",
-      browse: true,
-      agents: agentChoicesFor(sorted, lastUsedAgentId),
-      onSelect: () => dismiss(),
-      onExit: () => dismiss(),
-    });
   });
 }
 
@@ -386,35 +353,24 @@ function selectAgent(
   action: string,
 ): Effect.Effect<Agent | null, never, never> {
   return Effect.async<Agent | null>((resume) => {
-    let resumed = false;
-    const safeResume = (agentId: string | null): void => {
-      if (resumed) return;
-      resumed = true;
-      store.setCustomView(null);
-      store.setActiveMenu(null);
-      resume(Effect.succeed(agents.find((agent) => agent.id === agentId) ?? null));
-    };
-
     const sorted = sortAgents(agents, lastUsedAgentId);
-    const options = sorted.map((agent) => ({ label: agent.name, value: agent.id }));
-
-    store.setCustomView(
-      React.createElement(WizardHome, {
-        options,
+    store.setActiveMenu(
+      {
+        kind: "agents",
         title,
-        onSelect: (value: string) => safeResume(value),
-        onExit: () => safeResume(null),
-      }),
+        action,
+        agents: agentChoicesFor(sorted, lastUsedAgentId),
+      },
+      (result) => {
+        resume(
+          Effect.succeed(
+            result.kind === "exit"
+              ? null
+              : (agents.find((agent) => agent.id === result.value) ?? null),
+          ),
+        );
+      },
     );
-
-    store.setActiveMenu({
-      kind: "agents",
-      title,
-      action,
-      agents: agentChoicesFor(sorted, lastUsedAgentId),
-      onSelect: (value: string) => safeResume(value),
-      onExit: () => safeResume(null),
-    });
   });
 }
 

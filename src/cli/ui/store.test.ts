@@ -1,6 +1,7 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import type React from "react";
-import { UIStore } from "./store";
+import { UIStore, type ActiveMenu } from "./store";
 import type { OutputEntry } from "./types";
 
 function entry(message = "hello"): OutputEntry {
@@ -128,20 +129,83 @@ describe("UIStore", () => {
       expect(fallbackRequests).toBe(1);
     });
 
-    test("carries a custom view across renderer replacement", () => {
+    test("carries a data-only menu across renderer replacement", () => {
       const s = new UIStore();
-      const firstRenderer: Array<React.ReactNode | null> = [];
-      const secondRenderer: Array<React.ReactNode | null> = [];
-      const unregisterFirst = s.registerCustomView((view) => firstRenderer.push(view));
+      const firstRenderer: Array<ActiveMenu | null> = [];
+      const secondRenderer: Array<ActiveMenu | null> = [];
+      const menu: ActiveMenu = {
+        kind: "menu",
+        options: [{ label: "Start chatting", value: "chat" }],
+      };
+      s.registerActiveMenuSetter((next) => firstRenderer.push(next));
 
-      s.setCustomView("Ink-only screen");
-      const unregisterSecond = s.registerCustomView((view) => secondRenderer.push(view));
-      unregisterFirst();
-      s.setCustomView(null);
+      s.setActiveMenu(menu);
+      s.registerActiveMenuSetter((next) => secondRenderer.push(next));
+      s.setActiveMenu(null);
 
-      expect(firstRenderer).toEqual([null, "Ink-only screen"]);
-      expect(secondRenderer).toEqual(["Ink-only screen", null]);
-      unregisterSecond();
+      expect(firstRenderer).toEqual([null, menu]);
+      expect(secondRenderer).toEqual([menu, null]);
+    });
+  });
+
+  describe("completePrompt", () => {
+    test("does not expose setCustomView", () => {
+      const s = new UIStore();
+      expect("setCustomView" in s).toBe(false);
+      expect("registerCustomView" in s).toBe(false);
+    });
+
+    test("no producer or renderer still calls setCustomView", () => {
+      const sources = [
+        join(import.meta.dir, "store.ts"),
+        join(import.meta.dir, "App.tsx"),
+        join(import.meta.dir, "fullscreen/bridge.tsx"),
+        join(import.meta.dir, "../commands/wizard.ts"),
+        join(import.meta.dir, "../commands/config-wizard.ts"),
+        join(import.meta.dir, "../commands/workflow.ts"),
+      ];
+      for (const sourcePath of sources) {
+        const source = readFileSync(sourcePath, "utf8");
+        expect(source.includes("setCustomView")).toBe(false);
+        expect(source.includes("registerCustomView")).toBe(false);
+      }
+    });
+
+    test("keeps the snapshot data-only and runs the continuation once", () => {
+      const s = new UIStore();
+      const results: string[] = [];
+      s.setActiveMenu(
+        {
+          kind: "menu",
+          options: [{ label: "Start chatting", value: "chat" }],
+        },
+        (result) => results.push(result.kind === "exit" ? "exit" : result.value),
+      );
+
+      const snapshot = s.getActiveMenuSnapshot();
+      expect(snapshot).not.toHaveProperty("onSelect");
+      expect(snapshot).not.toHaveProperty("onExit");
+      if (snapshot !== null) {
+        for (const value of Object.values(snapshot)) {
+          expect(typeof value).not.toBe("function");
+        }
+      }
+
+      s.completePrompt({ kind: "select", value: "chat" });
+      s.completePrompt({ kind: "select", value: "again" });
+      expect(results).toEqual(["chat"]);
+      expect(s.getActiveMenuSnapshot()).toBe(null);
+    });
+
+    test("drops a pending continuation when the menu is cleared", () => {
+      const s = new UIStore();
+      let called = 0;
+      s.setActiveMenu({ kind: "menu", options: [{ label: "Go", value: "go" }] }, () => {
+        called += 1;
+      });
+      s.setActiveMenu(null);
+      s.completePrompt({ kind: "exit" });
+      expect(called).toBe(0);
     });
   });
 

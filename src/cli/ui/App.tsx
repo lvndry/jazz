@@ -8,17 +8,18 @@ import { PreWrappedText } from "./components/PreWrappedText";
 import { useTerminalDimensions } from "./contexts/TerminalDimensionsContext";
 import { EphemeralPanelIsland } from "./EphemeralPanelIsland";
 import ErrorBoundary from "./ErrorBoundary";
-import { formatMarkdown, wrapToWidth } from "../presentation/markdown-formatter";
 import { useInputHandler } from "./hooks/use-input-service";
 import { OutputEntryView } from "./OutputEntryView";
 import { Prompt } from "./Prompt";
 import { QueueInput } from "./QueueInput";
 import { RAIL_WIDTH, railStreamLines } from "./rail";
 import StatusFooter from "./StatusFooter";
-import { store, type RunStats } from "./store";
+import { store, type ActiveMenu, type RunStats } from "./store";
 import { PADDING, PADDING_BUDGET, THEME } from "./theme";
 import type { OutputEntryWithId, PromptState } from "./types";
+import { WizardHome } from "./WizardHome";
 import { dimReasoningMarkdownOutput } from "../presentation/format-utils";
+import { formatMarkdown, wrapToWidth } from "../presentation/markdown-formatter";
 import { InputPriority, InputResults } from "../services/input-service";
 
 // ============================================================================
@@ -253,17 +254,43 @@ const OutputIsland = React.memo(OutputIslandComponent);
 // Main App Component
 // ============================================================================
 
+function ActiveMenuView({ menu }: { readonly menu: ActiveMenu }): React.ReactElement {
+  const options =
+    menu.kind === "agents"
+      ? menu.agents.map((agent) => ({
+          label: `${agent.name} (${agent.model})`,
+          value: agent.id,
+        }))
+      : menu.options;
+  const title = menu.title;
+  const browse = menu.kind === "agents" && menu.browse === true;
+
+  return (
+    <WizardHome
+      options={options}
+      {...(title === undefined ? {} : { title })}
+      onSelect={(value) => {
+        if (browse) {
+          store.completePrompt({ kind: "exit" });
+          return;
+        }
+        store.completePrompt({ kind: "select", value });
+      }}
+      onExit={() => store.completePrompt({ kind: "exit" })}
+    />
+  );
+}
+
 export function App(): React.ReactElement {
-  const [customView, setCustomView] = useState<React.ReactNode | null>(null);
+  const [menu, setMenu] = useState<ActiveMenu | null>(null);
   const interruptHandlerRef = useRef<(() => void) | null>(null);
   const initializedRef = useRef(false);
-  const unregisterCustomViewRef = useRef<() => void>(() => undefined);
   const [modeToast, setModeToast] = useState<string | null>(null);
   const modeToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Setup store methods synchronously during render
   if (!initializedRef.current) {
-    unregisterCustomViewRef.current = store.registerCustomView(setCustomView);
+    store.registerActiveMenuSetter(setMenu);
     store.registerInterruptHandler((handler) => {
       interruptHandlerRef.current = handler;
     });
@@ -295,7 +322,7 @@ export function App(): React.ReactElement {
   // Cleanup on unmount to prevent stale handler calls
   useEffect(() => {
     return () => {
-      unregisterCustomViewRef.current();
+      store.registerActiveMenuSetter(null);
       store.registerInterruptHandler(null);
     };
   }, []);
@@ -420,10 +447,10 @@ export function App(): React.ReactElement {
 
   return (
     <ErrorBoundary>
-      {customView}
+      {menu !== null && <ActiveMenuView menu={menu} />}
       <Box
         flexDirection="column"
-        display={customView ? "none" : "flex"}
+        display={menu !== null ? "none" : "flex"}
       >
         <Box
           flexDirection="column"

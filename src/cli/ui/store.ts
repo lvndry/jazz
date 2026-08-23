@@ -1,4 +1,3 @@
-import type React from "react";
 import { isActivityEqual, type ActivityState } from "./activity-state";
 import type { StreamKind } from "./adapters/terminal-output-adapter";
 import type { OutputEntry, PromptState } from "./types";
@@ -97,11 +96,10 @@ export type ConnectorStatus = "live" | "renew" | "offline";
 /**
  * A menu the app is waiting on, published as data rather than as a rendered tree.
  *
- * `setCustomView` hands the UI a React element built with Ink components, which
- * only the Ink renderer can paint — so a second renderer sees an opaque node and
- * can do nothing useful with it. Publishing the *intent* instead lets each
- * renderer draw its own version, which is the only way two renderers can share
- * a flow.
+ * Continuations stay on the write side (`completePrompt`). Putting `onSelect` /
+ * `onExit` on the snapshot would smuggle closures through a contract two
+ * renderers share, and the second renderer would still have nothing it can
+ * serialize or replay.
  */
 export interface ActiveMenuOption {
   readonly label: string;
@@ -129,8 +127,6 @@ export interface ActiveWizardMenu {
   readonly options: readonly ActiveMenuOption[];
   readonly requirements?: readonly ActiveMenuRequirement[];
   readonly tip?: string;
-  readonly onSelect: (value: string) => void;
-  readonly onExit: () => void;
 }
 
 export interface ActiveAgentMenu {
@@ -138,12 +134,17 @@ export interface ActiveAgentMenu {
   readonly title: string;
   readonly action: string;
   readonly agents: readonly ActiveAgentChoice[];
-  readonly onSelect: (value: string) => void;
-  readonly onExit: () => void;
   readonly browse?: boolean;
 }
 
 export type ActiveMenu = ActiveWizardMenu | ActiveAgentMenu;
+
+/** Discriminated surface a renderer paints in place of the chat transcript. */
+export type SurfaceIntent = ActiveMenu;
+
+/** How a renderer answers the surface currently published on the store. */
+export type PromptResult =
+  { readonly kind: "select"; readonly value: string } | { readonly kind: "exit" };
 
 /** Identifies the conversation on screen, so history search can be narrowed to it. */
 export interface CurrentConversation {
@@ -220,7 +221,6 @@ export class UIStore {
   private inputHistory: string[] = [];
   private messageQueueSnapshot: readonly string[] = [];
   private chatBusySnapshot: boolean = false;
-  private customViewSnapshot: React.ReactNode | null = null;
 
   // Insertion-ordered map of live ephemeral regions, keyed by id.
   private ephemeralRegions: Map<EphemeralRegionId, EphemeralRegion> = new Map();
@@ -237,7 +237,6 @@ export class UIStore {
   private expandableReasoningSetter: ((value: ExpandableReasoning | null) => void) | null = null;
   private messageQueueSetter: ((queue: readonly string[]) => void) | null = null;
   private chatBusySetter: ((busy: boolean) => void) | null = null;
-  private customViewSetter: ((view: React.ReactNode | null) => void) | null = null;
   private modeToastSetter: ((message: string | null) => void) | null = null;
   private modeSetter: ((isYolo: boolean) => void) | null = null;
   private rendererFallbackHandler: (() => void) | null = null;
@@ -374,11 +373,6 @@ export class UIStore {
     if (this.runStatsSetter) {
       this.runStatsSetter(next);
     }
-  };
-
-  setCustomView = (view: React.ReactNode | null): void => {
-    this.customViewSnapshot = view;
-    this.customViewSetter?.(view);
   };
 
   /**
@@ -764,6 +758,7 @@ export class UIStore {
 
   private activeMenuSnapshot: ActiveMenu | null = null;
   private activeMenuSetter: ((menu: ActiveMenu | null) => void) | null = null;
+  private promptContinuation: ((result: PromptResult) => void) | null = null;
   private connectorsSnapshot: ReadonlyMap<string, ConnectorStatus> = new Map();
   private connectorsSetter: ((connectors: ReadonlyMap<string, ConnectorStatus>) => void) | null =
     null;
@@ -820,16 +815,6 @@ export class UIStore {
     }
   }
 
-  registerCustomView(setter: (view: React.ReactNode | null) => void): () => void {
-    this.customViewSetter = setter;
-    setter(this.customViewSnapshot);
-    return () => {
-      if (this.customViewSetter === setter) {
-        this.customViewSetter = null;
-      }
-    };
-  }
-
   registerMessageQueueSetter(setter: ((queue: readonly string[]) => void) | null): void {
     this.messageQueueSetter = setter;
     if (setter) {
@@ -865,10 +850,26 @@ export class UIStore {
     };
   };
 
-  /** The menu currently awaiting a choice, or null. */
-  setActiveMenu = (menu: ActiveMenu | null): void => {
+  /** Publish a data-only menu. Pass the continuation here, not on the snapshot. */
+  setActiveMenu = (menu: ActiveMenu | null, onComplete?: (result: PromptResult) => void): void => {
     this.activeMenuSnapshot = menu;
+    this.promptContinuation = menu === null ? null : (onComplete ?? null);
     if (this.activeMenuSetter) this.activeMenuSetter(menu);
+  };
+
+  /**
+   * Answer the published surface. Clears the snapshot, then invokes the
+   * write-side continuation once. A second call is a no-op.
+   */
+  completePrompt = (result: PromptResult): void => {
+    if (this.activeMenuSnapshot === null && this.promptContinuation === null) {
+      return;
+    }
+    const continuation = this.promptContinuation;
+    this.promptContinuation = null;
+    this.activeMenuSnapshot = null;
+    if (this.activeMenuSetter) this.activeMenuSetter(null);
+    continuation?.(result);
   };
 
   registerActiveMenuSetter(setter: ((menu: ActiveMenu | null) => void) | null): void {

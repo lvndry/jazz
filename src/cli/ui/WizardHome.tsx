@@ -16,7 +16,7 @@ export interface WizardMenuOption {
 }
 
 interface WizardHomeProps {
-  options: WizardMenuOption[];
+  options: readonly WizardMenuOption[];
   onSelect: (value: string) => void;
   onExit: () => void;
   title?: string;
