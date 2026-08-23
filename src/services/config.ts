@@ -400,6 +400,9 @@ function mergeConfig(base: AppConfig, override?: Partial<AppConfig>): AppConfig 
         ...(override.output.showToolExecution !== undefined
           ? { showToolExecution: override.output.showToolExecution }
           : {}),
+        ...(override.output.collapseReasoning !== undefined
+          ? { collapseReasoning: override.output.collapseReasoning }
+          : {}),
         ...(override.output.mode !== undefined ? { mode: override.output.mode } : {}),
         ...(override.output.colorProfile !== undefined
           ? { colorProfile: override.output.colorProfile }

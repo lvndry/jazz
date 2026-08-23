@@ -252,6 +252,10 @@ function configureOutputDisplay() {
             value: "show-thinking",
           },
           {
+            name: `Reasoning (${displayConfig.collapseReasoning !== false ? "collapse" : "always show"})`,
+            value: "collapse-reasoning",
+          },
+          {
             name: `Show tool execution (${displayConfig.showToolExecution ? "on" : "off"})`,
             value: "show-tool-execution",
           },
@@ -307,6 +311,33 @@ function configureOutputDisplay() {
             configKey: "output.showThinking",
             label: "Show thinking",
           });
+          break;
+        }
+        case "collapse-reasoning": {
+          const choice = yield* terminal.select<"collapse" | "always">(
+            "How should reasoning display after the model finishes thinking?",
+            {
+              choices: [
+                {
+                  name: "Collapse after thinking (Ctrl+R to expand)",
+                  value: "collapse",
+                },
+                {
+                  name: "Always show reasoning",
+                  value: "always",
+                },
+              ],
+            },
+          );
+          if (choice) {
+            const collapse = choice === "collapse";
+            yield* configService.set("output.collapseReasoning", collapse);
+            yield* terminal.success(
+              collapse
+                ? "Reasoning will collapse after thinking. Ctrl+R expands it."
+                : "Reasoning will stay visible. Ctrl+R is not needed.",
+            );
+          }
           break;
         }
         case "show-tool-execution": {

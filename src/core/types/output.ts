@@ -67,6 +67,13 @@ export interface OutputConfig {
   readonly showToolExecution?: boolean;
 
   /**
+   * Collapse finished reasoning to a one-line summary. Ctrl+R expands it.
+   * Set false to leave the full reasoning visible; Ctrl+R is then unused.
+   * Default: true
+   */
+  readonly collapseReasoning?: boolean;
+
+  /**
    * Output mode
    * - "rendered": Styled output with colors (strips markdown syntax)
    * - "hybrid": Styled output that preserves raw markdown syntax for copy-paste
@@ -104,6 +111,8 @@ export interface OutputConfig {
 export interface DisplayConfig {
   readonly showThinking: boolean;
   readonly showToolExecution: boolean;
+  /** Collapse finished reasoning to a one-line summary. Default true. */
+  readonly collapseReasoning?: boolean;
   readonly mode: OutputMode;
   readonly colorProfile?: ColorProfile | undefined; // Auto-detect if not specified
 }

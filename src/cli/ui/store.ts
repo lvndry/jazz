@@ -178,6 +178,8 @@ export class UIStore {
   private updateOutputHandler: UpdateOutputHandler | null = null;
   private clearOutputsHandler: (() => void) | null = null;
   private pinnedReasoningIds = new Set<EphemeralRegionId>();
+  /** When false, settled reasoning stays expanded and Ctrl+R is unused. */
+  private collapseReasoning = true;
   private streamingHandler: StreamingHandler | null = null;
   private pendingOutputQueue: OutputEntry[] = [];
   private _pendingClear = false;
@@ -552,6 +554,11 @@ export class UIStore {
     this.publishEphemeralRegions();
   };
 
+  /** When false, settled reasoning stays expanded and Ctrl+R is unused. */
+  setCollapseReasoning = (enabled: boolean): void => {
+    this.collapseReasoning = enabled;
+  };
+
   /**
    * Collapse a live region. Emits an optional one-line static entry into
    * scrollback and removes the region. For reasoning regions, captures the
@@ -566,6 +573,7 @@ export class UIStore {
 
     const capturedText = summary.fullText?.trim() || region.tail.join("\n").trim();
     const pinned = this.pinnedReasoningIds.delete(id);
+    const keepExpanded = pinned || !this.collapseReasoning;
 
     if (region.kind === "reasoning" && capturedText.length > 0) {
       const entryId = `reasoning-${id}`;
@@ -573,12 +581,12 @@ export class UIStore {
       this.printOutput({
         id: entryId,
         type: "streamContent",
-        message: pinned
+        message: keepExpanded
           ? `*${region.label} · ${seconds}s*\n\n${capturedText}`
           : (summary.line ?? `${region.label} · ${seconds}s · ctrl+r to expand`),
         meta: {
           kind: "reasoning",
-          collapsed: !pinned,
+          collapsed: !keepExpanded,
           fullText: capturedText,
           durationMs: summary.durationMs,
           label: region.label,
@@ -586,13 +594,15 @@ export class UIStore {
         timestamp: new Date(),
       });
       this.flushOutputBatchNow();
-      this.pushExpandableReasoning({
-        fullText: capturedText,
-        label: region.label,
-        durationMs: summary.durationMs,
-        entryId,
-        ...(summary.tokens !== undefined && { tokens: summary.tokens }),
-      });
+      if (this.collapseReasoning) {
+        this.pushExpandableReasoning({
+          fullText: capturedText,
+          label: region.label,
+          durationMs: summary.durationMs,
+          entryId,
+          ...(summary.tokens !== undefined && { tokens: summary.tokens }),
+        });
+      }
       return;
     }
 
@@ -639,10 +649,29 @@ export class UIStore {
       if (region.kind !== "reasoning") continue;
       const fullText = region.tail.join("\n").trim();
       if (fullText.length === 0) continue;
+      const durationMs = Date.now() - region.startedAt;
+      if (!this.collapseReasoning) {
+        const seconds = (durationMs / 1000).toFixed(1);
+        this.printOutput({
+          id: `reasoning-${region.id}`,
+          type: "streamContent",
+          message: `*${region.label} · ${seconds}s*\n\n${fullText}`,
+          meta: {
+            kind: "reasoning",
+            collapsed: false,
+            fullText,
+            durationMs,
+            label: region.label,
+          },
+          timestamp: new Date(),
+        });
+        this.flushOutputBatchNow();
+        continue;
+      }
       this.pushExpandableReasoning({
         fullText,
         label: region.label,
-        durationMs: Date.now() - region.startedAt,
+        durationMs,
       });
     }
     this.ephemeralRegions.clear();

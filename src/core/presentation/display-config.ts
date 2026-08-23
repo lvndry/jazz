@@ -4,6 +4,7 @@
 import { DEFAULT_DISPLAY_CONFIG } from "@/core/agent/types";
 import type { AppConfig } from "@/core/types/config";
 import type { DisplayConfig, OutputMode } from "@/core/types/output";
+import { coerceBoolean } from "@/core/utils/string";
 
 const VALID_OUTPUT_MODES: readonly string[] = ["rendered", "hybrid", "raw", "quiet"];
 
@@ -26,6 +27,10 @@ export function resolveDisplayConfig(appConfig: AppConfig): DisplayConfig {
     showThinking: appConfig.output?.showThinking ?? DEFAULT_DISPLAY_CONFIG.showThinking,
     showToolExecution:
       appConfig.output?.showToolExecution ?? DEFAULT_DISPLAY_CONFIG.showToolExecution,
+    collapseReasoning: coerceBoolean(
+      appConfig.output?.collapseReasoning,
+      DEFAULT_DISPLAY_CONFIG.collapseReasoning ?? true,
+    ),
     mode: resolvedEnvMode ?? appConfig.output?.mode ?? DEFAULT_DISPLAY_CONFIG.mode,
     colorProfile: appConfig.output?.colorProfile,
   };
