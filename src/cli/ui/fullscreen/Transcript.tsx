@@ -1486,9 +1486,9 @@ const TranscriptView = forwardRef<TranscriptHandle, TranscriptProps>(function Tr
   ref,
 ): ReactNode {
   // Deriving rows re-parses every block's markdown, tables and fences. The
-  // shell re-renders on each streaming delta, each keystroke and a ~6Hz tick,
-  // so without this the cost of a frame grows with the length of the whole
-  // conversation rather than with what changed.
+  // shell re-renders on each streaming delta and each keystroke, so without
+  // this the cost of a frame grows with the length of the whole conversation
+  // rather than with what changed.
   const rows = useMemo(() => transcriptRows(blocks, viewport), [blocks, viewport.width]);
   const page = pageWidth(viewport);
   const windowHeight =
