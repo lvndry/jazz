@@ -434,6 +434,11 @@ function registerConfigCommands(program: Command): void {
     );
 }
 
+/** Accumulate a repeatable Commander option into an array. */
+function collect(value: string, previous: string[]): string[] {
+  return [...previous, value];
+}
+
 /**
  * Register MCP server management commands
  */
@@ -445,36 +450,98 @@ function registerMCPCommands(program: Command): void {
   }
 
   mcpCommand
-    .command("add [json]")
-    .description("Add an MCP server from JSON (inline, --file, or interactive)")
+    .command("add [nameOrJson] [commandAndArgs...]")
+    .description("Add an MCP server by name + command, or from JSON (inline, --file, stdin)")
     .option("-f, --file <path>", "Read MCP server JSON from a file")
-    .action((json?: string, options?: { file?: string }) =>
-      run(() =>
-        import("./commands/mcp").then((mod) => mod.addMcpServerCommand(json, options?.file)),
-      ),
+    .option("-t, --transport <type>", "Transport to use: stdio (default) or http")
+    .option("-e, --env <KEY=VALUE>", "Environment variable for a stdio server", collect, [])
+    .option("-H, --header <KEY=VALUE>", "HTTP header for an http server", collect, [])
+    .option("--trusted", "Let this server's read-only annotations skip approval prompts")
+    .action(
+      (
+        nameOrJson: string | undefined,
+        commandAndArgs: string[] | undefined,
+        options: {
+          file?: string;
+          transport?: string;
+          env?: string[];
+          header?: string[];
+          trusted?: boolean;
+        },
+      ) =>
+        run(() =>
+          import("./commands/mcp").then((mod) =>
+            mod.addMcpServerCommand(nameOrJson, commandAndArgs ?? [], options),
+          ),
+        ),
     );
 
   mcpCommand
     .command("list")
     .alias("ls")
     .description("List all configured MCP servers")
-    .action(() => run(() => import("./commands/mcp").then((mod) => mod.listMcpServersCommand())));
+    .option("--tools", "Connect to each server and show the tools it advertises")
+    .action((options: { tools?: boolean }) =>
+      run(() => import("./commands/mcp").then((mod) => mod.listMcpServersCommand(options))),
+    );
 
   mcpCommand
-    .command("remove")
+    .command("test <name>")
+    .description("Connect to one server and report its tools, prompts, and capabilities")
+    .action((name: string) =>
+      run(() => import("./commands/mcp").then((mod) => mod.testMcpServerCommand(name))),
+    );
+
+  mcpCommand
+    .command("remove [name]")
     .alias("rm")
     .description("Remove an MCP server")
-    .action(() => run(() => import("./commands/mcp").then((mod) => mod.removeMcpServerCommand())));
+    .option("-y, --yes", "Skip the confirmation prompt")
+    .action((name: string | undefined, options: { yes?: boolean }) =>
+      run(() => import("./commands/mcp").then((mod) => mod.removeMcpServerCommand(name, options))),
+    );
 
   mcpCommand
-    .command("enable")
+    .command("enable [name]")
     .description("Enable a disabled MCP server")
-    .action(() => run(() => import("./commands/mcp").then((mod) => mod.enableMcpServerCommand())));
+    .action((name?: string) =>
+      run(() => import("./commands/mcp").then((mod) => mod.enableMcpServerCommand(name))),
+    );
 
   mcpCommand
-    .command("disable")
+    .command("disable [name]")
     .description("Disable an enabled MCP server")
-    .action(() => run(() => import("./commands/mcp").then((mod) => mod.disableMcpServerCommand())));
+    .action((name?: string) =>
+      run(() => import("./commands/mcp").then((mod) => mod.disableMcpServerCommand(name))),
+    );
+
+  mcpCommand
+    .command("trust [name]")
+    .description("Let a server's read-only tool annotations skip approval prompts")
+    .action((name?: string) =>
+      run(() => import("./commands/mcp").then((mod) => mod.trustMcpServerCommand(name, true))),
+    );
+
+  mcpCommand
+    .command("untrust [name]")
+    .description("Require approval for every tool call from a server")
+    .action((name?: string) =>
+      run(() => import("./commands/mcp").then((mod) => mod.trustMcpServerCommand(name, false))),
+    );
+
+  mcpCommand
+    .command("auth <name>")
+    .description("Authorize a remote MCP server in your browser (OAuth 2.1)")
+    .action((name: string) =>
+      run(() => import("./commands/mcp").then((mod) => mod.authMcpServerCommand(name))),
+    );
+
+  mcpCommand
+    .command("logout <name>")
+    .description("Forget stored OAuth credentials for a remote MCP server")
+    .action((name: string) =>
+      run(() => import("./commands/mcp").then((mod) => mod.logoutMcpServerCommand(name))),
+    );
 }
 
 /**
