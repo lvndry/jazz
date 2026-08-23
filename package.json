@@ -59,6 +59,7 @@
     "format": "bun prettier --write src",
     "test": "bun test",
     "test:watch": "bun test --watch",
+    "bench": "bun bench/run.ts",
     "docs:check-links": "bun run scripts/check-docs-links.ts",
     "docs:design": "bun run scripts/gen-design-docs.ts",
     "docs:lint": "bunx markdownlint-cli2",

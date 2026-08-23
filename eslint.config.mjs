@@ -24,7 +24,7 @@ export default [
   ...tseslint.configs.recommendedTypeChecked.map((config) => ({
     ...config,
     files: ["**/*.{ts,tsx}"],
-    ignores: ["**/*.test.{ts,tsx}", "test-preload.ts", "integrations/**"],
+    ignores: ["**/*.test.{ts,tsx}", "test-preload.ts", "integrations/**", "bench/**"],
   })),
   prettierConfig,
   nodePlugin.configs["flat/recommended-script"],
@@ -37,7 +37,7 @@ export default [
   },
   {
     files: ["**/*.{ts,tsx}"],
-    ignores: ["**/*.test.{ts,tsx}", "test-preload.ts", "integrations/**"],
+    ignores: ["**/*.test.{ts,tsx}", "test-preload.ts", "integrations/**", "bench/**"],
     languageOptions: {
       parserOptions: {
         project: ["./tsconfig.app.json", "./tsconfig.build.json"],
@@ -106,6 +106,24 @@ export default [
           alphabetize: { order: "asc", caseInsensitive: true },
         },
       ],
+    },
+  },
+  {
+    // Benchmarks share the test tsconfig; they print results, so console is fine.
+    files: ["bench/**/*.ts"],
+    languageOptions: {
+      parserOptions: {
+        project: "./tsconfig.test.json",
+        tsconfigRootDir,
+      },
+      globals: {
+        ...nodeGlobals,
+      },
+    },
+    rules: {
+      "no-console": "off",
+      "n/no-missing-import": "off",
+      "n/no-unsupported-features/es-syntax": "off",
     },
   },
   {
