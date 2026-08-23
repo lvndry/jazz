@@ -1,0 +1,233 @@
+---
+
+---
+
+<section class="stage">
+  <p class="kicker mono">a real session, not a screenshot</p>
+  <h2 class="shout">It plays<br />unattended.</h2>
+  <div class="scene">
+    <div class="termframe">
+      <div class="bar mono">
+        <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+        &nbsp;&nbsp;▞ jazz — tuesday, 07:00, unattended
+      </div>
+      <div class="termbody mono" id="termbody"></div>
+      <div class="livezone mono">
+        <span class="lanes" id="stage-lanes"></span>
+        <span class="doing" id="stage-doing">idle</span>
+      </div>
+    </div>
+    <div class="approval mono" id="approval">
+      <div class="ahead"><span>▐</span><span>jazz wants to reschedule an event</span></div>
+      <div class="fields">
+        <div><span class="fk">calendar</span> <span class="fv">landry@lysk.ai</span></div>
+        <div><span class="fk">event</span> <span class="fv">design sync — today 09:30</span></div>
+        <div><span class="fk">move to</span> <span class="fv">today 11:00 (CET)</span></div>
+        <div><span class="fk">attendees</span> <span class="fv">3 people are notified</span></div>
+      </div>
+      <div class="irrev">Attendees see the change immediately.</div>
+      <div class="controls">
+        <span><span class="act">enter</span> approve</span>
+        <span><span class="act">esc</span> reject</span>
+        <span class="allow">a always allow</span>
+      </div>
+    </div>
+  </div>
+  <p class="note mono">
+    <b>the five lanes count real concurrent work</b> — mailbox, calendar and weather at once. and
+    when jazz needs authority it stops and asks, wherever you are.
+  </p>
+</section>
+
+<style>
+  .stage {
+    padding: 16vh 4vw;
+  }
+  .kicker {
+    font-size: 12px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--jz-primary);
+    margin-bottom: 14px;
+  }
+  h2 {
+    font-size: clamp(40px, 7vw, 110px);
+    margin-bottom: 7vh;
+  }
+  .scene {
+    max-width: 880px;
+    margin: 0 auto;
+  }
+  .termframe {
+    background: #0a0c0f;
+    border: 1px solid var(--jz-border);
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow:
+      0 0 0 1px rgba(0, 215, 255, 0.06),
+      0 0 90px rgba(0, 215, 255, 0.1),
+      0 40px 100px rgba(0, 0, 0, 0.7);
+  }
+  .bar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--jz-border);
+    font-size: 11px;
+    color: var(--jz-muted);
+  }
+  .dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: var(--jz-border);
+  }
+  .termbody {
+    padding: 22px 24px 18px;
+    font-size: 14px;
+    line-height: 1.95;
+    min-height: 340px;
+  }
+  .termbody :global(.tl) {
+    white-space: pre-wrap;
+  }
+  .termbody :global(.g-user) {
+    color: var(--jz-primary);
+  }
+  .termbody :global(.g-agent) {
+    color: var(--jz-muted);
+  }
+  .termbody :global(.g-ok) {
+    color: var(--jz-success);
+  }
+  .termbody :global(.g-ask) {
+    color: var(--jz-warning);
+  }
+  .termbody :global(.txt) {
+    color: var(--jz-selected);
+  }
+  .termbody :global(.dim) {
+    color: var(--jz-secondary);
+  }
+  .termbody :global(.mut) {
+    color: var(--jz-muted);
+  }
+  .termbody :global(.cursor) {
+    display: inline-block;
+    width: 8px;
+    height: 17px;
+    background: var(--jz-primary);
+    vertical-align: text-bottom;
+    animation: blink 1.1s steps(1) infinite;
+  }
+  @keyframes blink {
+    50% {
+      opacity: 0;
+    }
+  }
+  .livezone {
+    border-top: 1px solid var(--jz-border);
+    padding: 12px 24px;
+    font-size: 13px;
+    display: flex;
+    gap: 16px;
+    align-items: center;
+  }
+  .lanes {
+    letter-spacing: 4px;
+    font-size: 15px;
+  }
+  .lanes :global(.on) {
+    color: var(--jz-primary);
+  }
+  .lanes :global(.off) {
+    color: var(--jz-border);
+  }
+  .doing {
+    color: var(--jz-muted);
+    font-size: 12px;
+  }
+  .approval {
+    width: min(420px, 100%);
+    margin: 32px 0 0 auto;
+    border: 1px solid var(--jz-warning);
+    border-radius: 8px;
+    background: var(--jz-surface);
+    font-size: 12.5px;
+    transform: translateY(14px);
+    opacity: 0;
+    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.75);
+  }
+  .approval.armed {
+    animation: land 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) forwards;
+  }
+  @keyframes land {
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  .ahead {
+    display: flex;
+    gap: 10px;
+    padding: 14px 18px 4px;
+    color: var(--jz-warning);
+  }
+  .fields {
+    padding: 8px 18px 12px 38px;
+    line-height: 2;
+  }
+  .fk {
+    color: var(--jz-muted);
+    display: inline-block;
+    min-width: 86px;
+  }
+  .fv {
+    color: var(--jz-selected);
+  }
+  .irrev {
+    padding: 0 18px 14px 38px;
+    color: var(--jz-secondary);
+    font-family: var(--font-body);
+    font-size: 13px;
+  }
+  .controls {
+    border-top: 1px solid var(--jz-border);
+    padding: 10px 18px;
+    display: flex;
+    gap: 20px;
+    color: var(--jz-muted);
+    font-size: 12px;
+  }
+  .controls .act {
+    color: var(--jz-selected);
+  }
+  .controls .allow {
+    color: var(--jz-border-soft);
+    opacity: 0.7;
+  }
+  .note {
+    max-width: 880px;
+    margin: 56px auto 0;
+    font-size: 13px;
+    color: var(--jz-muted);
+    line-height: 1.9;
+  }
+  .note b {
+    color: var(--jz-secondary);
+    font-weight: 500;
+  }
+</style>
+
+<script>
+  import { startLanes } from "./lanes";
+  import { runSession } from "./session";
+
+  startLanes(document.getElementById("stage-lanes")!);
+  runSession(
+    document.getElementById("termbody")!,
+    document.getElementById("stage-doing")!,
+    document.getElementById("approval")!,
+  );
+</script>

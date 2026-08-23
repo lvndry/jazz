@@ -1,0 +1,196 @@
+---
+const chromes = [
+  { key: "terminal", label: "▞ jazz — your terminal" },
+  { key: "telegram", label: "Telegram · @your-jazz-bot" },
+  { key: "ci", label: "GitHub · scheduled run" },
+];
+
+const rules = [
+  "It names the real account — not “your calendar”, the actual address.",
+  "Irreversibility is stated in prose, not an icon.",
+  "It animates in, then holds perfectly still — pressure on an irreversible choice is a dark pattern.",
+  "It opens deny-only for 250ms, so a buffered Enter can't approve anything.",
+  "Reject is as available as accept. “Always allow” is the least attractive thing on screen.",
+];
+---
+
+<section class="asks">
+  <p class="kicker mono">the trust argument</p>
+  <h2 class="shout">It asks first.<br /><span class="live">Wherever you are.</span></h2>
+  <p class="lede">
+    A coding agent asks to edit a file you can revert. Jazz asks to send an email, move a meeting,
+    post where other people read. There is no undo — so the approval card is the most consequential
+    component in the product, and it travels to whatever surface you're on.
+  </p>
+  <div class="duo">
+    <div class="traveller" id="traveller">
+      <div class="tabs mono">
+        {
+          chromes.map((chrome, index) => (
+            <span class="tab" data-tab={index}>
+              {chrome.label}
+            </span>
+          ))
+        }
+      </div>
+      <div class="card mono">
+        <div class="ahead"><span>▐</span><span>jazz wants to send an email</span></div>
+        <div class="fields">
+          <div><span class="fk">from</span> <span class="fv">landry@lysk.ai</span></div>
+          <div><span class="fk">to</span> <span class="fv">team@lysk.ai</span></div>
+          <div><span class="fk">subject</span> <span class="fv">Monday priorities</span></div>
+          <div><span class="fk">attachments</span> <span class="fv">none</span></div>
+        </div>
+        <div class="irrev">Sending cannot be undone. Recipients see this immediately.</div>
+        <div class="controls" id="traveller-controls">
+          <span class="ctl" data-ctl="0"><span class="act">enter</span> send · <span class="act">esc</span> reject</span>
+          <span class="ctl" data-ctl="1">[ Send ] [ Reject ] — inline buttons</span>
+          <span class="ctl" data-ctl="2">waiting for a human · run is parked</span>
+        </div>
+      </div>
+    </div>
+    <ul class="rules">
+      {rules.map((rule) => <li>{rule}</li>)}
+    </ul>
+  </div>
+</section>
+
+<style>
+  .asks {
+    padding: 14vh 4vw;
+    border-top: 1px solid var(--jz-border);
+  }
+  .kicker {
+    font-size: 12px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--jz-primary);
+    margin-bottom: 14px;
+  }
+  h2 {
+    font-size: clamp(38px, 6.2vw, 96px);
+  }
+  .live {
+    color: var(--jz-primary);
+  }
+  .lede {
+    margin-top: 26px;
+    max-width: 60ch;
+    font-size: 17px;
+    color: var(--jz-secondary);
+  }
+  .duo {
+    margin-top: 8vh;
+    display: grid;
+    grid-template-columns: 1.1fr 1fr;
+    gap: 6vw;
+    align-items: start;
+  }
+  .tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+  }
+  .tab {
+    font-size: 11px;
+    padding: 6px 12px;
+    border: 1px solid var(--jz-border);
+    border-radius: 100px;
+    color: var(--jz-muted);
+    transition:
+      color 0.3s ease,
+      border-color 0.3s ease;
+  }
+  .traveller[data-active="0"] .tab[data-tab="0"],
+  .traveller[data-active="1"] .tab[data-tab="1"],
+  .traveller[data-active="2"] .tab[data-tab="2"] {
+    color: var(--jz-primary);
+    border-color: var(--jz-primary);
+  }
+  .card {
+    border: 1px solid var(--jz-warning);
+    border-radius: 8px;
+    background: var(--jz-surface);
+    font-size: 12.5px;
+    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+  }
+  .ahead {
+    display: flex;
+    gap: 10px;
+    padding: 14px 18px 4px;
+    color: var(--jz-warning);
+  }
+  .fields {
+    padding: 8px 18px 12px 38px;
+    line-height: 2;
+  }
+  .fk {
+    color: var(--jz-muted);
+    display: inline-block;
+    min-width: 96px;
+  }
+  .fv {
+    color: var(--jz-selected);
+  }
+  .irrev {
+    padding: 0 18px 14px 38px;
+    color: var(--jz-secondary);
+    font-family: var(--font-body);
+    font-size: 13px;
+  }
+  .controls {
+    border-top: 1px solid var(--jz-border);
+    padding: 10px 18px;
+    font-size: 12px;
+    color: var(--jz-muted);
+    position: relative;
+    min-height: 20px;
+  }
+  .ctl {
+    position: absolute;
+    inset: 10px 18px auto;
+    opacity: 0;
+    transition: opacity 0.4s ease;
+  }
+  .ctl .act {
+    color: var(--jz-selected);
+  }
+  .traveller[data-active="0"] .ctl[data-ctl="0"],
+  .traveller[data-active="1"] .ctl[data-ctl="1"],
+  .traveller[data-active="2"] .ctl[data-ctl="2"] {
+    opacity: 1;
+  }
+  .rules {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+  }
+  .rules li {
+    padding: 16px 0;
+    border-top: 1px solid var(--jz-border);
+    color: var(--jz-secondary);
+    font-size: 15px;
+  }
+  .rules li:last-child {
+    border-bottom: 1px solid var(--jz-border);
+  }
+  @media (max-width: 900px) {
+    .duo {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<script>
+  const traveller = document.getElementById("traveller")!;
+  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let active = 0;
+  traveller.dataset.active = "0";
+  if (!reduced) {
+    setInterval(() => {
+      active = (active + 1) % 3;
+      traveller.dataset.active = String(active);
+    }, 3500);
+  }
+</script>

@@ -332,6 +332,46 @@ const { title, description, sidebar, currentRoute, prevNext, rawMdPath } = Astro
   }
 </style>
 
+<script>
+  // Mermaid fences arrive as highlighted source; render them as diagrams.
+  // The library loads only on pages that actually contain one.
+  const blocks = document.querySelectorAll<HTMLPreElement>('pre[data-language="mermaid"]');
+  if (blocks.length > 0) {
+    const dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    import("mermaid").then(async ({ default: mermaid }) => {
+      mermaid.initialize({
+        startOnLoad: false,
+        theme: dark ? "dark" : "neutral",
+        themeVariables: { fontFamily: "IBM Plex Mono, monospace" },
+      });
+      let id = 0;
+      for (const block of blocks) {
+        const source = block.textContent ?? "";
+        try {
+          const { svg } = await mermaid.render(`mermaid-${id++}`, source);
+          const holder = document.createElement("div");
+          holder.className = "mermaid-diagram";
+          holder.innerHTML = svg;
+          block.replaceWith(holder);
+        } catch {
+          // Leave the source visible if a diagram fails to parse.
+        }
+      }
+    });
+  }
+</script>
+
+<style is:global>
+  .mermaid-diagram {
+    overflow-x: auto;
+    padding: 10px 0;
+  }
+  .mermaid-diagram svg {
+    max-width: 100%;
+    height: auto;
+  }
+</style>
+
 {
   import.meta.env.PROD && (
     <script is:inline>

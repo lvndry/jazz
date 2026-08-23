@@ -1,0 +1,152 @@
+---
+
+---
+
+<section class="cta-block">
+  <p class="kicker mono">read the docs — calm on purpose</p>
+  <h2 class="shout">Your move.</h2>
+  <div class="install-row">
+    <code class="install mono" id="install-cmd"
+      >curl -fsSL https://github.com/lvndry/jazz/releases/latest/download/install.sh | bash</code
+    >
+    <button class="copy mono" id="copy-install" aria-label="Copy install command">copy</button>
+  </div>
+  <p class="alt mono">
+    or <code>npm install -g jazz-ai</code> · free to run:
+    <a href="https://openrouter.ai/openrouter/free">OpenRouter's free router</a> needs no card, and
+    ollama runs on your own hardware
+  </p>
+  <nav class="links mono">
+    <a href="/docs/guide/quick-start">quick start</a>
+    <a href="/docs">documentation</a>
+    <a href="https://github.com/lvndry/jazz">github</a>
+    <a href="https://discord.gg/yBDbS2NZju">discord</a>
+  </nav>
+  <div class="ornament mono" id="ornament" aria-hidden="true"></div>
+  <p class="fine mono">MIT licensed · built in the open · <a href="/llms.txt">/llms.txt</a></p>
+</section>
+
+<style>
+  .cta-block {
+    padding: 16vh 4vw 10vh;
+    border-top: 1px solid var(--jz-border);
+  }
+  .kicker {
+    font-size: 12px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--jz-primary);
+    margin-bottom: 14px;
+  }
+  h2 {
+    font-size: clamp(56px, 11vw, 160px);
+    margin-bottom: 6vh;
+  }
+  .install-row {
+    display: flex;
+    gap: 10px;
+    align-items: stretch;
+    max-width: 860px;
+  }
+  .install {
+    flex: 1;
+    padding: 16px 18px;
+    font-size: 13px;
+    color: var(--jz-selected);
+    background: var(--jz-surface);
+    border: 1px solid var(--jz-border);
+    border-radius: 6px;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+  .copy {
+    padding: 0 22px;
+    font-size: 12px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    background: none;
+    color: var(--jz-primary);
+    border: 1px solid var(--jz-primary);
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .copy:hover {
+    background: var(--jz-primary);
+    color: #000;
+  }
+  .alt {
+    margin-top: 18px;
+    font-size: 12.5px;
+    color: var(--jz-muted);
+  }
+  .alt code {
+    color: var(--jz-secondary);
+  }
+  .alt a {
+    color: var(--jz-accent-dim);
+  }
+  .links {
+    display: flex;
+    gap: 30px;
+    margin-top: 7vh;
+    font-size: 13px;
+    flex-wrap: wrap;
+  }
+  .links a {
+    color: var(--jz-secondary);
+    text-decoration: none;
+  }
+  .links a:hover {
+    color: var(--jz-primary);
+  }
+  .ornament {
+    margin-top: 9vh;
+    font-size: 15px;
+    letter-spacing: 2px;
+    color: var(--jz-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    opacity: 0.8;
+    min-height: 1em;
+  }
+  .fine {
+    margin-top: 20px;
+    font-size: 11.5px;
+    color: var(--jz-muted);
+  }
+  .fine a {
+    color: var(--jz-accent-dim);
+  }
+</style>
+
+<script>
+  const button = document.getElementById("copy-install") as HTMLButtonElement;
+  const command = document.getElementById("install-cmd")!.textContent ?? "";
+  button.addEventListener("click", async () => {
+    await navigator.clipboard.writeText(command.trim());
+    button.textContent = "copied";
+    setTimeout(() => {
+      button.textContent = "copy";
+    }, 2000);
+  });
+
+  const ornament = document.getElementById("ornament")!;
+  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let phase = 0;
+  const frame = (): string => {
+    let out = "";
+    for (let cell = 0; cell < 90; cell++) {
+      const upper = (cell + phase) % 5 < 2;
+      const lower = (cell + Math.floor(phase / 2)) % 3 < 1;
+      out += upper && lower ? "█" : upper ? "▀" : lower ? "▄" : " ";
+    }
+    return out;
+  };
+  ornament.textContent = frame();
+  if (!reduced) {
+    setInterval(() => {
+      phase++;
+      ornament.textContent = frame();
+    }, 300);
+  }
+</script>
