@@ -9,12 +9,13 @@ interface Props {
   currentRoute: string;
   prevNext: PrevNext;
   rawMdPath: string;
+  image?: string | undefined;
 }
 
-const { title, description, sidebar, currentRoute, prevNext, rawMdPath } = Astro.props;
+const { title, description, sidebar, currentRoute, prevNext, rawMdPath, image } = Astro.props;
 ---
 
-<Base title={`${title} — Jazz docs`} description={description}>
+<Base title={`${title} — Jazz docs`} description={description} image={image}>
   <header class="top">
     <a class="brand mono" href="/">▞ jazz</a>
     <a class="mono docs-home" href="/docs">docs</a>

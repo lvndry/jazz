@@ -37,6 +37,7 @@ const { Content } = await render(entry);
   currentRoute={routeFor(entry.id)}
   prevNext={prevNextFor(sidebar, entry.id)}
   rawMdPath={`/docs/${entry.id}.md`}
+  image={`/og/${entry.id}.png`}
 >
   <Content />
 </Docs>

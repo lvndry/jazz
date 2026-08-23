@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://jazz.sh/sitemap-index.xml
