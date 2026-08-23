@@ -401,3 +401,4 @@ See [Surfaces](../surfaces/index.md) for where Jazz runs, and
 - [Context management](../internals/context-management.md) — what the context meter measures
 - [Subagents](../internals/subagents.md) — what the lanes represent
 - [Personas](../concepts/personas.md) — where the house voice is defined
+- [**website.html**](./website.html) — the website's design direction ("the terminal, unboxed"): the moodboard with the equalizer hero, the motion language, and the OG/SEO strategy, all animated. Open in a browser; GitHub shows HTML as source

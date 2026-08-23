@@ -53,7 +53,19 @@ export const MOTION = ${JSON.stringify(MOTION, null, 2)} as const;
 
 await mkdir(join(websiteRoot, "src/styles"), { recursive: true });
 await mkdir(join(websiteRoot, "src/generated"), { recursive: true });
-await Bun.write(join(websiteRoot, "src/styles/tokens.css"), tokensCss);
-await Bun.write(join(websiteRoot, "src/generated/tokens.ts"), tokensTs);
+const cssPath = join(websiteRoot, "src/styles/tokens.css");
+const tsPath = join(websiteRoot, "src/generated/tokens.ts");
+await Bun.write(cssPath, tokensCss);
+await Bun.write(tsPath, tokensTs);
+
+// The repo's pre-commit hook prettifies these files; format them here too so
+// the CI freshness diff compares like with like.
+const prettier = Bun.spawnSync(["bun", "prettier", "--write", cssPath, tsPath], {
+  cwd: join(websiteRoot, ".."),
+});
+if (prettier.exitCode !== 0) {
+  console.error(prettier.stderr.toString());
+  process.exit(1);
+}
 
 console.log("wrote src/styles/tokens.css and src/generated/tokens.ts");
