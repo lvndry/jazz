@@ -94,13 +94,13 @@ interface InlineMarks {
   readonly strikethrough?: boolean;
 }
 
-function sameInlineStyle(left: Segment, right: Segment): boolean {
+function sameInlineStyle(previous: Segment, current: Segment): boolean {
   return (
-    left.fg === right.fg &&
-    left.bold === right.bold &&
-    left.italic === right.italic &&
-    left.underline === right.underline &&
-    left.strikethrough === right.strikethrough
+    previous.fg === current.fg &&
+    previous.bold === current.bold &&
+    previous.italic === current.italic &&
+    previous.underline === current.underline &&
+    previous.strikethrough === current.strikethrough
   );
 }
 

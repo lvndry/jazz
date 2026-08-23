@@ -769,54 +769,62 @@ export function blocksFrom(
   return blocks;
 }
 
-function sameBlock(left: Block | undefined, right: Block): boolean {
-  if (left === undefined || left.kind !== right.kind) return false;
-  if (left.id !== right.id || left.seq !== right.seq) return false;
-  switch (left.kind) {
+// `previous` is undefined on the first block or a missing cache slot; still
+// compare so sharing can no-op without a null check at every call site.
+function sameBlock(previous: Block | undefined, current: Block): previous is Block {
+  if (previous === undefined || previous.kind !== current.kind) return false;
+  if (previous.id !== current.id || previous.seq !== current.seq) return false;
+  switch (previous.kind) {
     case "user":
-      return right.kind === "user" && left.text === right.text && left.at === right.at;
+      return (
+        current.kind === "user" && previous.text === current.text && previous.at === current.at
+      );
     case "agent":
       return (
-        right.kind === "agent" &&
-        left.markdown === right.markdown &&
-        left.streaming === right.streaming
+        current.kind === "agent" &&
+        previous.markdown === current.markdown &&
+        previous.streaming === current.streaming
       );
     case "reasoning":
       return (
-        right.kind === "reasoning" &&
-        left.text === right.text &&
-        left.collapsed === right.collapsed &&
-        left.steps === right.steps &&
-        left.durationMs === right.durationMs &&
-        left.tokens === right.tokens
+        current.kind === "reasoning" &&
+        previous.text === current.text &&
+        previous.collapsed === current.collapsed &&
+        previous.steps === current.steps &&
+        previous.durationMs === current.durationMs &&
+        previous.tokens === current.tokens
       );
     case "tool":
       return (
-        right.kind === "tool" &&
-        left.app === right.app &&
-        left.summary === right.summary &&
-        left.args === right.args &&
-        left.status === right.status &&
-        left.reason === right.reason &&
-        left.remedyKey === right.remedyKey &&
-        left.durationMs === right.durationMs &&
-        left.detail === right.detail &&
-        left.expanded === right.expanded &&
-        left.classifiedRisk === right.classifiedRisk
+        current.kind === "tool" &&
+        previous.app === current.app &&
+        previous.summary === current.summary &&
+        previous.args === current.args &&
+        previous.status === current.status &&
+        previous.reason === current.reason &&
+        previous.remedyKey === current.remedyKey &&
+        previous.durationMs === current.durationMs &&
+        previous.detail === current.detail &&
+        previous.expanded === current.expanded &&
+        previous.classifiedRisk === current.classifiedRisk
       );
     case "notice":
-      return right.kind === "notice" && left.text === right.text && left.tone === right.tone;
+      return (
+        current.kind === "notice" &&
+        previous.text === current.text &&
+        previous.tone === current.tone
+      );
     case "divider":
-      return right.kind === "divider" && left.label === right.label;
+      return current.kind === "divider" && previous.label === current.label;
     case "lane":
       return (
-        right.kind === "lane" &&
-        left.name === right.name &&
-        left.ask === right.ask &&
-        left.lane === right.lane &&
-        left.state === right.state &&
-        left.result === right.result &&
-        left.steps === right.steps
+        current.kind === "lane" &&
+        previous.name === current.name &&
+        previous.ask === current.ask &&
+        previous.lane === current.lane &&
+        previous.state === current.state &&
+        previous.result === current.result &&
+        previous.steps === current.steps
       );
   }
 }
@@ -827,11 +835,11 @@ export function shareUnchangedBlocks(
 ): readonly Block[] {
   if (previous.length === 0) return next;
   let changed = previous.length !== next.length;
-  const shared = next.map((block, index) => {
-    const prior = previous[index];
-    if (prior !== undefined && sameBlock(prior, block)) return prior;
+  const shared = next.map((current, index) => {
+    const cached = previous[index];
+    if (sameBlock(cached, current)) return cached;
     changed = true;
-    return block;
+    return current;
   });
   return changed ? shared : previous;
 }
