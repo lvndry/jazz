@@ -6,6 +6,8 @@
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-100%25-blue.svg)](https://www.typescriptlang.org/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![npm version](https://img.shields.io/npm/v/jazz-ai.svg)](https://www.npmjs.com/package/jazz-ai)
 
+![Jazz in the terminal](docs/assets/jazz_demo_github.gif)
+
 </div>
 
 Jazz is an agent harness: the loop, guardrails, and surfaces that turn a model into an
