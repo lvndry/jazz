@@ -431,8 +431,11 @@ export function hintsFor(
   queueing = false,
   overlay?: "approval" | "search" | "question" | "text" | "filepicker",
   commandsOpen = false,
+  overlayArmed = true,
 ): readonly string[] {
-  if (overlay === "approval") return ["enter to accept", "esc to cancel"];
+  if (overlay === "approval") {
+    return overlayArmed ? ["enter to accept", "esc to reject"] : ["esc to reject"];
+  }
   if (overlay === "search") return ["enter to insert", "tab to scope", "esc to close"];
   if (overlay === "text") return ["enter to confirm", "esc to go back"];
   if (overlay === "question" || overlay === "filepicker") {
