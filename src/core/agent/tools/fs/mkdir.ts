@@ -36,6 +36,7 @@ type MkdirDeps = FileSystem.FileSystem | FileSystemContextService;
 export function createMkdirTools(): ApprovalToolPair<MkdirDeps> {
   const config: ApprovalToolConfig<MkdirDeps, MkdirArgs> = {
     name: "mkdir",
+    disclosure: "none",
     description:
       "Create a directory. Parent directories are created automatically unless you set recursive to false. Calling this on a directory that already exists succeeds. For a new file, prefer write_file with createDirs: true instead of a separate mkdir.",
     tags: ["filesystem", "write"],

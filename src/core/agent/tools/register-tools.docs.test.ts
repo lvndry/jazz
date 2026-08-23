@@ -10,7 +10,11 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
-import { ToolRegistryTag, type ToolRiskLevel } from "@/core/interfaces/tool-registry";
+import {
+  ToolRegistryTag,
+  type ToolDisclosure,
+  type ToolRiskLevel,
+} from "@/core/interfaces/tool-registry";
 import { registerAllTools } from "./register-tools";
 import { createToolRegistryLayer } from "./tool-registry";
 
@@ -20,6 +24,7 @@ const DOCS_PATH = "docs/reference/tools.md";
 interface RegisteredTool {
   readonly name: string;
   readonly riskLevel: ToolRiskLevel;
+  readonly disclosure: ToolDisclosure;
 }
 
 /**
@@ -36,7 +41,7 @@ const collectTools = Effect.gen(function* () {
   const tools: RegisteredTool[] = [];
   for (const name of names) {
     const tool = yield* registry.getTool(name);
-    tools.push({ name: tool.name, riskLevel: tool.riskLevel });
+    tools.push({ name: tool.name, riskLevel: tool.riskLevel, disclosure: tool.disclosure });
   }
   return tools;
 });
@@ -85,6 +90,35 @@ describe("docs/reference/tools.md", () => {
       );
 
     expect(mismatches, mismatches.join("; ")).toEqual([]);
+  });
+
+  it("lists every tool under the disclosure level the registry gives it", async () => {
+    const tools = await registeredTools();
+    const markdown = readFileSync(DOCS_PATH, "utf-8");
+
+    // The "What each tool reveals" table has one row per level; the tool names live in its
+    // last cell. Parsed rather than hand-checked for the same reason the risk column is:
+    // a table maintained by hand is a table that drifts.
+    const documented = new Map<ToolDisclosure, Set<string>>();
+    for (const level of ["none", "context", "personal"] as const) {
+      const row = markdown.split("\n").find((line) => line.startsWith(`| \`${level}\``));
+      const names = [...(row ?? "").matchAll(/`([a-z_0-9]+)`/g)]
+        .map((match) => match[1]!)
+        .filter((name) => name !== level);
+      documented.set(level, new Set(names));
+    }
+
+    const misfiled = tools
+      .filter((tool) => !documented.get(tool.disclosure)?.has(tool.name))
+      .map((tool) => `${tool.name} is not listed under ${tool.disclosure}`);
+
+    const stale = [...documented].flatMap(([level, names]) =>
+      [...names]
+        .filter((name) => !tools.some((tool) => tool.name === name && tool.disclosure === level))
+        .map((name) => `${name} is listed under ${level} but the registry disagrees`),
+    );
+
+    expect([...misfiled, ...stale].join("; ")).toBe("");
   });
 
   it("reports the agent-facing tool count accurately", async () => {

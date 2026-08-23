@@ -24,6 +24,7 @@ export function createCdTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, CdParams>({
     name: "cd",
+    disclosure: "context",
     description:
       "Change this session's working directory. Relative paths in later tool calls (read_file, grep, find, execute_command) resolve from the new directory until you call cd again. Prefer passing path on the tool you are about to use instead of changing directory first.",
     tags: ["filesystem", "navigation"],

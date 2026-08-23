@@ -51,6 +51,7 @@ export function createLsTool(): Tool<FileSystem.FileSystem | FileSystemContextSe
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, LsParams>({
     name: "ls",
+    disclosure: "context",
     description:
       "List the contents of one directory. Defaults: this directory only, hidden files excluded, 200 results. " +
       "Use this to see what is in a folder. Do not use this to locate files by glob (find, also available as glob), to search file contents (grep), or to recurse the whole repository (find). " +

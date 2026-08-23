@@ -374,6 +374,7 @@ export function createGrepTool(): Tool<FileSystem.FileSystem | FileSystemContext
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, GrepArgs>({
     name: "grep",
+    disclosure: "personal",
     description:
       "Search inside file contents. Uses ripgrep when installed, otherwise grep. " +
       "Use this to find a symbol or string. Prefer this over execute_command with rg or grep. " +

@@ -39,6 +39,7 @@ type UpdateWorkStateArgs = z.infer<typeof updateWorkStateParameters>;
 export function createUpdateWorkStateTool(): Tool<never> {
   return defineTool<never, UpdateWorkStateArgs>({
     name: "update_work_state",
+    disclosure: "personal",
     description:
       "Record where you are in the current task so it survives context compaction and " +
       "picking the work back up later. Call it when you settle on a goal or plan, finish " +

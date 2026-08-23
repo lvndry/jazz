@@ -201,6 +201,9 @@ function adaptMCPToolToJazz(
     return [
       defineTool<MCPToolDependencies, Record<string, unknown>>({
         name: jazzToolName,
+        // Defined outside this codebase: its output is unknowable, and the safe
+        // reading of "unknown" is the most restrictive level.
+        disclosure: "personal",
         description,
         parameters,
         ...(unwrappedJsonSchema !== undefined ? { jsonSchema: unwrappedJsonSchema } : {}),
@@ -216,6 +219,9 @@ function adaptMCPToolToJazz(
 
   const pair = defineApprovalTool<MCPToolDependencies, Record<string, unknown>>({
     name: jazzToolName,
+    // Defined outside this codebase: its output is unknowable, and the safe
+    // reading of "unknown" is the most restrictive level.
+    disclosure: "personal",
     description,
     parameters,
     riskLevel,

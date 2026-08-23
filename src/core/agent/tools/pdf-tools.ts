@@ -117,6 +117,7 @@ export function createPdfTool(
 ): Tool<FileSystem.FileSystem | FileSystemContextService> {
   return defineTool<FileSystem.FileSystem | FileSystemContextService, CreatePdfArgs>({
     name: "create_pdf",
+    disclosure: "context",
     description:
       "Render a PDF from HTML you write, saved to the user's working directory (or an explicit path). " +
       "Use for reports, summaries, invoices, or anything the person will keep, print, or send on. " +

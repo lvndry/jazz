@@ -119,6 +119,7 @@ export function createManageTodosTool(): Tool<never> {
 
   return defineTool<never, z.infer<typeof parameters>>({
     name: "manage_todos",
+    disclosure: "personal",
     description:
       "Replace this conversation's todo list, which steers the run and shows progress in the UI. Every call replaces the whole list — send every item, not just the ones that changed. " +
       "Use this when the work has three or more distinct steps; skip it for one-liners. Keep exactly one item in_progress, and mark it completed as soon as it is finished. " +
@@ -176,6 +177,7 @@ export function createManageTodosTool(): Tool<never> {
 export function createListTodosTool(): Tool<never> {
   return defineTool({
     name: "list_todos",
+    disclosure: "personal",
     description: "Read the current todo list. Returns all items with their status and priority.",
     parameters: z.object({}),
     riskLevel: "read-only",

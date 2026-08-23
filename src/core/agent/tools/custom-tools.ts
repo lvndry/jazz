@@ -165,6 +165,9 @@ function buildRecordTool(
   return {
     ...defineTool<never, Record<string, unknown>>({
       name: definition.name,
+      // Defined outside this codebase: its output is unknowable, and the safe
+      // reading of "unknown" is the most restrictive level.
+      disclosure: "personal",
       description: definition.description,
       parameters,
       validate,
@@ -216,6 +219,9 @@ function buildCommandTool(
   return {
     ...defineTool<FileSystemContextService | LoggerService, Record<string, unknown>>({
       name: definition.name,
+      // Defined outside this codebase: its output is unknowable, and the safe
+      // reading of "unknown" is the most restrictive level.
+      disclosure: "personal",
       description: definition.description,
       parameters,
       validate,

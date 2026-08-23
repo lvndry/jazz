@@ -49,6 +49,7 @@ type WriteFileDeps = FileSystem.FileSystem | FileSystemContextService;
 export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
   const config: ApprovalToolConfig<WriteFileDeps, WriteFileArgs> = {
     name: "write_file",
+    disclosure: "none",
     description:
       "Create a new UTF-8 file, or replace an entire existing file. Use this when the file does not exist yet, or when you intend to replace every line. " +
       "To change part of an existing file, use edit_file. Prefer createDirs: true over a separate mkdir when creating a new file. " +
