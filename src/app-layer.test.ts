@@ -6,12 +6,20 @@ describe("getPresentationConfig", () => {
   const terminalOutput = { isTTY: true, columns: 100, rows: 24 };
   const terminalInput = { isTTY: true };
 
-  test("capable TTY uses the interactive presentation", () => {
-    const config = getPresentationConfig(terminalEnvironment, terminalOutput, terminalInput);
+  test("a session on a capable TTY uses the alternate screen", () => {
+    const config = getPresentationConfig(terminalEnvironment, terminalOutput, terminalInput, true);
     expect(config.isQuiet).toBe(false);
     expect(config.usePlainTerminal).toBe(false);
     expect(config.useCLIPresentation).toBe(false);
     expect(config.useFullscreen).toBe(true);
+  });
+
+  test("print-and-exit keeps Ink on the main screen so output stays in scrollback", () => {
+    const config = getPresentationConfig(terminalEnvironment, terminalOutput, terminalInput);
+    expect(config.isQuiet).toBe(false);
+    expect(config.usePlainTerminal).toBe(false);
+    expect(config.useCLIPresentation).toBe(false);
+    expect(config.useFullscreen).toBe(false);
   });
 
   // `jazz run` and `jazz workflow --json` set JAZZ_NO_TUI to keep stdout clean
@@ -22,6 +30,7 @@ describe("getPresentationConfig", () => {
       { ...terminalEnvironment, JAZZ_NO_TUI: "1" },
       terminalOutput,
       terminalInput,
+      true,
     );
     expect(config.isQuiet).toBe(false);
     expect(config.usePlainTerminal).toBe(true);
@@ -42,7 +51,12 @@ describe("getPresentationConfig", () => {
   });
 
   test("non-TTY uses plain terminal and CLI presentation", () => {
-    const config = getPresentationConfig(terminalEnvironment, { isTTY: false }, terminalInput);
+    const config = getPresentationConfig(
+      terminalEnvironment,
+      { isTTY: false },
+      terminalInput,
+      true,
+    );
     expect(config.isQuiet).toBe(false);
     expect(config.usePlainTerminal).toBe(true);
     expect(config.useCLIPresentation).toBe(true);
@@ -54,11 +68,13 @@ describe("getPresentationConfig", () => {
       terminalEnvironment,
       { ...terminalOutput, rows: 11 },
       terminalInput,
+      true,
     );
     const narrow = getPresentationConfig(
       terminalEnvironment,
       { ...terminalOutput, columns: 59 },
       terminalInput,
+      true,
     );
     expect(short.usePlainTerminal).toBe(true);
     expect(short.useCLIPresentation).toBe(true);
@@ -76,7 +92,7 @@ describe("getPresentationConfig", () => {
       { ...terminalEnvironment, JAZZ_A11Y: "1" },
     ];
     for (const environment of environments) {
-      const config = getPresentationConfig(environment, terminalOutput, terminalInput);
+      const config = getPresentationConfig(environment, terminalOutput, terminalInput, true);
       expect(config.usePlainTerminal).toBe(true);
       expect(config.useCLIPresentation).toBe(true);
       expect(config.useFullscreen).toBe(false);
@@ -89,7 +105,7 @@ describe("getPresentationConfig", () => {
       { ...terminalEnvironment, JAZZ_FULLSCREEN: "false" },
     ];
     for (const environment of environments) {
-      const config = getPresentationConfig(environment, terminalOutput, terminalInput);
+      const config = getPresentationConfig(environment, terminalOutput, terminalInput, true);
       expect(config.usePlainTerminal).toBe(false);
       expect(config.useCLIPresentation).toBe(false);
       expect(config.useFullscreen).toBe(false);
@@ -108,7 +124,12 @@ describe("getPresentationConfig", () => {
   });
 
   test("non-TTY stdin uses plain output even when stdout is a TTY", () => {
-    const config = getPresentationConfig(terminalEnvironment, terminalOutput, { isTTY: false });
+    const config = getPresentationConfig(
+      terminalEnvironment,
+      terminalOutput,
+      { isTTY: false },
+      true,
+    );
     expect(config.usePlainTerminal).toBe(true);
     expect(config.useCLIPresentation).toBe(true);
     expect(config.useFullscreen).toBe(false);
