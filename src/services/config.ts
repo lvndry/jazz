@@ -41,14 +41,23 @@ const CONFIG_DIR_MODE = 0o700;
 type SecretOrigin = "env" | "keyring";
 
 /**
- * Extract only override fields (enabled) from a server config.
+ * Extract only override fields (enabled, trusted) from a server config.
  * Used when persisting to ~/.jazz/config.json — full definitions live in mcp.json.
  */
 function extractMcpOverride(entry: unknown): MCPServerOverride | undefined {
   if (!entry || typeof entry !== "object") return undefined;
   const entryData = entry as Record<string, unknown>;
-  if (typeof entryData["enabled"] !== "boolean") return undefined;
-  return { enabled: entryData["enabled"] };
+  const enabled = entryData["enabled"];
+  const trusted = entryData["trusted"];
+  const hasEnabled = typeof enabled === "boolean";
+  const hasTrusted = typeof trusted === "boolean";
+  // Either field alone is a complete override: a server can be trusted without
+  // its enabled state ever having been touched.
+  if (!hasEnabled && !hasTrusted) return undefined;
+  return {
+    ...(hasEnabled ? { enabled } : {}),
+    ...(hasTrusted ? { trusted } : {}),
+  };
 }
 
 /**
@@ -179,12 +188,12 @@ export class AgentConfigServiceImpl implements AgentConfigService {
         ...val,
       });
     } else {
-      // set("mcpServers.X.enabled", value)
+      // set("mcpServers.X.enabled", value) / set("mcpServers.X.trusted", value)
       const prop = rest.slice(dotIndex + 1);
-      if (prop === "enabled") {
+      if ((prop === "enabled" || prop === "trusted") && typeof value === "boolean") {
         this.mcpOverrides[serverName] = {
           ...this.mcpOverrides[serverName],
-          enabled: value as boolean,
+          [prop]: value,
         };
       }
       deepSet(this.currentConfig as unknown as Record<string, unknown>, key, value);
@@ -276,6 +285,7 @@ function mergeMcpServers(
     merged[name] = {
       ...cfg,
       ...(ov?.enabled !== undefined ? { enabled: ov.enabled } : {}),
+      ...(ov?.trusted !== undefined ? { trusted: ov.trusted } : {}),
     };
   }
   return merged;

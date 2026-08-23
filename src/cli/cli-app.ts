@@ -452,6 +452,22 @@ function registerMCPCommands(program: Command): void {
   mcpCommand
     .command("add [nameOrJson] [commandAndArgs...]")
     .description("Add an MCP server by name + command, or from JSON (inline, --file, stdin)")
+    // A server command with its own flags (`npx -y ...`) has to sit after `--`,
+    // or Commander claims those flags for itself.
+    .addHelpText(
+      "after",
+      `
+Examples:
+  jazz mcp add notes -- npx -y @modelcontextprotocol/server-filesystem ~/notes
+  jazz mcp add linear --transport http https://mcp.linear.app/mcp
+  jazz mcp add db --env PGHOST=localhost -- my-db-server
+  jazz mcp add '{"srv": {"command": "my-server"}}'
+  pbpaste | jazz mcp add
+
+Put the server's own command after \`--\` whenever it takes flags of its own.
+Remote servers that need a login: run \`jazz mcp auth <name>\` after adding.
+`,
+    )
     .option("-f, --file <path>", "Read MCP server JSON from a file")
     .option("-t, --transport <type>", "Transport to use: stdio (default) or http")
     .option("-e, --env <KEY=VALUE>", "Environment variable for a stdio server", collect, [])

@@ -114,6 +114,12 @@ export interface OtlpTelemetryConfig {
  */
 export interface MCPServerOverride {
   readonly enabled?: boolean;
+  /**
+   * Whether the user vouches for this server. Owned by Jazz rather than
+   * mcp.json, because it is a statement about the user's trust, not part of
+   * the server's own definition.
+   */
+  readonly trusted?: boolean;
 }
 
 export type StorageConfig =
