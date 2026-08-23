@@ -2025,6 +2025,41 @@ describe("fullscreen bridge", () => {
     return rendered;
   }
 
+  it("suggests file paths while typing an @ mention and accepts one with Tab", async () => {
+    const rendered = await liveComposer();
+    await typeInto(rendered.mockInput, rendered.flush, "@package");
+    // The scan is debounced and walks the filesystem, so it needs a real wait
+    // rather than a microtask drain.
+    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush, 100);
+
+    expect(rendered.captureCharFrame()).toContain("@package.json");
+
+    await rendered.mockInput.pressKey("TAB");
+    await settleKeypress(rendered.flush, 100);
+    const accepted = rendered.captureCharFrame();
+    rendered.renderer.destroy();
+    store.setPrompt(null);
+
+    // Accepting edits the composer rather than submitting: a path is not a
+    // command, so there is nothing to run.
+    expect(accepted).toContain("package.json");
+  });
+
+  it("does not open the file menu for an @ inside a word", async () => {
+    const rendered = await liveComposer();
+    await typeInto(rendered.mockInput, rendered.flush, "mail me@package");
+    await settleKeypress(rendered.flush, 100);
+    await settleKeypress(rendered.flush, 100);
+    const frame = rendered.captureCharFrame();
+    rendered.renderer.destroy();
+    store.setPrompt(null);
+
+    // An email address must not turn the picker on.
+    expect(frame).toContain("me@package");
+    expect(frame).not.toContain("@package.json");
+  });
+
   it("types capital letters as capitals", async () => {
     // `key.name` is lowercased for a shifted letter — "X" arrives as
     // `name: "x"` with `shift: true` — so a composer built on `name` types

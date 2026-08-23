@@ -134,18 +134,23 @@ function commandSuggestRows(
 ): InputRow[] {
   if (size <= 0) return [];
   const visible = carouselWindow(commands.items, commands.selected, size);
+  const prefix = commands.prefix ?? "/";
   const rows: InputRow[] = visible.map((command) => {
     const selected = command === commands.items[commands.selected];
     const usage = command.usage === undefined ? "" : ` ${command.usage}`;
-    const skill = command.source ? (command.source === "skill" ? " (skill)" : " (mcp)") : "";
+    // A path list is all files, so a badge on every row would be noise; only
+    // the mixed command list needs to say where an entry came from — and a
+    // file entry's `source` is always undefined, so it falls out naturally.
+    const origin =
+      command.source === "skill" ? " (skill)" : command.source === "mcp-prompt" ? " (mcp)" : "";
     const segments: InputSegment[] = [
       { text: selected ? `${glyphs.rail} ` : "  ", fg: THEME.primary },
-      { text: `/${command.name}`, fg: selected ? THEME.selected : THEME.secondary },
+      { text: `${prefix}${command.name}`, fg: selected ? THEME.selected : THEME.secondary },
       ...(usage.length > 0 ? [{ text: usage, fg: THEME.muted }] : []),
-      ...(skill.length > 0 ? [{ text: skill, fg: THEME.muted }] : []),
+      ...(origin.length > 0 ? [{ text: origin, fg: THEME.muted }] : []),
       { text: `  ${command.description}`, fg: THEME.muted },
     ];
-    return { key: `cmd:${command.name}`, segments: fitTerminalSegments(segments, width) };
+    return { key: `${prefix}${command.name}`, segments: fitTerminalSegments(segments, width) };
   });
   return rows;
 }

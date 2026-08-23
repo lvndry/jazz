@@ -2,6 +2,7 @@ import { Box, Text, useInput } from "ink";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Suggestion } from "@/core/interfaces/presentation";
 import { filterCommandsByPrefix, type ChatCommandInfo } from "@/services/chat/commands";
+import { applyAtMention } from "./at-mention";
 import { ChatInput } from "./components/ChatInput";
 import { FilePicker } from "./components/FilePicker";
 import { Questionnaire } from "./components/Questionnaire";
@@ -16,6 +17,7 @@ import { isCursorOnFirstLine, isCursorOnLastLine } from "./queue-recall";
 import { store } from "./store";
 import { PADDING, THEME } from "./theme";
 import type { PromptState } from "./types";
+import { useFileMentions } from "./use-file-mentions";
 
 const G = getGlyphs();
 
@@ -42,11 +44,14 @@ const MAX_VISIBLE_SUGGESTIONS = 8;
 interface CommandSuggestionItemProps {
   command: ChatCommandInfo;
   isSelected: boolean;
+  /** Sigil the row completes: "/" for a command, "@" for a file path. */
+  prefix?: "/" | "@";
 }
 
 function CommandSuggestionItem({
   command,
   isSelected,
+  prefix = "/",
 }: CommandSuggestionItemProps): React.ReactElement {
   return (
     <Box marginLeft={1}>
@@ -54,7 +59,9 @@ function CommandSuggestionItem({
         {...(isSelected ? { color: THEME.selected } : {})}
         bold={isSelected}
       >
-        {isSelected ? "> " : "  "}/{command.name}
+        {isSelected ? "> " : "  "}
+        {prefix}
+        {command.name}
       </Text>
       {command.usage ? <Text color={THEME.muted}> {command.usage}</Text> : null}
       {command.source ? (
@@ -143,34 +150,48 @@ function PromptComponent({
         : [],
     [commandSuggestionsEnabled, suggestionPrefix, value],
   );
-  const suggestionsVisible = filteredCommands.length > 0;
+  // `@path` completions share the suggestion list with slash commands. Only one
+  // can be live: a slash query needs the line to start with "/".
+  const { span: mentionSpan, items: mentionItems } = useFileMentions(value, cursor);
+  const mentionSuggestions = useMemo<readonly ChatCommandInfo[]>(
+    () =>
+      commandSuggestionsEnabled && mentionSpan !== null && filteredCommands.length === 0
+        ? mentionItems.map((item) => ({ name: item.name, description: item.description }))
+        : [],
+    [commandSuggestionsEnabled, mentionSpan, mentionItems, filteredCommands.length],
+  );
+  const mentioning = mentionSuggestions.length > 0;
+  const suggestions = mentioning ? mentionSuggestions : filteredCommands;
+  const suggestionsVisible = suggestions.length > 0;
   const suggestionWindowStart = Math.min(
     Math.max(0, selectedSuggestionIndex - MAX_VISIBLE_SUGGESTIONS + 1),
-    Math.max(0, filteredCommands.length - MAX_VISIBLE_SUGGESTIONS),
+    Math.max(0, suggestions.length - MAX_VISIBLE_SUGGESTIONS),
   );
-  const visibleSuggestions = filteredCommands.slice(
+  const visibleSuggestions = suggestions.slice(
     suggestionWindowStart,
     suggestionWindowStart + MAX_VISIBLE_SUGGESTIONS,
   );
   const hiddenSuggestionsBelow =
-    filteredCommands.length - suggestionWindowStart - visibleSuggestions.length;
+    suggestions.length - suggestionWindowStart - visibleSuggestions.length;
 
   // Keep selected index in bounds when list changes
   useEffect(() => {
-    if (filteredCommands.length > 0) {
-      setSelectedSuggestionIndex((i) => Math.min(i, filteredCommands.length - 1));
+    if (suggestions.length > 0) {
+      setSelectedSuggestionIndex((i) => Math.min(i, suggestions.length - 1));
     }
-  }, [filteredCommands.length]);
+  }, [suggestions.length]);
 
   // Refs for command-suggestions handler so it sees latest state
   const setSelectedSuggestionIndexRef = useRef(setSelectedSuggestionIndex);
-  const filteredCommandsRef = useRef(filteredCommands);
+  const filteredCommandsRef = useRef(suggestions);
   const selectedSuggestionIndexRef = useRef(selectedSuggestionIndex);
   const valueRef = useRef(value);
   const cursorRef = useRef(cursor);
   setSelectedSuggestionIndexRef.current = setSelectedSuggestionIndex;
-  filteredCommandsRef.current = filteredCommands;
+  filteredCommandsRef.current = suggestions;
   selectedSuggestionIndexRef.current = selectedSuggestionIndex;
+  const mentionSpanRef = useRef(mentionSpan);
+  mentionSpanRef.current = mentioning ? mentionSpan : null;
   valueRef.current = value;
   cursorRef.current = cursor;
 
@@ -188,6 +209,17 @@ function PromptComponent({
       if (action.type === "down") {
         setSelectedSuggestionIndexRef.current(Math.min(commands.length - 1, idx + 1));
         return InputResults.consumed();
+      }
+      const mention = mentionSpanRef.current;
+      if (mention !== null && commands[idx]) {
+        // Tab and Enter both accept a path: there is nothing to submit, so
+        // accepting only rewrites the span it came from.
+        if (action.type === "tab" || action.type === "submit") {
+          const applied = applyAtMention(valueRef.current, mention, commands[idx].name);
+          setValueRef.current(applied.text, applied.caret);
+          setSelectedSuggestionIndexRef.current(0);
+          return InputResults.consumed();
+        }
       }
       if (action.type === "tab" && commands[idx]) {
         const nextValue = "/" + commands[idx].name + " ";
@@ -369,12 +401,17 @@ function PromptComponent({
                 marginTop={1}
                 flexDirection="column"
               >
-                <Text dimColor>Commands (↑/↓ select · Tab complete · Enter run):</Text>
+                <Text dimColor>
+                  {mentioning
+                    ? "Files (↑/↓ select · Tab or Enter insert):"
+                    : "Commands (↑/↓ select · Tab complete · Enter run):"}
+                </Text>
                 {visibleSuggestions.map((cmd, index) => (
                   <CommandSuggestionItem
                     key={cmd.name}
                     command={cmd}
                     isSelected={suggestionWindowStart + index === selectedSuggestionIndex}
+                    prefix={mentioning ? "@" : "/"}
                   />
                 ))}
                 {hiddenSuggestionsBelow > 0 && (

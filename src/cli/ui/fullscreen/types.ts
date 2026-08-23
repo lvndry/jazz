@@ -211,6 +211,11 @@ export interface InputModel {
   readonly commands?: {
     readonly items: readonly CommandSuggestion[];
     readonly selected: number;
+    /**
+     * Sigil the suggestions complete. Slash commands and `@` file mentions
+     * share this menu, and the rows have to show the one being typed.
+     */
+    readonly prefix?: "/" | "@";
   };
   /**
    * Code-point offset into `value` where the next typed character lands.
