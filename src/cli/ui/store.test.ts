@@ -12,19 +12,20 @@ describe("UIStore", () => {
   // Pending queue — before handler registration
   // -------------------------------------------------------------------------
 
-  describe("pending output queue", () => {
-    test("queues entries when no handler is registered", () => {
+  describe("output slice", () => {
+    test("printOutput lands in the snapshot after the batch flush", async () => {
       const s = new UIStore();
       s.printOutput(entry("a"));
       s.printOutput(entry("b"));
+      expect(s.getOutputSnapshot().entries).toHaveLength(0);
 
-      const drained = s.drainPendingOutputQueue();
-      expect(drained).toHaveLength(2);
-      expect(drained[0]!.message).toBe("a");
-      expect(drained[1]!.message).toBe("b");
+      await Promise.resolve();
+      expect(s.getOutputSnapshot().entries).toHaveLength(2);
+      expect(s.getOutputSnapshot().entries[0]!.message).toBe("a");
+      expect(s.getOutputSnapshot().entries[1]!.message).toBe("b");
     });
 
-    test("assigns unique ids to queued entries", () => {
+    test("assigns unique ids to printed entries", () => {
       const s = new UIStore();
       const id1 = s.printOutput(entry("a"));
       const id2 = s.printOutput(entry("b"));
@@ -34,37 +35,13 @@ describe("UIStore", () => {
       expect(id2).toContain("queued-output-");
     });
 
-    test("preserves caller-provided id", () => {
+    test("preserves caller-provided id", async () => {
       const s = new UIStore();
       const id = s.printOutput({ ...entry(), id: "custom-id" });
 
       expect(id).toBe("custom-id");
-      const drained = s.drainPendingOutputQueue();
-      expect(drained[0]!.id).toBe("custom-id");
-    });
-
-    test("drops entries beyond MAX_PENDING_OUTPUT_QUEUE (2000)", () => {
-      const s = new UIStore();
-      for (let i = 0; i < 2050; i++) {
-        s.printOutput(entry(`msg-${i}`));
-      }
-
-      const drained = s.drainPendingOutputQueue();
-      expect(drained).toHaveLength(2000);
-      // First entry is preserved, overflow entries are dropped
-      expect(drained[0]!.message).toBe("msg-0");
-      expect(drained[1999]!.message).toBe("msg-1999");
-    });
-
-    test("drain empties the queue", () => {
-      const s = new UIStore();
-      s.printOutput(entry("a"));
-
-      const first = s.drainPendingOutputQueue();
-      expect(first).toHaveLength(1);
-
-      const second = s.drainPendingOutputQueue();
-      expect(second).toHaveLength(0);
+      s.flushOutputBatchNow();
+      expect(s.getOutputSnapshot().entries[0]!.id).toBe("custom-id");
     });
   });
 
@@ -72,41 +49,82 @@ describe("UIStore", () => {
   // Handler registration — entries bypass queue
   // -------------------------------------------------------------------------
 
-  describe("handler registration", () => {
-    test("delegates to handler once registered (batched on microtask)", async () => {
+  describe("subscribe slices", () => {
+    test("output subscribe is multicast — both trees see the same snapshot", async () => {
       const s = new UIStore();
-      const received: OutputEntry[] = [];
-      s.registerPrintOutput((eOrBatch) => {
-        const arr = Array.isArray(eOrBatch) ? eOrBatch : [eOrBatch];
-        received.push(...arr);
-        return arr[0]?.id ?? "generated";
-      });
+      const ink: OutputEntry[][] = [];
+      const fullscreen: OutputEntry[][] = [];
+      s.subscribeOutput(() => ink.push([...s.getOutputSnapshot().entries]));
+      s.subscribeOutput(() => fullscreen.push([...s.getOutputSnapshot().entries]));
 
-      s.printOutput(entry("direct"));
-      await Promise.resolve(); // Let batch microtask run
-      expect(received).toHaveLength(1);
-      expect(received[0]!.message).toBe("direct");
-      expect(s.drainPendingOutputQueue()).toHaveLength(0);
+      s.printOutput(entry("hello"));
+      await Promise.resolve();
+
+      expect(ink).toHaveLength(1);
+      expect(fullscreen).toHaveLength(1);
+      expect(ink[0]).toEqual(fullscreen[0]);
+      expect(ink[0]![0]!.message).toBe("hello");
+      expect(s.getOutputSnapshot()).toBe(s.getOutputSnapshot());
     });
 
-    test("coalesces rapid calls into single batch", async () => {
+    test("getSnapshot is Object.is-stable across reads and unrelated writes", () => {
       const s = new UIStore();
-      const received: OutputEntry[] = [];
-      s.registerPrintOutput((eOrBatch) => {
-        const arr = Array.isArray(eOrBatch) ? eOrBatch : [eOrBatch];
-        received.push(...arr);
-        return arr[0]?.id ?? "generated";
+      const output = s.getOutputSnapshot();
+      const session = s.getSessionSnapshot();
+      const prompt = s.getPromptSlice();
+      const ephemeral = s.getEphemeralSnapshot();
+
+      expect(s.getOutputSnapshot()).toBe(output);
+      expect(s.getSessionSnapshot()).toBe(session);
+      expect(s.getPromptSlice()).toBe(prompt);
+      expect(s.getEphemeralSnapshot()).toBe(ephemeral);
+
+      s.setActivity({ phase: "thinking", agentName: "A" });
+      expect(s.getOutputSnapshot()).toBe(output);
+      expect(s.getPromptSlice()).toBe(prompt);
+      expect(s.getEphemeralSnapshot()).toBe(ephemeral);
+      expect(s.getSessionSnapshot()).not.toBe(session);
+      expect(s.getSessionSnapshot()).toBe(s.getSessionSnapshot());
+    });
+
+    test("session subscribe is multicast", () => {
+      const s = new UIStore();
+      let ink = 0;
+      let fullscreen = 0;
+      s.subscribeSession(() => {
+        ink += 1;
+      });
+      s.subscribeSession(() => {
+        fullscreen += 1;
+      });
+
+      s.setChatBusy(true);
+      expect(ink).toBe(1);
+      expect(fullscreen).toBe(1);
+      s.setChatBusy(true);
+      expect(ink).toBe(1);
+      expect(fullscreen).toBe(1);
+    });
+
+    test("unsubscribing one tree does not silence the other", () => {
+      const s = new UIStore();
+      let ink = 0;
+      let fullscreen = 0;
+      const unsubscribeInk = s.subscribeOutput(() => {
+        ink += 1;
+      });
+      s.subscribeOutput(() => {
+        fullscreen += 1;
       });
 
       s.printOutput(entry("a"));
+      s.flushOutputBatchNow();
+      unsubscribeInk();
       s.printOutput(entry("b"));
-      s.printOutput(entry("c"));
-      expect(received).toHaveLength(0); // Not yet flushed
-      await Promise.resolve();
-      expect(received).toHaveLength(3);
-      expect(received[0]!.message).toBe("a");
-      expect(received[1]!.message).toBe("b");
-      expect(received[2]!.message).toBe("c");
+      s.flushOutputBatchNow();
+
+      expect(ink).toBe(1);
+      expect(fullscreen).toBe(2);
     });
 
     test("stale renderer cleanup does not unregister a newer fallback handler", () => {
@@ -128,20 +146,18 @@ describe("UIStore", () => {
       expect(fallbackRequests).toBe(1);
     });
 
-    test("carries a custom view across renderer replacement", () => {
+    test("both session subscribers see customView", () => {
       const s = new UIStore();
-      const firstRenderer: Array<React.ReactNode | null> = [];
-      const secondRenderer: Array<React.ReactNode | null> = [];
-      const unregisterFirst = s.registerCustomView((view) => firstRenderer.push(view));
+      const ink: Array<React.ReactNode | null> = [];
+      const fullscreen: Array<React.ReactNode | null> = [];
+      s.subscribeSession(() => ink.push(s.getSessionSnapshot().customView));
+      s.subscribeSession(() => fullscreen.push(s.getSessionSnapshot().customView));
 
       s.setCustomView("Ink-only screen");
-      const unregisterSecond = s.registerCustomView((view) => secondRenderer.push(view));
-      unregisterFirst();
       s.setCustomView(null);
 
-      expect(firstRenderer).toEqual([null, "Ink-only screen"]);
-      expect(secondRenderer).toEqual(["Ink-only screen", null]);
-      unregisterSecond();
+      expect(ink).toEqual(["Ink-only screen", null]);
+      expect(fullscreen).toEqual(["Ink-only screen", null]);
     });
   });
 
@@ -150,60 +166,27 @@ describe("UIStore", () => {
   // -------------------------------------------------------------------------
 
   describe("clearOutputs", () => {
-    test("sets pending clear flag and empties queue when no handler", () => {
+    test("clears the output snapshot immediately", () => {
       const s = new UIStore();
       s.printOutput(entry("a"));
       s.printOutput(entry("b"));
+      s.flushOutputBatchNow();
+      expect(s.getOutputSnapshot().entries).toHaveLength(2);
 
       s.clearOutputs();
 
-      expect(s.hasPendingClear()).toBe(true);
-      expect(s.drainPendingOutputQueue()).toHaveLength(0);
-    });
-
-    test("delegates to handler when registered", () => {
-      const s = new UIStore();
-      let cleared = false;
-      s.registerClearOutputs(() => {
-        cleared = true;
-      });
-
-      s.clearOutputs();
-
-      expect(cleared).toBe(true);
-      // No pending clear since handler was called directly
-      expect(s.hasPendingClear()).toBe(false);
-    });
-
-    test("consumePendingClear resets the flag", () => {
-      const s = new UIStore();
-      s.clearOutputs();
-      expect(s.hasPendingClear()).toBe(true);
-
-      s.consumePendingClear();
-      expect(s.hasPendingClear()).toBe(false);
+      expect(s.getOutputSnapshot().entries).toHaveLength(0);
+      expect(s.getOutputSnapshot().streaming).toBe("");
     });
 
     test("discards pending batched outputs to prevent post-clear race", async () => {
       const s = new UIStore();
-      const received: OutputEntry[] = [];
-      s.registerPrintOutput((eOrBatch) => {
-        const arr = Array.isArray(eOrBatch) ? eOrBatch : [eOrBatch];
-        received.push(...arr);
-        return arr[0]?.id ?? "generated";
-      });
-      s.registerClearOutputs(() => {
-        received.length = 0;
-      });
-
       s.printOutput(entry("a"));
       s.printOutput(entry("b"));
-      // Before microtask flushes, clear outputs
       s.clearOutputs();
 
-      // Let the microtask run - should NOT flush the discarded batch
       await Promise.resolve();
-      expect(received).toHaveLength(0);
+      expect(s.getOutputSnapshot().entries).toHaveLength(0);
     });
   });
 
@@ -220,10 +203,10 @@ describe("UIStore", () => {
       expect(s.getActivitySnapshot()).toEqual({ phase: "thinking", agentName: "A" });
     });
 
-    test("forwards activity to registered setter", () => {
+    test("notifies session subscribers", () => {
       const s = new UIStore();
       const calls: unknown[] = [];
-      s.registerActivitySetter((a) => calls.push(a));
+      s.subscribeSession(() => calls.push(s.getActivitySnapshot()));
 
       s.setActivity({ phase: "thinking", agentName: "A" });
       expect(calls).toHaveLength(1);
@@ -264,7 +247,7 @@ describe("UIStore", () => {
     test("nested setInterruptHandler restores outer handler when inner pops", () => {
       const s = new UIStore();
       const seen: Array<(() => void) | null> = [];
-      s.registerInterruptHandler((h) => seen.push(h));
+      s.subscribeSession(() => seen.push(s.getSessionSnapshot().interruptHandler));
 
       const outer = (): void => {};
       const inner = (): void => {};
@@ -279,23 +262,18 @@ describe("UIStore", () => {
 
     test("popping below empty is a no-op (over-pop tolerated)", () => {
       const s = new UIStore();
-      s.registerInterruptHandler(() => {});
       expect(() => s.setInterruptHandler(null)).not.toThrow();
     });
 
-    test("registerInterruptHandler(null) detaches the UI setter without dropping the stack", () => {
+    test("unsubscribing does not drop the interrupt stack", () => {
       const s = new UIStore();
-      const seenA: Array<(() => void) | null> = [];
-      s.registerInterruptHandler((h) => seenA.push(h));
+      const unsubscribe = s.subscribeSession(() => undefined);
 
       const handler = (): void => {};
       s.setInterruptHandler(handler);
+      unsubscribe();
 
-      s.registerInterruptHandler(null);
-      // Re-attaching a fresh setter should observe the still-present handler.
-      const seenB: Array<(() => void) | null> = [];
-      s.registerInterruptHandler((h) => seenB.push(h));
-      expect(seenB[0]).toBe(handler);
+      expect(s.getSessionSnapshot().interruptHandler).toBe(handler);
     });
   });
 
@@ -352,12 +330,6 @@ describe("UIStore", () => {
 
     test("collapseEphemeral removes region and emits summary line", () => {
       const s = new UIStore();
-      const received: OutputEntry[] = [];
-      s.registerPrintOutput((eOrBatch) => {
-        const arr = Array.isArray(eOrBatch) ? eOrBatch : [eOrBatch];
-        received.push(...arr);
-        return arr[0]?.id ?? "id";
-      });
 
       const id = s.openEphemeral("reasoning", "Reasoning", 8);
       s.collapseEphemeral(id, {
@@ -366,11 +338,8 @@ describe("UIStore", () => {
       });
 
       expect(s.getEphemeralRegionsSnapshot()).toHaveLength(0);
-      // Wait for batch microtask
-      return Promise.resolve().then(() => {
-        expect(received).toHaveLength(1);
-        expect(received[0]!.message).toBe("✓ Reasoning · 12s · 100 tokens");
-      });
+      expect(s.getOutputSnapshot().entries).toHaveLength(1);
+      expect(s.getOutputSnapshot().entries[0]!.message).toBe("✓ Reasoning · 12s · 100 tokens");
     });
 
     test("collapseEphemeral keeps the live tail when fullText is missing", () => {
@@ -411,12 +380,6 @@ describe("UIStore", () => {
 
     test("collapseAllEphemeral removes every open region without emitting summaries", () => {
       const s = new UIStore();
-      const printed: OutputEntry[] = [];
-      s.registerPrintOutput((eOrBatch) => {
-        const arr = Array.isArray(eOrBatch) ? eOrBatch : [eOrBatch];
-        printed.push(...arr);
-        return arr[0]?.id ?? "id";
-      });
 
       s.openEphemeral("reasoning", "R", 8);
       s.openEphemeral("subagent", "S1", 12);
@@ -425,28 +388,11 @@ describe("UIStore", () => {
       s.collapseAllEphemeral();
 
       expect(s.getEphemeralRegionsSnapshot()).toHaveLength(0);
-      return Promise.resolve().then(() => {
-        expect(printed).toHaveLength(0);
-      });
+      expect(s.getOutputSnapshot().entries).toHaveLength(0);
     });
 
     test("expandLastReasoning rewrites the collapsed entry in place", () => {
       const s = new UIStore();
-      const printed: OutputEntry[] = [];
-      s.registerPrintOutput((eOrBatch) => {
-        const arr = Array.isArray(eOrBatch) ? eOrBatch : [eOrBatch];
-        printed.push(...arr);
-        return arr[0]?.id ?? "id";
-      });
-      s.registerUpdateOutput((id, patch) => {
-        const index = printed.findIndex((entry) => entry.id === id);
-        if (index < 0) return;
-        printed[index] = {
-          ...printed[index]!,
-          ...patch,
-          meta: { ...printed[index]!.meta, ...patch.meta },
-        };
-      });
 
       const id = s.openEphemeral("reasoning", "Reasoning", 8);
       s.collapseEphemeral(id, {
@@ -454,12 +400,13 @@ describe("UIStore", () => {
         fullText: "full reasoning body",
       });
 
-      expect(printed).toHaveLength(1);
-      expect(printed[0]!.meta?.["collapsed"]).toBe(true);
+      expect(s.getOutputSnapshot().entries).toHaveLength(1);
+      expect(s.getOutputSnapshot().entries[0]!.meta?.["collapsed"]).toBe(true);
 
       s.expandLastReasoning();
       s.expandLastReasoning(); // second call is no-op
 
+      const printed = s.getOutputSnapshot().entries;
       expect(printed).toHaveLength(1);
       expect(printed[0]!.type).toBe("streamContent");
       expect(printed[0]!.message).toContain("full reasoning body");
@@ -468,23 +415,26 @@ describe("UIStore", () => {
       expect(s.getExpandableReasoningSnapshot()).toBeNull();
     });
 
+    test("expandLastReasoning('append') adds a fresh entry so Ink's Static can show it", () => {
+      const s = new UIStore();
+
+      const id = s.openEphemeral("reasoning", "Reasoning", 8);
+      s.collapseEphemeral(id, { durationMs: 1000, fullText: "full reasoning body" });
+
+      expect(s.getOutputSnapshot().entries).toHaveLength(1);
+
+      s.expandLastReasoning("append");
+
+      const printed = s.getOutputSnapshot().entries;
+      expect(printed).toHaveLength(2);
+      expect(printed[0]!.meta?.["collapsed"]).toBe(true);
+      expect(printed[1]!.message).toContain("full reasoning body");
+      expect(printed[1]!.id).not.toBe(printed[0]!.id);
+      expect(s.getExpandableReasoningSnapshot()).toBeNull();
+    });
+
     test("expandLastReasoning expands later blocks without moving them", () => {
       const s = new UIStore();
-      const printed: OutputEntry[] = [];
-      s.registerPrintOutput((eOrBatch) => {
-        const arr = Array.isArray(eOrBatch) ? eOrBatch : [eOrBatch];
-        printed.push(...arr);
-        return arr[0]?.id ?? "id";
-      });
-      s.registerUpdateOutput((id, patch) => {
-        const index = printed.findIndex((entry) => entry.id === id);
-        if (index < 0) return;
-        printed[index] = {
-          ...printed[index]!,
-          ...patch,
-          meta: { ...printed[index]!.meta, ...patch.meta },
-        };
-      });
 
       const first = s.openEphemeral("reasoning", "Reasoning", 8);
       s.collapseEphemeral(first, { durationMs: 500, fullText: "first block" });
@@ -495,6 +445,7 @@ describe("UIStore", () => {
       s.expandLastReasoning();
       s.expandLastReasoning(); // stack empty — no-op
 
+      const printed = s.getOutputSnapshot().entries;
       expect(printed).toHaveLength(2);
       expect(printed[0]!.message).toContain("first block");
       expect(printed[1]!.message).toContain("second block");
@@ -503,18 +454,13 @@ describe("UIStore", () => {
 
     test("Ctrl+R during a live panel pins it so collapse stays expanded", () => {
       const s = new UIStore();
-      const printed: OutputEntry[] = [];
-      s.registerPrintOutput((eOrBatch) => {
-        const arr = Array.isArray(eOrBatch) ? eOrBatch : [eOrBatch];
-        printed.push(...arr);
-        return arr[0]?.id ?? "id";
-      });
 
       const id = s.openEphemeral("reasoning", "Reasoning", 8);
       s.appendEphemeral(id, "live thought");
       expect(s.expandLastReasoning()).toBe(true);
       s.collapseEphemeral(id, { durationMs: 400, fullText: "live thought" });
 
+      const printed = s.getOutputSnapshot().entries;
       expect(printed).toHaveLength(1);
       expect(printed[0]!.meta?.["collapsed"]).toBe(false);
       expect(printed[0]!.message).toContain("live thought");
@@ -522,17 +468,12 @@ describe("UIStore", () => {
 
     test("setCollapseReasoning(false) settles reasoning expanded without Ctrl+R", () => {
       const s = new UIStore();
-      const printed: OutputEntry[] = [];
-      s.registerPrintOutput((eOrBatch) => {
-        const arr = Array.isArray(eOrBatch) ? eOrBatch : [eOrBatch];
-        printed.push(...arr);
-        return arr[0]?.id ?? "id";
-      });
       s.setCollapseReasoning(false);
 
       const id = s.openEphemeral("reasoning", "Reasoning", 8);
       s.collapseEphemeral(id, { durationMs: 1500, fullText: "the whole thought" });
 
+      const printed = s.getOutputSnapshot().entries;
       expect(printed).toHaveLength(1);
       expect(printed[0]!.meta?.["collapsed"]).toBe(false);
       expect(printed[0]!.message).toContain("the whole thought");
@@ -542,12 +483,6 @@ describe("UIStore", () => {
 
     test("setCollapseReasoning(false) dumps in-flight reasoning on collapseAllEphemeral", () => {
       const s = new UIStore();
-      const printed: OutputEntry[] = [];
-      s.registerPrintOutput((eOrBatch) => {
-        const arr = Array.isArray(eOrBatch) ? eOrBatch : [eOrBatch];
-        printed.push(...arr);
-        return arr[0]?.id ?? "id";
-      });
       s.setCollapseReasoning(false);
 
       const id = s.openEphemeral("reasoning", "Reasoning", 8);
@@ -555,23 +490,24 @@ describe("UIStore", () => {
       s.collapseAllEphemeral();
 
       expect(s.getEphemeralRegionsSnapshot()).toHaveLength(0);
+      const printed = s.getOutputSnapshot().entries;
       expect(printed).toHaveLength(1);
       expect(printed[0]!.meta?.["collapsed"]).toBe(false);
       expect(printed[0]!.message).toContain("interrupted thought");
       expect(s.getExpandableReasoningSnapshot()).toBeNull();
     });
 
-    test("setter is notified on open, append, and collapse", () => {
+    test("ephemeral subscribers are notified on open, append, and collapse", () => {
       const s = new UIStore();
       const seen: number[] = [];
-      s.registerEphemeralRegionsSetter((regions) => seen.push(regions.length));
-      seen.length = 0;
+      s.subscribeEphemeral(() => seen.push(s.getEphemeralSnapshot().regions.length));
 
       const id = s.openEphemeral("reasoning", "R", 8);
       s.appendEphemeral(id, "x");
       s.collapseEphemeral(id, { durationMs: 1, line: "✓ R" });
 
-      expect(seen).toEqual([1, 1, 0]);
+      expect(seen.slice(0, 3)).toEqual([1, 1, 0]);
+      expect(seen.at(-1)).toBe(0);
     });
   });
 
@@ -628,13 +564,11 @@ describe("UIStore", () => {
       expect(s.getMessageQueueSnapshot()).toEqual([]);
     });
 
-    test("setter receives the array on append, clear, and take", () => {
+    test("prompt subscribers receive the queue on append, clear, and take", () => {
       const s = new UIStore();
-      // Mutable array of immutable snapshots — we accumulate snapshots,
-      // never mutate them in place.
       const seen: (readonly string[])[] = [];
-      s.registerMessageQueueSetter((q) => {
-        seen.push([...q]);
+      s.subscribePrompt(() => {
+        seen.push([...s.getPromptSlice().messageQueue]);
       });
 
       s.appendToQueue("a");
@@ -643,15 +577,13 @@ describe("UIStore", () => {
       s.appendToQueue("c");
       s.clearQueue();
 
-      // First call is the hydration on register (empty array), then each mutation.
-      expect(seen).toEqual([[], ["a"], ["a", "b"], [], ["c"], []]);
+      expect(seen).toEqual([["a"], ["a", "b"], [], ["c"], []]);
     });
 
-    test("clearQueue when already empty does not notify setter", () => {
+    test("clearQueue when already empty does not notify subscribers", () => {
       const s = new UIStore();
       const seen: (readonly string[])[] = [];
-      s.registerMessageQueueSetter((q) => seen.push(q));
-      seen.length = 0; // discard hydration call
+      s.subscribePrompt(() => seen.push(s.getPromptSlice().messageQueue));
 
       s.clearQueue();
       expect(seen).toEqual([]);
@@ -676,11 +608,10 @@ describe("UIStore", () => {
       expect(s.getChatBusySnapshot()).toBe(false);
     });
 
-    test("setter is notified on change but not on no-op", () => {
+    test("session subscribers are notified on change but not on no-op", () => {
       const s = new UIStore();
       const seen: boolean[] = [];
-      s.registerChatBusySetter((b) => seen.push(b));
-      seen.length = 0; // discard hydration
+      s.subscribeSession(() => seen.push(s.getChatBusySnapshot()));
 
       s.setChatBusy(true);
       s.setChatBusy(true); // no-op

@@ -69,10 +69,9 @@ function presentationProducer(): InkPresentationService {
 /**
  * Mounts the bridge, then feeds the store, then captures.
  *
- * The order matters: the store holds one print handler at a time, so writes have
- * to happen while the bridge under test is the registered one. In production
- * there is exactly one bridge for the life of the process, so this is also the
- * realistic order.
+ * Writes go through the store slices, so a late-mounted bridge still hydrates
+ * from getSnapshot. Feeding after mount matches production, where the bridge
+ * stays subscribed for the life of the process.
  */
 async function frame(feed: () => void = () => undefined): Promise<string> {
   const { renderer, renderOnce, flush, captureCharFrame } = await testRender(<FullscreenBridge />, {
@@ -93,23 +92,22 @@ async function frame(feed: () => void = () => undefined): Promise<string> {
   return text;
 }
 
-function unregisterAllStoreHandlers(): void {
-  store.registerPrintOutput(null);
-  store.registerUpdateOutput(null);
-  store.registerClearOutputs(null);
-  store.registerStreamingHandler(null);
-  store.registerActivitySetter(null);
-  store.registerRunStatsSetter(null);
-  store.registerMessageQueueSetter(null);
-  store.registerChatBusySetter(null);
-  store.registerModeSetter(null);
-  store.registerEphemeralRegionsSetter(null);
-  store.registerPromptSetter(null);
-  store.registerApprovalRequestSetter(null);
-  store.registerConnectorsSetter(null);
-  store.registerActiveMenuSetter(null);
-  store.registerWorkingDirectorySetter(null);
-  store.registerInterruptHandler(null);
+function resetStoreSlices(): void {
+  store.clearOutputs();
+  store.setActivity({ phase: "idle" });
+  store.resetRunStats({});
+  store.setPrompt(null);
+  store.setApprovalRequest(null);
+  store.setActiveMenu(null);
+  store.setChatBusy(false);
+  store.setWorkingDirectory(null);
+  store.setCurrentConversation(null);
+  store.clearQueue();
+  store.setModeIsYolo(false);
+  store.setCustomView(null);
+  store.clearModeToast();
+  store.collapseAllEphemeral();
+  store.setInterruptHandler(null);
 }
 
 describe("fullscreen bridge", () => {
@@ -129,16 +127,7 @@ describe("fullscreen bridge", () => {
   });
 
   beforeEach(() => {
-    unregisterAllStoreHandlers();
-    store.setActivity({ phase: "idle" });
-    store.resetRunStats({});
-    store.setPrompt(null);
-    store.setApprovalRequest(null);
-    store.setActiveMenu(null);
-    store.setChatBusy(false);
-    store.setWorkingDirectory(null);
-    store.clearQueue();
-    store.setModeIsYolo(false);
+    resetStoreSlices();
   });
 
   it("renders a frame at the terminal size before anything has happened", async () => {
