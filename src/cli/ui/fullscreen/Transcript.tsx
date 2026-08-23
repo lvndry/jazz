@@ -678,19 +678,32 @@ function tableRows(
   const { sizes, gap } = tableColumnLayout(natural, width);
 
   const rendered: RenderRow[] = [];
-  rows.forEach((row, rowIndex) => {
+  for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+    const row = rows[rowIndex];
+    if (row === undefined) continue;
     const fg = rowIndex === 0 ? THEME.muted : THEME.secondary;
-    const wrapped = Array.from({ length: columns }, (_, column) => {
+    const wrapped: Segment[][][] = [];
+    for (let column = 0; column < columns; column += 1) {
       const size = sizes[column] ?? 1;
-      return wrap([{ text: row[column] ?? "", fg }], size);
-    });
-    const height = Math.max(...wrapped.map((cell) => cell.length), 1);
+      wrapped.push(wrap([{ text: row[column] ?? "", fg }], size));
+    }
+    let height = 1;
+    for (let column = 0; column < wrapped.length; column += 1) {
+      const cell = wrapped[column];
+      if (cell !== undefined && cell.length > height) height = cell.length;
+    }
     for (let lineIndex = 0; lineIndex < height; lineIndex += 1) {
       const segments: Segment[] = [];
-      wrapped.forEach((cell, column) => {
-        segments.push(...padTableCell(cell, sizes[column] ?? 1, fg, lineIndex));
+      for (let column = 0; column < wrapped.length; column += 1) {
+        const cell = wrapped[column];
+        if (cell === undefined) continue;
+        const padded = padTableCell(cell, sizes[column] ?? 1, fg, lineIndex);
+        for (let segmentIndex = 0; segmentIndex < padded.length; segmentIndex += 1) {
+          const segment = padded[segmentIndex];
+          if (segment !== undefined) segments.push(segment);
+        }
         if (column < columns - 1) segments.push({ text: " ".repeat(gap), fg });
-      });
+      }
       rendered.push({
         key: `${key}:table:${String(rowIndex)}:${String(lineIndex)}`,
         gutter: [rail, BLANK_CELL],
@@ -708,7 +721,7 @@ function tableRows(
         meta: [],
       });
     }
-  });
+  }
   return rendered;
 }
 
@@ -765,6 +778,130 @@ interface Geometry {
   readonly metadata: number;
 }
 
+interface WrapCacheEntry {
+  readonly fingerprint: string;
+  readonly rows: readonly RenderRow[];
+}
+
+// Streaming replaces the last Block, so useMemo re-enters transcriptRows
+// for the whole conversation. Cache wrap/highlight by identity + fingerprint
+// so only the dirty tail misses.
+const wrapCache = new Map<string, WrapCacheEntry>();
+let wrapCacheEpoch: string | undefined;
+let lastTranscriptBlocks: readonly Block[] | undefined;
+let lastTranscriptEpoch: string | undefined;
+let lastTranscriptRows: RenderRow[] | undefined;
+
+function wrapEpoch(width: number, glyphs: GlyphSet): string {
+  return `${String(width)}\0${glyphs.rail}\0${glyphs.divider}\0${glyphs.bullet}\0${glyphs.diamond}`;
+}
+
+function blockFingerprint(block: Block): string {
+  switch (block.kind) {
+    case "user":
+      return JSON.stringify(["user", block.text, block.at]);
+    case "agent":
+      return JSON.stringify(["agent", block.markdown, block.streaming === true]);
+    case "reasoning":
+      return JSON.stringify([
+        "reasoning",
+        block.text,
+        block.collapsed,
+        block.steps,
+        block.durationMs,
+      ]);
+    case "tool":
+      return JSON.stringify([
+        "tool",
+        block.app,
+        block.summary,
+        block.args,
+        block.status,
+        block.reason,
+        block.remedyKey,
+        block.expanded === true,
+        block.detail,
+        block.durationMs,
+        block.classifiedRisk,
+      ]);
+    case "notice":
+      return JSON.stringify(["notice", block.text, block.tone]);
+    case "divider":
+      return JSON.stringify(["divider", block.label]);
+    case "lane":
+      return JSON.stringify([
+        "lane",
+        block.name,
+        block.ask,
+        block.lane,
+        block.state,
+        block.result,
+        block.steps,
+      ]);
+  }
+}
+
+function toolRunCacheKey(blocks: readonly ToolReceiptBlock[]): string {
+  const parts: string[] = ["tool-run"];
+  for (let index = 0; index < blocks.length; index += 1) {
+    const block = blocks[index];
+    if (block !== undefined) parts.push(block.id);
+  }
+  return parts.join("\0");
+}
+
+function toolRunFingerprint(blocks: readonly ToolReceiptBlock[]): string {
+  const parts: string[] = [];
+  for (let index = 0; index < blocks.length; index += 1) {
+    const block = blocks[index];
+    if (block === undefined) continue;
+    parts.push(block.id, blockFingerprint(block));
+  }
+  return parts.join("\n");
+}
+
+function cachedRows(
+  cacheKey: string,
+  fingerprint: string,
+  compute: () => RenderRow[],
+): readonly RenderRow[] {
+  const hit = wrapCache.get(cacheKey);
+  if (hit !== undefined && hit.fingerprint === fingerprint) {
+    return hit.rows;
+  }
+  const rows = compute();
+  wrapCache.set(cacheKey, { fingerprint, rows });
+  return rows;
+}
+
+function appendRows(target: RenderRow[], source: readonly RenderRow[]): void {
+  for (let index = 0; index < source.length; index += 1) {
+    const row = source[index];
+    if (row !== undefined) target.push(row);
+  }
+}
+
+function rowsForBlock(
+  block: Exclude<Block, ToolReceiptBlock>,
+  geometry: Geometry,
+  glyphs: GlyphSet,
+): RenderRow[] {
+  switch (block.kind) {
+    case "user":
+      return userRows(block, geometry, glyphs);
+    case "agent":
+      return agentRows(block, geometry, glyphs);
+    case "reasoning":
+      return reasoningRows(block, geometry, glyphs);
+    case "notice":
+      return noticeRows(block, geometry, glyphs);
+    case "divider":
+      return dividerRows(block, geometry, glyphs);
+    case "lane":
+      return laneRows(block, geometry, glyphs);
+  }
+}
+
 function userRows(
   block: Extract<Block, { kind: "user" }>,
   geometry: Geometry,
@@ -775,13 +912,19 @@ function userRows(
     block.at !== undefined && geometry.metadata > 0 ? [{ text: block.at, fg: THEME.muted }] : [];
   // What you typed is an echo; the agent's answer is the bright thing on screen.
   const lines = wrap([{ text: block.text, fg: THEME.secondary }], geometry.prose);
-  return lines.map((line, index) => ({
-    key: `${block.id}:${String(index)}`,
-    gutter: [index === 0 ? { text: glyphs.promptCursor, fg: THEME.primary } : rail, BLANK_CELL],
-    content: line,
-    contentWidth: geometry.prose,
-    meta: index === 0 ? meta : [],
-  }));
+  const rows: RenderRow[] = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (line === undefined) continue;
+    rows.push({
+      key: `${block.id}:${String(index)}`,
+      gutter: [index === 0 ? { text: glyphs.promptCursor, fg: THEME.primary } : rail, BLANK_CELL],
+      content: line,
+      contentWidth: geometry.prose,
+      meta: index === 0 ? meta : [],
+    });
+  }
+  return rows;
 }
 
 function agentRows(
@@ -805,7 +948,10 @@ function agentRows(
     return gutter;
   };
 
-  parseProse(block.markdown, glyphs).forEach((item, itemIndex) => {
+  const items = parseProse(block.markdown, glyphs);
+  for (let itemIndex = 0; itemIndex < items.length; itemIndex += 1) {
+    const item = items[itemIndex];
+    if (item === undefined) continue;
     const key = `${block.id}:${String(itemIndex)}`;
     switch (item.kind) {
       case "blank":
@@ -816,7 +962,7 @@ function agentRows(
           contentWidth: geometry.prose,
           meta: [],
         });
-        return;
+        break;
       case "rule":
         rows.push({
           key,
@@ -825,9 +971,12 @@ function agentRows(
           contentWidth: geometry.prose,
           meta: [],
         });
-        return;
-      case "fence":
-        highlightFenceLines(item.language, item.lines).forEach((spans, lineIndex) => {
+        break;
+      case "fence": {
+        const painted = highlightFenceLines(item.language, item.lines);
+        for (let lineIndex = 0; lineIndex < painted.length; lineIndex += 1) {
+          const spans = painted[lineIndex];
+          if (spans === undefined) continue;
           rows.push({
             key: `${key}:${String(lineIndex)}`,
             gutter: gutterFor(),
@@ -835,16 +984,24 @@ function agentRows(
             contentWidth: geometry.content,
             meta: [],
           });
-        });
-        return;
-      case "table":
-        rows.push(...tableRows(item.rows, geometry.content, key, rail));
+        }
+        break;
+      }
+      case "table": {
+        const table = tableRows(item.rows, geometry.content, key, rail);
+        for (let tableIndex = 0; tableIndex < table.length; tableIndex += 1) {
+          const row = table[tableIndex];
+          if (row !== undefined) rows.push(row);
+        }
         first = false;
-        return;
+        break;
+      }
       default: {
         const indent = item.indent;
         const lines = wrap(item.segments, geometry.prose - indent);
-        lines.forEach((line, lineIndex) => {
+        for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+          const line = lines[lineIndex];
+          if (line === undefined) continue;
           const padded =
             indent > 0 ? [{ text: " ".repeat(indent), fg: THEME.border }, ...line] : line;
           rows.push({
@@ -854,10 +1011,10 @@ function agentRows(
             contentWidth: geometry.prose,
             meta: [],
           });
-        });
+        }
       }
     }
-  });
+  }
 
   return rows;
 }
@@ -895,13 +1052,20 @@ function reasoningRows(
   // Subordinate by geometry, not by a new hue: narrower, indented, never bold.
   const measure = Math.max(24, Math.floor(geometry.prose * REASONING_MEASURE_RATIO));
   const text = spaceReasoningSections(block.text);
-  return wrap([{ text, fg: THEME.muted }], measure - REASONING_INDENT).map((line, index) => ({
-    key: `${block.id}:${String(index)}`,
-    gutter: [rail, BLANK_CELL],
-    content: [{ text: " ".repeat(REASONING_INDENT), fg: THEME.border }, ...line],
-    contentWidth: geometry.prose,
-    meta: index === 0 ? meta : [],
-  }));
+  const lines = wrap([{ text, fg: THEME.muted }], measure - REASONING_INDENT);
+  const rows: RenderRow[] = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (line === undefined) continue;
+    rows.push({
+      key: `${block.id}:${String(index)}`,
+      gutter: [rail, BLANK_CELL],
+      content: [{ text: " ".repeat(REASONING_INDENT), fg: THEME.border }, ...line],
+      contentWidth: geometry.prose,
+      meta: index === 0 ? meta : [],
+    });
+  }
+  return rows;
 }
 
 /**
@@ -1015,7 +1179,9 @@ function receiptRows(
           : [];
       if (segments.some((segment) => segment.text.trim().length > 0)) {
         const lines = wrap(segments, geometry.prose);
-        lines.forEach((line, lineIndex) => {
+        for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+          const line = lines[lineIndex];
+          if (line === undefined) continue;
           rows.push({
             key: `${block.id}:${String(lineIndex)}`,
             gutter: [lineIndex === 0 && block.status !== "ok" ? marker : rail, BLANK_CELL],
@@ -1023,13 +1189,14 @@ function receiptRows(
             contentWidth: geometry.prose,
             meta: lineIndex === 0 ? meta : [],
           });
-        });
+        }
       }
-      // Expanded output is scanned, so it takes the full content width.
       if (block.expanded === true && block.detail !== undefined) {
         const detailLines = block.detail.split("\n");
         const painted = highlightFenceLines("", detailLines);
-        painted.forEach((spans, index) => {
+        for (let index = 0; index < painted.length; index += 1) {
+          const spans = painted[index];
+          if (spans === undefined) continue;
           rows.push({
             key: `${block.id}:detail:${String(index)}`,
             gutter: [rail, BLANK_CELL],
@@ -1037,7 +1204,7 @@ function receiptRows(
             contentWidth: geometry.content,
             meta: [],
           });
-        });
+        }
       }
       continue;
     }
@@ -1065,13 +1232,23 @@ function noticeRows(
     block.tone === "error" ? THEME.error : block.tone === "warn" ? THEME.warning : THEME.info;
   const glyph =
     block.tone === "error" ? glyphs.error : block.tone === "warn" ? glyphs.warn : glyphs.info;
-  return wrap([{ text: block.text, fg: tone }], geometry.prose).map((line, index) => ({
-    key: `${block.id}:${String(index)}`,
-    gutter: [index === 0 ? { text: glyph, fg: tone } : railCell(THEME.border, glyphs), BLANK_CELL],
-    content: line,
-    contentWidth: geometry.prose,
-    meta: [],
-  }));
+  const lines = wrap([{ text: block.text, fg: tone }], geometry.prose);
+  const rows: RenderRow[] = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (line === undefined) continue;
+    rows.push({
+      key: `${block.id}:${String(index)}`,
+      gutter: [
+        index === 0 ? { text: glyph, fg: tone } : railCell(THEME.border, glyphs),
+        BLANK_CELL,
+      ],
+      content: line,
+      contentWidth: geometry.prose,
+      meta: [],
+    });
+  }
+  return rows;
 }
 
 function dividerRows(
@@ -1151,17 +1328,18 @@ function laneRows(
   ];
 
   if (block.result !== undefined) {
-    wrap([{ text: block.result, fg: THEME.secondary }], geometry.prose - 2).forEach(
-      (line, index) => {
-        rows.push({
-          key: `${block.id}:result:${String(index)}`,
-          gutter: [index === 0 ? { text: glyphs.laneEnd, fg: THEME.border } : rail, tag],
-          content: [{ text: " ".repeat(2), fg: THEME.border }, ...line],
-          contentWidth: geometry.prose,
-          meta: [],
-        });
-      },
-    );
+    const lines = wrap([{ text: block.result, fg: THEME.secondary }], geometry.prose - 2);
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = lines[index];
+      if (line === undefined) continue;
+      rows.push({
+        key: `${block.id}:result:${String(index)}`,
+        gutter: [index === 0 ? { text: glyphs.laneEnd, fg: THEME.border } : rail, tag],
+        content: [{ text: " ".repeat(2), fg: THEME.border }, ...line],
+        contentWidth: geometry.prose,
+        meta: [],
+      });
+    }
   }
 
   return rows;
@@ -1178,8 +1356,23 @@ export function pageWidth(viewport: Viewport): number {
 
 /** The whole transcript as physical rows. Pure: blocks and a width, nothing else. */
 export function transcriptRows(blocks: readonly Block[], viewport: Viewport): RenderRow[] {
+  const width = pageWidth(viewport);
   const glyphs = getGlyphs();
-  const measure = measureFor(pageWidth(viewport));
+  const epoch = wrapEpoch(width, glyphs);
+  if (
+    blocks === lastTranscriptBlocks &&
+    epoch === lastTranscriptEpoch &&
+    lastTranscriptRows !== undefined
+  ) {
+    return lastTranscriptRows;
+  }
+
+  if (wrapCacheEpoch !== epoch) {
+    wrapCache.clear();
+    wrapCacheEpoch = epoch;
+  }
+
+  const measure = measureFor(width);
   const geometry: Geometry = {
     prose: measure.prose,
     content: measure.prose + measure.metadata,
@@ -1204,33 +1397,25 @@ export function transcriptRows(blocks: readonly Block[], viewport: Viewport): Re
         run.push(candidate);
         index += 1;
       }
-      rows.push(...receiptRows(run, geometry, glyphs));
+      appendRows(
+        rows,
+        cachedRows(toolRunCacheKey(run), toolRunFingerprint(run), () =>
+          receiptRows(run, geometry, glyphs),
+        ),
+      );
       continue;
     }
 
-    switch (block.kind) {
-      case "user":
-        rows.push(...userRows(block, geometry, glyphs));
-        break;
-      case "agent":
-        rows.push(...agentRows(block, geometry, glyphs));
-        break;
-      case "reasoning":
-        rows.push(...reasoningRows(block, geometry, glyphs));
-        break;
-      case "notice":
-        rows.push(...noticeRows(block, geometry, glyphs));
-        break;
-      case "divider":
-        rows.push(...dividerRows(block, geometry, glyphs));
-        break;
-      case "lane":
-        rows.push(...laneRows(block, geometry, glyphs));
-        break;
-    }
+    appendRows(
+      rows,
+      cachedRows(block.id, blockFingerprint(block), () => rowsForBlock(block, geometry, glyphs)),
+    );
     index += 1;
   }
 
+  lastTranscriptBlocks = blocks;
+  lastTranscriptEpoch = epoch;
+  lastTranscriptRows = rows;
   return rows;
 }
 

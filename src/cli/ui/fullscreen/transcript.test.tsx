@@ -961,3 +961,71 @@ describe("wrap depends on width, not height", () => {
     expect(short).toEqual(tall);
   });
 });
+
+describe("wrap cache", () => {
+  it("returns the same row array by reference when blocks and width are unchanged", () => {
+    const first = transcriptRows(SESSION, WIDE);
+    const second = transcriptRows(SESSION, WIDE);
+    expect(second).toBe(first);
+    expect(second).toEqual(first);
+  });
+
+  it("busts the cache when reasoning collapse changes", () => {
+    const collapsed: readonly Block[] = [
+      { id: "r", seq: 1, kind: "reasoning", collapsed: true, text: "secret plan" },
+    ];
+    const expanded: readonly Block[] = [
+      { id: "r", seq: 1, kind: "reasoning", collapsed: false, text: "secret plan" },
+    ];
+    const hidden = transcriptRows(collapsed, WIDE);
+    const shown = transcriptRows(expanded, WIDE);
+    expect(shown).not.toBe(hidden);
+    expect(shown).not.toEqual(hidden);
+    expect(transcriptRows(collapsed, WIDE)).toEqual(hidden);
+  });
+
+  it("busts the cache when tool expand or detail changes", () => {
+    const base: Block = {
+      id: "t",
+      seq: 1,
+      kind: "tool",
+      app: "files",
+      summary: "wrote note",
+      status: "ok",
+    };
+    const collapsed = transcriptRows([base], WIDE);
+    const expanded = transcriptRows([{ ...base, expanded: true, detail: "full output" }], WIDE);
+    expect(expanded).not.toBe(collapsed);
+    expect(expanded).not.toEqual(collapsed);
+    const rewritten = transcriptRows([{ ...base, expanded: true, detail: "other output" }], WIDE);
+    expect(rewritten).not.toEqual(expanded);
+  });
+
+  it("reuses settled block rows while a streaming tail misses", () => {
+    const user: Block = { id: "u", seq: 1, kind: "user", text: "hello" };
+    const first = transcriptRows(
+      [user, { id: "a", seq: 2, kind: "agent", markdown: "hel", streaming: true }],
+      WIDE,
+    );
+    const second = transcriptRows(
+      [user, { id: "a", seq: 2, kind: "agent", markdown: "hello", streaming: true }],
+      WIDE,
+    );
+    expect(second).not.toBe(first);
+    const firstUser = first.filter((row) => row.key.startsWith("u:"));
+    const secondUser = second.filter((row) => row.key.startsWith("u:"));
+    expect(secondUser.length).toBeGreaterThan(0);
+    expect(secondUser).toEqual(firstUser);
+    for (let index = 0; index < firstUser.length; index += 1) {
+      expect(secondUser[index]).toBe(firstUser[index]);
+    }
+  });
+
+  it("invalidates wrapped rows when width changes", () => {
+    const wide = transcriptRows(SESSION, WIDE);
+    const narrow = transcriptRows(SESSION, NARROW);
+    expect(narrow).not.toBe(wide);
+    expect(narrow).not.toEqual(wide);
+    expect(transcriptRows(SESSION, WIDE)).toEqual(wide);
+  });
+});
