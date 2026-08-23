@@ -77,18 +77,20 @@ function resolveToModelInfo(
 /** Dated snapshot suffixes like "-20251001" or "-2024-05-13" (kept only when no undated base id exists). */
 const DATED_SNAPSHOT_SUFFIX = /-(\d{8}|\d{4}-\d{2}-\d{2})$/;
 
-const MEDIA_OUTPUT_MODALITIES = ["image", "audio", "video"] as const;
-
 /**
- * Keep only text-in/text-out chat models: drops embedding, TTS, transcription,
- * image/video generation, and realtime-audio entries from the catalog.
+ * Keep models a person can actually hold a conversation with: text in, text out.
+ *
+ * That pair is the whole test, and it already excludes what this filter exists to exclude —
+ * embeddings and TTS produce no text, transcription models like `whisper-large-v3` accept no
+ * text, and a pure generator like `gpt-image-1` outputs only an image.
+ *
+ * It deliberately does *not* exclude a model that emits text **and** media. `gemini-3-pro-image`
+ * and `gpt-image-1.5` converse normally and can also return an image, and generating media is a
+ * capability of the model rather than a tool jazz provides — so the way to get an image is to
+ * run an agent on a model that makes them. Hiding those models here made that impossible.
  */
 function isTextChatModel(entry: ModelsDevModelEntry): boolean {
-  return (
-    entry.inputModalities.includes("text") &&
-    entry.outputModalities.includes("text") &&
-    !MEDIA_OUTPUT_MODALITIES.some((modality) => entry.outputModalities.includes(modality))
-  );
+  return entry.inputModalities.includes("text") && entry.outputModalities.includes("text");
 }
 
 /**

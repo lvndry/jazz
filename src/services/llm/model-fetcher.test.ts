@@ -671,19 +671,44 @@ describe("ModelFetcher", () => {
       expect(ids).not.toContain("old-model");
     });
 
-    it("drops non-text-chat models (embeddings, tts, image/video generation)", async () => {
+    it("drops anything you cannot hold a conversation with", async () => {
+      // Text in and text out is the whole test, and it covers every case this filter exists for.
       modelsDevProviderModels = [
         modelsDevEntry({ id: "chat-model" }),
         modelsDevEntry({ id: "embedding-model", outputModalities: [] }),
+        // TTS: takes text, returns only audio.
         modelsDevEntry({ id: "tts-model", outputModalities: ["audio"] }),
-        modelsDevEntry({ id: "image-gen-model", outputModalities: ["text", "image"] }),
-        modelsDevEntry({ id: "realtime-model", outputModalities: ["text", "audio"] }),
+        // Transcription (whisper-class): takes only audio, returns text.
+        modelsDevEntry({
+          id: "transcription-model",
+          inputModalities: ["audio"],
+          outputModalities: ["text"],
+        }),
+        // A pure generator (gpt-image-1): prompt in, image out, nothing to talk to.
+        modelsDevEntry({ id: "pure-image-generator", outputModalities: ["image"] }),
         modelsDevEntry({ id: "vision-only-input", inputModalities: ["image"] }),
       ];
 
       const ids = (await fetchModelsDevModels("openai")).map((model) => model.id);
 
       expect(ids).toEqual(["chat-model"]);
+    });
+
+    it("keeps a chat model that also emits media", async () => {
+      // The reason the blanket media-output exclusion was removed. gemini-3-pro-image and
+      // gpt-image-1.5 converse normally and can also return an image; hiding them made it
+      // impossible to run an agent on a model that generates images, which is the only way jazz
+      // offers image generation — it is a model capability, not a tool.
+      modelsDevProviderModels = [
+        modelsDevEntry({ id: "image-chat-model", outputModalities: ["text", "image"] }),
+        modelsDevEntry({ id: "audio-chat-model", outputModalities: ["text", "audio"] }),
+      ];
+
+      const ids = (await fetchModelsDevModels("google")).map((model) => model.id);
+
+      // Order-independent: the listing sorts by release date then id, which is unrelated to
+      // what this test is about.
+      expect(ids.toSorted()).toEqual(["audio-chat-model", "image-chat-model"]);
     });
 
     it("drops dated snapshot duplicates only when the undated base id exists", async () => {
