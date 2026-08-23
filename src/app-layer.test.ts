@@ -1,57 +1,21 @@
 import { describe, expect, test } from "bun:test";
-import { commandWantsFullscreen, getPresentationConfig } from "./app-layer";
-
-describe("commandWantsFullscreen", () => {
-  test("only long-lived sessions enter the alternate screen", () => {
-    expect(commandWantsFullscreen("agent chat")).toBe(true);
-    expect(commandWantsFullscreen("agent create")).toBe(true);
-    expect(commandWantsFullscreen("agent edit")).toBe(true);
-    expect(commandWantsFullscreen("persona create")).toBe(true);
-    expect(commandWantsFullscreen("persona edit")).toBe(true);
-    expect(commandWantsFullscreen("workflow run")).toBe(true);
-    expect(commandWantsFullscreen("workflow catchup")).toBe(true);
-    expect(commandWantsFullscreen("jazz")).toBe(true);
-  });
-
-  test("one-shot commands stay on the main screen so their output survives exit", () => {
-    expect(commandWantsFullscreen("agent list")).toBe(false);
-    expect(commandWantsFullscreen("agent show")).toBe(false);
-    expect(commandWantsFullscreen("agent delete")).toBe(false);
-    expect(commandWantsFullscreen("config show")).toBe(false);
-    expect(commandWantsFullscreen("persona list")).toBe(false);
-    expect(commandWantsFullscreen("mcp list")).toBe(false);
-    expect(commandWantsFullscreen("workflow list")).toBe(false);
-    expect(commandWantsFullscreen("runs list")).toBe(false);
-    expect(commandWantsFullscreen("update")).toBe(false);
-    expect(commandWantsFullscreen(undefined)).toBe(false);
-  });
-});
+import { getPresentationConfig } from "./app-layer";
 
 describe("getPresentationConfig", () => {
   const terminalEnvironment = { TERM: "xterm-256color" };
   const terminalOutput = { isTTY: true, columns: 100, rows: 24 };
   const terminalInput = { isTTY: true };
 
-  test("capable TTY uses the interactive presentation for a session command", () => {
-    const config = getPresentationConfig(
-      terminalEnvironment,
-      terminalOutput,
-      terminalInput,
-      "agent chat",
-    );
+  test("a session on a capable TTY uses the alternate screen", () => {
+    const config = getPresentationConfig(terminalEnvironment, terminalOutput, terminalInput, true);
     expect(config.isQuiet).toBe(false);
     expect(config.usePlainTerminal).toBe(false);
     expect(config.useCLIPresentation).toBe(false);
     expect(config.useFullscreen).toBe(true);
   });
 
-  test("one-shot commands keep Ink on the main screen so output stays in scrollback", () => {
-    const config = getPresentationConfig(
-      terminalEnvironment,
-      terminalOutput,
-      terminalInput,
-      "agent list",
-    );
+  test("print-and-exit keeps Ink on the main screen so output stays in scrollback", () => {
+    const config = getPresentationConfig(terminalEnvironment, terminalOutput, terminalInput);
     expect(config.isQuiet).toBe(false);
     expect(config.usePlainTerminal).toBe(false);
     expect(config.useCLIPresentation).toBe(false);
@@ -66,6 +30,7 @@ describe("getPresentationConfig", () => {
       { ...terminalEnvironment, JAZZ_NO_TUI: "1" },
       terminalOutput,
       terminalInput,
+      true,
     );
     expect(config.isQuiet).toBe(false);
     expect(config.usePlainTerminal).toBe(true);
@@ -86,7 +51,12 @@ describe("getPresentationConfig", () => {
   });
 
   test("non-TTY uses plain terminal and CLI presentation", () => {
-    const config = getPresentationConfig(terminalEnvironment, { isTTY: false }, terminalInput);
+    const config = getPresentationConfig(
+      terminalEnvironment,
+      { isTTY: false },
+      terminalInput,
+      true,
+    );
     expect(config.isQuiet).toBe(false);
     expect(config.usePlainTerminal).toBe(true);
     expect(config.useCLIPresentation).toBe(true);
@@ -98,11 +68,13 @@ describe("getPresentationConfig", () => {
       terminalEnvironment,
       { ...terminalOutput, rows: 11 },
       terminalInput,
+      true,
     );
     const narrow = getPresentationConfig(
       terminalEnvironment,
       { ...terminalOutput, columns: 59 },
       terminalInput,
+      true,
     );
     expect(short.usePlainTerminal).toBe(true);
     expect(short.useCLIPresentation).toBe(true);
@@ -120,7 +92,7 @@ describe("getPresentationConfig", () => {
       { ...terminalEnvironment, JAZZ_A11Y: "1" },
     ];
     for (const environment of environments) {
-      const config = getPresentationConfig(environment, terminalOutput, terminalInput);
+      const config = getPresentationConfig(environment, terminalOutput, terminalInput, true);
       expect(config.usePlainTerminal).toBe(true);
       expect(config.useCLIPresentation).toBe(true);
       expect(config.useFullscreen).toBe(false);
@@ -133,7 +105,7 @@ describe("getPresentationConfig", () => {
       { ...terminalEnvironment, JAZZ_FULLSCREEN: "false" },
     ];
     for (const environment of environments) {
-      const config = getPresentationConfig(environment, terminalOutput, terminalInput);
+      const config = getPresentationConfig(environment, terminalOutput, terminalInput, true);
       expect(config.usePlainTerminal).toBe(false);
       expect(config.useCLIPresentation).toBe(false);
       expect(config.useFullscreen).toBe(false);
@@ -152,7 +124,12 @@ describe("getPresentationConfig", () => {
   });
 
   test("non-TTY stdin uses plain output even when stdout is a TTY", () => {
-    const config = getPresentationConfig(terminalEnvironment, terminalOutput, { isTTY: false });
+    const config = getPresentationConfig(
+      terminalEnvironment,
+      terminalOutput,
+      { isTTY: false },
+      true,
+    );
     expect(config.usePlainTerminal).toBe(true);
     expect(config.useCLIPresentation).toBe(true);
     expect(config.useFullscreen).toBe(false);

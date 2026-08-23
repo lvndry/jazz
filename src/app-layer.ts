@@ -65,29 +65,13 @@ interface EnvShape extends FullscreenEnvironment {
   readonly JAZZ_FULLSCREEN?: string;
 }
 
-// The alternate screen is discarded when the process exits, so a command that
-// prints and returns would flash then vanish. Only long-lived sessions enter it.
-const FULLSCREEN_SESSION_COMMANDS: ReadonlySet<string> = new Set([
-  "jazz",
-  "agent chat",
-  "agent create",
-  "agent edit",
-  "persona create",
-  "persona edit",
-  "workflow run",
-  "workflow catchup",
-]);
-
-/** Whether this command should take over the alternate screen, given a capable TTY. */
-export function commandWantsFullscreen(commandName: string | undefined): boolean {
-  return commandName !== undefined && FULLSCREEN_SESSION_COMMANDS.has(commandName);
-}
-
 export function getPresentationConfig(
   env: EnvShape = process.env,
   stdout: TerminalOutputCapabilities = process.stdout,
   stdin: TerminalInputCapabilities = process.stdin,
-  commandName: string | undefined = getCurrentCommandName(),
+  // Alternate screen is discarded on exit. Only a command that stays until the
+  // user leaves should ask for it; print-and-return is the default.
+  session = false,
 ): PresentationConfig {
   const isQuiet = env.JAZZ_OUTPUT_MODE === "quiet";
   const rawOutput = env.JAZZ_OUTPUT_MODE === "raw";
@@ -110,8 +94,7 @@ export function getPresentationConfig(
     isQuiet,
     usePlainTerminal: isQuiet || rawOutput || requestNoTui || capabilityBlocked,
     useCLIPresentation: !isQuiet && (rawOutput || requestNoTui || capabilityBlocked),
-    useFullscreen:
-      decision.fullscreen && !isQuiet && !rawOutput && commandWantsFullscreen(commandName),
+    useFullscreen: decision.fullscreen && !isQuiet && !rawOutput && session,
   };
 }
 
@@ -147,7 +130,10 @@ export interface AppLayerConfig {
  *
  */
 
-export function createAppLayer(config: AppLayerConfig = {}) {
+export function createAppLayer(
+  config: AppLayerConfig = {},
+  options: { readonly session?: boolean } = {},
+) {
   const { debug, configPath } = config;
   const fileSystemLayer = NodeFileSystem.layer;
   const configLayer = createConfigLayer(debug, configPath).pipe(Layer.provide(fileSystemLayer));
@@ -165,7 +151,12 @@ export function createAppLayer(config: AppLayerConfig = {}) {
     }),
   ).pipe(Layer.provide(configLayer));
 
-  const presentationConfig = getPresentationConfig(process.env, process.stdout, process.stdin);
+  const presentationConfig = getPresentationConfig(
+    process.env,
+    process.stdout,
+    process.stdin,
+    options.session === true,
+  );
 
   const terminalLayer = presentationConfig.usePlainTerminal
     ? createPlainTerminalServiceLayer()
@@ -312,6 +303,12 @@ export function runCliEffect<R, E extends JazzError | Error>(
      * box would otherwise corrupt the clean stdout payload.
      */
     readonly skipUpdateCheck?: boolean | undefined;
+    /**
+     * This command lives until the user leaves (chat, wizard, editor).
+     * Print-and-exit commands must not set this — the alternate screen would
+     * restore the previous buffer and the output would vanish.
+     */
+    readonly session?: boolean | undefined;
   } = {},
 ): void {
   const cliOptionsLayer = Layer.succeed(CLIOptionsTag, {
@@ -464,7 +461,12 @@ export function runCliEffect<R, E extends JazzError | Error>(
   });
 
   const managedEffect = program.pipe(
-    Effect.provide(Layer.mergeAll(createAppLayer(config), cliOptionsLayer)),
+    Effect.provide(
+      Layer.mergeAll(
+        createAppLayer(config, { session: options.session === true }),
+        cliOptionsLayer,
+      ),
+    ),
     Effect.scoped,
   ) as Effect.Effect<void, never, never>;
 

@@ -1,12 +1,12 @@
 import { Command } from "commander";
 import packageJson from "../../package.json";
-import { setCurrentCommandName } from "../core/utils/current-command";
 import {
   isApprovalPolicyFlag,
   isReasoningEffortFlag,
   parseEventCategories,
 } from "./commands/run/flags";
 import { parsePositiveInt } from "./utils/option-parsers";
+import { setCurrentCommandName } from "../core/utils/current-command";
 
 /**
  * CLI Application setup and command registration
@@ -32,6 +32,8 @@ interface CliRuntimeOptions {
 interface CliRunOptions {
   readonly skipCatchUp?: boolean;
   readonly skipUpdateCheck?: boolean;
+  /** Live until the user leaves. Print-and-exit commands omit this. */
+  readonly session?: boolean;
 }
 
 type AppLayerModule = typeof import("../app-layer");
@@ -307,6 +309,7 @@ function registerAgentCommands(program: Command): void {
       runCliAction(
         () => import("./commands/create-agent").then((mod) => mod.createAgentCommand()),
         cliRuntimeOptions(program),
+        { session: true },
       ),
     );
 
@@ -327,6 +330,7 @@ function registerAgentCommands(program: Command): void {
       runCliAction(
         () => import("./commands/edit-agent").then((mod) => mod.editAgentCommand(agentId)),
         cliRuntimeOptions(program),
+        { session: true },
       ),
     );
 
@@ -387,6 +391,7 @@ function registerAgentCommands(program: Command): void {
               }),
             ),
           cliRuntimeOptions(program),
+          { session: true },
         );
       },
     );
@@ -478,15 +483,20 @@ function registerMCPCommands(program: Command): void {
 function registerPersonaCommands(program: Command): void {
   const personaCommand = program.command("persona").description("Manage personas");
 
-  function run(loadEffect: () => Promise<CliCommandEffect>): Promise<void> {
-    return runCliAction(loadEffect, cliRuntimeOptions(program));
+  function run(
+    loadEffect: () => Promise<CliCommandEffect>,
+    options?: CliRunOptions,
+  ): Promise<void> {
+    return runCliAction(loadEffect, cliRuntimeOptions(program), options);
   }
 
   personaCommand
     .command("create")
     .description("Create a new custom persona (interactive)")
     .action(() =>
-      run(() => import("./commands/persona").then((mod) => mod.createPersonaCommand())),
+      run(() => import("./commands/persona").then((mod) => mod.createPersonaCommand()), {
+        session: true,
+      }),
     );
 
   personaCommand
@@ -506,7 +516,9 @@ function registerPersonaCommands(program: Command): void {
     .command("edit <identifier>")
     .description("Edit an existing custom persona")
     .action((identifier: string) =>
-      run(() => import("./commands/persona").then((mod) => mod.editPersonaCommand(identifier))),
+      run(() => import("./commands/persona").then((mod) => mod.editPersonaCommand(identifier)), {
+        session: true,
+      }),
     );
 
   personaCommand
@@ -744,7 +756,7 @@ function registerWorkflowCommands(program: Command): void {
               }),
             ),
           cliRuntimeOptions(program),
-          { skipCatchUp: isWorkflowRunCommand, skipUpdateCheck: json },
+          { skipCatchUp: isWorkflowRunCommand, skipUpdateCheck: json, session: true },
         );
       },
     );
@@ -786,6 +798,7 @@ function registerWorkflowCommands(program: Command): void {
       runCliAction(
         () => import("./commands/workflow").then((mod) => mod.catchupWorkflowCommand()),
         cliRuntimeOptions(program),
+        { session: true },
       ),
     );
 
@@ -854,6 +867,7 @@ export function createCLIApp(): Command {
       runCliAction(
         () => import("./commands/wizard").then((mod) => mod.wizardCommand()),
         cliRuntimeOptions(program),
+        { session: true },
       ),
     );
   }
