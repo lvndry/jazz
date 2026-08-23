@@ -162,7 +162,7 @@ that only _mostly_ suppresses chatter — same problem, later.
 **Cost accepted.** Two streams to wire up in a bridge instead of one. That's the entire
 cost, and it's what makes every non-terminal surface possible.
 
-📄 [`run-agent.ts:16`](../../src/cli/commands/run-agent.ts#L16) · [Headless](../surfaces/headless.md)
+📄 [`execute.ts:30`](../../src/cli/commands/run/execute.ts#L30) · [Headless](../surfaces/headless.md)
 
 ### Risk tiers instead of a tool allowlist
 
