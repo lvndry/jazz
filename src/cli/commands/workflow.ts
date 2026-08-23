@@ -13,6 +13,7 @@ import { getErrorMessage } from "@/core/presentation/error-handler";
 import { makeOneShotPresentationServiceLayer } from "@/core/presentation/oneshot-presentation-service";
 import type { Agent } from "@/core/types/agent";
 import type { StreamEvent } from "@/core/types/streaming";
+import { generateConversationId } from "@/core/utils/conversation-id";
 import { describeCronSchedule } from "@/core/utils/cron";
 import {
   getCatchUpCandidates,
@@ -384,7 +385,7 @@ export function runWorkflowCommand(
     const runEffect = AgentRunner.run({
       agent,
       userInput: workflow.prompt,
-      conversationId: `workflow-${workflowName}-${Date.now()}`,
+      conversationId: generateConversationId(`workflow-${workflowName}`),
       ...(resolvedMaxIterations != null ? { maxIterations: resolvedMaxIterations } : {}),
       ...(autoApprovePolicy !== undefined ? { autoApprovePolicy } : {}),
     });

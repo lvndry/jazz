@@ -2,7 +2,6 @@ import { appendFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
-import short from "short-uuid";
 import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "@/core/interfaces/fs";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
@@ -71,11 +70,4 @@ export function logMessageToSession(
     },
     catch: () => undefined, // Silently fail - logging should not break the chat session
   }).pipe(Effect.catchAll(() => Effect.void));
-}
-
-/**
- * Generate a unique conversation ID.
- */
-export function generateConversationId(): string {
-  return short.generate();
 }

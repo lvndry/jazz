@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { generateConversationId } from "./manager";
+import { generateConversationId } from "@/core/utils/conversation-id";
 
 describe("Session Manager", () => {
   describe("generateConversationId", () => {

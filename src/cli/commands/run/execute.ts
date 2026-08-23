@@ -9,6 +9,7 @@ import { AgentNotFoundError } from "@/core/types/errors";
 import type { ChatMessage } from "@/core/types/message";
 import type { StreamEvent } from "@/core/types/streaming";
 import type { AutoApprovePolicy } from "@/core/types/tools";
+import { generateConversationId } from "@/core/utils/conversation-id";
 import { createRunDeadline } from "@/core/utils/run-deadline";
 import {
   loadConversation,
@@ -320,7 +321,7 @@ export function runAgentOnceCommand(
     // Not a run id: a run's identity is the uuid the metrics mint, and this is the
     // conversation this turn belongs to. Without `--conversation` the caller wants a clean
     // slate, so the turn gets a conversation of its own that nothing will ever reuse.
-    const conversationId = conversationKey ?? `once-${agent.id}-${Date.now()}`;
+    const conversationId = conversationKey ?? generateConversationId("once");
     const runEffect = AgentRunner.run({
       agent: agentForRun,
       userInput: prompt,

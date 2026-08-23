@@ -38,13 +38,13 @@ import { SkillServiceTag, type SkillService } from "@/core/skills/skill-service"
 import { StorageError, StorageNotFoundError } from "@/core/types/errors";
 import type { ChatMessage } from "@/core/types/message";
 import type { AutoApprovePolicy } from "@/core/types/tools";
+import { generateConversationId } from "@/core/utils/conversation-id";
 import { describeCronSchedule } from "@/core/utils/cron";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import type { WorkflowMetadata } from "@/core/workflows/workflow-service";
 import { WorkflowServiceTag, type WorkflowService } from "@/core/workflows/workflow-service";
 import { groupWorkflows } from "@/core/workflows/workflow-utils";
 import { loadConversation, loadHistory } from "@/services/history/conversation-history-service";
-import { generateConversationId } from "../session";
 import { CHAT_COMMANDS } from "./constants";
 import type { CommandContext, CommandResult, SpecialCommand } from "./types";
 

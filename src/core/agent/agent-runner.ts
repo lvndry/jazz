@@ -31,6 +31,7 @@ import { LLMRateLimitError } from "@/core/types/errors";
 import type { ChatMessage } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
 import type { AutoApprovePolicy, ToolExecutionContext } from "@/core/types/tools";
+import { generateConversationId } from "@/core/utils/conversation-id";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import { parseProviderModel } from "@/core/utils/provider-model";
 import { shouldEnableStreaming } from "@/core/utils/stream-detector";
@@ -196,7 +197,7 @@ function initializeAgentRun(
     const configService = yield* AgentConfigServiceTag;
     const appConfig = yield* configService.appConfig;
 
-    const actualConversationId = conversationId || `${Date.now()}`;
+    const actualConversationId = conversationId || generateConversationId();
     const history: ChatMessage[] = options.conversationHistory || [];
     const persona = agent.config.persona;
     const provider: ProviderName = agent.config.llmProvider;

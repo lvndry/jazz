@@ -24,6 +24,7 @@ import { LLMAuthenticationError, LLMRateLimitError, LLMRequestError } from "@/co
 import type { Agent } from "@/core/types/index";
 import { type ChatMessage } from "@/core/types/message";
 import type { AutoApprovePolicy } from "@/core/types/tools";
+import { generateConversationId } from "@/core/utils/conversation-id";
 import { isRetryableLLMError } from "@/core/utils/llm-error";
 import { conversationLogGroup } from "@/core/utils/log-group";
 import type { WorkflowService } from "@/core/workflows/workflow-service";
@@ -31,7 +32,6 @@ import { handleSpecialCommand, parseSpecialCommand, setSkillCommands } from "./c
 import type { CommandContext, CommandResult } from "./chat/commands/types";
 import { persistConversationIfNeeded } from "./chat/persist-conversation";
 import {
-  generateConversationId,
   initializeSession,
   logMessageToSession,
   setupAgent,
