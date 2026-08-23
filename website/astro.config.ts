@@ -15,7 +15,14 @@ export default defineConfig({
   build: {
     format: "file",
   },
-  integrations: [sitemap()],
+  integrations: [
+    sitemap({
+      serialize: (item) => ({
+        ...item,
+        url: item.url.replace(/index\.html$/, "").replace(/\.html$/, ""),
+      }),
+    }),
+  ],
   markdown: {
     shikiConfig: {
       theme: "css-variables",
