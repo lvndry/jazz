@@ -25,15 +25,10 @@ import {
   formatToolResult,
   toolResultSnippet,
 } from "./format-utils";
-import type { ActiveTool, ActivityState } from "../ui/activity-state";
+import type { ActiveTool, ActivityState, TodoSnapshotItem } from "../ui/activity-state";
 import { getGlyphs } from "../ui/glyphs";
 import { PADDING, THEME } from "../ui/theme";
 import type { OutputEntry } from "../ui/types";
-
-interface TodoSnapshotItem {
-  content: string;
-  status: "pending" | "in_progress" | "unverified" | "completed" | "cancelled";
-}
 
 /**
  * Playful gerund-form labels shown while waiting for the model's first stream
@@ -187,13 +182,17 @@ function parseTodoSnapshot(args?: Record<string, unknown>): TodoSnapshotItem[] |
     if (
       status !== "pending" &&
       status !== "in_progress" &&
-      status !== "unverified" &&
       status !== "completed" &&
       status !== "cancelled"
     ) {
       continue;
     }
-    todos.push({ content, status });
+    const verifiedBy = entry["verifiedBy"];
+    todos.push({
+      content,
+      status,
+      ...(typeof verifiedBy === "string" && verifiedBy.length > 0 ? { verifiedBy } : {}),
+    });
   }
   return todos.length > 0 ? todos : undefined;
 }

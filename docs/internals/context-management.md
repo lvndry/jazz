@@ -335,11 +335,12 @@ Two things read it back:
 - **Compaction itself** is told what work state already holds, so the summary covers what
   the transcript adds instead of restating the plan.
 
-Todos carry an explicit `unverified` status, and the prompt requires that `completed` means
-something was actually run. An agent that marks its own work complete on the strength of
-having written it turns the record into a confident lie for whoever picks the work up next.
-Work state used to keep a second, parallel list of the same work under a different
-vocabulary; the status survived, the duplicate list did not.
+Todos carry a `verifiedBy` field alongside their status, and the prompt asks for it
+whenever something is marked completed. An agent that marks its own work complete on the
+strength of having written it turns the record into a confident lie for whoever picks the
+work up next; a completed todo with nothing in `verifiedBy` says plainly that nobody
+checked. Work state used to keep a second, parallel list of the same work under a
+different vocabulary — the idea survived, the duplicate list did not.
 
 Inspect or discard it with `/work` and `/work clear`. Journals are capped per conversation
 and pruned oldest-first, since the newest record is the one describing where the task is.

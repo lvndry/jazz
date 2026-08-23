@@ -44,16 +44,19 @@ function ElapsedText({ seconds }: { seconds: number }): React.ReactElement | nul
   return <Text dimColor> · {formatElapsed(seconds)}</Text>;
 }
 
-type TodoStatus = "pending" | "in_progress" | "unverified" | "completed" | "cancelled";
+type TodoStatus = "pending" | "in_progress" | "completed" | "cancelled";
 
-function todoStatusGlyph(status: TodoStatus): string {
+/**
+ * Completed splits by evidence, not by status.
+ *
+ * A todo the agent finished without running anything is still finished — it belongs on the
+ * done side of the list — but it is a weaker claim than one with a verification behind it.
+ * Shown by shape rather than hue so the two are distinguishable at a glance.
+ */
+function todoStatusGlyph(status: TodoStatus, verified: boolean): string {
   switch (status) {
     case "completed":
-      return G.success;
-    // Told apart from completed by shape, not only by hue: "believed done" and "shown to
-    // work" are different claims, and a reader scanning the list has to see which is which.
-    case "unverified":
-      return G.warn;
+      return verified ? G.success : G.warn;
     case "in_progress":
       return G.proposed;
     case "cancelled":
@@ -64,12 +67,10 @@ function todoStatusGlyph(status: TodoStatus): string {
   }
 }
 
-function todoStatusColor(status: TodoStatus): string {
+function todoStatusColor(status: TodoStatus, verified: boolean): string {
   switch (status) {
     case "completed":
-      return THEME.success;
-    case "unverified":
-      return THEME.warning;
+      return verified ? THEME.success : THEME.warning;
     case "in_progress":
       return THEME.agent;
     case "cancelled":
@@ -225,7 +226,9 @@ export const ActivityView = React.memo(function ActivityView({
             >
               {activity.todoSnapshot.map((todo, index) => (
                 <Box key={`${todo.content}-${index}`}>
-                  <Text color={todoStatusColor(todo.status)}>{todoStatusGlyph(todo.status)}</Text>
+                  <Text color={todoStatusColor(todo.status, todo.verifiedBy !== undefined)}>
+                    {todoStatusGlyph(todo.status, todo.verifiedBy !== undefined)}
+                  </Text>
                   <Text> </Text>
                   <Text>{todo.content}</Text>
                 </Box>

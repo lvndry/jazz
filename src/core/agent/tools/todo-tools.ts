@@ -10,24 +10,30 @@ import { defineTool, makeZodValidator } from "./base-tool";
 /**
  * Todo item schema — matches the shape persisted to the temp file.
  *
- * `unverified` came from work state, which kept a second, parallel list of the same work
- * under a different vocabulary. Its one genuinely good idea was refusing to let an agent
- * call something finished on the strength of having written it, so that distinction moved
- * here and the second list went away.
+ * Progress and evidence are kept on separate fields on purpose. `status` answers how far
+ * along the work is; `verifiedBy` answers whether anyone checked. Folding the second into
+ * the first — a `unverified` status sitting between in_progress and completed — reads as a
+ * progress state without being one, and every consumer then has to decide for itself
+ * whether it counts as finished.
+ *
+ * `verifiedBy` is the part carried over from work state, which used to keep a rival list
+ * of the same work. Its good idea was refusing to let an agent call something done on the
+ * strength of having written it.
  */
 const TodoItemSchema = z.object({
   content: z.string().describe("What this step is."),
   status: z
-    .enum(["pending", "in_progress", "unverified", "completed", "cancelled"])
-    .describe(
-      'pending, in_progress, unverified, completed, or cancelled. Use "completed" only ' +
-        'when you have run something that confirms it works; use "unverified" when you ' +
-        "believe it is finished but have not checked.",
-    ),
+    .enum(["pending", "in_progress", "completed", "cancelled"])
+    .describe("pending, in_progress, completed, or cancelled."),
   verifiedBy: z
     .string()
     .optional()
-    .describe('What you ran to confirm it, e.g. "bun test src/foo.test.ts".'),
+    .describe(
+      'What you ran that confirms this works, e.g. "bun test src/foo.test.ts". Set it ' +
+        "whenever you mark something completed. Leave it out if you believe the work is " +
+        "finished but have not actually checked — completed without it reads as exactly " +
+        "that, which is honest and useful; a claim you did not verify is not.",
+    ),
   priority: z.enum(["high", "medium", "low"]).describe("high, medium, or low.").default("medium"),
 });
 
