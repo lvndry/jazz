@@ -1,6 +1,6 @@
 ---
 title: "The harness is the product"
-description: "What an agent harness actually is, why the loop is the easy part, and a tour of the guards that keep a Jazz run alive for eighty iterations unattended."
+description: "What an agent harness actually is — from the first tool call to the guards that keep a run alive for eighty iterations unattended. A tour of the Jazz harness, with the real numbers."
 date: 2026-08-23
 ---
 
@@ -19,10 +19,92 @@ most agents are exactly that afternoon project with a nicer README.
 
 The difference between a demo and something you can leave running unattended
 is everything *around* those twenty lines. That's the harness, and in Jazz
-it's the part we treat as the actual product. A tour of the guards, with the
-real numbers.
+it's the part we treat as the actual product. This post is the tour — starting
+from the obvious parts, because the obvious parts are where the design
+decisions hide.
 
-## The agent has a sense of its own budget
+## Start with the hands: tools
+
+A language model can only emit text. A *tool call* is the one trick that
+turns text into action: the model emits a small JSON object — a name and
+arguments, `read_file({"path": "notes.md"})` — the harness executes the real
+function behind that name, and the result goes back into the conversation as
+a message. That's it. Everything an agent "does" in the world passes through
+this needle.
+
+So the first thing a harness is, is a **registry**: the catalog of names the
+model is allowed to emit. Jazz ships 35 agent-facing tools, and most of them
+are exactly the ones you'd expect — `read_file`, `edit_file`, `grep`,
+`web_search`, `web_fetch`, `http_request`, `execute_command`. Their being
+expected is the point. An agent is useful in proportion to how boring its
+hands are: files, shell, web. The novelty is not the catalog; it's the
+bookkeeping around it.
+
+Three pieces of bookkeeping, specifically:
+
+- **Every tool declares a risk tier** — 20 are read-only, 7 low-risk, 6
+  high-risk, and one (`execute_command`) is *unknown*, because the command
+  decides its own blast radius. More on what the tiers buy below.
+- **Seven tools are approval pairs.** Calling `write_file` doesn't write a
+  file — it returns a description of what *would* happen, and a hidden
+  `execute_write_file` counterpart does the writing only after the gate says
+  yes. The model can't even see the `execute_*` names.
+- **The reference page for all of this is enforced by a test** that fails if
+  the registry and the docs drift apart. Harness discipline extends to the
+  documentation, or the documentation is fiction within a month.
+
+Beyond the built-ins, the registry is open on three sides: MCP servers add
+`mcp_<server>_<tool>` entries discovered from the agent's config, skills add
+their three loader tools, and agent configs can define custom tools. Same
+registry, same tiers, same gates.
+
+## Skills: tools are *what*, skills are *how*
+
+Give an agent `web_search` and `write_file` and ask it to "deep-research this
+topic properly," and it will wing it — differently every time. A **skill** is
+a packaged playbook: a folder with a `SKILL.md` of instructions, optional
+reference docs, optional scripts. Tools are what the agent uses; skills are
+how it should use them.
+
+The interesting harness problem is cost. A serious skill library is tens of
+thousands of tokens of instructions, and stuffing them all into every
+conversation would burn the context window before the user says a word. Jazz
+loads skills by **progressive disclosure**, in three levels:
+
+1. **Always present:** an index of skill names with one-line descriptions —
+   a few hundred tokens total, enough for the agent to know a playbook
+   exists.
+2. **On demand:** when a request matches, the agent calls `load_skill` and
+   gets the full `SKILL.md` — the workflow, the output format, the examples.
+3. **Deeper on demand:** heavy skills point at reference files, and
+   `load_skill_section` pulls in only the section the workflow actually
+   needs.
+
+The agent can have access to dozens of skills but pays the token cost only
+for the ones it uses, at the depth it uses them. This is the same principle
+you'll see again in context management below: **the context window is the
+scarce resource, and everything in the harness is designed around not
+wasting it.**
+
+## Sub-agents: isolation, not speed
+
+The third structural piece. When a task involves reading a lot — deep
+research across twelve sources, say — the reading costs 100,000 tokens. Do
+that in the main conversation and the parent is compacting by iteration
+fifteen and has forgotten what it was doing.
+
+So the agent can delegate: `spawn_subagent(task)` starts a child run with
+**its own context window**. The child burns its 100k tokens, returns one
+paragraph, and its context is discarded. The parent pays a paragraph for
+twelve sources. People assume sub-agents are about parallelism; in Jazz
+they're primarily about *quarantining token spend*. (And the child's cost is
+added to the parent's bill — more on receipts later.)
+
+With the structure in place — tools as hands, skills as playbooks,
+sub-agents as quarantine — we can get to the part that earns the title: the
+guards. Each one exists because a real unattended run failed without it.
+
+## Guard: the agent has a sense of its own budget
 
 A Jazz run is bounded at 80 iterations. An agent with 80 iterations and no
 sense of time will happily spend all 80 on research and produce nothing —
@@ -42,7 +124,7 @@ If it were stored, iteration 78 would carry eight escalating "FINISH NOW"
 messages, each costing tokens and confusing the transcript that later gets
 summarized. The nudge steers the run without polluting its history.
 
-## Meltdown detection — the groove detector
+## Guard: meltdown detection
 
 The classic agent failure isn't a crash. It's a groove: the same search, the
 same file read, forever, until the budget is gone. Jazz keeps a rolling
@@ -66,7 +148,7 @@ stop, summarize what it has, and try a fundamentally different approach —
 and unlike budget pressure, this one *is* stored, because "your last
 approach didn't work" is something the run should keep remembering.
 
-## Context is managed like the scarce resource it is
+## Guard: context is managed like the scarce resource it is
 
 Three mechanisms, three jobs, deliberately layered
 ([the full writeup](/docs/internals/context-management)):
@@ -95,29 +177,25 @@ And because a summary is still lossy, working state — the todo list, key
 findings — lives *outside* the message history and survives compaction
 untouched.
 
-## Tools run in two phases, and the ask travels
+## Guard: the gate, and who answers it
 
-A gated tool doesn't act when the model calls it. The propose phase does
-real work — resolves the path, reads the current file, computes the exact
-diff — and mutates nothing. What comes back is a description of what
-*would* happen, and that's what you approve.
+Back to those approval pairs. Why two phases instead of a `dangerous: true`
+flag? Because you can't show a useful preview without doing the work. The
+propose phase resolves the path, reads the current file, computes the exact
+diff — and mutates nothing. That's what makes "here is the exact diff,
+approve?" possible instead of "the model wants to write a file, trust it?".
 
-Why a pair of phases instead of a `dangerous: true` flag? Because you can't
-show a useful preview without doing the work. Two phases is what makes
-"here is the exact diff, approve?" possible instead of "the model wants to
-write a file, trust it?".
+The risk tiers turn this into one dial: `--approval-policy read-only` means
+anything read-only runs unattended and everything else waits for a human.
+For `execute_command`, whose declared tier is *unknown*, a cheap harness
+model classifies each specific command first — so `git log` runs unattended
+under a read-only policy without also unlocking `rm`.
 
-Every tool declares a risk tier — read-only, low-risk, high-risk — and one
-dial decides what runs without asking. `execute_command` is declared
-*unknown*, because the command decides the blast radius: a cheap harness
-model classifies each specific command, so `--approval-policy read-only`
-runs `git log` unattended without also unlocking `rm`.
-
-The part that matters for an everyday agent: interactive and unattended runs
-go down the *same* path. The only difference is who answers the gate — you
-at the terminal, you on Telegram, or a policy you set in advance. There is
-no separate headless mode to drift out of sync with the interactive one.
-This isn't paranoia for its own sake: a coding agent asks to edit a file
+The part that matters most for an everyday agent: interactive and unattended
+runs go down the *same* path. The only difference is who answers the gate —
+you at the terminal, you on Telegram, or a policy you set in advance. There
+is no separate headless mode to drift out of sync with the interactive one.
+And this isn't paranoia for its own sake: a coding agent asks to edit a file
 you can revert. An everyday agent asks to send an email. There is no undo.
 
 ## The receipts are part of the harness
@@ -137,19 +215,22 @@ becomes unfindable.
 
 ## Why this is the moat
 
-None of these guards is glamorous. Each one exists because a real run failed
-without it: the groove, the sliding-window regression, the cache-prefix
-invalidation, the phantom tool result. A harness is a collection of scars,
-and scars only accumulate in code that actually runs unattended, on real
-accounts, where a failure costs something.
+None of this is glamorous. The registry, the loader levels, the composite
+meltdown key, the compact-before-trim ordering — each exists because a real
+run failed without it: the groove, the sliding-window regression, the
+cache-prefix invalidation, the phantom tool result. A harness is a
+collection of scars, and scars only accumulate in code that actually runs
+unattended, on real accounts, where a failure costs something.
 
 That's what's special about the Jazz harness — not any single trick, but
-that the whole thing is built for the run nobody is watching. The model will
-keep getting smarter, and every agent gets that upgrade for free. The
-harness is the part you choose.
+that the whole stack, from the obvious tools up through the guards, is built
+for the run nobody is watching. The model will keep getting smarter, and
+every agent gets that upgrade for free. The harness is the part you choose.
 
 All of it is MIT-licensed and documented at the level of this post and
 below: start at [the agent loop](/docs/internals/agent-loop), then
-[context management](/docs/internals/context-management) and
-[tools & approval](/docs/internals/tools-and-approval). If you'd rather
-just see it play, the [homepage](/) runs a session in front of you.
+[context management](/docs/internals/context-management),
+[tools & approval](/docs/internals/tools-and-approval),
+[skills loading](/docs/internals/skills-loading), and
+[sub-agents](/docs/internals/subagents). If you'd rather just see it play,
+the [homepage](/) runs a session in front of you.
