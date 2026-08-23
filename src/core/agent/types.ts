@@ -236,6 +236,12 @@ export interface AgentResponse {
   };
   /** Total estimated cost for the full run in USD. Populated when model pricing is available. */
   readonly costUSD?: number;
+  /**
+   * True when some token spend in this run — the run's own turns or any
+   * sub-agent's — lacked pricing metadata, so `costUSD` understates real
+   * spend. Cost-capped callers must treat such runs as unpriced.
+   */
+  readonly costIncomplete?: boolean;
 }
 
 /**

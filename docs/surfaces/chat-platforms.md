@@ -83,7 +83,7 @@ What the Telegram bridge demonstrates — worth reading before you write your ow
 | **Live progress**   | `--events` NDJSON on stderr drives a status bubble that updates with thinking, tool calls, and sub-agents, then closes with a `✅ Done · 7 tools · 12k tokens · $0.03` summary. |
 | **Cancellation**    | A ⏹ button kills the child process mid-run.                                                                                                                                    |
 | **Reminders**       | `/remind 30m …`, persisted to disk so they survive restarts and fire late if the bridge was down.                                                                              |
-| **Spend cap**       | `JAZZ_DAILY_COST_CAP_USD` — the envelope's `costUSD` is accumulated per day.                                                                                                   |
+| **Spend cap**       | `JAZZ_DAILY_COST_CAP_USD` — known `costUSD` is accumulated per day; after an unpriced run, further requests pause until the next UTC day.                                      |
 | **Local-only mode** | Point `JAZZ_TELEGRAM_PROVIDER=ollama` at a local model: no keys, no cloud, no per-message cost.                                                                                |
 | **Allowlist**       | Only `TELEGRAM_ALLOWED_CHAT_IDS` are answered; everyone else is silently ignored.                                                                                              |
 
@@ -186,7 +186,7 @@ flowchart LR
 - **Default to `low-risk`.** At `high-risk`, a message — or a prompt injection inside a web page the agent fetched — can run arbitrary commands on the host. That is the documented behavior of that tier, not a bug.
 - **Trim the toolset.** An agent config that doesn't include `execute_command` cannot run shell commands regardless of policy. This is the strongest control available.
 - **Treat the history volume as sensitive.** Transcripts are plaintext JSON under `~/.jazz/history/`.
-- **Cap spend.** Use the envelope's `costUSD` to enforce a daily ceiling.
+- **Cap spend.** Use `costKnown` as well as `costUSD`. The bridges pause subsequent requests after an unpriced run; no dollar cap can guarantee the cost of that first unpriced request.
 
 Full model: [Security](../../SECURITY.md).
 

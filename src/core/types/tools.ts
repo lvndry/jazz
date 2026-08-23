@@ -279,6 +279,12 @@ export interface ToolExecutionContext {
    */
   readonly recordChildCost?: (costUSD: number) => void;
   /**
+   * Flag that a nested run spent tokens whose pricing was unavailable, so the
+   * parent's aggregated costUSD understates real spend and its envelope must
+   * report the cost as incomplete.
+   */
+  readonly recordChildCostUnknown?: () => void;
+  /**
    * Commands that are always auto-approved for execute_command tool.
    * Each entry is a prefix — a command is approved if it starts with any entry.
    */

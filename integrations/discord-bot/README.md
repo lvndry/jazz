@@ -139,7 +139,9 @@ While a message is processing, the progress message carries a **⏹ Cancel**
 button that kills the run. Each answer gets follow-up buttons (`🔍 Go deeper`,
 `✂️ Shorter`, …) that upgrade to contextual ones a beat later; set
 `JAZZ_DISCORD_DYNAMIC_CTA=0` to keep only the static ones.
-Set `JAZZ_DAILY_COST_CAP_USD` to cap total spend per day (0 = no cap).
+Set `JAZZ_DAILY_COST_CAP_USD` to cap known spend per UTC day (0 = no cap).
+If a completed run has no pricing metadata, its exact cost cannot be capped;
+the bot records it as unpriced and pauses later requests until the next UTC day.
 
 **Servers vs DMs.** In a server the bot only answers when mentioned, when you
 reply to it, or in a thread it already joined (`DISCORD_REQUIRE_MENTION=1`,
@@ -180,7 +182,7 @@ _that_ conversation. `JAZZ_DISCORD_PROVIDER` / `JAZZ_DISCORD_MODEL` /
 | `JAZZ_APPROVAL_POLICY` | `low-risk` | Auto-approve tools up to: `read-only`\|`low-risk`\|`high-risk`. |
 | `JAZZ_AUTO_APPROVE_TOOLS` | — | Comma-separated tool names to auto-approve regardless of policy. Tools needing approval that aren't in this list are sent to the channel as an accept/reject prompt instead of being declined. |
 | `JAZZ_RUN_TIMEOUT_MS` | `300000` | Per-message agent timeout. |
-| `JAZZ_DAILY_COST_CAP_USD` | `0` | Daily spend ceiling across all conversations; `0` disables the cap. |
+| `JAZZ_DAILY_COST_CAP_USD` | `0` | Daily known-spend ceiling across all conversations; an unpriced run pauses later requests for the UTC day; `0` disables the cap. |
 | `DISCORD_PUBLIC_BASE_URL` | unset | Public HTTPS origin used to link `create_web_app`'s interactive pages. Unset disables interactive mode (static/image mode always works). |
 | `PUPPETEER_EXECUTABLE_PATH` | `/usr/bin/chromium` | Browser used to screenshot `create_web_app`'s "static" mode. |
 
