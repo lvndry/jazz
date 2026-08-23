@@ -15,6 +15,7 @@ import {
   formatOneShotError,
   formatOneShotResult,
   isApprovalPolicyFlag,
+  isRunCostKnown,
   isReasoningEffortFlag,
   type OneShotSuccess,
   parseEventCategories,
@@ -24,6 +25,7 @@ import {
 const baseResult: OneShotSuccess = {
   answer: "Hello from the agent",
   costUSD: 0.0012,
+  costKnown: true,
   tokenUsage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
   toolCalls: [{ id: "call_1", name: "web_search", arguments: '{"q":"x"}' }],
 };
@@ -49,6 +51,7 @@ describe("formatOneShotResult", () => {
       ok: true,
       answer: "Hello from the agent",
       costUSD: 0.0012,
+      costKnown: true,
       tokenUsage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
       toolCalls: [{ id: "call_1", name: "web_search", arguments: '{"q":"x"}' }],
     });
@@ -84,6 +87,23 @@ describe("formatOneShotError", () => {
 
   it("json mode defaults costUSD to 0", () => {
     expect(JSON.parse(formatOneShotError("boom", { json: true })).costUSD).toBe(0);
+  });
+});
+
+describe("isRunCostKnown", () => {
+  it("accepts provider pricing, including a real zero", () => {
+    expect(isRunCostKnown(0, "openai", "free-model")).toBe(true);
+    expect(isRunCostKnown(0.01, "openai", "priced-model")).toBe(true);
+  });
+
+  it("recognizes local servers as zero-cost without misclassifying Ollama Cloud", () => {
+    expect(isRunCostKnown(undefined, "llamacpp", "local.gguf")).toBe(true);
+    expect(isRunCostKnown(undefined, "ollama", "qwen3:8b")).toBe(true);
+    expect(isRunCostKnown(undefined, "ollama", "kimi-k3:cloud")).toBe(false);
+  });
+
+  it("marks missing remote pricing as unknown", () => {
+    expect(isRunCostKnown(undefined, "openai", "unlisted-model")).toBe(false);
   });
 });
 
@@ -318,12 +338,13 @@ describe("--conversation persistence", () => {
     expect(second?.startedAt).toBe(first?.startedAt ?? "");
   });
 
-  it("json envelope shape is unchanged by conversation runs", () => {
+  it("conversation runs use the current JSON envelope shape", () => {
     const output = formatOneShotResult(baseResult, { json: true });
     expect(Object.keys(JSON.parse(output))).toEqual([
       "ok",
       "answer",
       "costUSD",
+      "costKnown",
       "tokenUsage",
       "toolCalls",
     ]);

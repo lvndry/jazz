@@ -2,6 +2,7 @@ import { Effect } from "effect";
 import { AgentRunner } from "@/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@/core/agent/agent-service";
 import { buildWorkStatePreamble } from "@/core/agent/context/work-state-preamble";
+import { isOllamaCloudModel } from "@/core/constants/ollama";
 import { CommonSuggestions, getErrorMessage } from "@/core/presentation/error-handler";
 import { makeOneShotPresentationServiceLayer } from "@/core/presentation/oneshot-presentation-service";
 import { describeArtifact, type GeneratedArtifact } from "@/core/types/artifact";
@@ -63,6 +64,8 @@ export interface OneShotWebApp {
 export interface OneShotSuccess {
   readonly answer: string;
   readonly costUSD: number;
+  /** Whether costUSD is based on pricing metadata rather than an unknown-price fallback. */
+  readonly costKnown: boolean;
   readonly tokenUsage: OneShotTokenUsage;
   readonly toolCalls: readonly OneShotToolCall[];
   readonly webApp?: OneShotWebApp;
@@ -85,6 +88,17 @@ export interface OneShotSuccess {
    * disk.
    */
   readonly messages?: readonly ChatMessage[];
+}
+
+/** Distinguish unavailable remote pricing from providers that run on the user's machine. */
+export function isRunCostKnown(
+  costUSD: number | undefined,
+  provider: string,
+  modelId: string,
+): boolean {
+  if (costUSD !== undefined) return true;
+  if (provider === "llamacpp") return true;
+  return provider === "ollama" && !isOllamaCloudModel(modelId);
 }
 
 /**
@@ -166,6 +180,7 @@ export function formatOneShotResult(result: OneShotSuccess, options: OneShotOutp
     ok: true,
     answer: result.answer,
     costUSD: result.costUSD,
+    costKnown: result.costKnown,
     tokenUsage: result.tokenUsage,
     toolCalls: result.toolCalls,
     ...(result.webApp ? { webApp: result.webApp } : {}),
@@ -528,6 +543,11 @@ export function runAgentOnceCommand(
         {
           answer: runResult.content,
           costUSD: runResult.costUSD ?? 0,
+          costKnown: isRunCostKnown(
+            runResult.costUSD,
+            agentForRun.config.llmProvider,
+            agentForRun.config.llmModel,
+          ),
           tokenUsage: {
             promptTokens,
             completionTokens,

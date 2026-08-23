@@ -37,7 +37,7 @@ import { startReminderSweep } from "./reminders";
 import { conversationKey, isIncognito, setIncognito, startNewConversation } from "./sessions";
 import { escapeHtml, markdownToTelegramHtml, splitForTelegram } from "./telegram-html";
 import { formatWhen, hasChatTz, isValidTimeZone, setTzForChat, tzForChat } from "./timezone";
-import { recordUsage, todayUsage } from "./usage";
+import { dailyCostCapBlockReason, recordUsage, todayUsage } from "./usage";
 
 const TELEGRAM_API_BASE = "https://api.telegram.org";
 const GETUPDATES_TIMEOUT_SECONDS = 30;
@@ -116,6 +116,7 @@ interface JazzSuccessEnvelope {
   readonly ok: true;
   readonly answer: string;
   readonly costUSD: number;
+  readonly costKnown?: boolean;
   readonly tokenUsage?: {
     readonly totalTokens?: number;
     readonly promptTokens?: number;
@@ -850,7 +851,18 @@ async function deliverWebApp(
 async function handleMessage(config: BridgeConfig, chatId: number, text: string): Promise<void> {
   ensureChatAgent(config.jazzHome, chatId, config.baseAgentId);
 
-  if (config.dailyCostCapUsd > 0 && todayUsage(config.jazzHome).costUSD >= config.dailyCostCapUsd) {
+  const usage = todayUsage(config.jazzHome);
+  const capBlockReason = dailyCostCapBlockReason(usage, config.dailyCostCapUsd);
+  if (capBlockReason === "unpriced") {
+    await sendReply(
+      config,
+      chatId,
+      "⚠️ Daily cost cap paused: pricing was unavailable for an earlier run today, so spend cannot be verified. Try again tomorrow, disable the cap, or select a priced model.",
+    );
+    return;
+  }
+
+  if (capBlockReason === "reached") {
     await sendReply(
       config,
       chatId,
@@ -892,7 +904,13 @@ async function handleMessage(config: BridgeConfig, chatId: number, text: string)
     }
 
     if (envelope.ok) {
-      recordUsage(config.jazzHome, envelope.costUSD, envelope.tokenUsage?.totalTokens ?? 0);
+      const costKnown = envelope.costKnown !== false;
+      recordUsage(
+        config.jazzHome,
+        envelope.costUSD,
+        envelope.tokenUsage?.totalTokens ?? 0,
+        costKnown,
+      );
       const used = reporter?.toolsUsed() ?? [];
       const parts = ["✅ <b>Done</b>"];
       if (used.length > 0) {
@@ -900,6 +918,8 @@ async function handleMessage(config: BridgeConfig, chatId: number, text: string)
       }
       if (envelope.costUSD > 0) {
         parts.push(envelope.costUSD >= 0.0001 ? `$${envelope.costUSD.toFixed(4)}` : "<$0.0001");
+      } else if (!costKnown) {
+        parts.push("price unavailable");
       }
       const usageLines = formatUsageLines(envelope.tokenUsage);
       await reporter?.finish(
@@ -1329,7 +1349,7 @@ async function handleCommand(
         : []),
       `Model: <code>${escapeHtml(agent.config.llmProvider)}/${escapeHtml(agent.config.llmModel)}</code> (reasoning: ${escapeHtml(agent.config.reasoningEffort)})`,
       `Timezone: <code>${escapeHtml(tzForChat(config.jazzHome, chatId))}</code>${hasChatTz(config.jazzHome, chatId) ? "" : " (default)"}`,
-      `Today: ${day.runs} runs · ${formatTokenCount(day.tokens)} tok · $${day.costUSD.toFixed(4)}`,
+      `Today: ${day.runs} runs · ${formatTokenCount(day.tokens)} tok · $${day.costUSD.toFixed(4)}${(day.unpricedRuns ?? 0) > 0 ? ` · ${day.unpricedRuns} unpriced` : ""}`,
       `Daily cap: ${cap > 0 ? `$${cap.toFixed(2)}` : "none"}`,
       `Uptime: ${formatUptime(Date.now() - BRIDGE_STARTED_AT)}`,
     ];

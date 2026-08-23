@@ -26,7 +26,18 @@ import { runWorkflowCommand } from "./workflow";
  * and restored after each test.
  */
 
-const mockAgent = { id: "agent-1", name: "ci-reviewer" } as Agent;
+const mockAgent: Agent = {
+  id: "agent-1",
+  name: "ci-reviewer",
+  model: "openai/gpt-4o-mini",
+  config: {
+    persona: "default",
+    llmProvider: "openai",
+    llmModel: "gpt-4o-mini",
+  },
+  createdAt: new Date("2026-01-01T00:00:00.000Z"),
+  updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+};
 
 const mockWorkflow: WorkflowContent = {
   metadata: {

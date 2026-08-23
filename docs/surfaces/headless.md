@@ -68,6 +68,7 @@ stdout is exactly one single-line object. Always one line, always one object —
   "ok": true,
   "answer": "4",
   "costUSD": 0.000182,
+  "costKnown": true,
   "tokenUsage": { "promptTokens": 1204, "completionTokens": 6, "totalTokens": 1210 },
   "toolCalls": [{ "id": "call_1", "name": "read_file", "arguments": "{\"path\":\"…\"}" }]
 }
@@ -80,6 +81,10 @@ stdout is exactly one single-line object. Always one line, always one object —
 
 Note that the failure envelope still reports `costUSD` — a run that timed out still
 spent money, and an unattended deployment needs to account for it.
+
+Successful envelopes also include `costKnown`. When pricing metadata is unavailable,
+`costUSD` remains `0` for compatibility and `costKnown` is `false`; consumers must not
+interpret that fallback as a free run.
 
 ---
 
@@ -220,6 +225,7 @@ interface JazzResult {
   answer?: string;
   error?: string;
   costUSD: number;
+  costKnown?: boolean;
 }
 
 export function askJazz(chatId: string, message: string): Promise<JazzResult> {
