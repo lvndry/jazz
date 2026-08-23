@@ -2,12 +2,10 @@
 /**
  * Drives the fullscreen interface from the live UI store.
  *
- * The store already carries everything the interface needs, through a
- * register-setter / read-snapshot contract that the Ink islands use too. So
- * fullscreen needs no new presentation service: the same service writes to the
- * store, and whoever registered the setters renders. This module is the only
- * place where live state becomes a `ViewModel`, which is what keeps every
- * region a pure function of data.
+ * The store is a process singleton write port. Both this tree and the Ink
+ * islands subscribe to the same Object.is-stable slices via
+ * useSyncExternalStore. This module is the only place where live state becomes
+ * a `ViewModel`, which is what keeps every region a pure function of data.
  *
  * The mapping is deliberately lossy in one direction. The store speaks in
  * output entries and activity phases, which are a log; the interface speaks in
@@ -33,11 +31,12 @@ import {
 import { composeRecalledBuffer, isCursorOnFirstLine, isCursorOnLastLine } from "../queue-recall";
 import {
   store,
-  type ActiveMenu,
-  type ConnectorStatus,
+  useEphemeralSlice,
+  useOutputSlice,
+  usePromptSlice,
+  useSessionSlice,
   type EphemeralRegion,
   type PendingApproval,
-  type RunStats,
 } from "../store";
 import type { Choice, OutputEntry, PromptState } from "../types";
 import { App, type KeyChord } from "./App";
@@ -563,11 +562,6 @@ function receiptOf(entry: OutputEntry): ToolReceiptMeta | null {
   };
 }
 
-/** `Array.isArray` alone widens a readonly array to `any[]`. */
-function isEntryList(value: OutputEntry | readonly OutputEntry[]): value is readonly OutputEntry[] {
-  return Array.isArray(value);
-}
-
 /**
  * `OutputEntry.message` is typed `string | TerminalInkNode` — the second half
  * is an opaque wrapper (`{ _tag: "ink", node: <a React element> }`) that only
@@ -976,19 +970,27 @@ function approvalFrom(
 export function FullscreenBridge(): React.ReactNode {
   const { width, height } = useTerminalDimensions();
   const viewport = { width, height };
-  const [outputs, setOutputs] = useState<readonly OutputEntry[]>([]);
-  const [streaming, setStreaming] = useState("");
-  const [activity, setActivity] = useState<ActivityState>({ phase: "idle" });
-  const [stats, setStats] = useState<RunStats>({});
-  const [queue, setQueue] = useState<readonly string[]>([]);
-  const [busy, busyRef, setBusy] = useSynchronizedState(false);
-  const [isYolo, setIsYolo] = useState(store.getModeIsYolo());
-  const [regions, setRegions] = useState<readonly EphemeralRegion[]>([]);
-  const [prompt, promptRef, updatePrompt] = useSynchronizedState<PromptState | null>(null);
+  const output = useOutputSlice();
+  const session = useSessionSlice();
+  const promptSlice = usePromptSlice();
+  const ephemeral = useEphemeralSlice();
+  const outputs = output.entries;
+  const streaming = stripAnsiCodes(output.streaming);
+  const activity = session.activity;
+  const stats = session.runStats;
+  const queue = promptSlice.messageQueue;
+  const busy = session.chatBusy;
+  const busyRef = useRef(busy);
+  busyRef.current = busy;
+  const isYolo = session.isYolo;
+  const regions = ephemeral.regions;
+  const prompt = promptSlice.prompt;
+  const promptRef = useRef(prompt);
+  promptRef.current = prompt;
   const [promptControls, promptControlsRef, updatePromptControls] =
     useSynchronizedState<PromptControlsState>(EMPTY_PROMPT_CONTROLS);
   const promptFile = promptControls.file;
-  const [approval, setApproval] = useState<PendingApproval | null>(null);
+  const approval = session.approvalRequest;
   const [approvalArmed, setApprovalArmed] = useState(false);
   const [approvalFieldOffset, setApprovalFieldOffset] = useState(0);
   /**
@@ -1030,19 +1032,17 @@ export function FullscreenBridge(): React.ReactNode {
     [updateHistory],
   );
   const [commandIndex, commandIndexRef, setCommandIndex] = useSynchronizedState(0);
-  const [customView, setCustomView] = useState<React.ReactNode | null>(null);
-  const [connectors, setConnectors] = useState<ReadonlyMap<string, ConnectorStatus>>(new Map());
-  const [currentConversation, setCurrentConversation] = useState(
-    store.getCurrentConversationSnapshot(),
-  );
-  const [workingDirectory, setWorkingDirectory] = useState<string | null>(
-    store.getWorkingDirectorySnapshot(),
-  );
+  const customView = session.customView;
+  const connectors = session.connectors;
+  const currentConversation = session.currentConversation;
+  const workingDirectory = session.workingDirectory;
   const [searchQuery, searchQueryRef, setSearchQuery] = useSynchronizedState<string | null>(null);
   const [searchHits, searchHitsRef, setSearchHits] = useSynchronizedState<readonly SearchHit[]>([]);
   const [searchScope, , setSearchScope] = useSynchronizedState<"conversation" | "all">("all");
   const [searchIndex, searchIndexRef, setSearchIndex] = useSynchronizedState(0);
-  const [menu, menuRef, setMenu] = useSynchronizedState<ActiveMenu | null>(null);
+  const menu = session.activeMenu;
+  const menuRef = useRef(menu);
+  menuRef.current = menu;
   const [menuIndex, menuIndexRef, setMenuIndex] = useSynchronizedState(0);
   const [elapsedMs, setElapsedMs] = useState<number | undefined>();
   const [reservedRows, setReservedRows] = useState(0);
@@ -1079,114 +1079,32 @@ export function FullscreenBridge(): React.ReactNode {
     setApprovalArmed(armed);
   }, []);
 
-  const setPromptState = useCallback(
-    (next: PromptState | null): void => {
-      updatePromptControls(initialPromptControls(next));
-      updatePrompt(next);
-    },
-    [updatePrompt, updatePromptControls],
-  );
-
   approvalRef.current = approval;
 
-  const interrupt = useRef<(() => void) | null>(null);
+  const interrupt = useRef(session.interruptHandler);
+  interrupt.current = session.interruptHandler;
   const quitArmed = useRef(false);
 
   useEffect(() => {
-    store.registerPrintOutput((entry) => {
-      const incoming: readonly OutputEntry[] = isEntryList(entry) ? entry : [entry];
-      setOutputs((previous) => [...previous, ...incoming]);
-      return "";
-    });
-    store.registerUpdateOutput((id, patch) => {
-      setOutputs((previous) =>
-        previous.map((entry) => {
-          if (entry.id !== id) return entry;
-          return {
-            ...entry,
-            ...patch,
-            meta: { ...entry.meta, ...patch.meta },
-          };
-        }),
-      );
-    });
-    store.registerClearOutputs(() => {
-      setOutputs([]);
-      setStreaming("");
-    });
-    // Streaming bypasses printOutput entirely, so without this the agent's prose
-    // would never appear.
-    store.registerStreamingHandler({
-      appendStream: (_kind, delta) => setStreaming((previous) => previous + stripAnsiCodes(delta)),
-      finalizeStream: () => {
-        setStreaming((text) => {
-          if (text.trim().length > 0) {
-            setOutputs((previous) => [
-              ...previous,
-              { type: "streamContent", message: text, timestamp: new Date() },
-            ]);
-          }
-          return "";
-        });
-      },
-    });
-    store.registerActivitySetter(setActivity);
-    store.registerRunStatsSetter(setStats);
-    store.registerMessageQueueSetter(setQueue);
-    store.registerChatBusySetter((nextBusy) => {
-      if (!nextBusy) quitArmed.current = false;
-      setBusy(nextBusy);
-    });
-    store.registerModeSetter(setIsYolo);
-    store.registerEphemeralRegionsSetter(setRegions);
-    store.registerPromptSetter(setPromptState);
-    store.registerApprovalRequestSetter((next) => {
-      setApprovalArmedState(false);
-      setApprovalFieldOffset(0);
-      setApproval(next);
-    });
-    const unregisterCustomView = store.registerCustomView(setCustomView);
-    store.registerConnectorsSetter(setConnectors);
-    store.registerCurrentConversationSetter(setCurrentConversation);
-    store.registerWorkingDirectorySetter(setWorkingDirectory);
-    store.registerActiveMenuSetter((next) => {
-      setMenu(next);
-      setMenuIndex(0);
-    });
-    store.registerInterruptHandler((handler) => {
-      if (handler === null) quitArmed.current = false;
-      interrupt.current = handler;
-    });
+    updatePromptControls(initialPromptControls(prompt));
+  }, [prompt, updatePromptControls]);
 
-    // Anything that happened before this mounted.
-    setActivity(store.getActivitySnapshot());
-    setStats(store.getRunStatsSnapshot());
-    setCurrentConversation(store.getCurrentConversationSnapshot());
-    setWorkingDirectory(store.getWorkingDirectorySnapshot());
-    const pending = store.drainPendingOutputQueue();
-    if (pending.length > 0) setOutputs((previous) => [...previous, ...pending]);
+  useEffect(() => {
+    setApprovalArmedState(false);
+    setApprovalFieldOffset(0);
+  }, [approval, setApprovalArmedState]);
 
-    return () => {
-      unregisterCustomView();
-      store.registerPrintOutput(null);
-      store.registerUpdateOutput(null);
-      store.registerClearOutputs(null);
-      store.registerStreamingHandler(null);
-      store.registerActivitySetter(null);
-      store.registerRunStatsSetter(null);
-      store.registerMessageQueueSetter(null);
-      store.registerChatBusySetter(null);
-      store.registerModeSetter(null);
-      store.registerEphemeralRegionsSetter(null);
-      store.registerPromptSetter(null);
-      store.registerApprovalRequestSetter(null);
-      store.registerConnectorsSetter(null);
-      store.registerActiveMenuSetter(null);
-      store.registerCurrentConversationSetter(null);
-      store.registerWorkingDirectorySetter(null);
-      store.registerInterruptHandler(null);
-    };
-  }, [setApprovalArmedState, setPromptState]);
+  useEffect(() => {
+    setMenuIndex(0);
+  }, [menu, setMenuIndex]);
+
+  useEffect(() => {
+    if (!busy) quitArmed.current = false;
+  }, [busy]);
+
+  useEffect(() => {
+    if (session.interruptHandler === null) quitArmed.current = false;
+  }, [session.interruptHandler]);
 
   useEffect(() => {
     if (approval === null) return;

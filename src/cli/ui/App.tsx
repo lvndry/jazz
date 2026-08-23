@@ -1,8 +1,6 @@
 import { Box, Static, Text, useInput } from "ink";
-import React, { useCallback, useEffect, useRef, useState } from "react";
-import { isActivityEqual, type ActivityState } from "./activity-state";
+import React, { useEffect, useRef, useState } from "react";
 import { ActivityView } from "./ActivityView";
-import { useTerminalOutputAdapter } from "./adapters/terminal-output-adapter";
 import type { PendingStream } from "./adapters/terminal-output-adapter";
 import { PreWrappedText } from "./components/PreWrappedText";
 import { useTerminalDimensions } from "./contexts/TerminalDimensionsContext";
@@ -15,9 +13,9 @@ import { Prompt } from "./Prompt";
 import { QueueInput } from "./QueueInput";
 import { RAIL_WIDTH, railStreamLines } from "./rail";
 import StatusFooter from "./StatusFooter";
-import { store, type RunStats } from "./store";
+import { store, useOutputSlice, usePromptSlice, useSessionSlice } from "./store";
 import { PADDING, PADDING_BUDGET, THEME } from "./theme";
-import type { OutputEntryWithId, PromptState } from "./types";
+import type { OutputEntryWithId } from "./types";
 import { dimReasoningMarkdownOutput } from "../presentation/format-utils";
 import { InputPriority, InputResults } from "../services/input-service";
 
@@ -26,24 +24,7 @@ import { InputPriority, InputResults } from "../services/input-service";
 // ============================================================================
 
 function ActivityIslandComponent(): React.ReactElement | null {
-  const [activity, setActivity] = useState<ActivityState>({ phase: "idle" });
-  const initializedRef = useRef(false);
-
-  // Register setter synchronously during render
-  if (!initializedRef.current) {
-    store.registerActivitySetter((next) => {
-      setActivity((prev) => (isActivityEqual(prev, next) ? prev : next));
-    });
-    setActivity(store.getActivitySnapshot());
-    initializedRef.current = true;
-  }
-
-  // Cleanup on unmount to prevent stale setter calls
-  useEffect(() => {
-    return () => {
-      store.registerActivitySetter(null);
-    };
-  }, []);
+  const { activity } = useSessionSlice();
 
   if (activity.phase === "idle" || activity.phase === "complete") return null;
 
@@ -57,34 +38,8 @@ const ActivityIsland = React.memo(ActivityIslandComponent);
 // ============================================================================
 
 function PromptIslandComponent(): React.ReactElement | null {
-  const [prompt, setPrompt] = useState<PromptState | null>(null);
-  const [workingDirectory, setWorkingDirectory] = useState<string | null>(null);
-  const [chatBusy, setChatBusy] = useState(false);
-  const [messageQueue, setMessageQueue] = useState<readonly string[]>([]);
-  const initializedRef = useRef(false);
-
-  // Register setters synchronously during render
-  if (!initializedRef.current) {
-    store.registerPromptSetter(setPrompt);
-    store.registerWorkingDirectorySetter(setWorkingDirectory);
-    store.registerChatBusySetter(setChatBusy);
-    store.registerMessageQueueSetter(setMessageQueue);
-    setPrompt(store.getPromptSnapshot());
-    setWorkingDirectory(store.getWorkingDirectorySnapshot());
-    setChatBusy(store.getChatBusySnapshot());
-    setMessageQueue(store.getMessageQueueSnapshot());
-    initializedRef.current = true;
-  }
-
-  // Cleanup on unmount to prevent stale setter calls
-  useEffect(() => {
-    return () => {
-      store.registerPromptSetter(null);
-      store.registerWorkingDirectorySetter(null);
-      store.registerChatBusySetter(null);
-      store.registerMessageQueueSetter(null);
-    };
-  }, []);
+  const { prompt, messageQueue } = usePromptSlice();
+  const { workingDirectory, chatBusy } = useSessionSlice();
 
   if (prompt) {
     return (
@@ -114,34 +69,14 @@ const PromptIsland = React.memo(PromptIslandComponent);
 // ============================================================================
 
 function StatusFooterIslandComponent(): React.ReactElement | null {
-  // RunStats is the footer's primary content — model · tokens · cost.
-  // The working directory is rendered by the prompt island already, so
-  // we don't duplicate it here (avoids conflicting with the prompt's
-  // single-slot wd setter).
-  const [runStats, setRunStats] = React.useState<RunStats>({});
-  const [modeIsYolo, setModeIsYolo] = React.useState(false);
-  const initializedRef = useRef(false);
-
-  if (!initializedRef.current) {
-    store.registerRunStatsSetter(setRunStats);
-    setRunStats(store.getRunStatsSnapshot());
-    store.registerModeSetter(setModeIsYolo);
-    initializedRef.current = true;
-  }
-
-  useEffect(() => {
-    return () => {
-      store.registerRunStatsSetter(null);
-      store.registerModeSetter(null);
-    };
-  }, []);
+  const { runStats, isYolo } = useSessionSlice();
 
   return (
     <StatusFooter
       status={null}
       workingDirectory={null}
       runStats={runStats}
-      modeIsYolo={modeIsYolo}
+      modeIsYolo={isYolo}
     />
   );
 }
@@ -175,51 +110,18 @@ function renderPendingStream(pending: PendingStream, cols: number): string {
 }
 
 function OutputIslandComponent(): React.ReactElement {
-  const { state, appendStatic, appendStream, finalizeStream, clear } = useTerminalOutputAdapter();
-  // Subscribe to terminal size so the live streaming tail re-wraps when the
-  // window is resized. Ink re-runs Yoga layout on resize but does NOT re-run
-  // React, so a JS-computed wrap width would otherwise stay frozen at its
-  // print-time value until the next stream delta arrives.
+  const output = useOutputSlice();
   const { cols } = useTerminalDimensions();
-  const initializedRef = useRef(false);
-
-  const printOutput = useCallback(
-    (entryOrBatch: Parameters<typeof appendStatic>[0]) => appendStatic(entryOrBatch),
-    [appendStatic],
-  );
-  const clearOutputs = useCallback(() => clear(), [clear]);
-
-  if (!initializedRef.current) {
-    store.registerPrintOutput(printOutput);
-    store.registerClearOutputs(clearOutputs);
-    store.registerStreamingHandler({ appendStream, finalizeStream });
-    if (store.hasPendingClear()) {
-      clearOutputs();
-      store.consumePendingClear();
-    }
-    const queued = store.drainPendingOutputQueue();
-    for (const entry of queued) printOutput(entry);
-    initializedRef.current = true;
-  }
-
-  useEffect(() => {
-    return () => {
-      store.registerPrintOutput(null);
-      store.registerClearOutputs(null);
-      store.registerStreamingHandler(null);
-    };
-  }, []);
-
-  const pending = state.pending;
+  const pending = output.pending;
 
   return (
     <Box flexDirection="column">
       <Static
-        key={state.staticGeneration}
-        items={state.staticEntries}
+        key={output.staticGeneration}
+        items={output.entries as OutputEntryWithId[]}
       >
         {(entry: OutputEntryWithId, index: number) => {
-          const prevEntry = index > 0 ? state.staticEntries[index - 1] : null;
+          const prevEntry = index > 0 ? output.entries[index - 1] : null;
           const isReasoning =
             entry.type === "streamContent" && entry.meta?.["kind"] === "reasoning";
           const prevIsReasoning =
@@ -254,51 +156,27 @@ const OutputIsland = React.memo(OutputIslandComponent);
 // ============================================================================
 
 export function App(): React.ReactElement {
-  const [customView, setCustomView] = useState<React.ReactNode | null>(null);
-  const interruptHandlerRef = useRef<(() => void) | null>(null);
-  const initializedRef = useRef(false);
-  const unregisterCustomViewRef = useRef<() => void>(() => undefined);
-  const [modeToast, setModeToast] = useState<string | null>(null);
+  const { customView, interruptHandler, modeToast } = useSessionSlice();
+  const interruptHandlerRef = useRef(interruptHandler);
+  interruptHandlerRef.current = interruptHandler;
   const modeToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Setup store methods synchronously during render
-  if (!initializedRef.current) {
-    unregisterCustomViewRef.current = store.registerCustomView(setCustomView);
-    store.registerInterruptHandler((handler) => {
-      interruptHandlerRef.current = handler;
-    });
-    initializedRef.current = true;
-  }
-
   useEffect(() => {
-    store.registerModeToastSetter((message) => {
-      if (modeToastTimerRef.current) {
-        clearTimeout(modeToastTimerRef.current);
-      }
-      setModeToast(message);
-      if (message !== null) {
-        modeToastTimerRef.current = setTimeout(() => {
-          setModeToast(null);
-          modeToastTimerRef.current = null;
-        }, 2000);
-      }
-    });
+    if (modeToast === null) return;
+    if (modeToastTimerRef.current) {
+      clearTimeout(modeToastTimerRef.current);
+    }
+    modeToastTimerRef.current = setTimeout(() => {
+      store.clearModeToast();
+      modeToastTimerRef.current = null;
+    }, 2000);
     return () => {
-      store.registerModeToastSetter(null);
       if (modeToastTimerRef.current) {
         clearTimeout(modeToastTimerRef.current);
         modeToastTimerRef.current = null;
       }
     };
-  }, []);
-
-  // Cleanup on unmount to prevent stale handler calls
-  useEffect(() => {
-    return () => {
-      unregisterCustomViewRef.current();
-      store.registerInterruptHandler(null);
-    };
-  }, []);
+  }, [modeToast]);
 
   // Handle Ctrl+C — bridge from Ink raw mode to process SIGINT
   // With exitOnCtrlC: false, Ink forwards Ctrl+C to useInput instead of

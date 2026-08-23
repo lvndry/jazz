@@ -1,45 +1,33 @@
+import { useSyncExternalStore } from "react";
 import type React from "react";
 import { isActivityEqual, type ActivityState } from "./activity-state";
-import type { StreamKind } from "./adapters/terminal-output-adapter";
-import type { OutputEntry, PromptState } from "./types";
+import {
+  initialScrollbackState,
+  reduceScrollback,
+  type PendingStream,
+  type ScrollbackState,
+  type StreamKind,
+} from "./adapters/terminal-output-adapter";
+import type { OutputEntry, OutputEntryWithId, PromptState } from "./types";
 
-/** Accepts single entry or batch; returns first id when available. */
-type PrintOutputHandler = (entry: OutputEntry | readonly OutputEntry[]) => string;
-
-type UpdateOutputHandler = (id: string, patch: OutputEntry) => void;
-
-type StreamingHandler = {
-  appendStream: (kind: StreamKind, delta: string) => void;
-  finalizeStream: () => void;
-};
-
-/** Handler for mode switch requests (e.g., Shift+Tab toggles safe/yolo) */
 type ModeSwitchHandler = (mode: "safe" | "yolo") => void;
 
-const MAX_PENDING_OUTPUT_QUEUE = 2000;
-
-/** Set when we've logged the queue-full warning once to avoid spam */
-let _hasWarnedQueueFull = false;
+const EMPTY_STREAM = "";
+const EMPTY_OUTPUT_ENTRIES: readonly OutputEntryWithId[] = [];
+const EMPTY_QUEUE: readonly string[] = [];
+const EMPTY_REGIONS: readonly EphemeralRegion[] = [];
+const EMPTY_CONNECTORS: ReadonlyMap<string, ConnectorStatus> = new Map();
+const EMPTY_RUN_STATS: RunStats = {};
 
 interface ExpandableDiffPayload {
   readonly fullDiff: string;
   readonly timestamp: number;
 }
 
-/**
- * Kinds of ephemeral live region. Each kind has its own UI label and default
- * size; "reasoning" is the only kind that supports Ctrl-R expansion.
- */
 export type EphemeralKind = "reasoning" | "subagent";
 
 export type EphemeralRegionId = string;
 
-/**
- * A bounded live region rendered above the prompt while an in-flight activity
- * (the model thinking, a subagent working) is producing output. The region
- * shows only the last N lines of the activity; on completion it is removed
- * and a one-line summary is emitted into scrollback.
- */
 export interface EphemeralRegion {
   readonly id: EphemeralRegionId;
   readonly kind: EphemeralKind;
@@ -49,60 +37,27 @@ export interface EphemeralRegion {
   readonly maxLines: number;
 }
 
-/**
- * Snapshot of a collapsed reasoning block, available for Ctrl-R expansion.
- * Collapsed blocks accumulate in a bounded stack — each Ctrl-R press pops
- * and expands the most recent unexpanded block, so earlier reasoning from
- * a multi-step turn stays recoverable instead of being overwritten.
- */
 export interface ExpandableReasoning {
   readonly fullText: string;
   readonly label: string;
   readonly durationMs: number;
   readonly tokens?: number;
-  /** Output entry to rewrite in place. Missing when the block was never logged. */
   readonly entryId?: string;
 }
 
-/** Upper bound on retained collapsed-reasoning blocks. */
 const MAX_EXPANDABLE_REASONING = 20;
 
-/** Upper bound on recallable sent-message history. */
 const MAX_INPUT_HISTORY = 100;
 
-/** Caller-supplied summary when collapsing a region. */
 export interface CollapseEphemeralSummary {
-  /** One-line static entry to emit into scrollback (omit to skip). */
   readonly line?: string;
-  /** Full text to keep around for Ctrl-R expansion (reasoning only). */
   readonly fullText?: string;
   readonly durationMs: number;
   readonly tokens?: number;
 }
 
-/**
- * Persistent run-level stats surfaced in the status footer.
- *
- * All fields are optional so partial information renders gracefully —
- * the footer simply omits any field that hasn't been populated yet.
- * Most fields are session-totals, updated after each LLM round-trip.
- */
-/**
- * A pending approval, reduced to what an interface needs to render a decision.
- * Deliberately not the full `ApprovalRequest`: the store should not depend on
- * the tools layer, and the resume callback is not the UI's business.
- */
 export type ConnectorStatus = "live" | "renew" | "offline";
 
-/**
- * A menu the app is waiting on, published as data rather than as a rendered tree.
- *
- * `setCustomView` hands the UI a React element built with Ink components, which
- * only the Ink renderer can paint — so a second renderer sees an opaque node and
- * can do nothing useful with it. Publishing the *intent* instead lets each
- * renderer draw its own version, which is the only way two renderers can share
- * a flow.
- */
 export interface ActiveMenuOption {
   readonly label: string;
   readonly value: string;
@@ -145,7 +100,6 @@ export interface ActiveAgentMenu {
 
 export type ActiveMenu = ActiveWizardMenu | ActiveAgentMenu;
 
-/** Identifies the conversation on screen, so history search can be narrowed to it. */
 export interface CurrentConversation {
   readonly agentId: string;
   readonly conversationId: string;
@@ -160,89 +114,164 @@ export interface PendingApproval {
 }
 
 export interface RunStats {
-  /** Display name of the active model (e.g. "claude-sonnet-4-5"). */
   readonly model?: string;
-  /** Provider name (e.g. "anthropic", "openai"). */
   readonly provider?: string;
-  /** Tokens currently in the context window for this conversation. */
   readonly tokensInContext?: number;
-  /** Model's maximum context window in tokens. */
   readonly maxContextTokens?: number;
-  /** Running total cost in USD across this session. */
   readonly costUSD?: number;
 }
 
+export interface OutputSnapshot {
+  readonly entries: readonly OutputEntryWithId[];
+  readonly pending: PendingStream | null;
+  readonly streaming: string;
+  readonly staticGeneration: number;
+}
+
+export interface SessionSnapshot {
+  readonly activity: ActivityState;
+  readonly runStats: RunStats;
+  readonly workingDirectory: string | null;
+  readonly currentConversation: CurrentConversation | null;
+  readonly chatBusy: boolean;
+  readonly isYolo: boolean;
+  readonly connectors: ReadonlyMap<string, ConnectorStatus>;
+  readonly interruptHandler: (() => void) | null;
+  readonly approvalRequest: PendingApproval | null;
+  readonly activeMenu: ActiveMenu | null;
+  readonly customView: React.ReactNode | null;
+  readonly modeToast: string | null;
+}
+
+export interface PromptSnapshot {
+  readonly prompt: PromptState | null;
+  readonly messageQueue: readonly string[];
+}
+
+export interface EphemeralSnapshot {
+  readonly regions: readonly EphemeralRegion[];
+  readonly expandableReasoning: ExpandableReasoning | null;
+}
+
+const INITIAL_OUTPUT: OutputSnapshot = {
+  entries: EMPTY_OUTPUT_ENTRIES,
+  pending: null,
+  streaming: EMPTY_STREAM,
+  staticGeneration: 0,
+};
+
+const INITIAL_SESSION: SessionSnapshot = {
+  activity: { phase: "idle" },
+  runStats: EMPTY_RUN_STATS,
+  workingDirectory: null,
+  currentConversation: null,
+  chatBusy: false,
+  isYolo: false,
+  connectors: EMPTY_CONNECTORS,
+  interruptHandler: null,
+  approvalRequest: null,
+  activeMenu: null,
+  customView: null,
+  modeToast: null,
+};
+
+const INITIAL_PROMPT: PromptSnapshot = {
+  prompt: null,
+  messageQueue: EMPTY_QUEUE,
+};
+
+const INITIAL_EPHEMERAL: EphemeralSnapshot = {
+  regions: EMPTY_REGIONS,
+  expandableReasoning: null,
+};
+
+class StoreSlice<T> {
+  private snapshot: T;
+  private readonly listeners = new Set<() => void>();
+
+  constructor(initial: T) {
+    this.snapshot = initial;
+  }
+
+  subscribe = (listener: () => void): (() => void) => {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  };
+
+  getSnapshot = (): T => this.snapshot;
+
+  set(next: T): void {
+    if (Object.is(this.snapshot, next)) return;
+    this.snapshot = next;
+    for (const listener of this.listeners) {
+      listener();
+    }
+  }
+}
+
+function patchSlice<T extends object>(slice: StoreSlice<T>, patch: Partial<T>): void {
+  const previous = slice.getSnapshot();
+  let changed = false;
+  for (const key of Object.keys(patch) as (keyof T)[]) {
+    if (!Object.is(previous[key], patch[key])) {
+      changed = true;
+      break;
+    }
+  }
+  if (!changed) return;
+  slice.set({ ...previous, ...patch });
+}
+
+function outputFromScrollback(state: ScrollbackState): OutputSnapshot {
+  return {
+    entries: state.staticEntries,
+    pending: state.pending,
+    streaming: state.pending === null ? EMPTY_STREAM : state.pending.rawTail,
+    staticGeneration: state.staticGeneration,
+  };
+}
+
 export class UIStore {
-  // Output handlers
-  private printOutputHandler: PrintOutputHandler | null = null;
-  private updateOutputHandler: UpdateOutputHandler | null = null;
-  private clearOutputsHandler: (() => void) | null = null;
+  private readonly output = new StoreSlice<OutputSnapshot>(INITIAL_OUTPUT);
+  private readonly session = new StoreSlice<SessionSnapshot>(INITIAL_SESSION);
+  private readonly prompt = new StoreSlice<PromptSnapshot>(INITIAL_PROMPT);
+  private readonly ephemeral = new StoreSlice<EphemeralSnapshot>(INITIAL_EPHEMERAL);
+
+  private scrollback: ScrollbackState = initialScrollbackState();
   private pinnedReasoningIds = new Set<EphemeralRegionId>();
-  /** When false, settled reasoning stays expanded and Ctrl+R is unused. */
   private collapseReasoning = true;
-  private streamingHandler: StreamingHandler | null = null;
-  private pendingOutputQueue: OutputEntry[] = [];
-  private _pendingClear = false;
   private pendingOutputIdCounter = 0;
-
-  /** Coalesce rapid printOutput calls; flush on next microtask */
-  private outputBatch: OutputEntry[] = [];
+  private outputBatch: OutputEntryWithId[] = [];
   private batchFlushScheduled = false;
-
-  // Expandable diff for Ctrl+O expansion
   private expandableDiff: ExpandableDiffPayload | null = null;
-
-  // Mode switch handler (set by chat service)
   private modeSwitchHandler: ModeSwitchHandler | null = null;
-  // Track current mode for toggle behavior (safe = false, yolo = true)
-  private currentModeIsYolo = false;
-
-  // Snapshots (kept in sync so late-registering components can hydrate)
-  private promptSnapshot: PromptState | null = null;
-  private activitySnapshot: ActivityState = { phase: "idle" };
-  private workingDirectorySnapshot: string | null = null;
-  /**
-   * Which conversation the interface is showing.
-   *
-   * Held here because history search needs it to narrow to "this conversation", and the
-   * bridge that runs the search otherwise knows nothing about conversations at all — which
-   * is why that scope silently returned no results.
-   */
-  private currentConversationSnapshot: CurrentConversation | null = null;
-  private runStatsSnapshot: RunStats = {};
-  // Session-wide cumulative cost in USD. Every renderer (main agent and each
-  // sub-agent) adds its own per-turn cost here so the footer total reflects
-  // aggregate spend, not just the orchestrator's. Reset per session.
   private sessionCostUSD = 0;
-  private ephemeralRegionsSnapshot: readonly EphemeralRegion[] = [];
-  private expandableReasoningSnapshot: ExpandableReasoning | null = null;
   private expandableReasoningStack: ExpandableReasoning[] = [];
   private inputHistory: string[] = [];
-  private messageQueueSnapshot: readonly string[] = [];
-  private chatBusySnapshot: boolean = false;
-  private customViewSnapshot: React.ReactNode | null = null;
-
-  // Insertion-ordered map of live ephemeral regions, keyed by id.
   private ephemeralRegions: Map<EphemeralRegionId, EphemeralRegion> = new Map();
   private ephemeralIdCounter = 0;
-
-  // React state setters (registered by island components)
-  private promptSetter: ((prompt: PromptState | null) => void) | null = null;
-  private activitySetter: ((activity: ActivityState) => void) | null = null;
-  private workingDirectorySetter: ((wd: string | null) => void) | null = null;
-  private currentConversationSetter: ((conversation: CurrentConversation | null) => void) | null =
-    null;
-  private runStatsSetter: ((stats: RunStats) => void) | null = null;
-  private ephemeralRegionsSetter: ((regions: readonly EphemeralRegion[]) => void) | null = null;
-  private expandableReasoningSetter: ((value: ExpandableReasoning | null) => void) | null = null;
-  private messageQueueSetter: ((queue: readonly string[]) => void) | null = null;
-  private chatBusySetter: ((busy: boolean) => void) | null = null;
-  private customViewSetter: ((view: React.ReactNode | null) => void) | null = null;
-  private modeToastSetter: ((message: string | null) => void) | null = null;
-  private modeSetter: ((isYolo: boolean) => void) | null = null;
+  private interruptHandlerStack: Array<() => void> = [];
   private rendererFallbackHandler: (() => void) | null = null;
 
-  // ── Public API (called by consumers) ──────────────────────────────
+  subscribeOutput = (listener: () => void): (() => void) => this.output.subscribe(listener);
+  getOutputSnapshot = (): OutputSnapshot => this.output.getSnapshot();
+
+  subscribeSession = (listener: () => void): (() => void) => this.session.subscribe(listener);
+  getSessionSnapshot = (): SessionSnapshot => this.session.getSnapshot();
+
+  subscribePrompt = (listener: () => void): (() => void) => this.prompt.subscribe(listener);
+  getPromptSlice = (): PromptSnapshot => this.prompt.getSnapshot();
+
+  subscribeEphemeral = (listener: () => void): (() => void) => this.ephemeral.subscribe(listener);
+  getEphemeralSnapshot = (): EphemeralSnapshot => this.ephemeral.getSnapshot();
+
+  private publishScrollback(next: ScrollbackState): void {
+    if (Object.is(next, this.scrollback)) return;
+    this.scrollback = next;
+    this.output.set(outputFromScrollback(next));
+  }
 
   private flushOutputBatch = (): void => {
     this.batchFlushScheduled = false;
@@ -250,20 +279,14 @@ export class UIStore {
   };
 
   private doFlushBatch(): void {
-    if (!this.printOutputHandler || this.outputBatch.length === 0) return;
+    if (this.outputBatch.length === 0) return;
     const batch = this.outputBatch;
     this.outputBatch = [];
-    if (batch.length === 1) {
-      this.printOutputHandler(batch[0]!);
-    } else if (batch.length > 1) {
-      this.printOutputHandler(batch);
-    }
+    this.publishScrollback(
+      reduceScrollback(this.scrollback, { type: "appendStatic", entries: batch }),
+    );
   }
 
-  /**
-   * Synchronously flush any pending output batch. Use before setActivity during
-   * streaming so output + activity land in same React tick (reduces flicker).
-   */
   flushOutputBatchNow(): void {
     if (this.batchFlushScheduled) {
       this.batchFlushScheduled = false;
@@ -273,22 +296,9 @@ export class UIStore {
 
   printOutput = (entry: OutputEntry): string => {
     const id = entry.id ?? `queued-output-${++this.pendingOutputIdCounter}`;
-    const entryWithId = entry.id ? entry : { ...entry, id };
-
-    if (!this.printOutputHandler) {
-      if (this.pendingOutputQueue.length < MAX_PENDING_OUTPUT_QUEUE) {
-        this.pendingOutputQueue.push(entryWithId);
-      } else {
-        if (!_hasWarnedQueueFull) {
-          _hasWarnedQueueFull = true;
-          console.warn(
-            `[jazz] Output queue full (${MAX_PENDING_OUTPUT_QUEUE}); some output may be dropped until UI is ready.`,
-          );
-        }
-      }
-      return id;
-    }
-
+    const entryWithId: OutputEntryWithId = entry.id
+      ? (entry as OutputEntryWithId)
+      : { ...entry, id };
     this.outputBatch.push(entryWithId);
     if (!this.batchFlushScheduled) {
       this.batchFlushScheduled = true;
@@ -297,63 +307,48 @@ export class UIStore {
     return id;
   };
 
-  setPrompt = (prompt: PromptState | null): void => {
-    this.promptSnapshot = prompt;
-    // Do NOT eagerly erase Ink's frame here. `Ink.clear()` erases the frame
-    // and then re-syncs log-update to believe those lines are still painted,
-    // so the very next render erases the same line count a second time —
-    // chewing (frameHeight - 1) lines of settled scrollback and overwriting
-    // them with the next entry. Ink's own render already fully erases the
-    // previous frame before repainting, so a shrinking prompt cleans up.
-    if (this.promptSetter) {
-      this.promptSetter(prompt);
-    }
+  private updateOutputEntry(id: string, patch: OutputEntry): void {
+    const previous = this.output.getSnapshot();
+    let found = false;
+    const entries = previous.entries.map((entry) => {
+      if (entry.id !== id) return entry;
+      found = true;
+      return {
+        ...entry,
+        ...patch,
+        id,
+        meta: { ...entry.meta, ...patch.meta },
+      };
+    });
+    if (!found) return;
+    this.scrollback = { ...this.scrollback, staticEntries: entries };
+    this.output.set({ ...previous, entries });
+  }
+
+  setPrompt = (nextPrompt: PromptState | null): void => {
+    patchSlice(this.prompt, { prompt: nextPrompt });
   };
 
   setActivity = (activity: ActivityState): void => {
-    if (isActivityEqual(this.activitySnapshot, activity)) {
+    if (isActivityEqual(this.session.getSnapshot().activity, activity)) {
       return;
     }
-    this.activitySnapshot = activity;
-    if (this.activitySetter) {
-      this.activitySetter(activity);
-    }
+    patchSlice(this.session, { activity });
   };
 
   setCurrentConversation = (conversation: CurrentConversation | null): void => {
-    this.currentConversationSnapshot = conversation;
-    if (this.currentConversationSetter) {
-      this.currentConversationSetter(conversation);
-    }
+    patchSlice(this.session, { currentConversation: conversation });
   };
 
   setWorkingDirectory = (workingDirectory: string | null): void => {
-    this.workingDirectorySnapshot = workingDirectory;
-    if (this.workingDirectorySetter) {
-      this.workingDirectorySetter(workingDirectory);
-    }
+    patchSlice(this.session, { workingDirectory });
   };
 
-  /**
-   * Merge a partial RunStats update into the snapshot. Callers can pass any
-   * subset of fields — anything they omit keeps its prior value. Useful for
-   * incremental updates (e.g. tokens-in-context after every LLM call,
-   * costUSD only after we've resolved pricing).
-   */
-  resetRunStats = (initial: RunStats = {}): void => {
+  resetRunStats = (initial: RunStats = EMPTY_RUN_STATS): void => {
     this.sessionCostUSD = 0;
-    this.runStatsSnapshot = initial;
-    if (this.runStatsSetter) {
-      this.runStatsSetter(initial);
-    }
+    patchSlice(this.session, { runStats: initial });
   };
 
-  /**
-   * Add a run's cost to the session-wide total and publish it to the footer.
-   * Called by every renderer (main agent and sub-agents) as each turn's cost
-   * resolves, so the displayed total aggregates all spend rather than being
-   * clobbered by whichever run completed last.
-   */
   addSessionCostUSD = (deltaUSD: number): void => {
     if (!deltaUSD) return;
     this.sessionCostUSD += deltaUSD;
@@ -361,37 +356,22 @@ export class UIStore {
   };
 
   updateRunStats = (patch: Partial<RunStats>): void => {
-    const next: RunStats = { ...this.runStatsSnapshot, ...patch };
+    const previous = this.session.getSnapshot().runStats;
+    const next: RunStats = { ...previous, ...patch };
     let changed = false;
-    for (const k of Object.keys(patch) as (keyof RunStats)[]) {
-      if (this.runStatsSnapshot[k] !== next[k]) {
+    for (const key of Object.keys(patch) as (keyof RunStats)[]) {
+      if (previous[key] !== next[key]) {
         changed = true;
         break;
       }
     }
     if (!changed) return;
-    this.runStatsSnapshot = next;
-    if (this.runStatsSetter) {
-      this.runStatsSetter(next);
-    }
+    patchSlice(this.session, { runStats: next });
   };
 
   setCustomView = (view: React.ReactNode | null): void => {
-    this.customViewSnapshot = view;
-    this.customViewSetter?.(view);
+    patchSlice(this.session, { customView: view });
   };
-
-  /**
-   * Stack of active interrupt handlers, ordered oldest-first. Each call to
-   * `setInterruptHandler(handler)` with a non-null handler pushes; calling with
-   * null pops. The UI always observes the top of the stack as the active
-   * handler. This lets nested agent runs (a subagent invoked as a tool by a
-   * main agent) each register their own handler without overwriting the
-   * outer scope's: when the inner run finishes and pops, the outer run's
-   * handler is restored automatically.
-   */
-  private interruptHandlerStack: Array<() => void> = [];
-  private interruptHandlerSetter: ((handler: (() => void) | null) => void) | null = null;
 
   setInterruptHandler = (handler: (() => void) | null): void => {
     if (handler === null) {
@@ -400,47 +380,32 @@ export class UIStore {
       this.interruptHandlerStack.push(handler);
     }
     const top = this.interruptHandlerStack[this.interruptHandlerStack.length - 1] ?? null;
-    this.interruptHandlerSetter?.(top);
+    patchSlice(this.session, { interruptHandler: top });
   };
 
-  /**
-   * Append a message to the chat message queue. Each call is one entry —
-   * the UI renders entries stacked, one per line. On flush they're joined
-   * with `\n` and sent to the agent as a single combined turn.
-   */
   appendToQueue = (text: string): void => {
     if (text.length === 0) return;
-    const next = [...this.messageQueueSnapshot, text];
-    this.messageQueueSnapshot = next;
-    this.messageQueueSetter?.(next);
+    const next = [...this.prompt.getSnapshot().messageQueue, text];
+    patchSlice(this.prompt, { messageQueue: next });
   };
 
-  /**
-   * Read the joined queue contents without clearing. Entries are joined with
-   * `\n` so the result is the exact string that would be sent to the agent
-   * if this queue were drained right now.
-   */
-  peekQueue = (): string => this.messageQueueSnapshot.join("\n");
+  peekQueue = (): string => this.prompt.getSnapshot().messageQueue.join("\n");
 
-  /** Read the queue (joined as a single string) and clear it. */
   takeQueue = (): string => {
-    if (this.messageQueueSnapshot.length === 0) return "";
-    const value = this.messageQueueSnapshot.join("\n");
-    this.messageQueueSnapshot = [];
-    this.messageQueueSetter?.([]);
+    const queue = this.prompt.getSnapshot().messageQueue;
+    if (queue.length === 0) return "";
+    const value = queue.join("\n");
+    patchSlice(this.prompt, { messageQueue: EMPTY_QUEUE });
     return value;
   };
 
   clearQueue = (): void => {
-    if (this.messageQueueSnapshot.length === 0) return;
-    this.messageQueueSnapshot = [];
-    this.messageQueueSetter?.([]);
+    if (this.prompt.getSnapshot().messageQueue.length === 0) return;
+    patchSlice(this.prompt, { messageQueue: EMPTY_QUEUE });
   };
 
   setChatBusy = (busy: boolean): void => {
-    if (this.chatBusySnapshot === busy) return;
-    this.chatBusySnapshot = busy;
-    this.chatBusySetter?.(busy);
+    patchSlice(this.session, { chatBusy: busy });
   };
 
   setExpandableDiff = (fullDiff: string): void => {
@@ -455,8 +420,6 @@ export class UIStore {
     this.expandableDiff = null;
   };
 
-  // ── Mode switching ─────────────────────────────────────────────
-
   registerModeSwitchHandler = (handler: ModeSwitchHandler | null): void => {
     this.modeSwitchHandler = handler;
   };
@@ -468,54 +431,35 @@ export class UIStore {
   };
 
   toggleMode = (): void => {
-    const nextMode = this.currentModeIsYolo ? "safe" : "yolo";
-    this.currentModeIsYolo = !this.currentModeIsYolo;
-    this.modeSetter?.(this.currentModeIsYolo);
+    const nextMode = this.session.getSnapshot().isYolo ? "safe" : "yolo";
+    patchSlice(this.session, { isYolo: !this.session.getSnapshot().isYolo });
     this.requestModeSwitch(nextMode);
   };
 
   setModeIsYolo = (isYolo: boolean): void => {
-    this.currentModeIsYolo = isYolo;
-    this.modeSetter?.(isYolo);
+    patchSlice(this.session, { isYolo });
   };
 
-  getModeIsYolo = (): boolean => this.currentModeIsYolo;
-
-  /**
-   * Subscribe the footer (or any island) to approval-mode changes so the
-   * current safe/yolo state stays persistently visible, not just in the
-   * 2-second toast.
-   */
-  registerModeSetter = (setter: ((isYolo: boolean) => void) | null): void => {
-    this.modeSetter = setter;
-    setter?.(this.currentModeIsYolo);
-  };
-
-  registerModeToastSetter = (setter: ((message: string | null) => void) | null): void => {
-    this.modeToastSetter = setter;
-  };
+  getModeIsYolo = (): boolean => this.session.getSnapshot().isYolo;
 
   showModeToast = (message: string): void => {
-    this.modeToastSetter?.(message);
+    patchSlice(this.session, { modeToast: message });
   };
 
-  // ── Ephemeral live regions ────────────────────────────────────────
+  clearModeToast = (): void => {
+    patchSlice(this.session, { modeToast: null });
+  };
 
   private publishEphemeralRegions(): void {
-    this.ephemeralRegionsSnapshot = Array.from(this.ephemeralRegions.values());
-    this.ephemeralRegionsSetter?.(this.ephemeralRegionsSnapshot);
+    const regions =
+      this.ephemeralRegions.size === 0 ? EMPTY_REGIONS : Array.from(this.ephemeralRegions.values());
+    patchSlice(this.ephemeral, { regions });
   }
 
   private setExpandableReasoning(value: ExpandableReasoning | null): void {
-    this.expandableReasoningSnapshot = value;
-    this.expandableReasoningSetter?.(value);
+    patchSlice(this.ephemeral, { expandableReasoning: value });
   }
 
-  /**
-   * Open a new ephemeral live region. Returns the region's id, which the
-   * caller must hold onto for subsequent appendEphemeral / collapseEphemeral
-   * calls. Multiple regions may be open at once (e.g. parallel subagents).
-   */
   openEphemeral = (kind: EphemeralKind, label: string, maxLines: number): EphemeralRegionId => {
     const id = `eph-${++this.ephemeralIdCounter}-${Date.now()}`;
     this.ephemeralRegions.set(id, {
@@ -530,11 +474,6 @@ export class UIStore {
     return id;
   };
 
-  /**
-   * Append text to a live region. Splits incoming text on newlines, merges
-   * the first chunk into the previous line (for delta-style streaming), and
-   * keeps only the last `maxLines` lines.
-   */
   appendEphemeral = (id: EphemeralRegionId, text: string): void => {
     if (text.length === 0) return;
     const region = this.ephemeralRegions.get(id);
@@ -554,16 +493,10 @@ export class UIStore {
     this.publishEphemeralRegions();
   };
 
-  /** When false, settled reasoning stays expanded and Ctrl+R is unused. */
   setCollapseReasoning = (enabled: boolean): void => {
     this.collapseReasoning = enabled;
   };
 
-  /**
-   * Collapse a live region. Emits an optional one-line static entry into
-   * scrollback and removes the region. For reasoning regions, captures the
-   * full text into the expandableReasoning slot so Ctrl-R can re-emit it.
-   */
   collapseEphemeral = (id: EphemeralRegionId, summary: CollapseEphemeralSummary): void => {
     const region = this.ephemeralRegions.get(id);
     if (!region) return;
@@ -612,10 +545,10 @@ export class UIStore {
         message: summary.line,
         timestamp: new Date(),
       });
+      this.flushOutputBatchNow();
     }
   };
 
-  /** Record a sent chat message for ↑/↓ recall. Skips consecutive duplicates. */
   pushInputHistory = (message: string): void => {
     const trimmed = message.trim();
     if (trimmed.length === 0) return;
@@ -636,13 +569,6 @@ export class UIStore {
     this.setExpandableReasoning(value);
   }
 
-  /**
-   * Collapse every open region — used on errors, interrupts, and /clear so
-   * panels don't get stuck. Emits no per-region summary, but open reasoning
-   * regions are preserved into the expandable stack (their visible tail is
-   * the best content available here — the full text lives in the renderer),
-   * so an interrupt doesn't silently destroy in-flight reasoning.
-   */
   collapseAllEphemeral = (): void => {
     if (this.ephemeralRegions.size === 0) return;
     for (const region of this.ephemeralRegions.values()) {
@@ -678,11 +604,6 @@ export class UIStore {
     this.publishEphemeralRegions();
   };
 
-  /**
-   * Keep the live reasoning panel expanded when it settles, so Ctrl+R during
-   * a run does not wait for the turn to finish and then dump the thought
-   * under the answer.
-   */
   pinOpenReasoning = (): boolean => {
     let pinned = false;
     for (const region of this.ephemeralRegions.values()) {
@@ -693,11 +614,6 @@ export class UIStore {
     return pinned;
   };
 
-  /**
-   * Expand the most recently collapsed reasoning *in the place it was
-   * thought*. Appending it as a new log line put the thought under the
-   * answer, which is the opposite of the order it happened.
-   */
   expandLastReasoning = (): boolean => {
     const value = this.expandableReasoningStack.pop();
     if (value === undefined) return this.pinOpenReasoning();
@@ -715,8 +631,9 @@ export class UIStore {
       timestamp: new Date(),
       ...(value.entryId === undefined ? {} : { id: value.entryId }),
     };
-    if (value.entryId !== undefined && this.updateOutputHandler !== null) {
-      this.updateOutputHandler(value.entryId, entry);
+    if (value.entryId !== undefined) {
+      this.flushOutputBatchNow();
+      this.updateOutputEntry(value.entryId, entry);
     } else {
       this.printOutput(entry);
       this.flushOutputBatchNow();
@@ -727,129 +644,61 @@ export class UIStore {
 
   appendStream = (kind: StreamKind, delta: string): void => {
     if (delta.length === 0) return;
-    // Streaming bypasses the printOutput batch — deltas go straight in.
-    // Flush any pending non-streaming batch first to preserve ordering.
     this.flushOutputBatchNow();
-    if (!this.streamingHandler) return;
-    this.streamingHandler.appendStream(kind, delta);
+    this.publishScrollback(
+      reduceScrollback(this.scrollback, {
+        type: "appendStream",
+        kind,
+        delta,
+        nextId: `queued-output-${++this.pendingOutputIdCounter}`,
+        finalizeId: `queued-output-${++this.pendingOutputIdCounter}`,
+      }),
+    );
   };
 
   finalizeStream = (): void => {
     this.flushOutputBatchNow();
-    if (!this.streamingHandler) return;
-    this.streamingHandler.finalizeStream();
+    this.publishScrollback(
+      reduceScrollback(this.scrollback, {
+        type: "finalizeStream",
+        finalizeId: `queued-output-${++this.pendingOutputIdCounter}`,
+      }),
+    );
   };
 
   clearOutputs = (): void => {
-    // Discard any pending batched outputs to prevent race condition where
-    // a queued microtask flushes after clear
     this.outputBatch = [];
     this.batchFlushScheduled = false;
-
-    // Reasoning from before the clear is stale context — drop it so Ctrl+R
-    // can't resurrect output the user just wiped.
     this.expandableReasoningStack = [];
     this.pinnedReasoningIds.clear();
     this.setExpandableReasoning(null);
-
-    if (!this.clearOutputsHandler) {
-      this._pendingClear = true;
-      this.pendingOutputQueue.length = 0;
-      return;
-    }
-    this.clearOutputsHandler();
+    this.publishScrollback(reduceScrollback(this.scrollback, { type: "clear" }));
   };
 
-  // ── Registration methods (called by island components) ────────────
+  setActiveMenu = (menu: ActiveMenu | null): void => {
+    patchSlice(this.session, { activeMenu: menu });
+  };
 
-  private activeMenuSnapshot: ActiveMenu | null = null;
-  private activeMenuSetter: ((menu: ActiveMenu | null) => void) | null = null;
-  private connectorsSnapshot: ReadonlyMap<string, ConnectorStatus> = new Map();
-  private connectorsSetter: ((connectors: ReadonlyMap<string, ConnectorStatus>) => void) | null =
-    null;
-  private approvalRequestSnapshot: PendingApproval | null = null;
-  private approvalRequestSetter: ((request: PendingApproval | null) => void) | null = null;
-
-  registerPrintOutput(handler: PrintOutputHandler | null): void {
-    this.printOutputHandler = handler;
+  getActiveMenuSnapshot(): ActiveMenu | null {
+    return this.session.getSnapshot().activeMenu;
   }
 
-  registerUpdateOutput(handler: UpdateOutputHandler | null): void {
-    this.updateOutputHandler = handler;
+  setConnector = (name: string, status: ConnectorStatus): void => {
+    const next = new Map(this.session.getSnapshot().connectors);
+    next.set(name, status);
+    patchSlice(this.session, { connectors: next });
+  };
+
+  getConnectorsSnapshot(): ReadonlyMap<string, ConnectorStatus> {
+    return this.session.getSnapshot().connectors;
   }
 
-  registerStreamingHandler(handler: StreamingHandler | null): void {
-    this.streamingHandler = handler;
-  }
+  setApprovalRequest = (request: PendingApproval | null): void => {
+    patchSlice(this.session, { approvalRequest: request });
+  };
 
-  registerClearOutputs(handler: (() => void) | null): void {
-    this.clearOutputsHandler = handler;
-  }
-
-  registerActivitySetter(setter: ((activity: ActivityState) => void) | null): void {
-    this.activitySetter = setter;
-  }
-
-  registerPromptSetter(setter: ((prompt: PromptState | null) => void) | null): void {
-    this.promptSetter = setter;
-    if (setter) {
-      setter(this.promptSnapshot);
-    }
-  }
-
-  registerCurrentConversationSetter(
-    setter: ((conversation: CurrentConversation | null) => void) | null,
-  ): void {
-    this.currentConversationSetter = setter;
-    if (setter) {
-      setter(this.currentConversationSnapshot);
-    }
-  }
-
-  registerWorkingDirectorySetter(setter: ((wd: string | null) => void) | null): void {
-    this.workingDirectorySetter = setter;
-    if (setter) {
-      setter(this.workingDirectorySnapshot);
-    }
-  }
-
-  registerRunStatsSetter(setter: ((stats: RunStats) => void) | null): void {
-    this.runStatsSetter = setter;
-    if (setter) {
-      setter(this.runStatsSnapshot);
-    }
-  }
-
-  registerCustomView(setter: (view: React.ReactNode | null) => void): () => void {
-    this.customViewSetter = setter;
-    setter(this.customViewSnapshot);
-    return () => {
-      if (this.customViewSetter === setter) {
-        this.customViewSetter = null;
-      }
-    };
-  }
-
-  registerMessageQueueSetter(setter: ((queue: readonly string[]) => void) | null): void {
-    this.messageQueueSetter = setter;
-    if (setter) {
-      setter(this.messageQueueSnapshot);
-    }
-  }
-
-  registerChatBusySetter(setter: ((busy: boolean) => void) | null): void {
-    this.chatBusySetter = setter;
-    if (setter) {
-      setter(this.chatBusySnapshot);
-    }
-  }
-
-  registerInterruptHandler(setter: ((handler: (() => void) | null) => void) | null): void {
-    this.interruptHandlerSetter = setter;
-    if (setter) {
-      const top = this.interruptHandlerStack[this.interruptHandlerStack.length - 1] ?? null;
-      setter(top);
-    }
+  getApprovalRequestSnapshot(): PendingApproval | null {
+    return this.session.getSnapshot().approvalRequest;
   }
 
   requestRendererFallback = (): void => {
@@ -865,135 +714,69 @@ export class UIStore {
     };
   };
 
-  /** The menu currently awaiting a choice, or null. */
-  setActiveMenu = (menu: ActiveMenu | null): void => {
-    this.activeMenuSnapshot = menu;
-    if (this.activeMenuSetter) this.activeMenuSetter(menu);
-  };
-
-  registerActiveMenuSetter(setter: ((menu: ActiveMenu | null) => void) | null): void {
-    this.activeMenuSetter = setter;
-    if (setter) {
-      setter(this.activeMenuSnapshot);
-    }
-  }
-
-  getActiveMenuSnapshot(): ActiveMenu | null {
-    return this.activeMenuSnapshot;
-  }
-
-  /** Reachability of the named connectors, newest state wins per name. */
-  setConnector = (name: string, status: ConnectorStatus): void => {
-    const next = new Map(this.connectorsSnapshot);
-    next.set(name, status);
-    this.connectorsSnapshot = next;
-    if (this.connectorsSetter) this.connectorsSetter(next);
-  };
-
-  registerConnectorsSetter(
-    setter: ((connectors: ReadonlyMap<string, ConnectorStatus>) => void) | null,
-  ): void {
-    this.connectorsSetter = setter;
-    if (setter) {
-      setter(this.connectorsSnapshot);
-    }
-  }
-
-  getConnectorsSnapshot(): ReadonlyMap<string, ConnectorStatus> {
-    return this.connectorsSnapshot;
-  }
-
-  /**
-   * The approval currently awaiting a decision, as structured data.
-   *
-   * The fullscreen approval card needs details that do not survive flattening
-   * the request into a select prompt, so the request travels alongside it.
-   */
-  setApprovalRequest = (request: PendingApproval | null): void => {
-    this.approvalRequestSnapshot = request;
-    if (this.approvalRequestSetter) this.approvalRequestSetter(request);
-  };
-
-  registerApprovalRequestSetter(setter: ((request: PendingApproval | null) => void) | null): void {
-    this.approvalRequestSetter = setter;
-    if (setter) {
-      setter(this.approvalRequestSnapshot);
-    }
-  }
-
-  getApprovalRequestSnapshot(): PendingApproval | null {
-    return this.approvalRequestSnapshot;
-  }
-
-  registerEphemeralRegionsSetter(
-    setter: ((regions: readonly EphemeralRegion[]) => void) | null,
-  ): void {
-    this.ephemeralRegionsSetter = setter;
-    if (setter) {
-      setter(this.ephemeralRegionsSnapshot);
-    }
-  }
-
-  registerExpandableReasoningSetter(
-    setter: ((value: ExpandableReasoning | null) => void) | null,
-  ): void {
-    this.expandableReasoningSetter = setter;
-    if (setter) {
-      setter(this.expandableReasoningSnapshot);
-    }
-  }
-
-  // ── Snapshot accessors (for hydrating late-registering components) ─
-
   getActivitySnapshot(): ActivityState {
-    return this.activitySnapshot;
+    return this.session.getSnapshot().activity;
   }
 
   getPromptSnapshot(): PromptState | null {
-    return this.promptSnapshot;
+    return this.prompt.getSnapshot().prompt;
   }
 
   getCurrentConversationSnapshot(): CurrentConversation | null {
-    return this.currentConversationSnapshot;
+    return this.session.getSnapshot().currentConversation;
   }
 
   getWorkingDirectorySnapshot(): string | null {
-    return this.workingDirectorySnapshot;
+    return this.session.getSnapshot().workingDirectory;
   }
 
   getRunStatsSnapshot(): RunStats {
-    return this.runStatsSnapshot;
+    return this.session.getSnapshot().runStats;
   }
 
   getEphemeralRegionsSnapshot(): readonly EphemeralRegion[] {
-    return this.ephemeralRegionsSnapshot;
+    return this.ephemeral.getSnapshot().regions;
   }
 
   getExpandableReasoningSnapshot(): ExpandableReasoning | null {
-    return this.expandableReasoningSnapshot;
+    return this.ephemeral.getSnapshot().expandableReasoning;
   }
 
   getMessageQueueSnapshot(): readonly string[] {
-    return this.messageQueueSnapshot;
+    return this.prompt.getSnapshot().messageQueue;
   }
 
   getChatBusySnapshot(): boolean {
-    return this.chatBusySnapshot;
-  }
-
-  // ── Pending queue management ──────────────────────────────────────
-
-  hasPendingClear(): boolean {
-    return this._pendingClear;
-  }
-
-  consumePendingClear(): void {
-    this._pendingClear = false;
-  }
-
-  drainPendingOutputQueue(): OutputEntry[] {
-    return this.pendingOutputQueue.splice(0, this.pendingOutputQueue.length);
+    return this.session.getSnapshot().chatBusy;
   }
 }
 
 export const store = new UIStore();
+
+export function useOutputSlice(): OutputSnapshot {
+  return useSyncExternalStore(
+    store.subscribeOutput,
+    store.getOutputSnapshot,
+    store.getOutputSnapshot,
+  );
+}
+
+export function useSessionSlice(): SessionSnapshot {
+  return useSyncExternalStore(
+    store.subscribeSession,
+    store.getSessionSnapshot,
+    store.getSessionSnapshot,
+  );
+}
+
+export function usePromptSlice(): PromptSnapshot {
+  return useSyncExternalStore(store.subscribePrompt, store.getPromptSlice, store.getPromptSlice);
+}
+
+export function useEphemeralSlice(): EphemeralSnapshot {
+  return useSyncExternalStore(
+    store.subscribeEphemeral,
+    store.getEphemeralSnapshot,
+    store.getEphemeralSnapshot,
+  );
+}
