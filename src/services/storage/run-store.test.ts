@@ -113,6 +113,28 @@ function suite(name: string, makeStore: () => Promise<RunStore>, cleanup?: () =>
       expect(result._tag).toBe("Failure");
     });
 
+    it("includes finished runs, with their cost, when asked", async () => {
+      await Effect.runPromise(store.save(record(RUN_ID)));
+      await Effect.runPromise(store.transition(RUN_ID, { kind: "working", iteration: 1 }));
+      const done = await Effect.runPromise(
+        store.transition(RUN_ID, { kind: "completed", content: "done" }),
+      );
+      await Effect.runPromise(store.save({ ...done, costUSD: 0.5 }));
+
+      expect(await Effect.runPromise(store.list())).toHaveLength(0);
+      const all = await Effect.runPromise(store.list({ includeTerminal: true }));
+      expect(all).toHaveLength(1);
+      expect(all[0]?.costUSD).toBe(0.5);
+    });
+
+    it("filters a listing by conversation", async () => {
+      await Effect.runPromise(store.save(record(RUN_ID)));
+      await Effect.runPromise(store.save({ ...record(OTHER_RUN_ID), conversationId: "conv-2" }));
+
+      const scoped = await Effect.runPromise(store.list({ conversationId: "conv-2" }));
+      expect(scoped.map((entry) => entry.runId)).toEqual([OTHER_RUN_ID]);
+    });
+
     it("lists only non-terminal runs, newest first", async () => {
       await Effect.runPromise(
         store.save(record(RUN_ID, "agent-1", new Date("2026-08-23T10:00:00Z"))),
@@ -123,7 +145,7 @@ function suite(name: string, makeStore: () => Promise<RunStore>, cleanup?: () =>
       await Effect.runPromise(store.transition(RUN_ID, { kind: "working", iteration: 1 }));
       await Effect.runPromise(store.transition(RUN_ID, { kind: "completed", content: "done" }));
 
-      const active = await Effect.runPromise(store.listActive());
+      const active = await Effect.runPromise(store.list());
       expect(active.map((entry) => entry.runId)).toEqual([OTHER_RUN_ID]);
     });
 
@@ -131,7 +153,7 @@ function suite(name: string, makeStore: () => Promise<RunStore>, cleanup?: () =>
       await Effect.runPromise(store.save(record(RUN_ID, "agent-1")));
       await Effect.runPromise(store.save(record(OTHER_RUN_ID, "agent-2")));
 
-      const active = await Effect.runPromise(store.listActive({ agentId: "agent-2" }));
+      const active = await Effect.runPromise(store.list({ agentId: "agent-2" }));
       expect(active.map((entry) => entry.runId)).toEqual([OTHER_RUN_ID]);
     });
 
@@ -284,7 +306,7 @@ describe("FileRunStore hardening", () => {
     await Effect.runPromise(store.save(record(RUN_ID)));
     await nodeFs.writeFile(path.join(directory, "garbage.json"), "{ not json", "utf-8");
 
-    const active = await Effect.runPromise(store.listActive());
+    const active = await Effect.runPromise(store.list());
     expect(active.map((entry) => entry.runId)).toEqual([RUN_ID]);
     await nodeFs.rm(directory, { recursive: true, force: true });
   });

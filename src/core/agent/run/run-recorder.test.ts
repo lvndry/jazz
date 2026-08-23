@@ -130,6 +130,6 @@ describe("withRunRecording", () => {
     const record = await Effect.runPromise(store.get(RUN_ID));
     expect(record?.state).toMatchObject({ kind: "completed", content: "pushed" });
     expect(record?.createdAt).toBe(parkedAt);
-    expect(await Effect.runPromise(store.listActive())).toHaveLength(0);
+    expect(await Effect.runPromise(store.list())).toHaveLength(0);
   });
 });

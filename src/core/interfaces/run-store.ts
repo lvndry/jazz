@@ -23,9 +23,19 @@ export interface RunStore {
    * went straight from `completed` back to `working` is worse than no record.
    */
   readonly transition: (runId: RunId, next: RunState) => Effect.Effect<RunRecord, Error>;
-  /** Runs not in a terminal state, newest first. What "what is running right now" reads. */
-  readonly listActive: (filter?: {
+  /**
+   * Records newest first, unfinished ones only unless asked otherwise.
+   *
+   * The default answers "what is waiting on me", which is the question someone has when a
+   * run parks and they do not know which conversation it came from — so it spans every
+   * agent and conversation. `includeTerminal` answers the other question, "what did that
+   * run do and what did it cost", which is only askable for as long as `prune` keeps the
+   * record.
+   */
+  readonly list: (filter?: {
     readonly agentId?: string;
+    readonly conversationId?: string;
+    readonly includeTerminal?: boolean;
   }) => Effect.Effect<readonly RunRecord[], never>;
   /**
    * Housekeeping sweep, run before any listing so nothing stale is ever shown.

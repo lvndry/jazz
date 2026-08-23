@@ -99,6 +99,26 @@ function byNewestFirst(left: RunRecord, right: RunRecord): number {
   return right.createdAt.localeCompare(left.createdAt);
 }
 
+interface RunListFilter {
+  readonly agentId?: string;
+  readonly conversationId?: string;
+  readonly includeTerminal?: boolean;
+}
+
+function selectRecords(
+  records: readonly RunRecord[],
+  filter: RunListFilter | undefined,
+): readonly RunRecord[] {
+  return records
+    .filter((record) => filter?.includeTerminal === true || !isTerminal(record.state))
+    .filter((record) => filter?.agentId === undefined || record.agentId === filter.agentId)
+    .filter(
+      (record) =>
+        filter?.conversationId === undefined || record.conversationId === filter.conversationId,
+    )
+    .sort(byNewestFirst);
+}
+
 /** Injected so a test can assert the exact stamp, and so both stores agree on one source of time. */
 export type Clock = () => Date;
 
@@ -134,13 +154,8 @@ export class InMemoryRunStore implements RunStore {
     });
   }
 
-  listActive(filter?: { readonly agentId?: string }): Effect.Effect<readonly RunRecord[], never> {
-    return Effect.sync(() =>
-      [...this.records.values()]
-        .filter((record) => !isTerminal(record.state))
-        .filter((record) => filter?.agentId === undefined || record.agentId === filter.agentId)
-        .sort(byNewestFirst),
-    );
+  list(filter?: RunListFilter): Effect.Effect<readonly RunRecord[], never> {
+    return Effect.sync(() => selectRecords([...this.records.values()], filter));
   }
 
   prune(options: {
@@ -249,15 +264,8 @@ export class FileRunStore implements RunStore {
     });
   }
 
-  listActive(filter?: { readonly agentId?: string }): Effect.Effect<readonly RunRecord[], never> {
-    return this.readAll().pipe(
-      Effect.map((records) =>
-        records
-          .filter((record) => !isTerminal(record.state))
-          .filter((record) => filter?.agentId === undefined || record.agentId === filter.agentId)
-          .sort(byNewestFirst),
-      ),
-    );
+  list(filter?: RunListFilter): Effect.Effect<readonly RunRecord[], never> {
+    return this.readAll().pipe(Effect.map((records) => selectRecords(records, filter)));
   }
 
   prune(options: {

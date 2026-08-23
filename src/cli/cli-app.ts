@@ -569,12 +569,19 @@ function registerRunsCommands(program: Command): void {
     .alias("ls")
     .description("List runs that have not finished, newest first")
     .option("--agent <agentId>", "Only runs belonging to this agent")
+    .option("--conversation <id>", "Only runs from this conversation")
+    .option(
+      "--all",
+      "Include runs that already finished, with what they cost. Records are kept for 7 days.",
+    )
     .option("--json", "Emit a single JSON envelope { ok, runs }")
-    .action((options: { agent?: string; json?: boolean }) => {
+    .action((options: { agent?: string; conversation?: string; all?: boolean; json?: boolean }) => {
       runCliEffect(
         listRunsCommand({
           json: options.json === true,
           ...(options.agent !== undefined ? { agentId: options.agent } : {}),
+          ...(options.conversation !== undefined ? { conversationId: options.conversation } : {}),
+          ...(options.all === true ? { all: true } : {}),
         }),
         cliOptionsOf(),
       );

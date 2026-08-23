@@ -42,25 +42,33 @@ function shortInput(input: string): string {
   return collapsed.length > 60 ? `${collapsed.slice(0, 57)}...` : collapsed;
 }
 
-export function listRunsCommand(options: { readonly json: boolean; readonly agentId?: string }) {
+export function listRunsCommand(options: {
+  readonly json: boolean;
+  readonly agentId?: string;
+  readonly conversationId?: string;
+  readonly all?: boolean;
+}) {
   return Effect.gen(function* () {
     const store = yield* RunStoreTag;
     yield* store.prune({ now: new Date(), maxTerminalAgeMs: TERMINAL_RETENTION_MS });
-    const active = yield* store.listActive(
-      options.agentId !== undefined ? { agentId: options.agentId } : undefined,
-    );
+    const runs = yield* store.list({
+      ...(options.agentId !== undefined ? { agentId: options.agentId } : {}),
+      ...(options.conversationId !== undefined ? { conversationId: options.conversationId } : {}),
+      ...(options.all === true ? { includeTerminal: true } : {}),
+    });
 
     if (options.json) {
-      process.stdout.write(`${JSON.stringify({ ok: true, runs: active })}\n`);
+      process.stdout.write(`${JSON.stringify({ ok: true, runs })}\n`);
       return;
     }
-    if (active.length === 0) {
-      process.stdout.write("No runs in flight.\n");
+    if (runs.length === 0) {
+      process.stdout.write(options.all === true ? "No runs on record.\n" : "No runs in flight.\n");
       return;
     }
-    for (const record of active) {
+    for (const record of runs) {
+      const cost = record.costUSD !== undefined ? `  $${record.costUSD.toFixed(6)}` : "";
       process.stdout.write(
-        `${record.runId}  ${record.agentId}  ${describeState(record)}  ${shortInput(record.input)}\n`,
+        `${record.runId}  ${record.agentId}  ${describeState(record)}${cost}  ${shortInput(record.input)}\n`,
       );
     }
   }).pipe(Effect.provide(makeFileRunStoreLayer()));

@@ -224,7 +224,7 @@ describe("park and resume, through the real loop", () => {
     expect(parkExit._tag).toBe("Failure");
     expect(executions).toEqual([]);
 
-    const parked = (await Effect.runPromise(store.listActive()))[0];
+    const parked = (await Effect.runPromise(store.list()))[0];
     expect(parked).toBeDefined();
     if (parked?.state.kind !== "input-required") throw new Error("expected a parked run");
     if (parked.state.pending.kind !== "tool-approval") throw new Error("expected an approval");
@@ -249,7 +249,7 @@ describe("park and resume, through the real loop", () => {
 
     const finished = await Effect.runPromise(store.get(parked.runId));
     expect(finished?.state.kind).toBe("completed");
-    expect(await Effect.runPromise(store.listActive())).toHaveLength(0);
+    expect(await Effect.runPromise(store.list())).toHaveLength(0);
   });
 
   it("declines instead of parking when parking is not enabled", async () => {
