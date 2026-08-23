@@ -175,6 +175,12 @@ export interface MCPServerManager {
   ) => Effect.Effect<MCPPromptResult, MCPPromptError, LoggerService>;
 
   /**
+   * Which protocol era a connection negotiated — "modern" for 2026-07-28,
+   * "legacy" for the 2025 handshake. Undefined when not connected.
+   */
+  readonly getProtocolEra: (serverName: string) => Effect.Effect<string | undefined, never>;
+
+  /**
    * Capabilities the server declared at initialize, or undefined when not
    * connected.
    */

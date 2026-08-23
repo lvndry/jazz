@@ -58,12 +58,51 @@ const CALL_TIMEOUT_MS = 120_000;
 /** Guard against a server paginating `tools/list` without end. */
 const MAX_LIST_PAGES = 50;
 
+/** Narrow an SDK tool definition to the fields Jazz reads. */
+function toMCPTool(tool: {
+  name: string;
+  title?: string | undefined;
+  description?: string | undefined;
+  inputSchema?: unknown;
+  outputSchema?: unknown;
+  annotations?:
+    | {
+        readOnlyHint?: boolean | undefined;
+        destructiveHint?: boolean | undefined;
+        idempotentHint?: boolean | undefined;
+        openWorldHint?: boolean | undefined;
+      }
+    | undefined;
+}): MCPTool {
+  return {
+    name: tool.name,
+    ...(tool.title !== undefined ? { title: tool.title } : {}),
+    ...(tool.description !== undefined ? { description: tool.description } : {}),
+    ...(tool.inputSchema !== undefined ? { inputSchema: tool.inputSchema as MCPJSONSchema } : {}),
+    ...(tool.outputSchema !== undefined
+      ? { outputSchema: tool.outputSchema as MCPJSONSchema }
+      : {}),
+    ...(tool.annotations !== undefined
+      ? {
+          annotations: {
+            readOnlyHint: tool.annotations.readOnlyHint,
+            destructiveHint: tool.annotations.destructiveHint,
+            idempotentHint: tool.annotations.idempotentHint,
+            openWorldHint: tool.annotations.openWorldHint,
+          },
+        }
+      : {}),
+  };
+}
+
 interface Connection {
   readonly serverName: string;
   readonly client: Client;
   readonly transport: MCPTransport;
   readonly transportType: MCPTransportType;
   readonly capabilities: MCPServerCapabilities | undefined;
+  /** Which protocol era the connection negotiated: "modern" is 2026-07-28. */
+  readonly protocolEra: string | undefined;
 }
 
 /**
@@ -129,28 +168,41 @@ class MCPServerManagerImpl implements MCPServerManager {
   }
 
   /**
-   * Re-list a server's tools and fan the result out to subscribers.
+   * Fan a server's new tool list out to subscribers.
    *
-   * Runs detached from any fiber: notifications arrive on the transport's own
-   * callback, not inside an Effect the caller is awaiting.
+   * `items` is null only when auto-refresh is disabled, which Jazz does not do;
+   * it is still guarded so a change never turns into an empty tool list.
    */
-  private handleToolsListChanged(serverName: string): void {
-    if (this.toolsChangedHandlers.size === 0) return;
+  private handleToolsChanged(
+    serverName: string,
+    items:
+      | readonly {
+          name: string;
+          title?: string | undefined;
+          description?: string | undefined;
+          inputSchema?: unknown;
+          outputSchema?: unknown;
+          annotations?:
+            | {
+                readOnlyHint?: boolean | undefined;
+                destructiveHint?: boolean | undefined;
+                idempotentHint?: boolean | undefined;
+                openWorldHint?: boolean | undefined;
+              }
+            | undefined;
+        }[]
+      | null,
+  ): void {
+    if (items === null || this.toolsChangedHandlers.size === 0) return;
 
-    void Effect.runPromise(
-      this.getServerTools(serverName).pipe(
-        Effect.provideService(LoggerServiceTag, this.logger),
-        Effect.catchAll(() => Effect.succeed([] as readonly MCPTool[])),
-      ),
-    ).then((tools) => {
-      for (const handler of this.toolsChangedHandlers) {
-        try {
-          handler(serverName, tools);
-        } catch {
-          // One bad subscriber must not stop the others.
-        }
+    const tools = items.map(toMCPTool);
+    for (const handler of this.toolsChangedHandlers) {
+      try {
+        handler(serverName, tools);
+      } catch {
+        // One bad subscriber must not stop the others.
       }
-    });
+    }
   }
 
   connectServer(config: MCPServerConfig): Effect.Effect<void, MCPConnectionError, LoggerService> {
@@ -168,37 +220,49 @@ class MCPServerManagerImpl implements MCPServerManager {
 
       const client = new Client(
         { name: "jazz", version: packageJson.version },
-        // `elicitation` is advertised unconditionally even though a given
-        // surface may have no way to ask a person: the capability says Jazz
-        // speaks the request, and declining is a valid answer to it.
-        // Roots is deliberately not declared: the 2026-07-28 spec deprecates it
-        // (SEP-2577) and removes notifications/roots/list_changed, with the
-        // migration being to pass directories as tool parameters or server
-        // config instead.
-        { capabilities: { elicitation: {} } },
+        {
+          // Roots is deliberately not declared: 2026-07-28 deprecates it
+          // (SEP-2577) and removes notifications/roots/list_changed, with the
+          // migration being to pass directories as tool parameters or server
+          // config instead.
+          //
+          // `elicitation` is advertised unconditionally even though a given
+          // surface may have no way to ask a person: the capability says Jazz
+          // speaks the request, and declining is a valid answer to it. On a
+          // 2026-era connection the SDK fulfils the same handler through the
+          // multi-round-trip `input_required` flow, so one handler serves both.
+          capabilities: { elicitation: {} },
+          // Probe `server/discover` for the 2026-07-28 era and fall back to the
+          // 2025 handshake against older servers, at the cost of one round trip.
+          versionNegotiation: { mode: "auto" },
+          // Era-transparent list-change handling: unsolicited notifications on
+          // 2025 connections, an auto-opened `subscriptions/listen` stream on
+          // 2026 ones. The SDK re-lists and hands back the new items, which is
+          // why nothing here re-fetches by hand.
+          listChanged: {
+            tools: {
+              onChanged: (error, items) => {
+                if (error) {
+                  void Effect.runPromise(
+                    manager.logger
+                      .warn(
+                        `Failed to refresh tools for ${config.name} after a list change: ${error.message}`,
+                      )
+                      .pipe(Effect.catchAllCause(() => Effect.void)),
+                  );
+                  return;
+                }
+                manager.handleToolsChanged(config.name, items);
+              },
+            },
+          },
+        },
       );
 
+      // v2 registers handlers by method name rather than by schema.
       client.setRequestHandler("elicitation/create", (request) =>
         manager.handleElicitation(config.name, request.params),
       );
-
-      client.setNotificationHandler("notifications/tools/list_changed", () => {
-        manager.handleToolsListChanged(config.name);
-      });
-      client.setNotificationHandler("notifications/resources/list_changed", () => {
-        // Resource listings are fetched fresh on every call rather than cached,
-        // so there is no stale state to invalidate. Handled anyway so the
-        // notification is not silently dropped by the transport.
-        void Effect.runPromise(
-          manager.logger
-            .debug(`MCP server ${config.name} changed its resource list`)
-            .pipe(Effect.catchAllCause(() => Effect.void)),
-        );
-      });
-      client.setNotificationHandler("notifications/prompts/list_changed", () => {
-        // Prompts are re-listed on demand by the chat command, so the
-        // notification only needs to not be an unhandled-method error.
-      });
 
       const connectEffect = Effect.tryPromise({
         try: () => client.connect(transport as Transport),
@@ -258,16 +322,19 @@ class MCPServerManagerImpl implements MCPServerManager {
           }
         : undefined;
 
+      const protocolEra = client.getProtocolEra();
+
       manager.connections.set(config.name, {
         serverName: config.name,
         client,
         transport,
         transportType,
         capabilities,
+        protocolEra,
       });
 
       yield* manager.logger.info(
-        `Connected to MCP server: ${config.name} (${transportType} transport)`,
+        `Connected to MCP server: ${config.name} (${transportType} transport, ${protocolEra ?? "unknown"} protocol era)`,
       );
     }).pipe(
       Effect.mapError((error: unknown) => {
@@ -341,27 +408,7 @@ class MCPServerManagerImpl implements MCPServerManager {
               );
 
               for (const tool of result.tools) {
-                collected.push({
-                  name: tool.name,
-                  ...(tool.title !== undefined ? { title: tool.title } : {}),
-                  ...(tool.description !== undefined ? { description: tool.description } : {}),
-                  ...(tool.inputSchema !== undefined
-                    ? { inputSchema: tool.inputSchema as MCPJSONSchema }
-                    : {}),
-                  ...(tool.outputSchema !== undefined
-                    ? { outputSchema: tool.outputSchema as MCPJSONSchema }
-                    : {}),
-                  ...(tool.annotations !== undefined
-                    ? {
-                        annotations: {
-                          readOnlyHint: tool.annotations.readOnlyHint,
-                          destructiveHint: tool.annotations.destructiveHint,
-                          idempotentHint: tool.annotations.idempotentHint,
-                          openWorldHint: tool.annotations.openWorldHint,
-                        },
-                      }
-                    : {}),
-                });
+                collected.push(toMCPTool(tool));
               }
 
               cursor = result.nextCursor;
@@ -841,6 +888,10 @@ class MCPServerManagerImpl implements MCPServerManager {
         Effect.catchAll(() => Effect.succeed([] as readonly string[])),
       );
     });
+  }
+
+  getProtocolEra(serverName: string): Effect.Effect<string | undefined, never> {
+    return Effect.sync(() => this.connections.get(serverName)?.protocolEra);
   }
 
   getCapabilities(serverName: string): Effect.Effect<MCPServerCapabilities | undefined, never> {

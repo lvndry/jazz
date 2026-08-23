@@ -377,10 +377,21 @@ export function testMcpServerCommand(name: string): Effect.Effect<void, never, M
     }
 
     const capabilities = yield* manager.getCapabilities(name);
+    const protocolEra = yield* manager.getProtocolEra(name);
     const tools = yield* manager.getServerTools(name).pipe(Effect.either);
     const prompts = yield* manager.getServerPrompts(name).pipe(Effect.either);
 
     yield* terminal.success(`Connected to ${name}`);
+    yield* terminal.log(
+      fmt.keyValue(
+        "Protocol",
+        protocolEra === "modern"
+          ? "2026-07-28 (modern)"
+          : protocolEra === "legacy"
+            ? "2025-era handshake (legacy)"
+            : "unknown",
+      ),
+    );
 
     if (tools._tag === "Right") {
       yield* terminal.log(fmt.keyValue("Tools", String(tools.right.length)));
