@@ -35,7 +35,7 @@ const recipes = [
 
 <section class="cookbook">
   <p class="kicker mono">steal these</p>
-  <h2 class="shout">Seven workflows,<br />ready to <span class="live">copy.</span></h2>
+  <h2 class="shout">Workflows,<br />ready to <span class="live">copy.</span></h2>
   <p class="lede">
     Production-ready recipes with install steps and risk tiers. Hover one to watch a condensed run.
   </p>
@@ -56,6 +56,7 @@ const recipes = [
       ))
     }
   </div>
+  <a class="more mono" href="/docs/cookbook">more in the cookbook →</a>
 </section>
 
 <style>
@@ -132,5 +133,21 @@ const recipes = [
   }
   .recipe:hover .cta {
     color: var(--jz-primary);
+  }
+  .more {
+    display: inline-block;
+    margin-top: 32px;
+    padding: 12px 24px;
+    font-size: 12px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--jz-primary);
+    border: 1px solid var(--jz-primary);
+    border-radius: 6px;
+    text-decoration: none;
+  }
+  .more:hover {
+    background: var(--jz-primary);
+    color: #000;
   }
 </style>
