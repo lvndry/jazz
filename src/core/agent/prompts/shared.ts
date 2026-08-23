@@ -17,6 +17,22 @@ export const ENVIRONMENT_TEMPLATE = `# Environment
 - TTY: {tty}
 `;
 
+/**
+ * Added only for models that cannot generate media themselves.
+ *
+ * Jazz has no image-generation tool — producing media is a capability of the model an agent runs
+ * on. Without this line the agent answers "I can't generate images" and stops, which is true but
+ * a dead end: the user has no way to discover that another of their agents might be able to, or
+ * which model to create one with. Two sentences buys them the next step.
+ */
+export const MEDIA_GENERATION_UNAVAILABLE = `
+You cannot generate images, audio or video — your model produces text only, and there is no tool
+for it. If asked for one, say so plainly and tell the user to run \`jazz agent list --can image\`
+(or \`--can audio\` / \`--can video\`), which lists the agents that can and suggests a model to
+create one with when none do. Do not offer ASCII art or a description as a substitute unless they
+ask for that instead.
+`;
+
 export const SKILLS_INSTRUCTIONS = `
 Skills:
 1. If a request matches a skill in the index, load it with load_skill. Use find_skills when the index is not enough to decide.

@@ -71,6 +71,29 @@ import { normalizeToolConfig } from "./utils/tool-config";
  * text-only. The known cost is locally-served models: ollama and llama.cpp are largely absent
  * from the catalog, so a capable local VLM reads as text-only here.
  */
+/**
+ * Whether this agent's model produces media of any kind.
+ *
+ * Unknown models count as "cannot", matching every other capability check here: the consequence
+ * of guessing wrong is an agent that promises an image it cannot make.
+ */
+function resolveCanGenerateMedia(
+  agent: AgentRunnerOptions["agent"],
+): Effect.Effect<boolean, never> {
+  return Effect.gen(function* () {
+    const parsed = parseProviderModel(agent.model);
+    if (parsed === null) return false;
+
+    const metadata = yield* Effect.tryPromise({
+      try: () => getModelsDevMetadata(parsed.model, parsed.provider),
+      catch: (error) => error,
+    }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+    if (metadata === undefined) return false;
+
+    return metadata.generatesImage || metadata.generatesAudio || metadata.generatesVideo;
+  });
+}
+
 function resolveSupportedAttachmentKinds(
   agent: AgentRunnerOptions["agent"],
 ): Effect.Effect<readonly AttachmentKind[], never> {
@@ -354,6 +377,9 @@ function initializeAgentRun(
     const supportedAttachmentKinds = ingestsAttachments
       ? yield* resolveSupportedAttachmentKinds(agent)
       : [];
+    // Whether this model can produce media itself. Drives one line of prompt guidance so a
+    // text-only agent can point the user at one that can, instead of dead-ending.
+    const canGenerateMedia = yield* resolveCanGenerateMedia(agent);
     const attachmentsAreLocal = isLocalServerProvider(
       parseProviderModel(agent.model)?.provider ?? "",
     );
@@ -375,6 +401,7 @@ function initializeAgentRun(
         }),
         supportedAttachmentKinds,
         attachmentsAreLocal,
+        canGenerateMedia,
         ...(triggeredSkillNames.length > 0 && { triggeredSkillNames }),
         ...(projectInstructions.length > 0 && { projectInstructions }),
       },

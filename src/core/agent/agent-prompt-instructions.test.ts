@@ -105,3 +105,27 @@ describe("system prompt cache keys off the toolset", () => {
     expect(withoutQuestions).not.toContain("# Asking the user questions");
   });
 });
+
+describe("media generation guidance", () => {
+  test("a model that cannot generate media is told how to redirect the user", () => {
+    // Without this the agent answers "I can't generate images" and stops, which is true and a
+    // dead end — jazz has no generation tool, so the only route is another agent.
+    const prompt = build("default", { canGenerateMedia: false });
+    expect(prompt).toContain("jazz agent list --can image");
+  });
+
+  test("a model that can generate media is not given it", () => {
+    const prompt = build("default", { canGenerateMedia: true });
+    expect(prompt).not.toContain("jazz agent list --can image");
+  });
+
+  test("nothing is added when the capability is unknown", () => {
+    // Absent metadata should not put instructions in every prompt; the guidance is opt-in on a
+    // definite "cannot".
+    expect(build("default")).not.toContain("jazz agent list --can image");
+  });
+
+  test("the summarizer never gets it — no user to advise", () => {
+    expect(build("summarizer", { canGenerateMedia: false })).not.toContain("jazz agent list");
+  });
+});
