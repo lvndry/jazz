@@ -24,6 +24,24 @@ export type MCPToolDependencies =
 /** How much of an argument blob to show in an approval prompt. */
 const APPROVAL_ARGS_PREVIEW_LIMIT = 500;
 
+/**
+ * Ceiling on entries returned by a resource listing.
+ *
+ * Chosen to stay well under a single screen's worth of context: a server may
+ * advertise thousands of resources, and the listing is a means of finding one,
+ * not content worth spending the window on.
+ */
+const RESOURCE_LIST_LIMIT = 100;
+
+/**
+ * Ceiling on the text returned by a single resource read.
+ *
+ * The model picks a URI, not a size, and a server is free to back one URI with
+ * a whole file. Truncating with a visible marker keeps a large resource
+ * useful instead of letting it swallow the conversation.
+ */
+const RESOURCE_READ_CHAR_LIMIT = 100_000;
+
 /** An object schema that keeps every key the model supplied. */
 function emptyPassthroughObject(): z.ZodTypeAny {
   return z.object({}).passthrough();
@@ -281,12 +299,20 @@ export function buildResourceTools(
 
   const listTool = defineTool<MCPToolDependencies, Record<string, unknown>>({
     name: `${prefix}_list_resources`,
-    description: `List the resources available from the ${toPascalCase(serverName)} MCP server. Returns each resource's URI, name, and description. Use ${prefix}_read_resource to read one.`,
-    parameters: z.object({}).passthrough(),
+    description: `List resources available from the ${toPascalCase(serverName)} MCP server. Returns each resource's URI, name, and description. Narrow a large catalogue with "filter" rather than paging through it, then read one with ${prefix}_read_resource.`,
+    parameters: z.object({
+      filter: z
+        .string()
+        .optional()
+        .describe("Case-insensitive substring matched against URI, name, and description"),
+      limit: z
+        .number()
+        .optional()
+        .describe(`Maximum entries to return (default and maximum ${RESOURCE_LIST_LIMIT})`),
+    }),
     hidden: false,
     riskLevel: "read-only",
-    validate: passThroughMCPArguments,
-    handler: () =>
+    handler: (args: Record<string, unknown>) =>
       Effect.gen(function* () {
         const mcpManager = yield* MCPServerManagerTag;
 
@@ -298,7 +324,41 @@ export function buildResourceTools(
           return { success: false, result: null, error: resources.left.reason };
         }
 
-        return { success: true, result: resources.right };
+        const filter =
+          typeof args["filter"] === "string" ? args["filter"].toLowerCase() : undefined;
+        const matched =
+          filter === undefined
+            ? resources.right
+            : resources.right.filter((resource) =>
+                [resource.uri, resource.name, resource.title, resource.description]
+                  .filter((value): value is string => typeof value === "string")
+                  .some((value) => value.toLowerCase().includes(filter)),
+              );
+
+        // A server's catalogue is its own business and can run to thousands of
+        // entries; returning all of them would spend the context window on a
+        // directory listing. Hosts that surface resources in a picker keep this
+        // list out of the model entirely — a cap is the equivalent here.
+        const requested =
+          typeof args["limit"] === "number" && Number.isFinite(args["limit"])
+            ? Math.max(1, Math.floor(args["limit"]))
+            : RESOURCE_LIST_LIMIT;
+        const limit = Math.min(requested, RESOURCE_LIST_LIMIT);
+        const shown = matched.slice(0, limit);
+
+        return {
+          success: true,
+          result: {
+            resources: shown,
+            total: resources.right.length,
+            ...(filter !== undefined ? { matched: matched.length } : {}),
+            ...(matched.length > shown.length
+              ? {
+                  truncated: `Showing ${shown.length} of ${matched.length}. Narrow the results with "filter".`,
+                }
+              : {}),
+          },
+        };
       }),
   });
 
@@ -327,9 +387,14 @@ export function buildResourceTools(
           return { success: false, result: null, error: contents.left.reason };
         }
 
+        const rendered = contents.right.map(renderResourceContent).join("\n\n");
+
         return {
           success: true,
-          result: contents.right.map(renderResourceContent).join("\n\n"),
+          result:
+            rendered.length > RESOURCE_READ_CHAR_LIMIT
+              ? `${rendered.slice(0, RESOURCE_READ_CHAR_LIMIT)}\n\n[truncated — resource is ${rendered.length} characters, showing the first ${RESOURCE_READ_CHAR_LIMIT}]`
+              : rendered,
         };
       }),
   });
