@@ -1,6 +1,6 @@
 # Context management
 
-**Reader job:** understand why a long Jazz run doesn't fall off the end of its context
+This page explains why a long Jazz run doesn't fall off the end of its context
 window.
 
 Source:

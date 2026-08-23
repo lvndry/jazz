@@ -1,6 +1,6 @@
 # Tools & approval
 
-**Reader job:** understand how a tool call becomes an action, and what stands between the
+This page explains how a tool call becomes an action, and what stands between the
 two.
 
 Source:

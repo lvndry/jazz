@@ -1,6 +1,6 @@
 # Internals — how Jazz works
 
-**Reader job:** understand the machine well enough to trust it, debug it, or extend it.
+This page explains the machine well enough to trust it, debug it, or extend it.
 
 Two different people need this section:
 
@@ -26,7 +26,7 @@ flowchart TB
 
     RUNNER["<b>AgentRunner</b><br/>resolve agent, provider, model,<br/>toolset, conversation"]
 
-    subgraph loop["Agent loop — up to 80 iterations"]
+    subgraph loop["Agent loop — up to 100 iterations"]
         direction TB
         COMPACT["1 · Compact context if &gt; 80%"]
         LLM["2 · Ask the model"]

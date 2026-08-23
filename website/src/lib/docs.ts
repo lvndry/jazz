@@ -5,16 +5,68 @@ export const REPO_URL = "https://github.com/lvndry/jazz";
 /** Section order mirrors the section list in docs/index.md. */
 export const SECTIONS: ReadonlyArray<{ dir: string; label: string }> = [
   { dir: "guide", label: "Guide" },
-  { dir: "surfaces", label: "Surfaces" },
+  { dir: "surfaces", label: "Where it runs" },
+  { dir: "integrations", label: "Integrations" },
   { dir: "concepts", label: "Concepts" },
   { dir: "cookbook", label: "Cookbook" },
-  { dir: "integrations", label: "Integrations" },
+  { dir: "examples", label: "Examples" },
   { dir: "reference", label: "Reference" },
   { dir: "internals", label: "Internals" },
   { dir: "design", label: "Design" },
 ];
 
+const sectionKeyFor = (id: string): string => id.split("/")[0] ?? "";
+
 export type DocsEntry = CollectionEntry<"docs">;
+
+/**
+ * Within a section, these ids come first, in this order — mirroring how
+ * docs/index.md presents each section. Anything unlisted follows
+ * alphabetically.
+ */
+const PINNED_ORDER: Record<string, string[]> = {
+  guide: ["guide/quick-start", "guide/creating-agents", "guide/airgapped", "guide/observability"],
+  surfaces: [
+    "surfaces/headless",
+    "surfaces/chat-platforms",
+    "surfaces/ci-cd",
+    "surfaces/scheduled",
+  ],
+  concepts: [
+    "concepts/agents",
+    "concepts/personas",
+    "concepts/skills",
+    "concepts/tools",
+    "concepts/workflows",
+    "concepts/scheduling",
+  ],
+  reference: [
+    "reference/cli",
+    "reference/configuration",
+    "reference/tools",
+    "reference/workflow-frontmatter",
+  ],
+  cookbook: [
+    "cookbook/inbox-triage",
+    "cookbook/pr-watchdog",
+    "cookbook/research-digest",
+    "cookbook/competitor-watch",
+    "cookbook/codebase-tech-debt-radar",
+    "cookbook/ci-pr-reviewer",
+    "cookbook/release-notes-draft",
+  ],
+  internals: [
+    "internals/agent-loop",
+    "internals/context-management",
+    "internals/tools-and-approval",
+    "internals/subagents",
+    "internals/skills-loading",
+    "internals/providers-and-models",
+    "internals/evals",
+    "internals/design-decisions",
+    "internals/code-map",
+  ],
+};
 
 /** "guide/quick-start" → "guide/quick-start"; "guide/index" → "guide"; "index" → "". */
 export function routeSlugFor(id: string): string {
@@ -34,7 +86,11 @@ export function titleOf(entry: DocsEntry): string {
   const fromFrontmatter = (entry.data as Record<string, unknown>)["title"];
   if (typeof fromFrontmatter === "string" && fromFrontmatter.length > 0) return fromFrontmatter;
   const heading = entry.body?.match(/^#\s+(.+)$/m)?.[1];
-  if (heading) return heading.replace(/\[(.+?)\]\([^)]*\)/g, "$1").trim();
+  if (heading)
+    return heading
+      .replace(/\[(.+?)\]\([^)]*\)/g, "$1")
+      .replace(/^Use Case:\s*/i, "")
+      .trim();
   const id = routeSlugFor(entry.id);
   return humanize(id.split("/").pop() ?? "Documentation");
 }
@@ -60,7 +116,7 @@ export function buildSidebar(entries: DocsEntry[]): SidebarSection[] {
   const bySection = new Map<string, DocsEntry[]>();
   for (const entry of entries) {
     if (entry.id === "index") continue;
-    const section = entry.id.split("/")[0] ?? "";
+    const section = sectionKeyFor(entry.id);
     const bucket = bySection.get(section) ?? [];
     bucket.push(entry);
     bySection.set(section, bucket);
@@ -74,10 +130,15 @@ export function buildSidebar(entries: DocsEntry[]): SidebarSection[] {
   for (const { dir, label } of ordered) {
     const bucket = bySection.get(dir);
     if (!bucket) continue;
-    const indexEntry = bucket.find((entry) => entry.id === `${dir}/index`);
+    const indexEntry = bucket.find((entry) => entry.id === dir || entry.id === `${dir}/index`);
+    const pinned = PINNED_ORDER[dir] ?? [];
+    const rank = (id: string): number => {
+      const position = pinned.indexOf(id);
+      return position === -1 ? pinned.length : position;
+    };
     const rest = bucket
-      .filter((entry) => entry.id !== `${dir}/index`)
-      .sort((a, b) => a.id.localeCompare(b.id));
+      .filter((entry) => entry !== indexEntry)
+      .sort((a, b) => rank(a.id) - rank(b.id) || a.id.localeCompare(b.id));
     sections.push({
       label,
       route: indexEntry ? routeFor(indexEntry.id) : undefined,

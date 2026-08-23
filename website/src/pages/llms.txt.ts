@@ -14,7 +14,7 @@ export async function GET(): Promise<Response> {
   const lines = [
     "# Jazz",
     "",
-    "> Jazz is a general-purpose AI agent that runs on your own machine —",
+    "> Jazz runs a general-purpose AI agent on your own machine —",
     "> terminal, scripts, cron, CI, Telegram, Discord. 18 LLM providers,",
     "> including fully local models. MIT licensed.",
     "",

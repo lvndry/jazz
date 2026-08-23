@@ -8,7 +8,7 @@
 
 </div>
 
-Jazz is a general-purpose AI agent that runs on your own machine. Not just for code: use it
+Jazz runs a general-purpose AI agent on your own machine. Not just for code: use it
 for email, research, planning, and automation.
 
 Install it once and it runs everywhere. A terminal REPL, a one-shot command inside a script,

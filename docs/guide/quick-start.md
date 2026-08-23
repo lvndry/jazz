@@ -1,6 +1,6 @@
 # Quick start
 
-**Reader job:** get from nothing to a working agent.
+How to get from nothing to a working agent.
 
 ## 1. Install the CLI
 
@@ -69,4 +69,4 @@ jazz update
 - **[Creating agents](./creating-agents.md)** — configure one for a specific job
 - **[Surfaces](../surfaces/index.md)** — run the same agent headless, on a schedule, in CI, or in a chat thread
 - **[Cookbook](../cookbook/index.md)** — copy-pasteable recipes
-- **[Use cases](./use-cases/deep-research.md)** — end-to-end walkthroughs
+- **[Examples](../examples/index.md)** — end-to-end walkthroughs

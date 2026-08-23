@@ -3,7 +3,7 @@ import { defineCollection, z } from "astro:content";
 
 export const collections = {
   docs: defineCollection({
-    loader: glob({ pattern: ["**/*.md", "!superpowers/**"], base: "../docs" }),
+    loader: glob({ pattern: ["**/*.md", "!superpowers/**", "!README.md"], base: "../docs" }),
   }),
   blog: defineCollection({
     loader: glob({ pattern: "**/*.md", base: "../blog" }),

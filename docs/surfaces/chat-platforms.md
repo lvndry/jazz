@@ -1,6 +1,6 @@
 # Chat platforms — Telegram, Discord, Slack, your own app
 
-**Reader job:** put a real tool-using agent into a chat thread.
+How to put a real tool-using agent into a chat thread.
 
 A Jazz agent in a chat window isn't a chatbot with your logo on it. It's the same agent
 that reads your filesystem, runs git, searches the web, and spawns sub-agents — reachable

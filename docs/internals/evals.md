@@ -1,6 +1,6 @@
 # Evals — measuring the harness
 
-**Reader job:** find out whether a harness change actually made agents better, rather than
+This page shows how to tell whether a harness change actually made agents better, rather than
 assuming it did.
 
 Source: [`evals/`](../../evals/) · run instructions: [`evals/README.md`](../../evals/README.md)

@@ -1,6 +1,6 @@
 # CI/CD — Jazz in your pipeline
 
-**Reader job:** get an agent reviewing your pull requests and writing your release notes.
+How to get an agent reviewing your pull requests and writing your release notes.
 
 Jazz reviews every pull request in this repository, and writes every release's notes. Not
 as a demo — as the actual process. This page is how to get the same thing, and how to run

@@ -1,6 +1,6 @@
 # Scheduled — unattended runs on a clock
 
-**Reader job:** have Jazz do something every morning without you being there.
+How to have Jazz do something every morning without you being there.
 
 A scheduled run is a [workflow](../concepts/workflows.md) handed to your OS scheduler.
 Jazz writes the launchd plist or crontab entry for you; from then on the run happens with
