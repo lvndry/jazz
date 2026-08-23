@@ -1,8 +1,11 @@
+import { pathToFileURL } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import {
+  ElicitRequestSchema,
+  ListRootsRequestSchema,
   PromptListChangedNotificationSchema,
   ToolListChangedNotificationSchema,
 } from "@modelcontextprotocol/sdk/types.js";
@@ -12,6 +15,7 @@ import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
 import type { LoggerService } from "@/core/interfaces/logger";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import type {
+  ElicitationHandler,
   MCPServerConfig,
   MCPServerManager,
   MCPTransport,
@@ -23,19 +27,26 @@ import {
   MCPConnectionError,
   MCPDisconnectionError,
   MCPPromptError,
+  MCPResourceError,
   MCPToolDiscoveryError,
   MCPToolExecutionError,
 } from "@/core/types/errors";
 import type {
+  MCPElicitationRequest,
+  MCPElicitationResponse,
   MCPJSONSchema,
   MCPPrompt,
   MCPPromptResult,
+  MCPResource,
+  MCPResourceContent,
+  MCPRoot,
   MCPServerCapabilities,
   MCPTool,
   MCPToolResult,
 } from "@/core/types/mcp";
 import { createSanitizedEnv } from "@/core/utils/env";
 import { retryWithBackoff } from "@/core/utils/mcp";
+import { toElicitationFields } from "./elicitation-schema";
 import { createStoredTokenProvider, InteractiveAuthRequiredError } from "./oauth";
 import packageJson from "../../../package.json";
 
@@ -73,11 +84,24 @@ class MCPServerManagerImpl implements MCPServerManager {
   private connections: Map<string, Connection>;
   private toolsChangedHandlers: Set<ToolsChangedHandler>;
   private logger: LoggerService;
+  /**
+   * Roots advertised to servers. Defaults to the launch directory, which is
+   * the same thing a server would otherwise have to be told at spawn time.
+   */
+  private roots: readonly MCPRoot[];
+  /**
+   * Set by whichever surface can actually put a question to a person. Left
+   * unset on bridges and scheduled runs, where the correct answer to an
+   * elicitation is to decline rather than to block forever.
+   */
+  private elicitationHandler: ElicitationHandler | undefined;
 
   constructor(logger: LoggerService) {
     this.connections = new Map();
     this.toolsChangedHandlers = new Set();
     this.logger = logger;
+    this.roots = [{ uri: pathToFileURL(process.cwd()).href, name: "workspace" }];
+    this.elicitationHandler = undefined;
   }
 
   private buildTransport(config: MCPServerConfig): {
@@ -157,9 +181,27 @@ class MCPServerManagerImpl implements MCPServerManager {
 
       const client = new Client(
         { name: "jazz", version: packageJson.version },
-        // Declaring `roots` would oblige us to answer `roots/list`; Jazz does
-        // not yet, so it stays out of the handshake.
-        { capabilities: {} },
+        // Only declare what we actually answer below. `elicitation` is
+        // advertised unconditionally even though a given surface may have no
+        // way to ask a person: the capability says Jazz speaks the request,
+        // and declining is a valid answer to it.
+        {
+          capabilities: {
+            roots: { listChanged: true },
+            elicitation: {},
+          },
+        },
+      );
+
+      client.setRequestHandler(ListRootsRequestSchema, () => ({
+        roots: manager.roots.map((root) => ({
+          uri: root.uri,
+          ...(root.name !== undefined ? { name: root.name } : {}),
+        })),
+      }));
+
+      client.setRequestHandler(ElicitRequestSchema, (request) =>
+        manager.handleElicitation(config.name, request.params),
       );
 
       client.setNotificationHandler(ToolListChangedNotificationSchema, () => {
@@ -538,6 +580,208 @@ class MCPServerManagerImpl implements MCPServerManager {
           content: message.content,
         })),
       };
+    });
+  }
+
+  /**
+   * Answer a server's `elicitation/create`.
+   *
+   * Declines rather than blocking whenever there is nobody to ask — an
+   * unattended bridge or scheduled run has no way to surface a dialog, and a
+   * hung request there would stall the whole job.
+   */
+  private async handleElicitation(
+    serverName: string,
+    params: {
+      mode?: string | undefined;
+      message?: string | undefined;
+      requestedSchema?: unknown;
+    },
+  ): Promise<{ action: "accept" | "decline" | "cancel"; content?: Record<string, unknown> }> {
+    const handler = this.elicitationHandler;
+
+    if (!handler) {
+      await Effect.runPromise(
+        this.logger.debug(
+          `Declined elicitation from ${serverName}: this surface cannot prompt the user`,
+        ),
+      );
+      return { action: "decline" };
+    }
+
+    // URL mode hands the user off to a browser page the server controls. Jazz
+    // has no way to confirm what happens there, so it is declined rather than
+    // silently opened.
+    if (params.mode === "url") {
+      await Effect.runPromise(
+        this.logger.warn(`Declined URL-mode elicitation from ${serverName}: not supported`),
+      );
+      return { action: "decline" };
+    }
+
+    const request: MCPElicitationRequest = {
+      serverName,
+      message: typeof params.message === "string" ? params.message : "",
+      fields: toElicitationFields(params.requestedSchema),
+    };
+
+    try {
+      const response: MCPElicitationResponse = await handler(request);
+      return response.action === "accept"
+        ? { action: "accept", content: response.content }
+        : { action: response.action };
+    } catch (error) {
+      await Effect.runPromise(
+        this.logger.warn(
+          `Elicitation handler failed for ${serverName}: ${error instanceof Error ? error.message : String(error)}`,
+        ),
+      );
+      return { action: "cancel" };
+    }
+  }
+
+  onElicitation(handler: ElicitationHandler): Effect.Effect<() => void, never> {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const manager = this;
+    return Effect.sync(() => {
+      manager.elicitationHandler = handler;
+      return () => {
+        if (manager.elicitationHandler === handler) {
+          manager.elicitationHandler = undefined;
+        }
+      };
+    });
+  }
+
+  getRoots(): Effect.Effect<readonly MCPRoot[], never> {
+    return Effect.sync(() => this.roots);
+  }
+
+  setRoots(roots: readonly MCPRoot[]): Effect.Effect<void, never, LoggerService> {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const manager = this;
+    return Effect.gen(function* () {
+      const unchanged =
+        roots.length === manager.roots.length &&
+        roots.every((root, index) => manager.roots[index]?.uri === root.uri);
+      if (unchanged) return;
+
+      manager.roots = roots;
+
+      // Servers that scoped themselves to the old roots need to hear about it;
+      // ones that never asked simply ignore the notification.
+      for (const connection of manager.connections.values()) {
+        yield* Effect.tryPromise({
+          try: () => connection.client.sendRootsListChanged(),
+          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+        }).pipe(Effect.catchAll(() => Effect.void));
+      }
+
+      yield* manager.logger.debug(`MCP roots updated: ${roots.map((root) => root.uri).join(", ")}`);
+    });
+  }
+
+  getServerResources(
+    serverName: string,
+  ): Effect.Effect<readonly MCPResource[], MCPResourceError, LoggerService> {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const manager = this;
+    return Effect.gen(function* () {
+      const connection = manager.connections.get(serverName);
+      if (!connection) {
+        return yield* Effect.fail(
+          new MCPResourceError({
+            serverName,
+            reason: `MCP server ${serverName} is not connected`,
+            suggestion: `Call connectServer() before listing resources`,
+          }),
+        );
+      }
+
+      if (connection.capabilities?.resources === undefined) {
+        return [];
+      }
+
+      return yield* Effect.tryPromise({
+        try: async () => {
+          const collected: MCPResource[] = [];
+          let cursor: string | undefined;
+
+          for (let page = 0; page < MAX_LIST_PAGES; page += 1) {
+            const result = await connection.client.listResources(
+              cursor === undefined ? {} : { cursor },
+            );
+
+            for (const resource of result.resources) {
+              collected.push({
+                uri: resource.uri,
+                name: resource.name,
+                title: resource.title,
+                description: resource.description,
+                mimeType: resource.mimeType,
+              });
+            }
+
+            cursor = result.nextCursor;
+            if (cursor === undefined) break;
+          }
+
+          return collected;
+        },
+        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+      }).pipe(
+        Effect.mapError(
+          (error: unknown) =>
+            new MCPResourceError({
+              serverName,
+              reason: `Failed to list resources: ${error instanceof Error ? error.message : String(error)}`,
+              cause: error,
+              suggestion: `Check that the MCP server is running and responding correctly`,
+            }),
+        ),
+      );
+    });
+  }
+
+  readResource(
+    serverName: string,
+    uri: string,
+  ): Effect.Effect<readonly MCPResourceContent[], MCPResourceError, LoggerService> {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const manager = this;
+    return Effect.gen(function* () {
+      const connection = manager.connections.get(serverName);
+      if (!connection) {
+        return yield* Effect.fail(
+          new MCPResourceError({
+            serverName,
+            reason: `MCP server ${serverName} is not connected`,
+            suggestion: `Call connectServer() before reading a resource`,
+          }),
+        );
+      }
+
+      const result = yield* Effect.tryPromise({
+        try: () => connection.client.readResource({ uri }),
+        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+      }).pipe(
+        Effect.mapError(
+          (error: unknown) =>
+            new MCPResourceError({
+              serverName,
+              reason: `Failed to read resource "${uri}": ${error instanceof Error ? error.message : String(error)}`,
+              cause: error,
+              suggestion: `Check that the URI is one the server advertises`,
+            }),
+        ),
+      );
+
+      return result.contents.map((content) => ({
+        uri: content.uri,
+        mimeType: content.mimeType,
+        ...("text" in content && typeof content.text === "string" ? { text: content.text } : {}),
+        ...("blob" in content && typeof content.blob === "string" ? { blob: content.blob } : {}),
+      }));
     });
   }
 

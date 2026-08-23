@@ -19,6 +19,9 @@ import { authorizeServer, clearServerAuth, hasStoredAuth } from "@/services/mcp/
 
 type McpServersRecord = Record<string, MCPServerConfig>;
 
+/** How many resource URIs `mcp test` prints before summarising the rest. */
+const RESOURCE_PREVIEW_LIMIT = 10;
+
 /** Services every MCP CLI command needs. */
 type McpCommandDeps = AgentConfigService | TerminalService | FileSystem.FileSystem;
 
@@ -406,8 +409,28 @@ export function testMcpServerCommand(name: string): Effect.Effect<void, never, M
     }
 
     if (capabilities?.resources !== undefined) {
-      yield* terminal.log(fmt.keyValue("Resources", "advertised (not yet used by Jazz)"));
+      const resources = yield* manager.getServerResources(name).pipe(Effect.either);
+      if (resources._tag === "Right") {
+        yield* terminal.log(fmt.keyValue("Resources", String(resources.right.length)));
+        for (const resource of resources.right.slice(0, RESOURCE_PREVIEW_LIMIT)) {
+          yield* terminal.log(
+            fmt.itemWithDesc(resource.uri, resource.name ?? resource.description ?? ""),
+          );
+        }
+        if (resources.right.length > RESOURCE_PREVIEW_LIMIT) {
+          yield* terminal.log(
+            fmt.item(`… ${resources.right.length - RESOURCE_PREVIEW_LIMIT} more`),
+          );
+        }
+      } else {
+        yield* terminal.warn(`Resources unavailable: ${resources.left.reason}`);
+      }
     }
+
+    const roots = yield* manager.getRoots();
+    yield* terminal.log(
+      fmt.keyValue("Roots advertised", roots.map((root) => root.uri).join(", ") || "none"),
+    );
 
     if (config.trusted !== true) {
       yield* terminal.info(

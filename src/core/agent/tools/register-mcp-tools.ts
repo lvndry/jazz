@@ -12,7 +12,7 @@ import { ToolRegistryTag } from "@/core/interfaces/tool-registry";
 import type { MCPTool } from "@/core/types/mcp";
 import { isAuthenticationRequired } from "@/core/utils/mcp";
 import { toPascalCase } from "@/core/utils/string";
-import { registerMCPServerTools, type MCPToolDependencies } from "./mcp-tools";
+import { buildResourceTools, registerMCPServerTools, type MCPToolDependencies } from "./mcp-tools";
 import { mcpToolCategory } from "./tool-categories";
 
 /**
@@ -25,7 +25,11 @@ import { mcpToolCategory } from "./tool-categories";
  */
 const registeredServers = new Map<
   string,
-  { readonly config: MCPServerConfig; toolNames: readonly string[] }
+  {
+    readonly config: MCPServerConfig;
+    readonly hasResources: boolean;
+    toolNames: readonly string[];
+  }
 >();
 
 /** Set once the manager-level `list_changed` subscription is installed. */
@@ -36,6 +40,7 @@ function syncServerTools(
   registry: ToolRegistry,
   serverConfig: MCPServerConfig,
   mcpTools: readonly MCPTool[],
+  hasResources: boolean,
 ): Effect.Effect<readonly string[], never> {
   return Effect.gen(function* () {
     const category = mcpToolCategory(serverConfig.name);
@@ -45,8 +50,16 @@ function syncServerTools(
       Effect.catchAll(() => Effect.succeed([] as readonly Tool<MCPToolDependencies>[])),
     );
 
+    // A server's own tool names win a collision: the resource pair is Jazz's
+    // addition, and shadowing something the server actually advertises would
+    // be worse than going without.
+    const advertised = new Set(jazzTools.map((tool) => tool.name));
+    const resourceTools = hasResources
+      ? buildResourceTools(serverConfig).filter((tool) => !advertised.has(tool.name))
+      : [];
+
     const nextNames: string[] = [];
-    for (const tool of jazzTools) {
+    for (const tool of [...jazzTools, ...resourceTools]) {
       yield* registerTool(tool);
       nextNames.push(tool.name);
     }
@@ -59,7 +72,11 @@ function syncServerTools(
       }
     }
 
-    registeredServers.set(serverConfig.name, { config: serverConfig, toolNames: nextNames });
+    registeredServers.set(serverConfig.name, {
+      config: serverConfig,
+      hasResources,
+      toolNames: nextNames,
+    });
 
     // Only the model-facing half of each approval pair is worth reporting; the
     // hidden `execute_*` twin is an implementation detail.
@@ -88,7 +105,7 @@ function subscribeToToolChanges(): Effect.Effect<
       if (!entry) return;
 
       void Effect.runPromise(
-        syncServerTools(registry, entry.config, tools).pipe(
+        syncServerTools(registry, entry.config, tools, entry.hasResources).pipe(
           Effect.tap((names) =>
             logger.info(
               `MCP server ${serverName} changed its tool list; now ${names.length} tool(s)`,
@@ -259,7 +276,17 @@ export function registerMCPToolsForAgent(
           );
         }
 
-        const registeredToolNames = yield* syncServerTools(registry, serverConfig, mcpTools);
+        // Only worth adding the resource tools when the server actually
+        // advertised the capability; otherwise they would always fail.
+        const capabilities = yield* mcpManager.getCapabilities(serverName);
+        const hasResources = capabilities?.resources !== undefined;
+
+        const registeredToolNames = yield* syncServerTools(
+          registry,
+          serverConfig,
+          mcpTools,
+          hasResources,
+        );
 
         if (registeredToolNames.length > 0) {
           yield* logger.info(

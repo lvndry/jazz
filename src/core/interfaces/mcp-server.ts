@@ -5,12 +5,18 @@ import type {
   MCPConnectionError,
   MCPDisconnectionError,
   MCPPromptError,
+  MCPResourceError,
   MCPToolDiscoveryError,
   MCPToolExecutionError,
 } from "@/core/types/errors";
 import type {
+  MCPElicitationRequest,
+  MCPElicitationResponse,
   MCPPrompt,
   MCPPromptResult,
+  MCPResource,
+  MCPResourceContent,
+  MCPRoot,
   MCPServerCapabilities,
   MCPTool,
   MCPToolResult,
@@ -90,6 +96,16 @@ export function isHttpConfig(config: MCPServerConfig): config is MCPServerConfig
  */
 export type MCPTransport = StdioClientTransport | StreamableHTTPClientTransport;
 
+/**
+ * Asks the user a server's elicitation question.
+ *
+ * Registered only by surfaces that can actually reach a person; where none is
+ * registered the manager declines, which is what an unattended run needs.
+ */
+export type ElicitationHandler = (
+  request: MCPElicitationRequest,
+) => Promise<MCPElicitationResponse>;
+
 /** Called when a server reports its tool list changed. */
 export type ToolsChangedHandler = (serverName: string, tools: readonly MCPTool[]) => void;
 
@@ -161,6 +177,38 @@ export interface MCPServerManager {
    * function. Handlers fire with the re-listed tools already resolved.
    */
   readonly onToolsChanged: (handler: ToolsChangedHandler) => Effect.Effect<() => void, never>;
+
+  /**
+   * List resources a connected server exposes. Servers that do not advertise
+   * the `resources` capability return an empty list rather than error.
+   */
+  readonly getServerResources: (
+    serverName: string,
+  ) => Effect.Effect<readonly MCPResource[], MCPResourceError, LoggerService>;
+
+  /**
+   * Read one resource by URI.
+   */
+  readonly readResource: (
+    serverName: string,
+    uri: string,
+  ) => Effect.Effect<readonly MCPResourceContent[], MCPResourceError, LoggerService>;
+
+  /**
+   * Register the handler that answers servers' elicitation requests. Returns an
+   * unregister function.
+   */
+  readonly onElicitation: (handler: ElicitationHandler) => Effect.Effect<() => void, never>;
+
+  /**
+   * Roots currently advertised to servers via `roots/list`.
+   */
+  readonly getRoots: () => Effect.Effect<readonly MCPRoot[], never>;
+
+  /**
+   * Replace the advertised roots and notify connected servers.
+   */
+  readonly setRoots: (roots: readonly MCPRoot[]) => Effect.Effect<void, never, LoggerService>;
 
   /**
    * Discover tools from an MCP server (connects, discovers, then disconnects)

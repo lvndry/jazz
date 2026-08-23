@@ -106,3 +106,68 @@ export interface MCPJSONSchema {
   readonly $ref?: string;
   readonly const?: unknown;
 }
+
+/** A resource a server exposes by URI, as advertised by `resources/list`. */
+export interface MCPResource {
+  readonly uri: string;
+  readonly name?: string | undefined;
+  readonly title?: string | undefined;
+  readonly description?: string | undefined;
+  readonly mimeType?: string | undefined;
+}
+
+/** One block of a `resources/read` result. */
+export interface MCPResourceContent {
+  readonly uri: string;
+  readonly mimeType?: string | undefined;
+  /** Text body, present for textual resources. */
+  readonly text?: string | undefined;
+  /** Base64 body, present for binary resources. */
+  readonly blob?: string | undefined;
+}
+
+/**
+ * A field an elicitation asks the user to fill.
+ *
+ * Narrowed from the spec's `PrimitiveSchemaDefinition` to what a terminal can
+ * actually render: a line of text, a number, a yes/no, or a choice from a list.
+ */
+export interface MCPElicitationField {
+  readonly name: string;
+  readonly type: "string" | "number" | "integer" | "boolean" | "enum" | "multi-enum";
+  readonly title?: string | undefined;
+  readonly description?: string | undefined;
+  readonly required: boolean;
+  /** Present when `type` is "enum" or "multi-enum". */
+  readonly options?: readonly { readonly value: string; readonly label: string }[] | undefined;
+  readonly default?: string | number | boolean | readonly string[] | undefined;
+}
+
+/** A server's request for structured input from the user. */
+export interface MCPElicitationRequest {
+  readonly serverName: string;
+  readonly message: string;
+  readonly fields: readonly MCPElicitationField[];
+}
+
+/**
+ * The user's answer to an elicitation.
+ *
+ * `decline` means "no, continue without this"; `cancel` means the user
+ * dismissed the request entirely. The spec distinguishes them and servers are
+ * expected to react differently, so Jazz does not collapse the two.
+ */
+export type MCPElicitationResponse =
+  | {
+      readonly action: "accept";
+      readonly content: Record<string, string | number | boolean | readonly string[]>;
+    }
+  | { readonly action: "decline" }
+  | { readonly action: "cancel" };
+
+/** A filesystem root Jazz exposes to servers via `roots/list`. */
+export interface MCPRoot {
+  /** A `file://` URI. */
+  readonly uri: string;
+  readonly name?: string | undefined;
+}
