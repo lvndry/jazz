@@ -104,16 +104,79 @@ function resolveExternals(): string[] {
   return [...EXTERNAL_PACKAGES, ...OPTIONAL_RUNTIME_IMPORTS];
 }
 
+const HELP_PATH_MARKER = "Create and manage autonomous AI agents that execute real-world tasks";
+const APP_LAYER_MARKER = "Force exiting immediately. Some cleanup may be skipped.";
+
+function listDistJsFiles(outdir: string): string[] {
+  return fs
+    .readdirSync(outdir)
+    .filter((name) => name.endsWith(".js"))
+    .sort();
+}
+
+function assertSplitNpmBundle(outdir: string): void {
+  const mainPath = path.join(outdir, "main.js");
+  if (!fs.existsSync(mainPath)) {
+    throw new Error(`Expected ${mainPath} after the npm bundle build.`);
+  }
+
+  const jsFiles = listDistJsFiles(outdir);
+  if (jsFiles.length < 2) {
+    throw new Error(
+      `Code splitting produced only ${jsFiles.length} JS file(s) in ${outdir}. --help would still parse the full bundle.`,
+    );
+  }
+
+  const dtsFiles = [
+    ...new Bun.Glob("**/*.{d.ts,d.ts.map}").scanSync({ cwd: outdir, onlyFiles: true }),
+  ];
+
+  if (dtsFiles.length > 0) {
+    throw new Error(`npm bundle must not emit declaration files, found: ${dtsFiles.join(", ")}`);
+  }
+
+  const mainSource = fs.readFileSync(mainPath, "utf8");
+  if (!mainSource.startsWith("#!/usr/bin/env node")) {
+    throw new Error(`${mainPath} is missing the node shebang.`);
+  }
+
+  const filesWithHelpPath = jsFiles.filter((name) =>
+    fs.readFileSync(path.join(outdir, name), "utf8").includes(HELP_PATH_MARKER),
+  );
+  const filesWithAppLayer = jsFiles.filter((name) =>
+    fs.readFileSync(path.join(outdir, name), "utf8").includes(APP_LAYER_MARKER),
+  );
+
+  if (filesWithHelpPath.length === 0) {
+    throw new Error("Help-path command tree marker was not found in any JS chunk.");
+  }
+  if (filesWithAppLayer.length === 0) {
+    throw new Error("App-layer marker was not found in any JS chunk.");
+  }
+
+  const overlap = filesWithHelpPath.filter((name) => filesWithAppLayer.includes(name));
+  if (overlap.length > 0) {
+    throw new Error(
+      `Help-path and app-layer share chunk(s): ${overlap.join(", ")}. Dynamic import() did not split the agent stack off --help.`,
+    );
+  }
+}
+
 function buildNpmBundle(): void {
   const banner = "#!/usr/bin/env node";
-  const outfile = "dist/main.js";
+  const outdir = "dist";
+  fs.rmSync(outdir, { recursive: true, force: true });
+  fs.mkdirSync(outdir, { recursive: true });
 
   const buildArgs = [
     "bun",
     "build",
     "src/entry.ts",
-    "--outfile",
-    outfile,
+    "--outdir",
+    outdir,
+    "--entry-naming",
+    "main.[ext]",
+    "--splitting",
     "--target",
     "node",
     "--minify",
@@ -132,10 +195,7 @@ function buildNpmBundle(): void {
   if (build.stderr.length > 0) process.stderr.write(build.stderr);
   if (build.exitCode !== 0) throw new Error(`Build failed with exit code ${build.exitCode}`);
 
-  const tsc = run(["bunx", "tsc", "--emitDeclarationOnly", "-p", "tsconfig.app.json"]);
-  if (tsc.stdout.length > 0) process.stdout.write(tsc.stdout);
-  if (tsc.stderr.length > 0) process.stderr.write(tsc.stderr);
-  if (tsc.exitCode !== 0) throw new Error(`TypeScript failed with exit code ${tsc.exitCode}`);
+  assertSplitNpmBundle(outdir);
 }
 
 /**

@@ -13,6 +13,7 @@
     "test-preload.ts",
     "src/**/*.test.ts",
     "src/**/*.test.tsx",
+    "scripts/**/*.test.ts",
     "evals/**/*.test.ts",
     "integrations/**/*.test.ts"
   ],
