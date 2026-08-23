@@ -16,6 +16,46 @@ export const SECTIONS: ReadonlyArray<{ dir: string; label: string }> = [
 
 export type DocsEntry = CollectionEntry<"docs">;
 
+/**
+ * Within a section, these ids come first, in this order — mirroring how
+ * docs/index.md presents each section. Anything unlisted follows
+ * alphabetically.
+ */
+const PINNED_ORDER: Record<string, string[]> = {
+  guide: ["guide/quick-start", "guide/creating-agents", "guide/airgapped", "guide/observability"],
+  surfaces: [
+    "surfaces/headless",
+    "surfaces/chat-platforms",
+    "surfaces/ci-cd",
+    "surfaces/scheduled",
+  ],
+  concepts: [
+    "concepts/agents",
+    "concepts/personas",
+    "concepts/skills",
+    "concepts/tools",
+    "concepts/workflows",
+    "concepts/scheduling",
+  ],
+  reference: [
+    "reference/cli",
+    "reference/configuration",
+    "reference/tools",
+    "reference/workflow-frontmatter",
+  ],
+  internals: [
+    "internals/agent-loop",
+    "internals/context-management",
+    "internals/tools-and-approval",
+    "internals/subagents",
+    "internals/skills-loading",
+    "internals/providers-and-models",
+    "internals/evals",
+    "internals/design-decisions",
+    "internals/code-map",
+  ],
+};
+
 /** "guide/quick-start" → "guide/quick-start"; "guide/index" → "guide"; "index" → "". */
 export function routeSlugFor(id: string): string {
   if (id === "index") return "";
@@ -75,9 +115,14 @@ export function buildSidebar(entries: DocsEntry[]): SidebarSection[] {
     const bucket = bySection.get(dir);
     if (!bucket) continue;
     const indexEntry = bucket.find((entry) => entry.id === `${dir}/index`);
+    const pinned = PINNED_ORDER[dir] ?? [];
+    const rank = (id: string): number => {
+      const position = pinned.indexOf(id);
+      return position === -1 ? pinned.length : position;
+    };
     const rest = bucket
       .filter((entry) => entry.id !== `${dir}/index`)
-      .sort((a, b) => a.id.localeCompare(b.id));
+      .sort((a, b) => rank(a.id) - rank(b.id) || a.id.localeCompare(b.id));
     sections.push({
       label,
       route: indexEntry ? routeFor(indexEntry.id) : undefined,
