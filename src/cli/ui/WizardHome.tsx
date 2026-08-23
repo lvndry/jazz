@@ -137,6 +137,7 @@ export function WizardHome({
 
         <SelectInput
           items={items}
+          limit={10}
           onSelect={(item) => onSelect(item.value)}
           indicatorComponent={IndicatorComponent}
           itemComponent={ItemComponent}
