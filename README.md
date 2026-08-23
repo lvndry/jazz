@@ -42,14 +42,27 @@ Jazz walks you through provider setup on first run. It can cost nothing:
 [OpenRouter](https://openrouter.ai)'s [free models router](https://openrouter.ai/openrouter/free)
 needs no credit card, and `ollama` runs entirely on your own hardware.
 
-Then ask it for what you want:
+Then ask it for what you want. These work the moment the wizard finishes — no extra keys,
+no extra installs:
 
 ```text
-> check my unread email, summarize what matters, archive the rest
-> deep-research the Three-Body Problem and write it into my Obsidian vault
-> every morning at 7, tell me the weather and what to wear
 > review the last 5 commits and flag anything risky
+> build me a packing-list web app for a week of hiking
+> fetch https://en.wikipedia.org/wiki/Three-Body_Problem and give me the short version
 ```
+
+Every run ends with what it cost — real numbers from your own key, like
+`$0.0021`, on every answer.
+
+With a minute of setup each, Jazz also does the bigger jobs:
+
+```text
+> check my unread email, summarize what matters, archive the rest   # after `himalaya` is configured
+> deep-research quantum error correction into my Obsidian vault     # after a web-search key is set
+> every morning at 7, tell me the weather and what to wear          # as a scheduled workflow
+```
+
+The [Cookbook](docs/cookbook/index.md) walks through each one.
 
 ## Where it runs
 
