@@ -315,6 +315,18 @@ describe("live zone", () => {
     expect(cleared).toHaveLength(0);
   });
 
+  it("shows the reasoning clock on the waiting row while a reasoning region is open", () => {
+    const model = live({
+      waiting: "thinking it through",
+      elapsedMs: 45_000,
+      reasoningElapsedMs: 7_000,
+    });
+    const [row] = liveRows(model, { width: WIDTH, height: HEIGHT });
+    const text = row?.segments.map((segment) => segment.text).join("") ?? "";
+    expect(text).toContain("7s");
+    expect(text).not.toContain("45s");
+  });
+
   it("paints the live indicator in the accent, not in whatever the terminal defaults to", async () => {
     const { renderer, renderOnce, captureSpans } = await testRender(
       <LiveZone

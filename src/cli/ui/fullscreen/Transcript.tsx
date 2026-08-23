@@ -51,7 +51,7 @@ import {
   sourceLanguageFromPath,
 } from "./syntax-spans";
 import { getGlyphs, type GlyphSet } from "../glyphs";
-import { THEME } from "../theme";
+import { getThemeVariant, THEME } from "../theme";
 import {
   fitTerminalSegments,
   sliceTerminalCells,
@@ -782,7 +782,9 @@ let lastTranscriptEpoch: string | undefined;
 let lastTranscriptRows: RenderRow[] | undefined;
 
 function wrapEpoch(width: number, glyphs: GlyphSet): string {
-  return `${String(width)}\0${glyphs.rail}\0${glyphs.divider}\0${glyphs.bullet}\0${glyphs.diamond}`;
+  // Cached rows bake THEME colors at wrap time, so a variant switch must
+  // invalidate them the same way a resize does.
+  return `${String(width)}\0${getThemeVariant()}\0${glyphs.rail}\0${glyphs.divider}\0${glyphs.bullet}\0${glyphs.diamond}`;
 }
 
 function blockFingerprint(block: Block): string {
