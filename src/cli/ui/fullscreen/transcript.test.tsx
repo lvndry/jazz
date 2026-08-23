@@ -465,6 +465,31 @@ describe("tool receipts", () => {
     expect(colorOf(spans, "could not read")).toBe(THEME.error.toUpperCase());
   });
 
+  it("wraps a long failure reason instead of cropping it", async () => {
+    const reason =
+      "Command blocked by the built-in safety denylist: running inline code via an interpreter flag (-c/-e) is on the blocked list; write the code to a temp file and run that instead.";
+    const blocks: readonly Block[] = [
+      {
+        id: "t",
+        seq: 1,
+        kind: "tool",
+        app: "execute_command",
+        args: `command: "python3 -c \\"import reportlab; print(reportlab.__version__)\\""`,
+        summary: `execute_command: ${reason.slice(0, 80)}…`,
+        status: "failed",
+        reason,
+      },
+    ];
+    const text = transcriptRows(blocks, NARROW)
+      .map((row) => row.content.map((segment) => segment.text).join(""))
+      .join("\n");
+
+    expect(text).toContain("write the code to a temp file");
+    expect(text).toContain("interpreter flag");
+    expect(text).not.toContain("running inline code v…");
+    expect(text.split("\n").length).toBeGreaterThan(1);
+  });
+
   it("collapses reasoning to one dim line of steps, duration and the key", async () => {
     const { rows, spans } = await render(transcript(SESSION, WIDE), WIDE);
     const row = rows.find((line) => line.includes("thought")) ?? "";
@@ -491,6 +516,25 @@ describe("tool receipts", () => {
     const row = rows.find((line) => line.includes("view_memory")) ?? "";
     expect(row).toContain("path: /");
     expect(row).toContain("/notes.txt");
+  });
+
+  it("states the classifier verdict on a settled command receipt", async () => {
+    const blocks: readonly Block[] = [
+      {
+        id: "t",
+        seq: 1,
+        kind: "tool",
+        app: "execute_command",
+        args: 'command: "python3 --version"',
+        summary: "Python 3.14.5",
+        status: "ok",
+        classifiedRisk: "read-only",
+      },
+    ];
+    const { rows } = await render(transcript(blocks, WIDE), WIDE);
+    const row = rows.find((line) => line.includes("python3 --version")) ?? "";
+    expect(row).toContain("Python 3.14.5");
+    expect(row).toContain("read-only");
   });
 });
 
@@ -849,7 +893,30 @@ describe("inline emphasis", () => {
     const content = rows
       .filter((row) => row.key.includes(":detail:"))
       .flatMap((row) => row.content);
-    expect(content.find((segment) => segment.text === "-old line")?.fg).toBe(THEME.error);
-    expect(content.find((segment) => segment.text === "+new line")?.fg).toBe(THEME.success);
+    expect(content.find((segment) => segment.text === "-")?.fg).toBe(THEME.error);
+    expect(content.find((segment) => segment.text === "+")?.fg).toBe(THEME.success);
+  });
+
+  it("paints expanded write/edit bodies with the syntax roles", () => {
+    const rows = transcriptRows(
+      [
+        {
+          id: "t",
+          seq: 1,
+          kind: "tool",
+          app: "",
+          summary: "",
+          status: "ok",
+          expanded: true,
+          detail: 'def main():\n    return "jazz"',
+        },
+      ],
+      WIDE,
+    );
+    const content = rows
+      .filter((row) => row.key.includes(":detail:"))
+      .flatMap((row) => row.content);
+    expect(content.find((segment) => segment.text === "def")?.fg).toBe(THEME.syntaxStructure);
+    expect(content.find((segment) => segment.text.includes("jazz"))?.fg).toBe(THEME.syntaxValue);
   });
 });

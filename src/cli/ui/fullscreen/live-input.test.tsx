@@ -161,6 +161,23 @@ describe("live zone", () => {
     expect(content[0]?.trimEnd().endsWith("4s")).toBe(true);
   });
 
+  it("colours a write_file body when the path is source", () => {
+    const model = live({
+      tools: [
+        {
+          app: "write",
+          operation: "file file: src/app.py  def main():",
+          elapsedMs: 1000,
+          phase: 0,
+          language: "py",
+        },
+      ],
+    });
+    const [row] = liveRows(model, { width: WIDTH, height: HEIGHT });
+    const defSpan = row?.segments.find((segment) => segment.text === "def");
+    expect(defSpan?.fg).toBe(THEME.syntaxStructure);
+  });
+
   it("collapses past the cap into a +n more row that names the hidden tools", async () => {
     const model = live({
       tools: [

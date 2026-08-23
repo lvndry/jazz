@@ -91,6 +91,8 @@ export interface ToolReceiptBlock extends BlockBase {
   readonly durationMs?: number;
   readonly detail?: string;
   readonly expanded?: boolean;
+  /** Command-risk classifier verdict, when this call went through it. */
+  readonly classifiedRisk?: string;
 }
 
 export interface NoticeBlock extends BlockBase {
@@ -154,6 +156,8 @@ export interface LiveTool {
   readonly elapsedMs: number;
   /** Phase offset so lanes do not animate in lockstep. */
   readonly phase: number;
+  /** When set, the operation is source and takes the three syntax roles. */
+  readonly language?: string;
 }
 
 export interface StepLine {

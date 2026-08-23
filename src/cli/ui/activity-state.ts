@@ -12,6 +12,10 @@ export interface ActiveTool {
   /** Compact argument preview for the live zone and the settled receipt. */
   argsPreview?: string;
   todoSnapshot?: TodoSnapshotItem[];
+  /** True while the command-risk classifier is in flight. */
+  classifying?: boolean;
+  /** Classifier verdict, once known. */
+  classifiedRisk?: string;
 }
 
 export interface TodoSnapshotItem {
@@ -93,7 +97,9 @@ export function isActivityEqual(a: ActivityState, b: ActivityState): boolean {
         (t, i) =>
           t.toolCallId === bTools[i]!.toolCallId &&
           t.toolName === bTools[i]!.toolName &&
-          t.argsPreview === bTools[i]!.argsPreview,
+          t.argsPreview === bTools[i]!.argsPreview &&
+          t.classifying === bTools[i]!.classifying &&
+          t.classifiedRisk === bTools[i]!.classifiedRisk,
       );
       if (!sameTools) return false;
 

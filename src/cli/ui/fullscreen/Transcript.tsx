@@ -35,7 +35,13 @@
 
 import { TextAttributes } from "@opentui/core";
 import { forwardRef, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from "react";
-import { highlightFenceLines, looksLikeUnifiedDiff } from "./syntax-spans";
+import { isFileMutationTool } from "@/core/utils/tool-formatter";
+import {
+  highlightCodeLine,
+  highlightFenceLines,
+  pathFromFileArgsPreview,
+  sourceLanguageFromPath,
+} from "./syntax-spans";
 import { getGlyphs, type GlyphSet } from "../glyphs";
 import { THEME } from "../theme";
 import {
@@ -886,32 +892,67 @@ function reasoningRows(
   );
 }
 
+/**
+ * True when `summary` is the same text as `reason`, possibly clipped with an
+ * ellipsis. Production used to put `tool: error` in both fields, which then
+ * ate the row twice and still cropped the actual sentence.
+ */
+function summaryRestatesReason(summary: string, reason: string): boolean {
+  const stripped = summary.replace(/…$/u, "").trim();
+  if (stripped.length === 0) return false;
+  if (stripped === reason) return true;
+  const head = reason.slice(0, Math.min(48, reason.length));
+  return head.length > 0 && stripped.includes(head);
+}
+
+function highlightedArgs(args: string, fallbackFg: string, app: string): Segment[] {
+  const path = pathFromFileArgsPreview(args);
+  const language = path === undefined ? undefined : sourceLanguageFromPath(path);
+  if (language === undefined && !isFileMutationTool(app)) {
+    return [{ text: `  ${args}`, fg: fallbackFg }];
+  }
+  return [{ text: "  ", fg: fallbackFg }, ...highlightCodeLine(args)];
+}
+
 /** A settled receipt: what it did and what came back, and nothing else. */
 function receiptSegments(block: ToolReceiptBlock, glyphs: GlyphSet): Segment[] {
   const args = block.args?.trim();
+  const summary = block.summary.trim();
   if (block.status === "ok") {
-    const segments: Segment[] = [{ text: block.app, fg: THEME.muted }];
-    if (args !== undefined && args.length > 0) {
-      segments.push({ text: `  ${args}`, fg: THEME.secondary });
+    const segments: Segment[] = [];
+    if (block.app.length > 0) {
+      segments.push({ text: block.app, fg: THEME.muted });
     }
-    if (block.summary.length > 0) {
-      segments.push({ text: `  ${block.summary}`, fg: THEME.muted });
+    if (args !== undefined && args.length > 0) {
+      segments.push(...highlightedArgs(args, THEME.secondary, block.app));
+    }
+    if (summary.length > 0) {
+      segments.push({ text: `  ${summary}`, fg: THEME.muted });
+    }
+    if (block.classifiedRisk !== undefined) {
+      segments.push({ text: ` ${glyphs.bullet} ${block.classifiedRisk}`, fg: THEME.muted });
     }
     return segments;
   }
-  // Failure is the one exception that keeps a colour, and it carries the reason
-  // and the way out on the same row.
+  // Failure keeps a colour and states the reason inline. A short reason stays
+  // on the same row as the app; a long one wraps rather than cropping.
   const tone = block.status === "denied" ? THEME.warning : THEME.error;
+  const reason = block.reason?.trim();
   const segments: Segment[] = [{ text: block.app, fg: tone }];
   if (args !== undefined && args.length > 0) {
     segments.push({ text: `  ${args}`, fg: tone });
   }
-  segments.push({ text: `  ${block.summary}`, fg: tone });
-  if (block.reason !== undefined) {
-    segments.push({ text: ` ${glyphs.bullet} ${block.reason}`, fg: THEME.secondary });
+  if (summary.length > 0 && (reason === undefined || !summaryRestatesReason(summary, reason))) {
+    segments.push({ text: `  ${summary}`, fg: tone });
+  }
+  if (reason !== undefined && reason.length > 0) {
+    segments.push({ text: ` ${glyphs.bullet} ${reason}`, fg: THEME.secondary });
   }
   if (block.remedyKey !== undefined) {
     segments.push({ text: ` ${glyphs.bullet} ${block.remedyKey}`, fg: THEME.muted });
+  }
+  if (block.classifiedRisk !== undefined) {
+    segments.push({ text: ` ${glyphs.bullet} ${block.classifiedRisk}`, fg: THEME.muted });
   }
   return segments;
 }
@@ -960,19 +1001,22 @@ function receiptRows(
         block.expanded === true && block.durationMs !== undefined && geometry.metadata > 0
           ? [{ text: formatDuration(block.durationMs), fg: THEME.muted }]
           : [];
-      rows.push({
-        key: `${block.id}:0`,
-        gutter: [block.status === "ok" ? rail : marker, BLANK_CELL],
-        content: fitTerminalSegments(segments, geometry.prose),
-        contentWidth: geometry.prose,
-        meta,
-      });
+      if (segments.some((segment) => segment.text.trim().length > 0)) {
+        const lines = wrap(segments, geometry.prose);
+        lines.forEach((line, lineIndex) => {
+          rows.push({
+            key: `${block.id}:${String(lineIndex)}`,
+            gutter: [lineIndex === 0 && block.status !== "ok" ? marker : rail, BLANK_CELL],
+            content: line,
+            contentWidth: geometry.prose,
+            meta: lineIndex === 0 ? meta : [],
+          });
+        });
+      }
       // Expanded output is scanned, so it takes the full content width.
       if (block.expanded === true && block.detail !== undefined) {
         const detailLines = block.detail.split("\n");
-        const painted = looksLikeUnifiedDiff("", detailLines)
-          ? highlightFenceLines("", detailLines)
-          : detailLines.map((line) => [{ text: line, fg: THEME.muted }]);
+        const painted = highlightFenceLines("", detailLines);
         painted.forEach((spans, index) => {
           rows.push({
             key: `${block.id}:detail:${String(index)}`,

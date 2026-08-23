@@ -1,10 +1,12 @@
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { Effect } from "effect";
 import React from "react";
-import { InkStreamingRenderer } from "./ink-presentation-service";
+import { InkPresentationService, InkStreamingRenderer } from "./ink-presentation-service";
+import { DEFAULT_DISPLAY_CONFIG } from "../../core/agent/types";
+import type { ChatCompletionResponse } from "../../core/types/chat";
 import type { ActivityState } from "../ui/activity-state";
 import { store } from "../ui/store";
-import type { OutputEntry } from "../ui/types";
+import type { OutputEntry, PromptState } from "../ui/types";
 
 /** Recursively extract the text content of a React element tree. */
 function extractNodeText(node: unknown): string {
@@ -13,6 +15,10 @@ function extractNodeText(node: unknown): string {
   const children = (node.props as { children?: unknown }).children;
   if (Array.isArray(children)) return children.map(extractNodeText).join("");
   return extractNodeText(children);
+}
+
+function completeResponse(content: string): ChatCompletionResponse {
+  return { id: "test", model: "test", content, toolCalls: [] };
 }
 
 // Large-base-text size for the seenLength regression test below. The exact
@@ -415,7 +421,7 @@ describe("InkStreamingRenderer", () => {
         0,
       );
       emitStreamStart(renderer);
-      Effect.runSync(renderer.handleEvent({ type: "thinking_start" }));
+      Effect.runSync(renderer.handleEvent({ type: "thinking_start", provider: "test" }));
       const headerEntries = printOutputCalls.filter(
         (e) =>
           e.type === "streamContent" &&
@@ -457,7 +463,7 @@ describe("InkStreamingRenderer", () => {
         Effect.runSync(renderer.handleEvent({ type: "thinking_complete" }));
         await new Promise((r) => setTimeout(r, 0));
 
-        expect(openedKind).toBe("reasoning");
+        expect(openedKind ?? "").toBe("reasoning");
         expect(ephemeralAppends.join("")).toContain("let me think");
         expect(collapsedFullText).toContain("let me think");
       } finally {
@@ -608,7 +614,7 @@ describe("InkStreamingRenderer", () => {
       Effect.runSync(
         renderer.handleEvent({
           type: "complete",
-          response: { content: "Hello world", role: "assistant", usage: undefined, toolCalls: [] },
+          response: completeResponse("Hello world"),
           totalDurationMs: 100,
         }),
       );
@@ -638,7 +644,7 @@ describe("InkStreamingRenderer", () => {
       Effect.runSync(
         renderer.handleEvent({
           type: "complete",
-          response: { content: "response", role: "assistant", usage: undefined, toolCalls: [] },
+          response: completeResponse("response"),
           totalDurationMs: 50,
         }),
       );
@@ -716,12 +722,7 @@ describe("InkStreamingRenderer", () => {
       Effect.runSync(
         renderer.handleEvent({
           type: "complete",
-          response: {
-            content: "Non-streamed answer",
-            role: "assistant",
-            usage: undefined,
-            toolCalls: [],
-          },
+          response: completeResponse("Non-streamed answer"),
           totalDurationMs: 50,
         }),
       );
@@ -748,7 +749,7 @@ describe("InkStreamingRenderer", () => {
       Effect.runSync(
         renderer.handleEvent({
           type: "complete",
-          response: { content: "", role: "assistant", usage: undefined, toolCalls: [] },
+          response: completeResponse(""),
           totalDurationMs: 50,
         }),
       );
@@ -787,12 +788,7 @@ describe("InkStreamingRenderer", () => {
         Effect.runSync(
           renderer.handleEvent({
             type: "complete",
-            response: {
-              content: "Hello world\n",
-              role: "assistant",
-              usage: undefined,
-              toolCalls: [],
-            },
+            response: completeResponse("Hello world\n"),
             totalDurationMs: 50,
           }),
         );
@@ -877,8 +873,10 @@ describe("InkStreamingRenderer", () => {
       try {
         const renderer = createRenderer();
         emitStreamStart(renderer);
-        Effect.runSync(renderer.handleEvent({ type: "thinking_start" }));
-        Effect.runSync(renderer.handleEvent({ type: "thinking_chunk", content: "think " }));
+        Effect.runSync(renderer.handleEvent({ type: "thinking_start", provider: "test" }));
+        Effect.runSync(
+          renderer.handleEvent({ type: "thinking_chunk", content: "think ", sequence: 0 }),
+        );
         Effect.runSync(renderer.handleEvent({ type: "thinking_complete" }));
         Effect.runSync(renderer.handleEvent({ type: "text_start" }));
         Effect.runSync(
@@ -1099,7 +1097,7 @@ describe("InkStreamingRenderer", () => {
       Effect.runSync(
         renderer.handleEvent({
           type: "complete",
-          response: { content: longLine, role: "assistant", usage: undefined, toolCalls: [] },
+          response: completeResponse(longLine),
           totalDurationMs: 50,
         }),
       );
@@ -1173,7 +1171,7 @@ describe("InkStreamingRenderer", () => {
         Effect.runSync(
           renderer.handleEvent({
             type: "complete",
-            response: { content: "done ", role: "assistant", usage: undefined, toolCalls: [] },
+            response: completeResponse("done "),
             totalDurationMs: 100,
           }),
         );
@@ -1275,12 +1273,7 @@ describe("InkStreamingRenderer", () => {
       Effect.runSync(
         renderer.handleEvent({
           type: "complete",
-          response: {
-            content: "Fallback response",
-            role: "assistant",
-            usage: undefined,
-            toolCalls: [],
-          },
+          response: completeResponse("Fallback response"),
           totalDurationMs: 100,
         }),
       );
@@ -1293,5 +1286,85 @@ describe("InkStreamingRenderer", () => {
           : "";
       expect(msg).toContain("Fallback response");
     });
+  });
+});
+
+async function waitForPromptType(type: PromptState["type"]): Promise<PromptState> {
+  const started = Date.now();
+  while (Date.now() - started < 1000) {
+    const prompt = store.getPromptSnapshot();
+    if (prompt?.type === type) return prompt;
+    await Bun.sleep(5);
+  }
+  throw new Error(
+    `Timed out waiting for ${type} prompt, have ${store.getPromptSnapshot()?.type ?? "null"}`,
+  );
+}
+
+function entryText(entry: OutputEntry): string {
+  return typeof entry.message === "string" ? entry.message : "";
+}
+
+describe("InkPresentationService approval rejection", () => {
+  const printed: OutputEntry[] = [];
+  let originalPrintOutput: (typeof store)["printOutput"];
+
+  beforeEach(() => {
+    printed.length = 0;
+    originalPrintOutput = store.printOutput;
+    store.printOutput = (entry: OutputEntry) => {
+      printed.push(entry);
+      return originalPrintOutput(entry);
+    };
+    store.setPrompt(null);
+    store.setApprovalRequest(null);
+  });
+
+  afterEach(() => {
+    store.printOutput = originalPrintOutput;
+    store.setPrompt(null);
+    store.setApprovalRequest(null);
+  });
+
+  function requestEditApproval() {
+    const service = new InkPresentationService(DEFAULT_DISPLAY_CONFIG, null);
+    return Effect.runPromise(
+      service.requestApproval({
+        toolCallId: "call-1",
+        toolName: "edit_file",
+        message: "Will rewrite src/foo.ts",
+        executeToolName: "execute_edit_file",
+        executeArgs: { path: "src/foo.ts" },
+      }),
+    );
+  }
+
+  test("echoes what the user would rather do as a user turn", async () => {
+    const pending = requestEditApproval();
+    const approvalPrompt = await waitForPromptType("select");
+    approvalPrompt.resolve("no");
+
+    const followUp = await waitForPromptType("text");
+    followUp.resolve("just add a comment");
+
+    const outcome = await pending;
+    expect(outcome).toEqual({ approved: false, userMessage: "just add a comment" });
+
+    const userTurns = printed.filter((entry) => entry.type === "user");
+    expect(userTurns).toHaveLength(1);
+    expect(entryText(userTurns[0]!)).toBe("just add a comment");
+  });
+
+  test("does not echo a user turn when the follow-up is skipped", async () => {
+    const pending = requestEditApproval();
+    const approvalPrompt = await waitForPromptType("select");
+    approvalPrompt.resolve("no");
+
+    const followUp = await waitForPromptType("text");
+    followUp.resolve("   ");
+
+    const outcome = await pending;
+    expect(outcome).toEqual({ approved: false });
+    expect(printed.filter((entry) => entry.type === "user")).toHaveLength(0);
   });
 });

@@ -34,6 +34,7 @@
  */
 
 import type { ReactNode } from "react";
+import { highlightCodeLine } from "./syntax-spans";
 import { getGlyphs, laneFrame, type GlyphSet } from "../glyphs";
 import { THEME } from "../theme";
 import { fitTerminalSegments, terminalSegmentsWidth } from "./terminal-cells";
@@ -114,6 +115,10 @@ function toolRow(tool: LiveTool, tick: number, glyphs: GlyphSet, width: number):
   const frames = glyphs.spinnerFrames;
   const index = (((tick + tool.phase) % frames.length) + frames.length) % frames.length;
   const cell = frames[index] ?? glyphs.active;
+  const operationSpans =
+    tool.language === undefined
+      ? [{ text: tool.operation, fg: THEME.selected }]
+      : highlightCodeLine(tool.operation);
   return alignRow(
     `tool:${tool.app}:${tool.operation}`,
     [
@@ -122,7 +127,7 @@ function toolRow(tool: LiveTool, tick: number, glyphs: GlyphSet, width: number):
       { text: " ", fg: THEME.muted },
       { text: tool.app, fg: THEME.secondary },
       separator(glyphs),
-      { text: tool.operation, fg: THEME.selected },
+      ...operationSpans,
     ],
     [{ text: formatElapsed(tool.elapsedMs), fg: THEME.muted }],
     width,

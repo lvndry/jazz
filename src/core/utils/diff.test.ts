@@ -67,5 +67,12 @@ describe("diff", () => {
       expect(result).toContain("a/myfile.ts");
       expect(result).toContain("b/myfile.ts");
     });
+
+    it("emits a real patch for a new file when fullPatch is set", () => {
+      const result = generateDiff("", "line one\nline two", "/path/to/new.py", { fullPatch: true });
+      expect(result).toContain("+line one");
+      expect(result).toContain("+line two");
+      expect(result).not.toContain("Created file");
+    });
   });
 });

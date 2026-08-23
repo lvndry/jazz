@@ -10,9 +10,9 @@ import { getModelsDevMetadataSync } from "@/core/utils/models-dev";
 import {
   formatToolArguments as formatToolArgumentsShared,
   formatToolDisplayName as formatToolDisplayNameShared,
-  formatToolResult as formatToolResultShared,
 } from "@/core/utils/tool-formatter";
 import { computeUsageCostUSD } from "@/core/utils/usage-cost";
+import { formatToolResult as formatToolResultShared } from "./format-utils";
 import { formatMarkdown, formatMarkdownHybrid } from "./markdown-formatter";
 import { createTheme, detectColorProfile } from "./output-theme";
 import type { OutputWriter } from "./output-writer";

@@ -22,6 +22,7 @@ import {
   type ToolCall,
   type ToolExecutionContext,
   type ToolExecutionResult,
+  type ToolRiskLevel,
 } from "@/core/types/tools";
 import { extractCommandApprovalKey } from "@/core/utils/shell";
 import { formatToolArguments } from "@/core/utils/tool-formatter";
@@ -208,6 +209,7 @@ export class ToolExecutor {
         let result = yield* ToolExecutor.executeTool(name, args, context, toolMeta?.timeoutMs);
         let toolDuration = Date.now() - toolStartTime;
         let finalToolName = name;
+        let classifiedRisk: ToolRiskLevel | undefined;
 
         // Check if this result requires approval (Cursor/Claude-style approval flow)
         // If so, we intercept here, show approval UI (or auto-approve), and execute the follow-up tool
@@ -232,22 +234,36 @@ export class ToolExecutor {
           // asking"; where there is no prompt to skip it has to mean nothing.
           const canPrompt = presentationService.canPromptForApproval?.() === true;
 
+          const commandArg = approvalResult.executeArgs["command"];
+          const command = typeof commandArg === "string" ? commandArg : undefined;
+
           if (
             shouldClassifyExecuteCommand(riskLevel, autoApprovePolicy, allowlisted, canPrompt) &&
-            context.parentAgent
+            context.parentAgent &&
+            command !== undefined
           ) {
-            const command = approvalResult.executeArgs["command"];
-            if (typeof command === "string") {
-              riskLevel = yield* classifyCommandRisk(
-                command,
-                context.parentAgent,
-                // Conversation context is only evidence when the person the
-                // approval protects is the one who wrote it. On a bridge those
-                // turns come from whoever is messaging the bot, so the command
-                // has to stand on its own.
-                canPrompt ? context.conversationMessages : undefined,
-              );
+            if (displayConfig.showToolExecution) {
+              if (renderer) {
+                yield* renderer.handleEvent({
+                  type: "command_risk_classifying",
+                  toolCallId: toolCall.id,
+                  toolName: name,
+                  command,
+                });
+              } else {
+                yield* presentationService.writeOutput(`Classifying ${name}…\n`);
+              }
             }
+            classifiedRisk = yield* classifyCommandRisk(
+              command,
+              context.parentAgent,
+              // Conversation context is only evidence when the person the
+              // approval protects is the one who wrote it. On a bridge those
+              // turns come from whoever is messaging the bot, so the command
+              // has to stand on its own.
+              canPrompt ? context.conversationMessages : undefined,
+            );
+            riskLevel = classifiedRisk;
           }
 
           // Check if auto-approve policy allows this tool, per-tool session allowlist,
@@ -258,6 +274,24 @@ export class ToolExecutor {
             isCommandAutoApproved(name, approvalResult.executeArgs, context.autoApprovedCommands);
 
           const isAutoApproved = checkAutoApproved();
+
+          if (classifiedRisk !== undefined && displayConfig.showToolExecution) {
+            if (renderer) {
+              yield* renderer.handleEvent({
+                type: "command_risk_classified",
+                toolCallId: toolCall.id,
+                toolName: name,
+                command: command ?? "",
+                riskLevel: classifiedRisk,
+                autoApproved: isAutoApproved,
+              });
+            } else {
+              const outcome = isAutoApproved ? " · auto-approved" : "";
+              yield* presentationService.writeOutput(
+                `${name} classified as ${classifiedRisk}${outcome}\n`,
+              );
+            }
+          }
 
           if (renderer) {
             yield* renderer.handleEvent({
@@ -428,6 +462,7 @@ export class ToolExecutor {
               durationMs: toolDuration,
               success: result.success,
               ...(result.success ? {} : { error: result.error ?? "Tool execution failed" }),
+              ...(classifiedRisk !== undefined ? { classifiedRisk } : {}),
             });
           } else {
             if (result.success) {

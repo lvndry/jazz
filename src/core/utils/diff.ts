@@ -11,6 +11,8 @@ export interface DiffOptions {
   isNewFile?: boolean;
   /** Context lines around changes (default: 3) */
   contextLines?: number;
+  /** Emit a real +patch for a new file instead of the one-line creation summary. */
+  fullPatch?: boolean;
 }
 
 /**
@@ -39,10 +41,10 @@ export function generateDiffWithMetadata(
   filepath: string,
   options: DiffOptions = {},
 ): { diff: string; wasTruncated: boolean } {
-  const { maxLines = 20, isNewFile = false, contextLines = 3 } = options;
+  const { maxLines = 20, isNewFile = false, contextLines = 3, fullPatch = false } = options;
 
   // For new files, just show a creation summary - not the full content
-  if (isNewFile || originalContent === "") {
+  if ((isNewFile || originalContent === "") && fullPatch !== true) {
     const lineCount = newContent.split("\n").length;
     return {
       diff: chalk.green(`+ Created file: ${filepath} (${lineCount} lines)`),

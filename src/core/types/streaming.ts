@@ -90,12 +90,31 @@ export type StreamEvent =
       success?: boolean;
       /** Human-readable failure reason; set when success is false. */
       error?: string;
+      /**
+       * Set when `execute_command` ran the risk classifier. The token is the
+       * verdict that decided whether this call was auto-approved.
+       */
+      classifiedRisk?: string;
     }
 
   // Usage updates (optional, for real-time token tracking)
   | { type: "usage_update"; usage: TokenUsage }
 
   // Tool approval flow (headless consumers can surface gated/declined tools)
+  | {
+      type: "command_risk_classifying";
+      toolCallId: string;
+      toolName: string;
+      command: string;
+    }
+  | {
+      type: "command_risk_classified";
+      toolCallId: string;
+      toolName: string;
+      command: string;
+      riskLevel: string;
+      autoApproved: boolean;
+    }
   | {
       type: "approval_required";
       toolCallId: string;

@@ -228,6 +228,8 @@ const STRIPPERS: Readonly<Record<string, StripFn>> = {
   read_file: stripReadFile,
   edit_file: stripEditFile,
   execute_edit_file: stripEditFile,
+  write_file: stripEditFile,
+  execute_write_file: stripEditFile,
   read_pdf: stripReadPdf,
   execute_command: stripExecuteCommand,
   execute_execute_command: stripExecuteCommand,
