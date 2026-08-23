@@ -1,11 +1,9 @@
-import { pathToFileURL } from "node:url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import {
   ElicitRequestSchema,
-  ListRootsRequestSchema,
   PromptListChangedNotificationSchema,
   ToolListChangedNotificationSchema,
 } from "@modelcontextprotocol/sdk/types.js";
@@ -39,7 +37,6 @@ import type {
   MCPPromptResult,
   MCPResource,
   MCPResourceContent,
-  MCPRoot,
   MCPServerCapabilities,
   MCPTool,
   MCPToolResult,
@@ -85,11 +82,6 @@ class MCPServerManagerImpl implements MCPServerManager {
   private toolsChangedHandlers: Set<ToolsChangedHandler>;
   private logger: LoggerService;
   /**
-   * Roots advertised to servers. Defaults to the launch directory, which is
-   * the same thing a server would otherwise have to be told at spawn time.
-   */
-  private roots: readonly MCPRoot[];
-  /**
    * Set by whichever surface can actually put a question to a person. Left
    * unset on bridges and scheduled runs, where the correct answer to an
    * elicitation is to decline rather than to block forever.
@@ -100,7 +92,6 @@ class MCPServerManagerImpl implements MCPServerManager {
     this.connections = new Map();
     this.toolsChangedHandlers = new Set();
     this.logger = logger;
-    this.roots = [{ uri: pathToFileURL(process.cwd()).href, name: "workspace" }];
     this.elicitationHandler = undefined;
   }
 
@@ -181,24 +172,15 @@ class MCPServerManagerImpl implements MCPServerManager {
 
       const client = new Client(
         { name: "jazz", version: packageJson.version },
-        // Only declare what we actually answer below. `elicitation` is
-        // advertised unconditionally even though a given surface may have no
-        // way to ask a person: the capability says Jazz speaks the request,
-        // and declining is a valid answer to it.
-        {
-          capabilities: {
-            roots: { listChanged: true },
-            elicitation: {},
-          },
-        },
+        // `elicitation` is advertised unconditionally even though a given
+        // surface may have no way to ask a person: the capability says Jazz
+        // speaks the request, and declining is a valid answer to it.
+        // Roots is deliberately not declared: the 2026-07-28 spec deprecates it
+        // (SEP-2577) and removes notifications/roots/list_changed, with the
+        // migration being to pass directories as tool parameters or server
+        // config instead.
+        { capabilities: { elicitation: {} } },
       );
-
-      client.setRequestHandler(ListRootsRequestSchema, () => ({
-        roots: manager.roots.map((root) => ({
-          uri: root.uri,
-          ...(root.name !== undefined ? { name: root.name } : {}),
-        })),
-      }));
 
       client.setRequestHandler(ElicitRequestSchema, (request) =>
         manager.handleElicitation(config.name, request.params),
@@ -650,34 +632,6 @@ class MCPServerManagerImpl implements MCPServerManager {
           manager.elicitationHandler = undefined;
         }
       };
-    });
-  }
-
-  getRoots(): Effect.Effect<readonly MCPRoot[], never> {
-    return Effect.sync(() => this.roots);
-  }
-
-  setRoots(roots: readonly MCPRoot[]): Effect.Effect<void, never, LoggerService> {
-    // eslint-disable-next-line @typescript-eslint/no-this-alias
-    const manager = this;
-    return Effect.gen(function* () {
-      const unchanged =
-        roots.length === manager.roots.length &&
-        roots.every((root, index) => manager.roots[index]?.uri === root.uri);
-      if (unchanged) return;
-
-      manager.roots = roots;
-
-      // Servers that scoped themselves to the old roots need to hear about it;
-      // ones that never asked simply ignore the notification.
-      for (const connection of manager.connections.values()) {
-        yield* Effect.tryPromise({
-          try: () => connection.client.sendRootsListChanged(),
-          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
-        }).pipe(Effect.catchAll(() => Effect.void));
-      }
-
-      yield* manager.logger.debug(`MCP roots updated: ${roots.map((root) => root.uri).join(", ")}`);
     });
   }
 

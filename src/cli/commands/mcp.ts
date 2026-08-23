@@ -427,11 +427,6 @@ export function testMcpServerCommand(name: string): Effect.Effect<void, never, M
       }
     }
 
-    const roots = yield* manager.getRoots();
-    yield* terminal.log(
-      fmt.keyValue("Roots advertised", roots.map((root) => root.uri).join(", ") || "none"),
-    );
-
     if (config.trusted !== true) {
       yield* terminal.info(
         `Untrusted: every tool call will ask for approval. Run \`jazz mcp trust ${name}\` to let read-only annotations through.`,

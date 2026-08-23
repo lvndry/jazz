@@ -164,10 +164,3 @@ export type MCPElicitationResponse =
     }
   | { readonly action: "decline" }
   | { readonly action: "cancel" };
-
-/** A filesystem root Jazz exposes to servers via `roots/list`. */
-export interface MCPRoot {
-  /** A `file://` URI. */
-  readonly uri: string;
-  readonly name?: string | undefined;
-}

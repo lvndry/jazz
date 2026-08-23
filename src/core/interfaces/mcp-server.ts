@@ -16,7 +16,6 @@ import type {
   MCPPromptResult,
   MCPResource,
   MCPResourceContent,
-  MCPRoot,
   MCPServerCapabilities,
   MCPTool,
   MCPToolResult,
@@ -199,16 +198,6 @@ export interface MCPServerManager {
    * unregister function.
    */
   readonly onElicitation: (handler: ElicitationHandler) => Effect.Effect<() => void, never>;
-
-  /**
-   * Roots currently advertised to servers via `roots/list`.
-   */
-  readonly getRoots: () => Effect.Effect<readonly MCPRoot[], never>;
-
-  /**
-   * Replace the advertised roots and notify connected servers.
-   */
-  readonly setRoots: (roots: readonly MCPRoot[]) => Effect.Effect<void, never, LoggerService>;
 
   /**
    * Discover tools from an MCP server (connects, discovers, then disconnects)
