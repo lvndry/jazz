@@ -394,8 +394,8 @@ function mergeConfig(base: AppConfig, override?: Partial<AppConfig>): AppConfig 
       output: {
         ...base.output,
         // Explicitly merge top-level output properties
-        ...(override.output.showThinking !== undefined
-          ? { showThinking: override.output.showThinking }
+        ...(override.output.showReasoning !== undefined
+          ? { showReasoning: override.output.showReasoning }
           : {}),
         ...(override.output.showToolExecution !== undefined
           ? { showToolExecution: override.output.showToolExecution }

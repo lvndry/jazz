@@ -24,7 +24,7 @@ export function resolveDisplayConfig(appConfig: AppConfig): DisplayConfig {
     envMode && VALID_OUTPUT_MODES.includes(envMode) ? (envMode as OutputMode) : undefined;
 
   return {
-    showThinking: appConfig.output?.showThinking ?? DEFAULT_DISPLAY_CONFIG.showThinking,
+    showReasoning: appConfig.output?.showReasoning ?? DEFAULT_DISPLAY_CONFIG.showReasoning,
     showToolExecution:
       appConfig.output?.showToolExecution ?? DEFAULT_DISPLAY_CONFIG.showToolExecution,
     collapseReasoning: coerceBoolean(

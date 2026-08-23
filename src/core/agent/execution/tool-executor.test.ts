@@ -96,7 +96,7 @@ function makeRunMetrics(): ReturnType<typeof createAgentRunMetrics> {
   };
 }
 
-const displayConfig = { showThinking: false, showToolExecution: true, mode: "markdown" as const };
+const displayConfig = { showReasoning: false, showToolExecution: true, mode: "markdown" as const };
 
 describe("ToolExecutor.executeTool", () => {
   it("should execute a tool successfully", async () => {
@@ -306,7 +306,7 @@ describe("ToolExecutor.executeToolCalls", () => {
       ToolExecutor.executeToolCalls(
         toolCalls,
         { agentId: "agent-1", conversationId: "conv-123", conversationId: "sess-1" },
-        { showThinking: false, showToolExecution: false, mode: "markdown" as const },
+        { showReasoning: false, showToolExecution: false, mode: "markdown" as const },
         null,
         makeRunMetrics(),
         "agent-1",

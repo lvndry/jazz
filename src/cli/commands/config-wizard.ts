@@ -248,8 +248,8 @@ function configureOutputDisplay() {
           { name: `Output mode (${displayConfig.mode})`, value: "mode" },
           { name: `Color profile (${colorProfileLabel})`, value: "color-profile" },
           {
-            name: `Show thinking (${displayConfig.showThinking ? "on" : "off"})`,
-            value: "show-thinking",
+            name: `Show reasoning (${displayConfig.showReasoning ? "on" : "off"})`,
+            value: "show-reasoning",
           },
           {
             name: `Reasoning (${displayConfig.collapseReasoning !== false ? "collapse" : "always show"})`,
@@ -304,12 +304,12 @@ function configureOutputDisplay() {
           }
           break;
         }
-        case "show-thinking": {
+        case "show-reasoning": {
           yield* handleBooleanToggle({
-            prompt: "Show thinking output?",
-            currentValue: displayConfig.showThinking,
-            configKey: "output.showThinking",
-            label: "Show thinking",
+            prompt: "Show reasoning output?",
+            currentValue: displayConfig.showReasoning,
+            configKey: "output.showReasoning",
+            label: "Show reasoning",
           });
           break;
         }

@@ -57,7 +57,7 @@ function terminalProducer(): InkTerminalService {
 function presentationProducer(): InkPresentationService {
   return new InkPresentationService(
     {
-      showThinking: true,
+      showReasoning: true,
       showToolExecution: true,
       mode: "rendered",
       colorProfile: "full",

@@ -251,9 +251,9 @@ export interface CompletionStrategy {
   getInterruptSignal?(): Effect.Effect<void, never> | undefined;
 
   /**
-   * Whether to show thinking indicators for this strategy.
+   * Whether to show reasoning indicators for this strategy.
    */
-  shouldShowThinking: boolean;
+  shouldShowReasoning: boolean;
 }
 
 interface FinalizeInput {
@@ -603,7 +603,7 @@ function runIteration(
   } = deps;
 
   return Effect.gen(function* () {
-    if (!options.internal && strategy.shouldShowThinking) {
+    if (!options.internal && strategy.shouldShowReasoning) {
       yield* observer.onThinking(agent.name, iterationIndex === 0);
     }
 
@@ -672,7 +672,7 @@ function runIteration(
 
     // The summarizer is its own agent run; its completion idles the live zone.
     // Restore thinking so the parent looks mid-task, not finished.
-    if (justCompacted && !options.internal && strategy.shouldShowThinking) {
+    if (justCompacted && !options.internal && strategy.shouldShowReasoning) {
       yield* observer.onThinking(agent.name, false);
     }
 

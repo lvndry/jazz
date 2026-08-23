@@ -63,7 +63,7 @@ export function executeWithStreaming(
     const maxRetries = runContext.maxRetries ?? DEFAULT_MAX_LLM_RETRIES;
 
     const reasoningEffort = agent.config.reasoningEffort ?? "disable";
-    const shouldShowThinking = displayConfig.showThinking && reasoningEffort !== "disable";
+    const shouldShowReasoning = displayConfig.showReasoning && reasoningEffort !== "disable";
 
     // Create renderer
     const normalizedStreamingConfig: StreamingConfig = {
@@ -97,7 +97,7 @@ export function executeWithStreaming(
     const textAccumulatorRef = yield* Ref.make<string>("");
 
     const strategy: CompletionStrategy = {
-      shouldShowThinking,
+      shouldShowReasoning,
 
       getCompletion(currentMessages, _iteration) {
         return Effect.gen(function* () {

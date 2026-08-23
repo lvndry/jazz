@@ -514,7 +514,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
         this.resolveContextWindow(event.provider, event.model, event.pinnedContextWindow);
       }
 
-      if (this.displayConfig.showThinking) {
+      if (this.displayConfig.showReasoning) {
         if (event.type === "thinking_start") {
           if (this.streamTarget.kind === "ephemeral") {
             // Subagent reasoning lives in the subagent's own panel — no

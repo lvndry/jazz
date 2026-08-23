@@ -41,7 +41,7 @@ describe("InkStreamingRenderer", () => {
       "TestAgent",
       false,
       {
-        showThinking: true,
+        showReasoning: true,
         showToolExecution: true,
         mode: "rendered",
         colorProfile: "full",
@@ -195,7 +195,7 @@ describe("InkStreamingRenderer", () => {
           "TestAgent",
           false,
           {
-            showThinking: true,
+            showReasoning: true,
             showToolExecution: true,
             mode: "rendered",
             colorProfile: "full",
@@ -259,7 +259,7 @@ describe("InkStreamingRenderer", () => {
           "TestAgent",
           false,
           {
-            showThinking: true,
+            showReasoning: true,
             showToolExecution: true,
             mode: "rendered",
             colorProfile: "full",
@@ -299,7 +299,7 @@ describe("InkStreamingRenderer", () => {
           "TestAgent",
           false,
           {
-            showThinking: true,
+            showReasoning: true,
             showToolExecution: true,
             mode: "rendered",
             colorProfile: "full",
@@ -362,7 +362,7 @@ describe("InkStreamingRenderer", () => {
           "TestAgent",
           false,
           {
-            showThinking: true,
+            showReasoning: true,
             showToolExecution: true,
             mode: "rendered",
             colorProfile: "full",
@@ -408,12 +408,12 @@ describe("InkStreamingRenderer", () => {
       expect(thinking.length).toBeGreaterThan(0);
     });
 
-    test("when showThinking is false, the reasoning header is suppressed", () => {
+    test("when showReasoning is false, the reasoning header is suppressed", () => {
       const renderer = new InkStreamingRenderer(
         "TestAgent",
         false,
         {
-          showThinking: false,
+          showReasoning: false,
           showToolExecution: true,
           mode: "rendered",
           colorProfile: "full",
@@ -479,7 +479,7 @@ describe("InkStreamingRenderer", () => {
         "TestAgent",
         false,
         {
-          showThinking: true,
+          showReasoning: true,
           showToolExecution: true,
           mode: "rendered",
           colorProfile: "full",
@@ -566,7 +566,7 @@ describe("InkStreamingRenderer", () => {
       const renderer = new InkStreamingRenderer(
         "SubAgent",
         false,
-        { showThinking: true, showToolExecution: true, mode: "rendered", colorProfile: "full" },
+        { showReasoning: true, showToolExecution: true, mode: "rendered", colorProfile: "full" },
         { textBufferMs: 0 },
         0,
         { kind: "ephemeral", regionId: "eph-sub-1" },

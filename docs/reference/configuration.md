@@ -105,12 +105,12 @@ Raising `compactThresholdRatio` keeps more verbatim history but leaves less head
 
 ### `output`
 
-Terminal display of thinking, tools, and formatting. The interactive TUI reads these when a session starts.
+Terminal display of reasoning, tools, and formatting. The interactive TUI reads these when a session starts.
 
 ```json
 {
   "output": {
-    "showThinking": true,
+    "showReasoning": true,
     "collapseReasoning": true,
     "showToolExecution": true,
     "mode": "hybrid"
@@ -120,7 +120,7 @@ Terminal display of thinking, tools, and formatting. The interactive TUI reads t
 
 | Key                  | Default | Effect                                                                                          |
 | -------------------- | ------- | ----------------------------------------------------------------------------------------------- |
-| `showThinking`       | `true`  | Stream the model's reasoning while it thinks                                                    |
+| `showReasoning`      | `true`  | Stream the model's reasoning while it thinks                                                    |
 | `collapseReasoning`  | `true`  | After thinking finishes, collapse it to a one-line summary. **Ctrl+R** expands it in place      |
 | `showToolExecution`  | `true`  | Show tool calls as they run                                                                     |
 | `mode`               | `hybrid` | `rendered` \| `hybrid` \| `raw` \| `quiet`. Overridable with `JAZZ_OUTPUT_MODE` / `--output` |
