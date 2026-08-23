@@ -32,6 +32,12 @@ import {
   isReasoningEffortFlag,
   runAgentOnceCommand,
 } from "./commands/run-agent";
+import {
+  answerRunCommand,
+  cancelRunCommand,
+  listRunsCommand,
+  showRunCommand,
+} from "./commands/runs";
 import { updateCommand } from "./commands/update";
 import { wizardCommand } from "./commands/wizard";
 import {
@@ -132,6 +138,10 @@ function registerRunCommand(program: Command): void {
       "--history-json <json>",
       "Inline JSON array of prior ChatMessages, used only with --ephemeral in place of --conversation — pass back the `messages` field from a previous --ephemeral --json response to keep multi-turn context without persistence.",
     )
+    .option(
+      "--park",
+      "When a gated tool needs approval nobody here can give, save the run and exit 2 instead of declining. Resume it later with `jazz runs approve <id>`. Only use this where somebody will actually answer.",
+    )
     .action(
       (
         prompt: string | undefined,
@@ -150,6 +160,7 @@ function registerRunCommand(program: Command): void {
           noStream?: boolean;
           ephemeral?: boolean;
           historyJson?: string;
+          park?: boolean;
         },
       ) => {
         const opts = program.opts<CliOptions>();
@@ -243,6 +254,7 @@ function registerRunCommand(program: Command): void {
                 : {}),
             ...(options.ephemeral === true ? { ephemeral: true } : {}),
             ...(options.historyJson !== undefined ? { historyJson: options.historyJson } : {}),
+            ...(options.park === true ? { park: true } : {}),
           }),
           {
             verbose: opts.verbose,
@@ -540,6 +552,84 @@ function registerUpdateCommand(program: Command): void {
 }
 
 /**
+ * Register `jazz runs` — find and answer runs that stopped for a person.
+ */
+function registerRunsCommands(program: Command): void {
+  const runsCommand = program
+    .command("runs")
+    .description("Inspect runs still in flight, and answer the ones waiting on you");
+
+  const cliOptionsOf = () => {
+    const opts = program.opts<CliOptions>();
+    return { verbose: opts.verbose, debug: opts.debug, configPath: opts.config };
+  };
+
+  runsCommand
+    .command("list")
+    .alias("ls")
+    .description("List runs that have not finished, newest first")
+    .option("--agent <agentId>", "Only runs belonging to this agent")
+    .option("--json", "Emit a single JSON envelope { ok, runs }")
+    .action((options: { agent?: string; json?: boolean }) => {
+      runCliEffect(
+        listRunsCommand({
+          json: options.json === true,
+          ...(options.agent !== undefined ? { agentId: options.agent } : {}),
+        }),
+        cliOptionsOf(),
+      );
+    });
+
+  runsCommand
+    .command("show <runId>")
+    .description("Show one run, including what it is waiting for")
+    .option("--json", "Emit a single JSON envelope { ok, run }")
+    .action((runId: string, options: { json?: boolean }) => {
+      runCliEffect(showRunCommand({ runId, json: options.json === true }), cliOptionsOf());
+    });
+
+  runsCommand
+    .command("approve <runId>")
+    .description(
+      "Approve what a parked run is waiting for and let it finish (blocks until it does)",
+    )
+    .option("--json", "Emit a single JSON envelope { ok, runId, answer }")
+    .action((runId: string, options: { json?: boolean }) => {
+      runCliEffect(
+        answerRunCommand({ runId, approved: true, json: options.json === true }),
+        cliOptionsOf(),
+      );
+    });
+
+  runsCommand
+    .command("reject <runId>")
+    .description(
+      "Refuse what a parked run is waiting for; it resumes and reasons about the refusal",
+    )
+    .option("--note <text>", "Tell the agent why, so it can try something else")
+    .option("--json", "Emit a single JSON envelope { ok, runId, answer }")
+    .action((runId: string, options: { note?: string; json?: boolean }) => {
+      runCliEffect(
+        answerRunCommand({
+          runId,
+          approved: false,
+          json: options.json === true,
+          ...(options.note !== undefined ? { note: options.note } : {}),
+        }),
+        cliOptionsOf(),
+      );
+    });
+
+  runsCommand
+    .command("cancel <runId>")
+    .description("Abandon a parked run without answering it")
+    .option("--json", "Emit a single JSON envelope { ok, runId }")
+    .action((runId: string, options: { json?: boolean }) => {
+      runCliEffect(cancelRunCommand({ runId, json: options.json === true }), cliOptionsOf());
+    });
+}
+
+/**
  * Register workflow-related commands
  */
 function registerWorkflowCommands(program: Command): void {
@@ -772,6 +862,7 @@ export function createCLIApp(): Effect.Effect<Command, never> {
     registerConfigCommands(program);
     registerMCPCommands(program);
     registerUpdateCommand(program);
+    registerRunsCommands(program);
     registerWorkflowCommands(program);
 
     if (process.argv.length <= 2) {

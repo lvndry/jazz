@@ -1,7 +1,8 @@
-import { Effect } from "effect";
+import { Effect, Layer } from "effect";
 import { AgentRunner } from "@/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@/core/agent/agent-service";
 import { buildWorkStatePreamble } from "@/core/agent/context/work-state-preamble";
+import { RunParkRequested, isRunParkRequested } from "@/core/agent/run/park-signal";
 import { CommonSuggestions, getErrorMessage } from "@/core/presentation/error-handler";
 import { makeOneShotPresentationServiceLayer } from "@/core/presentation/oneshot-presentation-service";
 import { describeArtifact, type GeneratedArtifact } from "@/core/types/artifact";
@@ -15,6 +16,7 @@ import {
   saveConversation,
   type ConversationRecord,
 } from "@/services/history/conversation-history-service";
+import { makeFileRunStoreLayer } from "@/services/storage/run-store";
 
 /**
  * One-shot, non-interactive agent invocation — designed to be driven from
@@ -174,6 +176,47 @@ export function formatOneShotResult(result: OneShotSuccess, options: OneShotOutp
   })}\n`;
 }
 
+/**
+ * Format a run that stopped to wait for a person.
+ *
+ * Neither success nor failure: no answer was produced, but nothing went wrong and the work
+ * is still there to finish. Callers that only branch on `ok` treat it as a failure, which
+ * is the safe reading; callers that know about parking read `state` and `runId` and come
+ * back with `jazz runs approve`.
+ */
+export function formatOneShotParked(
+  parked: {
+    readonly runId: string;
+    readonly expiresAt: string;
+    readonly toolName: string;
+    readonly toolCallId: string;
+    readonly message: string;
+  },
+  options: OneShotOutputOptions,
+  costUSD = 0,
+): string {
+  if (options.json) {
+    return `${JSON.stringify({
+      ok: false,
+      state: "input-required",
+      runId: parked.runId,
+      expiresAt: parked.expiresAt,
+      pending: {
+        kind: "tool-approval",
+        toolName: parked.toolName,
+        toolCallId: parked.toolCallId,
+        message: parked.message,
+      },
+      costUSD,
+    })}\n`;
+  }
+  return (
+    `Waiting for approval: ${parked.message}\n` +
+    `Run ${parked.runId} is parked until ${parked.expiresAt}.\n` +
+    `Approve it with: jazz runs approve ${parked.runId}\n`
+  );
+}
+
 /** Format a failure (plain message to stderr, or JSON envelope to stdout in --json mode). */
 export function formatOneShotError(
   message: string,
@@ -184,6 +227,9 @@ export function formatOneShotError(
     ? `${JSON.stringify({ ok: false, error: message, costUSD })}\n`
     : `${message}\n`;
 }
+
+/** Exit code for a run that parked: not success, not failure, resumable. */
+export const PARKED_EXIT_CODE = 2;
 
 const VALID_APPROVAL_POLICIES = ["read-only", "low-risk", "high-risk"] as const;
 export type ApprovalPolicyFlag = (typeof VALID_APPROVAL_POLICIES)[number];
@@ -242,6 +288,14 @@ export interface RunAgentOnceOptions {
    * instead of it living on disk. Malformed JSON is treated as "no history".
    */
   readonly historyJson?: string | undefined;
+  /**
+   * Park instead of declining when a gated tool needs approval nobody here can give.
+   *
+   * Off by default because it changes what an unattended run *does*: without it a cron job
+   * that hits `git push` refuses and carries on, with it the job stops and waits for a
+   * person. Only turn it on where somebody is actually going to answer.
+   */
+  readonly park?: boolean | undefined;
 }
 
 /**
@@ -491,6 +545,7 @@ export function runAgentOnceCommand(
       ...(options.maxIterations != null ? { maxIterations: options.maxIterations } : {}),
       ...(options.stream !== undefined ? { stream: options.stream } : {}),
       ...(ephemeral ? { disablePersistence: true } : {}),
+      ...(options.park === true ? { parkWhenUnattended: true } : {}),
     });
 
     const runResult = yield* deadline ? Effect.race(runEffect, deadline.watch) : runEffect;
@@ -550,7 +605,38 @@ export function runAgentOnceCommand(
       ),
     );
   }).pipe(
+    Effect.catchIf(
+      // A park that never reached the store carries no run id, so there is nothing to
+      // resume and it falls through to the ordinary failure path below.
+      (error): error is RunParkRequested => isRunParkRequested(error) && error.runId !== undefined,
+      (parked) =>
+        Effect.sync(() => {
+          const request =
+            parked.pending.kind === "tool-approval" ? parked.pending.request : undefined;
+          const formatted = formatOneShotParked(
+            {
+              runId: parked.runId ?? "",
+              expiresAt: parked.expiresAt ?? "",
+              toolName: request?.toolName ?? "",
+              toolCallId: request?.toolCallId ?? "",
+              message: request?.message ?? "Waiting for input.",
+            },
+            outputOptions,
+            parked.costUSD ?? 0,
+          );
+          if (outputOptions.json) {
+            process.stdout.write(formatted);
+          } else {
+            process.stderr.write(formatted);
+          }
+          // Distinct from 1 so a caller can tell "come back to this" from "this failed".
+          process.exitCode = PARKED_EXIT_CODE;
+        }),
+    ),
     Effect.catchAll((error) => failOneShot(getErrorMessage(error), outputOptions)),
+    // Only a parking run needs somewhere durable to park. Without the flag no store is in
+    // the layer at all, and the recorder is a pass-through.
+    Effect.provide(options.park === true ? makeFileRunStoreLayer() : Layer.empty),
     Effect.provide(
       makeOneShotPresentationServiceLayer(
         options.eventTypes ?? new Set(),

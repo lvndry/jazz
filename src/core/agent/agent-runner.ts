@@ -48,6 +48,7 @@ import { executeWithStreaming, executeWithoutStreaming } from "./execution";
 import { createAgentRunMetrics, emitAgentRunStarted } from "./metrics/agent-run-metrics";
 import { discoverProjectInstructions, type ProjectInstructionFile } from "./project-instructions";
 import { withRunRecording } from "./run/run-recorder";
+import { runSpendUSD } from "./run/run-spend";
 import { registerCustomToolsForAgent } from "./tools/custom-tools";
 import { registerMCPToolsForAgent } from "./tools/register-mcp-tools";
 import { registerSkillSystemTools } from "./tools/register-tools";
@@ -594,6 +595,13 @@ export class AgentRunner {
           )
         : executeWithoutStreaming(options, runContext, displayConfig, showMetrics, runRecursive);
 
+      // Priced once here rather than per transition: the lookup is a cached network fetch,
+      // and a run that parks or fails should not pay for it twice.
+      const pricing = yield* Effect.tryPromise({
+        try: () => getModelsDevMetadata(runContext.model, runContext.provider),
+        catch: () => undefined,
+      }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+
       return yield* withRunRecording(
         {
           runId: options.runId ?? runContext.runMetrics.runId,
@@ -601,6 +609,7 @@ export class AgentRunner {
           conversationId: runContext.actualConversationId,
           userInput: options.userInput,
           internal: options.internal === true,
+          costSoFarUSD: () => runSpendUSD(runContext.runMetrics, pricing),
         },
         execute,
       );

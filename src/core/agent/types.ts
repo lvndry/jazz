@@ -124,6 +124,11 @@ export interface AgentRunnerOptions {
    * mint. Set when resuming, so the parked record is the one that finishes.
    */
   readonly runId?: string;
+  /**
+   * Tool calls left unanswered by a parked turn, executed before the loop's first LLM
+   * call. Paired with `resolvedApprovals`, which carries the answer they were waiting on.
+   */
+  readonly pendingToolCalls?: readonly ToolCall[];
   /** How many sub-agent levels sit above this run. 0 at the top level. */
   readonly subagentDepth?: number;
   /**

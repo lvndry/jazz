@@ -1,5 +1,6 @@
 import * as nodeFs from "node:fs/promises";
 import * as os from "node:os";
+import { hostname } from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { Effect } from "effect";
@@ -22,19 +23,21 @@ function record(runId: string, agentId = "agent-1", createdAt = new Date("2026-0
   });
 }
 
+const parkedApproval = {
+  kind: "tool-approval",
+  request: {
+    toolCallId: "call_1",
+    toolName: "execute_command",
+    message: "Run `git push`",
+    executeToolName: "execute_command_execute",
+    executeArgs: { command: "git push" },
+  },
+} as const;
+
 function parkedState(expiresAt: string): RunState {
   return {
     kind: "input-required",
-    pending: {
-      kind: "tool-approval",
-      request: {
-        toolCallId: "call_1",
-        toolName: "execute_command",
-        message: "Run `git push`",
-        executeToolName: "execute_command_execute",
-        executeArgs: { command: "git push" },
-      },
-    },
+    pending: parkedApproval,
     snapshot: { messages: [], iteration: 2 },
     expiresAt,
   };
@@ -152,6 +155,91 @@ function suite(name: string, makeStore: () => Promise<RunStore>, cleanup?: () =>
       expect(expired?.state).toMatchObject({ kind: "failed", cause: "abandoned" });
       const alive = await Effect.runPromise(store.get(OTHER_RUN_ID));
       expect(alive?.state.kind).toBe("input-required");
+    });
+
+    it("re-parks a run whose resuming process is gone", async () => {
+      await Effect.runPromise(store.save(record(RUN_ID)));
+      await Effect.runPromise(
+        store.transition(RUN_ID, {
+          kind: "working",
+          iteration: 2,
+          recovery: {
+            pending: parkedApproval,
+            snapshot: { messages: [], iteration: 2 },
+            expiresAt: "2026-09-01T00:00:00.000Z",
+            // Pid 1 exists but is not ours; a never-allocated high pid stands in for a
+            // process that has died.
+            pid: 999_999,
+            host: hostname(),
+          },
+        }),
+      );
+
+      const outcome = await Effect.runPromise(
+        store.prune({ now: new Date("2026-08-23T12:00:00Z"), maxTerminalAgeMs: 60_000 }),
+      );
+      expect(outcome.reparked).toBe(1);
+
+      const recovered = await Effect.runPromise(store.get(RUN_ID));
+      expect(recovered?.state.kind).toBe("input-required");
+      if (recovered?.state.kind !== "input-required") throw new Error("expected a parked run");
+      expect(recovered.state.snapshot.iteration).toBe(2);
+    });
+
+    it("leaves a run alone while its owner is still alive", async () => {
+      await Effect.runPromise(store.save(record(RUN_ID)));
+      await Effect.runPromise(
+        store.transition(RUN_ID, {
+          kind: "working",
+          iteration: 1,
+          recovery: {
+            pending: parkedApproval,
+            snapshot: { messages: [], iteration: 1 },
+            expiresAt: "2026-09-01T00:00:00.000Z",
+            pid: process.pid,
+            host: hostname(),
+          },
+        }),
+      );
+
+      const outcome = await Effect.runPromise(
+        store.prune({ now: new Date("2026-08-23T12:00:00Z"), maxTerminalAgeMs: 60_000 }),
+      );
+      expect(outcome.reparked).toBe(0);
+      expect((await Effect.runPromise(store.get(RUN_ID)))?.state.kind).toBe("working");
+    });
+
+    it("never judges a run claimed on another machine by a local pid", async () => {
+      await Effect.runPromise(store.save(record(RUN_ID)));
+      await Effect.runPromise(
+        store.transition(RUN_ID, {
+          kind: "working",
+          iteration: 1,
+          recovery: {
+            pending: parkedApproval,
+            snapshot: { messages: [], iteration: 1 },
+            expiresAt: "2026-09-01T00:00:00.000Z",
+            pid: 999_999,
+            host: "some-other-host",
+          },
+        }),
+      );
+
+      const outcome = await Effect.runPromise(
+        store.prune({ now: new Date("2026-08-23T12:00:00Z"), maxTerminalAgeMs: 60_000 }),
+      );
+      expect(outcome.reparked).toBe(0);
+      expect((await Effect.runPromise(store.get(RUN_ID)))?.state.kind).toBe("working");
+    });
+
+    it("keeps a cost written alongside a state change", async () => {
+      await Effect.runPromise(store.save(record(RUN_ID)));
+      const working = await Effect.runPromise(
+        store.transition(RUN_ID, { kind: "working", iteration: 1 }),
+      );
+      await Effect.runPromise(store.save({ ...working, costUSD: 0.0042 }));
+
+      expect((await Effect.runPromise(store.get(RUN_ID)))?.costUSD).toBe(0.0042);
     });
 
     it("deletes terminal records past the retention window", async () => {

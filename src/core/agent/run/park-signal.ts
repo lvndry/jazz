@@ -22,6 +22,21 @@ export class RunParkRequested extends Data.TaggedError("RunParkRequested")<{
   /** Attached by the agent loop on the way out; absent while the signal is still inside the executor. */
   readonly messages?: readonly ChatMessage[];
   readonly iteration?: number;
+  /**
+   * Attached last, by the recorder, once the run is actually saved. Their absence means
+   * the park was raised but never persisted, so nothing can be resumed and the caller
+   * should treat it as a plain failure.
+   */
+  readonly runId?: string;
+  readonly expiresAt?: string;
+  /**
+   * What the run spent before it stopped.
+   *
+   * A parked run has already paid for every token it burned getting to the approval, the
+   * same way a timed-out run has. Reporting zero would tell an unattended deployment the
+   * work was free.
+   */
+  readonly costUSD?: number;
 }> {}
 
 export function isRunParkRequested(error: unknown): error is RunParkRequested {

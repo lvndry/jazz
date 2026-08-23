@@ -28,13 +28,19 @@ export interface RunStore {
     readonly agentId?: string;
   }) => Effect.Effect<readonly RunRecord[], never>;
   /**
-   * Move every parked run whose deadline has passed to `failed`/`abandoned`, and delete
+   * Housekeeping sweep, run before any listing so nothing stale is ever shown.
+   *
+   * Three jobs: re-park runs whose resuming process died, so a crash costs a retry instead
+   * of the work; move parked runs past their deadline to `failed`/`abandoned`; and delete
    * terminal records older than `maxTerminalAgeMs`. Returns how many of each it touched.
    */
   readonly prune: (options: {
     readonly now: Date;
     readonly maxTerminalAgeMs: number;
-  }) => Effect.Effect<{ readonly abandoned: number; readonly deleted: number }, never>;
+  }) => Effect.Effect<
+    { readonly abandoned: number; readonly deleted: number; readonly reparked: number },
+    never
+  >;
 }
 
 export class RunStoreTag extends Context.Tag("RunStore")<RunStoreTag, RunStore>() {}

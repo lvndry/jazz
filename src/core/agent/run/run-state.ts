@@ -70,7 +70,33 @@ export interface ParkedRunSnapshot {
 
 export type RunState =
   | { readonly kind: "submitted" }
-  | { readonly kind: "working"; readonly iteration: number }
+  | {
+      readonly kind: "working";
+      readonly iteration: number;
+      /**
+       * Carried by a resumed run so a crash cannot swallow it.
+       *
+       * Claiming a parked run moves it to `working`, and the snapshot it was parked with is
+       * the only copy of an unfinished turn. If the resuming process dies before the run
+       * reaches a terminal state, this is what lets it be parked again instead of stranded
+       * as a `working` run nobody is working on.
+       */
+      readonly recovery?: {
+        readonly pending: PendingInput;
+        readonly snapshot: ParkedRunSnapshot;
+        readonly expiresAt: string;
+        /**
+         * The process doing the work.
+         *
+         * A dead pid is a fact; "it has been quiet for a while" is a guess, and a run can
+         * legitimately sit in one tool call for an hour. Only a pid lets recovery tell a
+         * crashed resume from a slow one without ever re-parking a run that is still going.
+         * Only meaningful on the machine that wrote it.
+         */
+        readonly pid: number;
+        readonly host: string;
+      };
+    }
   | {
       readonly kind: "input-required";
       readonly pending: PendingInput;

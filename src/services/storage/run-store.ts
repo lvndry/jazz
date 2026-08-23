@@ -8,6 +8,7 @@
  */
 
 import * as nodeFs from "node:fs/promises";
+import { hostname } from "node:os";
 import * as path from "node:path";
 import { Effect, Layer } from "effect";
 import type { RunRecord } from "@/core/agent/run/run-record";
@@ -50,6 +51,42 @@ function isExpired(record: RunRecord, now: Date): boolean {
   if (expiresAt === undefined) return false;
   const deadline = new Date(expiresAt).getTime();
   return Number.isFinite(deadline) && deadline <= now.getTime();
+}
+
+/**
+ * Whether the process that claimed a run is still alive.
+ *
+ * `kill(pid, 0)` sends no signal; it only asks whether the pid is addressable. EPERM means
+ * the process exists but belongs to someone else — still alive, so still working. A record
+ * written on another machine is never judged from here: its pid means nothing locally, and
+ * re-parking a run that is happily working elsewhere would run its tool twice.
+ */
+function ownerIsGone(recovery: { readonly pid: number; readonly host: string }): boolean {
+  if (recovery.host !== hostname()) return false;
+  try {
+    process.kill(recovery.pid, 0);
+    return false;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code !== "EPERM";
+  }
+}
+
+/**
+ * A run whose owner died goes back to where it was, not to failed.
+ *
+ * The approval is still unanswered and the transcript is still intact, so the honest state
+ * is the one it was in before somebody tried to resume it.
+ */
+function recoveredState(record: RunRecord): RunState | undefined {
+  if (record.state.kind !== "working") return undefined;
+  const { recovery } = record.state;
+  if (recovery === undefined || !ownerIsGone(recovery)) return undefined;
+  return {
+    kind: "input-required",
+    pending: recovery.pending,
+    snapshot: recovery.snapshot,
+    expiresAt: recovery.expiresAt,
+  };
 }
 
 const ABANDONED: RunState = {
@@ -109,11 +146,21 @@ export class InMemoryRunStore implements RunStore {
   prune(options: {
     readonly now: Date;
     readonly maxTerminalAgeMs: number;
-  }): Effect.Effect<{ readonly abandoned: number; readonly deleted: number }, never> {
+  }): Effect.Effect<
+    { readonly abandoned: number; readonly deleted: number; readonly reparked: number },
+    never
+  > {
     return Effect.sync(() => {
       let abandoned = 0;
       let deleted = 0;
+      let reparked = 0;
       for (const [runId, record] of [...this.records]) {
+        const recovered = recoveredState(record);
+        if (recovered !== undefined) {
+          this.records.set(runId, withState(record, recovered, options.now));
+          reparked += 1;
+          continue;
+        }
         if (isExpired(record, options.now)) {
           this.records.set(runId, withState(record, ABANDONED, options.now));
           abandoned += 1;
@@ -127,7 +174,7 @@ export class InMemoryRunStore implements RunStore {
           deleted += 1;
         }
       }
-      return { abandoned, deleted };
+      return { abandoned, deleted, reparked };
     });
   }
 }
@@ -216,12 +263,22 @@ export class FileRunStore implements RunStore {
   prune(options: {
     readonly now: Date;
     readonly maxTerminalAgeMs: number;
-  }): Effect.Effect<{ readonly abandoned: number; readonly deleted: number }, never> {
+  }): Effect.Effect<
+    { readonly abandoned: number; readonly deleted: number; readonly reparked: number },
+    never
+  > {
     return Effect.gen(this, function* () {
       const records = yield* this.readAll();
       let abandoned = 0;
       let deleted = 0;
+      let reparked = 0;
       for (const record of records) {
+        const recovered = recoveredState(record);
+        if (recovered !== undefined) {
+          yield* this.save(withState(record, recovered, options.now));
+          reparked += 1;
+          continue;
+        }
         if (isExpired(record, options.now)) {
           yield* this.save(withState(record, ABANDONED, options.now));
           abandoned += 1;
@@ -238,7 +295,7 @@ export class FileRunStore implements RunStore {
           deleted += 1;
         }
       }
-      return { abandoned, deleted };
+      return { abandoned, deleted, reparked };
     });
   }
 }

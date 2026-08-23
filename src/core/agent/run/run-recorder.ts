@@ -11,8 +11,8 @@ import { Effect, Option } from "effect";
 import { RunStoreTag } from "@/core/interfaces/run-store";
 import { GenerationInterruptedError } from "@/core/types/errors";
 import type { AgentResponse } from "../types";
-import { isRunParkRequested, type RunParkRequested } from "./park-signal";
-import { DEFAULT_PARK_TTL_MS, createRunRecord } from "./run-record";
+import { RunParkRequested, isRunParkRequested } from "./park-signal";
+import { DEFAULT_PARK_TTL_MS, createRunRecord, type RunRecord } from "./run-record";
 import type { RunState } from "./run-state";
 
 export interface RunRecordingInput {
@@ -23,6 +23,8 @@ export interface RunRecordingInput {
   /** Sub-agent runs are steps inside their parent's run, not runs of their own. */
   readonly internal: boolean;
   readonly parkTtlMs?: number;
+  /** Reads the run's spend so far. Called at every terminal or parked transition. */
+  readonly costSoFarUSD?: () => number | undefined;
 }
 
 function parkedState(signal: RunParkRequested, expiresAt: string): RunState {
@@ -79,8 +81,16 @@ export function withRunRecording<E, R>(
     }
     const store = storeOption.value;
 
+    const withCost = (record: RunRecord): RunRecord => {
+      const costUSD = input.costSoFarUSD?.();
+      return costUSD === undefined ? record : { ...record, costUSD };
+    };
+
     const moveTo = (state: RunState) =>
-      store.transition(input.runId, state).pipe(Effect.asVoid, Effect.ignore);
+      store.transition(input.runId, state).pipe(
+        Effect.flatMap((updated) => store.save(withCost(updated))),
+        Effect.ignore,
+      );
 
     // A resumed run already has a record, and `resumeRun` has already claimed it by moving
     // it to `working`. Creating a second one here would leave the original parked forever
@@ -109,7 +119,21 @@ export function withRunRecording<E, R>(
           Date.now() + (input.parkTtlMs ?? DEFAULT_PARK_TTL_MS),
         ).toISOString();
         return store.transition(input.runId, parkedState(error, expiresAt)).pipe(
-          Effect.zipRight(Effect.fail(error as E | Error)),
+          Effect.tap((updated) => store.save(withCost(updated))),
+          Effect.zipRight(
+            Effect.fail(
+              new RunParkRequested({
+                pending: error.pending,
+                ...(error.messages !== undefined ? { messages: error.messages } : {}),
+                ...(error.iteration !== undefined ? { iteration: error.iteration } : {}),
+                runId: input.runId,
+                expiresAt,
+                ...(input.costSoFarUSD?.() !== undefined
+                  ? { costUSD: input.costSoFarUSD() as number }
+                  : {}),
+              }) as E | Error,
+            ),
+          ),
           Effect.catchIf(
             (failure) => !isRunParkRequested(failure),
             (failure) =>

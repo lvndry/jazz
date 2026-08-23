@@ -1023,6 +1023,15 @@ export function executeAgentLoop(
           supportedAttachmentKinds,
         };
 
+        // A resumed run rejoins a turn that stopped between a tool call and its result.
+        // Handing that transcript straight to the model would ask it to reason about a call
+        // it never got an answer to, so the call is finished first — with the approval the
+        // person just gave already in hand — and only then does the loop start.
+        if (options.pendingToolCalls !== undefined && options.pendingToolCalls.length > 0) {
+          yield* Effect.sync(() => beginIteration(runMetrics, 1));
+          yield* handleToolPhase(state, [...options.pendingToolCalls], "", 0, deps);
+        }
+
         for (let i = 0; i < maxIterations; i++) {
           yield* Effect.sync(() => beginIteration(runMetrics, i + 1));
           try {

@@ -7,6 +7,7 @@
  * approval it needs is already answered.
  */
 
+import { hostname } from "node:os";
 import { Effect } from "effect";
 import { AgentServiceTag } from "@/core/interfaces/agent-service";
 import { RunStoreTag } from "@/core/interfaces/run-store";
@@ -68,13 +69,47 @@ export function resumeRun(options: ResumeRunOptions) {
     // Claimed before the work starts: two approvals racing on the same parked run would
     // otherwise both replay the tool, and the transition table rejects the second.
     yield* store
-      .transition(options.runId, { kind: "working", iteration: snapshot.iteration })
+      .transition(options.runId, {
+        kind: "working",
+        iteration: snapshot.iteration,
+        // Kept so a resume that dies mid-flight can be re-parked rather than stranded.
+        recovery: {
+          pending,
+          snapshot,
+          expiresAt: record.state.expiresAt,
+          pid: process.pid,
+          host: hostname(),
+        },
+      })
       .pipe(
         Effect.mapError(
           (error) =>
             new RunNotResumableError(options.runId, `it was already claimed (${error.message})`),
         ),
       );
+
+    // The turn stopped on an assistant message whose tool calls never got results. Those
+    // are what resume has to finish; anything already answered stays answered.
+    const lastAssistant = [...snapshot.messages]
+      .reverse()
+      .find((message) => message.role === "assistant" && message.tool_calls !== undefined);
+    const answered = new Set(
+      snapshot.messages
+        .filter((message) => message.role === "tool")
+        .map((message) => message.tool_call_id),
+    );
+    const pendingToolCalls = (lastAssistant?.tool_calls ?? []).filter(
+      (toolCall) => !answered.has(toolCall.id),
+    );
+
+    if (pendingToolCalls.length === 0) {
+      return yield* Effect.fail(
+        new RunNotResumableError(
+          options.runId,
+          "its transcript has no unanswered tool call to finish",
+        ),
+      );
+    }
 
     const response: AgentResponse = yield* AgentRunner.run({
       agent,
@@ -84,6 +119,7 @@ export function resumeRun(options: ResumeRunOptions) {
       conversationId: record.conversationId,
       sessionId: options.sessionId,
       conversationHistory: [...snapshot.messages],
+      pendingToolCalls,
       resolvedApprovals: new Map([[pending.request.toolCallId, options.outcome]]),
       parkWhenUnattended: true,
       ...(options.autoApprovedTools !== undefined
