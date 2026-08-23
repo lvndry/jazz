@@ -8,11 +8,12 @@
 
 </div>
 
-Jazz is a CLI for creating and running AI agents on machines you control. An agent is a
-model, a persona, a toolset, and permissions in one JSON file — create one in a minute,
-then run it in your terminal, from scripts, on a schedule, or behind a Telegram or Discord
-bot you own. Out of the box an agent works with your files, git, and the web; connect an
-inbox, an Obsidian vault, or a search provider and it grows into an everyday assistant.
+Jazz is an agent harness: the loop, guardrails, and surfaces that turn a model into an
+agent you can run unattended. You define the agent — a model, a persona, a toolset, and
+permissions in one JSON file — and Jazz runs it in your terminal, from scripts, on a
+schedule, or behind a Telegram or Discord bot you own. Out of the box an agent works with
+your files, git, and the web; connect an inbox, an Obsidian vault, or a search provider and
+it grows into an everyday assistant.
 
 Install it once and it runs everywhere. A terminal REPL, a one-shot command inside a script,
 a scheduled workflow, a GitHub Action that reviews your pull requests, or a Telegram and
