@@ -15,15 +15,17 @@
  * a prompt-injection channel straight into the assistant, with the injected text arriving
  * pre-trusted because it is "history".
  *
- * **A question beyond the tier parks rather than being refused outright.** Refusal is the
- * safe default and stays the default for anything a tier can never permit, but a question
- * the operator would happily answer should reach them rather than being silently declined
- * on their behalf.
+ * **A question beyond the tier is refused by absence, not by judgement.** There is no
+ * approval path here and cannot be one: every gated tool is `high-risk`, the tier filter
+ * keeps only `read-only`, so nothing a peer can reach ever asks for approval. The design
+ * sketch imagined an out-of-tier question parking and reaching the operator on Telegram;
+ * with actions off the table entirely that state is unreachable, and pretending otherwise
+ * would describe a safety net that does not exist. What actually happens is quieter and
+ * stronger: the agent is never handed the tool, so it answers that it cannot.
  */
 
 import { Effect } from "effect";
 import { AgentRunner } from "@/core/agent/agent-runner";
-import { isRunParkRequested } from "@/core/agent/run/park-signal";
 import { ToolRegistryTag } from "@/core/interfaces/tool-registry";
 import type { ToolDisclosure } from "@/core/interfaces/tool-registry";
 import type { Agent } from "@/core/types";
@@ -74,10 +76,19 @@ export interface ServePeerRequest {
 
 export type ServePeerOutcome =
   | { readonly kind: "answered"; readonly answer: string }
-  | { readonly kind: "refused"; readonly reason: string }
-  | { readonly kind: "parked"; readonly runId: string };
+  | { readonly kind: "refused"; readonly reason: string };
 
-/** Tools this tier permits: read-only, and within the tier's disclosure ceiling. */
+/**
+ * Tools a peer may never reach, whatever their tier says.
+ *
+ * These solicit from the operator rather than reporting to the caller. They are `read-only`
+ * and would otherwise pass the filter, which would let a stranger's agent make an assistant
+ * interrupt its owner with a prompt — a nuisance channel at best, and at worst a way to put
+ * a stranger's words in front of somebody as though their own agent were asking.
+ */
+const NEVER_FOR_PEERS: ReadonlySet<string> = new Set(["ask_user_question", "ask_file_picker"]);
+
+/** Tools this tier permits: read-only, within the disclosure ceiling, and not soliciting. */
 export function allowedToolsForTier(
   tier: PeerTier,
   tools: readonly {
@@ -93,6 +104,7 @@ export function allowedToolsForTier(
       // is somehow classified `none` but can still write is excluded anyway.
       .filter((tool) => tool.riskLevel === "read-only")
       .filter((tool) => permitted.includes(tool.disclosure))
+      .filter((tool) => !NEVER_FOR_PEERS.has(tool.name))
       .map((tool) => tool.name)
   );
 }
@@ -109,7 +121,7 @@ export function servePeerRequest(request: ServePeerRequest) {
     const at = new Date().toISOString();
 
     const ledger = (
-      outcome: "answered" | "refused" | "parked",
+      outcome: "answered" | "refused",
       extra?: { readonly answer?: string; readonly reason?: string },
     ) =>
       recordLedger({
@@ -147,7 +159,6 @@ export function servePeerRequest(request: ServePeerRequest) {
       userInput: `${peerPersonaPreamble(request.peer.name)}\n\nThe question:\n${request.question}`,
       conversationId,
       toolAllowlist,
-      parkWhenUnattended: true,
       disablePersistence: true,
     }).pipe(Effect.either);
 
@@ -157,11 +168,6 @@ export function servePeerRequest(request: ServePeerRequest) {
     }
 
     const error: unknown = response.left;
-    if (isRunParkRequested(error) && error.runId !== undefined) {
-      yield* ledger("parked", { reason: "needs the operator" });
-      return { kind: "parked", runId: error.runId } satisfies ServePeerOutcome;
-    }
-
     const reason = error instanceof Error ? error.message : String(error);
     yield* ledger("refused", { reason });
     return { kind: "refused", reason: "could not answer" } satisfies ServePeerOutcome;

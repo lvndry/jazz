@@ -256,10 +256,6 @@ function answerPeer(peer: PeerConfig, agentIdentifier: string, question: string)
     switch (outcome.kind) {
       case "answered":
         return json({ ok: true, answer: outcome.answer });
-      case "parked":
-        // 202: the question was accepted and is with a person. The peer's agent can say so
-        // rather than reporting a failure, which is the honest description of what happened.
-        return json({ ok: false, state: "input-required", runId: outcome.runId }, 202);
       case "refused":
         return json({ ok: false, error: outcome.reason }, 403);
     }

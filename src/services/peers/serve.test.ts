@@ -17,6 +17,8 @@ const TOOLS: readonly {
   { name: "write_file", riskLevel: "high-risk", disclosure: "none" },
   { name: "execute_command", riskLevel: "unknown", disclosure: "personal" },
   { name: "manage_memory", riskLevel: "low-risk", disclosure: "personal" },
+  { name: "ask_user_question", riskLevel: "read-only", disclosure: "personal" },
+  { name: "ask_file_picker", riskLevel: "read-only", disclosure: "personal" },
 ];
 
 function allowed(tier: PeerTier): readonly string[] {
@@ -51,6 +53,16 @@ describe("what a tier permits", () => {
       for (const action of actions) {
         expect(allowed(tier)).not.toContain(action);
       }
+    }
+  });
+
+  it("never lets a peer make the agent interrupt its owner", () => {
+    // ask_user_question and ask_file_picker are read-only and personal, so the top tier
+    // would otherwise admit them — and a stranger able to pop a prompt in front of somebody
+    // as though their own agent were asking is a channel that should not exist.
+    for (const tier of ["public", "about-me", "ask-me-anything"] as const) {
+      expect(allowed(tier)).not.toContain("ask_user_question");
+      expect(allowed(tier)).not.toContain("ask_file_picker");
     }
   });
 
