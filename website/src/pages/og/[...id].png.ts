@@ -18,7 +18,16 @@ export async function getStaticPaths() {
       subtitle: "jazz docs · one agent · every surface",
     } satisfies OgProps,
   }));
+  const posts = await getCollection("blog", ({ data }) => data.draft !== true);
+  const blogPaths = posts.map((post) => ({
+    params: { id: `blog/${post.id}` },
+    props: {
+      title: post.data.title,
+      subtitle: "jazz blog · notes from the pit",
+    } satisfies OgProps,
+  }));
   return [
+    ...blogPaths,
     {
       params: { id: "home" },
       props: {

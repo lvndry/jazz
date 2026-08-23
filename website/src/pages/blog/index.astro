@@ -1,0 +1,102 @@
+---
+import { getCollection } from "astro:content";
+import Blog from "../../layouts/Blog.astro";
+
+const posts = (await getCollection("blog", ({ data }) => data.draft !== true)).sort(
+  (a, b) => b.data.date.valueOf() - a.data.date.valueOf(),
+);
+const formatDate = (date: Date): string =>
+  date.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+---
+
+<Blog
+  title="Blog — Jazz"
+  description="Essays from building Jazz: approvals that travel, context under pressure, and measuring agents on everyday work."
+>
+  <p class="eyebrow mono">▞ notes from the pit</p>
+  <h1 class="blog-display">Writing that ships<br />with the code.</h1>
+  <p class="lede">
+    Internals essays, capability launches, and what we learn measuring an agent on everyday work.
+    One post per real thing — no cadence theater. <a href="/rss.xml">RSS</a>.
+  </p>
+  <div class="posts">
+    {
+      posts.map((post) => (
+        <a class="entry" href={`/blog/${post.id}`}>
+          <time class="mono" datetime={post.data.date.toISOString()}>
+            {formatDate(post.data.date)}
+          </time>
+          <span class="titleline">
+            <span class="t blog-display">{post.data.title}</span>
+            <span class="d">{post.data.description}</span>
+          </span>
+        </a>
+      ))
+    }
+  </div>
+</Blog>
+
+<style>
+  .eyebrow {
+    font-size: 12px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--jz-primary);
+    margin-bottom: 14px;
+  }
+  h1 {
+    font-size: clamp(34px, 5vw, 52px);
+    color: var(--jz-selected);
+  }
+  .lede {
+    margin-top: 16px;
+    color: var(--jz-secondary);
+    max-width: 58ch;
+  }
+  .lede a {
+    color: var(--jz-link);
+  }
+  .posts {
+    margin-top: 3.5rem;
+    display: flex;
+    flex-direction: column;
+  }
+  .entry {
+    display: grid;
+    grid-template-columns: 140px 1fr;
+    gap: 20px;
+    padding: 22px 0;
+    border-top: 1px solid var(--jz-border);
+    text-decoration: none;
+  }
+  .entry:last-child {
+    border-bottom: 1px solid var(--jz-border);
+  }
+  .entry time {
+    font-size: 12px;
+    color: var(--jz-muted);
+    padding-top: 5px;
+  }
+  .titleline {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .t {
+    font-size: 22px;
+    color: var(--jz-selected);
+  }
+  .entry:hover .t {
+    color: var(--jz-primary);
+  }
+  .d {
+    color: var(--jz-secondary);
+    font-size: 15px;
+  }
+  @media (max-width: 560px) {
+    .entry {
+      grid-template-columns: 1fr;
+      gap: 6px;
+    }
+  }
+</style>
