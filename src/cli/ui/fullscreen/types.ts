@@ -16,7 +16,7 @@
  *   overlay     floats above all of it, and must not disturb the transcript
  */
 
-import type { SuggestionPrefix } from "../types";
+import type { SuggestionPrefix } from "../suggestion-menu";
 import type { FilePickerModel } from "./overlays/FilePicker";
 import type { QuestionModel } from "./overlays/Question";
 import type { TextPromptModel } from "./overlays/TextPrompt";

@@ -15,9 +15,9 @@ import { InputResults, useInputHandler, useTextInput } from "./hooks/use-input-s
 import { PICKER_WINDOW_SIZE } from "./picker-window";
 import { isCursorOnFirstLine, isCursorOnLastLine } from "./queue-recall";
 import { store } from "./store";
+import { mergeSuggestions, type SuggestionPrefix } from "./suggestion-menu";
 import { PADDING, THEME } from "./theme";
 import type { PromptState } from "./types";
-import type { SuggestionPrefix } from "./types";
 import { useFileMentions } from "./use-file-mentions";
 
 const G = getGlyphs();
@@ -151,18 +151,19 @@ function PromptComponent({
         : [],
     [commandSuggestionsEnabled, suggestionPrefix, value],
   );
-  // `@path` completions share the suggestion list with slash commands. Only one
-  // can be live: a slash query needs the line to start with "/".
+  // `@path` completions share this list with slash commands; `mergeSuggestions`
+  // owns which of the two is live so both composers agree.
   const { span: mentionSpan, items: mentionItems } = useFileMentions(value, cursor);
-  const mentionSuggestions = useMemo<readonly ChatCommandInfo[]>(
+  const menu = useMemo(
     () =>
-      commandSuggestionsEnabled && mentionSpan !== null && filteredCommands.length === 0
-        ? mentionItems.map((item) => ({ name: item.name, description: item.description }))
-        : [],
-    [commandSuggestionsEnabled, mentionSpan, mentionItems, filteredCommands.length],
+      mergeSuggestions(
+        filteredCommands,
+        commandSuggestionsEnabled && mentionSpan !== null ? mentionItems : [],
+      ),
+    [filteredCommands, commandSuggestionsEnabled, mentionSpan, mentionItems],
   );
-  const mentioning = mentionSuggestions.length > 0;
-  const suggestions = mentioning ? mentionSuggestions : filteredCommands;
+  const mentioning = menu?.prefix === "@";
+  const suggestions: readonly ChatCommandInfo[] = menu?.items ?? [];
   const suggestionsVisible = suggestions.length > 0;
   const suggestionWindowStart = Math.min(
     Math.max(0, selectedSuggestionIndex - MAX_VISIBLE_SUGGESTIONS + 1),
@@ -412,7 +413,7 @@ function PromptComponent({
                     key={cmd.name}
                     command={cmd}
                     isSelected={suggestionWindowStart + index === selectedSuggestionIndex}
-                    prefix={mentioning ? "@" : "/"}
+                    prefix={menu?.prefix ?? "/"}
                   />
                 ))}
                 {hiddenSuggestionsBelow > 0 && (

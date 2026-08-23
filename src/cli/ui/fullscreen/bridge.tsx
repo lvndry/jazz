@@ -40,6 +40,7 @@ import {
   type EphemeralRegion,
   type PendingApproval,
 } from "../store";
+import { mergeSuggestions } from "../suggestion-menu";
 import type { Choice, OutputEntry, PromptState } from "../types";
 import { useFileMentions, type FileMentionItem } from "../use-file-mentions";
 import { App, type KeyChord } from "./App";
@@ -2090,16 +2091,14 @@ export function FullscreenBridge(): React.ReactNode {
   const input = useMemo<InputModel>(() => {
     const commandItems = commandQuery === null ? [] : filterCommandsByPrefix(commandQuery);
     const mentionItems = mention === null ? [] : mentionEntries;
-    // Both cannot be live at once: a slash query requires the line to start
-    // with "/", which no mention span can.
-    const activeItems = commandItems.length > 0 ? commandItems : mentionItems;
+    const menu = mergeSuggestions(commandItems, mentionItems);
     const commands: InputModel["commands"] =
-      activeItems.length === 0
+      menu === undefined
         ? undefined
         : {
-            items: activeItems,
-            selected: wrapCommandIndex(commandIndex, activeItems.length),
-            prefix: commandItems.length > 0 ? "/" : "@",
+            items: menu.items,
+            selected: wrapCommandIndex(commandIndex, menu.items.length),
+            prefix: menu.prefix,
           };
     return {
       value: draft,
