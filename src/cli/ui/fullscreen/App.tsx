@@ -445,16 +445,19 @@ function AppView({ view, onAction, onKey, onPaste, overrideContent }: AppProps):
     () => ({ ...view.input, disabled: view.input.disabled || overlayOpen }),
     [view.input, overlayOpen],
   );
+  const overlayKind = view.overlay?.kind;
+  const overlayArmed = view.overlay?.kind === "approval" ? view.overlay.armed : true;
   const footerHints = useMemo(
     () =>
       hintsFor(
         focus,
         view.runActive === true,
         view.input.queueing === true,
-        view.overlay?.kind,
+        overlayKind,
         view.input.commands !== undefined,
+        overlayArmed,
       ),
-    [focus, view.runActive, view.input.queueing, view.overlay?.kind, view.input.commands],
+    [focus, view.runActive, view.input.queueing, overlayKind, view.input.commands, overlayArmed],
   );
   const footer = useMemo(
     () => ({
