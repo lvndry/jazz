@@ -83,6 +83,7 @@ const STATES = [
 export function runSession(body: HTMLElement, doing: HTMLElement, approval: HTMLElement): void {
   const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   let started = false;
+  body.innerHTML = "";
 
   const play = (): void => {
     body.innerHTML = "";

@@ -32,6 +32,17 @@ import Base from "../layouts/Base.astro";
       url: "https://github.com/lvndry/jazz",
     })}
   />
+  <noscript>
+    <style is:inline>
+      /* Without JS every scene holds its finished frame — nothing is blank. */
+      .approval,
+      .fan .frame {
+        opacity: 1 !important;
+        transform: none !important;
+        animation: none !important;
+      }
+    </style>
+  </noscript>
   <Hero />
   <Ticker />
   <SessionStage />
