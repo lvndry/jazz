@@ -49,7 +49,7 @@ import { minimax } from "vercel-minimax-ai-provider";
 import { createZhipu, zhipu } from "zhipu-ai-provider";
 import { z } from "zod";
 import { AI_SDK_MAX_RETRIES, AI_SDK_MAX_STEPS } from "@/core/constants/agent";
-import type { ProviderName } from "@/core/constants/models";
+import { OPENROUTER_GATEWAY_MODELS, type ProviderName } from "@/core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
@@ -447,12 +447,6 @@ export function toCoreMessages(
 type ModelName = string;
 type ProviderOptions = NonNullable<Parameters<typeof generateText>[0]["providerOptions"]>;
 type AISDKToolChoice = Parameters<typeof generateText>[0]["toolChoice"];
-
-/**
- * OpenRouter gateway models that are meta-models routing to various underlying models.
- * These should always assume tool support since the underlying models may support them.
- */
-const OPENROUTER_GATEWAY_MODELS = new Set(["openrouter/free", "openrouter/auto"]);
 
 /**
  * Get provider-native web search tool if supported by the provider

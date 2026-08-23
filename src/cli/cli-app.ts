@@ -18,6 +18,7 @@ import {
   enableMcpServerCommand,
   disableMcpServerCommand,
 } from "./commands/mcp";
+import { isMediaCapability, MEDIA_CAPABILITIES } from "./commands/media-agents";
 import {
   createPersonaCommand,
   listPersonasCommand,
@@ -264,9 +265,21 @@ function registerAgentCommands(program: Command): void {
     .command("list")
     .alias("ls")
     .description("List all agents")
-    .action(() => {
+    .option(
+      "--can <media>",
+      "Only agents whose model can generate this: image, audio, or video. Shows how to get one when none can.",
+    )
+    .action((commandOptions: { can?: string }) => {
       const opts = program.opts<CliOptions>();
-      runCliEffect(listAgentsCommand(), {
+      const requested = commandOptions.can;
+      if (requested !== undefined && !isMediaCapability(requested)) {
+        console.error(
+          `Unknown capability "${requested}". Use one of: ${MEDIA_CAPABILITIES.join(", ")}`,
+        );
+        process.exitCode = 1;
+        return;
+      }
+      runCliEffect(listAgentsCommand(requested ? { can: requested } : {}), {
         verbose: opts.verbose,
         debug: opts.debug,
         configPath: opts.config,

@@ -9,6 +9,7 @@ import {
   COMPLETION_INSTRUCTIONS,
   ENVIRONMENT_TEMPLATE,
   INTERACTIVE_QUESTIONS_GUIDELINES,
+  MEDIA_GENERATION_UNAVAILABLE,
   MEMORY_INSTRUCTIONS,
   SKILLS_INSTRUCTIONS,
   TASK_STATE_INSTRUCTIONS,
@@ -130,6 +131,11 @@ export interface AgentPromptOptions {
   readonly supportedAttachmentKinds?: readonly AttachmentKind[];
   /** Whether the target model runs locally, which relaxes attachment size limits. */
   readonly attachmentsAreLocal?: boolean;
+  /**
+   * Whether this model can produce media itself. When it cannot, the prompt gains a line telling
+   * the agent how to point the user at an agent that can, instead of dead-ending on "I can't".
+   */
+  readonly canGenerateMedia?: boolean;
 }
 
 /**
@@ -348,6 +354,12 @@ export class AgentPromptBuilder {
           systemPrompt = fillEnvironment(systemPrompt);
         } else if (personaName !== "summarizer") {
           systemPrompt = `${systemPrompt}\n${fillEnvironment(ENVIRONMENT_TEMPLATE)}`;
+        }
+
+        // Only for models that cannot generate media, and never for the summarizer, which has no
+        // user to advise.
+        if (personaName !== "summarizer" && options.canGenerateMedia === false) {
+          systemPrompt = `${systemPrompt}\n${MEDIA_GENERATION_UNAVAILABLE}`;
         }
 
         // Every acting persona gets the completion contract. The summarizer is

@@ -45,3 +45,16 @@ export const AVAILABLE_PROVIDERS = [
 ] as const;
 
 export type ProviderName = (typeof AVAILABLE_PROVIDERS)[number];
+
+/**
+ * OpenRouter meta-models that route to some other model rather than being one.
+ *
+ * Their advertised capabilities describe what they *might* reach, not what they are, so they get
+ * the benefit of the doubt when deciding whether tools work — and must be left out when
+ * recommending a model for a specific capability, where "it might route somewhere that can" is
+ * not an answer.
+ */
+export const OPENROUTER_GATEWAY_MODELS: ReadonlySet<string> = new Set([
+  "openrouter/free",
+  "openrouter/auto",
+]);
