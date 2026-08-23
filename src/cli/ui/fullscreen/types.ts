@@ -176,6 +176,12 @@ export interface LiveModel {
   /** Monotonic tick driving the indicator. */
   readonly tick: number;
   /**
+   * Elapsed time for the open reasoning region, if one is running.
+   * Lives here rather than on a transcript Block so a live tick cannot
+   * rewrite block identity and defeat wrap memoization.
+   */
+  readonly reasoningElapsedMs?: number;
+  /**
    * Rows the band occupies, as a high-water mark for the turn.
    *
    * Tools churn several times a second, and a band that shrank the moment one

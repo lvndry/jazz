@@ -33,7 +33,7 @@
  * running rather than one thing blinking three times.
  */
 
-import type { ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import { highlightCodeLine } from "./syntax-spans";
 import { getGlyphs, laneFrame, type GlyphSet } from "../glyphs";
 import { THEME } from "../theme";
@@ -288,7 +288,15 @@ export function liveRows(
 
   const rows: LiveRow[] = [];
   if (showWaiting && model.waiting !== undefined) {
-    rows.push(waitingRow(model.waiting, model.elapsedMs, model.tick, glyphs, width));
+    rows.push(
+      waitingRow(
+        model.waiting,
+        model.reasoningElapsedMs ?? model.elapsedMs,
+        model.tick,
+        glyphs,
+        width,
+      ),
+    );
   }
   if (showStep && model.step !== undefined) {
     rows.push(
@@ -307,7 +315,7 @@ export function liveRows(
   return rows;
 }
 
-export function LiveZone({ model, viewport, streaming, maxRows }: LiveZoneProps): ReactNode {
+function LiveZoneView({ model, viewport, streaming, maxRows }: LiveZoneProps): ReactNode {
   const height = reservedHeight(model, maxRows);
   const rows = liveRows(model, viewport, streaming ?? false, undefined, maxRows);
 
@@ -347,3 +355,5 @@ export function LiveZone({ model, viewport, streaming, maxRows }: LiveZoneProps)
     </box>
   );
 }
+
+export const LiveZone = memo(LiveZoneView);

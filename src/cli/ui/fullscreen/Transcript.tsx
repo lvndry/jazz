@@ -34,7 +34,15 @@
  */
 
 import { TextAttributes } from "@opentui/core";
-import { forwardRef, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  forwardRef,
+  memo,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { isFileMutationTool } from "@/core/utils/tool-formatter";
 import {
   highlightCodeLine,
@@ -86,13 +94,13 @@ interface InlineMarks {
   readonly strikethrough?: boolean;
 }
 
-function sameInlineStyle(left: Segment, right: Segment): boolean {
+function sameInlineStyle(previous: Segment, current: Segment): boolean {
   return (
-    left.fg === right.fg &&
-    left.bold === right.bold &&
-    left.italic === right.italic &&
-    left.underline === right.underline &&
-    left.strikethrough === right.strikethrough
+    previous.fg === current.fg &&
+    previous.bold === current.bold &&
+    previous.italic === current.italic &&
+    previous.underline === current.underline &&
+    previous.strikethrough === current.strikethrough
   );
 }
 
@@ -1288,7 +1296,7 @@ export interface TranscriptHandle {
   scrollBy(delta: number, unit?: "line" | "page" | "end"): void;
 }
 
-export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(function Transcript(
+const TranscriptView = forwardRef<TranscriptHandle, TranscriptProps>(function Transcript(
   { blocks, viewport, focus, newBelow, followLive = true, visibleCount },
   ref,
 ): ReactNode {
@@ -1296,10 +1304,7 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(function
   // shell re-renders on each streaming delta, each keystroke and a ~6Hz tick,
   // so without this the cost of a frame grows with the length of the whole
   // conversation rather than with what changed.
-  const rows = useMemo(
-    () => transcriptRows(blocks, viewport),
-    [blocks, viewport.width, viewport.height],
-  );
+  const rows = useMemo(() => transcriptRows(blocks, viewport), [blocks, viewport.width]);
   const page = pageWidth(viewport);
   const windowHeight =
     visibleCount === undefined ? Math.max(1, viewport.height) : Math.max(0, visibleCount);
@@ -1404,3 +1409,5 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(function
     </box>
   );
 });
+
+export const Transcript = memo(TranscriptView);

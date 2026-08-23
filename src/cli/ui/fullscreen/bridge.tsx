@@ -79,6 +79,10 @@ import {
   LIVE_ZONE_MAX_ROWS,
   type ApprovalOverlay,
   type Block,
+  type FooterModel,
+  type HeaderModel,
+  type InputModel,
+  type LiveModel,
   type LiveTool,
   type Overlay,
   type StepLine,
@@ -614,11 +618,10 @@ function plainOf(message: unknown): string {
  * rather than one block each: the model emits prose in pieces, and a block per
  * piece would make the transcript unscrollable and the markdown unparseable.
  */
-function blocksFrom(
+export function blocksFrom(
   entries: readonly OutputEntry[],
   streaming: string,
   regions: readonly EphemeralRegion[],
-  now: number,
 ): Block[] {
   const blocks: Block[] = [];
   let seq = 0;
@@ -746,7 +749,6 @@ function blocksFrom(
         kind: "reasoning",
         text: region.tail.join("\n"),
         collapsed: false,
-        durationMs: Math.max(0, now - region.startedAt),
       });
       continue;
     }
@@ -765,6 +767,108 @@ function blocksFrom(
     });
   }
   return blocks;
+}
+
+// `previous` is undefined on the first block or a missing cache slot; still
+// compare so sharing can no-op without a null check at every call site.
+function sameBlock(previous: Block | undefined, current: Block): previous is Block {
+  if (previous === undefined || previous.kind !== current.kind) return false;
+  if (previous.id !== current.id || previous.seq !== current.seq) return false;
+  switch (previous.kind) {
+    case "user":
+      return (
+        current.kind === "user" && previous.text === current.text && previous.at === current.at
+      );
+    case "agent":
+      return (
+        current.kind === "agent" &&
+        previous.markdown === current.markdown &&
+        previous.streaming === current.streaming
+      );
+    case "reasoning":
+      return (
+        current.kind === "reasoning" &&
+        previous.text === current.text &&
+        previous.collapsed === current.collapsed &&
+        previous.steps === current.steps &&
+        previous.durationMs === current.durationMs &&
+        previous.tokens === current.tokens
+      );
+    case "tool":
+      return (
+        current.kind === "tool" &&
+        previous.app === current.app &&
+        previous.summary === current.summary &&
+        previous.args === current.args &&
+        previous.status === current.status &&
+        previous.reason === current.reason &&
+        previous.remedyKey === current.remedyKey &&
+        previous.durationMs === current.durationMs &&
+        previous.detail === current.detail &&
+        previous.expanded === current.expanded &&
+        previous.classifiedRisk === current.classifiedRisk
+      );
+    case "notice":
+      return (
+        current.kind === "notice" &&
+        previous.text === current.text &&
+        previous.tone === current.tone
+      );
+    case "divider":
+      return current.kind === "divider" && previous.label === current.label;
+    case "lane":
+      return (
+        current.kind === "lane" &&
+        previous.name === current.name &&
+        previous.ask === current.ask &&
+        previous.lane === current.lane &&
+        previous.state === current.state &&
+        previous.result === current.result &&
+        previous.steps === current.steps
+      );
+  }
+}
+
+export function shareUnchangedBlocks(
+  previous: readonly Block[],
+  next: readonly Block[],
+): readonly Block[] {
+  if (previous.length === 0) return next;
+  let changed = previous.length !== next.length;
+  const shared = next.map((current, index) => {
+    const cached = previous[index];
+    if (sameBlock(cached, current)) return cached;
+    changed = true;
+    return current;
+  });
+  return changed ? shared : previous;
+}
+
+export interface TranscriptBlockSources {
+  readonly outputs: readonly OutputEntry[];
+  readonly streaming: string;
+  readonly regions: readonly EphemeralRegion[];
+}
+
+export function transcriptBlocks(
+  sources: TranscriptBlockSources,
+  previous: readonly Block[] = [],
+): readonly Block[] {
+  return shareUnchangedBlocks(
+    previous,
+    blocksFrom(sources.outputs, sources.streaming, sources.regions),
+  );
+}
+
+function liveReasoningElapsedMs(
+  regions: readonly EphemeralRegion[],
+  now: number,
+): number | undefined {
+  let startedAt: number | undefined;
+  for (const region of regions) {
+    if (region.kind === "reasoning") startedAt = region.startedAt;
+  }
+  return startedAt === undefined ? undefined : Math.max(0, now - startedAt);
 }
 
 function liveToolsFrom(activity: ActivityState, now: number): LiveTool[] {
@@ -1961,13 +2065,32 @@ export function FullscreenBridge(): React.ReactNode {
     [approval, prompt, commitComposer],
   );
 
-  const view = useMemo<ViewModel>(() => {
+  const previousBlocks = useRef<readonly Block[]>([]);
+  const blocks = useMemo(() => {
+    const next = transcriptBlocks({ outputs, streaming, regions }, previousBlocks.current);
+    previousBlocks.current = next;
+    return next;
+  }, [outputs, streaming, regions]);
+
+  const header = useMemo<HeaderModel>(
+    () => ({
+      version: packageJson.version,
+      cwd: compactWorkingDirectory(workingDirectory),
+      model: stats.model ?? "no model",
+      connectors: [...connectors].map(([name, status]) => ({ name, status })),
+      contextUsed: stats.tokensInContext ?? 0,
+      contextMax: stats.maxContextTokens ?? 0,
+    }),
+    [workingDirectory, stats.model, stats.tokensInContext, stats.maxContextTokens, connectors],
+  );
+
+  const overlay = useMemo<Overlay | undefined>(() => {
     // An approval outranks search: it is a decision the agent is blocked on, and
     // it arrived because the user asked for something.
     const promptOverlay = overlayFromPrompt(prompt, promptControls);
-    let overlay: Overlay | undefined = promptOverlay;
+    let next: Overlay | undefined = promptOverlay;
     if (searchQuery !== null) {
-      overlay = {
+      next = {
         kind: "search",
         query: searchQuery,
         scope: searchScope,
@@ -1978,9 +2101,22 @@ export function FullscreenBridge(): React.ReactNode {
       };
     }
     if (approval !== null) {
-      overlay = approvalFrom(approval, approvalArmed, approvalFieldOffset);
+      next = approvalFrom(approval, approvalArmed, approvalFieldOffset);
     }
+    return next;
+  }, [
+    prompt,
+    promptControls,
+    searchQuery,
+    searchScope,
+    searchHits,
+    searchIndex,
+    approval,
+    approvalArmed,
+    approvalFieldOffset,
+  ]);
 
+  const input = useMemo<InputModel>(() => {
     const commandItems = commandQuery === null ? [] : filterCommandsByPrefix(commandQuery);
     const commands =
       commandItems.length === 0
@@ -1989,81 +2125,55 @@ export function FullscreenBridge(): React.ReactNode {
             items: commandItems,
             selected: wrapCommandIndex(commandIndex, commandItems.length),
           };
-
     return {
-      header: {
-        version: packageJson.version,
-        cwd: compactWorkingDirectory(workingDirectory),
-        model: stats.model ?? "no model",
-        connectors: [...connectors].map(([name, status]) => ({ name, status })),
-        contextUsed: stats.tokensInContext ?? 0,
-        contextMax: stats.maxContextTokens ?? 0,
-      },
-      blocks: blocksFrom(outputs, streaming, regions, Date.now()),
+      value: draft,
+      caret: draftCaret,
+      anchor: draftAnchor,
+      placeholder: busy ? "Type to queue for next turn" : "Ask anything",
+      queued: queue,
+      queueing: busy,
+      disabled: overlay !== undefined || (!busy && prompt?.type !== "chat"),
+      ...(commands === undefined ? {} : { commands }),
+    };
+  }, [draft, draftCaret, draftAnchor, busy, queue, overlay, prompt, commandQuery, commandIndex]);
+
+  const footer = useMemo<FooterModel>(
+    () => ({
+      mode: isYolo ? "yolo" : "safe",
+      hints: [],
+      ...(stats.costUSD === undefined ? {} : { costUsd: stats.costUSD }),
+      ...(elapsedMs === undefined ? {} : { elapsedMs }),
+    }),
+    [isYolo, stats.costUSD, elapsedMs],
+  );
+
+  const live = useMemo<LiveModel>(() => {
+    const reasoningElapsedMs = liveReasoningElapsedMs(regions, Date.now());
+    return {
+      tools,
+      hiddenTools: [],
+      ...(step === undefined ? {} : { step }),
+      ...(waitingNow ? { waiting: WAITING[Math.floor(tick / 24) % WAITING.length] as string } : {}),
+      tick,
+      ...(elapsedMs === undefined ? {} : { elapsedMs }),
+      reservedRows,
+      ...(reasoningElapsedMs === undefined ? {} : { reasoningElapsedMs }),
+    };
+  }, [tools, step, waitingNow, tick, elapsedMs, reservedRows, regions]);
+
+  const view = useMemo<ViewModel>(
+    () => ({
+      header,
+      blocks,
       runActive,
-      live: {
-        tools,
-        hiddenTools: [],
-        ...(step === undefined ? {} : { step }),
-        ...(waitingNow
-          ? { waiting: WAITING[Math.floor(tick / 24) % WAITING.length] as string }
-          : {}),
-        tick,
-        ...(elapsedMs === undefined ? {} : { elapsedMs }),
-        reservedRows,
-      },
-      input: {
-        value: draft,
-        caret: draftCaret,
-        anchor: draftAnchor,
-        placeholder: busy ? "Type to queue for next turn" : "Ask anything",
-        queued: queue,
-        queueing: busy,
-        disabled: overlay !== undefined || (!busy && prompt?.type !== "chat"),
-        ...(commands === undefined ? {} : { commands }),
-      },
-      footer: {
-        mode: isYolo ? "yolo" : "safe",
-        hints: [],
-        ...(stats.costUSD === undefined ? {} : { costUsd: stats.costUSD }),
-        ...(elapsedMs === undefined ? {} : { elapsedMs }),
-      },
+      live,
+      input,
+      footer,
       ...(overlay === undefined ? {} : { overlay }),
       focus: "input",
-    };
-  }, [
-    outputs,
-    streaming,
-    activity,
-    stats,
-    queue,
-    busy,
-    regions,
-    tick,
-    draft,
-    draftCaret,
-    draftAnchor,
-    commandQuery,
-    commandIndex,
-    prompt,
-    promptControls,
-    approval,
-    approvalArmed,
-    approvalFieldOffset,
-    connectors,
-    workingDirectory,
-    searchQuery,
-    searchHits,
-    searchIndex,
-    searchScope,
-    runActive,
-    isYolo,
-    elapsedMs,
-    tools,
-    step,
-    waitingNow,
-    reservedRows,
-  ]);
+    }),
+    [header, blocks, runActive, live, input, footer, overlay],
+  );
 
   // A menu the app is waiting on gets the real screen. The wizard publishes it
   // as data precisely so a renderer that cannot paint an Ink tree can still draw
