@@ -1,6 +1,6 @@
 # Agents
 
-**Reader job:** understand what an agent is made of, so you can configure one deliberately.
+This page explains what an agent is made of, so you can configure one deliberately.
 
 An agent is the thing that does the work. Unlike a chatbot that answers one prompt and stops,
 an agent runs a loop: it reads the situation, calls tools, observes what came back, and keeps
@@ -105,7 +105,7 @@ flowchart LR
     class AC act
 ```
 
-Up to 80 iterations by default, with guards that keep long runs from spiralling — budget
+Up to 100 iterations by default, with guards that keep long runs from spiralling — budget
 pressure, loop detection, and automatic context compaction. The full mechanism:
 [Agent loop](../internals/agent-loop.md).
 

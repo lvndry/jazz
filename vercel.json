@@ -4,5 +4,17 @@
   "buildCommand": "cd website && bun install && bun run build",
   "outputDirectory": "website/dist",
   "trailingSlash": false,
-  "cleanUrls": true
+  "cleanUrls": true,
+  "redirects": [
+    {
+      "source": "/docs/guide/use-cases",
+      "destination": "/docs/examples",
+      "permanent": true
+    },
+    {
+      "source": "/docs/guide/use-cases/:slug",
+      "destination": "/docs/examples/:slug",
+      "permanent": true
+    }
+  ]
 }

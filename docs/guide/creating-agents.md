@@ -1,6 +1,6 @@
 # Creating agents
 
-**Reader job:** get an agent configured for a specific job.
+How to get an agent configured for a specific job.
 
 ```bash
 jazz agent create

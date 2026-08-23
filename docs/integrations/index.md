@@ -1,6 +1,6 @@
 # Integrations
 
-**Reader job:** connect Jazz to the model, service, or data source you need.
+How to connect Jazz to the model, service, or data source you need.
 
 ```mermaid
 flowchart LR

@@ -1,6 +1,6 @@
 # Design decisions
 
-**Reader job:** understand _why_ the harness is built this way — and what each choice
+This page explains _why_ the harness is built this way — and what each choice
 gives up.
 
 Every decision below is a real trade-off, not a free win. This page states the alternative
@@ -39,7 +39,7 @@ mindmap
 
 ### Iteration budget with ephemeral pressure injection
 
-**Decision.** 80 iterations per run. At 70% Jazz injects "begin consolidating"; at 90%,
+**Decision.** 100 iterations per run. At 70% Jazz injects "begin consolidating"; at 90%,
 "write your final output now". The message is appended to the request array for that one
 call and never stored.
 

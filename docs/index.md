@@ -10,7 +10,7 @@ chat. Any model, including local ones. These docs are organized by what you're t
 | I want to… | Go to |
 | --- | --- |
 | **Install it and see it work** | [Quick Start](./guide/quick-start.md) |
-| **Know where it can run** | [Surfaces](./surfaces/index.md) |
+| **Know where it can run** | [Where it runs](./surfaces/index.md) |
 | **Copy a finished thing** | [Cookbook](./cookbook/index.md) |
 | **Understand a concept** | [Concepts](./concepts/index.md) |
 | **Look up a flag or tool** | [Reference](./reference/index.md) |
@@ -26,9 +26,9 @@ chat. Any model, including local ones. These docs are organized by what you're t
 - [Quick Start](./guide/quick-start.md) — install, configure a provider, first answer
 - [Creating Agents](./guide/creating-agents.md) — build an agent for a job
 - [Airgapped & Self-Hosted](./guide/airgapped.md) — fully offline with Ollama or llama.cpp
-- **Use cases:** [Deep Research & Obsidian](./guide/use-cases/deep-research.md) · [Security Audits](./guide/use-cases/security-audit.md) · [Investment Analysis](./guide/use-cases/investment.md) · [Meeting Assistant](./guide/use-cases/meetings.md) · [and a dozen more](./guide/index.md#end-to-end-use-cases)
+- [Observability](./guide/observability.md) — telemetry to your own OpenTelemetry collector or Langfuse
 
-### [Surfaces](./surfaces/index.md) — where Jazz runs
+### [Where it runs](./surfaces/index.md)
 
 One agent, many front doors. Start with the [surface matrix](./surfaces/index.md).
 
@@ -40,6 +40,10 @@ One agent, many front doors. Start with the [surface matrix](./surfaces/index.md
 ### [Concepts](./concepts/index.md) — the building blocks
 
 - [Agents](./concepts/agents.md) · [Personas](./concepts/personas.md) · [Skills](./concepts/skills.md) · [Tools](./concepts/tools.md) · [Workflows](./concepts/workflows.md) · [Scheduling](./concepts/scheduling.md)
+
+### [Examples](./examples/index.md) — end-to-end walkthroughs
+
+Interactive sessions from ask to artifact: [deep research into Obsidian](./examples/deep-research.md), [git workflows](./examples/git-commit-push.md), [security scans](./examples/security-scan.md), [and more](./examples/index.md).
 
 ### [Cookbook](./cookbook/index.md) — copy-pasteable recipes
 

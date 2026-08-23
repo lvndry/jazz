@@ -1,6 +1,6 @@
 # LLM Providers
 
-**Reader job:** get an API key configured for the model you want to use.
+How to get an API key configured for the model you want to use.
 
 Jazz supports **18 providers** behind one interface. You need at least one configured. Set
 keys by running `jazz` → *Update configuration*, or by editing `~/.jazz/config.json`.

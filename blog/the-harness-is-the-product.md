@@ -1,6 +1,6 @@
 ---
 title: "The harness is the product"
-description: "What an agent harness actually is — from the first tool call to the guards that keep a run alive for eighty iterations unattended. A tour of the Jazz harness, with the real numbers."
+description: "What an agent harness actually is — from the first tool call to the guards that keep a run alive for a hundred iterations unattended. A tour of the Jazz harness, with the real numbers."
 date: 2026-08-23
 ---
 
@@ -106,8 +106,8 @@ guards. Each one exists because a real unattended run failed without it.
 
 ## Guard: the agent has a sense of its own budget
 
-A Jazz run is bounded at 80 iterations. An agent with 80 iterations and no
-sense of time will happily spend all 80 on research and produce nothing —
+A Jazz run is bounded at 100 iterations. An agent with 100 iterations and no
+sense of time will happily spend all 100 on research and produce nothing —
 so past 70% of the budget the harness tells it to consolidate, and past 90%
 to write its final output with what it has.
 
@@ -120,7 +120,7 @@ const budgetMsg = buildBudgetPressureMessage(iterationIndex + 1, maxIterations);
 const messagesForLLM = budgetMsg ? [...state.currentMessages, budgetMsg] : state.currentMessages;
 ```
 
-If it were stored, iteration 78 would carry eight escalating "FINISH NOW"
+If it were stored, iteration 98 would carry ten escalating "FINISH NOW"
 messages, each costing tokens and confusing the transcript that later gets
 summarized. The nudge steers the run without polluting its history.
 

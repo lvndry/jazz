@@ -1,6 +1,6 @@
 # Memory
 
-**Reader job:** understand where agent memory lives on disk, how it stays safe, and why
+This page explains where agent memory lives on disk, how it stays safe, and why
 it's opt-in rather than always-on.
 
 Source:

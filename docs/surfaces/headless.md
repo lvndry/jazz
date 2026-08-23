@@ -1,6 +1,6 @@
 # Headless — the `jazz run` contract
 
-**Reader job:** call Jazz from your own code and get a parseable result back.
+How to call Jazz from your own code and get a parseable result back.
 
 `jazz run` is the surface every non-terminal integration is built on. It takes a dynamic
 prompt, runs exactly one agent turn, and prints a clean payload. It is the difference
@@ -94,7 +94,7 @@ spent money, and an unattended deployment needs to account for it.
 | `--events <categories>`    | Emit NDJSON progress on stderr: `tools,reasoning,text,usage,approval,subagent,all`.                                                                |
 | `--reasoning <effort>`     | `low` \| `medium` \| `high` \| `disable`. Overrides the agent's config for this run.                                                               |
 | `--timeout <ms>`           | Abort the run after this many milliseconds.                                                                                                        |
-| `--max-iterations <n>`     | Cap the agent's reasoning iterations (default 80).                                                                                                 |
+| `--max-iterations <n>`     | Cap the agent's reasoning iterations (default 100).                                                                                                 |
 | `--stream` / `--no-stream` | Force streaming on/off. Streaming auto-disables for non-TTY stdout, which also suppresses `--events` — pass `--stream` to re-enable it in scripts. |
 
 ---

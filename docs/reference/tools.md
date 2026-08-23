@@ -1,6 +1,6 @@
 # Tools Reference
 
-**Reader job:** find the exact name, risk tier, and behavior of a tool.
+This page helps you find the exact name, risk tier, and behavior of a tool.
 
 Every tool an agent can call, generated from the registry. Risk tiers determine what runs
 unattended — see [Tools & approval](../internals/tools-and-approval.md) for the mechanism

@@ -1,6 +1,6 @@
 # Sub-agents
 
-**Reader job:** understand how Jazz delegates, and why delegation is a context strategy
+This page explains how Jazz delegates, and why delegation is a context strategy
 rather than a parallelism trick.
 
 Source: [`tools/subagent-tools.ts`](../../src/core/agent/tools/subagent-tools.ts)

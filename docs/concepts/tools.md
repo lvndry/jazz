@@ -1,6 +1,6 @@
 # Tools
 
-**Reader job:** understand what a tool is, what the risk tiers mean for you, and how to add
+This page explains what a tool is, what the risk tiers mean for you, and how to add
 your own.
 
 For the exact list of tool names, see [Tools reference](../reference/tools.md). For the

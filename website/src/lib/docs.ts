@@ -5,30 +5,17 @@ export const REPO_URL = "https://github.com/lvndry/jazz";
 /** Section order mirrors the section list in docs/index.md. */
 export const SECTIONS: ReadonlyArray<{ dir: string; label: string }> = [
   { dir: "guide", label: "Guide" },
-  { dir: "surfaces", label: "Surfaces" },
+  { dir: "surfaces", label: "Where it runs" },
+  { dir: "integrations", label: "Integrations" },
   { dir: "concepts", label: "Concepts" },
   { dir: "cookbook", label: "Cookbook" },
   { dir: "examples", label: "Examples" },
-  { dir: "integrations", label: "Integrations" },
   { dir: "reference", label: "Reference" },
   { dir: "internals", label: "Internals" },
   { dir: "design", label: "Design" },
 ];
 
-/**
- * The docs tree keeps use-cases under guide/ (GitHub browsing, stable URLs),
- * but on the site they are their own sidebar section: guides teach setup,
- * examples show finished runs.
- */
-const sectionKeyFor = (id: string): string =>
-  id === "guide/use-cases" || id.startsWith("guide/use-cases/")
-    ? "examples"
-    : (id.split("/")[0] ?? "");
-
-/** Sections whose index page lives at a different id than `<dir>`. */
-const SECTION_INDEX_ID: Record<string, string> = {
-  examples: "guide/use-cases",
-};
+const sectionKeyFor = (id: string): string => id.split("/")[0] ?? "";
 
 export type DocsEntry = CollectionEntry<"docs">;
 
@@ -58,6 +45,15 @@ const PINNED_ORDER: Record<string, string[]> = {
     "reference/configuration",
     "reference/tools",
     "reference/workflow-frontmatter",
+  ],
+  cookbook: [
+    "cookbook/inbox-triage",
+    "cookbook/pr-watchdog",
+    "cookbook/research-digest",
+    "cookbook/competitor-watch",
+    "cookbook/codebase-tech-debt-radar",
+    "cookbook/ci-pr-reviewer",
+    "cookbook/release-notes-draft",
   ],
   internals: [
     "internals/agent-loop",
@@ -134,10 +130,7 @@ export function buildSidebar(entries: DocsEntry[]): SidebarSection[] {
   for (const { dir, label } of ordered) {
     const bucket = bySection.get(dir);
     if (!bucket) continue;
-    const indexId = SECTION_INDEX_ID[dir] ?? dir;
-    const indexEntry = bucket.find(
-      (entry) => entry.id === indexId || entry.id === `${indexId}/index`,
-    );
+    const indexEntry = bucket.find((entry) => entry.id === dir || entry.id === `${dir}/index`);
     const pinned = PINNED_ORDER[dir] ?? [];
     const rank = (id: string): number => {
       const position = pinned.indexOf(id);

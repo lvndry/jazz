@@ -1,6 +1,6 @@
 # MCP Servers
 
-**Reader job:** connect an agent to an external service.
+How to connect an agent to an external service.
 
 Jazz speaks [Model Context Protocol](https://modelcontextprotocol.io/). Add a server with
 `jazz mcp add`, then include its tools in an agent's tool list.

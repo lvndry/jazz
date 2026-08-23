@@ -64,7 +64,7 @@ jazz workflow history email-cleanup
 | `skills`           |          | Skills to make available                        |
 | `catchUpOnStartup` |          | Offer a missed run on next launch               |
 | `maxCatchUpAge`    |          | Max age in seconds for catch-up (default 86400) |
-| `maxIterations`    |          | Iteration cap (default 80)                      |
+| `maxIterations`    |          | Iteration cap (default 100)                      |
 
 **Full field reference, with types and the `autoApprove` gotcha:**
 [Reference → Workflow frontmatter](../reference/workflow-frontmatter.md).

@@ -1,6 +1,6 @@
 # Email & Calendar
 
-**Reader job:** let an agent read your mail or your calendar.
+How to let an agent read your mail or your calendar.
 
 Email and calendar are **skills**, not built-in tools. They drive CLI programs
 ([Himalaya](https://github.com/pimalaya/himalaya), [khal](https://github.com/pimutils/khal))
