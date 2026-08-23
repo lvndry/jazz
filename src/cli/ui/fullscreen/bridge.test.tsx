@@ -23,7 +23,7 @@ import packageJson from "../../../../package.json";
 import { hydrateTranscriptFromHistory } from "../hydrate-transcript";
 import { store } from "../store";
 import { THEME } from "../theme";
-import { FullscreenBridge } from "./bridge";
+import { APPROVAL_ARM_MS, flushPendingTerminalKeys, FullscreenBridge } from "./bridge";
 
 /**
  * Settles a state update dispatched from a keyboard event.
@@ -385,6 +385,8 @@ describe("fullscreen bridge", () => {
     store.setPrompt(null);
 
     expect(typed).toContain("/");
+    expect(typed).not.toContain("all conversations");
+    expect(typed).not.toContain("this conversation");
     expect(opened).toContain("all conversations");
   });
 
@@ -477,6 +479,7 @@ describe("fullscreen bridge", () => {
     await settleKeypress(rendered.flush, 100);
     expect(rendered.captureCharFrame()).toContain("1 queued");
     expect(rendered.captureCharFrame()).toContain("follow up");
+    expect(rendered.captureCharFrame()).toContain("enter to queue");
     expect(store.getMessageQueueSnapshot()).toEqual(["follow up"]);
 
     await rendered.mockInput.pressKey("ARROW_UP");
@@ -493,6 +496,33 @@ describe("fullscreen bridge", () => {
 
     rendered.renderer.destroy();
     store.setChatBusy(false);
+    store.setPrompt(null);
+  });
+
+  it("keeps the composer enabled after the chat prompt resolves while a queue is shown", async () => {
+    const rendered = await testRender(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
+    await rendered.renderOnce();
+    store.setPrompt({ type: "chat", message: "", resolve: () => undefined });
+    await rendered.flush();
+    store.setChatBusy(true);
+    store.setPrompt(null);
+    await rendered.flush();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await rendered.flush();
+
+    await typeInto(rendered.mockInput, rendered.flush, "already waiting");
+    await rendered.mockInput.pressKey("RETURN");
+    await settleKeypress(rendered.flush, 100);
+    expect(rendered.captureCharFrame()).toContain("1 queued");
+    expect(rendered.captureCharFrame()).toContain("enter to queue");
+
+    await typeInto(rendered.mockInput, rendered.flush, "second thought");
+    expect(rendered.captureCharFrame()).toContain("second thought");
+    expect(rendered.captureCharFrame()).toContain("1 queued");
+
+    rendered.renderer.destroy();
+    store.setChatBusy(false);
+    store.clearQueue();
     store.setPrompt(null);
   });
 
@@ -1362,6 +1392,95 @@ describe("fullscreen bridge", () => {
     store.setPrompt(null);
     expect(pasted).toContain("pasted-while-scrolled");
     expect(pasted).toContain("enter to send");
+  });
+
+  it("drains buffered stdin so a pending Enter cannot land on a new card", () => {
+    const leftover: Array<string | Buffer> = ["\r", "a"];
+    const stdin = {
+      readable: true,
+      read: () => leftover.shift() ?? null,
+    } as unknown as NodeJS.ReadStream;
+    flushPendingTerminalKeys(stdin);
+    expect(leftover).toEqual([]);
+  });
+
+  it("does not resolve a producer approval from queued Enter or a during the deny-only window", async () => {
+    let settled: { approved: boolean } | undefined;
+    const rendered = await testRender(<FullscreenBridge />, { width: 100, height: 28 });
+    await rendered.renderOnce();
+    const pending = Effect.runPromise(
+      presentationProducer().requestApproval({
+        toolCallId: "call-cal",
+        toolName: "calendar_create",
+        executeToolName: "calendar_create",
+        message: "This invitation will be sent immediately.",
+        executeArgs: {
+          account: "user@example.com",
+          title: "Planning",
+          field1: "one",
+          field2: "two",
+          field3: "three",
+          field4: "four",
+          field5: "five",
+          field6: "six",
+          field7: "seven",
+          field8: "eight",
+          field9: "nine",
+        },
+      }),
+    );
+    void pending.then((outcome) => {
+      settled = outcome;
+    });
+    await rendered.flush();
+    expect(rendered.captureCharFrame()).toContain("field9");
+    expect(rendered.captureCharFrame()).toContain("esc to reject");
+    expect(rendered.captureCharFrame()).not.toContain("enter to accept");
+
+    await rendered.mockInput.pressKey("RETURN");
+    await settleKeypress(rendered.flush);
+    await rendered.mockInput.pressKey("a");
+    await settleKeypress(rendered.flush);
+    expect(settled).toBeUndefined();
+
+    await new Promise((resolve) => setTimeout(resolve, APPROVAL_ARM_MS + 50));
+    await rendered.flush();
+    expect(rendered.captureCharFrame()).toContain("enter to accept");
+    await rendered.mockInput.pressKey("RETURN");
+    await settleKeypress(rendered.flush);
+    expect(await pending).toEqual({ approved: true });
+
+    rendered.renderer.destroy();
+  });
+
+  it("keeps reject available from a producer while accept is still inert", async () => {
+    let settled: { approved: boolean } | undefined;
+    const rendered = await testRender(<FullscreenBridge />, { width: 100, height: 28 });
+    await rendered.renderOnce();
+    const pending = Effect.runPromise(
+      presentationProducer().requestApproval({
+        toolCallId: "call-mail",
+        toolName: "email_send",
+        executeToolName: "email_send",
+        message: "This message will leave the machine.",
+        executeArgs: { account: "user@example.com", to: "other@example.com" },
+      }),
+    );
+    void pending.then((outcome) => {
+      settled = outcome;
+    });
+    await rendered.flush();
+
+    await rendered.mockInput.pressKey("ESCAPE");
+    await settleKeypress(rendered.flush, 100);
+    expect(settled).toBeUndefined();
+    expect(rendered.captureCharFrame().toLowerCase()).toContain("instead");
+
+    await rendered.mockInput.pressKey("RETURN");
+    await settleKeypress(rendered.flush, 100);
+    expect(await pending).toEqual({ approved: false });
+
+    rendered.renderer.destroy();
   });
 
   it("accepts only denial until an approval has armed", async () => {

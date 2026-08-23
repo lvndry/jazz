@@ -98,7 +98,15 @@ const WAITING_ROTATE_MS = 4_000;
 
 /** How long the band holds its height after the last tool finishes. */
 const SETTLE_MS = 800;
-const APPROVAL_ARM_MS = 250;
+export const APPROVAL_ARM_MS = 250;
+
+/** Discard keystrokes already sitting on stdin before the card can see them. */
+export function flushPendingTerminalKeys(stdin: NodeJS.ReadStream = process.stdin): void {
+  if (stdin.readable !== true || typeof stdin.read !== "function") return;
+  while (stdin.read() !== null) {
+    // Buffered Enter / always-allow must not land on a card that just appeared.
+  }
+}
 
 interface PromptEditorState {
   readonly value: string;
@@ -1140,6 +1148,7 @@ export function FullscreenBridge(): React.ReactNode {
     store.registerEphemeralRegionsSetter(setRegions);
     store.registerPromptSetter(setPromptState);
     store.registerApprovalRequestSetter((next) => {
+      if (next !== null) flushPendingTerminalKeys();
       setApprovalArmedState(false);
       setApprovalFieldOffset(0);
       setApproval(next);
@@ -2119,8 +2128,8 @@ export function FullscreenBridge(): React.ReactNode {
       anchor: draftAnchor,
       placeholder: busy ? "Type to queue for next turn" : "Ask anything",
       queued: queue,
-      queueing: busy,
-      disabled: overlay !== undefined || (!busy && prompt?.type !== "chat"),
+      queueing: busy || queue.length > 0,
+      disabled: overlay !== undefined || (!busy && queue.length === 0 && prompt?.type !== "chat"),
       ...(commands === undefined ? {} : { commands }),
     };
   }, [draft, draftCaret, draftAnchor, busy, queue, overlay, prompt, commandQuery, commandIndex]);
