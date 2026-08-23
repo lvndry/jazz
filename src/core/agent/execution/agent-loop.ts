@@ -841,6 +841,10 @@ function runIteration(
       ...state.response,
       content: visibleContent,
       ...(completion.reasoning ? { reasoning: completion.reasoning } : {}),
+      // Media the model itself returned, joining anything tools produced earlier in the run.
+      ...(completion.artifacts && completion.artifacts.length > 0
+        ? { artifacts: [...(state.response.artifacts ?? []), ...completion.artifacts] }
+        : {}),
     };
 
     // Internal runs (compaction, other sub-agents) return content to the

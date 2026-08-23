@@ -83,6 +83,7 @@ import { formatProviderDisplayName } from "@/core/utils/provider-model";
 import { sanitize } from "@/core/utils/string";
 import { LLM_PROVIDER_ENV_VARS } from "@/services/secrets/registry";
 import { resolveAttachments, type ResolvedAttachments } from "./attachment-resolver";
+import { saveModelGeneratedFiles } from "./generated-files";
 import {
   createModelFetcher,
   fetchModelsDevModels,
@@ -1471,6 +1472,9 @@ class AISDKService implements LLMService {
 
         const responseModel = options.model;
         const content = result.text ?? "";
+        // Files the model itself produced. Empty for every text-only model, so this costs
+        // nothing on the common path.
+        const generatedArtifacts = await saveModelGeneratedFiles(result.files ?? [], responseModel);
         let toolCalls: ChatCompletionResponse["toolCalls"] = undefined;
         let usage: ChatCompletionResponse["usage"] = undefined;
 
@@ -1550,6 +1554,7 @@ class AISDKService implements LLMService {
           ...(toolCalls ? { toolCalls } : {}),
           ...(usage ? { usage } : {}),
           ...(toolsDisabled ? { toolsDisabled } : {}),
+          ...(generatedArtifacts.length > 0 ? { artifacts: generatedArtifacts } : {}),
           ...(prepared
             ? {
                 toolDefinitionChars: prepared.toolDefinitionChars,
@@ -1747,8 +1752,20 @@ class AISDKService implements LLMService {
                 // Process the stream and get final response
                 const finalResponse = await processor.process(result);
 
+                // `files` resolves once the stream finishes, so media a model emitted mid-answer
+                // is saved after the text has already been rendered. Awaited here rather than in
+                // the processor so streaming stays purely about text deltas.
+                const streamedArtifacts = await saveModelGeneratedFiles(
+                  await result.files,
+                  options.model,
+                );
+
                 // Resolve deferred for consumers who just await response
-                responseDeferred.resolve(finalResponse);
+                responseDeferred.resolve(
+                  streamedArtifacts.length > 0
+                    ? { ...finalResponse, artifacts: streamedArtifacts }
+                    : finalResponse,
+                );
 
                 // Close the stream
                 processor.close();

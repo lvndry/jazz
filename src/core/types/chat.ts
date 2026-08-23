@@ -1,4 +1,5 @@
 import type { ProviderName } from "@/core/constants/models";
+import type { GeneratedArtifact } from "@/core/types/artifact";
 import type { ChatMessage, StoredReasoningPart } from "./message";
 import type { ToolCall, ToolDefinition } from "./tools";
 
@@ -16,6 +17,14 @@ export interface ChatCompletionResponse {
   /** Structured reasoning blocks with provider payloads, for replay in conversation history. */
   reasoningParts?: ReadonlyArray<StoredReasoningPart>;
   toolCalls?: ToolCall[];
+  /**
+   * Media the model returned alongside its text, already written to disk.
+   *
+   * Populated only by models whose output modalities include image/audio/video — the agent's own
+   * model, not a separate one, since generating media is a model capability rather than a tool
+   * jazz provides.
+   */
+  artifacts?: readonly GeneratedArtifact[];
   usage?: {
     promptTokens: number;
     completionTokens: number;
