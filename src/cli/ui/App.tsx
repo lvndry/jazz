@@ -13,9 +13,10 @@ import { Prompt } from "./Prompt";
 import { QueueInput } from "./QueueInput";
 import { RAIL_WIDTH, railStreamLines } from "./rail";
 import StatusFooter from "./StatusFooter";
-import { store, useOutputSlice, usePromptSlice, useSessionSlice } from "./store";
+import { store, useOutputSlice, usePromptSlice, useSessionSlice, type ActiveMenu } from "./store";
 import { PADDING, PADDING_BUDGET, THEME } from "./theme";
 import type { OutputEntryWithId } from "./types";
+import { WizardHome } from "./WizardHome";
 import { dimReasoningMarkdownOutput } from "../presentation/format-utils";
 import { InputPriority, InputResults } from "../services/input-service";
 
@@ -155,8 +156,35 @@ const OutputIsland = React.memo(OutputIslandComponent);
 // Main App Component
 // ============================================================================
 
+function ActiveMenuView({ menu }: { readonly menu: ActiveMenu }): React.ReactElement {
+  const options =
+    menu.kind === "agents"
+      ? menu.agents.map((agent) => ({
+          label: `${agent.name} (${agent.model})`,
+          value: agent.id,
+        }))
+      : menu.options;
+  const title = menu.title;
+  const browse = menu.kind === "agents" && menu.browse === true;
+
+  return (
+    <WizardHome
+      options={options}
+      {...(title === undefined ? {} : { title })}
+      onSelect={(value) => {
+        if (browse) {
+          store.completePrompt({ kind: "exit" });
+          return;
+        }
+        store.completePrompt({ kind: "select", value });
+      }}
+      onExit={() => store.completePrompt({ kind: "exit" })}
+    />
+  );
+}
+
 export function App(): React.ReactElement {
-  const { customView, interruptHandler, modeToast } = useSessionSlice();
+  const { activeMenu: menu, interruptHandler, modeToast } = useSessionSlice();
   const interruptHandlerRef = useRef(interruptHandler);
   interruptHandlerRef.current = interruptHandler;
   const modeToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -298,10 +326,10 @@ export function App(): React.ReactElement {
 
   return (
     <ErrorBoundary>
-      {customView}
+      {menu !== null && <ActiveMenuView menu={menu} />}
       <Box
         flexDirection="column"
-        display={customView ? "none" : "flex"}
+        display={menu !== null ? "none" : "flex"}
       >
         <Box
           flexDirection="column"

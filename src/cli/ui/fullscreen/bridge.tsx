@@ -1032,7 +1032,6 @@ export function FullscreenBridge(): React.ReactNode {
     [updateHistory],
   );
   const [commandIndex, commandIndexRef, setCommandIndex] = useSynchronizedState(0);
-  const customView = session.customView;
   const connectors = session.connectors;
   const currentConversation = session.currentConversation;
   const workingDirectory = session.workingDirectory;
@@ -1120,19 +1119,6 @@ export function FullscreenBridge(): React.ReactNode {
     }, APPROVAL_ARM_MS);
     return () => clearTimeout(timer);
   }, [approval, setApprovalArmedState]);
-
-  useEffect(() => {
-    if (customView === null || menu !== null) return;
-    let cancelled = false;
-    queueMicrotask(() => {
-      if (!cancelled && store.getActiveMenuSnapshot() === null) {
-        store.requestRendererFallback();
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [customView, menu]);
 
   useEffect(() => {
     if (prompt?.type !== "filepicker") return;
@@ -1439,19 +1425,21 @@ export function FullscreenBridge(): React.ReactNode {
         if (name === "return" || name === "enter") {
           if (openMenu.kind === "agents") {
             if (openMenu.browse === true) {
-              openMenu.onExit();
+              store.completePrompt({ kind: "exit" });
             } else {
               const choice = openMenu.agents[menuSelection];
-              if (choice !== undefined) openMenu.onSelect(choice.id);
+              if (choice !== undefined) store.completePrompt({ kind: "select", value: choice.id });
             }
           } else {
             const choice = openMenu.options[menuSelection];
-            if (choice !== undefined) openMenu.onSelect(choice.value);
+            if (choice !== undefined) {
+              store.completePrompt({ kind: "select", value: choice.value });
+            }
           }
           return true;
         }
         if (name === "escape" || name === "q") {
-          openMenu.onExit();
+          store.completePrompt({ kind: "exit" });
           return true;
         }
         return true;
@@ -2138,10 +2126,6 @@ export function FullscreenBridge(): React.ReactNode {
         }}
         viewport={viewport}
       />
-    ) : customView !== null ? (
-      <box style={{ flexDirection: "column", padding: 1 }}>
-        <text>Switching to the standard interface…</text>
-      </box>
     ) : undefined;
 
   return (
