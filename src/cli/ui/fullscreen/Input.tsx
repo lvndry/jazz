@@ -137,7 +137,7 @@ function commandSuggestRows(
   const rows: InputRow[] = visible.map((command) => {
     const selected = command === commands.items[commands.selected];
     const usage = command.usage === undefined ? "" : ` ${command.usage}`;
-    const skill = command.source === "skill" ? " (skill)" : "";
+    const skill = command.source ? (command.source === "skill" ? " (skill)" : " (mcp)") : "";
     const segments: InputSegment[] = [
       { text: selected ? `${glyphs.rail} ` : "  ", fg: THEME.primary },
       { text: `/${command.name}`, fg: selected ? THEME.selected : THEME.secondary },

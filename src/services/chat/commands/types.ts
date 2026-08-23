@@ -30,6 +30,7 @@ export type CommandType =
   | "export"
   | "retry"
   | "runSkill"
+  | "runMcpPrompt"
   | "unknown";
 
 /**

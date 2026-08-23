@@ -57,7 +57,9 @@ function CommandSuggestionItem({
         {isSelected ? "> " : "  "}/{command.name}
       </Text>
       {command.usage ? <Text color={THEME.muted}> {command.usage}</Text> : null}
-      {command.source === "skill" ? <Text color={THEME.muted}> (skill)</Text> : null}
+      {command.source ? (
+        <Text color={THEME.muted}> ({command.source === "skill" ? "skill" : "mcp"})</Text>
+      ) : null}
       <Text dimColor> – {command.description}</Text>
     </Box>
   );

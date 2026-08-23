@@ -36,6 +36,7 @@ import {
 } from "@/core/interfaces/tool-registry";
 import { SkillServiceTag, type SkillService } from "@/core/skills/skill-service";
 import { StorageError, StorageNotFoundError } from "@/core/types/errors";
+import type { MCPPromptArgument, MCPPromptMessage } from "@/core/types/mcp";
 import type { ChatMessage } from "@/core/types/message";
 import type { AutoApprovePolicy } from "@/core/types/tools";
 import { generateConversationId } from "@/core/utils/conversation-id";
@@ -133,7 +134,7 @@ export function handleSpecialCommand(
         return yield* handleStatsCommand(terminal, agent, context);
 
       case "mcp":
-        return yield* handleMcpCommand(terminal);
+        return yield* handleMcpCommand(terminal, command.args);
 
       case "mode":
         return yield* handleModeCommand(
@@ -162,6 +163,9 @@ export function handleSpecialCommand(
 
       case "runSkill":
         return yield* handleRunSkillCommand(command.args);
+
+      case "runMcpPrompt":
+        return yield* handleRunMcpPromptCommand(terminal, command.args);
 
       case "unknown":
         return yield* handleUnknownCommand(terminal, command.args);
@@ -1218,6 +1222,139 @@ function handleRunSkillCommand(args: string[]): Effect.Effect<CommandResult, nev
 }
 
 /**
+ * Bind loose slash-command arguments to a prompt's declared parameters.
+ *
+ * Accepts `name=value` pairs in any order and falls back to positional order
+ * for bare words, so both `/srv:issue title=Bug` and `/srv:issue Bug` work.
+ * A single bare trailing phrase fills the first declared argument rather than
+ * being split, which is what people actually type.
+ */
+export function bindPromptArguments(
+  declared: readonly MCPPromptArgument[],
+  args: readonly string[],
+): Record<string, string> {
+  const bound: Record<string, string> = {};
+  const declaredNames = new Set(declared.map((argument) => argument.name));
+  const positional: string[] = [];
+
+  for (const arg of args) {
+    const separator = arg.indexOf("=");
+    const key = separator > 0 ? arg.slice(0, separator) : undefined;
+    if (key !== undefined && declaredNames.has(key)) {
+      bound[key] = arg.slice(separator + 1);
+    } else {
+      positional.push(arg);
+    }
+  }
+
+  if (positional.length > 0) {
+    const unfilled = declared.filter((argument) => bound[argument.name] === undefined);
+    const first = unfilled[0];
+    if (unfilled.length === 1 && first) {
+      bound[first.name] = positional.join(" ");
+    } else {
+      unfilled.forEach((argument, index) => {
+        const value = positional[index];
+        if (value !== undefined) bound[argument.name] = value;
+      });
+    }
+  }
+
+  return bound;
+}
+
+/** Flatten a resolved prompt's messages into text to send as the user turn. */
+export function flattenPromptMessages(messages: readonly MCPPromptMessage[]): string {
+  const parts: string[] = [];
+
+  for (const message of messages) {
+    const content = message.content;
+    if (typeof content === "string") {
+      parts.push(content);
+      continue;
+    }
+    if (typeof content === "object" && content !== null) {
+      const block = content as { type?: string; text?: string; resource?: { text?: string } };
+      if (typeof block.text === "string") {
+        parts.push(block.text);
+        continue;
+      }
+      // An embedded resource carries its body here; anything else (images,
+      // resource links) has no text form worth inlining.
+      if (typeof block.resource?.text === "string") {
+        parts.push(block.resource.text);
+      }
+    }
+  }
+
+  return parts.join("\n\n").trim();
+}
+
+/**
+ * Handle `/server:prompt` — resolve an MCP prompt and send it as the user turn.
+ */
+function handleRunMcpPromptCommand(
+  terminal: TerminalService,
+  args: string[],
+): Effect.Effect<CommandResult, never, MCPServerManager | LoggerService> {
+  return Effect.gen(function* () {
+    const mcpManager = yield* MCPServerManagerTag;
+    const commandName = args[0] ?? "";
+    const separator = commandName.indexOf(":");
+
+    if (separator <= 0) {
+      yield* terminal.error(`Not an MCP prompt: /${commandName}`);
+      return { shouldContinue: true };
+    }
+
+    const serverName = commandName.slice(0, separator);
+    const promptName = commandName.slice(separator + 1);
+
+    const prompts = yield* mcpManager.getServerPrompts(serverName).pipe(Effect.either);
+    if (prompts._tag === "Left") {
+      yield* terminal.error(prompts.left.reason);
+      return { shouldContinue: true };
+    }
+
+    const definition = prompts.right.find((prompt) => prompt.name === promptName);
+    if (!definition) {
+      yield* terminal.error(`${serverName} does not advertise a prompt named "${promptName}".`);
+      return { shouldContinue: true };
+    }
+
+    const declared = definition.arguments ?? [];
+    const bound = bindPromptArguments(declared, args.slice(1));
+
+    const missing = declared
+      .filter((argument) => argument.required === true && bound[argument.name] === undefined)
+      .map((argument) => argument.name);
+
+    if (missing.length > 0) {
+      yield* terminal.error(`Missing required argument(s): ${missing.join(", ")}`);
+      yield* terminal.info(
+        `Usage: /${commandName} ${declared.map((argument) => `${argument.name}=<value>`).join(" ")}`,
+      );
+      return { shouldContinue: true };
+    }
+
+    const resolved = yield* mcpManager.getPrompt(serverName, promptName, bound).pipe(Effect.either);
+    if (resolved._tag === "Left") {
+      yield* terminal.error(resolved.left.reason);
+      return { shouldContinue: true };
+    }
+
+    const text = flattenPromptMessages(resolved.right.messages);
+
+    if (text === "") {
+      yield* terminal.warn(`Prompt "${promptName}" resolved to no text content.`);
+      return { shouldContinue: true };
+    }
+
+    return { shouldContinue: true, resendMessage: text };
+  });
+}
+
+/**
  * Handle unknown command
  */
 function handleUnknownCommand(
@@ -1450,14 +1587,50 @@ function handleStatsCommand(
 }
 
 /**
- * Handle /mcp command - Show MCP server status and connections
+ * Handle `/mcp` — show server status, and `/mcp reconnect <name>` to retry one.
+ *
+ * Reconnect exists because a server that failed at startup was otherwise
+ * unreachable for the rest of the session: the only fix was to quit, repair it,
+ * and start the conversation over.
  */
 function handleMcpCommand(
   terminal: TerminalService,
-): Effect.Effect<CommandResult, never, MCPServerManager | AgentConfigService> {
+  args: readonly string[] = [],
+): Effect.Effect<CommandResult, never, MCPServerManager | AgentConfigService | LoggerService> {
   return Effect.gen(function* () {
     const mcpManager = yield* MCPServerManagerTag;
     const servers = yield* mcpManager.listServers();
+
+    const [subcommand, targetName] = args;
+
+    if (subcommand === "reconnect") {
+      const target = servers.find((server) => server.name === targetName);
+      if (!target) {
+        yield* terminal.error(
+          targetName === undefined
+            ? "Usage: /mcp reconnect <server>"
+            : `No MCP server named "${targetName}".`,
+        );
+        return { shouldContinue: true };
+      }
+
+      yield* mcpManager.disconnectServer(target.name).pipe(Effect.catchAll(() => Effect.void));
+      const reconnected = yield* mcpManager.connectServer(target).pipe(Effect.either);
+
+      if (reconnected._tag === "Left") {
+        yield* terminal.error(reconnected.left.reason);
+        if (reconnected.left.suggestion) {
+          yield* terminal.info(reconnected.left.suggestion);
+        }
+        return { shouldContinue: true };
+      }
+
+      const tools = yield* mcpManager.getServerTools(target.name).pipe(Effect.either);
+      yield* terminal.success(
+        `Reconnected to ${target.name}${tools._tag === "Right" ? ` (${tools.right.length} tool(s))` : ""}`,
+      );
+      return { shouldContinue: true };
+    }
 
     yield* terminal.log(fmt.heading("MCP Servers"));
 
@@ -1473,19 +1646,38 @@ function handleMcpCommand(
       const enabledStr = server.enabled === false ? "disabled" : "enabled";
       const connectedStr = connected ? "connected" : "disconnected";
 
-      if (connected) {
-        yield* terminal.log(fmt.statusConnected(server.name));
-      } else {
-        yield* terminal.log(fmt.statusDisconnected(server.name));
-      }
+      yield* terminal.log(
+        connected ? fmt.statusConnected(server.name) : fmt.statusDisconnected(server.name),
+      );
       yield* terminal.log(fmt.keyValue("Status", `${enabledStr}, ${connectedStr}`));
       yield* terminal.log(fmt.keyValue("Transport", server.transport ?? "stdio"));
+      // Trust decides whether this server's tools can skip approval prompts, so
+      // it belongs next to the connection state rather than buried in config.
+      yield* terminal.log(
+        fmt.keyValue("Trust", server.trusted === true ? "trusted" : "asks every call"),
+      );
 
       if (isStdioConfig(server)) {
         const cmd = `${server.command}${server.args?.length ? " " + server.args.join(" ") : ""}`;
         yield* terminal.log(fmt.keyValue("Command", cmd));
       } else if (isHttpConfig(server)) {
         yield* terminal.log(fmt.keyValue("URL", server.url));
+      }
+
+      if (connected) {
+        const tools = yield* mcpManager.getServerTools(server.name).pipe(Effect.either);
+        if (tools._tag === "Right") {
+          yield* terminal.log(fmt.keyValue("Tools", String(tools.right.length)));
+        }
+        const prompts = yield* mcpManager.getServerPrompts(server.name).pipe(Effect.either);
+        if (prompts._tag === "Right" && prompts.right.length > 0) {
+          yield* terminal.log(
+            fmt.keyValue(
+              "Prompts",
+              prompts.right.map((prompt) => `/${server.name}:${prompt.name}`).join(", "),
+            ),
+          );
+        }
       }
 
       yield* terminal.log(fmt.blank());
