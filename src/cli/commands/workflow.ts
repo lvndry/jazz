@@ -439,6 +439,7 @@ export function runWorkflowCommand(
                 runResult.costUSD,
                 agent.config.llmProvider,
                 agent.config.llmModel,
+                runResult.costIncomplete === true,
               ),
               tokenUsage: {
                 promptTokens,

@@ -4,6 +4,7 @@ import {
   DEFAULT_MAX_SUBAGENT_DEPTH,
   DEFAULT_MAX_SUBAGENT_ITERATIONS,
 } from "@/core/constants/agent";
+import { isZeroCostLocalModel } from "@/core/constants/local-providers";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import type { Tool, ToolRequirements } from "@/core/interfaces/tool-registry";
@@ -222,6 +223,14 @@ ${args.task}`;
           if (response.costUSD && context.recordChildCost) {
             context.recordChildCost(response.costUSD);
           }
+          // A child whose spend could not be priced poisons the parent's total:
+          // without this the parent reports a confident costUSD that silently
+          // omits the child, and cost-capped callers keep serving under the cap.
+          const childCostUnknown =
+            response.costIncomplete === true ||
+            (response.costUSD === undefined &&
+              !isZeroCostLocalModel(subAgent.config.llmProvider, subAgent.config.llmModel));
+          if (childCostUnknown) context.recordChildCostUnknown?.();
 
           let result = response.content;
           if (!result?.trim() && response.messages?.length) {

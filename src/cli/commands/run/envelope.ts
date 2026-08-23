@@ -11,7 +11,7 @@
  * command's job; saying what they look like on the wire is this file's.
  */
 
-import { isOllamaCloudModel } from "@/core/constants/ollama";
+import { isZeroCostLocalModel } from "@/core/constants/local-providers";
 import { describeArtifact, type GeneratedArtifact } from "@/core/types/artifact";
 import type { ChatMessage } from "@/core/types/message";
 
@@ -75,15 +75,20 @@ export interface OneShotOutputOptions {
   readonly json: boolean;
 }
 
-/** Distinguish unavailable remote pricing from providers that run on the user's machine. */
+/**
+ * Distinguish unavailable remote pricing from providers that run on the user's
+ * machine. `costIncomplete` comes from the run itself and wins over a defined
+ * costUSD: a total that omits unpriced parent or sub-agent spend is not known.
+ */
 export function isRunCostKnown(
   costUSD: number | undefined,
   provider: string,
   modelId: string,
+  costIncomplete = false,
 ): boolean {
+  if (costIncomplete) return false;
   if (costUSD !== undefined) return true;
-  if (provider === "llamacpp") return true;
-  return provider === "ollama" && !isOllamaCloudModel(modelId);
+  return isZeroCostLocalModel(provider, modelId);
 }
 
 /**

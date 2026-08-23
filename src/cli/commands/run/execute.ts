@@ -387,6 +387,7 @@ export function runAgentOnceCommand(
             runResult.costUSD,
             agentForRun.config.llmProvider,
             agentForRun.config.llmModel,
+            runResult.costIncomplete === true,
           ),
           tokenUsage: {
             promptTokens,

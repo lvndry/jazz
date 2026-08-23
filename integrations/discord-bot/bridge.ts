@@ -647,6 +647,11 @@ async function handleMessage(
     }
 
     if (envelope.ok) {
+      if (envelope.costKnown === undefined) {
+        console.error(
+          "Envelope has no costKnown field (jazz binary predates it); treating cost as known — upgrade jazz so unpriced runs pause the daily cap.",
+        );
+      }
       const costKnown = envelope.costKnown !== false;
       recordUsage(
         config.jazzHome,

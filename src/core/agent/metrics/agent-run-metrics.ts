@@ -50,6 +50,8 @@ export interface AgentRunMetrics {
   totalCacheWriteTokens: number;
   /** Aggregated USD cost of nested runs (sub-agents) spawned during this run. */
   childCostUSD: number;
+  /** True once any nested run spent tokens whose pricing was unavailable. */
+  childCostUnknown: boolean;
   llmRetryCount: number;
   lastError?: string;
   toolCalls: number;
@@ -89,6 +91,7 @@ export function createAgentRunMetrics(context: AgentRunMetricsContext): AgentRun
     totalCacheReadTokens: 0,
     totalCacheWriteTokens: 0,
     childCostUSD: 0,
+    childCostUnknown: false,
     llmRetryCount: 0,
     toolCalls: 0,
     toolErrors: 0,

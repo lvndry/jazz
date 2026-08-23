@@ -1,4 +1,5 @@
 import type { ProviderName } from "@/core/constants/models";
+import { isOllamaCloudModel } from "@/core/constants/ollama";
 
 // Local, user-run servers. This metadata drives the "server unreachable" diagnostics.
 export const LOCAL_SERVER_PROVIDERS = {
@@ -24,4 +25,14 @@ export const LOCAL_SERVER_PROVIDERS = {
  */
 export function isLocalServerProvider(provider: string): boolean {
   return provider in LOCAL_SERVER_PROVIDERS;
+}
+
+/**
+ * Whether a run on this model genuinely costs nothing when no pricing metadata
+ * exists. Ollama models with a cloud tag bill remotely despite the local
+ * provider name, so they are excluded.
+ */
+export function isZeroCostLocalModel(provider: string, modelId: string): boolean {
+  if (!isLocalServerProvider(provider)) return false;
+  return provider !== "ollama" || !isOllamaCloudModel(modelId);
 }

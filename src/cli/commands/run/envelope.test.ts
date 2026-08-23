@@ -87,6 +87,12 @@ describe("isRunCostKnown", () => {
   it("marks missing remote pricing as unknown", () => {
     expect(isRunCostKnown(undefined, "openai", "unlisted-model")).toBe(false);
   });
+
+  it("treats an incomplete total as unknown even when costUSD is defined", () => {
+    expect(isRunCostKnown(0.02, "openai", "priced-model", true)).toBe(false);
+    expect(isRunCostKnown(undefined, "llamacpp", "local.gguf", true)).toBe(false);
+    expect(isRunCostKnown(0.02, "openai", "priced-model", false)).toBe(true);
+  });
 });
 
 describe("formatOneShotError", () => {
