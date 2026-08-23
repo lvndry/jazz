@@ -8,8 +8,11 @@
 
 </div>
 
-Jazz is a general-purpose AI agent that runs on your own machine. Not just for code: use it
-for email, research, planning, and automation.
+Jazz is a CLI for creating and running AI agents on machines you control. An agent is a
+model, a persona, a toolset, and permissions in one JSON file — create one in a minute,
+then run it in your terminal, from scripts, on a schedule, or behind a Telegram or Discord
+bot you own. Out of the box an agent works with your files, git, and the web; connect an
+inbox, an Obsidian vault, or a search provider and it grows into an everyday assistant.
 
 Install it once and it runs everywhere. A terminal REPL, a one-shot command inside a script,
 a scheduled workflow, a GitHub Action that reviews your pull requests, or a Telegram and
@@ -51,8 +54,8 @@ no extra installs:
 > fetch https://en.wikipedia.org/wiki/Three-Body_Problem and give me the short version
 ```
 
-Every run ends with what it cost — real numbers from your own key, like
-`$0.0021`, on every answer.
+On priced models, every answer ends with what it actually cost you — real numbers
+from your own key.
 
 With a minute of setup each, Jazz also does the bigger jobs:
 
