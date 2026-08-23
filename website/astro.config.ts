@@ -10,7 +10,7 @@ const docsRoot = fileURLToPath(new URL("../docs", import.meta.url));
 export default defineConfig({
   // TODO(launch): confirm the production domain — everything else is
   // domain-agnostic, this one constant is the only thing to change.
-  site: "https://jazz.sh",
+  site: "https://jazz-tau.vercel.app",
   trailingSlash: "never",
   build: {
     format: "file",

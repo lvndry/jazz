@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://jazz.sh/sitemap-index.xml
+Sitemap: https://jazz-tau.vercel.app/sitemap-index.xml
