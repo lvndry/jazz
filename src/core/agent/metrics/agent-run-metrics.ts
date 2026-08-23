@@ -525,7 +525,7 @@ export function emitLLMUsage(
       model: metrics.model ?? "unknown",
       usage,
       agentId: metrics.agentId,
-      logScope: metrics.conversationId,
+      conversationId: metrics.conversationId,
       durationMs,
       runId: metrics.runId,
     }),
@@ -563,7 +563,7 @@ export function emitToolInvocation(
       durationMs: data.durationMs,
       ...(data.error !== undefined && { error: normalizeError(data.error) }),
       agentId: metrics.agentId,
-      logScope: metrics.conversationId,
+      conversationId: metrics.conversationId,
       runId: metrics.runId,
     }),
   );

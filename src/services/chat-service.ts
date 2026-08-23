@@ -25,13 +25,13 @@ import type { Agent } from "@/core/types/index";
 import { type ChatMessage } from "@/core/types/message";
 import type { AutoApprovePolicy } from "@/core/types/tools";
 import { isRetryableLLMError } from "@/core/utils/llm-error";
+import { conversationLogGroup } from "@/core/utils/log-scope";
 import type { WorkflowService } from "@/core/workflows/workflow-service";
 import { handleSpecialCommand, parseSpecialCommand, setSkillCommands } from "./chat/commands";
 import type { CommandContext, CommandResult } from "./chat/commands/types";
 import { persistConversationIfNeeded } from "./chat/persist-conversation";
 import {
   generateConversationId,
-  generateLogScope,
   initializeSession,
   logMessageToSession,
   setupAgent,
@@ -80,12 +80,11 @@ export class ChatServiceImpl implements ChatService {
       const terminal = yield* TerminalServiceTag;
       const logger = yield* LoggerServiceTag;
 
-      const logScope = generateLogScope(agent.name);
-
-      yield* logger.setLogScope(logScope);
-
-      // Generate initial conversationId
       let conversationId: string = generateConversationId();
+
+      // Logs and todos are keyed by the conversation, so this is re-pointed whenever the
+      // conversation changes rather than bound once for the whole sitting.
+      yield* logger.setLogGroup(conversationLogGroup(agent.id, conversationId));
 
       // Initialize session before the loop
       const fileSystemContext = yield* FileSystemContextServiceTag;
@@ -110,7 +109,7 @@ export class ChatServiceImpl implements ChatService {
 
       // Agent setup phase: Connect to MCP servers and register tools before first message
       // Errors are handled gracefully inside setupAgent - conversation continues even if some MCPs fail
-      yield* setupAgent(agent, logScope);
+      yield* setupAgent(agent, conversationId);
 
       // Register skills as invokable slash commands so they appear in the "/"
       // autocomplete menu and can be run like any built-in command. Failures
@@ -302,7 +301,6 @@ export class ChatServiceImpl implements ChatService {
               agent,
               conversationId,
               conversationHistory,
-              logScope,
               sessionUsage,
               sessionStartedAt,
               lastUsedAgentId,
@@ -399,7 +397,7 @@ export class ChatServiceImpl implements ChatService {
               const fs = yield* FileSystem.FileSystem;
               const fsLayer = Layer.succeed(FileSystem.FileSystem, fs);
               yield* Effect.forkDaemon(
-                recordCommandApproval(commandResult.addAutoApprovedCommand, logScope).pipe(
+                recordCommandApproval(commandResult.addAutoApprovedCommand, conversationId).pipe(
                   Effect.catchAll(() => Effect.void),
                   Effect.provide(fsLayer),
                 ),
@@ -434,7 +432,6 @@ export class ChatServiceImpl implements ChatService {
             agent,
             userInput: messageForAgent,
             conversationId,
-            logScope, // Pass the logScope for logging
             conversationHistory,
             ...(options?.stream !== undefined ? { stream: options.stream } : {}),
             ...(options?.maxIterations !== undefined
@@ -450,7 +447,7 @@ export class ChatServiceImpl implements ChatService {
                   autoApprovedCommands.push(command);
                 }
                 yield* Effect.forkDaemon(
-                  recordCommandApproval(command, logScope).pipe(
+                  recordCommandApproval(command, conversationId).pipe(
                     Effect.catchAll(() => Effect.void),
                     Effect.provide(fsLayer),
                   ),
@@ -574,7 +571,7 @@ export class ChatServiceImpl implements ChatService {
             const newMessages = response.messages.slice(loggedMessageCount);
             if (!ephemeral) {
               for (const message of newMessages) {
-                yield* logMessageToSession(logScope, message);
+                yield* logMessageToSession(conversationId, message);
               }
             }
             loggedMessageCount = response.messages.length;
@@ -592,13 +589,13 @@ export class ChatServiceImpl implements ChatService {
                 role: "user",
                 content: userMessage,
               };
-              yield* logMessageToSession(logScope, userChatMessage);
+              yield* logMessageToSession(conversationId, userChatMessage);
 
               const assistantMessage: ChatMessage = {
                 role: "assistant",
                 content: response.content,
               };
-              yield* logMessageToSession(logScope, assistantMessage);
+              yield* logMessageToSession(conversationId, assistantMessage);
             }
             loggedMessageCount += 2; // user message + assistant message
           } else {
@@ -608,7 +605,7 @@ export class ChatServiceImpl implements ChatService {
                 role: "user",
                 content: userMessage,
               };
-              yield* logMessageToSession(logScope, userChatMessage);
+              yield* logMessageToSession(conversationId, userChatMessage);
             }
             loggedMessageCount += 1;
           }

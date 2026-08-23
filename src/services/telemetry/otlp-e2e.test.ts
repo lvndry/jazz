@@ -54,7 +54,7 @@ describe("OTLP export end to end", () => {
       });
 
       const runId = "run-e2e";
-      const shared = { agentId: "agent-1", logScope: "conv-1", runId };
+      const shared = { agentId: "agent-1", conversationId: "conv-1", runId };
 
       await Effect.runPromise(
         service.recordAgentRunStarted({

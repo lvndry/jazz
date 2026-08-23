@@ -35,7 +35,7 @@ export interface TelemetryEvent {
   /** Optional agent ID if the event is agent-scoped */
   readonly agentId?: string;
   /** Optional session/conversation ID */
-  readonly logScope?: string;
+  readonly conversationId?: string;
 }
 
 /**
@@ -124,7 +124,7 @@ export interface TelemetryQueryOptions {
   /** Filter by agent ID */
   readonly agentId?: string;
   /** Filter by session ID */
-  readonly logScope?: string;
+  readonly conversationId?: string;
   /** Start of time range (ISO 8601) */
   readonly from?: string;
   /** End of time range (ISO 8601) */
@@ -195,7 +195,7 @@ export interface TelemetryService {
     readonly model: string;
     readonly usage: TokenUsage;
     readonly agentId?: string;
-    readonly logScope?: string;
+    readonly conversationId?: string;
     readonly durationMs?: number;
     /** Groups this request under its agent run when exported as a trace. */
     readonly runId?: string;
@@ -223,7 +223,7 @@ export interface TelemetryService {
     readonly durationMs?: number;
     readonly error?: string;
     readonly agentId?: string;
-    readonly logScope?: string;
+    readonly conversationId?: string;
     /** Groups this tool call under its agent run when exported as a trace. */
     readonly runId?: string;
   }) => Effect.Effect<void, TelemetryError>;
@@ -247,7 +247,7 @@ export interface TelemetryService {
     data: Record<string, unknown>,
     options?: {
       readonly agentId?: string;
-      readonly logScope?: string;
+      readonly conversationId?: string;
     },
   ) => Effect.Effect<void, TelemetryError>;
 

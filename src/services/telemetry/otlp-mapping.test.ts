@@ -35,7 +35,7 @@ describe("eventToAttributes", () => {
         usage: { promptTokens: 120, completionTokens: 45, totalTokens: 165 },
         durationMs: 2300,
       },
-      { agentId: "agent-1", logScope: "conv-1" },
+      { agentId: "agent-1", conversationId: "conv-1" },
     );
 
     const attributes = attributeMap(eventToAttributes(event, false));
@@ -69,7 +69,7 @@ describe("eventToAttributes", () => {
         finished: true,
         usage: { promptTokens: 1, completionTokens: 2, totalTokens: 3, cacheReadTokens: 99 },
       },
-      { agentId: "agent-1", logScope: "conv-1" },
+      { agentId: "agent-1", conversationId: "conv-1" },
     );
 
     const attributes = attributeMap(eventToAttributes(event, false));

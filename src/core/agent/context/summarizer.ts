@@ -168,7 +168,6 @@ export function selectSummarizerModel(parentAgent: Agent): {
 export type RecursiveRunner = (options: {
   agent: Agent;
   userInput: string;
-  logScope: string;
   conversationId: string;
   maxIterations?: number;
 }) => Effect.Effect<
@@ -336,7 +335,6 @@ export const Summarizer = {
   compactIfNeeded(
     currentMessages: ConversationMessages,
     agent: Agent,
-    logScope: string,
     conversationId: string,
     runRecursive: RecursiveRunner,
     modelContextWindow?: number,
@@ -410,7 +408,6 @@ export const Summarizer = {
       const summaryMessage = yield* Summarizer.summarizeHistory(
         messagesToSummarize,
         agent,
-        logScope,
         conversationId,
         runRecursive,
         priorSummary,
@@ -479,7 +476,6 @@ export const Summarizer = {
   summarizeHistory(
     messagesToSummarize: ChatMessage[],
     agent: Agent,
-    logScope: string,
     conversationId: string,
     runRecursive: RecursiveRunner,
     priorSummary?: ChatMessage,
@@ -558,7 +554,6 @@ export const Summarizer = {
         const chunkSummary = yield* Summarizer.summarizeChunk(
           chunk,
           summarizer,
-          logScope,
           conversationId,
           runRecursive,
           runningSummary,
@@ -581,7 +576,6 @@ export const Summarizer = {
   summarizeChunk(
     messagesToSummarize: readonly ChatMessage[],
     summarizer: Agent,
-    logScope: string,
     conversationId: string,
     runRecursive: RecursiveRunner,
     priorSummary?: ChatMessage,
@@ -619,7 +613,6 @@ export const Summarizer = {
       const summaryResponse = yield* runRecursive({
         agent: summarizer,
         userInput,
-        logScope,
         conversationId,
         maxIterations: 1,
       });

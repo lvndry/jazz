@@ -27,7 +27,7 @@ import type { ApprovalRequest } from "@/core/types/tools";
 /**
  * Identifier for a single run.
  *
- * Distinct from `conversationId`, which many runs share, and from `logScope`, which is
+ * Distinct from `conversationId`, which many runs share, and from `conversationId`, which is
  * derived from the conversation and is therefore equally shared.
  */
 export type RunId = string;

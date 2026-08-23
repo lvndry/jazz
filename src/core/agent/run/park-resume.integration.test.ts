@@ -71,8 +71,8 @@ function makeLayers(store: InMemoryRunStore) {
     info: mock(() => Effect.void),
     warn: mock(() => Effect.void),
     error: mock(() => Effect.void),
-    setLogScope: mock(() => Effect.void),
-    clearLogScope: mock(() => Effect.void),
+    setLogGroup: mock(() => Effect.void),
+    clearLogGroup: mock(() => Effect.void),
     writeToFile: mock(() => Effect.void),
     logToolCall: mock(() => Effect.void),
   } as unknown as LoggerService;
@@ -214,7 +214,7 @@ describe("park and resume, through the real loop", () => {
       AgentRunner.run({
         agent: AGENT,
         userInput: "do the gated thing",
-        logScope: "session-1",
+        conversationId: "session-1",
         conversationId: "conv-1",
         stream: false,
         parkWhenUnattended: true,
@@ -260,7 +260,7 @@ describe("park and resume, through the real loop", () => {
       AgentRunner.run({
         agent: AGENT,
         userInput: "do the gated thing",
-        logScope: "session-3",
+        conversationId: "session-3",
         conversationId: "conv-2",
         stream: false,
       }).pipe(Effect.provide(makeLayers(store))) as Effect.Effect<unknown, unknown>,

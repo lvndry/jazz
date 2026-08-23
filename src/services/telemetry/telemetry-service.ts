@@ -124,7 +124,7 @@ export class TelemetryServiceImpl implements TelemetryService {
   }): Effect.Effect<void, TelemetryError> {
     return this.appendEvent("agent_run_started", data, {
       agentId: data.agentId,
-      logScope: data.conversationId,
+      conversationId: data.conversationId,
     });
   }
 
@@ -144,7 +144,7 @@ export class TelemetryServiceImpl implements TelemetryService {
   }): Effect.Effect<void, TelemetryError> {
     return this.appendEvent("agent_run_completed", data, {
       agentId: data.agentId,
-      logScope: data.conversationId,
+      conversationId: data.conversationId,
     });
   }
 
@@ -158,7 +158,7 @@ export class TelemetryServiceImpl implements TelemetryService {
   }): Effect.Effect<void, TelemetryError> {
     return this.appendEvent("agent_run_failed", data, {
       agentId: data.agentId,
-      logScope: data.conversationId,
+      conversationId: data.conversationId,
     });
   }
 
@@ -167,12 +167,12 @@ export class TelemetryServiceImpl implements TelemetryService {
     readonly model: string;
     readonly usage: TokenUsage;
     readonly agentId?: string;
-    readonly logScope?: string;
+    readonly conversationId?: string;
     readonly durationMs?: number;
   }): Effect.Effect<void, TelemetryError> {
-    const opts: { agentId?: string; logScope?: string } = {};
+    const opts: { agentId?: string; conversationId?: string } = {};
     if (data.agentId !== undefined) opts.agentId = data.agentId;
-    if (data.logScope !== undefined) opts.logScope = data.logScope;
+    if (data.conversationId !== undefined) opts.conversationId = data.conversationId;
     return this.appendEvent("llm_usage", data, opts);
   }
 
@@ -194,12 +194,12 @@ export class TelemetryServiceImpl implements TelemetryService {
     readonly durationMs?: number;
     readonly error?: string;
     readonly agentId?: string;
-    readonly logScope?: string;
+    readonly conversationId?: string;
   }): Effect.Effect<void, TelemetryError> {
     const eventType: TelemetryEventType = data.success ? "tool_invocation" : "tool_error";
-    const opts: { agentId?: string; logScope?: string } = {};
+    const opts: { agentId?: string; conversationId?: string } = {};
     if (data.agentId !== undefined) opts.agentId = data.agentId;
-    if (data.logScope !== undefined) opts.logScope = data.logScope;
+    if (data.conversationId !== undefined) opts.conversationId = data.conversationId;
     return this.appendEvent(eventType, data, opts);
   }
 
@@ -218,7 +218,7 @@ export class TelemetryServiceImpl implements TelemetryService {
     data: Record<string, unknown>,
     options?: {
       readonly agentId?: string;
-      readonly logScope?: string;
+      readonly conversationId?: string;
     },
   ): Effect.Effect<void, TelemetryError> {
     return this.appendEvent(type, data, options);
@@ -246,9 +246,9 @@ export class TelemetryServiceImpl implements TelemetryService {
           filtered = filtered.filter((e) => e.agentId === agentId);
         }
 
-        if (options?.logScope) {
-          const logScope = options.logScope;
-          filtered = filtered.filter((e) => e.logScope === logScope);
+        if (options?.conversationId) {
+          const conversationId = options.conversationId;
+          filtered = filtered.filter((e) => e.conversationId === conversationId);
         }
 
         if (options?.from) {
@@ -326,7 +326,7 @@ export class TelemetryServiceImpl implements TelemetryService {
   private appendEvent(
     type: TelemetryEventType,
     data: Record<string, unknown>,
-    options?: { readonly agentId?: string; readonly logScope?: string },
+    options?: { readonly agentId?: string; readonly conversationId?: string },
   ): Effect.Effect<void, TelemetryError> {
     return Effect.gen(
       function* (this: TelemetryServiceImpl) {
@@ -338,7 +338,7 @@ export class TelemetryServiceImpl implements TelemetryService {
           timestamp: new Date().toISOString(),
           data,
           ...(options?.agentId ? { agentId: options.agentId } : {}),
-          ...(options?.logScope ? { logScope: options.logScope } : {}),
+          ...(options?.conversationId ? { conversationId: options.conversationId } : {}),
         };
 
         this.buffer.push(event);

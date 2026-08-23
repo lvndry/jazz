@@ -9,7 +9,6 @@ import { AgentNotFoundError } from "@/core/types/errors";
 import type { ChatMessage } from "@/core/types/message";
 import type { StreamEvent } from "@/core/types/streaming";
 import type { AutoApprovePolicy } from "@/core/types/tools";
-import { conversationLogScope } from "@/core/utils/log-scope";
 import { createRunDeadline } from "@/core/utils/run-deadline";
 import {
   loadConversation,
@@ -325,9 +324,6 @@ export function runAgentOnceCommand(
     const runEffect = AgentRunner.run({
       agent: agentForRun,
       userInput: prompt,
-      // Derived rather than invented, so a one-shot's logs land in the same session file
-      // as every other turn of the same conversation.
-      logScope: conversationLogScope(agent.id, conversationId),
       conversationId,
       ...(inlineHistory !== undefined
         ? { conversationHistory: inlineHistory }

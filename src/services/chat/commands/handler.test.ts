@@ -96,7 +96,7 @@ describe("handleSpecialCommand resume", () => {
       agent: testAgent,
       conversationId: "current-conv-id",
       conversationHistory: [],
-      logScope: "test-session",
+      conversationId: "test-session",
       sessionUsage: { promptTokens: 0, completionTokens: 0 },
       sessionStartedAt: new Date(Date.now() - 1800_000),
     };
@@ -136,7 +136,7 @@ describe("handleSpecialCommand resume", () => {
       agent: testAgent,
       conversationId: "current-conv-id",
       conversationHistory: [{ role: "user", content: "still on screen" }],
-      logScope: "test-session",
+      conversationId: "test-session",
       sessionUsage: { promptTokens: 0, completionTokens: 0 },
       sessionStartedAt: new Date(Date.now() - 1800_000),
     };

@@ -77,9 +77,8 @@ export interface SessionUsage {
  */
 export interface CommandContext {
   agent: Agent;
-  conversationId: string | undefined;
+  conversationId: string;
   conversationHistory: ChatMessage[];
-  logScope: string;
   /** Accumulated input/output tokens for this session (reset on /new). */
   sessionUsage: SessionUsage;
   /** Timestamp when the chat session started (for /stats duration). */

@@ -55,14 +55,14 @@ export function updateWorkingDirectoryInStore(
  * Log a chat message to the session log file.
  */
 export function logMessageToSession(
-  logScope: string,
+  conversationId: string,
   message: ChatMessage,
 ): Effect.Effect<void, never, never> {
   return Effect.tryPromise({
     try: async () => {
       const logsDir = getLogsDirectory();
       await mkdir(logsDir, { recursive: true });
-      const logFilePath = path.join(logsDir, `${logScope}.log`);
+      const logFilePath = path.join(logsDir, `${conversationId}.log`);
       const timestamp = new Date().toISOString();
       const role = message.role.toUpperCase();
       const content = message.content || "";
@@ -71,20 +71,6 @@ export function logMessageToSession(
     },
     catch: () => undefined, // Silently fail - logging should not break the chat session
   }).pipe(Effect.catchAll(() => Effect.void));
-}
-
-/**
- * Generate a session ID in the format: {agentName}-YYYYMMDD-HHmmss
- */
-export function generateLogScope(agentName: string): string {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-  const hours = String(now.getHours()).padStart(2, "0");
-  const minutes = String(now.getMinutes()).padStart(2, "0");
-  const seconds = String(now.getSeconds()).padStart(2, "0");
-  return `${agentName}-${year}${month}${day}-${hours}${minutes}${seconds}`;
 }
 
 /**

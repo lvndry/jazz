@@ -391,7 +391,7 @@ export function runCliEffect<R, E extends JazzError | Error>(
         // Clear session id so shutdown logs go to the default log, not a workflow/catch-up session log
         const logger = yield* Effect.serviceOption(LoggerServiceTag);
         if (Option.isSome(logger)) {
-          yield* logger.value.clearLogScope();
+          yield* logger.value.clearLogGroup();
         }
 
         // Flush any buffered telemetry events before shutdown

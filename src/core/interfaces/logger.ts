@@ -11,7 +11,7 @@ export interface LoggerService {
   readonly error: (message: string, meta?: Record<string, unknown>) => Effect.Effect<void, never>;
   /**
    * Write a log entry to file
-   * Automatically routes to session-specific file if logScope is set.
+   * Automatically routes to session-specific file if conversationId is set.
    * Uses a write queue to ensure sequential writes without interleaving.
    */
   readonly writeToFile: (
@@ -20,7 +20,7 @@ export interface LoggerService {
     meta?: Record<string, unknown>,
   ) => Effect.Effect<void, never>;
   /**
-   * Log a tool call to the session log file (if logScope is set)
+   * Log a tool call to the session log file (if conversationId is set)
    * Uses the same format as chat messages: [timestamp] [TOOL_CALL] toolName {args}
    */
   readonly logToolCall: (
@@ -31,12 +31,12 @@ export interface LoggerService {
    * Set the session ID for this logger instance
    * All subsequent logs will be written to the session-specific file
    */
-  readonly setLogScope: (logScope: string) => Effect.Effect<void, never>;
+  readonly setLogGroup: (conversationId: string) => Effect.Effect<void, never>;
   /**
    * Clear the session ID
    * Subsequent logs will be written to the general log file
    */
-  readonly clearLogScope: () => Effect.Effect<void, never>;
+  readonly clearLogGroup: () => Effect.Effect<void, never>;
 }
 
 export const LoggerServiceTag = Context.GenericTag<LoggerService>("LoggerService");

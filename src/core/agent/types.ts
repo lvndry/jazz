@@ -31,19 +31,14 @@ export interface AgentRunnerOptions {
    */
   readonly userInput: string;
   /**
-   * Optional conversation identifier for tracking multi-turn conversations.
-   * If not provided, a new conversation ID will be generated automatically.
-   * Use the same conversation ID across multiple turns to maintain context.
+   * Which conversation this turn belongs to.
+   *
+   * Generated when absent. The same id across turns is what gives a caller continuity, and
+   * it is also what groups the run's logs and its todos — there used to be a second field
+   * for that, bound once per terminal sitting, which is how starting a new conversation
+   * ended up inheriting the previous one's todo list.
    */
   readonly conversationId?: string;
-  /**
-   * Which log file this run's output is written to.
-   *
-   * A grouping key, not an identity: nothing reads it back and nothing joins on it, which
-   * is why the interactive chat can scope by sitting (`agent-20260823-104500`) while
-   * headless runs scope by conversation. See `@/core/utils/log-scope`.
-   */
-  readonly logScope: string;
   /**
    * If true, this is an internal sub-agent run (e.g., summarization).
    * UI elements like thinking indicators will be suppressed.

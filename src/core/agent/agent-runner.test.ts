@@ -31,8 +31,8 @@ const mockLogger = {
   info: mock(() => Effect.void),
   warn: mock(() => Effect.void),
   error: mock(() => Effect.void),
-  setLogScope: mock(() => Effect.void),
-  clearLogScope: mock(() => Effect.void),
+  setLogGroup: mock(() => Effect.void),
+  clearLogGroup: mock(() => Effect.void),
   writeToFile: mock(() => Effect.void),
   logToolCall: mock(() => Effect.void),
 } as unknown as LoggerService;
@@ -269,7 +269,7 @@ describe("AgentRunner", () => {
   const defaultOptions: AgentRunnerOptions = {
     agent: mockAgent,
     userInput: "Hello, how can you help me?",
-    logScope: "test-session-123",
+    conversationId: "test-session-123",
   };
 
   describe("runRecursive", () => {

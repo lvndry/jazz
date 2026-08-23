@@ -43,12 +43,18 @@ type TodoItem = z.infer<typeof TodoItemSchema>;
 // Temp-file helpers (Effect-based, async)
 // ---------------------------------------------------------------------------
 
-function getTodoFilePath(logScope: string): string {
-  return path.join(os.tmpdir(), `jazz-todos-${logScope}.json`);
+/**
+ * Todos belong to a conversation, not to a terminal sitting.
+ *
+ * They used to be keyed by a per-sitting id that `/new` did not change, so starting a new
+ * conversation silently inherited the previous one's list.
+ */
+function getTodoFilePath(conversationId: string): string {
+  return path.join(os.tmpdir(), `jazz-todos-${conversationId}.json`);
 }
 
-function readTodos(logScope: string): Effect.Effect<TodoItem[], Error> {
-  const filePath = getTodoFilePath(logScope);
+function readTodos(conversationId: string): Effect.Effect<TodoItem[], Error> {
+  const filePath = getTodoFilePath(conversationId);
   return Effect.tryPromise({
     try: () => nodeFs.readFile(filePath, "utf-8"),
     catch: () => new Error(`Failed to read todo file: ${filePath}`),
@@ -67,8 +73,8 @@ function readTodos(logScope: string): Effect.Effect<TodoItem[], Error> {
   );
 }
 
-function writeTodos(logScope: string, todos: TodoItem[]): Effect.Effect<void, Error> {
-  const filePath = getTodoFilePath(logScope);
+function writeTodos(conversationId: string, todos: TodoItem[]): Effect.Effect<void, Error> {
+  const filePath = getTodoFilePath(conversationId);
   return Effect.tryPromise({
     try: () => nodeFs.writeFile(filePath, JSON.stringify(todos, null, 2), "utf-8"),
     catch: (error) =>
@@ -130,7 +136,7 @@ export function createManageTodosTool(): Tool<never> {
     handler: (args, context) =>
       Effect.gen(function* () {
         const { todos } = args;
-        const logScope = context?.logScope ?? "default";
+        const conversationId = context?.conversationId ?? "default";
 
         const inProgressCount = todos.filter((item) => item.status === "in_progress").length;
         if (inProgressCount > 1) {
@@ -141,7 +147,7 @@ export function createManageTodosTool(): Tool<never> {
           } satisfies ToolExecutionResult;
         }
 
-        yield* writeTodos(logScope, todos);
+        yield* writeTodos(conversationId, todos);
 
         const stats = computeStats(todos);
         return {
@@ -181,8 +187,8 @@ export function createListTodosTool(): Tool<never> {
     },
     handler: (_args, context) =>
       Effect.gen(function* () {
-        const logScope = context?.logScope ?? "default";
-        const todos = yield* readTodos(logScope);
+        const conversationId = context?.conversationId ?? "default";
+        const todos = yield* readTodos(conversationId);
 
         if (todos.length === 0) {
           return {

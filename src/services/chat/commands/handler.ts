@@ -73,7 +73,7 @@ export function handleSpecialCommand(
   | MCPServerManager
   | FileSystem.FileSystem
 > {
-  const { agent, conversationId, conversationHistory, logScope } = context;
+  const { agent, conversationId, conversationHistory } = context;
 
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
@@ -103,13 +103,7 @@ export function handleSpecialCommand(
         );
 
       case "compact":
-        return yield* handleCompactCommand(
-          terminal,
-          agent,
-          conversationHistory,
-          logScope,
-          conversationId,
-        );
+        return yield* handleCompactCommand(terminal, agent, conversationHistory, conversationId);
 
       case "copy":
         return yield* handleCopyCommand(terminal, conversationHistory);
@@ -734,8 +728,7 @@ function handleCompactCommand(
   terminal: TerminalService,
   agent: CommandContext["agent"],
   conversationHistory: CommandContext["conversationHistory"],
-  logScope: string,
-  conversationId: string | undefined,
+  conversationId: string,
 ): Effect.Effect<
   CommandResult,
   Error,
@@ -779,8 +772,7 @@ function handleCompactCommand(
       const summaryMessage = yield* AgentRunner.summarizeHistory(
         messagesToSummarize,
         agent,
-        logScope,
-        conversationId || "manual-compact",
+        conversationId,
       );
 
       // Show success for Stage 3

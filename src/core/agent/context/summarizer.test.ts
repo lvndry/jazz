@@ -40,10 +40,10 @@ const mockLogger: LoggerService = {
   info: () => Effect.void,
   warn: () => Effect.void,
   error: () => Effect.void,
-  setLogScope: () => Effect.void,
+  setLogGroup: () => Effect.void,
   writeToFile: () => Effect.void,
   logToolCall: () => Effect.void,
-  clearLogScope: () => Effect.void,
+  clearLogGroup: () => Effect.void,
 };
 
 // Mock AppConfig
@@ -225,7 +225,7 @@ describe("Summarizer", () => {
       const messages: ChatMessage[] = [{ role: "user", content: "Test" }];
 
       await Effect.runPromise(
-        Summarizer.summarizeHistory(messages, agent, "session-1", "conv-1", mockRunner).pipe(
+        Summarizer.summarizeHistory(messages, agent, "conv-1", mockRunner).pipe(
           Effect.provide(createTestLayer()),
         ) as Effect.Effect<ChatMessage, Error, never>,
       );
@@ -248,7 +248,7 @@ describe("Summarizer", () => {
       const messages: ChatMessage[] = [{ role: "user", content: "Test" }];
 
       await Effect.runPromise(
-        Summarizer.summarizeHistory(messages, agent, "session-1", "conv-1", mockRunner).pipe(
+        Summarizer.summarizeHistory(messages, agent, "conv-1", mockRunner).pipe(
           Effect.provide(createTestLayer()),
         ) as Effect.Effect<ChatMessage, Error, never>,
       );
@@ -263,7 +263,7 @@ describe("Summarizer", () => {
       const mockRunner = createMockRecursiveRunner("This should not be called");
       const agent = createMockAgent();
 
-      const testEffect = Summarizer.summarizeHistory([], agent, "session-1", "conv-1", mockRunner);
+      const testEffect = Summarizer.summarizeHistory([], agent, "conv-1", mockRunner);
 
       const result = await Effect.runPromise(
         testEffect.pipe(Effect.provide(createTestLayer())) as Effect.Effect<
@@ -293,13 +293,7 @@ describe("Summarizer", () => {
         { role: "assistant", content: "Hi there!" },
       ];
 
-      const testEffect = Summarizer.summarizeHistory(
-        messages,
-        agent,
-        "session-1",
-        "conv-1",
-        mockRunner,
-      );
+      const testEffect = Summarizer.summarizeHistory(messages, agent, "conv-1", mockRunner);
 
       const result = await Effect.runPromise(
         testEffect.pipe(Effect.provide(createTestLayer())) as Effect.Effect<
@@ -340,13 +334,7 @@ describe("Summarizer", () => {
         },
       ];
 
-      const testEffect = Summarizer.summarizeHistory(
-        messages,
-        agent,
-        "session-1",
-        "conv-1",
-        mockRunner,
-      );
+      const testEffect = Summarizer.summarizeHistory(messages, agent, "conv-1", mockRunner);
 
       await Effect.runPromise(
         testEffect.pipe(Effect.provide(createTestLayer())) as Effect.Effect<
@@ -375,13 +363,7 @@ describe("Summarizer", () => {
       const agent = createMockAgent({ id: "my-agent", name: "My Agent" });
       const messages: ChatMessage[] = [{ role: "user", content: "Test" }];
 
-      const testEffect = Summarizer.summarizeHistory(
-        messages,
-        agent,
-        "session-1",
-        "conv-1",
-        mockRunner,
-      );
+      const testEffect = Summarizer.summarizeHistory(messages, agent, "conv-1", mockRunner);
 
       await Effect.runPromise(
         testEffect.pipe(Effect.provide(createTestLayer())) as Effect.Effect<
@@ -409,13 +391,7 @@ describe("Summarizer", () => {
       const agent = createMockAgent();
       const messages: ChatMessage[] = [{ role: "user", content: "Test" }];
 
-      const testEffect = Summarizer.summarizeHistory(
-        messages,
-        agent,
-        "session-1",
-        "conv-1",
-        mockRunner,
-      );
+      const testEffect = Summarizer.summarizeHistory(messages, agent, "conv-1", mockRunner);
 
       await Effect.runPromise(
         testEffect.pipe(Effect.provide(createTestLayer())) as Effect.Effect<
@@ -445,13 +421,7 @@ describe("Summarizer", () => {
         { role: "user", content: "Third message" },
       ];
 
-      const testEffect = Summarizer.summarizeHistory(
-        messages,
-        agent,
-        "session-1",
-        "conv-1",
-        mockRunner,
-      );
+      const testEffect = Summarizer.summarizeHistory(messages, agent, "conv-1", mockRunner);
 
       await Effect.runPromise(
         testEffect.pipe(Effect.provide(createTestLayer())) as Effect.Effect<
@@ -572,13 +542,7 @@ describe("Summarizer", () => {
         { role: "assistant", content: "Hi!" },
       ];
 
-      const testEffect = Summarizer.compactIfNeeded(
-        messages,
-        agent,
-        "session-1",
-        "conv-1",
-        mockRunner,
-      );
+      const testEffect = Summarizer.compactIfNeeded(messages, agent, "conv-1", mockRunner);
 
       const result = await Effect.runPromise(
         testEffect.pipe(Effect.provide(createTestLayer())) as Effect.Effect<
@@ -708,7 +672,6 @@ describe("anchored iterative summarization", () => {
       Summarizer.summarizeHistory(
         [{ role: "user", content: "did some work" } as ChatMessage],
         createMockAgent(),
-        "session-1",
         "conv-1",
         mockRunner,
         priorSummary,
@@ -775,13 +738,9 @@ describe("bounded summarizer input", () => {
 
     // 8 sizeable messages against a deliberately small budget forces several folds.
     const result = await Effect.runPromise(
-      Summarizer.summarizeHistory(
-        messages(8, 400),
-        createMockAgent(),
-        "session-1",
-        "conv-1",
-        mockRunner,
-      ).pipe(Effect.provide(createTestLayer())) as Effect.Effect<ChatMessage, Error, never>,
+      Summarizer.summarizeHistory(messages(8, 400), createMockAgent(), "conv-1", mockRunner).pipe(
+        Effect.provide(createTestLayer()),
+      ) as Effect.Effect<ChatMessage, Error, never>,
     );
 
     expect(result.kind).toBe("summary");

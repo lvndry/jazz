@@ -36,8 +36,8 @@ const mockLogger = {
   info: () => Effect.void,
   warn: () => Effect.void,
   error: () => Effect.void,
-  setLogScope: () => Effect.void,
-  clearLogScope: () => Effect.void,
+  setLogGroup: () => Effect.void,
+  clearLogGroup: () => Effect.void,
   writeToFile: () => Effect.void,
   logToolCall: () => Effect.void,
 } as LoggerService;
@@ -130,7 +130,7 @@ describe("ToolExecutor.executeTool", () => {
         {
           agentId: "agent-1",
           conversationId: "conv-123",
-          logScope: "sess-1",
+          conversationId: "sess-1",
         },
       ).pipe(Effect.provide(testLayer)) as Effect.Effect<ToolExecutionResult, unknown, never>,
     );
@@ -166,7 +166,7 @@ describe("ToolExecutor.executeTool", () => {
         {
           agentId: "agent-1",
           conversationId: "conv-123",
-          logScope: "sess-1",
+          conversationId: "sess-1",
         },
       ).pipe(Effect.provide(testLayer)) as Effect.Effect<ToolExecutionResult, unknown, never>,
     );
@@ -210,7 +210,7 @@ describe("ToolExecutor.executeToolCall", () => {
     const result = await Effect.runPromise(
       ToolExecutor.executeToolCall(
         toolCall,
-        { agentId: "agent-1", conversationId: "conv-123", logScope: "sess-1" },
+        { agentId: "agent-1", conversationId: "conv-123", conversationId: "sess-1" },
         displayConfig,
         null,
         makeRunMetrics(),
@@ -248,7 +248,7 @@ describe("ToolExecutor.executeToolCall", () => {
     const result = await Effect.runPromise(
       ToolExecutor.executeToolCall(
         toolCall,
-        { agentId: "agent-1", conversationId: "conv-123", logScope: "sess-1" },
+        { agentId: "agent-1", conversationId: "conv-123", conversationId: "sess-1" },
         displayConfig,
         null,
         makeRunMetrics(),
@@ -305,7 +305,7 @@ describe("ToolExecutor.executeToolCalls", () => {
     const results = await Effect.runPromise(
       ToolExecutor.executeToolCalls(
         toolCalls,
-        { agentId: "agent-1", conversationId: "conv-123", logScope: "sess-1" },
+        { agentId: "agent-1", conversationId: "conv-123", conversationId: "sess-1" },
         { showThinking: false, showToolExecution: false, mode: "markdown" as const },
         null,
         makeRunMetrics(),
@@ -393,7 +393,7 @@ describe("ToolExecutor.executeToolCall approval events", () => {
     await Effect.runPromise(
       ToolExecutor.executeToolCall(
         toolCall,
-        { agentId: "agent-1", conversationId: "conv-123", logScope: "sess-1" },
+        { agentId: "agent-1", conversationId: "conv-123", conversationId: "sess-1" },
         displayConfig,
         recordingRenderer,
         makeRunMetrics(),
@@ -496,7 +496,7 @@ describe("ToolExecutor.executeToolCall approval events", () => {
         {
           agentId: "agent-1",
           conversationId: "conv-123",
-          logScope: "sess-1",
+          conversationId: "sess-1",
           parentAgent: {
             id: "agent-1",
             name: "test",

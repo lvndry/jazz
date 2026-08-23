@@ -1,11 +1,10 @@
 /**
- * The key that scopes a run's log output to a file.
+ * Names the log file a conversation's output is written to.
  *
- * Not an identity for anything. It names a log stream, which is why the interactive chat
- * can use a timestamped "this sitting" key while headless runs use one derived from the
- * conversation: nothing reads it back, nothing joins on it, and no two formats have to
- * agree. It was previously called a session id, which invited exactly that confusion —
- * `jazz run` invented a third format for years and nothing noticed.
+ * Derived, never stored and never passed around: a run already knows its agent and its
+ * conversation, and an extra field carrying "which log" only invited the two to disagree.
+ * They did — the interactive chat bound one per sitting, so starting a new conversation
+ * kept writing to the previous one's file, and to the previous one's todo list with it.
  */
 
 const UNSAFE = /[^A-Za-z0-9_-]/g;
@@ -17,6 +16,6 @@ function safe(value: string): string {
 }
 
 /** Groups a conversation's log output, however many runs and processes it spans. */
-export function conversationLogScope(agentId: string, conversationId: string): string {
+export function conversationLogGroup(agentId: string, conversationId: string): string {
   return `${safe(agentId)}~${safe(conversationId)}`;
 }
