@@ -40,7 +40,7 @@
  * region paints both without changing shape.
  */
 
-import type { ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import { getGlyphs, type GlyphSet } from "../glyphs";
 import { carouselWindow, wrapIndex } from "../picker-window";
 import { THEME } from "../theme";
@@ -395,7 +395,7 @@ export function inputRows(
   return [...commandSuggestRows(model.commands, width, glyphs, listSize), ...rows];
 }
 
-export function Input({ model, viewport, focused, maxRows }: InputProps): ReactNode {
+function InputView({ model, viewport, focused, maxRows }: InputProps): ReactNode {
   const rows = inputRows(model, viewport, focused ?? !model.disabled, undefined, maxRows);
 
   return (
@@ -430,3 +430,5 @@ export function Input({ model, viewport, focused, maxRows }: InputProps): ReactN
     </box>
   );
 }
+
+export const Input = memo(InputView);

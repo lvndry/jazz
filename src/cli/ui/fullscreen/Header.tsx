@@ -11,7 +11,7 @@
  * connector needs something from you.
  */
 
-import type { ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import { getGlyphs, type GlyphSet } from "../glyphs";
 import { THEME } from "../theme";
 import { fitTerminalSegments, terminalCellWidth, terminalSegmentsWidth } from "./terminal-cells";
@@ -143,7 +143,7 @@ export function headerSegments(model: HeaderModel, viewport: Viewport): readonly
   return [...left, ...padding, ...right];
 }
 
-export function Header({ model, viewport }: { model: HeaderModel; viewport: Viewport }): ReactNode {
+function HeaderView({ model, viewport }: { model: HeaderModel; viewport: Viewport }): ReactNode {
   const segments = headerSegments(model, viewport);
   return (
     <box style={{ width: viewport.width, height: 1, flexShrink: 0 }}>
@@ -160,3 +160,5 @@ export function Header({ model, viewport }: { model: HeaderModel; viewport: View
     </box>
   );
 }
+
+export const Header = memo(HeaderView);

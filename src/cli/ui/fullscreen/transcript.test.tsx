@@ -953,3 +953,11 @@ describe("inline emphasis", () => {
     expect(content.find((segment) => segment.text.includes("jazz"))?.fg).toBe(THEME.syntaxValue);
   });
 });
+
+describe("wrap depends on width, not height", () => {
+  it("produces the same rows when only viewport height changes", () => {
+    const tall = transcriptRows(SESSION, { width: 120, height: 34 });
+    const short = transcriptRows(SESSION, { width: 120, height: 8 });
+    expect(short).toEqual(tall);
+  });
+});
