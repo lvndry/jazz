@@ -52,9 +52,9 @@ Then ask it for what you want. These work the moment the wizard finishes — no 
 no extra installs:
 
 ```text
+> give me the TL;DR of ~/Desktop/bitcoin.pdf
 > review the last 5 commits and flag anything risky
-> build me a packing-list web app for a week of hiking
-> fetch https://en.wikipedia.org/wiki/Three-Body_Problem and give me the short version
+> fetch https://en.wikipedia.org/wiki/Jazz and give me the short version
 ```
 
 On priced models, every answer ends with what it actually cost you — real numbers
@@ -63,9 +63,9 @@ from your own key.
 With a minute of setup each, Jazz also does the bigger jobs:
 
 ```text
-> check my unread email, summarize what matters, archive the rest   # after `himalaya` is configured
-> deep-research quantum error correction into my Obsidian vault     # after a web-search key is set
-> every morning at 7, tell me the weather and what to wear          # as a scheduled workflow
+> check my unread email, summarize what matters, archive the rest         # after `himalaya` is configured
+> deep-research the Three-Body Problem and write it into my Obsidian vault # after a web-search key is set
+> every morning at 7, tell me the weather and what to wear                 # as a scheduled workflow
 ```
 
 The [Cookbook](docs/cookbook/index.md) walks through each one.
