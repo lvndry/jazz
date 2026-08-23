@@ -1,6 +1,6 @@
 import { Cause, Effect, Fiber, Option, Ref } from "effect";
 import { isRunParkRequested, withTranscript } from "@/core/agent/run/park-signal";
-import { isLocalServerProvider } from "@/core/constants/local-providers";
+import { isLocalServerProvider, isZeroCostLocalModel } from "@/core/constants/local-providers";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import type { LLMService } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
@@ -324,6 +324,13 @@ function finalizeRun(
       ownCostUSD !== undefined || runMetrics.childCostUSD > 0
         ? parseFloat(((ownCostUSD ?? 0) + runMetrics.childCostUSD).toFixed(8))
         : undefined;
+    // A partial figure must never pass for a complete one: cost-capped callers
+    // (bridge daily caps) treat costIncomplete as unpriced spend and pause.
+    const ownCostUnknown =
+      ownCostUSD === undefined &&
+      runMetrics.totalPromptTokens + runMetrics.totalCompletionTokens > 0 &&
+      !isZeroCostLocalModel(runMetrics.provider ?? "", runMetrics.model ?? "");
+    const costIncomplete = ownCostUnknown || runMetrics.childCostUnknown;
 
     return {
       ...response,
@@ -336,6 +343,7 @@ function finalizeRun(
         }),
       },
       ...(costUSD !== undefined ? { costUSD } : {}),
+      ...(costIncomplete ? { costIncomplete: true } : {}),
     };
   });
 }
@@ -430,6 +438,9 @@ function handleToolPhase(
       },
       recordChildCost: (costUSD: number) => {
         runMetrics.childCostUSD += costUSD;
+      },
+      recordChildCostUnknown: () => {
+        runMetrics.childCostUnknown = true;
       },
       attachMedia: (attachment: MessageAttachment) => {
         if (pendingAttachments.length >= MAX_ATTACHMENTS_PER_MESSAGE) return;

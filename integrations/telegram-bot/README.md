@@ -85,7 +85,9 @@ the nearest pharmacy" → "🧭 Directions", "🕒 Opening hours", "🔍 Go deep
 one sends it as your next message. Answers appear instantly with static
 `🔍 Go deeper` / `✂️ Shorter` buttons that upgrade to the contextual set a beat
 later; set `JAZZ_TELEGRAM_DYNAMIC_CTA=0` to keep only the static ones.
-Set `JAZZ_DAILY_COST_CAP_USD` to cap total spend per day (0 = no cap).
+Set `JAZZ_DAILY_COST_CAP_USD` to cap known spend per UTC day (0 = no cap).
+If a completed run has no pricing metadata, its exact cost cannot be capped;
+the bot records it as unpriced and pauses later requests until the next UTC day.
 
 **Location.** Share a location (📎 → Location) and the bot reverse-geocodes it
 (OpenStreetMap Nominatim) and hands the agent the coordinates + address, so you

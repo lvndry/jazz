@@ -10,6 +10,7 @@ export interface DailyUsage {
   costUSD: number;
   tokens: number;
   runs: number;
+  unpricedRuns?: number;
 }
 
 function usagePath(dataDir: string): string {
@@ -38,7 +39,21 @@ export function todayUsage(dataDir: string): DailyUsage {
   return readUsage(dataDir)[todayKey()] ?? { costUSD: 0, tokens: 0, runs: 0 };
 }
 
-export function recordUsage(dataDir: string, costUSD: number, tokens: number): void {
+export function dailyCostCapBlockReason(
+  usage: DailyUsage,
+  capUSD: number,
+): "unpriced" | "reached" | undefined {
+  if (capUSD <= 0) return undefined;
+  if ((usage.unpricedRuns ?? 0) > 0) return "unpriced";
+  return usage.costUSD >= capUSD ? "reached" : undefined;
+}
+
+export function recordUsage(
+  dataDir: string,
+  costUSD: number,
+  tokens: number,
+  costKnown = true,
+): void {
   const usage = readUsage(dataDir);
   const key = todayKey();
   const day = usage[key] ?? { costUSD: 0, tokens: 0, runs: 0 };
@@ -46,6 +61,7 @@ export function recordUsage(dataDir: string, costUSD: number, tokens: number): v
     costUSD: day.costUSD + costUSD,
     tokens: day.tokens + tokens,
     runs: day.runs + 1,
+    unpricedRuns: (day.unpricedRuns ?? 0) + (costKnown ? 0 : 1),
   };
   // Keep the file bounded — drop entries older than 30 days.
   const cutoff = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);

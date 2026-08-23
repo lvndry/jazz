@@ -1,9 +1,15 @@
 import { describe, expect, it } from "bun:test";
-import { formatOneShotError, formatOneShotResult, type OneShotSuccess } from "./envelope";
+import {
+  formatOneShotError,
+  formatOneShotResult,
+  isRunCostKnown,
+  type OneShotSuccess,
+} from "./envelope";
 
 const baseResult: OneShotSuccess = {
   answer: "Hello from the agent",
   costUSD: 0.0012,
+  costKnown: true,
   tokenUsage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
   toolCalls: [{ id: "call_1", name: "web_search", arguments: '{"q":"x"}' }],
 };
@@ -29,6 +35,7 @@ describe("formatOneShotResult", () => {
       ok: true,
       answer: "Hello from the agent",
       costUSD: 0.0012,
+      costKnown: true,
       tokenUsage: { promptTokens: 10, completionTokens: 5, totalTokens: 15 },
       toolCalls: [{ id: "call_1", name: "web_search", arguments: '{"q":"x"}' }],
     });
@@ -52,15 +59,39 @@ describe("formatOneShotResult", () => {
 describe("the success envelope's key order", () => {
   // Bridges outside this repo read these keys. Adding one is a compatible change; the
   // shape changing under them without anyone noticing is not.
-  it("is exactly ok, answer, costUSD, tokenUsage, toolCalls", () => {
+  it("is exactly ok, answer, costUSD, costKnown, tokenUsage, toolCalls", () => {
     const output = formatOneShotResult(baseResult, { json: true });
     expect(Object.keys(JSON.parse(output))).toEqual([
       "ok",
       "answer",
       "costUSD",
+      "costKnown",
       "tokenUsage",
       "toolCalls",
     ]);
+  });
+});
+
+describe("isRunCostKnown", () => {
+  it("accepts provider pricing, including a real zero", () => {
+    expect(isRunCostKnown(0, "openai", "free-model")).toBe(true);
+    expect(isRunCostKnown(0.01, "openai", "priced-model")).toBe(true);
+  });
+
+  it("recognizes local servers as zero-cost without misclassifying Ollama Cloud", () => {
+    expect(isRunCostKnown(undefined, "llamacpp", "local.gguf")).toBe(true);
+    expect(isRunCostKnown(undefined, "ollama", "qwen3:8b")).toBe(true);
+    expect(isRunCostKnown(undefined, "ollama", "kimi-k3:cloud")).toBe(false);
+  });
+
+  it("marks missing remote pricing as unknown", () => {
+    expect(isRunCostKnown(undefined, "openai", "unlisted-model")).toBe(false);
+  });
+
+  it("treats an incomplete total as unknown even when costUSD is defined", () => {
+    expect(isRunCostKnown(0.02, "openai", "priced-model", true)).toBe(false);
+    expect(isRunCostKnown(undefined, "llamacpp", "local.gguf", true)).toBe(false);
+    expect(isRunCostKnown(0.02, "openai", "priced-model", false)).toBe(true);
   });
 });
 

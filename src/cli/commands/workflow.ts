@@ -26,7 +26,7 @@ import {
 import { SchedulerServiceTag } from "@/core/workflows/scheduler-service";
 import { WorkflowServiceTag, type WorkflowMetadata } from "@/core/workflows/workflow-service";
 import { formatWorkflow, groupWorkflows } from "@/core/workflows/workflow-utils";
-import { formatOneShotError, formatOneShotResult } from "./run/envelope";
+import { formatOneShotError, formatOneShotResult, isRunCostKnown } from "./run/envelope";
 
 /**
  * CLI commands for managing and running workflows.
@@ -435,6 +435,12 @@ export function runWorkflowCommand(
             {
               answer: runResult.content,
               costUSD: runResult.costUSD ?? 0,
+              costKnown: isRunCostKnown(
+                runResult.costUSD,
+                agent.config.llmProvider,
+                agent.config.llmModel,
+                runResult.costIncomplete === true,
+              ),
               tokenUsage: {
                 promptTokens,
                 completionTokens,

@@ -22,6 +22,7 @@ import {
   formatOneShotError,
   formatOneShotParked,
   formatOneShotResult,
+  isRunCostKnown,
   type OneShotOutputOptions,
   type OneShotWebApp,
 } from "./envelope";
@@ -382,6 +383,12 @@ export function runAgentOnceCommand(
         {
           answer: runResult.content,
           costUSD: runResult.costUSD ?? 0,
+          costKnown: isRunCostKnown(
+            runResult.costUSD,
+            agentForRun.config.llmProvider,
+            agentForRun.config.llmModel,
+            runResult.costIncomplete === true,
+          ),
           tokenUsage: {
             promptTokens,
             completionTokens,

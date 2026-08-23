@@ -75,7 +75,7 @@ import { neutralizeBroadcastMentions, splitForDiscord, threadNameFromPrompt } fr
 import { startReminderSweep } from "./reminders";
 import { conversationKey, isIncognito, setIncognito, startNewConversation } from "./sessions";
 import { formatWhen, hasChatTz, isValidTimeZone, setTzForChat, tzForChat } from "./timezone";
-import { recordUsage, todayUsage } from "./usage";
+import { dailyCostCapBlockReason, recordUsage, todayUsage } from "./usage";
 
 const PROGRESS_MIN_INTERVAL_MS = 2_000;
 const PROGRESS_MAX_TOOLS_SHOWN = 8;
@@ -129,6 +129,7 @@ interface JazzSuccessEnvelope {
   readonly ok: true;
   readonly answer: string;
   readonly costUSD: number;
+  readonly costKnown?: boolean;
   readonly tokenUsage?: {
     readonly totalTokens?: number;
     readonly promptTokens?: number;
@@ -590,7 +591,18 @@ async function handleMessage(
 ): Promise<void> {
   ensureChatAgent(config.jazzHome, channelId, config.baseAgentId);
 
-  if (config.dailyCostCapUsd > 0 && todayUsage(config.jazzHome).costUSD >= config.dailyCostCapUsd) {
+  const usage = todayUsage(config.jazzHome);
+  const capBlockReason = dailyCostCapBlockReason(usage, config.dailyCostCapUsd);
+  if (capBlockReason === "unpriced") {
+    await sendReply(
+      config,
+      channelId,
+      "⚠️ Daily cost cap paused: pricing was unavailable for an earlier run today, so spend cannot be verified. Try again tomorrow, disable the cap, or select a priced model.",
+    );
+    return;
+  }
+
+  if (capBlockReason === "reached") {
     await sendReply(
       config,
       channelId,
@@ -635,12 +647,25 @@ async function handleMessage(
     }
 
     if (envelope.ok) {
-      recordUsage(config.jazzHome, envelope.costUSD, envelope.tokenUsage?.totalTokens ?? 0);
+      if (envelope.costKnown === undefined) {
+        console.error(
+          "Envelope has no costKnown field (jazz binary predates it); treating cost as known — upgrade jazz so unpriced runs pause the daily cap.",
+        );
+      }
+      const costKnown = envelope.costKnown !== false;
+      recordUsage(
+        config.jazzHome,
+        envelope.costUSD,
+        envelope.tokenUsage?.totalTokens ?? 0,
+        costKnown,
+      );
       const used = reporter?.toolsUsed() ?? [];
       const parts = ["✅ **Done**"];
       if (used.length > 0) parts.push(used.map((tool) => `\`${tool}\``).join(" "));
       if (envelope.costUSD > 0) {
         parts.push(envelope.costUSD >= 0.0001 ? `$${envelope.costUSD.toFixed(4)}` : "<$0.0001");
+      } else if (!costKnown) {
+        parts.push("price unavailable");
       }
       const usageLines = formatUsageLines(envelope.tokenUsage);
       await reporter?.finish(
@@ -1065,7 +1090,7 @@ async function handleCommand(
         : []),
       `Model: \`${agent.config.llmProvider}/${agent.config.llmModel}\` (reasoning: ${agent.config.reasoningEffort})`,
       `Timezone: \`${tzForChat(config.jazzHome, channelId)}\`${hasChatTz(config.jazzHome, channelId) ? "" : " (default)"}`,
-      `Today: ${day.runs} runs · ${formatTokenCount(day.tokens)} tok · $${day.costUSD.toFixed(4)}`,
+      `Today: ${day.runs} runs · ${formatTokenCount(day.tokens)} tok · $${day.costUSD.toFixed(4)}${(day.unpricedRuns ?? 0) > 0 ? ` · ${day.unpricedRuns} unpriced` : ""}`,
       `Daily cap: ${cap > 0 ? `$${cap.toFixed(2)}` : "none"}`,
       `Uptime: ${formatUptime(Date.now() - BRIDGE_STARTED_AT)}`,
     ];
