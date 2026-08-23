@@ -150,7 +150,7 @@ const SEARCH: SearchOverlay = {
 };
 
 /** The base frame: mid-session, two tools in flight, nothing blocking. */
-export function sampleView(tick = 0): ViewModel {
+export function sampleView(): ViewModel {
   return {
     header: {
       version: packageJson.version,
@@ -174,7 +174,6 @@ export function sampleView(tick = 0): ViewModel {
       hiddenTools: [],
       step: { index: 3, total: 7, label: "rank by urgency" },
       elapsedMs: 11_600,
-      tick,
       // Two tool rows plus the step line. The adapter grows this to fit and
       // only lets it fall once the run settles, so the input holds still while
       // tools churn.
@@ -192,29 +191,29 @@ export function sampleView(tick = 0): ViewModel {
 }
 
 /** The same session with the approval card up. */
-export function sampleApprovalView(tick = 0): ViewModel {
-  const base = sampleView(tick);
+export function sampleApprovalView(): ViewModel {
+  const base = sampleView();
   return {
     ...base,
     // Nothing is running: jazz has stopped and is waiting on a person, and the
     // empty live zone is itself the signal.
-    live: { tools: [], hiddenTools: [], tick, reservedRows: 0 },
+    live: { tools: [], hiddenTools: [], reservedRows: 0 },
     overlay: APPROVAL,
   };
 }
 
 /** The same session with history search open across past sessions. */
-export function sampleSearchView(tick = 0): ViewModel {
-  return { ...sampleView(tick), overlay: SEARCH };
+export function sampleSearchView(): ViewModel {
+  return { ...sampleView(), overlay: SEARCH };
 }
 
 /** An idle first-run frame: no work, no plan, nothing to interrupt. */
 export function sampleIdleView(): ViewModel {
-  const base = sampleView(0);
+  const base = sampleView();
   return {
     ...base,
     blocks: [],
-    live: { tools: [], hiddenTools: [], tick: 0, reservedRows: 0 },
+    live: { tools: [], hiddenTools: [], reservedRows: 0 },
     footer: {
       mode: base.footer.mode,
       hints: base.footer.hints,
@@ -223,8 +222,8 @@ export function sampleIdleView(): ViewModel {
 }
 
 /** Six tools running, to exercise the live zone's cap and its overflow row. */
-export function sampleBusyView(tick = 0): ViewModel {
-  const base = sampleView(tick);
+export function sampleBusyView(): ViewModel {
+  const base = sampleView();
   return {
     ...base,
     live: {

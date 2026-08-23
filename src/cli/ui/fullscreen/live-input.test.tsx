@@ -68,7 +68,7 @@ function tool(app: string, operation: string, phase: number, elapsedMs = 1000): 
  * mark set `reservedRows` explicitly, because that is the property under test.
  */
 function live(overrides: Partial<LiveModel> = {}): LiveModel {
-  const model: LiveModel = { tools: [], hiddenTools: [], tick: 0, reservedRows: 0, ...overrides };
+  const model: LiveModel = { tools: [], hiddenTools: [], reservedRows: 0, ...overrides };
   if (overrides.reservedRows !== undefined) return model;
   const needed =
     model.tools.length +
@@ -257,7 +257,6 @@ describe("live zone", () => {
   it("gives two tools at different phases different indicator cells in one frame", async () => {
     const model = live({
       tools: [tool("gmail", "list threads", 0), tool("calendar", "freebusy", 1)],
-      tick: 0,
     });
     const { frame } = await bandHeight(model);
     const rows = rowsOf(frame);
@@ -269,6 +268,15 @@ describe("live zone", () => {
     // The spinner sits one column past the rail gutter on every tool row.
     const spinnerColumn = [...`${glyphs.rail} `].length;
     expect([...(first as string)][spinnerColumn]).not.toBe([...(second as string)][spinnerColumn]);
+  });
+
+  it("animates from a tick argument without rewriting the LiveModel", () => {
+    const model = live({ tools: [tool("gmail", "list threads", 0)] });
+    const viewport = { width: WIDTH, height: HEIGHT };
+    const atZero = liveRows(model, viewport, false, glyphs, LIVE_ZONE_MAX_ROWS, 0);
+    const atOne = liveRows(model, viewport, false, glyphs, LIVE_ZONE_MAX_ROWS, 1);
+    expect(atOne).not.toEqual(atZero);
+    expect(liveRows(model, viewport, false, glyphs, LIVE_ZONE_MAX_ROWS, 0)).toEqual(atZero);
   });
 
   it("shows the step line as one row while a plan is active, and not otherwise", () => {

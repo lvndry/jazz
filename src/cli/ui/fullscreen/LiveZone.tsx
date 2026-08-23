@@ -33,10 +33,10 @@
  * running rather than one thing blinking three times.
  */
 
-import { memo, type ReactNode } from "react";
+import { memo, useEffect, useState, type ReactNode } from "react";
 import { highlightCodeLine } from "./syntax-spans";
 import { getGlyphs, laneFrame, type GlyphSet } from "../glyphs";
-import { THEME } from "../theme";
+import { MOTION, THEME } from "../theme";
 import { fitTerminalSegments, terminalSegmentsWidth } from "./terminal-cells";
 import {
   LIVE_ZONE_MAX_ROWS,
@@ -256,6 +256,7 @@ export function liveRows(
   streaming = false,
   glyphs: GlyphSet = getGlyphs(),
   maxRows = LIVE_ZONE_MAX_ROWS,
+  tick = 0,
 ): readonly LiveRow[] {
   const width = Math.max(1, viewport.width);
   const capacity = reservedHeight(model, maxRows);
@@ -288,7 +289,7 @@ export function liveRows(
 
   const rows: LiveRow[] = [];
   if (showWaiting && model.waiting !== undefined) {
-    rows.push(waitingRow(model.waiting, model.elapsedMs, model.tick, glyphs, width));
+    rows.push(waitingRow(model.waiting, model.elapsedMs, tick, glyphs, width));
   }
   if (showStep && model.step !== undefined) {
     rows.push(
@@ -301,15 +302,33 @@ export function liveRows(
       ),
     );
   }
-  for (const tool of shown) rows.push(toolRow(tool, model.tick, glyphs, width));
+  for (const tool of shown) rows.push(toolRow(tool, tick, glyphs, width));
   if (hiddenNames.length > 0) rows.push(overflowRow(hiddenNames, glyphs, width));
 
   return rows;
 }
 
+function liveBandAnimates(model: LiveModel, streaming: boolean, maxRows?: number): boolean {
+  if (reservedHeight(model, maxRows) === 0) return false;
+  if (model.tools.length > 0) return true;
+  return model.waiting !== undefined && !streaming;
+}
+
 function LiveZoneView({ model, viewport, streaming, maxRows }: LiveZoneProps): ReactNode {
+  const [tick, setTick] = useState(0);
+  const streamingNow = streaming ?? false;
+  const animate = liveBandAnimates(model, streamingNow, maxRows);
+
+  useEffect(() => {
+    if (!animate) return;
+    const timer = setInterval(() => {
+      setTick((value) => value + 1);
+    }, MOTION.indicator);
+    return () => clearInterval(timer);
+  }, [animate]);
+
   const height = reservedHeight(model, maxRows);
-  const rows = liveRows(model, viewport, streaming ?? false, undefined, maxRows);
+  const rows = liveRows(model, viewport, streamingNow, undefined, maxRows, tick);
 
   // The run has settled: the whole band goes away and the transcript takes the
   // rows back. Note this is keyed on the reservation rather than on the rows,

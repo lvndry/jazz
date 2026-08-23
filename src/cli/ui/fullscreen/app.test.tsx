@@ -474,7 +474,7 @@ function completedTurnView(): ViewModel {
   const base = sampleView();
   return {
     ...base,
-    live: { tools: [], hiddenTools: [], tick: 0, reservedRows: 0 },
+    live: { tools: [], hiddenTools: [], reservedRows: 0 },
     runActive: false,
     footer: {
       mode: base.footer.mode,

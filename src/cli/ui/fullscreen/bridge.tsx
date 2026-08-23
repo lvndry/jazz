@@ -92,6 +92,10 @@ import {
 /** Waiting copy, house voice: idiomatic, never jokey. */
 const WAITING = ["comping behind you", "turning it over", "two horns out", "digging the crates"];
 
+/** Footer and live elapsed digits update once a second, not on the indicator. */
+const FOOTER_ELAPSED_MS = 1000;
+const WAITING_ROTATE_MS = 4_000;
+
 /** How long the band holds its height after the last tool finishes. */
 const SETTLE_MS = 800;
 const APPROVAL_ARM_MS = 250;
@@ -1040,7 +1044,6 @@ export function FullscreenBridge(): React.ReactNode {
   const [searchIndex, searchIndexRef, setSearchIndex] = useSynchronizedState(0);
   const [menu, menuRef, setMenu] = useSynchronizedState<ActiveMenu | null>(null);
   const [menuIndex, menuIndexRef, setMenuIndex] = useSynchronizedState(0);
-  const [tick, setTick] = useState(0);
   const [elapsedMs, setElapsedMs] = useState<number | undefined>();
   const [reservedRows, setReservedRows] = useState(0);
   const runStartedAt = useRef<number | null>(null);
@@ -1252,15 +1255,14 @@ export function FullscreenBridge(): React.ReactNode {
     }
     if (runStartedAt.current === null) runStartedAt.current = Date.now();
     const update = (): void => {
-      setTick((value) => value + 1);
       setElapsedMs(Math.max(0, Date.now() - (runStartedAt.current ?? Date.now())));
     };
     update();
-    const timer = setInterval(update, 170);
+    const timer = setInterval(update, FOOTER_ELAPSED_MS);
     return () => clearInterval(timer);
   }, [runActive]);
 
-  const tools = useMemo(() => liveToolsFrom(activity, Date.now()), [activity, tick]);
+  const tools = useMemo(() => liveToolsFrom(activity, Date.now()), [activity, elapsedMs]);
   const step = useMemo(() => stepFrom(activity), [activity]);
   const waitingNow = activity.phase === "awaiting" || activity.phase === "thinking";
   const neededRows = Math.min(
@@ -2153,13 +2155,18 @@ export function FullscreenBridge(): React.ReactNode {
       tools,
       hiddenTools: [],
       ...(step === undefined ? {} : { step }),
-      ...(waitingNow ? { waiting: WAITING[Math.floor(tick / 24) % WAITING.length] as string } : {}),
-      tick,
+      ...(waitingNow
+        ? {
+            waiting: WAITING[
+              Math.floor((elapsedMs ?? 0) / WAITING_ROTATE_MS) % WAITING.length
+            ] as string,
+          }
+        : {}),
       ...(elapsedMs === undefined ? {} : { elapsedMs }),
       reservedRows,
       ...(reasoningElapsedMs === undefined ? {} : { reasoningElapsedMs }),
     };
-  }, [tools, step, waitingNow, tick, elapsedMs, reservedRows, regions]);
+  }, [tools, step, waitingNow, elapsedMs, reservedRows, regions]);
 
   const view = useMemo<ViewModel>(
     () => ({
