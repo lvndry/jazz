@@ -1,6 +1,6 @@
 # CLI Reference
 
-**Reader job:** find the exact command and flag you need.
+This page helps you find the exact command and flag you need.
 
 Verified against [`src/cli/cli-app.ts`](../../src/cli/cli-app.ts). Run `jazz <command> --help`
 for the same information at the terminal.

@@ -1,6 +1,6 @@
 # Lexicon — what Jazz's words mean
 
-**Reader job:** know which word to use, and which two words are not the same thing.
+This page tells you which word to use, and which two words are not the same thing.
 
 Jazz has a lot of nouns that sound alike. Several of them used to be genuinely
 interchangeable, which is worse than having too many: a name that means two things cannot

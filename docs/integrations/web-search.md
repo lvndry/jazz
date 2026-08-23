@@ -1,6 +1,6 @@
 # Web Search
 
-**Reader job:** give an agent live information from the web.
+How to give an agent live information from the web.
 
 `web_search` needs a configured provider; without one it errors. `web_fetch` and
 `http_request` need no key.

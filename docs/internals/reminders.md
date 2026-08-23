@@ -1,6 +1,6 @@
 # Reminders
 
-**Reader job:** understand how agent reminders are stored, parsed, and delivered.
+This page explains how agent reminders are stored, parsed, and delivered.
 
 Source:
 [`services/reminder-service.ts`](../../src/services/reminder-service.ts) ·

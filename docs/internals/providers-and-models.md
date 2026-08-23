@@ -1,6 +1,6 @@
 # Providers & models
 
-**Reader job:** understand how Jazz stays provider-agnostic, and what it does about the
+This page explains how Jazz stays provider-agnostic, and what it does about the
 places providers genuinely differ.
 
 Source:

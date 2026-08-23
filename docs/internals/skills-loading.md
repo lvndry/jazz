@@ -1,6 +1,6 @@
 # Skills loading — progressive disclosure
 
-**Reader job:** understand how Jazz can have a hundred skills installed without paying for
+This page explains how Jazz can have a hundred skills installed without paying for
 them in every request.
 
 Source:
