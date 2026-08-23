@@ -11,6 +11,8 @@ interface Options {
   docsRoot: string;
   /** GitHub repository URL, no trailing slash. */
   repoUrl: string;
+  /** Branch that GitHub links point at. Defaults to "main". */
+  branch?: string;
 }
 
 const EXTERNAL = /^[a-z][a-z0-9+.-]*:/i;
@@ -27,7 +29,7 @@ function walk(node: MarkdownNode, visit: (node: MarkdownNode) => void): void {
  * link an author wrote on GitHub ever 404s here.
  */
 export function remarkDocsLinks(options: Options) {
-  const { docsRoot, repoUrl } = options;
+  const { docsRoot, repoUrl, branch = "main" } = options;
   const repoRoot = path.dirname(docsRoot);
 
   const rewrite = (url: string, fromDir: string): string => {
@@ -53,7 +55,7 @@ export function remarkDocsLinks(options: Options) {
     if (inRepo.startsWith("..")) return url;
     const repoPath = inRepo.split(path.sep).join("/");
     const kind = target.endsWith("/") ? "tree" : "blob";
-    return `${repoUrl}/${kind}/main/${repoPath}${suffix}`;
+    return `${repoUrl}/${kind}/${branch}/${repoPath}${suffix}`;
   };
 
   return (tree: MarkdownNode, file: { path?: string }): void => {

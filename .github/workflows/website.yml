@@ -25,6 +25,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
+      - name: Cache bun downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock', 'website/bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
       - name: Install root dependencies (token generator imports theme.ts)
         run: bun install --frozen-lockfile
       - name: Install website dependencies

@@ -4,6 +4,9 @@
  * Anton. Deterministic per page (bars are seeded by the title), so rebuilds
  * don't churn bytes.
  */
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { Resvg } from "@resvg/resvg-js";
 
 const WIDTH = 1200;
@@ -11,9 +14,13 @@ const HEIGHT = 630;
 const BAR_COUNT = 40;
 const BAR_GAP = 6;
 
+const websiteRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const FONT_FILES = [
-  "node_modules/@expo-google-fonts/anton/400Regular/Anton_400Regular.ttf",
-  "node_modules/@expo-google-fonts/ibm-plex-mono/500Medium/IBMPlexMono_500Medium.ttf",
+  join(websiteRoot, "node_modules/@expo-google-fonts/anton/400Regular/Anton_400Regular.ttf"),
+  join(
+    websiteRoot,
+    "node_modules/@expo-google-fonts/ibm-plex-mono/500Medium/IBMPlexMono_500Medium.ttf",
+  ),
 ];
 
 const escapeXml = (text: string): string =>
