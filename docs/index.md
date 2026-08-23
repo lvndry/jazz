@@ -43,7 +43,7 @@ One agent, many front doors. Start with the [surface matrix](./surfaces/index.md
 
 ### [Examples](./examples/index.md) — end-to-end walkthroughs
 
-Interactive sessions from ask to artifact: [deep research into Obsidian](./examples/deep-research.md), [git workflows](./examples/git-commit-push.md), [security scans](./examples/security-scan.md), [and more](./examples/index.md).
+Interactive sessions from ask to artifact: [deep research into Obsidian](./examples/deep-research.md), [git history surgery](./examples/git-squash.md), [security scans](./examples/security-scan.md), [and more](./examples/index.md).
 
 ### [Cookbook](./cookbook/index.md) — copy-pasteable recipes
 

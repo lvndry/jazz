@@ -7,7 +7,6 @@ copy-pasteable `WORKFLOW.md` recipes.
 
 - [Deep Research & Obsidian](./deep-research.md) — multi-source research filed into your vault
 - [PDF Summary](./pdf-summary.md) — read a local PDF and summarize it
-- [Git Commit & Push](./git-commit-push.md) — commit with a generated message
 - [Git History Squash](./git-squash.md) — analyze and squash history
 - [PR Descriptions](./pr-description.md) — generate a PR body from the diff
 - [Security Scan & Auto-Fix](./security-scan.md) — find and fix vulnerabilities

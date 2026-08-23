@@ -31,7 +31,7 @@ export interface WorkflowMetadata {
   readonly catchUpOnStartup?: boolean;
   /** Max age (seconds) for catch-up runs */
   readonly maxCatchUpAge?: number;
-  /** Maximum agent iterations per run (defaults to 50) */
+  /** Maximum agent iterations per run. Unset, the run falls back to config `maxIterations`, then `DEFAULT_MAX_ITERATIONS` */
   readonly maxIterations?: number;
 }
 
