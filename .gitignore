@@ -58,3 +58,6 @@ superpowers/
 
 # eval harness run outputs
 evals/report/
+
+# Astro build cache
+.astro/

@@ -1,0 +1,167 @@
+---
+interface Surface {
+  key: string;
+  chrome: string;
+  lines: Array<{ cls: string; text: string }>;
+}
+
+const surfaces: Surface[] = [
+  {
+    key: "terminal",
+    chrome: "▞ jazz — your terminal",
+    lines: [
+      { cls: "user", text: "» remind the team about standup" },
+      { cls: "ok", text: "╺ sent — and scheduled daily, 08:55" },
+    ],
+  },
+  {
+    key: "telegram",
+    chrome: "Telegram · @your-jazz-bot",
+    lines: [
+      { cls: "user", text: "You: what did I miss today?" },
+      { cls: "ok", text: "Jazz: 2 decisions, 1 PR merged — recap below." },
+    ],
+  },
+  {
+    key: "discord",
+    chrome: "Discord · #ops",
+    lines: [
+      { cls: "user", text: "@jazz summarize this thread" },
+      { cls: "ok", text: "Jazz: 14 messages → 3 action items." },
+    ],
+  },
+  {
+    key: "ci",
+    chrome: "GitHub · pull request #384",
+    lines: [
+      { cls: "user", text: "on: pull_request" },
+      { cls: "ok", text: "jazz reviewed: 2 comments, no blockers." },
+    ],
+  },
+  {
+    key: "cron",
+    chrome: "launchd · 07:00 every day",
+    lines: [
+      { cls: "user", text: "$ jazz workflow run morning-brief" },
+      { cls: "ok", text: "ok — briefing delivered to Telegram" },
+    ],
+  },
+];
+---
+
+<section class="surfaces">
+  <p class="kicker mono">everywhere at once</p>
+  <h2 class="shout">Install once.<br />It's already <span class="live">there.</span></h2>
+  <p class="lede">
+    The same agent, the same tools, the same memory — behind every front door. When a job needs
+    your permission it asks you wherever you are, rather than stopping.
+  </p>
+  <div class="fan" id="fan">
+    {
+      surfaces.map((surface, index) => (
+        <div class="frame" style={`--i:${index}`} data-surface={surface.key}>
+          <div class="chrome mono">{surface.chrome}</div>
+          <div class="body mono">
+            {surface.lines.map((line) => (
+              <div class={line.cls}>{line.text}</div>
+            ))}
+          </div>
+        </div>
+      ))
+    }
+  </div>
+  <p class="foot mono">
+    terminal · scripts · cron · CI · telegram · discord — <a href="/docs/surfaces">the surface matrix</a>
+  </p>
+</section>
+
+<style>
+  .surfaces {
+    padding: 14vh 4vw;
+    border-top: 1px solid var(--jz-border);
+  }
+  .kicker {
+    font-size: 12px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--jz-primary);
+    margin-bottom: 14px;
+  }
+  h2 {
+    font-size: clamp(40px, 6.6vw, 104px);
+  }
+  .live {
+    color: var(--jz-primary);
+  }
+  .lede {
+    margin-top: 26px;
+    max-width: 58ch;
+    font-size: 17px;
+    color: var(--jz-secondary);
+  }
+  .fan {
+    margin-top: 7vh;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 18px;
+  }
+  .frame {
+    border: 1px solid var(--jz-border);
+    border-radius: 8px;
+    overflow: hidden;
+    background: #0a0c0f;
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  .fan.in .frame {
+    animation: land 0.6s cubic-bezier(0.2, 0.7, 0.2, 1) forwards;
+    animation-delay: calc(var(--i) * 0.12s);
+  }
+  @keyframes land {
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  .chrome {
+    padding: 9px 14px;
+    border-bottom: 1px solid var(--jz-border);
+    font-size: 11px;
+    color: var(--jz-muted);
+  }
+  .frame[data-surface="terminal"] .chrome {
+    color: var(--jz-primary);
+  }
+  .body {
+    padding: 14px;
+    font-size: 12.5px;
+    line-height: 1.9;
+  }
+  .body .user {
+    color: var(--jz-selected);
+  }
+  .body .ok {
+    color: var(--jz-secondary);
+  }
+  .foot {
+    margin-top: 6vh;
+    font-size: 12px;
+    color: var(--jz-muted);
+  }
+  .foot a {
+    color: var(--jz-accent-dim);
+  }
+</style>
+
+<script>
+  const fan = document.getElementById("fan")!;
+  new IntersectionObserver(
+    (entries, observer) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        fan.classList.add("in");
+        observer.disconnect();
+      }
+    },
+    { threshold: 0.2 },
+  ).observe(fan);
+</script>

@@ -15,6 +15,8 @@ const tsconfigRootDir = path.dirname(fileURLToPath(import.meta.url));
 const nodeGlobals = globals.node;
 
 export default [
+  // The website package lints with its own config (see website/README.md).
+  { ignores: ["website/**"] },
   js.configs.recommended,
   // Base TS rules (apply to all TS files including tests)
   ...tseslint.configs.recommended,

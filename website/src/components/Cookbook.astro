@@ -1,0 +1,153 @@
+---
+const recipes = [
+  {
+    slug: "inbox-triage",
+    name: "Inbox triage",
+    run: ["╺ gmail.search — 41 unread", "╺ archived 33, labeled 5", "╶ 3 need you — summarized"],
+  },
+  {
+    slug: "pr-watchdog",
+    name: "PR watchdog",
+    run: ["╺ 4 PRs stale > 48h", "╺ pinged owners on Discord", "╶ escalation list posted"],
+  },
+  {
+    slug: "competitor-watch",
+    name: "Competitor watch",
+    run: ["╺ 6 sources fetched", "╺ 2 real changes found", "╶ digest → your inbox"],
+  },
+  {
+    slug: "research-digest",
+    name: "Research digest",
+    run: ["╺ 18 papers scanned", "╺ 3 worth your time", "╶ notes → Obsidian vault"],
+  },
+  {
+    slug: "ci-pr-reviewer",
+    name: "CI PR reviewer",
+    run: ["╺ diff read — 12 files", "╺ 2 inline comments", "╶ no blockers, approved"],
+  },
+  {
+    slug: "release-notes-draft",
+    name: "Release notes",
+    run: ["╺ 23 commits since v0.14", "╺ grouped by surface", "╶ draft → CHANGELOG.md"],
+  },
+];
+---
+
+<section class="cookbook">
+  <p class="kicker mono">steal these</p>
+  <h2 class="shout">Workflows,<br />ready to <span class="live">copy.</span></h2>
+  <p class="lede">
+    Production-ready recipes with install steps and risk tiers. Hover one to watch a condensed run.
+  </p>
+  <div class="grid">
+    {
+      recipes.map((recipe) => (
+        <a class="recipe" href={`/docs/cookbook/${recipe.slug}`}>
+          <div class="name">{recipe.name}</div>
+          <div class="run mono">
+            {recipe.run.map((line, index) => (
+              <div class="line" style={`--l:${index}`}>
+                {line}
+              </div>
+            ))}
+          </div>
+          <div class="cta mono">read the recipe →</div>
+        </a>
+      ))
+    }
+  </div>
+  <a class="more mono" href="/docs/cookbook">more in the cookbook →</a>
+</section>
+
+<style>
+  .cookbook {
+    padding: 14vh 4vw;
+    border-top: 1px solid var(--jz-border);
+  }
+  .kicker {
+    font-size: 12px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--jz-primary);
+    margin-bottom: 14px;
+  }
+  h2 {
+    font-size: clamp(38px, 6.2vw, 96px);
+  }
+  .live {
+    color: var(--jz-primary);
+  }
+  .lede {
+    margin-top: 26px;
+    max-width: 56ch;
+    font-size: 17px;
+    color: var(--jz-secondary);
+  }
+  .grid {
+    margin-top: 7vh;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 18px;
+  }
+  .recipe {
+    border: 1px solid var(--jz-border);
+    border-radius: 8px;
+    background: #0a0c0f;
+    padding: 22px;
+    text-decoration: none;
+    transition: border-color 0.2s ease;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+  .recipe:hover {
+    border-color: var(--jz-primary);
+  }
+  .name {
+    font-family: var(--font-shout);
+    text-transform: uppercase;
+    font-size: 22px;
+    color: var(--jz-selected);
+    letter-spacing: 0.01em;
+  }
+  .run {
+    font-size: 12px;
+    line-height: 2;
+    color: var(--jz-secondary);
+    min-height: 72px;
+  }
+  .run .line {
+    opacity: 0.25;
+    transition: opacity 0.25s ease;
+    transition-delay: 0s;
+  }
+  .recipe:hover .run .line {
+    opacity: 1;
+    transition-delay: calc(var(--l) * 0.45s);
+  }
+  .cta {
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--jz-muted);
+  }
+  .recipe:hover .cta {
+    color: var(--jz-primary);
+  }
+  .more {
+    display: inline-block;
+    margin-top: 32px;
+    padding: 12px 24px;
+    font-size: 12px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--jz-primary);
+    border: 1px solid var(--jz-primary);
+    border-radius: 6px;
+    text-decoration: none;
+  }
+  .more:hover {
+    background: var(--jz-primary);
+    color: #000;
+  }
+</style>

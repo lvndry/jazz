@@ -1,0 +1,56 @@
+---
+import AsksFirst from "../components/AsksFirst.astro";
+import Cookbook from "../components/Cookbook.astro";
+import Hero from "../components/Hero.astro";
+import InstallCta from "../components/InstallCta.astro";
+import InstallStrip from "../components/InstallStrip.astro";
+import SessionStage from "../components/SessionStage.astro";
+import Surfaces from "../components/Surfaces.astro";
+import Ticker from "../components/Ticker.astro";
+import UnderTheHood from "../components/UnderTheHood.astro";
+import Base from "../layouts/Base.astro";
+---
+
+<Base
+  title="Jazz — one agent, every surface, your rules"
+  description="Jazz is a general-purpose AI agent that runs on your own machine. Not just for code: email, research, planning, and automation — from the terminal, cron, CI, Telegram, or Discord. 18 providers, or fully local."
+  skin="dark"
+>
+  <script
+    slot="head"
+    type="application/ld+json"
+    is:inline
+    set:html={JSON.stringify({
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      name: "Jazz",
+      operatingSystem: "macOS, Linux, Windows",
+      applicationCategory: "DeveloperApplication",
+      description:
+        "A general-purpose AI agent that runs on your own machine — terminal, cron, CI, Telegram, Discord. 18 providers, or fully local.",
+      offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+      license: "https://opensource.org/licenses/MIT",
+      url: "https://github.com/lvndry/jazz",
+    })}
+  />
+  <noscript>
+    <style is:inline>
+      /* Without JS every scene holds its finished frame — nothing is blank. */
+      .approval,
+      .fan .frame {
+        opacity: 1 !important;
+        transform: none !important;
+        animation: none !important;
+      }
+    </style>
+  </noscript>
+  <Hero />
+  <Ticker />
+  <InstallStrip />
+  <SessionStage />
+  <Surfaces />
+  <UnderTheHood />
+  <AsksFirst />
+  <Cookbook />
+  <InstallCta />
+</Base>

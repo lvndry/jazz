@@ -1,0 +1,50 @@
+---
+const items = [
+  "triage my inbox",
+  "deep-research into obsidian",
+  "review every PR",
+  "7am weather briefing",
+  "runs on a $5 server",
+  "no api key needed",
+  "asks before it sends",
+];
+const line = items.map((item) => `${item}<i>▞</i>`).join("");
+---
+
+<div class="ticker" aria-hidden="true">
+  <div class="rail">
+    <span class="set mono" set:html={line} />
+    <span class="set mono" set:html={line} />
+  </div>
+</div>
+
+<style>
+  .ticker {
+    border-top: 1px solid var(--jz-border);
+    border-bottom: 1px solid var(--jz-border);
+    overflow: hidden;
+  }
+  .rail {
+    display: flex;
+    width: max-content;
+    animation: tick 26s linear infinite;
+  }
+  .set {
+    font-size: 13px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--jz-muted);
+    padding: 14px 0;
+    white-space: nowrap;
+  }
+  .set :global(i) {
+    font-style: normal;
+    color: var(--jz-primary);
+    padding: 0 26px;
+  }
+  @keyframes tick {
+    to {
+      transform: translateX(-50%);
+    }
+  }
+</style>

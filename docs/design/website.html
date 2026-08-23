@@ -1,0 +1,651 @@
+<meta charset="utf-8">
+<title>Jazz Website Moodboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500&display=swap">
+<style>
+  :root {
+    --canvas: #07090B;
+    --surface: #101317;
+    --border: #1E242B;
+    --text: #E8EBEF;
+    --secondary: #A9B2BD;
+    --muted: #5C6673;
+    --accent: #00D7FF;
+    --accent-dim: #00AFD7;
+    --success: #5FD787;
+    --warning: #D7AF5F;
+    --error: #FF6B6B;
+    --violet: #9B8CFF;
+    --shout: "Anton", "Arial Narrow", Impact, sans-serif;
+    --mono: "IBM Plex Mono", "SF Mono", Menlo, monospace;
+    --body: "IBM Plex Sans", -apple-system, sans-serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--canvas); color: var(--text);
+    font-family: var(--body); font-size: 16px; line-height: 1.6;
+    overflow-x: hidden; -webkit-font-smoothing: antialiased;
+  }
+  ::selection { background: var(--accent); color: #000; }
+
+  /* film grain + scanlines over everything */
+  body::after {
+    content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 60;
+    background:
+      repeating-linear-gradient(0deg, rgba(255,255,255,0.022) 0 1px, transparent 1px 3px);
+    mix-blend-mode: overlay;
+  }
+
+  .shout {
+    font-family: var(--shout); text-transform: uppercase;
+    letter-spacing: 0.01em; line-height: 0.92; font-weight: 400;
+  }
+  .mono { font-family: var(--mono); }
+
+  /* ============ HERO ============ */
+  .hero { position: relative; height: 100svh; min-height: 620px; overflow: hidden; }
+  #eq { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  .hero .topbar {
+    position: absolute; top: 0; left: 0; right: 0; z-index: 5;
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 22px 4vw; font-family: var(--mono); font-size: 12px; color: var(--muted);
+  }
+  .hero .topbar .brand { color: var(--accent); font-size: 14px; }
+  .hero .headline {
+    position: absolute; left: 4vw; bottom: 18vh; z-index: 5; pointer-events: none;
+  }
+  .hero .headline .ln {
+    display: block; font-size: clamp(56px, 11.5vw, 176px);
+    opacity: 0; transform: translateY(0.35em);
+    animation: rise 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) forwards;
+  }
+  .hero .headline .ln:nth-child(1) { animation-delay: 0.15s; }
+  .hero .headline .ln:nth-child(2) {
+    animation-delay: 0.32s; color: transparent;
+    -webkit-text-stroke: 1.5px var(--text);
+  }
+  .hero .headline .ln:nth-child(3) { animation-delay: 0.49s; color: var(--accent); }
+  @keyframes rise { to { opacity: 1; transform: none; } }
+  .hero .sub {
+    position: absolute; right: 4vw; bottom: 18vh; z-index: 5;
+    font-family: var(--mono); font-size: 13px; color: var(--secondary);
+    text-align: right; line-height: 1.9; max-width: 320px;
+  }
+  .hero .sub b { color: var(--text); font-weight: 500; }
+  @media (max-width: 900px) { .hero .sub { display: none; } }
+
+  /* ticker */
+  .ticker { border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); overflow: hidden; background: var(--canvas); }
+  .ticker .rail { display: flex; width: max-content; animation: tick 26s linear infinite; }
+  .ticker .set { display: flex; }
+  .ticker span {
+    font-family: var(--mono); font-size: 13px; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--muted); padding: 14px 0;
+    white-space: nowrap;
+  }
+  .ticker span i { font-style: normal; color: var(--accent); padding: 0 26px; }
+  @keyframes tick { to { transform: translateX(-50%); } }
+
+  /* ============ MANIFESTO ============ */
+  .manifesto { padding: 20vh 4vw 16vh; }
+  .manifesto .law { margin-bottom: 12vh; }
+  .manifesto .idx { font-family: var(--mono); font-size: 12px; color: var(--accent); letter-spacing: 0.2em; margin-bottom: 14px; }
+  .manifesto .big {
+    font-size: clamp(38px, 6.8vw, 104px); max-width: 14ch;
+    opacity: 0; transform: translateY(30px);
+    transition: opacity 0.8s ease, transform 0.8s cubic-bezier(0.2,0.7,0.2,1);
+  }
+  .manifesto .law.in .big { opacity: 1; transform: none; }
+  .manifesto .big em { font-style: normal; color: var(--accent); }
+  .manifesto .big u { text-decoration: none; color: transparent; -webkit-text-stroke: 1px var(--secondary); }
+  .manifesto .gloss {
+    font-family: var(--mono); font-size: 13px; color: var(--muted);
+    margin-top: 18px; max-width: 52ch; line-height: 1.8;
+  }
+
+  /* ============ STAGE ============ */
+  .stage { padding: 10vh 4vw 16vh; position: relative; }
+  .stage .kicker { font-family: var(--mono); font-size: 12px; letter-spacing: 0.2em; color: var(--accent); margin-bottom: 14px; text-transform: uppercase; }
+  .stage h2.shout { font-size: clamp(40px, 7vw, 110px); margin-bottom: 8vh; }
+  .scene { position: relative; max-width: 880px; margin: 0 auto; }
+  .termframe {
+    background: #0A0C0F; border: 1px solid var(--border); border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 0 0 1px rgba(0,215,255,0.06), 0 0 90px rgba(0,215,255,0.10), 0 40px 100px rgba(0,0,0,0.7);
+  }
+  .termframe .bar {
+    display: flex; align-items: center; gap: 8px; padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    font-family: var(--mono); font-size: 11px; color: var(--muted);
+  }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--border); }
+  .termbody { padding: 22px 24px 18px; font-family: var(--mono); font-size: 14px; line-height: 1.95; min-height: 340px; }
+  .tl { white-space: pre-wrap; }
+  .tl .g-user { color: var(--accent); }
+  .tl .g-agent { color: var(--muted); }
+  .tl .g-ok { color: var(--success); }
+  .tl .g-ask { color: var(--warning); }
+  .tl .txt { color: var(--text); }
+  .tl .dim { color: var(--secondary); }
+  .tl .mut { color: var(--muted); }
+  .cursor { display: inline-block; width: 8px; height: 17px; background: var(--accent); vertical-align: text-bottom; animation: blink 1.1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  .livezone {
+    border-top: 1px solid var(--border); padding: 12px 24px;
+    font-family: var(--mono); font-size: 13px; display: flex; gap: 16px; align-items: center;
+  }
+  .lanes { letter-spacing: 4px; font-size: 15px; }
+  .lanes .on { color: var(--accent); }
+  .lanes .off { color: #232930; }
+  .livezone .doing { color: var(--muted); font-size: 12px; }
+
+  .approval {
+    width: min(400px, 88vw); margin: 32px 0 0 auto;
+    border: 1px solid var(--warning); border-radius: 8px; background: #101317;
+    font-family: var(--mono); font-size: 12.5px;
+    transform: translateY(14px); opacity: 0;
+    box-shadow: 0 30px 80px rgba(0,0,0,0.75);
+  }
+  .approval.armed { animation: land 0.5s cubic-bezier(0.2,0.7,0.2,1) forwards; }
+  @keyframes land { to { opacity: 1; transform: translateY(0); } }
+  .approval .ahead { display: flex; gap: 10px; padding: 14px 18px 4px; color: var(--warning); }
+  .approval .fields { padding: 8px 18px 12px 38px; line-height: 2; }
+  .approval .fk { color: var(--muted); display: inline-block; min-width: 82px; }
+  .approval .fv { color: var(--text); }
+  .approval .irrev { padding: 0 18px 14px 38px; color: var(--secondary); font-family: var(--body); font-size: 13px; }
+  .approval .controls { border-top: 1px solid var(--border); padding: 10px 18px; display: flex; gap: 20px; color: var(--muted); font-size: 12px; }
+  .approval .controls .act { color: var(--text); }
+  .approval .controls .allow { color: #3A424C; }
+  .scene-note {
+    margin: 64px auto 0; max-width: 880px;
+    font-family: var(--mono); font-size: 13px; color: var(--muted); line-height: 1.9;
+  }
+  .scene-note b { color: var(--secondary); font-weight: 500; }
+
+  /* ============ SETLIST ============ */
+  .setlist { padding: 8vh 0 14vh; }
+  .setlist .kicker { padding: 0 4vw; font-family: var(--mono); font-size: 12px; letter-spacing: 0.2em; color: var(--accent); text-transform: uppercase; margin-bottom: 5vh; }
+  .row {
+    display: grid; grid-template-columns: 90px 1fr auto; align-items: baseline; gap: 3vw;
+    padding: 4vh 4vw; border-top: 1px solid var(--border);
+    transition: background 0.18s ease, color 0.18s ease; cursor: default;
+  }
+  .row:last-child { border-bottom: 1px solid var(--border); }
+  .row .num { font-family: var(--mono); font-size: 13px; color: var(--muted); }
+  .row .name { font-size: clamp(30px, 4.6vw, 64px); }
+  .row .cue { font-family: var(--mono); font-size: 12.5px; color: var(--muted); max-width: 340px; text-align: right; line-height: 1.7; }
+  .row:hover { background: var(--accent); }
+  .row:hover .name, .row:hover .num, .row:hover .cue { color: #000; }
+  @media (max-width: 800px) { .row { grid-template-columns: 60px 1fr; } .row .cue { display: none; } }
+
+  /* ============ SPECIMEN ============ */
+  .specimen { padding: 10vh 0 0; }
+  .spec-type { display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid var(--border); }
+  @media (max-width: 800px) { .spec-type { grid-template-columns: 1fr; } }
+  .spec-type > div { padding: 8vh 4vw; }
+  .spec-type .left { border-right: 1px solid var(--border); }
+  @media (max-width: 800px) { .spec-type .left { border-right: none; border-bottom: 1px solid var(--border); } }
+  .spec-label { font-family: var(--mono); font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted); margin-bottom: 24px; }
+  .spec-type .giant { font-size: clamp(90px, 16vw, 240px); line-height: 0.85; }
+  .spec-type .giant span { color: var(--accent); }
+  .spec-type .facename { font-family: var(--mono); font-size: 12px; color: var(--accent-dim); margin-top: 24px; }
+  .spec-type .mono-sample { font-family: var(--mono); font-size: 14px; line-height: 2; color: var(--text); }
+  .spec-type .body-sample { font-size: 16px; color: var(--secondary); max-width: 46ch; margin-top: 28px; }
+
+  .palette { display: flex; height: 240px; border-top: 1px solid var(--border); }
+  .palette .col { flex: 1; position: relative; transition: flex 0.35s cubic-bezier(0.2,0.7,0.2,1); min-width: 0; }
+  .palette .col:hover { flex: 2.6; }
+  .palette .col .tag {
+    position: absolute; left: 12px; bottom: 12px;
+    font-family: var(--mono); font-size: 11px; line-height: 1.6;
+    writing-mode: vertical-rl; transform: rotate(180deg);
+  }
+  .palette .dk { color: rgba(0,0,0,0.72); }
+  .palette .lt { color: rgba(232,235,239,0.85); }
+  .palette-note { font-family: var(--mono); font-size: 12px; color: var(--muted); padding: 18px 4vw 0; }
+
+  /* ============ INSTRUMENTS ============ */
+  .instruments { padding: 16vh 4vw; display: grid; grid-template-columns: repeat(3, 1fr); gap: 5vw; align-items: end; }
+  @media (max-width: 900px) { .instruments { grid-template-columns: 1fr; gap: 10vh; } }
+  .inst .demo-area { min-height: 110px; display: flex; align-items: center; }
+  .inst .biglanes { font-family: var(--mono); font-size: 34px; letter-spacing: 12px; }
+  .inst .biglanes .on { color: var(--accent); text-shadow: 0 0 24px rgba(0,215,255,0.5); }
+  .inst .biglanes .off { color: #1C2127; }
+  .inst .meter { font-family: var(--mono); font-size: 20px; letter-spacing: 2px; white-space: nowrap; }
+  .inst .meter .fill { color: var(--accent); }
+  .inst .meter .rest { color: #1C2127; }
+  .inst .orn { font-family: var(--mono); font-size: 20px; letter-spacing: 3px; color: var(--accent); white-space: nowrap; overflow: hidden; }
+  .inst .ilabel { font-family: var(--mono); font-size: 12px; color: var(--muted); margin-top: 22px; line-height: 1.8; }
+  .inst .ilabel b { color: var(--secondary); font-weight: 500; }
+
+  /* ============ TRAVEL (OG + SEO) ============ */
+  .travel { border-top: 1px solid var(--border); padding: 12vh 0 12vh; }
+  .travel-grid { display: grid; grid-template-columns: 1.1fr 1fr; gap: 5vw; padding: 0 4vw; align-items: start; }
+  @media (max-width: 900px) { .travel-grid { grid-template-columns: 1fr; } }
+  .ogcard {
+    position: relative; aspect-ratio: 1200 / 630; background: #07090B;
+    border: 1px solid var(--border); border-radius: 12px; overflow: hidden;
+    padding: 5.5%; display: flex; flex-direction: column;
+    box-shadow: 0 30px 80px rgba(0,0,0,0.6);
+  }
+  .ogcard .og-top { display: flex; justify-content: space-between; font-size: clamp(11px, 1.4vw, 15px); color: var(--muted); }
+  .ogcard .og-title { margin-top: auto; font-size: clamp(30px, 4.8vw, 58px); line-height: 0.95; position: relative; z-index: 2; }
+  .ogcard .og-title span { color: var(--accent); }
+  .ogcard .og-sub { margin-top: 12px; font-size: clamp(10px, 1.2vw, 13px); color: var(--secondary); letter-spacing: 0.12em; position: relative; z-index: 2; }
+  .og-eq { position: absolute; left: 0; right: 0; bottom: 0; height: 46%; display: flex; align-items: flex-end; gap: 4px; padding: 0 5.5%; opacity: 0.5; }
+  .og-eq i { flex: 1; background: var(--accent); }
+  .seo-list { display: flex; flex-direction: column; }
+  .seo-row {
+    display: grid; grid-template-columns: 140px 1fr; gap: 20px;
+    padding: 18px 0; border-top: 1px solid var(--border);
+    font-size: 12.5px; line-height: 1.8; color: var(--secondary);
+  }
+  .seo-row:last-child { border-bottom: 1px solid var(--border); }
+  .seo-row .sk { color: var(--accent); letter-spacing: 0.1em; text-transform: uppercase; font-size: 11px; padding-top: 2px; }
+
+  /* ============ FOOTNOTE ============ */
+  .footnote { border-top: 1px solid var(--border); padding: 12vh 4vw 14vh; }
+  .footnote .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6vw; }
+  @media (max-width: 800px) { .footnote .grid { grid-template-columns: 1fr; } }
+  .footnote h3.shout { font-size: clamp(28px, 3.6vw, 52px); margin-bottom: 24px; }
+  .footnote h3.shout em { font-style: normal; color: var(--accent); }
+  .footnote p { color: var(--secondary); font-size: 15px; max-width: 54ch; }
+  .footnote p + p { margin-top: 14px; }
+  .footnote .k { font-family: var(--mono); font-size: 0.92em; color: var(--accent-dim); }
+  .steps { font-family: var(--mono); font-size: 13.5px; line-height: 2.4; color: var(--secondary); }
+  .steps .g { color: var(--accent); margin-right: 12px; }
+  .endorn { margin-top: 12vh; font-family: var(--mono); font-size: 16px; letter-spacing: 2px; color: var(--accent); white-space: nowrap; overflow: hidden; opacity: 0.8; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation-duration: 0.001s !important; transition-duration: 0.001s !important; }
+    .ticker .rail { animation: none; }
+  }
+</style>
+
+<div class="hero">
+  <canvas id="eq" aria-hidden="true"></canvas>
+  <div class="topbar">
+    <span class="brand mono">▞ jazz</span>
+    <span>site direction · moodboard · v2</span>
+  </div>
+  <div class="headline shout" aria-label="One agent. Every surface. Your rules.">
+    <span class="ln">One agent.</span>
+    <span class="ln">Every surface.</span>
+    <span class="ln">Your rules.</span>
+  </div>
+  <div class="sub">
+    <b>an AI agent that lives on your machine</b><br>
+    terminal · cron · CI · telegram · discord<br>
+    18 providers, or fully local<br><br>
+    <span style="color:var(--accent)">move the cursor — the room reacts</span>
+  </div>
+</div>
+
+<div class="ticker" aria-hidden="true">
+  <div class="rail">
+    <div class="set">
+      <span>triage my inbox<i>▞</i>deep-research into obsidian<i>▞</i>review every PR<i>▞</i>7am weather briefing<i>▞</i>runs on a $5 server<i>▞</i>no api key needed<i>▞</i>asks before it sends<i>▞</i></span>
+    </div>
+    <div class="set">
+      <span>triage my inbox<i>▞</i>deep-research into obsidian<i>▞</i>review every PR<i>▞</i>7am weather briefing<i>▞</i>runs on a $5 server<i>▞</i>no api key needed<i>▞</i>asks before it sends<i>▞</i></span>
+    </div>
+  </div>
+</div>
+
+<section class="manifesto">
+  <div class="law">
+    <div class="idx">LAW 01</div>
+    <div class="big shout">Colour is <em>semantics.</em></div>
+    <div class="gloss">six hues, each answering "what is this?" — cyan is live, green worked, amber is a decision. nothing is coloured for decoration. ever.</div>
+  </div>
+  <div class="law">
+    <div class="idx">LAW 02</div>
+    <div class="big shout">Motion is allowed <u>where text is not.</u></div>
+    <div class="gloss">the room moves while you travel. the instant a sentence enters your eye-line, everything else goes still. animation everywhere — never under what you're reading.</div>
+  </div>
+  <div class="law">
+    <div class="idx">LAW 03</div>
+    <div class="big shout">Drawn, <u>not pictured.</u></div>
+    <div class="gloss">no illustrations, no stock 3D, no gradient orbs. every visual on the site is computed live from block cells — the same ▖▚▘ the terminal renders. the decoration is the tech demo.</div>
+  </div>
+</section>
+
+<section class="stage">
+  <div class="kicker">the hero is a performance</div>
+  <h2 class="shout">Not a screenshot.<br>A set.</h2>
+  <div class="scene">
+    <div class="termframe">
+      <div class="bar"><span class="dot"></span><span class="dot"></span><span class="dot"></span>&nbsp;&nbsp;▞ jazz — tuesday, 07:00, unattended</div>
+      <div class="termbody" id="termbody"></div>
+      <div class="livezone">
+        <span class="lanes" id="lanes-hero"></span>
+        <span class="doing" id="doing">idle</span>
+      </div>
+    </div>
+    <div class="approval" id="approval">
+      <div class="ahead"><span>▐</span><span>jazz wants to send an email</span></div>
+      <div class="fields">
+        <div><span class="fk">from</span> <span class="fv">lvndry@example.com</span></div>
+        <div><span class="fk">to</span> <span class="fv">team@example.com</span></div>
+        <div><span class="fk">subject</span> <span class="fv">Monday priorities</span></div>
+      </div>
+      <div class="irrev">Sending cannot be undone. Recipients see this immediately.</div>
+      <div class="controls">
+        <span><span class="act">enter</span> send</span>
+        <span><span class="act">esc</span> reject</span>
+        <span class="allow">a always allow</span>
+      </div>
+    </div>
+  </div>
+  <div class="scene-note">
+    <b>on the real site:</b> the homepage opens on this — a live self-playing session, typed
+    character by character, tools landing, five lanes counting concurrent work. the approval card
+    drops in and then holds perfectly still, because pressure on an irreversible choice is a dark
+    pattern. that stillness — on a page where everything else moves — is the shot people screenshot.
+  </div>
+</section>
+
+<section class="setlist">
+  <div class="kicker">the setlist — one scroll, six scenes</div>
+  <div class="row"><span class="num">01</span><span class="name shout">The set</span><span class="cue">live session hero · equalizer room · cursor reacts</span></div>
+  <div class="row"><span class="num">02</span><span class="name shout">Everywhere at once</span><span class="cue">one ▞ fans out to terminal / telegram / CI / cron — same session in each frame</span></div>
+  <div class="row"><span class="num">03</span><span class="name shout">Under the hood</span><span class="cue">pinned scrollytelling: the agent loop pulses, the context meter fills &amp; compacts</span></div>
+  <div class="row"><span class="num">04</span><span class="name shout">It asks first</span><span class="cue">one approval card travels: terminal → telegram → CI comment. stillness as the point</span></div>
+  <div class="row"><span class="num">05</span><span class="name shout">Steal these</span><span class="cue">cookbook recipes — hover plays a 3-second condensed run</span></div>
+  <div class="row"><span class="num">06</span><span class="name shout">Read the docs</span><span class="cue">calm on purpose. light palette, zero ambient motion — law 02</span></div>
+</section>
+
+<section class="specimen">
+  <div class="spec-type">
+    <div class="left">
+      <div class="spec-label">display — shouts, rarely</div>
+      <div class="giant shout">Ja<span>zz</span></div>
+      <div class="facename">Anton · caps · clamp(56px → 176px)</div>
+    </div>
+    <div>
+      <div class="spec-label">machine — everything technical</div>
+      <div class="mono-sample"><span style="color:var(--accent)">»</span> every morning at 7, tell me the weather<br><span style="color:var(--success)">╺</span> scheduled <span style="color:var(--muted)">— launchd, catch-up on wake</span><br><span style="color:var(--muted)">╶</span> Done. First briefing tomorrow, 07:00.</div>
+      <div class="facename">IBM Plex Mono · the product's own voice</div>
+      <div class="body-sample">Prose sits quiet in IBM Plex Sans — the shouting is rationed, which is what makes it loud.</div>
+    </div>
+  </div>
+  <div class="palette">
+    <div class="col" style="background:#0B0D10"><span class="tag lt">canvas #0B0D10</span></div>
+    <div class="col" style="background:#00D7FF"><span class="tag dk">live · xterm 45 · #00D7FF</span></div>
+    <div class="col" style="background:#5FD787"><span class="tag dk">worked #5FD787</span></div>
+    <div class="col" style="background:#D7AF5F"><span class="tag dk">decision #D7AF5F</span></div>
+    <div class="col" style="background:#FF6B6B"><span class="tag dk">broke #FF6B6B</span></div>
+    <div class="col" style="background:#9B8CFF"><span class="tag dk">structure #9B8CFF</span></div>
+    <div class="col" style="background:#E8EBEF"><span class="tag dk">prose #E8EBEF</span></div>
+  </div>
+  <div class="palette-note">byte-identical to src/cli/ui/theme.ts — the accent is xterm index 45, so the cyan on the homepage is the cyan over SSH. six hues. no gradients. no third accent.</div>
+</section>
+
+<section class="instruments">
+  <div class="inst">
+    <div class="demo-area"><div class="biglanes" id="lanes-big"></div></div>
+    <div class="ilabel"><b>the ensemble.</b> five voices on coprime periods 3·4·5·7·11 — the pattern doesn't repeat for 13 minutes. section dividers, loading states, the 404.</div>
+  </div>
+  <div class="inst">
+    <div class="demo-area"><div class="meter" id="ctxmeter"></div></div>
+    <div class="ilabel"><b>the context meter.</b> fills as you scroll the internals — then compaction fires and it visibly frees. the compaction ladder told as animation, not a paragraph.</div>
+  </div>
+  <div class="inst">
+    <div class="demo-area"><div class="orn" id="ornament2"></div></div>
+    <div class="ilabel"><b>syncopation.</b> a five-cell voice against a three-cell voice, phasing forever. the wordmark, animated — derived from the actual definition of jazz.</div>
+  </div>
+</section>
+
+<section class="travel">
+  <div class="kicker" style="padding:0 4vw; font-family:var(--mono); font-size:12px; letter-spacing:0.2em; color:var(--accent); text-transform:uppercase; margin-bottom:5vh;">built to travel — og + seo</div>
+  <div class="travel-grid">
+    <div>
+      <div class="ogcard" aria-label="Open Graph image concept">
+        <div class="og-eq" id="og-eq" aria-hidden="true"></div>
+        <div class="og-top mono"><span style="color:var(--accent)">▞ jazz</span><span>jazz.sh</span></div>
+        <div class="og-title shout">Your computer,<br>finally <span>useful.</span></div>
+        <div class="og-sub mono">one agent · every surface · your rules</div>
+      </div>
+      <div class="ilabel" style="margin-top:20px; font-family:var(--mono); font-size:12px; color:var(--muted); line-height:1.8;"><b style="color:var(--secondary); font-weight:500">og images are generated, not designed once.</b> every page renders its own 1200×630 at build time — same equalizer, same Anton, the page's own title. a docs page about cron shares as beautifully as the homepage. the link preview is the first frame of the brand.</div>
+    </div>
+    <div class="seo-list mono">
+      <div class="seo-row"><span class="sk">static html</span><span>every page pre-rendered — no JS wall between crawlers and content. core web vitals green by construction.</span></div>
+      <div class="seo-row"><span class="sk">long-tail</span><span>the cookbook and use-case docs become indexable pages: "AI agent for inbox triage", "self-hosted telegram AI bot", "AI PR review github action". each recipe is a landing page.</span></div>
+      <div class="seo-row"><span class="sk">structured data</span><span>SoftwareApplication + FAQ schema; install command in a machine-readable block.</span></div>
+      <div class="seo-row"><span class="sk">llms.txt</span><span>the docs are markdown already — serve them raw at /llms.txt and *.md so agents recommend jazz to their users. the audience includes machines.</span></div>
+      <div class="seo-row"><span class="sk">titles</span><span>pages named like answers, not features: "Run an AI agent from cron" beats "Scheduling".</span></div>
+      <div class="seo-row"><span class="sk">the tweet</span><span>the hero is screen-recordable in one 8-second loop with a visible ending — designed for the retweet, not just the visit.</span></div>
+    </div>
+  </div>
+</section>
+
+<section class="footnote">
+  <div class="grid">
+    <div>
+      <h3 class="shout">The repo is <em>the CMS.</em></h3>
+      <p>Docs pages render <span class="k">docs/**/*.md</span> straight from the tree — zero duplication,
+      sidebar derived from the structure already in <span class="k">docs/index.md</span>. Edit a doc,
+      the site rebuilds. The README stays the single source of the pitch.</p>
+      <p>Astro + Bun in <span class="k">website/</span>: islands carry the animated scenes, docs ship
+      zero JS and go calm and light. Fast on anything — the site honors "reach" the way the CLI does
+      on a 256-color terminal.</p>
+    </div>
+    <div>
+      <h3 class="shout">If this lands</h3>
+      <div class="steps">
+        <div><span class="g">╴</span>scaffold website/ · content wired to docs/</div>
+        <div><span class="g">╴</span>build scene 01 — the set, productionized</div>
+        <div><span class="g">╴</span>scrollytelling internals + travelling approval</div>
+        <div><span class="g">╴</span>docs skin: light, searchable, still</div>
+        <div><span class="g">╴</span>kill any motion that runs under readable text</div>
+      </div>
+    </div>
+  </div>
+  <div class="endorn" id="ornament3" aria-hidden="true"></div>
+</section>
+
+<script>
+(function () {
+  var reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  /* ===== equalizer room: quantized cell columns on canvas ===== */
+  var cv = document.getElementById("eq");
+  var ctx = cv.getContext("2d");
+  var W, H, CELL = 16, GAP = 3, cols, rows, colState = [];
+  var mouseX = -1, mouseY = -1, mouseHeat = 0;
+  function sizeCanvas() {
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    W = cv.clientWidth; H = cv.clientHeight;
+    cv.width = W * dpr; cv.height = H * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    cols = Math.ceil(W / CELL); rows = Math.ceil(H / CELL);
+    colState = [];
+    var freqs = [3, 4, 5, 7, 11];
+    for (var i = 0; i < cols; i++) {
+      colState.push({
+        f1: freqs[i % 5] * 0.09,
+        f2: freqs[(i * 3 + 1) % 5] * 0.041,
+        ph: (i * 2654435761 % 1000) / 159.0,
+        boost: 0
+      });
+    }
+  }
+  sizeCanvas();
+  window.addEventListener("resize", sizeCanvas);
+  window.addEventListener("mousemove", function (e) {
+    var r = cv.getBoundingClientRect();
+    mouseX = e.clientX - r.left; mouseY = e.clientY - r.top; mouseHeat = 1;
+  });
+  var alphas = [0.10, 0.22, 0.45, 0.95];
+  var t = 0;
+  function drawEQ() {
+    t += reduced ? 0.004 : 0.016;
+    mouseHeat *= 0.97;
+    ctx.clearRect(0, 0, W, H);
+    var maxBars = rows * 0.55;
+    for (var i = 0; i < cols; i++) {
+      var s = colState[i];
+      var wave = Math.abs(Math.sin(t * s.f1 + s.ph)) * 0.55 + Math.abs(Math.sin(t * s.f2 + s.ph * 1.7)) * 0.45;
+      var near = 0;
+      if (mouseX >= 0) {
+        var dx = (i * CELL + CELL / 2) - mouseX;
+        near = Math.exp(-(dx * dx) / (2 * 90 * 90)) * mouseHeat;
+      }
+      s.boost += (near - s.boost) * 0.12;
+      var h = Math.round((wave * 0.32 + s.boost * 0.55 + 0.03) * maxBars);
+      for (var r = 0; r < h; r++) {
+        var y = H - (r + 1) * CELL;
+        var frac = r / Math.max(h - 1, 1);
+        var band = frac > 0.92 ? 3 : frac > 0.6 ? 2 : frac > 0.3 ? 1 : 0;
+        ctx.fillStyle = (band === 3 && s.boost > 0.25)
+          ? "rgba(232,235,239," + alphas[3] + ")"
+          : "rgba(0,215,255," + alphas[band] + ")";
+        ctx.fillRect(i * CELL, y + GAP / 2, CELL - GAP, CELL - GAP);
+      }
+    }
+    requestAnimationFrame(drawEQ);
+  }
+  requestAnimationFrame(drawEQ);
+
+  /* ===== manifesto reveal ===== */
+  var obs = new IntersectionObserver(function (entries) {
+    entries.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add("in"); obs.unobserve(e.target); } });
+  }, { threshold: 0.35 });
+  document.querySelectorAll(".manifesto .law").forEach(function (el) { obs.observe(el); });
+
+  /* ===== syncopated ornament ===== */
+  function ornamentFrame(phase, cells) {
+    var out = "";
+    for (var i = 0; i < cells; i++) {
+      var upper = ((i + phase) % 5) < 2;
+      var lower = ((i + Math.floor(phase / 2)) % 3) < 1;
+      out += upper && lower ? "█" : upper ? "▀" : lower ? "▄" : " ";
+    }
+    return out;
+  }
+  var orn2 = document.getElementById("ornament2");
+  var orn3 = document.getElementById("ornament3");
+  var ornPhase = 0;
+  function tickOrn() {
+    ornPhase++;
+    if (orn2) orn2.textContent = ornamentFrame(ornPhase, 16);
+    if (orn3) orn3.textContent = ornamentFrame(ornPhase, 80);
+  }
+  tickOrn();
+  if (!reduced) setInterval(tickOrn, 300);
+
+  /* ===== activity lanes ===== */
+  var periods = [3, 4, 5, 7, 11], burst = ["▖", "▚", "▘"], laneFrame = 0;
+  var lanesHero = document.getElementById("lanes-hero");
+  var lanesBig = document.getElementById("lanes-big");
+  function tickLanes() {
+    laneFrame++;
+    var html = periods.map(function (p) {
+      var ph = laneFrame % p;
+      return ph < 3 ? '<span class="on">' + burst[ph] + "</span>" : '<span class="off">░</span>';
+    }).join("");
+    if (lanesHero) lanesHero.innerHTML = html;
+    if (lanesBig) lanesBig.innerHTML = html;
+  }
+  tickLanes();
+  if (!reduced) setInterval(tickLanes, 170);
+
+  /* ===== context meter ===== */
+  var meterEl = document.getElementById("ctxmeter");
+  var CELLS = 16, pct = 8;
+  function tickMeter() {
+    pct += 1.4;
+    if (pct >= 80) pct = 30;
+    var filled = Math.round((pct / 100) * CELLS), row = "";
+    for (var i = 0; i < CELLS; i++) row += i < filled ? '<span class="fill">█</span>' : '<span class="rest">░</span>';
+    if (meterEl) meterEl.innerHTML = row + ' <span style="color:var(--muted);font-size:12px">' + Math.round(pct) + "%</span>";
+  }
+  tickMeter();
+  if (!reduced) setInterval(tickMeter, 260);
+
+  /* ===== approval card lands once ===== */
+  var approval = document.getElementById("approval");
+  if (approval) {
+    var aobs = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (e.isIntersecting) { setTimeout(function () { approval.classList.add("armed"); }, 1200); aobs.disconnect(); }
+      });
+    }, { threshold: 0.3 });
+    aobs.observe(approval);
+  }
+
+  /* ===== og card mini equalizer (static-ish, slow) ===== */
+  var ogEq = document.getElementById("og-eq");
+  if (ogEq) {
+    var BARS = 36;
+    for (var b = 0; b < BARS; b++) {
+      var bar = document.createElement("i");
+      ogEq.appendChild(bar);
+    }
+    var ogBars = ogEq.children, ogT = 0;
+    function tickOg() {
+      ogT += 0.06;
+      for (var b = 0; b < BARS; b++) {
+        var v = Math.abs(Math.sin(ogT * (0.7 + (b % 5) * 0.13) + b)) * 0.8 + 0.08;
+        ogBars[b].style.height = Math.round(v * 100) + "%";
+        ogBars[b].style.opacity = (0.25 + v * 0.6).toFixed(2);
+      }
+    }
+    tickOg();
+    if (!reduced) setInterval(tickOg, 120);
+  }
+
+  /* ===== self-playing session ===== */
+  var script = [
+    { g: "g-user", glyph: "»", text: " plan my morning: email, calendar, weather", type: true },
+    { g: "g-ok", glyph: "╺", text: " gmail.search", dim: " — 14 unread, 3 need you", delay: 900 },
+    { g: "g-ok", glyph: "╺", text: " calendar.today", dim: " — 4 events, first at 09:30", delay: 700 },
+    { g: "g-ok", glyph: "╺", text: " weather.now", dim: " — 18°C, rain after 14:00", delay: 600 },
+    { g: "g-agent", glyph: "╶", text: " Three emails matter: the contract redline,", plain: true, delay: 800 },
+    { g: "g-agent", glyph: " ", text: "  Ana's question, and the invoice. Your 09:30", plain: true, delay: 300 },
+    { g: "g-agent", glyph: " ", text: "  clashes with the dentist — want me to move it?", plain: true, delay: 300 },
+    { g: "g-ask", glyph: "▐", text: " reschedule \"design sync\" → 11:00 · cal: lvndry@example.com", delay: 1100 },
+    { g: "g-ok", glyph: "╺", text: " approved — moved. Bring an umbrella.", dim: "", delay: 1400 }
+  ];
+  var termbody = document.getElementById("termbody");
+  var doing = document.getElementById("doing");
+  var doingStates = ["idle", "reading mail…", "reading calendar…", "checking weather…", "thinking…", "thinking…", "thinking…", "asking you", "done"];
+  function runSession() {
+    if (!termbody) return;
+    termbody.innerHTML = "";
+    var i = 0;
+    function nextLine() {
+      if (i >= script.length) { setTimeout(runSession, 7000); return; }
+      var line = script[i];
+      if (doing) doing.textContent = doingStates[Math.min(i, doingStates.length - 1)];
+      var el = document.createElement("div");
+      el.className = "tl";
+      var glyphSpan = '<span class="' + line.g + '">' + line.glyph + "</span>";
+      if (line.type && !reduced) {
+        el.innerHTML = glyphSpan + '<span class="txt"></span><span class="cursor"></span>';
+        termbody.appendChild(el);
+        var target = el.querySelector(".txt");
+        var chars = line.text, c = 0;
+        var typer = setInterval(function () {
+          c++;
+          target.textContent = chars.slice(0, c);
+          if (c >= chars.length) {
+            clearInterval(typer);
+            el.querySelector(".cursor").remove();
+            i++; setTimeout(nextLine, 500);
+          }
+        }, 34);
+      } else {
+        var cls = line.plain ? "dim" : "txt";
+        el.innerHTML = glyphSpan + '<span class="' + cls + '">' + line.text + "</span>" +
+          (line.dim ? '<span class="mut">' + line.dim + "</span>" : "");
+        termbody.appendChild(el);
+        i++; setTimeout(nextLine, reduced ? 60 : (line.delay || 500));
+      }
+    }
+    nextLine();
+  }
+  runSession();
+})();
+</script>

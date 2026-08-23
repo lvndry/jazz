@@ -1,0 +1,49 @@
+name: website
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    paths:
+      - "website/**"
+      - "docs/**"
+      - "src/cli/ui/theme.ts"
+      - "src/cli/ui/glyphs.ts"
+      - ".github/workflows/website.yml"
+  push:
+    branches: [main]
+    paths:
+      - "website/**"
+      - "docs/**"
+      - "src/cli/ui/theme.ts"
+      - "src/cli/ui/glyphs.ts"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - name: Cache bun downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock', 'website/bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
+      - name: Install root dependencies (token generator imports theme.ts)
+        run: bun install --frozen-lockfile
+      - name: Install website dependencies
+        run: bun install --frozen-lockfile
+        working-directory: website
+      - name: Generated tokens are fresh
+        run: |
+          bun run tokens
+          git diff --exit-code src/styles/tokens.css src/generated/tokens.ts
+        working-directory: website
+      - name: Build
+        run: bun run build
+        working-directory: website
+      - name: Check internal links
+        run: bun run check-links
+        working-directory: website
