@@ -1,10 +1,10 @@
-import { Effect } from "effect";
+import { Effect, Layer } from "effect";
 import { AgentRunner } from "@/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@/core/agent/agent-service";
 import { buildWorkStatePreamble } from "@/core/agent/context/work-state-preamble";
+import { RunParkRequested, isRunParkRequested } from "@/core/agent/run/park-signal";
 import { CommonSuggestions, getErrorMessage } from "@/core/presentation/error-handler";
 import { makeOneShotPresentationServiceLayer } from "@/core/presentation/oneshot-presentation-service";
-import { describeArtifact, type GeneratedArtifact } from "@/core/types/artifact";
 import { AgentNotFoundError } from "@/core/types/errors";
 import type { ChatMessage } from "@/core/types/message";
 import type { StreamEvent } from "@/core/types/streaming";
@@ -15,6 +15,17 @@ import {
   saveConversation,
   type ConversationRecord,
 } from "@/services/history/conversation-history-service";
+import { makeSessionId } from "@/services/history/session-store";
+import { makeFileRunStoreLayer } from "@/services/storage/run-store";
+import {
+  ONE_SHOT_EXIT,
+  formatOneShotError,
+  formatOneShotParked,
+  formatOneShotResult,
+  type OneShotOutputOptions,
+  type OneShotWebApp,
+} from "./envelope";
+import type { ApprovalPolicyFlag, ReasoningEffort } from "./flags";
 
 /**
  * One-shot, non-interactive agent invocation — designed to be driven from
@@ -32,60 +43,6 @@ import {
  * is saved back after, so a webhook bridge that passes its chat id gets
  * per-chat context across invocations without storing anything itself.
  */
-
-export interface OneShotTokenUsage {
-  readonly promptTokens: number;
-  readonly completionTokens: number;
-  readonly totalTokens: number;
-  /** Share of promptTokens served from the provider's prompt cache. */
-  readonly cacheReadTokens?: number;
-}
-
-export interface OneShotToolCall {
-  readonly id: string;
-  readonly name: string;
-  readonly arguments: string;
-}
-
-/**
- * Structured result of a `create_web_app` tool call, surfaced alongside the
- * text answer so callers (e.g. the Telegram bridge) can deliver it as an
- * image or a Web App button without having to parse it out of `answer`.
- */
-export interface OneShotWebApp {
-  readonly id: string;
-  readonly mode: "static" | "interactive";
-  readonly title: string;
-  readonly htmlPath: string;
-  readonly imagePath?: string;
-}
-
-export interface OneShotSuccess {
-  readonly answer: string;
-  readonly costUSD: number;
-  readonly tokenUsage: OneShotTokenUsage;
-  readonly toolCalls: readonly OneShotToolCall[];
-  readonly webApp?: OneShotWebApp;
-  /**
-   * Files this run produced, in the order they were made.
-   *
-   * Supersedes `webApp` for anything that only needs "a file appeared, here is where and what
-   * kind" — a script or bridge reads this instead of learning each producing tool by name.
-   * `webApp` stays because its interactive mode carries a URL-bearing shape no generic artifact
-   * can express.
-   */
-  readonly artifacts?: readonly GeneratedArtifact[];
-  /**
-   * Full message transcript for this run, included only for `--ephemeral`
-   * calls. Since ephemeral runs never load/save `--conversation` history on
-   * disk, any caller that wants multi-turn context (a webhook bridge, a
-   * script — this is generic to `jazz run`, not tied to any one integration)
-   * round-trips this array back in as `--history-json` on the next call
-   * instead. The conversation lives in the caller's own memory, never on
-   * disk.
-   */
-  readonly messages?: readonly ChatMessage[];
-}
 
 /**
  * Narrow `create_web_app`'s structured tool result (last call wins if invoked
@@ -138,67 +95,6 @@ export function extractWebAppResult(
   };
 }
 
-export interface OneShotOutputOptions {
-  readonly json: boolean;
-}
-
-/**
- * Format a successful run for stdout.
- *
- * Plain mode returns just the trimmed answer (raw markdown, ready to be
- * translated to Slack mrkdwn / Google Chat formatting downstream). JSON mode
- * returns exactly one single-line envelope.
- */
-export function formatOneShotResult(result: OneShotSuccess, options: OneShotOutputOptions): string {
-  if (!options.json) {
-    const answer = result.answer.trim();
-    const artifacts = result.artifacts ?? [];
-    if (artifacts.length === 0) return `${answer}\n`;
-
-    // Paths go below the answer whether or not the model mentioned them. A run that writes a
-    // file and does not say where is a run the user has to go hunting after, and models are
-    // inconsistent about repeating a path they already saw in a tool result.
-    const lines = artifacts.map((artifact) => `  ${describeArtifact(artifact)}`).join("\n");
-    return `${answer}\n\n${lines}\n`;
-  }
-
-  return `${JSON.stringify({
-    ok: true,
-    answer: result.answer,
-    costUSD: result.costUSD,
-    tokenUsage: result.tokenUsage,
-    toolCalls: result.toolCalls,
-    ...(result.webApp ? { webApp: result.webApp } : {}),
-    ...(result.artifacts && result.artifacts.length > 0 ? { artifacts: result.artifacts } : {}),
-    ...(result.messages ? { messages: result.messages } : {}),
-  })}\n`;
-}
-
-/** Format a failure (plain message to stderr, or JSON envelope to stdout in --json mode). */
-export function formatOneShotError(
-  message: string,
-  options: OneShotOutputOptions,
-  costUSD = 0,
-): string {
-  return options.json
-    ? `${JSON.stringify({ ok: false, error: message, costUSD })}\n`
-    : `${message}\n`;
-}
-
-const VALID_APPROVAL_POLICIES = ["read-only", "low-risk", "high-risk"] as const;
-export type ApprovalPolicyFlag = (typeof VALID_APPROVAL_POLICIES)[number];
-
-export function isApprovalPolicyFlag(value: string): value is ApprovalPolicyFlag {
-  return (VALID_APPROVAL_POLICIES as readonly string[]).includes(value);
-}
-
-const VALID_REASONING_EFFORTS = ["disable", "low", "medium", "high"] as const;
-export type ReasoningEffort = (typeof VALID_REASONING_EFFORTS)[number];
-
-export function isReasoningEffortFlag(value: string): value is ReasoningEffort {
-  return (VALID_REASONING_EFFORTS as readonly string[]).includes(value);
-}
-
 export interface RunAgentOnceOptions {
   readonly json: boolean;
   readonly approvalPolicy?: ApprovalPolicyFlag | undefined;
@@ -242,6 +138,14 @@ export interface RunAgentOnceOptions {
    * instead of it living on disk. Malformed JSON is treated as "no history".
    */
   readonly historyJson?: string | undefined;
+  /**
+   * Park instead of declining when a gated tool needs approval nobody here can give.
+   *
+   * Off by default because it changes what an unattended run *does*: without it a cron job
+   * that hits `git push` refuses and carries on, with it the job stops and waits for a
+   * person. Only turn it on where somebody is actually going to answer.
+   */
+  readonly park?: boolean | undefined;
 }
 
 /**
@@ -281,63 +185,6 @@ export function buildConversationRecord(params: {
   };
 }
 
-const EVENT_CATEGORY_TYPES = {
-  tools: ["tools_detected", "tool_call", "tool_execution_start", "tool_execution_complete"],
-  reasoning: ["thinking_start", "thinking_chunk", "thinking_complete"],
-  text: ["text_start", "text_chunk"],
-  usage: ["stream_start", "usage_update", "complete"],
-  approval: [
-    "approval_required",
-    "approval_resolved",
-    "command_risk_classifying",
-    "command_risk_classified",
-  ],
-  subagent: ["subagent_start", "subagent_complete"],
-} as const satisfies Record<string, readonly StreamEvent["type"][]>;
-
-type EventCategory = keyof typeof EVENT_CATEGORY_TYPES;
-
-function isEventCategory(value: string): value is EventCategory {
-  return Object.prototype.hasOwnProperty.call(EVENT_CATEGORY_TYPES, value);
-}
-
-/**
- * Parse the comma-separated `--events` flag into the set of `StreamEvent` types
- * to emit. The `error` type is always included so failures surface on the live
- * stream regardless of the selected categories.
- */
-export function parseEventCategories(
-  raw: string,
-): { ok: true; types: ReadonlySet<StreamEvent["type"]> } | { ok: false; error: string } {
-  const types = new Set<StreamEvent["type"]>(["error"]);
-  const categories = raw
-    .split(",")
-    .map((category) => category.trim().toLowerCase())
-    .filter((category) => category.length > 0);
-
-  for (const category of categories) {
-    if (category === "all") {
-      for (const eventTypes of Object.values(EVENT_CATEGORY_TYPES)) {
-        for (const eventType of eventTypes) {
-          types.add(eventType);
-        }
-      }
-      continue;
-    }
-    if (!isEventCategory(category)) {
-      return {
-        ok: false,
-        error: `Invalid --events category "${category}". Expected: tools, reasoning, text, usage, approval, subagent, all.`,
-      };
-    }
-    for (const eventType of EVENT_CATEGORY_TYPES[category]) {
-      types.add(eventType);
-    }
-  }
-
-  return { ok: true, types };
-}
-
 function readStdin(): Promise<string> {
   // Relies on the prompt being passed as a CLI argument in flows (e.g. the
   // Telegram bridge) that also expect `OneShotPresentationService` to read
@@ -375,7 +222,7 @@ const failOneShot = (
     } else {
       process.stderr.write(formatted);
     }
-    process.exitCode = 1;
+    process.exitCode = ONE_SHOT_EXIT.failed;
   });
 
 /**
@@ -472,12 +319,17 @@ export function runAgentOnceCommand(
     }
 
     const autoApprovePolicy: AutoApprovePolicy | undefined = options.approvalPolicy;
-    const runId = `run-${agent.id}-${Date.now()}`;
+    // Not a run id: a run's identity is the uuid the metrics mint, and this is the
+    // conversation this turn belongs to. Without `--conversation` the caller wants a clean
+    // slate, so the turn gets a conversation of its own that nothing will ever reuse.
+    const conversationId = conversationKey ?? `once-${agent.id}-${Date.now()}`;
     const runEffect = AgentRunner.run({
       agent: agentForRun,
       userInput: prompt,
-      sessionId: runId,
-      conversationId: conversationKey ?? runId,
+      // Derived rather than invented, so a one-shot's logs land in the same session file
+      // as every other turn of the same conversation.
+      sessionId: makeSessionId(agent.id, conversationId),
+      conversationId,
       ...(inlineHistory !== undefined
         ? { conversationHistory: inlineHistory }
         : resumedHistory !== null
@@ -491,6 +343,7 @@ export function runAgentOnceCommand(
       ...(options.maxIterations != null ? { maxIterations: options.maxIterations } : {}),
       ...(options.stream !== undefined ? { stream: options.stream } : {}),
       ...(ephemeral ? { disablePersistence: true } : {}),
+      ...(options.park === true ? { parkWhenUnattended: true } : {}),
     });
 
     const runResult = yield* deadline ? Effect.race(runEffect, deadline.watch) : runEffect;
@@ -550,7 +403,38 @@ export function runAgentOnceCommand(
       ),
     );
   }).pipe(
+    Effect.catchIf(
+      // A park that never reached the store carries no run id, so there is nothing to
+      // resume and it falls through to the ordinary failure path below.
+      (error): error is RunParkRequested => isRunParkRequested(error) && error.runId !== undefined,
+      (parked) =>
+        Effect.sync(() => {
+          const request =
+            parked.pending.kind === "tool-approval" ? parked.pending.request : undefined;
+          const formatted = formatOneShotParked(
+            {
+              runId: parked.runId ?? "",
+              expiresAt: parked.expiresAt ?? "",
+              toolName: request?.toolName ?? "",
+              toolCallId: request?.toolCallId ?? "",
+              message: request?.message ?? "Waiting for input.",
+            },
+            outputOptions,
+            parked.costUSD ?? 0,
+          );
+          if (outputOptions.json) {
+            process.stdout.write(formatted);
+          } else {
+            process.stderr.write(formatted);
+          }
+          // Distinct from 1 so a caller can tell "come back to this" from "this failed".
+          process.exitCode = ONE_SHOT_EXIT.parked;
+        }),
+    ),
     Effect.catchAll((error) => failOneShot(getErrorMessage(error), outputOptions)),
+    // Only a parking run needs somewhere durable to park. Without the flag no store is in
+    // the layer at all, and the recorder is a pass-through.
+    Effect.provide(options.park === true ? makeFileRunStoreLayer() : Layer.empty),
     Effect.provide(
       makeOneShotPresentationServiceLayer(
         options.eventTypes ?? new Set(),

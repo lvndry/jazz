@@ -82,15 +82,17 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
           }
         }
 
-        // Build message with overwrite warning if applicable
+        // This message is shown to whoever approves the write, which is not always a
+        // person at a terminal: it also goes into the `jazz run --json` envelope and out
+        // to chat bridges like Telegram. Keep it to what is about to happen. Do not append
+        // keyboard hints such as "Press Ctrl+O to preview" — most approvers have no
+        // keyboard, and the TUI already renders its own hint from `previewDiff` below.
         let message = `About to write ${args.content.length} characters to file: ${target}${options}`;
 
         if (!isNewFile && originalContent.length > 0) {
           message += `\n\n⚠️  WARNING: This will overwrite the existing file (${originalContent.split("\n").length} lines).`;
           message += `\n   Consider using edit_file instead if you only need to modify part of the file.`;
         }
-
-        message += `\n\nPress Ctrl+O to preview changes`;
 
         // Generate full diff for Ctrl+O expansion
         const { diff } = generateDiffWithMetadata(originalContent, args.content, target, {

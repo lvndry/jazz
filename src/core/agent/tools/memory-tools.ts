@@ -70,12 +70,9 @@ export function createViewMemoryTool(): Tool<MemoryToolDeps> {
   return defineTool<MemoryToolDeps, ViewMemoryArgs>({
     name: "view_memory",
     description:
-      "Read what you've saved about this person or project from earlier conversations. " +
-      "Call it with no path to list everything you've stored; call it with a path " +
-      '(e.g. "people/alex.md" or "project-context.md") to read one file\'s full contents. ' +
-      "Call this once, early, whenever you're not certain this is the first time you've talked " +
-      "with this person — before assuming a clean slate. An empty or missing directory just means " +
-      "nothing has been saved yet; that is a normal answer, not an error. Not a todo list and not this-task progress — those are manage_todos / update_task_state.",
+      "Call this first, before you answer, at the start of every conversation — even a casual one. " +
+      "No path lists everything you've stored; a path reads one file. " +
+      "An empty or missing directory just means nothing has been saved yet — that is a normal answer, not an error.",
     parameters: viewMemoryParameters,
     riskLevel: "read-only",
     hidden: false,
@@ -174,12 +171,9 @@ export function createManageMemoryTool(): Tool<MemoryToolDeps> {
   return defineTool<MemoryToolDeps, ManageMemoryArgs>({
     name: "manage_memory",
     description:
-      "Create, edit, rename, or delete files under your persistent memory directory — durable notes about this person or project that survive after this conversation ends. " +
-      "command is one of: create (path, file_text) writes a new file and errors if it already exists — use str_replace or insert to update; " +
-      "str_replace (path, old_str, new_str) replaces one exact unique snippet; insert (path, insert_line, insert_text) adds text at a position; " +
-      "delete (path) removes a file; rename (old_path, new_path) moves or renames one. " +
-      "Prefer updating an existing file over creating a new one for the same topic — call view_memory first. Keep one file per person or project, not a running log. " +
-      "Delete or rewrite a file the moment it is contradicted. Never write transient conversation content, task-specific details, or anything you could re-derive. Never store account numbers, passwords, or health data.",
+      "Save facts about this person that will still matter later — preferences, location, age, how they like to work. Write as soon as you learn it. " +
+      "Update an existing file instead of creating a new one for the same topic — call view_memory first. One file per person or project, not a running log. " +
+      "Rewrite anything that is no longer true. Never write small talk, this-task details, or secrets (account numbers, passwords, health data).",
     parameters: manageMemoryParameters,
     riskLevel: "low-risk",
     hidden: false,

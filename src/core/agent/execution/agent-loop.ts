@@ -1,4 +1,5 @@
 import { Cause, Effect, Fiber, Option, Ref } from "effect";
+import { isRunParkRequested, withTranscript } from "@/core/agent/run/park-signal";
 import { isLocalServerProvider } from "@/core/constants/local-providers";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import type { LLMService } from "@/core/interfaces/llm";
@@ -452,6 +453,12 @@ function handleToolPhase(
       actualConversationId,
       agent.name,
       strategy.getInterruptSignal?.(),
+    ).pipe(
+      // The executor knows what the run is waiting for; only here are the messages that
+      // let it start again. Everything else about the failure is left alone.
+      Effect.catchIf(isRunParkRequested, (signal) =>
+        Effect.fail(withTranscript(signal, state.currentMessages, state.iterationsUsed)),
+      ),
     );
 
     // Validate all tool calls have results
@@ -1015,6 +1022,15 @@ export function executeAgentLoop(
           runRecursive,
           supportedAttachmentKinds,
         };
+
+        // A resumed run rejoins a turn that stopped between a tool call and its result.
+        // Handing that transcript straight to the model would ask it to reason about a call
+        // it never got an answer to, so the call is finished first — with the approval the
+        // person just gave already in hand — and only then does the loop start.
+        if (options.pendingToolCalls !== undefined && options.pendingToolCalls.length > 0) {
+          yield* Effect.sync(() => beginIteration(runMetrics, 1));
+          yield* handleToolPhase(state, [...options.pendingToolCalls], "", 0, deps);
+        }
 
         for (let i = 0; i < maxIterations; i++) {
           yield* Effect.sync(() => beginIteration(runMetrics, i + 1));

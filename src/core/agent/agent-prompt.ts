@@ -86,6 +86,8 @@ export interface AgentPromptOptions {
   readonly agentName: string;
   readonly agentDescription: string;
   readonly userInput: string;
+  /** Continuing a parked run: keep the transcript as-is and add no user message. */
+  readonly isResume?: boolean;
   readonly conversationHistory?: ChatMessage[];
   readonly toolNames?: readonly string[];
   readonly availableTools?: Record<string, string>;
@@ -475,6 +477,13 @@ ${triggeredBlock}`;
           );
 
           messages.push(...filteredHistory);
+        }
+
+        // A resumed run continues a transcript that already ends mid-turn, on an assistant
+        // message holding the tool call somebody just approved. There is no new user input
+        // to add, and appending one would sit between that call and its result.
+        if (options.isResume === true) {
+          return messages;
         }
 
         // Add the current user input if not already in history.

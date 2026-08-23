@@ -47,6 +47,8 @@ import { Summarizer } from "./context/summarizer";
 import { executeWithStreaming, executeWithoutStreaming } from "./execution";
 import { createAgentRunMetrics, emitAgentRunStarted } from "./metrics/agent-run-metrics";
 import { discoverProjectInstructions, type ProjectInstructionFile } from "./project-instructions";
+import { withRunRecording } from "./run/run-recorder";
+import { runSpendUSD } from "./run/run-spend";
 import { registerCustomToolsForAgent } from "./tools/custom-tools";
 import { registerMCPToolsForAgent } from "./tools/register-mcp-tools";
 import { registerSkillSystemTools } from "./tools/register-tools";
@@ -392,6 +394,7 @@ function initializeAgentRun(
         agentName: agent.name,
         agentDescription: agent.description || "",
         userInput,
+        ...(options.isResume === true ? { isResume: true } : {}),
         conversationHistory: history,
         toolNames: expandedToolNames,
         availableTools,
@@ -439,6 +442,12 @@ function initializeAgentRun(
       autoApprovedCommands,
       autoApprovedTools,
       parentToolNames: expandedToolNames,
+      // A sub-agent never parks: resuming one would mean replaying a child context that no
+      // longer exists, so nested runs keep declining and the parent reasons about it.
+      parkWhenUnattended: options.parkWhenUnattended === true && options.internal !== true,
+      ...(options.resolvedApprovals !== undefined
+        ? { resolvedApprovals: options.resolvedApprovals }
+        : {}),
       subagentDepth: options.subagentDepth ?? 0,
       maxSubagentDepth: Math.max(
         0,
@@ -575,24 +584,35 @@ export class AgentRunner {
         maxIterations?: number;
       }) => AgentRunner.runRecursive(runOpts);
 
-      if (shouldStream) {
-        return yield* executeWithStreaming(
-          options,
-          runContext,
-          displayConfig,
-          streamingConfig,
-          showMetrics,
-          runRecursive,
-        );
-      } else {
-        return yield* executeWithoutStreaming(
-          options,
-          runContext,
-          displayConfig,
-          showMetrics,
-          runRecursive,
-        );
-      }
+      const execute = shouldStream
+        ? executeWithStreaming(
+            options,
+            runContext,
+            displayConfig,
+            streamingConfig,
+            showMetrics,
+            runRecursive,
+          )
+        : executeWithoutStreaming(options, runContext, displayConfig, showMetrics, runRecursive);
+
+      // Priced once here rather than per transition: the lookup is a cached network fetch,
+      // and a run that parks or fails should not pay for it twice.
+      const pricing = yield* Effect.tryPromise({
+        try: () => getModelsDevMetadata(runContext.model, runContext.provider),
+        catch: () => undefined,
+      }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+
+      return yield* withRunRecording(
+        {
+          runId: options.runId ?? runContext.runMetrics.runId,
+          agentId: options.agent.id,
+          conversationId: runContext.actualConversationId,
+          userInput: options.userInput,
+          internal: options.internal === true,
+          costSoFarUSD: () => runSpendUSD(runContext.runMetrics, pricing),
+        },
+        execute,
+      );
     });
   }
 

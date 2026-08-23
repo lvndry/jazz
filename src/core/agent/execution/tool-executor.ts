@@ -1,4 +1,5 @@
 import { Effect, Either, Fiber } from "effect";
+import { RunParkRequested } from "@/core/agent/run/park-signal";
 import { classifyCommandRisk, shouldClassifyExecuteCommand } from "@/core/agent/tools/command-risk";
 import { MAX_CONCURRENT_TOOLS, TOOL_TIMEOUT_MS } from "@/core/constants/agent";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
@@ -130,6 +131,7 @@ export class ToolExecutor {
     agentId: string,
     conversationId: string,
     toolsRequiringApproval: ReadonlySet<string>,
+    parkable = false,
   ): Effect.Effect<
     { toolCallId: string; result: unknown; success: boolean; name: string },
     Error,
@@ -328,17 +330,43 @@ export class ToolExecutor {
           // at dequeue time — a parallel tool's "always approve" may have
           // updated the shared allowlists while this request was queued.
           // Also re-checks current policy for real-time mode switches.
+          const approvalRequest = {
+            toolCallId: toolCall.id,
+            toolName: name,
+            message: approvalResult.message,
+            executeToolName: approvalResult.executeToolName,
+            executeArgs: approvalResult.executeArgs,
+            ...(approvalResult.previewDiff ? { previewDiff: approvalResult.previewDiff } : {}),
+            isAutoApproved: checkAutoApproved,
+          };
+
+          // A resumed run already carries the answer a person gave in another process.
+          const alreadyAnswered = context.resolvedApprovals?.get(toolCall.id);
+
+          // Parking unwinds the whole run, so it has to happen before anything executes.
+          // `parkable` is false for a multi-call batch precisely because siblings may
+          // already have run, and replaying them on resume would repeat their effects.
+          const shouldPark =
+            parkable &&
+            !isAutoApproved &&
+            alreadyAnswered === undefined &&
+            presentationService.canPromptForApproval?.() !== true;
+
+          if (shouldPark) {
+            yield* logger.info("Parking run: approval needed and nobody can answer in-process", {
+              toolName: name,
+              toolCallId: toolCall.id,
+            });
+            return yield* Effect.fail(
+              new RunParkRequested({
+                pending: { kind: "tool-approval", request: approvalRequest },
+              }),
+            );
+          }
+
           const outcome = isAutoApproved
             ? { approved: true as const }
-            : yield* presentationService.requestApproval({
-                toolCallId: toolCall.id,
-                toolName: name,
-                message: approvalResult.message,
-                executeToolName: approvalResult.executeToolName,
-                executeArgs: approvalResult.executeArgs,
-                ...(approvalResult.previewDiff ? { previewDiff: approvalResult.previewDiff } : {}),
-                isAutoApproved: checkAutoApproved,
-              });
+            : (alreadyAnswered ?? (yield* presentationService.requestApproval(approvalRequest)));
 
           if (renderer) {
             yield* renderer.handleEvent({
@@ -652,6 +680,10 @@ export class ToolExecutor {
       yield* logger.info(`${agentName} is using tools: ${toolsList}`);
 
       const approvalSet = new Set(toolsRequiringApproval);
+      // Only a lone tool call can park. In a batch a sibling may already have executed, and
+      // resuming replays the batch — which would repeat that sibling's effects.
+      const parkable = context.parkWhenUnattended === true && toolCalls.length === 1;
+
       // Limit concurrency to prevent resource exhaustion when many tools are requested
       const toolFibers = yield* Effect.all(
         toolCalls.map((toolCall) =>
@@ -665,6 +697,7 @@ export class ToolExecutor {
               agentId,
               conversationId,
               approvalSet,
+              parkable,
             ),
           ),
         ),
