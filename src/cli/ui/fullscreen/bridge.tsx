@@ -22,7 +22,7 @@ import type { Suggestion } from "@/core/interfaces/presentation";
 import { extractCommandApprovalKey } from "@/core/utils/shell";
 import { isFileMutationTool } from "@/core/utils/tool-formatter";
 import { filterCommandsByPrefix, slashCommandQuery } from "@/services/chat/commands";
-import { search, type SearchHit } from "@/services/history/session-search";
+import { search, type SearchHit } from "@/services/history/conversation-search";
 import packageJson from "../../../../package.json";
 import type { ActivityState } from "../activity-state";
 import {
@@ -924,12 +924,15 @@ export function FullscreenBridge(): React.ReactNode {
   const [commandIndex, commandIndexRef, setCommandIndex] = useSynchronizedState(0);
   const [customView, setCustomView] = useState<React.ReactNode | null>(null);
   const [connectors, setConnectors] = useState<ReadonlyMap<string, ConnectorStatus>>(new Map());
+  const [currentConversation, setCurrentConversation] = useState(
+    store.getCurrentConversationSnapshot(),
+  );
   const [workingDirectory, setWorkingDirectory] = useState<string | null>(
     store.getWorkingDirectorySnapshot(),
   );
   const [searchQuery, searchQueryRef, setSearchQuery] = useSynchronizedState<string | null>(null);
   const [searchHits, searchHitsRef, setSearchHits] = useSynchronizedState<readonly SearchHit[]>([]);
-  const [searchScope, , setSearchScope] = useSynchronizedState<"session" | "all">("all");
+  const [searchScope, , setSearchScope] = useSynchronizedState<"conversation" | "all">("all");
   const [searchIndex, searchIndexRef, setSearchIndex] = useSynchronizedState(0);
   const [menu, menuRef, setMenu] = useSynchronizedState<ActiveMenu | null>(null);
   const [menuIndex, menuIndexRef, setMenuIndex] = useSynchronizedState(0);
@@ -1037,6 +1040,7 @@ export function FullscreenBridge(): React.ReactNode {
     });
     const unregisterCustomView = store.registerCustomView(setCustomView);
     store.registerConnectorsSetter(setConnectors);
+    store.registerCurrentConversationSetter(setCurrentConversation);
     store.registerWorkingDirectorySetter(setWorkingDirectory);
     store.registerActiveMenuSetter((next) => {
       setMenu(next);
@@ -1050,6 +1054,7 @@ export function FullscreenBridge(): React.ReactNode {
     // Anything that happened before this mounted.
     setActivity(store.getActivitySnapshot());
     setStats(store.getRunStatsSnapshot());
+    setCurrentConversation(store.getCurrentConversationSnapshot());
     setWorkingDirectory(store.getWorkingDirectorySnapshot());
     const pending = store.drainPendingOutputQueue();
     if (pending.length > 0) setOutputs((previous) => [...previous, ...pending]);
@@ -1070,6 +1075,7 @@ export function FullscreenBridge(): React.ReactNode {
       store.registerApprovalRequestSetter(null);
       store.registerConnectorsSetter(null);
       store.registerActiveMenuSetter(null);
+      store.registerCurrentConversationSetter(null);
       store.registerWorkingDirectorySetter(null);
       store.registerInterruptHandler(null);
     };
@@ -1179,7 +1185,11 @@ export function FullscreenBridge(): React.ReactNode {
     }
     let cancelled = false;
     const timer = setTimeout(() => {
-      void search(query, { scope: searchScope, limit: 40 })
+      void search(query, {
+        scope: searchScope,
+        limit: 40,
+        ...(currentConversation === null ? {} : { current: currentConversation }),
+      })
         .then((hits) => {
           if (!cancelled) {
             setSearchHits(hits);
@@ -1450,7 +1460,7 @@ export function FullscreenBridge(): React.ReactNode {
           return true;
         }
         if (name === "tab") {
-          setSearchScope((scope) => (scope === "all" ? "session" : "all"));
+          setSearchScope((scope) => (scope === "all" ? "conversation" : "all"));
           return true;
         }
         if (name === "return" || name === "enter") {

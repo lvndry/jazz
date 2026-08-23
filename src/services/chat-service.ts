@@ -97,6 +97,10 @@ export class ChatServiceImpl implements ChatService {
         ),
       );
 
+      // The interface needs to know which conversation it is showing so history search can
+      // be narrowed to it. Set here and wherever the id changes, so the two never drift.
+      store.setCurrentConversation({ agentId: agent.id, conversationId });
+
       updateWorkingDirectoryInStore(
         agent.id,
         conversationId,
@@ -327,6 +331,7 @@ export class ChatServiceImpl implements ChatService {
 
             if (commandResult.newConversationId !== undefined) {
               conversationId = commandResult.newConversationId;
+              store.setCurrentConversation({ agentId: agent.id, conversationId });
               conversationTitle = null;
               startedAt = new Date().toISOString();
               sessionUsage = { promptTokens: 0, completionTokens: 0 };
@@ -550,6 +555,7 @@ export class ChatServiceImpl implements ChatService {
 
           // Store the conversation ID for continuity
           conversationId = response.conversationId;
+          store.setCurrentConversation({ agentId: agent.id, conversationId });
 
           // Accumulate token usage for /cost (only on full AgentResponse, not error fallback)
           if ("usage" in response && response.usage) {

@@ -5,42 +5,44 @@ import { NodeFileSystem } from "@effect/platform-node";
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { Effect } from "effect";
 import type { ChatMessage } from "@/core/types/message";
-import { formatRelativeWhen, search } from "./session-search";
 import {
-  getSessionLogPath,
-  recordSessionTranscript,
-  resetSessionAppendCache,
-} from "./session-store";
+  conversationLogPath,
+  recordConversationTranscript,
+  resetConversationLogAppendCache,
+} from "./conversation-log";
+import { formatRelativeWhen, search } from "./conversation-search";
 
 let tmpDir: string;
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "jazz-session-search-test-"));
-  resetSessionAppendCache();
+  resetConversationLogAppendCache();
 });
 
 afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
-  resetSessionAppendCache();
+  resetConversationLogAppendCache();
 });
 
 function runEffect<A>(eff: Effect.Effect<A, unknown, NodeFileSystem.NodeFileSystem["Type"]>) {
   return Effect.runPromise(eff.pipe(Effect.provide(NodeFileSystem.layer)));
 }
 
+const AGENT_ID = "agent-1";
+
 async function writeSession(
   conversationId: string,
   lines: readonly string[],
   options: { readonly title?: string; readonly modifiedAtMs?: number } = {},
-): Promise<string> {
+): Promise<{ agentId: string; conversationId: string }> {
   const messages: ChatMessage[] = lines.map((content, index) => ({
     role: index % 2 === 0 ? "user" : "assistant",
     content,
   }));
-  const sessionId = await runEffect(
-    recordSessionTranscript(
+  await runEffect(
+    recordConversationTranscript(
       {
-        agentId: "agent-1",
+        agentId: AGENT_ID,
         conversationId,
         title: options.title ?? "",
         startedAt: "2026-08-01T10:00:00.000Z",
@@ -52,9 +54,9 @@ async function writeSession(
   );
   if (options.modifiedAtMs !== undefined) {
     const seconds = options.modifiedAtMs / 1000;
-    fs.utimesSync(getSessionLogPath(sessionId, tmpDir), seconds, seconds);
+    fs.utimesSync(conversationLogPath(AGENT_ID, conversationId, tmpDir), seconds, seconds);
   }
-  return sessionId;
+  return { agentId: AGENT_ID, conversationId };
 }
 
 /** What the renderer does before it indexes the line, so hits must already be in this form. */
@@ -120,13 +122,13 @@ describe("search", () => {
     await writeSession("conv-old", ["Basel is the only trip left this quarter"], {
       modifiedAtMs: Date.now(),
     });
-    const currentSessionId = await writeSession("conv-current", ["the Basel workshop dates"], {
+    const current = await writeSession("conv-current", ["the Basel workshop dates"], {
       modifiedAtMs: Date.now() - 60 * 60 * 1000,
     });
 
-    const hits = await search("basel", { scope: "all", currentSessionId, dir: tmpDir });
+    const hits = await search("basel", { scope: "all", current, dir: tmpDir });
     expect(hits).toHaveLength(2);
-    expect(hits[0]?.sessionId).toBe(currentSessionId);
+    expect(hits[0]?.conversationId).toBe(current.conversationId);
     expect(hits[0]?.current).toBe(true);
     expect(hits[1]?.current).toBe(false);
   });
@@ -139,17 +141,17 @@ describe("search", () => {
     expect(hits.map((hit) => hit.line)).toEqual(["Basel newer", "Basel older"]);
   });
 
-  test("session scope looks only at the current session", async () => {
+  test("conversation scope looks only at the current session", async () => {
     await writeSession("conv-other", ["Basel elsewhere"]);
-    const currentSessionId = await writeSession("conv-current", ["Basel here"]);
+    const current = await writeSession("conv-current", ["Basel here"]);
 
-    const hits = await search("basel", { scope: "session", currentSessionId, dir: tmpDir });
+    const hits = await search("basel", { scope: "conversation", current, dir: tmpDir });
     expect(hits.map((hit) => hit.line)).toEqual(["Basel here"]);
   });
 
-  test("session scope with no current session finds nothing", async () => {
+  test("conversation scope with no current session finds nothing", async () => {
     await writeSession("conv-1", ["Basel somewhere"]);
-    expect(await search("basel", { scope: "session", dir: tmpDir })).toEqual([]);
+    expect(await search("basel", { scope: "conversation", dir: tmpDir })).toEqual([]);
   });
 
   test("honours the limit", async () => {
@@ -161,15 +163,15 @@ describe("search", () => {
   test("uses the session title, and derives one when none was set", async () => {
     await writeSession("conv-titled", ["Basel one"], { title: "travel budget" });
     const [titled] = await search("basel", { scope: "all", dir: tmpDir });
-    expect(titled?.sessionTitle).toBe("travel budget");
+    expect(titled?.conversationTitle).toBe("travel budget");
 
     fs.rmSync(tmpDir, { recursive: true, force: true });
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "jazz-session-search-test-"));
-    resetSessionAppendCache();
+    resetConversationLogAppendCache();
 
     await writeSession("conv-untitled", ["plan the Basel trip"]);
     const [untitled] = await search("basel", { scope: "all", dir: tmpDir });
-    expect(untitled?.sessionTitle).toBe("plan the Basel trip");
+    expect(untitled?.conversationTitle).toBe("plan the Basel trip");
   });
 
   test("labels each hit with a short relative time", async () => {
@@ -184,9 +186,9 @@ describe("search", () => {
   });
 
   test("ignores a log line a crash left half-written", async () => {
-    const sessionId = await writeSession("conv-1", ["Basel one"]);
+    const written = await writeSession("conv-1", ["Basel one"]);
     fs.appendFileSync(
-      getSessionLogPath(sessionId, tmpDir),
+      conversationLogPath(written.agentId, written.conversationId, tmpDir),
       '{"type":"message","at":"2026","message":{"role":"user","content":"Basel tr',
     );
     const hits = await search("basel", { scope: "all", dir: tmpDir });

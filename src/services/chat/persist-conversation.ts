@@ -1,7 +1,7 @@
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import type { ChatMessage } from "@/core/types/message";
-import { saveConversation, type ConversationRecord } from "../history/conversation-history-service";
+import { saveConversation, type Conversation } from "../history/conversation-history-service";
 
 export interface PersistConversationInput {
   readonly ephemeral: boolean;
@@ -26,15 +26,14 @@ export function persistConversationIfNeeded(
     return Effect.void;
   }
 
-  const record: ConversationRecord = {
+  const conversation: Conversation = {
     conversationId: input.conversationId,
     title: input.conversationTitle,
     agentId: input.agentId,
     startedAt: input.startedAt,
     endedAt: new Date().toISOString(),
-    messageCount: input.conversationHistory.length,
     messages: [...input.conversationHistory],
   };
 
-  return saveConversation(record, dir).pipe(Effect.catchAll(() => Effect.void));
+  return saveConversation(conversation, dir).pipe(Effect.catchAll(() => Effect.void));
 }

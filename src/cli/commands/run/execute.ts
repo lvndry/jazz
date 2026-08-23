@@ -9,13 +9,13 @@ import { AgentNotFoundError } from "@/core/types/errors";
 import type { ChatMessage } from "@/core/types/message";
 import type { StreamEvent } from "@/core/types/streaming";
 import type { AutoApprovePolicy } from "@/core/types/tools";
+import { conversationLogScope } from "@/core/utils/log-scope";
 import { createRunDeadline } from "@/core/utils/run-deadline";
 import {
   loadConversation,
   saveConversation,
-  type ConversationRecord,
+  type Conversation,
 } from "@/services/history/conversation-history-service";
-import { makeSessionId } from "@/services/history/session-store";
 import { makeFileRunStoreLayer } from "@/services/storage/run-store";
 import {
   ONE_SHOT_EXIT,
@@ -59,7 +59,7 @@ import type { ApprovalPolicyFlag, ReasoningEffort } from "./flags";
  * Returns `null` only when there is genuinely nothing to resume from.
  */
 export function composeResumedHistory(
-  priorRecord: ConversationRecord | null,
+  priorRecord: Conversation | null,
   workStatePreamble: ChatMessage | undefined,
 ): ChatMessage[] | null {
   if (priorRecord !== null) {
@@ -156,15 +156,15 @@ export interface RunAgentOnceOptions {
  * the next load). Falls back to appending the user/assistant pair to the prior
  * transcript when the runner returned no messages array.
  */
-export function buildConversationRecord(params: {
+export function buildConversation(params: {
   readonly agentId: string;
   readonly conversationId: string;
   readonly prompt: string;
-  readonly priorRecord: ConversationRecord | null;
+  readonly priorRecord: Conversation | null;
   readonly responseContent: string;
   readonly responseMessages: ChatMessage[] | undefined;
   readonly now: string;
-}): ConversationRecord {
+}): Conversation {
   const messages: ChatMessage[] =
     params.responseMessages && params.responseMessages.length > 0
       ? params.responseMessages
@@ -180,7 +180,6 @@ export function buildConversationRecord(params: {
     agentId: params.agentId,
     startedAt: params.priorRecord?.startedAt ?? params.now,
     endedAt: params.now,
-    messageCount: messages.length,
     messages,
   };
 }
@@ -328,7 +327,7 @@ export function runAgentOnceCommand(
       userInput: prompt,
       // Derived rather than invented, so a one-shot's logs land in the same session file
       // as every other turn of the same conversation.
-      sessionId: makeSessionId(agent.id, conversationId),
+      sessionId: conversationLogScope(agent.id, conversationId),
       conversationId,
       ...(inlineHistory !== undefined
         ? { conversationHistory: inlineHistory }
@@ -349,7 +348,7 @@ export function runAgentOnceCommand(
     const runResult = yield* deadline ? Effect.race(runEffect, deadline.watch) : runEffect;
 
     if (conversationKey !== undefined) {
-      const record = buildConversationRecord({
+      const record = buildConversation({
         agentId: agent.id,
         conversationId: conversationKey,
         prompt,

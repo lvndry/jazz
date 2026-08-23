@@ -55,8 +55,9 @@ const SEARCH: SearchOverlay = {
   scope: "all",
   hits: [
     {
-      sessionId: "s1",
-      sessionTitle: "Shipping 0.14",
+      agentId: "agent-1",
+      conversationId: "s1",
+      conversationTitle: "Shipping 0.14",
       when: "12 min ago",
       line: "the deploy notes live in docs",
       matchStart: 4,
@@ -64,8 +65,9 @@ const SEARCH: SearchOverlay = {
       current: true,
     },
     {
-      sessionId: "s2",
-      sessionTitle: "Weekend planning",
+      agentId: "agent-1",
+      conversationId: "s2",
+      conversationTitle: "Weekend planning",
       when: "3 days ago",
       line: "remember to deploy before the demo",
       matchStart: 12,
@@ -73,8 +75,9 @@ const SEARCH: SearchOverlay = {
       current: false,
     },
     {
-      sessionId: "s3",
-      sessionTitle: "Calendar cleanup",
+      agentId: "agent-1",
+      conversationId: "s3",
+      conversationTitle: "Calendar cleanup",
       when: "2 weeks ago",
       line: "no deploy window on friday",
       matchStart: 3,
@@ -388,7 +391,7 @@ describe("search overlay", () => {
     const frame = captureCharFrame();
 
     expect(frame).toContain("deploy");
-    expect(frame).toContain("all sessions");
+    expect(frame).toContain("all conversations");
     expect(frame).toContain("3 matches");
     expect(frame).toContain("Shipping 0.14");
     expect(frame).toContain("Weekend planning");
@@ -532,8 +535,9 @@ describe("search overlay", () => {
           ...SEARCH,
           hits: [
             {
-              sessionId: "long",
-              sessionTitle: "Long line",
+              agentId: "agent-1",
+              conversationId: "long",
+              conversationTitle: "Long line",
               when: "now",
               line,
               matchStart: line.indexOf("deploy"),

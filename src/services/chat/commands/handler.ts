@@ -43,7 +43,7 @@ import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import type { WorkflowMetadata } from "@/core/workflows/workflow-service";
 import { WorkflowServiceTag, type WorkflowService } from "@/core/workflows/workflow-service";
 import { groupWorkflows } from "@/core/workflows/workflow-utils";
-import { loadHistory } from "@/services/history/conversation-history-service";
+import { loadConversation, loadHistory } from "@/services/history/conversation-history-service";
 import { generateConversationId } from "../session";
 import { CHAT_COMMANDS } from "./constants";
 import type { CommandContext, CommandResult, SpecialCommand } from "./types";
@@ -1285,18 +1285,23 @@ function handleResumeCommand(
       return { shouldContinue: true };
     }
 
+    // The listing carries no transcript, so the chosen conversation is read now rather
+    // than every conversation being read to draw the picker.
+    const conversation = yield* loadConversation(agent.id, selected.conversationId).pipe(
+      Effect.catchAll(() => Effect.succeed(null)),
+    );
+    if (!conversation) {
+      yield* terminal.info("That conversation could no longer be read.");
+      return { shouldContinue: true };
+    }
+
     const resumeSystemMessage = {
       role: "system" as const,
       content: `Resuming conversation from ${new Date(selected.startedAt).toLocaleString()}: ${selected.title}`,
     };
 
-    const systemMessage = selected.messages.find((m) => m.role === "system");
-    const otherMessages = selected.messages.filter((m) => m.role !== "system");
-    const newHistory = [
-      ...(systemMessage ? [systemMessage] : []),
-      resumeSystemMessage,
-      ...otherMessages,
-    ];
+    // Logs no longer hold system prompts; the live one is rebuilt for this run anyway.
+    const newHistory = [resumeSystemMessage, ...conversation.messages];
 
     yield* terminal.success(`Resumed: ${selected.title}`);
     yield* terminal.log("");

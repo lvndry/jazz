@@ -385,7 +385,7 @@ describe("fullscreen bridge", () => {
     store.setPrompt(null);
 
     expect(typed).toContain("/");
-    expect(opened).toContain("all sessions");
+    expect(opened).toContain("all conversations");
   });
 
   it("lists slash commands on / and runs the highlighted one with enter", async () => {
@@ -446,7 +446,7 @@ describe("fullscreen bridge", () => {
 
     await rendered.mockInput.pressKey("TAB");
     await settleKeypress(rendered.flush, 100);
-    expect(rendered.captureCharFrame()).toContain("this session");
+    expect(rendered.captureCharFrame()).toContain("this conversation");
 
     rendered.renderer.destroy();
     store.setPrompt(null);

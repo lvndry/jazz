@@ -7,10 +7,11 @@ import { Effect } from "effect";
 import type { ChatMessage } from "@/core/types/message";
 import {
   loadConversation,
+  loadHistory,
   saveConversation,
-  type ConversationRecord,
+  type Conversation,
 } from "@/services/history/conversation-history-service";
-import { buildConversationRecord, composeResumedHistory } from "./execute";
+import { buildConversation, composeResumedHistory } from "./execute";
 
 describe("--conversation persistence", () => {
   let tmpDir: string;
@@ -34,9 +35,9 @@ describe("--conversation persistence", () => {
     prompt: string;
     responseContent: string;
     responseMessages?: ChatMessage[];
-  }): Promise<ConversationRecord | null> {
+  }): Promise<Conversation | null> {
     const priorRecord = await runEffect(loadConversation("agent-1", params.conversationId, tmpDir));
-    const record = buildConversationRecord({
+    const record = buildConversation({
       agentId: "agent-1",
       conversationId: params.conversationId,
       prompt: params.prompt,
@@ -90,16 +91,14 @@ describe("--conversation persistence", () => {
     expect(saved?.messages.at(-1)).toEqual({ role: "assistant", content: "Your name is Ada." });
   });
 
-  it("repeated turns upsert a single record instead of duplicating", async () => {
+  it("repeated turns append to one conversation instead of duplicating", async () => {
     await simulateTurn({ conversationId: "telegram-42", prompt: "one", responseContent: "1" });
     await simulateTurn({ conversationId: "telegram-42", prompt: "two", responseContent: "2" });
     await simulateTurn({ conversationId: "telegram-7", prompt: "other", responseContent: "x" });
 
-    const historyFile = JSON.parse(fs.readFileSync(path.join(tmpDir, "agent-1.json"), "utf-8")) as {
-      conversations: ConversationRecord[];
-    };
-    const ids = historyFile.conversations.map((conversation) => conversation.conversationId);
-    expect(ids).toEqual(["telegram-7", "telegram-42"]);
+    const history = await runEffect(loadHistory("agent-1", tmpDir));
+    const ids = history.conversations.map((conversation) => conversation.conversationId).sort();
+    expect(ids).toEqual(["telegram-42", "telegram-7"]);
   });
 
   it("different conversation ids stay isolated", async () => {
@@ -113,7 +112,7 @@ describe("--conversation persistence", () => {
     expect(otherChat).toBeNull();
   });
 
-  it("prefers the runner's full transcript over the append fallback", async () => {
+  it("prefers the runner's full transcript over the append fallback, minus the system prompt", async () => {
     const transcript: ChatMessage[] = [
       { role: "system", content: "You are helpful." },
       { role: "user", content: "hi" },
@@ -126,9 +125,12 @@ describe("--conversation persistence", () => {
       responseMessages: transcript,
     });
 
+    // The system prompt is rebuilt every run, so it is never recorded.
     const saved = await runEffect(loadConversation("agent-1", "telegram-42", tmpDir));
-    expect(saved?.messages).toEqual(transcript);
-    expect(saved?.messageCount).toBe(3);
+    expect(saved?.messages).toEqual([
+      { role: "user", content: "hi" },
+      { role: "assistant", content: "hello" },
+    ]);
   });
 
   it("keeps the original title and startedAt across turns", async () => {

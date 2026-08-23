@@ -149,7 +149,7 @@ export function Search({ model, viewport }: SearchProps): ReactNode {
   const left = fullscreen ? 0 : Math.max(0, Math.floor((viewport.width - width) / 2));
   const top = fullscreen ? 0 : Math.max(0, Math.floor((viewport.height - height) / 2));
 
-  const scopeLabel = model.scope === "session" ? "this session" : "all sessions";
+  const scopeLabel = model.scope === "conversation" ? "this conversation" : "all conversations";
   const pillWidth = displayWidth(scopeLabel) + 4;
   const queryWidth = Math.max(4, inner - pillWidth - 3);
   const lineWidth = Math.max(4, inner - LINE_INDENT);
@@ -227,7 +227,7 @@ export function Search({ model, viewport }: SearchProps): ReactNode {
               const titleColor = isSelected ? THEME.selected : THEME.secondary;
               return (
                 <box
-                  key={`${hit.sessionId}-${String(index)}`}
+                  key={`${hit.conversationId}-${String(index)}`}
                   style={{ height: HIT_ROWS, flexShrink: 0, flexDirection: "column" }}
                 >
                   <box style={{ height: 1, flexShrink: 0, flexDirection: "row" }}>
@@ -240,11 +240,11 @@ export function Search({ model, viewport }: SearchProps): ReactNode {
                     <text style={{ flexGrow: 1 }}>
                       {isSelected ? (
                         <b style={{ fg: titleColor }}>
-                          {clip(oneLine(hit.sessionTitle), inner - LINE_INDENT - 12)}
+                          {clip(oneLine(hit.conversationTitle), inner - LINE_INDENT - 12)}
                         </b>
                       ) : (
                         <span style={{ fg: titleColor }}>
-                          {clip(oneLine(hit.sessionTitle), inner - LINE_INDENT - 12)}
+                          {clip(oneLine(hit.conversationTitle), inner - LINE_INDENT - 12)}
                         </span>
                       )}
                     </text>
