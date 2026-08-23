@@ -10,7 +10,12 @@ import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import type { TerminalService } from "@/core/interfaces/terminal";
 import type { Tool, ToolRiskLevel } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
-import type { MCPResourceContent, MCPTool, MCPToolAnnotations } from "@/core/types/mcp";
+import type {
+  MCPProgress,
+  MCPResourceContent,
+  MCPTool,
+  MCPToolAnnotations,
+} from "@/core/types/mcp";
 import { convertMCPSchemaToZod, unwrapMCPJsonSchema } from "@/core/utils/mcp-schema-converter";
 import { safeStringify, toPascalCase } from "@/core/utils/string";
 import { defineApprovalTool, defineTool, type ToolValidatorResult } from "./base-tool";
@@ -20,6 +25,15 @@ import { defineApprovalTool, defineTool, type ToolValidatorResult } from "./base
  */
 export type MCPToolDependencies =
   AgentConfigService | LoggerService | MCPServerManager | TerminalService | PresentationService;
+
+/**
+ * Minimum gap between progress lines shown for one tool call.
+ *
+ * A server is free to report every few milliseconds; the point of showing
+ * progress is that the call is alive, which one line per second conveys as
+ * well as thirty do.
+ */
+const PROGRESS_THROTTLE_MS = 1000;
 
 /** How much of an argument blob to show in an approval prompt. */
 const APPROVAL_ARGS_PREVIEW_LIMIT = 500;
@@ -184,7 +198,34 @@ function executeMCPTool(
     const connectionFailure = yield* ensureConnected(serverConfig);
     if (connectionFailure !== undefined) return connectionFailure;
 
-    const callResult = yield* Effect.either(mcpManager.callTool(serverName, toolName, args));
+    const presentation = yield* PresentationServiceTag;
+
+    // Without this a server doing thirty seconds of work is indistinguishable
+    // from one that has hung. Reports arrive on the transport's callback rather
+    // than inside this fiber, hence the detached run.
+    let lastShownAt = 0;
+    const reportProgress = (progress: MCPProgress): void => {
+      const now = Date.now();
+      const isFinal = progress.total !== undefined && progress.progress >= progress.total;
+      if (!isFinal && now - lastShownAt < PROGRESS_THROTTLE_MS) return;
+      lastShownAt = now;
+
+      const share =
+        progress.total !== undefined && progress.total > 0
+          ? ` ${Math.round((progress.progress / progress.total) * 100)}%`
+          : "";
+      const detail = progress.message !== undefined ? ` — ${progress.message}` : "";
+
+      void Effect.runPromise(
+        presentation
+          .presentStatus(`${toolName}${share}${detail}`, "progress")
+          .pipe(Effect.catchAllCause(() => Effect.void)),
+      );
+    };
+
+    const callResult = yield* Effect.either(
+      mcpManager.callTool(serverName, toolName, args, reportProgress),
+    );
 
     if (callResult._tag === "Left") {
       const error = callResult.left;

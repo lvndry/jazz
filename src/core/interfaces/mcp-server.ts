@@ -227,6 +227,7 @@ export interface MCPServerManager {
     reference: { readonly type: "prompt" | "resource"; readonly name: string },
     argumentName: string,
     partialValue: string,
+    resolvedArguments?: Record<string, string>,
   ) => Effect.Effect<readonly string[], never, LoggerService>;
 
   /**

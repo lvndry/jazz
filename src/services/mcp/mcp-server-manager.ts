@@ -863,6 +863,7 @@ class MCPServerManagerImpl implements MCPServerManager {
     reference: { readonly type: "prompt" | "resource"; readonly name: string },
     argumentName: string,
     partialValue: string,
+    resolvedArguments: Record<string, string> = {},
   ): Effect.Effect<readonly string[], never, LoggerService> {
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const manager = this;
@@ -878,6 +879,11 @@ class MCPServerManagerImpl implements MCPServerManager {
                 ? { type: "ref/prompt", name: reference.name }
                 : { type: "ref/resource", uri: reference.name },
             argument: { name: argumentName, value: partialValue },
+            // Servers may narrow one argument by the values already chosen for
+            // earlier ones; without this such an argument completes to nothing.
+            ...(Object.keys(resolvedArguments).length > 0
+              ? { context: { arguments: resolvedArguments } }
+              : {}),
           });
           return result.completion.values;
         },
