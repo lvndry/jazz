@@ -1,0 +1,122 @@
+---
+import Base from "../layouts/Base.astro";
+---
+
+<Base
+  title="Jazz — one agent, every surface, your rules"
+  description="Jazz is a general-purpose AI agent that runs on your own machine. Terminal, cron, CI, Telegram, Discord — 18 providers, or fully local."
+  skin="dark"
+>
+  <main>
+    <div class="topbar mono">
+      <span class="brand">▞ jazz</span>
+      <a href="https://github.com/lvndry/jazz">github</a>
+    </div>
+    <section class="hold">
+      <div class="lanes mono" id="lanes" aria-hidden="true"></div>
+      <h1 class="shout">
+        One agent.<br />
+        <span class="stroke">Every surface.</span><br />
+        <span class="live">Your rules.</span>
+      </h1>
+      <p class="pitch">
+        Jazz is a general-purpose AI agent that runs on your own machine. Not
+        just for code: email, research, planning, and automation — from the
+        terminal, a script, cron, CI, or a chat bot on a server you own.
+      </p>
+      <code class="install mono"
+        >curl -fsSL https://github.com/lvndry/jazz/releases/latest/download/install.sh | bash</code
+      >
+      <p class="note mono">full site in production — the set is being built</p>
+    </section>
+  </main>
+</Base>
+
+<style>
+  main {
+    min-height: 100svh;
+    display: flex;
+    flex-direction: column;
+    padding: 0 4vw;
+  }
+  .topbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 22px 0;
+    font-size: 13px;
+  }
+  .topbar .brand {
+    color: var(--jz-primary);
+    font-size: 14px;
+  }
+  .topbar a {
+    color: var(--jz-muted);
+    text-decoration: none;
+  }
+  .topbar a:hover {
+    color: var(--jz-primary);
+  }
+  .hold {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding-bottom: 10vh;
+    max-width: 900px;
+  }
+  .lanes {
+    font-size: 22px;
+    letter-spacing: 10px;
+    margin-bottom: 28px;
+    min-height: 1em;
+  }
+  .lanes :global(.on) {
+    color: var(--jz-primary);
+  }
+  .lanes :global(.off) {
+    color: var(--jz-border);
+  }
+  h1 {
+    font-size: clamp(48px, 9vw, 128px);
+  }
+  .stroke {
+    color: transparent;
+    -webkit-text-stroke: 1.5px var(--jz-selected);
+  }
+  .live {
+    color: var(--jz-primary);
+  }
+  .pitch {
+    margin-top: 30px;
+    max-width: 56ch;
+    font-size: 18px;
+    color: var(--jz-secondary);
+  }
+  .install {
+    display: inline-block;
+    margin-top: 30px;
+    padding: 14px 18px;
+    font-size: 13px;
+    color: var(--jz-selected);
+    background: var(--jz-surface);
+    border: 1px solid var(--jz-border);
+    border-radius: 6px;
+    overflow-x: auto;
+    max-width: 100%;
+    white-space: nowrap;
+  }
+  .note {
+    margin-top: 30px;
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--jz-muted);
+  }
+</style>
+
+<script>
+  import { startLanes } from "../components/lanes";
+
+  startLanes(document.getElementById("lanes")!);
+</script>

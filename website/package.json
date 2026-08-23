@@ -1,0 +1,14 @@
+{
+  "name": "jazz-website",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "tokens": "bun run scripts/generate-tokens.ts",
+    "build": "bun run tokens && astro build",
+    "preview": "astro preview"
+  },
+  "dependencies": {
+    "astro": "^7.2.4"
+  }
+}

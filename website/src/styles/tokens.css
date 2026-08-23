@@ -1,0 +1,88 @@
+/*
+ * GENERATED from src/cli/ui/theme.ts — do not edit by hand.
+ * Regenerate with: bun run tokens (from website/).
+ *
+ * Skins: pages opt in via data-skin on <html>. The default is the light
+ * palette, the system dark preference flips it, and an explicit
+ * data-skin always wins. Marketing pages pin data-skin="dark".
+ */
+
+:root {
+  --jz-canvas: #FBFCFD;
+  --jz-primary: #00718F;
+  --jz-agent: #00718F;
+  --jz-accent-dim: #005F87;
+  --jz-link: #005F87;
+  --jz-success: #116B3E;
+  --jz-error: #B3261E;
+  --jz-warning: #8A5F00;
+  --jz-info: #4A525E;
+  --jz-selected: #12151A;
+  --jz-prompt: #00718F;
+  --jz-secondary: #4A525E;
+  --jz-muted: #767F8C;
+  --jz-reasoning: #005F87;
+  --jz-tool-border: #D9DEE5;
+  --jz-surface: #F1F3F6;
+  --jz-surface-soft: #F1F3F6;
+  --jz-surface-strong: #D9DEE5;
+  --jz-border: #D9DEE5;
+  --jz-border-soft: #D9DEE5;
+  --jz-syntax-structure: #5B3FBF;
+  --jz-syntax-value: #9B2C6F;
+  --jz-syntax-type: #2F6690;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-skin="light"]) {
+    --jz-canvas: #0B0D10;
+    --jz-primary: #00D7FF;
+    --jz-agent: #00D7FF;
+    --jz-accent-dim: #00AFD7;
+    --jz-link: #00AFD7;
+    --jz-success: #5FD787;
+    --jz-error: #FF6B6B;
+    --jz-warning: #D7AF5F;
+    --jz-info: #A9B2BD;
+    --jz-selected: #E8EBEF;
+    --jz-prompt: #00D7FF;
+    --jz-secondary: #A9B2BD;
+    --jz-muted: #5C6673;
+    --jz-reasoning: #00AFD7;
+    --jz-tool-border: #22272E;
+    --jz-surface: #14171B;
+    --jz-surface-soft: #14171B;
+    --jz-surface-strong: #22272E;
+    --jz-border: #22272E;
+    --jz-border-soft: #22272E;
+    --jz-syntax-structure: #9B8CFF;
+    --jz-syntax-value: #D787AF;
+    --jz-syntax-type: #92B4C8;
+  }
+}
+
+[data-skin="dark"] {
+  --jz-canvas: #0B0D10;
+  --jz-primary: #00D7FF;
+  --jz-agent: #00D7FF;
+  --jz-accent-dim: #00AFD7;
+  --jz-link: #00AFD7;
+  --jz-success: #5FD787;
+  --jz-error: #FF6B6B;
+  --jz-warning: #D7AF5F;
+  --jz-info: #A9B2BD;
+  --jz-selected: #E8EBEF;
+  --jz-prompt: #00D7FF;
+  --jz-secondary: #A9B2BD;
+  --jz-muted: #5C6673;
+  --jz-reasoning: #00AFD7;
+  --jz-tool-border: #22272E;
+  --jz-surface: #14171B;
+  --jz-surface-soft: #14171B;
+  --jz-surface-strong: #22272E;
+  --jz-border: #22272E;
+  --jz-border-soft: #22272E;
+  --jz-syntax-structure: #9B8CFF;
+  --jz-syntax-value: #D787AF;
+  --jz-syntax-type: #92B4C8;
+}

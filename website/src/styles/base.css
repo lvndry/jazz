@@ -1,0 +1,78 @@
+@import "./tokens.css";
+
+:root {
+  --font-shout: "Anton", "Arial Narrow", Impact, sans-serif;
+  --font-mono: "IBM Plex Mono", "SF Mono", Menlo, Consolas, monospace;
+  --font-body: "IBM Plex Sans", -apple-system, "Segoe UI", sans-serif;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--jz-canvas);
+  color: var(--jz-selected);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.65;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--jz-primary);
+  color: var(--jz-canvas);
+}
+
+a {
+  color: var(--jz-link);
+}
+
+:focus-visible {
+  outline: 2px solid var(--jz-primary);
+  outline-offset: 2px;
+}
+
+.shout {
+  font-family: var(--font-shout);
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.01em;
+  line-height: 0.92;
+}
+
+.mono {
+  font-family: var(--font-mono);
+}
+
+/* Film grain: marketing skin only — docs stay clean (law 02). */
+[data-skin="dark"] body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 60;
+  background: repeating-linear-gradient(
+    0deg,
+    rgba(255, 255, 255, 0.022) 0 1px,
+    transparent 1px 3px
+  );
+  mix-blend-mode: overlay;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001s !important;
+  }
+}
