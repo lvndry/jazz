@@ -162,4 +162,29 @@ describe("scrollback reducer", () => {
     expect(state.staticEntries.length).toBeLessThanOrEqual(1001);
     expect(state.pending).toBeNull();
   });
+
+  test("one-char deltas promote losslessly through the incremental splitter", () => {
+    const document =
+      "# Title\n\nIntro paragraph with two sentences. Here is the second.\n\n" +
+      "- first item\n- second item\n\nProse after the list.\n\n" +
+      "```ts\nconst value = 1;\n```\n\n" +
+      "Closing paragraph with `inline code` and [a link](http://example.com).\n\n" +
+      "z".repeat(400);
+
+    let state = initialScrollbackState();
+    for (const character of document) {
+      state = reduceScrollback(state, {
+        type: "appendStream",
+        kind: "response",
+        delta: character,
+        nextId: "p1",
+      });
+    }
+    const streamedText = state.staticEntries
+      .map((entry) => entry.message)
+      .concat(state.pending?.rawTail ?? "")
+      .join("");
+    expect(streamedText).toBe(document);
+    expect(state.staticEntries.length).toBeGreaterThan(3);
+  });
 });
