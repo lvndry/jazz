@@ -31,11 +31,10 @@ cd /tmp/jazz-baseline && bun install --frozen-lockfile && bun run bench transcri
 | store-writes     | `UIStore.appendStream` / batched `printOutput`                    | per delta / per message     |
 | format-markdown  | one-shot `formatMarkdown` regex pipeline                          | per reply                   |
 | token-counter    | `TokenCounter.countText`/`countMessage`, BPE vs ratio branches    | per message                 |
-| context-window   | `ContextWindowManager` total-count and trim-ladder checks         | per message on long chats   |
+| context-window   | `ContextWindowManager.calculateTotalTokens`, BPE vs ratio        | per turn on long chats      |
 | conversation-log | `parseConversationLog` + `reduceConversationLog`                  | session resume              |
 | tool-formatter   | `formatToolResult` at 1KB / 100KB / 1MB                           | per tool call               |
 | activity-reducer | `reduceEvent` fold over a recorded run                            | per stream event            |
-| live-rows        | `liveRows` recompute                                              | per 6Hz tick                |
 | startup          | `bun src/main.ts --version` full process spawn                    | per invocation              |
 
 ## Conventions

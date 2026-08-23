@@ -1,11 +1,20 @@
-// The context ladder re-counts the whole history per message on long
-// conversations — token counting amplified by history length.
+// The context ladder re-counts the whole history per turn, and compaction /
+// trimming recreate message objects — so the fresh-object cost is what a long
+// conversation actually pays. Both pricing branches are pinned: OpenAI-family
+// models run the real BPE tokenizer, everything else takes the ratio shortcut.
 import { markdownReply } from "./corpus";
 import { bench, report } from "./harness";
 import { ContextWindowManager } from "../src/core/agent/context/context-window-manager";
 import type { ChatMessage } from "../src/core/types/message";
 
-const manager = new ContextWindowManager({ maxTokens: 100_000 });
+const bpeManager = new ContextWindowManager({
+  maxTokens: 100_000,
+  modelHint: { provider: "openai", modelId: "gpt-4o" },
+});
+const ratioManager = new ContextWindowManager({
+  maxTokens: 100_000,
+  modelHint: { provider: "anthropic", modelId: "claude-sonnet-4-5" },
+});
 
 function history(messageCount: number): ChatMessage[] {
   const messages: ChatMessage[] = [];
@@ -18,39 +27,28 @@ function history(messageCount: number): ChatMessage[] {
   return messages;
 }
 
-const short = history(100);
-const medium = history(500);
-const long = history(2_000);
-
 const results = [
-  bench("calculateTotalTokens, 100 messages", () => {
-    manager.calculateTotalTokens(history(100));
-  }),
   bench(
-    "calculateTotalTokens, 500 messages",
+    "calculateTotalTokens fresh 500, BPE (openai)",
     () => {
-      manager.calculateTotalTokens(history(500));
+      bpeManager.calculateTotalTokens(history(500));
     },
-    { iterations: 60 },
+    { iterations: 40 },
   ),
   bench(
-    "calculateTotalTokens, 2000 messages",
+    "calculateTotalTokens fresh 2000, BPE (openai)",
     () => {
-      manager.calculateTotalTokens(history(2_000));
+      bpeManager.calculateTotalTokens(history(2_000));
+    },
+    { iterations: 10, warmupIterations: 2 },
+  ),
+  bench(
+    "calculateTotalTokens fresh 2000, ratio (anthropic)",
+    () => {
+      ratioManager.calculateTotalTokens(history(2_000));
     },
     { iterations: 20 },
   ),
-  // Reused arrays hit the per-message WeakMap memo — the steady-state cost of
-  // re-checking an already-counted history every turn.
-  bench("needsTrimming warm, 100 messages", () => {
-    manager.needsTrimming(short);
-  }),
-  bench("needsTrimming warm, 500 messages", () => {
-    manager.needsTrimming(medium);
-  }),
-  bench("needsTrimming warm, 2000 messages", () => {
-    manager.needsTrimming(long);
-  }),
 ];
 
 report("context-window", results);
