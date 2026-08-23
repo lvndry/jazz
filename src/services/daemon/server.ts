@@ -27,7 +27,9 @@ import type { AgentService } from "@/core/interfaces/agent-service";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import { RunStoreTag } from "@/core/interfaces/run-store";
 import type { ToolRegistry, ToolRequirements } from "@/core/interfaces/tool-registry";
+import type { PeerConfig } from "@/core/types/peer";
 import { generateConversationId } from "@/core/utils/conversation-id";
+import { servePeerRequest } from "@/services/peers/serve";
 
 export const DEFAULT_DAEMON_PORT = 4747;
 
@@ -54,6 +56,14 @@ export interface DaemonOptions {
   readonly host: string;
   /** Required for any bind that is not loopback. Compared with the `Authorization` header. */
   readonly token?: string | undefined;
+  /**
+   * Which agent answers peer questions, if any.
+   *
+   * Absent means `/peer/ask` is not served at all. Serving strangers is opt-in: a daemon
+   * started to give its operator a local API should not quietly also be reachable by
+   * anybody holding a peer token.
+   */
+  readonly peerAgent?: string | undefined;
 }
 
 function isLoopback(host: string): boolean {
@@ -180,6 +190,86 @@ export function makeHandler(
 
     return json({ ok: false, error: "not found" }, 404);
   };
+}
+
+/**
+ * The peer-facing handler, separate from the operator's.
+ *
+ * A different door with a different credential. Everything on the operator's routes assumes
+ * the caller is the person who owns this machine; a peer is somebody else's software, and
+ * conflating the two would let one token do both jobs.
+ */
+export function makePeerHandler(
+  options: DaemonOptions,
+  peers: readonly PeerConfig[],
+  resolveToken: (peerName: string) => Promise<string | undefined>,
+  runEffect: <A>(effect: Effect.Effect<A, unknown, DaemonRequirements>) => Promise<A>,
+): (request: Request) => Promise<Response> {
+  return async function handlePeer(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+    if (request.method !== "POST" || url.pathname !== "/peer/ask") {
+      return json({ ok: false, error: "not found" }, 404);
+    }
+    if (options.peerAgent === undefined) {
+      return json({ ok: false, error: "not accepting peer questions" }, 404);
+    }
+
+    const presented = (request.headers.get("authorization") ?? "").replace(/^Bearer /, "");
+    if (presented.length === 0) {
+      return json({ ok: false, error: "unauthorized" }, 401);
+    }
+
+    // Which peer is this? Resolved by matching the presented token against each configured
+    // peer's own, so a token identifies its holder rather than merely admitting them.
+    let caller: PeerConfig | undefined;
+    for (const peer of peers) {
+      const expected = await resolveToken(peer.name);
+      if (expected !== undefined && expected.length > 0 && tokenMatches(expected, presented)) {
+        caller = peer;
+        break;
+      }
+    }
+    if (caller === undefined) {
+      return json({ ok: false, error: "unauthorized" }, 401);
+    }
+
+    let body: { question?: unknown };
+    try {
+      body = (await request.json()) as { question?: unknown };
+    } catch {
+      return json({ ok: false, error: "body must be JSON" }, 400);
+    }
+    const question = typeof body.question === "string" ? body.question.trim() : "";
+    if (question.length === 0) {
+      return json({ ok: false, error: "question is required" }, 400);
+    }
+
+    return runEffect(answerPeer(caller, options.peerAgent, question));
+  };
+}
+
+function answerPeer(peer: PeerConfig, agentIdentifier: string, question: string) {
+  return Effect.gen(function* () {
+    const agent = yield* getAgentByIdentifier(agentIdentifier);
+    const outcome = yield* servePeerRequest({ peer, agent, question });
+
+    switch (outcome.kind) {
+      case "answered":
+        return json({ ok: true, answer: outcome.answer });
+      case "parked":
+        // 202: the question was accepted and is with a person. The peer's agent can say so
+        // rather than reporting a failure, which is the honest description of what happened.
+        return json({ ok: false, state: "input-required", runId: outcome.runId }, 202);
+      case "refused":
+        return json({ ok: false, error: outcome.reason }, 403);
+    }
+  }).pipe(
+    Effect.catchAll((error) =>
+      Effect.succeed(
+        json({ ok: false, error: error instanceof Error ? error.message : String(error) }, 500),
+      ),
+    ),
+  );
 }
 
 function startRun(

@@ -660,11 +660,19 @@ function registerDaemonCommand(program: Command): void {
       "Interface to bind. Anything other than loopback requires $JAZZ_DAEMON_TOKEN.",
       "127.0.0.1",
     )
-    .action((options: { port: number; host: string }) =>
+    .option(
+      "--serve-peers <agentId>",
+      "Also answer questions from configured peers, using this agent. Off unless given: a daemon for your own use should not quietly answer strangers.",
+    )
+    .action((options: { port: number; host: string; servePeers?: string }) =>
       runCliAction(
         () =>
           import("./commands/daemon").then((mod) =>
-            mod.daemonCommand({ port: options.port, host: options.host }),
+            mod.daemonCommand({
+              port: options.port,
+              host: options.host,
+              ...(options.servePeers !== undefined ? { peerAgent: options.servePeers } : {}),
+            }),
           ),
         cliRuntimeOptions(program),
         { session: true },

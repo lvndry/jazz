@@ -8,18 +8,29 @@
  */
 
 import { Effect, Runtime } from "effect";
+import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import {
   DEFAULT_DAEMON_PORT,
   makeHandler,
+  makePeerHandler,
   refuseReason,
   type DaemonRequirements,
 } from "@/services/daemon/server";
+import { detectKeyringBackend, keyringGet } from "@/services/secrets/keyring";
+import { peerTokenPath } from "@/services/secrets/registry";
 import { makeFileRunStoreLayer } from "@/services/storage/run-store";
 
 export interface DaemonCommandOptions {
   readonly port: number;
   readonly host: string;
+  /**
+   * Agent that answers peer questions. Omitted means peers are not served at all.
+   *
+   * Opt-in rather than on-by-default: a daemon started to give its operator a local API
+   * should not quietly also be answering strangers.
+   */
+  readonly peerAgent?: string | undefined;
 }
 
 /**
@@ -35,6 +46,7 @@ export function daemonCommand(options: DaemonCommandOptions) {
       port: options.port,
       host: options.host,
       ...(token !== undefined ? { token } : {}),
+      ...(options.peerAgent !== undefined ? { peerAgent: options.peerAgent } : {}),
     };
 
     const refusal = refuseReason(daemonOptions);
@@ -53,15 +65,30 @@ export function daemonCommand(options: DaemonCommandOptions) {
     // and never exercise the real layer.
     const runtime = yield* Effect.runtime<DaemonRequirements>();
 
+    const configService = yield* AgentConfigServiceTag;
+    const appConfig = yield* configService.appConfig;
+    const peers = appConfig.peers ?? [];
+    const keyringBackend = yield* detectKeyringBackend();
+
     yield* Effect.async<void, never>((resume) => {
-      const handle = makeHandler(daemonOptions, (effect) =>
-        Runtime.runPromise(runtime)(effect as Effect.Effect<never, never, DaemonRequirements>),
+      const run = <A>(effect: Effect.Effect<A, unknown, DaemonRequirements>): Promise<A> =>
+        Runtime.runPromise(runtime)(effect as Effect.Effect<A, never, DaemonRequirements>);
+
+      const handle = makeHandler(daemonOptions, run);
+      const handlePeer = makePeerHandler(
+        daemonOptions,
+        peers,
+        (peerName) => Effect.runPromise(keyringGet(keyringBackend, peerTokenPath(peerName))),
+        run,
       );
 
       const server = Bun.serve({
         port: daemonOptions.port,
         hostname: daemonOptions.host,
-        fetch: (request) => handle(request),
+        fetch: (request) =>
+          new URL(request.url).pathname.startsWith("/peer/")
+            ? handlePeer(request)
+            : handle(request),
       });
 
       process.stderr.write(
