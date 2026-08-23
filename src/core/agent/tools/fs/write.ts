@@ -90,6 +90,10 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
           message += `\n   Consider using edit_file instead if you only need to modify part of the file.`;
         }
 
+        // No Ctrl+O hint in the message: it reaches every approver, including JSON
+        // envelopes and chat bridges with no keyboard to press it on. Surfaces that have
+        // the affordance render it themselves off `previewDiff`.
+
         // Generate full diff for Ctrl+O expansion
         const { diff } = generateDiffWithMetadata(originalContent, args.content, target, {
           isNewFile,
