@@ -79,19 +79,25 @@ export function withRunRecording<E, R>(
     }
     const store = storeOption.value;
 
-    const record = createRunRecord({
-      runId: input.runId,
-      agentId: input.agentId,
-      conversationId: input.conversationId,
-      input: input.userInput,
-      now: new Date(),
-    });
-    yield* store.save(record);
-
     const moveTo = (state: RunState) =>
       store.transition(input.runId, state).pipe(Effect.asVoid, Effect.ignore);
 
-    yield* moveTo({ kind: "working", iteration: 0 });
+    // A resumed run already has a record, and `resumeRun` has already claimed it by moving
+    // it to `working`. Creating a second one here would leave the original parked forever
+    // under an id its approver is still holding.
+    const existing = yield* store.get(input.runId);
+    if (existing === undefined) {
+      yield* store.save(
+        createRunRecord({
+          runId: input.runId,
+          agentId: input.agentId,
+          conversationId: input.conversationId,
+          input: input.userInput,
+          now: new Date(),
+        }),
+      );
+      yield* moveTo({ kind: "working", iteration: 0 });
+    }
 
     return yield* effect.pipe(
       Effect.tap((response) => moveTo(completedState(response))),

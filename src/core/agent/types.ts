@@ -114,6 +114,16 @@ export interface AgentRunnerOptions {
    * Approvals already answered, keyed by `toolCallId`. Set when resuming a parked run.
    */
   readonly resolvedApprovals?: ReadonlyMap<string, ApprovalOutcome>;
+  /**
+   * This run is continuing a parked one. Its history already ends mid-turn, so no user
+   * message is appended.
+   */
+  readonly isResume?: boolean;
+  /**
+   * Continue recording under an existing run id instead of the fresh one the metrics
+   * mint. Set when resuming, so the parked record is the one that finishes.
+   */
+  readonly runId?: string;
   /** How many sub-agent levels sit above this run. 0 at the top level. */
   readonly subagentDepth?: number;
   /**

@@ -393,6 +393,7 @@ function initializeAgentRun(
         agentName: agent.name,
         agentDescription: agent.description || "",
         userInput,
+        ...(options.isResume === true ? { isResume: true } : {}),
         conversationHistory: history,
         toolNames: expandedToolNames,
         availableTools,
@@ -595,7 +596,7 @@ export class AgentRunner {
 
       return yield* withRunRecording(
         {
-          runId: runContext.runMetrics.runId,
+          runId: options.runId ?? runContext.runMetrics.runId,
           agentId: options.agent.id,
           conversationId: runContext.actualConversationId,
           userInput: options.userInput,
