@@ -289,7 +289,9 @@ export function liveRows(
 
   const rows: LiveRow[] = [];
   if (showWaiting && model.waiting !== undefined) {
-    rows.push(waitingRow(model.waiting, model.elapsedMs, tick, glyphs, width));
+    rows.push(
+      waitingRow(model.waiting, model.reasoningElapsedMs ?? model.elapsedMs, tick, glyphs, width),
+    );
   }
   if (showStep && model.step !== undefined) {
     rows.push(

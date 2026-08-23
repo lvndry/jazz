@@ -1028,4 +1028,19 @@ describe("wrap cache", () => {
     expect(narrow).not.toEqual(wide);
     expect(transcriptRows(SESSION, WIDE)).toEqual(wide);
   });
+
+  it("invalidates wrapped rows when the theme variant switches", () => {
+    const blocks: readonly Block[] = [{ id: "u", seq: 1, kind: "user", text: "hello" }];
+    const dark = transcriptRows(blocks, WIDE);
+    try {
+      setThemeVariant("light");
+      const light = transcriptRows(blocks, WIDE);
+      expect(light).not.toBe(dark);
+      const darkColors = dark.flatMap((row) => row.content.map((segment) => segment.fg));
+      const lightColors = light.flatMap((row) => row.content.map((segment) => segment.fg));
+      expect(lightColors).not.toEqual(darkColors);
+    } finally {
+      setThemeVariant("dark");
+    }
+  });
 });
