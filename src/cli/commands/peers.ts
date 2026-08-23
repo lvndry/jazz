@@ -14,6 +14,12 @@ import { read as readLedger } from "@/services/peers/ledger";
 import { detectKeyringBackend, keyringDelete, keyringSet } from "@/services/secrets/keyring";
 import { KEYRING_SERVICE_NAME, peerTokenPath } from "@/services/secrets/registry";
 
+/** Collapsed to one line so a multi-line answer cannot make the log unscannable. */
+function oneLine(text: string, max = 160): string {
+  const collapsed = text.replace(/\s+/g, " ").trim();
+  return collapsed.length > max ? `${collapsed.slice(0, max - 1)}…` : collapsed;
+}
+
 function describeTier(tier: PeerTier | undefined): string {
   switch (tier ?? "none") {
     case "none":
@@ -131,8 +137,15 @@ export function peerLogCommand(options: {
     for (const entry of entries) {
       const arrow = entry.direction === "out" ? "->" : "<-";
       const detail = entry.reason !== undefined ? ` (${entry.reason})` : "";
+      const tier = entry.tier !== undefined ? `  tier=${entry.tier}` : "";
       process.stdout.write(
-        `${entry.at}  ${arrow} ${entry.peer}  ${entry.outcome}${detail}\n    ${entry.question}\n`,
+        `${entry.at}  ${arrow} ${entry.peer}  ${entry.outcome}${detail}${tier}\n` +
+          `    asked: ${oneLine(entry.question)}\n` +
+          // The answer is shown, not just the outcome. A question the tier defeated is still
+          // "answered" — the agent replied "I cannot" — so outcome alone cannot tell a
+          // refused probe from a benign question, and telling those apart is the entire
+          // reason this record exists.
+          (entry.answer !== undefined ? `    said:  ${oneLine(entry.answer)}\n` : ""),
       );
     }
   });

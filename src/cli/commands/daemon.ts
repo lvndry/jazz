@@ -17,8 +17,7 @@ import {
   refuseReason,
   type DaemonRequirements,
 } from "@/services/daemon/server";
-import { detectKeyringBackend, keyringGet } from "@/services/secrets/keyring";
-import { peerTokenPath } from "@/services/secrets/registry";
+import { resolvePeerToken } from "@/services/peers/token";
 import { makeFileRunStoreLayer } from "@/services/storage/run-store";
 
 export interface DaemonCommandOptions {
@@ -68,7 +67,6 @@ export function daemonCommand(options: DaemonCommandOptions) {
     const configService = yield* AgentConfigServiceTag;
     const appConfig = yield* configService.appConfig;
     const peers = appConfig.peers ?? [];
-    const keyringBackend = yield* detectKeyringBackend();
 
     yield* Effect.async<void, never>((resume) => {
       const run = <A>(effect: Effect.Effect<A, unknown, DaemonRequirements>): Promise<A> =>
@@ -78,7 +76,7 @@ export function daemonCommand(options: DaemonCommandOptions) {
       const handlePeer = makePeerHandler(
         daemonOptions,
         peers,
-        (peerName) => Effect.runPromise(keyringGet(keyringBackend, peerTokenPath(peerName))),
+        (peerName) => Effect.runPromise(resolvePeerToken(peerName)),
         run,
       );
 
