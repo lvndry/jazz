@@ -8,7 +8,7 @@ export async function GET(context: APIContext): Promise<Response> {
     title: "Jazz blog",
     description:
       "Essays from building Jazz: approvals that travel, context under pressure, and measuring agents on everyday work.",
-    site: context.site ?? "https://jazz-tau.vercel.app",
+    site: context.site ?? "https://jazz-cli.vercel.app",
     trailingSlash: false,
     items: posts
       .sort((a, b) => b.data.date.valueOf() - a.data.date.valueOf())
