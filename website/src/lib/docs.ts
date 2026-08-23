@@ -8,11 +8,27 @@ export const SECTIONS: ReadonlyArray<{ dir: string; label: string }> = [
   { dir: "surfaces", label: "Surfaces" },
   { dir: "concepts", label: "Concepts" },
   { dir: "cookbook", label: "Cookbook" },
+  { dir: "examples", label: "Examples" },
   { dir: "integrations", label: "Integrations" },
   { dir: "reference", label: "Reference" },
   { dir: "internals", label: "Internals" },
   { dir: "design", label: "Design" },
 ];
+
+/**
+ * The docs tree keeps use-cases under guide/ (GitHub browsing, stable URLs),
+ * but on the site they are their own sidebar section: guides teach setup,
+ * examples show finished runs.
+ */
+const sectionKeyFor = (id: string): string =>
+  id === "guide/use-cases" || id.startsWith("guide/use-cases/")
+    ? "examples"
+    : (id.split("/")[0] ?? "");
+
+/** Sections whose index page lives at a different id than `<dir>`. */
+const SECTION_INDEX_ID: Record<string, string> = {
+  examples: "guide/use-cases",
+};
 
 export type DocsEntry = CollectionEntry<"docs">;
 
@@ -74,7 +90,11 @@ export function titleOf(entry: DocsEntry): string {
   const fromFrontmatter = (entry.data as Record<string, unknown>)["title"];
   if (typeof fromFrontmatter === "string" && fromFrontmatter.length > 0) return fromFrontmatter;
   const heading = entry.body?.match(/^#\s+(.+)$/m)?.[1];
-  if (heading) return heading.replace(/\[(.+?)\]\([^)]*\)/g, "$1").trim();
+  if (heading)
+    return heading
+      .replace(/\[(.+?)\]\([^)]*\)/g, "$1")
+      .replace(/^Use Case:\s*/i, "")
+      .trim();
   const id = routeSlugFor(entry.id);
   return humanize(id.split("/").pop() ?? "Documentation");
 }
@@ -100,7 +120,7 @@ export function buildSidebar(entries: DocsEntry[]): SidebarSection[] {
   const bySection = new Map<string, DocsEntry[]>();
   for (const entry of entries) {
     if (entry.id === "index") continue;
-    const section = entry.id.split("/")[0] ?? "";
+    const section = sectionKeyFor(entry.id);
     const bucket = bySection.get(section) ?? [];
     bucket.push(entry);
     bySection.set(section, bucket);
@@ -114,14 +134,17 @@ export function buildSidebar(entries: DocsEntry[]): SidebarSection[] {
   for (const { dir, label } of ordered) {
     const bucket = bySection.get(dir);
     if (!bucket) continue;
-    const indexEntry = bucket.find((entry) => entry.id === `${dir}/index`);
+    const indexId = SECTION_INDEX_ID[dir] ?? dir;
+    const indexEntry = bucket.find(
+      (entry) => entry.id === indexId || entry.id === `${indexId}/index`,
+    );
     const pinned = PINNED_ORDER[dir] ?? [];
     const rank = (id: string): number => {
       const position = pinned.indexOf(id);
       return position === -1 ? pinned.length : position;
     };
     const rest = bucket
-      .filter((entry) => entry.id !== `${dir}/index`)
+      .filter((entry) => entry !== indexEntry)
       .sort((a, b) => rank(a.id) - rank(b.id) || a.id.localeCompare(b.id));
     sections.push({
       label,

@@ -1,6 +1,6 @@
 # Jazz Documentation
 
-**Jazz is an AI agent you install once and run everywhere** — terminal, script, cron, CI,
+**Jazz runs your AI agent everywhere you are** — terminal, script, cron, CI,
 chat. Any model, including local ones. These docs are organized by what you're trying to do.
 
 ---
