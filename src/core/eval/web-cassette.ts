@@ -64,7 +64,6 @@ export function installWebCassette(cassettePath: string, mode: "record" | "repla
     : {};
 
   // Bun's `typeof fetch` demands a `preconnect` member the cassette never needs.
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion -- needed under tsconfig.test.json, where Bun's stricter globals apply
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     if (isBypassHost(input)) return realFetch(input, init);
     const key = requestKey(input, init);

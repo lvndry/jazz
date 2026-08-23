@@ -54,7 +54,6 @@ export interface TerminalInputCapabilities {
  */
 export function decideFullscreen(
   options: { requestPlain?: boolean } = {},
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion -- needed under tsconfig.test.json, where Bun's stricter globals apply
   environment: FullscreenEnvironment = process.env as FullscreenEnvironment,
   stdout: TerminalOutputCapabilities = process.stdout,
   stdin: TerminalInputCapabilities = process.stdin,

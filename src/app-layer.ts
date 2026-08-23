@@ -66,7 +66,6 @@ interface EnvShape extends FullscreenEnvironment {
 }
 
 export function getPresentationConfig(
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion -- needed under tsconfig.test.json, where Bun's stricter globals apply
   env: EnvShape = process.env as EnvShape,
   stdout: TerminalOutputCapabilities = process.stdout,
   stdin: TerminalInputCapabilities = process.stdin,
@@ -153,7 +152,6 @@ export function createAppLayer(
   ).pipe(Layer.provide(configLayer));
 
   const presentationConfig = getPresentationConfig(
-    // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion -- needed under tsconfig.test.json, where Bun's stricter globals apply
     process.env as EnvShape,
     process.stdout,
     process.stdin,

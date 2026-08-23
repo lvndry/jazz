@@ -823,7 +823,6 @@ export function makeOllamaAuthorizedFetch(
 ): typeof globalThis.fetch {
   const inner = keepAlive ? makeOllamaKeepAliveFetch(keepAlive) : globalThis.fetch;
   // Bun's `typeof fetch` demands a `preconnect` member that providers never call.
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion -- needed under tsconfig.test.json, where Bun's stricter globals apply
   return (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const headers = new Headers(init?.headers);
     if (!headers.has("Authorization")) {
@@ -837,7 +836,6 @@ export function makeOllamaAuthorizedFetch(
 // POST /api/chat requests here (never overriding an existing value).
 export function makeOllamaKeepAliveFetch(keepAlive: string): typeof globalThis.fetch {
   // Bun's `typeof fetch` demands a `preconnect` member that providers never call.
-  // eslint-disable-next-line @typescript-eslint/no-unnecessary-type-assertion -- needed under tsconfig.test.json, where Bun's stricter globals apply
   return (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     if (init?.method === "POST" && typeof init.body === "string") {
       const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;

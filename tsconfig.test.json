@@ -1,8 +1,7 @@
 {
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
-    "noEmit": true,
-    "types": ["bun", "node"]
+    "noEmit": true
   },
   "include": [
     "test-preload.ts",
