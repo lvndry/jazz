@@ -1,13 +1,14 @@
-# Hero demo for the README — records docs/assets/demo.gif
+# Demo recording for the README — records docs/assets/demo.gif
 #
-# Record:   brew install vhs && vhs docs/assets/demo.tape
-# Rules:    one take, a real run, no staging. If the run is slow, raise the
-#           final Sleep rather than cutting before the cost line — the cost
-#           line IS the money shot.
+# Record:   vhs docs/assets/demo.tape
+# Convert:  keep GIFs at ~1000px wide; if converting a .mov instead, use:
+#   ffmpeg -i in.mov -vf "fps=12,scale=1000:-1:flags=lanczos,split[s0][s1];[s0]palettegen=stats_mode=diff[p];[s1][p]paletteuse=dither=bayer:bayer_scale=4" out.gif
+# Rules:    one take, a real run, no staging; always end on the cost line.
 #
-# The flow below is one of the three guaranteed-wow prompts (works with zero
-# extra keys on a fresh install). Swap in the git-review prompt if recording
-# inside a repo makes a better take.
+# Note: this prompt needs a web_search key and Chrome (for create_pdf) — both
+# are everyday-machine dependencies, not fresh-install ones. The README's
+# out-of-the-box prompt list is the place for keyless flows; the demo shows
+# the everyday assistant at work.
 
 Output docs/assets/demo.gif
 
@@ -21,12 +22,11 @@ Type "jazz"
 Enter
 Sleep 4s
 
-Type "build me a packing-list web app for a week of hiking"
+Type "search for this weekend's events in my city and put the good ones in a one-page pdf"
 Enter
 
-# Agent plans, writes the page, reports cost. Generous wait: trim dead time
-# in post if needed (vhs renders faithfully; gifsicle can cut frames), but
-# never trim the cost line at the end.
-Sleep 30s
+# Search + PDF takes a while; speed the result up in post rather than cutting:
+#   ffmpeg -i demo.gif -vf "setpts=PTS/4" fast.gif
+Sleep 90s
 
 Sleep 3s

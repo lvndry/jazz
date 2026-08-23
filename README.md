@@ -52,8 +52,8 @@ Then ask it for what you want. These work the moment the wizard finishes — no 
 no extra installs:
 
 ```text
+> give me the TL;DR of ~/Desktop/bitcoin.pdf
 > review the last 5 commits and flag anything risky
-> build me a packing-list web app for a week of hiking
 > fetch https://en.wikipedia.org/wiki/Three-Body_Problem and give me the short version
 ```
 
