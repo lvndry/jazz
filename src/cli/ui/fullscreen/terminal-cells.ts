@@ -14,13 +14,7 @@ export function terminalCellWidth(text: string): number {
 }
 
 export function terminalSegmentsWidth(segments: readonly TextSegment[]): number {
-  let total = 0;
-  for (let index = 0; index < segments.length; index += 1) {
-    const segment = segments[index];
-    if (segment === undefined) continue;
-    total += terminalCellWidth(segment.text);
-  }
-  return total;
+  return segments.reduce((total, segment) => total + terminalCellWidth(segment.text), 0);
 }
 
 export function terminalGraphemes(text: string): string[] {

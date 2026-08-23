@@ -682,28 +682,17 @@ function tableRows(
     const row = rows[rowIndex];
     if (row === undefined) continue;
     const fg = rowIndex === 0 ? THEME.muted : THEME.secondary;
-    const wrapped: Segment[][][] = [];
-    for (let column = 0; column < columns; column += 1) {
+    const wrapped = Array.from({ length: columns }, (_, column) => {
       const size = sizes[column] ?? 1;
-      wrapped.push(wrap([{ text: row[column] ?? "", fg }], size));
-    }
-    let height = 1;
-    for (let column = 0; column < wrapped.length; column += 1) {
-      const cell = wrapped[column];
-      if (cell !== undefined && cell.length > height) height = cell.length;
-    }
+      return wrap([{ text: row[column] ?? "", fg }], size);
+    });
+    const height = Math.max(...wrapped.map((cell) => cell.length), 1);
     for (let lineIndex = 0; lineIndex < height; lineIndex += 1) {
       const segments: Segment[] = [];
-      for (let column = 0; column < wrapped.length; column += 1) {
-        const cell = wrapped[column];
-        if (cell === undefined) continue;
-        const padded = padTableCell(cell, sizes[column] ?? 1, fg, lineIndex);
-        for (let segmentIndex = 0; segmentIndex < padded.length; segmentIndex += 1) {
-          const segment = padded[segmentIndex];
-          if (segment !== undefined) segments.push(segment);
-        }
+      wrapped.forEach((cell, column) => {
+        segments.push(...padTableCell(cell, sizes[column] ?? 1, fg, lineIndex));
         if (column < columns - 1) segments.push({ text: " ".repeat(gap), fg });
-      }
+      });
       rendered.push({
         key: `${key}:table:${String(rowIndex)}:${String(lineIndex)}`,
         gutter: [rail, BLANK_CELL],
@@ -843,18 +832,15 @@ function blockFingerprint(block: Block): string {
 
 function toolRunCacheKey(blocks: readonly ToolReceiptBlock[]): string {
   const parts: string[] = ["tool-run"];
-  for (let index = 0; index < blocks.length; index += 1) {
-    const block = blocks[index];
-    if (block !== undefined) parts.push(block.id);
+  for (const block of blocks) {
+    parts.push(block.id);
   }
   return parts.join("\0");
 }
 
 function toolRunFingerprint(blocks: readonly ToolReceiptBlock[]): string {
   const parts: string[] = [];
-  for (let index = 0; index < blocks.length; index += 1) {
-    const block = blocks[index];
-    if (block === undefined) continue;
+  for (const block of blocks) {
     parts.push(block.id, blockFingerprint(block));
   }
   return parts.join("\n");
