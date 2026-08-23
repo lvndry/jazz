@@ -119,7 +119,6 @@ export function answerRunCommand(options: {
 }) {
   return resumeRun({
     runId: options.runId,
-    sessionId: `runs-${options.runId}`,
     outcome: options.approved
       ? { approved: true }
       : { approved: false, ...(options.note !== undefined ? { userMessage: options.note } : {}) },

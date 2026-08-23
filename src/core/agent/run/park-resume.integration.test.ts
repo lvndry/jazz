@@ -238,11 +238,9 @@ describe("park and resume, through the real loop", () => {
     ).toBe(true);
 
     const resumeExit = await Effect.runPromiseExit(
-      resumeRun({
-        runId: parked.runId,
-        outcome: { approved: true },
-        sessionId: "session-2",
-      }).pipe(Effect.provide(layers)) as Effect.Effect<unknown, unknown>,
+      resumeRun({ runId: parked.runId, outcome: { approved: true } }).pipe(
+        Effect.provide(layers),
+      ) as Effect.Effect<unknown, unknown>,
     );
 
     expect(resumeExit._tag).toBe("Success");

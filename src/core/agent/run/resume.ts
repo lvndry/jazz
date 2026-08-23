@@ -12,6 +12,7 @@ import { Effect } from "effect";
 import { AgentServiceTag } from "@/core/interfaces/agent-service";
 import { RunStoreTag } from "@/core/interfaces/run-store";
 import type { ApprovalOutcome } from "@/core/types/tools";
+import { makeSessionId } from "@/services/history/session-store";
 import { AgentRunner } from "../agent-runner";
 import type { AgentResponse } from "../types";
 import type { RunId } from "./run-state";
@@ -29,7 +30,6 @@ export class RunNotResumableError extends Error {
 export interface ResumeRunOptions {
   readonly runId: RunId;
   readonly outcome: ApprovalOutcome;
-  readonly sessionId: string;
   /** Approve tools of the same kind for the rest of the resumed run, as an interactive session would. */
   readonly autoApprovedTools?: readonly string[];
 }
@@ -117,7 +117,10 @@ export function resumeRun(options: ResumeRunOptions) {
       userInput: "",
       isResume: true,
       conversationId: record.conversationId,
-      sessionId: options.sessionId,
+      // The same session the parked half logged to. A resumed turn belongs to the
+      // conversation, not to whichever process happened to answer the approval, and giving
+      // it an id of its own would split one turn's logs across two files.
+      sessionId: makeSessionId(record.agentId, record.conversationId),
       conversationHistory: [...snapshot.messages],
       pendingToolCalls,
       resolvedApprovals: new Map([[pending.request.toolCallId, options.outcome]]),

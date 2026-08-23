@@ -15,6 +15,7 @@ import {
   saveConversation,
   type ConversationRecord,
 } from "@/services/history/conversation-history-service";
+import { makeSessionId } from "@/services/history/session-store";
 import { makeFileRunStoreLayer } from "@/services/storage/run-store";
 import {
   ONE_SHOT_EXIT,
@@ -318,12 +319,17 @@ export function runAgentOnceCommand(
     }
 
     const autoApprovePolicy: AutoApprovePolicy | undefined = options.approvalPolicy;
-    const runId = `run-${agent.id}-${Date.now()}`;
+    // Not a run id: a run's identity is the uuid the metrics mint, and this is the
+    // conversation this turn belongs to. Without `--conversation` the caller wants a clean
+    // slate, so the turn gets a conversation of its own that nothing will ever reuse.
+    const conversationId = conversationKey ?? `once-${agent.id}-${Date.now()}`;
     const runEffect = AgentRunner.run({
       agent: agentForRun,
       userInput: prompt,
-      sessionId: runId,
-      conversationId: conversationKey ?? runId,
+      // Derived rather than invented, so a one-shot's logs land in the same session file
+      // as every other turn of the same conversation.
+      sessionId: makeSessionId(agent.id, conversationId),
+      conversationId,
       ...(inlineHistory !== undefined
         ? { conversationHistory: inlineHistory }
         : resumedHistory !== null
