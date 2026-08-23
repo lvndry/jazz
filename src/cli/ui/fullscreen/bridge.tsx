@@ -1051,6 +1051,10 @@ export function FullscreenBridge(): React.ReactNode {
   const menuRef = useRef(menu);
   menuRef.current = menu;
   const [menuIndex, menuIndexRef, setMenuIndex] = useSynchronizedState(0);
+  // The index reset for a replacement menu runs a frame after the menu lands;
+  // a keypress in that gap must not read the old menu's selection into the new
+  // one, so the index only counts for the menu it was moved on.
+  const menuIndexForRef = useRef<typeof menu>(null);
   const [elapsedMs, setElapsedMs] = useState<number | undefined>();
   const [reservedRows, setReservedRows] = useState(0);
   const runStartedAt = useRef<number | null>(null);
@@ -1060,7 +1064,10 @@ export function FullscreenBridge(): React.ReactNode {
   // prompt makes the handler return before it reads a single keystroke. Refs are
   // correct regardless of the hook's registration semantics.
   const approvalRef = useRef<PendingApproval | null>(null);
-  const approvalArmedRef = useRef(false);
+  // Armed-ness is pinned to the approval it was armed for: the disarm effect
+  // for a replacement card runs a frame after the card lands, and a key-repeat
+  // Enter in that gap must not inherit the old card's armed state.
+  const approvalArmedForRef = useRef<PendingApproval | null>(null);
 
   const updatePromptEditor = useCallback(
     (update: (state: PromptEditorState) => PromptEditorState): void => {
@@ -1082,7 +1089,7 @@ export function FullscreenBridge(): React.ReactNode {
   );
 
   const setApprovalArmedState = useCallback((armed: boolean): void => {
-    approvalArmedRef.current = armed;
+    approvalArmedForRef.current = armed ? approvalRef.current : null;
     setApprovalArmed(armed);
   }, []);
 
@@ -1413,12 +1420,15 @@ export function FullscreenBridge(): React.ReactNode {
       if (openMenu !== null) {
         const itemCount =
           openMenu.kind === "agents" ? openMenu.agents.length : openMenu.options.length;
+        const menuSelection = menuIndexForRef.current === openMenu ? menuIndexRef.current : 0;
         if (name === "up" || name === "k") {
-          setMenuIndex((index) => Math.max(0, index - 1));
+          menuIndexForRef.current = openMenu;
+          setMenuIndex(Math.max(0, menuSelection - 1));
           return true;
         }
         if (name === "down" || name === "j") {
-          setMenuIndex((index) => Math.min(Math.max(0, itemCount - 1), index + 1));
+          menuIndexForRef.current = openMenu;
+          setMenuIndex(Math.min(Math.max(0, itemCount - 1), menuSelection + 1));
           return true;
         }
         if (name === "return" || name === "enter") {
@@ -1426,11 +1436,11 @@ export function FullscreenBridge(): React.ReactNode {
             if (openMenu.browse === true) {
               store.completePrompt({ kind: "exit" });
             } else {
-              const choice = openMenu.agents[menuIndexRef.current];
+              const choice = openMenu.agents[menuSelection];
               if (choice !== undefined) store.completePrompt({ kind: "select", value: choice.id });
             }
           } else {
-            const choice = openMenu.options[menuIndexRef.current];
+            const choice = openMenu.options[menuSelection];
             if (choice !== undefined) {
               store.completePrompt({ kind: "select", value: choice.value });
             }
@@ -1455,7 +1465,7 @@ export function FullscreenBridge(): React.ReactNode {
           setApprovalFieldOffset((offset) => Math.max(0, offset + delta));
           return true;
         }
-        if (!approvalArmedRef.current) return true;
+        if (approvalArmedForRef.current !== approvalRef.current) return true;
         if (active === null) return true;
         if (name === "return" || name === "enter") {
           active.resolve("yes");
