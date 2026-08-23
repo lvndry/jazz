@@ -18,7 +18,7 @@ import type { ChatCompletionResponse } from "@/core/types/chat";
 import { LLMRateLimitError } from "@/core/types/errors";
 import type { DisplayConfig } from "@/core/types/output";
 import type { StreamEvent } from "@/core/types/streaming";
-import { conversationLogGroup } from "@/core/utils/log-scope";
+import { conversationLogGroup } from "@/core/utils/log-group";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import { formatToolResultForContext } from "@/core/utils/tool-result-formatter";
 import { computeUsageCostUSD, type UsageCostPricing } from "@/core/utils/usage-cost";
@@ -901,8 +901,11 @@ export function executeAgentLoop(
   return Effect.acquireUseRelease(
     Effect.gen(function* () {
       const logger = yield* LoggerServiceTag;
+      // The resolved id, not options.conversationId: a run started without one still gets
+      // a conversation, and falling back to a constant here would pile every anonymous
+      // run into a single shared log file.
       yield* logger.setLogGroup(
-        conversationLogGroup(options.agent.id, options.conversationId ?? "unassigned"),
+        conversationLogGroup(options.agent.id, runContext.actualConversationId),
       );
       const finalizeFiberRef = yield* Ref.make<Option.Option<Fiber.RuntimeFiber<void, Error>>>(
         Option.none(),

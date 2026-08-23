@@ -25,7 +25,7 @@ import type { Agent } from "@/core/types/index";
 import { type ChatMessage } from "@/core/types/message";
 import type { AutoApprovePolicy } from "@/core/types/tools";
 import { isRetryableLLMError } from "@/core/utils/llm-error";
-import { conversationLogGroup } from "@/core/utils/log-scope";
+import { conversationLogGroup } from "@/core/utils/log-group";
 import type { WorkflowService } from "@/core/workflows/workflow-service";
 import { handleSpecialCommand, parseSpecialCommand, setSkillCommands } from "./chat/commands";
 import type { CommandContext, CommandResult } from "./chat/commands/types";
@@ -330,6 +330,9 @@ export class ChatServiceImpl implements ChatService {
             if (commandResult.newConversationId !== undefined) {
               conversationId = commandResult.newConversationId;
               store.setCurrentConversation({ agentId: agent.id, conversationId });
+              // Logs follow the conversation, so /new starts a new file rather than
+              // appending the next conversation to the previous one's.
+              yield* logger.setLogGroup(conversationLogGroup(agent.id, conversationId));
               conversationTitle = null;
               startedAt = new Date().toISOString();
               sessionUsage = { promptTokens: 0, completionTokens: 0 };
