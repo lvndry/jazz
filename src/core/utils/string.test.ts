@@ -1,5 +1,28 @@
 import { describe, expect, test } from "bun:test";
-import { buildLineOffsets, findAllOccurrenceLineNumbers, offsetToLine } from "./string";
+import {
+  buildLineOffsets,
+  coerceBoolean,
+  findAllOccurrenceLineNumbers,
+  offsetToLine,
+} from "./string";
+
+describe("coerceBoolean", () => {
+  test("accepts real booleans", () => {
+    expect(coerceBoolean(true, false)).toBe(true);
+    expect(coerceBoolean(false, true)).toBe(false);
+  });
+
+  test("accepts the strings jazz config set stores", () => {
+    expect(coerceBoolean("true", false)).toBe(true);
+    expect(coerceBoolean("false", true)).toBe(false);
+  });
+
+  test("falls back for anything else", () => {
+    expect(coerceBoolean(undefined, true)).toBe(true);
+    expect(coerceBoolean("yes", false)).toBe(false);
+    expect(coerceBoolean(1, false)).toBe(false);
+  });
+});
 
 describe("line offsets", () => {
   test("maps character offsets to one-based line numbers", () => {

@@ -242,8 +242,9 @@ export interface AgentResponse {
  * Default display configuration (applies to both modes)
  */
 export const DEFAULT_DISPLAY_CONFIG: DisplayConfig = {
-  showThinking: true,
+  showReasoning: true,
   showToolExecution: true,
+  collapseReasoning: true,
   mode: "hybrid",
 };
 

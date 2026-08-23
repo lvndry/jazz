@@ -143,7 +143,7 @@ describe("executeWithStreaming", () => {
     };
 
     const displayConfig = {
-      showThinking: false,
+      showReasoning: false,
       showToolExecution: false,
       mode: "markdown" as const,
     };
@@ -343,7 +343,7 @@ describe("executeWithStreaming", () => {
     };
 
     const displayConfig = {
-      showThinking: false,
+      showReasoning: false,
       showToolExecution: false,
       mode: "markdown" as const,
     };
@@ -495,7 +495,7 @@ describe("executeWithStreaming", () => {
     const program = executeWithStreaming(
       options,
       runContext,
-      { showThinking: false, showToolExecution: false, mode: "markdown" },
+      { showReasoning: false, showToolExecution: false, mode: "markdown" },
       { enabled: true },
       false,
       () => Effect.succeed({ content: "recursive", conversationId: "id" } as AgentResponse),

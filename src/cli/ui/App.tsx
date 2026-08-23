@@ -220,8 +220,14 @@ function OutputIslandComponent(): React.ReactElement {
       >
         {(entry: OutputEntryWithId, index: number) => {
           const prevEntry = index > 0 ? state.staticEntries[index - 1] : null;
+          const isReasoning =
+            entry.type === "streamContent" && entry.meta?.["kind"] === "reasoning";
+          const prevIsReasoning =
+            prevEntry?.type === "streamContent" && prevEntry.meta?.["kind"] === "reasoning";
           const addSpacing =
-            entry.type === "user" || (entry.type === "info" && prevEntry?.type === "user");
+            entry.type === "user" ||
+            (entry.type === "info" && prevEntry?.type === "user") ||
+            (isReasoning && prevIsReasoning);
           return (
             <OutputEntryView
               key={entry.id}

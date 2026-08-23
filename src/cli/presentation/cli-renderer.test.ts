@@ -22,7 +22,7 @@ function createTestRenderer(): TestCLIRenderer {
   const config: CLIRendererConfig = {
     displayConfig: {
       mode: "rendered",
-      showThinking: false,
+      showReasoning: false,
       showToolExecution: false,
     },
     streamingConfig: {},

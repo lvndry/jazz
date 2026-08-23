@@ -54,17 +54,24 @@ export interface RenderTheme {
  */
 export interface OutputConfig {
   /**
-   * Show reasoning/thinking process for models that support it
+   * Show reasoning for models that support it
    * (e.g., OpenAI o1, Claude extended thinking, DeepSeek R1)
    * Default: true
    */
-  readonly showThinking?: boolean;
+  readonly showReasoning?: boolean;
 
   /**
    * Show visual indicators for tool execution
    * Default: true
    */
   readonly showToolExecution?: boolean;
+
+  /**
+   * Collapse finished reasoning to a one-line summary. Ctrl+R expands it.
+   * Set false to leave the full reasoning visible; Ctrl+R is then unused.
+   * Default: true
+   */
+  readonly collapseReasoning?: boolean;
 
   /**
    * Output mode
@@ -102,8 +109,10 @@ export interface OutputConfig {
  * This is a core type that can be used by presentation services
  */
 export interface DisplayConfig {
-  readonly showThinking: boolean;
+  readonly showReasoning: boolean;
   readonly showToolExecution: boolean;
+  /** Collapse finished reasoning to a one-line summary. Default true. */
+  readonly collapseReasoning?: boolean;
   readonly mode: OutputMode;
   readonly colorProfile?: ColorProfile | undefined; // Auto-detect if not specified
 }

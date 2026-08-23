@@ -248,8 +248,12 @@ function configureOutputDisplay() {
           { name: `Output mode (${displayConfig.mode})`, value: "mode" },
           { name: `Color profile (${colorProfileLabel})`, value: "color-profile" },
           {
-            name: `Show thinking (${displayConfig.showThinking ? "on" : "off"})`,
-            value: "show-thinking",
+            name: `Show reasoning (${displayConfig.showReasoning ? "on" : "off"})`,
+            value: "show-reasoning",
+          },
+          {
+            name: `Reasoning (${displayConfig.collapseReasoning !== false ? "collapse" : "always show"})`,
+            value: "collapse-reasoning",
           },
           {
             name: `Show tool execution (${displayConfig.showToolExecution ? "on" : "off"})`,
@@ -300,13 +304,40 @@ function configureOutputDisplay() {
           }
           break;
         }
-        case "show-thinking": {
+        case "show-reasoning": {
           yield* handleBooleanToggle({
-            prompt: "Show thinking output?",
-            currentValue: displayConfig.showThinking,
-            configKey: "output.showThinking",
-            label: "Show thinking",
+            prompt: "Show reasoning output?",
+            currentValue: displayConfig.showReasoning,
+            configKey: "output.showReasoning",
+            label: "Show reasoning",
           });
+          break;
+        }
+        case "collapse-reasoning": {
+          const choice = yield* terminal.select<"collapse" | "always">(
+            "How should reasoning display after the model finishes thinking?",
+            {
+              choices: [
+                {
+                  name: "Collapse after thinking (Ctrl+R to expand)",
+                  value: "collapse",
+                },
+                {
+                  name: "Always show reasoning",
+                  value: "always",
+                },
+              ],
+            },
+          );
+          if (choice) {
+            const collapse = choice === "collapse";
+            yield* configService.set("output.collapseReasoning", collapse);
+            yield* terminal.success(
+              collapse
+                ? "Reasoning will collapse after thinking. Ctrl+R expands it."
+                : "Reasoning will stay visible. Ctrl+R is not needed.",
+            );
+          }
           break;
         }
         case "show-tool-execution": {

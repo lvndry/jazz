@@ -56,6 +56,19 @@ export function sanitizeUnicodeSurrogates(str: string): string {
 export function sanitize(str: string): string {
   return sanitizeUnicodeSurrogates(str);
 }
+
+/**
+ * Coerce a config/CLI value to a boolean.
+ *
+ * Accepts real booleans and the strings `jazz config set` stores (`"true"` /
+ * `"false"`). Anything else falls back to `fallback`.
+ */
+export function coerceBoolean(value: unknown, fallback: boolean): boolean {
+  if (value === true || value === "true") return true;
+  if (value === false || value === "false") return false;
+  return fallback;
+}
+
 /**
  * Safely convert a value to a string, handling null/undefined/objects
  */

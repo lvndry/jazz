@@ -53,6 +53,7 @@ import {
 } from "./terminal-cells";
 import { applyScrollDelta, clampScrollFromBottom, windowTranscriptRows } from "./transcript-window";
 import { measureFor, type Block, type Focus, type ToolReceiptBlock, type Viewport } from "./types";
+import { spaceReasoningSections } from "../../presentation/format-utils";
 
 /** The rail lives in the left page margin, so the content column never moves. */
 const GUTTER = 2;
@@ -743,6 +744,10 @@ function family(block: Block): string {
 function needsBreathingRow(block: Block, previous: Block | undefined): boolean {
   if (previous === undefined) return false;
   if (block.kind === "user" || block.kind === "agent") return true;
+  // Same-family receipts stay tight; consecutive reasoning does not.
+  // Ctrl+R expands each thought in place, and without a gap two walls of
+  // text read as one.
+  if (block.kind === "reasoning" && previous.kind === "reasoning") return true;
   return family(block) !== family(previous);
 }
 
@@ -881,15 +886,14 @@ function reasoningRows(
 
   // Subordinate by geometry, not by a new hue: narrower, indented, never bold.
   const measure = Math.max(24, Math.floor(geometry.prose * REASONING_MEASURE_RATIO));
-  return wrap([{ text: block.text, fg: THEME.muted }], measure - REASONING_INDENT).map(
-    (line, index) => ({
-      key: `${block.id}:${String(index)}`,
-      gutter: [rail, BLANK_CELL],
-      content: [{ text: " ".repeat(REASONING_INDENT), fg: THEME.border }, ...line],
-      contentWidth: geometry.prose,
-      meta: index === 0 ? meta : [],
-    }),
-  );
+  const text = spaceReasoningSections(block.text);
+  return wrap([{ text, fg: THEME.muted }], measure - REASONING_INDENT).map((line, index) => ({
+    key: `${block.id}:${String(index)}`,
+    gutter: [rail, BLANK_CELL],
+    content: [{ text: " ".repeat(REASONING_INDENT), fg: THEME.border }, ...line],
+    contentWidth: geometry.prose,
+    meta: index === 0 ? meta : [],
+  }));
 }
 
 /**

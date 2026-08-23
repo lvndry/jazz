@@ -520,6 +520,47 @@ describe("UIStore", () => {
       expect(printed[0]!.message).toContain("live thought");
     });
 
+    test("setCollapseReasoning(false) settles reasoning expanded without Ctrl+R", () => {
+      const s = new UIStore();
+      const printed: OutputEntry[] = [];
+      s.registerPrintOutput((eOrBatch) => {
+        const arr = Array.isArray(eOrBatch) ? eOrBatch : [eOrBatch];
+        printed.push(...arr);
+        return arr[0]?.id ?? "id";
+      });
+      s.setCollapseReasoning(false);
+
+      const id = s.openEphemeral("reasoning", "Reasoning", 8);
+      s.collapseEphemeral(id, { durationMs: 1500, fullText: "the whole thought" });
+
+      expect(printed).toHaveLength(1);
+      expect(printed[0]!.meta?.["collapsed"]).toBe(false);
+      expect(printed[0]!.message).toContain("the whole thought");
+      expect(printed[0]!.message).not.toContain("ctrl+r");
+      expect(s.getExpandableReasoningSnapshot()).toBeNull();
+    });
+
+    test("setCollapseReasoning(false) dumps in-flight reasoning on collapseAllEphemeral", () => {
+      const s = new UIStore();
+      const printed: OutputEntry[] = [];
+      s.registerPrintOutput((eOrBatch) => {
+        const arr = Array.isArray(eOrBatch) ? eOrBatch : [eOrBatch];
+        printed.push(...arr);
+        return arr[0]?.id ?? "id";
+      });
+      s.setCollapseReasoning(false);
+
+      const id = s.openEphemeral("reasoning", "Reasoning", 8);
+      s.appendEphemeral(id, "interrupted thought");
+      s.collapseAllEphemeral();
+
+      expect(s.getEphemeralRegionsSnapshot()).toHaveLength(0);
+      expect(printed).toHaveLength(1);
+      expect(printed[0]!.meta?.["collapsed"]).toBe(false);
+      expect(printed[0]!.message).toContain("interrupted thought");
+      expect(s.getExpandableReasoningSnapshot()).toBeNull();
+    });
+
     test("setter is notified on open, append, and collapse", () => {
       const s = new UIStore();
       const seen: number[] = [];

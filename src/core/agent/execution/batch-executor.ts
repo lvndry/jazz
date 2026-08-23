@@ -47,7 +47,7 @@ export function executeWithoutStreaming(
     const maxRetries = runContext.maxRetries ?? DEFAULT_MAX_LLM_RETRIES;
 
     const reasoningEffort = agent.config.reasoningEffort ?? "disable";
-    const shouldShowThinking = displayConfig.showThinking && reasoningEffort !== "disable";
+    const shouldShowReasoning = displayConfig.showReasoning && reasoningEffort !== "disable";
 
     // Some presentation services (the headless one-shot `--events` emitter) only
     // surface tool lifecycle events through a streaming renderer. On this batch
@@ -67,7 +67,7 @@ export function executeWithoutStreaming(
         : null;
 
     const strategy: CompletionStrategy = {
-      shouldShowThinking,
+      shouldShowReasoning,
 
       getCompletion(currentMessages: ConversationMessages, _iteration: number) {
         return Effect.gen(function* () {
