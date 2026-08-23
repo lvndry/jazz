@@ -116,8 +116,9 @@ const SEARCH: SearchOverlay = {
   scope: "all",
   hits: [
     {
-      sessionId: "s-1",
-      sessionTitle: "inbox triage",
+      agentId: "agent-1",
+      conversationId: "c-1",
+      conversationTitle: "inbox triage",
       when: "now",
       line: "the Basel workshop dates did not move",
       matchStart: 4,
@@ -125,8 +126,9 @@ const SEARCH: SearchOverlay = {
       current: true,
     },
     {
-      sessionId: "s-2",
-      sessionTitle: "plan my week",
+      agentId: "agent-1",
+      conversationId: "c-2",
+      conversationTitle: "plan my week",
       when: "2d ago",
       line: "book the Basel flights before prices move",
       matchStart: 9,
@@ -134,8 +136,9 @@ const SEARCH: SearchOverlay = {
       current: false,
     },
     {
-      sessionId: "s-3",
-      sessionTitle: "travel budget",
+      agentId: "agent-1",
+      conversationId: "c-3",
+      conversationTitle: "travel budget",
       when: "1w ago",
       line: "Basel is the only trip left this quarter",
       matchStart: 0,

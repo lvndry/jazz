@@ -263,8 +263,9 @@ export interface ApprovalOverlay {
 }
 
 export interface SearchHit {
-  readonly sessionId: string;
-  readonly sessionTitle: string;
+  readonly agentId: string;
+  readonly conversationId: string;
+  readonly conversationTitle: string;
   readonly when: string;
   readonly line: string;
   readonly matchStart: number;
@@ -275,7 +276,7 @@ export interface SearchHit {
 export interface SearchOverlay {
   readonly kind: "search";
   readonly query: string;
-  readonly scope: "session" | "all";
+  readonly scope: "conversation" | "all";
   readonly hits: readonly SearchHit[];
   readonly selected: number;
 }

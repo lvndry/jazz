@@ -145,6 +145,12 @@ export interface ActiveAgentMenu {
 
 export type ActiveMenu = ActiveWizardMenu | ActiveAgentMenu;
 
+/** Identifies the conversation on screen, so history search can be narrowed to it. */
+export interface CurrentConversation {
+  readonly agentId: string;
+  readonly conversationId: string;
+}
+
 export interface PendingApproval {
   readonly toolName: string;
   readonly executeToolName: string;
@@ -172,6 +178,8 @@ export class UIStore {
   private updateOutputHandler: UpdateOutputHandler | null = null;
   private clearOutputsHandler: (() => void) | null = null;
   private pinnedReasoningIds = new Set<EphemeralRegionId>();
+  /** When false, settled reasoning stays expanded and Ctrl+R is unused. */
+  private collapseReasoning = true;
   private streamingHandler: StreamingHandler | null = null;
   private pendingOutputQueue: OutputEntry[] = [];
   private _pendingClear = false;
@@ -193,6 +201,14 @@ export class UIStore {
   private promptSnapshot: PromptState | null = null;
   private activitySnapshot: ActivityState = { phase: "idle" };
   private workingDirectorySnapshot: string | null = null;
+  /**
+   * Which conversation the interface is showing.
+   *
+   * Held here because history search needs it to narrow to "this conversation", and the
+   * bridge that runs the search otherwise knows nothing about conversations at all — which
+   * is why that scope silently returned no results.
+   */
+  private currentConversationSnapshot: CurrentConversation | null = null;
   private runStatsSnapshot: RunStats = {};
   // Session-wide cumulative cost in USD. Every renderer (main agent and each
   // sub-agent) adds its own per-turn cost here so the footer total reflects
@@ -214,6 +230,8 @@ export class UIStore {
   private promptSetter: ((prompt: PromptState | null) => void) | null = null;
   private activitySetter: ((activity: ActivityState) => void) | null = null;
   private workingDirectorySetter: ((wd: string | null) => void) | null = null;
+  private currentConversationSetter: ((conversation: CurrentConversation | null) => void) | null =
+    null;
   private runStatsSetter: ((stats: RunStats) => void) | null = null;
   private ephemeralRegionsSetter: ((regions: readonly EphemeralRegion[]) => void) | null = null;
   private expandableReasoningSetter: ((value: ExpandableReasoning | null) => void) | null = null;
@@ -299,6 +317,13 @@ export class UIStore {
     this.activitySnapshot = activity;
     if (this.activitySetter) {
       this.activitySetter(activity);
+    }
+  };
+
+  setCurrentConversation = (conversation: CurrentConversation | null): void => {
+    this.currentConversationSnapshot = conversation;
+    if (this.currentConversationSetter) {
+      this.currentConversationSetter(conversation);
     }
   };
 
@@ -529,6 +554,11 @@ export class UIStore {
     this.publishEphemeralRegions();
   };
 
+  /** When false, settled reasoning stays expanded and Ctrl+R is unused. */
+  setCollapseReasoning = (enabled: boolean): void => {
+    this.collapseReasoning = enabled;
+  };
+
   /**
    * Collapse a live region. Emits an optional one-line static entry into
    * scrollback and removes the region. For reasoning regions, captures the
@@ -543,6 +573,7 @@ export class UIStore {
 
     const capturedText = summary.fullText?.trim() || region.tail.join("\n").trim();
     const pinned = this.pinnedReasoningIds.delete(id);
+    const keepExpanded = pinned || !this.collapseReasoning;
 
     if (region.kind === "reasoning" && capturedText.length > 0) {
       const entryId = `reasoning-${id}`;
@@ -550,12 +581,12 @@ export class UIStore {
       this.printOutput({
         id: entryId,
         type: "streamContent",
-        message: pinned
+        message: keepExpanded
           ? `*${region.label} · ${seconds}s*\n\n${capturedText}`
           : (summary.line ?? `${region.label} · ${seconds}s · ctrl+r to expand`),
         meta: {
           kind: "reasoning",
-          collapsed: !pinned,
+          collapsed: !keepExpanded,
           fullText: capturedText,
           durationMs: summary.durationMs,
           label: region.label,
@@ -563,13 +594,15 @@ export class UIStore {
         timestamp: new Date(),
       });
       this.flushOutputBatchNow();
-      this.pushExpandableReasoning({
-        fullText: capturedText,
-        label: region.label,
-        durationMs: summary.durationMs,
-        entryId,
-        ...(summary.tokens !== undefined && { tokens: summary.tokens }),
-      });
+      if (this.collapseReasoning) {
+        this.pushExpandableReasoning({
+          fullText: capturedText,
+          label: region.label,
+          durationMs: summary.durationMs,
+          entryId,
+          ...(summary.tokens !== undefined && { tokens: summary.tokens }),
+        });
+      }
       return;
     }
 
@@ -616,10 +649,29 @@ export class UIStore {
       if (region.kind !== "reasoning") continue;
       const fullText = region.tail.join("\n").trim();
       if (fullText.length === 0) continue;
+      const durationMs = Date.now() - region.startedAt;
+      if (!this.collapseReasoning) {
+        const seconds = (durationMs / 1000).toFixed(1);
+        this.printOutput({
+          id: `reasoning-${region.id}`,
+          type: "streamContent",
+          message: `*${region.label} · ${seconds}s*\n\n${fullText}`,
+          meta: {
+            kind: "reasoning",
+            collapsed: false,
+            fullText,
+            durationMs,
+            label: region.label,
+          },
+          timestamp: new Date(),
+        });
+        this.flushOutputBatchNow();
+        continue;
+      }
       this.pushExpandableReasoning({
         fullText,
         label: region.label,
-        durationMs: Date.now() - region.startedAt,
+        durationMs,
       });
     }
     this.ephemeralRegions.clear();
@@ -742,6 +794,15 @@ export class UIStore {
     this.promptSetter = setter;
     if (setter) {
       setter(this.promptSnapshot);
+    }
+  }
+
+  registerCurrentConversationSetter(
+    setter: ((conversation: CurrentConversation | null) => void) | null,
+  ): void {
+    this.currentConversationSetter = setter;
+    if (setter) {
+      setter(this.currentConversationSnapshot);
     }
   }
 
@@ -890,6 +951,10 @@ export class UIStore {
 
   getPromptSnapshot(): PromptState | null {
     return this.promptSnapshot;
+  }
+
+  getCurrentConversationSnapshot(): CurrentConversation | null {
+    return this.currentConversationSnapshot;
   }
 
   getWorkingDirectorySnapshot(): string | null {

@@ -25,11 +25,12 @@ import * as fsp from "node:fs/promises";
 import * as path from "node:path";
 import { getHistoryDirectory } from "@/core/utils/paths";
 import {
-  deriveSessionTitle,
-  getSessionsDirectory,
-  parseSessionEventLine,
-  type SessionEvent,
-} from "./session-store";
+  deriveConversationTitle,
+  conversationLogPath,
+  getConversationLogsDirectory,
+  parseConversationLogLine,
+  type ConversationLogEvent,
+} from "./conversation-log";
 
 /** Newest sessions considered for a single query. */
 const MAX_SESSIONS_SCANNED = 40;
@@ -43,7 +44,7 @@ const DEFAULT_LIMIT = 50;
 const MAX_HIT_LINE_CHARS = 200;
 const MATCH_LEAD_CHARS = 24;
 
-const SESSION_LOG_EXTENSION = ".jsonl";
+const CONVERSATION_LOG_EXTENSION = ".jsonl";
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
 const DAY_MS = 24 * HOUR_MS;
@@ -62,8 +63,9 @@ const YEAR_MS = 365 * DAY_MS;
  * renderer collapses whitespace before indexing.
  */
 export interface SearchHit {
-  readonly sessionId: string;
-  readonly sessionTitle: string;
+  readonly agentId: string;
+  readonly conversationId: string;
+  readonly conversationTitle: string;
   readonly when: string;
   readonly line: string;
   readonly matchStart: number;
@@ -72,8 +74,17 @@ export interface SearchHit {
 }
 
 export interface SearchOptions {
-  readonly scope: "session" | "all";
-  readonly currentSessionId?: string;
+  readonly scope: "conversation" | "all";
+  /**
+   * The conversation being viewed, hoisted to the front of the results and required by
+   * `scope: "conversation"`.
+   *
+   * No caller supplies it yet, which makes the interface's scope toggle inert — narrowing
+   * to one conversation currently yields nothing at all. Fixing that means giving the
+   * fullscreen bridge the identity of the conversation it is displaying, which it does not
+   * currently hold.
+   */
+  readonly current?: { readonly agentId: string; readonly conversationId: string };
   readonly limit?: number;
   /** History directory override. Defaults to the user's history directory. */
   readonly dir?: string;
@@ -150,58 +161,68 @@ function toRenderableLine(
   };
 }
 
-interface ScannedSession {
-  readonly sessionId: string;
+interface ScannedConversation {
   readonly filePath: string;
   readonly modifiedAtMs: number;
 }
 
+/**
+ * Every conversation log under the history root, newest first.
+ *
+ * Logs live one directory per agent, so this is a two-level walk. Identity comes from each
+ * file's header when it is read, never from its path: path segments are lossy for ids that
+ * are not already filename-safe.
+ */
 async function listCandidates(
-  sessionsDirectory: string,
-  currentSessionId: string | undefined,
-): Promise<ScannedSession[]> {
-  let names: string[];
+  root: string,
+  currentPath: string | undefined,
+): Promise<ScannedConversation[]> {
+  let agentDirectories: string[];
   try {
-    names = await fsp.readdir(sessionsDirectory);
+    agentDirectories = await fsp.readdir(root);
   } catch {
     return [];
   }
 
-  const sessions: ScannedSession[] = [];
-  for (const name of names) {
-    if (!name.endsWith(SESSION_LOG_EXTENSION)) continue;
-    const filePath = path.join(sessionsDirectory, name);
+  const conversations: ScannedConversation[] = [];
+  for (const agentDirectory of agentDirectories) {
+    const directory = path.join(root, agentDirectory);
+    let names: string[];
     try {
-      const info = await fsp.stat(filePath);
-      if (!info.isFile()) continue;
-      sessions.push({
-        sessionId: name.slice(0, -SESSION_LOG_EXTENSION.length),
-        filePath,
-        modifiedAtMs: info.mtimeMs,
-      });
+      if (!(await fsp.stat(directory)).isDirectory()) continue;
+      names = await fsp.readdir(directory);
     } catch {
       continue;
     }
+    for (const name of names) {
+      if (!name.endsWith(CONVERSATION_LOG_EXTENSION)) continue;
+      const filePath = path.join(directory, name);
+      try {
+        const info = await fsp.stat(filePath);
+        if (!info.isFile()) continue;
+        conversations.push({ filePath, modifiedAtMs: info.mtimeMs });
+      } catch {
+        continue;
+      }
+    }
   }
 
-  sessions.sort((left, right) => right.modifiedAtMs - left.modifiedAtMs);
-  const currentIndex = sessions.findIndex((session) => session.sessionId === currentSessionId);
+  conversations.sort((left, right) => right.modifiedAtMs - left.modifiedAtMs);
+  const currentIndex = conversations.findIndex(
+    (conversation) => conversation.filePath === currentPath,
+  );
   if (currentIndex > 0) {
-    const [current] = sessions.splice(currentIndex, 1);
-    if (current) sessions.unshift(current);
+    const [current] = conversations.splice(currentIndex, 1);
+    if (current) conversations.unshift(current);
   }
-  return sessions.slice(0, MAX_SESSIONS_SCANNED);
+  return conversations.slice(0, MAX_SESSIONS_SCANNED);
 }
 
-async function statSession(
-  sessionsDirectory: string,
-  sessionId: string,
-): Promise<ScannedSession | null> {
-  const filePath = path.join(sessionsDirectory, `${sessionId}${SESSION_LOG_EXTENSION}`);
+async function statConversation(filePath: string): Promise<ScannedConversation | null> {
   try {
     const info = await fsp.stat(filePath);
     if (!info.isFile()) return null;
-    return { sessionId, filePath, modifiedAtMs: info.mtimeMs };
+    return { filePath, modifiedAtMs: info.mtimeMs };
   } catch {
     return null;
   }
@@ -245,44 +266,52 @@ async function readCappedLog(filePath: string): Promise<string> {
   }
 }
 
-interface SessionContent {
+interface ConversationContent {
+  readonly agentId: string;
+  readonly conversationId: string;
   readonly title: string;
   /** Message text in log order. */
   readonly texts: string[];
 }
 
-function readSessionContent(content: string): SessionContent {
-  const events: SessionEvent[] = [];
+function readConversationContent(content: string): ConversationContent | null {
+  const events: ConversationLogEvent[] = [];
   for (const line of content.split("\n")) {
-    const event = parseSessionEventLine(line);
+    const event = parseConversationLogLine(line);
     if (event) events.push(event);
   }
 
+  let header: { agentId: string; conversationId: string } | undefined;
   let title: string | undefined;
   const texts: string[] = [];
   const messages = [];
   for (const event of events) {
-    if (event.type === "session") title = event.title ?? title;
-    else if (event.type === "meta" && event.title !== undefined) title = event.title;
+    if (event.type === "conversation") {
+      header = { agentId: event.agentId, conversationId: event.conversationId };
+      title = event.title ?? title;
+    } else if (event.type === "meta" && event.title !== undefined) title = event.title;
     else if (event.type === "message") {
       messages.push(event.message);
       texts.push(event.message.content);
     }
   }
 
-  return { title: deriveSessionTitle(title, messages), texts };
+  // A log whose header did not survive the read cap cannot be attributed to a conversation,
+  // and a hit nobody can open is worse than no hit.
+  if (!header) return null;
+  return { ...header, title: deriveConversationTitle(title, messages), texts };
 }
 
 function collectHits(
-  session: ScannedSession,
-  content: SessionContent,
+  conversation: ScannedConversation,
+  content: ConversationContent,
   needle: readonly string[],
   lowercaseQuery: string,
-  options: { readonly nowMs: number; readonly currentSessionId?: string; readonly budget: number },
+  options: { readonly nowMs: number; readonly currentPath?: string; readonly budget: number },
 ): SearchHit[] {
   const hits: SearchHit[] = [];
-  const when = formatRelativeWhen(session.modifiedAtMs, options.nowMs);
-  const current = session.sessionId === options.currentSessionId;
+  const when = formatRelativeWhen(conversation.modifiedAtMs, options.nowMs);
+  const current = conversation.filePath === options.currentPath;
 
   // Newest turn first: in a transcript the most recent mention is the one the
   // reader is usually looking for.
@@ -302,8 +331,9 @@ function collectHits(
 
       const renderable = toRenderableLine(chars, matchStart, needle.length);
       hits.push({
-        sessionId: session.sessionId,
-        sessionTitle: content.title,
+        agentId: content.agentId,
+        conversationId: content.conversationId,
+        conversationTitle: content.title,
         when,
         line: renderable.line,
         matchStart: renderable.matchStart,
@@ -316,10 +346,10 @@ function collectHits(
 }
 
 /**
- * Searches session transcripts for `query`, case-insensitively.
+ * Searches conversation transcripts for `query`, case-insensitively.
  *
- * Hits from `currentSessionId` come first, then sessions by how recently they
- * were written. Scanning stops at `limit`, so an early match costs one file read.
+ * Hits from `current` come first, then conversations by how recently they were written.
+ * Scanning stops at `limit`, so an early match costs one file read.
  */
 export async function search(query: string, options: SearchOptions): Promise<SearchHit[]> {
   const trimmedQuery = query.trim();
@@ -328,30 +358,41 @@ export async function search(query: string, options: SearchOptions): Promise<Sea
   const limit = Math.max(0, options.limit ?? DEFAULT_LIMIT);
   if (limit === 0) return [];
 
-  const sessionsDirectory = getSessionsDirectory(options.dir ?? getHistoryDirectory());
+  const historyDirectory = options.dir ?? getHistoryDirectory();
+  const root = getConversationLogsDirectory(historyDirectory);
+  // Computed forwards from the ids rather than matched against a parsed path, because
+  // `storageSafeSegment` is lossy and a path cannot be turned back into ids.
+  const currentPath =
+    options.current === undefined
+      ? undefined
+      : conversationLogPath(
+          options.current.agentId,
+          options.current.conversationId,
+          historyDirectory,
+        );
+
   const candidates =
-    options.scope === "session"
-      ? options.currentSessionId === undefined
+    options.scope === "conversation"
+      ? currentPath === undefined
         ? []
-        : [await statSession(sessionsDirectory, options.currentSessionId)].filter(
-            (session): session is ScannedSession => session !== null,
+        : [await statConversation(currentPath)].filter(
+            (conversation): conversation is ScannedConversation => conversation !== null,
           )
-      : await listCandidates(sessionsDirectory, options.currentSessionId);
+      : await listCandidates(root, currentPath);
 
   const nowMs = options.now ?? Date.now();
   const needle = [...trimmedQuery].map((character) => character.toLowerCase());
   const lowercaseQuery = trimmedQuery.toLowerCase();
 
   const hits: SearchHit[] = [];
-  for (const session of candidates) {
+  for (const conversation of candidates) {
     if (hits.length >= limit) break;
-    const content = readSessionContent(await readCappedLog(session.filePath));
+    const content = readConversationContent(await readCappedLog(conversation.filePath));
+    if (!content) continue;
     hits.push(
-      ...collectHits(session, content, needle, lowercaseQuery, {
+      ...collectHits(conversation, content, needle, lowercaseQuery, {
         nowMs,
-        ...(options.currentSessionId === undefined
-          ? {}
-          : { currentSessionId: options.currentSessionId }),
+        ...(currentPath === undefined ? {} : { currentPath }),
         budget: limit - hits.length,
       }),
     );

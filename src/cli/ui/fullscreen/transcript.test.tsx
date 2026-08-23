@@ -566,6 +566,39 @@ describe("reasoning is subordinate by geometry", () => {
     const { spans } = await render(transcript(expanded, WIDE), WIDE);
     expect(colorOf(spans, "flagged threads")).toBe(THEME.muted.toUpperCase());
   });
+
+  it("puts a blank row between consecutive reasoning blocks", () => {
+    const blocks: readonly Block[] = [
+      { id: "r1", seq: 1, kind: "reasoning", collapsed: false, text: "first thought" },
+      { id: "r2", seq: 2, kind: "reasoning", collapsed: false, text: "second thought" },
+    ];
+    const rows = transcriptRows(blocks, WIDE);
+    const second = rows.findIndex((row) =>
+      row.content.some((segment) => segment.text.includes("second thought")),
+    );
+    expect(second).toBeGreaterThan(0);
+    expect(rows[second - 1]?.key).toBe("gap:r2");
+    expect(rows[second - 1]?.content).toEqual([]);
+  });
+
+  it("leaves a blank row after a **section** heading when expanded", () => {
+    const blocks: readonly Block[] = [
+      {
+        id: "r",
+        seq: 1,
+        kind: "reasoning",
+        collapsed: false,
+        text: "**Reviewing tests**\nConsidering bun test flags.\n**Finding failures**\nMany passed.",
+      },
+    ];
+    const rows = transcriptRows(blocks, WIDE);
+    const texts = rows.map((row) => row.content.map((segment) => segment.text).join(""));
+    const heading = texts.findIndex((text) => text.includes("Reviewing tests"));
+    const body = texts.findIndex((text) => text.includes("Considering bun test"));
+    expect(heading).toBeGreaterThanOrEqual(0);
+    expect(body).toBe(heading + 2);
+    expect(texts[heading + 1]?.trim()).toBe("");
+  });
 });
 
 describe("notices and dividers", () => {

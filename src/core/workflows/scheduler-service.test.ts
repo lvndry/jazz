@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
+import { getJazzHomeDirectory } from "@/core/utils/paths";
 import {
   getLaunchdPath,
   SchedulerServiceLayer,
@@ -311,7 +312,7 @@ describe("SchedulerService", () => {
       );
     });
 
-    it("should write plist with log paths in ~/.jazz (not cwd)", async () => {
+    it("should write plist with log paths in the jazz home, not cwd", async () => {
       if (process.platform !== "darwin") return;
 
       const program = Effect.gen(function* () {
@@ -329,7 +330,7 @@ describe("SchedulerService", () => {
       );
       const plistContent = await fs.readFile(plistPath, "utf-8");
 
-      const homeJazz = path.join(os.homedir(), ".jazz");
+      const homeJazz = getJazzHomeDirectory();
       expect(plistContent).toContain(homeJazz);
       expect(plistContent).toContain(path.join(homeJazz, "logs"));
 

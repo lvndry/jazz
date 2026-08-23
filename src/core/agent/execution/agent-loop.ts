@@ -1,4 +1,5 @@
 import { Cause, Effect, Fiber, Option, Ref } from "effect";
+import { isRunParkRequested, withTranscript } from "@/core/agent/run/park-signal";
 import { isLocalServerProvider } from "@/core/constants/local-providers";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import type { LLMService } from "@/core/interfaces/llm";
@@ -17,6 +18,7 @@ import type { ChatCompletionResponse } from "@/core/types/chat";
 import { LLMRateLimitError } from "@/core/types/errors";
 import type { DisplayConfig } from "@/core/types/output";
 import type { StreamEvent } from "@/core/types/streaming";
+import { conversationLogGroup } from "@/core/utils/log-group";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import { formatToolResultForContext } from "@/core/utils/tool-result-formatter";
 import { computeUsageCostUSD, type UsageCostPricing } from "@/core/utils/usage-cost";
@@ -249,9 +251,9 @@ export interface CompletionStrategy {
   getInterruptSignal?(): Effect.Effect<void, never> | undefined;
 
   /**
-   * Whether to show thinking indicators for this strategy.
+   * Whether to show reasoning indicators for this strategy.
    */
-  shouldShowThinking: boolean;
+  shouldShowReasoning: boolean;
 }
 
 interface FinalizeInput {
@@ -452,6 +454,12 @@ function handleToolPhase(
       actualConversationId,
       agent.name,
       strategy.getInterruptSignal?.(),
+    ).pipe(
+      // The executor knows what the run is waiting for; only here are the messages that
+      // let it start again. Everything else about the failure is left alone.
+      Effect.catchIf(isRunParkRequested, (signal) =>
+        Effect.fail(withTranscript(signal, state.currentMessages, state.iterationsUsed)),
+      ),
     );
 
     // Validate all tool calls have results
@@ -595,7 +603,7 @@ function runIteration(
   } = deps;
 
   return Effect.gen(function* () {
-    if (!options.internal && strategy.shouldShowThinking) {
+    if (!options.internal && strategy.shouldShowReasoning) {
       yield* observer.onThinking(agent.name, iterationIndex === 0);
     }
 
@@ -656,7 +664,6 @@ function runIteration(
     state.currentMessages = yield* Summarizer.compactIfNeeded(
       state.currentMessages,
       agent,
-      options.sessionId,
       actualConversationId,
       runRecursive,
       contextWindowMaxTokens,
@@ -665,7 +672,7 @@ function runIteration(
 
     // The summarizer is its own agent run; its completion idles the live zone.
     // Restore thinking so the parent looks mid-task, not finished.
-    if (justCompacted && !options.internal && strategy.shouldShowThinking) {
+    if (justCompacted && !options.internal && strategy.shouldShowReasoning) {
       yield* observer.onThinking(agent.name, false);
     }
 
@@ -894,7 +901,12 @@ export function executeAgentLoop(
   return Effect.acquireUseRelease(
     Effect.gen(function* () {
       const logger = yield* LoggerServiceTag;
-      yield* logger.setSessionId(options.sessionId);
+      // The resolved id, not options.conversationId: a run started without one still gets
+      // a conversation, and falling back to a constant here would pile every anonymous
+      // run into a single shared log file.
+      yield* logger.setLogGroup(
+        conversationLogGroup(options.agent.id, runContext.actualConversationId),
+      );
       const finalizeFiberRef = yield* Ref.make<Option.Option<Fiber.RuntimeFiber<void, Error>>>(
         Option.none(),
       );
@@ -1016,6 +1028,15 @@ export function executeAgentLoop(
           supportedAttachmentKinds,
         };
 
+        // A resumed run rejoins a turn that stopped between a tool call and its result.
+        // Handing that transcript straight to the model would ask it to reason about a call
+        // it never got an answer to, so the call is finished first — with the approval the
+        // person just gave already in hand — and only then does the loop start.
+        if (options.pendingToolCalls !== undefined && options.pendingToolCalls.length > 0) {
+          yield* Effect.sync(() => beginIteration(runMetrics, 1));
+          yield* handleToolPhase(state, [...options.pendingToolCalls], "", 0, deps);
+        }
+
         for (let i = 0; i < maxIterations; i++) {
           yield* Effect.sync(() => beginIteration(runMetrics, i + 1));
           try {
@@ -1074,7 +1095,7 @@ export function executeAgentLoop(
           );
         }
 
-        yield* logger.clearSessionId();
+        yield* logger.clearLogGroup();
       }),
   );
 }

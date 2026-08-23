@@ -159,19 +159,19 @@ export class CLIRenderer {
         return this.renderStreamStart(event);
 
       case "thinking_start":
-        if (this.config.displayConfig.showThinking) {
+        if (this.config.displayConfig.showReasoning) {
           return this.thinkingRenderer.handleStart();
         }
         return null;
 
       case "thinking_chunk":
-        if (this.config.displayConfig.showThinking && this.thinkingRenderer.isActive()) {
+        if (this.config.displayConfig.showReasoning && this.thinkingRenderer.isActive()) {
           return this.thinkingRenderer.handleChunk(event.content);
         }
         return null;
 
       case "thinking_complete":
-        if (this.config.displayConfig.showThinking) {
+        if (this.config.displayConfig.showReasoning) {
           const { output, shouldClearLines } = this.thinkingRenderer.handleComplete(
             event.totalTokens,
           );

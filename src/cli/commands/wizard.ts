@@ -8,7 +8,7 @@ import { JazzStateServiceTag } from "@/core/interfaces/jazz-state";
 import { TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
 import type { Agent } from "@/core/types/index";
 import type { ChatMessage } from "@/core/types/message";
-import { loadHistory } from "@/services/history/conversation-history-service";
+import { loadConversation, loadHistory } from "@/services/history/conversation-history-service";
 import { deleteAgentCommand } from "./agent-management";
 import { configWizardCommand } from "./config-wizard";
 import { createAgentCommand } from "./create-agent";
@@ -470,7 +470,6 @@ function resumeConversation(agents: readonly Agent[], terminal: TerminalService)
       title: string;
       startedAt: string;
       messageCount: number;
-      messages: ChatMessage[];
     };
     const entries: ConversationEntry[] = [];
 
@@ -485,7 +484,6 @@ function resumeConversation(agents: readonly Agent[], terminal: TerminalService)
           title: conv.title,
           startedAt: conv.startedAt,
           messageCount: conv.messageCount,
-          messages: conv.messages,
         });
       }
     }
@@ -512,8 +510,14 @@ function resumeConversation(agents: readonly Agent[], terminal: TerminalService)
     const selected = entries[Number(selectedIdx)];
     if (!selected) return;
 
+    // Read on demand: the picker above needs titles and dates, not transcripts, so the
+    // chosen conversation is the only one whose messages are ever loaded.
+    const conversation = yield* loadConversation(selected.agent.id, selected.conversationId).pipe(
+      Effect.catchAll(() => Effect.succeed(null)),
+    );
+
     yield* startChatWithAgent(selected.agent, {
-      initialHistory: selected.messages,
+      initialHistory: conversation?.messages ?? [],
       initialConversationTitle: selected.title,
     });
   });

@@ -31,6 +31,7 @@ import { LLMRateLimitError } from "@/core/types/errors";
 import type { ChatMessage } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
 import type { AutoApprovePolicy, ToolExecutionContext } from "@/core/types/tools";
+import { generateConversationId } from "@/core/utils/conversation-id";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import { parseProviderModel } from "@/core/utils/provider-model";
 import { shouldEnableStreaming } from "@/core/utils/stream-detector";
@@ -47,6 +48,8 @@ import { Summarizer } from "./context/summarizer";
 import { executeWithStreaming, executeWithoutStreaming } from "./execution";
 import { createAgentRunMetrics, emitAgentRunStarted } from "./metrics/agent-run-metrics";
 import { discoverProjectInstructions, type ProjectInstructionFile } from "./project-instructions";
+import { withRunRecording } from "./run/run-recorder";
+import { runSpendUSD } from "./run/run-spend";
 import { registerCustomToolsForAgent } from "./tools/custom-tools";
 import { registerMCPToolsForAgent } from "./tools/register-mcp-tools";
 import { registerSkillSystemTools } from "./tools/register-tools";
@@ -194,7 +197,7 @@ function initializeAgentRun(
     const configService = yield* AgentConfigServiceTag;
     const appConfig = yield* configService.appConfig;
 
-    const actualConversationId = conversationId || `${Date.now()}`;
+    const actualConversationId = conversationId || generateConversationId();
     const history: ChatMessage[] = options.conversationHistory || [];
     const persona = agent.config.persona;
     const provider: ProviderName = agent.config.llmProvider;
@@ -392,6 +395,7 @@ function initializeAgentRun(
         agentName: agent.name,
         agentDescription: agent.description || "",
         userInput,
+        ...(options.isResume === true ? { isResume: true } : {}),
         conversationHistory: history,
         toolNames: expandedToolNames,
         availableTools,
@@ -429,7 +433,6 @@ function initializeAgentRun(
 
     const toolContext: ToolExecutionContext = {
       agentId: agent.id,
-      sessionId: options.sessionId,
       conversationId: actualConversationId,
       model,
       ...(getAutoApprovePolicy !== undefined ? { getAutoApprovePolicy } : {}),
@@ -439,6 +442,12 @@ function initializeAgentRun(
       autoApprovedCommands,
       autoApprovedTools,
       parentToolNames: expandedToolNames,
+      // A sub-agent never parks: resuming one would mean replaying a child context that no
+      // longer exists, so nested runs keep declining and the parent reasons about it.
+      parkWhenUnattended: options.parkWhenUnattended === true && options.internal !== true,
+      ...(options.resolvedApprovals !== undefined
+        ? { resolvedApprovals: options.resolvedApprovals }
+        : {}),
       subagentDepth: options.subagentDepth ?? 0,
       maxSubagentDepth: Math.max(
         0,
@@ -570,29 +579,39 @@ export class AgentRunner {
       const runRecursive = (runOpts: {
         agent: Agent;
         userInput: string;
-        sessionId: string;
         conversationId: string;
         maxIterations?: number;
       }) => AgentRunner.runRecursive(runOpts);
 
-      if (shouldStream) {
-        return yield* executeWithStreaming(
-          options,
-          runContext,
-          displayConfig,
-          streamingConfig,
-          showMetrics,
-          runRecursive,
-        );
-      } else {
-        return yield* executeWithoutStreaming(
-          options,
-          runContext,
-          displayConfig,
-          showMetrics,
-          runRecursive,
-        );
-      }
+      const execute = shouldStream
+        ? executeWithStreaming(
+            options,
+            runContext,
+            displayConfig,
+            streamingConfig,
+            showMetrics,
+            runRecursive,
+          )
+        : executeWithoutStreaming(options, runContext, displayConfig, showMetrics, runRecursive);
+
+      // Priced once here rather than per transition: the lookup is a cached network fetch,
+      // and a run that parks or fails should not pay for it twice.
+      const pricing = yield* Effect.tryPromise({
+        try: () => getModelsDevMetadata(runContext.model, runContext.provider),
+        catch: () => undefined,
+      }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+
+      return yield* withRunRecording(
+        {
+          runId: options.runId ?? runContext.runMetrics.runId,
+          agentId: options.agent.id,
+          conversationId: runContext.actualConversationId,
+          userInput: options.userInput,
+          internal: options.internal === true,
+          costSoFarUSD: () => runSpendUSD(runContext.runMetrics, pricing),
+        },
+        execute,
+      );
     });
   }
 
@@ -605,7 +624,6 @@ export class AgentRunner {
   public static summarizeHistory(
     messagesToSummarize: ChatMessage[],
     agent: Agent,
-    sessionId: string,
     conversationId: string,
   ): Effect.Effect<
     ChatMessage,
@@ -621,18 +639,11 @@ export class AgentRunner {
     const runRecursive = (runOpts: {
       agent: Agent;
       userInput: string;
-      sessionId: string;
       conversationId: string;
       maxIterations?: number;
     }) => AgentRunner.runRecursive(runOpts);
 
-    return Summarizer.summarizeHistory(
-      messagesToSummarize,
-      agent,
-      sessionId,
-      conversationId,
-      runRecursive,
-    );
+    return Summarizer.summarizeHistory(messagesToSummarize, agent, conversationId, runRecursive);
   }
 }
 

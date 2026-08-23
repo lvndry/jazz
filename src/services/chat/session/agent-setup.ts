@@ -19,7 +19,7 @@ import type { Agent } from "@/core/types";
  */
 export function setupAgent(
   agent: Agent,
-  sessionId: string,
+  conversationId: string,
 ): Effect.Effect<
   void,
   never,
@@ -33,7 +33,7 @@ export function setupAgent(
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
     const presentation = yield* PresentationServiceTag;
-    yield* logger.setSessionId(sessionId);
+    yield* logger.setLogGroup(conversationId);
 
     // Get agent's tool names
     const agentToolNames = normalizeToolConfig(agent.config.tools, {

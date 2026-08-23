@@ -41,7 +41,7 @@ describe("InkStreamingRenderer", () => {
       "TestAgent",
       false,
       {
-        showThinking: true,
+        showReasoning: true,
         showToolExecution: true,
         mode: "rendered",
         colorProfile: "full",
@@ -90,6 +90,7 @@ describe("InkStreamingRenderer", () => {
     }
     store.setActivity = originalSetActivity;
     store.printOutput = originalPrintOutput;
+    store.setCollapseReasoning(true);
   });
 
   describe("out-of-order text_chunk events", () => {
@@ -194,7 +195,7 @@ describe("InkStreamingRenderer", () => {
           "TestAgent",
           false,
           {
-            showThinking: true,
+            showReasoning: true,
             showToolExecution: true,
             mode: "rendered",
             colorProfile: "full",
@@ -258,7 +259,7 @@ describe("InkStreamingRenderer", () => {
           "TestAgent",
           false,
           {
-            showThinking: true,
+            showReasoning: true,
             showToolExecution: true,
             mode: "rendered",
             colorProfile: "full",
@@ -298,7 +299,7 @@ describe("InkStreamingRenderer", () => {
           "TestAgent",
           false,
           {
-            showThinking: true,
+            showReasoning: true,
             showToolExecution: true,
             mode: "rendered",
             colorProfile: "full",
@@ -361,7 +362,7 @@ describe("InkStreamingRenderer", () => {
           "TestAgent",
           false,
           {
-            showThinking: true,
+            showReasoning: true,
             showToolExecution: true,
             mode: "rendered",
             colorProfile: "full",
@@ -407,12 +408,12 @@ describe("InkStreamingRenderer", () => {
       expect(thinking.length).toBeGreaterThan(0);
     });
 
-    test("when showThinking is false, the reasoning header is suppressed", () => {
+    test("when showReasoning is false, the reasoning header is suppressed", () => {
       const renderer = new InkStreamingRenderer(
         "TestAgent",
         false,
         {
-          showThinking: false,
+          showReasoning: false,
           showToolExecution: true,
           mode: "rendered",
           colorProfile: "full",
@@ -471,6 +472,36 @@ describe("InkStreamingRenderer", () => {
         store.appendEphemeral = originalAppend;
         store.collapseEphemeral = originalCollapse;
       }
+    });
+
+    test("when collapseReasoning is false, thinking settles as full text without Ctrl+R", async () => {
+      const renderer = new InkStreamingRenderer(
+        "TestAgent",
+        false,
+        {
+          showReasoning: true,
+          showToolExecution: true,
+          mode: "rendered",
+          colorProfile: "full",
+          collapseReasoning: false,
+        },
+        { textBufferMs: 0 },
+        0,
+      );
+      lastRenderer = renderer;
+      emitStreamStart(renderer);
+      Effect.runSync(renderer.handleEvent({ type: "thinking_start", provider: "test" }));
+      Effect.runSync(
+        renderer.handleEvent({ type: "thinking_chunk", content: "let me think", sequence: 0 }),
+      );
+      Effect.runSync(renderer.handleEvent({ type: "thinking_complete" }));
+      await new Promise((r) => setTimeout(r, 0));
+
+      const reasoning = printOutputCalls.filter((e) => e.meta?.["kind"] === "reasoning");
+      expect(reasoning.length).toBeGreaterThan(0);
+      expect(reasoning[0]!.meta?.["collapsed"]).toBe(false);
+      expect(String(reasoning[0]!.message)).toContain("let me think");
+      expect(String(reasoning[0]!.message)).not.toContain("ctrl+r");
     });
   });
 
@@ -535,7 +566,7 @@ describe("InkStreamingRenderer", () => {
       const renderer = new InkStreamingRenderer(
         "SubAgent",
         false,
-        { showThinking: true, showToolExecution: true, mode: "rendered", colorProfile: "full" },
+        { showReasoning: true, showToolExecution: true, mode: "rendered", colorProfile: "full" },
         { textBufferMs: 0 },
         0,
         { kind: "ephemeral", regionId: "eph-sub-1" },

@@ -5,7 +5,7 @@ import { getGlyphs } from "./glyphs";
 import { RAIL_WIDTH, railStreamLines } from "./rail";
 import { PADDING, PADDING_BUDGET, THEME } from "./theme";
 import type { OutputEntryWithId, OutputType } from "./types";
-import { dimReasoningMarkdownOutput } from "../presentation/format-utils";
+import { dimReasoningMarkdownOutput, spaceReasoningSections } from "../presentation/format-utils";
 import { formatMarkdown, wrapToWidth } from "../presentation/markdown-formatter";
 import { getTerminalWidth } from "../utils/string-utils";
 
@@ -65,9 +65,12 @@ export const OutputEntryView = React.memo(function OutputEntryView({
     // markdown-aware split-point finder can operate on raw text). Format at
     // render time. For reasoning slices, post-process with the dim styling so
     // settled reasoning matches the live pending render.
-    const raw = entry.message as string;
-    const formatted = formatMarkdown(raw);
     const kind = entry.meta?.["kind"];
+    const raw =
+      kind === "reasoning"
+        ? spaceReasoningSections(entry.message as string)
+        : (entry.message as string);
+    const formatted = formatMarkdown(raw);
     const display = kind === "reasoning" ? dimReasoningMarkdownOutput(formatted) : formatted;
     // Pre-wrap + PreWrappedText (wrap="truncate"), same as the pending tail in
     // App.tsx: a bare <Text wrap="wrap"> lets Yoga re-wrap settled slices,
@@ -77,7 +80,7 @@ export const OutputEntryView = React.memo(function OutputEntryView({
     const width = Math.max(20, getTerminalWidth() - PADDING_BUDGET - PADDING.content - RAIL_WIDTH);
     return (
       <Box
-        marginTop={0}
+        marginTop={addSpacing ? 1 : 0}
         marginBottom={0}
         paddingLeft={PADDING.content}
       >

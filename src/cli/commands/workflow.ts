@@ -13,6 +13,7 @@ import { getErrorMessage } from "@/core/presentation/error-handler";
 import { makeOneShotPresentationServiceLayer } from "@/core/presentation/oneshot-presentation-service";
 import type { Agent } from "@/core/types/agent";
 import type { StreamEvent } from "@/core/types/streaming";
+import { generateConversationId } from "@/core/utils/conversation-id";
 import { describeCronSchedule } from "@/core/utils/cron";
 import {
   getCatchUpCandidates,
@@ -29,7 +30,7 @@ import {
 import { SchedulerServiceTag } from "@/core/workflows/scheduler-service";
 import { WorkflowServiceTag, type WorkflowMetadata } from "@/core/workflows/workflow-service";
 import { formatWorkflow, groupWorkflows } from "@/core/workflows/workflow-utils";
-import { formatOneShotError, formatOneShotResult } from "./run-agent";
+import { formatOneShotError, formatOneShotResult } from "./run/envelope";
 
 /**
  * CLI commands for managing and running workflows.
@@ -384,8 +385,7 @@ export function runWorkflowCommand(
     const runEffect = AgentRunner.run({
       agent,
       userInput: workflow.prompt,
-      sessionId: `workflow-${workflowName}-${Date.now()}`,
-      conversationId: `workflow-${workflowName}-${Date.now()}`,
+      conversationId: generateConversationId(`workflow-${workflowName}`),
       ...(resolvedMaxIterations != null ? { maxIterations: resolvedMaxIterations } : {}),
       ...(autoApprovePolicy !== undefined ? { autoApprovePolicy } : {}),
     });

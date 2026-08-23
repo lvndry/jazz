@@ -9,6 +9,7 @@ import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import type { Tool, ToolRequirements } from "@/core/interfaces/tool-registry";
 import type { Agent } from "@/core/types";
 import type { ConversationMessages } from "@/core/types/message";
+import { generateConversationId } from "@/core/utils/conversation-id";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import { AgentRunner } from "../agent-runner";
 import { defineTool, makeZodValidator } from "./base-tool";
@@ -176,8 +177,7 @@ ${args.task}`;
           const response = yield* AgentRunner.runRecursive({
             agent: subAgent,
             userInput: wrappedTask,
-            sessionId: context.sessionId ?? context.conversationId ?? `session-${Date.now()}`,
-            conversationId: `subagent-conv-${++subagentCounter}-${Date.now()}`,
+            conversationId: generateConversationId("subagent"),
             maxIterations: context.maxSubagentIterations ?? DEFAULT_MAX_SUBAGENT_ITERATIONS,
             ephemeralRegionId: regionId,
             // Cap the child at the parent's own effective tools.
@@ -344,8 +344,7 @@ ${args.task}`;
           const summaryMessage = yield* Summarizer.summarizeHistory(
             messagesToSummarize,
             parentAgent,
-            context.sessionId ?? context.conversationId ?? `session-${Date.now()}`,
-            context.conversationId ?? `conv-${Date.now()}`,
+            context.conversationId ?? generateConversationId("summary"),
             runRecursive,
           );
 

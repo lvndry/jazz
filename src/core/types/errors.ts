@@ -44,33 +44,6 @@ export class ToolNotFoundError extends Data.TaggedError("ToolNotFoundError")<{
   }
 }
 
-// Task Errors
-export class TaskNotFoundError extends Data.TaggedError("TaskNotFoundError")<{
-  readonly taskId: string;
-  readonly suggestion?: string;
-}> {}
-
-export class TaskExecutionError extends Data.TaggedError("TaskExecutionError")<{
-  readonly taskId: string;
-  readonly reason: string;
-  readonly exitCode?: number;
-  readonly output?: string;
-  readonly suggestion?: string;
-}> {}
-
-export class TaskTimeoutError extends Data.TaggedError("TaskTimeoutError")<{
-  readonly taskId: string;
-  readonly timeout: number;
-  readonly suggestion?: string;
-}> {}
-
-export class TaskDependencyError extends Data.TaggedError("TaskDependencyError")<{
-  readonly taskId: string;
-  readonly dependencyId: string;
-  readonly reason: string;
-  readonly suggestion?: string;
-}> {}
-
 // Automation Errors
 export class AutomationNotFoundError extends Data.TaggedError("AutomationNotFoundError")<{
   readonly automationId: string;
@@ -335,10 +308,6 @@ export type JazzError =
   | AgentAlreadyExistsError
   | AgentExecutionError
   | AgentConfigurationError
-  | TaskNotFoundError
-  | TaskExecutionError
-  | TaskTimeoutError
-  | TaskDependencyError
   | AutomationNotFoundError
   | AutomationExecutionError
   | TriggerError

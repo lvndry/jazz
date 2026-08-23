@@ -219,6 +219,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
     this.textBufferMs =
       streamingConfig?.textBufferMs ?? InkStreamingRenderer.DEFAULT_TEXT_BUFFER_MS;
     this.acc = createAccumulator(agentName);
+    store.setCollapseReasoning(displayConfig.collapseReasoning !== false);
   }
 
   /**
@@ -513,7 +514,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
         this.resolveContextWindow(event.provider, event.model, event.pinnedContextWindow);
       }
 
-      if (this.displayConfig.showThinking) {
+      if (this.displayConfig.showReasoning) {
         if (event.type === "thinking_start") {
           if (this.streamTarget.kind === "ephemeral") {
             // Subagent reasoning lives in the subagent's own panel — no
@@ -1001,7 +1002,9 @@ export class InkPresentationService implements PresentationService {
   constructor(
     private readonly displayConfig: DisplayConfig,
     private readonly notificationService: NotificationService | null,
-  ) {}
+  ) {
+    store.setCollapseReasoning(displayConfig.collapseReasoning !== false);
+  }
 
   /** Format markdown using the display mode from config. No pre-wrapping. */
   private formatMarkdownText(text: string): string {

@@ -23,7 +23,7 @@ describe("LoggerService", () => {
       expect(parsed.level).toBe("INFO");
       expect(parsed.message).toBe("Test message");
       expect(parsed.key).toBe("value");
-      expect(parsed.sessionId).toBe("session-123");
+      expect(parsed.conversationId).toBe("session-123");
       expect(parsed.timestamp).toBeDefined();
       expect(output.endsWith("\n")).toBe(true);
       expect(output.split("\n").length).toBe(2); // One newline at end

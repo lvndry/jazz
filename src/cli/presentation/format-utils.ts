@@ -109,6 +109,34 @@ export function formatToolExecutionError(errorMessage: string, durationMs: numbe
   return ` ${CHALK_THEME.error(getGlyphs().error)} ${CHALK_THEME.error(`(${errorMessage})`)} ${chalk.dim(`(${durationMs}ms)`)}\n`;
 }
 
+const REASONING_HEADING = /^(?:#{1,6}\s+\S.*|\*\*[^*].*\*\*:?)\s*$/;
+
+/**
+ * Insert a blank line around section headings in expanded reasoning.
+ *
+ * Models often mark thought-chunks with `**Heading**` or `# Heading` and then
+ * the paragraph on the next line. Ctrl+R expands that as a wall of text;
+ * a blank row between those chunks is what makes them readable.
+ */
+export function spaceReasoningSections(text: string): string {
+  if (text.length === 0) return text;
+  const lines = text.split("\n");
+  const spaced: string[] = [];
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index] ?? "";
+    const heading = REASONING_HEADING.test(line.trim());
+    if (heading && spaced.length > 0 && spaced[spaced.length - 1] !== "") {
+      spaced.push("");
+    }
+    spaced.push(line);
+    const next = lines[index + 1];
+    if (heading && next !== undefined && next.trim().length > 0) {
+      spaced.push("");
+    }
+  }
+  return spaced.join("\n");
+}
+
 /**
  * Style formatted reasoning for the Static output stream: dim + italic, so it
  * reads as visually distinct from the response while keeping markdown

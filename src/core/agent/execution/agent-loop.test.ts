@@ -38,8 +38,8 @@ const mockLogger = {
   info: () => Effect.void,
   warn: () => Effect.void,
   error: () => Effect.void,
-  setSessionId: () => Effect.void,
-  clearSessionId: () => Effect.void,
+  setLogGroup: () => Effect.void,
+  clearLogGroup: () => Effect.void,
   writeToFile: () => Effect.void,
   logToolCall: () => Effect.void,
 } as any;
@@ -132,7 +132,7 @@ function recordingObserver() {
 
 function makeOptions(overrides?: Partial<AgentRunnerOptions>): AgentRunnerOptions {
   return {
-    sessionId: "test-session",
+    conversationId: "test-session",
     agent: {
       id: "agent-1",
       name: "test-agent",
@@ -192,14 +192,14 @@ function makeRunContext(overrides?: Partial<AgentRunContext>): AgentRunContext {
   };
 }
 
-const displayConfig = { showThinking: false, showToolExecution: false, mode: "markdown" as const };
+const displayConfig = { showReasoning: false, showToolExecution: false, mode: "markdown" as const };
 const runRecursive: RecursiveRunner = () =>
   Effect.succeed({ content: "recursive", conversationId: "id" } as AgentResponse);
 
 describe("executeAgentLoop", () => {
   it("should return content from a simple completion", async () => {
     const strategy: CompletionStrategy = {
-      shouldShowThinking: false,
+      shouldShowReasoning: false,
       getCompletion: () =>
         Effect.succeed({
           completion: { id: "c1", model: "gpt-4", content: "Hello world" },
@@ -228,7 +228,7 @@ describe("executeAgentLoop", () => {
   it("should handle tool calls and continue", async () => {
     let iteration = 0;
     const strategy: CompletionStrategy = {
-      shouldShowThinking: false,
+      shouldShowReasoning: false,
       getCompletion: () => {
         iteration++;
         if (iteration === 1) {
@@ -303,7 +303,7 @@ describe("executeAgentLoop", () => {
     const trackingObserver = makeDefaultObserver(trackingPresentationService as any);
 
     const strategy: CompletionStrategy = {
-      shouldShowThinking: false,
+      shouldShowReasoning: false,
       getCompletion: () =>
         Effect.succeed({
           completion: { id: "c1", model: "gpt-4", content: "Hello world" },
@@ -399,7 +399,7 @@ describe("executeAgentLoop", () => {
   it("sends the context nudge to the model without persisting it in history", async () => {
     const seenMessages: ConversationMessages[] = [];
     const strategy: CompletionStrategy = {
-      shouldShowThinking: false,
+      shouldShowReasoning: false,
       getCompletion: (messages) => {
         seenMessages.push(messages);
         return Effect.succeed({
@@ -454,7 +454,7 @@ describe("executeAgentLoop", () => {
     let presented = 0;
     let completed = 0;
     const strategy: CompletionStrategy = {
-      shouldShowThinking: true,
+      shouldShowReasoning: true,
       getCompletion: () =>
         Effect.succeed({
           completion: { id: "c1", model: "gpt-4", content: "summary" },
@@ -475,7 +475,7 @@ describe("executeAgentLoop", () => {
       executeAgentLoop(
         makeOptions({ internal: true }),
         makeRunContext(),
-        { ...displayConfig, showThinking: true },
+        { ...displayConfig, showReasoning: true },
         strategy,
         observer,
         runRecursive,
@@ -497,7 +497,7 @@ describe("executeAgentLoop", () => {
     const seenMessages: ConversationMessages[] = [];
     let iteration = 0;
     const strategy: CompletionStrategy = {
-      shouldShowThinking: false,
+      shouldShowReasoning: false,
       getCompletion: (messages) => {
         seenMessages.push(messages);
         iteration++;
@@ -586,7 +586,7 @@ describe("executeAgentLoop", () => {
 
     // Strategy that always returns tool calls (never finishes)
     const strategy: CompletionStrategy = {
-      shouldShowThinking: false,
+      shouldShowReasoning: false,
       getCompletion: () =>
         Effect.succeed({
           completion: {
@@ -647,7 +647,7 @@ describe("executeAgentLoop", () => {
   it("should handle interruption from strategy", async () => {
     let getCompletionCalls = 0;
     const strategy: CompletionStrategy = {
-      shouldShowThinking: false,
+      shouldShowReasoning: false,
       getCompletion: () => {
         getCompletionCalls++;
         return Effect.succeed({
@@ -692,7 +692,7 @@ describe("executeAgentLoop", () => {
     const trackingObserver = makeDefaultObserver(trackingPresentationService as any);
 
     const strategy: CompletionStrategy = {
-      shouldShowThinking: false,
+      shouldShowReasoning: false,
       getCompletion: () =>
         Effect.succeed({
           completion: { id: "c1", model: "gpt-4", content: "" },
@@ -743,7 +743,7 @@ describe("executeAgentLoop", () => {
     const trackingObserver = makeDefaultObserver(trackingPresentationService as any);
 
     const strategy: CompletionStrategy = {
-      shouldShowThinking: false,
+      shouldShowReasoning: false,
       getCompletion: () =>
         Effect.succeed({
           completion: {
@@ -795,7 +795,7 @@ describe("executeAgentLoop", () => {
 
   it("should record token usage from completions", async () => {
     const strategy: CompletionStrategy = {
-      shouldShowThinking: false,
+      shouldShowReasoning: false,
       getCompletion: () =>
         Effect.succeed({
           completion: {
@@ -828,7 +828,7 @@ describe("executeAgentLoop", () => {
 
   it("should set toolsDisabled when completion indicates it", async () => {
     const strategy: CompletionStrategy = {
-      shouldShowThinking: false,
+      shouldShowReasoning: false,
       getCompletion: () =>
         Effect.succeed({
           completion: {
@@ -860,7 +860,7 @@ describe("executeAgentLoop", () => {
 
   it("returns usage from runMetrics and omits costUSD when pricing metadata is unavailable", async () => {
     const strategy: CompletionStrategy = {
-      shouldShowThinking: false,
+      shouldShowReasoning: false,
       getCompletion: () =>
         Effect.succeed({
           completion: {
@@ -897,7 +897,7 @@ describe("executeAgentLoop", () => {
   it("emits onThinking and onCompletion through the observer for a simple completion", async () => {
     const { observer, calls } = recordingObserver();
     const strategy: CompletionStrategy = {
-      shouldShowThinking: true,
+      shouldShowReasoning: true,
       getCompletion: () =>
         Effect.succeed({
           completion: { id: "c1", model: "gpt-4", content: "Hello world" },
@@ -926,7 +926,7 @@ describe("executeAgentLoop", () => {
   it("stores reasoning parts on the assistant message in conversation history", async () => {
     const { observer } = recordingObserver();
     const strategy: CompletionStrategy = {
-      shouldShowThinking: false,
+      shouldShowReasoning: false,
       getCompletion: () =>
         Effect.succeed({
           completion: {
@@ -1143,7 +1143,7 @@ describe("executeAgentLoop context window accounting", () => {
       });
 
     const strategy: CompletionStrategy = {
-      shouldShowThinking: false,
+      shouldShowReasoning: false,
       getCompletion: () =>
         Effect.succeed({
           completion: { id: "c1", model: "qwen3.6:27b", content: "done" },
@@ -1186,7 +1186,7 @@ describe("executeAgentLoop context window accounting", () => {
       });
 
     const strategy: CompletionStrategy = {
-      shouldShowThinking: false,
+      shouldShowReasoning: false,
       getCompletion: (messages) => {
         seenMessages.push(messages);
         return Effect.succeed({
@@ -1250,7 +1250,7 @@ describe("executeAgentLoop context window accounting", () => {
   it("tells the user when a local agent pins no window", async () => {
     const { observer, calls } = recordingObserver();
     const strategy: CompletionStrategy = {
-      shouldShowThinking: false,
+      shouldShowReasoning: false,
       getCompletion: () =>
         Effect.succeed({
           completion: { id: "c1", model: "qwen3.6:27b", content: "done" },

@@ -10,8 +10,8 @@ const mockLogger = {
   info: () => Effect.void,
   warn: () => Effect.void,
   error: () => Effect.void,
-  setSessionId: () => Effect.void,
-  clearSessionId: () => Effect.void,
+  setLogGroup: () => Effect.void,
+  clearLogGroup: () => Effect.void,
   writeToFile: () => Effect.void,
   logToolCall: () => Effect.void,
 } as any;

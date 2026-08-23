@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import {
   getBuiltinSkillsDirectory,
   getBuiltinWorkflowsDirectory,
@@ -26,6 +26,12 @@ describe("Jazz paths", () => {
   });
 
   describe("user data directories", () => {
+    // These assert the fallback, so they clear the override rather than relying on it
+    // being absent from the ambient environment.
+    beforeEach(() => {
+      delete process.env["JAZZ_HOME"];
+    });
+
     it("returns ~/.jazz for user data", () => {
       const expected = path.join(os.homedir(), ".jazz");
 

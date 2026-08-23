@@ -24,8 +24,8 @@ const mockLogger = {
   info: () => Effect.void,
   warn: () => Effect.void,
   error: () => Effect.void,
-  setSessionId: () => Effect.void,
-  clearSessionId: () => Effect.void,
+  setLogGroup: () => Effect.void,
+  clearLogGroup: () => Effect.void,
   writeToFile: () => Effect.void,
   logToolCall: () => Effect.void,
 } as any;
@@ -92,7 +92,7 @@ describe("executeWithStreaming", () => {
   it("should execute a simple run with mocked services", async () => {
     // Setup Context
     const options: AgentRunnerOptions = {
-      sessionId: "test-session",
+      conversationId: "test-session",
       agent: {
         id: "agent-1",
         name: "test-agent",
@@ -143,7 +143,7 @@ describe("executeWithStreaming", () => {
     };
 
     const displayConfig = {
-      showThinking: false,
+      showReasoning: false,
       showToolExecution: false,
       mode: "markdown" as const,
     };
@@ -291,7 +291,7 @@ describe("executeWithStreaming", () => {
 
     // Setup Context (same as above)
     const options: AgentRunnerOptions = {
-      sessionId: "test-session",
+      conversationId: "test-session",
       agent: {
         id: "agent-1",
         name: "test-agent",
@@ -343,7 +343,7 @@ describe("executeWithStreaming", () => {
     };
 
     const displayConfig = {
-      showThinking: false,
+      showReasoning: false,
       showToolExecution: false,
       mode: "markdown" as const,
     };
@@ -401,7 +401,7 @@ describe("executeWithStreaming", () => {
     } as any;
 
     const options: AgentRunnerOptions = {
-      sessionId: "test-session",
+      conversationId: "test-session",
       agent: {
         id: "agent-1",
         name: "test-agent",
@@ -495,7 +495,7 @@ describe("executeWithStreaming", () => {
     const program = executeWithStreaming(
       options,
       runContext,
-      { showThinking: false, showToolExecution: false, mode: "markdown" },
+      { showReasoning: false, showToolExecution: false, mode: "markdown" },
       { enabled: true },
       false,
       () => Effect.succeed({ content: "recursive", conversationId: "id" } as AgentResponse),

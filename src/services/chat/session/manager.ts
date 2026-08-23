@@ -2,12 +2,12 @@ import { appendFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
-import short from "short-uuid";
 import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "@/core/interfaces/fs";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import type { Agent } from "@/core/types";
 import type { ChatMessage } from "@/core/types/message";
+import { conversationLogGroup } from "@/core/utils/log-group";
 import { getLogsDirectory } from "../../logger";
 
 /**
@@ -55,14 +55,20 @@ export function updateWorkingDirectoryInStore(
  * Log a chat message to the session log file.
  */
 export function logMessageToSession(
-  sessionId: string,
+  agentId: string,
+  conversationId: string,
   message: ChatMessage,
 ): Effect.Effect<void, never, never> {
   return Effect.tryPromise({
     try: async () => {
       const logsDir = getLogsDirectory();
       await mkdir(logsDir, { recursive: true });
-      const logFilePath = path.join(logsDir, `${sessionId}.log`);
+      // The same mapping the LoggerService uses. Deriving the filename a second way here
+      // is what split one conversation's transcript lines from its tool and metric lines.
+      const logFilePath = path.join(
+        logsDir,
+        `${conversationLogGroup(agentId, conversationId)}.log`,
+      );
       const timestamp = new Date().toISOString();
       const role = message.role.toUpperCase();
       const content = message.content || "";
@@ -71,25 +77,4 @@ export function logMessageToSession(
     },
     catch: () => undefined, // Silently fail - logging should not break the chat session
   }).pipe(Effect.catchAll(() => Effect.void));
-}
-
-/**
- * Generate a session ID in the format: {agentName}-YYYYMMDD-HHmmss
- */
-export function generateSessionId(agentName: string): string {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-  const hours = String(now.getHours()).padStart(2, "0");
-  const minutes = String(now.getMinutes()).padStart(2, "0");
-  const seconds = String(now.getSeconds()).padStart(2, "0");
-  return `${agentName}-${year}${month}${day}-${hours}${minutes}${seconds}`;
-}
-
-/**
- * Generate a unique conversation ID.
- */
-export function generateConversationId(): string {
-  return short.generate();
 }

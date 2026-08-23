@@ -24,14 +24,14 @@ import { LLMAuthenticationError, LLMRateLimitError, LLMRequestError } from "@/co
 import type { Agent } from "@/core/types/index";
 import { type ChatMessage } from "@/core/types/message";
 import type { AutoApprovePolicy } from "@/core/types/tools";
+import { generateConversationId } from "@/core/utils/conversation-id";
 import { isRetryableLLMError } from "@/core/utils/llm-error";
+import { conversationLogGroup } from "@/core/utils/log-group";
 import type { WorkflowService } from "@/core/workflows/workflow-service";
 import { handleSpecialCommand, parseSpecialCommand, setSkillCommands } from "./chat/commands";
 import type { CommandContext, CommandResult } from "./chat/commands/types";
 import { persistConversationIfNeeded } from "./chat/persist-conversation";
 import {
-  generateConversationId,
-  generateSessionId,
   initializeSession,
   logMessageToSession,
   setupAgent,
@@ -80,12 +80,11 @@ export class ChatServiceImpl implements ChatService {
       const terminal = yield* TerminalServiceTag;
       const logger = yield* LoggerServiceTag;
 
-      const sessionId = generateSessionId(agent.name);
-
-      yield* logger.setSessionId(sessionId);
-
-      // Generate initial conversationId
       let conversationId: string = generateConversationId();
+
+      // Logs and todos are keyed by the conversation, so this is re-pointed whenever the
+      // conversation changes rather than bound once for the whole sitting.
+      yield* logger.setLogGroup(conversationLogGroup(agent.id, conversationId));
 
       // Initialize session before the loop
       const fileSystemContext = yield* FileSystemContextServiceTag;
@@ -97,6 +96,10 @@ export class ChatServiceImpl implements ChatService {
         ),
       );
 
+      // The interface needs to know which conversation it is showing so history search can
+      // be narrowed to it. Set here and wherever the id changes, so the two never drift.
+      store.setCurrentConversation({ agentId: agent.id, conversationId });
+
       updateWorkingDirectoryInStore(
         agent.id,
         conversationId,
@@ -106,7 +109,7 @@ export class ChatServiceImpl implements ChatService {
 
       // Agent setup phase: Connect to MCP servers and register tools before first message
       // Errors are handled gracefully inside setupAgent - conversation continues even if some MCPs fail
-      yield* setupAgent(agent, sessionId);
+      yield* setupAgent(agent, conversationId);
 
       // Register skills as invokable slash commands so they appear in the "/"
       // autocomplete menu and can be run like any built-in command. Failures
@@ -298,7 +301,6 @@ export class ChatServiceImpl implements ChatService {
               agent,
               conversationId,
               conversationHistory,
-              sessionId,
               sessionUsage,
               sessionStartedAt,
               lastUsedAgentId,
@@ -327,6 +329,10 @@ export class ChatServiceImpl implements ChatService {
 
             if (commandResult.newConversationId !== undefined) {
               conversationId = commandResult.newConversationId;
+              store.setCurrentConversation({ agentId: agent.id, conversationId });
+              // Logs follow the conversation, so /new starts a new file rather than
+              // appending the next conversation to the previous one's.
+              yield* logger.setLogGroup(conversationLogGroup(agent.id, conversationId));
               conversationTitle = null;
               startedAt = new Date().toISOString();
               sessionUsage = { promptTokens: 0, completionTokens: 0 };
@@ -394,7 +400,7 @@ export class ChatServiceImpl implements ChatService {
               const fs = yield* FileSystem.FileSystem;
               const fsLayer = Layer.succeed(FileSystem.FileSystem, fs);
               yield* Effect.forkDaemon(
-                recordCommandApproval(commandResult.addAutoApprovedCommand, sessionId).pipe(
+                recordCommandApproval(commandResult.addAutoApprovedCommand, conversationId).pipe(
                   Effect.catchAll(() => Effect.void),
                   Effect.provide(fsLayer),
                 ),
@@ -429,7 +435,6 @@ export class ChatServiceImpl implements ChatService {
             agent,
             userInput: messageForAgent,
             conversationId,
-            sessionId, // Pass the sessionId for logging
             conversationHistory,
             ...(options?.stream !== undefined ? { stream: options.stream } : {}),
             ...(options?.maxIterations !== undefined
@@ -445,7 +450,7 @@ export class ChatServiceImpl implements ChatService {
                   autoApprovedCommands.push(command);
                 }
                 yield* Effect.forkDaemon(
-                  recordCommandApproval(command, sessionId).pipe(
+                  recordCommandApproval(command, conversationId).pipe(
                     Effect.catchAll(() => Effect.void),
                     Effect.provide(fsLayer),
                   ),
@@ -550,6 +555,7 @@ export class ChatServiceImpl implements ChatService {
 
           // Store the conversation ID for continuity
           conversationId = response.conversationId;
+          store.setCurrentConversation({ agentId: agent.id, conversationId });
 
           // Accumulate token usage for /cost (only on full AgentResponse, not error fallback)
           if ("usage" in response && response.usage) {
@@ -568,7 +574,7 @@ export class ChatServiceImpl implements ChatService {
             const newMessages = response.messages.slice(loggedMessageCount);
             if (!ephemeral) {
               for (const message of newMessages) {
-                yield* logMessageToSession(sessionId, message);
+                yield* logMessageToSession(agent.id, conversationId, message);
               }
             }
             loggedMessageCount = response.messages.length;
@@ -586,13 +592,13 @@ export class ChatServiceImpl implements ChatService {
                 role: "user",
                 content: userMessage,
               };
-              yield* logMessageToSession(sessionId, userChatMessage);
+              yield* logMessageToSession(agent.id, conversationId, userChatMessage);
 
               const assistantMessage: ChatMessage = {
                 role: "assistant",
                 content: response.content,
               };
-              yield* logMessageToSession(sessionId, assistantMessage);
+              yield* logMessageToSession(agent.id, conversationId, assistantMessage);
             }
             loggedMessageCount += 2; // user message + assistant message
           } else {
@@ -602,7 +608,7 @@ export class ChatServiceImpl implements ChatService {
                 role: "user",
                 content: userMessage,
               };
-              yield* logMessageToSession(sessionId, userChatMessage);
+              yield* logMessageToSession(agent.id, conversationId, userChatMessage);
             }
             loggedMessageCount += 1;
           }

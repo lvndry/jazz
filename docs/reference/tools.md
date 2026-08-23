@@ -108,7 +108,7 @@ You never call `execute_*` names yourself; they are hidden from the model's tool
 | ------------------- | ----------- | ------------- | ------------------------------------------------------------------------------------------------------------ |
 | `list_todos`        | `read-only` | —             | Read the current todo list. Returns all items with their status and priority.                                |
 | `manage_todos`      | `low-risk`  | —             | Create or update the todo list. Send the FULL list of items each time (replaces the previous list). Use thi… |
-| `update_task_state` | `low-risk`  | —             | Record where you are in the current task so it survives compaction and resuming later. Patches o…            |
+| `update_work_state` | `low-risk`  | —             | Record where you are in the current task so it survives compaction and resuming later. Patches o…            |
 
 ### Memory
 
@@ -116,10 +116,10 @@ Opt-in per agent (like File Management) rather than always-on — see [Memory](.
 
 | Tool            | Risk        | Approval pair | What it does                                                                                      |
 | --------------- | ----------- | ------------- | ------------------------------------------------------------------------------------------------- |
-| `view_memory`   | `read-only` | —             | Read what you've saved about this person or project from earlier conversations. Call with no pa…  |
-| `manage_memory` | `low-risk`  | —             | Create, edit, rename, or delete files under your persistent memory directory — the durable notes… |
+| `view_memory`   | `read-only` | —             | Call first, before answering, at the start of every conversation.                                 |
+| `manage_memory` | `low-risk`  | —             | Save facts about this person that will still matter later — preferences, location, age, how they… |
 
-`update_task_state` lives with the todo tools (always-on). It is scoped to one conversation and discarded when the task ends, unlike memory which persists across conversations — see [Context management](../internals/context-management.md).
+`update_work_state` lives with the todo tools (always-on). It is scoped to one conversation and discarded when the task ends, unlike memory which persists across conversations — see [Context management](../internals/context-management.md).
 
 ### Reminders
 
