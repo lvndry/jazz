@@ -142,7 +142,7 @@ class MCPServerManagerImpl implements MCPServerManager {
       } else {
         // Static headers are the user saying "authenticate this way"; only fall
         // back to OAuth when they have not.
-        options.authProvider = createStoredTokenProvider(config.name);
+        options.authProvider = createStoredTokenProvider(config.name, config.url);
       }
 
       if (config.conversationId) {
