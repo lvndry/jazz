@@ -1,5 +1,4 @@
 import { Effect } from "effect";
-import React from "react";
 import { WEB_SEARCH_PROVIDERS } from "@/core/agent/tools/web-search-tools";
 import { AVAILABLE_PROVIDERS, type ProviderName } from "@/core/constants/models";
 import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
@@ -10,7 +9,7 @@ import type { ColorProfile, OutputMode } from "@/core/types/output";
 import { formatProviderDisplayName } from "@/core/utils/provider-model";
 import { sortProvidersForPicker } from "@/core/utils/provider-picker";
 import { store } from "../ui/store";
-import { WizardHome, type WizardMenuOption } from "../ui/WizardHome";
+import type { WizardMenuOption } from "../ui/WizardHome";
 
 /**
  * Menu actions for the config wizard
@@ -71,29 +70,18 @@ function showConfigMenu(
   options: WizardMenuOption[],
 ): Effect.Effect<ConfigMenuAction, never, never> {
   return Effect.async<ConfigMenuAction>((resume) => {
-    let resumed = false;
-    const safeResume = (action: ConfigMenuAction): void => {
-      if (resumed) return;
-      resumed = true;
-      store.setCustomView(null);
-      store.setActiveMenu(null);
-      resume(Effect.succeed(action));
-    };
-
-    store.setCustomView(
-      React.createElement(WizardHome, {
-        options,
+    store.setActiveMenu(
+      {
+        kind: "menu",
         title: "Configuration",
-        onSelect: (value: string) => safeResume(value as ConfigMenuAction),
-        onExit: () => safeResume("back"),
-      }),
+        options,
+      },
+      (result) => {
+        resume(
+          Effect.succeed(result.kind === "exit" ? "back" : (result.value as ConfigMenuAction)),
+        );
+      },
     );
-    store.setActiveMenu({
-      kind: "menu",
-      options,
-      onSelect: (value: string) => safeResume(value as ConfigMenuAction),
-      onExit: () => safeResume("back"),
-    });
   });
 }
 

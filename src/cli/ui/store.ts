@@ -1,5 +1,4 @@
 import { useSyncExternalStore } from "react";
-import type React from "react";
 import { isActivityEqual, type ActivityState } from "./activity-state";
 import {
   initialScrollbackState,
@@ -58,6 +57,14 @@ export interface CollapseEphemeralSummary {
 
 export type ConnectorStatus = "live" | "renew" | "offline";
 
+/**
+ * A menu the app is waiting on, published as data rather than as a rendered tree.
+ *
+ * Continuations stay on the write side (`completePrompt`). Putting `onSelect` /
+ * `onExit` on the snapshot would smuggle closures through a contract two
+ * renderers share, and the second renderer would still have nothing it can
+ * serialize or replay.
+ */
 export interface ActiveMenuOption {
   readonly label: string;
   readonly value: string;
@@ -84,8 +91,6 @@ export interface ActiveWizardMenu {
   readonly options: readonly ActiveMenuOption[];
   readonly requirements?: readonly ActiveMenuRequirement[];
   readonly tip?: string;
-  readonly onSelect: (value: string) => void;
-  readonly onExit: () => void;
 }
 
 export interface ActiveAgentMenu {
@@ -93,12 +98,17 @@ export interface ActiveAgentMenu {
   readonly title: string;
   readonly action: string;
   readonly agents: readonly ActiveAgentChoice[];
-  readonly onSelect: (value: string) => void;
-  readonly onExit: () => void;
   readonly browse?: boolean;
 }
 
 export type ActiveMenu = ActiveWizardMenu | ActiveAgentMenu;
+
+/** Discriminated surface a renderer paints in place of the chat transcript. */
+export type SurfaceIntent = ActiveMenu;
+
+/** How a renderer answers the surface currently published on the store. */
+export type PromptResult =
+  { readonly kind: "select"; readonly value: string } | { readonly kind: "exit" };
 
 export interface CurrentConversation {
   readonly agentId: string;
@@ -139,7 +149,6 @@ export interface SessionSnapshot {
   readonly interruptHandler: (() => void) | null;
   readonly approvalRequest: PendingApproval | null;
   readonly activeMenu: ActiveMenu | null;
-  readonly customView: React.ReactNode | null;
   readonly modeToast: string | null;
 }
 
@@ -171,7 +180,6 @@ const INITIAL_SESSION: SessionSnapshot = {
   interruptHandler: null,
   approvalRequest: null,
   activeMenu: null,
-  customView: null,
   modeToast: null,
 };
 
@@ -253,6 +261,7 @@ export class UIStore {
   private ephemeralRegions: Map<EphemeralRegionId, EphemeralRegion> = new Map();
   private ephemeralIdCounter = 0;
   private interruptHandlerStack: Array<() => void> = [];
+  private promptContinuation: ((result: PromptResult) => void) | null = null;
   private rendererFallbackHandler: (() => void) | null = null;
 
   subscribeOutput = (listener: () => void): (() => void) => this.output.subscribe(listener);
@@ -367,10 +376,6 @@ export class UIStore {
     }
     if (!changed) return;
     patchSlice(this.session, { runStats: next });
-  };
-
-  setCustomView = (view: React.ReactNode | null): void => {
-    patchSlice(this.session, { customView: view });
   };
 
   setInterruptHandler = (handler: (() => void) | null): void => {
@@ -675,8 +680,24 @@ export class UIStore {
     this.publishScrollback(reduceScrollback(this.scrollback, { type: "clear" }));
   };
 
-  setActiveMenu = (menu: ActiveMenu | null): void => {
+  /** Publish a data-only menu. Pass the continuation here, not on the snapshot. */
+  setActiveMenu = (menu: ActiveMenu | null, onComplete?: (result: PromptResult) => void): void => {
+    this.promptContinuation = menu === null ? null : (onComplete ?? null);
     patchSlice(this.session, { activeMenu: menu });
+  };
+
+  /**
+   * Answer the published surface. Clears the snapshot, then invokes the
+   * write-side continuation once. A second call is a no-op.
+   */
+  completePrompt = (result: PromptResult): void => {
+    if (this.session.getSnapshot().activeMenu === null && this.promptContinuation === null) {
+      return;
+    }
+    const continuation = this.promptContinuation;
+    this.promptContinuation = null;
+    patchSlice(this.session, { activeMenu: null });
+    continuation?.(result);
   };
 
   getActiveMenuSnapshot(): ActiveMenu | null {

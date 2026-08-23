@@ -104,7 +104,6 @@ function resetStoreSlices(): void {
   store.setCurrentConversation(null);
   store.clearQueue();
   store.setModeIsYolo(false);
-  store.setCustomView(null);
   store.clearModeToast();
   store.collapseAllEphemeral();
   store.setInterruptHandler(null);
@@ -577,9 +576,9 @@ describe("fullscreen bridge", () => {
   });
 
   it("draws the wizard menu as the home screen", async () => {
-    // The wizard publishes its menu as data alongside the Ink tree, so a
-    // renderer that cannot paint an Ink element can still draw the flow. Without
-    // this the fullscreen interface could not reach a chat session at all.
+    // The wizard publishes its menu as data, so a renderer that cannot paint an
+    // Ink element can still draw the flow. Without this the fullscreen
+    // interface could not reach a chat session at all.
     const text = await frame(() => {
       store.setActiveMenu({
         kind: "menu",
@@ -587,8 +586,6 @@ describe("fullscreen bridge", () => {
           { label: "Start chatting", value: "chat" },
           { label: "Create an agent", value: "create" },
         ],
-        onSelect: () => undefined,
-        onExit: () => undefined,
       });
     });
     expect(text).toContain("Start chatting");
@@ -609,8 +606,6 @@ describe("fullscreen bridge", () => {
           },
         ],
         options: [{ label: "Create agent", value: "create-agent" }],
-        onSelect: () => undefined,
-        onExit: () => undefined,
       });
     });
     expect(text).toContain("agent");
@@ -629,8 +624,6 @@ describe("fullscreen bridge", () => {
           { id: "a1", name: "Basil", model: "claude-sonnet-4", lastUsed: true },
           { id: "a2", name: "Cass", model: "gpt-5" },
         ],
-        onSelect: () => undefined,
-        onExit: () => undefined,
       });
     });
     expect(text).toContain("delete an agent");
@@ -644,14 +637,15 @@ describe("fullscreen bridge", () => {
     const selected: string[] = [];
     const rendered = await testRender(<FullscreenBridge />, { width: 100, height: 28 });
     await rendered.renderOnce();
-    store.setActiveMenu({
-      kind: "agents",
-      title: "pick an agent",
-      action: "start",
-      agents: [{ id: "a1", name: "Basil", model: "claude-sonnet-4" }],
-      onSelect: (value) => selected.push(value),
-      onExit: () => selected.push("EXIT"),
-    });
+    store.setActiveMenu(
+      {
+        kind: "agents",
+        title: "pick an agent",
+        action: "start",
+        agents: [{ id: "a1", name: "Basil", model: "claude-sonnet-4" }],
+      },
+      (result) => selected.push(result.kind === "exit" ? "EXIT" : result.value),
+    );
     await rendered.flush();
     await rendered.mockInput.pressKey("ESCAPE");
     await settleKeypress(rendered.flush, 100);
@@ -664,17 +658,18 @@ describe("fullscreen bridge", () => {
     const selected: string[] = [];
     const rendered = await testRender(<FullscreenBridge />, { width: 100, height: 28 });
     await rendered.renderOnce();
-    store.setActiveMenu({
-      kind: "agents",
-      title: "pick an agent",
-      action: "start",
-      agents: [
-        { id: "a1", name: "Basil", model: "claude-sonnet-4" },
-        { id: "a2", name: "Cass", model: "gpt-5" },
-      ],
-      onSelect: (value) => selected.push(value),
-      onExit: () => selected.push("EXIT"),
-    });
+    store.setActiveMenu(
+      {
+        kind: "agents",
+        title: "pick an agent",
+        action: "start",
+        agents: [
+          { id: "a1", name: "Basil", model: "claude-sonnet-4" },
+          { id: "a2", name: "Cass", model: "gpt-5" },
+        ],
+      },
+      (result) => selected.push(result.kind === "exit" ? "EXIT" : result.value),
+    );
     await rendered.flush();
     await rendered.mockInput.pressKey("ARROW_DOWN");
     await settleKeypress(rendered.flush, 100);
@@ -696,8 +691,6 @@ describe("fullscreen bridge", () => {
           { id: "a1", name: "doitall", model: "claude-sonnet-4" },
           { id: "a2", name: "qwen-coder", model: "qwen2.5-coder" },
         ],
-        onSelect: () => undefined,
-        onExit: () => undefined,
       });
     });
     expect(text).toContain("doitall");
@@ -713,18 +706,19 @@ describe("fullscreen bridge", () => {
     const selected: string[] = [];
     const rendered = await testRender(<FullscreenBridge />, { width: 100, height: 28 });
     await rendered.renderOnce();
-    store.setActiveMenu({
-      kind: "agents",
-      title: "agents",
-      action: "back",
-      browse: true,
-      agents: [
-        { id: "a1", name: "doitall", model: "claude-sonnet-4" },
-        { id: "a2", name: "qwen-coder", model: "qwen2.5-coder" },
-      ],
-      onSelect: (value) => selected.push(value),
-      onExit: () => selected.push("EXIT"),
-    });
+    store.setActiveMenu(
+      {
+        kind: "agents",
+        title: "agents",
+        action: "back",
+        browse: true,
+        agents: [
+          { id: "a1", name: "doitall", model: "claude-sonnet-4" },
+          { id: "a2", name: "qwen-coder", model: "qwen2.5-coder" },
+        ],
+      },
+      (result) => selected.push(result.kind === "exit" ? "EXIT" : result.value),
+    );
     await rendered.flush();
     expect(rendered.captureCharFrame()).toContain("doitall");
 
@@ -733,15 +727,16 @@ describe("fullscreen bridge", () => {
     expect(selected).toEqual(["EXIT"]);
 
     selected.length = 0;
-    store.setActiveMenu({
-      kind: "agents",
-      title: "agents",
-      action: "back",
-      browse: true,
-      agents: [{ id: "a1", name: "doitall", model: "claude-sonnet-4" }],
-      onSelect: (value) => selected.push(value),
-      onExit: () => selected.push("EXIT"),
-    });
+    store.setActiveMenu(
+      {
+        kind: "agents",
+        title: "agents",
+        action: "back",
+        browse: true,
+        agents: [{ id: "a1", name: "doitall", model: "claude-sonnet-4" }],
+      },
+      (result) => selected.push(result.kind === "exit" ? "EXIT" : result.value),
+    );
     await rendered.flush();
     await rendered.mockInput.pressKey("ESCAPE");
     await settleKeypress(rendered.flush, 100);
@@ -758,8 +753,6 @@ describe("fullscreen bridge", () => {
         title: "pick an agent",
         action: "start",
         agents: [],
-        onSelect: () => undefined,
-        onExit: () => undefined,
       });
     });
     expect(text).toContain("No agents yet.");
@@ -769,7 +762,7 @@ describe("fullscreen bridge", () => {
     store.setActiveMenu(null);
   });
 
-  it("hands an Ink-only custom screen to the legacy renderer", async () => {
+  it("keeps a data-only menu fullscreen without falling back", async () => {
     let fallbackRequests = 0;
     const unregisterFallback = store.registerRendererFallbackHandler(() => {
       fallbackRequests += 1;
@@ -777,30 +770,9 @@ describe("fullscreen bridge", () => {
     const rendered = await testRender(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
     await rendered.renderOnce();
 
-    store.setCustomView(React.createElement(React.Fragment, null, "legacy-only"));
-    await rendered.flush();
-    await rendered.flush();
-
-    rendered.renderer.destroy();
-    store.setCustomView(null);
-    unregisterFallback();
-    expect(fallbackRequests).toBe(1);
-  });
-
-  it("keeps a renderer-neutral menu fullscreen when an Ink view is also published", async () => {
-    let fallbackRequests = 0;
-    const unregisterFallback = store.registerRendererFallbackHandler(() => {
-      fallbackRequests += 1;
-    });
-    const rendered = await testRender(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
-    await rendered.renderOnce();
-
-    store.setCustomView(React.createElement(React.Fragment, null, "legacy-copy"));
     store.setActiveMenu({
       kind: "menu",
       options: [{ label: "Stay fullscreen", value: "stay" }],
-      onSelect: () => undefined,
-      onExit: () => undefined,
     });
     await rendered.flush();
     await Promise.resolve();
@@ -809,7 +781,6 @@ describe("fullscreen bridge", () => {
     expect(fallbackRequests).toBe(0);
 
     rendered.renderer.destroy();
-    store.setCustomView(null);
     store.setActiveMenu(null);
     unregisterFallback();
   });
@@ -1247,16 +1218,17 @@ describe("fullscreen bridge", () => {
       { width: 100, height: 28 },
     );
     await renderOnce();
-    store.setActiveMenu({
-      kind: "menu",
-      options: [
-        { label: "Start chatting", value: "chat" },
-        { label: "Create an agent", value: "create" },
-        { label: "Exit", value: "exit" },
-      ],
-      onSelect: (value) => selected.push(value),
-      onExit: () => selected.push("EXIT-CALLED"),
-    });
+    store.setActiveMenu(
+      {
+        kind: "menu",
+        options: [
+          { label: "Start chatting", value: "chat" },
+          { label: "Create an agent", value: "create" },
+          { label: "Exit", value: "exit" },
+        ],
+      },
+      (result) => selected.push(result.kind === "exit" ? "EXIT-CALLED" : result.value),
+    );
     await flush();
     const before = captureCharFrame();
 
@@ -1278,16 +1250,19 @@ describe("fullscreen bridge", () => {
     const selected: string[] = [];
     const rendered = await testRender(<FullscreenBridge />, { width: 100, height: 28 });
     await rendered.renderOnce();
-    store.setActiveMenu({
-      kind: "menu",
-      options: [
-        { label: "Start chatting", value: "chat" },
-        { label: "Create an agent", value: "create" },
-        { label: "Exit", value: "exit" },
-      ],
-      onSelect: (value) => selected.push(value),
-      onExit: () => undefined,
-    });
+    store.setActiveMenu(
+      {
+        kind: "menu",
+        options: [
+          { label: "Start chatting", value: "chat" },
+          { label: "Create an agent", value: "create" },
+          { label: "Exit", value: "exit" },
+        ],
+      },
+      (result) => {
+        if (result.kind === "select") selected.push(result.value);
+      },
+    );
     await rendered.flush();
 
     await rendered.mockInput.pressKey("\x1bOB");
@@ -1648,8 +1623,6 @@ describe("fullscreen bridge", () => {
     store.setActiveMenu({
       kind: "menu",
       options: [{ label: "x", value: "x" }],
-      onSelect: () => undefined,
-      onExit: () => undefined,
     });
     await flush();
 

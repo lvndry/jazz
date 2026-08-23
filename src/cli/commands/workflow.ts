@@ -1,9 +1,5 @@
 import { Duration, Effect } from "effect";
-import { Box, Text } from "ink";
-import React from "react";
-import { SearchSelect } from "@/cli/ui/components/SearchSelect";
 import { store } from "@/cli/ui/store";
-import { THEME } from "@/cli/ui/theme";
 import { separatorLine } from "@/cli/utils/string-utils";
 import { AgentRunner } from "@/core/agent/agent-runner";
 import { getAgentByIdentifier, listAllAgents } from "@/core/agent/agent-service";
@@ -835,39 +831,32 @@ function runCostFields(result: {
 /**
  * Helper to prompt user to select an agent for workflow execution.
  */
-function selectAgentForWorkflow(
+export function selectAgentForWorkflow(
   agents: readonly Agent[],
   prompt: string,
 ): Effect.Effect<Agent | null, never> {
   return Effect.async<Agent | null, never>((resume) => {
-    const options = agents.map((agent) => ({
-      label: `${agent.name} (${agent.config.llmModel})`,
-      value: agent.id,
-    }));
-
-    store.setCustomView(
-      React.createElement(
-        Box,
-        { flexDirection: "column", padding: 1 },
-        React.createElement(Text, { bold: true, color: THEME.primary }, prompt),
-        React.createElement(
-          Box,
-          { marginTop: 1 },
-          React.createElement(SearchSelect<string>, {
-            options,
-            pageSize: 10,
-            placeholder: "Type to filter agents…",
-            onSelect: (value: string) => {
-              store.setCustomView(null);
-              resume(Effect.succeed(agents.find((a) => a.id === value) ?? null));
-            },
-            onCancel: () => {
-              store.setCustomView(null);
-              resume(Effect.succeed(null));
-            },
-          }),
-        ),
-      ),
+    store.setActiveMenu(
+      {
+        kind: "agents",
+        title: prompt,
+        action: "run",
+        agents: agents.map((agent) => ({
+          id: agent.id,
+          name: agent.name,
+          model: agent.config.llmModel,
+          ...(agent.description !== undefined && agent.description !== agent.name
+            ? { description: agent.description }
+            : {}),
+        })),
+      },
+      (result) => {
+        if (result.kind === "exit") {
+          resume(Effect.succeed(null));
+          return;
+        }
+        resume(Effect.succeed(agents.find((agent) => agent.id === result.value) ?? null));
+      },
     );
   });
 }
