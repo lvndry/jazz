@@ -6,7 +6,7 @@ import {
   useSelectionHandler,
   useTerminalDimensions,
 } from "@opentui/react";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getGlyphs } from "../glyphs";
 import { THEME } from "../theme";
 import {
@@ -195,13 +195,7 @@ export function reuseViewport(width: number, height: number, previous: Viewport)
   return { width, height };
 }
 
-export function App({
-  view,
-  onAction,
-  onKey,
-  onPaste,
-  overrideContent,
-}: AppProps): React.ReactNode {
+function AppView({ view, onAction, onKey, onPaste, overrideContent }: AppProps): React.ReactNode {
   const { width, height } = useTerminalDimensions();
   const renderer = useRenderer();
   const rendererRef = useRef(renderer);
@@ -561,3 +555,5 @@ export function App({
     </box>
   );
 }
+
+export const App = memo(AppView);

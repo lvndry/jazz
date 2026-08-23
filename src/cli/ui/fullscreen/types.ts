@@ -173,11 +173,9 @@ export interface LiveModel {
   /** House-voice waiting copy. Shown only before the first token lands. */
   readonly waiting?: string;
   readonly elapsedMs?: number;
-  /** Monotonic tick driving the indicator. */
-  readonly tick: number;
   /**
    * Elapsed time for the open reasoning region, if one is running.
-   * Lives here rather than on a transcript Block so a live tick cannot
+   * Lives here rather than on a transcript Block so a clock update cannot
    * rewrite block identity and defeat wrap memoization.
    */
   readonly reasoningElapsedMs?: number;
