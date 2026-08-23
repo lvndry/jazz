@@ -4,6 +4,7 @@
 
 import type { MCPServerConfig } from "@/core/interfaces/mcp-server";
 import type { OutputConfig } from "./output";
+import type { PeerConfig } from "./peer";
 
 export interface AppConfig {
   readonly storage: StorageConfig;
@@ -25,6 +26,14 @@ export interface AppConfig {
   /** Iteration budget for a sub-agent run. Defaults to 30. */
   readonly maxSubagentIterations?: number;
   readonly context?: ContextConfig;
+  /**
+   * Other people's agents this machine will talk to.
+   *
+   * Explicit and never discovered: no request from an unlisted origin is served, whatever
+   * it presents. Discovery can describe a peer somebody already decided to add; it must
+   * never be the thing that creates one.
+   */
+  readonly peers?: readonly PeerConfig[];
 }
 
 export interface ContextConfig {
