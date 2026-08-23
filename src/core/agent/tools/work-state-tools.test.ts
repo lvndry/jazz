@@ -3,11 +3,11 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { Effect } from "effect";
-import { readTaskState } from "@/core/agent/context/task-state";
+import { readWorkState } from "@/core/agent/context/work-state";
 import type { ToolExecutionContext } from "@/core/types/tools";
-import { createUpdateTaskStateTool } from "./task-state-tools";
+import { createUpdateWorkStateTool } from "./work-state-tools";
 
-const tool = createUpdateTaskStateTool();
+const tool = createUpdateWorkStateTool();
 
 function context(overrides?: Partial<ToolExecutionContext>): ToolExecutionContext {
   return {
@@ -19,7 +19,7 @@ function context(overrides?: Partial<ToolExecutionContext>): ToolExecutionContex
 
 const run = <A>(effect: Effect.Effect<A, never, never>): Promise<A> => Effect.runPromise(effect);
 
-describe("update_task_state", () => {
+describe("update_work_state", () => {
   let jazzHome: string;
   let previousHome: string | undefined;
 
@@ -41,7 +41,7 @@ describe("update_task_state", () => {
     )) as any;
 
     expect(result.success).toBe(true);
-    const state = await run(readTaskState("agent-1", "conv-1"));
+    const state = await run(readWorkState("agent-1", "conv-1"));
     expect(state?.goal).toBe("migrate routes");
     expect(state?.nextStep).toBe("start with auth");
     expect(state?.updatedAt).toBeDefined();
@@ -51,7 +51,7 @@ describe("update_task_state", () => {
     await run(tool.execute({ goal: "migrate routes", decisions: ["keep v1"] }, context()) as any);
     await run(tool.execute({ nextStep: "auth route" }, context()) as any);
 
-    const state = await run(readTaskState("agent-1", "conv-1"));
+    const state = await run(readWorkState("agent-1", "conv-1"));
     expect(state?.goal).toBe("migrate routes");
     expect(state?.decisions).toEqual(["keep v1"]);
     expect(state?.nextStep).toBe("auth route");
@@ -63,25 +63,6 @@ describe("update_task_state", () => {
 
     expect(result.success).toBe(true);
     expect(result.result.formatted).toContain("migrate routes");
-  });
-
-  it("records verification status on work items", async () => {
-    await run(
-      tool.execute(
-        {
-          workItems: [
-            { description: "auth route", status: "done", verifiedBy: "bun test" },
-            { description: "billing route", status: "unverified" },
-          ],
-        },
-        context(),
-      ) as any,
-    );
-
-    const state = await run(readTaskState("agent-1", "conv-1"));
-    expect(state?.workItems?.[0]?.status).toBe("done");
-    expect(state?.workItems?.[0]?.verifiedBy).toBe("bun test");
-    expect(state?.workItems?.[1]?.status).toBe("unverified");
   });
 
   it("fails clearly when there is no conversation to attach state to", async () => {

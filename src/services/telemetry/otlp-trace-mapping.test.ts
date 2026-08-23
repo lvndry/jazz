@@ -105,7 +105,7 @@ describe("toSpan", () => {
   });
 
   it("falls back to the conversation when an event carries no run id", () => {
-    const span = toSpan(makeEvent("tool_invocation", {}, { sessionId: "conv-9" }), false);
+    const span = toSpan(makeEvent("tool_invocation", {}, { conversationId: "conv-9" }), false);
     expect(span.traceId).toBe(traceIdForRun("conv-9"));
   });
 

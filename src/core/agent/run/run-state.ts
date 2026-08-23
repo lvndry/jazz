@@ -7,7 +7,7 @@
  *
  * Three things in jazz sound like this one and are not:
  *
- * - `TaskState` (`../context/task-state.ts`) is what the *model* believes about the work:
+ * - `WorkState` (`../context/work-state.ts`) is what the *model* believes about the work:
  *   goal, next step, which items it thinks are done. It is authored by a tool call, it can
  *   be wrong, and one of them spans many runs in a conversation.
  * - `ActivityState` (`@/cli/ui/activity-state`) is what the *terminal* is drawing this
@@ -27,7 +27,7 @@ import type { ApprovalRequest } from "@/core/types/tools";
 /**
  * Identifier for a single run.
  *
- * Distinct from `conversationId`, which many runs share, and from `sessionId`, which is
+ * Distinct from `conversationId`, which many runs share, and from `conversationId`, which is
  * derived from the conversation and is therefore equally shared.
  */
 export type RunId = string;

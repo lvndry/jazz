@@ -31,6 +31,7 @@ import { LLMRateLimitError } from "@/core/types/errors";
 import type { ChatMessage } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
 import type { AutoApprovePolicy, ToolExecutionContext } from "@/core/types/tools";
+import { generateConversationId } from "@/core/utils/conversation-id";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import { parseProviderModel } from "@/core/utils/provider-model";
 import { shouldEnableStreaming } from "@/core/utils/stream-detector";
@@ -196,7 +197,7 @@ function initializeAgentRun(
     const configService = yield* AgentConfigServiceTag;
     const appConfig = yield* configService.appConfig;
 
-    const actualConversationId = conversationId || `${Date.now()}`;
+    const actualConversationId = conversationId || generateConversationId();
     const history: ChatMessage[] = options.conversationHistory || [];
     const persona = agent.config.persona;
     const provider: ProviderName = agent.config.llmProvider;
@@ -432,7 +433,6 @@ function initializeAgentRun(
 
     const toolContext: ToolExecutionContext = {
       agentId: agent.id,
-      sessionId: options.sessionId,
       conversationId: actualConversationId,
       model,
       ...(getAutoApprovePolicy !== undefined ? { getAutoApprovePolicy } : {}),
@@ -579,7 +579,6 @@ export class AgentRunner {
       const runRecursive = (runOpts: {
         agent: Agent;
         userInput: string;
-        sessionId: string;
         conversationId: string;
         maxIterations?: number;
       }) => AgentRunner.runRecursive(runOpts);
@@ -625,7 +624,6 @@ export class AgentRunner {
   public static summarizeHistory(
     messagesToSummarize: ChatMessage[],
     agent: Agent,
-    sessionId: string,
     conversationId: string,
   ): Effect.Effect<
     ChatMessage,
@@ -641,18 +639,11 @@ export class AgentRunner {
     const runRecursive = (runOpts: {
       agent: Agent;
       userInput: string;
-      sessionId: string;
       conversationId: string;
       maxIterations?: number;
     }) => AgentRunner.runRecursive(runOpts);
 
-    return Summarizer.summarizeHistory(
-      messagesToSummarize,
-      agent,
-      sessionId,
-      conversationId,
-      runRecursive,
-    );
+    return Summarizer.summarizeHistory(messagesToSummarize, agent, conversationId, runRecursive);
   }
 }
 

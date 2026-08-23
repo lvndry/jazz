@@ -9,12 +9,31 @@ import { defineTool, makeZodValidator } from "./base-tool";
 
 /**
  * Todo item schema — matches the shape persisted to the temp file.
+ *
+ * Progress and evidence are kept on separate fields on purpose. `status` answers how far
+ * along the work is; `verifiedBy` answers whether anyone checked. Folding the second into
+ * the first — a `unverified` status sitting between in_progress and completed — reads as a
+ * progress state without being one, and every consumer then has to decide for itself
+ * whether it counts as finished.
+ *
+ * `verifiedBy` is the part carried over from work state, which used to keep a rival list
+ * of the same work. Its good idea was refusing to let an agent call something done on the
+ * strength of having written it.
  */
 const TodoItemSchema = z.object({
   content: z.string().describe("What this step is."),
   status: z
     .enum(["pending", "in_progress", "completed", "cancelled"])
     .describe("pending, in_progress, completed, or cancelled."),
+  verifiedBy: z
+    .string()
+    .optional()
+    .describe(
+      'What you ran that confirms this works, e.g. "bun test src/foo.test.ts". Set it ' +
+        "whenever you mark something completed. Leave it out if you believe the work is " +
+        "finished but have not actually checked — completed without it reads as exactly " +
+        "that, which is honest and useful; a claim you did not verify is not.",
+    ),
   priority: z.enum(["high", "medium", "low"]).describe("high, medium, or low.").default("medium"),
 });
 
@@ -24,12 +43,18 @@ type TodoItem = z.infer<typeof TodoItemSchema>;
 // Temp-file helpers (Effect-based, async)
 // ---------------------------------------------------------------------------
 
-function getTodoFilePath(sessionId: string): string {
-  return path.join(os.tmpdir(), `jazz-todos-${sessionId}.json`);
+/**
+ * Todos belong to a conversation, not to a terminal sitting.
+ *
+ * They used to be keyed by a per-sitting id that `/new` did not change, so starting a new
+ * conversation silently inherited the previous one's list.
+ */
+function getTodoFilePath(conversationId: string): string {
+  return path.join(os.tmpdir(), `jazz-todos-${conversationId}.json`);
 }
 
-function readTodos(sessionId: string): Effect.Effect<TodoItem[], Error> {
-  const filePath = getTodoFilePath(sessionId);
+function readTodos(conversationId: string): Effect.Effect<TodoItem[], Error> {
+  const filePath = getTodoFilePath(conversationId);
   return Effect.tryPromise({
     try: () => nodeFs.readFile(filePath, "utf-8"),
     catch: () => new Error(`Failed to read todo file: ${filePath}`),
@@ -48,8 +73,8 @@ function readTodos(sessionId: string): Effect.Effect<TodoItem[], Error> {
   );
 }
 
-function writeTodos(sessionId: string, todos: TodoItem[]): Effect.Effect<void, Error> {
-  const filePath = getTodoFilePath(sessionId);
+function writeTodos(conversationId: string, todos: TodoItem[]): Effect.Effect<void, Error> {
+  const filePath = getTodoFilePath(conversationId);
   return Effect.tryPromise({
     try: () => nodeFs.writeFile(filePath, JSON.stringify(todos, null, 2), "utf-8"),
     catch: (error) =>
@@ -95,10 +120,10 @@ export function createManageTodosTool(): Tool<never> {
   return defineTool<never, z.infer<typeof parameters>>({
     name: "manage_todos",
     description:
-      "Replace the in-session task list used to steer this run and show progress in the UI. Every call replaces the whole list — send every item, not just the ones that changed. " +
+      "Replace this conversation's todo list, which steers the run and shows progress in the UI. Every call replaces the whole list — send every item, not just the ones that changed. " +
       "Use this when the work has three or more distinct steps; skip it for one-liners. Keep exactly one item in_progress, and mark it completed as soon as it is finished. " +
-      "This list is session scratch and does not survive compaction on its own. It is not memory, not task state, and not a reminder. " +
-      "For a plan that must survive compaction, also call update_task_state. To ping someone at a clock time, use add_reminder.",
+      "This list belongs to the current conversation and does not survive compaction on its own. It is not memory, not work state, and not a reminder. " +
+      "For a plan that must survive compaction, also call update_work_state. To ping someone at a clock time, use add_reminder.",
     parameters,
     riskLevel: "low-risk",
     hidden: false,
@@ -111,7 +136,7 @@ export function createManageTodosTool(): Tool<never> {
     handler: (args, context) =>
       Effect.gen(function* () {
         const { todos } = args;
-        const sessionId = context?.sessionId ?? "default";
+        const conversationId = context?.conversationId ?? "default";
 
         const inProgressCount = todos.filter((item) => item.status === "in_progress").length;
         if (inProgressCount > 1) {
@@ -122,7 +147,7 @@ export function createManageTodosTool(): Tool<never> {
           } satisfies ToolExecutionResult;
         }
 
-        yield* writeTodos(sessionId, todos);
+        yield* writeTodos(conversationId, todos);
 
         const stats = computeStats(todos);
         return {
@@ -162,8 +187,8 @@ export function createListTodosTool(): Tool<never> {
     },
     handler: (_args, context) =>
       Effect.gen(function* () {
-        const sessionId = context?.sessionId ?? "default";
-        const todos = yield* readTodos(sessionId);
+        const conversationId = context?.conversationId ?? "default";
+        const todos = yield* readTodos(conversationId);
 
         if (todos.length === 0) {
           return {

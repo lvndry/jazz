@@ -60,7 +60,7 @@ function spanIdForEvent(eventId: string): string {
 function runIdOf(event: TelemetryEvent): { readonly id: string; readonly isRunScoped: boolean } {
   const runId = event.data["runId"];
   if (typeof runId === "string" && runId.length > 0) return { id: runId, isRunScoped: true };
-  if (event.sessionId) return { id: event.sessionId, isRunScoped: true };
+  if (event.conversationId) return { id: event.conversationId, isRunScoped: true };
   // Nothing ties this event to a run — `jazz agent list` and other bare CLI
   // commands land here. Give it its own trace rather than parenting it to a
   // root span that will never be emitted.

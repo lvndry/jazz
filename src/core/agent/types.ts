@@ -31,17 +31,14 @@ export interface AgentRunnerOptions {
    */
   readonly userInput: string;
   /**
-   * Optional conversation identifier for tracking multi-turn conversations.
-   * If not provided, a new conversation ID will be generated automatically.
-   * Use the same conversation ID across multiple turns to maintain context.
+   * Which conversation this turn belongs to.
+   *
+   * Generated when absent. The same id across turns is what gives a caller continuity, and
+   * it is also what groups the run's logs and its todos — there used to be a second field
+   * for that, bound once per terminal sitting, which is how starting a new conversation
+   * ended up inheriting the previous one's todo list.
    */
   readonly conversationId?: string;
-  /**
-   * Session identifier for logging purposes.
-   * This should be set to the sessionId created at the start of a chat session.
-   * Used to route logs to session-specific log files.
-   */
-  readonly sessionId: string;
   /**
    * If true, this is an internal sub-agent run (e.g., summarization).
    * UI elements like thinking indicators will be suppressed.

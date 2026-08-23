@@ -1,3 +1,7 @@
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import * as path from "node:path";
+
 /**
  * Bun test preload — runs before every test file.
  *
@@ -24,3 +28,15 @@ process.env["JAZZ_OFFLINE"] ??= "1";
  * this to "0" explicitly.
  */
 process.env["JAZZ_DISABLE_KEYRING"] ??= "1";
+
+/**
+ * Point the suite at a throwaway Jazz home.
+ *
+ * Every storage helper falls back to `~/.jazz` when a caller passes no directory, so one
+ * test with a missing `dir` argument writes into the developer's real history, agents or
+ * memory — silently, and only noticed later when something unexplained shows up there.
+ * A stray conversation log written this way is what prompted this.
+ *
+ * `??=` so a test that exercises home-directory resolution can still set its own.
+ */
+process.env["JAZZ_HOME"] ??= mkdtempSync(path.join(tmpdir(), "jazz-test-home-"));

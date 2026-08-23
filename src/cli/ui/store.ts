@@ -145,6 +145,12 @@ export interface ActiveAgentMenu {
 
 export type ActiveMenu = ActiveWizardMenu | ActiveAgentMenu;
 
+/** Identifies the conversation on screen, so history search can be narrowed to it. */
+export interface CurrentConversation {
+  readonly agentId: string;
+  readonly conversationId: string;
+}
+
 export interface PendingApproval {
   readonly toolName: string;
   readonly executeToolName: string;
@@ -193,6 +199,14 @@ export class UIStore {
   private promptSnapshot: PromptState | null = null;
   private activitySnapshot: ActivityState = { phase: "idle" };
   private workingDirectorySnapshot: string | null = null;
+  /**
+   * Which conversation the interface is showing.
+   *
+   * Held here because history search needs it to narrow to "this conversation", and the
+   * bridge that runs the search otherwise knows nothing about conversations at all — which
+   * is why that scope silently returned no results.
+   */
+  private currentConversationSnapshot: CurrentConversation | null = null;
   private runStatsSnapshot: RunStats = {};
   // Session-wide cumulative cost in USD. Every renderer (main agent and each
   // sub-agent) adds its own per-turn cost here so the footer total reflects
@@ -214,6 +228,8 @@ export class UIStore {
   private promptSetter: ((prompt: PromptState | null) => void) | null = null;
   private activitySetter: ((activity: ActivityState) => void) | null = null;
   private workingDirectorySetter: ((wd: string | null) => void) | null = null;
+  private currentConversationSetter: ((conversation: CurrentConversation | null) => void) | null =
+    null;
   private runStatsSetter: ((stats: RunStats) => void) | null = null;
   private ephemeralRegionsSetter: ((regions: readonly EphemeralRegion[]) => void) | null = null;
   private expandableReasoningSetter: ((value: ExpandableReasoning | null) => void) | null = null;
@@ -299,6 +315,13 @@ export class UIStore {
     this.activitySnapshot = activity;
     if (this.activitySetter) {
       this.activitySetter(activity);
+    }
+  };
+
+  setCurrentConversation = (conversation: CurrentConversation | null): void => {
+    this.currentConversationSnapshot = conversation;
+    if (this.currentConversationSetter) {
+      this.currentConversationSetter(conversation);
     }
   };
 
@@ -745,6 +768,15 @@ export class UIStore {
     }
   }
 
+  registerCurrentConversationSetter(
+    setter: ((conversation: CurrentConversation | null) => void) | null,
+  ): void {
+    this.currentConversationSetter = setter;
+    if (setter) {
+      setter(this.currentConversationSnapshot);
+    }
+  }
+
   registerWorkingDirectorySetter(setter: ((wd: string | null) => void) | null): void {
     this.workingDirectorySetter = setter;
     if (setter) {
@@ -890,6 +922,10 @@ export class UIStore {
 
   getPromptSnapshot(): PromptState | null {
     return this.promptSnapshot;
+  }
+
+  getCurrentConversationSnapshot(): CurrentConversation | null {
+    return this.currentConversationSnapshot;
   }
 
   getWorkingDirectorySnapshot(): string | null {

@@ -118,7 +118,7 @@ on the gate.
 | --------------- | ------------------------------------------------------------------------------------- |
 | unset / `false` | Interactive: read-only and low-risk, prompts for the rest. Unattended: **nothing**    |
 | `read-only`     | Reads, search, web requests, shell classified inspect-only                            |
-| `low-risk`      | + `manage_todos`, `update_task_state`, `spawn_subagent`, shell classified low-risk    |
+| `low-risk`      | + `manage_todos`, `update_work_state`, `spawn_subagent`, shell classified low-risk    |
 | `high-risk`     | + writes, deletes, shell, unresolved `unknown` tools                                  |
 
 Leaving the tier unset is the safe default on a webhook or a cron precisely because it

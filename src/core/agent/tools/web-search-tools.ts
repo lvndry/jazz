@@ -304,7 +304,7 @@ function executeParallelSearch(
   args: WebSearchArgs,
   apiKey: string,
   clientModel: string,
-  sessionId: string,
+  conversationId: string,
 ): Effect.Effect<WebSearchResult, Error, LoggerService> {
   const searchDepthToMode: Record<SearchDepth, "basic" | "advanced"> = {
     fast: "basic",
@@ -326,7 +326,7 @@ function executeParallelSearch(
             objective: args.query,
             mode: searchDepthToMode[args.searchDepth ?? "standard"],
             ...(clientModel ? { client_model: clientModel } : {}),
-            ...(sessionId ? { session_id: sessionId } : {}),
+            ...(conversationId ? { session_id: conversationId } : {}),
             advanced_settings: {
               max_results: args.maxResults ?? DEFAULT_MAX_RESULTS,
               ...(args.fromDate ? { source_policy: { after_date: args.fromDate } } : {}),

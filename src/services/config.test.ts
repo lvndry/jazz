@@ -4,6 +4,7 @@ import { FileSystem } from "@effect/platform";
 import { describe, expect, it, mock } from "bun:test";
 import { Effect, Layer } from "effect";
 import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
+import { getJazzHomeDirectory } from "@/core/utils/paths";
 import { AgentConfigServiceImpl, createConfigLayer } from "./config";
 import { type AppConfig } from "../core/types/index";
 
@@ -153,7 +154,7 @@ describe("createConfigLayer", () => {
   }
 
   it("removes the legacy google client block from the config file", async () => {
-    const globalPath = path.join(os.homedir(), ".jazz", "config.json");
+    const globalPath = path.join(getJazzHomeDirectory(), "config.json");
     const fileContents = new Map<string, string>([
       [
         globalPath,
@@ -179,7 +180,7 @@ describe("createConfigLayer", () => {
   });
 
   it("leaves a repurposed google block alone", async () => {
-    const globalPath = path.join(os.homedir(), ".jazz", "config.json");
+    const globalPath = path.join(getJazzHomeDirectory(), "config.json");
     const fileContents = new Map<string, string>([
       [globalPath, JSON.stringify({ google: { somethingElse: "keep-me" } })],
     ]);
@@ -195,7 +196,7 @@ describe("createConfigLayer", () => {
   });
 
   it("resolves secrets from the environment over the config file", async () => {
-    const globalPath = path.join(os.homedir(), ".jazz", "config.json");
+    const globalPath = path.join(getJazzHomeDirectory(), "config.json");
     const fileContents = new Map<string, string>([
       [globalPath, JSON.stringify({ llm: { openai: { api_key: "sk-from-file" } } })],
     ]);
@@ -224,7 +225,7 @@ describe("createConfigLayer", () => {
   });
 
   it("never writes an env-supplied secret into the config file", async () => {
-    const globalPath = path.join(os.homedir(), ".jazz", "config.json");
+    const globalPath = path.join(getJazzHomeDirectory(), "config.json");
     const fileContents = new Map<string, string>([[globalPath, JSON.stringify({})]]);
     const testFS = createTestFileSystem(fileContents);
 
@@ -250,7 +251,7 @@ describe("createConfigLayer", () => {
   });
 
   it("keeps a file-stored secret on disk even when an env var shadows it", async () => {
-    const globalPath = path.join(os.homedir(), ".jazz", "config.json");
+    const globalPath = path.join(getJazzHomeDirectory(), "config.json");
     const fileContents = new Map<string, string>([
       [globalPath, JSON.stringify({ llm: { openai: { api_key: "sk-from-file" } } })],
     ]);
@@ -278,8 +279,8 @@ describe("createConfigLayer", () => {
   });
 
   it("merges global and local config with local overrides winning", async () => {
-    const homeDir = os.homedir();
-    const globalPath = path.join(homeDir, ".jazz", "config.json");
+    const homeDir = getJazzHomeDirectory();
+    const globalPath = path.join(homeDir, "config.json");
     const localPath = path.join(process.cwd(), ".jazz", "config.json");
 
     const fileContents = new Map<string, string>([
@@ -299,19 +300,16 @@ describe("createConfigLayer", () => {
 
     const result = await Effect.runPromise(program);
     expect(result.level).toBe("debug");
-    expect(result.storagePath).toBe(path.join(homeDir, ".jazz"));
+    expect(result.storagePath).toBe(homeDir);
   });
 
   it("ignores local storage.path overrides", async () => {
-    const homeDir = os.homedir();
-    const globalPath = path.join(homeDir, ".jazz", "config.json");
+    const homeDir = getJazzHomeDirectory();
+    const globalPath = path.join(homeDir, "config.json");
     const localPath = path.join(process.cwd(), ".jazz", "config.json");
 
     const fileContents = new Map<string, string>([
-      [
-        globalPath,
-        JSON.stringify({ storage: { type: "file", path: path.join(homeDir, ".jazz") } }),
-      ],
+      [globalPath, JSON.stringify({ storage: { type: "file", path: homeDir } })],
       [
         localPath,
         JSON.stringify({ storage: { type: "file", path: path.join(process.cwd(), ".jazz") } }),
@@ -327,12 +325,12 @@ describe("createConfigLayer", () => {
     }).pipe(Effect.provide(layer));
 
     const storagePath = await Effect.runPromise(program);
-    expect(storagePath).toBe(path.join(homeDir, ".jazz"));
+    expect(storagePath).toBe(homeDir);
   });
 
   it("preserves custom global storage.path settings", async () => {
-    const homeDir = os.homedir();
-    const globalPath = path.join(homeDir, ".jazz", "config.json");
+    const homeDir = getJazzHomeDirectory();
+    const globalPath = path.join(homeDir, "config.json");
     const customStoragePath = path.join(homeDir, ".jazz-custom-storage");
 
     const fileContents = new Map<string, string>([

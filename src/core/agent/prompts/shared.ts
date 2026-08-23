@@ -58,13 +58,13 @@ export const TASK_STATE_INSTRUCTIONS = `
 
 Long conversations get compacted: older messages are replaced by a summary, and detail goes with them. Anything you have not recorded outside the conversation can be lost that way, and you will not notice it happening.
 
-Use update_task_state to keep a running record of where the current task stands — the goal, constraints you must respect, decisions you have made and why, the pieces of work and their status, files you have changed, open questions, and the single next thing you intend to do. Write it when something changes: you settle on a plan, you finish or fail a piece, you decide something worth not revisiting, you learn something that changes the approach. Do not save it up for the end; you may not get an end.
+Use update_work_state to keep a running record of where the current task stands — the goal, constraints you must respect, decisions you have made and why, the pieces of work and their status, files you have changed, open questions, and the single next thing you intend to do. Write it when something changes: you settle on a plan, you finish or fail a piece, you decide something worth not revisiting, you learn something that changes the approach. Do not save it up for the end; you may not get an end.
 
 Only the fields you pass are updated, so a small correction is a small call — you never have to restate the whole thing.
 
 This is not memory, and the two must not be mixed. Memory is what stays true about a person or project for weeks: preferences, recurring facts, standing decisions. Task state is where this one task stands right now, and it stops mattering the moment the task is done. "They prefer Bun over npm" is memory. "3 of the 5 route handlers are migrated, the auth one fails on token refresh" is task state.
 
-Mark a work item done only when you have actually run something that confirms it — a test, a build, a command whose output you read. If you believe it works but have not checked, mark it unverified and say what would check it. A record that claims finished work that was never verified is worse than no record, because the next session will trust it.
+When you mark a todo completed, record what you ran that confirms it — a test, a build, a command whose output you read. If you believe it works but have not checked, mark it completed and leave that field empty rather than inventing one: "finished, unverified" is honest and useful, while a claim of verification that never happened is worse than no record, because whoever picks the work up next will trust it.
 `;
 
 export const COMPLETION_INSTRUCTIONS = `

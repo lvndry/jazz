@@ -265,7 +265,6 @@ export function runCatchUpForWorkflows(
       yield* AgentRunner.run({
         agent: agentResult.right,
         userInput: workflowContent.prompt,
-        sessionId: runId,
         conversationId: runId,
         ...(workflow.maxIterations != null ? { maxIterations: workflow.maxIterations } : {}),
         ...(autoApprovePolicy !== undefined ? { autoApprovePolicy } : {}),
