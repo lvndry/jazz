@@ -15,7 +15,7 @@ and [Security](../../SECURITY.md) for the threat model.
 
 |                                                                         | Count  |
 | ----------------------------------------------------------------------- | ------ |
-| **Agent-facing tools**                                                  | **34** |
+| **Agent-facing tools**                                                  | **35** |
 | Hidden `execute_*` counterparts (the second half of each approval pair) | 7      |
 | Total registered                                                        | 41     |
 | `read-only`                                                             | 20     |
@@ -159,6 +159,7 @@ Opt-in per agent via `tools`. Used by chat bridges that can render a Mini App or
 | Tool             | Risk       | Approval pair | What it does                                                                                                                           |
 | ---------------- | ---------- | ------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
 | `create_web_app` | `low-risk` | —             | Create an interactive UI — a chart, form, dashboard, small game, or any other webpage — for delivery as a static image or a live page. |
+| `create_pdf`     | `low-risk` | —             | Render a PDF from HTML the agent writes, saved to the working directory or an explicit path. Text and numbers are exact — a renderer, not an image generator. |
 
 ---
 
@@ -196,6 +197,7 @@ That keeps the tier low while letting the one command through. Matching is on a 
 - **`http_request` is `read-only`** by risk classification even though it can issue POSTs. It reaches whatever URL the agent targets; network policy belongs at the firewall, not the tier. Treat it accordingly on surfaces that accept untrusted input.
 - **Timeouts** — 3 minutes by default per tool. `ask_user_question` and `ask_file_picker` are `longRunning` and never time out, because waiting for a human is not a hang.
 - **Concurrency** — up to 10 tools execute in parallel per iteration.
+- **`create_pdf` needs a browser too** — same `puppeteer-core` path as `create_web_app`'s static mode, rendering through `page.pdf()`. It writes to the agent's working directory by default (an explicit `path` overrides), unlike `create_web_app`, whose output lands in Jazz's own data directory because only a bridge ever reads it.
 - **`create_web_app` needs a browser for `mode: "static"`** — it screenshots the page through `puppeteer-core`, which deliberately ships no bundled Chrome so that installing Jazz never downloads one. It uses `PUPPETEER_EXECUTABLE_PATH` if set, otherwise an installed Google Chrome; with neither it fails and says so. `mode: "interactive"` needs no browser.
 
 ---

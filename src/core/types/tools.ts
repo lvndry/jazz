@@ -2,6 +2,7 @@ import type { Effect } from "effect";
 import type z from "zod";
 import type { ToolRiskLevel } from "@/core/interfaces/tool-registry";
 import type { Agent } from "@/core/types/agent";
+import type { GeneratedArtifact } from "@/core/types/artifact";
 import type { AttachmentKind, MessageAttachment } from "@/core/types/attachment";
 import type { ChatMessage } from "@/core/types/message";
 import type { StreamEvent } from "@/core/types/streaming";
@@ -97,6 +98,13 @@ export interface ToolExecutionResult {
   readonly success: boolean;
   readonly result: unknown;
   readonly error?: string;
+  /**
+   * Files this call produced, for the runner to surface to whoever is watching.
+   *
+   * Declared by the producer rather than recognized by tool name downstream, so adding a
+   * producer does not mean editing the runner, the JSON envelope and every bridge.
+   */
+  readonly artifacts?: readonly GeneratedArtifact[];
 }
 
 /**

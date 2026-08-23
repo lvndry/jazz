@@ -4,6 +4,7 @@ import puppeteer, { type ChromeReleaseChannel } from "puppeteer-core";
 import shortuuid from "short-uuid";
 import { z } from "zod";
 import type { Tool } from "@/core/interfaces/tool-registry";
+import type { GeneratedArtifact } from "@/core/types/artifact";
 import type { ToolExecutionResult } from "@/core/types/tools";
 import { getUserDataDirectory } from "@/core/utils/paths";
 import { defineTool, makeZodValidator } from "./base-tool";
@@ -210,6 +211,18 @@ export function createWebAppTool(
             ),
         });
 
+        // `source: "rendered"`, emphatically: this PNG is a screenshot of HTML the model wrote,
+        // so its numbers and labels are exact. Labelling it alongside AI-generated imagery would
+        // tell the reader not to trust figures they can trust.
+        const artifact: GeneratedArtifact = {
+          kind: "image",
+          path: pngPath,
+          mediaType: "image/png",
+          title: args.title,
+          tool: "create_web_app",
+          source: "rendered",
+        };
+
         return {
           success: true,
           result: {
@@ -218,7 +231,9 @@ export function createWebAppTool(
             title: args.title,
             htmlPath,
             imagePath: pngPath,
+            artifacts: [artifact],
           },
+          artifacts: [artifact],
         } satisfies ToolExecutionResult;
       }).pipe(
         Effect.catchAll((error) =>
