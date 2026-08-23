@@ -45,11 +45,28 @@ const settled = settledBlocks();
 
 transcriptRows(settled, VIEWPORT);
 
+function measure(frameOf: (frame: number) => readonly Block[]): Record<string, number> {
+  const durations: number[] = [];
+  for (let frame = 0; frame < FRAMES; frame += 1) {
+    const blocks = frameOf(frame);
+    const start = performance.now();
+    transcriptRows(blocks, VIEWPORT);
+    durations.push(performance.now() - start);
+  }
+  durations.sort((first, second) => first - second);
+  const total = durations.reduce((sum, value) => sum + value, 0);
+  return {
+    totalMs: Number(total.toFixed(1)),
+    meanMsPerFrame: Number((total / FRAMES).toFixed(3)),
+    p50Ms: Number((durations[Math.floor(durations.length * 0.5)] ?? 0).toFixed(3)),
+    p95Ms: Number((durations[Math.floor(durations.length * 0.95)] ?? 0).toFixed(3)),
+  };
+}
+
 let streamed = "";
-const durations: number[] = [];
-for (let frame = 0; frame < FRAMES; frame += 1) {
+const streaming = measure(() => {
   streamed += "token ";
-  const blocks: Block[] = [
+  return [
     ...settled,
     {
       id: "stream",
@@ -59,22 +76,17 @@ for (let frame = 0; frame < FRAMES; frame += 1) {
       streaming: true,
     },
   ];
-  const start = performance.now();
-  transcriptRows(blocks, VIEWPORT);
-  durations.push(performance.now() - start);
-}
+});
 
-durations.sort((first, second) => first - second);
-const total = durations.reduce((sum, value) => sum + value, 0);
-const p50 = durations[Math.floor(durations.length * 0.5)] ?? 0;
-const p95 = durations[Math.floor(durations.length * 0.95)] ?? 0;
+// A fresh array of the same block objects: every wrap hits the cache, so this
+// isolates the per-frame walk over settled blocks from any wrapping at all.
+const unchanged = measure(() => [...settled]);
+
 console.log(
   JSON.stringify({
     settledBlocks: SETTLED_COUNT * 3,
     frames: FRAMES,
-    totalMs: Number(total.toFixed(1)),
-    meanMsPerFrame: Number((total / FRAMES).toFixed(3)),
-    p50Ms: Number(p50.toFixed(3)),
-    p95Ms: Number(p95.toFixed(3)),
+    streamingTail: streaming,
+    unchangedBlocks: unchanged,
   }),
 );

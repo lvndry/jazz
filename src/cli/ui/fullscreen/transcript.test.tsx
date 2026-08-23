@@ -19,7 +19,7 @@ import type { ReactNode } from "react";
 import { getGlyphs } from "../glyphs";
 import { setThemeVariant, THEME } from "../theme";
 import { terminalCellWidth } from "./terminal-cells";
-import { inlineSegments, Transcript, transcriptRows } from "./Transcript";
+import { inlineSegments, Transcript, transcriptRows, type RenderRow } from "./Transcript";
 import { measureFor, PROSE_MEASURE, type Block, type Viewport } from "./types";
 
 beforeAll(() => {
@@ -999,6 +999,43 @@ describe("wrap cache", () => {
     expect(expanded).not.toEqual(collapsed);
     const rewritten = transcriptRows([{ ...base, expanded: true, detail: "other output" }], WIDE);
     expect(rewritten).not.toEqual(expanded);
+  });
+
+  it("re-wraps nothing when the same blocks arrive in a fresh array", () => {
+    // Breathing rows are cheap and built per frame; every wrapped row should
+    // come straight back out of the cache.
+    const wrapped = (blocks: readonly Block[]): RenderRow[] =>
+      transcriptRows(blocks, WIDE).filter((row) => !row.key.startsWith("gap:"));
+    const first = wrapped([...SESSION]);
+    const second = wrapped([...SESSION]);
+    expect(second.length).toBe(first.length);
+    expect(first.length).toBeGreaterThan(0);
+    for (let index = 0; index < first.length; index += 1) {
+      expect(second[index]).toBe(first[index]);
+    }
+  });
+
+  it("busts a receipt run when a later call joins it", () => {
+    const read: Block = {
+      id: "t1",
+      seq: 1,
+      kind: "tool",
+      app: "files",
+      summary: "read note",
+      status: "ok",
+    };
+    const write: Block = {
+      id: "t2",
+      seq: 2,
+      kind: "tool",
+      app: "files",
+      summary: "wrote note",
+      status: "ok",
+    };
+    const alone = transcriptRows([read], WIDE);
+    const paired = transcriptRows([read, write], WIDE);
+    expect(paired).not.toEqual(alone);
+    expect(transcriptRows([read], WIDE)).toEqual(alone);
   });
 
   it("reuses settled block rows while a streaming tail misses", () => {

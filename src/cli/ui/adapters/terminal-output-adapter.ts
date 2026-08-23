@@ -17,7 +17,10 @@
  */
 
 import { useCallback, useReducer, useRef } from "react";
-import { findLastSafeSplitPoint } from "@/cli/presentation/markdown-split";
+import {
+  createStreamSplitScanner,
+  type StreamSplitScanner,
+} from "@/cli/presentation/markdown-split";
 import type { OutputEntry, OutputEntryWithId } from "../types";
 
 export type { OutputEntry, OutputEntryWithId };
@@ -28,6 +31,13 @@ export interface PendingStream {
   readonly id: string;
   readonly kind: StreamKind;
   readonly rawTail: string;
+  /**
+   * Split-point scanner for this pending's tail. It commits each line of
+   * `rawTail` once instead of rescanning the whole tail per delta, so it is
+   * carried with the pending it belongs to and rebuilt whenever the tail is
+   * rebased by a promotion.
+   */
+  readonly splitScanner: StreamSplitScanner;
 }
 
 export interface ScrollbackState {
@@ -88,7 +98,12 @@ export function reduceScrollback(
       if (next.pending === null) {
         next = {
           ...next,
-          pending: { id: action.nextId, kind: action.kind, rawTail: action.delta },
+          pending: {
+            id: action.nextId,
+            kind: action.kind,
+            rawTail: action.delta,
+            splitScanner: createStreamSplitScanner(),
+          },
         };
       } else {
         next = {
@@ -136,7 +151,7 @@ function splitAndPromote(state: ScrollbackState): ScrollbackState {
   if (state.pending === null) return state;
   let splitOffset: number;
   try {
-    splitOffset = findLastSafeSplitPoint(state.pending.rawTail);
+    splitOffset = state.pending.splitScanner.evaluate(state.pending.rawTail);
   } catch {
     // Splitter threw: degrade safely, leave pending untouched.
     return state;
@@ -152,10 +167,12 @@ function splitAndPromote(state: ScrollbackState): ScrollbackState {
     meta: { kind: state.pending.kind },
     timestamp: new Date(),
   };
+  // The tail is rebased, so every offset the scanner committed is stale.
+  const rebasedScanner = createStreamSplitScanner();
   return {
     ...state,
     staticEntries: [...state.staticEntries, promoted],
-    pending: { ...state.pending, rawTail: after },
+    pending: { ...state.pending, rawTail: after, splitScanner: rebasedScanner },
   };
 }
 
