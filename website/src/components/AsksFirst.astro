@@ -144,12 +144,10 @@ const rules = [
     padding: 10px 18px;
     font-size: 12px;
     color: var(--jz-muted);
-    position: relative;
-    min-height: 20px;
+    display: grid;
   }
   .ctl {
-    position: absolute;
-    inset: 10px 18px auto;
+    grid-area: 1 / 1;
     opacity: 0;
     transition: opacity 0.4s ease;
   }
