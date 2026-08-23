@@ -767,15 +767,24 @@ interface Geometry {
   readonly metadata: number;
 }
 
-interface WrapCacheEntry {
-  readonly fingerprint: string;
+interface RunCacheEntry {
+  readonly run: readonly ToolReceiptBlock[];
   readonly rows: readonly RenderRow[];
 }
 
-// Streaming replaces the last Block, so useMemo re-enters transcriptRows
-// for the whole conversation. Cache wrap/highlight by identity + fingerprint
-// so only the dirty tail misses.
-const wrapCache = new Map<string, WrapCacheEntry>();
+// Streaming replaces the last Block, so useMemo re-enters transcriptRows for
+// the whole conversation. Cache wrap/highlight per block so only the dirty tail
+// misses.
+//
+// The cache is keyed on the Block object itself, and finding an entry is the
+// whole validity check: `shareUnchangedBlocks` in the bridge hands back the
+// previous Block whenever its content is unchanged, so a fresh object means
+// fresh content and reference equality catches every edit. Comparing content
+// instead meant a JSON.stringify of every block's full text on every frame,
+// which was the entire warm cost of a streamed frame once #395 landed. Keying
+// weakly also retires an entry with the block it wrapped, so nothing evicts.
+let blockRowsCache = new WeakMap<Block, readonly RenderRow[]>();
+let runRowsCache = new WeakMap<ToolReceiptBlock, RunCacheEntry>();
 let wrapCacheEpoch: string | undefined;
 let lastTranscriptBlocks: readonly Block[] | undefined;
 let lastTranscriptEpoch: string | undefined;
@@ -787,78 +796,40 @@ function wrapEpoch(width: number, glyphs: GlyphSet): string {
   return `${String(width)}\0${getThemeVariant()}\0${glyphs.rail}\0${glyphs.divider}\0${glyphs.bullet}\0${glyphs.diamond}`;
 }
 
-function blockFingerprint(block: Block): string {
-  switch (block.kind) {
-    case "user":
-      return JSON.stringify(["user", block.text, block.at]);
-    case "agent":
-      return JSON.stringify(["agent", block.markdown, block.streaming === true]);
-    case "reasoning":
-      return JSON.stringify([
-        "reasoning",
-        block.text,
-        block.collapsed,
-        block.steps,
-        block.durationMs,
-      ]);
-    case "tool":
-      return JSON.stringify([
-        "tool",
-        block.app,
-        block.summary,
-        block.args,
-        block.status,
-        block.reason,
-        block.remedyKey,
-        block.expanded === true,
-        block.detail,
-        block.durationMs,
-        block.classifiedRisk,
-      ]);
-    case "notice":
-      return JSON.stringify(["notice", block.text, block.tone]);
-    case "divider":
-      return JSON.stringify(["divider", block.label]);
-    case "lane":
-      return JSON.stringify([
-        "lane",
-        block.name,
-        block.ask,
-        block.lane,
-        block.state,
-        block.result,
-        block.steps,
-      ]);
+function sameRun(
+  cached: readonly ToolReceiptBlock[],
+  current: readonly ToolReceiptBlock[],
+): boolean {
+  if (cached.length !== current.length) return false;
+  for (let index = 0; index < cached.length; index += 1) {
+    if (cached[index] !== current[index]) return false;
   }
+  return true;
 }
 
-function toolRunCacheKey(blocks: readonly ToolReceiptBlock[]): string {
-  const parts: string[] = ["tool-run"];
-  for (const block of blocks) {
-    parts.push(block.id);
-  }
-  return parts.join("\0");
-}
-
-function toolRunFingerprint(blocks: readonly ToolReceiptBlock[]): string {
-  const parts: string[] = [];
-  for (const block of blocks) {
-    parts.push(block.id, blockFingerprint(block));
-  }
-  return parts.join("\n");
-}
-
-function cachedRows(
-  cacheKey: string,
-  fingerprint: string,
+function cachedBlockRows(
+  block: Exclude<Block, ToolReceiptBlock>,
   compute: () => RenderRow[],
 ): readonly RenderRow[] {
-  const hit = wrapCache.get(cacheKey);
-  if (hit !== undefined && hit.fingerprint === fingerprint) {
-    return hit.rows;
-  }
+  const hit = blockRowsCache.get(block);
+  if (hit !== undefined) return hit;
   const rows = compute();
-  wrapCache.set(cacheKey, { fingerprint, rows });
+  blockRowsCache.set(block, rows);
+  return rows;
+}
+
+// A run of consecutive receipts wraps as one unit, keyed on its head. The rest
+// of the run still needs comparing: growing or shrinking a run leaves the head
+// in place, and only its members say how far the shared wrap reached.
+function cachedRunRows(
+  run: readonly ToolReceiptBlock[],
+  head: ToolReceiptBlock,
+  compute: () => RenderRow[],
+): readonly RenderRow[] {
+  const hit = runRowsCache.get(head);
+  if (hit !== undefined && sameRun(hit.run, run)) return hit.rows;
+  const rows = compute();
+  runRowsCache.set(head, { run, rows });
   return rows;
 }
 
@@ -1356,7 +1327,8 @@ export function transcriptRows(blocks: readonly Block[], viewport: Viewport): Re
   }
 
   if (wrapCacheEpoch !== epoch) {
-    wrapCache.clear();
+    blockRowsCache = new WeakMap();
+    runRowsCache = new WeakMap();
     wrapCacheEpoch = epoch;
   }
 
@@ -1387,16 +1359,14 @@ export function transcriptRows(blocks: readonly Block[], viewport: Viewport): Re
       }
       appendRows(
         rows,
-        cachedRows(toolRunCacheKey(run), toolRunFingerprint(run), () =>
-          receiptRows(run, geometry, glyphs),
-        ),
+        cachedRunRows(run, block, () => receiptRows(run, geometry, glyphs)),
       );
       continue;
     }
 
     appendRows(
       rows,
-      cachedRows(block.id, blockFingerprint(block), () => rowsForBlock(block, geometry, glyphs)),
+      cachedBlockRows(block, () => rowsForBlock(block, geometry, glyphs)),
     );
     index += 1;
   }

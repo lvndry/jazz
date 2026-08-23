@@ -9,6 +9,13 @@
  * still renders, just split into two adjacent blocks. A *missing* split is
  * what we care about; the rules below guarantee a split at every paragraph
  * boundary in normal prose.
+ *
+ * Two entry points:
+ * - `findLastSafeSplitPoint(text)` — pure, one-shot, scans `text` once.
+ * - `createStreamSplitScanner()` — stateful; commits each line of the pending
+ *   tail exactly once across a run of appends, so streaming a block costs
+ *   O(tail) in total rather than O(tail²). The one-shot function is a thin
+ *   wrapper over a throwaway scanner, so both share one implementation.
  */
 
 /** Hard cap on pending tail size. Triggers a forced last-newline fallback. */
@@ -16,6 +23,37 @@ export const MAX_PENDING_TAIL = 8192;
 
 /** Never split inside the trailing N chars — too likely to be in-flight. */
 export const SOFT_TAIL = 256;
+
+const FENCE_MARKERS = ["```", "~~~"] as const;
+const SENTENCE_TERMINATORS = [".", "?", "!"] as const;
+
+/**
+ * How much of the in-flight partial line to inspect when asking "is this line
+ * a list item?". A list marker sits within the first few chars of a line, so a
+ * bounded probe answers the question without rescanning a long line on every
+ * delta.
+ */
+const LIST_MARKER_PROBE = 64;
+
+/**
+ * Incremental split-point finder over a growing pending tail.
+ *
+ * `evaluate` must be called with text that extends what it was last called
+ * with (the pending buffer only ever grows by appended deltas). Anything else
+ * — a shorter string, or a rebased tail after a promotion — must go through
+ * `reset`, or a fresh scanner. Re-evaluating the *same* text is safe and free,
+ * so a replayed reducer dispatch costs nothing.
+ */
+export interface StreamSplitScanner {
+  /** Highest safe split offset in `text`, or 0 when nothing can be promoted. */
+  evaluate(text: string): number;
+  /** Drop all committed state; the next `evaluate` rescans from offset 0. */
+  reset(): void;
+}
+
+export function createStreamSplitScanner(): StreamSplitScanner {
+  return new LineScanner();
+}
 
 /**
  * Return the highest offset in `text` that is "safe" to split at — meaning
@@ -27,59 +65,345 @@ export const SOFT_TAIL = 256;
  * leave the buffer alone".
  */
 export function findLastSafeSplitPoint(text: string): number {
-  if (text.length === 0) return 0;
+  return new LineScanner().evaluate(text);
+}
 
-  // 1. Compute the floor: the earliest offset still inside an open structure.
-  //    Split point cannot exceed this floor.
-  const floor = computeOpenStructureFloor(text);
-  const hasOpenStructure = floor < text.length;
+/**
+ * Line-at-a-time scanner behind both entry points.
+ *
+ * Every candidate rule the splitter uses (closing fence, blank line, end of
+ * list block, heading end, sentence end) resolves to an offset immediately
+ * after a newline, so each one can be recognized while committing the line
+ * that produced it and remembered as an offset. Candidates are discovered in
+ * increasing order, which keeps each list sorted and makes "highest candidate
+ * at or below `upperBound`" a binary search.
+ *
+ * Only complete lines are committed. The trailing partial line is re-derived
+ * on every `evaluate` — it is one line, and it is the only part of the text
+ * that a new delta can change.
+ */
+class LineScanner implements StreamSplitScanner {
+  /** Offset just past the last committed newline; start of the partial line. */
+  private committedLength = 0;
 
-  // 2. Bound the search.
-  //    - When there's an open structure, the floor IS the in-flight construct,
-  //      so it already plays the role of the soft tail. Don't apply soft tail
-  //      on top of it.
-  //    - When there's no open structure, the soft tail leaves a buffer.
-  const upperBound = hasOpenStructure ? floor : Math.max(0, text.length - SOFT_TAIL);
+  private openFenceMarker: string | null = null;
+  private openFenceStart: number | null = null;
 
-  if (upperBound <= 0) {
-    // Nothing safe within bounds. Try the hard cap before giving up.
-    return tryHardCapFallback(text);
+  private readonly closingFenceCandidates: number[] = [];
+  /** Offsets of `\n\n` occurrences, not the candidates they imply. */
+  private readonly blankLineStarts: number[] = [];
+  private readonly listBlockEndCandidates: number[] = [];
+  private readonly headingEndCandidates: number[] = [];
+  private readonly sentenceEndCandidates: number[] = [];
+  /**
+   * Sentence ends whose following char is a newline. A sentence end only
+   * counts when something other than a blank line follows it — a paragraph
+   * break is the blank-line rule's business — so these are held apart and
+   * only used when the split bound lands exactly on them.
+   */
+  private readonly sentenceEndBeforeBlankCandidates: number[] = [];
+  /**
+   * Sentence end of the last committed line, before the next line has
+   * arrived to say which of the two lists above it belongs in.
+   */
+  private unclassifiedSentenceEnd: number | null = null;
+
+  private lastCommittedLineIsList = false;
+  /** Start of the contiguous list run ending at the last committed line. */
+  private runStartOfLastCommittedLine: number | null = null;
+  /** Start of the last contiguous list run seen anywhere in committed text. */
+  private lastListRunStart: number | null = null;
+  /** End offset (excluding its newline) of the last committed list line. */
+  private lastListLineEnd = -1;
+
+  reset(): void {
+    this.committedLength = 0;
+    this.openFenceMarker = null;
+    this.openFenceStart = null;
+    this.closingFenceCandidates.length = 0;
+    this.blankLineStarts.length = 0;
+    this.listBlockEndCandidates.length = 0;
+    this.headingEndCandidates.length = 0;
+    this.sentenceEndCandidates.length = 0;
+    this.sentenceEndBeforeBlankCandidates.length = 0;
+    this.unclassifiedSentenceEnd = null;
+    this.lastCommittedLineIsList = false;
+    this.runStartOfLastCommittedLine = null;
+    this.lastListRunStart = null;
+    this.lastListLineEnd = -1;
   }
 
-  // 3. Within [0, upperBound), prefer in priority order:
-  //    a. Last closing fence followed by \n.
-  //    b. Last blank line (\n\n) at column 0.
-  //    c. Last end-of-list-block boundary.
-  //    d. Last heading line end.
-  //    e. Last sentence end.
-  const candidates = [
-    findLastClosingFence(text, upperBound),
-    findLastBlankLine(text, upperBound),
-    findLastEndOfListBlock(text, upperBound),
-    findLastHeadingEnd(text, upperBound),
-    findLastSentenceEnd(text, upperBound),
-  ].filter((offset): offset is number => offset !== null);
+  evaluate(text: string): number {
+    if (text.length < this.committedLength) this.reset();
+    this.commitCompletedLines(text);
+    if (text.length === 0) return 0;
 
-  // When there's an open structure, the floor itself is a valid candidate:
-  // by construction, text[floor - 1] === '\n' (open structures match at the
-  // start of a line), so floor is a safe line boundary.
-  if (hasOpenStructure) {
-    candidates.push(upperBound);
+    const partialLine = text.slice(this.committedLength);
+
+    // 1. Compute the floor: the earliest offset still inside an open structure.
+    //    Split point cannot exceed this floor.
+    const floor = this.computeOpenStructureFloor(text, partialLine);
+    const hasOpenStructure = floor < text.length;
+
+    // 2. Bound the search.
+    //    - When there's an open structure, the floor IS the in-flight construct,
+    //      so it already plays the role of the soft tail. Don't apply soft tail
+    //      on top of it.
+    //    - When there's no open structure, the soft tail leaves a buffer.
+    const upperBound = hasOpenStructure ? floor : Math.max(0, text.length - SOFT_TAIL);
+
+    if (upperBound <= 0) {
+      // Nothing safe within bounds. Try the hard cap before giving up.
+      return tryHardCapFallback(text);
+    }
+
+    // 3. Within [0, upperBound), prefer the highest of: last closing fence,
+    //    last blank line, last end-of-list-block, last heading end, last
+    //    sentence end. Each list is sorted, so this is a binary search.
+    const candidates = [
+      highestAtMost(this.closingFenceCandidates, upperBound),
+      this.findLastBlankLine(upperBound),
+      highestAtMost(this.listBlockEndCandidates, upperBound),
+      highestAtMost(this.headingEndCandidates, upperBound),
+      highestAtMost(this.sentenceEndCandidates, upperBound),
+      this.findLastSentenceEndBeforeBlank(text, upperBound),
+      this.findListBlockEndAtPartialLine(partialLine, upperBound),
+    ].filter((offset): offset is number => offset !== null);
+
+    // When there's an open structure, the floor itself is a valid candidate:
+    // by construction, text[floor - 1] === '\n' (open structures match at the
+    // start of a line), so floor is a safe line boundary.
+    if (hasOpenStructure) {
+      candidates.push(upperBound);
+    }
+
+    if (candidates.length === 0) {
+      return tryHardCapFallback(text);
+    }
+
+    const split = Math.max(...candidates);
+
+    // 4. Reject splits that fall inside an inline run (`...`, **...**, *...*,
+    //    _..._, [...](...)). Scanning the prefix is O(split), but it only runs
+    //    when a candidate exists — i.e. right before promoting those same
+    //    `split` chars out of the buffer — so it is amortized O(1) per char.
+    if (isInsideInlineRun(text, split)) {
+      return tryHardCapFallback(text);
+    }
+
+    return split;
   }
 
-  if (candidates.length === 0) {
-    return tryHardCapFallback(text);
+  /**
+   * Fold every line that has gained its terminating newline since the last
+   * call into the candidate lists and the fence/list state.
+   */
+  private commitCompletedLines(text: string): void {
+    let lineStart = this.committedLength;
+    let newlineIndex = text.indexOf("\n", lineStart);
+    while (newlineIndex !== -1) {
+      this.commitLine(text.slice(lineStart, newlineIndex), lineStart, newlineIndex);
+      lineStart = newlineIndex + 1;
+      newlineIndex = text.indexOf("\n", lineStart);
+    }
+    this.committedLength = lineStart;
   }
 
-  const split = Math.max(...candidates);
+  /**
+   * `line` excludes its newline; `lineEnd` is the offset of that newline, so
+   * `lineEnd + 1` is both the start of the next line and the split candidate
+   * any rule matching this line implies.
+   */
+  private commitLine(line: string, lineStart: number, lineEnd: number): void {
+    const nextLineStart = lineEnd + 1;
 
-  // 4. Reject splits that fall inside an inline run (`...`, **...**, *...*,
-  //    _..._, [...](...)).
-  if (isInsideInlineRun(text, split)) {
-    return tryHardCapFallback(text);
+    // This line is what follows the previous line's sentence end, so it
+    // settles which list that candidate belongs in.
+    if (this.unclassifiedSentenceEnd !== null) {
+      if (line.length === 0) {
+        this.sentenceEndBeforeBlankCandidates.push(this.unclassifiedSentenceEnd);
+      } else {
+        this.sentenceEndCandidates.push(this.unclassifiedSentenceEnd);
+      }
+      this.unclassifiedSentenceEnd = null;
+    }
+
+    const fenceMarker = matchFenceMarker(line);
+    if (fenceMarker !== null) {
+      if (this.openFenceMarker === null) {
+        this.openFenceMarker = fenceMarker;
+        this.openFenceStart = lineStart;
+      } else if (this.openFenceMarker === fenceMarker) {
+        this.openFenceMarker = null;
+        this.openFenceStart = null;
+      }
+      // Mismatched closer: leave the open fence state unchanged.
+    }
+
+    // A `\`\`\`\n` or `~~~\n` run can only sit at the end of a line.
+    if (FENCE_MARKERS.some((marker) => line.endsWith(marker))) {
+      this.closingFenceCandidates.push(nextLineStart);
+    }
+
+    // An empty committed line means text[lineStart - 1] and text[lineStart]
+    // are both newlines — a `\n\n` occurrence starting at lineStart - 1.
+    if (line.length === 0 && lineStart > 0) {
+      this.blankLineStarts.push(lineStart - 1);
+    }
+
+    if (isHeadingLine(line)) {
+      this.headingEndCandidates.push(nextLineStart);
+    }
+
+    if (SENTENCE_TERMINATORS.some((terminator) => line.endsWith(terminator))) {
+      this.unclassifiedSentenceEnd = nextLineStart;
+    }
+
+    const lineIsList = isListLine(line);
+
+    // A list block ends when a list line is immediately followed by a
+    // non-list, non-blank line.
+    if (this.lastCommittedLineIsList && !lineIsList && line.length > 0) {
+      this.listBlockEndCandidates.push(lineStart);
+    }
+
+    if (lineIsList) {
+      const runStart =
+        this.lastCommittedLineIsList && this.runStartOfLastCommittedLine !== null
+          ? this.runStartOfLastCommittedLine
+          : lineStart;
+      this.runStartOfLastCommittedLine = runStart;
+      this.lastListRunStart = runStart;
+      this.lastListLineEnd = lineEnd;
+    } else {
+      this.runStartOfLastCommittedLine = null;
+    }
+    this.lastCommittedLineIsList = lineIsList;
   }
 
-  return split;
+  /**
+   * Earliest offset still inside an unclosed structure. Split must be ≤ this.
+   * For text with no open structures, returns text.length.
+   */
+  private computeOpenStructureFloor(text: string, partialLine: string): number {
+    // Open fenced code block: the last unmatched ``` (or ~~~) line, including
+    // one that has just arrived in the still-unterminated partial line.
+    const partialFenceMarker = matchFenceMarker(partialLine);
+    if (partialFenceMarker !== null) {
+      if (this.openFenceMarker === null) return this.committedLength;
+      if (this.openFenceMarker !== partialFenceMarker) return this.openFenceStart ?? text.length;
+      // The partial line closes the open fence.
+    } else if (this.openFenceStart !== null) {
+      return this.openFenceStart;
+    }
+
+    // Open list block: a list line whose continuation hasn't broken yet.
+    const openListStart = this.findOpenListStart(text, partialLine);
+    if (openListStart !== null) return openListStart;
+
+    return text.length;
+  }
+
+  /**
+   * Start of the last contiguous list block when that block is still "open" —
+   * its last line reaches into the trailing SOFT_TAIL, so more items may
+   * still arrive. The partial line counts as part of the block.
+   */
+  private findOpenListStart(text: string, partialLine: string): number | null {
+    let blockStart: number | null;
+    let blockLastLineEnd: number;
+
+    if (isListLine(partialLine)) {
+      blockStart =
+        this.lastCommittedLineIsList && this.runStartOfLastCommittedLine !== null
+          ? this.runStartOfLastCommittedLine
+          : this.committedLength;
+      blockLastLineEnd = text.length;
+    } else {
+      blockStart = this.lastListRunStart;
+      blockLastLineEnd = this.lastListLineEnd;
+    }
+
+    if (blockStart === null) return null;
+    return blockLastLineEnd >= text.length - SOFT_TAIL ? blockStart : null;
+  }
+
+  /**
+   * A sentence end that a blank line follows is only a split point when the
+   * bound lands exactly on it — past that, the blank-line rule owns the
+   * boundary. The last committed line's candidate is still unclassified, so
+   * resolve it here against the char that actually follows it.
+   */
+  private findLastSentenceEndBeforeBlank(text: string, upperBound: number): number | null {
+    if (this.unclassifiedSentenceEnd !== null && this.unclassifiedSentenceEnd <= upperBound) {
+      const candidate = this.unclassifiedSentenceEnd;
+      if (text[candidate] !== "\n" || candidate === upperBound) return candidate;
+    }
+    const beforeBlank = highestAtMost(this.sentenceEndBeforeBlankCandidates, upperBound);
+    return beforeBlank === upperBound ? beforeBlank : null;
+  }
+
+  /**
+   * The end-of-list-block candidate that the still-unterminated partial line
+   * closes: the last committed line is a list item and the line now streaming
+   * in is not. Without this, a list followed by a long in-flight paragraph
+   * would offer no split at all until that paragraph's newline arrived.
+   */
+  private findListBlockEndAtPartialLine(partialLine: string, upperBound: number): number | null {
+    if (!this.lastCommittedLineIsList) return null;
+    if (this.committedLength >= upperBound) return null;
+    if (partialLine.length === 0) return null;
+    if (isListLine(partialLine.slice(0, LIST_MARKER_PROBE))) return null;
+    return this.committedLength;
+  }
+
+  /**
+   * Highest blank-line candidate at or below `upperBound`.
+   *
+   * Mirrors a `lastIndexOf("\n\n", upperBound - 1)` search: the occurrence is
+   * chosen first and only then checked against the bound, so an occurrence
+   * starting at exactly `upperBound - 1` yields no candidate rather than
+   * falling back to an earlier blank line.
+   */
+  private findLastBlankLine(upperBound: number): number | null {
+    const occurrence = highestAtMost(this.blankLineStarts, upperBound - 1);
+    if (occurrence === null) return null;
+    const candidate = occurrence + 2;
+    return candidate <= upperBound ? candidate : null;
+  }
+}
+
+/** Highest value in a sorted ascending array that is ≤ `bound`, or null. */
+function highestAtMost(sorted: readonly number[], bound: number): number | null {
+  let low = 0;
+  let high = sorted.length - 1;
+  let best: number | null = null;
+  while (low <= high) {
+    const mid = (low + high) >>> 1;
+    const value = sorted[mid]!;
+    if (value <= bound) {
+      best = value;
+      low = mid + 1;
+    } else {
+      high = mid - 1;
+    }
+  }
+  return best;
+}
+
+function matchFenceMarker(line: string): string | null {
+  for (const marker of FENCE_MARKERS) {
+    if (line.startsWith(marker)) return marker;
+  }
+  return null;
+}
+
+function isHeadingLine(line: string): boolean {
+  return /^#{1,6}\s/.test(line);
+}
+
+function isListLine(line: string): boolean {
+  return /^\s*([-*+]\s|\d+\.\s)/.test(line);
 }
 
 /**
@@ -110,22 +434,6 @@ export function isInsideOpenStructure(text: string): boolean {
 }
 
 /**
- * Earliest offset still inside an unclosed structure. Split must be ≤ this.
- * For text with no open structures, returns text.length.
- */
-function computeOpenStructureFloor(text: string): number {
-  // Open fenced code block: track last unmatched ``` (or ~~~) line.
-  const fenceMatch = findLastUnmatchedFenceStart(text);
-  if (fenceMatch !== null) return fenceMatch;
-
-  // Open list block: a list line whose continuation hasn't broken yet.
-  const listMatch = findLastOpenListStart(text);
-  if (listMatch !== null) return listMatch;
-
-  return text.length;
-}
-
-/**
  * Find the start of the last unclosed fenced code block (``` or ~~~), or null
  * if all fences are matched.
  */
@@ -146,121 +454,6 @@ function findLastUnmatchedFenceStart(text: string): number | null {
     // Mismatched closer: leave openFenceChar/lastOpenStart unchanged.
   }
   return lastOpenStart;
-}
-
-/**
- * Find the start of the last list block whose continuation is still active —
- * i.e., the last line index `i` such that all lines from `i` onward are list
- * items or list-item continuations and there's no break.
- *
- * Conservative: any list-line touching the last SOFT_TAIL is treated as open.
- */
-function isListLine(line: string): boolean {
-  return /^\s*([-*+]\s|\d+\.\s)/.test(line);
-}
-
-function findLastOpenListStart(text: string): number | null {
-  const lines = text.split("\n");
-  const cumulative: number[] = [];
-  let acc = 0;
-  for (const line of lines) {
-    cumulative.push(acc);
-    acc += line.length + 1; // +1 for the \n
-  }
-
-  // Find the last contiguous list block.
-  let lastListBlockStart: number | null = null;
-  let lastListBlockEnd = -1; // exclusive
-  let i = lines.length - 1;
-  while (i >= 0) {
-    if (isListLine(lines[i]!)) {
-      let blockStart = i;
-      while (blockStart > 0 && isListLine(lines[blockStart - 1]!)) {
-        blockStart -= 1;
-      }
-      if (lastListBlockStart === null) {
-        lastListBlockStart = blockStart;
-        lastListBlockEnd = i + 1;
-      }
-      i = blockStart - 1;
-    } else {
-      i -= 1;
-    }
-  }
-
-  if (lastListBlockStart === null) return null;
-
-  // If the last line of the block is in the soft tail, the list is "open".
-  const lastLineEnd = cumulative[lastListBlockEnd - 1]! + lines[lastListBlockEnd - 1]!.length;
-  if (lastLineEnd >= text.length - SOFT_TAIL) {
-    return cumulative[lastListBlockStart] ?? null;
-  }
-  return null;
-}
-
-function findLastClosingFence(text: string, upperBound: number): number | null {
-  // Search for ```\n or ~~~\n strictly within [0, upperBound).
-  const region = text.slice(0, upperBound);
-  let last = -1;
-  for (const marker of ["```\n", "~~~\n"] as const) {
-    const idx = region.lastIndexOf(marker);
-    if (idx !== -1) {
-      const candidate = idx + marker.length;
-      if (candidate <= upperBound) last = Math.max(last, candidate);
-    }
-  }
-  return last === -1 ? null : last;
-}
-
-function findLastBlankLine(text: string, upperBound: number): number | null {
-  const idx = text.lastIndexOf("\n\n", upperBound - 1);
-  if (idx === -1) return null;
-  const candidate = idx + 2;
-  return candidate <= upperBound ? candidate : null;
-}
-
-function findLastEndOfListBlock(text: string, upperBound: number): number | null {
-  // A list block ends when a list line is immediately followed by a non-list,
-  // non-blank line. Conservative: only return the end if the end is ≤ upperBound.
-  const lines = text.slice(0, upperBound).split("\n");
-  let acc = 0;
-  let lastEnd: number | null = null;
-  for (let i = 0; i < lines.length - 1; i++) {
-    const here = lines[i]!;
-    const next = lines[i + 1]!;
-    acc += here.length + 1; // +1 for \n consumed
-    if (isListLine(here) && next.length > 0 && !isListLine(next)) {
-      lastEnd = acc;
-    }
-  }
-  return lastEnd;
-}
-
-function findLastHeadingEnd(text: string, upperBound: number): number | null {
-  const region = text.slice(0, upperBound);
-  // ATX heading: a line beginning with one or more # followed by space.
-  let lastEnd: number | null = null;
-  const lines = region.split("\n");
-  let acc = 0;
-  for (const line of lines) {
-    acc += line.length + 1;
-    if (/^#{1,6}\s/.test(line)) {
-      // The heading line ends after its trailing \n.
-      if (acc <= upperBound) lastEnd = acc;
-    }
-  }
-  return lastEnd;
-}
-
-function findLastSentenceEnd(text: string, upperBound: number): number | null {
-  const region = text.slice(0, upperBound);
-  const regex = /[.?!]\n(?=[^\n]|$)/g;
-  let lastEnd: number | null = null;
-  let match: RegExpExecArray | null;
-  while ((match = regex.exec(region)) !== null) {
-    lastEnd = match.index + match[0].length;
-  }
-  return lastEnd;
 }
 
 /** How far back from the cap to search for a whitespace boundary before giving up. */
