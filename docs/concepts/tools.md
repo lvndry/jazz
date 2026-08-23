@@ -1,6 +1,6 @@
 # Tools
 
-**Reader job:** understand what a tool is, what the risk tiers mean for you, and how to add
+This page explains what a tool is, what the risk tiers mean for you, and how to add
 your own.
 
 For the exact list of tool names, see [Tools reference](../reference/tools.md). For the
@@ -54,7 +54,7 @@ workflow) decides what runs without asking.
 | Tier        | Tools                                                                                       | Count |
 | ----------- | ------------------------------------------------------------------------------------------- | ----- |
 | `read-only` | Reads, searches, web requests                                                               | 20    |
-| `low-risk`  | `manage_todos`, `update_task_state`, `spawn_subagent`, plus opt-in memory/reminders/web_app | 7     |
+| `low-risk`  | `manage_todos`, `update_work_state`, `spawn_subagent`, plus opt-in memory/reminders/web_app | 7     |
 | `high-risk` | Anything that mutates: writes, deletes, moves                                               | 6     |
 | `unknown`   | `execute_command` — classified per command, then judged by the tier                         | 1     |
 

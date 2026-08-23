@@ -46,7 +46,7 @@ export interface MCPServerConfigHttp extends MCPServerConfigBase {
   /**
    * Session ID for stateful connections (optional)
    */
-  readonly sessionId?: string;
+  readonly conversationId?: string;
 }
 
 /**

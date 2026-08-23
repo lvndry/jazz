@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://jazz-cli.vercel.app/sitemap-index.xml

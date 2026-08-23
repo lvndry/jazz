@@ -5,6 +5,7 @@ import { FileSystemContextServiceTag, type FileSystemContextService } from "@/co
 import type { ToolExecutionContext } from "@/core/types";
 import { generateDiff, generateDiffWithMetadata } from "@/core/utils/diff";
 import { buildLineOffsets, findAllOccurrenceLineNumbers, offsetToLine } from "@/core/utils/string";
+import { FILE_MUTATION_PREVIEW_CHARS } from "@/core/utils/tool-formatter";
 import {
   defineApprovalTool,
   makeZodValidator,
@@ -595,7 +596,12 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
           };
         }
 
-        const message = `About to edit file: ${target} (${totalLines} lines total)\n\nEdits to perform:\n${editDescriptions.join("\n")}\n\nPress Ctrl+O to preview changes`;
+        // This message is shown to whoever approves the edit, which is not always a person
+        // at a terminal: it also goes into the `jazz run --json` envelope and out to chat
+        // bridges like Telegram. Keep it to what is about to happen. Do not append keyboard
+        // hints such as "Press Ctrl+O to preview" — most approvers have no keyboard, and
+        // the TUI already renders its own hint from `previewDiff` below.
+        const message = `About to edit file: ${target} (${totalLines} lines total)\n\nEdits to perform:\n${editDescriptions.join("\n")}`;
 
         // Generate full diff for Ctrl+O expansion
         const newContent = resultLines.join("\n");
@@ -668,9 +674,14 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
           }
 
           const { diff, wasTruncated } = generateDiffWithMetadata(fileContent, newContent, target);
-          const fullDiff = wasTruncated
+          const needsExpansion =
+            wasTruncated ||
+            newContent.length > FILE_MUTATION_PREVIEW_CHARS ||
+            diff.length > FILE_MUTATION_PREVIEW_CHARS;
+          const fullDiff = needsExpansion
             ? generateDiff(fileContent, newContent, target, {
                 maxLines: Number.POSITIVE_INFINITY,
+                fullPatch: true,
               })
             : "";
 

@@ -68,7 +68,7 @@ function tool(app: string, operation: string, phase: number, elapsedMs = 1000): 
  * mark set `reservedRows` explicitly, because that is the property under test.
  */
 function live(overrides: Partial<LiveModel> = {}): LiveModel {
-  const model: LiveModel = { tools: [], hiddenTools: [], tick: 0, reservedRows: 0, ...overrides };
+  const model: LiveModel = { tools: [], hiddenTools: [], reservedRows: 0, ...overrides };
   if (overrides.reservedRows !== undefined) return model;
   const needed =
     model.tools.length +
@@ -161,6 +161,23 @@ describe("live zone", () => {
     expect(content[0]?.trimEnd().endsWith("4s")).toBe(true);
   });
 
+  it("colours a write_file body when the path is source", () => {
+    const model = live({
+      tools: [
+        {
+          app: "write",
+          operation: "file file: src/app.py  def main():",
+          elapsedMs: 1000,
+          phase: 0,
+          language: "py",
+        },
+      ],
+    });
+    const [row] = liveRows(model, { width: WIDTH, height: HEIGHT });
+    const defSpan = row?.segments.find((segment) => segment.text === "def");
+    expect(defSpan?.fg).toBe(THEME.syntaxStructure);
+  });
+
   it("collapses past the cap into a +n more row that names the hidden tools", async () => {
     const model = live({
       tools: [
@@ -240,7 +257,6 @@ describe("live zone", () => {
   it("gives two tools at different phases different indicator cells in one frame", async () => {
     const model = live({
       tools: [tool("gmail", "list threads", 0), tool("calendar", "freebusy", 1)],
-      tick: 0,
     });
     const { frame } = await bandHeight(model);
     const rows = rowsOf(frame);
@@ -252,6 +268,15 @@ describe("live zone", () => {
     // The spinner sits one column past the rail gutter on every tool row.
     const spinnerColumn = [...`${glyphs.rail} `].length;
     expect([...(first as string)][spinnerColumn]).not.toBe([...(second as string)][spinnerColumn]);
+  });
+
+  it("animates from a tick argument without rewriting the LiveModel", () => {
+    const model = live({ tools: [tool("gmail", "list threads", 0)] });
+    const viewport = { width: WIDTH, height: HEIGHT };
+    const atZero = liveRows(model, viewport, false, glyphs, LIVE_ZONE_MAX_ROWS, 0);
+    const atOne = liveRows(model, viewport, false, glyphs, LIVE_ZONE_MAX_ROWS, 1);
+    expect(atOne).not.toEqual(atZero);
+    expect(liveRows(model, viewport, false, glyphs, LIVE_ZONE_MAX_ROWS, 0)).toEqual(atZero);
   });
 
   it("shows the step line as one row while a plan is active, and not otherwise", () => {
@@ -288,6 +313,18 @@ describe("live zone", () => {
     // The adapter clearing `waiting` says the same thing, and the zone empties.
     const cleared = liveRows(live(), { width: WIDTH, height: HEIGHT });
     expect(cleared).toHaveLength(0);
+  });
+
+  it("shows the reasoning clock on the waiting row while a reasoning region is open", () => {
+    const model = live({
+      waiting: "thinking it through",
+      elapsedMs: 45_000,
+      reasoningElapsedMs: 7_000,
+    });
+    const [row] = liveRows(model, { width: WIDTH, height: HEIGHT });
+    const text = row?.segments.map((segment) => segment.text).join("") ?? "";
+    expect(text).toContain("7s");
+    expect(text).not.toContain("45s");
   });
 
   it("paints the live indicator in the accent, not in whatever the terminal defaults to", async () => {

@@ -44,6 +44,16 @@ export interface ModelsDevMetadata {
   readonly supportsAudio: boolean;
   /** Whether the model accepts video input. Derived from modalities.input containing "video". */
   readonly supportsVideo: boolean;
+  /**
+   * Whether the model *produces* media, from `modalities.output`.
+   *
+   * Distinct from the `supports*` fields above, which are about what it accepts. Jazz has no
+   * generation tool — producing an image means running an agent on a model that does it — so
+   * these are what tells a user which of their agents can, and which model to pick when none can.
+   */
+  readonly generatesImage: boolean;
+  readonly generatesAudio: boolean;
+  readonly generatesVideo: boolean;
   /** Whether the model accepts a custom temperature (from models.dev `temperature`). Defaults to true when absent. */
   readonly supportsTemperature: boolean;
   /** Input price in USD per 1M tokens (from models.dev cost.input). */
@@ -136,6 +146,7 @@ function toMetadata(spec: ModelsDevModelSpec): ModelsDevMetadata {
       : undefined;
 
   const inputModalities = Array.isArray(spec.modalities?.input) ? spec.modalities.input : [];
+  const outputModalities = Array.isArray(spec.modalities?.output) ? spec.modalities.output : [];
 
   return {
     contextWindow,
@@ -145,6 +156,9 @@ function toMetadata(spec: ModelsDevModelSpec): ModelsDevMetadata {
     supportsPdf: inputModalities.includes("pdf"),
     supportsAudio: inputModalities.includes("audio"),
     supportsVideo: inputModalities.includes("video"),
+    generatesImage: outputModalities.includes("image"),
+    generatesAudio: outputModalities.includes("audio"),
+    generatesVideo: outputModalities.includes("video"),
     supportsTemperature: spec.temperature !== false,
     ...(inputPrice !== undefined && { inputPricePerMillion: inputPrice }),
     ...(outputPrice !== undefined && { outputPricePerMillion: outputPrice }),

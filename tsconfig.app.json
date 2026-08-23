@@ -1,7 +1,7 @@
 {
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
-    "outDir": "./dist",
+    "outDir": ".tsbuild/app",
     "rootDir": "./src",
     "sourceMap": true,
     "declarationMap": true,

@@ -25,15 +25,10 @@ import {
   formatToolResult,
   toolResultSnippet,
 } from "./format-utils";
-import type { ActiveTool, ActivityState } from "../ui/activity-state";
+import type { ActiveTool, ActivityState, TodoSnapshotItem } from "../ui/activity-state";
 import { getGlyphs } from "../ui/glyphs";
 import { PADDING, THEME } from "../ui/theme";
 import type { OutputEntry } from "../ui/types";
-
-interface TodoSnapshotItem {
-  content: string;
-  status: "pending" | "in_progress" | "completed" | "cancelled";
-}
 
 /**
  * Playful gerund-form labels shown while waiting for the model's first stream
@@ -90,6 +85,10 @@ export interface ReducerAccumulator {
       startedAt: number;
       argsPreview?: string;
       todoSnapshot?: TodoSnapshotItem[];
+      classifying?: boolean;
+      classifiedRisk?: string;
+      /** Hidden from the live zone while the approval card owns this call. */
+      awaitingApproval?: boolean;
     }
   >;
   /** Provider id captured from stream_start for cost calculation. */
@@ -146,15 +145,22 @@ function buildThinkingOrStreamingActivity(acc: ReducerAccumulator): ActivityStat
 }
 
 function buildToolExecutionActivity(acc: ReducerAccumulator): ActivityState {
-  const tools: ActiveTool[] = Array.from(acc.activeTools.entries()).map(([toolCallId, entry]) => ({
-    toolCallId,
-    toolName: entry.displayName ?? entry.toolName,
-    startedAt: entry.startedAt,
-    ...(entry.argsPreview !== undefined && entry.argsPreview.length > 0
-      ? { argsPreview: entry.argsPreview }
-      : {}),
-    ...(entry.todoSnapshot ? { todoSnapshot: entry.todoSnapshot } : {}),
-  }));
+  const tools: ActiveTool[] = Array.from(acc.activeTools.entries())
+    .filter(([, entry]) => entry.awaitingApproval !== true)
+    .map(([toolCallId, entry]) => ({
+      toolCallId,
+      toolName: entry.displayName ?? entry.toolName,
+      startedAt: entry.startedAt,
+      ...(entry.argsPreview !== undefined && entry.argsPreview.length > 0
+        ? { argsPreview: entry.argsPreview }
+        : {}),
+      ...(entry.todoSnapshot ? { todoSnapshot: entry.todoSnapshot } : {}),
+      ...(entry.classifying === true ? { classifying: true } : {}),
+      ...(entry.classifiedRisk !== undefined ? { classifiedRisk: entry.classifiedRisk } : {}),
+    }));
+  if (tools.length === 0) {
+    return { phase: "idle" };
+  }
   const todoSnapshot = findLatestTodoSnapshot(acc.activeTools);
   return todoSnapshot
     ? { phase: "tool-execution", agentName: acc.agentName, tools, todoSnapshot }
@@ -181,7 +187,12 @@ function parseTodoSnapshot(args?: Record<string, unknown>): TodoSnapshotItem[] |
     ) {
       continue;
     }
-    todos.push({ content, status });
+    const verifiedBy = entry["verifiedBy"];
+    todos.push({
+      content,
+      status,
+      ...(typeof verifiedBy === "string" && verifiedBy.length > 0 ? { verifiedBy } : {}),
+    });
   }
   return todos.length > 0 ? todos : undefined;
 }
@@ -367,12 +378,14 @@ export function reduceEvent(
       );
       const argsPreview = compactToolArguments(event.toolName, event.arguments);
       const displayName = formatToolDisplayName(event.toolName, event.metadata);
+      const prior = acc.activeTools.get(event.toolCallId);
       acc.activeTools.set(event.toolCallId, {
         toolName: event.toolName,
         ...(displayName !== event.toolName ? { displayName } : {}),
         startedAt: Date.now(),
         ...(argsPreview.length > 0 ? { argsPreview } : {}),
         ...(todoSnapshot ? { todoSnapshot } : {}),
+        ...(prior?.classifiedRisk !== undefined ? { classifiedRisk: prior.classifiedRisk } : {}),
       });
 
       outputs.push({
@@ -393,12 +406,14 @@ export function reduceEvent(
       const failed = event.success === false;
 
       let summary = event.summary?.trim();
+      const failureReason = failed ? event.error?.trim() || "Tool execution failed" : undefined;
       if (failed) {
         // A failed tool's result payload is null — the error message is the
-        // only meaningful thing to show.
-        const reason = event.error?.trim() || "Tool execution failed";
+        // only meaningful thing to show. The Ink line still prefixes the tool
+        // name; the structured receipt does not, because the app field already
+        // carries it and repeating the error there cropped the sentence.
         const failedLabel = toolEntry?.displayName ?? toolName;
-        summary = failedLabel ? `${failedLabel}: ${reason}` : reason;
+        summary = failedLabel ? `${failedLabel}: ${failureReason}` : failureReason;
       } else if (
         toolName === "manage_todos" &&
         toolEntry?.todoSnapshot &&
@@ -420,14 +435,16 @@ export function reduceEvent(
       const plainBody = stripAnsiCodes(summary ?? "");
       const snippet = toolResultSnippet(plainBody);
       const argsPreview = toolEntry?.argsPreview?.trim();
+      const classifiedRisk = event.classifiedRisk ?? toolEntry?.classifiedRisk;
       const receipt = {
         app: toolName ?? "tool",
-        summary: snippet.length > 0 ? snippet : (toolName ?? "tool"),
+        summary: failed ? "" : snippet.length > 0 ? snippet : (toolName ?? "tool"),
         status: failed ? "failed" : "ok",
         durationMs: event.durationMs,
         ...(argsPreview !== undefined && argsPreview.length > 0 ? { args: argsPreview } : {}),
-        ...(failed && event.error ? { reason: event.error.trim() } : {}),
-        ...(plainBody.length > 0 && plainBody !== snippet ? { detail: summary } : {}),
+        ...(failureReason !== undefined ? { reason: failureReason } : {}),
+        ...(!failed && plainBody.length > 0 && plainBody !== snippet ? { detail: summary } : {}),
+        ...(classifiedRisk !== undefined ? { classifiedRisk } : {}),
       };
 
       const displayText = summary && summary.length > 0 ? summary : (toolName ?? "Tool");
@@ -516,7 +533,29 @@ export function reduceEvent(
       return { activity, outputs };
     }
 
-    // ---- Usage + approval (no-op for the TUI activity view) -------------
+    // ---- Usage + approval -----------------------------------------------
+
+    case "command_risk_classifying": {
+      acc.activeTools.set(event.toolCallId, {
+        toolName: event.toolName,
+        startedAt: Date.now(),
+        argsPreview: compactToolArguments(event.toolName, { command: event.command }),
+        classifying: true,
+      });
+      return { activity: buildToolExecutionActivity(acc), outputs };
+    }
+
+    case "command_risk_classified": {
+      const existing = acc.activeTools.get(event.toolCallId);
+      acc.activeTools.set(event.toolCallId, {
+        toolName: existing?.toolName ?? event.toolName,
+        startedAt: existing?.startedAt ?? Date.now(),
+        ...(existing?.argsPreview !== undefined ? { argsPreview: existing.argsPreview } : {}),
+        classifiedRisk: event.riskLevel,
+        ...(event.autoApproved ? {} : { awaitingApproval: true }),
+      });
+      return { activity: buildToolExecutionActivity(acc), outputs };
+    }
 
     case "usage_update":
     case "approval_required":

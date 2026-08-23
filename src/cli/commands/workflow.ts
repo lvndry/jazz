@@ -1,9 +1,5 @@
 import { Duration, Effect } from "effect";
-import { Box, Text } from "ink";
-import React from "react";
-import { SearchSelect } from "@/cli/ui/components/SearchSelect";
 import { store } from "@/cli/ui/store";
-import { THEME } from "@/cli/ui/theme";
 import { separatorLine } from "@/cli/utils/string-utils";
 import { AgentRunner } from "@/core/agent/agent-runner";
 import { getAgentByIdentifier, listAllAgents } from "@/core/agent/agent-service";
@@ -13,6 +9,7 @@ import { getErrorMessage } from "@/core/presentation/error-handler";
 import { makeOneShotPresentationServiceLayer } from "@/core/presentation/oneshot-presentation-service";
 import type { Agent } from "@/core/types/agent";
 import type { StreamEvent } from "@/core/types/streaming";
+import { generateConversationId } from "@/core/utils/conversation-id";
 import { describeCronSchedule } from "@/core/utils/cron";
 import {
   getCatchUpCandidates,
@@ -29,7 +26,7 @@ import {
 import { SchedulerServiceTag } from "@/core/workflows/scheduler-service";
 import { WorkflowServiceTag, type WorkflowMetadata } from "@/core/workflows/workflow-service";
 import { formatWorkflow, groupWorkflows } from "@/core/workflows/workflow-utils";
-import { formatOneShotError, formatOneShotResult, isRunCostKnown } from "./run-agent";
+import { formatOneShotError, formatOneShotResult, isRunCostKnown } from "./run/envelope";
 
 /**
  * CLI commands for managing and running workflows.
@@ -384,8 +381,7 @@ export function runWorkflowCommand(
     const runEffect = AgentRunner.run({
       agent,
       userInput: workflow.prompt,
-      sessionId: `workflow-${workflowName}-${Date.now()}`,
-      conversationId: `workflow-${workflowName}-${Date.now()}`,
+      conversationId: generateConversationId(`workflow-${workflowName}`),
       ...(resolvedMaxIterations != null ? { maxIterations: resolvedMaxIterations } : {}),
       ...(autoApprovePolicy !== undefined ? { autoApprovePolicy } : {}),
     });
@@ -840,39 +836,32 @@ function runCostFields(result: {
 /**
  * Helper to prompt user to select an agent for workflow execution.
  */
-function selectAgentForWorkflow(
+export function selectAgentForWorkflow(
   agents: readonly Agent[],
   prompt: string,
 ): Effect.Effect<Agent | null, never> {
   return Effect.async<Agent | null, never>((resume) => {
-    const options = agents.map((agent) => ({
-      label: `${agent.name} (${agent.config.llmModel})`,
-      value: agent.id,
-    }));
-
-    store.setCustomView(
-      React.createElement(
-        Box,
-        { flexDirection: "column", padding: 1 },
-        React.createElement(Text, { bold: true, color: THEME.primary }, prompt),
-        React.createElement(
-          Box,
-          { marginTop: 1 },
-          React.createElement(SearchSelect<string>, {
-            options,
-            pageSize: 10,
-            placeholder: "Type to filter agents…",
-            onSelect: (value: string) => {
-              store.setCustomView(null);
-              resume(Effect.succeed(agents.find((a) => a.id === value) ?? null));
-            },
-            onCancel: () => {
-              store.setCustomView(null);
-              resume(Effect.succeed(null));
-            },
-          }),
-        ),
-      ),
+    store.setActiveMenu(
+      {
+        kind: "agents",
+        title: prompt,
+        action: "run",
+        agents: agents.map((agent) => ({
+          id: agent.id,
+          name: agent.name,
+          model: agent.config.llmModel,
+          ...(agent.description !== undefined && agent.description !== agent.name
+            ? { description: agent.description }
+            : {}),
+        })),
+      },
+      (result) => {
+        if (result.kind === "exit") {
+          resume(Effect.succeed(null));
+          return;
+        }
+        resume(Effect.succeed(agents.find((agent) => agent.id === result.value) ?? null));
+      },
     );
   });
 }

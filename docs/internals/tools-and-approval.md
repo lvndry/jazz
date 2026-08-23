@@ -1,6 +1,6 @@
 # Tools & approval
 
-**Reader job:** understand how a tool call becomes an action, and what stands between the
+This page explains how a tool call becomes an action, and what stands between the
 two.
 
 Source:
@@ -146,6 +146,12 @@ command is already allowlisted, or the level was never `unknown`. It is also ski
 quiet. There the absent policy approves nothing at all, so a verdict could only widen what
 runs unsupervised, never save a keystroke.
 
+While it runs, the live zone shows `classifying` on that command (the round-trip can take a
+few seconds). The verdict then lands on the settled receipt — `read-only`, `low-risk`, or
+`high-risk` — so an auto-approved inspect-only command is visibly why it ran without a
+prompt. The raw classifier prompt is not shown: it includes recent user requests, and the
+token is the decision.
+
 Fail closed: timeouts, provider errors, empty replies, and anything other than the exact
 token `read-only` or `low-risk` stay `high-risk`. A clearly mutating command stays
 `high-risk` regardless of context.
@@ -270,7 +276,7 @@ Tools are registered by category at startup, except MCP:
 | Category               | Tools   | Examples                                                                                              |
 | ---------------------- | ------- | ----------------------------------------------------------------------------------------------------- |
 | File Management        | 15      | `read_file` `write_file` `edit_file` `find` `grep` `read_pdf` `pdf_page_count` `mkdir` `rm` `mv` `cp` |
-| Shell Commands         | 1       | `execute_command` (`unknown`; classified before the approval decision)                               |
+| Shell Commands         | 1       | `execute_command` (`unknown`; classified before the approval decision)                                |
 | Web Search / Web Fetch | 2       | `web_search` `web_fetch`                                                                              |
 | HTTP                   | 1       | `http_request`                                                                                        |
 | Todo                   | 2       | `manage_todos` `list_todos`                                                                           |

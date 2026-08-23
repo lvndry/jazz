@@ -78,26 +78,26 @@ const logQueue = new LogWriteQueue();
  */
 
 export class LoggerServiceImpl implements LoggerService {
-  private readonly sessionIdRef: Ref.Ref<Option.Option<string>>;
+  private readonly logScopeRef: Ref.Ref<Option.Option<string>>;
 
-  constructor(sessionId?: string) {
-    this.sessionIdRef = Ref.unsafeMake(sessionId ? Option.some(sessionId) : Option.none());
+  constructor(conversationId?: string) {
+    this.logScopeRef = Ref.unsafeMake(conversationId ? Option.some(conversationId) : Option.none());
   }
 
   /**
    * Set the session ID for this logger instance
    * All subsequent logs will be written to the session-specific file
    */
-  setSessionId(sessionId: string): Effect.Effect<void, never> {
-    return Ref.set(this.sessionIdRef, Option.some(sessionId));
+  setLogGroup(conversationId: string): Effect.Effect<void, never> {
+    return Ref.set(this.logScopeRef, Option.some(conversationId));
   }
 
   /**
    * Clear the session ID
    * Subsequent logs will be written to the general log file
    */
-  clearSessionId(): Effect.Effect<void, never> {
-    return Ref.set(this.sessionIdRef, Option.none());
+  clearLogGroup(): Effect.Effect<void, never> {
+    return Ref.set(this.logScopeRef, Option.none());
   }
 
   writeToFile(
@@ -105,12 +105,12 @@ export class LoggerServiceImpl implements LoggerService {
     message: string,
     meta?: Record<string, unknown>,
   ): Effect.Effect<void, never> {
-    const sessionIdRef = this.sessionIdRef;
+    const logScopeRef = this.logScopeRef;
     return Effect.gen(function* () {
-      const sessionId = yield* Ref.get(sessionIdRef);
+      const conversationId = yield* Ref.get(logScopeRef);
       // Write operations are now synchronous (queued internally)
-      if (Option.isSome(sessionId)) {
-        writeFormattedLogToSessionFile(level, sessionId.value, message, meta);
+      if (Option.isSome(conversationId)) {
+        writeFormattedLogToSessionFile(level, conversationId.value, message, meta);
       } else {
         writeFormattedLogToFile(level, message, meta);
       }
@@ -119,12 +119,12 @@ export class LoggerServiceImpl implements LoggerService {
 
   debug(message: string, meta?: Record<string, unknown>): Effect.Effect<void, never> {
     if (!shouldLog("debug")) return Effect.void;
-    const sessionIdRef = this.sessionIdRef;
+    const logScopeRef = this.logScopeRef;
     return Effect.gen(function* () {
-      const sessionId = yield* Ref.get(sessionIdRef);
+      const conversationId = yield* Ref.get(logScopeRef);
       return yield* Effect.sync(() => {
-        if (Option.isSome(sessionId)) {
-          void writeFormattedLogToSessionFile("debug", sessionId.value, message, meta);
+        if (Option.isSome(conversationId)) {
+          void writeFormattedLogToSessionFile("debug", conversationId.value, message, meta);
         } else {
           void writeFormattedLogToFile("debug", message, meta);
         }
@@ -134,12 +134,12 @@ export class LoggerServiceImpl implements LoggerService {
 
   info(message: string, meta?: Record<string, unknown>): Effect.Effect<void, never> {
     if (!shouldLog("info")) return Effect.void;
-    const sessionIdRef = this.sessionIdRef;
+    const logScopeRef = this.logScopeRef;
     return Effect.gen(function* () {
-      const sessionId = yield* Ref.get(sessionIdRef);
+      const conversationId = yield* Ref.get(logScopeRef);
       return yield* Effect.sync(() => {
-        if (Option.isSome(sessionId)) {
-          void writeFormattedLogToSessionFile("info", sessionId.value, message, meta);
+        if (Option.isSome(conversationId)) {
+          void writeFormattedLogToSessionFile("info", conversationId.value, message, meta);
         } else {
           void writeFormattedLogToFile("info", message, meta);
         }
@@ -149,12 +149,12 @@ export class LoggerServiceImpl implements LoggerService {
 
   warn(message: string, meta?: Record<string, unknown>): Effect.Effect<void, never> {
     if (!shouldLog("warn")) return Effect.void;
-    const sessionIdRef = this.sessionIdRef;
+    const logScopeRef = this.logScopeRef;
     return Effect.gen(function* () {
-      const sessionId = yield* Ref.get(sessionIdRef);
+      const conversationId = yield* Ref.get(logScopeRef);
       return yield* Effect.sync(() => {
-        if (Option.isSome(sessionId)) {
-          void writeFormattedLogToSessionFile("warn", sessionId.value, message, meta);
+        if (Option.isSome(conversationId)) {
+          void writeFormattedLogToSessionFile("warn", conversationId.value, message, meta);
         } else {
           void writeFormattedLogToFile("warn", message, meta);
         }
@@ -164,12 +164,12 @@ export class LoggerServiceImpl implements LoggerService {
 
   error(message: string, meta?: Record<string, unknown>): Effect.Effect<void, never> {
     if (!shouldLog("error")) return Effect.void;
-    const sessionIdRef = this.sessionIdRef;
+    const logScopeRef = this.logScopeRef;
     return Effect.gen(function* () {
-      const sessionId = yield* Ref.get(sessionIdRef);
+      const conversationId = yield* Ref.get(logScopeRef);
       return yield* Effect.sync(() => {
-        if (Option.isSome(sessionId)) {
-          void writeFormattedLogToSessionFile("error", sessionId.value, message, meta);
+        if (Option.isSome(conversationId)) {
+          void writeFormattedLogToSessionFile("error", conversationId.value, message, meta);
         } else {
           void writeFormattedLogToFile("error", message, meta);
         }
@@ -178,12 +178,12 @@ export class LoggerServiceImpl implements LoggerService {
   }
 
   logToolCall(toolName: string, args: Record<string, unknown>): Effect.Effect<void, never> {
-    const sessionIdRef = this.sessionIdRef;
+    const logScopeRef = this.logScopeRef;
     return Effect.gen(function* () {
-      const sessionId = yield* Ref.get(sessionIdRef);
-      if (Option.isSome(sessionId)) {
+      const conversationId = yield* Ref.get(logScopeRef);
+      if (Option.isSome(conversationId)) {
         // Write is now synchronous (queued internally)
-        writeToolCallToSessionFile(sessionId.value, toolName, args);
+        writeToolCallToSessionFile(conversationId.value, toolName, args);
       }
     });
   }
@@ -193,7 +193,7 @@ export class LoggerServiceImpl implements LoggerService {
  * Create the logger layer
  *
  * Creates a single logger instance that can dynamically scope logs to sessions
- * using setSessionId() and clearSessionId() methods.
+ * using setLogGroup() and clearLogGroup() methods.
  */
 export function createLoggerLayer(): Layer.Layer<LoggerService, never, never> {
   return Layer.succeed(LoggerServiceTag, new LoggerServiceImpl());
@@ -230,10 +230,10 @@ function formatLogLineForFile(
   level: "debug" | "info" | "warn" | "error",
   message: string,
   meta?: Record<string, unknown>,
-  sessionId?: string,
+  conversationId?: string,
 ): string {
   if (globalLogFormat === "json") {
-    return formatLogLineAsJson(level, message, meta, sessionId);
+    return formatLogLineAsJson(level, message, meta, conversationId);
   }
   return formatLogLineAsPlain(level, message, meta);
 }
@@ -246,7 +246,7 @@ export function formatLogLineAsJson(
   level: "debug" | "info" | "warn" | "error",
   message: string,
   meta?: Record<string, unknown>,
-  sessionId?: string,
+  conversationId?: string,
 ): string {
   const logEntry: Record<string, unknown> = {
     timestamp: new Date().toISOString(),
@@ -254,8 +254,8 @@ export function formatLogLineAsJson(
     message,
   };
 
-  if (sessionId) {
-    logEntry["sessionId"] = sessionId;
+  if (conversationId) {
+    logEntry["conversationId"] = conversationId;
   }
 
   if (meta && Object.keys(meta).length > 0) {
@@ -328,7 +328,7 @@ export function getLogLevel(): "debug" | "info" | "warn" | "error" {
 
 /**
  * Shared helper to write a formatted log line to file
- * Writes to the general jazz.log file (used when no sessionId is set)
+ * Writes to the general jazz.log file (used when no conversationId is set)
  * Uses the write queue to ensure sequential writes without interleaving.
  */
 function writeFormattedLogToFile(
@@ -344,20 +344,20 @@ function writeFormattedLogToFile(
 
 /**
  * Write a formatted log line to a session-specific file
- * Creates a separate log file per session ID: {sessionId}.log
+ * Creates a separate log file per session ID: {conversationId}.log
  * Uses the write queue to ensure sequential writes without interleaving.
  */
 function writeFormattedLogToSessionFile(
   level: "debug" | "info" | "warn" | "error",
-  sessionId: string,
+  conversationId: string,
   message: string,
   meta?: Record<string, unknown>,
 ): void {
   const logsDir = getLogsDirectory();
-  // Sanitize sessionId for use in filename (remove invalid characters)
-  const sanitizedId = sessionId.replace(/[^a-zA-Z0-9_-]/g, "_");
+  // Sanitize conversationId for use in filename (remove invalid characters)
+  const sanitizedId = conversationId.replace(/[^a-zA-Z0-9_-]/g, "_");
   const logFilePath = path.join(logsDir, `${sanitizedId}.log`);
-  const line = formatLogLineForFile(level, message, meta, sessionId);
+  const line = formatLogLineForFile(level, message, meta, conversationId);
   logQueue.enqueue(logFilePath, line);
 }
 
@@ -367,17 +367,17 @@ function writeFormattedLogToSessionFile(
  * Uses the write queue to ensure sequential writes without interleaving.
  */
 function writeToolCallToSessionFile(
-  sessionId: string,
+  conversationId: string,
   toolName: string,
   args: Record<string, unknown>,
 ): void {
   const logsDir = getLogsDirectory();
-  // Sanitize sessionId for use in filename (remove invalid characters)
-  const sanitizedId = sessionId.replace(/[^a-zA-Z0-9_-]/g, "_");
+  // Sanitize conversationId for use in filename (remove invalid characters)
+  const sanitizedId = conversationId.replace(/[^a-zA-Z0-9_-]/g, "_");
   const logFilePath = path.join(logsDir, `${sanitizedId}.log`);
 
   if (getLogFormat() === "json") {
-    const line = formatLogLineAsJson("info", `Tool Call: ${toolName}`, args, sessionId);
+    const line = formatLogLineAsJson("info", `Tool Call: ${toolName}`, args, conversationId);
     logQueue.enqueue(logFilePath, line);
     return;
   }

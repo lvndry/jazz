@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import React from "react";
+import type { ChatCompletionResponse } from "@/core/types/chat";
+import { LLMRequestError } from "@/core/types/errors";
 import { AWAITING_LABELS, createAccumulator, reduceEvent } from "./activity-reducer";
 import type { ReducerAccumulator } from "./activity-reducer";
 import { getGlyphs } from "../ui/glyphs";
@@ -38,6 +40,10 @@ function acc(overrides?: Partial<ReducerAccumulator>): ReducerAccumulator {
   return { ...createAccumulator("TestAgent"), ...overrides };
 }
 
+function completeResponse(content: string): ChatCompletionResponse {
+  return { id: "test", model: "gpt-4", content, toolCalls: [] };
+}
+
 describe("activity-reducer", () => {
   // -------------------------------------------------------------------------
   // createAccumulator
@@ -71,12 +77,13 @@ describe("activity-reducer", () => {
       );
 
       expect(result.activity).not.toBeNull();
-      expect(result.activity!.phase).toBe("awaiting");
-      if (result.activity!.phase === "awaiting") {
-        expect(result.activity.agentName).toBe("TestAgent");
-        expect(result.activity.provider).toBe("openai");
-        expect(result.activity.model).toBe("gpt-4");
-        expect(AWAITING_LABELS).toContain(result.activity.label);
+      const activity = result.activity;
+      expect(activity?.phase).toBe("awaiting");
+      if (activity?.phase === "awaiting") {
+        expect(activity.agentName).toBe("TestAgent");
+        expect(activity.provider).toBe("openai");
+        expect(activity.model).toBe("gpt-4");
+        expect(AWAITING_LABELS).toContain(activity.label);
       }
       expect(result.outputs).toHaveLength(1);
       expect(result.outputs[0]!.type).toBe("log");
@@ -197,6 +204,111 @@ describe("activity-reducer", () => {
       expect(result.outputs[0]!.type).toBe("info");
       expect(String(result.outputs[0]!.message)).toContain("execute_bash");
       expect(result.outputs[0]!.meta?.["toolStart"]).toBe(true);
+    });
+
+    test("command_risk_classifying appears as a live tool, not a fake receipt", () => {
+      const a = acc();
+      const result = reduceEvent(
+        a,
+        {
+          type: "command_risk_classifying",
+          toolCallId: "tc-1",
+          toolName: "execute_command",
+          command: "python3 --version",
+        },
+        stubInk,
+      );
+
+      expect(result.activity!.phase).toBe("tool-execution");
+      if (result.activity!.phase !== "tool-execution") return;
+      expect(result.activity!.tools[0]?.classifying).toBe(true);
+      expect(result.activity!.tools[0]?.argsPreview).toContain("python3 --version");
+      expect(result.outputs).toHaveLength(0);
+    });
+
+    test("command_risk_classified keeps an auto-approved call live with the verdict", () => {
+      const a = acc();
+      a.activeTools.set("tc-1", {
+        toolName: "execute_command",
+        startedAt: Date.now(),
+        argsPreview: 'command: "python3 --version"',
+        classifying: true,
+      });
+
+      const result = reduceEvent(
+        a,
+        {
+          type: "command_risk_classified",
+          toolCallId: "tc-1",
+          toolName: "execute_command",
+          command: "python3 --version",
+          riskLevel: "read-only",
+          autoApproved: true,
+        },
+        stubInk,
+      );
+
+      expect(a.activeTools.get("tc-1")?.classifiedRisk).toBe("read-only");
+      expect(a.activeTools.get("tc-1")?.classifying).toBeUndefined();
+      expect(result.activity!.phase).toBe("tool-execution");
+      if (result.activity!.phase !== "tool-execution") return;
+      expect(result.activity!.tools[0]?.classifiedRisk).toBe("read-only");
+      expect(result.activity!.tools[0]?.classifying).toBeUndefined();
+    });
+
+    test("command_risk_classified hides a prompted call from the live zone", () => {
+      const a = acc();
+      a.activeTools.set("tc-1", {
+        toolName: "execute_command",
+        startedAt: Date.now(),
+        classifying: true,
+      });
+
+      const result = reduceEvent(
+        a,
+        {
+          type: "command_risk_classified",
+          toolCallId: "tc-1",
+          toolName: "execute_command",
+          command: "rm -rf /tmp/x",
+          riskLevel: "high-risk",
+          autoApproved: false,
+        },
+        stubInk,
+      );
+
+      expect(a.activeTools.get("tc-1")?.classifiedRisk).toBe("high-risk");
+      expect(result.activity!.phase).toBe("idle");
+    });
+
+    test("tool_execution_complete receipt carries the classifier verdict", () => {
+      const a = acc();
+      a.activeTools.set("tc-1", {
+        toolName: "execute_command",
+        startedAt: Date.now(),
+        argsPreview: 'command: "python3 --version"',
+        classifiedRisk: "read-only",
+      });
+
+      const result = reduceEvent(
+        a,
+        {
+          type: "tool_execution_complete",
+          toolCallId: "tc-1",
+          result: JSON.stringify({ stdout: "Python 3.14.5", exitCode: 0 }),
+          durationMs: 12,
+          success: true,
+          classifiedRisk: "read-only",
+        },
+        stubInk,
+      );
+
+      const receipt = result.outputs[0]?.meta?.["toolReceipt"] as {
+        classifiedRisk?: string;
+        summary?: string;
+      };
+      expect(receipt?.classifiedRisk).toBe("read-only");
+      expect(receipt?.summary).toContain("Python 3.14.5");
     });
 
     test("tool_execution_start for view_memory shows root when path is empty", () => {
@@ -333,6 +445,37 @@ describe("activity-reducer", () => {
       const outputText = nodes.map((node) => extractText(node)).join("\n");
       expect(outputText).toContain("create-rule");
       expect(outputText).not.toContain("load_skill done");
+    });
+
+    test("tool_execution_complete failure puts the full error on the receipt, not a cropped duplicate", () => {
+      const a = acc();
+      a.activeTools.set("tc-deny", {
+        toolName: "execute_command",
+        startedAt: Date.now(),
+        argsPreview: `command: "python3 -c \\"import reportlab\\""`,
+      });
+      const error =
+        "Command blocked by the built-in safety denylist: running inline code via an interpreter flag (-c/-e) is on the blocked list; write the code to a temp file and run that instead.";
+
+      const result = reduceEvent(
+        a,
+        {
+          type: "tool_execution_complete",
+          toolCallId: "tc-deny",
+          result: "null",
+          durationMs: 4,
+          success: false,
+          error,
+        },
+        stubInk,
+      );
+
+      const receipt = result.outputs[0]?.meta?.["toolReceipt"] as
+        { app?: string; summary?: string; reason?: string } | undefined;
+      expect(receipt?.app).toBe("execute_command");
+      expect(receipt?.reason).toBe(error);
+      expect(receipt?.summary).toBe("");
+      expect(receipt?.reason).toContain("write the code to a temp file");
     });
 
     test("tool_execution_complete failure renders the error message, not the null result", () => {
@@ -503,7 +646,7 @@ describe("activity-reducer", () => {
   describe("error", () => {
     test("transitions to error phase and emits error log", () => {
       const a = acc();
-      const error = { _tag: "LLMError" as const, message: "rate limited", name: "LLMError" };
+      const error = new LLMRequestError({ provider: "openai", message: "rate limited" });
       const result = reduceEvent(a, { type: "error", error, recoverable: false }, stubInk);
 
       expect(result.activity!.phase).toBe("error");
@@ -526,7 +669,7 @@ describe("activity-reducer", () => {
         a,
         {
           type: "complete",
-          response: { content: "", role: "assistant", usage: undefined, toolCalls: [] },
+          response: completeResponse(""),
           totalDurationMs: 100,
         },
         stubInk,
@@ -603,7 +746,7 @@ describe("activity-reducer", () => {
         a,
         {
           type: "complete",
-          response: { content: "Hi", role: "assistant", usage: undefined, toolCalls: [] },
+          response: completeResponse("Hi"),
           totalDurationMs: 50,
         },
         stubInk,
@@ -737,14 +880,12 @@ describe("activity-reducer", () => {
 
   describe("reducer does not format streaming text", () => {
     test("activity.text remains empty for streaming text", () => {
-      const markerFormatter = (s: string) => `<<FORMATTED>>${s}<<END>>`;
       const a = acc();
-      reduceEvent(a, { type: "text_start" }, markerFormatter, stubInk);
+      reduceEvent(a, { type: "text_start" }, stubInk);
 
       const result = reduceEvent(
         a,
         { type: "text_chunk", delta: "hello world", accumulated: "hello world", sequence: 0 },
-        markerFormatter,
         stubInk,
       );
 

@@ -79,7 +79,7 @@ describe("wheelScrollDelta", () => {
 
 describe("transcriptVisibleCount", () => {
   it("subtracts chrome, the live band, and the composer", () => {
-    const live: LiveModel = { tools: [], hiddenTools: [], tick: 0, reservedRows: 2 };
+    const live: LiveModel = { tools: [], hiddenTools: [], reservedRows: 2 };
     const input: InputModel = {
       value: "",
       placeholder: "Ask anything",
@@ -97,7 +97,7 @@ describe("transcriptVisibleCount", () => {
   });
 
   it("keeps a transcript row by taking it from the live band, not from the composer", () => {
-    const live: LiveModel = { tools: [], hiddenTools: [], tick: 0, reservedRows: 5 };
+    const live: LiveModel = { tools: [], hiddenTools: [], reservedRows: 5 };
     const input: InputModel = {
       value: "",
       placeholder: "Ask anything",
@@ -119,7 +119,7 @@ describe("transcriptVisibleCount", () => {
 });
 
 describe("allocateRegions", () => {
-  const live: LiveModel = { tools: [], hiddenTools: [], tick: 0, reservedRows: 5 };
+  const live: LiveModel = { tools: [], hiddenTools: [], reservedRows: 5 };
   const commands = {
     items: Array.from({ length: 12 }, (_, index) => ({
       name: `command-${String(index)}`,

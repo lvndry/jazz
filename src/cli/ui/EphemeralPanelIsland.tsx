@@ -1,7 +1,7 @@
 import { Box, Text } from "ink";
-import React, { useEffect, useRef, useState } from "react";
+import React from "react";
 import { EphemeralPanel } from "./EphemeralPanel";
-import { store, type EphemeralRegion } from "./store";
+import { useEphemeralSlice } from "./store";
 
 /** Maximum panels rendered simultaneously; overflow shown as a single hint. */
 export const MAX_VISIBLE_PANELS = 4;
@@ -12,21 +12,7 @@ export const MAX_VISIBLE_PANELS = 4;
  * single dim line summarizing how many more are running.
  */
 function EphemeralPanelIslandComponent(): React.ReactElement | null {
-  const [regions, setRegions] = useState<readonly EphemeralRegion[]>([]);
-  const initializedRef = useRef(false);
-
-  if (!initializedRef.current) {
-    // registerEphemeralRegionsSetter already hydrates the setter with the
-    // current snapshot, so no separate setRegions(snapshot) call is needed.
-    store.registerEphemeralRegionsSetter(setRegions);
-    initializedRef.current = true;
-  }
-
-  useEffect(() => {
-    return () => {
-      store.registerEphemeralRegionsSetter(null);
-    };
-  }, []);
+  const { regions } = useEphemeralSlice();
 
   if (regions.length === 0) return null;
 

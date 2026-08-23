@@ -23,7 +23,7 @@ import packageJson from "../../../../package.json";
 import { hydrateTranscriptFromHistory } from "../hydrate-transcript";
 import { store } from "../store";
 import { THEME } from "../theme";
-import { FullscreenBridge } from "./bridge";
+import { APPROVAL_ARM_MS, flushPendingTerminalKeys, FullscreenBridge } from "./bridge";
 
 /**
  * Settles a state update dispatched from a keyboard event.
@@ -57,7 +57,7 @@ function terminalProducer(): InkTerminalService {
 function presentationProducer(): InkPresentationService {
   return new InkPresentationService(
     {
-      showThinking: true,
+      showReasoning: true,
       showToolExecution: true,
       mode: "rendered",
       colorProfile: "full",
@@ -69,10 +69,9 @@ function presentationProducer(): InkPresentationService {
 /**
  * Mounts the bridge, then feeds the store, then captures.
  *
- * The order matters: the store holds one print handler at a time, so writes have
- * to happen while the bridge under test is the registered one. In production
- * there is exactly one bridge for the life of the process, so this is also the
- * realistic order.
+ * Writes go through the store slices, so a late-mounted bridge still hydrates
+ * from getSnapshot. Feeding after mount matches production, where the bridge
+ * stays subscribed for the life of the process.
  */
 async function frame(feed: () => void = () => undefined): Promise<string> {
   const { renderer, renderOnce, flush, captureCharFrame } = await testRender(<FullscreenBridge />, {
@@ -93,23 +92,21 @@ async function frame(feed: () => void = () => undefined): Promise<string> {
   return text;
 }
 
-function unregisterAllStoreHandlers(): void {
-  store.registerPrintOutput(null);
-  store.registerUpdateOutput(null);
-  store.registerClearOutputs(null);
-  store.registerStreamingHandler(null);
-  store.registerActivitySetter(null);
-  store.registerRunStatsSetter(null);
-  store.registerMessageQueueSetter(null);
-  store.registerChatBusySetter(null);
-  store.registerModeSetter(null);
-  store.registerEphemeralRegionsSetter(null);
-  store.registerPromptSetter(null);
-  store.registerApprovalRequestSetter(null);
-  store.registerConnectorsSetter(null);
-  store.registerActiveMenuSetter(null);
-  store.registerWorkingDirectorySetter(null);
-  store.registerInterruptHandler(null);
+function resetStoreSlices(): void {
+  store.clearOutputs();
+  store.setActivity({ phase: "idle" });
+  store.resetRunStats({});
+  store.setPrompt(null);
+  store.setApprovalRequest(null);
+  store.setActiveMenu(null);
+  store.setChatBusy(false);
+  store.setWorkingDirectory(null);
+  store.setCurrentConversation(null);
+  store.clearQueue();
+  store.setModeIsYolo(false);
+  store.clearModeToast();
+  store.collapseAllEphemeral();
+  store.setInterruptHandler(null);
 }
 
 describe("fullscreen bridge", () => {
@@ -129,16 +126,7 @@ describe("fullscreen bridge", () => {
   });
 
   beforeEach(() => {
-    unregisterAllStoreHandlers();
-    store.setActivity({ phase: "idle" });
-    store.resetRunStats({});
-    store.setPrompt(null);
-    store.setApprovalRequest(null);
-    store.setActiveMenu(null);
-    store.setChatBusy(false);
-    store.setWorkingDirectory(null);
-    store.clearQueue();
-    store.setModeIsYolo(false);
+    resetStoreSlices();
   });
 
   it("renders a frame at the terminal size before anything has happened", async () => {
@@ -385,7 +373,9 @@ describe("fullscreen bridge", () => {
     store.setPrompt(null);
 
     expect(typed).toContain("/");
-    expect(opened).toContain("all sessions");
+    expect(typed).not.toContain("all conversations");
+    expect(typed).not.toContain("this conversation");
+    expect(opened).toContain("all conversations");
   });
 
   it("lists slash commands on / and runs the highlighted one with enter", async () => {
@@ -446,7 +436,7 @@ describe("fullscreen bridge", () => {
 
     await rendered.mockInput.pressKey("TAB");
     await settleKeypress(rendered.flush, 100);
-    expect(rendered.captureCharFrame()).toContain("this session");
+    expect(rendered.captureCharFrame()).toContain("this conversation");
 
     rendered.renderer.destroy();
     store.setPrompt(null);
@@ -477,6 +467,7 @@ describe("fullscreen bridge", () => {
     await settleKeypress(rendered.flush, 100);
     expect(rendered.captureCharFrame()).toContain("1 queued");
     expect(rendered.captureCharFrame()).toContain("follow up");
+    expect(rendered.captureCharFrame()).toContain("enter to queue");
     expect(store.getMessageQueueSnapshot()).toEqual(["follow up"]);
 
     await rendered.mockInput.pressKey("ARROW_UP");
@@ -493,6 +484,33 @@ describe("fullscreen bridge", () => {
 
     rendered.renderer.destroy();
     store.setChatBusy(false);
+    store.setPrompt(null);
+  });
+
+  it("keeps the composer enabled after the chat prompt resolves while a queue is shown", async () => {
+    const rendered = await testRender(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
+    await rendered.renderOnce();
+    store.setPrompt({ type: "chat", message: "", resolve: () => undefined });
+    await rendered.flush();
+    store.setChatBusy(true);
+    store.setPrompt(null);
+    await rendered.flush();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await rendered.flush();
+
+    await typeInto(rendered.mockInput, rendered.flush, "already waiting");
+    await rendered.mockInput.pressKey("RETURN");
+    await settleKeypress(rendered.flush, 100);
+    expect(rendered.captureCharFrame()).toContain("1 queued");
+    expect(rendered.captureCharFrame()).toContain("enter to queue");
+
+    await typeInto(rendered.mockInput, rendered.flush, "second thought");
+    expect(rendered.captureCharFrame()).toContain("second thought");
+    expect(rendered.captureCharFrame()).toContain("1 queued");
+
+    rendered.renderer.destroy();
+    store.setChatBusy(false);
+    store.clearQueue();
     store.setPrompt(null);
   });
 
@@ -588,9 +606,9 @@ describe("fullscreen bridge", () => {
   });
 
   it("draws the wizard menu as the home screen", async () => {
-    // The wizard publishes its menu as data alongside the Ink tree, so a
-    // renderer that cannot paint an Ink element can still draw the flow. Without
-    // this the fullscreen interface could not reach a chat session at all.
+    // The wizard publishes its menu as data, so a renderer that cannot paint an
+    // Ink element can still draw the flow. Without this the fullscreen
+    // interface could not reach a chat session at all.
     const text = await frame(() => {
       store.setActiveMenu({
         kind: "menu",
@@ -598,8 +616,6 @@ describe("fullscreen bridge", () => {
           { label: "Start chatting", value: "chat" },
           { label: "Create an agent", value: "create" },
         ],
-        onSelect: () => undefined,
-        onExit: () => undefined,
       });
     });
     expect(text).toContain("Start chatting");
@@ -620,8 +636,6 @@ describe("fullscreen bridge", () => {
           },
         ],
         options: [{ label: "Create agent", value: "create-agent" }],
-        onSelect: () => undefined,
-        onExit: () => undefined,
       });
     });
     expect(text).toContain("agent");
@@ -640,8 +654,6 @@ describe("fullscreen bridge", () => {
           { id: "a1", name: "Basil", model: "claude-sonnet-4", lastUsed: true },
           { id: "a2", name: "Cass", model: "gpt-5" },
         ],
-        onSelect: () => undefined,
-        onExit: () => undefined,
       });
     });
     expect(text).toContain("delete an agent");
@@ -655,14 +667,15 @@ describe("fullscreen bridge", () => {
     const selected: string[] = [];
     const rendered = await testRender(<FullscreenBridge />, { width: 100, height: 28 });
     await rendered.renderOnce();
-    store.setActiveMenu({
-      kind: "agents",
-      title: "pick an agent",
-      action: "start",
-      agents: [{ id: "a1", name: "Basil", model: "claude-sonnet-4" }],
-      onSelect: (value) => selected.push(value),
-      onExit: () => selected.push("EXIT"),
-    });
+    store.setActiveMenu(
+      {
+        kind: "agents",
+        title: "pick an agent",
+        action: "start",
+        agents: [{ id: "a1", name: "Basil", model: "claude-sonnet-4" }],
+      },
+      (result) => selected.push(result.kind === "exit" ? "EXIT" : result.value),
+    );
     await rendered.flush();
     await rendered.mockInput.pressKey("ESCAPE");
     await settleKeypress(rendered.flush, 100);
@@ -675,17 +688,18 @@ describe("fullscreen bridge", () => {
     const selected: string[] = [];
     const rendered = await testRender(<FullscreenBridge />, { width: 100, height: 28 });
     await rendered.renderOnce();
-    store.setActiveMenu({
-      kind: "agents",
-      title: "pick an agent",
-      action: "start",
-      agents: [
-        { id: "a1", name: "Basil", model: "claude-sonnet-4" },
-        { id: "a2", name: "Cass", model: "gpt-5" },
-      ],
-      onSelect: (value) => selected.push(value),
-      onExit: () => selected.push("EXIT"),
-    });
+    store.setActiveMenu(
+      {
+        kind: "agents",
+        title: "pick an agent",
+        action: "start",
+        agents: [
+          { id: "a1", name: "Basil", model: "claude-sonnet-4" },
+          { id: "a2", name: "Cass", model: "gpt-5" },
+        ],
+      },
+      (result) => selected.push(result.kind === "exit" ? "EXIT" : result.value),
+    );
     await rendered.flush();
     await rendered.mockInput.pressKey("ARROW_DOWN");
     await settleKeypress(rendered.flush, 100);
@@ -707,8 +721,6 @@ describe("fullscreen bridge", () => {
           { id: "a1", name: "doitall", model: "claude-sonnet-4" },
           { id: "a2", name: "qwen-coder", model: "qwen2.5-coder" },
         ],
-        onSelect: () => undefined,
-        onExit: () => undefined,
       });
     });
     expect(text).toContain("doitall");
@@ -724,18 +736,19 @@ describe("fullscreen bridge", () => {
     const selected: string[] = [];
     const rendered = await testRender(<FullscreenBridge />, { width: 100, height: 28 });
     await rendered.renderOnce();
-    store.setActiveMenu({
-      kind: "agents",
-      title: "agents",
-      action: "back",
-      browse: true,
-      agents: [
-        { id: "a1", name: "doitall", model: "claude-sonnet-4" },
-        { id: "a2", name: "qwen-coder", model: "qwen2.5-coder" },
-      ],
-      onSelect: (value) => selected.push(value),
-      onExit: () => selected.push("EXIT"),
-    });
+    store.setActiveMenu(
+      {
+        kind: "agents",
+        title: "agents",
+        action: "back",
+        browse: true,
+        agents: [
+          { id: "a1", name: "doitall", model: "claude-sonnet-4" },
+          { id: "a2", name: "qwen-coder", model: "qwen2.5-coder" },
+        ],
+      },
+      (result) => selected.push(result.kind === "exit" ? "EXIT" : result.value),
+    );
     await rendered.flush();
     expect(rendered.captureCharFrame()).toContain("doitall");
 
@@ -744,15 +757,16 @@ describe("fullscreen bridge", () => {
     expect(selected).toEqual(["EXIT"]);
 
     selected.length = 0;
-    store.setActiveMenu({
-      kind: "agents",
-      title: "agents",
-      action: "back",
-      browse: true,
-      agents: [{ id: "a1", name: "doitall", model: "claude-sonnet-4" }],
-      onSelect: (value) => selected.push(value),
-      onExit: () => selected.push("EXIT"),
-    });
+    store.setActiveMenu(
+      {
+        kind: "agents",
+        title: "agents",
+        action: "back",
+        browse: true,
+        agents: [{ id: "a1", name: "doitall", model: "claude-sonnet-4" }],
+      },
+      (result) => selected.push(result.kind === "exit" ? "EXIT" : result.value),
+    );
     await rendered.flush();
     await rendered.mockInput.pressKey("ESCAPE");
     await settleKeypress(rendered.flush, 100);
@@ -769,8 +783,6 @@ describe("fullscreen bridge", () => {
         title: "pick an agent",
         action: "start",
         agents: [],
-        onSelect: () => undefined,
-        onExit: () => undefined,
       });
     });
     expect(text).toContain("No agents yet.");
@@ -780,7 +792,7 @@ describe("fullscreen bridge", () => {
     store.setActiveMenu(null);
   });
 
-  it("hands an Ink-only custom screen to the legacy renderer", async () => {
+  it("keeps a data-only menu fullscreen without falling back", async () => {
     let fallbackRequests = 0;
     const unregisterFallback = store.registerRendererFallbackHandler(() => {
       fallbackRequests += 1;
@@ -788,30 +800,9 @@ describe("fullscreen bridge", () => {
     const rendered = await testRender(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
     await rendered.renderOnce();
 
-    store.setCustomView(React.createElement(React.Fragment, null, "legacy-only"));
-    await rendered.flush();
-    await rendered.flush();
-
-    rendered.renderer.destroy();
-    store.setCustomView(null);
-    unregisterFallback();
-    expect(fallbackRequests).toBe(1);
-  });
-
-  it("keeps a renderer-neutral menu fullscreen when an Ink view is also published", async () => {
-    let fallbackRequests = 0;
-    const unregisterFallback = store.registerRendererFallbackHandler(() => {
-      fallbackRequests += 1;
-    });
-    const rendered = await testRender(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
-    await rendered.renderOnce();
-
-    store.setCustomView(React.createElement(React.Fragment, null, "legacy-copy"));
     store.setActiveMenu({
       kind: "menu",
       options: [{ label: "Stay fullscreen", value: "stay" }],
-      onSelect: () => undefined,
-      onExit: () => undefined,
     });
     await rendered.flush();
     await Promise.resolve();
@@ -820,7 +811,6 @@ describe("fullscreen bridge", () => {
     expect(fallbackRequests).toBe(0);
 
     rendered.renderer.destroy();
-    store.setCustomView(null);
     store.setActiveMenu(null);
     unregisterFallback();
   });
@@ -1258,16 +1248,17 @@ describe("fullscreen bridge", () => {
       { width: 100, height: 28 },
     );
     await renderOnce();
-    store.setActiveMenu({
-      kind: "menu",
-      options: [
-        { label: "Start chatting", value: "chat" },
-        { label: "Create an agent", value: "create" },
-        { label: "Exit", value: "exit" },
-      ],
-      onSelect: (value) => selected.push(value),
-      onExit: () => selected.push("EXIT-CALLED"),
-    });
+    store.setActiveMenu(
+      {
+        kind: "menu",
+        options: [
+          { label: "Start chatting", value: "chat" },
+          { label: "Create an agent", value: "create" },
+          { label: "Exit", value: "exit" },
+        ],
+      },
+      (result) => selected.push(result.kind === "exit" ? "EXIT-CALLED" : result.value),
+    );
     await flush();
     const before = captureCharFrame();
 
@@ -1289,16 +1280,19 @@ describe("fullscreen bridge", () => {
     const selected: string[] = [];
     const rendered = await testRender(<FullscreenBridge />, { width: 100, height: 28 });
     await rendered.renderOnce();
-    store.setActiveMenu({
-      kind: "menu",
-      options: [
-        { label: "Start chatting", value: "chat" },
-        { label: "Create an agent", value: "create" },
-        { label: "Exit", value: "exit" },
-      ],
-      onSelect: (value) => selected.push(value),
-      onExit: () => undefined,
-    });
+    store.setActiveMenu(
+      {
+        kind: "menu",
+        options: [
+          { label: "Start chatting", value: "chat" },
+          { label: "Create an agent", value: "create" },
+          { label: "Exit", value: "exit" },
+        ],
+      },
+      (result) => {
+        if (result.kind === "select") selected.push(result.value);
+      },
+    );
     await rendered.flush();
 
     await rendered.mockInput.pressKey("\x1bOB");
@@ -1386,6 +1380,95 @@ describe("fullscreen bridge", () => {
     store.setPrompt(null);
     expect(pasted).toContain("pasted-while-scrolled");
     expect(pasted).toContain("enter to send");
+  });
+
+  it("drains buffered stdin so a pending Enter cannot land on a new card", () => {
+    const leftover: Array<string | Buffer> = ["\r", "a"];
+    const stdin = {
+      readable: true,
+      read: () => leftover.shift() ?? null,
+    } as unknown as NodeJS.ReadStream;
+    flushPendingTerminalKeys(stdin);
+    expect(leftover).toEqual([]);
+  });
+
+  it("does not resolve a producer approval from queued Enter or a during the deny-only window", async () => {
+    let settled: { approved: boolean } | undefined;
+    const rendered = await testRender(<FullscreenBridge />, { width: 100, height: 28 });
+    await rendered.renderOnce();
+    const pending = Effect.runPromise(
+      presentationProducer().requestApproval({
+        toolCallId: "call-cal",
+        toolName: "calendar_create",
+        executeToolName: "calendar_create",
+        message: "This invitation will be sent immediately.",
+        executeArgs: {
+          account: "user@example.com",
+          title: "Planning",
+          field1: "one",
+          field2: "two",
+          field3: "three",
+          field4: "four",
+          field5: "five",
+          field6: "six",
+          field7: "seven",
+          field8: "eight",
+          field9: "nine",
+        },
+      }),
+    );
+    void pending.then((outcome) => {
+      settled = outcome;
+    });
+    await rendered.flush();
+    expect(rendered.captureCharFrame()).toContain("field9");
+    expect(rendered.captureCharFrame()).toContain("esc to reject");
+    expect(rendered.captureCharFrame()).not.toContain("enter to accept");
+
+    await rendered.mockInput.pressKey("RETURN");
+    await settleKeypress(rendered.flush);
+    await rendered.mockInput.pressKey("a");
+    await settleKeypress(rendered.flush);
+    expect(settled).toBeUndefined();
+
+    await new Promise((resolve) => setTimeout(resolve, APPROVAL_ARM_MS + 50));
+    await rendered.flush();
+    expect(rendered.captureCharFrame()).toContain("enter to accept");
+    await rendered.mockInput.pressKey("RETURN");
+    await settleKeypress(rendered.flush);
+    expect(await pending).toEqual({ approved: true });
+
+    rendered.renderer.destroy();
+  });
+
+  it("keeps reject available from a producer while accept is still inert", async () => {
+    let settled: { approved: boolean } | undefined;
+    const rendered = await testRender(<FullscreenBridge />, { width: 100, height: 28 });
+    await rendered.renderOnce();
+    const pending = Effect.runPromise(
+      presentationProducer().requestApproval({
+        toolCallId: "call-mail",
+        toolName: "email_send",
+        executeToolName: "email_send",
+        message: "This message will leave the machine.",
+        executeArgs: { account: "user@example.com", to: "other@example.com" },
+      }),
+    );
+    void pending.then((outcome) => {
+      settled = outcome;
+    });
+    await rendered.flush();
+
+    await rendered.mockInput.pressKey("ESCAPE");
+    await settleKeypress(rendered.flush, 100);
+    expect(settled).toBeUndefined();
+    expect(rendered.captureCharFrame().toLowerCase()).toContain("instead");
+
+    await rendered.mockInput.pressKey("RETURN");
+    await settleKeypress(rendered.flush, 100);
+    expect(await pending).toEqual({ approved: false });
+
+    rendered.renderer.destroy();
   });
 
   it("accepts only denial until an approval has armed", async () => {
@@ -1659,8 +1742,6 @@ describe("fullscreen bridge", () => {
     store.setActiveMenu({
       kind: "menu",
       options: [{ label: "x", value: "x" }],
-      onSelect: () => undefined,
-      onExit: () => undefined,
     });
     await flush();
 

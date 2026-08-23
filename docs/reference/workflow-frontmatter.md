@@ -1,6 +1,6 @@
 # Workflow frontmatter
 
-**Reader job:** get the `WORKFLOW.md` YAML fields exactly right.
+How to get the `WORKFLOW.md` YAML fields exactly right.
 
 Verified against
 [`src/core/workflows/workflow-service.ts`](../../src/core/workflows/workflow-service.ts).
@@ -36,7 +36,7 @@ maxIterations: 40
 | `skills`           | string[]    | —        | Skills to make available to the agent for this workflow                           |
 | `catchUpOnStartup` | boolean     | —        | Whether a missed run should be offered on next launch                             |
 | `maxCatchUpAge`    | seconds     | —        | Past this age a missed run is skipped. Default 86400 (24 h)                       |
-| `maxIterations`    | number      | —        | Iteration cap for this workflow. Default 80. Overridable with `--max-iterations`  |
+| `maxIterations`    | number      | —        | Iteration cap for this workflow. Default 100. Overridable with `--max-iterations`  |
 
 There is **no** `autoApprovedCommands` field in frontmatter — that is a global config setting.
 See [the note below](#the-low-risk-trap).
@@ -62,7 +62,7 @@ Exact per-tool tiers: [Tools reference](./tools.md).
 ## The `low-risk` trap
 
 `low-risk` is narrower than it sounds. In the built-in toolset it adds **three** tools
-(`manage_todos`, `update_task_state`, and `spawn_subagent`). It does **not** cover email, calendar, or file writes.
+(`manage_todos`, `update_work_state`, and `spawn_subagent`). It does **not** cover email, calendar, or file writes.
 
 This matters because the capabilities people most want on a schedule are skills that shell
 out through `execute_command`, which is `unknown`:

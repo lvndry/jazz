@@ -1,0 +1,59 @@
+---
+
+---
+
+<div class="strip">
+  <code class="cmd mono" id="strip-cmd"
+    >curl -fsSL https://github.com/lvndry/jazz/releases/latest/download/install.sh | bash</code
+  >
+  <button class="copy mono" id="strip-copy" aria-label="Copy install command">copy</button>
+</div>
+
+<style>
+  .strip {
+    display: flex;
+    gap: 10px;
+    align-items: stretch;
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 9vh 4vw 0;
+  }
+  .cmd {
+    flex: 1;
+    padding: 15px 18px;
+    font-size: 13px;
+    color: var(--jz-selected);
+    background: var(--jz-surface);
+    border: 1px solid var(--jz-border);
+    border-radius: 6px;
+    overflow-x: auto;
+    white-space: nowrap;
+  }
+  .copy {
+    padding: 0 20px;
+    font-size: 12px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    background: none;
+    color: var(--jz-primary);
+    border: 1px solid var(--jz-primary);
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  .copy:hover {
+    background: var(--jz-primary);
+    color: #000;
+  }
+</style>
+
+<script>
+  const button = document.getElementById("strip-copy") as HTMLButtonElement;
+  const command = document.getElementById("strip-cmd")!.textContent ?? "";
+  button.addEventListener("click", async () => {
+    await navigator.clipboard.writeText(command.trim());
+    button.textContent = "copied";
+    setTimeout(() => {
+      button.textContent = "copy";
+    }, 2000);
+  });
+</script>

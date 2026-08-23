@@ -103,6 +103,30 @@ The ordering `warn < compact < 0.95` is enforced. The 0.95 ceiling is the trim r
 
 Raising `compactThresholdRatio` keeps more verbatim history but leaves less headroom, which bites hardest on local servers whose real window is smaller than advertised. Lowering it compacts earlier and more often, costing a summarizer call each time. The reserved-space figure in `/context` is derived from this setting, so the grid always reflects where compaction actually fires.
 
+### `output`
+
+Terminal display of reasoning, tools, and formatting. The interactive TUI reads these when a session starts.
+
+```json
+{
+  "output": {
+    "showReasoning": true,
+    "collapseReasoning": true,
+    "showToolExecution": true,
+    "mode": "hybrid"
+  }
+}
+```
+
+| Key                  | Default | Effect                                                                                          |
+| -------------------- | ------- | ----------------------------------------------------------------------------------------------- |
+| `showReasoning`      | `true`  | Stream the model's reasoning while it thinks                                                    |
+| `collapseReasoning`  | `true`  | After thinking finishes, collapse it to a one-line summary. **Ctrl+R** expands it in place      |
+| `showToolExecution`  | `true`  | Show tool calls as they run                                                                     |
+| `mode`               | `hybrid` | `rendered` \| `hybrid` \| `raw` \| `quiet`. Overridable with `JAZZ_OUTPUT_MODE` / `--output` |
+
+Set `collapseReasoning` to `false` to leave the full reasoning visible after it finishes. Ctrl+R is then unused — there is nothing collapsed to expand. Change it with `jazz config set output.collapseReasoning false`, or from **Output & Display** in `jazz config`.
+
 ## Project Overrides: `./.jazz/config.json`
 
 Use for project-specific settings such as MCP enable/disable flags or logging level. Do not put agent storage paths here — agents always load from `~/.jazz`.
@@ -152,7 +176,7 @@ Other providers follow the same `<PROVIDER>_API_KEY` convention — see
 | Variable           | Effect                                                                       |
 | ------------------ | ---------------------------------------------------------------------------- |
 | `JAZZ_NO_TUI`      | `1`: no terminal UI at all, plain output (same as `--no-tui`)                |
-| `JAZZ_FULLSCREEN`  | `0`: keep an interactive interface but not the alternate screen             |
+| `JAZZ_FULLSCREEN`  | `0`: keep an interactive interface but not the alternate screen. Print-and-exit commands never enter it, so their output stays in scrollback. |
 | `JAZZ_OUTPUT_MODE` | `rendered` \| `hybrid` \| `raw` \| `quiet` (same as `--output`)              |
 | `JAZZ_THEME`       | Colour theme                                                                 |
 | `JAZZ_UI_GLYPHS`   | `unicode` \| `ascii` — override glyph detection for terminals that misreport |

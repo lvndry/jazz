@@ -1,48 +1,10 @@
 import { Command } from "commander";
-import { Effect } from "effect";
 import packageJson from "../../package.json";
-import { runCliEffect } from "../app-layer";
-import {
-  deleteAgentCommand,
-  getAgentCommand,
-  listAgentsCommand,
-} from "./commands/agent-management";
-import { chatWithAIAgentCommand } from "./commands/chat-agent";
-import { getConfigCommand, listConfigCommand, setConfigCommand } from "./commands/config";
-import { createAgentCommand } from "./commands/create-agent";
-import { editAgentCommand } from "./commands/edit-agent";
-import {
-  addMcpServerCommand,
-  listMcpServersCommand,
-  removeMcpServerCommand,
-  enableMcpServerCommand,
-  disableMcpServerCommand,
-} from "./commands/mcp";
-import {
-  createPersonaCommand,
-  listPersonasCommand,
-  showPersonaCommand,
-  editPersonaCommand,
-  deletePersonaCommand,
-} from "./commands/persona";
 import {
   isApprovalPolicyFlag,
-  parseEventCategories,
   isReasoningEffortFlag,
-  runAgentOnceCommand,
-} from "./commands/run-agent";
-import { updateCommand } from "./commands/update";
-import { wizardCommand } from "./commands/wizard";
-import {
-  listWorkflowsCommand,
-  showWorkflowCommand,
-  runWorkflowCommand,
-  scheduleWorkflowCommand,
-  unscheduleWorkflowCommand,
-  listScheduledWorkflowsCommand,
-  catchupWorkflowCommand,
-  workflowHistoryCommand,
-} from "./commands/workflow";
+  parseEventCategories,
+} from "./commands/run/flags";
 import { parsePositiveInt } from "./utils/option-parsers";
 import { setCurrentCommandName } from "../core/utils/current-command";
 
@@ -59,6 +21,53 @@ interface CliOptions {
   config?: string;
   output?: string;
   tui?: boolean;
+}
+
+interface CliRuntimeOptions {
+  readonly verbose?: boolean | undefined;
+  readonly debug?: boolean | undefined;
+  readonly configPath?: string | undefined;
+}
+
+interface CliRunOptions {
+  readonly skipCatchUp?: boolean;
+  readonly skipUpdateCheck?: boolean;
+  /** Live until the user leaves. Print-and-exit commands omit this. */
+  readonly session?: boolean;
+}
+
+type AppLayerModule = typeof import("../app-layer");
+type CliCommandEffect = Parameters<AppLayerModule["runCliEffect"]>[0];
+
+const MEDIA_CAPABILITIES = ["image", "audio", "video"] as const;
+
+function isMediaCapability(value: string): value is (typeof MEDIA_CAPABILITIES)[number] {
+  return (MEDIA_CAPABILITIES as readonly string[]).includes(value);
+}
+
+function cliRuntimeOptions(program: Command): CliRuntimeOptions {
+  const opts = program.opts<CliOptions>();
+  return {
+    verbose: opts.verbose,
+    debug: opts.debug,
+    configPath: opts.config,
+  };
+}
+
+// Actions load the agent stack only when a command actually runs, so
+// `jazz --help` / `jazz --version` stay on the Commander tree.
+async function runCliAction(
+  loadEffect: () => Promise<CliCommandEffect>,
+  config: CliRuntimeOptions,
+  options?: CliRunOptions,
+): Promise<void> {
+  try {
+    const [{ runCliEffect }, effect] = await Promise.all([import("../app-layer"), loadEffect()]);
+    runCliEffect(effect, config, options);
+  } catch (error) {
+    console.error("Fatal error:", error);
+    throw error;
+  }
 }
 
 /** Build the full command path (`agent list`) by walking up to the root program. */
@@ -131,6 +140,10 @@ function registerRunCommand(program: Command): void {
       "--history-json <json>",
       "Inline JSON array of prior ChatMessages, used only with --ephemeral in place of --conversation — pass back the `messages` field from a previous --ephemeral --json response to keep multi-turn context without persistence.",
     )
+    .option(
+      "--park",
+      "When a gated tool needs approval nobody here can give, save the run and exit 2 instead of declining. Resume it later with `jazz runs approve <id>`. Only use this where somebody will actually answer.",
+    )
     .action(
       (
         prompt: string | undefined,
@@ -149,9 +162,9 @@ function registerRunCommand(program: Command): void {
           noStream?: boolean;
           ephemeral?: boolean;
           historyJson?: string;
+          park?: boolean;
         },
       ) => {
-        const opts = program.opts<CliOptions>();
         const json = options.json === true;
 
         if (options.approvalPolicy !== undefined && !isApprovalPolicyFlag(options.approvalPolicy)) {
@@ -216,38 +229,41 @@ function registerRunCommand(program: Command): void {
           .map((name) => name.trim())
           .filter((name) => name.length > 0);
 
-        runCliEffect(
-          runAgentOnceCommand(options.agent, prompt, {
-            json,
-            ...(options.approvalPolicy !== undefined && isApprovalPolicyFlag(options.approvalPolicy)
-              ? { approvalPolicy: options.approvalPolicy }
-              : {}),
-            ...(autoApproveTools && autoApproveTools.length > 0
-              ? { autoApprovedTools: autoApproveTools }
-              : {}),
-            ...(options.timezone !== undefined ? { timezone: options.timezone } : {}),
-            ...(options.reasoning !== undefined && isReasoningEffortFlag(options.reasoning)
-              ? { reasoningEffort: options.reasoning }
-              : {}),
-            ...(options.timeout !== undefined ? { timeoutMs: options.timeout } : {}),
-            ...(options.maxIterations !== undefined
-              ? { maxIterations: options.maxIterations }
-              : {}),
-            ...(eventCategories?.ok ? { eventTypes: eventCategories.types } : {}),
-            ...(options.conversation !== undefined ? { conversationId: options.conversation } : {}),
-            ...(options.noStream === true
-              ? { stream: false }
-              : options.stream === true
-                ? { stream: true }
-                : {}),
-            ...(options.ephemeral === true ? { ephemeral: true } : {}),
-            ...(options.historyJson !== undefined ? { historyJson: options.historyJson } : {}),
-          }),
-          {
-            verbose: opts.verbose,
-            debug: opts.debug,
-            configPath: opts.config,
-          },
+        return runCliAction(
+          () =>
+            import("./commands/run/execute").then((mod) =>
+              mod.runAgentOnceCommand(options.agent, prompt, {
+                json,
+                ...(options.approvalPolicy !== undefined &&
+                isApprovalPolicyFlag(options.approvalPolicy)
+                  ? { approvalPolicy: options.approvalPolicy }
+                  : {}),
+                ...(autoApproveTools && autoApproveTools.length > 0
+                  ? { autoApprovedTools: autoApproveTools }
+                  : {}),
+                ...(options.timezone !== undefined ? { timezone: options.timezone } : {}),
+                ...(options.reasoning !== undefined && isReasoningEffortFlag(options.reasoning)
+                  ? { reasoningEffort: options.reasoning }
+                  : {}),
+                ...(options.timeout !== undefined ? { timeoutMs: options.timeout } : {}),
+                ...(options.maxIterations !== undefined
+                  ? { maxIterations: options.maxIterations }
+                  : {}),
+                ...(eventCategories?.ok ? { eventTypes: eventCategories.types } : {}),
+                ...(options.conversation !== undefined
+                  ? { conversationId: options.conversation }
+                  : {}),
+                ...(options.noStream === true
+                  ? { stream: false }
+                  : options.stream === true
+                    ? { stream: true }
+                    : {}),
+                ...(options.ephemeral === true ? { ephemeral: true } : {}),
+                ...(options.historyJson !== undefined ? { historyJson: options.historyJson } : {}),
+                ...(options.park === true ? { park: true } : {}),
+              }),
+            ),
+          cliRuntimeOptions(program),
           { skipCatchUp: true, skipUpdateCheck: true },
         );
       },
@@ -264,50 +280,59 @@ function registerAgentCommands(program: Command): void {
     .command("list")
     .alias("ls")
     .description("List all agents")
-    .action(() => {
-      const opts = program.opts<CliOptions>();
-      runCliEffect(listAgentsCommand(), {
-        verbose: opts.verbose,
-        debug: opts.debug,
-        configPath: opts.config,
-      });
+    .option(
+      "--can <media>",
+      "Only agents whose model can generate this: image, audio, or video. Shows how to get one when none can.",
+    )
+    .action((commandOptions: { can?: string }) => {
+      const requested = commandOptions.can;
+      if (requested !== undefined && !isMediaCapability(requested)) {
+        console.error(
+          `Unknown capability "${requested}". Use one of: ${MEDIA_CAPABILITIES.join(", ")}`,
+        );
+        process.exitCode = 1;
+        return;
+      }
+      return runCliAction(
+        () =>
+          import("./commands/agent-management").then((mod) =>
+            mod.listAgentsCommand(requested ? { can: requested } : {}),
+          ),
+        cliRuntimeOptions(program),
+      );
     });
 
   agentCommand
     .command("create")
     .description("Create a new agent (interactive mode)")
-    .action(() => {
-      const opts = program.opts<CliOptions>();
-      runCliEffect(createAgentCommand(), {
-        verbose: opts.verbose,
-        debug: opts.debug,
-        configPath: opts.config,
-      });
-    });
+    .action(() =>
+      runCliAction(
+        () => import("./commands/create-agent").then((mod) => mod.createAgentCommand()),
+        cliRuntimeOptions(program),
+        { session: true },
+      ),
+    );
 
   agentCommand
     .command("show <agentId>")
     .description("Get an agent details")
-    .action((agentId: string) => {
-      const opts = program.opts<CliOptions>();
-      runCliEffect(getAgentCommand(agentId), {
-        verbose: opts.verbose,
-        debug: opts.debug,
-        configPath: opts.config,
-      });
-    });
+    .action((agentId: string) =>
+      runCliAction(
+        () => import("./commands/agent-management").then((mod) => mod.getAgentCommand(agentId)),
+        cliRuntimeOptions(program),
+      ),
+    );
 
   agentCommand
     .command("edit <agentId>")
     .description("Edit an existing agent")
-    .action((agentId: string) => {
-      const opts = program.opts<CliOptions>();
-      runCliEffect(editAgentCommand(agentId), {
-        verbose: opts.verbose,
-        debug: opts.debug,
-        configPath: opts.config,
-      });
-    });
+    .action((agentId: string) =>
+      runCliAction(
+        () => import("./commands/edit-agent").then((mod) => mod.editAgentCommand(agentId)),
+        cliRuntimeOptions(program),
+        { session: true },
+      ),
+    );
 
   agentCommand
     .command("delete <agentId>")
@@ -316,19 +341,17 @@ function registerAgentCommands(program: Command): void {
     .description("Delete an agent")
     .option("-y, --yes", "Delete without asking for confirmation")
     .option("-f, --force", "Alias for --yes")
-    .action((agentId: string, options: { yes?: boolean; force?: boolean }) => {
-      const opts = program.opts<CliOptions>();
-      runCliEffect(
-        deleteAgentCommand(agentId, {
-          skipConfirmation: options.yes === true || options.force === true,
-        }),
-        {
-          verbose: opts.verbose,
-          debug: opts.debug,
-          configPath: opts.config,
-        },
-      );
-    });
+    .action((agentId: string, options: { yes?: boolean; force?: boolean }) =>
+      runCliAction(
+        () =>
+          import("./commands/agent-management").then((mod) =>
+            mod.deleteAgentCommand(agentId, {
+              skipConfirmation: options.yes === true || options.force === true,
+            }),
+          ),
+        cliRuntimeOptions(program),
+      ),
+    );
 
   agentCommand
     .command("chat <agentIdentifier>")
@@ -354,22 +377,21 @@ function registerAgentCommands(program: Command): void {
           ephemeral?: boolean;
         },
       ) => {
-        const opts = program.opts<CliOptions>();
         const streamOption =
           options.noStream === true ? false : options.stream === true ? true : undefined;
-        runCliEffect(
-          chatWithAIAgentCommand(agentIdentifier, {
-            ...(streamOption !== undefined ? { stream: streamOption } : {}),
-            ...(options.maxIterations !== undefined
-              ? { maxIterations: options.maxIterations }
-              : {}),
-            ...(options.ephemeral === true ? { ephemeral: true } : {}),
-          }),
-          {
-            verbose: opts.verbose,
-            debug: opts.debug,
-            configPath: opts.config,
-          },
+        return runCliAction(
+          () =>
+            import("./commands/chat-agent").then((mod) =>
+              mod.chatWithAIAgentCommand(agentIdentifier, {
+                ...(streamOption !== undefined ? { stream: streamOption } : {}),
+                ...(options.maxIterations !== undefined
+                  ? { maxIterations: options.maxIterations }
+                  : {}),
+                ...(options.ephemeral === true ? { ephemeral: true } : {}),
+              }),
+            ),
+          cliRuntimeOptions(program),
+          { session: true },
         );
       },
     );
@@ -384,38 +406,32 @@ function registerConfigCommands(program: Command): void {
   configCommand
     .command("get <key>")
     .description("Get a configuration value")
-    .action((key: string) => {
-      const opts = program.opts<CliOptions>();
-      runCliEffect(getConfigCommand(key), {
-        verbose: opts.verbose,
-        debug: opts.debug,
-        configPath: opts.config,
-      });
-    });
+    .action((key: string) =>
+      runCliAction(
+        () => import("./commands/config").then((mod) => mod.getConfigCommand(key)),
+        cliRuntimeOptions(program),
+      ),
+    );
 
   configCommand
     .command("set <key> [value]")
     .description("Set a configuration value")
-    .action((key: string, value?: string) => {
-      const opts = program.opts<CliOptions>();
-      runCliEffect(setConfigCommand(key, value), {
-        verbose: opts.verbose,
-        debug: opts.debug,
-        configPath: opts.config,
-      });
-    });
+    .action((key: string, value?: string) =>
+      runCliAction(
+        () => import("./commands/config").then((mod) => mod.setConfigCommand(key, value)),
+        cliRuntimeOptions(program),
+      ),
+    );
 
   configCommand
     .command("show")
     .description("Show all configuration values")
-    .action(() => {
-      const opts = program.opts<CliOptions>();
-      runCliEffect(listConfigCommand(), {
-        verbose: opts.verbose,
-        debug: opts.debug,
-        configPath: opts.config,
-      });
-    });
+    .action(() =>
+      runCliAction(
+        () => import("./commands/config").then((mod) => mod.listConfigCommand()),
+        cliRuntimeOptions(program),
+      ),
+    );
 }
 
 /**
@@ -424,44 +440,41 @@ function registerConfigCommands(program: Command): void {
 function registerMCPCommands(program: Command): void {
   const mcpCommand = program.command("mcp").description("Manage MCP servers");
 
-  const run = <R, E extends Error>(effect: Effect.Effect<void, E, R>) => {
-    const opts = program.opts<CliOptions>();
-    runCliEffect(effect, {
-      verbose: opts.verbose,
-      debug: opts.debug,
-      configPath: opts.config,
-    });
-  };
+  function run(loadEffect: () => Promise<CliCommandEffect>): Promise<void> {
+    return runCliAction(loadEffect, cliRuntimeOptions(program));
+  }
 
   mcpCommand
     .command("add [json]")
     .description("Add an MCP server from JSON (inline, --file, or interactive)")
     .option("-f, --file <path>", "Read MCP server JSON from a file")
-    .action((json?: string, options?: { file?: string }) => {
-      run(addMcpServerCommand(json, options?.file));
-    });
+    .action((json?: string, options?: { file?: string }) =>
+      run(() =>
+        import("./commands/mcp").then((mod) => mod.addMcpServerCommand(json, options?.file)),
+      ),
+    );
 
   mcpCommand
     .command("list")
     .alias("ls")
     .description("List all configured MCP servers")
-    .action(() => run(listMcpServersCommand()));
+    .action(() => run(() => import("./commands/mcp").then((mod) => mod.listMcpServersCommand())));
 
   mcpCommand
     .command("remove")
     .alias("rm")
     .description("Remove an MCP server")
-    .action(() => run(removeMcpServerCommand()));
+    .action(() => run(() => import("./commands/mcp").then((mod) => mod.removeMcpServerCommand())));
 
   mcpCommand
     .command("enable")
     .description("Enable a disabled MCP server")
-    .action(() => run(enableMcpServerCommand()));
+    .action(() => run(() => import("./commands/mcp").then((mod) => mod.enableMcpServerCommand())));
 
   mcpCommand
     .command("disable")
     .description("Disable an enabled MCP server")
-    .action(() => run(disableMcpServerCommand()));
+    .action(() => run(() => import("./commands/mcp").then((mod) => mod.disableMcpServerCommand())));
 }
 
 /**
@@ -470,41 +483,51 @@ function registerMCPCommands(program: Command): void {
 function registerPersonaCommands(program: Command): void {
   const personaCommand = program.command("persona").description("Manage personas");
 
-  const run = <R, E extends Error>(effect: Effect.Effect<void, E, R>) => {
-    const opts = program.opts<CliOptions>();
-    runCliEffect(effect, {
-      verbose: opts.verbose,
-      debug: opts.debug,
-      configPath: opts.config,
-    });
-  };
+  function run(
+    loadEffect: () => Promise<CliCommandEffect>,
+    options?: CliRunOptions,
+  ): Promise<void> {
+    return runCliAction(loadEffect, cliRuntimeOptions(program), options);
+  }
 
   personaCommand
     .command("create")
     .description("Create a new custom persona (interactive)")
-    .action(() => run(createPersonaCommand()));
+    .action(() =>
+      run(() => import("./commands/persona").then((mod) => mod.createPersonaCommand()), {
+        session: true,
+      }),
+    );
 
   personaCommand
     .command("list")
     .alias("ls")
     .description("List all personas (built-in + custom)")
-    .action(() => run(listPersonasCommand()));
+    .action(() => run(() => import("./commands/persona").then((mod) => mod.listPersonasCommand())));
 
   personaCommand
     .command("show <identifier>")
     .description("Show details of a persona by name or ID")
-    .action((identifier: string) => run(showPersonaCommand(identifier)));
+    .action((identifier: string) =>
+      run(() => import("./commands/persona").then((mod) => mod.showPersonaCommand(identifier))),
+    );
 
   personaCommand
     .command("edit <identifier>")
     .description("Edit an existing custom persona")
-    .action((identifier: string) => run(editPersonaCommand(identifier)));
+    .action((identifier: string) =>
+      run(() => import("./commands/persona").then((mod) => mod.editPersonaCommand(identifier)), {
+        session: true,
+      }),
+    );
 
   personaCommand
     .command("delete <identifier>")
     .alias("rm")
     .description("Delete a custom persona")
-    .action((identifier: string) => run(deletePersonaCommand(identifier)));
+    .action((identifier: string) =>
+      run(() => import("./commands/persona").then((mod) => mod.deletePersonaCommand(identifier))),
+    );
 }
 
 /**
@@ -516,14 +539,115 @@ function registerUpdateCommand(program: Command): void {
     .alias("upgrade")
     .description("Update Jazz to the latest version")
     .option("--check", "Check for updates without installing")
-    .action((options: { check?: boolean }) => {
-      const opts = program.opts<CliOptions>();
-      runCliEffect(updateCommand(options), {
-        verbose: opts.verbose,
-        debug: opts.debug,
-        configPath: opts.config,
-      });
-    });
+    .action((options: { check?: boolean }) =>
+      runCliAction(
+        () => import("./commands/update").then((mod) => mod.updateCommand(options)),
+        cliRuntimeOptions(program),
+      ),
+    );
+}
+
+/**
+ * Register `jazz runs` — find and answer runs that stopped for a person.
+ */
+function registerRunsCommands(program: Command): void {
+  const runsCommand = program
+    .command("runs")
+    .description("Inspect runs still in flight, and answer the ones waiting on you");
+
+  runsCommand
+    .command("list")
+    .alias("ls")
+    .description("List runs that have not finished, newest first")
+    .option("--agent <agentId>", "Only runs belonging to this agent")
+    .option("--conversation <id>", "Only runs from this conversation")
+    .option(
+      "--all",
+      "Include runs that already finished, with what they cost. Records are kept for 7 days.",
+    )
+    .option("--json", "Emit a single JSON envelope { ok, runs }")
+    .action((options: { agent?: string; conversation?: string; all?: boolean; json?: boolean }) =>
+      runCliAction(
+        () =>
+          import("./commands/run/lifecycle").then((mod) =>
+            mod.listRunsCommand({
+              json: options.json === true,
+              ...(options.agent !== undefined ? { agentId: options.agent } : {}),
+              ...(options.conversation !== undefined
+                ? { conversationId: options.conversation }
+                : {}),
+              ...(options.all === true ? { all: true } : {}),
+            }),
+          ),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  runsCommand
+    .command("show <runId>")
+    .description("Show one run, including what it is waiting for")
+    .option("--json", "Emit a single JSON envelope { ok, run }")
+    .action((runId: string, options: { json?: boolean }) =>
+      runCliAction(
+        () =>
+          import("./commands/run/lifecycle").then((mod) =>
+            mod.showRunCommand({ runId, json: options.json === true }),
+          ),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  runsCommand
+    .command("approve <runId>")
+    .description(
+      "Approve what a parked run is waiting for and let it finish (blocks until it does)",
+    )
+    .option("--json", "Emit a single JSON envelope { ok, runId, answer }")
+    .action((runId: string, options: { json?: boolean }) =>
+      runCliAction(
+        () =>
+          import("./commands/run/lifecycle").then((mod) =>
+            mod.answerRunCommand({ runId, approved: true, json: options.json === true }),
+          ),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  runsCommand
+    .command("reject <runId>")
+    .description(
+      "Refuse what a parked run is waiting for; it resumes and reasons about the refusal",
+    )
+    .option("--note <text>", "Tell the agent why, so it can try something else")
+    .option("--json", "Emit a single JSON envelope { ok, runId, answer }")
+    .action((runId: string, options: { note?: string; json?: boolean }) =>
+      runCliAction(
+        () =>
+          import("./commands/run/lifecycle").then((mod) =>
+            mod.answerRunCommand({
+              runId,
+              approved: false,
+              json: options.json === true,
+              ...(options.note !== undefined ? { note: options.note } : {}),
+            }),
+          ),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  runsCommand
+    .command("cancel <runId>")
+    .description("Abandon a parked run without answering it")
+    .option("--json", "Emit a single JSON envelope { ok, runId }")
+    .action((runId: string, options: { json?: boolean }) =>
+      runCliAction(
+        () =>
+          import("./commands/run/lifecycle").then((mod) =>
+            mod.cancelRunCommand({ runId, json: options.json === true }),
+          ),
+        cliRuntimeOptions(program),
+      ),
+    );
 }
 
 /**
@@ -536,26 +660,22 @@ function registerWorkflowCommands(program: Command): void {
     .command("list")
     .alias("ls")
     .description("List all available workflows")
-    .action(() => {
-      const opts = program.opts<CliOptions>();
-      runCliEffect(listWorkflowsCommand(), {
-        verbose: opts.verbose,
-        debug: opts.debug,
-        configPath: opts.config,
-      });
-    });
+    .action(() =>
+      runCliAction(
+        () => import("./commands/workflow").then((mod) => mod.listWorkflowsCommand()),
+        cliRuntimeOptions(program),
+      ),
+    );
 
   workflowCommand
     .command("show <name>")
     .description("Show details of a workflow")
-    .action((name: string) => {
-      const opts = program.opts<CliOptions>();
-      runCliEffect(showWorkflowCommand(name), {
-        verbose: opts.verbose,
-        debug: opts.debug,
-        configPath: opts.config,
-      });
-    });
+    .action((name: string) =>
+      runCliAction(
+        () => import("./commands/workflow").then((mod) => mod.showWorkflowCommand(name)),
+        cliRuntimeOptions(program),
+      ),
+    );
 
   workflowCommand
     .command("run <name>")
@@ -598,7 +718,6 @@ function registerWorkflowCommands(program: Command): void {
         },
         command: Command,
       ) => {
-        const opts = program.opts<CliOptions>();
         const json = options.json === true;
         const isWorkflowRunCommand =
           command.name() === "run" && command.parent?.name() === "workflow";
@@ -627,18 +746,17 @@ function registerWorkflowCommands(program: Command): void {
           process.env["JAZZ_NO_TUI"] = "1";
         }
 
-        runCliEffect(
-          runWorkflowCommand(name, {
-            ...options,
-            ...(options.timeout !== undefined ? { timeoutMs: options.timeout } : {}),
-            ...(eventCategories?.ok ? { eventTypes: eventCategories.types } : {}),
-          }),
-          {
-            verbose: opts.verbose,
-            debug: opts.debug,
-            configPath: opts.config,
-          },
-          { skipCatchUp: isWorkflowRunCommand, skipUpdateCheck: json },
+        return runCliAction(
+          () =>
+            import("./commands/workflow").then((mod) =>
+              mod.runWorkflowCommand(name, {
+                ...options,
+                ...(options.timeout !== undefined ? { timeoutMs: options.timeout } : {}),
+                ...(eventCategories?.ok ? { eventTypes: eventCategories.types } : {}),
+              }),
+            ),
+          cliRuntimeOptions(program),
+          { skipCatchUp: isWorkflowRunCommand, skipUpdateCheck: json, session: true },
         );
       },
     );
@@ -646,62 +764,53 @@ function registerWorkflowCommands(program: Command): void {
   workflowCommand
     .command("schedule <name>")
     .description("Enable scheduled execution for a workflow")
-    .action((name: string) => {
-      const opts = program.opts<CliOptions>();
-      runCliEffect(scheduleWorkflowCommand(name), {
-        verbose: opts.verbose,
-        debug: opts.debug,
-        configPath: opts.config,
-      });
-    });
+    .action((name: string) =>
+      runCliAction(
+        () => import("./commands/workflow").then((mod) => mod.scheduleWorkflowCommand(name)),
+        cliRuntimeOptions(program),
+      ),
+    );
 
   workflowCommand
     .command("unschedule <name>")
     .description("Disable scheduled execution for a workflow")
-    .action((name: string) => {
-      const opts = program.opts<CliOptions>();
-      runCliEffect(unscheduleWorkflowCommand(name), {
-        verbose: opts.verbose,
-        debug: opts.debug,
-        configPath: opts.config,
-      });
-    });
+    .action((name: string) =>
+      runCliAction(
+        () => import("./commands/workflow").then((mod) => mod.unscheduleWorkflowCommand(name)),
+        cliRuntimeOptions(program),
+      ),
+    );
 
   workflowCommand
     .command("scheduled")
     .description("List all scheduled workflows")
-    .action(() => {
-      const opts = program.opts<CliOptions>();
-      runCliEffect(listScheduledWorkflowsCommand(), {
-        verbose: opts.verbose,
-        debug: opts.debug,
-        configPath: opts.config,
-      });
-    });
+    .action(() =>
+      runCliAction(
+        () => import("./commands/workflow").then((mod) => mod.listScheduledWorkflowsCommand()),
+        cliRuntimeOptions(program),
+      ),
+    );
 
   workflowCommand
     .command("catchup")
     .description("List workflows that missed a scheduled run, select which to run, then run them")
-    .action(() => {
-      const opts = program.opts<CliOptions>();
-      runCliEffect(catchupWorkflowCommand(), {
-        verbose: opts.verbose,
-        debug: opts.debug,
-        configPath: opts.config,
-      });
-    });
+    .action(() =>
+      runCliAction(
+        () => import("./commands/workflow").then((mod) => mod.catchupWorkflowCommand()),
+        cliRuntimeOptions(program),
+        { session: true },
+      ),
+    );
 
   workflowCommand
     .command("history [name]")
     .description("Show workflow run history")
-    .action((name?: string) => {
-      const opts = program.opts<CliOptions>();
-      runCliEffect(workflowHistoryCommand(name), {
-        verbose: opts.verbose,
-        debug: opts.debug,
-        configPath: opts.config,
-      });
-    });
+    .action((name?: string) =>
+      runCliAction(
+        () => import("./commands/workflow").then((mod) => mod.workflowHistoryCommand(name)),
+        cliRuntimeOptions(program),
+      ),
+    );
 }
 
 /**
@@ -712,66 +821,56 @@ function registerWorkflowCommands(program: Command): void {
  * - Configuration management (get, set, show)
  * - MCP server management
  * - Update command
- *
- * @returns An Effect that creates the configured Commander program
  */
-export function createCLIApp(): Effect.Effect<Command, never> {
-  return Effect.sync(() => {
-    const program = new Command();
+export function createCLIApp(): Command {
+  const program = new Command();
 
-    program
-      .name("jazz")
-      .description(
-        "Create and manage autonomous AI agents that execute real-world tasks (email, git, web, shell, and more)",
-      )
-      .version(packageJson.version);
+  program
+    .name("jazz")
+    .description(
+      "Create and manage autonomous AI agents that execute real-world tasks (email, git, web, shell, and more)",
+    )
+    .version(packageJson.version);
 
-    // Global options
-    program
-      .option("-v, --verbose", "Enable verbose logging")
-      .option("--debug", "Enable debug level logging")
-      .option("--config <path>", "Path to configuration file")
-      .option(
-        "--no-tui",
-        "Disable TUI; use plain terminal output (for CI, scripts, small terminals)",
-      )
-      .option(
-        "--output <mode>",
-        "Output mode: rendered, hybrid (default), raw (no formatting), or quiet (suppress output)",
-      );
+  program
+    .option("-v, --verbose", "Enable verbose logging")
+    .option("--debug", "Enable debug level logging")
+    .option("--config <path>", "Path to configuration file")
+    .option("--no-tui", "Disable TUI; use plain terminal output (for CI, scripts, small terminals)")
+    .option(
+      "--output <mode>",
+      "Output mode: rendered, hybrid (default), raw (no formatting), or quiet (suppress output)",
+    );
 
-    // Apply global options before any command runs
-    program.hook("preAction", (thisCommand, actionCommand) => {
-      const opts = thisCommand.optsWithGlobals();
-      if (opts["tui"] === false) {
-        process.env["JAZZ_NO_TUI"] = "1";
-      }
-      if (opts["output"]) {
-        process.env["JAZZ_OUTPUT_MODE"] = opts["output"] as string;
-      }
-      setCurrentCommandName(commandPath(actionCommand));
-    });
-
-    // Register all commands
-    registerRunCommand(program);
-    registerAgentCommands(program);
-    registerPersonaCommands(program);
-    registerConfigCommands(program);
-    registerMCPCommands(program);
-    registerUpdateCommand(program);
-    registerWorkflowCommands(program);
-
-    if (process.argv.length <= 2) {
-      program.action(() => {
-        const opts = program.opts<CliOptions>();
-        runCliEffect(wizardCommand(), {
-          verbose: opts.verbose,
-          debug: opts.debug,
-          configPath: opts.config,
-        });
-      });
+  program.hook("preAction", (thisCommand, actionCommand) => {
+    const opts = thisCommand.optsWithGlobals();
+    if (opts["tui"] === false) {
+      process.env["JAZZ_NO_TUI"] = "1";
     }
-
-    return program;
+    if (opts["output"]) {
+      process.env["JAZZ_OUTPUT_MODE"] = opts["output"] as string;
+    }
+    setCurrentCommandName(commandPath(actionCommand));
   });
+
+  registerRunCommand(program);
+  registerAgentCommands(program);
+  registerPersonaCommands(program);
+  registerConfigCommands(program);
+  registerMCPCommands(program);
+  registerUpdateCommand(program);
+  registerRunsCommands(program);
+  registerWorkflowCommands(program);
+
+  if (process.argv.length <= 2) {
+    program.action(() =>
+      runCliAction(
+        () => import("./commands/wizard").then((mod) => mod.wizardCommand()),
+        cliRuntimeOptions(program),
+        { session: true },
+      ),
+    );
+  }
+
+  return program;
 }

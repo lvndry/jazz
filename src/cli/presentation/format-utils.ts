@@ -15,7 +15,13 @@ import { Effect } from "effect";
 import {
   formatToolArguments as formatToolArgumentsCore,
   formatToolResult as formatToolResultCore,
+  isFileMutationTool,
 } from "@/core/utils/tool-formatter";
+import {
+  highlightSourceAnsi,
+  looksLikeUnifiedDiff,
+  sourceLanguageFromPath,
+} from "../ui/fullscreen/syntax-spans";
 import { getGlyphs } from "../ui/glyphs";
 import { CHALK_THEME } from "../ui/theme";
 
@@ -41,7 +47,37 @@ export function formatToolArguments(
 }
 
 export function formatToolResult(toolName: string, result: string): string {
-  return formatToolResultCore(toolName, result);
+  const formatted = formatToolResultCore(toolName, result);
+  if (!isFileMutationTool(toolName)) return formatted;
+  return colorizeFileMutationOutput(formatted, languageFromToolResult(result));
+}
+
+const FILE_MUTATION_EXPAND_HINT = "… · ctrl+o to expand";
+
+function languageFromToolResult(result: string): string | undefined {
+  try {
+    const parsed: unknown = JSON.parse(result);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return undefined;
+    const path = (parsed as Record<string, unknown>)["path"];
+    return typeof path === "string" ? sourceLanguageFromPath(path) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function colorizeFileMutationOutput(formatted: string, language: string | undefined): string {
+  if (formatted.length === 0) return formatted;
+  const hintIndex = formatted.indexOf(FILE_MUTATION_EXPAND_HINT);
+  const body = (hintIndex >= 0 ? formatted.slice(0, hintIndex) : formatted).trimEnd();
+  const hint = hintIndex >= 0 ? formatted.slice(hintIndex) : "";
+  if (body.startsWith("+ Created file:") || body.startsWith("Created file:")) {
+    return formatted;
+  }
+  const lines = body.split("\n");
+  const asDiff = looksLikeUnifiedDiff(language ?? "", lines);
+  if (!asDiff && language === undefined) return formatted;
+  const colored = highlightSourceAnsi(body, asDiff ? "diff" : (language ?? ""));
+  return hint.length > 0 ? `${colored}${hint}` : colored;
 }
 
 // ---------------------------------------------------------------------------
@@ -71,6 +107,34 @@ export function formatToolExecutionComplete(summary: string | null, durationMs: 
 
 export function formatToolExecutionError(errorMessage: string, durationMs: number): string {
   return ` ${CHALK_THEME.error(getGlyphs().error)} ${CHALK_THEME.error(`(${errorMessage})`)} ${chalk.dim(`(${durationMs}ms)`)}\n`;
+}
+
+const REASONING_HEADING = /^(?:#{1,6}\s+\S.*|\*\*[^*].*\*\*:?)\s*$/;
+
+/**
+ * Insert a blank line around section headings in expanded reasoning.
+ *
+ * Models often mark thought-chunks with `**Heading**` or `# Heading` and then
+ * the paragraph on the next line. Ctrl+R expands that as a wall of text;
+ * a blank row between those chunks is what makes them readable.
+ */
+export function spaceReasoningSections(text: string): string {
+  if (text.length === 0) return text;
+  const lines = text.split("\n");
+  const spaced: string[] = [];
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index] ?? "";
+    const heading = REASONING_HEADING.test(line.trim());
+    if (heading && spaced.length > 0 && spaced[spaced.length - 1] !== "") {
+      spaced.push("");
+    }
+    spaced.push(line);
+    const next = lines[index + 1];
+    if (heading && next !== undefined && next.trim().length > 0) {
+      spaced.push("");
+    }
+  }
+  return spaced.join("\n");
 }
 
 /**

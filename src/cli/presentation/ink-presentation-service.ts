@@ -25,7 +25,11 @@ import type { StreamEvent } from "@/core/types/streaming";
 import type { ApprovalOutcome, ApprovalRequest } from "@/core/types/tools";
 import { getModelsDevMetadata, getModelsDevMetadataSync } from "@/core/utils/models-dev";
 import { extractCommandApprovalKey } from "@/core/utils/shell";
-import { expandableToolResultPayload } from "@/core/utils/tool-formatter";
+import {
+  expandableFileMutationPayload,
+  expandableToolResultPayload,
+  isFileMutationTool,
+} from "@/core/utils/tool-formatter";
 import { computeUsageCostUSD, type UsageCostPricing } from "@/core/utils/usage-cost";
 import { createAccumulator, reduceEvent } from "./activity-reducer";
 import {
@@ -53,6 +57,20 @@ import { separatorLine } from "../utils/string-utils";
 
 /** Last-N-lines cap for a live sub-agent panel. */
 const SUBAGENT_PANEL_LINES = 12;
+
+/**
+ * Width offset used when wrapping a user-echo, matching `terminal.ts`.
+ * App `paddingX={3}` (6) plus the user-entry rail and space (2).
+ */
+const USER_ECHO_WIDTH_OFFSET = 8;
+
+function echoUserTurn(text: string): void {
+  store.printOutput({
+    type: "user",
+    message: wrapToWidth(text, getTerminalWidth() - USER_ECHO_WIDTH_OFFSET),
+    timestamp: new Date(),
+  });
+}
 
 function formatSubagentCollapseLine(label: string, outcome: EphemeralRegionCollapse): string {
   const glyphs = getGlyphs();
@@ -201,6 +219,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
     this.textBufferMs =
       streamingConfig?.textBufferMs ?? InkStreamingRenderer.DEFAULT_TEXT_BUFFER_MS;
     this.acc = createAccumulator(agentName);
+    store.setCollapseReasoning(displayConfig.collapseReasoning !== false);
   }
 
   /**
@@ -495,7 +514,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
         this.resolveContextWindow(event.provider, event.model, event.pinnedContextWindow);
       }
 
-      if (this.displayConfig.showThinking) {
+      if (this.displayConfig.showReasoning) {
         if (event.type === "thinking_start") {
           if (this.streamTarget.kind === "ephemeral") {
             // Subagent reasoning lives in the subagent's own panel — no
@@ -880,35 +899,19 @@ export class InkStreamingRenderer implements StreamingRenderer {
   }
 
   private storeExpandableDiff(toolName: string | undefined, result: string): void {
-    const isDiffTool =
-      toolName === "edit_file" ||
-      toolName === "execute_edit_file" ||
-      toolName === "write_file" ||
-      toolName === "execute_write_file";
-
-    if (!isDiffTool) {
-      // Generic tools: when the on-screen summary truncates the result, keep
-      // the full text expandable via the same Ctrl+O affordance as diffs.
-      const payload = expandableToolResultPayload(result);
-      if (payload !== null) {
-        store.setExpandableDiff(payload);
+    if (toolName !== undefined && isFileMutationTool(toolName)) {
+      const mutationPayload = expandableFileMutationPayload(result);
+      if (mutationPayload !== null) {
+        store.setExpandableDiff(mutationPayload);
       }
       return;
     }
 
-    try {
-      const parsed: unknown = JSON.parse(result);
-      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-        return;
-      }
-      const parsedResult = parsed as Record<string, unknown>;
-      const fullDiff = parsedResult["fullDiff"];
-      const wasTruncated = parsedResult["wasTruncated"];
-      if (typeof fullDiff === "string" && fullDiff.length > 0 && wasTruncated === true) {
-        store.setExpandableDiff(fullDiff);
-      }
-    } catch {
-      // Ignore parse errors
+    // Generic tools: when the on-screen summary truncates the result, keep
+    // the full text expandable via the same Ctrl+O affordance as diffs.
+    const payload = expandableToolResultPayload(result);
+    if (payload !== null) {
+      store.setExpandableDiff(payload);
     }
   }
 
@@ -999,7 +1002,9 @@ export class InkPresentationService implements PresentationService {
   constructor(
     private readonly displayConfig: DisplayConfig,
     private readonly notificationService: NotificationService | null,
-  ) {}
+  ) {
+    store.setCollapseReasoning(displayConfig.collapseReasoning !== false);
+  }
 
   /** Format markdown using the display mode from config. No pre-wrapping. */
   private formatMarkdownText(text: string): string {
@@ -1389,12 +1394,7 @@ export class InkPresentationService implements PresentationService {
         store.setApprovalRequest(null);
         const userMessage = typeof input === "string" ? input.trim() : "";
         if (userMessage) {
-          const rawMsg = `${followUpMessage} ${CHALK_THEME.success(userMessage)}`;
-          store.printOutput({
-            type: "log",
-            message: rawMsg,
-            timestamp: new Date(),
-          });
+          echoUserTurn(userMessage);
         }
         this.completeApproval(
           resume,
@@ -1496,11 +1496,7 @@ export class InkPresentationService implements PresentationService {
       },
       resolve: (value: unknown) => {
         const response = String(value);
-        store.printOutput({
-          type: "user",
-          message: wrapToWidth(response, getTerminalWidth() - 8),
-          timestamp: new Date(),
-        });
+        echoUserTurn(response);
         store.setPrompt(null);
         store.setApprovalRequest(null);
         this.isProcessingUserInput = false;

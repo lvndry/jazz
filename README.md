@@ -6,10 +6,16 @@
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-100%25-blue.svg)](https://www.typescriptlang.org/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![npm version](https://img.shields.io/npm/v/jazz-ai.svg)](https://www.npmjs.com/package/jazz-ai)
 
+![Jazz in the terminal](docs/assets/jazz_demo_github.gif)
+
 </div>
 
-Jazz is a general-purpose AI agent that runs on your own machine. Not just for code: use it
-for email, research, planning, and automation.
+Jazz is an agent harness: the loop, guardrails, and surfaces that turn a model into an
+agent you can run unattended. You define the agent — a model, a persona, a toolset, and
+permissions in one JSON file — and Jazz runs it in your terminal, from scripts, on a
+schedule, or behind a Telegram or Discord bot you own. Out of the box an agent works with
+your files, git, and the web; connect an inbox, an Obsidian vault, or a search provider and
+it grows into an everyday assistant.
 
 Install it once and it runs everywhere. A terminal REPL, a one-shot command inside a script,
 a scheduled workflow, a GitHub Action that reviews your pull requests, or a Telegram and
@@ -42,14 +48,27 @@ Jazz walks you through provider setup on first run. It can cost nothing:
 [OpenRouter](https://openrouter.ai)'s [free models router](https://openrouter.ai/openrouter/free)
 needs no credit card, and `ollama` runs entirely on your own hardware.
 
-Then ask it for what you want:
+Then ask it for what you want. These work the moment the wizard finishes — no extra keys,
+no extra installs:
 
 ```text
-> check my unread email, summarize what matters, archive the rest
-> deep-research the Three-Body Problem and write it into my Obsidian vault
-> every morning at 7, tell me the weather and what to wear
+> give me the TL;DR of ~/Desktop/bitcoin.pdf
 > review the last 5 commits and flag anything risky
+> fetch https://en.wikipedia.org/wiki/Jazz and give me the short version
 ```
+
+On priced models, every answer ends with what it actually cost you — real numbers
+from your own key.
+
+With a minute of setup each, Jazz also does the bigger jobs:
+
+```text
+> check my unread email, summarize what matters, archive the rest         # after `himalaya` is configured
+> deep-research the Three-Body Problem and write it into my Obsidian vault # after a web-search key is set
+> every morning at 7, tell me the weather and what to wear                 # as a scheduled workflow
+```
+
+The [Cookbook](docs/cookbook/index.md) walks through each one.
 
 ## Where it runs
 

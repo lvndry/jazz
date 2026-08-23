@@ -1,0 +1,455 @@
+---
+const chromes = [
+  { key: "terminal", label: "▞ jazz — your terminal" },
+  { key: "telegram", label: "Telegram · @your-jazz-bot" },
+  { key: "ci", label: "GitHub · scheduled run" },
+];
+
+const rules = [
+  {
+    claim: "You see everything before it happens.",
+    detail:
+      "The real recipient, the real calendar, the exact diff — every consequence is on the card before you press anything. Nothing is discoverable only after the fact.",
+  },
+  {
+    claim: "It can't be approved by accident.",
+    detail:
+      "For the first quarter-second the card only accepts “no” — so a key you were already pressing can't send an email you haven't read.",
+  },
+  {
+    claim: "No pressure tricks.",
+    detail:
+      "The card appears, then holds perfectly still. No countdowns, no pulsing buttons — rushing you into an irreversible choice is a dark pattern, so it's banned.",
+  },
+  {
+    claim: "Saying no is as easy as saying yes.",
+    detail:
+      "Reject is always one key. “Always allow” exists, but it's deliberately the least attractive thing on screen.",
+  },
+  {
+    claim: "A rejection tells you what didn't happen.",
+    detail:
+      "The run continues, and the record shows the email was never sent — no silent half-finished state to wonder about.",
+  },
+];
+---
+
+<section class="asks">
+  <p class="kicker mono">the trust argument</p>
+  <h2 class="shout">It asks first.<br /><span class="live">Wherever you are.</span></h2>
+  <p class="lede">
+    A coding agent asks to edit a file you can revert. Jazz asks to send an email, move a meeting,
+    post where other people read. There is no undo — so the approval card is the most consequential
+    component in the product, and it travels to whatever surface you're on. Same facts, native
+    dress: a band in the terminal, a message from a bot, a parked run in CI.
+  </p>
+  <div class="duo">
+    <div class="traveller" id="traveller">
+      <div class="tabs mono" role="tablist" aria-label="Approval surfaces">
+        {
+          chromes.map((chrome, index) => (
+            <button class="tab" data-tab={index} role="tab">
+              {chrome.label}
+            </button>
+          ))
+        }
+      </div>
+      <div class="viewport">
+        <div class="variant term mono" data-variant="0">
+          <div class="ahead"><span>▐</span><span>jazz wants to send an email</span></div>
+          <div class="fields">
+            <div><span class="fk">from</span> <span class="fv">lvndry@example.com</span></div>
+            <div><span class="fk">to</span> <span class="fv">team@example.com</span></div>
+            <div><span class="fk">subject</span> <span class="fv">Monday priorities</span></div>
+            <div><span class="fk">attachments</span> <span class="fv">none</span></div>
+          </div>
+          <div class="controls">
+            <span><span class="act">enter</span> send</span>
+            <span><span class="act">esc</span> reject</span>
+            <span class="allow">a always allow</span>
+          </div>
+        </div>
+
+        <div class="variant tg" data-variant="1">
+          <div class="tg-header mono"><span class="tg-avatar">▞</span> Jazz <span class="tg-bot">bot</span></div>
+          <div class="tg-bubble">
+            <p class="tg-title">I'd like to send an email — approve?</p>
+            <div class="tg-facts">
+              <div><b>from</b> lvndry@example.com</div>
+              <div><b>to</b> team@example.com</div>
+              <div><b>subject</b> Monday priorities</div>
+              <div><b>attachments</b> none</div>
+            </div>
+            <div class="tg-buttons" aria-hidden="true">
+              <span class="tg-btn">Send</span>
+              <span class="tg-btn reject">Reject</span>
+            </div>
+          </div>
+          <div class="tg-time mono">07:02 · your run is paused until you answer</div>
+        </div>
+
+        <div class="variant gh mono" data-variant="2">
+          <div class="gh-head">
+            <span class="gh-avatar">▞</span>
+            <span class="gh-who">jazz</span>
+            <span class="gh-badge">bot</span>
+            <span class="gh-when">commented · run parked</span>
+          </div>
+          <div class="gh-body">
+            <p class="gh-line">This scheduled run needs a human before it can continue:</p>
+            <div class="gh-facts">
+              <div><span class="fk">action</span> send an email</div>
+              <div><span class="fk">from</span> lvndry@example.com</div>
+              <div><span class="fk">to</span> team@example.com</div>
+              <div><span class="fk">subject</span> Monday priorities</div>
+            </div>
+            <p class="gh-note">Approve from any connected surface — the run resumes where it stopped.</p>
+          </div>
+          <div class="gh-status"><span class="gh-dot"></span> waiting for a human · nothing was sent</div>
+        </div>
+      </div>
+    </div>
+    <ul class="rules">
+      {
+        rules.map((rule) => (
+          <li>
+            <b>{rule.claim}</b> {rule.detail}
+          </li>
+        ))
+      }
+    </ul>
+  </div>
+</section>
+
+<style>
+  .asks {
+    padding: 14vh 4vw;
+    border-top: 1px solid var(--jz-border);
+  }
+  .kicker {
+    font-size: 12px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--jz-primary);
+    margin-bottom: 14px;
+  }
+  h2 {
+    font-size: clamp(38px, 6.2vw, 96px);
+  }
+  .live {
+    color: var(--jz-primary);
+  }
+  .lede {
+    margin-top: 26px;
+    max-width: 60ch;
+    font-size: 17px;
+    color: var(--jz-secondary);
+  }
+  .duo {
+    margin-top: 8vh;
+    display: grid;
+    grid-template-columns: 1.1fr 1fr;
+    gap: 6vw;
+    align-items: start;
+  }
+  .tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+  .tab {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    padding: 6px 12px;
+    border: 1px solid var(--jz-border);
+    border-radius: 100px;
+    color: var(--jz-muted);
+    background: none;
+    cursor: pointer;
+    transition:
+      color 0.3s ease,
+      border-color 0.3s ease;
+  }
+  .tab:hover {
+    color: var(--jz-secondary);
+    border-color: var(--jz-secondary);
+  }
+  .traveller[data-active="0"] .tab[data-tab="0"],
+  .traveller[data-active="1"] .tab[data-tab="1"],
+  .traveller[data-active="2"] .tab[data-tab="2"] {
+    color: var(--jz-primary);
+    border-color: var(--jz-primary);
+  }
+  .viewport {
+    display: grid;
+  }
+  .variant {
+    grid-area: 1 / 1;
+    opacity: 0;
+    transform: translateY(6px);
+    transition:
+      opacity 0.35s ease,
+      transform 0.35s ease;
+    pointer-events: none;
+  }
+  .traveller[data-active="0"] .variant[data-variant="0"],
+  .traveller[data-active="1"] .variant[data-variant="1"],
+  .traveller[data-active="2"] .variant[data-variant="2"] {
+    opacity: 1;
+    transform: none;
+  }
+
+  /* ── terminal: the band ─────────────────────────────── */
+  .term {
+    border: 1px solid var(--jz-warning);
+    border-radius: 8px;
+    background: var(--jz-surface);
+    font-size: 12.5px;
+    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+    align-self: start;
+  }
+  .term .ahead {
+    display: flex;
+    gap: 10px;
+    padding: 14px 18px 4px;
+    color: var(--jz-warning);
+  }
+  .term .fields {
+    padding: 8px 18px 12px 38px;
+    line-height: 2;
+  }
+  .fk {
+    color: var(--jz-muted);
+    display: inline-block;
+    min-width: 96px;
+  }
+  .fv {
+    color: var(--jz-selected);
+  }
+  .term .controls {
+    margin-top: 6px;
+    border-top: 1px solid var(--jz-border);
+    padding: 10px 18px;
+    display: flex;
+    gap: 20px;
+    font-size: 12px;
+    color: var(--jz-muted);
+  }
+  .term .act {
+    color: var(--jz-selected);
+  }
+  .term .allow {
+    opacity: 0.55;
+  }
+
+  /* ── telegram: a message from a bot ─────────────────── */
+  .tg {
+    font-family: var(--font-body);
+    align-self: start;
+  }
+  .tg-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--jz-secondary);
+    margin-bottom: 8px;
+  }
+  .tg-avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    background: var(--jz-primary);
+    color: #000;
+    font-size: 13px;
+  }
+  .tg-bot {
+    font-size: 10px;
+    border: 1px solid var(--jz-border);
+    border-radius: 4px;
+    padding: 1px 5px;
+    color: var(--jz-muted);
+  }
+  .tg-bubble {
+    background: var(--jz-surface-strong, var(--jz-surface));
+    border-radius: 4px 16px 16px 16px;
+    padding: 14px 16px;
+    max-width: 420px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  }
+  .tg-title {
+    color: var(--jz-selected);
+    font-size: 14.5px;
+    font-weight: 500;
+  }
+  .tg-facts {
+    margin: 10px 0;
+    font-size: 13.5px;
+    color: var(--jz-secondary);
+    line-height: 1.9;
+  }
+  .tg-facts b {
+    color: var(--jz-muted);
+    font-weight: 500;
+    display: inline-block;
+    min-width: 92px;
+  }
+  .tg-buttons {
+    display: flex;
+    gap: 8px;
+    margin-top: 12px;
+  }
+  .tg-btn {
+    flex: 1;
+    text-align: center;
+    padding: 8px 0;
+    border-radius: 8px;
+    font-size: 13px;
+    background: rgba(0, 215, 255, 0.14);
+    color: var(--jz-primary);
+  }
+  .tg-btn.reject {
+    background: none;
+    border: 1px solid var(--jz-border);
+    color: var(--jz-secondary);
+  }
+  .tg-time {
+    margin-top: 8px;
+    font-size: 11px;
+    color: var(--jz-muted);
+  }
+
+  /* ── github: a parked run's comment ─────────────────── */
+  .gh {
+    border: 1px solid var(--jz-border);
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--jz-surface);
+    font-size: 12.5px;
+    align-self: start;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  }
+  .gh-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--jz-border);
+    background: color-mix(in srgb, var(--jz-surface) 60%, var(--jz-canvas));
+  }
+  .gh-avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: var(--jz-primary);
+    color: #000;
+    font-size: 11px;
+  }
+  .gh-who {
+    color: var(--jz-selected);
+    font-weight: 600;
+  }
+  .gh-badge {
+    font-size: 10px;
+    border: 1px solid var(--jz-border);
+    border-radius: 100px;
+    padding: 1px 7px;
+    color: var(--jz-muted);
+  }
+  .gh-when {
+    color: var(--jz-muted);
+    font-size: 11.5px;
+  }
+  .gh-body {
+    padding: 12px 16px;
+  }
+  .gh-line {
+    font-family: var(--font-body);
+    color: var(--jz-secondary);
+    font-size: 13.5px;
+  }
+  .gh-facts {
+    margin: 10px 0;
+    padding: 10px 14px;
+    border: 1px solid var(--jz-border);
+    border-radius: 6px;
+    line-height: 2;
+  }
+  .gh-note {
+    font-family: var(--font-body);
+    font-size: 12.5px;
+    color: var(--jz-secondary);
+  }
+  .gh-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 16px;
+    border-top: 1px solid var(--jz-border);
+    font-size: 11.5px;
+    color: var(--jz-warning);
+  }
+  .gh-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--jz-warning);
+  }
+
+  .rules {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+  }
+  .rules li {
+    padding: 16px 0;
+    border-top: 1px solid var(--jz-border);
+    color: var(--jz-secondary);
+    font-size: 15px;
+    line-height: 1.65;
+  }
+  .rules li b {
+    display: block;
+    color: var(--jz-selected);
+    font-weight: 600;
+    margin-bottom: 2px;
+  }
+  .rules li:last-child {
+    border-bottom: 1px solid var(--jz-border);
+  }
+  @media (max-width: 900px) {
+    .duo {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<script>
+  const traveller = document.getElementById("traveller")!;
+  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let active = 0;
+  traveller.dataset.active = "0";
+
+  let cycle: ReturnType<typeof setInterval> | undefined;
+  if (!reduced) {
+    cycle = setInterval(() => {
+      active = (active + 1) % 3;
+      traveller.dataset.active = String(active);
+    }, 4000);
+  }
+
+  traveller.querySelectorAll<HTMLButtonElement>(".tab").forEach((tab) => {
+    tab.addEventListener("click", () => {
+      if (cycle) clearInterval(cycle);
+      active = Number(tab.dataset.tab ?? 0);
+      traveller.dataset.active = String(active);
+    });
+  });
+</script>

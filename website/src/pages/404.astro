@@ -1,0 +1,57 @@
+---
+import Base from "../layouts/Base.astro";
+---
+
+<Base
+  title="Nothing playing here — Jazz"
+  description="This page does not exist."
+  skin="dark"
+>
+  <main>
+    <div class="lanes mono" id="lanes" aria-hidden="true"></div>
+    <h1 class="shout">Nothing playing<br /><span class="live">on this stage.</span></h1>
+    <p class="mono"><a href="/">▞ back to the set</a></p>
+  </main>
+</Base>
+
+<style>
+  main {
+    min-height: 100svh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 0 4vw;
+  }
+  .lanes {
+    font-size: 28px;
+    letter-spacing: 14px;
+    margin-bottom: 30px;
+    min-height: 1em;
+  }
+  .lanes :global(.on) {
+    color: var(--jz-primary);
+  }
+  .lanes :global(.off) {
+    color: var(--jz-border);
+  }
+  h1 {
+    font-size: clamp(44px, 8vw, 110px);
+  }
+  .live {
+    color: var(--jz-primary);
+  }
+  p {
+    margin-top: 34px;
+    font-size: 14px;
+  }
+  a {
+    color: var(--jz-primary);
+    text-decoration: none;
+  }
+</style>
+
+<script>
+  import { startLanes } from "../components/lanes";
+
+  startLanes(document.getElementById("lanes")!);
+</script>

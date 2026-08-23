@@ -9,6 +9,7 @@ import {
   COMPLETION_INSTRUCTIONS,
   ENVIRONMENT_TEMPLATE,
   INTERACTIVE_QUESTIONS_GUIDELINES,
+  MEDIA_GENERATION_UNAVAILABLE,
   MEMORY_INSTRUCTIONS,
   SKILLS_INSTRUCTIONS,
   TASK_STATE_INSTRUCTIONS,
@@ -85,6 +86,8 @@ export interface AgentPromptOptions {
   readonly agentName: string;
   readonly agentDescription: string;
   readonly userInput: string;
+  /** Continuing a parked run: keep the transcript as-is and add no user message. */
+  readonly isResume?: boolean;
   readonly conversationHistory?: ChatMessage[];
   readonly toolNames?: readonly string[];
   readonly availableTools?: Record<string, string>;
@@ -130,6 +133,11 @@ export interface AgentPromptOptions {
   readonly supportedAttachmentKinds?: readonly AttachmentKind[];
   /** Whether the target model runs locally, which relaxes attachment size limits. */
   readonly attachmentsAreLocal?: boolean;
+  /**
+   * Whether this model can produce media itself. When it cannot, the prompt gains a line telling
+   * the agent how to point the user at an agent that can, instead of dead-ending on "I can't".
+   */
+  readonly canGenerateMedia?: boolean;
 }
 
 /**
@@ -350,6 +358,12 @@ export class AgentPromptBuilder {
           systemPrompt = `${systemPrompt}\n${fillEnvironment(ENVIRONMENT_TEMPLATE)}`;
         }
 
+        // Only for models that cannot generate media, and never for the summarizer, which has no
+        // user to advise.
+        if (personaName !== "summarizer" && options.canGenerateMedia === false) {
+          systemPrompt = `${systemPrompt}\n${MEDIA_GENERATION_UNAVAILABLE}`;
+        }
+
         // Every acting persona gets the completion contract. The summarizer is
         // a pure transcript-compression role with no tools — "finish the job"
         // framing is noise for it.
@@ -407,7 +421,7 @@ ${triggeredBlock}`;
           systemPrompt = systemPrompt + MEMORY_INSTRUCTIONS;
         }
 
-        if (options.toolNames?.includes("update_task_state")) {
+        if (options.toolNames?.includes("update_work_state")) {
           systemPrompt = systemPrompt + TASK_STATE_INSTRUCTIONS;
         }
 
@@ -463,6 +477,13 @@ ${triggeredBlock}`;
           );
 
           messages.push(...filteredHistory);
+        }
+
+        // A resumed run continues a transcript that already ends mid-turn, on an assistant
+        // message holding the tool call somebody just approved. There is no new user input
+        // to add, and appending one would sit between that call and its result.
+        if (options.isResume === true) {
+          return messages;
         }
 
         // Add the current user input if not already in history.

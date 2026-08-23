@@ -6,7 +6,7 @@ import {
   useSelectionHandler,
   useTerminalDimensions,
 } from "@opentui/react";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getGlyphs } from "../glyphs";
 import { THEME } from "../theme";
 import {
@@ -40,7 +40,14 @@ import { Search } from "./overlays/Search";
 import { TextPrompt } from "./overlays/TextPrompt";
 import { Transcript, type TranscriptHandle } from "./Transcript";
 import { allocateRegions, wheelScrollDelta } from "./transcript-window";
-import { MIN_HEIGHT, MIN_WIDTH, type Focus, type Overlay, type ViewModel } from "./types";
+import {
+  MIN_HEIGHT,
+  MIN_WIDTH,
+  type Focus,
+  type Overlay,
+  type ViewModel,
+  type Viewport,
+} from "./types";
 
 /**
  * The shell: five stacked regions and a floating overlay layer.
@@ -183,13 +190,12 @@ function renderOverlay(
   }
 }
 
-export function App({
-  view,
-  onAction,
-  onKey,
-  onPaste,
-  overrideContent,
-}: AppProps): React.ReactNode {
+export function reuseViewport(width: number, height: number, previous: Viewport): Viewport {
+  if (previous.width === width && previous.height === height) return previous;
+  return { width, height };
+}
+
+function AppView({ view, onAction, onKey, onPaste, overrideContent }: AppProps): React.ReactNode {
   const { width, height } = useTerminalDimensions();
   const renderer = useRenderer();
   const rendererRef = useRef(renderer);
@@ -432,6 +438,36 @@ export function App({
     void copyText(textFromSelection(selection), rendererRef.current).then(announceCopy);
   });
 
+  const viewportRef = useRef<Viewport>({ width, height });
+  viewportRef.current = reuseViewport(width, height, viewportRef.current);
+  const viewport = viewportRef.current;
+  const inputModel = useMemo(
+    () => ({ ...view.input, disabled: view.input.disabled || overlayOpen }),
+    [view.input, overlayOpen],
+  );
+  const overlayKind = view.overlay?.kind;
+  const overlayArmed = view.overlay?.kind === "approval" ? view.overlay.armed : true;
+  const footerHints = useMemo(
+    () =>
+      hintsFor(
+        focus,
+        view.runActive === true,
+        view.input.queueing === true,
+        overlayKind,
+        view.input.commands !== undefined,
+        overlayArmed,
+      ),
+    [focus, view.runActive, view.input.queueing, overlayKind, view.input.commands, overlayArmed],
+  );
+  const footer = useMemo(
+    () => ({
+      ...view.footer,
+      hints: footerHints,
+      ...(copyNotice === undefined ? {} : { notice: copyNotice }),
+    }),
+    [view.footer, footerHints, copyNotice],
+  );
+
   if (overrideContent !== undefined) {
     return overrideContent;
   }
@@ -445,9 +481,7 @@ export function App({
     );
   }
 
-  const viewport = { width, height };
   const inputFocused = focus === "input" && !overlayOpen;
-  const inputModel = { ...view.input, disabled: view.input.disabled || overlayOpen };
   // One allocation, shared by all three regions. Computing the transcript's
   // share here and letting the other two size themselves independently is how
   // the rows stopped adding up to more than the terminal has.
@@ -458,17 +492,6 @@ export function App({
     inputFocused,
   });
   const visibleCount = regions.transcript;
-  const footer = {
-    ...view.footer,
-    hints: hintsFor(
-      focus,
-      view.runActive === true,
-      view.input.queueing === true,
-      view.overlay?.kind,
-      view.input.commands !== undefined,
-    ),
-    ...(copyNotice === undefined ? {} : { notice: copyNotice }),
-  };
 
   return (
     <box
@@ -535,3 +558,5 @@ export function App({
     </box>
   );
 }
+
+export const App = memo(AppView);

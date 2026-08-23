@@ -1,0 +1,300 @@
+---
+const steps = [
+  {
+    title: "The context is earned, not dumped",
+    body: "Memory, skills and history are assembled per turn, then trimmed turn-aware — a message is never split in half. The window is a budget, and jazz counts it.",
+    link: "/docs/internals/context-management",
+  },
+  {
+    title: "Any model. Including yours.",
+    body: "18 providers behind one loop — OpenAI, Anthropic, Google, Mistral, Groq, OpenRouter… or ollama and llama.cpp with no API key at all.",
+    link: "/docs/internals/providers-and-models",
+  },
+  {
+    title: "Tools run in two phases",
+    body: "Every call is classified by risk before it executes. Reading your calendar just runs; writing to it stops and asks — and the ask reaches whatever surface you're on.",
+    link: "/docs/internals/tools-and-approval",
+  },
+  {
+    title: "Long runs survive on purpose",
+    body: "Budget pressure, meltdown detection, and compaction: warn at 70%, compact at 80%, trim at 95. Watch the meter — this is the ladder, animated.",
+    link: "/docs/internals/agent-loop",
+  },
+];
+---
+
+<section class="hood" id="hood">
+  <p class="kicker mono">under the hood</p>
+  <h2 class="shout">The loop is twenty lines.<br />The guards are <span class="live">the product.</span></h2>
+  <div class="split">
+    <div class="sticky">
+      <svg viewBox="0 0 520 300" role="img" aria-label="The agent loop: prompt, context, model, tools, approval">
+        <path class="wire" d="M96 60 H 148"></path>
+        <path class="wire" d="M262 60 H 314"></path>
+        <path class="wire" d="M428 60 H 452 V 130 H 380"></path>
+        <path class="wire" d="M262 130 H 205 V 86"></path>
+        <path class="pulse" d="M96 60 H 148 M262 60 H 314 M428 60 H 452 V 130 H 380 M262 130 H 205 V 86"></path>
+        <g class="node" data-node="0">
+          <rect x="8" y="36" width="88" height="48" rx="5"></rect>
+          <text x="52" y="58">» prompt</text>
+          <text class="sub" x="52" y="74">any surface</text>
+        </g>
+        <g class="node" data-node="1">
+          <rect x="148" y="36" width="114" height="48" rx="5"></rect>
+          <text x="205" y="58">context</text>
+          <text class="sub" x="205" y="74">memory · skills</text>
+        </g>
+        <g class="node" data-node="2">
+          <rect x="314" y="36" width="114" height="48" rx="5"></rect>
+          <text x="371" y="58">model</text>
+          <text class="sub" x="371" y="74">18 providers</text>
+        </g>
+        <g class="node warn" data-node="3">
+          <rect x="262" y="106" width="118" height="48" rx="5"></rect>
+          <text x="321" y="128">▐ approval</text>
+          <text class="sub" x="321" y="144">risk tiers</text>
+        </g>
+        <text class="sub" x="10" y="200">the loop runs until the answer is earned —</text>
+        <text class="sub" x="10" y="218">budget pressure and meltdown detection stand guard</text>
+      </svg>
+      <div class="meterbox mono">
+        <div class="meter" id="hood-meter"></div>
+        <div class="meterlabel">
+          <span id="hood-pct">0% of context</span>
+          <span class="event" id="hood-event"></span>
+        </div>
+      </div>
+    </div>
+    <div class="steps" id="hood-steps">
+      {
+        steps.map((step, index) => (
+          <div class="step" data-step={index}>
+            <div class="idx mono">{String(index + 1).padStart(2, "0")}</div>
+            <h3>{step.title}</h3>
+            <p>{step.body}</p>
+            <a class="mono" href={step.link}>
+              read the internals →
+            </a>
+          </div>
+        ))
+      }
+    </div>
+  </div>
+</section>
+
+<style>
+  .hood {
+    padding: 14vh 4vw;
+    border-top: 1px solid var(--jz-border);
+  }
+  .kicker {
+    font-size: 12px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--jz-primary);
+    margin-bottom: 14px;
+  }
+  h2 {
+    font-size: clamp(34px, 5.4vw, 84px);
+    margin-bottom: 8vh;
+  }
+  .live {
+    color: var(--jz-primary);
+  }
+  .split {
+    display: grid;
+    grid-template-columns: 1.1fr 1fr;
+    gap: 6vw;
+    align-items: start;
+  }
+  .sticky {
+    position: sticky;
+    top: 10vh;
+  }
+  svg {
+    width: 100%;
+    height: auto;
+    display: block;
+  }
+  svg text {
+    font-family: var(--font-mono);
+    font-size: 13px;
+    fill: var(--jz-selected);
+    text-anchor: middle;
+  }
+  svg .sub {
+    font-size: 10.5px;
+    fill: var(--jz-muted);
+  }
+  svg text.sub {
+    text-anchor: start;
+  }
+  .node text.sub {
+    text-anchor: middle;
+  }
+  .node rect {
+    fill: var(--jz-surface);
+    stroke: var(--jz-border);
+    transition: stroke 0.3s ease;
+  }
+  .node.warn rect {
+    stroke: color-mix(in srgb, var(--jz-warning) 45%, var(--jz-border));
+  }
+  .hood[data-active="0"] .node[data-node="0"] rect,
+  .hood[data-active="1"] .node[data-node="1"] rect,
+  .hood[data-active="2"] .node[data-node="2"] rect,
+  .hood[data-active="3"] .node[data-node="3"] rect {
+    stroke: var(--jz-primary);
+  }
+  .wire {
+    stroke: var(--jz-border);
+    stroke-width: 1.5;
+    fill: none;
+  }
+  .pulse {
+    stroke: var(--jz-primary);
+    stroke-width: 1.5;
+    fill: none;
+    stroke-dasharray: 6 90;
+    animation: flow 3.2s linear infinite;
+  }
+  @keyframes flow {
+    to {
+      stroke-dashoffset: -96;
+    }
+  }
+  .meterbox {
+    margin-top: 28px;
+    border: 1px solid var(--jz-border);
+    border-radius: 6px;
+    padding: 16px 18px;
+    background: #0a0c0f;
+  }
+  .meter {
+    font-size: 17px;
+    letter-spacing: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .meter :global(.fill) {
+    color: var(--jz-primary);
+  }
+  .meter :global(.rest) {
+    color: var(--jz-border);
+  }
+  .meterlabel {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: var(--jz-muted);
+    margin-top: 8px;
+  }
+  .event {
+    color: var(--jz-warning);
+  }
+  .steps {
+    display: flex;
+    flex-direction: column;
+    gap: 16vh;
+    padding-bottom: 10vh;
+  }
+  .step .idx {
+    font-size: 12px;
+    color: var(--jz-primary);
+    letter-spacing: 0.2em;
+    margin-bottom: 12px;
+  }
+  .step h3 {
+    font-size: 24px;
+    letter-spacing: -0.01em;
+    margin-bottom: 12px;
+    font-weight: 600;
+  }
+  .step p {
+    color: var(--jz-secondary);
+    max-width: 44ch;
+  }
+  .step a {
+    display: inline-block;
+    margin-top: 14px;
+    font-size: 12px;
+    color: var(--jz-accent-dim);
+    text-decoration: none;
+  }
+  .step a:hover {
+    color: var(--jz-primary);
+  }
+  @media (max-width: 900px) {
+    .split {
+      grid-template-columns: 1fr;
+    }
+    .sticky {
+      position: static;
+    }
+    .steps {
+      gap: 8vh;
+      margin-top: 8vh;
+    }
+  }
+</style>
+
+<script>
+  const hood = document.getElementById("hood")!;
+  const meter = document.getElementById("hood-meter")!;
+  const pct = document.getElementById("hood-pct")!;
+  const eventLabel = document.getElementById("hood-event")!;
+  const CELLS = 22;
+
+  const renderMeter = (percent: number, label: string): void => {
+    const filled = Math.round((percent / 100) * CELLS);
+    meter.innerHTML = Array.from({ length: CELLS }, (_, index) =>
+      index < filled ? '<span class="fill">█</span>' : '<span class="rest">░</span>',
+    ).join("");
+    pct.textContent = `${Math.round(percent)}% of context`;
+    eventLabel.textContent = label;
+  };
+  renderMeter(12, "");
+
+  const targets = [22, 46, 68, 97];
+  let current = 12;
+  let animating: ReturnType<typeof setInterval> | undefined;
+  const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  const animateTo = (step: number): void => {
+    const target = targets[step] ?? 12;
+    if (animating) clearInterval(animating);
+    if (reduced) {
+      current = step === 3 ? 38 : target;
+      renderMeter(current, step === 3 ? "compacted ▞" : "");
+      return;
+    }
+    animating = setInterval(() => {
+      current += current < target ? 2 : -2;
+      let label = "";
+      if (step === 3 && current >= 80) {
+        current = 38;
+        label = "compacted ▞";
+      } else if (current >= 70) {
+        label = "warn: 70%";
+      }
+      renderMeter(current, label);
+      if (Math.abs(current - target) < 2 || (step === 3 && current === 38)) {
+        if (animating) clearInterval(animating);
+      }
+    }, 60);
+  };
+
+  const observer = new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) {
+        if (entry.isIntersecting) {
+          const step = Number((entry.target as HTMLElement).dataset.step ?? 0);
+          hood.dataset.active = String(step);
+          animateTo(step);
+        }
+      }
+    },
+    { threshold: 0.6 },
+  );
+  document.querySelectorAll(".step").forEach((step) => observer.observe(step));
+</script>

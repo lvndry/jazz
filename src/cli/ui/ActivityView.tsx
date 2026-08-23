@@ -44,10 +44,19 @@ function ElapsedText({ seconds }: { seconds: number }): React.ReactElement | nul
   return <Text dimColor> · {formatElapsed(seconds)}</Text>;
 }
 
-function todoStatusGlyph(status: "pending" | "in_progress" | "completed" | "cancelled"): string {
+type TodoStatus = "pending" | "in_progress" | "completed" | "cancelled";
+
+/**
+ * Completed splits by evidence, not by status.
+ *
+ * A todo the agent finished without running anything is still finished — it belongs on the
+ * done side of the list — but it is a weaker claim than one with a verification behind it.
+ * Shown by shape rather than hue so the two are distinguishable at a glance.
+ */
+function todoStatusGlyph(status: TodoStatus, verified: boolean): string {
   switch (status) {
     case "completed":
-      return G.success;
+      return verified ? G.success : G.warn;
     case "in_progress":
       return G.proposed;
     case "cancelled":
@@ -58,10 +67,10 @@ function todoStatusGlyph(status: "pending" | "in_progress" | "completed" | "canc
   }
 }
 
-function todoStatusColor(status: "pending" | "in_progress" | "completed" | "cancelled"): string {
+function todoStatusColor(status: TodoStatus, verified: boolean): string {
   switch (status) {
     case "completed":
-      return THEME.success;
+      return verified ? THEME.success : THEME.warning;
     case "in_progress":
       return THEME.agent;
     case "cancelled":
@@ -189,12 +198,15 @@ export const ActivityView = React.memo(function ActivityView({
     case "tool-execution": {
       const uniqueNames = Array.from(new Set(activity.tools.map((t) => t.toolName)));
       const isManagingTodos = uniqueNames.includes("manage_todos");
+      const classifying = activity.tools.some((tool) => tool.classifying === true);
       const label =
         isManagingTodos && activity.todoSnapshot && activity.todoSnapshot.length > 0
           ? "Updating todo list…"
-          : uniqueNames.length === 1
-            ? `Running ${uniqueNames[0]}…`
-            : `Running ${uniqueNames.length} tools… (${uniqueNames.join(", ")})`;
+          : classifying && uniqueNames.length === 1
+            ? `Classifying ${uniqueNames[0]}…`
+            : uniqueNames.length === 1
+              ? `Running ${uniqueNames[0]}…`
+              : `Running ${uniqueNames.length} tools… (${uniqueNames.join(", ")})`;
       return (
         <Box
           flexDirection="column"
@@ -214,7 +226,9 @@ export const ActivityView = React.memo(function ActivityView({
             >
               {activity.todoSnapshot.map((todo, index) => (
                 <Box key={`${todo.content}-${index}`}>
-                  <Text color={todoStatusColor(todo.status)}>{todoStatusGlyph(todo.status)}</Text>
+                  <Text color={todoStatusColor(todo.status, todo.verifiedBy !== undefined)}>
+                    {todoStatusGlyph(todo.status, todo.verifiedBy !== undefined)}
+                  </Text>
                   <Text> </Text>
                   <Text>{todo.content}</Text>
                 </Box>

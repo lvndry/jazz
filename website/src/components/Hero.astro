@@ -1,0 +1,133 @@
+---
+
+---
+
+<header class="hero">
+  <canvas id="eq" aria-hidden="true"></canvas>
+  <nav class="topbar mono">
+    <a class="brand" href="/">▞ jazz</a>
+    <div class="links">
+      <a href="/docs">docs</a>
+      <a href="/blog">blog</a>
+      <a href="https://github.com/lvndry/jazz">github</a>
+      <a href="https://discord.gg/yBDbS2NZju">discord</a>
+    </div>
+  </nav>
+  <h1 class="headline shout">
+    <span class="ln">One agent.</span>
+    <span class="ln stroke">Every surface.</span>
+    <span class="ln live">Your rules.</span>
+  </h1>
+  <p class="sub mono">
+    <b>the agent that works while you don't</b><br />
+    terminal · cron · CI · telegram · discord<br />
+    any model · fully local if you want<br />
+    asks before touching anything real
+  </p>
+</header>
+
+<style>
+  .hero {
+    position: relative;
+    height: 100svh;
+    min-height: 620px;
+    overflow: hidden;
+  }
+  #eq {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+  .topbar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 5;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 22px 4vw;
+    font-size: 13px;
+  }
+  .topbar .brand {
+    color: var(--jz-primary);
+    font-size: 14px;
+    text-decoration: none;
+  }
+  .topbar .links {
+    display: flex;
+    gap: 26px;
+  }
+  .topbar .links a {
+    color: var(--jz-muted);
+    text-decoration: none;
+  }
+  .topbar .links a:hover {
+    color: var(--jz-primary);
+  }
+  .headline {
+    position: absolute;
+    left: 4vw;
+    bottom: 18vh;
+    z-index: 5;
+    pointer-events: none;
+    font-size: clamp(52px, 11.5vw, 176px);
+  }
+  .headline .ln {
+    display: block;
+    opacity: 0;
+    transform: translateY(0.35em);
+    animation: rise 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) forwards;
+  }
+  .headline .ln:nth-child(1) {
+    animation-delay: 0.15s;
+  }
+  .headline .ln:nth-child(2) {
+    animation-delay: 0.32s;
+  }
+  .headline .ln:nth-child(3) {
+    animation-delay: 0.49s;
+  }
+  .stroke {
+    color: transparent;
+    -webkit-text-stroke: 1.5px var(--jz-selected);
+  }
+  .live {
+    color: var(--jz-primary);
+  }
+  @keyframes rise {
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  .sub {
+    position: absolute;
+    right: 4vw;
+    bottom: 18vh;
+    z-index: 5;
+    font-size: 13px;
+    color: var(--jz-secondary);
+    text-align: right;
+    line-height: 1.9;
+    max-width: 320px;
+  }
+  .sub b {
+    color: var(--jz-selected);
+    font-weight: 500;
+  }
+  @media (max-width: 980px) {
+    .sub {
+      display: none;
+    }
+  }
+</style>
+
+<script>
+  import { startEqualizer } from "./equalizer";
+
+  startEqualizer(document.getElementById("eq") as HTMLCanvasElement);
+</script>

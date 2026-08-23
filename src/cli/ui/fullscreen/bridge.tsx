@@ -2,12 +2,10 @@
 /**
  * Drives the fullscreen interface from the live UI store.
  *
- * The store already carries everything the interface needs, through a
- * register-setter / read-snapshot contract that the Ink islands use too. So
- * fullscreen needs no new presentation service: the same service writes to the
- * store, and whoever registered the setters renders. This module is the only
- * place where live state becomes a `ViewModel`, which is what keeps every
- * region a pure function of data.
+ * The store is a process singleton write port. Both this tree and the Ink
+ * islands subscribe to the same Object.is-stable slices via
+ * useSyncExternalStore. This module is the only place where live state becomes
+ * a `ViewModel`, which is what keeps every region a pure function of data.
  *
  * The mapping is deliberately lossy in one direction. The store speaks in
  * output entries and activity phases, which are a log; the interface speaks in
@@ -20,8 +18,9 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { stripAnsiCodes } from "@/cli/utils/string-utils";
 import type { Suggestion } from "@/core/interfaces/presentation";
 import { extractCommandApprovalKey } from "@/core/utils/shell";
+import { isFileMutationTool } from "@/core/utils/tool-formatter";
 import { filterCommandsByPrefix, slashCommandQuery } from "@/services/chat/commands";
-import { search, type SearchHit } from "@/services/history/session-search";
+import { search, type SearchHit } from "@/services/history/conversation-search";
 import packageJson from "../../../../package.json";
 import type { ActivityState } from "../activity-state";
 import {
@@ -32,11 +31,12 @@ import {
 import { composeRecalledBuffer, isCursorOnFirstLine, isCursorOnLastLine } from "../queue-recall";
 import {
   store,
-  type ActiveMenu,
-  type ConnectorStatus,
+  useEphemeralSlice,
+  useOutputSlice,
+  usePromptSlice,
+  useSessionSlice,
   type EphemeralRegion,
   type PendingApproval,
-  type RunStats,
 } from "../store";
 import type { Choice, OutputEntry, PromptState } from "../types";
 import { App, type KeyChord } from "./App";
@@ -73,10 +73,15 @@ import type { QuestionChoice, QuestionModel } from "./overlays/Question";
 import type { TextPromptModel } from "./overlays/TextPrompt";
 import { AgentPicker } from "./screens/AgentPicker";
 import { Home } from "./screens/Home";
+import { pathFromFileArgsPreview, sourceLanguageFromPath } from "./syntax-spans";
 import {
   LIVE_ZONE_MAX_ROWS,
   type ApprovalOverlay,
   type Block,
+  type FooterModel,
+  type HeaderModel,
+  type InputModel,
+  type LiveModel,
   type LiveTool,
   type Overlay,
   type StepLine,
@@ -86,9 +91,21 @@ import {
 /** Waiting copy, house voice: idiomatic, never jokey. */
 const WAITING = ["comping behind you", "turning it over", "two horns out", "digging the crates"];
 
+/** Footer and live elapsed digits update once a second, not on the indicator. */
+const FOOTER_ELAPSED_MS = 1000;
+const WAITING_ROTATE_MS = 4_000;
+
 /** How long the band holds its height after the last tool finishes. */
 const SETTLE_MS = 800;
-const APPROVAL_ARM_MS = 250;
+export const APPROVAL_ARM_MS = 250;
+
+/** Discard keystrokes already sitting on stdin before the card can see them. */
+export function flushPendingTerminalKeys(stdin: NodeJS.ReadStream = process.stdin): void {
+  if (stdin.readable !== true || typeof stdin.read !== "function") return;
+  while (stdin.read() !== null) {
+    // Buffered Enter / always-allow must not land on a card that just appeared.
+  }
+}
 
 interface PromptEditorState {
   readonly value: string;
@@ -530,6 +547,7 @@ interface ToolReceiptMeta {
   readonly durationMs?: number;
   readonly reason?: string;
   readonly detail?: string;
+  readonly classifiedRisk?: string;
 }
 
 function receiptOf(entry: OutputEntry): ToolReceiptMeta | null {
@@ -546,12 +564,10 @@ function receiptOf(entry: OutputEntry): ToolReceiptMeta | null {
     ...(typeof record["durationMs"] === "number" ? { durationMs: record["durationMs"] } : {}),
     ...(typeof record["reason"] === "string" ? { reason: record["reason"] } : {}),
     ...(typeof record["detail"] === "string" ? { detail: record["detail"] } : {}),
+    ...(typeof record["classifiedRisk"] === "string"
+      ? { classifiedRisk: record["classifiedRisk"] }
+      : {}),
   };
-}
-
-/** `Array.isArray` alone widens a readonly array to `any[]`. */
-function isEntryList(value: OutputEntry | readonly OutputEntry[]): value is readonly OutputEntry[] {
-  return Array.isArray(value);
 }
 
 /**
@@ -608,11 +624,10 @@ function plainOf(message: unknown): string {
  * rather than one block each: the model emits prose in pieces, and a block per
  * piece would make the transcript unscrollable and the markdown unparseable.
  */
-function blocksFrom(
+export function blocksFrom(
   entries: readonly OutputEntry[],
   streaming: string,
   regions: readonly EphemeralRegion[],
-  now: number,
 ): Block[] {
   const blocks: Block[] = [];
   let seq = 0;
@@ -639,11 +654,33 @@ function blocksFrom(
         ...(receipt.reason === undefined ? {} : { reason: receipt.reason }),
         ...(receipt.durationMs === undefined ? {} : { durationMs: receipt.durationMs }),
         ...(receipt.detail === undefined ? {} : { detail: receipt.detail }),
+        ...(receipt.classifiedRisk === undefined ? {} : { classifiedRisk: receipt.classifiedRisk }),
       });
       continue;
     }
 
     if (entry.meta?.["toolStart"] === true) continue;
+
+    if (entry.meta?.["expandedOutput"] === true) {
+      const expanded = stripAnsiCodes(
+        typeof entry.meta["plainText"] === "string"
+          ? entry.meta["plainText"]
+          : plainOf(entry.message),
+      );
+      if (expanded.trim().length > 0) {
+        blocks.push({
+          id,
+          seq: seq++,
+          kind: "tool",
+          app: "",
+          summary: "",
+          status: "ok",
+          expanded: true,
+          detail: expanded,
+        });
+      }
+      continue;
+    }
 
     const plainText = entry.meta?.["plainText"];
     const text = stripAnsiCodes(typeof plainText === "string" ? plainText : plainOf(entry.message));
@@ -718,7 +755,6 @@ function blocksFrom(
         kind: "reasoning",
         text: region.tail.join("\n"),
         collapsed: false,
-        durationMs: Math.max(0, now - region.startedAt),
       });
       continue;
     }
@@ -739,6 +775,108 @@ function blocksFrom(
   return blocks;
 }
 
+// `previous` is undefined on the first block or a missing cache slot; still
+// compare so sharing can no-op without a null check at every call site.
+function sameBlock(previous: Block | undefined, current: Block): previous is Block {
+  if (previous === undefined || previous.kind !== current.kind) return false;
+  if (previous.id !== current.id || previous.seq !== current.seq) return false;
+  switch (previous.kind) {
+    case "user":
+      return (
+        current.kind === "user" && previous.text === current.text && previous.at === current.at
+      );
+    case "agent":
+      return (
+        current.kind === "agent" &&
+        previous.markdown === current.markdown &&
+        previous.streaming === current.streaming
+      );
+    case "reasoning":
+      return (
+        current.kind === "reasoning" &&
+        previous.text === current.text &&
+        previous.collapsed === current.collapsed &&
+        previous.steps === current.steps &&
+        previous.durationMs === current.durationMs &&
+        previous.tokens === current.tokens
+      );
+    case "tool":
+      return (
+        current.kind === "tool" &&
+        previous.app === current.app &&
+        previous.summary === current.summary &&
+        previous.args === current.args &&
+        previous.status === current.status &&
+        previous.reason === current.reason &&
+        previous.remedyKey === current.remedyKey &&
+        previous.durationMs === current.durationMs &&
+        previous.detail === current.detail &&
+        previous.expanded === current.expanded &&
+        previous.classifiedRisk === current.classifiedRisk
+      );
+    case "notice":
+      return (
+        current.kind === "notice" &&
+        previous.text === current.text &&
+        previous.tone === current.tone
+      );
+    case "divider":
+      return current.kind === "divider" && previous.label === current.label;
+    case "lane":
+      return (
+        current.kind === "lane" &&
+        previous.name === current.name &&
+        previous.ask === current.ask &&
+        previous.lane === current.lane &&
+        previous.state === current.state &&
+        previous.result === current.result &&
+        previous.steps === current.steps
+      );
+  }
+}
+
+export function shareUnchangedBlocks(
+  previous: readonly Block[],
+  next: readonly Block[],
+): readonly Block[] {
+  if (previous.length === 0) return next;
+  let changed = previous.length !== next.length;
+  const shared = next.map((current, index) => {
+    const cached = previous[index];
+    if (sameBlock(cached, current)) return cached;
+    changed = true;
+    return current;
+  });
+  return changed ? shared : previous;
+}
+
+export interface TranscriptBlockSources {
+  readonly outputs: readonly OutputEntry[];
+  readonly streaming: string;
+  readonly regions: readonly EphemeralRegion[];
+}
+
+export function transcriptBlocks(
+  sources: TranscriptBlockSources,
+  previous: readonly Block[] = [],
+): readonly Block[] {
+  return shareUnchangedBlocks(
+    previous,
+    blocksFrom(sources.outputs, sources.streaming, sources.regions),
+  );
+}
+
+function liveReasoningElapsedMs(
+  regions: readonly EphemeralRegion[],
+  now: number,
+): number | undefined {
+  let startedAt: number | undefined;
+  for (const region of regions) {
+    if (region.kind === "reasoning") startedAt = region.startedAt;
+  }
+  return startedAt === undefined ? undefined : Math.max(0, now - startedAt);
+}
+
 function liveToolsFrom(activity: ActivityState, now: number): LiveTool[] {
   if (activity.phase !== "tool-execution") return [];
   return activity.tools.map((tool, index) => {
@@ -746,14 +884,23 @@ function liveToolsFrom(activity: ActivityState, now: number): LiveTool[] {
     const nameRest = parts.length > 1 ? parts.slice(1).join(" ") : "";
     const args = tool.argsPreview?.trim();
     let operation = nameRest.length > 0 ? nameRest : tool.toolName;
-    if (args !== undefined && args.length > 0) {
+    if (tool.classifying === true) {
+      operation =
+        args !== undefined && args.length > 0 ? `classifying ${args}` : "classifying risk";
+    } else if (args !== undefined && args.length > 0) {
       operation = nameRest.length > 0 ? `${nameRest} ${args}` : args;
     }
+    const language = isFileMutationTool(tool.toolName)
+      ? (sourceLanguageFromPath(pathFromFileArgsPreview(args ?? "") ?? "") ?? "code")
+      : args === undefined
+        ? undefined
+        : sourceLanguageFromPath(pathFromFileArgsPreview(args) ?? "");
     return {
       app: parts[0] ?? tool.toolName,
       operation,
       elapsedMs: Math.max(0, now - tool.startedAt),
       phase: index,
+      ...(language === undefined ? {} : { language }),
     };
   });
 }
@@ -831,19 +978,27 @@ function approvalFrom(
 export function FullscreenBridge(): React.ReactNode {
   const { width, height } = useTerminalDimensions();
   const viewport = { width, height };
-  const [outputs, setOutputs] = useState<readonly OutputEntry[]>([]);
-  const [streaming, setStreaming] = useState("");
-  const [activity, setActivity] = useState<ActivityState>({ phase: "idle" });
-  const [stats, setStats] = useState<RunStats>({});
-  const [queue, setQueue] = useState<readonly string[]>([]);
-  const [busy, busyRef, setBusy] = useSynchronizedState(false);
-  const [isYolo, setIsYolo] = useState(store.getModeIsYolo());
-  const [regions, setRegions] = useState<readonly EphemeralRegion[]>([]);
-  const [prompt, promptRef, updatePrompt] = useSynchronizedState<PromptState | null>(null);
+  const output = useOutputSlice();
+  const session = useSessionSlice();
+  const promptSlice = usePromptSlice();
+  const ephemeral = useEphemeralSlice();
+  const outputs = output.entries;
+  const streaming = stripAnsiCodes(output.streaming);
+  const activity = session.activity;
+  const stats = session.runStats;
+  const queue = promptSlice.messageQueue;
+  const busy = session.chatBusy;
+  const busyRef = useRef(busy);
+  busyRef.current = busy;
+  const isYolo = session.isYolo;
+  const regions = ephemeral.regions;
+  const prompt = promptSlice.prompt;
+  const promptRef = useRef(prompt);
+  promptRef.current = prompt;
   const [promptControls, promptControlsRef, updatePromptControls] =
     useSynchronizedState<PromptControlsState>(EMPTY_PROMPT_CONTROLS);
   const promptFile = promptControls.file;
-  const [approval, setApproval] = useState<PendingApproval | null>(null);
+  const approval = session.approvalRequest;
   const [approvalArmed, setApprovalArmed] = useState(false);
   const [approvalFieldOffset, setApprovalFieldOffset] = useState(0);
   /**
@@ -885,18 +1040,21 @@ export function FullscreenBridge(): React.ReactNode {
     [updateHistory],
   );
   const [commandIndex, commandIndexRef, setCommandIndex] = useSynchronizedState(0);
-  const [customView, setCustomView] = useState<React.ReactNode | null>(null);
-  const [connectors, setConnectors] = useState<ReadonlyMap<string, ConnectorStatus>>(new Map());
-  const [workingDirectory, setWorkingDirectory] = useState<string | null>(
-    store.getWorkingDirectorySnapshot(),
-  );
+  const connectors = session.connectors;
+  const currentConversation = session.currentConversation;
+  const workingDirectory = session.workingDirectory;
   const [searchQuery, searchQueryRef, setSearchQuery] = useSynchronizedState<string | null>(null);
   const [searchHits, searchHitsRef, setSearchHits] = useSynchronizedState<readonly SearchHit[]>([]);
-  const [searchScope, , setSearchScope] = useSynchronizedState<"session" | "all">("all");
+  const [searchScope, , setSearchScope] = useSynchronizedState<"conversation" | "all">("all");
   const [searchIndex, searchIndexRef, setSearchIndex] = useSynchronizedState(0);
-  const [menu, menuRef, setMenu] = useSynchronizedState<ActiveMenu | null>(null);
+  const menu = session.activeMenu;
+  const menuRef = useRef(menu);
+  menuRef.current = menu;
   const [menuIndex, menuIndexRef, setMenuIndex] = useSynchronizedState(0);
-  const [tick, setTick] = useState(0);
+  // The index reset for a replacement menu runs a frame after the menu lands;
+  // a keypress in that gap must not read the old menu's selection into the new
+  // one, so the index only counts for the menu it was moved on.
+  const menuIndexForRef = useRef<typeof menu>(null);
   const [elapsedMs, setElapsedMs] = useState<number | undefined>();
   const [reservedRows, setReservedRows] = useState(0);
   const runStartedAt = useRef<number | null>(null);
@@ -906,7 +1064,10 @@ export function FullscreenBridge(): React.ReactNode {
   // prompt makes the handler return before it reads a single keystroke. Refs are
   // correct regardless of the hook's registration semantics.
   const approvalRef = useRef<PendingApproval | null>(null);
-  const approvalArmedRef = useRef(false);
+  // Armed-ness is pinned to the approval it was armed for: the disarm effect
+  // for a replacement card runs a frame after the card lands, and a key-repeat
+  // Enter in that gap must not inherit the old card's armed state.
+  const approvalArmedForRef = useRef<PendingApproval | null>(null);
 
   const updatePromptEditor = useCallback(
     (update: (state: PromptEditorState) => PromptEditorState): void => {
@@ -928,115 +1089,37 @@ export function FullscreenBridge(): React.ReactNode {
   );
 
   const setApprovalArmedState = useCallback((armed: boolean): void => {
-    approvalArmedRef.current = armed;
+    approvalArmedForRef.current = armed ? approvalRef.current : null;
     setApprovalArmed(armed);
   }, []);
 
-  const setPromptState = useCallback(
-    (next: PromptState | null): void => {
-      updatePromptControls(initialPromptControls(next));
-      updatePrompt(next);
-    },
-    [updatePrompt, updatePromptControls],
-  );
-
   approvalRef.current = approval;
 
-  const interrupt = useRef<(() => void) | null>(null);
+  const interrupt = useRef(session.interruptHandler);
+  interrupt.current = session.interruptHandler;
   const quitArmed = useRef(false);
 
   useEffect(() => {
-    store.registerPrintOutput((entry) => {
-      const incoming: readonly OutputEntry[] = isEntryList(entry) ? entry : [entry];
-      setOutputs((previous) => [...previous, ...incoming]);
-      return "";
-    });
-    store.registerUpdateOutput((id, patch) => {
-      setOutputs((previous) =>
-        previous.map((entry) => {
-          if (entry.id !== id) return entry;
-          return {
-            ...entry,
-            ...patch,
-            meta: { ...entry.meta, ...patch.meta },
-          };
-        }),
-      );
-    });
-    store.registerClearOutputs(() => {
-      setOutputs([]);
-      setStreaming("");
-    });
-    // Streaming bypasses printOutput entirely, so without this the agent's prose
-    // would never appear.
-    store.registerStreamingHandler({
-      appendStream: (_kind, delta) => setStreaming((previous) => previous + stripAnsiCodes(delta)),
-      finalizeStream: () => {
-        setStreaming((text) => {
-          if (text.trim().length > 0) {
-            setOutputs((previous) => [
-              ...previous,
-              { type: "streamContent", message: text, timestamp: new Date() },
-            ]);
-          }
-          return "";
-        });
-      },
-    });
-    store.registerActivitySetter(setActivity);
-    store.registerRunStatsSetter(setStats);
-    store.registerMessageQueueSetter(setQueue);
-    store.registerChatBusySetter((nextBusy) => {
-      if (!nextBusy) quitArmed.current = false;
-      setBusy(nextBusy);
-    });
-    store.registerModeSetter(setIsYolo);
-    store.registerEphemeralRegionsSetter(setRegions);
-    store.registerPromptSetter(setPromptState);
-    store.registerApprovalRequestSetter((next) => {
-      setApprovalArmedState(false);
-      setApprovalFieldOffset(0);
-      setApproval(next);
-    });
-    const unregisterCustomView = store.registerCustomView(setCustomView);
-    store.registerConnectorsSetter(setConnectors);
-    store.registerWorkingDirectorySetter(setWorkingDirectory);
-    store.registerActiveMenuSetter((next) => {
-      setMenu(next);
-      setMenuIndex(0);
-    });
-    store.registerInterruptHandler((handler) => {
-      if (handler === null) quitArmed.current = false;
-      interrupt.current = handler;
-    });
+    updatePromptControls(initialPromptControls(prompt));
+  }, [prompt, updatePromptControls]);
 
-    // Anything that happened before this mounted.
-    setActivity(store.getActivitySnapshot());
-    setStats(store.getRunStatsSnapshot());
-    setWorkingDirectory(store.getWorkingDirectorySnapshot());
-    const pending = store.drainPendingOutputQueue();
-    if (pending.length > 0) setOutputs((previous) => [...previous, ...pending]);
+  useEffect(() => {
+    if (approval !== null) flushPendingTerminalKeys();
+    setApprovalArmedState(false);
+    setApprovalFieldOffset(0);
+  }, [approval, setApprovalArmedState]);
 
-    return () => {
-      unregisterCustomView();
-      store.registerPrintOutput(null);
-      store.registerUpdateOutput(null);
-      store.registerClearOutputs(null);
-      store.registerStreamingHandler(null);
-      store.registerActivitySetter(null);
-      store.registerRunStatsSetter(null);
-      store.registerMessageQueueSetter(null);
-      store.registerChatBusySetter(null);
-      store.registerModeSetter(null);
-      store.registerEphemeralRegionsSetter(null);
-      store.registerPromptSetter(null);
-      store.registerApprovalRequestSetter(null);
-      store.registerConnectorsSetter(null);
-      store.registerActiveMenuSetter(null);
-      store.registerWorkingDirectorySetter(null);
-      store.registerInterruptHandler(null);
-    };
-  }, [setApprovalArmedState, setPromptState]);
+  useEffect(() => {
+    setMenuIndex(0);
+  }, [menu, setMenuIndex]);
+
+  useEffect(() => {
+    if (!busy) quitArmed.current = false;
+  }, [busy]);
+
+  useEffect(() => {
+    if (session.interruptHandler === null) quitArmed.current = false;
+  }, [session.interruptHandler]);
 
   useEffect(() => {
     if (approval === null) return;
@@ -1045,19 +1128,6 @@ export function FullscreenBridge(): React.ReactNode {
     }, APPROVAL_ARM_MS);
     return () => clearTimeout(timer);
   }, [approval, setApprovalArmedState]);
-
-  useEffect(() => {
-    if (customView === null || menu !== null) return;
-    let cancelled = false;
-    queueMicrotask(() => {
-      if (!cancelled && store.getActiveMenuSnapshot() === null) {
-        store.requestRendererFallback();
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [customView, menu]);
 
   useEffect(() => {
     if (prompt?.type !== "filepicker") return;
@@ -1105,15 +1175,14 @@ export function FullscreenBridge(): React.ReactNode {
     }
     if (runStartedAt.current === null) runStartedAt.current = Date.now();
     const update = (): void => {
-      setTick((value) => value + 1);
       setElapsedMs(Math.max(0, Date.now() - (runStartedAt.current ?? Date.now())));
     };
     update();
-    const timer = setInterval(update, 170);
+    const timer = setInterval(update, FOOTER_ELAPSED_MS);
     return () => clearInterval(timer);
   }, [runActive]);
 
-  const tools = useMemo(() => liveToolsFrom(activity, Date.now()), [activity, tick]);
+  const tools = useMemo(() => liveToolsFrom(activity, Date.now()), [activity, elapsedMs]);
   const step = useMemo(() => stepFrom(activity), [activity]);
   const waitingNow = activity.phase === "awaiting" || activity.phase === "thinking";
   const neededRows = Math.min(
@@ -1142,7 +1211,11 @@ export function FullscreenBridge(): React.ReactNode {
     }
     let cancelled = false;
     const timer = setTimeout(() => {
-      void search(query, { scope: searchScope, limit: 40 })
+      void search(query, {
+        scope: searchScope,
+        limit: 40,
+        ...(currentConversation === null ? {} : { current: currentConversation }),
+      })
         .then((hits) => {
           if (!cancelled) {
             setSearchHits(hits);
@@ -1336,6 +1409,7 @@ export function FullscreenBridge(): React.ReactNode {
             type: "log",
             message: payload.fullDiff,
             timestamp: new Date(),
+            meta: { expandedOutput: true },
           });
         }
         return true;
@@ -1346,30 +1420,35 @@ export function FullscreenBridge(): React.ReactNode {
       if (openMenu !== null) {
         const itemCount =
           openMenu.kind === "agents" ? openMenu.agents.length : openMenu.options.length;
+        const menuSelection = menuIndexForRef.current === openMenu ? menuIndexRef.current : 0;
         if (name === "up" || name === "k") {
-          setMenuIndex((index) => Math.max(0, index - 1));
+          menuIndexForRef.current = openMenu;
+          setMenuIndex(Math.max(0, menuSelection - 1));
           return true;
         }
         if (name === "down" || name === "j") {
-          setMenuIndex((index) => Math.min(Math.max(0, itemCount - 1), index + 1));
+          menuIndexForRef.current = openMenu;
+          setMenuIndex(Math.min(Math.max(0, itemCount - 1), menuSelection + 1));
           return true;
         }
         if (name === "return" || name === "enter") {
           if (openMenu.kind === "agents") {
             if (openMenu.browse === true) {
-              openMenu.onExit();
+              store.completePrompt({ kind: "exit" });
             } else {
-              const choice = openMenu.agents[menuIndexRef.current];
-              if (choice !== undefined) openMenu.onSelect(choice.id);
+              const choice = openMenu.agents[menuSelection];
+              if (choice !== undefined) store.completePrompt({ kind: "select", value: choice.id });
             }
           } else {
-            const choice = openMenu.options[menuIndexRef.current];
-            if (choice !== undefined) openMenu.onSelect(choice.value);
+            const choice = openMenu.options[menuSelection];
+            if (choice !== undefined) {
+              store.completePrompt({ kind: "select", value: choice.value });
+            }
           }
           return true;
         }
         if (name === "escape" || name === "q") {
-          openMenu.onExit();
+          store.completePrompt({ kind: "exit" });
           return true;
         }
         return true;
@@ -1386,7 +1465,7 @@ export function FullscreenBridge(): React.ReactNode {
           setApprovalFieldOffset((offset) => Math.max(0, offset + delta));
           return true;
         }
-        if (!approvalArmedRef.current) return true;
+        if (approvalArmedForRef.current !== approvalRef.current) return true;
         if (active === null) return true;
         if (name === "return" || name === "enter") {
           active.resolve("yes");
@@ -1412,7 +1491,7 @@ export function FullscreenBridge(): React.ReactNode {
           return true;
         }
         if (name === "tab") {
-          setSearchScope((scope) => (scope === "all" ? "session" : "all"));
+          setSearchScope((scope) => (scope === "all" ? "conversation" : "all"));
           return true;
         }
         if (name === "return" || name === "enter") {
@@ -1913,13 +1992,32 @@ export function FullscreenBridge(): React.ReactNode {
     [approval, prompt, commitComposer],
   );
 
-  const view = useMemo<ViewModel>(() => {
+  const previousBlocks = useRef<readonly Block[]>([]);
+  const blocks = useMemo(() => {
+    const next = transcriptBlocks({ outputs, streaming, regions }, previousBlocks.current);
+    previousBlocks.current = next;
+    return next;
+  }, [outputs, streaming, regions]);
+
+  const header = useMemo<HeaderModel>(
+    () => ({
+      version: packageJson.version,
+      cwd: compactWorkingDirectory(workingDirectory),
+      model: stats.model ?? "no model",
+      connectors: [...connectors].map(([name, status]) => ({ name, status })),
+      contextUsed: stats.tokensInContext ?? 0,
+      contextMax: stats.maxContextTokens ?? 0,
+    }),
+    [workingDirectory, stats.model, stats.tokensInContext, stats.maxContextTokens, connectors],
+  );
+
+  const overlay = useMemo<Overlay | undefined>(() => {
     // An approval outranks search: it is a decision the agent is blocked on, and
     // it arrived because the user asked for something.
     const promptOverlay = overlayFromPrompt(prompt, promptControls);
-    let overlay: Overlay | undefined = promptOverlay;
+    let next: Overlay | undefined = promptOverlay;
     if (searchQuery !== null) {
-      overlay = {
+      next = {
         kind: "search",
         query: searchQuery,
         scope: searchScope,
@@ -1930,9 +2028,22 @@ export function FullscreenBridge(): React.ReactNode {
       };
     }
     if (approval !== null) {
-      overlay = approvalFrom(approval, approvalArmed, approvalFieldOffset);
+      next = approvalFrom(approval, approvalArmed, approvalFieldOffset);
     }
+    return next;
+  }, [
+    prompt,
+    promptControls,
+    searchQuery,
+    searchScope,
+    searchHits,
+    searchIndex,
+    approval,
+    approvalArmed,
+    approvalFieldOffset,
+  ]);
 
+  const input = useMemo<InputModel>(() => {
     const commandItems = commandQuery === null ? [] : filterCommandsByPrefix(commandQuery);
     const commands =
       commandItems.length === 0
@@ -1941,81 +2052,60 @@ export function FullscreenBridge(): React.ReactNode {
             items: commandItems,
             selected: wrapCommandIndex(commandIndex, commandItems.length),
           };
-
     return {
-      header: {
-        version: packageJson.version,
-        cwd: compactWorkingDirectory(workingDirectory),
-        model: stats.model ?? "no model",
-        connectors: [...connectors].map(([name, status]) => ({ name, status })),
-        contextUsed: stats.tokensInContext ?? 0,
-        contextMax: stats.maxContextTokens ?? 0,
-      },
-      blocks: blocksFrom(outputs, streaming, regions, Date.now()),
+      value: draft,
+      caret: draftCaret,
+      anchor: draftAnchor,
+      placeholder: busy ? "Type to queue for next turn" : "Ask anything",
+      queued: queue,
+      queueing: busy || queue.length > 0,
+      disabled: overlay !== undefined || (!busy && queue.length === 0 && prompt?.type !== "chat"),
+      ...(commands === undefined ? {} : { commands }),
+    };
+  }, [draft, draftCaret, draftAnchor, busy, queue, overlay, prompt, commandQuery, commandIndex]);
+
+  const footer = useMemo<FooterModel>(
+    () => ({
+      mode: isYolo ? "yolo" : "safe",
+      hints: [],
+      ...(stats.costUSD === undefined ? {} : { costUsd: stats.costUSD }),
+      ...(elapsedMs === undefined ? {} : { elapsedMs }),
+    }),
+    [isYolo, stats.costUSD, elapsedMs],
+  );
+
+  const live = useMemo<LiveModel>(() => {
+    const reasoningElapsedMs = liveReasoningElapsedMs(regions, Date.now());
+    return {
+      tools,
+      hiddenTools: [],
+      ...(step === undefined ? {} : { step }),
+      ...(waitingNow
+        ? {
+            waiting: WAITING[
+              Math.floor((elapsedMs ?? 0) / WAITING_ROTATE_MS) % WAITING.length
+            ] as string,
+          }
+        : {}),
+      ...(elapsedMs === undefined ? {} : { elapsedMs }),
+      reservedRows,
+      ...(reasoningElapsedMs === undefined ? {} : { reasoningElapsedMs }),
+    };
+  }, [tools, step, waitingNow, elapsedMs, reservedRows, regions]);
+
+  const view = useMemo<ViewModel>(
+    () => ({
+      header,
+      blocks,
       runActive,
-      live: {
-        tools,
-        hiddenTools: [],
-        ...(step === undefined ? {} : { step }),
-        ...(waitingNow
-          ? { waiting: WAITING[Math.floor(tick / 24) % WAITING.length] as string }
-          : {}),
-        tick,
-        ...(elapsedMs === undefined ? {} : { elapsedMs }),
-        reservedRows,
-      },
-      input: {
-        value: draft,
-        caret: draftCaret,
-        anchor: draftAnchor,
-        placeholder: busy ? "Type to queue for next turn" : "Ask anything",
-        queued: queue,
-        queueing: busy,
-        disabled: overlay !== undefined || (!busy && prompt?.type !== "chat"),
-        ...(commands === undefined ? {} : { commands }),
-      },
-      footer: {
-        mode: isYolo ? "yolo" : "safe",
-        hints: [],
-        ...(stats.costUSD === undefined ? {} : { costUsd: stats.costUSD }),
-        ...(elapsedMs === undefined ? {} : { elapsedMs }),
-      },
+      live,
+      input,
+      footer,
       ...(overlay === undefined ? {} : { overlay }),
       focus: "input",
-    };
-  }, [
-    outputs,
-    streaming,
-    activity,
-    stats,
-    queue,
-    busy,
-    regions,
-    tick,
-    draft,
-    draftCaret,
-    draftAnchor,
-    commandQuery,
-    commandIndex,
-    prompt,
-    promptControls,
-    approval,
-    approvalArmed,
-    approvalFieldOffset,
-    connectors,
-    workingDirectory,
-    searchQuery,
-    searchHits,
-    searchIndex,
-    searchScope,
-    runActive,
-    isYolo,
-    elapsedMs,
-    tools,
-    step,
-    waitingNow,
-    reservedRows,
-  ]);
+    }),
+    [header, blocks, runActive, live, input, footer, overlay],
+  );
 
   // A menu the app is waiting on gets the real screen. The wizard publishes it
   // as data precisely so a renderer that cannot paint an Ink tree can still draw
@@ -2045,10 +2135,6 @@ export function FullscreenBridge(): React.ReactNode {
         }}
         viewport={viewport}
       />
-    ) : customView !== null ? (
-      <box style={{ flexDirection: "column", padding: 1 }}>
-        <text>Switching to the standard interface…</text>
-      </box>
     ) : undefined;
 
   return (

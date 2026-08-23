@@ -12,7 +12,7 @@
  * stop.
  */
 
-import type { ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import { getGlyphs } from "../glyphs";
 import { THEME } from "../theme";
 import { fitTerminalSegments, terminalCellWidth, terminalSegmentsWidth } from "./terminal-cells";
@@ -113,7 +113,7 @@ export function footerSegments(model: FooterModel, viewport: Viewport): readonly
   return [...fittedLeft, ...padding, ...right];
 }
 
-export function Footer({ model, viewport }: { model: FooterModel; viewport: Viewport }): ReactNode {
+function FooterView({ model, viewport }: { model: FooterModel; viewport: Viewport }): ReactNode {
   const segments = footerSegments(model, viewport);
   return (
     <box style={{ width: viewport.width, height: 1, flexShrink: 0 }}>
@@ -130,3 +130,5 @@ export function Footer({ model, viewport }: { model: FooterModel; viewport: View
     </box>
   );
 }
+
+export const Footer = memo(FooterView);

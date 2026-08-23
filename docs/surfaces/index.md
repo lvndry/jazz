@@ -1,6 +1,6 @@
-# Surfaces — where Jazz runs
+# Where it runs
 
-**Reader job:** decide how Jazz fits into *your* setup.
+This page helps you decide how Jazz fits into *your* setup.
 
 Most agent CLIs are one thing: a terminal REPL. Jazz is a runtime that happens to ship
 with a terminal REPL. The same agent — same tools, same config, same memory — also runs
@@ -52,7 +52,7 @@ flowchart LR
 
     subgraph back["Capabilities"]
         direction TB
-        TOOLS["43 built-in tools"]
+        TOOLS["35 built-in tools"]
         MCP["MCP servers"]
         SKILLS["Skills"]
         LLM["18 LLM providers<br/>incl. local"]

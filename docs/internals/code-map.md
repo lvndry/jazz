@@ -1,6 +1,6 @@
 # Code map
 
-**Reader job:** find where your change goes, and follow the conventions already there.
+This page helps you find where your change goes, and follow the conventions already there.
 
 This is the contributor-facing counterpart to the rest of [Internals](./index.md): where
 the code lives and how it's wired, rather than what the harness does at runtime.

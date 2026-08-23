@@ -16,7 +16,7 @@ export interface WizardMenuOption {
 }
 
 interface WizardHomeProps {
-  options: WizardMenuOption[];
+  options: readonly WizardMenuOption[];
   onSelect: (value: string) => void;
   onExit: () => void;
   title?: string;
@@ -137,6 +137,7 @@ export function WizardHome({
 
         <SelectInput
           items={items}
+          limit={10}
           onSelect={(item) => onSelect(item.value)}
           indicatorComponent={IndicatorComponent}
           itemComponent={ItemComponent}

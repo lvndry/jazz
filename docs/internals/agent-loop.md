@@ -1,6 +1,6 @@
 # The agent loop
 
-**Reader job:** understand what happens between "you press enter" and "you get an answer" —
+This page explains what happens between "you press enter" and "you get an answer" —
 especially on runs that take a long time.
 
 Source: [`src/core/agent/execution/agent-loop.ts`](../../src/core/agent/execution/agent-loop.ts)
@@ -15,7 +15,7 @@ Everything that makes it survive a long autonomous run is in the guards around i
 
 ```mermaid
 flowchart TD
-    START(["Iteration i of 80"]) --> COMPACT
+    START(["Iteration i of 100"]) --> COMPACT
 
     COMPACT["<b>Compact if needed</b><br/>tokens &gt; 80% of window?<br/>→ summarize, then resume"]
     COMPACT --> PRESSURE["<b>Build budget pressure</b><br/>just compacted → 'continue the task'<br/>else i/80 ≥ 70% → 'consolidate'<br/>i/80 ≥ 90% → 'finish now'<br/><i>ephemeral — not stored</i>"]
@@ -41,7 +41,7 @@ flowchart TD
     class ASK,TOOLPHASE work
 ```
 
-The loop runs at most `DEFAULT_MAX_ITERATIONS` (80) times. It exits early on a final
+The loop runs at most `DEFAULT_MAX_ITERATIONS` (100) times. It exits early on a final
 response (no tool calls) or a user interrupt.
 
 ---
@@ -91,17 +91,17 @@ run without killing it.
 
 ## Guard 1 — budget pressure
 
-An agent with 80 iterations and no sense of time will happily spend all 80 on research and
+An agent with 100 iterations and no sense of time will happily spend all 100 on research and
 produce nothing. So Jazz tells it where it stands:
 
 ```mermaid
 timeline
-    title Iteration budget (80 iterations)
-    section 1–55 · Free rein
+    title Iteration budget (100 iterations)
+    section 1–69 · Free rein
         No pressure : explore, research, spawn sub-agents
-    section 56–71 · 70% warning
+    section 70–89 · 70% warning
         "Begin consolidating results. Stop spawning new research subagents." : agent shifts to synthesis
-    section 72–80 · 90% critical
+    section 90–100 · 90% critical
         "Write your final output NOW. Use what you have collected so far." : agent lands the plane
 ```
 
@@ -113,7 +113,7 @@ const budgetMsg = buildBudgetPressureMessage(iterationIndex + 1, maxIterations);
 const messagesForLLM = budgetMsg ? [...state.currentMessages, budgetMsg] : state.currentMessages;
 ```
 
-If it were stored, iteration 78 would carry eight escalating "FINISH NOW" messages, each
+If it were stored, iteration 98 would carry eight escalating "FINISH NOW" messages, each
 one costing tokens and confusing the transcript that later gets summarized. This way the
 nudge steers the run without polluting its history.
 
@@ -176,7 +176,7 @@ After the loop, win or lose:
 flowchart LR
     EXIT(["Loop exits"]) --> WHY{"How?"}
     WHY -->|"final answer"| OK["Normal"]
-    WHY -->|"hit 80 iterations"| LIMIT["Warn: iteration limit"]
+    WHY -->|"hit 100 iterations"| LIMIT["Warn: iteration limit"]
     WHY -->|"empty response"| EMPTY["Warn: empty response"]
     WHY -->|"interrupted"| INT["Keep partial output"]
 

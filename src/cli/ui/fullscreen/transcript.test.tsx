@@ -465,6 +465,31 @@ describe("tool receipts", () => {
     expect(colorOf(spans, "could not read")).toBe(THEME.error.toUpperCase());
   });
 
+  it("wraps a long failure reason instead of cropping it", async () => {
+    const reason =
+      "Command blocked by the built-in safety denylist: running inline code via an interpreter flag (-c/-e) is on the blocked list; write the code to a temp file and run that instead.";
+    const blocks: readonly Block[] = [
+      {
+        id: "t",
+        seq: 1,
+        kind: "tool",
+        app: "execute_command",
+        args: `command: "python3 -c \\"import reportlab; print(reportlab.__version__)\\""`,
+        summary: `execute_command: ${reason.slice(0, 80)}…`,
+        status: "failed",
+        reason,
+      },
+    ];
+    const text = transcriptRows(blocks, NARROW)
+      .map((row) => row.content.map((segment) => segment.text).join(""))
+      .join("\n");
+
+    expect(text).toContain("write the code to a temp file");
+    expect(text).toContain("interpreter flag");
+    expect(text).not.toContain("running inline code v…");
+    expect(text.split("\n").length).toBeGreaterThan(1);
+  });
+
   it("collapses reasoning to one dim line of steps, duration and the key", async () => {
     const { rows, spans } = await render(transcript(SESSION, WIDE), WIDE);
     const row = rows.find((line) => line.includes("thought")) ?? "";
@@ -491,6 +516,25 @@ describe("tool receipts", () => {
     const row = rows.find((line) => line.includes("view_memory")) ?? "";
     expect(row).toContain("path: /");
     expect(row).toContain("/notes.txt");
+  });
+
+  it("states the classifier verdict on a settled command receipt", async () => {
+    const blocks: readonly Block[] = [
+      {
+        id: "t",
+        seq: 1,
+        kind: "tool",
+        app: "execute_command",
+        args: 'command: "python3 --version"',
+        summary: "Python 3.14.5",
+        status: "ok",
+        classifiedRisk: "read-only",
+      },
+    ];
+    const { rows } = await render(transcript(blocks, WIDE), WIDE);
+    const row = rows.find((line) => line.includes("python3 --version")) ?? "";
+    expect(row).toContain("Python 3.14.5");
+    expect(row).toContain("read-only");
   });
 });
 
@@ -521,6 +565,39 @@ describe("reasoning is subordinate by geometry", () => {
 
     const { spans } = await render(transcript(expanded, WIDE), WIDE);
     expect(colorOf(spans, "flagged threads")).toBe(THEME.muted.toUpperCase());
+  });
+
+  it("puts a blank row between consecutive reasoning blocks", () => {
+    const blocks: readonly Block[] = [
+      { id: "r1", seq: 1, kind: "reasoning", collapsed: false, text: "first thought" },
+      { id: "r2", seq: 2, kind: "reasoning", collapsed: false, text: "second thought" },
+    ];
+    const rows = transcriptRows(blocks, WIDE);
+    const second = rows.findIndex((row) =>
+      row.content.some((segment) => segment.text.includes("second thought")),
+    );
+    expect(second).toBeGreaterThan(0);
+    expect(rows[second - 1]?.key).toBe("gap:r2");
+    expect(rows[second - 1]?.content).toEqual([]);
+  });
+
+  it("leaves a blank row after a **section** heading when expanded", () => {
+    const blocks: readonly Block[] = [
+      {
+        id: "r",
+        seq: 1,
+        kind: "reasoning",
+        collapsed: false,
+        text: "**Reviewing tests**\nConsidering bun test flags.\n**Finding failures**\nMany passed.",
+      },
+    ];
+    const rows = transcriptRows(blocks, WIDE);
+    const texts = rows.map((row) => row.content.map((segment) => segment.text).join(""));
+    const heading = texts.findIndex((text) => text.includes("Reviewing tests"));
+    const body = texts.findIndex((text) => text.includes("Considering bun test"));
+    expect(heading).toBeGreaterThanOrEqual(0);
+    expect(body).toBe(heading + 2);
+    expect(texts[heading + 1]?.trim()).toBe("");
   });
 });
 
@@ -849,7 +926,121 @@ describe("inline emphasis", () => {
     const content = rows
       .filter((row) => row.key.includes(":detail:"))
       .flatMap((row) => row.content);
-    expect(content.find((segment) => segment.text === "-old line")?.fg).toBe(THEME.error);
-    expect(content.find((segment) => segment.text === "+new line")?.fg).toBe(THEME.success);
+    expect(content.find((segment) => segment.text === "-")?.fg).toBe(THEME.error);
+    expect(content.find((segment) => segment.text === "+")?.fg).toBe(THEME.success);
+  });
+
+  it("paints expanded write/edit bodies with the syntax roles", () => {
+    const rows = transcriptRows(
+      [
+        {
+          id: "t",
+          seq: 1,
+          kind: "tool",
+          app: "",
+          summary: "",
+          status: "ok",
+          expanded: true,
+          detail: 'def main():\n    return "jazz"',
+        },
+      ],
+      WIDE,
+    );
+    const content = rows
+      .filter((row) => row.key.includes(":detail:"))
+      .flatMap((row) => row.content);
+    expect(content.find((segment) => segment.text === "def")?.fg).toBe(THEME.syntaxStructure);
+    expect(content.find((segment) => segment.text.includes("jazz"))?.fg).toBe(THEME.syntaxValue);
+  });
+});
+
+describe("wrap depends on width, not height", () => {
+  it("produces the same rows when only viewport height changes", () => {
+    const tall = transcriptRows(SESSION, { width: 120, height: 34 });
+    const short = transcriptRows(SESSION, { width: 120, height: 8 });
+    expect(short).toEqual(tall);
+  });
+});
+
+describe("wrap cache", () => {
+  it("returns the same row array by reference when blocks and width are unchanged", () => {
+    const first = transcriptRows(SESSION, WIDE);
+    const second = transcriptRows(SESSION, WIDE);
+    expect(second).toBe(first);
+    expect(second).toEqual(first);
+  });
+
+  it("busts the cache when reasoning collapse changes", () => {
+    const collapsed: readonly Block[] = [
+      { id: "r", seq: 1, kind: "reasoning", collapsed: true, text: "secret plan" },
+    ];
+    const expanded: readonly Block[] = [
+      { id: "r", seq: 1, kind: "reasoning", collapsed: false, text: "secret plan" },
+    ];
+    const hidden = transcriptRows(collapsed, WIDE);
+    const shown = transcriptRows(expanded, WIDE);
+    expect(shown).not.toBe(hidden);
+    expect(shown).not.toEqual(hidden);
+    expect(transcriptRows(collapsed, WIDE)).toEqual(hidden);
+  });
+
+  it("busts the cache when tool expand or detail changes", () => {
+    const base: Block = {
+      id: "t",
+      seq: 1,
+      kind: "tool",
+      app: "files",
+      summary: "wrote note",
+      status: "ok",
+    };
+    const collapsed = transcriptRows([base], WIDE);
+    const expanded = transcriptRows([{ ...base, expanded: true, detail: "full output" }], WIDE);
+    expect(expanded).not.toBe(collapsed);
+    expect(expanded).not.toEqual(collapsed);
+    const rewritten = transcriptRows([{ ...base, expanded: true, detail: "other output" }], WIDE);
+    expect(rewritten).not.toEqual(expanded);
+  });
+
+  it("reuses settled block rows while a streaming tail misses", () => {
+    const user: Block = { id: "u", seq: 1, kind: "user", text: "hello" };
+    const first = transcriptRows(
+      [user, { id: "a", seq: 2, kind: "agent", markdown: "hel", streaming: true }],
+      WIDE,
+    );
+    const second = transcriptRows(
+      [user, { id: "a", seq: 2, kind: "agent", markdown: "hello", streaming: true }],
+      WIDE,
+    );
+    expect(second).not.toBe(first);
+    const firstUser = first.filter((row) => row.key.startsWith("u:"));
+    const secondUser = second.filter((row) => row.key.startsWith("u:"));
+    expect(secondUser.length).toBeGreaterThan(0);
+    expect(secondUser).toEqual(firstUser);
+    for (let index = 0; index < firstUser.length; index += 1) {
+      expect(secondUser[index]).toBe(firstUser[index]);
+    }
+  });
+
+  it("invalidates wrapped rows when width changes", () => {
+    const wide = transcriptRows(SESSION, WIDE);
+    const narrow = transcriptRows(SESSION, NARROW);
+    expect(narrow).not.toBe(wide);
+    expect(narrow).not.toEqual(wide);
+    expect(transcriptRows(SESSION, WIDE)).toEqual(wide);
+  });
+
+  it("invalidates wrapped rows when the theme variant switches", () => {
+    const blocks: readonly Block[] = [{ id: "u", seq: 1, kind: "user", text: "hello" }];
+    const dark = transcriptRows(blocks, WIDE);
+    try {
+      setThemeVariant("light");
+      const light = transcriptRows(blocks, WIDE);
+      expect(light).not.toBe(dark);
+      const darkColors = dark.flatMap((row) => row.content.map((segment) => segment.fg));
+      const lightColors = light.flatMap((row) => row.content.map((segment) => segment.fg));
+      expect(lightColors).not.toEqual(darkColors);
+    } finally {
+      setThemeVariant("dark");
+    }
   });
 });

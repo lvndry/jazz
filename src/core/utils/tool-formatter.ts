@@ -7,6 +7,107 @@ const MAX_RESULT_DISPLAY_CHARS = 1200;
 // a multi-megabyte tool result can't hang the renderer.
 const MAX_EXPANDABLE_CHARS = 100_000;
 
+/** On-screen budget for write_file / edit_file bodies. Ctrl+O expands the rest. */
+export const FILE_MUTATION_PREVIEW_CHARS = 150;
+
+const FILE_MUTATION_EXPAND_HINT = "… · ctrl+o to expand";
+const ESC = "\u001b";
+const SGR_PATTERN = new RegExp(`${ESC}\\[[0-9;]*m`, "g");
+
+function stripSgr(text: string): string {
+  return text.replace(SGR_PATTERN, "");
+}
+
+export function isFileMutationTool(toolName: string): boolean {
+  return (
+    toolName === "write_file" ||
+    toolName === "execute_write_file" ||
+    toolName === "edit_file" ||
+    toolName === "execute_edit_file"
+  );
+}
+
+/**
+ * Collapse a write/edit body to a single-line preview. Newlines become spaces
+ * so the live zone and receipt stay one row.
+ */
+export function fileMutationPreview(
+  content: string,
+  maxChars: number = FILE_MUTATION_PREVIEW_CHARS,
+): string {
+  const collapsed = content.replace(/\s+/g, " ").trim();
+  if (collapsed.length === 0) return "";
+  if (collapsed.length <= maxChars) return collapsed;
+  return `${collapsed.slice(0, maxChars)}…`;
+}
+
+function extractFileMutationContent(toolName: string, args: Record<string, unknown>): string {
+  if (toolName === "write_file" || toolName === "execute_write_file") {
+    return safeString(args["content"]);
+  }
+  const edits = args["edits"];
+  if (!Array.isArray(edits)) return "";
+  const parts: string[] = [];
+  for (const edit of edits) {
+    if (typeof edit !== "object" || edit === null || Array.isArray(edit)) continue;
+    const record = edit as Record<string, unknown>;
+    const content = safeString(record["content"]);
+    if (content.length > 0) {
+      parts.push(content);
+      continue;
+    }
+    const replacement = safeString(record["replacement"]);
+    if (replacement.length > 0) {
+      parts.push(replacement);
+      continue;
+    }
+    const pattern = safeString(record["pattern"]);
+    if (pattern.length > 0) {
+      parts.push(pattern);
+    }
+  }
+  return parts.join("\n");
+}
+
+function truncateFileMutationDisplay(text: string): string {
+  const visible = stripSgr(text.replace(/\r\n/g, "\n")).trim();
+  if (visible.length === 0) return "";
+  if (visible.length <= FILE_MUTATION_PREVIEW_CHARS) return visible;
+  return `${visible.slice(0, FILE_MUTATION_PREVIEW_CHARS).trimEnd()}${FILE_MUTATION_EXPAND_HINT}`;
+}
+
+/**
+ * Full write/edit payload for Ctrl+O. Returns null when the on-screen preview
+ * already shows everything.
+ */
+export function expandableFileMutationPayload(result: string): string | null {
+  try {
+    const parsed: unknown = JSON.parse(result);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return null;
+    const record = parsed as Record<string, unknown>;
+    const fullDiff = record["fullDiff"];
+    const diff = record["diff"];
+    const wasTruncated = record["wasTruncated"] === true;
+    const payload =
+      typeof fullDiff === "string" && fullDiff.length > 0
+        ? fullDiff
+        : typeof diff === "string"
+          ? diff
+          : "";
+    if (payload.length === 0) return null;
+    const visible = stripSgr(payload);
+    if (!wasTruncated && visible.length <= FILE_MUTATION_PREVIEW_CHARS) return null;
+    if (payload.length > MAX_EXPANDABLE_CHARS) {
+      return (
+        payload.slice(0, MAX_EXPANDABLE_CHARS).trimEnd() + "\n… output capped at 100k characters"
+      );
+    }
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * User-facing formatting for tool arguments and results.
  *
@@ -221,8 +322,18 @@ export function formatToolArguments(
     case "edit_file":
     case "execute_edit_file": {
       const path = safeString(toolArgs["path"] || toolArgs["filePath"]);
-      if (!path) return "";
-      return usePlain ? `{ file: ${path} }` : formatKeyValue("file", path);
+      const preview = fileMutationPreview(extractFileMutationContent(toolName, toolArgs));
+      if (!path && preview.length === 0) return "";
+      if (usePlain) {
+        const parts: string[] = [];
+        if (path) parts.push(`file: ${path}`);
+        if (preview.length > 0) parts.push(preview);
+        return parts.join("  ");
+      }
+      const colored: string[] = [];
+      if (path) colored.push(formatKeyValue("file", path));
+      if (preview.length > 0) colored.push(` ${chalk.cyan(preview)}`);
+      return colored.join("");
     }
     case "cd": {
       const to = safeString(toolArgs["path"] || toolArgs["directory"]);
@@ -625,10 +736,9 @@ export function formatToolResult(toolName: string, result: string): string {
       case "execute_edit_file":
       case "write_file":
       case "execute_write_file": {
-        // Check for diff in the result
         const diff = parsedResult["diff"];
         if (typeof diff === "string" && diff.length > 0) {
-          return `\n${diff}`;
+          return truncateFileMutationDisplay(diff);
         }
         return "";
       }

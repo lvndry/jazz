@@ -1,6 +1,6 @@
 # Context management
 
-**Reader job:** understand why a long Jazz run doesn't fall off the end of its context
+This page explains why a long Jazz run doesn't fall off the end of its context
 window.
 
 Source:
@@ -317,14 +317,14 @@ conversation, under `~/.jazz/work/<agent>/<conversation>/`:
 - **`journal.jsonl`** — every compaction appends its summary here *before* it enters
   context. No extra LLM call and no extra tokens: it persists something already paid for.
   Append-only, one JSON object per line, so a crash damages at most the final record.
-- **`state.json`** — the agent's own record of where the task stands, written through
-  `update_task_state`. Patched field by field, so a small correction cannot drop the rest.
+- **`state.json`** — the agent's own record of where the work stands, written through
+  `update_work_state`. Patched field by field, so a small correction cannot drop the rest.
 
 This is deliberately **not** memory. Memory holds what stays true about a person or project
 for weeks, and its own instructions tell the agent not to store one-off task details —
 which is exactly what compaction destroys. "They prefer Bun over npm" is memory; "3 of 5
-routes migrated, auth fails on token refresh" is task state, and it is discarded when the
-task ends.
+routes migrated, auth fails on token refresh" is work state, and it is discarded when the
+work ends.
 
 Two things read it back:
 
@@ -332,12 +332,15 @@ Two things read it back:
   dropped is simply absent. The journal is folded back in as a bounded (~2k token)
   preamble, framed as claims to verify rather than fact — progress records are written
   mid-task and are habitually optimistic about what was finished.
-- **Compaction itself** is told what task state already holds, so the summary covers what
+- **Compaction itself** is told what work state already holds, so the summary covers what
   the transcript adds instead of restating the plan.
 
-Work items carry an explicit `unverified` status, and the prompt requires that `done` means
-something was actually run. An agent that marks its own work complete on the strength of
-having written it turns the record into a confident lie for the next session.
+Todos carry a `verifiedBy` field alongside their status, and the prompt asks for it
+whenever something is marked completed. An agent that marks its own work complete on the
+strength of having written it turns the record into a confident lie for whoever picks the
+work up next; a completed todo with nothing in `verifiedBy` says plainly that nobody
+checked. Work state used to keep a second, parallel list of the same work under a
+different vocabulary — the idea survived, the duplicate list did not.
 
 Inspect or discard it with `/work` and `/work clear`. Journals are capped per conversation
 and pruned oldest-first, since the newest record is the one describing where the task is.

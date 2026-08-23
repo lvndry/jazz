@@ -10,9 +10,9 @@ import { getModelsDevMetadataSync } from "@/core/utils/models-dev";
 import {
   formatToolArguments as formatToolArgumentsShared,
   formatToolDisplayName as formatToolDisplayNameShared,
-  formatToolResult as formatToolResultShared,
 } from "@/core/utils/tool-formatter";
 import { computeUsageCostUSD } from "@/core/utils/usage-cost";
+import { formatToolResult as formatToolResultShared } from "./format-utils";
 import { formatMarkdown, formatMarkdownHybrid } from "./markdown-formatter";
 import { createTheme, detectColorProfile } from "./output-theme";
 import type { OutputWriter } from "./output-writer";
@@ -159,19 +159,19 @@ export class CLIRenderer {
         return this.renderStreamStart(event);
 
       case "thinking_start":
-        if (this.config.displayConfig.showThinking) {
+        if (this.config.displayConfig.showReasoning) {
           return this.thinkingRenderer.handleStart();
         }
         return null;
 
       case "thinking_chunk":
-        if (this.config.displayConfig.showThinking && this.thinkingRenderer.isActive()) {
+        if (this.config.displayConfig.showReasoning && this.thinkingRenderer.isActive()) {
           return this.thinkingRenderer.handleChunk(event.content);
         }
         return null;
 
       case "thinking_complete":
-        if (this.config.displayConfig.showThinking) {
+        if (this.config.displayConfig.showReasoning) {
           const { output, shouldClearLines } = this.thinkingRenderer.handleComplete(
             event.totalTokens,
           );

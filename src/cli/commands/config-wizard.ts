@@ -1,5 +1,4 @@
 import { Effect } from "effect";
-import React from "react";
 import { WEB_SEARCH_PROVIDERS } from "@/core/agent/tools/web-search-tools";
 import { AVAILABLE_PROVIDERS, type ProviderName } from "@/core/constants/models";
 import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
@@ -10,7 +9,7 @@ import type { ColorProfile, OutputMode } from "@/core/types/output";
 import { formatProviderDisplayName } from "@/core/utils/provider-model";
 import { sortProvidersForPicker } from "@/core/utils/provider-picker";
 import { store } from "../ui/store";
-import { WizardHome, type WizardMenuOption } from "../ui/WizardHome";
+import type { WizardMenuOption } from "../ui/WizardHome";
 
 /**
  * Menu actions for the config wizard
@@ -71,29 +70,18 @@ function showConfigMenu(
   options: WizardMenuOption[],
 ): Effect.Effect<ConfigMenuAction, never, never> {
   return Effect.async<ConfigMenuAction>((resume) => {
-    let resumed = false;
-    const safeResume = (action: ConfigMenuAction): void => {
-      if (resumed) return;
-      resumed = true;
-      store.setCustomView(null);
-      store.setActiveMenu(null);
-      resume(Effect.succeed(action));
-    };
-
-    store.setCustomView(
-      React.createElement(WizardHome, {
-        options,
+    store.setActiveMenu(
+      {
+        kind: "menu",
         title: "Configuration",
-        onSelect: (value: string) => safeResume(value as ConfigMenuAction),
-        onExit: () => safeResume("back"),
-      }),
+        options,
+      },
+      (result) => {
+        resume(
+          Effect.succeed(result.kind === "exit" ? "back" : (result.value as ConfigMenuAction)),
+        );
+      },
     );
-    store.setActiveMenu({
-      kind: "menu",
-      options,
-      onSelect: (value: string) => safeResume(value as ConfigMenuAction),
-      onExit: () => safeResume("back"),
-    });
   });
 }
 
@@ -248,8 +236,12 @@ function configureOutputDisplay() {
           { name: `Output mode (${displayConfig.mode})`, value: "mode" },
           { name: `Color profile (${colorProfileLabel})`, value: "color-profile" },
           {
-            name: `Show thinking (${displayConfig.showThinking ? "on" : "off"})`,
-            value: "show-thinking",
+            name: `Show reasoning (${displayConfig.showReasoning ? "on" : "off"})`,
+            value: "show-reasoning",
+          },
+          {
+            name: `Reasoning (${displayConfig.collapseReasoning !== false ? "collapse" : "always show"})`,
+            value: "collapse-reasoning",
           },
           {
             name: `Show tool execution (${displayConfig.showToolExecution ? "on" : "off"})`,
@@ -300,13 +292,40 @@ function configureOutputDisplay() {
           }
           break;
         }
-        case "show-thinking": {
+        case "show-reasoning": {
           yield* handleBooleanToggle({
-            prompt: "Show thinking output?",
-            currentValue: displayConfig.showThinking,
-            configKey: "output.showThinking",
-            label: "Show thinking",
+            prompt: "Show reasoning output?",
+            currentValue: displayConfig.showReasoning,
+            configKey: "output.showReasoning",
+            label: "Show reasoning",
           });
+          break;
+        }
+        case "collapse-reasoning": {
+          const choice = yield* terminal.select<"collapse" | "always">(
+            "How should reasoning display after the model finishes thinking?",
+            {
+              choices: [
+                {
+                  name: "Collapse after thinking (Ctrl+R to expand)",
+                  value: "collapse",
+                },
+                {
+                  name: "Always show reasoning",
+                  value: "always",
+                },
+              ],
+            },
+          );
+          if (choice) {
+            const collapse = choice === "collapse";
+            yield* configService.set("output.collapseReasoning", collapse);
+            yield* terminal.success(
+              collapse
+                ? "Reasoning will collapse after thinking. Ctrl+R expands it."
+                : "Reasoning will stay visible. Ctrl+R is not needed.",
+            );
+          }
           break;
         }
         case "show-tool-execution": {

@@ -91,6 +91,8 @@ export interface ToolReceiptBlock extends BlockBase {
   readonly durationMs?: number;
   readonly detail?: string;
   readonly expanded?: boolean;
+  /** Command-risk classifier verdict, when this call went through it. */
+  readonly classifiedRisk?: string;
 }
 
 export interface NoticeBlock extends BlockBase {
@@ -154,6 +156,8 @@ export interface LiveTool {
   readonly elapsedMs: number;
   /** Phase offset so lanes do not animate in lockstep. */
   readonly phase: number;
+  /** When set, the operation is source and takes the three syntax roles. */
+  readonly language?: string;
 }
 
 export interface StepLine {
@@ -169,8 +173,12 @@ export interface LiveModel {
   /** House-voice waiting copy. Shown only before the first token lands. */
   readonly waiting?: string;
   readonly elapsedMs?: number;
-  /** Monotonic tick driving the indicator. */
-  readonly tick: number;
+  /**
+   * Elapsed time for the open reasoning region, if one is running.
+   * Lives here rather than on a transcript Block so a clock update cannot
+   * rewrite block identity and defeat wrap memoization.
+   */
+  readonly reasoningElapsedMs?: number;
   /**
    * Rows the band occupies, as a high-water mark for the turn.
    *
@@ -259,8 +267,9 @@ export interface ApprovalOverlay {
 }
 
 export interface SearchHit {
-  readonly sessionId: string;
-  readonly sessionTitle: string;
+  readonly agentId: string;
+  readonly conversationId: string;
+  readonly conversationTitle: string;
   readonly when: string;
   readonly line: string;
   readonly matchStart: number;
@@ -271,7 +280,7 @@ export interface SearchHit {
 export interface SearchOverlay {
   readonly kind: "search";
   readonly query: string;
-  readonly scope: "session" | "all";
+  readonly scope: "conversation" | "all";
   readonly hits: readonly SearchHit[];
   readonly selected: number;
 }

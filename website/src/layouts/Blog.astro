@@ -1,0 +1,140 @@
+---
+import Base from "./Base.astro";
+
+interface Props {
+  title: string;
+  description: string;
+  image?: string | undefined;
+}
+
+const { title, description, image } = Astro.props;
+---
+
+<Base title={title} description={description} image={image}>
+  <link
+    slot="head"
+    rel="stylesheet"
+    href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,650&display=swap"
+  />
+  <header class="top">
+    <a class="brand mono" href="/">▞ jazz</a>
+    <a class="mono" href="/blog">blog</a>
+    <div class="grow"></div>
+    <a class="mono" href="/docs">docs</a>
+    <a class="mono" href="https://github.com/lvndry/jazz">github</a>
+    <a class="mono" href="/rss.xml">rss</a>
+  </header>
+  <main>
+    <slot />
+  </main>
+</Base>
+
+<style>
+  .top {
+    display: flex;
+    align-items: center;
+    gap: 22px;
+    padding: 16px 4vw;
+    border-bottom: 1px solid var(--jz-border);
+    font-size: 13px;
+  }
+  .top a {
+    color: var(--jz-secondary);
+    text-decoration: none;
+  }
+  .top a:hover {
+    color: var(--jz-primary);
+  }
+  .top .brand {
+    color: var(--jz-primary);
+    font-size: 14px;
+  }
+  .grow {
+    flex: 1;
+  }
+  main {
+    max-width: 46rem;
+    margin: 0 auto;
+    padding: 3.5rem 20px 6rem;
+  }
+</style>
+
+<style is:global>
+  /* The editorial register: Fraunces carries the voice, tokens carry the color. */
+  .blog-display {
+    font-family: "Fraunces", Georgia, "Times New Roman", serif;
+    font-weight: 650;
+    line-height: 1.15;
+    letter-spacing: -0.01em;
+    text-wrap: balance;
+  }
+  article.post h1,
+  article.post h2,
+  article.post h3 {
+    font-family: "Fraunces", Georgia, "Times New Roman", serif;
+    font-weight: 650;
+    line-height: 1.2;
+    text-wrap: balance;
+  }
+  article.post h1 {
+    font-size: 2.4rem;
+    margin-bottom: 0.5rem;
+  }
+  article.post h2 {
+    font-size: 1.5rem;
+    margin: 2.6rem 0 0.9rem;
+    padding-top: 1.4rem;
+    border-top: 1px solid var(--jz-border);
+  }
+  article.post h3 {
+    font-size: 1.1rem;
+    margin: 1.6rem 0 0.4rem;
+  }
+  article.post p,
+  article.post li {
+    color: var(--jz-info);
+    font-size: 1.02rem;
+  }
+  article.post p + p {
+    margin-top: 0.8rem;
+  }
+  article.post ul,
+  article.post ol {
+    padding-left: 1.3rem;
+    margin: 0.8rem 0;
+  }
+  article.post a {
+    color: var(--jz-link);
+    text-decoration-thickness: 1px;
+    text-underline-offset: 2px;
+  }
+  article.post code {
+    font-family: var(--font-mono);
+    font-size: 0.88em;
+    background: var(--jz-surface);
+    border: 1px solid var(--jz-border);
+    border-radius: 4px;
+    padding: 0.08em 0.35em;
+  }
+  article.post pre {
+    background: var(--jz-surface);
+    border: 1px solid var(--jz-border);
+    border-radius: 6px;
+    padding: 14px 16px;
+    overflow-x: auto;
+    font-size: 13.5px;
+    line-height: 1.7;
+    margin: 1rem 0;
+  }
+  article.post pre code {
+    background: none;
+    border: none;
+    padding: 0;
+    font-size: inherit;
+  }
+  article.post blockquote {
+    border-left: 2px solid var(--jz-border-soft);
+    padding-left: 1em;
+    color: var(--jz-muted);
+  }
+</style>

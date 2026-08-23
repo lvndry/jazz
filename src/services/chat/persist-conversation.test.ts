@@ -11,18 +11,18 @@ import {
   type PersistConversationInput,
 } from "./persist-conversation";
 import { loadConversation, loadHistory } from "../history/conversation-history-service";
-import { resetSessionAppendCache } from "../history/session-store";
+import { resetConversationLogAppendCache } from "../history/conversation-log";
 
 let tmpDir: string;
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "jazz-persist-conversation-test-"));
-  resetSessionAppendCache();
+  resetConversationLogAppendCache();
 });
 
 afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
-  resetSessionAppendCache();
+  resetConversationLogAppendCache();
 });
 
 function runEffect<A>(eff: Effect.Effect<A, unknown, NodeFileSystem.NodeFileSystem["Type"]>) {

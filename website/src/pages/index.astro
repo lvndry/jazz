@@ -1,0 +1,56 @@
+---
+import AsksFirst from "../components/AsksFirst.astro";
+import Cookbook from "../components/Cookbook.astro";
+import Hero from "../components/Hero.astro";
+import InstallCta from "../components/InstallCta.astro";
+import InstallStrip from "../components/InstallStrip.astro";
+import SessionStage from "../components/SessionStage.astro";
+import Surfaces from "../components/Surfaces.astro";
+import Ticker from "../components/Ticker.astro";
+import UnderTheHood from "../components/UnderTheHood.astro";
+import Base from "../layouts/Base.astro";
+---
+
+<Base
+  title="Jazz — one agent, every surface, your rules"
+  description="Your own AI agent, working while you don't. Jazz triages your inbox, runs your research, watches your PRs, and reports back wherever you are — terminal, Telegram, Discord, CI, cron. It asks before touching anything real. Any model, 18 providers, fully local if you want. MIT."
+  skin="dark"
+>
+  <script
+    slot="head"
+    type="application/ld+json"
+    is:inline
+    set:html={JSON.stringify({
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      name: "Jazz",
+      operatingSystem: "macOS, Linux, Windows",
+      applicationCategory: "DeveloperApplication",
+      description:
+        "Your own AI agent, working while you don't — terminal, Telegram, Discord, CI, cron. It asks before touching anything real. Any model, 18 providers, fully local if you want.",
+      offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+      license: "https://opensource.org/licenses/MIT",
+      url: "https://github.com/lvndry/jazz",
+    })}
+  />
+  <noscript>
+    <style is:inline>
+      /* Without JS every scene holds its finished frame — nothing is blank. */
+      .approval,
+      .fan .frame {
+        opacity: 1 !important;
+        transform: none !important;
+        animation: none !important;
+      }
+    </style>
+  </noscript>
+  <Hero />
+  <Ticker />
+  <InstallStrip />
+  <SessionStage />
+  <Surfaces />
+  <UnderTheHood />
+  <AsksFirst />
+  <Cookbook />
+  <InstallCta />
+</Base>

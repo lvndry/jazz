@@ -64,7 +64,7 @@ jazz workflow history email-cleanup
 | `skills`           |          | Skills to make available                        |
 | `catchUpOnStartup` |          | Offer a missed run on next launch               |
 | `maxCatchUpAge`    |          | Max age in seconds for catch-up (default 86400) |
-| `maxIterations`    |          | Iteration cap (default 80)                      |
+| `maxIterations`    |          | Iteration cap (default 100)                      |
 
 **Full field reference, with types and the `autoApprove` gotcha:**
 [Reference → Workflow frontmatter](../reference/workflow-frontmatter.md).
@@ -94,7 +94,7 @@ Tools above the tier are **declined**, not queued — there is nobody to ask.
 | `high-risk`        | + writes, deletes, shell, `git commit`/`push`          | Trusted automation, CI                        |
 | `true`             | Same as `high-risk`                                    | Trusted automation                            |
 
-> ⚠️ **`low-risk` adds three tools** (`manage_todos`, `update_task_state`, `spawn_subagent`). It is not "moderately dangerous actions". Email,
+> ⚠️ **`low-risk` adds three tools** (`manage_todos`, `update_work_state`, `spawn_subagent`). It is not "moderately dangerous actions". Email,
 > calendar, and Obsidian are skills that shell out through `execute_command`, so they are
 > gated at `unknown` — a `low-risk` workflow **cannot archive an email**. Keep the tier low
 > and allowlist the binary instead: `{"autoApprovedCommands": ["himalaya"]}` in
@@ -370,7 +370,7 @@ jazz workflow history
 
 ### 1. Start Conservative
 
-Use `autoApprove: read-only` for research/monitoring workflows, then increase once you trust it. Note that `low-risk` adds `manage_todos`, `update_task_state`, and `spawn_subagent` — anything that writes a file or shells out needs `high-risk`, or a `autoApprovedCommands` entry.
+Use `autoApprove: read-only` for research/monitoring workflows, then increase once you trust it. Note that `low-risk` adds `manage_todos`, `update_work_state`, and `spawn_subagent` — anything that writes a file or shells out needs `high-risk`, or a `autoApprovedCommands` entry.
 
 ### 2. Be Explicit About Safety
 

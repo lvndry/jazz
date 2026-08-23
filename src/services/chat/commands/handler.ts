@@ -9,9 +9,9 @@ import { getAgentByIdentifier } from "@/core/agent/agent-service";
 import { sortAgents } from "@/core/agent/agent-sort";
 import { resolveContextThresholds } from "@/core/agent/context/context-thresholds";
 import { resolveEffectiveContextWindow } from "@/core/agent/context/effective-context-window";
-import { formatTaskState, readTaskState } from "@/core/agent/context/task-state";
 import { DEFAULT_TOKEN_COUNTER } from "@/core/agent/context/token-counter";
 import { clearWorkState, readJournal, workStateSizeBytes } from "@/core/agent/context/work-journal";
+import { formatWorkState, readWorkState } from "@/core/agent/context/work-state";
 import { WEB_SEARCH_PROVIDERS } from "@/core/agent/tools/web-search-tools";
 import { normalizeToolConfig } from "@/core/agent/utils/tool-config";
 import type { ProviderName } from "@/core/constants/models";
@@ -38,13 +38,13 @@ import { SkillServiceTag, type SkillService } from "@/core/skills/skill-service"
 import { StorageError, StorageNotFoundError } from "@/core/types/errors";
 import type { ChatMessage } from "@/core/types/message";
 import type { AutoApprovePolicy } from "@/core/types/tools";
+import { generateConversationId } from "@/core/utils/conversation-id";
 import { describeCronSchedule } from "@/core/utils/cron";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import type { WorkflowMetadata } from "@/core/workflows/workflow-service";
 import { WorkflowServiceTag, type WorkflowService } from "@/core/workflows/workflow-service";
 import { groupWorkflows } from "@/core/workflows/workflow-utils";
-import { loadHistory } from "@/services/history/conversation-history-service";
-import { generateConversationId } from "../session";
+import { loadConversation, loadHistory } from "@/services/history/conversation-history-service";
 import { CHAT_COMMANDS } from "./constants";
 import type { CommandContext, CommandResult, SpecialCommand } from "./types";
 
@@ -73,7 +73,7 @@ export function handleSpecialCommand(
   | MCPServerManager
   | FileSystem.FileSystem
 > {
-  const { agent, conversationId, conversationHistory, sessionId } = context;
+  const { agent, conversationId, conversationHistory } = context;
 
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
@@ -103,13 +103,7 @@ export function handleSpecialCommand(
         );
 
       case "compact":
-        return yield* handleCompactCommand(
-          terminal,
-          agent,
-          conversationHistory,
-          sessionId,
-          conversationId,
-        );
+        return yield* handleCompactCommand(terminal, agent, conversationHistory, conversationId);
 
       case "copy":
         return yield* handleCopyCommand(terminal, conversationHistory);
@@ -734,8 +728,7 @@ function handleCompactCommand(
   terminal: TerminalService,
   agent: CommandContext["agent"],
   conversationHistory: CommandContext["conversationHistory"],
-  sessionId: string,
-  conversationId: string | undefined,
+  conversationId: string,
 ): Effect.Effect<
   CommandResult,
   Error,
@@ -779,8 +772,7 @@ function handleCompactCommand(
       const summaryMessage = yield* AgentRunner.summarizeHistory(
         messagesToSummarize,
         agent,
-        sessionId,
-        conversationId || "manual-compact",
+        conversationId,
       );
 
       // Show success for Stage 3
@@ -1285,18 +1277,23 @@ function handleResumeCommand(
       return { shouldContinue: true };
     }
 
+    // The listing carries no transcript, so the chosen conversation is read now rather
+    // than every conversation being read to draw the picker.
+    const conversation = yield* loadConversation(agent.id, selected.conversationId).pipe(
+      Effect.catchAll(() => Effect.succeed(null)),
+    );
+    if (!conversation) {
+      yield* terminal.info("That conversation could no longer be read.");
+      return { shouldContinue: true };
+    }
+
     const resumeSystemMessage = {
       role: "system" as const,
       content: `Resuming conversation from ${new Date(selected.startedAt).toLocaleString()}: ${selected.title}`,
     };
 
-    const systemMessage = selected.messages.find((m) => m.role === "system");
-    const otherMessages = selected.messages.filter((m) => m.role !== "system");
-    const newHistory = [
-      ...(systemMessage ? [systemMessage] : []),
-      resumeSystemMessage,
-      ...otherMessages,
-    ];
+    // Logs no longer hold system prompts; the live one is rebuilt for this run anyway.
+    const newHistory = [resumeSystemMessage, ...conversation.messages];
 
     yield* terminal.success(`Resumed: ${selected.title}`);
     yield* terminal.log("");
@@ -1837,13 +1834,13 @@ function handleWorkCommand(
       return { shouldContinue: true };
     }
 
-    const state = yield* readTaskState(agent.id, conversationId);
+    const state = yield* readWorkState(agent.id, conversationId);
     const entries = yield* readJournal(agent.id, conversationId);
     const sizeBytes = yield* workStateSizeBytes(agent.id, conversationId);
 
     yield* terminal.log(fmt.heading("Working state"));
 
-    const formatted = formatTaskState(state);
+    const formatted = formatWorkState(state);
     if (formatted) {
       yield* terminal.log(`\n${formatted}`);
     } else {

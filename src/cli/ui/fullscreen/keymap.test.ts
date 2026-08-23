@@ -321,9 +321,10 @@ describe("footer hints", () => {
       "^f to search",
       "^r for reasoning",
     ]);
-    expect(hintsFor("input", false, false, "approval")).toEqual([
+    expect(hintsFor("input", false, false, "approval", false, false)).toEqual(["esc to reject"]);
+    expect(hintsFor("input", false, false, "approval", false, true)).toEqual([
       "enter to accept",
-      "esc to cancel",
+      "esc to reject",
     ]);
     expect(hintsFor("input", false, false, "text")).toEqual(["enter to confirm", "esc to go back"]);
     expect(hintsFor("input", true, false, "search")).toEqual([
@@ -348,7 +349,8 @@ describe("footer hints", () => {
       ...hintsFor("input", false),
       ...hintsFor("input", true),
       ...hintsFor("transcript", false),
-      ...hintsFor("input", false, false, "approval"),
+      ...hintsFor("input", false, false, "approval", false, false),
+      ...hintsFor("input", false, false, "approval", false, true),
     ].join(" ");
     expect(advertised).not.toMatch(/\bcopy\b/);
     expect(advertised).not.toContain("palette");

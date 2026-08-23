@@ -15,8 +15,14 @@ import { AgentServiceTag, type AgentService } from "@/core/interfaces/agent-serv
 import { CLIOptionsTag, type CLIOptions } from "@/core/interfaces/cli-options";
 import { JazzStateServiceTag, type JazzStateService } from "@/core/interfaces/jazz-state";
 import { ink, TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
+import type { Agent } from "@/core/types/agent";
 import { CLIError, StorageError, StorageNotFoundError } from "@/core/types/errors";
 import { formatProviderDisplayName } from "@/core/utils/provider-model";
+import {
+  findAgentsWithCapability,
+  type MediaCapability,
+  suggestModelsForCapability,
+} from "./media-agents";
 import { AgentDetailsCard } from "../ui/AgentDetailsCard";
 import { AgentsList } from "../ui/AgentsList";
 
@@ -149,6 +155,62 @@ function formatAgentsListBlock(
  */
 
 /**
+ * Show the agents that can produce a given kind of media, or how to get one.
+ *
+ * Jazz cannot generate media on a model that does not do it — there is no tool to fall back on —
+ * so "none of your agents can" has to come with the next step attached, or it is a dead end.
+ */
+function listAgentsWithCapability(
+  agents: readonly Agent[],
+  capability: MediaCapability,
+  terminal: TerminalService,
+): Effect.Effect<void, never, never> {
+  return Effect.gen(function* () {
+    const capable = yield* Effect.tryPromise({
+      try: () => findAgentsWithCapability(agents, capability),
+      catch: (error) => error,
+    }).pipe(Effect.catchAll(() => Effect.succeed([])));
+
+    if (capable.length > 0) {
+      yield* terminal.log(`Agents that can generate ${capability}:\n`);
+      for (const { agent, supportsTools } of capable) {
+        // Naming the tool gap matters: most media models cannot call tools at all, so an agent
+        // that draws may be unable to read a file or search the web.
+        const toolNote = supportsTools ? "" : "  (this model has no tools — generation only)";
+        yield* terminal.log(`  ${agent.name}  ${agent.model}${toolNote}`);
+      }
+      yield* terminal.log(`\nStart one with: jazz agent chat <name>`);
+      return;
+    }
+
+    yield* terminal.log(`None of your agents can generate ${capability}.\n`);
+
+    const providers = [...new Set(agents.map((agent) => agent.model.split("/")[0] ?? ""))].filter(
+      (provider) => provider.length > 0,
+    );
+    const suggestions = yield* Effect.tryPromise({
+      try: () => suggestModelsForCapability(capability, providers),
+      catch: (error) => error,
+    }).pipe(Effect.catchAll(() => Effect.succeed([])));
+
+    if (suggestions.length === 0) {
+      yield* terminal.log(
+        `No model from your configured providers generates ${capability}. Gemini models are the ` +
+          `most common source; add that provider with: jazz config set llm.gemini.api_key <key>`,
+      );
+      return;
+    }
+
+    yield* terminal.log("Models that can, from providers you already use:\n");
+    for (const suggestion of suggestions) {
+      const toolNote = suggestion.supportsTools ? "  (also supports tools)" : "";
+      yield* terminal.log(`  ${suggestion.provider}/${suggestion.id}${toolNote}`);
+    }
+    yield* terminal.log(`\nCreate an agent on one with: jazz agent create`);
+  });
+}
+
+/**
  * List all agents via CLI command
  *
  * Retrieves and displays all available agents in a formatted table showing
@@ -159,7 +221,9 @@ function formatAgentsListBlock(
  * @throws {StorageError} When there's an error accessing storage
  *
  */
-export function listAgentsCommand(): Effect.Effect<
+export function listAgentsCommand(
+  options: { readonly can?: MediaCapability } = {},
+): Effect.Effect<
   void,
   StorageError,
   AgentService | TerminalService | CLIOptions | JazzStateService
@@ -171,6 +235,11 @@ export function listAgentsCommand(): Effect.Effect<
 
     if (agentsUnsorted.length === 0) {
       yield* terminal.info("No agents found. Create your first agent with: jazz agent create");
+      return;
+    }
+
+    if (options.can !== undefined) {
+      yield* listAgentsWithCapability(agentsUnsorted, options.can, terminal);
       return;
     }
 

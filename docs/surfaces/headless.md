@@ -1,6 +1,6 @@
 # Headless — the `jazz run` contract
 
-**Reader job:** call Jazz from your own code and get a parseable result back.
+How to call Jazz from your own code and get a parseable result back.
 
 `jazz run` is the surface every non-terminal integration is built on. It takes a dynamic
 prompt, runs exactly one agent turn, and prints a clean payload. It is the difference
@@ -99,7 +99,7 @@ interpret that fallback as a free run.
 | `--events <categories>`    | Emit NDJSON progress on stderr: `tools,reasoning,text,usage,approval,subagent,all`.                                                                |
 | `--reasoning <effort>`     | `low` \| `medium` \| `high` \| `disable`. Overrides the agent's config for this run.                                                               |
 | `--timeout <ms>`           | Abort the run after this many milliseconds.                                                                                                        |
-| `--max-iterations <n>`     | Cap the agent's reasoning iterations (default 80).                                                                                                 |
+| `--max-iterations <n>`     | Cap the agent's reasoning iterations (default 100).                                                                                                 |
 | `--stream` / `--no-stream` | Force streaming on/off. Streaming auto-disables for non-TTY stdout, which also suppresses `--events` — pass `--stream` to re-enable it in scripts. |
 
 ---
@@ -202,7 +202,7 @@ commands under `read-only` and `low-risk` are admitted per command by the
 `git log` through without also unlocking `git push`.
 
 > ⚠️ **`low-risk` is narrower than it sounds.** In the built-in toolset it adds only
-> `manage_todos`, `update_task_state`, and `spawn_subagent`. Email, calendar, and Obsidian are *skills* that shell
+> `manage_todos`, `update_work_state`, and `spawn_subagent`. Email, calendar, and Obsidian are *skills* that shell
 > out via `execute_command` (`unknown`), so a `low-risk` run cannot archive an email. Keep
 > the tier low and allowlist the binary instead: `{"autoApprovedCommands": ["himalaya"]}` in
 > `~/.jazz/config.json`. See [Tools reference](../reference/tools.md#what-is-not-a-built-in-tool).

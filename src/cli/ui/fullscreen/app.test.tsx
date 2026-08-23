@@ -16,7 +16,7 @@ import { describe, expect, it } from "bun:test";
 import React, { useState } from "react";
 import { getGlyphs } from "../glyphs";
 import { THEME } from "../theme";
-import { App } from "./App";
+import { App, reuseViewport } from "./App";
 import { isPrintableSequence } from "./keymap";
 import {
   sampleApprovalView,
@@ -474,7 +474,7 @@ function completedTurnView(): ViewModel {
   const base = sampleView();
   return {
     ...base,
-    live: { tools: [], hiddenTools: [], tick: 0, reservedRows: 0 },
+    live: { tools: [], hiddenTools: [], reservedRows: 0 },
     runActive: false,
     footer: {
       mode: base.footer.mode,
@@ -505,6 +505,17 @@ function CompletedTurnApp(): React.ReactNode {
     />
   );
 }
+
+describe("stable viewport identity", () => {
+  it("reuses the previous object when width and height are unchanged", () => {
+    const first = reuseViewport(120, 34, { width: 0, height: 0 });
+    const same = reuseViewport(120, 34, first);
+    const resized = reuseViewport(80, 34, same);
+    expect(same).toBe(first);
+    expect(resized).not.toBe(first);
+    expect(resized).toEqual({ width: 80, height: 34 });
+  });
+});
 
 describe("composer after a completed turn", () => {
   it("stays on screen and shows the next typed character", async () => {

@@ -1,6 +1,6 @@
 # Tools Reference
 
-**Reader job:** find the exact name, risk tier, and behavior of a tool.
+This page helps you find the exact name, risk tier, and behavior of a tool.
 
 Every tool an agent can call, generated from the registry. Risk tiers determine what runs
 unattended — see [Tools & approval](../internals/tools-and-approval.md) for the mechanism
@@ -80,8 +80,8 @@ You never call `execute_*` names yourself; they are hidden from the model's tool
 
 ### Shell Commands
 
-| Tool              | Risk        | Approval pair             | What it does                                                                                                                                                  |
-| ----------------- | ----------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Tool              | Risk      | Approval pair             | What it does                                                                                                                                                                                                  |
+| ----------------- | --------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `execute_command` | `unknown` | `execute_execute_command` | Run a shell command when no dedicated tool exists. Each command is classified `read-only`, `low-risk`, or `high-risk`, and the active tier then applies to that verdict. Stdout/stderr capped at 256 KB each. |
 
 ### Web Search
@@ -108,7 +108,7 @@ You never call `execute_*` names yourself; they are hidden from the model's tool
 | ------------------- | ----------- | ------------- | ------------------------------------------------------------------------------------------------------------ |
 | `list_todos`        | `read-only` | —             | Read the current todo list. Returns all items with their status and priority.                                |
 | `manage_todos`      | `low-risk`  | —             | Create or update the todo list. Send the FULL list of items each time (replaces the previous list). Use thi… |
-| `update_task_state` | `low-risk`  | —             | Record where you are in the current task so it survives compaction and resuming later. Patches o…            |
+| `update_work_state` | `low-risk`  | —             | Record where you are in the current task so it survives compaction and resuming later. Patches o…            |
 
 ### Memory
 
@@ -116,10 +116,10 @@ Opt-in per agent (like File Management) rather than always-on — see [Memory](.
 
 | Tool            | Risk        | Approval pair | What it does                                                                                      |
 | --------------- | ----------- | ------------- | ------------------------------------------------------------------------------------------------- |
-| `view_memory`   | `read-only` | —             | Read what you've saved about this person or project from earlier conversations. Call with no pa…  |
-| `manage_memory` | `low-risk`  | —             | Create, edit, rename, or delete files under your persistent memory directory — the durable notes… |
+| `view_memory`   | `read-only` | —             | Call first, before answering, at the start of every conversation.                                 |
+| `manage_memory` | `low-risk`  | —             | Save facts about this person that will still matter later — preferences, location, age, how they… |
 
-`update_task_state` lives with the todo tools (always-on). It is scoped to one conversation and discarded when the task ends, unlike memory which persists across conversations — see [Context management](../internals/context-management.md).
+`update_work_state` lives with the todo tools (always-on). It is scoped to one conversation and discarded when the task ends, unlike memory which persists across conversations — see [Context management](../internals/context-management.md).
 
 ### Reminders
 
@@ -156,9 +156,9 @@ Opt-in per agent. Reminders persist on disk and fire later on the same surface t
 
 Opt-in per agent via `tools`. Used by chat bridges that can render a Mini App or a static image.
 
-| Tool             | Risk       | Approval pair | What it does                                                                                                                           |
-| ---------------- | ---------- | ------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `create_web_app` | `low-risk` | —             | Create an interactive UI — a chart, form, dashboard, small game, or any other webpage — for delivery as a static image or a live page. |
+| Tool             | Risk       | Approval pair | What it does                                                                                                                                                  |
+| ---------------- | ---------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `create_web_app` | `low-risk` | —             | Create an interactive UI — a chart, form, dashboard, small game, or any other webpage — for delivery as a static image or a live page.                        |
 | `create_pdf`     | `low-risk` | —             | Render a PDF from HTML the agent writes, saved to the working directory or an explicit path. Text and numbers are exact — a renderer, not an image generator. |
 
 ---
@@ -169,10 +169,10 @@ A common and consequential misreading. These capabilities exist, but **not as bu
 tools** — they are [skills](../concepts/skills.md) that shell out through
 `execute_command`, which is `unknown`:
 
-| Capability                  | How it actually works                                                                      | Effective risk tier |
-| --------------------------- | ------------------------------------------------------------------------------------------ | ------------------- |
-| Email (read, archive, send) | `email` skill → [Himalaya](https://github.com/pimalaya/himalaya) CLI via `execute_command` | `unknown`           |
-| Calendar (list, create)     | `calendar` skill → [khal](https://github.com/pimutils/khal) via `execute_command`          | `unknown`           |
+| Capability                  | How it actually works                                                                      | Effective risk tier     |
+| --------------------------- | ------------------------------------------------------------------------------------------ | ----------------------- |
+| Email (read, archive, send) | `email` skill → [Himalaya](https://github.com/pimalaya/himalaya) CLI via `execute_command` | `unknown`               |
+| Calendar (list, create)     | `calendar` skill → [khal](https://github.com/pimutils/khal) via `execute_command`          | `unknown`               |
 | Obsidian vault writes       | `obsidian` skill → CLI via `execute_command`, or `write_file`                              | `unknown` / `high-risk` |
 
 So a scheduled workflow set to `autoApprove: low-risk` **cannot archive an email** — every
@@ -193,7 +193,7 @@ That keeps the tier low while letting the one command through. Matching is on a 
 ## Notes
 
 - **`find` vs `grep`** — `find` locates files by name, glob, or path pattern. `grep` searches *inside* file contents. Non-overlapping on purpose.
-- **`execute_command` classifier** — there are no `git_*` tools. The tool is `unknown`, so a harness-model classifier labels each command `read-only`, `low-risk`, or `high-risk` and the active tier judges that verdict: `--approval-policy read-only` auto-approves an inspect-only command, an interactive session skips its prompt, yolo skips the classifier entirely. It sees the last five *user* requests (800 characters) on an interactive session and the command alone everywhere else — never the assistant's own turns. Timeouts and ambiguous replies stay `high-risk`. See [Tools & approval](../internals/tools-and-approval.md#command-classifier).
+- **`execute_command` classifier**. The tool is `unknown`, so a harness-model classifier labels each command `read-only`, `low-risk`, or `high-risk` and the active tier judges that verdict: `--approval-policy read-only` auto-approves an inspect-only command, an interactive session skips its prompt, yolo skips the classifier entirely. The live zone shows `classifying` while it runs, and the verdict is printed on the settled receipt. It sees the last five *user* requests (800 characters) on an interactive session and the command alone everywhere else — never the assistant's own turns. Timeouts and ambiguous replies stay `high-risk`. See [Tools & approval](../internals/tools-and-approval.md#command-classifier).
 - **`http_request` is `read-only`** by risk classification even though it can issue POSTs. It reaches whatever URL the agent targets; network policy belongs at the firewall, not the tier. Treat it accordingly on surfaces that accept untrusted input.
 - **Timeouts** — 3 minutes by default per tool. `ask_user_question` and `ask_file_picker` are `longRunning` and never time out, because waiting for a human is not a hang.
 - **Concurrency** — up to 10 tools execute in parallel per iteration.

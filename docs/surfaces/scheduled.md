@@ -1,6 +1,6 @@
 # Scheduled — unattended runs on a clock
 
-**Reader job:** have Jazz do something every morning without you being there.
+How to have Jazz do something every morning without you being there.
 
 A scheduled run is a [workflow](../concepts/workflows.md) handed to your OS scheduler.
 Jazz writes the launchd plist or crontab entry for you; from then on the run happens with
@@ -61,7 +61,7 @@ tier is declined rather than queued.
 | `high-risk`   | + file writes, shell, git commit and push     | Anything that writes files, or any skill that shells out                   |
 
 > ⚠️ **`low-risk` is narrower than it sounds.** In the built-in toolset it adds only
-> `manage_todos`, `update_task_state`, and `spawn_subagent`. Email, calendar, and Obsidian are *skills* that shell
+> `manage_todos`, `update_work_state`, and `spawn_subagent`. Email, calendar, and Obsidian are *skills* that shell
 > out via `execute_command` (`unknown`), so a `low-risk` run cannot archive an email. Keep
 > the tier low and allowlist the binary instead: `{"autoApprovedCommands": ["himalaya"]}` in
 > `~/.jazz/config.json`. See [Tools reference](../reference/tools.md#what-is-not-a-built-in-tool).

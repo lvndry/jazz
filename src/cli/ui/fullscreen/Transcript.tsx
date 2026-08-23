@@ -34,10 +34,24 @@
  */
 
 import { TextAttributes } from "@opentui/core";
-import { forwardRef, useImperativeHandle, useMemo, useRef, useState, type ReactNode } from "react";
-import { highlightFenceLines, looksLikeUnifiedDiff } from "./syntax-spans";
+import {
+  forwardRef,
+  memo,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { isFileMutationTool } from "@/core/utils/tool-formatter";
+import {
+  highlightCodeLine,
+  highlightFenceLines,
+  pathFromFileArgsPreview,
+  sourceLanguageFromPath,
+} from "./syntax-spans";
 import { getGlyphs, type GlyphSet } from "../glyphs";
-import { THEME } from "../theme";
+import { getThemeVariant, THEME } from "../theme";
 import {
   fitTerminalSegments,
   sliceTerminalCells,
@@ -47,6 +61,7 @@ import {
 } from "./terminal-cells";
 import { applyScrollDelta, clampScrollFromBottom, windowTranscriptRows } from "./transcript-window";
 import { measureFor, type Block, type Focus, type ToolReceiptBlock, type Viewport } from "./types";
+import { spaceReasoningSections } from "../../presentation/format-utils";
 
 /** The rail lives in the left page margin, so the content column never moves. */
 const GUTTER = 2;
@@ -79,13 +94,13 @@ interface InlineMarks {
   readonly strikethrough?: boolean;
 }
 
-function sameInlineStyle(left: Segment, right: Segment): boolean {
+function sameInlineStyle(previous: Segment, current: Segment): boolean {
   return (
-    left.fg === right.fg &&
-    left.bold === right.bold &&
-    left.italic === right.italic &&
-    left.underline === right.underline &&
-    left.strikethrough === right.strikethrough
+    previous.fg === current.fg &&
+    previous.bold === current.bold &&
+    previous.italic === current.italic &&
+    previous.underline === current.underline &&
+    previous.strikethrough === current.strikethrough
   );
 }
 
@@ -663,7 +678,9 @@ function tableRows(
   const { sizes, gap } = tableColumnLayout(natural, width);
 
   const rendered: RenderRow[] = [];
-  rows.forEach((row, rowIndex) => {
+  for (let rowIndex = 0; rowIndex < rows.length; rowIndex += 1) {
+    const row = rows[rowIndex];
+    if (row === undefined) continue;
     const fg = rowIndex === 0 ? THEME.muted : THEME.secondary;
     const wrapped = Array.from({ length: columns }, (_, column) => {
       const size = sizes[column] ?? 1;
@@ -693,7 +710,7 @@ function tableRows(
         meta: [],
       });
     }
-  });
+  }
   return rendered;
 }
 
@@ -737,6 +754,10 @@ function family(block: Block): string {
 function needsBreathingRow(block: Block, previous: Block | undefined): boolean {
   if (previous === undefined) return false;
   if (block.kind === "user" || block.kind === "agent") return true;
+  // Same-family receipts stay tight; consecutive reasoning does not.
+  // Ctrl+R expands each thought in place, and without a gap two walls of
+  // text read as one.
+  if (block.kind === "reasoning" && previous.kind === "reasoning") return true;
   return family(block) !== family(previous);
 }
 
@@ -744,6 +765,129 @@ interface Geometry {
   readonly prose: number;
   readonly content: number;
   readonly metadata: number;
+}
+
+interface WrapCacheEntry {
+  readonly fingerprint: string;
+  readonly rows: readonly RenderRow[];
+}
+
+// Streaming replaces the last Block, so useMemo re-enters transcriptRows
+// for the whole conversation. Cache wrap/highlight by identity + fingerprint
+// so only the dirty tail misses.
+const wrapCache = new Map<string, WrapCacheEntry>();
+let wrapCacheEpoch: string | undefined;
+let lastTranscriptBlocks: readonly Block[] | undefined;
+let lastTranscriptEpoch: string | undefined;
+let lastTranscriptRows: RenderRow[] | undefined;
+
+function wrapEpoch(width: number, glyphs: GlyphSet): string {
+  // Cached rows bake THEME colors at wrap time, so a variant switch must
+  // invalidate them the same way a resize does.
+  return `${String(width)}\0${getThemeVariant()}\0${glyphs.rail}\0${glyphs.divider}\0${glyphs.bullet}\0${glyphs.diamond}`;
+}
+
+function blockFingerprint(block: Block): string {
+  switch (block.kind) {
+    case "user":
+      return JSON.stringify(["user", block.text, block.at]);
+    case "agent":
+      return JSON.stringify(["agent", block.markdown, block.streaming === true]);
+    case "reasoning":
+      return JSON.stringify([
+        "reasoning",
+        block.text,
+        block.collapsed,
+        block.steps,
+        block.durationMs,
+      ]);
+    case "tool":
+      return JSON.stringify([
+        "tool",
+        block.app,
+        block.summary,
+        block.args,
+        block.status,
+        block.reason,
+        block.remedyKey,
+        block.expanded === true,
+        block.detail,
+        block.durationMs,
+        block.classifiedRisk,
+      ]);
+    case "notice":
+      return JSON.stringify(["notice", block.text, block.tone]);
+    case "divider":
+      return JSON.stringify(["divider", block.label]);
+    case "lane":
+      return JSON.stringify([
+        "lane",
+        block.name,
+        block.ask,
+        block.lane,
+        block.state,
+        block.result,
+        block.steps,
+      ]);
+  }
+}
+
+function toolRunCacheKey(blocks: readonly ToolReceiptBlock[]): string {
+  const parts: string[] = ["tool-run"];
+  for (const block of blocks) {
+    parts.push(block.id);
+  }
+  return parts.join("\0");
+}
+
+function toolRunFingerprint(blocks: readonly ToolReceiptBlock[]): string {
+  const parts: string[] = [];
+  for (const block of blocks) {
+    parts.push(block.id, blockFingerprint(block));
+  }
+  return parts.join("\n");
+}
+
+function cachedRows(
+  cacheKey: string,
+  fingerprint: string,
+  compute: () => RenderRow[],
+): readonly RenderRow[] {
+  const hit = wrapCache.get(cacheKey);
+  if (hit !== undefined && hit.fingerprint === fingerprint) {
+    return hit.rows;
+  }
+  const rows = compute();
+  wrapCache.set(cacheKey, { fingerprint, rows });
+  return rows;
+}
+
+function appendRows(target: RenderRow[], source: readonly RenderRow[]): void {
+  for (let index = 0; index < source.length; index += 1) {
+    const row = source[index];
+    if (row !== undefined) target.push(row);
+  }
+}
+
+function rowsForBlock(
+  block: Exclude<Block, ToolReceiptBlock>,
+  geometry: Geometry,
+  glyphs: GlyphSet,
+): RenderRow[] {
+  switch (block.kind) {
+    case "user":
+      return userRows(block, geometry, glyphs);
+    case "agent":
+      return agentRows(block, geometry, glyphs);
+    case "reasoning":
+      return reasoningRows(block, geometry, glyphs);
+    case "notice":
+      return noticeRows(block, geometry, glyphs);
+    case "divider":
+      return dividerRows(block, geometry, glyphs);
+    case "lane":
+      return laneRows(block, geometry, glyphs);
+  }
 }
 
 function userRows(
@@ -756,13 +900,19 @@ function userRows(
     block.at !== undefined && geometry.metadata > 0 ? [{ text: block.at, fg: THEME.muted }] : [];
   // What you typed is an echo; the agent's answer is the bright thing on screen.
   const lines = wrap([{ text: block.text, fg: THEME.secondary }], geometry.prose);
-  return lines.map((line, index) => ({
-    key: `${block.id}:${String(index)}`,
-    gutter: [index === 0 ? { text: glyphs.promptCursor, fg: THEME.primary } : rail, BLANK_CELL],
-    content: line,
-    contentWidth: geometry.prose,
-    meta: index === 0 ? meta : [],
-  }));
+  const rows: RenderRow[] = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (line === undefined) continue;
+    rows.push({
+      key: `${block.id}:${String(index)}`,
+      gutter: [index === 0 ? { text: glyphs.promptCursor, fg: THEME.primary } : rail, BLANK_CELL],
+      content: line,
+      contentWidth: geometry.prose,
+      meta: index === 0 ? meta : [],
+    });
+  }
+  return rows;
 }
 
 function agentRows(
@@ -786,7 +936,10 @@ function agentRows(
     return gutter;
   };
 
-  parseProse(block.markdown, glyphs).forEach((item, itemIndex) => {
+  const items = parseProse(block.markdown, glyphs);
+  for (let itemIndex = 0; itemIndex < items.length; itemIndex += 1) {
+    const item = items[itemIndex];
+    if (item === undefined) continue;
     const key = `${block.id}:${String(itemIndex)}`;
     switch (item.kind) {
       case "blank":
@@ -797,7 +950,7 @@ function agentRows(
           contentWidth: geometry.prose,
           meta: [],
         });
-        return;
+        break;
       case "rule":
         rows.push({
           key,
@@ -806,9 +959,12 @@ function agentRows(
           contentWidth: geometry.prose,
           meta: [],
         });
-        return;
-      case "fence":
-        highlightFenceLines(item.language, item.lines).forEach((spans, lineIndex) => {
+        break;
+      case "fence": {
+        const painted = highlightFenceLines(item.language, item.lines);
+        for (let lineIndex = 0; lineIndex < painted.length; lineIndex += 1) {
+          const spans = painted[lineIndex];
+          if (spans === undefined) continue;
           rows.push({
             key: `${key}:${String(lineIndex)}`,
             gutter: gutterFor(),
@@ -816,16 +972,24 @@ function agentRows(
             contentWidth: geometry.content,
             meta: [],
           });
-        });
-        return;
-      case "table":
-        rows.push(...tableRows(item.rows, geometry.content, key, rail));
+        }
+        break;
+      }
+      case "table": {
+        const table = tableRows(item.rows, geometry.content, key, rail);
+        for (let tableIndex = 0; tableIndex < table.length; tableIndex += 1) {
+          const row = table[tableIndex];
+          if (row !== undefined) rows.push(row);
+        }
         first = false;
-        return;
+        break;
+      }
       default: {
         const indent = item.indent;
         const lines = wrap(item.segments, geometry.prose - indent);
-        lines.forEach((line, lineIndex) => {
+        for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+          const line = lines[lineIndex];
+          if (line === undefined) continue;
           const padded =
             indent > 0 ? [{ text: " ".repeat(indent), fg: THEME.border }, ...line] : line;
           rows.push({
@@ -835,10 +999,10 @@ function agentRows(
             contentWidth: geometry.prose,
             meta: [],
           });
-        });
+        }
       }
     }
-  });
+  }
 
   return rows;
 }
@@ -875,43 +1039,84 @@ function reasoningRows(
 
   // Subordinate by geometry, not by a new hue: narrower, indented, never bold.
   const measure = Math.max(24, Math.floor(geometry.prose * REASONING_MEASURE_RATIO));
-  return wrap([{ text: block.text, fg: THEME.muted }], measure - REASONING_INDENT).map(
-    (line, index) => ({
+  const text = spaceReasoningSections(block.text);
+  const lines = wrap([{ text, fg: THEME.muted }], measure - REASONING_INDENT);
+  const rows: RenderRow[] = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (line === undefined) continue;
+    rows.push({
       key: `${block.id}:${String(index)}`,
       gutter: [rail, BLANK_CELL],
       content: [{ text: " ".repeat(REASONING_INDENT), fg: THEME.border }, ...line],
       contentWidth: geometry.prose,
       meta: index === 0 ? meta : [],
-    }),
-  );
+    });
+  }
+  return rows;
+}
+
+/**
+ * True when `summary` is the same text as `reason`, possibly clipped with an
+ * ellipsis. Production used to put `tool: error` in both fields, which then
+ * ate the row twice and still cropped the actual sentence.
+ */
+function summaryRestatesReason(summary: string, reason: string): boolean {
+  const stripped = summary.replace(/…$/u, "").trim();
+  if (stripped.length === 0) return false;
+  if (stripped === reason) return true;
+  const head = reason.slice(0, Math.min(48, reason.length));
+  return head.length > 0 && stripped.includes(head);
+}
+
+function highlightedArgs(args: string, fallbackFg: string, app: string): Segment[] {
+  const path = pathFromFileArgsPreview(args);
+  const language = path === undefined ? undefined : sourceLanguageFromPath(path);
+  if (language === undefined && !isFileMutationTool(app)) {
+    return [{ text: `  ${args}`, fg: fallbackFg }];
+  }
+  return [{ text: "  ", fg: fallbackFg }, ...highlightCodeLine(args)];
 }
 
 /** A settled receipt: what it did and what came back, and nothing else. */
 function receiptSegments(block: ToolReceiptBlock, glyphs: GlyphSet): Segment[] {
   const args = block.args?.trim();
+  const summary = block.summary.trim();
   if (block.status === "ok") {
-    const segments: Segment[] = [{ text: block.app, fg: THEME.muted }];
-    if (args !== undefined && args.length > 0) {
-      segments.push({ text: `  ${args}`, fg: THEME.secondary });
+    const segments: Segment[] = [];
+    if (block.app.length > 0) {
+      segments.push({ text: block.app, fg: THEME.muted });
     }
-    if (block.summary.length > 0) {
-      segments.push({ text: `  ${block.summary}`, fg: THEME.muted });
+    if (args !== undefined && args.length > 0) {
+      segments.push(...highlightedArgs(args, THEME.secondary, block.app));
+    }
+    if (summary.length > 0) {
+      segments.push({ text: `  ${summary}`, fg: THEME.muted });
+    }
+    if (block.classifiedRisk !== undefined) {
+      segments.push({ text: ` ${glyphs.bullet} ${block.classifiedRisk}`, fg: THEME.muted });
     }
     return segments;
   }
-  // Failure is the one exception that keeps a colour, and it carries the reason
-  // and the way out on the same row.
+  // Failure keeps a colour and states the reason inline. A short reason stays
+  // on the same row as the app; a long one wraps rather than cropping.
   const tone = block.status === "denied" ? THEME.warning : THEME.error;
+  const reason = block.reason?.trim();
   const segments: Segment[] = [{ text: block.app, fg: tone }];
   if (args !== undefined && args.length > 0) {
     segments.push({ text: `  ${args}`, fg: tone });
   }
-  segments.push({ text: `  ${block.summary}`, fg: tone });
-  if (block.reason !== undefined) {
-    segments.push({ text: ` ${glyphs.bullet} ${block.reason}`, fg: THEME.secondary });
+  if (summary.length > 0 && (reason === undefined || !summaryRestatesReason(summary, reason))) {
+    segments.push({ text: `  ${summary}`, fg: tone });
+  }
+  if (reason !== undefined && reason.length > 0) {
+    segments.push({ text: ` ${glyphs.bullet} ${reason}`, fg: THEME.secondary });
   }
   if (block.remedyKey !== undefined) {
     segments.push({ text: ` ${glyphs.bullet} ${block.remedyKey}`, fg: THEME.muted });
+  }
+  if (block.classifiedRisk !== undefined) {
+    segments.push({ text: ` ${glyphs.bullet} ${block.classifiedRisk}`, fg: THEME.muted });
   }
   return segments;
 }
@@ -960,20 +1165,26 @@ function receiptRows(
         block.expanded === true && block.durationMs !== undefined && geometry.metadata > 0
           ? [{ text: formatDuration(block.durationMs), fg: THEME.muted }]
           : [];
-      rows.push({
-        key: `${block.id}:0`,
-        gutter: [block.status === "ok" ? rail : marker, BLANK_CELL],
-        content: fitTerminalSegments(segments, geometry.prose),
-        contentWidth: geometry.prose,
-        meta,
-      });
-      // Expanded output is scanned, so it takes the full content width.
+      if (segments.some((segment) => segment.text.trim().length > 0)) {
+        const lines = wrap(segments, geometry.prose);
+        for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+          const line = lines[lineIndex];
+          if (line === undefined) continue;
+          rows.push({
+            key: `${block.id}:${String(lineIndex)}`,
+            gutter: [lineIndex === 0 && block.status !== "ok" ? marker : rail, BLANK_CELL],
+            content: line,
+            contentWidth: geometry.prose,
+            meta: lineIndex === 0 ? meta : [],
+          });
+        }
+      }
       if (block.expanded === true && block.detail !== undefined) {
         const detailLines = block.detail.split("\n");
-        const painted = looksLikeUnifiedDiff("", detailLines)
-          ? highlightFenceLines("", detailLines)
-          : detailLines.map((line) => [{ text: line, fg: THEME.muted }]);
-        painted.forEach((spans, index) => {
+        const painted = highlightFenceLines("", detailLines);
+        for (let index = 0; index < painted.length; index += 1) {
+          const spans = painted[index];
+          if (spans === undefined) continue;
           rows.push({
             key: `${block.id}:detail:${String(index)}`,
             gutter: [rail, BLANK_CELL],
@@ -981,7 +1192,7 @@ function receiptRows(
             contentWidth: geometry.content,
             meta: [],
           });
-        });
+        }
       }
       continue;
     }
@@ -1009,13 +1220,23 @@ function noticeRows(
     block.tone === "error" ? THEME.error : block.tone === "warn" ? THEME.warning : THEME.info;
   const glyph =
     block.tone === "error" ? glyphs.error : block.tone === "warn" ? glyphs.warn : glyphs.info;
-  return wrap([{ text: block.text, fg: tone }], geometry.prose).map((line, index) => ({
-    key: `${block.id}:${String(index)}`,
-    gutter: [index === 0 ? { text: glyph, fg: tone } : railCell(THEME.border, glyphs), BLANK_CELL],
-    content: line,
-    contentWidth: geometry.prose,
-    meta: [],
-  }));
+  const lines = wrap([{ text: block.text, fg: tone }], geometry.prose);
+  const rows: RenderRow[] = [];
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (line === undefined) continue;
+    rows.push({
+      key: `${block.id}:${String(index)}`,
+      gutter: [
+        index === 0 ? { text: glyph, fg: tone } : railCell(THEME.border, glyphs),
+        BLANK_CELL,
+      ],
+      content: line,
+      contentWidth: geometry.prose,
+      meta: [],
+    });
+  }
+  return rows;
 }
 
 function dividerRows(
@@ -1095,17 +1316,18 @@ function laneRows(
   ];
 
   if (block.result !== undefined) {
-    wrap([{ text: block.result, fg: THEME.secondary }], geometry.prose - 2).forEach(
-      (line, index) => {
-        rows.push({
-          key: `${block.id}:result:${String(index)}`,
-          gutter: [index === 0 ? { text: glyphs.laneEnd, fg: THEME.border } : rail, tag],
-          content: [{ text: " ".repeat(2), fg: THEME.border }, ...line],
-          contentWidth: geometry.prose,
-          meta: [],
-        });
-      },
-    );
+    const lines = wrap([{ text: block.result, fg: THEME.secondary }], geometry.prose - 2);
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = lines[index];
+      if (line === undefined) continue;
+      rows.push({
+        key: `${block.id}:result:${String(index)}`,
+        gutter: [index === 0 ? { text: glyphs.laneEnd, fg: THEME.border } : rail, tag],
+        content: [{ text: " ".repeat(2), fg: THEME.border }, ...line],
+        contentWidth: geometry.prose,
+        meta: [],
+      });
+    }
   }
 
   return rows;
@@ -1122,8 +1344,23 @@ export function pageWidth(viewport: Viewport): number {
 
 /** The whole transcript as physical rows. Pure: blocks and a width, nothing else. */
 export function transcriptRows(blocks: readonly Block[], viewport: Viewport): RenderRow[] {
+  const width = pageWidth(viewport);
   const glyphs = getGlyphs();
-  const measure = measureFor(pageWidth(viewport));
+  const epoch = wrapEpoch(width, glyphs);
+  if (
+    blocks === lastTranscriptBlocks &&
+    epoch === lastTranscriptEpoch &&
+    lastTranscriptRows !== undefined
+  ) {
+    return lastTranscriptRows;
+  }
+
+  if (wrapCacheEpoch !== epoch) {
+    wrapCache.clear();
+    wrapCacheEpoch = epoch;
+  }
+
+  const measure = measureFor(width);
   const geometry: Geometry = {
     prose: measure.prose,
     content: measure.prose + measure.metadata,
@@ -1148,33 +1385,25 @@ export function transcriptRows(blocks: readonly Block[], viewport: Viewport): Re
         run.push(candidate);
         index += 1;
       }
-      rows.push(...receiptRows(run, geometry, glyphs));
+      appendRows(
+        rows,
+        cachedRows(toolRunCacheKey(run), toolRunFingerprint(run), () =>
+          receiptRows(run, geometry, glyphs),
+        ),
+      );
       continue;
     }
 
-    switch (block.kind) {
-      case "user":
-        rows.push(...userRows(block, geometry, glyphs));
-        break;
-      case "agent":
-        rows.push(...agentRows(block, geometry, glyphs));
-        break;
-      case "reasoning":
-        rows.push(...reasoningRows(block, geometry, glyphs));
-        break;
-      case "notice":
-        rows.push(...noticeRows(block, geometry, glyphs));
-        break;
-      case "divider":
-        rows.push(...dividerRows(block, geometry, glyphs));
-        break;
-      case "lane":
-        rows.push(...laneRows(block, geometry, glyphs));
-        break;
-    }
+    appendRows(
+      rows,
+      cachedRows(block.id, blockFingerprint(block), () => rowsForBlock(block, geometry, glyphs)),
+    );
     index += 1;
   }
 
+  lastTranscriptBlocks = blocks;
+  lastTranscriptEpoch = epoch;
+  lastTranscriptRows = rows;
   return rows;
 }
 
@@ -1240,18 +1469,15 @@ export interface TranscriptHandle {
   scrollBy(delta: number, unit?: "line" | "page" | "end"): void;
 }
 
-export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(function Transcript(
+const TranscriptView = forwardRef<TranscriptHandle, TranscriptProps>(function Transcript(
   { blocks, viewport, focus, newBelow, followLive = true, visibleCount },
   ref,
 ): ReactNode {
   // Deriving rows re-parses every block's markdown, tables and fences. The
-  // shell re-renders on each streaming delta, each keystroke and a ~6Hz tick,
-  // so without this the cost of a frame grows with the length of the whole
-  // conversation rather than with what changed.
-  const rows = useMemo(
-    () => transcriptRows(blocks, viewport),
-    [blocks, viewport.width, viewport.height],
-  );
+  // shell re-renders on each streaming delta and each keystroke, so without
+  // this the cost of a frame grows with the length of the whole conversation
+  // rather than with what changed.
+  const rows = useMemo(() => transcriptRows(blocks, viewport), [blocks, viewport.width]);
   const page = pageWidth(viewport);
   const windowHeight =
     visibleCount === undefined ? Math.max(1, viewport.height) : Math.max(0, visibleCount);
@@ -1356,3 +1582,5 @@ export const Transcript = forwardRef<TranscriptHandle, TranscriptProps>(function
     </box>
   );
 });
+
+export const Transcript = memo(TranscriptView);
