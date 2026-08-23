@@ -1,4 +1,5 @@
 import { Cause, Effect, Fiber, Option, Ref } from "effect";
+import { isRunParkRequested, withTranscript } from "@/core/agent/run/park-signal";
 import { isLocalServerProvider } from "@/core/constants/local-providers";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import type { LLMService } from "@/core/interfaces/llm";
@@ -452,6 +453,12 @@ function handleToolPhase(
       actualConversationId,
       agent.name,
       strategy.getInterruptSignal?.(),
+    ).pipe(
+      // The executor knows what the run is waiting for; only here are the messages that
+      // let it start again. Everything else about the failure is left alone.
+      Effect.catchIf(isRunParkRequested, (signal) =>
+        Effect.fail(withTranscript(signal, state.currentMessages, state.iterationsUsed)),
+      ),
     );
 
     // Validate all tool calls have results

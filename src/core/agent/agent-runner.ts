@@ -47,6 +47,7 @@ import { Summarizer } from "./context/summarizer";
 import { executeWithStreaming, executeWithoutStreaming } from "./execution";
 import { createAgentRunMetrics, emitAgentRunStarted } from "./metrics/agent-run-metrics";
 import { discoverProjectInstructions, type ProjectInstructionFile } from "./project-instructions";
+import { withRunRecording } from "./run/run-recorder";
 import { registerCustomToolsForAgent } from "./tools/custom-tools";
 import { registerMCPToolsForAgent } from "./tools/register-mcp-tools";
 import { registerSkillSystemTools } from "./tools/register-tools";
@@ -439,6 +440,12 @@ function initializeAgentRun(
       autoApprovedCommands,
       autoApprovedTools,
       parentToolNames: expandedToolNames,
+      // A sub-agent never parks: resuming one would mean replaying a child context that no
+      // longer exists, so nested runs keep declining and the parent reasons about it.
+      parkWhenUnattended: options.parkWhenUnattended === true && options.internal !== true,
+      ...(options.resolvedApprovals !== undefined
+        ? { resolvedApprovals: options.resolvedApprovals }
+        : {}),
       subagentDepth: options.subagentDepth ?? 0,
       maxSubagentDepth: Math.max(
         0,
@@ -575,24 +582,27 @@ export class AgentRunner {
         maxIterations?: number;
       }) => AgentRunner.runRecursive(runOpts);
 
-      if (shouldStream) {
-        return yield* executeWithStreaming(
-          options,
-          runContext,
-          displayConfig,
-          streamingConfig,
-          showMetrics,
-          runRecursive,
-        );
-      } else {
-        return yield* executeWithoutStreaming(
-          options,
-          runContext,
-          displayConfig,
-          showMetrics,
-          runRecursive,
-        );
-      }
+      const execute = shouldStream
+        ? executeWithStreaming(
+            options,
+            runContext,
+            displayConfig,
+            streamingConfig,
+            showMetrics,
+            runRecursive,
+          )
+        : executeWithoutStreaming(options, runContext, displayConfig, showMetrics, runRecursive);
+
+      return yield* withRunRecording(
+        {
+          runId: runContext.runMetrics.runId,
+          agentId: options.agent.id,
+          conversationId: runContext.actualConversationId,
+          userInput: options.userInput,
+          internal: options.internal === true,
+        },
+        execute,
+      );
     });
   }
 

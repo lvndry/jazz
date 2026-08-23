@@ -210,6 +210,22 @@ export interface ToolExecutionContext {
    * Used by tools like spawn_subagent to inherit LLM configuration.
    */
   readonly parentAgent?: Agent;
+  /**
+   * Approvals already answered out-of-band, keyed by `toolCallId`.
+   *
+   * Set only when resuming a parked run: the person answered in another process, possibly
+   * yesterday, and the executor uses the stored outcome instead of asking again.
+   */
+  readonly resolvedApprovals?: ReadonlyMap<string, ApprovalOutcome>;
+  /**
+   * Whether an unanswerable approval should park the run instead of declining it.
+   *
+   * Declining is right when nobody will ever answer — a cron job with no approval channel
+   * should get a refusal it can route around rather than stall. Parking is right when
+   * somebody will answer later, just not in this process. The difference is a property of
+   * how the run was started, not of the tool, so the runner decides it once.
+   */
+  readonly parkWhenUnattended?: boolean;
   /** Iteration budget for a sub-agent spawned here — its own, not the parent's remainder. */
   readonly maxSubagentIterations?: number;
   /**
