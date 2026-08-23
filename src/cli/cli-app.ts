@@ -20,24 +20,24 @@ import {
 } from "./commands/mcp";
 import { isMediaCapability, MEDIA_CAPABILITIES } from "./commands/media-agents";
 import {
-  isApprovalPolicyFlag,
-  isReasoningEffortFlag,
-  parseEventCategories,
-} from "./commands/one-shot-flags";
-import {
   createPersonaCommand,
   listPersonasCommand,
   showPersonaCommand,
   editPersonaCommand,
   deletePersonaCommand,
 } from "./commands/persona";
-import { runAgentOnceCommand } from "./commands/run";
+import { runAgentOnceCommand } from "./commands/run/execute";
+import {
+  isApprovalPolicyFlag,
+  isReasoningEffortFlag,
+  parseEventCategories,
+} from "./commands/run/flags";
 import {
   answerRunCommand,
   cancelRunCommand,
   listRunsCommand,
   showRunCommand,
-} from "./commands/runs";
+} from "./commands/run/lifecycle";
 import { updateCommand } from "./commands/update";
 import { wizardCommand } from "./commands/wizard";
 import {

@@ -105,13 +105,6 @@ export type RunState =
       readonly expiresAt: string;
     }
   | {
-      readonly kind: "auth-required";
-      /** Provider or connector whose credential is missing or expired, e.g. "anthropic", "google-calendar". */
-      readonly provider: string;
-      readonly snapshot: ParkedRunSnapshot;
-      readonly expiresAt: string;
-    }
-  | {
       readonly kind: "completed";
       readonly content: string;
       readonly artifacts?: readonly GeneratedArtifact[];
@@ -123,8 +116,13 @@ export type RunStateKind = RunState["kind"];
 
 const TERMINAL_KINDS = new Set<RunStateKind>(["completed", "failed", "canceled"]);
 
-/** Blocked on a person, resumable, and burning nothing while it waits. */
-const PARKED_KINDS = new Set<RunStateKind>(["input-required", "auth-required"]);
+/**
+ * Blocked on a person, resumable, and burning nothing while it waits.
+ *
+ * A set rather than an equality check because parking is a category, not a state: a run
+ * blocked on a missing credential belongs here too, once something detects one.
+ */
+const PARKED_KINDS = new Set<RunStateKind>(["input-required"]);
 
 export function isTerminal(state: RunState): boolean {
   return TERMINAL_KINDS.has(state.kind);
@@ -144,9 +142,8 @@ export function isParked(state: RunState): boolean {
  */
 const ALLOWED_TRANSITIONS: Readonly<Record<RunStateKind, readonly RunStateKind[]>> = {
   submitted: ["working", "canceled", "failed"],
-  working: ["input-required", "auth-required", "completed", "failed", "canceled"],
+  working: ["input-required", "completed", "failed", "canceled"],
   "input-required": ["working", "failed", "canceled"],
-  "auth-required": ["working", "failed", "canceled"],
   completed: [],
   failed: [],
   canceled: [],

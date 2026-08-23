@@ -24,8 +24,6 @@ function describeState(record: RunRecord): string {
       return state.pending.kind === "tool-approval"
         ? `waiting on approval: ${state.pending.request.toolName}`
         : "waiting on an answer";
-    case "auth-required":
-      return `waiting on credentials for ${state.provider}`;
     case "working":
       return "working";
     case "submitted":

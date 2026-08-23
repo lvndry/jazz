@@ -23,8 +23,8 @@ import {
   formatOneShotResult,
   type OneShotOutputOptions,
   type OneShotWebApp,
-} from "./one-shot-envelope";
-import type { ApprovalPolicyFlag, ReasoningEffort } from "./one-shot-flags";
+} from "./envelope";
+import type { ApprovalPolicyFlag, ReasoningEffort } from "./flags";
 
 /**
  * One-shot, non-interactive agent invocation — designed to be driven from

@@ -13,7 +13,6 @@ const ALL_KINDS: readonly RunStateKind[] = [
   "submitted",
   "working",
   "input-required",
-  "auth-required",
   "completed",
   "failed",
   "canceled",
@@ -43,13 +42,6 @@ function stateOf(kind: RunStateKind): RunState {
         snapshot: parkedSnapshot,
         expiresAt: "2026-08-24T00:00:00.000Z",
       };
-    case "auth-required":
-      return {
-        kind: "auth-required",
-        provider: "anthropic",
-        snapshot: parkedSnapshot,
-        expiresAt: "2026-08-24T00:00:00.000Z",
-      };
     case "completed":
       return { kind: "completed", content: "done" };
     case "failed":
@@ -65,9 +57,9 @@ describe("run state classification", () => {
     expect(terminal).toEqual(["completed", "failed", "canceled"]);
   });
 
-  it("treats both blocked-on-a-person states as parked", () => {
+  it("treats a run blocked on a person as parked", () => {
     const parked = ALL_KINDS.filter((kind) => isParked(stateOf(kind)));
-    expect(parked).toEqual(["input-required", "auth-required"]);
+    expect(parked).toEqual(["input-required"]);
   });
 
   it("never classifies a state as both parked and terminal", () => {
@@ -95,7 +87,6 @@ describe("run transitions", () => {
 
   it("refuses to complete a parked run without resuming it", () => {
     expect(canTransition("input-required", "completed")).toBe(false);
-    expect(canTransition("auth-required", "completed")).toBe(false);
   });
 
   it("lets every non-terminal state be canceled", () => {
@@ -129,6 +120,6 @@ describe("run transitions", () => {
 
   it("does not let a run reach working without being started or resumed", () => {
     const intoWorking = ALL_KINDS.filter((kind) => canTransition(kind, "working"));
-    expect(intoWorking).toEqual(["submitted", "input-required", "auth-required"]);
+    expect(intoWorking).toEqual(["submitted", "input-required"]);
   });
 });
