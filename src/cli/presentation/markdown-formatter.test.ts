@@ -872,4 +872,60 @@ describe("markdown-formatter", () => {
       expect(stripped.split("\n").length).toBeGreaterThanOrEqual(3);
     });
   });
+
+  describe("placeholder restore (single pass)", () => {
+    it("emits `$&`, `$1` and `$'` inside code spans literally", () => {
+      // The restore step used to hand the code text to String.replace as a
+      // replacement string, so these expanded as substitution patterns:
+      // `` `$&` `` printed the placeholder it was replacing and `` `$'` ``
+      // pasted in everything that followed it in the document.
+      const md = "Costs `$&` then `$1` then `$'` here.";
+      const stripped = stripAnsiCodes(formatMarkdown(md));
+      expect(stripped).toBe("Costs $& then $1 then $' here.");
+    });
+
+    it("emits substitution patterns inside fenced code literally", () => {
+      const md = ["```sh", "echo \"$&\" && sed 's/x/$1/'", "```"].join("\n");
+      const stripped = stripAnsiCodes(formatMarkdown(md));
+      expect(stripped).toContain("echo \"$&\" && sed 's/x/$1/'");
+    });
+
+    it("keeps hundreds of code spans in order", () => {
+      const spans = Array.from({ length: 300 }, (_unused, index) => `\`span${String(index)}\``);
+      const stripped = stripAnsiCodes(formatMarkdown(spans.join(" ")));
+      expect(stripped).toBe(
+        Array.from({ length: 300 }, (_unused, index) => `span${String(index)}`).join(" "),
+      );
+    });
+
+    it("keeps link text and targets paired across many links", () => {
+      const links = Array.from(
+        { length: 50 },
+        (_unused, index) => `[text${String(index)}](https://example.com/${String(index)})`,
+      );
+      const result = formatMarkdown(links.join("\n"));
+      for (let index = 0; index < 50; index++) {
+        expect(result).toContain(`\x1b]8;;https://example.com/${String(index)}\x07`);
+        expect(stripAnsiCodes(result)).toContain(`text${String(index)}`);
+      }
+    });
+  });
+
+  describe("code block highlighting is memoized", () => {
+    it("returns identical output for a repeated fence", () => {
+      const fence = ["```ts", "export const value: number = 1;", "```"].join("\n");
+      const first = formatMarkdown(fence);
+      const second = formatMarkdown(fence);
+      expect(second).toBe(first);
+    });
+
+    it("does not leak one fence's highlighting into another language", () => {
+      const body = "const value = 1;";
+      const asTypeScript = formatMarkdown(["```ts", body, "```"].join("\n"));
+      const asPython = formatMarkdown(["```python", body, "```"].join("\n"));
+      expect(stripAnsiCodes(asTypeScript)).toContain(body);
+      expect(stripAnsiCodes(asPython)).toContain(body);
+      expect(asPython).not.toBe(asTypeScript);
+    });
+  });
 });

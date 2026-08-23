@@ -35,6 +35,48 @@ const LINK_PLACEHOLDER_END = "\uE006";
 const FILE_PATH_LINE_PLACEHOLDER_START = "\uE007";
 const FILE_PATH_LINE_PLACEHOLDER_END = "\uE008";
 
+/**
+ * Placeholder matchers for the extract/restore cycles below. Each placeholder is
+ * `<start><decimal index><end>`, so one global regex can find every one of them.
+ */
+const CODE_BLOCK_PLACEHOLDER_REGEX = new RegExp(
+  `${CODE_BLOCK_PLACEHOLDER_START}(\\d+)${CODE_BLOCK_PLACEHOLDER_END}`,
+  "g",
+);
+const INLINE_CODE_PLACEHOLDER_REGEX = new RegExp(
+  `${INLINE_CODE_PLACEHOLDER_START}(\\d+)${INLINE_CODE_PLACEHOLDER_END}`,
+  "g",
+);
+const LINK_PLACEHOLDER_REGEX = new RegExp(
+  `${LINK_PLACEHOLDER_START}(\\d+)${LINK_PLACEHOLDER_END}`,
+  "g",
+);
+const FILE_PATH_LINE_PLACEHOLDER_REGEX = new RegExp(
+  `${FILE_PATH_LINE_PLACEHOLDER_START}(\\d+)${FILE_PATH_LINE_PLACEHOLDER_END}`,
+  "g",
+);
+
+/**
+ * Restore every placeholder of one kind in a single scan.
+ *
+ * The per-placeholder `text.replace(placeholder, value)` loops this replaces
+ * rescanned the whole document once per placeholder, which is quadratic on a
+ * long reply with many code spans (a 50KB reply carries hundreds). They also
+ * ran the restored value through `String.replace`'s substitution grammar, so a
+ * `$&` or `$1` inside restored code expanded instead of being emitted. Passing
+ * a replacer function avoids both.
+ *
+ * An index with no entry (impossible unless a formatter invented a placeholder)
+ * is left in place rather than dropped.
+ */
+function restorePlaceholders(
+  text: string,
+  pattern: RegExp,
+  render: (index: number) => string | undefined,
+): string {
+  return text.replace(pattern, (match: string, digits: string) => render(Number(digits)) ?? match);
+}
+
 // Pre-compiled regexes for performance - avoid creating RegExp in hot paths
 
 /** Matches SGR escape sequences (\x1b[…m) and OSC 8 hyperlinks (\x1b]8;…\x07). */
@@ -464,6 +506,10 @@ function computeColumnWidths(
  */
 function wrapCell(cell: string, width: number): string[] {
   if (width <= 0) return [cell];
+  // Most cells already fit their column, and wrap-ansi is the most expensive
+  // thing table rendering does per cell. A cell with no break that measures
+  // within the column comes back from wrap-ansi unchanged, so skip the call.
+  if (!cell.includes("\n") && visibleWidth(cell) <= width) return [cell];
   const out: string[] = [];
   for (const line of cell.split("\n")) {
     if (line.length === 0) {
@@ -1062,13 +1108,11 @@ function formatFilePathsImpl(text: string, styleFn: (text: string) => string): s
     return url ? terminalHyperlink(styled, url) : styled;
   });
   // 3. Restore file:line placeholders
-  for (let i = 0; i < lineMatches.length; i++) {
-    result = result.replace(
-      `${FILE_PATH_LINE_PLACEHOLDER_START}${i}${FILE_PATH_LINE_PLACEHOLDER_END}`,
-      lineMatches[i]!,
-    );
-  }
-  return result;
+  return restorePlaceholders(
+    result,
+    FILE_PATH_LINE_PLACEHOLDER_REGEX,
+    (index) => lineMatches[index],
+  );
 }
 
 /** Format file paths (rendered mode). */
@@ -1111,29 +1155,26 @@ function extractLinks(text: string): {
  * Restore extracted links as rendered-mode terminal hyperlinks (no visible markdown syntax).
  */
 function restoreLinks(text: string, links: Array<{ linkText: string; url: string }>): string {
-  let result = text;
-  for (let i = 0; i < links.length; i++) {
-    const placeholder = `${LINK_PLACEHOLDER_START}${i}${LINK_PLACEHOLDER_END}`;
-    const { linkText, url } = links[i]!;
-    result = result.replace(placeholder, terminalHyperlink(CHALK_THEME.link(linkText), url));
-  }
-  return result;
+  return restorePlaceholders(text, LINK_PLACEHOLDER_REGEX, (index) => {
+    const link = links[index];
+    return link && terminalHyperlink(CHALK_THEME.link(link.linkText), link.url);
+  });
 }
 
 /**
  * Restore extracted links as hybrid-mode terminal hyperlinks (preserves [text](url) syntax).
  */
 function restoreLinksHybrid(text: string, links: Array<{ linkText: string; url: string }>): string {
-  let result = text;
-  for (let i = 0; i < links.length; i++) {
-    const placeholder = `${LINK_PLACEHOLDER_START}${i}${LINK_PLACEHOLDER_END}`;
-    const { linkText, url } = links[i]!;
-    result = result.replace(
-      placeholder,
-      terminalHyperlink(`[${chalk.italic(CHALK_THEME.link(linkText))}](${chalk.dim(url)})`, url),
+  return restorePlaceholders(text, LINK_PLACEHOLDER_REGEX, (index) => {
+    const link = links[index];
+    return (
+      link &&
+      terminalHyperlink(
+        `[${chalk.italic(CHALK_THEME.link(link.linkText))}](${chalk.dim(link.url)})`,
+        link.url,
+      )
     );
-  }
-  return result;
+  });
 }
 
 /**
@@ -1176,12 +1217,10 @@ export function formatNonCodeText(text: string): string {
   formatted = restoreLinks(formatted, links);
 
   // 4. Restore inline code
-  for (let i = 0; i < inlineCodes.length; i++) {
-    const placeholder = `${INLINE_CODE_PLACEHOLDER_START}${i}${INLINE_CODE_PLACEHOLDER_END}`;
-    formatted = formatted.replace(placeholder, codeColor(inlineCodes[i]!));
-  }
-
-  return formatted;
+  return restorePlaceholders(formatted, INLINE_CODE_PLACEHOLDER_REGEX, (index) => {
+    const code = inlineCodes[index];
+    return code === undefined ? undefined : codeColor(code);
+  });
 }
 
 /**
@@ -1228,12 +1267,10 @@ function formatNonCodeTextHybrid(text: string): string {
   formatted = restoreLinksHybrid(formatted, links);
 
   // 4. Restore inline code (keep backticks visible)
-  for (let index = 0; index < inlineCodes.length; index++) {
-    const placeholder = `${INLINE_CODE_PLACEHOLDER_START}${index}${INLINE_CODE_PLACEHOLDER_END}`;
-    formatted = formatted.replace(placeholder, `\`${codeColor(inlineCodes[index]!)}\``);
-  }
-
-  return formatted;
+  return restorePlaceholders(formatted, INLINE_CODE_PLACEHOLDER_REGEX, (index) => {
+    const code = inlineCodes[index];
+    return code === undefined ? undefined : `\`${codeColor(code)}\``;
+  });
 }
 
 /**
@@ -1262,6 +1299,26 @@ function extractFenceLanguage(line: string): string | null {
 }
 
 /**
+ * Memo for {@link tryHighlight}. highlight.js parsing is the single most
+ * expensive thing the markdown pipeline does — ~0.1ms per fence, and the live
+ * tail re-formats every completed fence in the pending reply on each render
+ * tick — so identical (chalk level, language, body) triples are answered from
+ * here instead of re-parsed. Keyed on chalk.level because a color-depth change
+ * changes the emitted escapes.
+ */
+const highlightCache = new Map<string, string>();
+/**
+ * Bodies above this are highlighted fresh every time: caching them would let a
+ * single pasted-file-sized fence pin megabytes for the life of the process.
+ */
+const HIGHLIGHT_CACHE_MAX_BODY_CHARS = 8 * 1024;
+/**
+ * Room for every fence in a long reply (a 50KB reply carries ~80) plus the
+ * handful of earlier replies the transcript may re-render.
+ */
+const HIGHLIGHT_CACHE_MAX_ENTRIES = 256;
+
+/**
  * Apply syntax highlighting to a code block body using `cli-highlight`.
  *
  * Returns the highlighted source on success, or `null` if highlighting
@@ -1270,11 +1327,30 @@ function extractFenceLanguage(line: string): string | null {
  * must remain best-effort.
  */
 function tryHighlight(body: string, language: string): string | null {
-  try {
-    return highlight(body, { language, ignoreIllegals: true });
-  } catch {
-    return null;
+  const cacheKey = `${String(chalk.level)}\u0000${language}\u0000${body}`;
+  const cached = highlightCache.get(cacheKey);
+  if (cached !== undefined) {
+    // Refresh recency so a fence the live tail keeps re-rendering stays warm.
+    highlightCache.delete(cacheKey);
+    highlightCache.set(cacheKey, cached);
+    return cached;
   }
+
+  let highlighted: string | null;
+  try {
+    highlighted = highlight(body, { language, ignoreIllegals: true });
+  } catch {
+    highlighted = null;
+  }
+
+  if (highlighted !== null && body.length <= HIGHLIGHT_CACHE_MAX_BODY_CHARS) {
+    if (highlightCache.size >= HIGHLIGHT_CACHE_MAX_ENTRIES) {
+      const oldest = highlightCache.keys().next();
+      if (!oldest.done) highlightCache.delete(oldest.value);
+    }
+    highlightCache.set(cacheKey, highlighted);
+  }
+  return highlighted;
 }
 
 /**
@@ -1531,20 +1607,15 @@ export function formatMarkdown(text: string): string {
   formatted = formatFilePaths(formatted);
   formatted = restoreLinks(formatted, links);
 
-  // Restore inline code - use simple string replace since placeholders are unique
-  for (let index = 0; index < inlineCodes.length; index++) {
-    const placeholder = `${INLINE_CODE_PLACEHOLDER_START}${index}${INLINE_CODE_PLACEHOLDER_END}`;
-    formatted = formatted.replace(placeholder, codeColor(inlineCodes[index]!));
-  }
-
-  // Restore code blocks - use simple string replace since placeholders are unique
-  for (let index = 0; index < codeBlocks.length; index++) {
-    const placeholder = `${CODE_BLOCK_PLACEHOLDER_START}${index}${CODE_BLOCK_PLACEHOLDER_END}`;
-    const formattedBlock = formatCodeBlockContent(codeBlocks[index]!);
-    formatted = formatted.replace(placeholder, formattedBlock);
-  }
-
-  return formatted;
+  // Restore inline code, then code blocks — one scan per placeholder kind.
+  formatted = restorePlaceholders(formatted, INLINE_CODE_PLACEHOLDER_REGEX, (index) => {
+    const code = inlineCodes[index];
+    return code === undefined ? undefined : codeColor(code);
+  });
+  return restorePlaceholders(formatted, CODE_BLOCK_PLACEHOLDER_REGEX, (index) => {
+    const block = codeBlocks[index];
+    return block === undefined ? undefined : formatCodeBlockContent(block);
+  });
 }
 
 // ============================================================================
@@ -1794,18 +1865,13 @@ export function formatMarkdownHybrid(text: string): string {
   formatted = formatFilePathsHybrid(formatted);
   formatted = restoreLinksHybrid(formatted, links);
 
-  // Restore inline code with hybrid formatting (keeps backticks)
-  for (let index = 0; index < inlineCodes.length; index++) {
-    const placeholder = `${INLINE_CODE_PLACEHOLDER_START}${index}${INLINE_CODE_PLACEHOLDER_END}`;
-    formatted = formatted.replace(placeholder, `\`${codeColor(inlineCodes[index]!)}\``);
-  }
-
-  // Restore code blocks with hybrid formatting (keeps ``` markers)
-  for (let index = 0; index < codeBlocks.length; index++) {
-    const placeholder = `${CODE_BLOCK_PLACEHOLDER_START}${index}${CODE_BLOCK_PLACEHOLDER_END}`;
-    const formattedBlock = formatCodeBlockContentHybrid(codeBlocks[index]!);
-    formatted = formatted.replace(placeholder, formattedBlock);
-  }
-
-  return formatted;
+  // Restore inline code (keeps backticks), then code blocks (keeps ``` markers).
+  formatted = restorePlaceholders(formatted, INLINE_CODE_PLACEHOLDER_REGEX, (index) => {
+    const code = inlineCodes[index];
+    return code === undefined ? undefined : `\`${codeColor(code)}\``;
+  });
+  return restorePlaceholders(formatted, CODE_BLOCK_PLACEHOLDER_REGEX, (index) => {
+    const block = codeBlocks[index];
+    return block === undefined ? undefined : formatCodeBlockContentHybrid(block);
+  });
 }
