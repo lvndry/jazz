@@ -66,7 +66,7 @@ inside has already parked, waiting for someone to approve a tool.
 > `task` argument, and a family of error classes nothing ever threw. The errors are
 > deleted, the state is *work state* (matching the directory it has always been stored in),
 > and `task` survives only as the plain-English name for a brief you hand a sub-agent.
-
+>
 > **Gone: work items.** Work state used to carry its own list of work alongside todos,
 > with a different status vocabulary, leaving the model to guess which to update. Todos
 > won — they are the list the interface draws. The one idea worth keeping came with them:
@@ -95,7 +95,7 @@ inside has already parked, waiting for someone to approve a tool.
 
 ## Where things are kept
 
-```
+```text
 ~/.jazz/
   agents/                     one JSON file per agent
   personas/  skills/  workflows/

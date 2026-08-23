@@ -7,6 +7,7 @@ import { FileSystemContextServiceTag, type FileSystemContextService } from "@/co
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import type { Agent } from "@/core/types";
 import type { ChatMessage } from "@/core/types/message";
+import { conversationLogGroup } from "@/core/utils/log-group";
 import { getLogsDirectory } from "../../logger";
 
 /**
@@ -54,6 +55,7 @@ export function updateWorkingDirectoryInStore(
  * Log a chat message to the session log file.
  */
 export function logMessageToSession(
+  agentId: string,
   conversationId: string,
   message: ChatMessage,
 ): Effect.Effect<void, never, never> {
@@ -61,7 +63,12 @@ export function logMessageToSession(
     try: async () => {
       const logsDir = getLogsDirectory();
       await mkdir(logsDir, { recursive: true });
-      const logFilePath = path.join(logsDir, `${conversationId}.log`);
+      // The same mapping the LoggerService uses. Deriving the filename a second way here
+      // is what split one conversation's transcript lines from its tool and metric lines.
+      const logFilePath = path.join(
+        logsDir,
+        `${conversationLogGroup(agentId, conversationId)}.log`,
+      );
       const timestamp = new Date().toISOString();
       const role = message.role.toUpperCase();
       const content = message.content || "";

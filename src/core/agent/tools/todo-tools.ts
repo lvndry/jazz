@@ -120,7 +120,7 @@ export function createManageTodosTool(): Tool<never> {
   return defineTool<never, z.infer<typeof parameters>>({
     name: "manage_todos",
     description:
-      "Replace the in-session task list used to steer this run and show progress in the UI. Every call replaces the whole list — send every item, not just the ones that changed. " +
+      "Replace this conversation's todo list, which steers the run and shows progress in the UI. Every call replaces the whole list — send every item, not just the ones that changed. " +
       "Use this when the work has three or more distinct steps; skip it for one-liners. Keep exactly one item in_progress, and mark it completed as soon as it is finished. " +
       "This list belongs to the current conversation and does not survive compaction on its own. It is not memory, not work state, and not a reminder. " +
       "For a plan that must survive compaction, also call update_work_state. To ping someone at a clock time, use add_reminder.",

@@ -574,7 +574,7 @@ export class ChatServiceImpl implements ChatService {
             const newMessages = response.messages.slice(loggedMessageCount);
             if (!ephemeral) {
               for (const message of newMessages) {
-                yield* logMessageToSession(conversationId, message);
+                yield* logMessageToSession(agent.id, conversationId, message);
               }
             }
             loggedMessageCount = response.messages.length;
@@ -592,13 +592,13 @@ export class ChatServiceImpl implements ChatService {
                 role: "user",
                 content: userMessage,
               };
-              yield* logMessageToSession(conversationId, userChatMessage);
+              yield* logMessageToSession(agent.id, conversationId, userChatMessage);
 
               const assistantMessage: ChatMessage = {
                 role: "assistant",
                 content: response.content,
               };
-              yield* logMessageToSession(conversationId, assistantMessage);
+              yield* logMessageToSession(agent.id, conversationId, assistantMessage);
             }
             loggedMessageCount += 2; // user message + assistant message
           } else {
@@ -608,7 +608,7 @@ export class ChatServiceImpl implements ChatService {
                 role: "user",
                 content: userMessage,
               };
-              yield* logMessageToSession(conversationId, userChatMessage);
+              yield* logMessageToSession(agent.id, conversationId, userChatMessage);
             }
             loggedMessageCount += 1;
           }

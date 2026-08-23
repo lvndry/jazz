@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { Effect } from "effect";
-import { formatWorkState, patchTaskState, readWorkState, workStatePath } from "./work-state";
+import { formatWorkState, patchWorkState, readWorkState, workStatePath } from "./work-state";
 
 const runEffect = <A>(effect: Effect.Effect<A, never, never>): Promise<A> =>
   Effect.runPromise(effect);
@@ -31,7 +31,7 @@ describe("task state", () => {
 
   it("patches one field without disturbing the rest", async () => {
     await runEffect(
-      patchTaskState(
+      patchWorkState(
         "agent-1",
         "conv-1",
         {
@@ -43,7 +43,7 @@ describe("task state", () => {
       ),
     );
 
-    await runEffect(patchTaskState("agent-1", "conv-1", { nextStep: "migrate auth route" }, now));
+    await runEffect(patchWorkState("agent-1", "conv-1", { nextStep: "migrate auth route" }, now));
 
     const state = await runEffect(readWorkState("agent-1", "conv-1"));
     expect(state?.goal).toBe("migrate the routes");
@@ -53,22 +53,22 @@ describe("task state", () => {
   });
 
   it("replaces a field that is explicitly patched", async () => {
-    await runEffect(patchTaskState("agent-1", "conv-1", { nextStep: "first" }, now));
-    await runEffect(patchTaskState("agent-1", "conv-1", { nextStep: "second" }, now));
+    await runEffect(patchWorkState("agent-1", "conv-1", { nextStep: "first" }, now));
+    await runEffect(patchWorkState("agent-1", "conv-1", { nextStep: "second" }, now));
 
     expect((await runEffect(readWorkState("agent-1", "conv-1")))?.nextStep).toBe("second");
   });
 
   it("keeps state per conversation", async () => {
-    await runEffect(patchTaskState("agent-1", "conv-1", { goal: "one" }, now));
-    await runEffect(patchTaskState("agent-1", "conv-2", { goal: "two" }, now));
+    await runEffect(patchWorkState("agent-1", "conv-1", { goal: "one" }, now));
+    await runEffect(patchWorkState("agent-1", "conv-2", { goal: "two" }, now));
 
     expect((await runEffect(readWorkState("agent-1", "conv-1")))?.goal).toBe("one");
     expect((await runEffect(readWorkState("agent-1", "conv-2")))?.goal).toBe("two");
   });
 
   it("survives a corrupt state file rather than throwing", async () => {
-    await runEffect(patchTaskState("agent-1", "conv-1", { goal: "one" }, now));
+    await runEffect(patchWorkState("agent-1", "conv-1", { goal: "one" }, now));
     await nodeFs.writeFile(workStatePath("agent-1", "conv-1"), "{not json", "utf-8");
 
     expect(await runEffect(readWorkState("agent-1", "conv-1"))).toBeUndefined();

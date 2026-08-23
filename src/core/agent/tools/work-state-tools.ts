@@ -2,7 +2,7 @@ import { Effect } from "effect";
 import { z } from "zod";
 import {
   formatWorkState,
-  patchTaskState,
+  patchWorkState,
   readWorkState,
   type WorkState,
 } from "@/core/agent/context/work-state";
@@ -20,7 +20,7 @@ const updateWorkStateParameters = z
     decisions: z
       .array(z.string())
       .optional()
-      .describe("Choices made and why, so a later session does not relitigate them."),
+      .describe("Choices made and why, so whoever picks this up later does not relitigate them."),
     filesTouched: z.array(z.string()).optional().describe("Paths you have created or modified."),
     openQuestions: z.array(z.string()).optional().describe("Unresolved uncertainties."),
     nextStep: z.string().optional().describe("The single next action you intend to take."),
@@ -85,7 +85,7 @@ export function createUpdateWorkStateTool(): Tool<never> {
           } satisfies ToolExecutionResult;
         }
 
-        const merged = yield* patchTaskState(
+        const merged = yield* patchWorkState(
           context.agentId,
           conversationId,
           patch,

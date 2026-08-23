@@ -88,7 +88,7 @@ export function readWorkState(
  * the decisions and open questions it did not mention. Only keys present in the patch
  * are touched.
  */
-export function patchTaskState(
+export function patchWorkState(
   agentId: string,
   conversationId: string,
   patch: Partial<WorkState>,
