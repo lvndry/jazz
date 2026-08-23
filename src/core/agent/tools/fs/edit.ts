@@ -596,7 +596,11 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
           };
         }
 
-        // No Ctrl+O hint here: this message also reaches JSON envelopes and chat bridges.
+        // This message is shown to whoever approves the edit, which is not always a person
+        // at a terminal: it also goes into the `jazz run --json` envelope and out to chat
+        // bridges like Telegram. Keep it to what is about to happen. Do not append keyboard
+        // hints such as "Press Ctrl+O to preview" — most approvers have no keyboard, and
+        // the TUI already renders its own hint from `previewDiff` below.
         const message = `About to edit file: ${target} (${totalLines} lines total)\n\nEdits to perform:\n${editDescriptions.join("\n")}`;
 
         // Generate full diff for Ctrl+O expansion
