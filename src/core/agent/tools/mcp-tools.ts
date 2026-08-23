@@ -1,7 +1,6 @@
 import { Effect } from "effect";
 import { z } from "zod";
 import type { AgentConfigService } from "@/core/interfaces/agent-config";
-import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
 import type { LoggerService } from "@/core/interfaces/logger";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import type { MCPServerConfig, MCPServerManager } from "@/core/interfaces/mcp-server";
@@ -9,23 +8,21 @@ import { MCPServerManagerTag } from "@/core/interfaces/mcp-server";
 import type { PresentationService } from "@/core/interfaces/presentation";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import type { TerminalService } from "@/core/interfaces/terminal";
-import { TerminalServiceTag } from "@/core/interfaces/terminal";
-import type { Tool } from "@/core/interfaces/tool-registry";
+import type { Tool, ToolRiskLevel } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
-import { MCPToolExecutionError } from "@/core/types/errors";
-import type { MCPTool } from "@/core/types/mcp";
+import type { MCPTool, MCPToolAnnotations } from "@/core/types/mcp";
 import { convertMCPSchemaToZod, unwrapMCPJsonSchema } from "@/core/utils/mcp-schema-converter";
 import { safeStringify, toPascalCase } from "@/core/utils/string";
-import { defineTool, type ToolValidatorResult } from "./base-tool";
+import { defineApprovalTool, defineTool, type ToolValidatorResult } from "./base-tool";
 
 /**
  * MCP Tool Dependencies - all services needed for MCP tool operations
- *
- * TerminalService is kept because connectServer requires it for template variable resolution.
- * PresentationService is used for status display (connection progress, success/failure).
  */
 export type MCPToolDependencies =
   AgentConfigService | LoggerService | MCPServerManager | TerminalService | PresentationService;
+
+/** How much of an argument blob to show in an approval prompt. */
+const APPROVAL_ARGS_PREVIEW_LIMIT = 500;
 
 /** An object schema that keeps every key the model supplied. */
 function emptyPassthroughObject(): z.ZodTypeAny {
@@ -59,218 +56,187 @@ function passThroughMCPArguments(
 }
 
 /**
- * Adapt an MCP tool to a Jazz tool with lazy connection support
+ * Decide how much a tool has to justify itself before it runs.
  *
- * @param serverConfig - The MCP server configuration for reconnection
- * @param mcpTool - The MCP tool definition
+ * Annotations are a server describing its own blast radius, and the spec is
+ * explicit that a client must not take them as guarantees from a server it does
+ * not trust — a hostile server would simply mark its destructive tools
+ * `readOnlyHint`. So they only ever relax the gate for a server the user has
+ * marked trusted; for anyone else every tool is treated as high-risk regardless
+ * of what it claims.
  */
-function adaptMCPToolToJazz(
-  serverConfig: MCPServerConfig,
-  mcpTool: {
-    name: string;
-    description?: string | undefined;
-    inputSchema?: unknown;
-  },
-): Tool<MCPToolDependencies> {
-  // Create prefixed tool name for Jazz (e.g., mcp_mongodb_aggregate)
-  const jazzToolName = `mcp_${serverConfig.name.toLowerCase()}_${mcpTool.name}`;
-  // Keep original MCP tool name for lookup (e.g., aggregate)
-  const mcpToolName = mcpTool.name;
+export function resolveToolRiskLevel(
+  annotations: MCPToolAnnotations | undefined,
+  trusted: boolean,
+): ToolRiskLevel {
+  if (!trusted) return "high-risk";
+  if (annotations?.readOnlyHint === true) return "read-only";
+  if (annotations?.destructiveHint === true) return "high-risk";
+  return "low-risk";
+}
 
-  // Convert MCP schema to Zod
-  // LLM function calling requires object schemas, so we must ensure we always return an object schema
-  let parameters: z.ZodTypeAny;
+/** One-line summary of what a tool call would touch, for the approval prompt. */
+function describeAnnotations(annotations: MCPToolAnnotations | undefined): string | undefined {
+  if (!annotations) return undefined;
+  const labels: string[] = [];
+  if (annotations.readOnlyHint === true) labels.push("read-only");
+  if (annotations.destructiveHint === true) labels.push("destructive");
+  if (annotations.idempotentHint === true) labels.push("idempotent");
+  if (annotations.openWorldHint === true) labels.push("open-world");
+  return labels.length > 0 ? labels.join(", ") : undefined;
+}
 
-  if (mcpTool.inputSchema === undefined || mcpTool.inputSchema === null) {
-    // No schema provided - default to an open object so nothing is stripped
-    parameters = emptyPassthroughObject();
-  } else {
-    parameters = convertMCPSchemaToZod(mcpTool.inputSchema, mcpToolName);
+function previewArguments(args: Record<string, unknown>): string {
+  const serialized = safeStringify(args);
+  if (serialized.length <= APPROVAL_ARGS_PREVIEW_LIMIT) return serialized;
+  return `${serialized.slice(0, APPROVAL_ARGS_PREVIEW_LIMIT)}… (truncated)`;
+}
 
-    if (isZodUnknown(parameters)) {
-      // Invalid or unsupported schema - default to an open object for LLM compatibility
-      parameters = emptyPassthroughObject();
-    }
+/** Parameter schema for an MCP tool, tolerant of servers with no usable schema. */
+function resolveParameters(inputSchema: unknown): z.ZodTypeAny {
+  if (inputSchema === undefined || inputSchema === null) {
+    return emptyPassthroughObject();
   }
 
-  const unwrappedJsonSchema = unwrapMCPJsonSchema(mcpTool.inputSchema);
-
-  return defineTool<MCPToolDependencies, Record<string, unknown>>({
-    name: jazzToolName,
-    description: mcpTool.description || `MCP tool: ${mcpToolName}`,
-    parameters,
-    ...(unwrappedJsonSchema !== undefined ? { jsonSchema: unwrappedJsonSchema } : {}),
-    hidden: false,
-    validate: passThroughMCPArguments,
-    handler: (args: Record<string, unknown>, context: ToolExecutionContext) =>
-      executeMCPToolWithLazyConnection(serverConfig, mcpToolName, args, context),
-  });
+  const converted = convertMCPSchemaToZod(inputSchema, "mcp_tool");
+  return isZodUnknown(converted) ? emptyPassthroughObject() : converted;
 }
 
 /**
- * Execute an MCP tool with lazy connection support
- *
- * This function handles the lazy connection pattern:
- * 1. Check if the server is connected
- * 2. If not, reconnect to the server
- * 3. Execute the tool
+ * Run one MCP tool, connecting the server first if the session dropped it.
  */
-function executeMCPToolWithLazyConnection(
+function executeMCPTool(
   serverConfig: MCPServerConfig,
   toolName: string,
   args: Record<string, unknown>,
-  _context: ToolExecutionContext,
 ): Effect.Effect<ToolExecutionResult, Error, MCPToolDependencies> {
   return Effect.gen(function* () {
     const mcpManager = yield* MCPServerManagerTag;
     const logger = yield* LoggerServiceTag;
-    const configService = yield* AgentConfigServiceTag;
-    const terminal = yield* TerminalServiceTag;
     const presentation = yield* PresentationServiceTag;
 
     const serverName = serverConfig.name;
 
     yield* logger.debug(`Executing MCP tool: ${serverName}.${toolName}`, { args });
 
-    // Check if server is connected, if not, reconnect (lazy connection)
     const isConnected = yield* mcpManager.isConnected(serverName);
     if (!isConnected) {
-      // Show connecting message
       yield* presentation.presentStatus(
         `Connecting to ${toPascalCase(serverName)} MCP server...`,
         "progress",
       );
 
-      yield* logger.debug(
-        `MCP server ${serverName} not connected, establishing lazy connection...`,
-      );
-
-      // Reconnect to the server - provide all required services
-      yield* mcpManager
-        .connectServer(serverConfig)
-        .pipe(
-          Effect.provideService(LoggerServiceTag, logger),
-          Effect.provideService(AgentConfigServiceTag, configService),
-          Effect.provideService(TerminalServiceTag, terminal),
+      const connectResult = yield* Effect.either(mcpManager.connectServer(serverConfig));
+      if (connectResult._tag === "Left") {
+        const error = connectResult.left;
+        yield* presentation.presentStatus(
+          `Failed to connect to ${toPascalCase(serverName)} MCP server`,
+          "warning",
         );
+        return {
+          success: false,
+          result: null,
+          error: `${error.reason}${error.suggestion ? ` — ${error.suggestion}` : ""}`,
+        };
+      }
 
-      // Show success
       yield* presentation.presentStatus(
         `Connected to ${toPascalCase(serverName)} MCP server`,
         "success",
       );
-      yield* logger.info(`Lazy connection established to MCP server: ${serverName}`);
     }
 
-    // Get server tools
-    const mcpTools = yield* mcpManager.getServerTools(serverName);
+    const callResult = yield* Effect.either(mcpManager.callTool(serverName, toolName, args));
 
-    // Find the tool by its original MCP name (not the prefixed Jazz name)
-    const tool = mcpTools.find((t) => t.name === toolName);
+    if (callResult._tag === "Left") {
+      const error = callResult.left;
+      yield* logger.error(`MCP tool execution failed: ${serverName}.${toolName}`, {
+        error: error.reason,
+      });
+      return { success: false, result: null, error: error.reason };
+    }
 
-    if (!tool) {
-      const availableTools = mcpTools.map((t) => t.name).join(", ");
+    const result = callResult.right;
+
+    if (result.isError === true) {
+      const content = result.content;
       return {
         success: false,
         result: null,
-        error: `Tool ${toolName} not found in MCP server ${serverName}. Available tools: ${availableTools}`,
+        error: typeof content === "string" ? content : safeStringify(content ?? "Unknown error"),
       };
     }
 
-    // Execute the tool
-    if (!tool.execute) {
-      return {
-        success: false,
-        result: null,
-        error: `Tool ${toolName} does not have an execute function`,
-      };
-    }
-
-    const result = yield* Effect.tryPromise({
-      try: () =>
-        tool.execute(args, {
-          messages: [],
-          toolCallId: `${serverName}_${toolName}_${Date.now()}`,
-        }),
-      catch: (error) => {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        return new MCPToolExecutionError({
-          serverName,
-          toolName,
-          reason: `MCP tool execution failed: ${errorMessage}`,
-          cause: error,
-          suggestion: `Check that the tool arguments are correct and the MCP server is functioning properly`,
-        });
-      },
-    }).pipe(
-      Effect.catchAll((error: unknown) =>
-        Effect.gen(function* () {
-          let errorMessage: string;
-          // Check if it's a TaggedError with _tag property
-          if (typeof error === "object" && error !== null && "_tag" in error) {
-            const taggedError = error as { _tag: string; reason?: string; message?: string };
-            if (taggedError._tag === "MCPToolExecutionError" && taggedError.reason) {
-              errorMessage = taggedError.reason;
-            } else if (taggedError.message) {
-              errorMessage = taggedError.message;
-            } else {
-              errorMessage = safeStringify(error);
-            }
-          } else if (error instanceof Error) {
-            errorMessage = error.message;
-          } else {
-            errorMessage = safeStringify(error);
-          }
-          yield* logger.error(`MCP tool execution failed: ${serverName}.${toolName}`, {
-            error: errorMessage,
-          });
-          // Return error result directly, not wrapped in Effect
-          return {
-            success: false,
-            result: null,
-            error: errorMessage,
-          };
-        }),
-      ),
-    );
-
-    // Handle MCP tool result format
-    if (typeof result === "object" && result !== null) {
-      const mcpResult = result as {
-        content?: unknown;
-        isError?: boolean;
-      };
-
-      if (mcpResult.isError) {
-        const errorContent = mcpResult.content;
-        const errorMessage =
-          typeof errorContent === "string"
-            ? errorContent
-            : errorContent instanceof Error
-              ? errorContent.message
-              : "Unknown error";
-        return {
-          success: false,
-          result: null,
-          error: errorMessage,
-        };
-      }
-
-      return {
-        success: true,
-        result: mcpResult.content || result,
-      };
-    }
-
+    // A server that advertises an `outputSchema` returns the parsed object in
+    // `structuredContent`; `content` is then just its text rendering, so the
+    // structured form is what the model should reason over.
     return {
       success: true,
-      result,
+      result: result.structuredContent ?? result.content ?? null,
     };
   });
 }
 
 /**
- * Register tools from an MCP server
+ * Adapt one MCP tool to Jazz's tool model.
+ *
+ * Returns one tool for calls that need no confirmation, or an approval/execute
+ * pair for everything else. The split has to happen here rather than through a
+ * risk level alone: the approval gate in the executor fires on the sentinel
+ * `defineApprovalTool` returns, so a tool registered as a plain tool runs
+ * ungated no matter what risk level it carries.
+ */
+function adaptMCPToolToJazz(
+  serverConfig: MCPServerConfig,
+  mcpTool: MCPTool,
+): readonly Tool<MCPToolDependencies>[] {
+  const jazzToolName = `mcp_${serverConfig.name.toLowerCase()}_${mcpTool.name}`;
+  const mcpToolName = mcpTool.name;
+  const parameters = resolveParameters(mcpTool.inputSchema);
+  const unwrappedJsonSchema = unwrapMCPJsonSchema(mcpTool.inputSchema);
+  const description = mcpTool.description || `MCP tool: ${mcpToolName}`;
+  const riskLevel = resolveToolRiskLevel(mcpTool.annotations, serverConfig.trusted === true);
+
+  if (riskLevel === "read-only") {
+    return [
+      defineTool<MCPToolDependencies, Record<string, unknown>>({
+        name: jazzToolName,
+        description,
+        parameters,
+        ...(unwrappedJsonSchema !== undefined ? { jsonSchema: unwrappedJsonSchema } : {}),
+        hidden: false,
+        riskLevel,
+        validate: passThroughMCPArguments,
+        handler: (args: Record<string, unknown>) => executeMCPTool(serverConfig, mcpToolName, args),
+      }),
+    ];
+  }
+
+  const annotationSummary = describeAnnotations(mcpTool.annotations);
+
+  const pair = defineApprovalTool<MCPToolDependencies, Record<string, unknown>>({
+    name: jazzToolName,
+    description,
+    parameters,
+    riskLevel,
+    validate: passThroughMCPArguments,
+    approvalMessage: (args: Record<string, unknown>, _context: ToolExecutionContext) =>
+      Effect.succeed(
+        [
+          `MCP server: ${toPascalCase(serverConfig.name)}${serverConfig.trusted === true ? " (trusted)" : ""}`,
+          `Tool: ${mcpToolName}`,
+          ...(annotationSummary ? [`Declared: ${annotationSummary}`] : []),
+          `Arguments: ${previewArguments(args)}`,
+        ].join("\n"),
+      ),
+    handler: (args: Record<string, unknown>) => executeMCPTool(serverConfig, mcpToolName, args),
+  });
+
+  return pair.all();
+}
+
+/**
+ * Build Jazz tools for every tool an MCP server advertises.
  *
  * @param serverConfig - The MCP server configuration (needed for lazy reconnection)
  * @param mcpTools - The MCP tool definitions from the server
@@ -279,18 +245,7 @@ export function registerMCPServerTools(
   serverConfig: MCPServerConfig,
   mcpTools: readonly MCPTool[],
 ): Effect.Effect<readonly Tool<MCPToolDependencies>[], Error> {
-  return Effect.sync(() => {
-    const jazzTools: Tool<MCPToolDependencies>[] = [];
-
-    for (const mcpTool of mcpTools) {
-      const jazzTool = adaptMCPToolToJazz(serverConfig, {
-        name: mcpTool.name,
-        description: mcpTool.description,
-        inputSchema: mcpTool.inputSchema,
-      });
-      jazzTools.push(jazzTool);
-    }
-
-    return jazzTools;
-  });
+  return Effect.sync(() =>
+    mcpTools.flatMap((mcpTool) => adaptMCPToolToJazz(serverConfig, mcpTool)),
+  );
 }

@@ -4,9 +4,17 @@ import { Context, Effect } from "effect";
 import type {
   MCPConnectionError,
   MCPDisconnectionError,
+  MCPPromptError,
   MCPToolDiscoveryError,
+  MCPToolExecutionError,
 } from "@/core/types/errors";
-import type { MCPClient, MCPTool } from "@/core/types/mcp";
+import type {
+  MCPPrompt,
+  MCPPromptResult,
+  MCPServerCapabilities,
+  MCPTool,
+  MCPToolResult,
+} from "@/core/types/mcp";
 import type { AgentConfigService } from "./agent-config";
 import type { LoggerService } from "./logger";
 
@@ -21,6 +29,14 @@ export type MCPTransportType = "stdio" | "http";
 export interface MCPServerConfigBase {
   readonly name: string;
   readonly enabled?: boolean;
+  /**
+   * Whether the user vouches for this server.
+   *
+   * Tool annotations are self-declared, so they only relax the approval gate
+   * for servers marked here. An untrusted server's tools always prompt no
+   * matter what it claims about them.
+   */
+  readonly trusted?: boolean;
 }
 
 /**
@@ -40,7 +56,8 @@ export interface MCPServerConfigHttp extends MCPServerConfigBase {
   readonly transport: "http";
   readonly url: string;
   /**
-   * Optional headers to include in HTTP requests (e.g., Authorization)
+   * Optional headers to include in HTTP requests (e.g., Authorization).
+   * Static headers bypass the OAuth flow entirely.
    */
   readonly headers?: Record<string, string>;
   /**
@@ -73,29 +90,23 @@ export function isHttpConfig(config: MCPServerConfig): config is MCPServerConfig
  */
 export type MCPTransport = StdioClientTransport | StreamableHTTPClientTransport;
 
-/**
- * MCP Server connection state
- */
-export interface MCPServerConnection {
-  readonly serverName: string;
-  readonly process: NodeJS.Process | null;
-  readonly client: MCPClient;
-  readonly transport: MCPTransport;
-  readonly transportType: MCPTransportType;
-}
+/** Called when a server reports its tool list changed. */
+export type ToolsChangedHandler = (serverName: string, tools: readonly MCPTool[]) => void;
 
 /**
  * MCP Server Manager interface
  *
- * Manages connections to MCP servers and provides access to MCP tools.
+ * Owns one `Client` per configured server and exposes the subset of the
+ * protocol Jazz uses: tools, prompts, and list-changed notifications.
  */
 export interface MCPServerManager {
   /**
-   * Connect to an MCP server using stdio transport
+   * Connect to an MCP server. Reconnecting an already-connected server is a
+   * no-op.
    */
   readonly connectServer: (
     config: MCPServerConfig,
-  ) => Effect.Effect<MCPClient, MCPConnectionError, LoggerService>;
+  ) => Effect.Effect<void, MCPConnectionError, LoggerService>;
 
   /**
    * Disconnect from an MCP server
@@ -105,11 +116,51 @@ export interface MCPServerManager {
   ) => Effect.Effect<void, MCPDisconnectionError, LoggerService>;
 
   /**
-   * Get tools from a connected MCP server
+   * List tools advertised by a connected server.
    */
   readonly getServerTools: (
     serverName: string,
   ) => Effect.Effect<readonly MCPTool[], MCPToolDiscoveryError, LoggerService>;
+
+  /**
+   * Invoke a tool on a connected server.
+   */
+  readonly callTool: (
+    serverName: string,
+    toolName: string,
+    args: Record<string, unknown>,
+  ) => Effect.Effect<MCPToolResult, MCPToolExecutionError, LoggerService>;
+
+  /**
+   * List prompts advertised by a connected server. Servers that do not
+   * advertise the `prompts` capability return an empty list rather than error.
+   */
+  readonly getServerPrompts: (
+    serverName: string,
+  ) => Effect.Effect<readonly MCPPrompt[], MCPPromptError, LoggerService>;
+
+  /**
+   * Resolve one prompt with arguments applied.
+   */
+  readonly getPrompt: (
+    serverName: string,
+    promptName: string,
+    args: Record<string, string>,
+  ) => Effect.Effect<MCPPromptResult, MCPPromptError, LoggerService>;
+
+  /**
+   * Capabilities the server declared at initialize, or undefined when not
+   * connected.
+   */
+  readonly getCapabilities: (
+    serverName: string,
+  ) => Effect.Effect<MCPServerCapabilities | undefined, never>;
+
+  /**
+   * Subscribe to `notifications/tools/list_changed`. Returns an unsubscribe
+   * function. Handlers fire with the re-listed tools already resolved.
+   */
+  readonly onToolsChanged: (handler: ToolsChangedHandler) => Effect.Effect<() => void, never>;
 
   /**
    * Discover tools from an MCP server (connects, discovers, then disconnects)

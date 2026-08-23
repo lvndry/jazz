@@ -2,18 +2,22 @@ import { Duration, Effect, Schedule } from "effect";
 import { MCPServerNameParseError } from "@/core/types/errors";
 
 /**
- * Parse server name from MCP tool name
+ * Resolve which configured server a prefixed MCP tool name belongs to.
  *
- * MCP tool names follow the pattern: mcp_<servername>_<toolname>
- * Server names can contain underscores (e.g., "atlas-local", "my_server")
+ * The name alone cannot be split reliably: both halves may contain
+ * underscores, so `mcp_railway_list_projects` is equally readable as server
+ * `railway` tool `list_projects` or server `railway_list` tool `projects`.
+ * Matching against the servers that actually exist is the only correct read —
+ * splitting on the last underscore silently mis-attributes every tool whose
+ * own name has one.
  *
- * @param toolName - The full MCP tool name (e.g., "mcp_mongodb_aggregate" or "mcp_atlas-local_connect")
- * @returns The server name or an error
+ * @param toolName - The full MCP tool name (e.g. `mcp_railway_list_projects`)
+ * @param knownServerNames - Names of the configured MCP servers
  */
 export function parseServerNameFromToolName(
   toolName: string,
+  knownServerNames: Iterable<string>,
 ): Effect.Effect<string, MCPServerNameParseError> {
-  // Validate format: must start with "mcp_" and have at least 3 parts
   if (!toolName.startsWith("mcp_")) {
     return Effect.fail(
       new MCPServerNameParseError({
@@ -24,53 +28,52 @@ export function parseServerNameFromToolName(
     );
   }
 
-  // Remove "mcp_" prefix
-  const withoutPrefix = toolName.slice(4);
+  const lowerToolName = toolName.toLowerCase();
+  let bestMatch: string | undefined;
 
-  // Find the last underscore (separates server name from tool name)
-  const lastUnderscoreIndex = withoutPrefix.lastIndexOf("_");
+  for (const serverName of knownServerNames) {
+    const prefix = `mcp_${serverName.toLowerCase()}_`;
+    if (!lowerToolName.startsWith(prefix)) continue;
+    // Longest wins, so a server named `railway` cannot claim a tool that
+    // belongs to a more specific `railway_staging`.
+    if (bestMatch === undefined || serverName.length > bestMatch.length) {
+      bestMatch = serverName;
+    }
+  }
 
-  if (lastUnderscoreIndex === -1 || lastUnderscoreIndex === 0) {
+  if (bestMatch === undefined) {
     return Effect.fail(
       new MCPServerNameParseError({
         toolName,
-        reason: `Tool name must have format mcp_<servername>_<toolname>`,
-        suggestion: `Could not find server name separator. Expected at least one underscore after "mcp_" prefix`,
+        reason: `No configured MCP server matches tool "${toolName}"`,
+        suggestion: `The server may have been removed or renamed since this agent was saved`,
       }),
     );
   }
 
-  // Extract server name (everything before the last underscore)
-  const serverName = withoutPrefix.slice(0, lastUnderscoreIndex);
-
-  if (serverName.length === 0) {
-    return Effect.fail(
-      new MCPServerNameParseError({
-        toolName,
-        reason: `Server name cannot be empty`,
-        suggestion: `Tool name format: mcp_<servername>_<toolname>`,
-      }),
-    );
-  }
-
-  return Effect.succeed(serverName);
+  return Effect.succeed(bestMatch);
 }
 
 /**
- * Extract unique server names from a list of MCP tool names
+ * Extract the set of servers referenced by a list of MCP tool names.
  *
- * @param toolNames - Array of MCP tool names
- * @returns Set of unique server names
+ * Tool names that match no configured server are skipped rather than failing
+ * the whole list: an agent saved against a server the user later removed
+ * should still open.
  */
 export function extractServerNamesFromToolNames(
   toolNames: readonly string[],
-): Effect.Effect<Set<string>, MCPServerNameParseError> {
+  knownServerNames: Iterable<string>,
+): Effect.Effect<Set<string>, never> {
+  const known = Array.from(knownServerNames);
   return Effect.gen(function* () {
     const serverNames = new Set<string>();
 
     for (const toolName of toolNames) {
-      const serverName = yield* parseServerNameFromToolName(toolName);
-      serverNames.add(serverName);
+      const resolved = yield* parseServerNameFromToolName(toolName, known).pipe(Effect.option);
+      if (resolved._tag === "Some") {
+        serverNames.add(resolved.value);
+      }
     }
 
     return serverNames;
@@ -118,15 +121,17 @@ export function retryWithBackoff<E, A, R>(
 }
 
 /**
- * Check if an error indicates that authentication is required
+ * Whether an error looks like the server rejecting our credentials.
  *
- * MCP servers may require authentication and can take longer than normal timeouts.
- * This broad text heuristic may produce false positives and is suitable only
- * for deciding whether to offer authentication UX, never for security policy.
- *
- * @param error - The error to check
- * @returns true if the error suggests authentication is required
+ * Used only to pick which remediation to show — "run `jazz mcp auth`" versus a
+ * generic connection failure — never as a security decision. Matching is on
+ * whole words and specific phrases rather than loose substrings, because the
+ * previous heuristic tripped on any message containing "invalid" and sent
+ * people to check credentials that were fine.
  */
+const AUTH_ERROR_PATTERN =
+  /\b(401|403|unauthorized|unauthenticated|forbidden|authentication|authorization|credentials?|api[ _-]?key)\b|\b(invalid|expired|missing)[ _-](token|credentials?|api[ _-]?key|authorization)\b|\bsign[ -]in required\b/i;
+
 export function isAuthenticationRequired(error: unknown): boolean {
   if (error === null || error === undefined) {
     return false;
@@ -139,28 +144,5 @@ export function isAuthenticationRequired(error: unknown): boolean {
         ? error
         : JSON.stringify(error);
 
-  const lowerMessage = errorMessage.toLowerCase();
-
-  // Check for authentication-related keywords
-  const authKeywords = [
-    "authentication",
-    "authenticate",
-    "auth",
-    "login",
-    "credential",
-    "password",
-    "token",
-    "api key",
-    "api_key",
-    "authorization",
-    "unauthorized",
-    "401",
-    "403",
-    "please sign in",
-    "sign in required",
-    "authentication required",
-    "authentication needed",
-  ];
-
-  return authKeywords.some((keyword) => lowerMessage.includes(keyword));
+  return AUTH_ERROR_PATTERN.test(errorMessage);
 }
