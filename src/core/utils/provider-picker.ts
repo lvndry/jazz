@@ -54,3 +54,44 @@ export function sortProvidersForPicker<T>(
     return canonicalizeProviderId(leftId).localeCompare(canonicalizeProviderId(rightId), "en");
   });
 }
+
+/**
+ * Models pinned to the top of a provider's model picker.
+ *
+ * OpenRouter lists hundreds of models; the two gateway meta-models are the ones that make
+ * choosing OpenRouter worthwhile in the first place — `openrouter/free` is the no-cost entry
+ * point and `openrouter/auto` picks a model for you — so burying them alphabetically among
+ * 300+ siblings hides the reason a newcomer picked this provider. A pinned id that the
+ * catalog does not offer simply never matches, so this stays correct as the catalog changes.
+ */
+const PINNED_MODELS_BY_PROVIDER: Readonly<Record<string, readonly string[]>> = {
+  openrouter: ["openrouter/free", "openrouter/auto"],
+};
+
+function pinnedModelRank(providerId: string, modelId: string): number {
+  const pinned = PINNED_MODELS_BY_PROVIDER[canonicalizeProviderId(providerId)];
+  if (pinned === undefined) {
+    return Number.POSITIVE_INFINITY;
+  }
+  const rank = pinned.indexOf(modelId);
+  return rank === -1 ? Number.POSITIVE_INFINITY : rank;
+}
+
+/**
+ * Order a provider's models for the picker: pinned entry points first, everything else in the
+ * order the catalog supplied.
+ */
+export function sortModelsForPicker<T>(
+  providerId: string,
+  models: readonly T[],
+  getId: (model: T) => string,
+): T[] {
+  return [...models].sort((left, right) => {
+    const leftRank = pinnedModelRank(providerId, getId(left));
+    const rightRank = pinnedModelRank(providerId, getId(right));
+    if (leftRank === rightRank) {
+      return 0;
+    }
+    return leftRank < rightRank ? -1 : 1;
+  });
+}
