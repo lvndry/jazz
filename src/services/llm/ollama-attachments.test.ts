@@ -19,6 +19,9 @@ function devMetadata(overrides: Partial<ModelsDevMetadata> = {}): ModelsDevMetad
     supportsPdf: false,
     supportsAudio: false,
     supportsVideo: false,
+    generatesImage: false,
+    generatesAudio: false,
+    generatesVideo: false,
     supportsTemperature: true,
     ...overrides,
   };

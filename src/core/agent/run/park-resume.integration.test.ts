@@ -214,7 +214,6 @@ describe("park and resume, through the real loop", () => {
       AgentRunner.run({
         agent: AGENT,
         userInput: "do the gated thing",
-        conversationId: "session-1",
         conversationId: "conv-1",
         stream: false,
         parkWhenUnattended: true,
@@ -260,7 +259,6 @@ describe("park and resume, through the real loop", () => {
       AgentRunner.run({
         agent: AGENT,
         userInput: "do the gated thing",
-        conversationId: "session-3",
         conversationId: "conv-2",
         stream: false,
       }).pipe(Effect.provide(makeLayers(store))) as Effect.Effect<unknown, unknown>,

@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { serve } from "bun";
 import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
 import { FileTelemetrySink } from "./file-sink";
@@ -24,7 +25,7 @@ describe("OTLP export end to end", () => {
     const receivedSpans: CapturedSpan[] = [];
     const receivedPaths: string[] = [];
 
-    const server = Bun.serve({
+    const server = serve({
       port: 0,
       async fetch(request) {
         receivedPaths.push(new URL(request.url).pathname);

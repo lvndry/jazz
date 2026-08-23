@@ -11,6 +11,7 @@ import { LLMServiceTag, type LLMService } from "../../interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "../../interfaces/logger";
 import { PresentationServiceTag, type PresentationService } from "../../interfaces/presentation";
 import type { Agent, AgentConfig, AppConfig } from "../../types";
+import { LLMRequestError } from "../../types/errors";
 import type { ChatMessage, ConversationMessages } from "../../types/message";
 import type { AgentResponse } from "../types";
 
@@ -55,8 +56,12 @@ const mockAppConfig: AppConfig = {
 // Mock AgentConfigService
 const mockAgentConfigService: AgentConfigService = {
   appConfig: Effect.succeed(mockAppConfig),
-  getAgentConfig: () => Effect.succeed(createMockAgent().config),
-  saveAgentConfig: () => Effect.void,
+  get: <A>(_key: string) => Effect.succeed(undefined as A),
+  getOrElse: <A>(_key: string, fallback: A) => Effect.succeed(fallback),
+  getOrFail: <A>(_key: string) => Effect.succeed(undefined as A),
+  has: () => Effect.succeed(false),
+  set: () => Effect.void,
+  revision: Effect.succeed(0),
 };
 
 // Mock LLMService (minimal implementation for model selection)
@@ -73,8 +78,9 @@ const mockLLMService: LLMService = {
     }),
   listProviders: () => Effect.succeed([]),
   createChatCompletion: () =>
-    Effect.succeed({ content: "", toolCalls: undefined, usage: undefined }),
-  createStreamingChatCompletion: () => Effect.fail(new Error("Not implemented in mock")),
+    Effect.succeed({ id: "mock-completion", model: "gpt-4", content: "" }),
+  createStreamingChatCompletion: () =>
+    Effect.fail(new LLMRequestError({ provider: "openai", message: "Not implemented in mock" })),
   supportsNativeWebSearch: () => Effect.succeed(false),
 };
 

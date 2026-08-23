@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import type { StreamEvent } from "@/core/types/streaming";
 import { isApprovalPolicyFlag, isReasoningEffortFlag, parseEventCategories } from "./flags";
 
 describe("isApprovalPolicyFlag", () => {
@@ -19,22 +20,21 @@ describe("parseEventCategories", () => {
     const result = parseEventCategories("tools");
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect([...result.types].sort()).toEqual(
-      [
-        "error",
-        "tool_call",
-        "tool_execution_complete",
-        "tool_execution_start",
-        "tools_detected",
-      ].sort(),
-    );
+    const expected: StreamEvent["type"][] = [
+      "error",
+      "tool_call",
+      "tool_execution_complete",
+      "tool_execution_start",
+      "tools_detected",
+    ];
+    expect([...result.types].sort()).toEqual(expected.sort());
   });
 
   it("maps 'all' to every category type plus error", () => {
     const result = parseEventCategories("all");
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    const expected = [
+    const expected: StreamEvent["type"][] = [
       "error",
       "tools_detected",
       "tool_call",

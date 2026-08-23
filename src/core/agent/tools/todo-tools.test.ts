@@ -19,7 +19,7 @@ function context(conversationId: string): ToolExecutionContext {
   return { agentId: "agent-1", conversationId: scoped } as ToolExecutionContext;
 }
 
-const run = <A>(effect: Effect.Effect<A, never, never>): Promise<A> => Effect.runPromise(effect);
+const run = <A, E>(effect: Effect.Effect<A, E, never>): Promise<A> => Effect.runPromise(effect);
 
 afterEach(async () => {
   await Promise.all(
@@ -37,16 +37,12 @@ describe("manage_todos", () => {
       manageTodos.execute(
         { todos: [{ content: "write the parser", status: "in_progress", priority: "high" }] },
         conversation,
-      ) as Effect.Effect<unknown, never, never>,
+      ),
     );
 
-    const listed = (await run(
-      listTodos.execute({}, conversation) as Effect.Effect<
-        { result: { todos: { content: string }[] } },
-        never,
-        never
-      >,
-    )) as { result: { todos: { content: string }[] } };
+    const listed = (await run(listTodos.execute({}, conversation))) as {
+      result: { todos: { content: string }[] };
+    };
     expect(listed.result.todos.map((todo) => todo.content)).toEqual(["write the parser"]);
   });
 
@@ -57,16 +53,12 @@ describe("manage_todos", () => {
       manageTodos.execute(
         { todos: [{ content: "belongs to the first", status: "pending", priority: "medium" }] },
         context("conv-first"),
-      ) as Effect.Effect<unknown, never, never>,
+      ),
     );
 
-    const second = (await run(
-      listTodos.execute({}, context("conv-second")) as Effect.Effect<
-        { result: { totalItems: number } },
-        never,
-        never
-      >,
-    )) as { result: { totalItems: number } };
+    const second = (await run(listTodos.execute({}, context("conv-second")))) as {
+      result: { totalItems: number };
+    };
     expect(second.result.totalItems).toBe(0);
   });
 
@@ -86,16 +78,12 @@ describe("manage_todos", () => {
           ],
         },
         conversation,
-      ) as Effect.Effect<unknown, never, never>,
+      ),
     );
 
-    const listed = (await run(
-      listTodos.execute({}, conversation) as Effect.Effect<
-        { result: { todos: { verifiedBy?: string }[] } },
-        never,
-        never
-      >,
-    )) as { result: { todos: { verifiedBy?: string }[] } };
+    const listed = (await run(listTodos.execute({}, conversation))) as {
+      result: { todos: { verifiedBy?: string }[] };
+    };
     expect(listed.result.todos[0]?.verifiedBy).toBe("bun test src/api.test.ts");
     // Completed with nothing recorded is the honest "written but never run" case.
     expect(listed.result.todos[1]?.verifiedBy).toBeUndefined();
@@ -111,7 +99,7 @@ describe("manage_todos", () => {
           ],
         },
         context("conv-two-active"),
-      ) as Effect.Effect<{ success: boolean; error?: string }, never, never>,
+      ),
     )) as { success: boolean; error?: string };
     expect(result.success).toBe(false);
     expect(result.error).toContain("in_progress");

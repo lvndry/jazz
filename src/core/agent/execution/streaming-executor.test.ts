@@ -12,7 +12,9 @@ import type { LLMService } from "../../interfaces/llm";
 import { LLMServiceTag } from "../../interfaces/llm";
 import { LoggerServiceTag } from "../../interfaces/logger";
 import { MCPServerManagerTag } from "../../interfaces/mcp-server";
+import { MemoryServiceTag } from "../../interfaces/memory-service";
 import { PresentationServiceTag } from "../../interfaces/presentation";
+import { ReminderServiceTag } from "../../interfaces/reminder-service";
 import { TerminalServiceTag } from "../../interfaces/terminal";
 import { ToolRegistryTag } from "../../interfaces/tool-registry";
 import type { RecursiveRunner } from "../context/summarizer";
@@ -145,7 +147,7 @@ describe("executeWithStreaming", () => {
     const displayConfig = {
       showReasoning: false,
       showToolExecution: false,
-      mode: "markdown" as const,
+      mode: "hybrid" as const,
     };
     const streamingConfig = { enabled: true };
     const showMetrics = false;
@@ -194,6 +196,8 @@ describe("executeWithStreaming", () => {
       Layer.succeed(TerminalServiceTag, mockTerminalService),
       Layer.succeed(FileSystemContextServiceTag, mockFileSystemContext),
       Layer.succeed(SkillServiceTag, mockSkillService),
+      Layer.succeed(MemoryServiceTag, {} as any),
+      Layer.succeed(ReminderServiceTag, {} as any),
     );
 
     // Run Effect
@@ -345,7 +349,7 @@ describe("executeWithStreaming", () => {
     const displayConfig = {
       showReasoning: false,
       showToolExecution: false,
-      mode: "markdown" as const,
+      mode: "hybrid" as const,
     };
     const streamingConfig = { enabled: true };
     const runRecursive: RecursiveRunner = () =>
@@ -362,6 +366,8 @@ describe("executeWithStreaming", () => {
       Layer.succeed(TerminalServiceTag, mockTerminalService),
       Layer.succeed(FileSystemContextServiceTag, mockFileSystemContext),
       Layer.succeed(SkillServiceTag, mockSkillService),
+      Layer.succeed(MemoryServiceTag, {} as any),
+      Layer.succeed(ReminderServiceTag, {} as any),
     );
 
     const program = executeWithStreaming(
@@ -490,12 +496,14 @@ describe("executeWithStreaming", () => {
       Layer.succeed(TerminalServiceTag, mockTerminalService),
       Layer.succeed(FileSystemContextServiceTag, mockFileSystemContext),
       Layer.succeed(SkillServiceTag, mockSkillService),
+      Layer.succeed(MemoryServiceTag, {} as any),
+      Layer.succeed(ReminderServiceTag, {} as any),
     );
 
     const program = executeWithStreaming(
       options,
       runContext,
-      { showReasoning: false, showToolExecution: false, mode: "markdown" },
+      { showReasoning: false, showToolExecution: false, mode: "hybrid" },
       { enabled: true },
       false,
       () => Effect.succeed({ content: "recursive", conversationId: "id" } as AgentResponse),

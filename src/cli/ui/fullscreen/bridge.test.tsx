@@ -13,7 +13,6 @@ import { testRender } from "@opentui/react/test-utils";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
 import chalk from "chalk";
 import { Effect } from "effect";
-import React from "react";
 import { createAccumulator, reduceEvent } from "@/cli/presentation/activity-reducer";
 import { InkPresentationService } from "@/cli/presentation/ink-presentation-service";
 import { formatMarkdown } from "@/cli/presentation/markdown-formatter";

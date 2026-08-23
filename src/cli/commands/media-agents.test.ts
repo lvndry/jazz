@@ -31,15 +31,15 @@ function metadata(overrides: Partial<ModelsDevMetadata> = {}): ModelsDevMetadata
   };
 }
 
-function agent(name: string, model: string): Agent {
+function agent(name: string, model: Agent["model"]): Agent {
   return {
     id: name,
     name,
-    model: model as Agent["model"],
-    config: { persona: "default", llmProvider: "x", llmModel: "y" },
+    model,
+    config: { persona: "default", llmProvider: "openai", llmModel: model },
     createdAt: new Date(0),
     updatedAt: new Date(0),
-  } as Agent;
+  };
 }
 
 describe("isMediaCapability", () => {
@@ -88,7 +88,9 @@ describe("findAgentsWithCapability", () => {
   it("skips agents whose model id cannot be parsed or is unknown", async () => {
     // An unknown model reads the same as "cannot", which is the safe direction: claiming an
     // agent can generate when it cannot sends the user down a dead end.
-    expect(await findAgentsWithCapability([agent("weird", "not-a-model-id")], "image")).toEqual([]);
+    expect(
+      await findAgentsWithCapability([agent("weird", "not-a-model-id" as Agent["model"])], "image"),
+    ).toEqual([]);
     expect(
       await findAgentsWithCapability([agent("x", "openai/never-heard-of-it")], "image"),
     ).toEqual([]);

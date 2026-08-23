@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import type { ChatMessage } from "@/core/types/message";
 import {
   formatOneShotError,
   formatOneShotResult,

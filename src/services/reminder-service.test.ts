@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import type { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { Effect } from "effect";
@@ -17,11 +18,11 @@ afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
-function runEffect<A>(eff: Effect.Effect<A, unknown, NodeFileSystem.NodeFileSystem["Type"]>) {
+function runEffect<A>(eff: Effect.Effect<A, unknown, FileSystem.FileSystem>) {
   return Effect.runPromise(eff.pipe(Effect.provide(NodeFileSystem.layer)));
 }
 
-function runEither<A>(eff: Effect.Effect<A, unknown, NodeFileSystem.NodeFileSystem["Type"]>) {
+function runEither<A>(eff: Effect.Effect<A, unknown, FileSystem.FileSystem>) {
   return runEffect(eff.pipe(Effect.either));
 }
 

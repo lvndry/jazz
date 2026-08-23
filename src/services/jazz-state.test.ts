@@ -49,7 +49,7 @@ describe("JazzStateService", () => {
 
     expect(writeFileStringMock).toHaveBeenCalled();
     const written = (writeFileStringMock as unknown as { mock: { calls: unknown[][] } }).mock
-      .calls[0][1];
+      .calls[0]?.[1];
     expect(written).toContain("agent-123");
   });
 
@@ -108,6 +108,6 @@ describe("JazzStateService", () => {
       }).pipe(Effect.provide(layer)),
     );
 
-    expect((Object.prototype as Record<string, unknown>).polluted).toBeUndefined();
+    expect((Object.prototype as Record<string, unknown>)["polluted"]).toBeUndefined();
   });
 });

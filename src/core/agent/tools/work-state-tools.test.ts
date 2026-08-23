@@ -9,7 +9,11 @@ import { createUpdateWorkStateTool } from "./work-state-tools";
 
 const tool = createUpdateWorkStateTool();
 
-function context(overrides?: Partial<ToolExecutionContext>): ToolExecutionContext {
+type ContextOverrides = {
+  [Key in keyof ToolExecutionContext]?: ToolExecutionContext[Key] | undefined;
+};
+
+function context(overrides?: ContextOverrides): ToolExecutionContext {
   return {
     agentId: "agent-1",
     conversationId: "conv-1",

@@ -36,6 +36,7 @@ describe("extractCleanErrorMessage", () => {
     const apiError = new APICallError({
       message: "Cannot connect to API: Connect Timeout Error",
       url: "https://openrouter.ai/api/v1/chat/completions",
+      requestBodyValues: {},
       isRetryable: true,
     });
     const retryError = new RetryError({
@@ -201,6 +202,7 @@ describe("convertToLLMError - Ollama Cloud plan rejection", () => {
       new APICallError({
         message: planMessage,
         url: "https://ollama.com/api/chat",
+        requestBodyValues: {},
         statusCode: 403,
         isRetryable: false,
       }),
@@ -216,6 +218,7 @@ describe("convertToLLMError - Ollama Cloud plan rejection", () => {
       new APICallError({
         message: "Unauthorized",
         url: "https://ollama.com/api/chat",
+        requestBodyValues: {},
         statusCode: 401,
         isRetryable: false,
       }),

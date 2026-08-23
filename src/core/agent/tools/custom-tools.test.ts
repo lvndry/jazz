@@ -362,7 +362,10 @@ describe("registerCustomToolsForAgent", () => {
     await runWithRegistry(registerCustomToolsForAgent(agent, agent.config.tools ?? []), registry);
 
     // "action" is required by the schema but omitted here.
-    const result = await Effect.runPromise(capturedTool.execute({}, { agentId: "agent-1" }));
+    const result = (await Effect.runPromise(capturedTool.execute({}, { agentId: "agent-1" }))) as {
+      success: boolean;
+      error?: string;
+    };
     expect(result.success).toBe(false);
     expect(String(result.error ?? "")).toContain("action");
   });

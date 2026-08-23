@@ -35,9 +35,9 @@ class FakeTty extends EventEmitter {
 }
 
 function createFakeStdin(): NodeJS.ReadStream {
-  const stdin = new EventEmitter() as unknown as NodeJS.ReadStream & { setRawMode: () => void };
+  const stdin = new EventEmitter() as unknown as NodeJS.ReadStream;
   stdin.isTTY = true;
-  stdin.setRawMode = () => {};
+  stdin.setRawMode = (() => stdin) as NodeJS.ReadStream["setRawMode"];
   stdin.resume = (() => stdin) as NodeJS.ReadStream["resume"];
   stdin.pause = (() => stdin) as NodeJS.ReadStream["pause"];
   stdin.ref = (() => stdin) as NodeJS.ReadStream["ref"];
@@ -74,9 +74,10 @@ function mountHarness(): Harness {
     return React.createElement(
       Box,
       { flexDirection: "column" },
-      React.createElement(Static, { items: entries as string[] }, (item: string) =>
-        React.createElement(Text, { key: item }, item),
-      ),
+      React.createElement(Static<string>, {
+        items: entries as string[],
+        children: (item: string) => React.createElement(Text, { key: item }, item),
+      }),
       promptOpen
         ? React.createElement(
             Box,

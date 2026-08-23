@@ -43,7 +43,7 @@ function stubConfig(overrides: {
 function stubLlm(supportsNative: boolean): LLMService {
   return {
     supportsNativeWebSearch: () => Effect.succeed(supportsNative),
-  } as LLMService;
+  } as unknown as LLMService;
 }
 
 function runWebSearch(terminal: TerminalService, configService: AgentConfigService) {
@@ -57,11 +57,11 @@ describe("handleWebSearchConfiguration", () => {
     let selectCalls = 0;
     let savedKey: string | undefined;
     const terminal = stubTerminal({
-      select: () => {
+      select: (() => {
         selectCalls += 1;
         if (selectCalls === 1) return Effect.succeed("tavily");
         return Effect.succeed("back");
-      },
+      }) as TerminalService["select"],
       ask: () => Effect.succeed(undefined),
     });
     const configService = stubConfig({
@@ -83,11 +83,11 @@ describe("handleWebSearchConfiguration", () => {
     let selectCalls = 0;
     const askedFor: string[] = [];
     const terminal = stubTerminal({
-      select: () => {
+      select: (() => {
         selectCalls += 1;
         if (selectCalls === 1) return Effect.succeed("tavily");
         return Effect.succeed("linkup");
-      },
+      }) as TerminalService["select"],
       ask: (message) => {
         askedFor.push(message);
         if (message.includes("tavily")) return Effect.succeed(undefined);

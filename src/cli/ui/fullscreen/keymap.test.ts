@@ -179,8 +179,9 @@ describe("normalizeKey", () => {
     expect(isCtrlLetter({ name: "r", ctrl: false }, "r")).toBe(false);
     expect(isCtrlLetter(normalizeKey("\x16"), "v")).toBe(true);
     expect(isCtrlLetter(normalizeKey({ name: "v", ctrl: true, sequence: "v" }), "v")).toBe(true);
-    expect(isCtrlLetter({ name: "v", ctrl: true, shift: true }, "v")).toBe(true);
-    expect(isCtrlLetter({ name: "v", super: true }, "v")).toBe(false);
+    const ctrlShiftV = { name: "v", ctrl: true, shift: true };
+    expect(isCtrlLetter(ctrlShiftV, "v")).toBe(true);
+    expect(isCtrlLetter({ name: "v", ctrl: false, super: true }, "v")).toBe(false);
   });
 
   it("reads Ctrl+C from the control byte, letter+flag, kitty, and modifyOtherKeys", () => {
@@ -216,7 +217,7 @@ describe("normalizeKey", () => {
     expect(isCtrlLetter({ name: "", ctrl: false, sequence: "\x03" }, "c")).toBe(true);
     expect(isCtrlLetter({ name: "c", ctrl: false }, "c")).toBe(false);
     expect(isCtrlLetter({ name: "c", ctrl: true, super: true }, "c")).toBe(false);
-    expect(isCtrlLetter({ name: "c", super: true }, "c")).toBe(false);
+    expect(isCtrlLetter({ name: "c", ctrl: false, super: true }, "c")).toBe(false);
   });
 
   it("treats Cmd+C and Ctrl+Shift+C as copy, never as interrupt", () => {

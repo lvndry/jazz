@@ -19,6 +19,7 @@ import type { TerminalService } from "../../interfaces/terminal";
 import { TerminalServiceTag } from "../../interfaces/terminal";
 import type { ToolRegistry } from "../../interfaces/tool-registry";
 import { ToolRegistryTag } from "../../interfaces/tool-registry";
+import type { DisplayConfig } from "../../types/output";
 import type { StreamEvent } from "../../types/streaming";
 import type { ApprovalRequest, ToolCall, ToolExecutionResult } from "../../types/tools";
 import type { createAgentRunMetrics } from "../metrics/agent-run-metrics";
@@ -62,7 +63,7 @@ const mockSkillService = {
   listSkills: () => Effect.succeed([]),
   loadSkill: () => Effect.fail(new Error("not implemented")),
   loadSkillSection: () => Effect.fail(new Error("not implemented")),
-} as SkillService;
+} as unknown as SkillService;
 
 // Minimal stubs for services not exercised in these tests
 const emptyFs = {} as unknown as FileSystem.FileSystem;
@@ -83,6 +84,11 @@ function makeRunMetrics(): ReturnType<typeof createAgentRunMetrics> {
     startedAt: new Date(),
     totalPromptTokens: 0,
     totalCompletionTokens: 0,
+    totalReasoningTokens: 0,
+    totalCacheReadTokens: 0,
+    totalCacheWriteTokens: 0,
+    childCostUSD: 0,
+    childCostUnknown: false,
     llmRetryCount: 0,
     toolCalls: 0,
     toolErrors: 0,
@@ -93,10 +99,17 @@ function makeRunMetrics(): ReturnType<typeof createAgentRunMetrics> {
     iterationSummaries: [],
     currentIteration: undefined,
     firstTokenLatencyMs: undefined,
+    totalToolDefinitionTokens: 0,
+    totalToolResultTokens: 0,
+    toolDefinitionsOffered: 0,
   };
 }
 
-const displayConfig = { showReasoning: false, showToolExecution: true, mode: "markdown" as const };
+const displayConfig: DisplayConfig = {
+  showReasoning: false,
+  showToolExecution: true,
+  mode: "hybrid",
+};
 
 describe("ToolExecutor.executeTool", () => {
   it("should execute a tool successfully", async () => {
@@ -129,7 +142,6 @@ describe("ToolExecutor.executeTool", () => {
         { key: "value" },
         {
           agentId: "agent-1",
-          conversationId: "conv-123",
           conversationId: "sess-1",
         },
       ).pipe(Effect.provide(testLayer)) as Effect.Effect<ToolExecutionResult, unknown, never>,
@@ -165,7 +177,6 @@ describe("ToolExecutor.executeTool", () => {
         {},
         {
           agentId: "agent-1",
-          conversationId: "conv-123",
           conversationId: "sess-1",
         },
       ).pipe(Effect.provide(testLayer)) as Effect.Effect<ToolExecutionResult, unknown, never>,
@@ -210,7 +221,7 @@ describe("ToolExecutor.executeToolCall", () => {
     const result = await Effect.runPromise(
       ToolExecutor.executeToolCall(
         toolCall,
-        { agentId: "agent-1", conversationId: "conv-123", conversationId: "sess-1" },
+        { agentId: "agent-1", conversationId: "sess-1" },
         displayConfig,
         null,
         makeRunMetrics(),
@@ -248,7 +259,7 @@ describe("ToolExecutor.executeToolCall", () => {
     const result = await Effect.runPromise(
       ToolExecutor.executeToolCall(
         toolCall,
-        { agentId: "agent-1", conversationId: "conv-123", conversationId: "sess-1" },
+        { agentId: "agent-1", conversationId: "sess-1" },
         displayConfig,
         null,
         makeRunMetrics(),
@@ -305,8 +316,8 @@ describe("ToolExecutor.executeToolCalls", () => {
     const results = await Effect.runPromise(
       ToolExecutor.executeToolCalls(
         toolCalls,
-        { agentId: "agent-1", conversationId: "conv-123", conversationId: "sess-1" },
-        { showReasoning: false, showToolExecution: false, mode: "markdown" as const },
+        { agentId: "agent-1", conversationId: "sess-1" },
+        { showReasoning: false, showToolExecution: false, mode: "hybrid" as const },
         null,
         makeRunMetrics(),
         "agent-1",
@@ -320,8 +331,8 @@ describe("ToolExecutor.executeToolCalls", () => {
     );
 
     expect(results).toHaveLength(2);
-    expect(results[0].toolCallId).toBe("call_1");
-    expect(results[1].toolCallId).toBe("call_2");
+    expect(results[0]?.toolCallId).toBe("call_1");
+    expect(results[1]?.toolCallId).toBe("call_2");
   });
 });
 
@@ -393,7 +404,7 @@ describe("ToolExecutor.executeToolCall approval events", () => {
     await Effect.runPromise(
       ToolExecutor.executeToolCall(
         toolCall,
-        { agentId: "agent-1", conversationId: "conv-123", conversationId: "sess-1" },
+        { agentId: "agent-1", conversationId: "sess-1" },
         displayConfig,
         recordingRenderer,
         makeRunMetrics(),
@@ -495,7 +506,6 @@ describe("ToolExecutor.executeToolCall approval events", () => {
         toolCall,
         {
           agentId: "agent-1",
-          conversationId: "conv-123",
           conversationId: "sess-1",
           parentAgent: {
             id: "agent-1",
