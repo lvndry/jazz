@@ -83,63 +83,6 @@ function generateSuggestions(error: JazzError): ErrorDisplay {
       };
     }
 
-    case "TaskNotFoundError": {
-      return {
-        title: "Task Not Found",
-        message: `Task with ID "${error.taskId}" not found`,
-        suggestion: error.suggestion || "Check if the task ID is correct",
-        recovery: [
-          "List all tasks: `jazz task list`",
-          "Check task ID spelling and case sensitivity",
-          "Create a new task: `jazz task create`",
-        ],
-        relatedCommands: ["jazz task list", "jazz task create"],
-      };
-    }
-
-    case "TaskExecutionError": {
-      return {
-        title: "Task Execution Failed",
-        message: `Task "${error.taskId}" failed: ${error.reason}`,
-        suggestion: error.suggestion || "Check the task configuration and dependencies",
-        recovery: [
-          "Check task configuration: `jazz task get <task-id>`",
-          "Run with debug mode: `jazz task run <task-id> --debug`",
-          "Check task dependencies: `jazz task deps <task-id>`",
-        ],
-        relatedCommands: ["jazz task get", "jazz task run --debug"],
-      };
-    }
-
-    case "TaskTimeoutError": {
-      return {
-        title: "Task Timeout",
-        message: `Task "${error.taskId}" timed out after ${error.timeout}ms`,
-        suggestion: error.suggestion || "Increase the timeout or optimize the task",
-        recovery: [
-          "Increase task timeout in configuration",
-          "Optimize task performance",
-          "Check for resource constraints",
-          "Run with longer timeout: `jazz task run <task-id> --timeout 60000`",
-        ],
-        relatedCommands: ["jazz task run --timeout", "jazz agent config"],
-      };
-    }
-
-    case "TaskDependencyError": {
-      return {
-        title: "Task Dependency Error",
-        message: `Task "${error.taskId}" has dependency issue with "${error.dependencyId}": ${error.reason}`,
-        suggestion: error.suggestion || "Resolve the dependency issue",
-        recovery: [
-          "Check dependency task status: `jazz task get <dependency-id>`",
-          "Run dependency task first: `jazz task run <dependency-id>`",
-          "Update task dependencies: `jazz task update <task-id>`",
-        ],
-        relatedCommands: ["jazz task get", "jazz task run"],
-      };
-    }
-
     case "ConfigurationError": {
       return {
         title: "Configuration Error",
