@@ -17,6 +17,7 @@ import { isCursorOnFirstLine, isCursorOnLastLine } from "./queue-recall";
 import { store } from "./store";
 import { PADDING, THEME } from "./theme";
 import type { PromptState } from "./types";
+import type { SuggestionPrefix } from "./types";
 import { useFileMentions } from "./use-file-mentions";
 
 const G = getGlyphs();
@@ -45,7 +46,7 @@ interface CommandSuggestionItemProps {
   command: ChatCommandInfo;
   isSelected: boolean;
   /** Sigil the row completes: "/" for a command, "@" for a file path. */
-  prefix?: "/" | "@";
+  prefix?: SuggestionPrefix;
 }
 
 function CommandSuggestionItem({

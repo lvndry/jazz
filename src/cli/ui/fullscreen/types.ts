@@ -16,6 +16,7 @@
  *   overlay     floats above all of it, and must not disturb the transcript
  */
 
+import type { SuggestionPrefix } from "../types";
 import type { FilePickerModel } from "./overlays/FilePicker";
 import type { QuestionModel } from "./overlays/Question";
 import type { TextPromptModel } from "./overlays/TextPrompt";
@@ -215,7 +216,7 @@ export interface InputModel {
      * Sigil the suggestions complete. Slash commands and `@` file mentions
      * share this menu, and the rows have to show the one being typed.
      */
-    readonly prefix?: "/" | "@";
+    readonly prefix?: SuggestionPrefix;
   };
   /**
    * Code-point offset into `value` where the next typed character lands.

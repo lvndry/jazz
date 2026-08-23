@@ -1,5 +1,15 @@
 import type { TerminalOutput } from "@/core/interfaces/terminal";
 
+/**
+ * Sigils the composer's suggestion menu can complete.
+ *
+ * Shared by both composers on purpose. The Ink prompt is a fallback for the
+ * fullscreen renderer rather than an alternative to it, so a sigil one offers
+ * and the other does not is a bug — this keeps the two from drifting, the same
+ * way `use-file-mentions` keeps their scan behaviour aligned.
+ */
+export type SuggestionPrefix = "/" | "@";
+
 export type OutputType =
   "info" | "success" | "warn" | "error" | "debug" | "log" | "user" | "streamContent";
 
