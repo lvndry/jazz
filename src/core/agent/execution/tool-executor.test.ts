@@ -419,4 +419,115 @@ describe("ToolExecutor.executeToolCall approval events", () => {
     expect(approvalResolved?.toolCallId).toBe("call_approval_1");
     expect(approvalResolved?.approved).toBe(true);
   });
+
+  it("emits classifying/classified events and the verdict on complete for execute_command", async () => {
+    const mockToolRegistry = {
+      getTool: () =>
+        Effect.succeed({
+          name: "execute_command",
+          timeoutMs: 5000,
+          longRunning: false,
+          approvalExecuteToolName: "execute_execute_command",
+          riskLevel: "unknown" as const,
+        }),
+      executeTool: (name: string) =>
+        name === "execute_command"
+          ? Effect.succeed({
+              success: true,
+              result: {
+                approvalRequired: true,
+                message: "Run python3 --version",
+                executeToolName: "execute_execute_command",
+                executeArgs: { command: "python3 --version" },
+              },
+            })
+          : Effect.succeed({
+              success: true,
+              result: { stdout: "Python 3.14.5", exitCode: 0 },
+            }),
+    } as unknown as ToolRegistry;
+
+    const emittedEvents: StreamEvent[] = [];
+    const recordingRenderer: StreamingRenderer = {
+      handleEvent: (event) =>
+        Effect.sync(() => {
+          emittedEvents.push(event);
+        }),
+      setInterruptHandler: () => Effect.void,
+      reset: () => Effect.void,
+      flush: () => Effect.void,
+    };
+
+    const promptingPresentation = {
+      ...mockPresentationService,
+      canPromptForApproval: () => true,
+      requestApproval: () => {
+        throw new Error("classifier should have auto-approved");
+      },
+    } as unknown as PresentationService;
+
+    const classifyingLlm = {
+      createChatCompletion: () =>
+        Effect.succeed({ id: "1", model: "gpt-4o-mini", content: "read-only" }),
+    } as unknown as LLMService;
+
+    const testLayer = Layer.mergeAll(
+      Layer.succeed(LoggerServiceTag, mockLogger),
+      Layer.succeed(PresentationServiceTag, promptingPresentation),
+      Layer.succeed(ToolRegistryTag, mockToolRegistry),
+      Layer.succeed(AgentConfigServiceTag, mockAgentConfigService),
+      Layer.succeed(FileSystem.FileSystem, emptyFs),
+      Layer.succeed(TerminalServiceTag, emptyTerminal),
+      Layer.succeed(FileSystemContextServiceTag, emptyFsContext),
+      Layer.succeed(SkillServiceTag, mockSkillService),
+      Layer.succeed(LLMServiceTag, classifyingLlm),
+      Layer.succeed(MCPServerManagerTag, emptyMcp),
+    );
+
+    const toolCall: ToolCall = {
+      id: "call_cmd_1",
+      type: "function",
+      function: { name: "execute_command", arguments: '{"command":"python3 --version"}' },
+    };
+
+    await Effect.runPromise(
+      ToolExecutor.executeToolCall(
+        toolCall,
+        {
+          agentId: "agent-1",
+          conversationId: "conv-123",
+          sessionId: "sess-1",
+          parentAgent: {
+            id: "agent-1",
+            name: "test",
+            model: "openai/gpt-4o-mini",
+            config: { persona: "default", llmProvider: "openai", llmModel: "gpt-4o-mini" },
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+        },
+        displayConfig,
+        recordingRenderer,
+        makeRunMetrics(),
+        "agent-1",
+        "conv-123",
+        new Set(["execute_command"]),
+      ).pipe(Effect.provide(testLayer)) as Effect.Effect<ToolCallExecutionResult, unknown, never>,
+    );
+
+    const types = emittedEvents.map((event) => event.type);
+    expect(types).toContain("command_risk_classifying");
+    expect(types).toContain("command_risk_classified");
+
+    const classified = emittedEvents.find((event) => event.type === "command_risk_classified") as
+      Extract<StreamEvent, { type: "command_risk_classified" }> | undefined;
+    expect(classified?.riskLevel).toBe("read-only");
+    expect(classified?.autoApproved).toBe(true);
+    expect(classified?.command).toBe("python3 --version");
+
+    const complete = emittedEvents.find((event) => event.type === "tool_execution_complete") as
+      Extract<StreamEvent, { type: "tool_execution_complete" }> | undefined;
+    expect(complete?.classifiedRisk).toBe("read-only");
+    expect(complete?.success).toBe(true);
+  });
 });

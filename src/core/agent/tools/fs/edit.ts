@@ -5,6 +5,7 @@ import { FileSystemContextServiceTag, type FileSystemContextService } from "@/co
 import type { ToolExecutionContext } from "@/core/types";
 import { generateDiff, generateDiffWithMetadata } from "@/core/utils/diff";
 import { buildLineOffsets, findAllOccurrenceLineNumbers, offsetToLine } from "@/core/utils/string";
+import { FILE_MUTATION_PREVIEW_CHARS } from "@/core/utils/tool-formatter";
 import {
   defineApprovalTool,
   makeZodValidator,
@@ -668,9 +669,14 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
           }
 
           const { diff, wasTruncated } = generateDiffWithMetadata(fileContent, newContent, target);
-          const fullDiff = wasTruncated
+          const needsExpansion =
+            wasTruncated ||
+            newContent.length > FILE_MUTATION_PREVIEW_CHARS ||
+            diff.length > FILE_MUTATION_PREVIEW_CHARS;
+          const fullDiff = needsExpansion
             ? generateDiff(fileContent, newContent, target, {
                 maxLines: Number.POSITIVE_INFINITY,
+                fullPatch: true,
               })
             : "";
 

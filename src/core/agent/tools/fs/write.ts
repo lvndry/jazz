@@ -4,6 +4,7 @@ import { z } from "zod";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "@/core/interfaces/fs";
 import type { ToolExecutionContext } from "@/core/types";
 import { generateDiff, generateDiffWithMetadata } from "@/core/utils/diff";
+import { FILE_MUTATION_PREVIEW_CHARS } from "@/core/utils/tool-formatter";
 import {
   defineApprovalTool,
   makeZodValidator,
@@ -153,10 +154,15 @@ export function createWriteFileTools(): ApprovalToolPair<WriteFileDeps> {
             target,
             { isNewFile },
           );
-          const fullDiff = wasTruncated
+          const needsExpansion =
+            wasTruncated ||
+            args.content.length > FILE_MUTATION_PREVIEW_CHARS ||
+            diff.length > FILE_MUTATION_PREVIEW_CHARS;
+          const fullDiff = needsExpansion
             ? generateDiff(originalContent, args.content, target, {
                 isNewFile,
                 maxLines: Number.POSITIVE_INFINITY,
+                fullPatch: true,
               })
             : "";
 

@@ -136,6 +136,8 @@ describe("parseEventCategories", () => {
       "complete",
       "approval_required",
       "approval_resolved",
+      "command_risk_classifying",
+      "command_risk_classified",
       "subagent_start",
       "subagent_complete",
     ];

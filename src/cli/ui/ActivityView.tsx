@@ -189,12 +189,15 @@ export const ActivityView = React.memo(function ActivityView({
     case "tool-execution": {
       const uniqueNames = Array.from(new Set(activity.tools.map((t) => t.toolName)));
       const isManagingTodos = uniqueNames.includes("manage_todos");
+      const classifying = activity.tools.some((tool) => tool.classifying === true);
       const label =
         isManagingTodos && activity.todoSnapshot && activity.todoSnapshot.length > 0
           ? "Updating todo list…"
-          : uniqueNames.length === 1
-            ? `Running ${uniqueNames[0]}…`
-            : `Running ${uniqueNames.length} tools… (${uniqueNames.join(", ")})`;
+          : classifying && uniqueNames.length === 1
+            ? `Classifying ${uniqueNames[0]}…`
+            : uniqueNames.length === 1
+              ? `Running ${uniqueNames[0]}…`
+              : `Running ${uniqueNames.length} tools… (${uniqueNames.join(", ")})`;
       return (
         <Box
           flexDirection="column"

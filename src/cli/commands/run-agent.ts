@@ -286,7 +286,12 @@ const EVENT_CATEGORY_TYPES = {
   reasoning: ["thinking_start", "thinking_chunk", "thinking_complete"],
   text: ["text_start", "text_chunk"],
   usage: ["stream_start", "usage_update", "complete"],
-  approval: ["approval_required", "approval_resolved"],
+  approval: [
+    "approval_required",
+    "approval_resolved",
+    "command_risk_classifying",
+    "command_risk_classified",
+  ],
   subagent: ["subagent_start", "subagent_complete"],
 } as const satisfies Record<string, readonly StreamEvent["type"][]>;
 

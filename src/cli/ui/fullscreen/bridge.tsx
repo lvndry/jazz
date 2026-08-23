@@ -20,6 +20,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { stripAnsiCodes } from "@/cli/utils/string-utils";
 import type { Suggestion } from "@/core/interfaces/presentation";
 import { extractCommandApprovalKey } from "@/core/utils/shell";
+import { isFileMutationTool } from "@/core/utils/tool-formatter";
 import { filterCommandsByPrefix, slashCommandQuery } from "@/services/chat/commands";
 import { search, type SearchHit } from "@/services/history/session-search";
 import packageJson from "../../../../package.json";
@@ -73,6 +74,7 @@ import type { QuestionChoice, QuestionModel } from "./overlays/Question";
 import type { TextPromptModel } from "./overlays/TextPrompt";
 import { AgentPicker } from "./screens/AgentPicker";
 import { Home } from "./screens/Home";
+import { pathFromFileArgsPreview, sourceLanguageFromPath } from "./syntax-spans";
 import {
   LIVE_ZONE_MAX_ROWS,
   type ApprovalOverlay,
@@ -530,6 +532,7 @@ interface ToolReceiptMeta {
   readonly durationMs?: number;
   readonly reason?: string;
   readonly detail?: string;
+  readonly classifiedRisk?: string;
 }
 
 function receiptOf(entry: OutputEntry): ToolReceiptMeta | null {
@@ -546,6 +549,9 @@ function receiptOf(entry: OutputEntry): ToolReceiptMeta | null {
     ...(typeof record["durationMs"] === "number" ? { durationMs: record["durationMs"] } : {}),
     ...(typeof record["reason"] === "string" ? { reason: record["reason"] } : {}),
     ...(typeof record["detail"] === "string" ? { detail: record["detail"] } : {}),
+    ...(typeof record["classifiedRisk"] === "string"
+      ? { classifiedRisk: record["classifiedRisk"] }
+      : {}),
   };
 }
 
@@ -639,11 +645,33 @@ function blocksFrom(
         ...(receipt.reason === undefined ? {} : { reason: receipt.reason }),
         ...(receipt.durationMs === undefined ? {} : { durationMs: receipt.durationMs }),
         ...(receipt.detail === undefined ? {} : { detail: receipt.detail }),
+        ...(receipt.classifiedRisk === undefined ? {} : { classifiedRisk: receipt.classifiedRisk }),
       });
       continue;
     }
 
     if (entry.meta?.["toolStart"] === true) continue;
+
+    if (entry.meta?.["expandedOutput"] === true) {
+      const expanded = stripAnsiCodes(
+        typeof entry.meta["plainText"] === "string"
+          ? entry.meta["plainText"]
+          : plainOf(entry.message),
+      );
+      if (expanded.trim().length > 0) {
+        blocks.push({
+          id,
+          seq: seq++,
+          kind: "tool",
+          app: "",
+          summary: "",
+          status: "ok",
+          expanded: true,
+          detail: expanded,
+        });
+      }
+      continue;
+    }
 
     const plainText = entry.meta?.["plainText"];
     const text = stripAnsiCodes(typeof plainText === "string" ? plainText : plainOf(entry.message));
@@ -746,14 +774,23 @@ function liveToolsFrom(activity: ActivityState, now: number): LiveTool[] {
     const nameRest = parts.length > 1 ? parts.slice(1).join(" ") : "";
     const args = tool.argsPreview?.trim();
     let operation = nameRest.length > 0 ? nameRest : tool.toolName;
-    if (args !== undefined && args.length > 0) {
+    if (tool.classifying === true) {
+      operation =
+        args !== undefined && args.length > 0 ? `classifying ${args}` : "classifying risk";
+    } else if (args !== undefined && args.length > 0) {
       operation = nameRest.length > 0 ? `${nameRest} ${args}` : args;
     }
+    const language = isFileMutationTool(tool.toolName)
+      ? (sourceLanguageFromPath(pathFromFileArgsPreview(args ?? "") ?? "") ?? "code")
+      : args === undefined
+        ? undefined
+        : sourceLanguageFromPath(pathFromFileArgsPreview(args) ?? "");
     return {
       app: parts[0] ?? tool.toolName,
       operation,
       elapsedMs: Math.max(0, now - tool.startedAt),
       phase: index,
+      ...(language === undefined ? {} : { language }),
     };
   });
 }
@@ -1336,6 +1373,7 @@ export function FullscreenBridge(): React.ReactNode {
             type: "log",
             message: payload.fullDiff,
             timestamp: new Date(),
+            meta: { expandedOutput: true },
           });
         }
         return true;

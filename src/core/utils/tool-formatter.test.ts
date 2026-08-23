@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { formatToolArguments, formatToolResult, toolResultSnippet } from "./tool-formatter";
+import {
+  compactToolArguments,
+  expandableFileMutationPayload,
+  FILE_MUTATION_PREVIEW_CHARS,
+  formatToolArguments,
+  formatToolResult,
+  toolResultSnippet,
+} from "./tool-formatter";
 
 describe("formatToolArguments http_request", () => {
   test("merges query params into the displayed URL", () => {
@@ -155,5 +162,84 @@ describe("toolResultSnippet", () => {
 
   test("returns empty for braces only", () => {
     expect(toolResultSnippet("{\n}")).toBe("");
+  });
+});
+
+describe("formatToolArguments write_file / edit_file", () => {
+  test("includes a collapsed content preview", () => {
+    const formatted = formatToolArguments(
+      "write_file",
+      { path: "src/app.py", content: "def main():\n    print('hi')" },
+      { style: "plain" },
+    );
+    expect(formatted).toContain("file: src/app.py");
+    expect(formatted).toContain("def main(): print('hi')");
+    expect(formatted).not.toContain("\n");
+  });
+
+  test("truncates long write content at the preview budget", () => {
+    const content = "x".repeat(FILE_MUTATION_PREVIEW_CHARS + 80);
+    const formatted = formatToolArguments(
+      "write_file",
+      { path: "out.js", content },
+      { style: "plain" },
+    );
+    expect(formatted).toContain("file: out.js");
+    expect(formatted).toContain("…");
+    expect(formatted.length).toBeLessThan(content.length);
+    const preview = compactToolArguments("write_file", { path: "out.js", content });
+    expect(preview.endsWith("…")).toBe(true);
+  });
+
+  test("includes edit replacement text in the preview", () => {
+    const formatted = formatToolArguments(
+      "edit_file",
+      {
+        path: "src/app.ts",
+        edits: [{ type: "replace_pattern", pattern: "foo", replacement: "const renamed = 1" }],
+      },
+      { style: "plain" },
+    );
+    expect(formatted).toContain("file: src/app.ts");
+    expect(formatted).toContain("const renamed = 1");
+  });
+});
+
+describe("formatToolResult write_file / edit_file", () => {
+  test("keeps a short diff intact", () => {
+    const diff = "--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n-old\n+new";
+    const formatted = formatToolResult("edit_file", JSON.stringify({ diff, path: "a.ts" }));
+    expect(formatted).toBe(diff);
+    expect(formatted).not.toContain("ctrl+o");
+  });
+
+  test("truncates a long diff and points at Ctrl+O", () => {
+    const diff = Array.from(
+      { length: 40 },
+      (_, index) => `+line ${String(index)} ${"y".repeat(20)}`,
+    ).join("\n");
+    const formatted = formatToolResult("write_file", JSON.stringify({ diff, path: "out.py" }));
+    expect(formatted.length).toBeLessThan(diff.length);
+    expect(formatted).toContain("… · ctrl+o to expand");
+    expect(formatted.startsWith(diff.slice(0, 20))).toBe(true);
+  });
+});
+
+describe("expandableFileMutationPayload", () => {
+  test("returns null when the diff already fits the preview", () => {
+    expect(
+      expandableFileMutationPayload(
+        JSON.stringify({ diff: "short", wasTruncated: false, fullDiff: "" }),
+      ),
+    ).toBeNull();
+  });
+
+  test("prefers fullDiff when the display was truncated", () => {
+    const fullDiff = "x".repeat(FILE_MUTATION_PREVIEW_CHARS + 10);
+    expect(
+      expandableFileMutationPayload(
+        JSON.stringify({ diff: "preview", wasTruncated: true, fullDiff }),
+      ),
+    ).toBe(fullDiff);
   });
 });
