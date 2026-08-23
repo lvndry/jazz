@@ -1,12 +1,6 @@
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import {
-  ElicitRequestSchema,
-  PromptListChangedNotificationSchema,
-  ToolListChangedNotificationSchema,
-} from "@modelcontextprotocol/sdk/types.js";
+import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+import type { Transport } from "@modelcontextprotocol/client";
+import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { Effect, Layer } from "effect";
 import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
@@ -18,6 +12,7 @@ import type {
   MCPServerManager,
   MCPTransport,
   MCPTransportType,
+  ProgressReporter,
   ToolsChangedHandler,
 } from "@/core/interfaces/mcp-server";
 import { isHttpConfig, isStdioConfig, MCPServerManagerTag } from "@/core/interfaces/mcp-server";
@@ -37,6 +32,7 @@ import type {
   MCPPromptResult,
   MCPResource,
   MCPResourceContent,
+  MCPResourceTemplate,
   MCPServerCapabilities,
   MCPTool,
   MCPToolResult,
@@ -182,14 +178,24 @@ class MCPServerManagerImpl implements MCPServerManager {
         { capabilities: { elicitation: {} } },
       );
 
-      client.setRequestHandler(ElicitRequestSchema, (request) =>
+      client.setRequestHandler("elicitation/create", (request) =>
         manager.handleElicitation(config.name, request.params),
       );
 
-      client.setNotificationHandler(ToolListChangedNotificationSchema, () => {
+      client.setNotificationHandler("notifications/tools/list_changed", () => {
         manager.handleToolsListChanged(config.name);
       });
-      client.setNotificationHandler(PromptListChangedNotificationSchema, () => {
+      client.setNotificationHandler("notifications/resources/list_changed", () => {
+        // Resource listings are fetched fresh on every call rather than cached,
+        // so there is no stale state to invalidate. Handled anyway so the
+        // notification is not silently dropped by the transport.
+        void Effect.runPromise(
+          manager.logger
+            .debug(`MCP server ${config.name} changed its resource list`)
+            .pipe(Effect.catchAllCause(() => Effect.void)),
+        );
+      });
+      client.setNotificationHandler("notifications/prompts/list_changed", () => {
         // Prompts are re-listed on demand by the chat command, so the
         // notification only needs to not be an unhandled-method error.
       });
@@ -400,6 +406,7 @@ class MCPServerManagerImpl implements MCPServerManager {
     serverName: string,
     toolName: string,
     args: Record<string, unknown>,
+    onProgress?: ProgressReporter,
   ): Effect.Effect<MCPToolResult, MCPToolExecutionError, LoggerService> {
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const manager = this;
@@ -417,7 +424,25 @@ class MCPServerManagerImpl implements MCPServerManager {
       }
 
       const result = yield* Effect.tryPromise({
-        try: () => connection.client.callTool({ name: toolName, arguments: args }),
+        try: () =>
+          connection.client.callTool(
+            { name: toolName, arguments: args },
+            onProgress
+              ? {
+                  onprogress: (progress) => {
+                    onProgress({
+                      progress: progress.progress,
+                      ...(progress.total !== undefined ? { total: progress.total } : {}),
+                      ...(progress.message !== undefined ? { message: progress.message } : {}),
+                    });
+                  },
+                  // A server that keeps reporting is working, not hung — let it
+                  // keep going rather than timing out mid-report.
+                  resetTimeoutOnProgress: true,
+                  maxTotalTimeout: CALL_TIMEOUT_MS,
+                }
+              : undefined,
+          ),
         catch: (error) => (error instanceof Error ? error : new Error(String(error))),
       }).pipe(
         Effect.timeoutFail({
@@ -579,7 +604,10 @@ class MCPServerManagerImpl implements MCPServerManager {
       message?: string | undefined;
       requestedSchema?: unknown;
     },
-  ): Promise<{ action: "accept" | "decline" | "cancel"; content?: Record<string, unknown> }> {
+  ): Promise<{
+    action: "accept" | "decline" | "cancel";
+    content?: Record<string, string | number | boolean | string[]>;
+  }> {
     const handler = this.elicitationHandler;
 
     if (!handler) {
@@ -609,9 +637,22 @@ class MCPServerManagerImpl implements MCPServerManager {
 
     try {
       const response: MCPElicitationResponse = await handler(request);
-      return response.action === "accept"
-        ? { action: "accept", content: response.content }
-        : { action: response.action };
+      if (response.action !== "accept") {
+        return { action: response.action };
+      }
+
+      // v2 types elicitation content precisely, and a readonly array is not
+      // assignable to the mutable one the wire type declares.
+      const content: Record<string, string | number | boolean | string[]> = {};
+      for (const [key, value] of Object.entries(response.content)) {
+        // `Array.isArray` does not narrow a readonly array out of the union,
+        // so the scalar cases are what get tested.
+        content[key] =
+          typeof value === "string" || typeof value === "number" || typeof value === "boolean"
+            ? value
+            : [...value];
+      }
+      return { action: "accept", content };
     } catch (error) {
       await Effect.runPromise(
         this.logger.warn(
@@ -736,6 +777,69 @@ class MCPServerManagerImpl implements MCPServerManager {
         ...("text" in content && typeof content.text === "string" ? { text: content.text } : {}),
         ...("blob" in content && typeof content.blob === "string" ? { blob: content.blob } : {}),
       }));
+    });
+  }
+
+  getResourceTemplates(
+    serverName: string,
+  ): Effect.Effect<readonly MCPResourceTemplate[], MCPResourceError, LoggerService> {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const manager = this;
+    return Effect.gen(function* () {
+      const connection = manager.connections.get(serverName);
+      if (!connection || connection.capabilities?.resources === undefined) {
+        return [];
+      }
+
+      return yield* Effect.tryPromise({
+        try: async () => {
+          const result = await connection.client.listResourceTemplates({});
+          return result.resourceTemplates.map((template) => ({
+            uriTemplate: template.uriTemplate,
+            name: template.name,
+            title: template.title,
+            description: template.description,
+            mimeType: template.mimeType,
+          }));
+        },
+        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+      }).pipe(
+        // A server may advertise `resources` without implementing templates, so
+        // a failure here means "none", not a broken server.
+        Effect.catchAll(() => Effect.succeed([] as readonly MCPResourceTemplate[])),
+      );
+    });
+  }
+
+  completeArgument(
+    serverName: string,
+    reference: { readonly type: "prompt" | "resource"; readonly name: string },
+    argumentName: string,
+    partialValue: string,
+  ): Effect.Effect<readonly string[], never, LoggerService> {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const manager = this;
+    return Effect.gen(function* () {
+      const connection = manager.connections.get(serverName);
+      if (!connection) return [];
+
+      return yield* Effect.tryPromise({
+        try: async () => {
+          const result = await connection.client.complete({
+            ref:
+              reference.type === "prompt"
+                ? { type: "ref/prompt", name: reference.name }
+                : { type: "ref/resource", uri: reference.name },
+            argument: { name: argumentName, value: partialValue },
+          });
+          return result.completion.values;
+        },
+        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+      }).pipe(
+        // Completion is a convenience: a server that does not implement it
+        // should cost the user a picker, not the whole prompt.
+        Effect.catchAll(() => Effect.succeed([] as readonly string[])),
+      );
     });
   }
 

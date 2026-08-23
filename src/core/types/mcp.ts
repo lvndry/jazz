@@ -164,3 +164,19 @@ export type MCPElicitationResponse =
     }
   | { readonly action: "decline" }
   | { readonly action: "cancel" };
+
+/** A parameterized resource URI, as advertised by `resources/templates/list`. */
+export interface MCPResourceTemplate {
+  readonly uriTemplate: string;
+  readonly name?: string | undefined;
+  readonly title?: string | undefined;
+  readonly description?: string | undefined;
+  readonly mimeType?: string | undefined;
+}
+
+/** One progress report from a long-running server operation. */
+export interface MCPProgress {
+  readonly progress: number;
+  readonly total?: number | undefined;
+  readonly message?: string | undefined;
+}

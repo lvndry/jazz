@@ -99,7 +99,6 @@
     "@effect/sql": "^0.52.1",
     "@effect/workflow": "^0.19.1",
     "@eslint/js": "^10.0.1",
-    "@modelcontextprotocol/sdk": "^1.30.0",
     "@openrouter/ai-sdk-provider": "^3.0.0",
     "@perplexity-ai/perplexity_ai": "^0.38.3",
     "@tavily/core": "^0.7.7",
@@ -145,7 +144,8 @@
     "vercel-minimax-ai-provider": "^0.0.2",
     "wrap-ansi": "^10.0.0",
     "zhipu-ai-provider": "^0.4.0",
-    "zod": "^4.4.3"
+    "zod": "^4.4.3",
+    "@modelcontextprotocol/client": "^2.0.0"
   },
   "engines": {
     "node": ">=22.16.0",

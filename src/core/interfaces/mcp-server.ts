@@ -1,5 +1,5 @@
-import type { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import type { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import type { StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+import type { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { Context, Effect } from "effect";
 import type {
   MCPConnectionError,
@@ -12,10 +12,12 @@ import type {
 import type {
   MCPElicitationRequest,
   MCPElicitationResponse,
+  MCPProgress,
   MCPPrompt,
   MCPPromptResult,
   MCPResource,
   MCPResourceContent,
+  MCPResourceTemplate,
   MCPServerCapabilities,
   MCPTool,
   MCPToolResult,
@@ -105,6 +107,14 @@ export type ElicitationHandler = (
   request: MCPElicitationRequest,
 ) => Promise<MCPElicitationResponse>;
 
+/**
+ * Receives progress reports from a long-running server operation.
+ *
+ * A server doing thirty seconds of work is otherwise indistinguishable from a
+ * hung one, so these are surfaced rather than dropped.
+ */
+export type ProgressReporter = (progress: MCPProgress) => void;
+
 /** Called when a server reports its tool list changed. */
 export type ToolsChangedHandler = (serverName: string, tools: readonly MCPTool[]) => void;
 
@@ -144,6 +154,7 @@ export interface MCPServerManager {
     serverName: string,
     toolName: string,
     args: Record<string, unknown>,
+    onProgress?: ProgressReporter,
   ) => Effect.Effect<MCPToolResult, MCPToolExecutionError, LoggerService>;
 
   /**
@@ -192,6 +203,25 @@ export interface MCPServerManager {
     serverName: string,
     uri: string,
   ) => Effect.Effect<readonly MCPResourceContent[], MCPResourceError, LoggerService>;
+
+  /**
+   * List a server's parameterized resource URIs. Servers that advertise
+   * resources without implementing templates return an empty list.
+   */
+  readonly getResourceTemplates: (
+    serverName: string,
+  ) => Effect.Effect<readonly MCPResourceTemplate[], MCPResourceError, LoggerService>;
+
+  /**
+   * Ask a server to complete a partially typed prompt or resource argument.
+   * Returns an empty list when the server does not implement completion.
+   */
+  readonly completeArgument: (
+    serverName: string,
+    reference: { readonly type: "prompt" | "resource"; readonly name: string },
+    argumentName: string,
+    partialValue: string,
+  ) => Effect.Effect<readonly string[], never, LoggerService>;
 
   /**
    * Register the handler that answers servers' elicitation requests. Returns an
