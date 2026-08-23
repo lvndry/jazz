@@ -176,7 +176,7 @@ Other providers follow the same `<PROVIDER>_API_KEY` convention — see
 | Variable           | Effect                                                                       |
 | ------------------ | ---------------------------------------------------------------------------- |
 | `JAZZ_NO_TUI`      | `1`: no terminal UI at all, plain output (same as `--no-tui`)                |
-| `JAZZ_FULLSCREEN`  | `0`: keep an interactive interface but not the alternate screen             |
+| `JAZZ_FULLSCREEN`  | `0`: keep an interactive interface but not the alternate screen. One-shot commands (`agent list`, `config show`, …) never enter the alternate screen, so their output stays in scrollback. |
 | `JAZZ_OUTPUT_MODE` | `rendered` \| `hybrid` \| `raw` \| `quiet` (same as `--output`)              |
 | `JAZZ_THEME`       | Colour theme                                                                 |
 | `JAZZ_UI_GLYPHS`   | `unicode` \| `ascii` — override glyph detection for terminals that misreport |

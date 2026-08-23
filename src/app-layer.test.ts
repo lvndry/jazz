@@ -1,17 +1,61 @@
 import { describe, expect, test } from "bun:test";
-import { getPresentationConfig } from "./app-layer";
+import { commandWantsFullscreen, getPresentationConfig } from "./app-layer";
+
+describe("commandWantsFullscreen", () => {
+  test("only long-lived sessions enter the alternate screen", () => {
+    expect(commandWantsFullscreen("agent chat")).toBe(true);
+    expect(commandWantsFullscreen("agent create")).toBe(true);
+    expect(commandWantsFullscreen("agent edit")).toBe(true);
+    expect(commandWantsFullscreen("persona create")).toBe(true);
+    expect(commandWantsFullscreen("persona edit")).toBe(true);
+    expect(commandWantsFullscreen("workflow run")).toBe(true);
+    expect(commandWantsFullscreen("workflow catchup")).toBe(true);
+    expect(commandWantsFullscreen("jazz")).toBe(true);
+  });
+
+  test("one-shot commands stay on the main screen so their output survives exit", () => {
+    expect(commandWantsFullscreen("agent list")).toBe(false);
+    expect(commandWantsFullscreen("agent show")).toBe(false);
+    expect(commandWantsFullscreen("agent delete")).toBe(false);
+    expect(commandWantsFullscreen("config show")).toBe(false);
+    expect(commandWantsFullscreen("persona list")).toBe(false);
+    expect(commandWantsFullscreen("mcp list")).toBe(false);
+    expect(commandWantsFullscreen("workflow list")).toBe(false);
+    expect(commandWantsFullscreen("runs list")).toBe(false);
+    expect(commandWantsFullscreen("update")).toBe(false);
+    expect(commandWantsFullscreen(undefined)).toBe(false);
+  });
+});
 
 describe("getPresentationConfig", () => {
   const terminalEnvironment = { TERM: "xterm-256color" };
   const terminalOutput = { isTTY: true, columns: 100, rows: 24 };
   const terminalInput = { isTTY: true };
 
-  test("capable TTY uses the interactive presentation", () => {
-    const config = getPresentationConfig(terminalEnvironment, terminalOutput, terminalInput);
+  test("capable TTY uses the interactive presentation for a session command", () => {
+    const config = getPresentationConfig(
+      terminalEnvironment,
+      terminalOutput,
+      terminalInput,
+      "agent chat",
+    );
     expect(config.isQuiet).toBe(false);
     expect(config.usePlainTerminal).toBe(false);
     expect(config.useCLIPresentation).toBe(false);
     expect(config.useFullscreen).toBe(true);
+  });
+
+  test("one-shot commands keep Ink on the main screen so output stays in scrollback", () => {
+    const config = getPresentationConfig(
+      terminalEnvironment,
+      terminalOutput,
+      terminalInput,
+      "agent list",
+    );
+    expect(config.isQuiet).toBe(false);
+    expect(config.usePlainTerminal).toBe(false);
+    expect(config.useCLIPresentation).toBe(false);
+    expect(config.useFullscreen).toBe(false);
   });
 
   // `jazz run` and `jazz workflow --json` set JAZZ_NO_TUI to keep stdout clean

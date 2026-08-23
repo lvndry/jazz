@@ -65,10 +65,29 @@ interface EnvShape extends FullscreenEnvironment {
   readonly JAZZ_FULLSCREEN?: string;
 }
 
+// The alternate screen is discarded when the process exits, so a command that
+// prints and returns would flash then vanish. Only long-lived sessions enter it.
+const FULLSCREEN_SESSION_COMMANDS: ReadonlySet<string> = new Set([
+  "jazz",
+  "agent chat",
+  "agent create",
+  "agent edit",
+  "persona create",
+  "persona edit",
+  "workflow run",
+  "workflow catchup",
+]);
+
+/** Whether this command should take over the alternate screen, given a capable TTY. */
+export function commandWantsFullscreen(commandName: string | undefined): boolean {
+  return commandName !== undefined && FULLSCREEN_SESSION_COMMANDS.has(commandName);
+}
+
 export function getPresentationConfig(
   env: EnvShape = process.env,
   stdout: TerminalOutputCapabilities = process.stdout,
   stdin: TerminalInputCapabilities = process.stdin,
+  commandName: string | undefined = getCurrentCommandName(),
 ): PresentationConfig {
   const isQuiet = env.JAZZ_OUTPUT_MODE === "quiet";
   const rawOutput = env.JAZZ_OUTPUT_MODE === "raw";
@@ -91,7 +110,8 @@ export function getPresentationConfig(
     isQuiet,
     usePlainTerminal: isQuiet || rawOutput || requestNoTui || capabilityBlocked,
     useCLIPresentation: !isQuiet && (rawOutput || requestNoTui || capabilityBlocked),
-    useFullscreen: decision.fullscreen && !isQuiet && !rawOutput,
+    useFullscreen:
+      decision.fullscreen && !isQuiet && !rawOutput && commandWantsFullscreen(commandName),
   };
 }
 
