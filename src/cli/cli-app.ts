@@ -20,18 +20,18 @@ import {
 } from "./commands/mcp";
 import { isMediaCapability, MEDIA_CAPABILITIES } from "./commands/media-agents";
 import {
+  isApprovalPolicyFlag,
+  isReasoningEffortFlag,
+  parseEventCategories,
+} from "./commands/one-shot-flags";
+import {
   createPersonaCommand,
   listPersonasCommand,
   showPersonaCommand,
   editPersonaCommand,
   deletePersonaCommand,
 } from "./commands/persona";
-import {
-  isApprovalPolicyFlag,
-  parseEventCategories,
-  isReasoningEffortFlag,
-  runAgentOnceCommand,
-} from "./commands/run-agent";
+import { runAgentOnceCommand } from "./commands/run";
 import {
   answerRunCommand,
   cancelRunCommand,

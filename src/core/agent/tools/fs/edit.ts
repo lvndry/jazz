@@ -596,8 +596,6 @@ export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
           };
         }
 
-        // The Ctrl+O hint lives with the surfaces that have a Ctrl+O; this message also
-        // reaches JSON envelopes and chat bridges.
         const message = `About to edit file: ${target} (${totalLines} lines total)\n\nEdits to perform:\n${editDescriptions.join("\n")}`;
 
         // Generate full diff for Ctrl+O expansion

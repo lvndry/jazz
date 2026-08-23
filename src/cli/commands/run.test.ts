@@ -10,16 +10,13 @@ import {
   saveConversation,
   type ConversationRecord,
 } from "@/services/history/conversation-history-service";
+import { formatOneShotError, formatOneShotResult, type OneShotSuccess } from "./one-shot-envelope";
 import {
-  buildConversationRecord,
-  formatOneShotError,
-  formatOneShotResult,
   isApprovalPolicyFlag,
   isReasoningEffortFlag,
-  type OneShotSuccess,
   parseEventCategories,
-  composeResumedHistory,
-} from "./run-agent";
+} from "./one-shot-flags";
+import { buildConversationRecord, composeResumedHistory } from "./run";
 
 const baseResult: OneShotSuccess = {
   answer: "Hello from the agent",

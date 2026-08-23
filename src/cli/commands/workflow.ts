@@ -29,7 +29,7 @@ import {
 import { SchedulerServiceTag } from "@/core/workflows/scheduler-service";
 import { WorkflowServiceTag, type WorkflowMetadata } from "@/core/workflows/workflow-service";
 import { formatWorkflow, groupWorkflows } from "@/core/workflows/workflow-utils";
-import { formatOneShotError, formatOneShotResult } from "./run-agent";
+import { formatOneShotError, formatOneShotResult } from "./one-shot-envelope";
 
 /**
  * CLI commands for managing and running workflows.
