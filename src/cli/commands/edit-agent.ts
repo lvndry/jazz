@@ -48,6 +48,7 @@ import type { MCPTool } from "@/core/types/mcp";
 import { extractServerNamesFromToolNames, isAuthenticationRequired } from "@/core/utils/mcp";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import { formatProviderDisplayName } from "@/core/utils/provider-model";
+import { sortModelsForPicker } from "@/core/utils/provider-picker";
 import { sortProvidersForPicker } from "@/core/utils/provider-picker";
 import { toPascalCase } from "@/core/utils/string";
 
@@ -664,7 +665,11 @@ async function promptForAgentUpdates(
 
       const llmModel = await Effect.runPromise(
         terminal.search<string>(`Select model for ${providerDisplayName}:`, {
-          choices: providerInfo.supportedModels.map((model) => ({
+          choices: sortModelsForPicker(
+            llmProvider,
+            providerInfo.supportedModels,
+            (model) => model.id,
+          ).map((model) => ({
             name: model.displayName || model.id,
             value: model.id,
           })),
@@ -720,7 +725,11 @@ async function promptForAgentUpdates(
 
     const llmModel = await Effect.runPromise(
       terminal.search<string>(`Select model for ${providerToUse}:`, {
-        choices: providerInfo.supportedModels.map((model) => ({
+        choices: sortModelsForPicker(
+          providerToUse,
+          providerInfo.supportedModels,
+          (model) => model.id,
+        ).map((model) => ({
           name: model.displayName || model.id,
           value: model.id,
         })),
