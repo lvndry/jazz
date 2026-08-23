@@ -9,7 +9,8 @@
     "src/**/*.test.tsx",
     "scripts/**/*.test.ts",
     "evals/**/*.test.ts",
-    "integrations/**/*.test.ts"
+    "integrations/**/*.test.ts",
+    "bench/**/*.ts"
   ],
   "exclude": ["node_modules", "dist"]
 }

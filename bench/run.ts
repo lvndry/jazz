@@ -3,10 +3,12 @@
 //
 //   bun run bench                 # everything
 //   bun run bench transcript      # suites whose filename matches
+import { spawnSync } from "node:child_process";
 import { readdirSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const benchDirectory = import.meta.dir;
+const benchDirectory = dirname(fileURLToPath(import.meta.url));
 const filter = process.argv[2];
 
 const benchFiles = readdirSync(benchDirectory)
@@ -19,12 +21,11 @@ if (benchFiles.length === 0) {
   process.exitCode = 1;
 } else {
   for (const fileName of benchFiles) {
-    const child = Bun.spawnSync(["bun", join(benchDirectory, fileName)], {
-      stdout: "inherit",
-      stderr: "inherit",
+    const child = spawnSync("bun", [join(benchDirectory, fileName)], {
+      stdio: "inherit",
       env: process.env,
     });
-    if (child.exitCode !== 0) {
+    if (child.status !== 0) {
       process.exitCode = 1;
       console.error(`bench failed: ${fileName}`);
     }

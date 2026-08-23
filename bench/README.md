@@ -20,16 +20,23 @@ cd /tmp/jazz-baseline && bun install --frozen-lockfile && bun run bench transcri
 
 ## Suites
 
-| suite           | measures                                                          | cadence in the app          |
-| --------------- | ----------------------------------------------------------------- | --------------------------- |
-| transcript-rows | `transcriptRows` cold wrap, warm streaming tail, fingerprint walk | per frame                   |
-| blocks-from     | `blocksFrom` rebuild + `shareUnchangedBlocks` identity pass       | per frame                   |
-| markdown-prose  | `parseProse` / `inlineSegments` lexing                            | per dirty block per frame   |
-| terminal-cells  | grapheme width measurement across script classes                  | innermost wrap leaf         |
-| syntax-spans    | code fence and diff highlighting                                  | per visible fence per frame |
-| markdown-split  | `findLastSafeSplitPoint` by tail shape + cumulative stream fold   | per stream delta            |
-| store-writes    | `UIStore.appendStream` / batched `printOutput`                    | per delta / per message     |
-| format-markdown | one-shot `formatMarkdown` regex pipeline                          | per reply                   |
+| suite            | measures                                                          | cadence in the app          |
+| ---------------- | ----------------------------------------------------------------- | --------------------------- |
+| transcript-rows  | `transcriptRows` cold wrap, warm streaming tail, fingerprint walk | per frame                   |
+| blocks-from      | `blocksFrom` rebuild + `shareUnchangedBlocks` identity pass       | per frame                   |
+| markdown-prose   | `parseProse` / `inlineSegments` lexing                            | per dirty block per frame   |
+| terminal-cells   | grapheme width measurement across script classes                  | innermost wrap leaf         |
+| syntax-spans     | code fence and diff highlighting                                  | per visible fence per frame |
+| markdown-split   | `findLastSafeSplitPoint` by tail shape + cumulative stream fold   | per stream delta            |
+| store-writes     | `UIStore.appendStream` / batched `printOutput`                    | per delta / per message     |
+| format-markdown  | one-shot `formatMarkdown` regex pipeline                          | per reply                   |
+| token-counter    | `TokenCounter.countText`/`countMessage`, BPE vs ratio branches    | per message                 |
+| context-window   | `ContextWindowManager` total-count and trim-ladder checks         | per message on long chats   |
+| conversation-log | `parseConversationLog` + `reduceConversationLog`                  | session resume              |
+| tool-formatter   | `formatToolResult` at 1KB / 100KB / 1MB                           | per tool call               |
+| activity-reducer | `reduceEvent` fold over a recorded run                            | per stream event            |
+| live-rows        | `liveRows` recompute                                              | per 6Hz tick                |
+| startup          | `bun src/main.ts --version` full process spawn                    | per invocation              |
 
 ## Conventions
 
@@ -44,9 +51,6 @@ cd /tmp/jazz-baseline && bun install --frozen-lockfile && bun run bench transcri
 
 ## Not yet covered (mapped, worth adding)
 
-- Token counting (`TokenCounter.countText`, BPE vs ratio branches) and the
-  context trim ladder (`ContextWindowManager`) — per message.
-- Conversation log parse/reduce (`parseConversationLog`) — session resume.
-- Transcript search (`collectHits`) — per keystroke while search is open.
-- Startup wall-clock (`bun src/main.ts --version` spawn timing) — needs a
-  process-spawn harness, not a microbench.
+- Transcript search (`collectHits`) — per keystroke while search is open;
+  needs the helper exported or a populated temp history dir.
+- Summarizer prep/parse helpers — the LLM call itself is out of scope.
