@@ -37,11 +37,13 @@ export interface AgentRunnerOptions {
    */
   readonly conversationId?: string;
   /**
-   * Session identifier for logging purposes.
-   * This should be set to the sessionId created at the start of a chat session.
-   * Used to route logs to session-specific log files.
+   * Which log file this run's output is written to.
+   *
+   * A grouping key, not an identity: nothing reads it back and nothing joins on it, which
+   * is why the interactive chat can scope by sitting (`agent-20260823-104500`) while
+   * headless runs scope by conversation. See `@/core/utils/log-scope`.
    */
-  readonly sessionId: string;
+  readonly logScope: string;
   /**
    * If true, this is an internal sub-agent run (e.g., summarization).
    * UI elements like thinking indicators will be suppressed.

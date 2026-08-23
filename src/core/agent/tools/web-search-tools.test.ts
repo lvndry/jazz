@@ -73,8 +73,8 @@ describe("WebSearchTool", () => {
       error: vi.fn().mockReturnValue(Effect.void),
       writeToFile: vi.fn().mockReturnValue(Effect.void),
       logToolCall: vi.fn().mockReturnValue(Effect.void),
-      setSessionId: vi.fn().mockReturnValue(Effect.void),
-      clearSessionId: vi.fn().mockReturnValue(Effect.void),
+      setLogScope: vi.fn().mockReturnValue(Effect.void),
+      clearLogScope: vi.fn().mockReturnValue(Effect.void),
     };
 
     return Layer.merge(

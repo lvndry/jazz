@@ -20,7 +20,7 @@ export interface ActiveTool {
 
 export interface TodoSnapshotItem {
   content: string;
-  status: "pending" | "in_progress" | "completed" | "cancelled";
+  status: "pending" | "in_progress" | "unverified" | "completed" | "cancelled";
 }
 
 export type ActivityPhase =

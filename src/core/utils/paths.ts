@@ -77,8 +77,8 @@ export function getHistoryDirectory(): string {
 /**
  * Returns the directory holding one JSON file per run lifecycle record.
  *
- * Separate from history because the two have different lifetimes: a session log is the
- * permanent transcript of a conversation, while a run record is small, churns on every
+ * Separate from history because the two have different lifetimes: a conversation log is
+ * the permanent transcript of what was said, while a run record is small, churns on every
  * state change, and is prunable once terminal.
  */
 export function getRunsDirectory(): string {

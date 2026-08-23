@@ -35,8 +35,8 @@ const mockLogger: LoggerService = {
   info: mock(() => Effect.void),
   warn: mock(() => Effect.void),
   error: mock(() => Effect.void),
-  setSessionId: mock(() => Effect.void),
-  clearSessionId: mock(() => Effect.void),
+  setLogScope: mock(() => Effect.void),
+  clearLogScope: mock(() => Effect.void),
   writeToFile: mock(() => Effect.void),
   logToolCall: mock(() => Effect.void),
 } as unknown as LoggerService;
@@ -542,7 +542,7 @@ describe("custom tools surfaced through AgentRunner.run toolCalls", () => {
       AgentRunner.run({
         agent,
         userInput: "please propose an action",
-        sessionId: "test-session-custom-tool",
+        logScope: "test-session-custom-tool",
         stream: false,
         maxIterations: 3,
       }).pipe(Effect.provide(Layer.mergeAll(testLayer, realToolRegistryLayer))) as Effect.Effect<
@@ -670,7 +670,7 @@ describe("custom tools surfaced through AgentRunner.run toolCalls", () => {
       AgentRunner.run({
         agent,
         userInput: "please do a two-step action",
-        sessionId: "test-session-two-tool-iterations",
+        logScope: "test-session-two-tool-iterations",
         stream: false,
         maxIterations: 4,
       }).pipe(Effect.provide(Layer.mergeAll(testLayer, realToolRegistryLayer))) as Effect.Effect<
@@ -783,7 +783,7 @@ describe("custom tools surfaced through AgentRunner.run toolCalls", () => {
     const runOptions = {
       agent,
       userInput: "please propose an action",
-      sessionId: "test-session-custom-tool-two-turns",
+      logScope: "test-session-custom-tool-two-turns",
       stream: false,
       maxIterations: 3,
     };
@@ -884,7 +884,7 @@ describe("custom tools surfaced through AgentRunner.run toolCalls", () => {
       AgentRunner.run({
         agent: firstAgent,
         userInput: "please propose an action",
-        sessionId: "test-session-changed-definition",
+        logScope: "test-session-changed-definition",
         stream: false,
         maxIterations: 3,
       }).pipe(Effect.provide(runLayer)) as Effect.Effect<
@@ -913,7 +913,7 @@ describe("custom tools surfaced through AgentRunner.run toolCalls", () => {
         AgentRunner.run({
           agent: secondAgent,
           userInput: "please propose an action",
-          sessionId: "test-session-changed-definition-2",
+          logScope: "test-session-changed-definition-2",
           stream: false,
           maxIterations: 3,
         }).pipe(Effect.provide(runLayer)) as Effect.Effect<

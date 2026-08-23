@@ -55,14 +55,14 @@ export function updateWorkingDirectoryInStore(
  * Log a chat message to the session log file.
  */
 export function logMessageToSession(
-  sessionId: string,
+  logScope: string,
   message: ChatMessage,
 ): Effect.Effect<void, never, never> {
   return Effect.tryPromise({
     try: async () => {
       const logsDir = getLogsDirectory();
       await mkdir(logsDir, { recursive: true });
-      const logFilePath = path.join(logsDir, `${sessionId}.log`);
+      const logFilePath = path.join(logsDir, `${logScope}.log`);
       const timestamp = new Date().toISOString();
       const role = message.role.toUpperCase();
       const content = message.content || "";
@@ -76,7 +76,7 @@ export function logMessageToSession(
 /**
  * Generate a session ID in the format: {agentName}-YYYYMMDD-HHmmss
  */
-export function generateSessionId(agentName: string): string {
+export function generateLogScope(agentName: string): string {
   const now = new Date();
   const year = now.getFullYear();
   const month = String(now.getMonth() + 1).padStart(2, "0");

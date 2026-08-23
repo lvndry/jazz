@@ -40,10 +40,10 @@ const mockLogger: LoggerService = {
   info: () => Effect.void,
   warn: () => Effect.void,
   error: () => Effect.void,
-  setSessionId: () => Effect.void,
+  setLogScope: () => Effect.void,
   writeToFile: () => Effect.void,
   logToolCall: () => Effect.void,
-  clearSessionId: () => Effect.void,
+  clearLogScope: () => Effect.void,
 };
 
 // Mock AppConfig

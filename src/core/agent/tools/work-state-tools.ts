@@ -1,32 +1,16 @@
 import { Effect } from "effect";
 import { z } from "zod";
 import {
-  formatTaskState,
+  formatWorkState,
   patchTaskState,
-  readTaskState,
-  type TaskState,
-} from "@/core/agent/context/task-state";
+  readWorkState,
+  type WorkState,
+} from "@/core/agent/context/work-state";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionResult } from "@/core/types/tools";
 import { defineTool, makeZodValidator } from "./base-tool";
 
-const workItemSchema = z.object({
-  description: z.string().min(1).describe("What this piece of work is."),
-  status: z
-    .enum(["pending", "in_progress", "unverified", "done", "failing"])
-    .describe(
-      'Use "done" only when you have actually run something that confirms it works. ' +
-        'If you believe it is finished but have not verified it, use "unverified".',
-    ),
-  verifiedBy: z
-    .string()
-    .optional()
-    .describe(
-      'What you ran to verify it, e.g. "bun test src/foo.test.ts". Required in spirit for "done".',
-    ),
-});
-
-const updateTaskStateParameters = z
+const updateWorkStateParameters = z
   .object({
     goal: z.string().optional().describe("What this task is ultimately trying to achieve."),
     constraints: z
@@ -37,14 +21,13 @@ const updateTaskStateParameters = z
       .array(z.string())
       .optional()
       .describe("Choices made and why, so a later session does not relitigate them."),
-    workItems: z.array(workItemSchema).optional().describe("The pieces of work and their status."),
     filesTouched: z.array(z.string()).optional().describe("Paths you have created or modified."),
     openQuestions: z.array(z.string()).optional().describe("Unresolved uncertainties."),
     nextStep: z.string().optional().describe("The single next action you intend to take."),
   })
   .strict();
 
-type UpdateTaskStateArgs = z.infer<typeof updateTaskStateParameters>;
+type UpdateWorkStateArgs = z.infer<typeof updateWorkStateParameters>;
 
 /**
  * Record where the current task stands, so it survives compaction and process death.
@@ -53,9 +36,9 @@ type UpdateTaskStateArgs = z.infer<typeof updateTaskStateParameters>;
  * for weeks, this is what is true about this task right now. Routing task detail into
  * memory would pollute it, which is why `MEMORY_INSTRUCTIONS` tells the agent not to.
  */
-export function createUpdateTaskStateTool(): Tool<never> {
-  return defineTool<never, UpdateTaskStateArgs>({
-    name: "update_task_state",
+export function createUpdateWorkStateTool(): Tool<never> {
+  return defineTool<never, UpdateWorkStateArgs>({
+    name: "update_work_state",
     description:
       "Record where you are in the current task so it survives context compaction and " +
       "picking the work back up later. Call it when you settle on a goal or plan, finish " +
@@ -63,12 +46,12 @@ export function createUpdateTaskStateTool(): Tool<never> {
       "that changes the plan — not at the end, since you may never get a clean ending. " +
       "Only the fields you pass are changed; the rest are left as they were. This is for " +
       "THIS task's state, not durable facts about the person or project — those belong in " +
-      "memory. Call with no fields to read the current state. Mark work 'done' only when you have run something that confirms it; use " +
-      "'unverified' when you believe it works but have not checked.",
-    parameters: updateTaskStateParameters,
+      "memory. Call with no fields to read the current state. The list of work itself " +
+      "belongs in manage_todos, not here — this is the intent around it.",
+    parameters: updateWorkStateParameters,
     riskLevel: "low-risk",
     hidden: false,
-    validate: makeZodValidator(updateTaskStateParameters),
+    validate: makeZodValidator(updateWorkStateParameters),
     handler: (args, context) =>
       Effect.gen(function* () {
         const conversationId = context.conversationId;
@@ -76,28 +59,27 @@ export function createUpdateTaskStateTool(): Tool<never> {
           return {
             success: false,
             result: null,
-            error: "No conversation is active, so there is no task state to update.",
+            error: "No conversation is active, so there is no work state to update.",
           } satisfies ToolExecutionResult;
         }
 
         // Only keys actually supplied become a patch — an omitted field must not be
         // read as "clear this".
-        const patch: Partial<TaskState> = {
+        const patch: Partial<WorkState> = {
           ...(args.goal !== undefined && { goal: args.goal }),
           ...(args.constraints !== undefined && { constraints: args.constraints }),
           ...(args.decisions !== undefined && { decisions: args.decisions }),
-          ...(args.workItems !== undefined && { workItems: args.workItems }),
           ...(args.filesTouched !== undefined && { filesTouched: args.filesTouched }),
           ...(args.openQuestions !== undefined && { openQuestions: args.openQuestions }),
           ...(args.nextStep !== undefined && { nextStep: args.nextStep }),
         };
 
         if (Object.keys(patch).length === 0) {
-          const current = yield* readTaskState(context.agentId, conversationId);
+          const current = yield* readWorkState(context.agentId, conversationId);
           return {
             success: true,
             result: {
-              formatted: formatTaskState(current) ?? "No task state recorded yet.",
+              formatted: formatWorkState(current) ?? "No task state recorded yet.",
               state: current ?? {},
             },
           } satisfies ToolExecutionResult;
@@ -113,7 +95,7 @@ export function createUpdateTaskStateTool(): Tool<never> {
         return {
           success: true,
           result: {
-            formatted: formatTaskState(merged) ?? "Task state updated.",
+            formatted: formatWorkState(merged) ?? "Task state updated.",
             state: merged,
           },
         } satisfies ToolExecutionResult;

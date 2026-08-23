@@ -46,8 +46,8 @@ describe("Shell Tools", () => {
       error: () => Effect.void,
       writeToFile: () => Effect.void,
       logToolCall: () => Effect.void,
-      setSessionId: () => Effect.void,
-      clearSessionId: () => Effect.void,
+      setLogScope: () => Effect.void,
+      clearLogScope: () => Effect.void,
     };
 
     const mockTerminalService: Partial<TerminalService> = {

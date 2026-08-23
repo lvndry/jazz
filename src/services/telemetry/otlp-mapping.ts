@@ -151,7 +151,7 @@ export function eventToAttributes(event: TelemetryEvent, captureContent: boolean
   ];
 
   if (event.agentId) attributes.push(stringAttribute("jazz.agent.id", event.agentId));
-  if (event.sessionId) attributes.push(stringAttribute("jazz.conversation.id", event.sessionId));
+  if (event.logScope) attributes.push(stringAttribute("jazz.conversation.id", event.logScope));
 
   const data = event.data;
   const consumed = new Set<string>();

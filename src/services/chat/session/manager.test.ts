@@ -1,39 +1,39 @@
 import { describe, expect, it } from "bun:test";
-import { generateConversationId, generateSessionId } from "./manager";
+import { generateConversationId, generateLogScope } from "./manager";
 
 describe("Session Manager", () => {
-  describe("generateSessionId", () => {
+  describe("generateLogScope", () => {
     it("should include agent name as prefix", () => {
-      const sessionId = generateSessionId("test-agent");
-      expect(sessionId.startsWith("test-agent-")).toBe(true);
+      const logScope = generateLogScope("test-agent");
+      expect(logScope.startsWith("test-agent-")).toBe(true);
     });
 
     it("should follow format: agentName-YYYYMMDD-HHmmss", () => {
-      const sessionId = generateSessionId("myagent");
+      const logScope = generateLogScope("myagent");
       // Format: myagent-YYYYMMDD-HHmmss
-      expect(sessionId).toMatch(/^myagent-\d{8}-\d{6}$/);
+      expect(logScope).toMatch(/^myagent-\d{8}-\d{6}$/);
     });
 
     it("should handle agent names with special characters", () => {
-      const sessionId = generateSessionId("my-cool-agent");
-      expect(sessionId.startsWith("my-cool-agent-")).toBe(true);
+      const logScope = generateLogScope("my-cool-agent");
+      expect(logScope.startsWith("my-cool-agent-")).toBe(true);
     });
 
     it("should handle empty agent name", () => {
-      const sessionId = generateSessionId("");
+      const logScope = generateLogScope("");
       // Should still have the date format
-      expect(sessionId).toMatch(/^-\d{8}-\d{6}$/);
+      expect(logScope).toMatch(/^-\d{8}-\d{6}$/);
     });
 
     it("should generate different session IDs for different agents", () => {
-      const id1 = generateSessionId("agent1");
-      const id2 = generateSessionId("agent2");
+      const id1 = generateLogScope("agent1");
+      const id2 = generateLogScope("agent2");
       expect(id1).not.toBe(id2);
     });
 
     it("should generate consistent date format", () => {
-      const sessionId = generateSessionId("test");
-      const parts = sessionId.split("-");
+      const logScope = generateLogScope("test");
+      const parts = logScope.split("-");
 
       // test-YYYYMMDD-HHmmss splits into ["test", "YYYYMMDD", "HHmmss"]
       expect(parts.length).toBe(3);

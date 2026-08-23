@@ -44,10 +44,16 @@ function ElapsedText({ seconds }: { seconds: number }): React.ReactElement | nul
   return <Text dimColor> · {formatElapsed(seconds)}</Text>;
 }
 
-function todoStatusGlyph(status: "pending" | "in_progress" | "completed" | "cancelled"): string {
+type TodoStatus = "pending" | "in_progress" | "unverified" | "completed" | "cancelled";
+
+function todoStatusGlyph(status: TodoStatus): string {
   switch (status) {
     case "completed":
       return G.success;
+    // Told apart from completed by shape, not only by hue: "believed done" and "shown to
+    // work" are different claims, and a reader scanning the list has to see which is which.
+    case "unverified":
+      return G.warn;
     case "in_progress":
       return G.proposed;
     case "cancelled":
@@ -58,10 +64,12 @@ function todoStatusGlyph(status: "pending" | "in_progress" | "completed" | "canc
   }
 }
 
-function todoStatusColor(status: "pending" | "in_progress" | "completed" | "cancelled"): string {
+function todoStatusColor(status: TodoStatus): string {
   switch (status) {
     case "completed":
       return THEME.success;
+    case "unverified":
+      return THEME.warning;
     case "in_progress":
       return THEME.agent;
     case "cancelled":

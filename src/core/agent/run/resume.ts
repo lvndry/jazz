@@ -120,7 +120,7 @@ export function resumeRun(options: ResumeRunOptions) {
       // The same session the parked half logged to. A resumed turn belongs to the
       // conversation, not to whichever process happened to answer the approval, and giving
       // it an id of its own would split one turn's logs across two files.
-      sessionId: conversationLogScope(record.agentId, record.conversationId),
+      logScope: conversationLogScope(record.agentId, record.conversationId),
       conversationHistory: [...snapshot.messages],
       pendingToolCalls,
       resolvedApprovals: new Map([[pending.request.toolCallId, options.outcome]]),

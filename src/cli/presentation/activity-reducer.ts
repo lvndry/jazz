@@ -32,7 +32,7 @@ import type { OutputEntry } from "../ui/types";
 
 interface TodoSnapshotItem {
   content: string;
-  status: "pending" | "in_progress" | "completed" | "cancelled";
+  status: "pending" | "in_progress" | "unverified" | "completed" | "cancelled";
 }
 
 /**
@@ -187,6 +187,7 @@ function parseTodoSnapshot(args?: Record<string, unknown>): TodoSnapshotItem[] |
     if (
       status !== "pending" &&
       status !== "in_progress" &&
+      status !== "unverified" &&
       status !== "completed" &&
       status !== "cancelled"
     ) {

@@ -64,7 +64,7 @@ class MCPServerManagerImpl implements MCPServerManager {
         transportType = "http";
         yield* manager.logger.debug(`Using HTTP transport for ${config.name}: ${config.url}`);
 
-        const httpOptions: { requestInit?: RequestInit; sessionId?: string } = {};
+        const httpOptions: { requestInit?: RequestInit; logScope?: string } = {};
 
         if (config.headers) {
           httpOptions.requestInit = {
@@ -72,8 +72,8 @@ class MCPServerManagerImpl implements MCPServerManager {
           };
         }
 
-        if (config.sessionId) {
-          httpOptions.sessionId = config.sessionId;
+        if (config.logScope) {
+          httpOptions.logScope = config.logScope;
         }
 
         transport = new StreamableHTTPClientTransport(new URL(config.url), httpOptions);

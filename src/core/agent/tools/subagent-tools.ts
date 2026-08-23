@@ -176,7 +176,7 @@ ${args.task}`;
           const response = yield* AgentRunner.runRecursive({
             agent: subAgent,
             userInput: wrappedTask,
-            sessionId: context.sessionId ?? context.conversationId ?? `session-${Date.now()}`,
+            logScope: context.logScope ?? context.conversationId ?? `session-${Date.now()}`,
             conversationId: `subagent-conv-${++subagentCounter}-${Date.now()}`,
             maxIterations: context.maxSubagentIterations ?? DEFAULT_MAX_SUBAGENT_ITERATIONS,
             ephemeralRegionId: regionId,
@@ -344,7 +344,7 @@ ${args.task}`;
           const summaryMessage = yield* Summarizer.summarizeHistory(
             messagesToSummarize,
             parentAgent,
-            context.sessionId ?? context.conversationId ?? `session-${Date.now()}`,
+            context.logScope ?? context.conversationId ?? `session-${Date.now()}`,
             context.conversationId ?? `conv-${Date.now()}`,
             runRecursive,
           );

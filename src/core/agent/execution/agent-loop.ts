@@ -663,7 +663,7 @@ function runIteration(
     state.currentMessages = yield* Summarizer.compactIfNeeded(
       state.currentMessages,
       agent,
-      options.sessionId,
+      options.logScope,
       actualConversationId,
       runRecursive,
       contextWindowMaxTokens,
@@ -901,7 +901,7 @@ export function executeAgentLoop(
   return Effect.acquireUseRelease(
     Effect.gen(function* () {
       const logger = yield* LoggerServiceTag;
-      yield* logger.setSessionId(options.sessionId);
+      yield* logger.setLogScope(options.logScope);
       const finalizeFiberRef = yield* Ref.make<Option.Option<Fiber.RuntimeFiber<void, Error>>>(
         Option.none(),
       );
@@ -1090,7 +1090,7 @@ export function executeAgentLoop(
           );
         }
 
-        yield* logger.clearSessionId();
+        yield* logger.clearLogScope();
       }),
   );
 }

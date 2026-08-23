@@ -197,7 +197,7 @@ commands under `read-only` and `low-risk` are admitted per command by the
 `git log` through without also unlocking `git push`.
 
 > ⚠️ **`low-risk` is narrower than it sounds.** In the built-in toolset it adds only
-> `manage_todos`, `update_task_state`, and `spawn_subagent`. Email, calendar, and Obsidian are *skills* that shell
+> `manage_todos`, `update_work_state`, and `spawn_subagent`. Email, calendar, and Obsidian are *skills* that shell
 > out via `execute_command` (`unknown`), so a `low-risk` run cannot archive an email. Keep
 > the tier low and allowlist the binary instead: `{"autoApprovedCommands": ["himalaya"]}` in
 > `~/.jazz/config.json`. See [Tools reference](../reference/tools.md#what-is-not-a-built-in-tool).

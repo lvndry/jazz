@@ -14,7 +14,6 @@ import {
 import { createShellCommandTools } from "./shell-tools";
 import { createSkillTools } from "./skill-tools";
 import { createSubagentTools } from "./subagent-tools";
-import { createUpdateTaskStateTool } from "./task-state-tools";
 import { createListTodosTool, createManageTodosTool } from "./todo-tools";
 import {
   CONTEXT_CATEGORY,
@@ -35,6 +34,7 @@ import { userInteractionTools } from "./user-interaction-tools";
 import { createWebAppTool } from "./web-app-tools";
 import { createWebFetchTool } from "./web-fetch-tools";
 import { createWebSearchTool } from "./web-search-tools";
+import { createUpdateWorkStateTool } from "./work-state-tools";
 
 /**
  * Register every globally-available builtin tool.
@@ -159,7 +159,7 @@ export function registerTodoTools(): Effect.Effect<void, Error, ToolRegistry> {
 
     yield* registerTool(createManageTodosTool());
     yield* registerTool(createListTodosTool());
-    yield* registerTool(createUpdateTaskStateTool());
+    yield* registerTool(createUpdateWorkStateTool());
   });
 }
 

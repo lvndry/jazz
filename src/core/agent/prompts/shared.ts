@@ -58,7 +58,7 @@ export const TASK_STATE_INSTRUCTIONS = `
 
 Long conversations get compacted: older messages are replaced by a summary, and detail goes with them. Anything you have not recorded outside the conversation can be lost that way, and you will not notice it happening.
 
-Use update_task_state to keep a running record of where the current task stands — the goal, constraints you must respect, decisions you have made and why, the pieces of work and their status, files you have changed, open questions, and the single next thing you intend to do. Write it when something changes: you settle on a plan, you finish or fail a piece, you decide something worth not revisiting, you learn something that changes the approach. Do not save it up for the end; you may not get an end.
+Use update_work_state to keep a running record of where the current task stands — the goal, constraints you must respect, decisions you have made and why, the pieces of work and their status, files you have changed, open questions, and the single next thing you intend to do. Write it when something changes: you settle on a plan, you finish or fail a piece, you decide something worth not revisiting, you learn something that changes the approach. Do not save it up for the end; you may not get an end.
 
 Only the fields you pass are updated, so a small correction is a small call — you never have to restate the whole thing.
 

@@ -34,7 +34,7 @@ import { getHistoryDirectory } from "@/core/utils/paths";
 /**
  * Schema version stamped on every header.
  *
- * 2 dropped the derived `sessionId` field, stopped recording system messages, and moved
+ * 2 dropped the derived `logScope` field, stopped recording system messages, and moved
  * from one flat directory of `{agent}~{conversation}.jsonl` to a directory per agent.
  */
 export const CONVERSATION_LOG_VERSION = 2;

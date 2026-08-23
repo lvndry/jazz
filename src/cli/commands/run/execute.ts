@@ -327,7 +327,7 @@ export function runAgentOnceCommand(
       userInput: prompt,
       // Derived rather than invented, so a one-shot's logs land in the same session file
       // as every other turn of the same conversation.
-      sessionId: conversationLogScope(agent.id, conversationId),
+      logScope: conversationLogScope(agent.id, conversationId),
       conversationId,
       ...(inlineHistory !== undefined
         ? { conversationHistory: inlineHistory }

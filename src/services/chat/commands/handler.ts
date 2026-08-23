@@ -9,9 +9,9 @@ import { getAgentByIdentifier } from "@/core/agent/agent-service";
 import { sortAgents } from "@/core/agent/agent-sort";
 import { resolveContextThresholds } from "@/core/agent/context/context-thresholds";
 import { resolveEffectiveContextWindow } from "@/core/agent/context/effective-context-window";
-import { formatTaskState, readTaskState } from "@/core/agent/context/task-state";
 import { DEFAULT_TOKEN_COUNTER } from "@/core/agent/context/token-counter";
 import { clearWorkState, readJournal, workStateSizeBytes } from "@/core/agent/context/work-journal";
+import { formatWorkState, readWorkState } from "@/core/agent/context/work-state";
 import { WEB_SEARCH_PROVIDERS } from "@/core/agent/tools/web-search-tools";
 import { normalizeToolConfig } from "@/core/agent/utils/tool-config";
 import type { ProviderName } from "@/core/constants/models";
@@ -73,7 +73,7 @@ export function handleSpecialCommand(
   | MCPServerManager
   | FileSystem.FileSystem
 > {
-  const { agent, conversationId, conversationHistory, sessionId } = context;
+  const { agent, conversationId, conversationHistory, logScope } = context;
 
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
@@ -107,7 +107,7 @@ export function handleSpecialCommand(
           terminal,
           agent,
           conversationHistory,
-          sessionId,
+          logScope,
           conversationId,
         );
 
@@ -734,7 +734,7 @@ function handleCompactCommand(
   terminal: TerminalService,
   agent: CommandContext["agent"],
   conversationHistory: CommandContext["conversationHistory"],
-  sessionId: string,
+  logScope: string,
   conversationId: string | undefined,
 ): Effect.Effect<
   CommandResult,
@@ -779,7 +779,7 @@ function handleCompactCommand(
       const summaryMessage = yield* AgentRunner.summarizeHistory(
         messagesToSummarize,
         agent,
-        sessionId,
+        logScope,
         conversationId || "manual-compact",
       );
 
@@ -1842,13 +1842,13 @@ function handleWorkCommand(
       return { shouldContinue: true };
     }
 
-    const state = yield* readTaskState(agent.id, conversationId);
+    const state = yield* readWorkState(agent.id, conversationId);
     const entries = yield* readJournal(agent.id, conversationId);
     const sizeBytes = yield* workStateSizeBytes(agent.id, conversationId);
 
     yield* terminal.log(fmt.heading("Working state"));
 
-    const formatted = formatTaskState(state);
+    const formatted = formatWorkState(state);
     if (formatted) {
       yield* terminal.log(`\n${formatted}`);
     } else {

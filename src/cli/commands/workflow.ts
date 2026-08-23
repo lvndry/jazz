@@ -384,7 +384,7 @@ export function runWorkflowCommand(
     const runEffect = AgentRunner.run({
       agent,
       userInput: workflow.prompt,
-      sessionId: `workflow-${workflowName}-${Date.now()}`,
+      logScope: `workflow-${workflowName}-${Date.now()}`,
       conversationId: `workflow-${workflowName}-${Date.now()}`,
       ...(resolvedMaxIterations != null ? { maxIterations: resolvedMaxIterations } : {}),
       ...(autoApprovePolicy !== undefined ? { autoApprovePolicy } : {}),

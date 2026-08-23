@@ -16,9 +16,9 @@ import { logContextRung } from "./context-telemetry";
 import { resolveContextThresholds } from "./context-thresholds";
 import { DEFAULT_CONTEXT_WINDOW_MANAGER } from "./context-window-manager";
 import { resolveEffectiveContextWindow } from "./effective-context-window";
-import { formatTaskState, readTaskState } from "./task-state";
 import { DEFAULT_TOKEN_COUNTER, type ModelHint } from "./token-counter";
 import { appendJournalEntry, pruneJournal } from "./work-journal";
+import { formatWorkState, readWorkState } from "./work-state";
 
 /** Longest tool-argument string kept verbatim in a summarizer transcript. */
 const MAX_RENDERED_ARGUMENT_CHARS = 200;
@@ -168,7 +168,7 @@ export function selectSummarizerModel(parentAgent: Agent): {
 export type RecursiveRunner = (options: {
   agent: Agent;
   userInput: string;
-  sessionId: string;
+  logScope: string;
   conversationId: string;
   maxIterations?: number;
 }) => Effect.Effect<
@@ -336,7 +336,7 @@ export const Summarizer = {
   compactIfNeeded(
     currentMessages: ConversationMessages,
     agent: Agent,
-    sessionId: string,
+    logScope: string,
     conversationId: string,
     runRecursive: RecursiveRunner,
     modelContextWindow?: number,
@@ -410,7 +410,7 @@ export const Summarizer = {
       const summaryMessage = yield* Summarizer.summarizeHistory(
         messagesToSummarize,
         agent,
-        sessionId,
+        logScope,
         conversationId,
         runRecursive,
         priorSummary,
@@ -479,7 +479,7 @@ export const Summarizer = {
   summarizeHistory(
     messagesToSummarize: ChatMessage[],
     agent: Agent,
-    sessionId: string,
+    logScope: string,
     conversationId: string,
     runRecursive: RecursiveRunner,
     priorSummary?: ChatMessage,
@@ -516,7 +516,7 @@ export const Summarizer = {
 
       // Anything already in task state is durable on disk, so the summary need not carry
       // it. Passing it through lets the summarizer cover what the transcript adds instead.
-      const recordedState = formatTaskState(yield* readTaskState(agent.id, conversationId));
+      const recordedState = formatWorkState(yield* readWorkState(agent.id, conversationId));
 
       // Define the specialized summarizer agent once, on the fly, with the selected model.
       const summarizerModel =
@@ -558,7 +558,7 @@ export const Summarizer = {
         const chunkSummary = yield* Summarizer.summarizeChunk(
           chunk,
           summarizer,
-          sessionId,
+          logScope,
           conversationId,
           runRecursive,
           runningSummary,
@@ -581,7 +581,7 @@ export const Summarizer = {
   summarizeChunk(
     messagesToSummarize: readonly ChatMessage[],
     summarizer: Agent,
-    sessionId: string,
+    logScope: string,
     conversationId: string,
     runRecursive: RecursiveRunner,
     priorSummary?: ChatMessage,
@@ -619,7 +619,7 @@ export const Summarizer = {
       const summaryResponse = yield* runRecursive({
         agent: summarizer,
         userInput,
-        sessionId,
+        logScope,
         conversationId,
         maxIterations: 1,
       });

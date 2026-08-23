@@ -1,7 +1,7 @@
 export { setupAgent } from "./agent-setup";
 export {
   generateConversationId,
-  generateSessionId,
+  generateLogScope,
   initializeSession,
   logMessageToSession,
   updateWorkingDirectoryInStore,

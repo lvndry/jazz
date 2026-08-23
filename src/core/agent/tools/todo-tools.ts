@@ -9,12 +9,25 @@ import { defineTool, makeZodValidator } from "./base-tool";
 
 /**
  * Todo item schema — matches the shape persisted to the temp file.
+ *
+ * `unverified` came from work state, which kept a second, parallel list of the same work
+ * under a different vocabulary. Its one genuinely good idea was refusing to let an agent
+ * call something finished on the strength of having written it, so that distinction moved
+ * here and the second list went away.
  */
 const TodoItemSchema = z.object({
   content: z.string().describe("What this step is."),
   status: z
-    .enum(["pending", "in_progress", "completed", "cancelled"])
-    .describe("pending, in_progress, completed, or cancelled."),
+    .enum(["pending", "in_progress", "unverified", "completed", "cancelled"])
+    .describe(
+      'pending, in_progress, unverified, completed, or cancelled. Use "completed" only ' +
+        'when you have run something that confirms it works; use "unverified" when you ' +
+        "believe it is finished but have not checked.",
+    ),
+  verifiedBy: z
+    .string()
+    .optional()
+    .describe('What you ran to confirm it, e.g. "bun test src/foo.test.ts".'),
   priority: z.enum(["high", "medium", "low"]).describe("high, medium, or low.").default("medium"),
 });
 
@@ -24,12 +37,12 @@ type TodoItem = z.infer<typeof TodoItemSchema>;
 // Temp-file helpers (Effect-based, async)
 // ---------------------------------------------------------------------------
 
-function getTodoFilePath(sessionId: string): string {
-  return path.join(os.tmpdir(), `jazz-todos-${sessionId}.json`);
+function getTodoFilePath(logScope: string): string {
+  return path.join(os.tmpdir(), `jazz-todos-${logScope}.json`);
 }
 
-function readTodos(sessionId: string): Effect.Effect<TodoItem[], Error> {
-  const filePath = getTodoFilePath(sessionId);
+function readTodos(logScope: string): Effect.Effect<TodoItem[], Error> {
+  const filePath = getTodoFilePath(logScope);
   return Effect.tryPromise({
     try: () => nodeFs.readFile(filePath, "utf-8"),
     catch: () => new Error(`Failed to read todo file: ${filePath}`),
@@ -48,8 +61,8 @@ function readTodos(sessionId: string): Effect.Effect<TodoItem[], Error> {
   );
 }
 
-function writeTodos(sessionId: string, todos: TodoItem[]): Effect.Effect<void, Error> {
-  const filePath = getTodoFilePath(sessionId);
+function writeTodos(logScope: string, todos: TodoItem[]): Effect.Effect<void, Error> {
+  const filePath = getTodoFilePath(logScope);
   return Effect.tryPromise({
     try: () => nodeFs.writeFile(filePath, JSON.stringify(todos, null, 2), "utf-8"),
     catch: (error) =>
@@ -98,7 +111,7 @@ export function createManageTodosTool(): Tool<never> {
       "Replace the in-session task list used to steer this run and show progress in the UI. Every call replaces the whole list — send every item, not just the ones that changed. " +
       "Use this when the work has three or more distinct steps; skip it for one-liners. Keep exactly one item in_progress, and mark it completed as soon as it is finished. " +
       "This list is session scratch and does not survive compaction on its own. It is not memory, not task state, and not a reminder. " +
-      "For a plan that must survive compaction, also call update_task_state. To ping someone at a clock time, use add_reminder.",
+      "For a plan that must survive compaction, also call update_work_state. To ping someone at a clock time, use add_reminder.",
     parameters,
     riskLevel: "low-risk",
     hidden: false,
@@ -111,7 +124,7 @@ export function createManageTodosTool(): Tool<never> {
     handler: (args, context) =>
       Effect.gen(function* () {
         const { todos } = args;
-        const sessionId = context?.sessionId ?? "default";
+        const logScope = context?.logScope ?? "default";
 
         const inProgressCount = todos.filter((item) => item.status === "in_progress").length;
         if (inProgressCount > 1) {
@@ -122,7 +135,7 @@ export function createManageTodosTool(): Tool<never> {
           } satisfies ToolExecutionResult;
         }
 
-        yield* writeTodos(sessionId, todos);
+        yield* writeTodos(logScope, todos);
 
         const stats = computeStats(todos);
         return {
@@ -162,8 +175,8 @@ export function createListTodosTool(): Tool<never> {
     },
     handler: (_args, context) =>
       Effect.gen(function* () {
-        const sessionId = context?.sessionId ?? "default";
-        const todos = yield* readTodos(sessionId);
+        const logScope = context?.logScope ?? "default";
+        const todos = yield* readTodos(logScope);
 
         if (todos.length === 0) {
           return {

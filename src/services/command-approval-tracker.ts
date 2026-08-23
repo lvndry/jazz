@@ -86,13 +86,13 @@ export function saveCommandApprovals(
  */
 export function recordCommandApproval(
   command: string,
-  sessionId: string,
+  logScope: string,
 ): Effect.Effect<number, Error, FileSystem.FileSystem> {
   return Effect.gen(function* () {
     const approvals = yield* loadCommandApprovals();
 
     const existing = approvals[command];
-    if (existing && existing.lastSessionId === sessionId) {
+    if (existing && existing.lastSessionId === logScope) {
       // Already counted for this session
       return existing.sessionCount;
     }
@@ -102,7 +102,7 @@ export function recordCommandApproval(
 
     approvals[command] = {
       sessionCount,
-      lastSessionId: sessionId,
+      lastSessionId: logScope,
       nextPromptAt,
     };
 

@@ -124,7 +124,7 @@ export class TelemetryServiceImpl implements TelemetryService {
   }): Effect.Effect<void, TelemetryError> {
     return this.appendEvent("agent_run_started", data, {
       agentId: data.agentId,
-      sessionId: data.conversationId,
+      logScope: data.conversationId,
     });
   }
 
@@ -144,7 +144,7 @@ export class TelemetryServiceImpl implements TelemetryService {
   }): Effect.Effect<void, TelemetryError> {
     return this.appendEvent("agent_run_completed", data, {
       agentId: data.agentId,
-      sessionId: data.conversationId,
+      logScope: data.conversationId,
     });
   }
 
@@ -158,7 +158,7 @@ export class TelemetryServiceImpl implements TelemetryService {
   }): Effect.Effect<void, TelemetryError> {
     return this.appendEvent("agent_run_failed", data, {
       agentId: data.agentId,
-      sessionId: data.conversationId,
+      logScope: data.conversationId,
     });
   }
 
@@ -167,12 +167,12 @@ export class TelemetryServiceImpl implements TelemetryService {
     readonly model: string;
     readonly usage: TokenUsage;
     readonly agentId?: string;
-    readonly sessionId?: string;
+    readonly logScope?: string;
     readonly durationMs?: number;
   }): Effect.Effect<void, TelemetryError> {
-    const opts: { agentId?: string; sessionId?: string } = {};
+    const opts: { agentId?: string; logScope?: string } = {};
     if (data.agentId !== undefined) opts.agentId = data.agentId;
-    if (data.sessionId !== undefined) opts.sessionId = data.sessionId;
+    if (data.logScope !== undefined) opts.logScope = data.logScope;
     return this.appendEvent("llm_usage", data, opts);
   }
 
@@ -194,12 +194,12 @@ export class TelemetryServiceImpl implements TelemetryService {
     readonly durationMs?: number;
     readonly error?: string;
     readonly agentId?: string;
-    readonly sessionId?: string;
+    readonly logScope?: string;
   }): Effect.Effect<void, TelemetryError> {
     const eventType: TelemetryEventType = data.success ? "tool_invocation" : "tool_error";
-    const opts: { agentId?: string; sessionId?: string } = {};
+    const opts: { agentId?: string; logScope?: string } = {};
     if (data.agentId !== undefined) opts.agentId = data.agentId;
-    if (data.sessionId !== undefined) opts.sessionId = data.sessionId;
+    if (data.logScope !== undefined) opts.logScope = data.logScope;
     return this.appendEvent(eventType, data, opts);
   }
 
@@ -218,7 +218,7 @@ export class TelemetryServiceImpl implements TelemetryService {
     data: Record<string, unknown>,
     options?: {
       readonly agentId?: string;
-      readonly sessionId?: string;
+      readonly logScope?: string;
     },
   ): Effect.Effect<void, TelemetryError> {
     return this.appendEvent(type, data, options);
@@ -246,9 +246,9 @@ export class TelemetryServiceImpl implements TelemetryService {
           filtered = filtered.filter((e) => e.agentId === agentId);
         }
 
-        if (options?.sessionId) {
-          const sessionId = options.sessionId;
-          filtered = filtered.filter((e) => e.sessionId === sessionId);
+        if (options?.logScope) {
+          const logScope = options.logScope;
+          filtered = filtered.filter((e) => e.logScope === logScope);
         }
 
         if (options?.from) {
@@ -326,7 +326,7 @@ export class TelemetryServiceImpl implements TelemetryService {
   private appendEvent(
     type: TelemetryEventType,
     data: Record<string, unknown>,
-    options?: { readonly agentId?: string; readonly sessionId?: string },
+    options?: { readonly agentId?: string; readonly logScope?: string },
   ): Effect.Effect<void, TelemetryError> {
     return Effect.gen(
       function* (this: TelemetryServiceImpl) {
@@ -338,7 +338,7 @@ export class TelemetryServiceImpl implements TelemetryService {
           timestamp: new Date().toISOString(),
           data,
           ...(options?.agentId ? { agentId: options.agentId } : {}),
-          ...(options?.sessionId ? { sessionId: options.sessionId } : {}),
+          ...(options?.logScope ? { logScope: options.logScope } : {}),
         };
 
         this.buffer.push(event);

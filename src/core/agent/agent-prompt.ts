@@ -421,7 +421,7 @@ ${triggeredBlock}`;
           systemPrompt = systemPrompt + MEMORY_INSTRUCTIONS;
         }
 
-        if (options.toolNames?.includes("update_task_state")) {
+        if (options.toolNames?.includes("update_work_state")) {
           systemPrompt = systemPrompt + TASK_STATE_INSTRUCTIONS;
         }
 

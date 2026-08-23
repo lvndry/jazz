@@ -38,8 +38,8 @@ const mockLogger = {
   info: () => Effect.void,
   warn: () => Effect.void,
   error: () => Effect.void,
-  setSessionId: () => Effect.void,
-  clearSessionId: () => Effect.void,
+  setLogScope: () => Effect.void,
+  clearLogScope: () => Effect.void,
   writeToFile: () => Effect.void,
   logToolCall: () => Effect.void,
 } as any;
@@ -132,7 +132,7 @@ function recordingObserver() {
 
 function makeOptions(overrides?: Partial<AgentRunnerOptions>): AgentRunnerOptions {
   return {
-    sessionId: "test-session",
+    logScope: "test-session",
     agent: {
       id: "agent-1",
       name: "test-agent",

@@ -183,7 +183,7 @@ export interface ToolCategory {
 
 export interface ToolExecutionContext {
   readonly agentId: string;
-  readonly sessionId?: string;
+  readonly logScope?: string;
   readonly conversationId?: string;
   readonly model?: string;
   /**

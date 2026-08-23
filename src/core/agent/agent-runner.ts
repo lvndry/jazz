@@ -432,7 +432,7 @@ function initializeAgentRun(
 
     const toolContext: ToolExecutionContext = {
       agentId: agent.id,
-      sessionId: options.sessionId,
+      logScope: options.logScope,
       conversationId: actualConversationId,
       model,
       ...(getAutoApprovePolicy !== undefined ? { getAutoApprovePolicy } : {}),
@@ -579,7 +579,7 @@ export class AgentRunner {
       const runRecursive = (runOpts: {
         agent: Agent;
         userInput: string;
-        sessionId: string;
+        logScope: string;
         conversationId: string;
         maxIterations?: number;
       }) => AgentRunner.runRecursive(runOpts);
@@ -625,7 +625,7 @@ export class AgentRunner {
   public static summarizeHistory(
     messagesToSummarize: ChatMessage[],
     agent: Agent,
-    sessionId: string,
+    logScope: string,
     conversationId: string,
   ): Effect.Effect<
     ChatMessage,
@@ -641,7 +641,7 @@ export class AgentRunner {
     const runRecursive = (runOpts: {
       agent: Agent;
       userInput: string;
-      sessionId: string;
+      logScope: string;
       conversationId: string;
       maxIterations?: number;
     }) => AgentRunner.runRecursive(runOpts);
@@ -649,7 +649,7 @@ export class AgentRunner {
     return Summarizer.summarizeHistory(
       messagesToSummarize,
       agent,
-      sessionId,
+      logScope,
       conversationId,
       runRecursive,
     );
