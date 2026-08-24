@@ -45,12 +45,17 @@ import {
 import { formatWhen, hasChatTz, isValidTimeZone, setTzForChat, tzForChat } from "./timezone";
 import { dailyCostCapBlockReason, recordUsage, todayUsage } from "./usage";
 import { reasoningSnippet, splitReasoning } from "../shared/reasoning";
+import { createRunLog, type RunLog } from "../shared/run-log";
 
 const TELEGRAM_API_BASE = "https://api.telegram.org";
 const GETUPDATES_TIMEOUT_SECONDS = 30;
 const POLL_ERROR_BACKOFF_MS = 5_000;
 const ALLOWED_UPDATES = ["message", "callback_query"];
 // Telegram rate-limits message edits; don't refresh the progress bubble faster.
+// The text the progress bubble is created with. The reporter starts from it so
+// its first render is not sent as an edit to identical content, which Telegram
+// rejects with a 400 on essentially every run.
+const PROGRESS_INITIAL_TEXT = "🤔 <b>Working…</b>";
 const PROGRESS_MIN_INTERVAL_MS = 2_000;
 const PROGRESS_MAX_TOOLS_SHOWN = 8;
 // The reasoning log is HTML-escaped into an expandable quote before it is
@@ -605,13 +610,15 @@ function createProgressReporter(
   chatId: number,
   messageId: number,
   runToken: string,
+  runLog: RunLog,
 ) {
   const tools: string[] = [];
   const subagents: string[] = [];
   const declined: string[] = [];
   let reasoning = "";
   let writing = false;
-  let lastText = "";
+  let rounds = 0;
+  let lastText = PROGRESS_INITIAL_TEXT;
   let lastEditAt = 0;
   let editing = false;
 
@@ -628,6 +635,9 @@ function createProgressReporter(
     for (const tool of declined) {
       lines.push(`⛔ <code>${escapeHtml(tool)}</code> declined (needs approval)`);
     }
+    // A run that goes round and round looks identical to a slow one from the
+    // outside; the count is what makes a loop visible without reading logs.
+    if (rounds > 1) lines.push(`↻ round ${rounds}`);
     if (writing) lines.push("✍️ writing the answer…");
     return lines.join("\n");
   };
@@ -653,7 +663,12 @@ function createProgressReporter(
 
   return {
     onEvent(event: JazzEvent): void {
+      runLog.event(event as unknown as Record<string, unknown>);
       switch (event.type) {
+        case "tools_detected":
+          // One per model response that asked for tools, so one per loop round.
+          rounds += 1;
+          break;
         case "thinking_chunk":
           // Accumulate raw so a lone-space chunk isn't trimmed away (which would
           // glue the surrounding words); normalization happens at render time.
@@ -682,6 +697,7 @@ function createProgressReporter(
     // Final edit drops the Cancel button (empty keyboard).
     finish: (summary: string): Promise<void> => edit(summary, { inline_keyboard: [] }),
     toolsUsed: (): string[] => [...new Set(tools)],
+    rounds: (): number => rounds,
     // The progress bubble only ever showed a rolling tail; this is everything
     // the model thought, for the expandable log attached to the answer.
     reasoningLog: (): string => reasoning,
@@ -925,14 +941,18 @@ async function handleMessage(config: BridgeConfig, chatId: number, text: string)
   // sent as a *new* message so it pushes a notification (edits don't).
   const sent = (await callTelegram(config, "sendMessage", {
     chat_id: chatId,
-    text: "🤔 <b>Working…</b>",
+    text: PROGRESS_INITIAL_TEXT,
     parse_mode: "HTML",
     reply_markup: cancelKeyboard(runToken),
   })) as { result?: { message_id?: number } } | undefined;
   const messageId = sent?.result?.message_id;
+  // Opened before the run so a crash or timeout still leaves a record: the
+  // conversation transcript is only written once a run completes.
+  const runLog = createRunLog(config.jazzHome, conversationKey(config.jazzHome, chatId));
+  let runLogged = false;
   const reporter =
     typeof messageId === "number"
-      ? createProgressReporter(config, chatId, messageId, runToken)
+      ? createProgressReporter(config, chatId, messageId, runToken, runLog)
       : undefined;
 
   try {
@@ -944,6 +964,14 @@ async function handleMessage(config: BridgeConfig, chatId: number, text: string)
       runToken,
     );
     const cancelled = activeRuns.get(runToken)?.cancelled ?? false;
+    runLog.finish({
+      ok: envelope.ok,
+      cancelled,
+      rounds: reporter?.rounds() ?? 0,
+      toolsUsed: reporter?.toolsUsed() ?? [],
+      ...(envelope.ok ? {} : { error: envelope.error }),
+    });
+    runLogged = true;
 
     if (cancelled) {
       await reporter?.finish("⏹ <b>Cancelled</b>");
@@ -997,6 +1025,16 @@ async function handleMessage(config: BridgeConfig, chatId: number, text: string)
       await sendReply(config, chatId, `⚠️ ${escapeHtml(envelope.error)}`);
     }
   } finally {
+    // A throw anywhere above would otherwise leave the log with no outcome line,
+    // which is exactly the run someone will come looking for.
+    if (!runLogged) {
+      runLog.finish({
+        ok: false,
+        error: "handler threw before the run reported an outcome",
+        rounds: reporter?.rounds() ?? 0,
+        toolsUsed: reporter?.toolsUsed() ?? [],
+      });
+    }
     // Always release the run slot, even if runJazz or a reply throws.
     activeRuns.delete(runToken);
     // Sweep any approvals left pending for this run (e.g. the run finished or

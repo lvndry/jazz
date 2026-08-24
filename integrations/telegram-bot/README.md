@@ -302,6 +302,13 @@ isn't healthy. Install it (as the deploy user):
 (crontab -l 2>/dev/null; echo "30 4 * * * $HOME/jazz/integrations/telegram-bot/auto-update.sh >> $HOME/jazz-autoupdate.log 2>&1") | crontab -
 ```
 
+**Run logs:** every turn appends an NDJSON record of the jazz event stream to
+`<JAZZ_HOME>/logs/runs/<conversation>-<timestamp>.ndjson`, written as the run
+happens rather than when it finishes — so a run that times out still leaves a
+trace. Each line carries elapsed time, token deltas are collapsed into one line
+per stream with a character count and duration, and the last line is the outcome
+with the number of model rounds. The newest 200 runs per bridge are kept.
+
 Anything needing a human is also sent to the bridge's own chat via `notify.sh`,
 because a nightly cron failure that only appends to a logfile is invisible: a
 checkout left on a feature branch silently skipped every update for over two
