@@ -3,10 +3,6 @@
 **Status: draft — v1 to be dated and published. Items marked ☐ are self-audit checks still
 to be run before any public safety claim.**
 
-**Reader job:** decide whether Jazz is safe to leave running unattended on a machine you
-care about, without taking our word for it. Every claim below names the code that enforces
-it.
-
 Jazz's safety stance is *fail closed by construction*: when the agent, the classifier, or
 the operator hasn't explicitly widened what may run, the answer is "ask a human." This
 document lists what that means concretely, what it does **not** protect against, and how to

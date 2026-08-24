@@ -1,8 +1,5 @@
 # Peers — talking to someone else's agent
 
-**Reader job:** let your agent ask a friend's agent something, and decide what theirs may
-ask yours.
-
 Your jazz runs on your machine. Your friend's runs on theirs. A peer is a link between the
 two: your agent can put a question to theirs, and — if you allow it — theirs can put one to
 yours.
