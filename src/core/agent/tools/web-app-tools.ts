@@ -159,7 +159,7 @@ export function createWebAppTool(
 ): Tool<FileSystem.FileSystem> {
   return defineTool<FileSystem.FileSystem, CreateWebAppArgs>({
     name: "create_web_app",
-    disclosure: "context",
+    disclosure: "internal",
     description:
       "Create a UI — a chart, form, dashboard, small game, or any other webpage — and deliver it as a static image (mode: 'static') or a live page (mode: 'interactive'). " +
       "Use this when a plain text or markdown answer is the wrong medium. You write the full HTML yourself. " +

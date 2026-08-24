@@ -167,7 +167,7 @@ function buildRecordTool(
       name: definition.name,
       // Defined outside this codebase: its output is unknowable, and the safe
       // reading of "unknown" is the most restrictive level.
-      disclosure: "personal",
+      disclosure: "private",
       description: definition.description,
       parameters,
       validate,
@@ -221,7 +221,7 @@ function buildCommandTool(
       name: definition.name,
       // Defined outside this codebase: its output is unknowable, and the safe
       // reading of "unknown" is the most restrictive level.
-      disclosure: "personal",
+      disclosure: "private",
       description: definition.description,
       parameters,
       validate,

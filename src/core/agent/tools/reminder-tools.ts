@@ -29,7 +29,7 @@ type AddReminderArgs = z.infer<typeof addReminderParameters>;
 export function createAddReminderTool(): Tool<ReminderToolDeps> {
   return defineTool<ReminderToolDeps, AddReminderArgs>({
     name: "add_reminder",
-    disclosure: "none",
+    disclosure: "public",
     description:
       "Schedule a reminder that will be delivered back to this person later. " +
       `${WHEN_DESCRIPTION} Use this whenever someone asks to be reminded, pinged, or ` +
@@ -85,7 +85,7 @@ type ListRemindersArgs = z.infer<typeof listRemindersParameters>;
 export function createListRemindersTool(): Tool<ReminderToolDeps> {
   return defineTool<ReminderToolDeps, ListRemindersArgs>({
     name: "list_reminders",
-    disclosure: "personal",
+    disclosure: "private",
     description: "List this person's pending reminders, including their id, fire time, and text.",
     parameters: listRemindersParameters,
     riskLevel: "read-only",
@@ -135,7 +135,7 @@ type CancelReminderArgs = z.infer<typeof cancelReminderParameters>;
 export function createCancelReminderTool(): Tool<ReminderToolDeps> {
   return defineTool<ReminderToolDeps, CancelReminderArgs>({
     name: "cancel_reminder",
-    disclosure: "personal",
+    disclosure: "private",
     description: "Cancel a pending reminder by id (get the id from list_reminders first).",
     parameters: cancelReminderParameters,
     riskLevel: "low-risk",

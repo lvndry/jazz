@@ -80,7 +80,7 @@ export function createReadPdfTool(): Tool<FileSystem.FileSystem | FileSystemCont
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, ReadPdfParams>({
     name: "read_pdf",
-    disclosure: "personal",
+    disclosure: "private",
     description:
       "Extract text and tables from a PDF. Do not use read_file on PDFs. Use pdf_page_count first for large files, then read 10–20 pages at a time via pages (a list of 1-based numbers such as [1, 2, 3], not a range string). No OCR or images.",
     tags: ["filesystem", "read", "pdf"],

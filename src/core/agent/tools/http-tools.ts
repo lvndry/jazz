@@ -343,7 +343,7 @@ function parseJsonBody(text: string): { data: unknown; error?: string } {
 export function createHttpRequestTool(): Tool<never> {
   return defineTool<never, HttpRequestArgs>({
     name: "http_request",
-    disclosure: "personal",
+    disclosure: "private",
     description:
       "Call an HTTP API. Supports GET, POST, PUT, PATCH, DELETE, HEAD, and OPTIONS, plus headers, a query string, and a json, text, or form body. Multipart and file upload are not supported. " +
       "JSON responses are parsed; images, audio, and video come back as base64; other bodies as text. Default timeout 15 seconds (max 120). Default response cap 1MB (max 5MB). Redirects are followed by default. " +

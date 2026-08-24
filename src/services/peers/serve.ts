@@ -36,14 +36,14 @@ import { record as recordLedger } from "./ledger";
 /**
  * What each tier may learn, as a set of disclosure levels.
  *
- * Read as a ceiling: `about-me` admits `none` and `context` but not `personal`. There is no
+ * Read as a ceiling: `about-me` admits `public` and `internal` but not `private`. There is no
  * entry that admits an action — see `PEER_TIER_MAX_RISK`. That is a line, not an omission.
  */
 const TIER_ALLOWS: Readonly<Record<PeerTier, readonly ToolDisclosure[]>> = {
   none: [],
-  public: ["none"],
-  "about-me": ["none", "context"],
-  "ask-me-anything": ["none", "context", "personal"],
+  public: ["public"],
+  "about-me": ["public", "internal"],
+  "ask-me-anything": ["public", "internal", "private"],
 };
 
 /**
@@ -109,7 +109,7 @@ export function allowedToolsForTier(
   return (
     tools
       // No tier permits an action. Filtering on risk as well as disclosure means a tool that
-      // is somehow classified `none` but can still write is excluded anyway.
+      // is somehow classified `public` but can still write is excluded anyway.
       .filter((tool) => tool.riskLevel === "read-only")
       .filter((tool) => permitted.includes(tool.disclosure))
       .filter((tool) => !NEVER_FOR_PEERS.has(tool.name))

@@ -100,7 +100,7 @@ describe("docs/reference/tools.md", () => {
     // last cell. Parsed rather than hand-checked for the same reason the risk column is:
     // a table maintained by hand is a table that drifts.
     const documented = new Map<ToolDisclosure, Set<string>>();
-    for (const level of ["none", "context", "personal"] as const) {
+    for (const level of ["public", "internal", "private"] as const) {
       const row = markdown.split("\n").find((line) => line.startsWith(`| \`${level}\``));
       const names = [...(row ?? "").matchAll(/`([a-z_0-9]+)`/g)]
         .map((match) => match[1]!)

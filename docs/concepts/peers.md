@@ -74,9 +74,9 @@ Every peer has a tier. It is a ceiling on **disclosure**, not on risk — see
 | Tier | The peer's agent may learn | Example tools |
 | ---- | -------------------------- | ------------- |
 | `none` *(default)* | nothing — configured but suspended | — |
-| `public` | nothing about you or your machine | `web_search` |
-| `about-me` | the shape of your machine: paths, names, the time | `ls`, `get_time`, `pwd` |
-| `ask-me-anything` | your own material | `read_file`, `view_memory` |
+| `public` | only what is safe to tell anyone | `web_search` |
+| `about-me` | adds the shape of your machine: paths, names, the time | `ls`, `get_time`, `pwd` |
+| `ask-me-anything` | adds your own material | `read_file`, `view_memory` |
 
 A peer that has been added but never granted a tier answers nothing. That is deliberate:
 adding somebody and permitting them are separate decisions.

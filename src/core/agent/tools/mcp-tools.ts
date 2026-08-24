@@ -282,7 +282,7 @@ function adaptMCPToolToJazz(
         name: jazzToolName,
         // Defined outside this codebase: its output is unknowable, and the safe
         // reading of "unknown" is the most restrictive level.
-        disclosure: "personal",
+        disclosure: "private",
         description,
         parameters,
         ...(unwrappedJsonSchema !== undefined ? { jsonSchema: unwrappedJsonSchema } : {}),
@@ -300,7 +300,7 @@ function adaptMCPToolToJazz(
     name: jazzToolName,
     // Defined outside this codebase: its output is unknowable, and the safe
     // reading of "unknown" is the most restrictive level.
-    disclosure: "personal",
+    disclosure: "private",
     description,
     parameters,
     riskLevel,
@@ -359,7 +359,7 @@ export function buildResourceTools(
     }),
     hidden: false,
     riskLevel: "read-only",
-    disclosure: "personal",
+    disclosure: "private",
     handler: (args: Record<string, unknown>) =>
       Effect.gen(function* () {
         const mcpManager = yield* MCPServerManagerTag;
@@ -418,7 +418,7 @@ export function buildResourceTools(
     }),
     hidden: false,
     riskLevel: "read-only",
-    disclosure: "personal",
+    disclosure: "private",
     handler: (args: Record<string, unknown>) =>
       Effect.gen(function* () {
         const mcpManager = yield* MCPServerManagerTag;

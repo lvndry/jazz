@@ -434,7 +434,7 @@ export const EXECUTE_COMMAND_OUTPUT_CAP_BYTES = DEFAULT_SPAWN_OUTPUT_CAP_BYTES;
 export function createShellCommandTools(): ApprovalToolPair<ShellCommandDeps> {
   const config: ApprovalToolConfig<ShellCommandDeps, ExecuteCommandArgs> = {
     name: "execute_command",
-    disclosure: "personal",
+    disclosure: "private",
     description:
       "Run a shell command. Do not use this when a dedicated tool exists: use ls to list files, find (also available as glob) to search names, grep to search contents, read_file to read a file (startLine: -N for the end), and mkdir to create directories. " +
       "Git has no dedicated tools — use this for status, diff, log, commit, push, rebase, stash, and the rest. " +

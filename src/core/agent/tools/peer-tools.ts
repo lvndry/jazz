@@ -169,7 +169,7 @@ export function createAskPeerTool(
     riskLevel: "low-risk",
     // The answer is a third party's text about their own affairs. What this tool discloses
     // travels in the request, which the ledger records, not in what it returns.
-    disclosure: "none",
+    disclosure: "public",
     hidden: false,
     longRunning: true,
     validate: makeZodValidator(parameters),

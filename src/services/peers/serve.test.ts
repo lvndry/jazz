@@ -9,16 +9,16 @@ const TOOLS: readonly {
   riskLevel: string;
   disclosure: ToolDisclosure;
 }[] = [
-  { name: "get_time", riskLevel: "read-only", disclosure: "context" },
-  { name: "web_search", riskLevel: "read-only", disclosure: "none" },
-  { name: "ls", riskLevel: "read-only", disclosure: "context" },
-  { name: "read_file", riskLevel: "read-only", disclosure: "personal" },
-  { name: "view_memory", riskLevel: "read-only", disclosure: "personal" },
-  { name: "write_file", riskLevel: "high-risk", disclosure: "none" },
-  { name: "execute_command", riskLevel: "unknown", disclosure: "personal" },
-  { name: "manage_memory", riskLevel: "low-risk", disclosure: "personal" },
-  { name: "ask_user_question", riskLevel: "read-only", disclosure: "personal" },
-  { name: "ask_file_picker", riskLevel: "read-only", disclosure: "personal" },
+  { name: "get_time", riskLevel: "read-only", disclosure: "internal" },
+  { name: "web_search", riskLevel: "read-only", disclosure: "public" },
+  { name: "ls", riskLevel: "read-only", disclosure: "internal" },
+  { name: "read_file", riskLevel: "read-only", disclosure: "private" },
+  { name: "view_memory", riskLevel: "read-only", disclosure: "private" },
+  { name: "write_file", riskLevel: "high-risk", disclosure: "public" },
+  { name: "execute_command", riskLevel: "unknown", disclosure: "private" },
+  { name: "manage_memory", riskLevel: "low-risk", disclosure: "private" },
+  { name: "ask_user_question", riskLevel: "read-only", disclosure: "private" },
+  { name: "ask_file_picker", riskLevel: "read-only", disclosure: "private" },
 ];
 
 function allowed(tier: PeerTier): readonly string[] {
