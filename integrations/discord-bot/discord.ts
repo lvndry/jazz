@@ -248,7 +248,10 @@ export async function getOriginalInteraction(
   const payload = (await response.json().catch(() => undefined)) as
     { id?: string; channel_id?: string } | undefined;
   if (typeof payload?.id !== "string") return undefined;
-  return { id: payload.id, channel_id: payload.channel_id };
+  return {
+    id: payload.id,
+    ...(payload.channel_id !== undefined ? { channel_id: payload.channel_id } : {}),
+  };
 }
 
 export async function sendAttachment(

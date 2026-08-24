@@ -177,6 +177,7 @@ _that_ conversation. `JAZZ_DISCORD_PROVIDER` / `JAZZ_DISCORD_MODEL` /
 | `JAZZ_DISCORD_MODEL` | `gpt-5.4` | Default model id for the provider. |
 | `OPENAI_API_KEY` (or provider's key) | — | API key for the chosen provider. Not needed for `ollama`. |
 | `BRAVE_API_KEY` | — | If set, `web_search` uses Brave. |
+| `JAZZ_OLLAMA_KEEP_ALIVE` | — | How long a local Ollama keeps the model loaded (`keep_alive`): `-1` pins it indefinitely, or a duration like `30m`. Unset uses Ollama's 5-minute default, so the first message after a quiet spell pays a full cold model load with no progress shown while it happens. |
 | `JAZZ_REASONING` | `medium` | `disable`\|`low`\|`medium`\|`high`. |
 | `OLLAMA_BASE_URL` | `http://host.docker.internal:11434/api` | Ollama endpoint (only for `provider=ollama` / `/model`). |
 | `JAZZ_APPROVAL_POLICY` | `low-risk` | Auto-approve tools up to: `read-only`\|`low-risk`\|`high-risk`. |

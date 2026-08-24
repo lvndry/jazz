@@ -9,16 +9,12 @@ AGENT_TEMPLATE="/app/integrations/discord-bot/agent.discord.json"
 
 mkdir -p "${JAZZ_HOME}/agents"
 
+# Merge the bridge-managed keys into config.json, leaving anything the operator
+# put there alone — the volume outlives the container, so writing this file
+# wholesale discarded their settings on every restart.
 # The bridge asks for reasoning and text events, and jazz selects the streaming path
 # for those on its own — nothing here needs to force it.
-if [ -n "${BRAVE_API_KEY:-}" ]; then
-  cat > "${JAZZ_HOME}/config.json" <<JSON
-{"web_search":{"provider":"brave","brave":{"api_key":"${BRAVE_API_KEY}"}}}
-JSON
-  echo "Configured Brave web search"
-else
-  printf '{}\n' > "${JAZZ_HOME}/config.json"
-fi
+bun /app/integrations/shared/write-bridge-config.ts "${JAZZ_HOME}/config.json"
 
 sed -e "s#__JAZZ_PROVIDER__#${JAZZ_DISCORD_PROVIDER}#g" \
     -e "s#__JAZZ_MODEL__#${JAZZ_DISCORD_MODEL}#g" \

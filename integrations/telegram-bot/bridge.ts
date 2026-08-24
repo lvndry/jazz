@@ -33,6 +33,7 @@ import {
   writeAgentFile,
 } from "./agents";
 import { buildMediaPrompt, downloadTelegramFile, type TelegramFileRef } from "./media";
+import { withReplyContext } from "./quotes";
 import { startReminderSweep } from "./reminders";
 import { conversationKey, isIncognito, setIncognito, startNewConversation } from "./sessions";
 import { escapeHtml, markdownToTelegramHtml, splitForTelegram } from "./telegram-html";
@@ -1595,7 +1596,16 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
 
 interface TelegramMessage {
   readonly chat?: { readonly id?: number };
+  readonly from?: {
+    readonly first_name?: string;
+    readonly username?: string;
+    readonly is_bot?: boolean;
+  };
   readonly text?: string;
+  /** The message this one replies to, when the user used Telegram's reply action. */
+  readonly reply_to_message?: TelegramMessage;
+  /** The fragment the user highlighted before replying, when they quoted only part of it. */
+  readonly quote?: { readonly text?: string };
   readonly location?: { readonly latitude?: number; readonly longitude?: number };
   /** Caption on a media message — the user's actual request, when they wrote one. */
   readonly caption?: string;
@@ -1681,7 +1691,10 @@ async function handleMedia(
   await handleMessage(
     config,
     chatId,
-    buildMediaPrompt(outcome.path, message.caption, media.fallbackInstruction),
+    withReplyContext(
+      message,
+      buildMediaPrompt(outcome.path, message.caption, media.fallbackInstruction),
+    ),
   );
 }
 
@@ -1716,7 +1729,7 @@ function dispatchMessage(config: BridgeConfig, message: TelegramMessage | undefi
     work =
       parsed !== undefined
         ? handleCommand(config, chatId, parsed.command, parsed.args)
-        : handleMessage(config, chatId, text);
+        : handleMessage(config, chatId, withReplyContext(message ?? {}, text));
   } else if (
     typeof latitude === "number" &&
     Number.isFinite(latitude) &&
