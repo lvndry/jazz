@@ -23,11 +23,13 @@ import { filterCommandsByPrefix, slashCommandQuery } from "@/services/chat/comma
 import { search, type SearchHit } from "@/services/history/conversation-search";
 import packageJson from "../../../../package.json";
 import type { ActivityState } from "../activity-state";
+import { applyAtMention, type AtMentionSpan } from "../at-mention";
 import {
   type FilePickerEntry,
   resolveFilePickerPath,
   scanFilePickerEntries,
 } from "../file-picker-files";
+import { pickerItemMatches, wrapIndex } from "../picker-window";
 import { composeRecalledBuffer, isCursorOnFirstLine, isCursorOnLastLine } from "../queue-recall";
 import {
   store,
@@ -38,7 +40,9 @@ import {
   type EphemeralRegion,
   type PendingApproval,
 } from "../store";
+import { mergeSuggestions } from "../suggestion-menu";
 import type { Choice, OutputEntry, PromptState } from "../types";
+import { useFileMentions, type FileMentionItem } from "../use-file-mentions";
 import { App, type KeyChord } from "./App";
 import { flattenPaste, normalizePaste, readClipboard } from "./clipboard";
 import {
@@ -56,7 +60,6 @@ import {
   type ComposerHistory,
   undo,
 } from "./composer-edit";
-import { pickerItemMatches, wrapIndex } from "../picker-window";
 import { wrapCommandIndex } from "./Input";
 import {
   isComposerNewline,
@@ -1237,6 +1240,18 @@ export function FullscreenBridge(): React.ReactNode {
     setCommandIndex(0);
   }, [commandQuery, setCommandIndex]);
 
+  // `@path` completions. Unlike slash commands, the candidates come off disk,
+  // so they are fetched rather than filtered — the menu itself is shared.
+  const { span: mention, items: mentionEntries } = useFileMentions(draft, draftCaret);
+  const mentionRef = useRef<AtMentionSpan | null>(mention);
+  mentionRef.current = mention;
+  const mentionEntriesRef = useRef<readonly FileMentionItem[]>(mentionEntries);
+  mentionEntriesRef.current = mentionEntries;
+
+  useEffect(() => {
+    setCommandIndex(0);
+  }, [mention?.query, setCommandIndex]);
+
   const historyIndex = useRef<number | null>(null);
 
   const insertAtCaret = useCallback(
@@ -1775,6 +1790,36 @@ export function FullscreenBridge(): React.ReactNode {
         return true;
       }
 
+      const mentionSpan = mentionRef.current;
+      const mentionItems = mentionEntriesRef.current;
+      if (mentionSpan !== null && mentionItems.length > 0) {
+        const selected = wrapCommandIndex(commandIndexRef.current, mentionItems.length);
+        if (name === "up") {
+          setCommandIndex(wrapCommandIndex(selected - 1, mentionItems.length));
+          return true;
+        }
+        if (name === "down") {
+          setCommandIndex(wrapCommandIndex(selected + 1, mentionItems.length));
+          return true;
+        }
+        // Tab and Enter both accept here. A path is not a command, so there is
+        // nothing to submit — accepting only edits the composer, which leaves
+        // Enter free to mean "insert" while the menu is open.
+        if ((name === "tab" && !shift) || name === "return" || name === "enter") {
+          const entry = mentionItems[selected];
+          if (entry !== undefined) {
+            const applied = applyAtMention(composerRef.current.text, mentionSpan, entry.name);
+            historyIndex.current = null;
+            commitComposer({
+              text: applied.text,
+              caret: applied.caret,
+              anchor: applied.caret,
+            });
+          }
+          return true;
+        }
+      }
+
       const slashQuery = slashCommandQuery(composerRef.current.text);
       const slashCommands = slashQuery === null ? [] : filterCommandsByPrefix(slashQuery);
       if (slashCommands.length > 0) {
@@ -2045,12 +2090,15 @@ export function FullscreenBridge(): React.ReactNode {
 
   const input = useMemo<InputModel>(() => {
     const commandItems = commandQuery === null ? [] : filterCommandsByPrefix(commandQuery);
-    const commands =
-      commandItems.length === 0
+    const mentionItems = mention === null ? [] : mentionEntries;
+    const menu = mergeSuggestions(commandItems, mentionItems);
+    const commands: InputModel["commands"] =
+      menu === undefined
         ? undefined
         : {
-            items: commandItems,
-            selected: wrapCommandIndex(commandIndex, commandItems.length),
+            items: menu.items,
+            selected: wrapCommandIndex(commandIndex, menu.items.length),
+            prefix: menu.prefix,
           };
     return {
       value: draft,
@@ -2062,7 +2110,19 @@ export function FullscreenBridge(): React.ReactNode {
       disabled: overlay !== undefined || (!busy && queue.length === 0 && prompt?.type !== "chat"),
       ...(commands === undefined ? {} : { commands }),
     };
-  }, [draft, draftCaret, draftAnchor, busy, queue, overlay, prompt, commandQuery, commandIndex]);
+  }, [
+    draft,
+    draftCaret,
+    draftAnchor,
+    busy,
+    queue,
+    overlay,
+    prompt,
+    commandQuery,
+    commandIndex,
+    mention,
+    mentionEntries,
+  ]);
 
   const footer = useMemo<FooterModel>(
     () => ({
