@@ -380,7 +380,7 @@ const KEYBOARD_SHORTCUTS: ReadonlyArray<readonly [keys: string, description: str
   ["Ctrl+O", "Expand the last truncated diff or tool output"],
   ["Tab", "Complete the highlighted slash command"],
   ["Up/Down", "Recall previously sent messages (empty input)"],
-  ["Alt+Enter", "Insert a newline for a multi-line message"],
+  ["Shift+Enter", "Insert a newline for a multi-line message"],
   ["Esc", "Clear the current draft"],
   ["Up (agent busy)", "Recall queued messages for editing"],
   ["Ctrl+X (agent busy)", "Clear the message queue"],

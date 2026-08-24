@@ -232,7 +232,7 @@ Available inside an interactive session. Type `/help` for the current list.
 | `/new`       | Start a fresh conversation                            |
 
 **Keys:** double-Escape interrupts generation or a running tool. Shift+Tab cycles the
-approval policy.
+approval policy. Shift+Enter inserts a newline in the composer; Enter sends.
 
 ---
 

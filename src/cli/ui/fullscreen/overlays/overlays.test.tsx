@@ -18,7 +18,13 @@ import type { ReactNode } from "react";
 import { getGlyphs } from "../../glyphs";
 import { THEME } from "../../theme";
 import type { ApprovalOverlay, SearchOverlay, Viewport } from "../types";
-import { approvalBodyRows, Approval, wrapProse } from "./Approval";
+import {
+  approvalBodyRows,
+  approvalFieldNeedsExpand,
+  Approval,
+  COLLAPSED_FIELD_CELLS,
+  wrapProse,
+} from "./Approval";
 import { Search } from "./Search";
 
 const WIDE: Viewport = { width: 120, height: 34 };
@@ -166,6 +172,7 @@ describe("approval overlay", () => {
     expect(frame).toContain(APPROVAL.consequence);
     expect(frame).toContain(APPROVAL.action);
     expect(frame).toContain(APPROVAL.app);
+    expect(frame).not.toContain("ctrl+o");
 
     renderer.destroy();
   });
@@ -312,9 +319,9 @@ describe("approval overlay", () => {
     narrow.renderer.destroy();
   });
 
-  // A shell command whose tail is off screen is the exact thing the gate
-  // exists to prevent, so nothing below the rule may be clipped: it wraps, and
-  // what does not fit is reachable by scrolling.
+  // A multi-kilobyte command would bury the rest of the card, so the collapsed
+  // preview clips. Ctrl+O expands; the expanded view wraps, and what still
+  // does not fit is reachable by scrolling — the tail is never undiscoverable.
   describe("a command too long for the card", () => {
     const TAIL = "AND-THEN-RM-RF-TMP-BUILD";
     const LONG_COMMAND =
@@ -332,24 +339,67 @@ describe("approval overlay", () => {
       consequence: "This command will be executed on your system.",
     };
 
+    function rebuiltField(expanded: boolean): string {
+      return approvalBodyRows([{ label: "command", value: LONG_COMMAND }], [], 40, 10, expanded)
+        .filter((row) => row.kind === "field")
+        .map((row) => (row.kind === "field" ? row.value : ""))
+        .join(" ");
+    }
+
     it("wraps every word instead of truncating, however long the word", () => {
       const unbroken = "x".repeat(500);
       const wrapped = wrapProse(unbroken, 20);
       expect(wrapped.join("")).toBe(unbroken);
       expect(wrapped.every((line) => line.length <= 20)).toBe(true);
+    });
 
-      const rows = approvalBodyRows([{ label: "command", value: LONG_COMMAND }], [], 40, 10);
-      const rebuilt = rows
-        .filter((row) => row.kind === "field")
-        .map((row) => (row.kind === "field" ? row.value : ""))
-        .join(" ");
-      expect(rebuilt).toContain(TAIL);
+    it("clips the collapsed preview and keeps the tail behind Ctrl+O", () => {
+      expect(approvalFieldNeedsExpand(LONG_COMMAND)).toBe(true);
+      expect(approvalFieldNeedsExpand("echo hi")).toBe(false);
+      expect(approvalFieldNeedsExpand("x".repeat(COLLAPSED_FIELD_CELLS))).toBe(false);
+
+      const collapsed = rebuiltField(false);
+      expect(collapsed).toContain("curl");
+      expect(collapsed).toContain("…");
+      expect(collapsed).not.toContain(TAIL);
+
+      expect(rebuiltField(true)).toContain(TAIL);
+    });
+
+    it("offers ctrl+o and hides the tail until expanded", async () => {
+      const first = await draw(
+        <Approval
+          model={LONG}
+          viewport={WIDE}
+        />,
+        WIDE,
+      );
+      const firstFrame = first.captureCharFrame();
+      expect(firstFrame).toContain("curl");
+      expect(firstFrame).not.toContain(TAIL);
+      expect(firstFrame).toContain("ctrl+o");
+      expect(firstFrame).toContain("expand");
+      expect(firstFrame).not.toContain("collapse");
+      first.renderer.destroy();
+
+      const expanded = await draw(
+        <Approval
+          model={{ ...LONG, expanded: true }}
+          viewport={WIDE}
+        />,
+        WIDE,
+      );
+      const expandedFrame = expanded.captureCharFrame();
+      expect(expandedFrame).toContain(TAIL);
+      expect(expandedFrame).toContain("ctrl+o");
+      expect(expandedFrame).toContain("collapse");
+      expanded.renderer.destroy();
     });
 
     it("says how much is below the fold and reveals it when scrolled", async () => {
       const first = await draw(
         <Approval
-          model={LONG}
+          model={{ ...LONG, expanded: true }}
           viewport={TINY}
         />,
         TINY,
@@ -357,15 +407,16 @@ describe("approval overlay", () => {
       const firstFrame = first.captureCharFrame();
       expect(firstFrame).toContain("curl");
       // The tail is genuinely below the fold, and the card says so rather than
-      // letting the reader assume they have seen the whole command.
+      // letting the reader assume they have seen the whole command. On this
+      // viewport the expand hint clips the phrase to "more bel…".
       expect(firstFrame).not.toContain(TAIL);
-      expect(firstFrame).toContain("more below");
+      expect(firstFrame).toMatch(/more bel/);
       expect(firstFrame).not.toContain("executed on your system");
       first.renderer.destroy();
 
       const scrolled = await draw(
         <Approval
-          model={{ ...LONG, fieldOffset: 99 }}
+          model={{ ...LONG, expanded: true, fieldOffset: 99 }}
           viewport={TINY}
         />,
         TINY,

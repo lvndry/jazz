@@ -106,6 +106,16 @@ describe("EscapeStateMachine", () => {
       expect(result.type).toBe("submit");
     });
 
+    test("Shift+Enter inserts a newline", () => {
+      const result = process(machine, "", { ...mockKey, return: true, shift: true });
+      expect(result.type).toBe("insert-newline");
+    });
+
+    test("Alt+Enter inserts a newline", () => {
+      const result = process(machine, "", { ...mockKey, return: true, meta: true });
+      expect(result.type).toBe("insert-newline");
+    });
+
     test("Tab key", () => {
       const result = process(machine, "", { ...mockKey, tab: true });
       expect(result.type).toBe("tab");

@@ -26,7 +26,7 @@ export const TIPS = [
   // CLI Shortcuts
   "Type '/help' in chat to see every command and keyboard shortcut",
   "Use Arrow Up in chat to recall your previous messages",
-  "Press Alt+Enter in chat to write multi-line messages",
+  "Press Shift+Enter in chat to write multi-line messages",
   "Press Ctrl+R after a response to expand the agent's reasoning",
   "Run 'jazz agent list' to see all your active agents",
 

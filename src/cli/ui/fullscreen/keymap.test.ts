@@ -266,6 +266,19 @@ describe("normalizeKey", () => {
     expect(normalizeKey("\r").ctrl).toBe(false);
     expect(normalizeKey("\b").name).toBe("backspace");
     expect(normalizeKey("\b").ctrl).toBe(false);
+    expect(normalizeKey("\x1b[13u")).toMatchObject({ name: "return", ctrl: false, shift: false });
+    expect(normalizeKey("\x1b[13;2u")).toMatchObject({ name: "return", ctrl: false, shift: true });
+    expect(normalizeKey("\x1b[27;2;13~")).toMatchObject({
+      name: "return",
+      ctrl: false,
+      shift: true,
+    });
+    expect(normalizeKey({ name: "return", shift: true, sequence: "\x1b[13;2u" })).toMatchObject({
+      name: "return",
+      ctrl: false,
+      shift: true,
+    });
+    expect(normalizeKey("\x1b[9;2u")).toMatchObject({ name: "tab", ctrl: false, shift: true });
   });
 });
 
@@ -299,6 +312,9 @@ describe("composer newline", () => {
     expect(isComposerNewline({ name: "enter", shift: false, option: false, meta: true })).toBe(
       true,
     );
+    expect(isComposerNewline(normalizeKey("\x1b[13;2u"))).toBe(true);
+    expect(isComposerNewline(normalizeKey("\x1b[13u"))).toBe(false);
+    expect(isComposerNewline(normalizeKey("\r"))).toBe(false);
   });
 });
 

@@ -82,6 +82,15 @@ const ESC = String.fromCharCode(27);
 const KITTY_CSI_U = new RegExp("^" + ESC + String.raw`\[(\d+)(?::[^;]*)?(?:;(\d+)(?::(\d+))?)?u$`);
 const MODIFY_OTHER_KEYS = new RegExp("^" + ESC + String.raw`\[27;(\d+);(\d+)~$`);
 
+/** CSI-u / modifyOtherKeys codepoints that are keys, not Ctrl+letter. */
+const CODED_KEY_NAMES: Readonly<Record<number, string>> = {
+  8: "backspace",
+  9: "tab",
+  13: "return",
+  27: "escape",
+  127: "backspace",
+};
+
 function fieldString(record: Record<string, unknown>, key: string): string {
   const value = record[key];
   return typeof value === "string" ? value : "";
@@ -181,7 +190,7 @@ function finalizeNormalized(fields: NormalizedKey): NormalizedKey {
     if (kitty[3] === "3") {
       return { ...fields, name: "", sequence, ctrl: false, shift: false };
     }
-    const letter = letterFromCodepoint(Number(kitty[1]));
+    const codepoint = Number(kitty[1]);
     const modifier = kitty[2] === undefined ? 1 : Number(kitty[2]);
     const bits = Number.isFinite(modifier) ? modifier - 1 : 0;
     if ((bits & 1) !== 0) shift = true;
@@ -191,9 +200,15 @@ function finalizeNormalized(fields: NormalizedKey): NormalizedKey {
     }
     if ((bits & 4) !== 0) ctrl = true;
     if ((bits & 8) !== 0) superKey = true;
-    if (letter !== undefined) {
-      name = letter;
-      if (Number(kitty[1]) <= 26 && !superKey) ctrl = true;
+    const coded = CODED_KEY_NAMES[codepoint];
+    if (coded !== undefined) {
+      name = coded;
+    } else {
+      const letter = letterFromCodepoint(codepoint);
+      if (letter !== undefined) {
+        name = letter;
+        if (codepoint <= 26 && !superKey) ctrl = true;
+      }
     }
     return { ...fields, name, sequence, ctrl, shift, meta, option, super: superKey };
   }
@@ -201,7 +216,7 @@ function finalizeNormalized(fields: NormalizedKey): NormalizedKey {
   const modifyOther = MODIFY_OTHER_KEYS.exec(sequence);
   if (modifyOther !== null) {
     const bits = Number(modifyOther[1]) - 1;
-    const letter = letterFromCodepoint(Number(modifyOther[2]));
+    const codepoint = Number(modifyOther[2]);
     if ((bits & 1) !== 0) shift = true;
     if ((bits & 2) !== 0) {
       meta = true;
@@ -209,7 +224,13 @@ function finalizeNormalized(fields: NormalizedKey): NormalizedKey {
     }
     if ((bits & 4) !== 0) ctrl = true;
     if ((bits & 8) !== 0) superKey = true;
-    if (letter !== undefined) name = letter;
+    const coded = CODED_KEY_NAMES[codepoint];
+    if (coded !== undefined) {
+      name = coded;
+    } else {
+      const letter = letterFromCodepoint(codepoint);
+      if (letter !== undefined) name = letter;
+    }
     return { ...fields, name, sequence, ctrl, shift, meta, option, super: superKey };
   }
 
