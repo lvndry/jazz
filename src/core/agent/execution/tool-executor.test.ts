@@ -1,6 +1,6 @@
 import { FileSystem } from "@effect/platform";
 import { describe, expect, it } from "bun:test";
-import { Effect, Layer } from "effect";
+import { Cause, Deferred, Effect, Exit, Fiber, Layer, Option } from "effect";
 import { ToolExecutor } from "./tool-executor";
 import { type SkillService, SkillServiceTag } from "../../../core/skills/skill-service";
 import type { AgentConfigService } from "../../interfaces/agent-config";
@@ -19,6 +19,7 @@ import type { TerminalService } from "../../interfaces/terminal";
 import { TerminalServiceTag } from "../../interfaces/terminal";
 import type { ToolRegistry } from "../../interfaces/tool-registry";
 import { ToolRegistryTag } from "../../interfaces/tool-registry";
+import { GenerationInterruptedError } from "../../types/errors";
 import type { DisplayConfig } from "../../types/output";
 import type { StreamEvent } from "../../types/streaming";
 import type { ApprovalRequest, ToolCall, ToolExecutionResult } from "../../types/tools";
@@ -337,6 +338,99 @@ describe("ToolExecutor.executeToolCalls", () => {
     expect(results).toHaveLength(2);
     expect(results[0]?.toolCallId).toBe("call_1");
     expect(results[1]?.toolCallId).toBe("call_2");
+  });
+
+  it("emits cancelled completes and fails when the interrupt signal fires", async () => {
+    const mockToolRegistry = {
+      getTool: () =>
+        Effect.succeed({
+          name: "slow_tool",
+          timeoutMs: 60_000,
+          longRunning: false,
+          approvalExecuteToolName: undefined,
+        }),
+      executeTool: () => Effect.never,
+    } as unknown as ToolRegistry;
+
+    const emittedEvents: StreamEvent[] = [];
+    const recordingRenderer: StreamingRenderer = {
+      handleEvent: (event) =>
+        Effect.sync(() => {
+          emittedEvents.push(event);
+        }),
+      setInterruptHandler: () => Effect.void,
+      reset: () => Effect.void,
+      flush: () => Effect.void,
+    };
+
+    const testLayer = Layer.mergeAll(
+      Layer.succeed(LoggerServiceTag, mockLogger),
+      Layer.succeed(PresentationServiceTag, mockPresentationService),
+      Layer.succeed(ToolRegistryTag, mockToolRegistry),
+      Layer.succeed(AgentConfigServiceTag, mockAgentConfigService),
+      Layer.succeed(FileSystem.FileSystem, emptyFs),
+      Layer.succeed(TerminalServiceTag, emptyTerminal),
+      Layer.succeed(FileSystemContextServiceTag, emptyFsContext),
+      Layer.succeed(SkillServiceTag, mockSkillService),
+      Layer.succeed(LLMServiceTag, emptyLlm),
+      Layer.succeed(MCPServerManagerTag, emptyMcp),
+    );
+
+    const toolCalls: ToolCall[] = [
+      {
+        id: "call_slow",
+        type: "function",
+        function: { name: "slow_tool", arguments: "{}" },
+      },
+    ];
+
+    const program = Effect.gen(function* () {
+      const interruptDeferred = yield* Deferred.make<void>();
+      const fiber = yield* Effect.fork(
+        ToolExecutor.executeToolCalls(
+          toolCalls,
+          { agentId: "agent-1", conversationId: "sess-1" },
+          { showReasoning: false, showToolExecution: true, mode: "hybrid" as const },
+          recordingRenderer,
+          makeRunMetrics(),
+          "agent-1",
+          "conv-123",
+          "test-agent",
+          Deferred.await(interruptDeferred),
+        ),
+      );
+      yield* Effect.sleep("50 millis");
+      yield* Deferred.succeed(interruptDeferred, undefined);
+      return yield* Fiber.await(fiber);
+    });
+
+    const exit = await Effect.runPromise(
+      program.pipe(Effect.provide(testLayer)) as Effect.Effect<
+        Exit.Exit<
+          readonly { toolCallId: string; result: unknown; success: boolean; name: string }[],
+          unknown
+        >,
+        unknown,
+        never
+      >,
+    );
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    if (Exit.isFailure(exit)) {
+      const error = Cause.failureOption(exit.cause);
+      expect(Option.isSome(error)).toBe(true);
+      if (Option.isSome(error)) {
+        expect(error.value).toBeInstanceOf(GenerationInterruptedError);
+      }
+    }
+    expect(
+      emittedEvents.some(
+        (event) =>
+          event.type === "tool_execution_complete" &&
+          event.toolCallId === "call_slow" &&
+          event.success === false,
+      ),
+    ).toBe(true);
   });
 });
 

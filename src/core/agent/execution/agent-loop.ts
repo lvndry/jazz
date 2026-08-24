@@ -15,7 +15,7 @@ import {
   type MessageAttachment,
 } from "@/core/types/attachment";
 import type { ChatCompletionResponse } from "@/core/types/chat";
-import { LLMRateLimitError } from "@/core/types/errors";
+import { GenerationInterruptedError, LLMRateLimitError } from "@/core/types/errors";
 import type { DisplayConfig } from "@/core/types/output";
 import type { StreamEvent } from "@/core/types/streaming";
 import { conversationLogGroup } from "@/core/utils/log-group";
@@ -349,10 +349,41 @@ function finalizeRun(
 }
 
 /**
+ * Close out assistant `tool_calls` that never got a `role: "tool"` result so the
+ * transcript stays valid for the next LLM request. Used when the user interrupts
+ * mid-batch: executeToolCalls fails before handleToolPhase can append results.
+ */
+function closeDanglingToolCalls(state: LoopState): void {
+  const lastAssistant = [...state.currentMessages]
+    .reverse()
+    .find((message) => message.role === "assistant" && (message.tool_calls?.length ?? 0) > 0);
+  if (lastAssistant?.tool_calls === undefined) return;
+
+  const existing = new Set(
+    state.currentMessages
+      .filter((message) => message.role === "tool" && message.tool_call_id !== undefined)
+      .map((message) => message.tool_call_id),
+  );
+
+  for (const toolCall of lastAssistant.tool_calls) {
+    if (existing.has(toolCall.id)) continue;
+    state.currentMessages.push({
+      role: "tool",
+      name: toolCall.function.name,
+      content: "Tool execution interrupted by user",
+      tool_call_id: toolCall.id,
+    });
+  }
+}
+
+/**
  * Handles the tool-call branch of a single loop iteration: executes the tool
  * calls, validates every call produced a result, appends tool-result messages,
  * runs meltdown detection/recovery injection, and applies budget/queued-message
  * handling. Mutates `state` in place (currentMessages, recentToolCalls, response).
+ *
+ * A user interrupt during tools returns `"interrupted"` instead of failing the
+ * run — the same clean stop as interrupting the LLM stream.
  */
 function handleToolPhase(
   state: LoopState,
@@ -361,7 +392,7 @@ function handleToolPhase(
   iterationIndex: number,
   deps: LoopDeps,
 ): Effect.Effect<
-  void,
+  "continue" | "interrupted",
   Error,
   ToolRegistry | LoggerService | AgentConfigService | ToolRequirements | PresentationService
 > {
@@ -376,6 +407,7 @@ function handleToolPhase(
     runMetrics,
     options,
     logger,
+    observer,
     provider,
     supportedAttachmentKinds,
   } = deps;
@@ -570,7 +602,23 @@ function handleToolPhase(
     if (queuedMessage) {
       state.currentMessages.push({ role: "user", content: queuedMessage });
     }
-  });
+  }).pipe(
+    Effect.as("continue" as const),
+    Effect.catchIf(
+      (error): error is GenerationInterruptedError => error instanceof GenerationInterruptedError,
+      () =>
+        Effect.gen(function* () {
+          closeDanglingToolCalls(state);
+          yield* observer.onInterrupted(agent.name);
+          const renderer = strategy.getRenderer();
+          if (renderer) {
+            yield* renderer.reset();
+          }
+          yield* logger.debug("Tool execution interrupted, breaking loop");
+          return "interrupted" as const;
+        }),
+    ),
+  );
 }
 
 type RunIterationResult = { kind: "continue" } | { kind: "final" } | { kind: "interrupted" };
@@ -834,7 +882,16 @@ function runIteration(
     }
 
     if (completion.toolCalls && completion.toolCalls.length > 0) {
-      yield* handleToolPhase(state, completion.toolCalls, completion.content, iterationIndex, deps);
+      const toolPhase = yield* handleToolPhase(
+        state,
+        completion.toolCalls,
+        completion.content,
+        iterationIndex,
+        deps,
+      );
+      if (toolPhase === "interrupted") {
+        return { kind: "interrupted" } as const;
+      }
       return { kind: "continue" } as const;
     }
 
@@ -1045,10 +1102,20 @@ export function executeAgentLoop(
         // person just gave already in hand — and only then does the loop start.
         if (options.pendingToolCalls !== undefined && options.pendingToolCalls.length > 0) {
           yield* Effect.sync(() => beginIteration(runMetrics, 1));
-          yield* handleToolPhase(state, [...options.pendingToolCalls], "", 0, deps);
+          const pendingPhase = yield* handleToolPhase(
+            state,
+            [...options.pendingToolCalls],
+            "",
+            0,
+            deps,
+          );
+          if (pendingPhase === "interrupted") {
+            finished = true;
+            interrupted = true;
+          }
         }
 
-        for (let i = 0; i < maxIterations; i++) {
+        for (let i = 0; i < maxIterations && !interrupted; i++) {
           yield* Effect.sync(() => beginIteration(runMetrics, i + 1));
           try {
             const step = yield* runIteration(state, i, deps);

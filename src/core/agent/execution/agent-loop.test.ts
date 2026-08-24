@@ -5,6 +5,7 @@ import { FileSystem } from "@effect/platform";
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import { Effect, Layer } from "effect";
 import { DEFAULT_MAX_ITERATIONS } from "@/core/constants/agent";
+import { GenerationInterruptedError } from "@/core/types/errors";
 import type { ConversationMessages } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
 import { clearModelsDevCache } from "@/core/utils/models-dev";
@@ -691,6 +692,60 @@ describe("executeAgentLoop", () => {
     // rather than continuing on to further iterations.
     expect(calls).toContain("interrupted:test-agent");
     expect(getCompletionCalls).toBe(1);
+  });
+
+  it("treats a tool-phase GenerationInterruptedError as a clean interrupt", async () => {
+    const strategy: CompletionStrategy = {
+      shouldShowReasoning: false,
+      getCompletion: () =>
+        Effect.succeed({
+          completion: {
+            id: "c1",
+            model: "gpt-4",
+            content: "",
+            toolCalls: [
+              {
+                id: "call_1",
+                type: "function" as const,
+                function: { name: "test_tool", arguments: "{}" },
+              },
+            ],
+          },
+          interrupted: false,
+        }),
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+
+    const originalExecute = ToolExecutor.executeToolCalls;
+    ToolExecutor.executeToolCalls = mock(() =>
+      Effect.fail(new GenerationInterruptedError({ reason: "Tool execution interrupted by user" })),
+    );
+
+    const { observer, calls } = recordingObserver();
+
+    try {
+      const result = await Effect.runPromise(
+        executeAgentLoop(
+          makeOptions({ maxIterations: 5 }),
+          makeRunContext(),
+          displayConfig,
+          strategy,
+          observer,
+          runRecursive,
+        ).pipe(Effect.provide(TestLayer)),
+      );
+
+      expect(calls).toContain("interrupted:test-agent");
+      const toolMessage = result.messages?.find(
+        (message) => message.role === "tool" && message.tool_call_id === "call_1",
+      );
+      expect(toolMessage).toBeDefined();
+      expect(toolMessage?.content).toContain("interrupted");
+    } finally {
+      ToolExecutor.executeToolCalls = originalExecute;
+    }
   });
 
   it("should warn on empty response", async () => {
