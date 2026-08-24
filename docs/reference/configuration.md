@@ -198,8 +198,9 @@ Other providers follow the same `<PROVIDER>_API_KEY` convention — see
 
 ## `telemetry`
 
-Jazz records what each run did — agent runs, LLM requests and token usage, retries, tool
-invocations, and CLI commands — as NDJSON under `~/.jazz/telemetry/events/YYYY-MM-DD.ndjson`,
+Jazz records what each run did — agent runs, LLM requests and token usage (agent loop vs
+command-risk classifier), retries, tool invocations, Jazz process RSS/heap/CPU, and CLI
+commands — as NDJSON under `~/.jazz/telemetry/events/YYYY-MM-DD.ndjson`,
 pruned after `retentionDays`. Set `telemetry.otlp` to also push those events to an
 OpenTelemetry collector. See [Observability](../guide/observability.md) for a working
 collector and Langfuse setup.

@@ -10,11 +10,12 @@ Each run emits:
 
 | Event | When |
 | --- | --- |
-| `agent_run_started` / `agent_run_completed` | Once per run — a run emits exactly one terminal event |
+| `agent_run_started` / `agent_run_completed` | Once per run — a run emits exactly one terminal event. `usage` is the agent-loop model (system prompt + conversation). `classifierUsage` is the command-risk classifier, kept beside it so the two numbers stay comparable. Both ends carry a `process` snapshot (RSS, heap, CPU). |
 | `agent_run_failed` | Instead of `completed` when the run dies |
-| `llm_usage` | Per LLM request, with token usage and duration |
+| `llm_usage` | Per LLM request, with token usage and wall-clock `durationMs`. Classifier calls are tagged `purpose: "classifier"` and use the harness model, not the agent's. |
 | `llm_retry` | Per failed LLM attempt |
 | `tool_invocation` / `tool_error` | Per tool call, with duration |
+| `process_sample` | Jazz process RSS/heap/CPU every 10s while a run is live. Not a span. |
 | `command_executed` | Per CLI command, with the command path only |
 
 They land in `~/.jazz/telemetry/events/YYYY-MM-DD.ndjson` and are pruned after
@@ -90,8 +91,23 @@ conventions define one, Jazz uses it:
 | `gen_ai.usage.input_tokens` / `gen_ai.usage.output_tokens` | Token counts |
 
 Everything else is namespaced under `jazz.*` — `jazz.agent.id`, `jazz.conversation.id`,
-`jazz.run.id`, `jazz.toolName`, `jazz.durationMs`, and the cache and reasoning token counts that
-have no semconv equivalent, under `jazz.usage.*`.
+`jazz.run.id`, `jazz.toolName`, `jazz.durationMs`, `jazz.purpose` (`classifier` on
+command-risk calls), `jazz.classifierUsage.*`, `jazz.process.*` (RSS, heap, cumulative CPU),
+and the cache and reasoning token counts that have no semconv equivalent, under
+`jazz.usage.*`.
+
+**Latency** is wall-clock `durationMs` on each `llm_usage` and `tool_invocation` span — that
+is per-call time, including classifier round-trips. The run span is the sum of waiting, not
+of CPU.
+
+**Process resources** are Jazz itself (the Bun process): RSS, V8 heap, and cumulative user
+and system CPU. They are sampled at run start, on every LLM and tool event (so a trace
+waterfall is also a memory/CPU series), every 10 seconds during the run, and at run end.
+GPU is not recorded. Jazz does not run the model; a local LLM's accelerator belongs to
+Ollama, llama.cpp, or whichever server you pointed at.
+
+`process_sample` events fill the gaps between calls (waiting on approval, a slow model).
+They are exported as log records when `logs` is in `signals`, and never as spans.
 
 These attribute names are still moving upstream. Jazz pins the semconv version it targets in
 `src/services/telemetry/otlp-mapping.ts`; treat a rename upstream as a deliberate change.

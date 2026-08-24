@@ -294,4 +294,69 @@ describe("TelemetryServiceImpl usage aggregation", () => {
     expect(summary.totalTokens).toBe(30);
     expect(summary.byModel["anthropic/claude-opus-5"]?.requests).toBe(2);
   });
+
+  it("splits classifier tokens out of llm_usage by purpose", async () => {
+    const service = makeService([new RecordingSink("memory")]);
+
+    await Effect.runPromise(
+      service.recordLLMUsage({
+        provider: "openai",
+        model: "gpt-4o",
+        usage: { promptTokens: 1000, completionTokens: 50, totalTokens: 1050 },
+      }),
+    );
+    await Effect.runPromise(
+      service.recordLLMUsage({
+        provider: "openai",
+        model: "gpt-4o-mini",
+        usage: { promptTokens: 180, completionTokens: 2, totalTokens: 182 },
+        purpose: "classifier",
+      }),
+    );
+
+    const summary = await Effect.runPromise(service.getUsageSummary());
+
+    expect(summary.totalRequests).toBe(2);
+    expect(summary.promptTokens).toBe(1180);
+    expect(summary.classifierRequests).toBe(1);
+    expect(summary.classifierPromptTokens).toBe(180);
+    expect(summary.classifierCompletionTokens).toBe(2);
+  });
+
+  it("attaches a Jazz process snapshot to run start and end", async () => {
+    const sink = new RecordingSink("memory");
+    const service = makeService([sink]);
+
+    await Effect.runPromise(
+      service.recordAgentRunStarted({
+        runId: "run-1",
+        agentId: "agent-1",
+        agentName: "researcher",
+        conversationId: "conv-1",
+      }),
+    );
+    await Effect.runPromise(
+      service.recordAgentRunCompleted({
+        runId: "run-1",
+        agentId: "agent-1",
+        agentName: "researcher",
+        conversationId: "conv-1",
+        durationMs: 100,
+        iterationsUsed: 1,
+        finished: true,
+        usage: USAGE,
+        toolCalls: 0,
+        toolErrors: 0,
+      }),
+    );
+    await Effect.runPromise(service.flush());
+
+    const started = sink.written.find((event) => event.type === "agent_run_started");
+    const completed = sink.written.find((event) => event.type === "agent_run_completed");
+    const startedProcess = started?.data["process"] as { rssBytes?: number } | undefined;
+    const completedProcess = completed?.data["process"] as { rssBytes?: number } | undefined;
+
+    expect(startedProcess?.rssBytes).toBeGreaterThan(0);
+    expect(completedProcess?.rssBytes).toBeGreaterThan(0);
+  });
 });

@@ -1,9 +1,15 @@
 import { describe, expect, it } from "bun:test";
+import { Effect } from "effect";
+import type { LoggerService } from "@/core/interfaces/logger";
+import { LoggerServiceTag } from "@/core/interfaces/logger";
 import {
   beginIteration,
   completeIteration,
   createAgentRunMetrics,
   estimateTokens,
+  finalizeAgentRun,
+  recordClassifierUsage,
+  recordLLMUsage,
   recordToolDefinitionTokens,
 } from "./agent-run-metrics";
 
@@ -114,5 +120,51 @@ describe("recordToolDefinitionTokens", () => {
 
     expect(metrics.totalToolDefinitionTokens).toBe(160);
     expect(metrics.toolDefinitionsOffered).toBe(5);
+  });
+});
+
+describe("classifier usage", () => {
+  it("keeps classifier tokens out of the agent-loop totals", () => {
+    const metrics = createMetrics();
+    recordLLMUsage(metrics, { promptTokens: 1000, completionTokens: 200 });
+    recordClassifierUsage(metrics, { promptTokens: 80, completionTokens: 2 }, 45);
+
+    expect(metrics.totalPromptTokens).toBe(1000);
+    expect(metrics.totalCompletionTokens).toBe(200);
+    expect(metrics.classifierPromptTokens).toBe(80);
+    expect(metrics.classifierCompletionTokens).toBe(2);
+    expect(metrics.classifierRequests).toBe(1);
+    expect(metrics.classifierDurationMs).toBe(45);
+  });
+
+  it("logs classifier usage beside agent-loop tokens on finalize", async () => {
+    const metrics = createMetrics();
+    recordLLMUsage(metrics, { promptTokens: 1000, completionTokens: 50 });
+    recordClassifierUsage(metrics, { promptTokens: 40, completionTokens: 1 }, 12);
+    recordClassifierUsage(metrics, { promptTokens: 42, completionTokens: 1 }, 9);
+
+    let logged: Record<string, unknown> | undefined;
+    const logger = {
+      debug: () => Effect.void,
+      info: (_message: string, meta?: Record<string, unknown>) =>
+        Effect.sync(() => {
+          logged = meta;
+        }),
+      warn: () => Effect.void,
+      error: () => Effect.void,
+    } as unknown as LoggerService;
+
+    await Effect.runPromise(
+      finalizeAgentRun(metrics, { iterationsUsed: 1, finished: true }).pipe(
+        Effect.provideService(LoggerServiceTag, logger),
+      ),
+    );
+
+    expect(logged?.promptTokens).toBe(1000);
+    expect(logged?.completionTokens).toBe(50);
+    expect(logged?.classifierPromptTokens).toBe(82);
+    expect(logged?.classifierCompletionTokens).toBe(2);
+    expect(logged?.classifierRequests).toBe(2);
+    expect(logged?.classifierDurationMs).toBe(21);
   });
 });

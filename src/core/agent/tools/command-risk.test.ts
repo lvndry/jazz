@@ -12,6 +12,7 @@ import {
   parseClassifierVerdict,
   shouldClassifyExecuteCommand,
 } from "./command-risk";
+import { createAgentRunMetrics } from "../metrics/agent-run-metrics";
 
 describe("shouldClassifyExecuteCommand", () => {
   it("runs for an unknown risk under the tiers a verdict could change", () => {
@@ -243,5 +244,61 @@ describe("classifyCommandRisk", () => {
       "rm -rf /",
     );
     expect(risk).toBe("read-only");
+  });
+
+  it("records classifier tokens and latency onto run metrics, not agent-loop totals", async () => {
+    const metrics = createAgentRunMetrics({
+      agent,
+      conversationId: "conv-1",
+      provider: "openai",
+      model: "gpt-4o-mini",
+    });
+
+    const risk = await Effect.runPromise(
+      classifyCommandRisk("git status", agent, undefined, metrics).pipe(
+        Effect.provideService(
+          LLMServiceTag,
+          makeLlm(() =>
+            Effect.succeed({
+              id: "1",
+              model: "gpt-4o-mini",
+              content: "read-only",
+              usage: { promptTokens: 180, completionTokens: 2, totalTokens: 182 },
+            }),
+          ),
+        ),
+        Effect.provideService(LoggerServiceTag, silentLogger),
+      ),
+    );
+
+    expect(risk).toBe("read-only");
+    expect(metrics.classifierPromptTokens).toBe(180);
+    expect(metrics.classifierCompletionTokens).toBe(2);
+    expect(metrics.classifierRequests).toBe(1);
+    expect(metrics.classifierDurationMs).toBeGreaterThanOrEqual(0);
+    expect(metrics.totalPromptTokens).toBe(0);
+    expect(metrics.totalCompletionTokens).toBe(0);
+  });
+
+  it("does not record classifier usage when the call fails closed", async () => {
+    const metrics = createAgentRunMetrics({
+      agent,
+      conversationId: "conv-1",
+    });
+
+    await Effect.runPromise(
+      classifyCommandRisk("git status", agent, undefined, metrics).pipe(
+        Effect.provideService(
+          LLMServiceTag,
+          makeLlm(() =>
+            Effect.fail(new LLMRequestError({ provider: "openai", message: "provider down" })),
+          ),
+        ),
+        Effect.provideService(LoggerServiceTag, silentLogger),
+      ),
+    );
+
+    expect(metrics.classifierRequests).toBe(0);
+    expect(metrics.classifierPromptTokens).toBe(0);
   });
 });

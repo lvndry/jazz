@@ -104,6 +104,12 @@ describe("toSpan", () => {
     expect(toSpan(makeEvent("llm_usage", { model: "gpt-5" }), false).name).toBe("chat gpt-5");
   });
 
+  it("names classifier LLM spans after the purpose, not as a further chat", () => {
+    expect(
+      toSpan(makeEvent("llm_usage", { model: "gpt-4o-mini", purpose: "classifier" }), false).name,
+    ).toBe("classifier gpt-4o-mini");
+  });
+
   it("falls back to the conversation when an event carries no run id", () => {
     const span = toSpan(makeEvent("tool_invocation", {}, { conversationId: "conv-9" }), false);
     expect(span.traceId).toBe(traceIdForRun("conv-9"));
@@ -143,6 +149,10 @@ describe("isSpanEvent", () => {
 
   it("excludes command_executed, which would emit a junk trace beside every run", () => {
     expect(isSpanEvent(makeEvent("command_executed", { command: "run" }))).toBe(false);
+  });
+
+  it("excludes process_sample, which is a metric point not a unit of work", () => {
+    expect(isSpanEvent(makeEvent("process_sample", { runId: "run-1" }))).toBe(false);
   });
 });
 

@@ -172,6 +172,11 @@ instructions inside them and cannot close the tag early. A wrong milder verdict 
 possible; the shell denylist is the backstop for known-destructive patterns, not for
 `git push`.
 
+Each classifier call is recorded as `llm_usage` with `purpose: "classifier"` (tokens in/out
+and wall-clock latency) and rolled into `classifierUsage` on `agent_run_completed`. Those
+numbers stay beside the agent-loop `usage` — they are not mixed into it — so a run shows how
+much was approval gating versus the conversation. See [Observability](../guide/observability.md).
+
 Implementation: [`command-risk.ts`](../../src/core/agent/tools/command-risk.ts).
 
 ### Two sharper controls

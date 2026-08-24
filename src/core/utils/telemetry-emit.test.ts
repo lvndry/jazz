@@ -15,6 +15,7 @@ function stubTelemetry(overrides: Partial<TelemetryService>): TelemetryService {
     recordLLMRetry: notCalled,
     recordToolInvocation: notCalled,
     recordCommandExecuted: notCalled,
+    recordProcessSample: notCalled,
     recordEvent: notCalled,
     getEvents: notCalled,
     getUsageSummary: notCalled,
