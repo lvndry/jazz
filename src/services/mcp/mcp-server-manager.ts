@@ -1,21 +1,18 @@
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
-import {
-  PromptListChangedNotificationSchema,
-  ToolListChangedNotificationSchema,
-} from "@modelcontextprotocol/sdk/types.js";
+import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+import type { Transport } from "@modelcontextprotocol/client";
+import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { Effect, Layer } from "effect";
 import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
 import type { LoggerService } from "@/core/interfaces/logger";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import type {
+  ElicitationHandler,
   MCPServerConfig,
   MCPServerManager,
   MCPTransport,
   MCPTransportType,
+  ProgressReporter,
   ToolsChangedHandler,
 } from "@/core/interfaces/mcp-server";
 import { isHttpConfig, isStdioConfig, MCPServerManagerTag } from "@/core/interfaces/mcp-server";
@@ -23,19 +20,26 @@ import {
   MCPConnectionError,
   MCPDisconnectionError,
   MCPPromptError,
+  MCPResourceError,
   MCPToolDiscoveryError,
   MCPToolExecutionError,
 } from "@/core/types/errors";
 import type {
+  MCPElicitationRequest,
+  MCPElicitationResponse,
   MCPJSONSchema,
   MCPPrompt,
   MCPPromptResult,
+  MCPResource,
+  MCPResourceContent,
+  MCPResourceTemplate,
   MCPServerCapabilities,
   MCPTool,
   MCPToolResult,
 } from "@/core/types/mcp";
 import { createSanitizedEnv } from "@/core/utils/env";
 import { retryWithBackoff } from "@/core/utils/mcp";
+import { toElicitationFields } from "./elicitation-schema";
 import { createStoredTokenProvider, InteractiveAuthRequiredError } from "./oauth";
 import packageJson from "../../../package.json";
 
@@ -54,12 +58,51 @@ const CALL_TIMEOUT_MS = 120_000;
 /** Guard against a server paginating `tools/list` without end. */
 const MAX_LIST_PAGES = 50;
 
+/** Narrow an SDK tool definition to the fields Jazz reads. */
+function toMCPTool(tool: {
+  name: string;
+  title?: string | undefined;
+  description?: string | undefined;
+  inputSchema?: unknown;
+  outputSchema?: unknown;
+  annotations?:
+    | {
+        readOnlyHint?: boolean | undefined;
+        destructiveHint?: boolean | undefined;
+        idempotentHint?: boolean | undefined;
+        openWorldHint?: boolean | undefined;
+      }
+    | undefined;
+}): MCPTool {
+  return {
+    name: tool.name,
+    ...(tool.title !== undefined ? { title: tool.title } : {}),
+    ...(tool.description !== undefined ? { description: tool.description } : {}),
+    ...(tool.inputSchema !== undefined ? { inputSchema: tool.inputSchema as MCPJSONSchema } : {}),
+    ...(tool.outputSchema !== undefined
+      ? { outputSchema: tool.outputSchema as MCPJSONSchema }
+      : {}),
+    ...(tool.annotations !== undefined
+      ? {
+          annotations: {
+            readOnlyHint: tool.annotations.readOnlyHint,
+            destructiveHint: tool.annotations.destructiveHint,
+            idempotentHint: tool.annotations.idempotentHint,
+            openWorldHint: tool.annotations.openWorldHint,
+          },
+        }
+      : {}),
+  };
+}
+
 interface Connection {
   readonly serverName: string;
   readonly client: Client;
   readonly transport: MCPTransport;
   readonly transportType: MCPTransportType;
   readonly capabilities: MCPServerCapabilities | undefined;
+  /** Which protocol era the connection negotiated: "modern" is 2026-07-28. */
+  readonly protocolEra: string | undefined;
 }
 
 /**
@@ -73,11 +116,18 @@ class MCPServerManagerImpl implements MCPServerManager {
   private connections: Map<string, Connection>;
   private toolsChangedHandlers: Set<ToolsChangedHandler>;
   private logger: LoggerService;
+  /**
+   * Set by whichever surface can actually put a question to a person. Left
+   * unset on bridges and scheduled runs, where the correct answer to an
+   * elicitation is to decline rather than to block forever.
+   */
+  private elicitationHandler: ElicitationHandler | undefined;
 
   constructor(logger: LoggerService) {
     this.connections = new Map();
     this.toolsChangedHandlers = new Set();
     this.logger = logger;
+    this.elicitationHandler = undefined;
   }
 
   private buildTransport(config: MCPServerConfig): {
@@ -92,7 +142,7 @@ class MCPServerManagerImpl implements MCPServerManager {
       } else {
         // Static headers are the user saying "authenticate this way"; only fall
         // back to OAuth when they have not.
-        options.authProvider = createStoredTokenProvider(config.name);
+        options.authProvider = createStoredTokenProvider(config.name, config.url);
       }
 
       if (config.conversationId) {
@@ -118,28 +168,41 @@ class MCPServerManagerImpl implements MCPServerManager {
   }
 
   /**
-   * Re-list a server's tools and fan the result out to subscribers.
+   * Fan a server's new tool list out to subscribers.
    *
-   * Runs detached from any fiber: notifications arrive on the transport's own
-   * callback, not inside an Effect the caller is awaiting.
+   * `items` is null only when auto-refresh is disabled, which Jazz does not do;
+   * it is still guarded so a change never turns into an empty tool list.
    */
-  private handleToolsListChanged(serverName: string): void {
-    if (this.toolsChangedHandlers.size === 0) return;
+  private handleToolsChanged(
+    serverName: string,
+    items:
+      | readonly {
+          name: string;
+          title?: string | undefined;
+          description?: string | undefined;
+          inputSchema?: unknown;
+          outputSchema?: unknown;
+          annotations?:
+            | {
+                readOnlyHint?: boolean | undefined;
+                destructiveHint?: boolean | undefined;
+                idempotentHint?: boolean | undefined;
+                openWorldHint?: boolean | undefined;
+              }
+            | undefined;
+        }[]
+      | null,
+  ): void {
+    if (items === null || this.toolsChangedHandlers.size === 0) return;
 
-    void Effect.runPromise(
-      this.getServerTools(serverName).pipe(
-        Effect.provideService(LoggerServiceTag, this.logger),
-        Effect.catchAll(() => Effect.succeed([] as readonly MCPTool[])),
-      ),
-    ).then((tools) => {
-      for (const handler of this.toolsChangedHandlers) {
-        try {
-          handler(serverName, tools);
-        } catch {
-          // One bad subscriber must not stop the others.
-        }
+    const tools = items.map(toMCPTool);
+    for (const handler of this.toolsChangedHandlers) {
+      try {
+        handler(serverName, tools);
+      } catch {
+        // One bad subscriber must not stop the others.
       }
-    });
+    }
   }
 
   connectServer(config: MCPServerConfig): Effect.Effect<void, MCPConnectionError, LoggerService> {
@@ -157,18 +220,49 @@ class MCPServerManagerImpl implements MCPServerManager {
 
       const client = new Client(
         { name: "jazz", version: packageJson.version },
-        // Declaring `roots` would oblige us to answer `roots/list`; Jazz does
-        // not yet, so it stays out of the handshake.
-        { capabilities: {} },
+        {
+          // Roots is deliberately not declared: 2026-07-28 deprecates it
+          // (SEP-2577) and removes notifications/roots/list_changed, with the
+          // migration being to pass directories as tool parameters or server
+          // config instead.
+          //
+          // `elicitation` is advertised unconditionally even though a given
+          // surface may have no way to ask a person: the capability says Jazz
+          // speaks the request, and declining is a valid answer to it. On a
+          // 2026-era connection the SDK fulfils the same handler through the
+          // multi-round-trip `input_required` flow, so one handler serves both.
+          capabilities: { elicitation: {} },
+          // Probe `server/discover` for the 2026-07-28 era and fall back to the
+          // 2025 handshake against older servers, at the cost of one round trip.
+          versionNegotiation: { mode: "auto" },
+          // Era-transparent list-change handling: unsolicited notifications on
+          // 2025 connections, an auto-opened `subscriptions/listen` stream on
+          // 2026 ones. The SDK re-lists and hands back the new items, which is
+          // why nothing here re-fetches by hand.
+          listChanged: {
+            tools: {
+              onChanged: (error, items) => {
+                if (error) {
+                  void Effect.runPromise(
+                    manager.logger
+                      .warn(
+                        `Failed to refresh tools for ${config.name} after a list change: ${error.message}`,
+                      )
+                      .pipe(Effect.catchAllCause(() => Effect.void)),
+                  );
+                  return;
+                }
+                manager.handleToolsChanged(config.name, items);
+              },
+            },
+          },
+        },
       );
 
-      client.setNotificationHandler(ToolListChangedNotificationSchema, () => {
-        manager.handleToolsListChanged(config.name);
-      });
-      client.setNotificationHandler(PromptListChangedNotificationSchema, () => {
-        // Prompts are re-listed on demand by the chat command, so the
-        // notification only needs to not be an unhandled-method error.
-      });
+      // v2 registers handlers by method name rather than by schema.
+      client.setRequestHandler("elicitation/create", (request) =>
+        manager.handleElicitation(config.name, request.params),
+      );
 
       const connectEffect = Effect.tryPromise({
         try: () => client.connect(transport as Transport),
@@ -228,16 +322,19 @@ class MCPServerManagerImpl implements MCPServerManager {
           }
         : undefined;
 
+      const protocolEra = client.getProtocolEra();
+
       manager.connections.set(config.name, {
         serverName: config.name,
         client,
         transport,
         transportType,
         capabilities,
+        protocolEra,
       });
 
       yield* manager.logger.info(
-        `Connected to MCP server: ${config.name} (${transportType} transport)`,
+        `Connected to MCP server: ${config.name} (${transportType} transport, ${protocolEra ?? "unknown"} protocol era)`,
       );
     }).pipe(
       Effect.mapError((error: unknown) => {
@@ -311,27 +408,7 @@ class MCPServerManagerImpl implements MCPServerManager {
               );
 
               for (const tool of result.tools) {
-                collected.push({
-                  name: tool.name,
-                  ...(tool.title !== undefined ? { title: tool.title } : {}),
-                  ...(tool.description !== undefined ? { description: tool.description } : {}),
-                  ...(tool.inputSchema !== undefined
-                    ? { inputSchema: tool.inputSchema as MCPJSONSchema }
-                    : {}),
-                  ...(tool.outputSchema !== undefined
-                    ? { outputSchema: tool.outputSchema as MCPJSONSchema }
-                    : {}),
-                  ...(tool.annotations !== undefined
-                    ? {
-                        annotations: {
-                          readOnlyHint: tool.annotations.readOnlyHint,
-                          destructiveHint: tool.annotations.destructiveHint,
-                          idempotentHint: tool.annotations.idempotentHint,
-                          openWorldHint: tool.annotations.openWorldHint,
-                        },
-                      }
-                    : {}),
-                });
+                collected.push(toMCPTool(tool));
               }
 
               cursor = result.nextCursor;
@@ -376,6 +453,7 @@ class MCPServerManagerImpl implements MCPServerManager {
     serverName: string,
     toolName: string,
     args: Record<string, unknown>,
+    onProgress?: ProgressReporter,
   ): Effect.Effect<MCPToolResult, MCPToolExecutionError, LoggerService> {
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const manager = this;
@@ -393,7 +471,25 @@ class MCPServerManagerImpl implements MCPServerManager {
       }
 
       const result = yield* Effect.tryPromise({
-        try: () => connection.client.callTool({ name: toolName, arguments: args }),
+        try: () =>
+          connection.client.callTool(
+            { name: toolName, arguments: args },
+            onProgress
+              ? {
+                  onprogress: (progress) => {
+                    onProgress({
+                      progress: progress.progress,
+                      ...(progress.total !== undefined ? { total: progress.total } : {}),
+                      ...(progress.message !== undefined ? { message: progress.message } : {}),
+                    });
+                  },
+                  // A server that keeps reporting is working, not hung — let it
+                  // keep going rather than timing out mid-report.
+                  resetTimeoutOnProgress: true,
+                  maxTotalTimeout: CALL_TIMEOUT_MS,
+                }
+              : undefined,
+          ),
         catch: (error) => (error instanceof Error ? error : new Error(String(error))),
       }).pipe(
         Effect.timeoutFail({
@@ -539,6 +635,269 @@ class MCPServerManagerImpl implements MCPServerManager {
         })),
       };
     });
+  }
+
+  /**
+   * Answer a server's `elicitation/create`.
+   *
+   * Declines rather than blocking whenever there is nobody to ask — an
+   * unattended bridge or scheduled run has no way to surface a dialog, and a
+   * hung request there would stall the whole job.
+   */
+  private async handleElicitation(
+    serverName: string,
+    params: {
+      mode?: string | undefined;
+      message?: string | undefined;
+      requestedSchema?: unknown;
+    },
+  ): Promise<{
+    action: "accept" | "decline" | "cancel";
+    content?: Record<string, string | number | boolean | string[]>;
+  }> {
+    const handler = this.elicitationHandler;
+
+    if (!handler) {
+      await Effect.runPromise(
+        this.logger.debug(
+          `Declined elicitation from ${serverName}: this surface cannot prompt the user`,
+        ),
+      );
+      return { action: "decline" };
+    }
+
+    // URL mode hands the user off to a browser page the server controls. Jazz
+    // has no way to confirm what happens there, so it is declined rather than
+    // silently opened.
+    if (params.mode === "url") {
+      await Effect.runPromise(
+        this.logger.warn(`Declined URL-mode elicitation from ${serverName}: not supported`),
+      );
+      return { action: "decline" };
+    }
+
+    const request: MCPElicitationRequest = {
+      serverName,
+      message: typeof params.message === "string" ? params.message : "",
+      fields: toElicitationFields(params.requestedSchema),
+    };
+
+    try {
+      const response: MCPElicitationResponse = await handler(request);
+      if (response.action !== "accept") {
+        return { action: response.action };
+      }
+
+      // v2 types elicitation content precisely, and a readonly array is not
+      // assignable to the mutable one the wire type declares.
+      const content: Record<string, string | number | boolean | string[]> = {};
+      for (const [key, value] of Object.entries(response.content)) {
+        // `Array.isArray` does not narrow a readonly array out of the union,
+        // so the scalar cases are what get tested.
+        content[key] =
+          typeof value === "string" || typeof value === "number" || typeof value === "boolean"
+            ? value
+            : [...value];
+      }
+      return { action: "accept", content };
+    } catch (error) {
+      await Effect.runPromise(
+        this.logger.warn(
+          `Elicitation handler failed for ${serverName}: ${error instanceof Error ? error.message : String(error)}`,
+        ),
+      );
+      return { action: "cancel" };
+    }
+  }
+
+  onElicitation(handler: ElicitationHandler): Effect.Effect<() => void, never> {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const manager = this;
+    return Effect.sync(() => {
+      manager.elicitationHandler = handler;
+      return () => {
+        if (manager.elicitationHandler === handler) {
+          manager.elicitationHandler = undefined;
+        }
+      };
+    });
+  }
+
+  getServerResources(
+    serverName: string,
+  ): Effect.Effect<readonly MCPResource[], MCPResourceError, LoggerService> {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const manager = this;
+    return Effect.gen(function* () {
+      const connection = manager.connections.get(serverName);
+      if (!connection) {
+        return yield* Effect.fail(
+          new MCPResourceError({
+            serverName,
+            reason: `MCP server ${serverName} is not connected`,
+            suggestion: `Call connectServer() before listing resources`,
+          }),
+        );
+      }
+
+      if (connection.capabilities?.resources === undefined) {
+        return [];
+      }
+
+      return yield* Effect.tryPromise({
+        try: async () => {
+          const collected: MCPResource[] = [];
+          let cursor: string | undefined;
+
+          for (let page = 0; page < MAX_LIST_PAGES; page += 1) {
+            const result = await connection.client.listResources(
+              cursor === undefined ? {} : { cursor },
+            );
+
+            for (const resource of result.resources) {
+              collected.push({
+                uri: resource.uri,
+                name: resource.name,
+                title: resource.title,
+                description: resource.description,
+                mimeType: resource.mimeType,
+              });
+            }
+
+            cursor = result.nextCursor;
+            if (cursor === undefined) break;
+          }
+
+          return collected;
+        },
+        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+      }).pipe(
+        Effect.mapError(
+          (error: unknown) =>
+            new MCPResourceError({
+              serverName,
+              reason: `Failed to list resources: ${error instanceof Error ? error.message : String(error)}`,
+              cause: error,
+              suggestion: `Check that the MCP server is running and responding correctly`,
+            }),
+        ),
+      );
+    });
+  }
+
+  readResource(
+    serverName: string,
+    uri: string,
+  ): Effect.Effect<readonly MCPResourceContent[], MCPResourceError, LoggerService> {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const manager = this;
+    return Effect.gen(function* () {
+      const connection = manager.connections.get(serverName);
+      if (!connection) {
+        return yield* Effect.fail(
+          new MCPResourceError({
+            serverName,
+            reason: `MCP server ${serverName} is not connected`,
+            suggestion: `Call connectServer() before reading a resource`,
+          }),
+        );
+      }
+
+      const result = yield* Effect.tryPromise({
+        try: () => connection.client.readResource({ uri }),
+        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+      }).pipe(
+        Effect.mapError(
+          (error: unknown) =>
+            new MCPResourceError({
+              serverName,
+              reason: `Failed to read resource "${uri}": ${error instanceof Error ? error.message : String(error)}`,
+              cause: error,
+              suggestion: `Check that the URI is one the server advertises`,
+            }),
+        ),
+      );
+
+      return result.contents.map((content) => ({
+        uri: content.uri,
+        mimeType: content.mimeType,
+        ...("text" in content && typeof content.text === "string" ? { text: content.text } : {}),
+        ...("blob" in content && typeof content.blob === "string" ? { blob: content.blob } : {}),
+      }));
+    });
+  }
+
+  getResourceTemplates(
+    serverName: string,
+  ): Effect.Effect<readonly MCPResourceTemplate[], MCPResourceError, LoggerService> {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const manager = this;
+    return Effect.gen(function* () {
+      const connection = manager.connections.get(serverName);
+      if (!connection || connection.capabilities?.resources === undefined) {
+        return [];
+      }
+
+      return yield* Effect.tryPromise({
+        try: async () => {
+          const result = await connection.client.listResourceTemplates({});
+          return result.resourceTemplates.map((template) => ({
+            uriTemplate: template.uriTemplate,
+            name: template.name,
+            title: template.title,
+            description: template.description,
+            mimeType: template.mimeType,
+          }));
+        },
+        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+      }).pipe(
+        // A server may advertise `resources` without implementing templates, so
+        // a failure here means "none", not a broken server.
+        Effect.catchAll(() => Effect.succeed([] as readonly MCPResourceTemplate[])),
+      );
+    });
+  }
+
+  completeArgument(
+    serverName: string,
+    reference: { readonly type: "prompt" | "resource"; readonly name: string },
+    argumentName: string,
+    partialValue: string,
+    resolvedArguments: Record<string, string> = {},
+  ): Effect.Effect<readonly string[], never, LoggerService> {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const manager = this;
+    return Effect.gen(function* () {
+      const connection = manager.connections.get(serverName);
+      if (!connection) return [];
+
+      return yield* Effect.tryPromise({
+        try: async () => {
+          const result = await connection.client.complete({
+            ref:
+              reference.type === "prompt"
+                ? { type: "ref/prompt", name: reference.name }
+                : { type: "ref/resource", uri: reference.name },
+            argument: { name: argumentName, value: partialValue },
+            // Servers may narrow one argument by the values already chosen for
+            // earlier ones; without this such an argument completes to nothing.
+            ...(Object.keys(resolvedArguments).length > 0
+              ? { context: { arguments: resolvedArguments } }
+              : {}),
+          });
+          return result.completion.values;
+        },
+        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+      }).pipe(
+        // Completion is a convenience: a server that does not implement it
+        // should cost the user a picker, not the whole prompt.
+        Effect.catchAll(() => Effect.succeed([] as readonly string[])),
+      );
+    });
+  }
+
+  getProtocolEra(serverName: string): Effect.Effect<string | undefined, never> {
+    return Effect.sync(() => this.connections.get(serverName)?.protocolEra);
   }
 
   getCapabilities(serverName: string): Effect.Effect<MCPServerCapabilities | undefined, never> {

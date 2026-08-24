@@ -10,6 +10,7 @@ import type { TerminalService } from "@/core/interfaces/terminal";
 import type { ToolRegistry } from "@/core/interfaces/tool-registry";
 import type { Agent } from "@/core/types";
 import { setMcpPromptCommands } from "@/services/chat/commands";
+import { registerElicitationHandler } from "./elicitation";
 
 /**
  * Set up agent before first message: Connect to MCP servers and register tools.
@@ -41,6 +42,10 @@ export function setupAgent(
     const agentToolNames = normalizeToolConfig(agent.config.tools, {
       agentId: agent.id,
     });
+
+    // Registered before connecting: a server may elicit during its very first
+    // tool call, and there is no later hook that would still be in time.
+    yield* registerElicitationHandler();
 
     // Register MCP tools for this agent (connects to relevant servers)
     // This happens before the first message as part of agent setup

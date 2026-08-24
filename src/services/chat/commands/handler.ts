@@ -1323,18 +1323,46 @@ function handleRunMcpPromptCommand(
     }
 
     const declared = definition.arguments ?? [];
-    const bound = bindPromptArguments(declared, args.slice(1));
+    const bound: Record<string, string> = { ...bindPromptArguments(declared, args.slice(1)) };
 
-    const missing = declared
-      .filter((argument) => argument.required === true && bound[argument.name] === undefined)
-      .map((argument) => argument.name);
+    // Rather than rejecting an under-specified invocation, ask for what is
+    // missing — offering the server's own completions where it implements
+    // them, which is the only place completion/complete is reachable without
+    // an autocomplete-aware composer.
+    for (const argument of declared) {
+      if (bound[argument.name] !== undefined) continue;
+      if (argument.required !== true) continue;
 
-    if (missing.length > 0) {
-      yield* terminal.error(`Missing required argument(s): ${missing.join(", ")}`);
-      yield* terminal.info(
-        `Usage: /${commandName} ${declared.map((argument) => `${argument.name}=<value>`).join(" ")}`,
+      const label = argument.description
+        ? `${argument.name} — ${argument.description}`
+        : argument.name;
+
+      const suggestions = yield* mcpManager.completeArgument(
+        serverName,
+        { type: "prompt", name: promptName },
+        argument.name,
+        "",
+        bound,
       );
-      return { shouldContinue: true };
+
+      if (suggestions.length > 0) {
+        const chosen = yield* terminal.select<string>(label, {
+          choices: suggestions.map((value) => ({ name: value, value })),
+        });
+        if (!chosen) {
+          yield* terminal.info("Cancelled.");
+          return { shouldContinue: true };
+        }
+        bound[argument.name] = chosen;
+        continue;
+      }
+
+      const typed = yield* terminal.ask(label, { cancellable: true });
+      if (typed === undefined || typed.trim() === "") {
+        yield* terminal.info("Cancelled.");
+        return { shouldContinue: true };
+      }
+      bound[argument.name] = typed.trim();
     }
 
     const resolved = yield* mcpManager.getPrompt(serverName, promptName, bound).pipe(Effect.either);

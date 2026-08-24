@@ -1,16 +1,23 @@
-import type { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import type { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import type { StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+import type { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { Context, Effect } from "effect";
 import type {
   MCPConnectionError,
   MCPDisconnectionError,
   MCPPromptError,
+  MCPResourceError,
   MCPToolDiscoveryError,
   MCPToolExecutionError,
 } from "@/core/types/errors";
 import type {
+  MCPElicitationRequest,
+  MCPElicitationResponse,
+  MCPProgress,
   MCPPrompt,
   MCPPromptResult,
+  MCPResource,
+  MCPResourceContent,
+  MCPResourceTemplate,
   MCPServerCapabilities,
   MCPTool,
   MCPToolResult,
@@ -90,6 +97,24 @@ export function isHttpConfig(config: MCPServerConfig): config is MCPServerConfig
  */
 export type MCPTransport = StdioClientTransport | StreamableHTTPClientTransport;
 
+/**
+ * Asks the user a server's elicitation question.
+ *
+ * Registered only by surfaces that can actually reach a person; where none is
+ * registered the manager declines, which is what an unattended run needs.
+ */
+export type ElicitationHandler = (
+  request: MCPElicitationRequest,
+) => Promise<MCPElicitationResponse>;
+
+/**
+ * Receives progress reports from a long-running server operation.
+ *
+ * A server doing thirty seconds of work is otherwise indistinguishable from a
+ * hung one, so these are surfaced rather than dropped.
+ */
+export type ProgressReporter = (progress: MCPProgress) => void;
+
 /** Called when a server reports its tool list changed. */
 export type ToolsChangedHandler = (serverName: string, tools: readonly MCPTool[]) => void;
 
@@ -129,6 +154,7 @@ export interface MCPServerManager {
     serverName: string,
     toolName: string,
     args: Record<string, unknown>,
+    onProgress?: ProgressReporter,
   ) => Effect.Effect<MCPToolResult, MCPToolExecutionError, LoggerService>;
 
   /**
@@ -149,6 +175,12 @@ export interface MCPServerManager {
   ) => Effect.Effect<MCPPromptResult, MCPPromptError, LoggerService>;
 
   /**
+   * Which protocol era a connection negotiated — "modern" for 2026-07-28,
+   * "legacy" for the 2025 handshake. Undefined when not connected.
+   */
+  readonly getProtocolEra: (serverName: string) => Effect.Effect<string | undefined, never>;
+
+  /**
    * Capabilities the server declared at initialize, or undefined when not
    * connected.
    */
@@ -161,6 +193,48 @@ export interface MCPServerManager {
    * function. Handlers fire with the re-listed tools already resolved.
    */
   readonly onToolsChanged: (handler: ToolsChangedHandler) => Effect.Effect<() => void, never>;
+
+  /**
+   * List resources a connected server exposes. Servers that do not advertise
+   * the `resources` capability return an empty list rather than error.
+   */
+  readonly getServerResources: (
+    serverName: string,
+  ) => Effect.Effect<readonly MCPResource[], MCPResourceError, LoggerService>;
+
+  /**
+   * Read one resource by URI.
+   */
+  readonly readResource: (
+    serverName: string,
+    uri: string,
+  ) => Effect.Effect<readonly MCPResourceContent[], MCPResourceError, LoggerService>;
+
+  /**
+   * List a server's parameterized resource URIs. Servers that advertise
+   * resources without implementing templates return an empty list.
+   */
+  readonly getResourceTemplates: (
+    serverName: string,
+  ) => Effect.Effect<readonly MCPResourceTemplate[], MCPResourceError, LoggerService>;
+
+  /**
+   * Ask a server to complete a partially typed prompt or resource argument.
+   * Returns an empty list when the server does not implement completion.
+   */
+  readonly completeArgument: (
+    serverName: string,
+    reference: { readonly type: "prompt" | "resource"; readonly name: string },
+    argumentName: string,
+    partialValue: string,
+    resolvedArguments?: Record<string, string>,
+  ) => Effect.Effect<readonly string[], never, LoggerService>;
+
+  /**
+   * Register the handler that answers servers' elicitation requests. Returns an
+   * unregister function.
+   */
+  readonly onElicitation: (handler: ElicitationHandler) => Effect.Effect<() => void, never>;
 
   /**
    * Discover tools from an MCP server (connects, discovers, then disconnects)

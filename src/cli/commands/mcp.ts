@@ -19,6 +19,9 @@ import { authorizeServer, clearServerAuth, hasStoredAuth } from "@/services/mcp/
 
 type McpServersRecord = Record<string, MCPServerConfig>;
 
+/** How many resource URIs `mcp test` prints before summarising the rest. */
+const RESOURCE_PREVIEW_LIMIT = 10;
+
 /** Services every MCP CLI command needs. */
 type McpCommandDeps = AgentConfigService | TerminalService | FileSystem.FileSystem;
 
@@ -374,10 +377,21 @@ export function testMcpServerCommand(name: string): Effect.Effect<void, never, M
     }
 
     const capabilities = yield* manager.getCapabilities(name);
+    const protocolEra = yield* manager.getProtocolEra(name);
     const tools = yield* manager.getServerTools(name).pipe(Effect.either);
     const prompts = yield* manager.getServerPrompts(name).pipe(Effect.either);
 
     yield* terminal.success(`Connected to ${name}`);
+    yield* terminal.log(
+      fmt.keyValue(
+        "Protocol",
+        protocolEra === "modern"
+          ? "2026-07-28 (modern)"
+          : protocolEra === "legacy"
+            ? "2025-era handshake (legacy)"
+            : "unknown",
+      ),
+    );
 
     if (tools._tag === "Right") {
       yield* terminal.log(fmt.keyValue("Tools", String(tools.right.length)));
@@ -406,7 +420,22 @@ export function testMcpServerCommand(name: string): Effect.Effect<void, never, M
     }
 
     if (capabilities?.resources !== undefined) {
-      yield* terminal.log(fmt.keyValue("Resources", "advertised (not yet used by Jazz)"));
+      const resources = yield* manager.getServerResources(name).pipe(Effect.either);
+      if (resources._tag === "Right") {
+        yield* terminal.log(fmt.keyValue("Resources", String(resources.right.length)));
+        for (const resource of resources.right.slice(0, RESOURCE_PREVIEW_LIMIT)) {
+          yield* terminal.log(
+            fmt.itemWithDesc(resource.uri, resource.name ?? resource.description ?? ""),
+          );
+        }
+        if (resources.right.length > RESOURCE_PREVIEW_LIMIT) {
+          yield* terminal.log(
+            fmt.item(`… ${resources.right.length - RESOURCE_PREVIEW_LIMIT} more`),
+          );
+        }
+      } else {
+        yield* terminal.warn(`Resources unavailable: ${resources.left.reason}`);
+      }
     }
 
     if (config.trusted !== true) {
