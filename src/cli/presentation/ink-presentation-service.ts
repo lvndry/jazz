@@ -768,6 +768,10 @@ export class InkStreamingRenderer implements StreamingRenderer {
       // visibility on context-window pressure between turns.
       this.acc.lastPromptTokens = usage.promptTokens;
       store.updateRunStats({ tokensInContext: usage.promptTokens });
+      store.addSessionUsage({
+        promptTokens: usage.promptTokens,
+        completionTokens: usage.completionTokens,
+      });
     } else if (event.metrics?.totalTokens) {
       parts.push(`${compactTokens(event.metrics.totalTokens)} tok`);
     }

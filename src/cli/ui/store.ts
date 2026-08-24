@@ -128,6 +128,10 @@ export interface RunStats {
   readonly provider?: string;
   readonly tokensInContext?: number;
   readonly maxContextTokens?: number;
+  /** Session-cumulative billed prompt tokens. Distinct from `tokensInContext`. */
+  readonly promptTokens?: number;
+  /** Session-cumulative billed completion tokens. */
+  readonly completionTokens?: number;
   readonly costUSD?: number;
 }
 
@@ -256,6 +260,8 @@ export class UIStore {
   private expandableDiff: ExpandableDiffPayload | null = null;
   private modeSwitchHandler: ModeSwitchHandler | null = null;
   private sessionCostUSD = 0;
+  private sessionPromptTokens = 0;
+  private sessionCompletionTokens = 0;
   private expandableReasoningStack: ExpandableReasoning[] = [];
   private inputHistory: string[] = [];
   private ephemeralRegions: Map<EphemeralRegionId, EphemeralRegion> = new Map();
@@ -355,6 +361,8 @@ export class UIStore {
 
   resetRunStats = (initial: RunStats = EMPTY_RUN_STATS): void => {
     this.sessionCostUSD = 0;
+    this.sessionPromptTokens = initial.promptTokens ?? 0;
+    this.sessionCompletionTokens = initial.completionTokens ?? 0;
     patchSlice(this.session, { runStats: initial });
   };
 
@@ -362,6 +370,19 @@ export class UIStore {
     if (!deltaUSD) return;
     this.sessionCostUSD += deltaUSD;
     this.updateRunStats({ costUSD: this.sessionCostUSD });
+  };
+
+  addSessionUsage = (usage: {
+    readonly promptTokens: number;
+    readonly completionTokens: number;
+  }): void => {
+    if (!usage.promptTokens && !usage.completionTokens) return;
+    this.sessionPromptTokens += usage.promptTokens;
+    this.sessionCompletionTokens += usage.completionTokens;
+    this.updateRunStats({
+      promptTokens: this.sessionPromptTokens,
+      completionTokens: this.sessionCompletionTokens,
+    });
   };
 
   updateRunStats = (patch: Partial<RunStats>): void => {

@@ -3,13 +3,13 @@
 /**
  * The footer: one row of what you can do next, plus what this is costing.
  *
- *   safe ∙ enter to send ∙ up for history        $0.18 ∙ 4:12
+ *   safe ∙ enter to send ∙ up for history        20k/40k $0.18 ∙ 4:12
  *
  * The hints are a priority queue, not a fixed strip: at a narrow width the row
- * gives up the least useful thing rather than wrapping. Mode and cost never
+ * gives up the least useful thing rather than wrapping. Mode and spend never
  * drop — the first because acting without knowing the mode is how you get a
  * surprise, the second because a spend you cannot see is a spend you cannot
- * stop.
+ * stop. Spend is billed input/output tokens plus estimated USD.
  */
 
 import { memo, type ReactNode } from "react";
@@ -25,6 +25,50 @@ export interface FooterSegment {
 
 export function formatCost(costUsd: number): string {
   return `$${costUsd.toFixed(2)}`;
+}
+
+const COMPACT_SUFFIXES = ["k", "M", "B"] as const;
+
+/**
+ * Compact count for the footer: 100, 1k, 10k, 1M, 1B.
+ * One decimal only below 10 of the current unit (`1.5k`, `1.5M`).
+ */
+export function formatCompactCount(value: number): string {
+  let scaled = value;
+  let unitIndex = -1;
+  while (Math.abs(scaled) >= 1_000 && unitIndex < COMPACT_SUFFIXES.length - 1) {
+    scaled /= 1_000;
+    unitIndex += 1;
+  }
+  if (unitIndex < 0) return `${Math.round(value)}`;
+
+  const rounded = Math.abs(scaled) < 10 ? Math.round(scaled * 10) / 10 : Math.round(scaled);
+  if (Math.abs(rounded) >= 1_000 && unitIndex < COMPACT_SUFFIXES.length - 1) {
+    const promoted = rounded / 1_000;
+    unitIndex += 1;
+    const suffix = COMPACT_SUFFIXES[unitIndex];
+    const body = Number.isInteger(promoted) ? `${promoted}` : promoted.toFixed(1);
+    return `${body}${suffix}`;
+  }
+
+  const suffix = COMPACT_SUFFIXES[unitIndex];
+  const body = Number.isInteger(rounded) ? `${rounded}` : rounded.toFixed(1);
+  return `${body}${suffix}`;
+}
+
+/** `20k/40k $0.26` — tokens when known, cost when known, both when both. */
+export function formatUsage(model: {
+  readonly promptTokens?: number;
+  readonly completionTokens?: number;
+  readonly costUsd?: number;
+}): string | undefined {
+  const hasTokens = model.promptTokens !== undefined || model.completionTokens !== undefined;
+  const tokens = hasTokens
+    ? `${formatCompactCount(model.promptTokens ?? 0)}/${formatCompactCount(model.completionTokens ?? 0)}`
+    : undefined;
+  const cost = model.costUsd === undefined ? undefined : formatCost(model.costUsd);
+  if (tokens !== undefined && cost !== undefined) return `${tokens} ${cost}`;
+  return tokens ?? cost;
 }
 
 export function formatElapsed(elapsedMs: number): string {
@@ -47,8 +91,8 @@ export function footerSegments(model: FooterModel, viewport: Viewport): readonly
   const mode: FooterSegment[] = [
     { text: model.mode, fg: model.mode === "yolo" ? THEME.warning : THEME.primary },
   ];
-  const cost =
-    model.costUsd === undefined ? undefined : { text: formatCost(model.costUsd), fg: THEME.muted };
+  const usageText = formatUsage(model);
+  const usage = usageText === undefined ? undefined : { text: usageText, fg: THEME.muted };
   const elapsed =
     model.elapsedMs === undefined
       ? undefined
@@ -68,7 +112,7 @@ export function footerSegments(model: FooterModel, viewport: Viewport): readonly
   };
   const rightWidth = (): number => {
     const parts: string[] = [];
-    if (cost !== undefined) parts.push(cost.text);
+    if (usage !== undefined) parts.push(usage.text);
     if (keepElapsed && elapsed !== undefined) parts.push(elapsed.text);
     if (parts.length === 0) return 0;
     return (
@@ -95,7 +139,7 @@ export function footerSegments(model: FooterModel, viewport: Viewport): readonly
   }
 
   const right: FooterSegment[] = [];
-  if (cost !== undefined) right.push(cost);
+  if (usage !== undefined) right.push(usage);
   if (keepElapsed && elapsed !== undefined) {
     if (right.length > 0) right.push({ text: separator, fg: THEME.muted });
     right.push(elapsed);

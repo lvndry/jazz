@@ -285,9 +285,12 @@ runs with colour disabled, which makes ordinary colour assertions vacuous.
 ├────────────────────────────────────────────┤
 │ input                                      │
 ├────────────────────────────────────────────┤
-│ footer    mode · keys · cost · elapsed     │
+│ footer    mode · keys · usage · elapsed    │
 └────────────────────────────────────────────┘
 ```
+
+Usage on the right is billed input/output tokens plus estimated USD, compactly
+formatted (`20k/40k $0.26`). Mode and spend never drop at a narrow width.
 
 [**interface.html**](./interface.html) renders the specified design in full colour —
 the session, approval, subagents, reasoning and search screens, plus an 80-column

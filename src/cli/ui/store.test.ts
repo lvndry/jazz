@@ -689,4 +689,43 @@ describe("UIStore", () => {
       expect(seen).toEqual([true, false]);
     });
   });
+
+  describe("session usage", () => {
+    test("addSessionUsage accumulates billed prompt and completion tokens", () => {
+      const sessionStore = new UIStore();
+      sessionStore.addSessionUsage({ promptTokens: 20_000, completionTokens: 40_000 });
+      sessionStore.addSessionUsage({ promptTokens: 1_000, completionTokens: 500 });
+
+      expect(sessionStore.getRunStatsSnapshot()).toEqual({
+        promptTokens: 21_000,
+        completionTokens: 40_500,
+      });
+    });
+
+    test("addSessionUsage ignores a zero delta", () => {
+      const sessionStore = new UIStore();
+      sessionStore.addSessionUsage({ promptTokens: 10, completionTokens: 5 });
+      sessionStore.addSessionUsage({ promptTokens: 0, completionTokens: 0 });
+
+      expect(sessionStore.getRunStatsSnapshot()).toEqual({
+        promptTokens: 10,
+        completionTokens: 5,
+      });
+    });
+
+    test("resetRunStats clears accumulated usage", () => {
+      const sessionStore = new UIStore();
+      sessionStore.addSessionUsage({ promptTokens: 20_000, completionTokens: 40_000 });
+      sessionStore.resetRunStats({ model: "opus-4" });
+
+      expect(sessionStore.getRunStatsSnapshot()).toEqual({ model: "opus-4" });
+
+      sessionStore.addSessionUsage({ promptTokens: 100, completionTokens: 50 });
+      expect(sessionStore.getRunStatsSnapshot()).toEqual({
+        model: "opus-4",
+        promptTokens: 100,
+        completionTokens: 50,
+      });
+    });
+  });
 });

@@ -2145,10 +2145,16 @@ export function FullscreenBridge(): React.ReactNode {
     () => ({
       mode: isYolo ? "yolo" : "safe",
       hints: [],
+      ...(stats.promptTokens === undefined && stats.completionTokens === undefined
+        ? {}
+        : {
+            promptTokens: stats.promptTokens ?? 0,
+            completionTokens: stats.completionTokens ?? 0,
+          }),
       ...(stats.costUSD === undefined ? {} : { costUsd: stats.costUSD }),
       ...(elapsedMs === undefined ? {} : { elapsedMs }),
     }),
-    [isYolo, stats.costUSD, elapsedMs],
+    [isYolo, stats.promptTokens, stats.completionTokens, stats.costUSD, elapsedMs],
   );
 
   const live = useMemo<LiveModel>(() => {

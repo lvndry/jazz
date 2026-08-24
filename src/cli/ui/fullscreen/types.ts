@@ -243,6 +243,10 @@ export interface FooterModel {
   readonly hints: readonly string[];
   /** Replaces hints for a beat — copy confirmation, not a key legend. */
   readonly notice?: string;
+  /** Session-cumulative billed prompt tokens. */
+  readonly promptTokens?: number;
+  /** Session-cumulative billed completion tokens. */
+  readonly completionTokens?: number;
   readonly costUsd?: number;
   readonly elapsedMs?: number;
 }
