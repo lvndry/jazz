@@ -6,6 +6,7 @@ import {
   AgentAlreadyExistsError,
   AgentNotFoundError,
   ConfigurationError,
+  GenerationInterruptedError,
   ValidationError,
 } from "../types/errors";
 
@@ -123,6 +124,16 @@ describe("Error Handler", () => {
       expect(formatted).toContain("📚 Related Commands:");
       expect(formatted).toContain("jazz");
     });
+  });
+
+  it("formats GenerationInterruptedError as an interrupt, not an unknown crash", () => {
+    const formatted = formatError(
+      new GenerationInterruptedError({ reason: "Tool execution interrupted by user" }),
+    );
+
+    expect(formatted).toContain("❌ Interrupted");
+    expect(formatted).toContain("Tool execution interrupted by user");
+    expect(formatted).not.toContain("report this error to the development team");
   });
 });
 

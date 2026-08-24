@@ -355,4 +355,5 @@ export type JazzError =
   | TelemetryError
   | TelemetryWriteError
   | PersonaNotFoundError
-  | PersonaAlreadyExistsError;
+  | PersonaAlreadyExistsError
+  | GenerationInterruptedError;

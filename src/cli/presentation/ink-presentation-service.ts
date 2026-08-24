@@ -408,6 +408,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
       }
       this.pendingActivity = null;
       this.clearAllToolTimeouts();
+      this.acc.activeTools.clear();
       // Flush buffered deltas BEFORE collapsing the reasoning region so any
       // in-flight reasoning text lands in the panel before it collapses.
       this.flushStreamBuffer();
@@ -576,6 +577,10 @@ export class InkStreamingRenderer implements StreamingRenderer {
       if (event.type === "tool_execution_complete") {
         this.clearToolTimeout(event.toolCallId);
         this.storeExpandableDiff(completedToolName, event.result);
+      }
+      if (event.type === "error") {
+        this.clearAllToolTimeouts();
+        this.acc.activeTools.clear();
       }
 
       const result = reduceEvent(this.acc, event, ink);
