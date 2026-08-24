@@ -141,12 +141,15 @@ describe("fullscreen bridge", () => {
         model: "claude-opus-5",
         tokensInContext: 82_100,
         maxContextTokens: 200_000,
+        promptTokens: 20_000,
+        completionTokens: 40_000,
         costUSD: 0.042,
       });
     });
     expect(text).toContain("claude-opus-5");
     // 82.1k of 200k is 41%.
     expect(text).toContain("41%");
+    expect(text).toContain("20k/40k $0.04");
   });
 
   it("hydrates identity into the header without crowding the mark", async () => {

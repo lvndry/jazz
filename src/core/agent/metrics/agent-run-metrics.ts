@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Effect } from "effect";
 import type { LoggerService } from "@/core/interfaces/logger";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
-import type { TelemetryService, TokenUsage } from "@/core/interfaces/telemetry";
+import type { ClassifierUsage, TelemetryService, TokenUsage } from "@/core/interfaces/telemetry";
 import { type Agent } from "@/core/types";
 import type { ChatMessage } from "@/core/types/message";
 import { emitTelemetry } from "@/core/utils/telemetry-emit";
@@ -66,6 +66,14 @@ export interface AgentRunMetrics {
   totalToolDefinitionTokens: number;
   totalToolResultTokens: number;
   toolDefinitionsOffered: number;
+  /** Command-risk classifier prompt tokens. Not included in `totalPromptTokens`. */
+  classifierPromptTokens: number;
+  /** Command-risk classifier completion tokens. Not included in `totalCompletionTokens`. */
+  classifierCompletionTokens: number;
+  /** How many times the command-risk classifier ran during this run. */
+  classifierRequests: number;
+  /** Wall-clock time spent in classifier LLM calls. */
+  classifierDurationMs: number;
 }
 
 export function createAgentRunMetrics(context: AgentRunMetricsContext): AgentRunMetrics {
@@ -105,6 +113,10 @@ export function createAgentRunMetrics(context: AgentRunMetricsContext): AgentRun
     totalToolDefinitionTokens: 0,
     totalToolResultTokens: 0,
     toolDefinitionsOffered: 0,
+    classifierPromptTokens: 0,
+    classifierCompletionTokens: 0,
+    classifierRequests: 0,
+    classifierDurationMs: 0,
   };
 }
 
@@ -129,6 +141,27 @@ export function recordLLMUsage(
   if (usage.cacheWriteTokens != null) {
     metrics.totalCacheWriteTokens += usage.cacheWriteTokens;
   }
+}
+
+/**
+ * Record a command-risk classifier completion.
+ *
+ * Kept off the agent-loop totals: the classifier is a separate cheap-model
+ * call, and mixing it in would hide how much of the run was conversation vs
+ * approval gating.
+ */
+export function recordClassifierUsage(
+  metrics: AgentRunMetrics,
+  usage: {
+    readonly promptTokens: number;
+    readonly completionTokens: number;
+  },
+  durationMs: number,
+): void {
+  metrics.classifierPromptTokens += usage.promptTokens;
+  metrics.classifierCompletionTokens += usage.completionTokens;
+  metrics.classifierRequests += 1;
+  metrics.classifierDurationMs += durationMs;
 }
 
 /**
@@ -320,6 +353,12 @@ export function finalizeAgentRun(
       toolDefinitionTokens: metrics.totalToolDefinitionTokens,
       toolResultTokens: metrics.totalToolResultTokens,
       toolDefinitionsOffered: metrics.toolDefinitionsOffered,
+      ...(metrics.classifierRequests > 0 && {
+        classifierPromptTokens: metrics.classifierPromptTokens,
+        classifierCompletionTokens: metrics.classifierCompletionTokens,
+        classifierRequests: metrics.classifierRequests,
+        classifierDurationMs: metrics.classifierDurationMs,
+      }),
     });
 
     // Emit telemetry event (best-effort, never fails the run).
@@ -374,6 +413,10 @@ interface TokenUsageLogPayload {
   readonly toolDefinitionTokens: number;
   readonly toolResultTokens: number;
   readonly toolDefinitionsOffered: number;
+  readonly classifierPromptTokens?: number;
+  readonly classifierCompletionTokens?: number;
+  readonly classifierRequests?: number;
+  readonly classifierDurationMs?: number;
 }
 
 function writeTokenUsageLog(
@@ -420,6 +463,13 @@ function writeTokenUsageLog(
       toolDefinitionTokens: payload.toolDefinitionTokens,
       toolResultTokens: payload.toolResultTokens,
       toolDefinitionsOffered: payload.toolDefinitionsOffered,
+      ...(payload.classifierRequests != null &&
+        payload.classifierRequests > 0 && {
+          classifierPromptTokens: payload.classifierPromptTokens,
+          classifierCompletionTokens: payload.classifierCompletionTokens,
+          classifierRequests: payload.classifierRequests,
+          classifierDurationMs: payload.classifierDurationMs,
+        }),
     };
 
     yield* logger.info("Agent token usage", logMeta);
@@ -458,6 +508,17 @@ function buildTelemetryPayload(
     }),
   };
 
+  const classifierUsage: ClassifierUsage | undefined =
+    metrics.classifierRequests > 0
+      ? {
+          promptTokens: metrics.classifierPromptTokens,
+          completionTokens: metrics.classifierCompletionTokens,
+          totalTokens: metrics.classifierPromptTokens + metrics.classifierCompletionTokens,
+          requests: metrics.classifierRequests,
+          durationMs: metrics.classifierDurationMs,
+        }
+      : undefined;
+
   return {
     runId: metrics.runId,
     agentId: metrics.agentId,
@@ -469,6 +530,7 @@ function buildTelemetryPayload(
     iterationsUsed: details.iterationsUsed,
     finished: details.finished,
     usage,
+    ...(classifierUsage && { classifierUsage }),
     toolCalls: metrics.toolCalls,
     toolErrors: metrics.toolErrors,
   };
@@ -521,16 +583,22 @@ export function emitLLMUsage(
   metrics: AgentRunMetrics,
   usage: TokenUsage,
   durationMs: number,
+  details?: {
+    readonly purpose: "classifier";
+    readonly provider: string;
+    readonly model: string;
+  },
 ): Effect.Effect<void> {
   return emitTelemetry((telemetry) =>
     telemetry.recordLLMUsage({
-      provider: metrics.provider ?? "unknown",
-      model: metrics.model ?? "unknown",
+      provider: details?.provider ?? metrics.provider ?? "unknown",
+      model: details?.model ?? metrics.model ?? "unknown",
       usage,
       agentId: metrics.agentId,
       conversationId: metrics.conversationId,
       durationMs,
       runId: metrics.runId,
+      ...(details?.purpose ? { purpose: details.purpose } : {}),
     }),
   );
 }

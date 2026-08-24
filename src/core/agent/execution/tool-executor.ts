@@ -264,6 +264,7 @@ export class ToolExecutor {
               // turns come from whoever is messaging the bot, so the command
               // has to stand on its own.
               canPrompt ? context.conversationMessages : undefined,
+              runMetrics,
             );
             riskLevel = classifiedRisk;
           }

@@ -102,6 +102,10 @@ function makeRunMetrics(): ReturnType<typeof createAgentRunMetrics> {
     totalToolDefinitionTokens: 0,
     totalToolResultTokens: 0,
     toolDefinitionsOffered: 0,
+    classifierPromptTokens: 0,
+    classifierCompletionTokens: 0,
+    classifierRequests: 0,
+    classifierDurationMs: 0,
   };
 }
 

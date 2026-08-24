@@ -102,7 +102,7 @@ propose sharply, confirm when it matters, then execute all the way.
 
 Prefer clean breaks to compatibility shims. When you rename or restructure,
 update every usage and delete the old path in the same change. No `@deprecated`
-aliases, no back-compat shims, no dead code left behind. 
+aliases, no back-compat shims, no dead code left behind.
 
 `core/` imports nothing from `services/`.
 
@@ -149,4 +149,3 @@ before you call it done.
   before branching.
 - No `Co-Authored-By` in commit.
 - Never stash, reset, or discard uncommitted work without asking first.
-

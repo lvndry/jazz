@@ -5,7 +5,9 @@ import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interface
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import type {
   AgentUsage,
+  ClassifierUsage,
   ModelUsage,
+  ProcessResourceSnapshot,
   TelemetryEvent,
   TelemetryEventType,
   TelemetryQueryOptions,
@@ -17,6 +19,7 @@ import { TelemetryServiceTag } from "@/core/interfaces/telemetry";
 import type { TelemetryConfig } from "@/core/types/config";
 import { TelemetryError } from "@/core/types/errors";
 import { getUserDataDirectory } from "@/core/utils/paths";
+import { sampleProcessResources } from "@/core/utils/process-resources";
 import { FileTelemetrySink } from "./file-sink";
 import { redactHeaders, resolveOtlpConfig } from "./otlp-config";
 import { OtlpTelemetrySink } from "./otlp-sink";
@@ -28,6 +31,8 @@ import packageJson from "../../../package.json";
 const DEFAULT_BUFFER_SIZE = 100;
 const DEFAULT_FLUSH_INTERVAL_MS = 30_000;
 const DEFAULT_RETENTION_DAYS = 90;
+/** How often to sample Jazz RSS/heap/CPU during a live run. 0 disables. */
+const DEFAULT_PROCESS_SAMPLE_INTERVAL_MS = 10_000;
 
 /**
  * Hard ceiling on retained-but-unflushed events, as a multiple of bufferSize.
@@ -60,6 +65,9 @@ function emptyUsageSummary(): UsageSummary {
     toolDefinitionTokens: 0,
     toolResultTokens: 0,
     toolDefinitionsOffered: 0,
+    classifierPromptTokens: 0,
+    classifierCompletionTokens: 0,
+    classifierRequests: 0,
     totalToolCalls: 0,
     totalToolErrors: 0,
     totalAgentRuns: 0,
@@ -75,6 +83,11 @@ export interface TelemetryServiceOptions {
   readonly enabled: boolean;
   readonly bufferSize: number;
   readonly flushIntervalMs: number;
+  /**
+   * Interval for Jazz process RSS/heap/CPU samples during a run.
+   * `0` disables sampling (tests). Production default is 10s.
+   */
+  readonly processSampleIntervalMs?: number;
   /** Destinations events are fanned out to on every flush. */
   readonly sinks: readonly TelemetrySink[];
   /** Reports a sink failure. Wired to the logger by the layer. */
@@ -86,9 +99,11 @@ export interface TelemetryServiceOptions {
 export class TelemetryServiceImpl implements TelemetryService {
   private buffer: TelemetryEvent[] = [];
   private flushTimer: ReturnType<typeof setInterval> | null = null;
+  private readonly runSamplers = new Map<string, ReturnType<typeof setInterval>>();
   private readonly enabled: boolean;
   private readonly bufferSize: number;
   private readonly flushIntervalMs: number;
+  private readonly processSampleIntervalMs: number;
   private readonly sinks: readonly TelemetrySink[];
   private readonly onSinkError: (sinkName: string, error: unknown) => void;
   private readonly onEventsDropped: (count: number) => void;
@@ -97,6 +112,7 @@ export class TelemetryServiceImpl implements TelemetryService {
     this.enabled = options.enabled;
     this.bufferSize = options.bufferSize;
     this.flushIntervalMs = options.flushIntervalMs;
+    this.processSampleIntervalMs = options.processSampleIntervalMs ?? 0;
     this.sinks = options.sinks;
     this.onSinkError = options.onSinkError ?? (() => {});
     this.onEventsDropped = options.onEventsDropped ?? (() => {});
@@ -121,11 +137,17 @@ export class TelemetryServiceImpl implements TelemetryService {
     readonly conversationId: string;
     readonly provider?: string;
     readonly model?: string;
+    readonly process?: ProcessResourceSnapshot;
   }): Effect.Effect<void, TelemetryError> {
-    return this.appendEvent("agent_run_started", data, {
-      agentId: data.agentId,
-      conversationId: data.conversationId,
-    });
+    this.startRunSampler(data.runId, data.agentId, data.conversationId);
+    return this.appendEvent(
+      "agent_run_started",
+      { ...data, process: data.process ?? sampleProcessResources() },
+      {
+        agentId: data.agentId,
+        conversationId: data.conversationId,
+      },
+    );
   }
 
   recordAgentRunCompleted(data: {
@@ -139,13 +161,20 @@ export class TelemetryServiceImpl implements TelemetryService {
     readonly iterationsUsed: number;
     readonly finished: boolean;
     readonly usage: TokenUsage;
+    readonly classifierUsage?: ClassifierUsage;
+    readonly process?: ProcessResourceSnapshot;
     readonly toolCalls: number;
     readonly toolErrors: number;
   }): Effect.Effect<void, TelemetryError> {
-    return this.appendEvent("agent_run_completed", data, {
-      agentId: data.agentId,
-      conversationId: data.conversationId,
-    });
+    this.stopRunSampler(data.runId);
+    return this.appendEvent(
+      "agent_run_completed",
+      { ...data, process: data.process ?? sampleProcessResources() },
+      {
+        agentId: data.agentId,
+        conversationId: data.conversationId,
+      },
+    );
   }
 
   recordAgentRunFailed(data: {
@@ -155,11 +184,17 @@ export class TelemetryServiceImpl implements TelemetryService {
     readonly conversationId: string;
     readonly error: string;
     readonly durationMs: number;
+    readonly process?: ProcessResourceSnapshot;
   }): Effect.Effect<void, TelemetryError> {
-    return this.appendEvent("agent_run_failed", data, {
-      agentId: data.agentId,
-      conversationId: data.conversationId,
-    });
+    this.stopRunSampler(data.runId);
+    return this.appendEvent(
+      "agent_run_failed",
+      { ...data, process: data.process ?? sampleProcessResources() },
+      {
+        agentId: data.agentId,
+        conversationId: data.conversationId,
+      },
+    );
   }
 
   recordLLMUsage(data: {
@@ -169,11 +204,13 @@ export class TelemetryServiceImpl implements TelemetryService {
     readonly agentId?: string;
     readonly conversationId?: string;
     readonly durationMs?: number;
+    readonly runId?: string;
+    readonly purpose?: "classifier";
   }): Effect.Effect<void, TelemetryError> {
     const opts: { agentId?: string; conversationId?: string } = {};
     if (data.agentId !== undefined) opts.agentId = data.agentId;
     if (data.conversationId !== undefined) opts.conversationId = data.conversationId;
-    return this.appendEvent("llm_usage", data, opts);
+    return this.appendEvent("llm_usage", { ...data, process: sampleProcessResources() }, opts);
   }
 
   recordLLMRetry(data: {
@@ -200,7 +237,7 @@ export class TelemetryServiceImpl implements TelemetryService {
     const opts: { agentId?: string; conversationId?: string } = {};
     if (data.agentId !== undefined) opts.agentId = data.agentId;
     if (data.conversationId !== undefined) opts.conversationId = data.conversationId;
-    return this.appendEvent(eventType, data, opts);
+    return this.appendEvent(eventType, { ...data, process: sampleProcessResources() }, opts);
   }
 
   recordCommandExecuted(data: {
@@ -211,6 +248,18 @@ export class TelemetryServiceImpl implements TelemetryService {
     readonly error?: string;
   }): Effect.Effect<void, TelemetryError> {
     return this.appendEvent("command_executed", data);
+  }
+
+  recordProcessSample(data: {
+    readonly runId: string;
+    readonly process: ProcessResourceSnapshot;
+    readonly agentId?: string;
+    readonly conversationId?: string;
+  }): Effect.Effect<void, TelemetryError> {
+    const opts: { agentId?: string; conversationId?: string } = {};
+    if (data.agentId !== undefined) opts.agentId = data.agentId;
+    if (data.conversationId !== undefined) opts.conversationId = data.conversationId;
+    return this.appendEvent("process_sample", data, opts);
   }
 
   recordEvent(
@@ -316,12 +365,46 @@ export class TelemetryServiceImpl implements TelemetryService {
           clearInterval(this.flushTimer);
           this.flushTimer = null;
         }
+        this.stopAllRunSamplers();
         yield* this.flushBuffer();
       }.bind(this),
     );
   }
 
   // ── Internal ──────────────────────────────────────────────────
+
+  private startRunSampler(runId: string, agentId: string, conversationId: string): void {
+    this.stopRunSampler(runId);
+    if (!this.enabled || this.processSampleIntervalMs <= 0) return;
+
+    const timer = setInterval(() => {
+      void Effect.runPromise(
+        this.recordProcessSample({
+          runId,
+          process: sampleProcessResources(),
+          agentId,
+          conversationId,
+        }),
+      );
+    }, this.processSampleIntervalMs);
+    if (typeof timer === "object" && "unref" in timer) {
+      timer.unref();
+    }
+    this.runSamplers.set(runId, timer);
+  }
+
+  private stopRunSampler(runId: string): void {
+    const timer = this.runSamplers.get(runId);
+    if (timer === undefined) return;
+    clearInterval(timer);
+    this.runSamplers.delete(runId);
+  }
+
+  private stopAllRunSamplers(): void {
+    for (const runId of this.runSamplers.keys()) {
+      this.stopRunSampler(runId);
+    }
+  }
 
   private appendEvent(
     type: TelemetryEventType,
@@ -442,6 +525,9 @@ export class TelemetryServiceImpl implements TelemetryService {
       toolDefinitionTokens: number;
       toolResultTokens: number;
       toolDefinitionsOffered: number;
+      classifierPromptTokens: number;
+      classifierCompletionTokens: number;
+      classifierRequests: number;
       totalToolCalls: number;
       totalToolErrors: number;
       totalAgentRuns: number;
@@ -459,6 +545,9 @@ export class TelemetryServiceImpl implements TelemetryService {
       toolDefinitionTokens: 0,
       toolResultTokens: 0,
       toolDefinitionsOffered: 0,
+      classifierPromptTokens: 0,
+      classifierCompletionTokens: 0,
+      classifierRequests: 0,
       totalToolCalls: 0,
       totalToolErrors: 0,
       totalAgentRuns: 0,
@@ -484,6 +573,12 @@ export class TelemetryServiceImpl implements TelemetryService {
             summary.toolDefinitionTokens += usage.toolDefinitionTokens ?? 0;
             summary.toolResultTokens += usage.toolResultTokens ?? 0;
             summary.toolDefinitionsOffered += usage.toolDefinitionsOffered ?? 0;
+
+            if (data["purpose"] === "classifier") {
+              summary.classifierRequests += 1;
+              summary.classifierPromptTokens += usage.promptTokens;
+              summary.classifierCompletionTokens += usage.completionTokens;
+            }
 
             const model = typeof data["model"] === "string" ? data["model"] : "unknown";
             const provider = typeof data["provider"] === "string" ? data["provider"] : "unknown";
@@ -653,6 +748,7 @@ export function createTelemetryServiceLayer(): Layer.Layer<
         enabled,
         bufferSize,
         flushIntervalMs,
+        processSampleIntervalMs: DEFAULT_PROCESS_SAMPLE_INTERVAL_MS,
         sinks,
         onSinkError: (sinkName, error) => {
           Effect.runFork(

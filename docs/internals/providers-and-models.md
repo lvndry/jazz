@@ -171,6 +171,10 @@ local model), cost is omitted rather than reported as `$0.00`, because those are
 claim.
 
 Per-run records land in `~/.jazz/telemetry/` as local JSON. Nothing is transmitted anywhere.
+Command-risk classifier tokens are stored separately (`classifierUsage` on the run,
+`purpose: "classifier"` on each `llm_usage`) because that call uses the cheap harness
+model, not the agent's, and mixing the two would hide both numbers. See
+[Observability](../guide/observability.md).
 
 ---
 

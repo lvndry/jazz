@@ -22,7 +22,7 @@ import { beforeAll, describe, expect, it } from "bun:test";
 import type { ReactNode } from "react";
 import { getGlyphs } from "../glyphs";
 import { setThemeVariant, THEME } from "../theme";
-import { Footer } from "./Footer";
+import { Footer, formatCompactCount, formatUsage } from "./Footer";
 import { Header, headerGroups } from "./Header";
 import { hintsFor } from "./keymap";
 import { terminalCellWidth } from "./terminal-cells";
@@ -229,6 +229,33 @@ describe("Header", () => {
   });
 });
 
+describe("formatCompactCount", () => {
+  it("steps through 100, 1k, 10k, 1M, 1B", () => {
+    expect(formatCompactCount(100)).toBe("100");
+    expect(formatCompactCount(999)).toBe("999");
+    expect(formatCompactCount(1_000)).toBe("1k");
+    expect(formatCompactCount(1_500)).toBe("1.5k");
+    expect(formatCompactCount(10_000)).toBe("10k");
+    expect(formatCompactCount(20_000)).toBe("20k");
+    expect(formatCompactCount(1_000_000)).toBe("1M");
+    expect(formatCompactCount(1_500_000)).toBe("1.5M");
+    expect(formatCompactCount(10_000_000)).toBe("10M");
+    expect(formatCompactCount(1_000_000_000)).toBe("1B");
+    expect(formatCompactCount(2_300_000_000)).toBe("2.3B");
+    expect(formatCompactCount(999_500)).toBe("1M");
+  });
+});
+
+describe("formatUsage", () => {
+  it("joins billed input/output with USD", () => {
+    expect(formatUsage({ promptTokens: 20_000, completionTokens: 40_000, costUsd: 1 })).toBe(
+      "20k/40k $1.00",
+    );
+    expect(formatUsage({ costUsd: 0.26 })).toBe("$0.26");
+    expect(formatUsage({ promptTokens: 100, completionTokens: 50 })).toBe("100/50");
+  });
+});
+
 describe("Footer", () => {
   it("shows mode, hints, cost and elapsed, with the mode in the accent", async () => {
     const { row, rows, spans } = await render(
@@ -248,6 +275,19 @@ describe("Footer", () => {
 
     expect(colorOf(spans, "plan")).toBe(THEME.primary.toUpperCase());
     expect(colorOf(spans, "$0.42")).toBe(THEME.muted.toUpperCase());
+  });
+
+  it("shows billed input/output tokens next to the USD total", async () => {
+    const { row, spans } = await render(
+      <Footer
+        model={footer({ promptTokens: 20_000, completionTokens: 40_000, costUsd: 1 })}
+        viewport={{ width: 80, height: 24 }}
+      />,
+      80,
+    );
+
+    expect(row).toContain("20k/40k $1.00");
+    expect(colorOf(spans, "20k/40k $1.00")).toBe(THEME.muted.toUpperCase());
   });
 
   it("replaces hints with a copy confirmation in the live accent", async () => {
@@ -314,6 +354,25 @@ describe("at the minimum width", () => {
     expect(row).toContain("$0.18");
     expect(row).not.toContain("copy");
     expect(row).not.toContain("palette");
+  });
+
+  it("keeps billed usage next to cost inside 60 columns", async () => {
+    const { row } = await render(
+      <Footer
+        model={footer({
+          hints: hintsFor("input", false),
+          promptTokens: 20_000,
+          completionTokens: 40_000,
+          costUsd: 0.18,
+          elapsedMs: 252_000,
+        })}
+        viewport={viewport}
+      />,
+      60,
+    );
+    expect(terminalCellWidth(row)).toBe(60);
+    expect(row).toContain("plan");
+    expect(row).toContain("20k/40k $0.18");
   });
 
   it("neither row overflows", async () => {

@@ -82,6 +82,34 @@ describe("eventToAttributes", () => {
     expect(attributes["jazz.usage.cacheReadTokens"]).toBe("99");
   });
 
+  it("keeps classifier purpose and rollup under the jazz namespace", () => {
+    const usageEvent = makeEvent("llm_usage", {
+      provider: "openai",
+      model: "gpt-4o-mini",
+      purpose: "classifier",
+      usage: { promptTokens: 180, completionTokens: 2, totalTokens: 182 },
+    });
+    const runEvent = makeEvent("agent_run_completed", {
+      classifierUsage: {
+        promptTokens: 180,
+        completionTokens: 2,
+        totalTokens: 182,
+        requests: 1,
+        durationMs: 40,
+      },
+      process: { rssBytes: 50_000_000, heapUsedBytes: 20_000_000 },
+    });
+
+    const usageAttributes = attributeMap(eventToAttributes(usageEvent, false));
+    const runAttributes = attributeMap(eventToAttributes(runEvent, false));
+
+    expect(usageAttributes["jazz.purpose"]).toBe("classifier");
+    expect(usageAttributes["gen_ai.usage.input_tokens"]).toBe("180");
+    expect(runAttributes["jazz.classifierUsage.promptTokens"]).toBe("180");
+    expect(runAttributes["jazz.classifierUsage.durationMs"]).toBe("40");
+    expect(runAttributes["jazz.process.rssBytes"]).toBe("50000000");
+  });
+
   it("does not duplicate provider and model under the jazz namespace", () => {
     const event = makeEvent("llm_usage", { provider: "openai", model: "gpt-5" });
     const attributes = attributeMap(eventToAttributes(event, false));

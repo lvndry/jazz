@@ -87,8 +87,11 @@ function spanNameOf(event: TelemetryEvent): string {
       return typeof agentName === "string" ? `agent ${agentName}` : "agent run";
     }
     case "llm_usage": {
-      // GenAI semconv names a chat span "{operation} {model}".
       const model = data["model"];
+      if (data["purpose"] === "classifier") {
+        return typeof model === "string" ? `classifier ${model}` : "classifier";
+      }
+      // GenAI semconv names a chat span "{operation} {model}".
       return typeof model === "string" ? `chat ${model}` : "chat";
     }
     case "llm_retry":
@@ -124,8 +127,11 @@ const ERROR_EVENT_TYPES = new Set(["agent_run_failed", "tool_error"]);
  * the trace list was noise. Commands that spawn no run (`jazz agent list`) now
  * produce no trace at all, which is the honest answer: there was nothing to
  * observe. The event is still recorded locally and exported as a log record.
+ *
+ * `process_sample` is excluded because it is a metric point, not a unit of
+ * work. Turning each RSS reading into a span would drown the waterfall.
  */
-const NON_SPAN_EVENT_TYPES = new Set(["agent_run_started", "command_executed"]);
+const NON_SPAN_EVENT_TYPES = new Set(["agent_run_started", "command_executed", "process_sample"]);
 
 export function isSpanEvent(event: TelemetryEvent): boolean {
   return !NON_SPAN_EVENT_TYPES.has(event.type);

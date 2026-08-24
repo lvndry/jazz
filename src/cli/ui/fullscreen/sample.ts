@@ -183,6 +183,8 @@ export function sampleView(): ViewModel {
     footer: {
       mode: "chat",
       hints: [],
+      promptTokens: 20_000,
+      completionTokens: 40_000,
       costUsd: 0.042,
       elapsedMs: 11_600,
     },

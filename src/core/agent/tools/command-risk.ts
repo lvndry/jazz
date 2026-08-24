@@ -1,10 +1,29 @@
+/**
+ * Command-risk classifier for `execute_command`.
+ *
+ * `execute_command` is declared `unknown` because the command decides the blast
+ * radius. This module asks a cheap harness model whether a given command is
+ * `read-only`, `low-risk`, or `high-risk`, then the active approval tier
+ * judges that verdict. Fail closed: timeouts, errors, and ambiguous replies
+ * stay `high-risk`.
+ *
+ * When a run's metrics are passed in, classifier token usage is recorded
+ * separately from the agent-loop totals so telemetry can split approval
+ * gating from the conversation.
+ */
 import { Duration, Effect } from "effect";
 import { selectSummarizerModel } from "@/core/agent/context/summarizer";
 import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
+import type { TokenUsage } from "@/core/interfaces/telemetry";
 import type { Agent } from "@/core/types/agent";
 import type { ChatMessage } from "@/core/types/message";
 import type { AutoApprovePolicy, ToolRiskLevel } from "@/core/types/tools";
+import {
+  emitLLMUsage,
+  recordClassifierUsage,
+  type AgentRunMetrics,
+} from "../metrics/agent-run-metrics";
 
 const CLASSIFIER_TIMEOUT = Duration.seconds(8);
 const CLASSIFIER_MAX_TOKENS = 16;
@@ -164,11 +183,15 @@ export function formatConversationForClassifier(
  * wherever the "user" turns did not come from the person the approval protects
  * — on a chat bridge they are written by whoever is messaging the bot, and
  * corroborating evidence from a stranger is not evidence.
+ *
+ * Pass `runMetrics` so classifier tokens land on the run as `classifierUsage`
+ * instead of disappearing or mixing into the agent-loop totals.
  */
 export function classifyCommandRisk(
   command: string,
   agent: Agent,
   conversationMessages?: readonly ChatMessage[],
+  runMetrics?: AgentRunMetrics,
 ): Effect.Effect<ToolRiskLevel, never, LLMService | LoggerService> {
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
@@ -186,6 +209,7 @@ export function classifyCommandRisk(
     const userContent = formatClassifierUserContent(command, conversation);
 
     const llmService = yield* LLMServiceTag;
+    const startedAt = Date.now();
     const response = yield* llmService
       .createChatCompletion(modelConfig.provider, {
         model: modelConfig.model,
@@ -208,6 +232,23 @@ export function classifyCommandRisk(
             .pipe(Effect.zipRight(Effect.succeed({ content: "high-risk" }))),
         ),
       );
+    const durationMs = Date.now() - startedAt;
+
+    if (runMetrics && "usage" in response && response.usage) {
+      const usage: TokenUsage = {
+        promptTokens: response.usage.promptTokens,
+        completionTokens: response.usage.completionTokens,
+        totalTokens:
+          response.usage.totalTokens ||
+          response.usage.promptTokens + response.usage.completionTokens,
+      };
+      recordClassifierUsage(runMetrics, usage, durationMs);
+      yield* emitLLMUsage(runMetrics, usage, durationMs, {
+        purpose: "classifier",
+        provider: modelConfig.provider,
+        model: modelConfig.model,
+      });
+    }
 
     const riskLevel = parseClassifierVerdict(response.content);
     yield* logger.debug("Command risk classifier", {

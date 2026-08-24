@@ -18,6 +18,7 @@ export type TelemetryEventType =
   | "workflow_scheduled"
   | "session_started"
   | "session_ended"
+  | "process_sample"
   | "custom";
 
 /**
@@ -57,6 +58,46 @@ export interface TokenUsage {
 }
 
 /**
+ * Why this LLM request ran. Omitted on `llm_usage` means the agent loop
+ * (system prompt, user input, tool results). Classifier calls are tagged
+ * so a run's command-risk spend is not mistaken for the conversation.
+ */
+export type LLMCallPurpose = "classifier";
+
+/**
+ * Rolled-up command-risk classifier spend for one agent run.
+ *
+ * Kept beside, not inside, `usage`: `usage` is the agent-loop model
+ * (system prompt + conversation), and mixing the cheap harness-model
+ * classifier into those totals would hide both numbers.
+ */
+export interface ClassifierUsage {
+  readonly promptTokens: number;
+  readonly completionTokens: number;
+  readonly totalTokens: number;
+  readonly requests: number;
+  /** Wall-clock time spent in classifier LLM calls. */
+  readonly durationMs: number;
+}
+
+/**
+ * Jazz process resources at one instant.
+ *
+ * RSS/heap/CPU are this process. GPU is omitted on purpose: Jazz does not
+ * run the model. A local LLM's accelerator belongs to the model server.
+ */
+export interface ProcessResourceSnapshot {
+  readonly rssBytes: number;
+  readonly heapUsedBytes: number;
+  readonly heapTotalBytes: number;
+  readonly externalBytes: number;
+  /** Cumulative user-CPU milliseconds since process start. */
+  readonly cpuUserMs: number;
+  /** Cumulative system-CPU milliseconds since process start. */
+  readonly cpuSystemMs: number;
+}
+
+/**
  * Aggregated usage summary for a time period or agent run.
  */
 export interface UsageSummary {
@@ -76,6 +117,12 @@ export interface UsageSummary {
   readonly toolResultTokens: number;
   /** Total number of tool definitions offered to the LLM */
   readonly toolDefinitionsOffered: number;
+  /** Command-risk classifier prompt tokens (subset of `promptTokens`) */
+  readonly classifierPromptTokens: number;
+  /** Command-risk classifier completion tokens (subset of `completionTokens`) */
+  readonly classifierCompletionTokens: number;
+  /** Command-risk classifier LLM requests (subset of `totalRequests`) */
+  readonly classifierRequests: number;
   /** Total tool invocations */
   readonly totalToolCalls: number;
   /** Total tool errors encountered */
@@ -155,6 +202,7 @@ export interface TelemetryService {
     readonly conversationId: string;
     readonly provider?: string;
     readonly model?: string;
+    readonly process?: ProcessResourceSnapshot;
   }) => Effect.Effect<void, TelemetryError>;
 
   /**
@@ -171,6 +219,8 @@ export interface TelemetryService {
     readonly iterationsUsed: number;
     readonly finished: boolean;
     readonly usage: TokenUsage;
+    readonly classifierUsage?: ClassifierUsage;
+    readonly process?: ProcessResourceSnapshot;
     readonly toolCalls: number;
     readonly toolErrors: number;
   }) => Effect.Effect<void, TelemetryError>;
@@ -185,6 +235,7 @@ export interface TelemetryService {
     readonly conversationId: string;
     readonly error: string;
     readonly durationMs: number;
+    readonly process?: ProcessResourceSnapshot;
   }) => Effect.Effect<void, TelemetryError>;
 
   /**
@@ -199,6 +250,8 @@ export interface TelemetryService {
     readonly durationMs?: number;
     /** Groups this request under its agent run when exported as a trace. */
     readonly runId?: string;
+    /** Distinguishes command-risk classifier calls from the agent loop. */
+    readonly purpose?: LLMCallPurpose;
   }) => Effect.Effect<void, TelemetryError>;
 
   /**
@@ -237,6 +290,17 @@ export interface TelemetryService {
     readonly durationMs?: number;
     readonly success: boolean;
     readonly error?: string;
+  }) => Effect.Effect<void, TelemetryError>;
+
+  /**
+   * Record a Jazz process resource sample (RSS, heap, CPU).
+   * Emitted on a timer during a run, and as `process` on run start/end.
+   */
+  readonly recordProcessSample: (data: {
+    readonly runId: string;
+    readonly process: ProcessResourceSnapshot;
+    readonly agentId?: string;
+    readonly conversationId?: string;
   }) => Effect.Effect<void, TelemetryError>;
 
   /**
