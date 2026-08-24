@@ -121,6 +121,63 @@ See [Integrations → MCP](../integrations/mcp.md).
 
 ---
 
+## `jazz runs`
+
+Inspect runs still in flight — including your own parked ones, and, once a daemon started
+one, runs begun from somewhere else entirely.
+
+| Command                    | Purpose                                                             |
+| --------------------------- | -------------------------------------------------------------------- |
+| `jazz runs list`           | List unfinished runs, newest first. `--agent`, `--conversation`, `--all` (include finished, with cost), `--json` |
+| `jazz runs show <runId>`   | Show one run, including what it's waiting for. `--json`             |
+| `jazz runs approve <runId>` | Approve what a parked run is waiting for; blocks until it finishes  |
+| `jazz runs reject <runId>` | Refuse what it's waiting for; `--note <text>` tells it why           |
+
+A run parks when it hits something needing your approval and nobody is there to give it — see
+[Daemon](#jazz-daemon) for answering one from a different process than the one that started it.
+
+---
+
+## `jazz daemon`
+
+Serves runs over HTTP: start one, poll it, approve or reject what a parked one is waiting for
+— from a different terminal, a different process, or a different machine than the one that
+began it. Runs in the foreground; supervision (restart on crash, start on boot) is the host's
+job, not the daemon's.
+
+| Flag                    | Purpose                                                                                          |
+| ------------------------ | -------------------------------------------------------------------------------------------------- |
+| `--port <n>`            | Port to listen on. Default `4747`                                                                 |
+| `--host <address>`      | Interface to bind. Default `127.0.0.1`. Anything else requires `$JAZZ_DAEMON_TOKEN`               |
+| `--serve-peers <agentId>` | Also answer questions from configured peers, using this agent. Off unless given                 |
+
+`$JAZZ_DAEMON_TOKEN` authenticates the operator routes (`/runs`, `/health`); it is read from
+the environment, never a flag, so it never lands in `ps` output or shell history. `/peer/ask`
+(when `--serve-peers` is given) uses a separate, per-peer credential instead — see
+[`jazz peers`](#jazz-peers).
+
+See [Setting up peers](../guide/peers-setup.md) for a full walkthrough, and
+[Peers](../concepts/peers.md) for the tier model this exists to serve.
+
+---
+
+## `jazz peers`
+
+Other people's agents this machine talks to, and what has been said to or by them.
+
+| Command                          | Purpose                                                                          |
+| ---------------------------------- | ----------------------------------------------------------------------------------- |
+| `jazz peers list`                | List configured peers and what each may learn. `--json`                          |
+| `jazz peers set-token <name>`    | Store a peer's token, read from `$JAZZ_PEER_TOKEN` (or `--from-env <VAR>`)        |
+| `jazz peers forget-token <name>` | Remove a peer's stored token                                                     |
+| `jazz peers log`                 | Everything said to and by a peer, newest first. `--peer <name>`, `--limit <n>`, `--json` |
+
+Peers themselves are added by editing `~/.jazz/config.json` directly, not through a command —
+the tier is the decision worth making carefully, and someone choosing it should be looking at
+the file. See [Setting up peers](../guide/peers-setup.md).
+
+---
+
 ## `jazz persona`
 
 | Command                            | Purpose                               |
