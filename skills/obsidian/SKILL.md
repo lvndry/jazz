@@ -172,6 +172,32 @@ obsidian web url="https://example.com"
 
 ## Best Practices
 
+### Vault auto-detection
+
+If a vault is not explicitly supplied when writing or creating notes, the skill will attempt to detect a reasonable Obsidian vault automatically rather than guessing a default folder. Detection follows this priority:
+
+1. If the current working directory is inside a vault (a parent directory containing a top-level `.obsidian` folder), that vault is used.
+2. Search under the user's home subtree and common locations for directories that include a top-level `.obsidian` directory. The implementation chooses OS-appropriate candidate roots (examples below), limits the search to a small depth (default 4), and skips common system directories.
+3. If exactly one candidate vault is found, it is selected.
+4. If multiple candidates are found, the skill prefers one whose path includes `Personal` or matches a configured default vault name (if available). If ambiguity remains, the skill returns the short list to the caller so they can choose rather than guessing.
+5. If no vault is found, the skill falls back to `~/Obsidian` then `~/Documents/Obsidian` as a final fallback.
+
+Notes:
+- The search is limited to the user's home subtree for safety and performance.
+- In interactive sessions the skill will prompt to choose when multiple vaults are found; in non-interactive/headless runs it will return the candidate list and refuse to guess.
+- The chosen vault path is logged and exposed in the skill's response so callers can confirm where content was written.
+
+
+
+
+Examples of candidate roots by platform (the skill chooses OS-appropriate defaults):
+
+- macOS: `~/`, `~/Documents`, `~/Library/Mobile Documents` (iCloud)
+- Linux: `~/`, `~/Documents`, `~/.local/share` (if used for cloud mounts)
+- Windows: `%USERPROFILE%\\`, `%USERPROFILE%\\Documents`, and known cloud folders such as `OneDrive` when present
+
+The implementation limits the search to the user's home subtree for safety and performance and does not scan system or root directories.
+
 1. **Vault:** Always specify `vault=Name`. If CWD is inside a vault, that vault is used; otherwise confirm vault to use.
 2. **Ask first:** For big or structured notes, confirm depth, visuals (images, LaTeX, Mermaid), and organization (single note, folder, canvas).
 3. **File vs path:** `file=` uses wikilink-style resolution (name only). Use `path=` for an exact path from vault root.
