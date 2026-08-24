@@ -509,9 +509,8 @@ export function createEscapeStateMachine(capabilities: TerminalCapabilities): Es
       case "Idle": {
         // Check for special keys first (from Ink's key parsing)
         if (key.return) {
-          // Alt+Enter (ESC CR — Ink reports meta+return) inserts a newline
-          // for multi-line composition; plain Enter submits.
-          if (key.meta) {
+          // Shift/Alt+Enter insert a newline; plain Enter submits.
+          if (key.meta || key.shift) {
             return { type: "insert-newline" };
           }
           return { type: "submit" };

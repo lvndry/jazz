@@ -893,6 +893,41 @@ describe("fullscreen bridge", () => {
     expect(submitted).toBeUndefined();
   });
 
+  it("inserts a newline on Shift+Enter without submitting", async () => {
+    let submitted: string | undefined;
+    const rendered = await testRender(<FullscreenBridge />, {
+      width: WIDTH,
+      height: HEIGHT,
+      kittyKeyboard: true,
+    });
+    await rendered.renderOnce();
+    store.setPrompt({
+      type: "chat",
+      message: "",
+      resolve: (value) => {
+        submitted = String(value);
+      },
+    });
+    await rendered.flush();
+
+    await typeInto(rendered.mockInput, rendered.flush, "hello");
+    await rendered.mockInput.pressKey("RETURN", { shift: true });
+    await settleKeypress(rendered.flush, 100);
+    await typeInto(rendered.mockInput, rendered.flush, "world");
+    const frame = rendered.captureCharFrame();
+
+    expect(frame).toContain("hello");
+    expect(frame).toContain("world");
+    expect(submitted).toBeUndefined();
+
+    await rendered.mockInput.pressKey("RETURN");
+    await settleKeypress(rendered.flush, 100);
+    rendered.renderer.destroy();
+    store.setPrompt(null);
+
+    expect(submitted).toBe("hello\nworld");
+  });
+
   it("inserts a paste at the caret rather than at the end", async () => {
     const rendered = await liveComposer();
     await typeInto(rendered.mockInput, rendered.flush, "ab");
@@ -1548,6 +1583,41 @@ describe("fullscreen bridge", () => {
     store.setApprovalRequest(null);
     store.setPrompt(null);
     expect(decisions).toEqual(["no"]);
+  });
+
+  it("crops a long approval command and expands it with Ctrl+O", async () => {
+    const TAIL = "AND-THEN-RM-RF-TMP-BUILD";
+    const command = `${"a".repeat(160)} ${TAIL}`;
+    const rendered = await testRender(<FullscreenBridge />, { width: 100, height: 28 });
+    await rendered.renderOnce();
+    store.setPrompt({
+      type: "select",
+      message: "Approve this action?",
+      options: { choices: [] },
+      resolve: () => undefined,
+    });
+    store.setApprovalRequest({
+      toolName: "execute_command",
+      executeToolName: "execute_execute_command",
+      message: "This command will be executed on your system.",
+      args: { command },
+    });
+    await rendered.flush();
+
+    const collapsed = rendered.captureCharFrame();
+    expect(collapsed).toContain("ctrl+o");
+    expect(collapsed).toContain("expand");
+    expect(collapsed).not.toContain(TAIL);
+
+    await rendered.mockInput.pressKey("\x0f");
+    await settleKeypress(rendered.flush, 100);
+    const expanded = rendered.captureCharFrame();
+    expect(expanded).toContain(TAIL);
+    expect(expanded).toContain("collapse");
+
+    rendered.renderer.destroy();
+    store.setApprovalRequest(null);
+    store.setPrompt(null);
   });
 
   it("lets the user inspect overflowed approval fields before deciding", async () => {

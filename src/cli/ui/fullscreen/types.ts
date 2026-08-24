@@ -267,6 +267,8 @@ export interface ApprovalOverlay {
   readonly fields: readonly ApprovalField[];
   readonly consequence: string;
   readonly fieldOffset?: number;
+  /** True after Ctrl+O: long fields wrap in full instead of the 120-cell preview. */
+  readonly expanded?: boolean;
   readonly alwaysLabel: string;
   /** True once the arming delay has passed; before that only deny is accepted. */
   readonly armed: boolean;

@@ -338,8 +338,9 @@ product.
 Two of these are safety requirements rather than aesthetics. The card opens in a
 deny-only state for 250ms, so buffered Enter and always-allow keys are discarded
 while Escape remains immediate. Rejection removes the approval card before the
-optional guidance prompt appears, and every action field remains available in a
-scrolling record rather than being truncated.
+optional guidance prompt appears. Long fields collapse to a 120-cell preview
+so a heredoc does not become the whole card; Ctrl+O expands them into a wrapping,
+scrolling record, so the tail is still inspectable before you commit.
 
 ---
 

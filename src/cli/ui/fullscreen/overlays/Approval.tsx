@@ -12,8 +12,10 @@
  *
  *   - The real account is rendered verbatim, because the whole trust argument
  *     is that jazz always says which real-world object is in scope.
- *   - Every field that will exist afterwards is on screen before you commit.
- *     Nothing is discoverable only after pressing enter.
+ *   - Every field that will exist afterwards is on the card before you commit.
+ *     Long values collapse to a preview so a multi-kilobyte command does not
+ *     bury the rest of the record; Ctrl+O expands them, and the expanded view
+ *     wraps and scrolls rather than clipping the tail.
  *   - Irreversibility is stated in prose, not encoded in an icon.
  *   - Red is reserved for things that already broke; this is a decision being
  *     offered, so the only hue is `warning`, on the marker and the verb.
@@ -46,8 +48,11 @@ const FIXED_CARD_ROWS = 6;
 /** The controls line, beneath the frame. */
 const CONTROL_ROWS = 1;
 
-/** Cells the left half of the controls line ("enter accept    esc reject") needs. */
-const CONTROLS_LEFT_CELLS = 27;
+/**
+ * Collapsed field preview, in terminal cells. Long enough to recognise the
+ * command, short enough that a heredoc does not become the whole card.
+ */
+export const COLLAPSED_FIELD_CELLS = 120;
 
 function displayWidth(text: string): number {
   return terminalCellWidth(text);
@@ -60,6 +65,14 @@ function clip(text: string, width: number): string {
 /** A field value is one row of a record, so newlines collapse rather than wrap. */
 function oneLine(text: string): string {
   return text.replace(/\s+/g, " ").trim();
+}
+
+export function approvalFieldNeedsExpand(value: string): boolean {
+  return displayWidth(oneLine(value)) > COLLAPSED_FIELD_CELLS;
+}
+
+function collapsedFieldValue(value: string): string {
+  return clip(oneLine(value), COLLAPSED_FIELD_CELLS);
 }
 
 export function wrapProse(text: string, width: number): string[] {
@@ -98,7 +111,8 @@ export function wrapProse(text: string, width: number): string[] {
  * Fields and prose share a list rather than occupying two fixed regions,
  * because the promise the card makes — nothing is discoverable only after
  * pressing enter — is only true if *everything* below the rule can be reached
- * by scrolling. Two regions meant one of them was clipped by the frame.
+ * by expanding and scrolling. Two regions meant one of them was clipped by
+ * the frame.
  */
 type BodyRow =
   | { readonly kind: "field"; readonly key: string; readonly label: string; readonly value: string }
@@ -106,21 +120,25 @@ type BodyRow =
   | { readonly kind: "blank"; readonly key: string };
 
 /**
- * A field is wrapped, never truncated: the argument that decides what runs is
- * usually the longest one on the card, and a shell command whose tail is off
- * screen is the exact thing an approval gate exists to prevent.
+ * Collapsed, a field is clipped to COLLAPSED_FIELD_CELLS so the card stays a
+ * decision rather than a wall of text. Expanded, it wraps without clipping:
+ * the argument that decides what runs is usually the longest one on the card,
+ * and a shell command whose tail is off screen is the exact thing an approval
+ * gate exists to prevent.
  */
 export function approvalBodyRows(
   fields: readonly { readonly label: string; readonly value: string }[],
   consequence: readonly string[],
   valueWidth: number,
   labelWidth: number,
+  expanded = false,
 ): BodyRow[] {
   const rows: BodyRow[] = [];
 
   fields.forEach((field, index) => {
     const label = clip(oneLine(field.label), labelWidth);
-    wrapProse(field.value, valueWidth).forEach((line, lineIndex) => {
+    const value = expanded ? field.value : collapsedFieldValue(field.value);
+    wrapProse(value, valueWidth).forEach((line, lineIndex) => {
       rows.push({
         kind: "field",
         key: `field:${String(index)}:${String(lineIndex)}`,
@@ -174,7 +192,15 @@ export function Approval({ model, viewport }: ApprovalProps): ReactNode {
   const valueWidth = Math.max(4, inner - LABEL_COLUMN);
 
   const consequence = wrapProse(model.consequence, inner);
-  const bodyRows = approvalBodyRows(model.fields, consequence, valueWidth, LABEL_COLUMN - 1);
+  const expanded = model.expanded === true;
+  const expandable = model.fields.some((field) => approvalFieldNeedsExpand(field.value));
+  const bodyRows = approvalBodyRows(
+    model.fields,
+    consequence,
+    valueWidth,
+    LABEL_COLUMN - 1,
+    expanded,
+  );
   const windowedHeight = FIXED_CARD_ROWS + bodyRows.length + CONTROL_ROWS;
   const height = fullscreen ? viewport.height : Math.min(windowedHeight, viewport.height);
   const cardHeight = Math.max(1, height - CONTROL_ROWS);
@@ -224,9 +250,14 @@ export function Approval({ model, viewport }: ApprovalProps): ReactNode {
 
   const scrollHint = bodyScrolls
     ? belowCount > 0
-      ? `${String(belowCount)} more below · up/down · `
-      : "up/down · "
+      ? `${String(belowCount)} more below · up/down`
+      : "up/down"
     : "";
+  const expandHint = expandable ? `ctrl+o ${expanded ? "collapse" : "expand"}` : "";
+  const rightHint = [scrollHint, expandHint, `a ${model.alwaysLabel}`]
+    .filter((part) => part.length > 0)
+    .join(" · ");
+  const rightBudget = Math.max(0, inner - displayWidth("enter accept    esc reject"));
 
   return (
     <box
@@ -304,9 +335,7 @@ export function Approval({ model, viewport }: ApprovalProps): ReactNode {
           <span style={{ fg: THEME.secondary }}>{" reject"}</span>
         </text>
         <box style={{ flexGrow: 1 }} />
-        <text style={{ fg: THEME.muted, flexShrink: 0 }}>
-          {clip(`${scrollHint}a ${model.alwaysLabel}`, Math.max(0, inner - CONTROLS_LEFT_CELLS))}
-        </text>
+        <text style={{ fg: THEME.muted, flexShrink: 0 }}>{clip(rightHint, rightBudget)}</text>
       </box>
     </box>
   );

@@ -948,6 +948,7 @@ function approvalFrom(
   pending: PendingApproval,
   armed: boolean,
   fieldOffset: number,
+  expanded: boolean,
 ): ApprovalOverlay {
   const entries = Object.entries(pending.args).filter(
     ([, value]) => value !== undefined && value !== null && value !== "",
@@ -973,6 +974,7 @@ function approvalFrom(
       })),
     consequence: pending.message,
     fieldOffset,
+    expanded,
     alwaysLabel,
     armed,
   };
@@ -1004,6 +1006,7 @@ export function FullscreenBridge(): React.ReactNode {
   const approval = session.approvalRequest;
   const [approvalArmed, setApprovalArmed] = useState(false);
   const [approvalFieldOffset, setApprovalFieldOffset] = useState(0);
+  const [approvalExpanded, setApprovalExpanded] = useState(false);
   /**
    * The composer's text and caret as one value, updated only through pure
    * updaters.
@@ -1110,6 +1113,7 @@ export function FullscreenBridge(): React.ReactNode {
     if (approval !== null) flushPendingTerminalKeys();
     setApprovalArmedState(false);
     setApprovalFieldOffset(0);
+    setApprovalExpanded(false);
   }, [approval, setApprovalArmedState]);
 
   useEffect(() => {
@@ -1409,27 +1413,6 @@ export function FullscreenBridge(): React.ReactNode {
         return true;
       }
 
-      // Ctrl+O expands the last truncated tool output, which is the other half
-      // of the promise the footer makes.
-      if (isCtrlLetter({ name, ctrl }, "o")) {
-        const payload = store.getExpandableDiff();
-        if (payload === null || payload === undefined) {
-          store.printOutput({
-            type: "warn",
-            message: "No truncated output available to expand.",
-            timestamp: new Date(),
-          });
-        } else {
-          store.printOutput({
-            type: "log",
-            message: payload.fullDiff,
-            timestamp: new Date(),
-            meta: { expandedOutput: true },
-          });
-        }
-        return true;
-      }
-
       // A menu is a modal question: it owns the keyboard until it is answered.
       const openMenu = menuRef.current;
       if (openMenu !== null) {
@@ -1475,6 +1458,11 @@ export function FullscreenBridge(): React.ReactNode {
       // it. Esc falls through to the ladder, which rejects.
       if (approvalRef.current !== null) {
         if (name === "escape") return false;
+        if (isCtrlLetter({ name, ctrl }, "o")) {
+          setApprovalExpanded((current) => !current);
+          setApprovalFieldOffset(0);
+          return true;
+        }
         if (name === "up" || name === "down" || name === "pageup" || name === "pagedown") {
           const delta = name === "up" ? -1 : name === "down" ? 1 : name === "pageup" ? -5 : 5;
           setApprovalFieldOffset((offset) => Math.max(0, offset + delta));
@@ -1495,6 +1483,27 @@ export function FullscreenBridge(): React.ReactNode {
           );
           active.resolve(alwaysCommand ? "always_command" : "always_tool");
           return true;
+        }
+        return true;
+      }
+
+      // Ctrl+O expands the last truncated tool output. Approval already claimed
+      // the key above when a long field is on the card.
+      if (isCtrlLetter({ name, ctrl }, "o")) {
+        const payload = store.getExpandableDiff();
+        if (payload === null || payload === undefined) {
+          store.printOutput({
+            type: "warn",
+            message: "No truncated output available to expand.",
+            timestamp: new Date(),
+          });
+        } else {
+          store.printOutput({
+            type: "log",
+            message: payload.fullDiff,
+            timestamp: new Date(),
+            meta: { expandedOutput: true },
+          });
         }
         return true;
       }
@@ -1805,7 +1814,11 @@ export function FullscreenBridge(): React.ReactNode {
         // Tab and Enter both accept here. A path is not a command, so there is
         // nothing to submit — accepting only edits the composer, which leaves
         // Enter free to mean "insert" while the menu is open.
-        if ((name === "tab" && !shift) || name === "return" || name === "enter") {
+        if (
+          (name === "tab" && !shift) ||
+          ((name === "return" || name === "enter") &&
+            !isComposerNewline({ name, shift, option, meta }))
+        ) {
           const entry = mentionItems[selected];
           if (entry !== undefined) {
             const applied = applyAtMention(composerRef.current.text, mentionSpan, entry.name);
@@ -1841,7 +1854,10 @@ export function FullscreenBridge(): React.ReactNode {
           }
           return true;
         }
-        if (name === "return" || name === "enter") {
+        if (
+          (name === "return" || name === "enter") &&
+          !isComposerNewline({ name, shift, option, meta })
+        ) {
           const command = slashCommands[selected];
           if (command === undefined) return true;
           const text = `/${command.name}`;
@@ -2073,7 +2089,7 @@ export function FullscreenBridge(): React.ReactNode {
       };
     }
     if (approval !== null) {
-      next = approvalFrom(approval, approvalArmed, approvalFieldOffset);
+      next = approvalFrom(approval, approvalArmed, approvalFieldOffset, approvalExpanded);
     }
     return next;
   }, [
@@ -2086,6 +2102,7 @@ export function FullscreenBridge(): React.ReactNode {
     approval,
     approvalArmed,
     approvalFieldOffset,
+    approvalExpanded,
   ]);
 
   const input = useMemo<InputModel>(() => {
