@@ -117,6 +117,40 @@ describe("OneShotPresentationService streaming renderer", () => {
     expect(parsed.agentName).toBe("komodo/roles verifier");
   });
 
+  it("names the agent on status and output lines when the caller knows it", () => {
+    const service = new OneShotPresentationService(
+      DEFAULT_DISPLAY_CONFIG,
+      new Set<StreamEvent["type"]>(["text_chunk"]),
+    );
+
+    const captured = captureStderr();
+    Effect.runSync(
+      service.presentStatus("still waiting on the model", "progress", "airgap verifier"),
+    );
+    Effect.runSync(service.writeOutput("claim 6 holds", "airgap verifier"));
+
+    const [status, output] = captured.lines.map(
+      (line) => JSON.parse(line) as Record<string, unknown>,
+    );
+    expect(status?.["type"]).toBe("status");
+    expect(status?.["agentName"]).toBe("airgap verifier");
+    expect(output?.["type"]).toBe("output");
+    expect(output?.["agentName"]).toBe("airgap verifier");
+  });
+
+  it("omits agentName rather than guessing when the caller does not know it", () => {
+    const service = new OneShotPresentationService(
+      DEFAULT_DISPLAY_CONFIG,
+      new Set<StreamEvent["type"]>(["text_chunk"]),
+    );
+
+    const captured = captureStderr();
+    Effect.runSync(service.presentStatus("connecting to the MCP server", "info"));
+
+    const status = JSON.parse(captured.lines[0] as string) as Record<string, unknown>;
+    expect("agentName" in status).toBe(false);
+  });
+
   it("returns a noop renderer that writes nothing when no types are selected", () => {
     const service = new OneShotPresentationService(DEFAULT_DISPLAY_CONFIG, new Set());
     const renderer = Effect.runSync(service.createStreamingRenderer(rendererConfig));
