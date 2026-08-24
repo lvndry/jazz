@@ -165,3 +165,30 @@ describe("createRunLog coalescing and retention", () => {
     expect(files.some((name) => name.includes("T13-29-00"))).toBe(true);
   });
 });
+
+describe("createRunLog flush timer", () => {
+  it("writes buffered deltas even when no further event arrives", async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), "runlog-"));
+    const log = createRunLog(dataDir, "chat-1");
+    // A run that streams and then hangs: nothing else will ever arrive.
+    log.event({ type: "text_chunk", delta: "partial answer" });
+    expect(readRecords(dataDir).map((record) => record["type"])).toEqual(["run_start"]);
+
+    await new Promise((resolve) => setTimeout(resolve, 2_400));
+
+    const records = readRecords(dataDir);
+    expect(records.map((record) => record["type"])).toEqual(["run_start", "text_chunk"]);
+    expect(records[1]).toMatchObject({ chunks: 1, characters: 14 });
+    log.finish({ ok: false, error: "timed out" });
+  });
+
+  it("stops flushing once the run has finished", async () => {
+    const dataDir = mkdtempSync(join(tmpdir(), "runlog-"));
+    const log = createRunLog(dataDir, "chat-1");
+    log.event({ type: "text_chunk", delta: "done" });
+    log.finish({ ok: true });
+    const afterFinish = readRecords(dataDir).length;
+    await new Promise((resolve) => setTimeout(resolve, 2_400));
+    expect(readRecords(dataDir)).toHaveLength(afterFinish);
+  });
+});

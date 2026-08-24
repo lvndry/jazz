@@ -31,10 +31,24 @@ const COALESCED_TYPES = new Set(["thinking_chunk", "text_chunk"]);
 /** Run logs to keep per bridge; older ones are removed as new runs start. */
 const RUNS_RETAINED = 200;
 
+/**
+ * How long a run of deltas may stay buffered before it is written anyway.
+ *
+ * Without this the buffer is only flushed by the *next* event, so a run that
+ * hangs mid-stream — the exact case this log exists for — ends with the buffered
+ * deltas never written and its last line naming the event before them. Two
+ * seconds keeps a healthy run to a handful of lines while making a stall visible
+ * within one.
+ */
+const FLUSH_INTERVAL_MS = 2_000;
+
 export interface RunLog {
   /** Record one event from the jazz stream. */
   event: (event: Record<string, unknown>) => void;
-  /** Record the run's outcome, including a timeout or crash. */
+  /**
+   * Record the run's outcome, including a timeout or crash. Also releases the
+   * flush timer, so this must be called exactly once per run.
+   */
   finish: (outcome: Record<string, unknown>) => void;
   /** Path written to, for a bridge that wants to mention it. */
   readonly path: string;
@@ -126,6 +140,11 @@ export function createRunLog(
     });
   };
 
+  // Unref'd so a bridge process is never held open by a log, and cleared in
+  // finish() so a long-lived bridge does not accumulate one timer per turn.
+  const flushTimer = setInterval(flush, FLUSH_INTERVAL_MS);
+  flushTimer.unref?.();
+
   return {
     path,
     event: (event) => {
@@ -151,6 +170,7 @@ export function createRunLog(
       append(record);
     },
     finish: (outcome) => {
+      clearInterval(flushTimer);
       flush();
       append({ ...now(), type: "run_finish", ...outcome });
     },

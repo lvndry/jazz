@@ -23,6 +23,70 @@ import { extractReasoningParts } from "./reasoning-parts";
 type StreamTextResult = ReturnType<typeof streamText>;
 
 /**
+ * How long the stream may go without producing anything before it is treated as
+ * dead.
+ *
+ * `for await` over a provider stream waits forever if the server stops sending
+ * without closing the connection, and nothing below this layer notices: the
+ * process sits in epoll with an idle GPU until whatever wall-clock timeout the
+ * caller set fires, which for an unattended bridge was fifteen minutes of a chat
+ * showing "Working…". Two minutes is far longer than any real gap between parts —
+ * generation on a loaded 27B model still emits tens of tokens a second, and the
+ * slowest observed wait for a first part was under twenty seconds — while turning
+ * an indefinite hang into a normal failure the caller can report and retry.
+ *
+ * Tool execution happens between streams, not inside one, so a slow tool cannot
+ * trip this.
+ */
+const STREAM_IDLE_TIMEOUT_MS = 120_000;
+
+/** Raised when a provider stream stops producing without closing. */
+export class StreamIdleTimeoutError extends Error {
+  constructor(readonly idleMs: number) {
+    super(
+      `Provider stream produced nothing for ${Math.round(idleMs / 1000)}s and was abandoned. ` +
+        `The connection stalled without closing.`,
+    );
+    this.name = "StreamIdleTimeoutError";
+  }
+}
+
+/**
+ * Re-yield `source`, failing if any single step takes longer than `idleMs`.
+ *
+ * The timer is per part rather than for the whole stream: a long answer is
+ * healthy, a long *silence* is not.
+ */
+export async function* withIdleTimeout<T>(
+  source: AsyncIterable<T>,
+  idleMs: number,
+): AsyncGenerator<T> {
+  const iterator = source[Symbol.asyncIterator]();
+  try {
+    for (;;) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const idle = new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new StreamIdleTimeoutError(idleMs)), idleMs);
+      });
+      let step: IteratorResult<T>;
+      try {
+        step = await Promise.race([iterator.next(), idle]);
+      } finally {
+        if (timer !== undefined) clearTimeout(timer);
+      }
+      if (step.done === true) return;
+      yield step.value;
+    }
+  } finally {
+    // Signal the provider we are done so a stalled connection is torn down, but
+    // never wait for it: `return()` on an iterator suspended mid-await resolves
+    // only when that await does, so awaiting here would hang on exactly the
+    // stream this function exists to escape.
+    void iterator.return?.()?.catch(() => undefined);
+  }
+}
+
+/**
  * Emit function type for Effect streams
  */
 type EmitFunction = (
@@ -205,7 +269,7 @@ export class StreamProcessor {
    */
   private async processFullStream(result: StreamTextResult): Promise<void> {
     try {
-      for await (const part of result.fullStream) {
+      for await (const part of withIdleTimeout(result.fullStream, STREAM_IDLE_TIMEOUT_MS)) {
         // Stop if we've finished
         if (this.state.finishEventReceived) {
           break;

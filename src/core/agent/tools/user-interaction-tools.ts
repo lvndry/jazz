@@ -79,6 +79,21 @@ export const userInteractionTools: Tool<ToolRequirements>[] = [
 
         const response = yield* presentation.requestUserInput(request);
 
+        // Every non-interactive presentation answers with an empty string: there
+        // is nobody at a TTY to ask. Reporting that as a successful answer is how
+        // an agent ends up acting on a decision the human never made — a bridge
+        // asked for an appointment date, got "", and set a reminder for 30
+        // minutes' time. Say plainly that no answer arrived so the model decides
+        // openly, or puts the question in its reply where a human will see it.
+        if (response.trim().length === 0) {
+          return {
+            success: false,
+            result:
+              "No answer was given — there is no interactive channel here, or the human dismissed the question. " +
+              "Do not treat this as an answer or invent one. Either proceed on a stated assumption, or ask in your reply.",
+          };
+        }
+
         return {
           success: true,
           result: `User responded: ${response}`,
