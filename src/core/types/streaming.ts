@@ -134,7 +134,13 @@ export type StreamEvent =
 
   // Sub-agent lifecycle (delegated spawn_subagent runs)
   | { type: "subagent_start"; task?: string; agentName?: string }
-  | { type: "subagent_complete" };
+  /**
+   * Emitted whatever the outcome, so a consumer can close the bracket it opened on
+   * `subagent_start`. It carries the sub-agent's own name because several run at once
+   * and the event reaches the stream through the *parent's* renderer, which would
+   * otherwise attribute it to the parent.
+   */
+  | { type: "subagent_complete"; agentName?: string; durationMs?: number };
 
 export interface StreamingResult {
   readonly stream: Stream.Stream<StreamEvent, LLMError>;

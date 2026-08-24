@@ -214,7 +214,16 @@ ${args.task}`;
             ),
             // Bracket the sub-run for --events consumers, whatever the outcome.
             Effect.ensuring(
-              context.emitEvent ? context.emitEvent({ type: "subagent_complete" }) : Effect.void,
+              context.emitEvent
+                ? Effect.suspend(
+                    () =>
+                      context.emitEvent?.({
+                        type: "subagent_complete",
+                        agentName: subagentLabel,
+                        durationMs: Date.now() - startedAt,
+                      }) ?? Effect.void,
+                  )
+                : Effect.void,
             ),
           );
 
