@@ -633,6 +633,81 @@ function registerUpdateCommand(program: Command): void {
 /**
  * Register `jazz runs` — find and answer runs that stopped for a person.
  */
+/**
+ * Register `jazz peers` — who else's agent this machine will talk to.
+ *
+ * A peer is added by editing the config file, not by a command. Deliberate: the decision
+ * worth making carefully is the tier, and someone choosing it should be looking at the file
+ * rather than at a flag. What the commands own is the part that must not touch disk in
+ * plaintext (the token) and the part worth reading back (the ledger).
+ */
+function registerPeersCommands(program: Command): void {
+  const peersCommand = program
+    .command("peers")
+    .description("Other people's agents this machine talks to, and what they have been told");
+
+  peersCommand
+    .command("list")
+    .alias("ls")
+    .description("List configured peers and what each may learn")
+    .option("--json", "Emit a single JSON envelope { ok, peers }")
+    .action((options: { json?: boolean }) =>
+      runCliAction(
+        () =>
+          import("./commands/peers").then((mod) =>
+            mod.listPeersCommand({ json: options.json === true }),
+          ),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  peersCommand
+    .command("set-token <name>")
+    .description(
+      "Store a peer's bearer token in the OS keyring, read from an environment variable so it never reaches your shell history",
+    )
+    .option("--from-env <VAR>", "Environment variable holding the token", "JAZZ_PEER_TOKEN")
+    .action((name: string, options: { fromEnv: string }) =>
+      runCliAction(
+        () =>
+          import("./commands/peers").then((mod) =>
+            mod.setPeerTokenCommand({ name, envVar: options.fromEnv }),
+          ),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  peersCommand
+    .command("forget-token <name>")
+    .description("Remove a peer's stored token")
+    .action((name: string) =>
+      runCliAction(
+        () => import("./commands/peers").then((mod) => mod.forgetPeerTokenCommand({ name })),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  peersCommand
+    .command("log")
+    .description("Everything said to and by a peer, newest first")
+    .option("--peer <name>", "Only entries for this peer")
+    .option("--limit <n>", "How many entries to show", parsePositiveInt("--limit"), 50)
+    .option("--json", "Emit a single JSON envelope { ok, entries }")
+    .action((options: { peer?: string; limit: number; json?: boolean }) =>
+      runCliAction(
+        () =>
+          import("./commands/peers").then((mod) =>
+            mod.peerLogCommand({
+              json: options.json === true,
+              limit: options.limit,
+              ...(options.peer !== undefined ? { peer: options.peer } : {}),
+            }),
+          ),
+        cliRuntimeOptions(program),
+      ),
+    );
+}
+
 function registerRunsCommands(program: Command): void {
   const runsCommand = program
     .command("runs")
@@ -942,6 +1017,7 @@ export function createCLIApp(): Command {
   registerConfigCommands(program);
   registerMCPCommands(program);
   registerUpdateCommand(program);
+  registerPeersCommands(program);
   registerRunsCommands(program);
   registerWorkflowCommands(program);
 

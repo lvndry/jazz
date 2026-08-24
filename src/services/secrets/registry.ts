@@ -72,6 +72,14 @@ const OTLP_HEADER_PATH = /^telemetry\.otlp\.headers\.[^.]+$/;
 /** The header operators actually set; listed so the keyring is checked for it on load. */
 export const OTLP_AUTHORIZATION_PATH = "telemetry.otlp.headers.authorization";
 
+/** A peer's bearer token, e.g. `peers.sam.token`. */
+const PEER_TOKEN_PATH = /^peers\.[^.]+\.token$/;
+
+/** The config path holding one peer's token. */
+export function peerTokenPath(peerName: string): string {
+  return `peers.${peerName}.token`;
+}
+
 /** Every config path Jazz treats as a secret. */
 export const SECRET_PATHS: readonly string[] = [
   ...Object.keys(SECRET_ENV_VARS),
@@ -86,6 +94,10 @@ export const SECRET_PATHS: readonly string[] = [
  */
 export function isSecretPath(path: string): boolean {
   if (path in SECRET_ENV_VARS) return true;
+  // A peer's bearer token authenticates this machine to somebody else's agent. It belongs
+  // in the keyring for the same reason an API key does, and the config file names the peer
+  // without ever holding its credential.
+  if (PEER_TOKEN_PATH.test(path)) return true;
   // Every OTLP header is treated as a secret, not just `authorization`: a
   // backend may name its credential header anything, and guessing wrong writes
   // it to disk in plaintext.
