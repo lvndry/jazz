@@ -190,3 +190,29 @@ describe("sweepDueReminders", () => {
     expect(list.length).toBe(1);
   });
 });
+
+describe("add guards against fire times in the past", () => {
+  function isoDate(daysFromNow: number): string {
+    return new Date(Date.now() + daysFromNow * 86_400_000).toISOString().slice(0, 10);
+  }
+
+  test("accepts an absolute fire time in the future", async () => {
+    const service = makeService();
+    const outcome = await runEffect(
+      service.add("agent-1", `${isoDate(1)} 07:00`, "pack shoes", "UTC"),
+    );
+    expect(outcome.success).toBe(true);
+    if (outcome.success) {
+      expect(outcome.reminder.fireAt).toBeGreaterThan(Date.now());
+    }
+  });
+
+  test("rejects an absolute fire time already in the past", async () => {
+    const service = makeService();
+    const outcome = await runEffect(service.add("agent-1", `${isoDate(-2)} 09:00`, "vote", "UTC"));
+    expect(outcome.success).toBe(false);
+    if (!outcome.success) {
+      expect(outcome.message).toContain("in the past");
+    }
+  });
+});

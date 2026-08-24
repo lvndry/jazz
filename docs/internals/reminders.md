@@ -17,8 +17,11 @@ A file-backed reminder list the agent manages with three tools — `add_reminder
 the agent across CLI, Telegram, and other surfaces rather than disappearing with a session.
 
 `when` specs are timezone-aware: relative durations (`30m`, `1h30m`), a 24h clock time
-(`18:00` → next occurrence), or `tomorrow HH:MM`. Clock times use the execution context
-timezone when the surface supplies one, otherwise UTC.
+(`18:00` → next occurrence), `tomorrow HH:MM`, a weekday and time (`tue 20:00` → next
+occurrence of that weekday), or an absolute `YYYY-MM-DD HH:MM`. Clock times use the
+execution context timezone when the surface supplies one, otherwise UTC.
+
+`add_reminder` refuses a `when` that resolves to a time in the past.
 
 ## On disk
 

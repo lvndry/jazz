@@ -128,7 +128,7 @@ allowlisted, or you didn’t @mention it (`DISCORD_REQUIRE_MENTION=1` by default
 | `/persona` | Select menu of available personas |
 | `/new` | Start a fresh conversation — clears earlier context; keeps your model/persona |
 | `/incognito` | Private conversation (nothing saved to history or memory) until `/new` |
-| `/remind` | Schedule a reminder. `when` = `30m`, `1h30m`, `18:00`, or `tomorrow 09:00`. Routed through a normal agent turn, which calls the `add_reminder` tool. |
+| `/remind` | Schedule a reminder. `when` = `30m`, `1h30m`, `18:00`, `tomorrow 09:00`, `tue 20:00`, or `2026-08-25 20:00`. Routed through a normal agent turn, which calls the `add_reminder` tool. |
 | _(natural language)_ | Just say it — "remind me to call the dentist in 2 hours". The agent calls `add_reminder` itself. |
 | `/reminders` | List your pending reminders (in your timezone); tap one to cancel |
 | `/tz` | Show or set your timezone (IANA name, e.g. `/tz zone:Europe/Paris`) so reminder times are local |

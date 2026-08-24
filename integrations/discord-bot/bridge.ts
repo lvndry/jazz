@@ -896,7 +896,12 @@ const SLASH_COMMANDS: readonly SlashCommand[] = [
     name: "remind",
     description: "Set a reminder",
     options: [
-      { name: "when", description: "30m, 1h, 18:00, tomorrow 09:00", type: 3, required: true },
+      {
+        name: "when",
+        description: "30m, 1h, 18:00, tomorrow 09:00, tue 20:00, 2026-08-25 20:00",
+        type: 3,
+        required: true,
+      },
       { name: "text", description: "What to remind you about", type: 3, required: true },
     ],
   },
@@ -1002,7 +1007,7 @@ async function handleCommand(
       return {
         content:
           "Usage: `/remind when:<when> text:<text>`\n" +
-          "Examples: `30m take pizza out`, `1h30m stretch`, `18:00 standup`, `tomorrow 09:00 gym`",
+          "Examples: `30m take pizza out`, `18:00 standup`, `tomorrow 09:00 gym`, `2026-08-25 20:00 pack shoes`",
       };
     }
     return { content: "Setting that reminder…", runPrompt: `Add a reminder: ${trimmed}` };

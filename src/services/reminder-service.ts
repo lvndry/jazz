@@ -102,11 +102,18 @@ export class ReminderServiceImpl implements ReminderService {
             );
           }
 
-          const fireAt = parseWhen(when, Date.now(), timezone);
+          const now = Date.now();
+          const fireAt = parseWhen(when, now, timezone);
           if (fireAt === null) {
             return {
               success: false,
-              message: `Could not understand the time '${when}' — try things like '30m', '2h', '18:00', or 'tomorrow 09:00'.`,
+              message: `Could not understand the time '${when}' — try things like '30m', '2h', '18:00', 'tomorrow 09:00', 'tue 20:00', or '2026-08-25 20:00'.`,
+            } satisfies AddReminderOutcome;
+          }
+          if (fireAt <= now) {
+            return {
+              success: false,
+              message: `'${when}' resolves to ${new Date(fireAt).toISOString()}, which is already in the past. Pick a future time.`,
             } satisfies AddReminderOutcome;
           }
 
@@ -114,7 +121,7 @@ export class ReminderServiceImpl implements ReminderService {
             id: newReminderId(),
             fireAt,
             text,
-            createdAt: Date.now(),
+            createdAt: now,
           };
           yield* writeFileStringAtomic(
             fs,
