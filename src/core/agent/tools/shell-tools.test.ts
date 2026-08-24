@@ -1,7 +1,7 @@
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { describe, expect, it } from "bun:test";
-import { Effect, Layer } from "effect";
+import { Effect, Fiber, Layer } from "effect";
 import { spawnOutputTruncationNotice } from "./capped-output";
 import { createShellCommandTools, EXECUTE_COMMAND_OUTPUT_CAP_BYTES } from "./shell-tools";
 import { createToolRegistryLayer } from "./tool-registry";
@@ -392,5 +392,47 @@ describe("Shell Tools", () => {
     );
     const payload = stderr.split("\n[truncated:")[0] ?? "";
     expect(Buffer.byteLength(payload, "utf8")).toBe(EXECUTE_COMMAND_OUTPUT_CAP_BYTES);
+  });
+
+  it("kills a running command when the effect is interrupted", async () => {
+    const tool = shellTools.execute;
+    // A duration no other process on the machine is plausibly sleeping for, so
+    // `ps` can tell this test's child apart from unrelated sleeps.
+    const uniqueSleepSeconds = "31.4159265";
+    const countLiveChildren = async (): Promise<number> => {
+      const listing = Bun.spawn(["ps", "-eo", "command"]);
+      const output = await new Response(listing.stdout).text();
+      return output.split("\n").filter((line) => line.trim() === `sleep ${uniqueSleepSeconds}`)
+        .length;
+    };
+
+    const waitForChildCount = async (expected: number): Promise<number> => {
+      const deadline = Date.now() + 5_000;
+      let count = await countLiveChildren();
+      while (count !== expected && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        count = await countLiveChildren();
+      }
+      return count;
+    };
+
+    const started = Date.now();
+    const program = tool
+      .execute(
+        {
+          command: `sleep ${uniqueSleepSeconds}`,
+          description: "Sleep long enough that interrupt must kill the child.",
+        },
+        { agentId: "test-agent", conversationId: "test-conversation" },
+      )
+      .pipe(Effect.provide(createTestLayer()));
+
+    const fiber = Effect.runFork(program);
+    expect(await waitForChildCount(1)).toBe(1);
+
+    await Effect.runPromise(Fiber.interrupt(fiber));
+    expect(Date.now() - started).toBeLessThan(10_000);
+
+    expect(await waitForChildCount(0)).toBe(0);
   });
 });
