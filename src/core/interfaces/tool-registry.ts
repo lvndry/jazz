@@ -32,6 +32,31 @@ import type { TerminalService } from "./terminal";
 export type ToolRiskLevel = "read-only" | "low-risk" | "high-risk" | "unknown";
 
 /**
+ * What an answer from this tool reveals about the person the agent works for.
+ *
+ * Independent of {@link ToolRiskLevel}, which measures what a tool can do *to* the machine.
+ * The two do not correlate: `read_file` is read-only and can disclose anything, `get_time`
+ * is read-only and discloses nothing, `write_file` changes the machine and reveals nothing.
+ * A policy built on risk alone would let a caller read someone's notes on the grounds that
+ * reading is safe.
+ *
+ * The question is always about the *answer*, not the request. What an agent chooses to put
+ * into an outgoing call is a separate problem, handled where such calls are made.
+ *
+ * - `none` — the answer is not about the operator or their machine. A web search result, a
+ *   fetched page, a confirmation that something was written.
+ * - `context` — the shape of the machine or session: paths, filenames, the working
+ *   directory, which skills are installed, how full the context window is. Not contents.
+ * - `personal` — the operator's own material: file contents, memory, reminders, todos, the
+ *   transcript, or anything a shell command might print.
+ *
+ * When a tool spans two, it takes the higher one. `unknown` does not exist here on purpose:
+ * an unclassifiable tool is `personal`, because the safe reading of "I do not know what
+ * this returns" is "it could be anything".
+ */
+export type ToolDisclosure = "none" | "context" | "personal";
+
+/**
  * Union type representing all possible tool requirements.
  * This allows the registry to store tools with different requirement types
  *
@@ -78,6 +103,14 @@ export interface Tool<R = never> {
    *   an unresolved `unknown` is only auto-approved under yolo
    */
   readonly riskLevel: ToolRiskLevel;
+  /**
+   * What an answer from this tool reveals about the operator.
+   *
+   * Required, and with no default anywhere, so that adding a tool forces someone to decide.
+   * Every tool that skipped this decision would otherwise be silently readable by anything
+   * the machine ever answers to.
+   */
+  readonly disclosure: ToolDisclosure;
   /**
    * Optional helper for approval-based tools pointing to the follow-up tool name
    * that should be made available once user confirmation is granted.

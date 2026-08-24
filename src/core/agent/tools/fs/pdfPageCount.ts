@@ -31,6 +31,7 @@ export function createPdfPageCountTool(): Tool<FileSystem.FileSystem | FileSyste
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, PdfPageCountParams>({
     name: "pdf_page_count",
+    disclosure: "context",
     description:
       "Return the page count and file size of a PDF without extracting its text. Call this before read_pdf on large files so you can request a page list instead of dumping hundreds of pages.",
     tags: ["filesystem", "pdf", "info"],

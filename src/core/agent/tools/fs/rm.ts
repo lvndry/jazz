@@ -44,6 +44,7 @@ type RmDeps = FileSystem.FileSystem | FileSystemContextService;
 export function createRmTools(): ApprovalToolPair<RmDeps> {
   const config: ApprovalToolConfig<RmDeps, RmArgs> = {
     name: "rm",
+    disclosure: "none",
     description:
       "Remove a file or directory. Directories require recursive: true. force reports success even when the path is missing or the remove fails. This is a permanent delete, not trash. To unstage a tracked git file, use execute_command with git rm.",
     tags: ["filesystem", "destructive"],

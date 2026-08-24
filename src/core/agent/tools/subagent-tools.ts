@@ -77,6 +77,7 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
   return [
     defineTool({
       name: "spawn_subagent",
+      disclosure: "personal",
       longRunning: true,
       timeoutMs: SUBAGENT_TIMEOUT_MS,
       description:
@@ -281,6 +282,7 @@ ${args.task}`;
 
     defineTool({
       name: "summarize_context",
+      disclosure: "personal",
       longRunning: true,
       description:
         "Summarize older messages to free context. The harness already auto-compacts around 80% of the window — call this only when you need space before that, not as a habit. Empty or short histories return an error instead of summarizing.",

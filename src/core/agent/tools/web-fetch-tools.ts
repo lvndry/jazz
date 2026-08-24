@@ -46,6 +46,7 @@ type WebFetchArgs = z.infer<typeof webFetchSchema>;
 export function createWebFetchTool(): ReturnType<typeof defineTool<LoggerService, WebFetchArgs>> {
   return defineTool<LoggerService, WebFetchArgs>({
     name: "web_fetch",
+    disclosure: "none",
     description:
       "Fetch a URL with HTTP GET and return its title and body as plain text. HTML has tags stripped (not markdown, not reader mode). JavaScript is not run. PDFs and images are not supported. Allowed types: HTML, plain text, JSON, XML. " +
       "Default 50000 characters (max 200000); the full body is still downloaded first. Redirects are followed. For APIs, custom headers, POST, or binary, use http_request. To find URLs, use web_search.",

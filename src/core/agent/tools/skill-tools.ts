@@ -18,6 +18,7 @@ export function createSkillTools(skillNames: readonly string[]): Tool<SkillServi
   return [
     {
       name: "find_skills",
+      disclosure: "context",
       description:
         "Search the skill catalog by keyword and return the top matches with their full descriptions. Matching is keyword, not semantic. Use this when the skill index in the system prompt is not enough to decide which skill to load, then call load_skill.",
       parameters: z.object({
@@ -72,6 +73,7 @@ export function createSkillTools(skillNames: readonly string[]): Tool<SkillServi
     },
     {
       name: "load_skill",
+      disclosure: "context",
       description:
         "Load a skill's full instruction body by name (the markdown after the frontmatter). Load only when the index or find_skills names a match for the current task. Do not preload every skill.",
       parameters: z.object({
@@ -102,6 +104,7 @@ export function createSkillTools(skillNames: readonly string[]): Tool<SkillServi
     },
     {
       name: "load_skill_section",
+      disclosure: "context",
       description:
         "Load a supplementary file referenced in a skill's instructions, for example references/foo.md. Call this only after load_skill. Allowed extensions: .md, .txt, .json, .yaml, .yml.",
       parameters: z.object({

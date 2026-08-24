@@ -1,6 +1,6 @@
 import { Effect } from "effect";
 import { z } from "zod";
-import type { Tool, ToolRiskLevel } from "@/core/interfaces/tool-registry";
+import type { Tool, ToolDisclosure, ToolRiskLevel } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
 
 /**
@@ -52,6 +52,8 @@ export interface BaseToolConfig<R, Args extends Record<string, unknown>> {
    * Defaults to "read-only" for regular tools, "high-risk" for approval tools.
    */
   readonly riskLevel?: ToolRiskLevel;
+  /** What an answer from this tool reveals about the operator. No default: decide. */
+  readonly disclosure: ToolDisclosure;
   /**
    * Optional validator. When omitted, arguments are checked with
    * {@link makeZodValidator} against `parameters`.
@@ -112,6 +114,7 @@ export function defineTool<R, Args extends Record<string, unknown>>(
     ...(config.jsonSchema !== undefined ? { jsonSchema: config.jsonSchema } : {}),
     hidden: config.hidden === true,
     riskLevel: config.riskLevel ?? defaultRiskLevel,
+    disclosure: config.disclosure,
     ...(config.approvalExecuteToolName
       ? { approvalExecuteToolName: config.approvalExecuteToolName }
       : {}),
@@ -177,6 +180,8 @@ export interface ApprovalToolConfig<R, Args extends Record<string, unknown>> {
    * Defaults to "high-risk" for approval tools.
    */
   readonly riskLevel?: ToolRiskLevel;
+  /** What an answer from this tool reveals about the operator. No default: decide. */
+  readonly disclosure: ToolDisclosure;
   /** Optional custom validator */
   readonly validate?: ToolValidator<Args>;
   /**
@@ -253,6 +258,7 @@ export function defineApprovalTool<R, Args extends Record<string, unknown>>(
     ...(config.tags ? { tags: config.tags } : {}),
     parameters: config.parameters,
     riskLevel,
+    disclosure: config.disclosure,
     validate: validator,
     approvalExecuteToolName: executeToolName,
     handler: (args: Args, context: ToolExecutionContext) =>
@@ -291,6 +297,7 @@ export function defineApprovalTool<R, Args extends Record<string, unknown>>(
     ),
     hidden: true,
     riskLevel,
+    disclosure: config.disclosure,
     parameters: config.parameters,
     validate: validator,
     handler: config.handler,
