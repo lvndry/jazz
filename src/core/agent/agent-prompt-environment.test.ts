@@ -42,11 +42,9 @@ function build(personaName: string, systemPrompt: string): string {
 describe("environment block injection", () => {
   test("appends the canonical block with live values when no placeholder is authored", () => {
     const result = build("default", "You are {agentName}. Do good work.");
-    expect(result).toContain("# Environment");
-    expect(result).toContain("- Date:");
-    expect(result).toContain("- Hardware:");
-    expect(result).toContain("- Hostname:");
-    expect(result).toContain("- TTY:");
+    expect(result).toMatch(
+      /Environment: Date: .+ \| OS: .+ \| Hardware: .+ \| Shell: .+ \| Home: .+ \| Hostname: .+ \| User: .+ \| TTY: .+/,
+    );
     // Live values, not raw placeholders.
     expect(result).not.toContain("{currentDate}");
     expect(result).not.toContain("{osInfo}");
@@ -63,8 +61,8 @@ describe("environment block injection", () => {
 
   test("summarizer never receives the environment block", () => {
     const result = build("summarizer", "You are {agentName}, {agentDescription} Summarize.");
-    expect(result).not.toContain("# Environment");
-    expect(result).not.toContain("- Hardware:");
+    expect(result).not.toContain("Environment:");
+    expect(result).not.toContain("Hardware:");
   });
 
   test("agent name and description are always substituted", () => {

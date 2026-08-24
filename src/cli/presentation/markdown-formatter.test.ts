@@ -82,6 +82,12 @@ describe("markdown-formatter", () => {
       const result = formatMarkdownHybrid("    ## Hybrid H2");
       expect(result).toBe(`## ${chalk.bold.hex(THEME.selected)("Hybrid H2")}`);
     });
+
+    it("treats 1) as an ordered list marker, same as 1.", () => {
+      expect(stripAnsiCodes(formatMarkdown("1) Cloves"))).toBe(
+        stripAnsiCodes(formatMarkdown("1. Cloves")).replace("1.", "1)"),
+      );
+    });
   });
 
   describe("underscore italics — intraword underscores are not emphasis", () => {

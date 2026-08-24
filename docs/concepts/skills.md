@@ -143,9 +143,9 @@ The **skill-creator** skill walks through purpose, location (global vs project),
 
 When you send a message:
 
-1. The system injects the list of available skills (name + description) and the short **Skills** instructions: if the request matches a skill, load it with `load_skill`, follow its workflow, and use `load_skill_section` when the skill references more detail.
+1. The system injects the list of available skills (name + description) and the short **Skills** instructions: if the request matches a skill, load it with `load_skill`, treat the loaded body as the playbook (every named step, file write, and tool — not a shorter improvised path), and use `load_skill_section` when the skill references more detail.
 2. The agent compares your request to those descriptions and decides whether to call `load_skill`.
-3. If it does, it gets the full SKILL.md and follows it (calling other tools, shell, MCP, etc. as the skill specifies).
+3. If it does, the full SKILL.md is returned in the conversation as a tool result. The agent is instructed to execute that playbook rather than ask whether to follow it or substitute a shorter path.
 4. When the workflow says “for X, see references/foo.md,” the agent can call `load_skill_section(skill_name, "references/foo.md")` and then continue.
 
 So the **full feature set** of skills is:

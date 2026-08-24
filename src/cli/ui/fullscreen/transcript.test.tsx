@@ -19,7 +19,13 @@ import type { ReactNode } from "react";
 import { getGlyphs } from "../glyphs";
 import { setThemeVariant, THEME } from "../theme";
 import { terminalCellWidth } from "./terminal-cells";
-import { inlineSegments, Transcript, transcriptRows, type RenderRow } from "./Transcript";
+import {
+  inlineSegments,
+  parseProse,
+  Transcript,
+  transcriptRows,
+  type RenderRow,
+} from "./Transcript";
 import { measureFor, PROSE_MEASURE, type Block, type Viewport } from "./types";
 
 beforeAll(() => {
@@ -701,6 +707,68 @@ describe("newBelow", () => {
     expect(loud.rows).toHaveLength(quiet.rows.length);
     expect(loud.rows.slice(0, WIDE.height - 1)).toEqual(quiet.rows.slice(0, WIDE.height - 1));
     expect(quiet.rows.join("\n")).not.toContain("new below");
+  });
+});
+
+describe("parenthesis ordered lists", () => {
+  function rowText(rows: readonly RenderRow[], blockId: string): string[] {
+    return rows
+      .filter((row) => row.key.startsWith(`${blockId}:`))
+      .map((row) => row.content.map((segment) => segment.text).join(""));
+  }
+
+  it("keeps 1) on its own line when the model omitted a blank line", () => {
+    const markdown = [
+      "Safer, low-risk options (what you can try with low downside)",
+      "1) Cloves (whole or powdered)",
+      "- What people use it for: antiparasitic",
+      "",
+      "2) Garlic (raw or aged extract)",
+    ].join("\n");
+
+    const items = parseProse(markdown);
+    const texts = items.flatMap((item) => {
+      if (item.kind === "text") return [item.segments.map((segment) => segment.text).join("")];
+      return [];
+    });
+    expect(texts.some((text) => text.includes("low downside") && text.includes("1)"))).toBe(false);
+    expect(texts.find((text) => text.includes("Cloves"))).toContain("1)");
+    expect(texts.find((text) => text.includes("Garlic"))).toContain("2)");
+
+    const rows = transcriptRows([{ id: "a", seq: 1, kind: "agent", markdown }], WIDE);
+    const heading = rowText(rows, "a").find((line) => line.includes("low downside"));
+    const cloves = rowText(rows, "a").find((line) => line.includes("Cloves"));
+    expect(heading).toBeDefined();
+    expect(cloves).toBeDefined();
+    expect(heading).not.toContain("1)");
+    expect(cloves).toContain("1)");
+  });
+
+  it("does not join consecutive parenthesis items that share no blank line", () => {
+    const markdown = [
+      "3) Monitor: stop and get medical testing.",
+      "4) If you prefer a stronger attempt, read the dosing first.",
+    ].join("\n");
+    const items = parseProse(markdown);
+    const texts = items.flatMap((item) => {
+      if (item.kind === "text") return [item.segments.map((segment) => segment.text).join("")];
+      return [];
+    });
+    expect(texts).toHaveLength(2);
+    expect(texts[0]).toContain("3)");
+    expect(texts[0]).not.toContain("4)");
+    expect(texts[1]).toContain("4)");
+  });
+
+  it("still turns 1. into a bullet", () => {
+    const items = parseProse("Heading\n1. Cloves");
+    const texts = items.flatMap((item) => {
+      if (item.kind === "text") return [item.segments.map((segment) => segment.text).join("")];
+      return [];
+    });
+    expect(texts).toHaveLength(2);
+    expect(texts[1]).toContain(getGlyphs().bullet);
+    expect(texts[1]).not.toContain("1.");
   });
 });
 

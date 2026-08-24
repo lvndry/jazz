@@ -403,7 +403,7 @@ function isHeadingLine(line: string): boolean {
 }
 
 function isListLine(line: string): boolean {
-  return /^\s*([-*+]\s|\d+\.\s)/.test(line);
+  return /^\s*([-*+]\s|\d+[.)]\s)/.test(line);
 }
 
 /**

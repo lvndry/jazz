@@ -52,6 +52,8 @@ describe("completion instructions injection", () => {
     expect(result).toContain("Do not stay stuck");
     expect(result).toContain("Do not dump a URL and stop");
     expect(result).toContain("Look up live docs");
+    expect(result).toContain("Do not invent a larger next job");
+    expect(result).not.toContain("brief offer of optional follow-up");
   });
 
   test("summarizer never receives the completion contract", () => {
@@ -70,6 +72,7 @@ describe("tool guidance injection", () => {
   test("tool selection guidance appears when tools are present", () => {
     const result = build("default", { toolNames: ["http_request"] });
     expect(result).toContain("# Tool usage");
+    expect(result).toContain("execute its playbook");
   });
 
   test("question guidance is gated on ask_user_question", () => {
@@ -81,6 +84,24 @@ describe("tool guidance injection", () => {
     expect(withTool).toContain("Permission to do work the user already requested");
     expect(withTool).toContain("A required CLI or account is not set up");
     expect(withTool).toContain("When TTY is no — there is no one to respond");
+  });
+});
+
+describe("skills playbook instructions", () => {
+  test("loaded skills are the playbook, not a suggestion", () => {
+    const result = build("default", {
+      knownSkills: [
+        {
+          name: "pr-description",
+          description: "Draft a PR body from the branch diff.",
+          path: "/skills/pr-description",
+        },
+      ],
+    });
+    expect(result).toContain("A loaded skill is the playbook");
+    expect(result).toContain("Do not ask whether to follow it");
+    expect(result).toContain("do not substitute a shorter path");
+    expect(result).not.toContain("Follow the loaded skill's step-by-step workflow");
   });
 });
 

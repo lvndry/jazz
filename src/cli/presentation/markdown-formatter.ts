@@ -1021,8 +1021,7 @@ export function formatLists(text: string): string {
       return `${indentStr}${codeColor(bullet)} ${content}`;
     }
 
-    // Ordered lists (1., 2., etc.)
-    const orderedMatch = line.match(/^(\s*)(\d+\.)\s+(.+)$/);
+    const orderedMatch = line.match(/^(\s*)(\d+[.)])\s+(.+)$/);
     if (
       orderedMatch &&
       orderedMatch[1] !== undefined &&

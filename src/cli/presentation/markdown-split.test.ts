@@ -45,6 +45,11 @@ const cases: Case[] = [
     expected: (s) => s.indexOf("\n\n") + 2,
   },
   {
+    name: "open parenthesis-ordered list clamps split before the list",
+    input: "para.\n\n1) a\n2) b in flight " + "x".repeat(SOFT_TAIL),
+    expected: (s) => s.indexOf("\n\n") + 2,
+  },
+  {
     name: "20KB blob with no structure falls back to last newline before MAX_PENDING_TAIL",
     input: "a".repeat(MAX_PENDING_TAIL - 1) + "\n" + "b".repeat(5000),
     // Newline sits at index MAX_PENDING_TAIL - 1; function returns idx + 1.

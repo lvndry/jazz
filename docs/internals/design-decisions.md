@@ -282,9 +282,12 @@ server surfaces mid-run instead of at startup.
 instructions), `load_skill_section` (a referenced file).
 
 **Alternatives rejected.** Preloading every skill's instructions into the system prompt. A
-hundred skills would consume the window before the user says anything.
+hundred skills would consume the window before the user says anything. Re-injecting a loaded
+skill into the system prompt on later turns — that would bust the cached system prefix, so
+the playbook stays in the conversation as the `load_skill` tool result.
 
-**Cost accepted.** Two extra round trips before the agent starts working with a skill.
+**Cost accepted.** Two extra round trips before the agent starts working with a skill. Later
+turns must follow a playbook that lives in transcript history, not in the system prompt.
 
 📄 [`skill-tools.ts`](../../src/core/agent/tools/skill-tools.ts) · [Skills loading](./skills-loading.md)
 
