@@ -6,6 +6,7 @@ Get Jazz installed, configured, and doing real work.
 - [Creating Agents](./creating-agents.md): Build custom agents tailored to your needs.
 - [Airgapped & Self-Hosted](./airgapped.md): Run Jazz fully offline with Ollama or llama.cpp.
 - [Observability](./observability.md): Send run telemetry to your own OpenTelemetry collector or Langfuse.
+- [Setting up peers](./peers-setup.md): Let your agent ask a friend's, and theirs ask yours.
 
 Looking for finished things to copy? The [Cookbook](../cookbook/index.md) has
 scheduled workflows ready to install, and [Examples](../examples/index.md)
