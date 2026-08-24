@@ -290,12 +290,21 @@ cd integrations/telegram-bot && docker compose -p jazz-telegram up -d --build
 ```
 
 **Nightly auto-update:** `auto-update.sh` fast-forwards to the latest `origin/main`,
-rebuilds only if it changed, and rolls back if the new build isn't healthy.
-Install it (as the deploy user):
+rebuilds only if it changed, and rolls back if the new build fails to build or
+isn't healthy. Install it (as the deploy user):
 
 ```sh
 (crontab -l 2>/dev/null; echo "30 4 * * * $HOME/jazz/integrations/telegram-bot/auto-update.sh >> $HOME/jazz-autoupdate.log 2>&1") | crontab -
 ```
+
+Anything needing a human is also sent to the bridge's own chat via `notify.sh`,
+because a nightly cron failure that only appends to a logfile is invisible: a
+checkout left on a feature branch silently skipped every update for over two
+weeks before anyone noticed. If the checkout isn't on `main`, the script parks it
+back there — stashing tracked edits (untracked files such as a local
+`docker-compose.override.yml` are left alone) and reporting both the stash and any
+commits left behind on the old branch by name, so nothing goes quietly missing.
+Set `JAZZ_DEPLOY_BRANCH` to track something other than `main`.
 
 It tracks `main` (bleeding edge); the health-gated rollback guards against a bad
 commit. Check `~/jazz-autoupdate.log` for the run history.
