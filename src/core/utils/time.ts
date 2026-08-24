@@ -117,7 +117,7 @@ const DURATION_UNIT_MS: Record<string, number> = {
 export function parseWhen(spec: string, now: number, tz: string): number | null {
   const trimmed = spec.trim().toLowerCase();
 
-  const absolute = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[t ]|,\s*)+(\d{1,2}):(\d{2})$/.exec(trimmed);
+  const absolute = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[t ]+|,\s*)(\d{1,2}):(\d{2})$/.exec(trimmed);
   if (absolute) {
     const year = Number(absolute[1]);
     const month = Number(absolute[2]);
