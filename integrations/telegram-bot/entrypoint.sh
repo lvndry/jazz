@@ -20,17 +20,17 @@ mkdir -p "${XDG_CONFIG_HOME:-/data/xdg-config}" "${XDG_DATA_HOME:-/data/xdg-data
 mkdir -p "${GNUPGHOME:-/data/gnupg}"
 chmod 700 "${GNUPGHOME:-/data/gnupg}"
 
-# Write config.json. Streaming is required so `jazz run --events` emits
-# live-progress events (non-TTY runs otherwise fall back to batch mode and emit
-# nothing). When BRAVE_API_KEY is set, also configure Brave as the web_search
+# Write config.json. When BRAVE_API_KEY is set, configure Brave as the web_search
 # provider — the key comes from the environment so it's never baked into the image.
+# Nothing here needs to force streaming: the bridge asks for reasoning and text
+# events, and jazz selects the streaming path for those on its own.
 if [ -n "${BRAVE_API_KEY:-}" ]; then
   cat > "${JAZZ_HOME}/config.json" <<JSON
-{"output":{"streaming":{"enabled":true}},"web_search":{"provider":"brave","brave":{"api_key":"${BRAVE_API_KEY}"}}}
+{"web_search":{"provider":"brave","brave":{"api_key":"${BRAVE_API_KEY}"}}}
 JSON
   echo "Configured Brave web search"
 else
-  printf '{"output":{"streaming":{"enabled":true}}}\n' > "${JAZZ_HOME}/config.json"
+  printf '{}\n' > "${JAZZ_HOME}/config.json"
 fi
 
 # Seed / refresh the template agent that per-chat agents are cloned from.
