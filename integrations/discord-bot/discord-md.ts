@@ -38,3 +38,13 @@ export function threadNameFromPrompt(prompt: string): string {
   if (cleaned.length === 0) return "Jazz";
   return `Jazz · ${cleaned}`.slice(0, 100);
 }
+
+/**
+ * Wrap plain text in a spoiler — Discord's only click-to-reveal container, and
+ * the closest analogue to Telegram's expandable quote. A literal `||` in the
+ * text would close the spoiler early, so pipe pairs are separated by a
+ * zero-width space; the text still reads the same.
+ */
+export function spoilerBlock(text: string): string {
+  return `||${text.replace(/\|\|/g, "|​|")}||`;
+}

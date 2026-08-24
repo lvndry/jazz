@@ -36,18 +36,36 @@ import { buildMediaPrompt, downloadTelegramFile, type TelegramFileRef } from "./
 import { withReplyContext } from "./quotes";
 import { startReminderSweep } from "./reminders";
 import { conversationKey, isIncognito, setIncognito, startNewConversation } from "./sessions";
-import { escapeHtml, markdownToTelegramHtml, splitForTelegram } from "./telegram-html";
+import {
+  escapeHtml,
+  expandableBlockquote,
+  markdownToTelegramHtml,
+  splitForTelegram,
+} from "./telegram-html";
 import { formatWhen, hasChatTz, isValidTimeZone, setTzForChat, tzForChat } from "./timezone";
 import { dailyCostCapBlockReason, recordUsage, todayUsage } from "./usage";
+import { reasoningSnippet, splitReasoning } from "../shared/reasoning";
+import { createRunLog, type RunLog } from "../shared/run-log";
 
 const TELEGRAM_API_BASE = "https://api.telegram.org";
 const GETUPDATES_TIMEOUT_SECONDS = 30;
 const POLL_ERROR_BACKOFF_MS = 5_000;
 const ALLOWED_UPDATES = ["message", "callback_query"];
 // Telegram rate-limits message edits; don't refresh the progress bubble faster.
+// The text the progress bubble is created with. The reporter starts from it so
+// its first render is not sent as an edit to identical content, which Telegram
+// rejects with a 400 on essentially every run.
+const PROGRESS_INITIAL_TEXT = "🤔 <b>Working…</b>";
 const PROGRESS_MIN_INTERVAL_MS = 2_000;
 const PROGRESS_MAX_TOOLS_SHOWN = 8;
-const PROGRESS_REASONING_CHARS = 180;
+// The reasoning log is HTML-escaped into an expandable quote before it is
+// sent. Reasoning is model prose, so escaping adds a few percent at most, but
+// budget under the 3500 the answer splitter uses to keep the escaped message
+// clear of Telegram's 4096 hard limit without needing to split mid-tag.
+const REASONING_PART_CHARS = 2_800;
+// A long agentic run would otherwise post a wall of collapsed quotes; past
+// this the tail is dropped and the final part says how much.
+const REASONING_MAX_PARTS = 4;
 
 const BRIDGE_STARTED_AT = Date.now();
 // In-flight runs keyed by a per-run token, so the ⏹ Cancel button can kill the
@@ -95,6 +113,12 @@ interface BridgeConfig {
   readonly geocodeUrl: string;
   /** Generate contextual follow-up CTAs per answer (a second short LLM call). */
   readonly dynamicCta: boolean;
+  /**
+   * Attach the run's full reasoning under the answer as collapsed,
+   * tap-to-expand quotes. The live progress line only ever shows a rolling
+   * tail, and that bubble is overwritten when the answer lands.
+   */
+  readonly showReasoning: boolean;
   /**
    * Public HTTPS origin this bridge's own HTTP server is reachable at, used to
    * build Web App button URLs for `create_web_app`'s "interactive" mode (e.g.
@@ -195,6 +219,9 @@ function loadConfig(): BridgeConfig {
     geocodeUrl: process.env["NOMINATIM_BASE_URL"]?.trim() ?? "https://nominatim.openstreetmap.org",
     dynamicCta: !["0", "false", "off"].includes(
       process.env["JAZZ_TELEGRAM_DYNAMIC_CTA"]?.trim().toLowerCase() ?? "",
+    ),
+    showReasoning: !["0", "false", "off"].includes(
+      process.env["JAZZ_TELEGRAM_SHOW_REASONING"]?.trim().toLowerCase() ?? "",
     ),
     webAppBaseUrl,
   };
@@ -578,32 +605,20 @@ function formatUsageLines(usage: JazzSuccessEnvelope["tokenUsage"]): string | un
   ].join("\n");
 }
 
-/**
- * Show the latest slice of a streaming thought. Short thoughts render whole;
- * longer ones show the tail from a word boundary with a leading ellipsis, so
- * the line reads as a continuation rather than a chopped-off first word.
- */
-function reasoningSnippet(reasoning: string): string {
-  const normalized = reasoning.replace(/\s+/g, " ").trim();
-  if (normalized.length <= PROGRESS_REASONING_CHARS) return normalized;
-  let tail = normalized.slice(-PROGRESS_REASONING_CHARS).trimStart();
-  const firstSpace = tail.indexOf(" ");
-  if (firstSpace > 0 && firstSpace < 40) tail = tail.slice(firstSpace + 1);
-  return `… ${tail}`;
-}
-
 function createProgressReporter(
   config: BridgeConfig,
   chatId: number,
   messageId: number,
   runToken: string,
+  runLog: RunLog,
 ) {
   const tools: string[] = [];
   const subagents: string[] = [];
   const declined: string[] = [];
   let reasoning = "";
   let writing = false;
-  let lastText = "";
+  let rounds = 0;
+  let lastText = PROGRESS_INITIAL_TEXT;
   let lastEditAt = 0;
   let editing = false;
 
@@ -620,6 +635,9 @@ function createProgressReporter(
     for (const tool of declined) {
       lines.push(`⛔ <code>${escapeHtml(tool)}</code> declined (needs approval)`);
     }
+    // A run that goes round and round looks identical to a slow one from the
+    // outside; the count is what makes a loop visible without reading logs.
+    if (rounds > 1) lines.push(`↻ round ${rounds}`);
     if (writing) lines.push("✍️ writing the answer…");
     return lines.join("\n");
   };
@@ -645,7 +663,12 @@ function createProgressReporter(
 
   return {
     onEvent(event: JazzEvent): void {
+      runLog.event(event as unknown as Record<string, unknown>);
       switch (event.type) {
+        case "tools_detected":
+          // One per model response that asked for tools, so one per loop round.
+          rounds += 1;
+          break;
         case "thinking_chunk":
           // Accumulate raw so a lone-space chunk isn't trimmed away (which would
           // glue the surrounding words); normalization happens at render time.
@@ -674,7 +697,46 @@ function createProgressReporter(
     // Final edit drops the Cancel button (empty keyboard).
     finish: (summary: string): Promise<void> => edit(summary, { inline_keyboard: [] }),
     toolsUsed: (): string[] => [...new Set(tools)],
+    rounds: (): number => rounds,
+    // The progress bubble only ever showed a rolling tail; this is everything
+    // the model thought, for the expandable log attached to the answer.
+    reasoningLog: (): string => reasoning,
   };
+}
+
+/**
+ * Attach a run's full reasoning under the answer as collapsed, tap-to-expand
+ * quotes. Sent as its own messages rather than appended to the answer so the
+ * answer keeps its follow-up buttons and its own splitting, and sent through
+ * callTelegram rather than sendReply so the answer splitter can never cut one
+ * of these in the middle of a blockquote tag.
+ */
+async function sendReasoningLog(
+  config: BridgeConfig,
+  chatId: number,
+  reasoning: string,
+): Promise<void> {
+  const parts = splitReasoning(reasoning, {
+    budget: REASONING_PART_CHARS,
+    maxParts: REASONING_MAX_PARTS,
+  });
+  for (const [index, part] of parts.entries()) {
+    const counter = parts.length > 1 ? ` (${index + 1}/${parts.length})` : "";
+    const rendered = await callTelegram(config, "sendMessage", {
+      chat_id: chatId,
+      text: `💭 <b>Reasoning</b>${counter}\n${expandableBlockquote(part)}`,
+      parse_mode: "HTML",
+      link_preview_options: { is_disabled: true },
+    });
+    if (!isOkResponse(rendered)) {
+      // Older Bot API versions reject `expandable`; the thinking still matters
+      // more than the affordance, so fall back to plain text.
+      await callTelegram(config, "sendMessage", {
+        chat_id: chatId,
+        text: `💭 Reasoning${counter}\n${part}`,
+      });
+    }
+  }
 }
 
 // --- Human approval --------------------------------------------------------
@@ -879,14 +941,18 @@ async function handleMessage(config: BridgeConfig, chatId: number, text: string)
   // sent as a *new* message so it pushes a notification (edits don't).
   const sent = (await callTelegram(config, "sendMessage", {
     chat_id: chatId,
-    text: "🤔 <b>Working…</b>",
+    text: PROGRESS_INITIAL_TEXT,
     parse_mode: "HTML",
     reply_markup: cancelKeyboard(runToken),
   })) as { result?: { message_id?: number } } | undefined;
   const messageId = sent?.result?.message_id;
+  // Opened before the run so a crash or timeout still leaves a record: the
+  // conversation transcript is only written once a run completes.
+  const runLog = createRunLog(config.jazzHome, conversationKey(config.jazzHome, chatId));
+  let runLogged = false;
   const reporter =
     typeof messageId === "number"
-      ? createProgressReporter(config, chatId, messageId, runToken)
+      ? createProgressReporter(config, chatId, messageId, runToken, runLog)
       : undefined;
 
   try {
@@ -898,6 +964,14 @@ async function handleMessage(config: BridgeConfig, chatId: number, text: string)
       runToken,
     );
     const cancelled = activeRuns.get(runToken)?.cancelled ?? false;
+    runLog.finish({
+      ok: envelope.ok,
+      cancelled,
+      rounds: reporter?.rounds() ?? 0,
+      toolsUsed: reporter?.toolsUsed() ?? [],
+      ...(envelope.ok ? {} : { error: envelope.error }),
+    });
+    runLogged = true;
 
     if (cancelled) {
       await reporter?.finish("⏹ <b>Cancelled</b>");
@@ -940,6 +1014,9 @@ async function handleMessage(config: BridgeConfig, chatId: number, text: string)
       if (config.dynamicCta && answerMessageId !== undefined) {
         void upgradeToDynamicCtas(config, chatId, answerMessageId, text, envelope.answer);
       }
+      if (config.showReasoning) {
+        await sendReasoningLog(config, chatId, reporter?.reasoningLog() ?? "");
+      }
       if (envelope.webApp) {
         await deliverWebApp(config, chatId, envelope.webApp);
       }
@@ -948,6 +1025,16 @@ async function handleMessage(config: BridgeConfig, chatId: number, text: string)
       await sendReply(config, chatId, `⚠️ ${escapeHtml(envelope.error)}`);
     }
   } finally {
+    // A throw anywhere above would otherwise leave the log with no outcome line,
+    // which is exactly the run someone will come looking for.
+    if (!runLogged) {
+      runLog.finish({
+        ok: false,
+        error: "handler threw before the run reported an outcome",
+        rounds: reporter?.rounds() ?? 0,
+        toolsUsed: reporter?.toolsUsed() ?? [],
+      });
+    }
     // Always release the run slot, even if runJazz or a reply throws.
     activeRuns.delete(runToken);
     // Sweep any approvals left pending for this run (e.g. the run finished or

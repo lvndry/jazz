@@ -71,15 +71,31 @@ import {
   triggerTyping,
   type SlashCommand,
 } from "./discord";
-import { neutralizeBroadcastMentions, splitForDiscord, threadNameFromPrompt } from "./discord-md";
+import {
+  neutralizeBroadcastMentions,
+  spoilerBlock,
+  splitForDiscord,
+  threadNameFromPrompt,
+} from "./discord-md";
 import { startReminderSweep } from "./reminders";
 import { conversationKey, isIncognito, setIncognito, startNewConversation } from "./sessions";
 import { formatWhen, hasChatTz, isValidTimeZone, setTzForChat, tzForChat } from "./timezone";
 import { dailyCostCapBlockReason, recordUsage, todayUsage } from "./usage";
+import { reasoningSnippet, splitReasoning } from "../shared/reasoning";
+import { createRunLog, type RunLog } from "../shared/run-log";
 
+// The text the progress message is created with. The reporter starts from it so
+// its first render is not sent as an edit to identical content.
+const PROGRESS_INITIAL_TEXT = "🤔 **Working…**";
 const PROGRESS_MIN_INTERVAL_MS = 2_000;
 const PROGRESS_MAX_TOOLS_SHOWN = 8;
-const PROGRESS_REASONING_CHARS = 180;
+// The reasoning log goes out inside a spoiler, which costs four characters;
+// budget under the 1900 the answer splitter uses so a part plus its heading
+// stays clear of Discord's 2000 hard limit without splitting mid-spoiler.
+const REASONING_PART_CHARS = 1_700;
+// A long agentic run would otherwise post a wall of spoilers; past this the
+// tail is dropped and the final part says how much.
+const REASONING_MAX_PARTS = 4;
 const BRIDGE_STARTED_AT = Date.now();
 
 const activeRuns = new Map<
@@ -114,6 +130,12 @@ interface BridgeConfig extends AccessConfig {
   readonly port: number;
   readonly dailyCostCapUsd: number;
   readonly dynamicCta: boolean;
+  /**
+   * Attach the run's full reasoning under the answer as click-to-reveal
+   * spoilers. The live progress line only ever shows a rolling tail, and that
+   * message is overwritten when the answer lands.
+   */
+  readonly showReasoning: boolean;
   readonly publicBaseUrl: string | undefined;
 }
 
@@ -206,6 +228,7 @@ function loadConfig(): BridgeConfig {
     port: Number.parseInt(process.env["PORT"]?.trim() || "8080", 10),
     dailyCostCapUsd: Number.parseFloat(process.env["JAZZ_DAILY_COST_CAP_USD"]?.trim() || "0") || 0,
     dynamicCta: envFlag("JAZZ_DISCORD_DYNAMIC_CTA", true),
+    showReasoning: envFlag("JAZZ_DISCORD_SHOW_REASONING", true),
     publicBaseUrl: process.env["DISCORD_PUBLIC_BASE_URL"]?.trim() || undefined,
   };
 }
@@ -343,32 +366,25 @@ async function streamLines(
   }
 }
 
-function reasoningSnippet(reasoning: string): string {
-  const normalized = reasoning.replace(/\s+/g, " ").trim();
-  if (normalized.length <= PROGRESS_REASONING_CHARS) return normalized;
-  let tail = normalized.slice(-PROGRESS_REASONING_CHARS).trimStart();
-  const firstSpace = tail.indexOf(" ");
-  if (firstSpace > 0 && firstSpace < 40) tail = tail.slice(firstSpace + 1);
-  return `… ${tail}`;
-}
-
 function createProgressReporter(
   config: BridgeConfig,
   channelId: string,
   messageId: string,
   runToken: string,
+  runLog: RunLog,
 ) {
   const tools: string[] = [];
   const subagents: string[] = [];
   const declined: string[] = [];
   let reasoning = "";
   let writing = false;
-  let lastText = "";
+  let rounds = 0;
+  let lastText = PROGRESS_INITIAL_TEXT;
   let lastEditAt = 0;
   let editing = false;
 
   const render = (): string => {
-    const lines = ["🤔 **Working…**"];
+    const lines = [PROGRESS_INITIAL_TEXT];
     const thought = reasoningSnippet(reasoning);
     if (thought) lines.push(`💭 ${thought}`);
     for (const tool of tools.slice(-PROGRESS_MAX_TOOLS_SHOWN)) {
@@ -380,6 +396,9 @@ function createProgressReporter(
     for (const tool of declined) {
       lines.push(`⛔ \`${tool}\` declined (needs approval)`);
     }
+    // A run that goes round and round looks identical to a slow one from the
+    // outside; the count is what makes a loop visible without reading logs.
+    if (rounds > 1) lines.push(`↻ round ${rounds}`);
     if (writing) lines.push("✍️ writing the answer…");
     return neutralizeBroadcastMentions(lines.join("\n"));
   };
@@ -398,7 +417,12 @@ function createProgressReporter(
 
   return {
     onEvent(event: JazzEvent): void {
+      runLog.event(event as unknown as Record<string, unknown>);
       switch (event.type) {
+        case "tools_detected":
+          // One per model response that asked for tools, so one per loop round.
+          rounds += 1;
+          break;
         case "thinking_chunk":
           if (typeof event.content === "string") reasoning += event.content;
           break;
@@ -424,11 +448,35 @@ function createProgressReporter(
     },
     finish: (summary: string): Promise<void> => edit(summary, []),
     toolsUsed: (): string[] => [...new Set(tools)],
+    rounds: (): number => rounds,
+    // The progress bubble only ever showed a rolling tail; this is everything
+    // the model thought, for the spoiler log attached to the answer.
+    reasoningLog: (): string => reasoning,
   };
 }
 
 const APPROVAL_MESSAGE_MAX_CHARS = 500;
 const APPROVAL_PREVIEW_DIFF_MAX_CHARS = 500;
+
+/**
+ * Attach a run's full reasoning under the answer as click-to-reveal spoilers.
+ * Sent as its own messages rather than appended to the answer so the answer
+ * keeps its follow-up buttons and its own splitting untouched.
+ */
+async function sendReasoningLog(
+  config: BridgeConfig,
+  channelId: string,
+  reasoning: string,
+): Promise<void> {
+  const parts = splitReasoning(reasoning, {
+    budget: REASONING_PART_CHARS,
+    maxParts: REASONING_MAX_PARTS,
+  });
+  for (const [index, part] of parts.entries()) {
+    const counter = parts.length > 1 ? ` (${index + 1}/${parts.length})` : "";
+    await sendReply(config, channelId, `💭 **Reasoning**${counter}\n${spoilerBlock(part)}`);
+  }
+}
 
 async function sendApprovalRequest(
   config: BridgeConfig,
@@ -616,19 +664,23 @@ async function handleMessage(
   const runToken = newRunToken();
   let messageId = progressMessageId;
   if (messageId === undefined) {
-    const sent = await sendMessage(config.botToken, channelId, "🤔 **Working…**", {
+    const sent = await sendMessage(config.botToken, channelId, PROGRESS_INITIAL_TEXT, {
       components: cancelComponents(runToken),
     });
     messageId = sent?.id;
   } else {
-    await editMessage(config.botToken, channelId, messageId, "🤔 **Working…**", {
+    await editMessage(config.botToken, channelId, messageId, PROGRESS_INITIAL_TEXT, {
       components: cancelComponents(runToken),
     });
   }
 
+  // Opened before the run so a crash or timeout still leaves a record: the
+  // conversation transcript is only written once a run completes.
+  const runLog = createRunLog(config.jazzHome, conversationKey(config.jazzHome, channelId));
+  let runLogged = false;
   const reporter =
     messageId !== undefined
-      ? createProgressReporter(config, channelId, messageId, runToken)
+      ? createProgressReporter(config, channelId, messageId, runToken, runLog)
       : undefined;
 
   try {
@@ -640,6 +692,14 @@ async function handleMessage(
       runToken,
     );
     const cancelled = activeRuns.get(runToken)?.cancelled ?? false;
+    runLog.finish({
+      ok: envelope.ok,
+      cancelled,
+      rounds: reporter?.rounds() ?? 0,
+      toolsUsed: reporter?.toolsUsed() ?? [],
+      ...(envelope.ok ? {} : { error: envelope.error }),
+    });
+    runLogged = true;
 
     if (cancelled) {
       await reporter?.finish("⏹ **Cancelled**");
@@ -677,6 +737,9 @@ async function handleMessage(
       if (config.dynamicCta && answerMessageId !== undefined) {
         void upgradeToDynamicCtas(config, channelId, answerMessageId, text, envelope.answer);
       }
+      if (config.showReasoning) {
+        await sendReasoningLog(config, channelId, reporter?.reasoningLog() ?? "");
+      }
       if (envelope.webApp) {
         await deliverWebApp(config, channelId, envelope.webApp);
       }
@@ -685,6 +748,16 @@ async function handleMessage(
       await sendReply(config, channelId, `⚠️ ${envelope.error}`);
     }
   } finally {
+    // A throw anywhere above would otherwise leave the log with no outcome line,
+    // which is exactly the run someone will come looking for.
+    if (!runLogged) {
+      runLog.finish({
+        ok: false,
+        error: "handler threw before the run reported an outcome",
+        rounds: reporter?.rounds() ?? 0,
+        toolsUsed: reporter?.toolsUsed() ?? [],
+      });
+    }
     activeRuns.delete(runToken);
     for (const [token, pending] of pendingApprovals) {
       if (pending.runToken === runToken) pendingApprovals.delete(token);

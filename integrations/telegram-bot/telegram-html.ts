@@ -91,3 +91,13 @@ export function splitForTelegram(text: string): string[] {
   chunks.push(remaining);
   return chunks.map((chunk) => chunk.trim()).filter((chunk) => chunk.length > 0);
 }
+
+/**
+ * Wrap already-plain text in a collapsed, tap-to-expand quote (Bot API 7.4+).
+ * Telegram shows the first few lines and hides the rest behind an "expand"
+ * affordance, which is what makes it safe to attach a long reasoning log to a
+ * chat without it dominating the conversation.
+ */
+export function expandableBlockquote(text: string): string {
+  return `<blockquote expandable>${escapeHtml(text)}</blockquote>`;
+}
