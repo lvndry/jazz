@@ -40,6 +40,16 @@ describe("createCLIApp help path", () => {
     expect(specifiers).not.toContain("./commands/run/lifecycle");
   });
 
+  it("offers --stream on `workflow run`, as headless reasoning events depend on it", () => {
+    const program = createCLIApp();
+    const workflow = program.commands.find((command) => command.name() === "workflow");
+    const run = workflow?.commands.find((command) => command.name() === "run");
+    const flags = run?.options.map((option) => option.flags) ?? [];
+    expect(flags).toContain("--stream");
+    expect(flags).toContain("--no-stream");
+    expect(flags).toContain("--events <categories>");
+  });
+
   it("registers the public command families", () => {
     const program = createCLIApp();
     const names = program.commands.map((command) => command.name());

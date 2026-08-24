@@ -256,6 +256,41 @@ describe("runWorkflowCommand", () => {
     expect(process.exitCode).toBe(1);
   });
 
+  it("forwards --stream to the agent run so --events can emit reasoning off a TTY", async () => {
+    let runOptions: Record<string, unknown> | undefined;
+    AgentRunner.run = mock((options: Record<string, unknown>) => {
+      runOptions = options;
+      return Effect.succeed({ content: "ok" });
+    }) as unknown as typeof AgentRunner.run;
+
+    const program = runWorkflowCommand("code-review", {
+      autoApprove: true,
+      agent: "ci-reviewer",
+      stream: true,
+    });
+    const runnable = program.pipe(Effect.provide(testLayer)) as Effect.Effect<void, unknown, never>;
+
+    await Effect.runPromiseExit(runnable);
+
+    expect(runOptions?.["stream"]).toBe(true);
+  });
+
+  it("leaves stream unset when neither --stream nor --no-stream is given", async () => {
+    let runOptions: Record<string, unknown> | undefined;
+    AgentRunner.run = mock((options: Record<string, unknown>) => {
+      runOptions = options;
+      return Effect.succeed({ content: "ok" });
+    }) as unknown as typeof AgentRunner.run;
+
+    const program = runWorkflowCommand("code-review", { autoApprove: true, agent: "ci-reviewer" });
+    const runnable = program.pipe(Effect.provide(testLayer)) as Effect.Effect<void, unknown, never>;
+
+    await Effect.runPromiseExit(runnable);
+
+    expect(runOptions).toBeDefined();
+    expect("stream" in (runOptions ?? {})).toBe(false);
+  });
+
   it("leaves the exit code untouched when the agent run succeeds", async () => {
     AgentRunner.run = mock(() =>
       Effect.succeed({ content: "ok" }),

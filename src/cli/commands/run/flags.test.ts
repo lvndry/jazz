@@ -1,6 +1,12 @@
 import { describe, expect, it } from "bun:test";
 import type { StreamEvent } from "@/core/types/streaming";
-import { isApprovalPolicyFlag, isReasoningEffortFlag, parseEventCategories } from "./flags";
+import {
+  eventsRequireStreaming,
+  isApprovalPolicyFlag,
+  isReasoningEffortFlag,
+  parseEventCategories,
+  resolveStreamOption,
+} from "./flags";
 
 describe("isApprovalPolicyFlag", () => {
   it("accepts the three risk levels", () => {
@@ -109,5 +115,53 @@ describe("isReasoningEffortFlag", () => {
     expect(isReasoningEffortFlag("none")).toBe(false);
     expect(isReasoningEffortFlag("")).toBe(false);
     expect(isReasoningEffortFlag("HIGH")).toBe(false);
+  });
+});
+
+describe("eventsRequireStreaming", () => {
+  it("is true for categories the batch path cannot produce", () => {
+    for (const category of ["reasoning", "text", "all", "tools,reasoning"]) {
+      const result = parseEventCategories(category);
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(eventsRequireStreaming(result.types)).toBe(true);
+    }
+  });
+
+  it("is false for categories the batch path routes through the renderer", () => {
+    for (const category of ["tools", "approval", "subagent", "tools,subagent"]) {
+      const result = parseEventCategories(category);
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(eventsRequireStreaming(result.types)).toBe(false);
+    }
+  });
+});
+
+describe("resolveStreamOption", () => {
+  const reasoning = parseEventCategories("tools,reasoning,text");
+  const toolsOnly = parseEventCategories("tools");
+
+  it("turns streaming on when the requested events only exist there", () => {
+    expect(resolveStreamOption({}, reasoning)).toEqual({ stream: true });
+  });
+
+  it("leaves the TTY heuristic alone for events the batch path can produce", () => {
+    expect(resolveStreamOption({}, toolsOnly)).toEqual({});
+    expect(resolveStreamOption({}, undefined)).toEqual({});
+  });
+
+  it("lets an explicit --no-stream win over the events request", () => {
+    // Commander folds `--no-stream` into `stream: false`; both shapes must opt out.
+    expect(resolveStreamOption({ stream: false }, reasoning)).toEqual({ stream: false });
+    expect(resolveStreamOption({ noStream: true }, reasoning)).toEqual({ stream: false });
+  });
+
+  it("honours an explicit --stream with no events at all", () => {
+    expect(resolveStreamOption({ stream: true }, undefined)).toEqual({ stream: true });
+  });
+
+  it("ignores an unparseable --events value rather than forcing a mode on it", () => {
+    expect(resolveStreamOption({}, parseEventCategories("bogus"))).toEqual({});
   });
 });

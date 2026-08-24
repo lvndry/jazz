@@ -219,7 +219,7 @@ export class OneShotPresentationService implements PresentationService {
   }
 
   createStreamingRenderer(
-    _config: StreamingRendererConfig,
+    config: StreamingRendererConfig,
   ): Effect.Effect<StreamingRenderer, never> {
     if (this.emitEventTypes.size === 0) {
       const noopRenderer: StreamingRenderer = {
@@ -232,13 +232,19 @@ export class OneShotPresentationService implements PresentationService {
     }
 
     const emitEventTypes = this.emitEventTypes;
+    // A renderer is created per agent run, so the name it was built with is the one
+    // authoring these events. Stamping it on every line is what lets a consumer keep
+    // concurrent sub-agents apart: reasoning and text deltas carry no agent of their
+    // own, and several specialists streaming at once are otherwise unattributable.
+    const agentName = config.agentName;
     const emittingRenderer: StreamingRenderer = {
       handleEvent: (event: StreamEvent) =>
         Effect.sync(() => {
           if (emitEventTypes.has(event.type)) {
             // Don't truncate what a human is being asked to approve.
             const replacer = event.type === "approval_required" ? undefined : truncateLongStrings;
-            process.stderr.write(`${JSON.stringify(event, replacer)}\n`);
+            const attributed = "agentName" in event ? event : { ...event, agentName };
+            process.stderr.write(`${JSON.stringify(attributed, replacer)}\n`);
           }
         }),
       setInterruptHandler: (_handler: (() => void) | null) => Effect.void,

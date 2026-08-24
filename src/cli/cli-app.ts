@@ -4,6 +4,7 @@ import {
   isApprovalPolicyFlag,
   isReasoningEffortFlag,
   parseEventCategories,
+  resolveStreamOption,
 } from "./commands/run/flags";
 import { parsePositiveInt } from "./utils/option-parsers";
 import { setCurrentCommandName } from "../core/utils/current-command";
@@ -253,11 +254,7 @@ function registerRunCommand(program: Command): void {
                 ...(options.conversation !== undefined
                   ? { conversationId: options.conversation }
                   : {}),
-                ...(options.noStream === true
-                  ? { stream: false }
-                  : options.stream === true
-                    ? { stream: true }
-                    : {}),
+                ...resolveStreamOption(options, eventCategories),
                 ...(options.ephemeral === true ? { ephemeral: true } : {}),
                 ...(options.historyJson !== undefined ? { historyJson: options.historyJson } : {}),
                 ...(options.park === true ? { park: true } : {}),
@@ -901,6 +898,11 @@ function registerWorkflowCommands(program: Command): void {
       "--events <categories>",
       "With --json: emit selected event categories as NDJSON to stderr during the run (comma-separated: tools,reasoning,text,usage,approval,subagent,all). stdout stays the clean payload.",
     )
+    .option(
+      "--stream",
+      "Force streaming mode. Required for --events to emit reasoning and text in non-TTY contexts (CI, containers), where streaming is otherwise auto-disabled and only tool events survive.",
+    )
+    .option("--no-stream", "Disable streaming mode")
     .action(
       (
         name: string,
@@ -912,6 +914,8 @@ function registerWorkflowCommands(program: Command): void {
           json?: boolean;
           timeout?: number;
           events?: string;
+          stream?: boolean;
+          noStream?: boolean;
         },
         command: Command,
       ) => {
@@ -950,6 +954,7 @@ function registerWorkflowCommands(program: Command): void {
                 ...options,
                 ...(options.timeout !== undefined ? { timeoutMs: options.timeout } : {}),
                 ...(eventCategories?.ok ? { eventTypes: eventCategories.types } : {}),
+                ...resolveStreamOption(options, eventCategories),
               }),
             ),
           cliRuntimeOptions(program),

@@ -78,3 +78,44 @@ export function parseEventCategories(
 
   return { ok: true, types };
 }
+
+/**
+ * Do the selected event types only exist on the streaming path?
+ *
+ * Reasoning and text deltas are produced by the streaming stream-processor; the batch
+ * executor re-routes tool lifecycle events to the renderer but never produces these.
+ * Streaming auto-disables when stdout is not a TTY, which is exactly where `--events`
+ * consumers live (CI, containers, webhooks) — so a caller asking for these categories
+ * there would get a silent tool-only stream. Callers use this to turn streaming back on
+ * rather than leave the request unmet.
+ */
+export function eventsRequireStreaming(types: ReadonlySet<StreamEvent["type"]>): boolean {
+  return (
+    types.has("thinking_chunk") ||
+    types.has("thinking_start") ||
+    types.has("thinking_complete") ||
+    types.has("text_chunk") ||
+    types.has("text_start")
+  );
+}
+
+/**
+ * Resolve a run's streaming mode from the `--stream` / `--no-stream` pair, defaulting to
+ * streaming when the requested `--events` categories can only be produced there. An
+ * explicit `--no-stream` still wins: the caller is then choosing tool events only.
+ *
+ * Commander folds `--no-stream` into `stream: false` because a positive `--stream` is
+ * declared alongside it, so that is the shape actually seen at runtime; `noStream` is
+ * accepted too rather than trusting one library's negation rules to stay put.
+ */
+export function resolveStreamOption(
+  options: { stream?: boolean | undefined; noStream?: boolean | undefined },
+  eventCategories: ReturnType<typeof parseEventCategories> | undefined,
+): { stream?: boolean } {
+  if (options.noStream === true || options.stream === false) return { stream: false };
+  if (options.stream === true) return { stream: true };
+  if (eventCategories?.ok === true && eventsRequireStreaming(eventCategories.types)) {
+    return { stream: true };
+  }
+  return {};
+}
