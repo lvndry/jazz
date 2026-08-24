@@ -1413,33 +1413,6 @@ export function FullscreenBridge(): React.ReactNode {
         return true;
       }
 
-      // Ctrl+O expands the last truncated tool output, which is the other half
-      // of the promise the footer makes. While an approval is up, the same key
-      // expands long fields on the card instead — the overlay owns the keyboard.
-      if (isCtrlLetter({ name, ctrl }, "o")) {
-        if (approvalRef.current !== null) {
-          setApprovalExpanded((current) => !current);
-          setApprovalFieldOffset(0);
-          return true;
-        }
-        const payload = store.getExpandableDiff();
-        if (payload === null || payload === undefined) {
-          store.printOutput({
-            type: "warn",
-            message: "No truncated output available to expand.",
-            timestamp: new Date(),
-          });
-        } else {
-          store.printOutput({
-            type: "log",
-            message: payload.fullDiff,
-            timestamp: new Date(),
-            meta: { expandedOutput: true },
-          });
-        }
-        return true;
-      }
-
       // A menu is a modal question: it owns the keyboard until it is answered.
       const openMenu = menuRef.current;
       if (openMenu !== null) {
@@ -1510,6 +1483,27 @@ export function FullscreenBridge(): React.ReactNode {
           );
           active.resolve(alwaysCommand ? "always_command" : "always_tool");
           return true;
+        }
+        return true;
+      }
+
+      // Ctrl+O expands the last truncated tool output. Approval already claimed
+      // the key above when a long field is on the card.
+      if (isCtrlLetter({ name, ctrl }, "o")) {
+        const payload = store.getExpandableDiff();
+        if (payload === null || payload === undefined) {
+          store.printOutput({
+            type: "warn",
+            message: "No truncated output available to expand.",
+            timestamp: new Date(),
+          });
+        } else {
+          store.printOutput({
+            type: "log",
+            message: payload.fullDiff,
+            timestamp: new Date(),
+            meta: { expandedOutput: true },
+          });
         }
         return true;
       }
