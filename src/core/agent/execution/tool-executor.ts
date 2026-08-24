@@ -1,4 +1,4 @@
-import { Effect, Either, Fiber } from "effect";
+import { Effect, Either, Exit, Fiber, Option } from "effect";
 import { RunParkRequested } from "@/core/agent/run/park-signal";
 import { classifyCommandRisk, shouldClassifyExecuteCommand } from "@/core/agent/tools/command-risk";
 import { MAX_CONCURRENT_TOOLS, TOOL_TIMEOUT_MS } from "@/core/constants/agent";
@@ -720,6 +720,30 @@ export class ToolExecutor {
       );
 
       if (resultsOrInterrupt.type === "interrupt") {
+        // Settle the UI before waiting on fiber interrupt: execute_command used
+        // to wrap spawn in Effect.promise, which is uninterruptible, so this
+        // wait could block until the child exited — leaving the 30s "still
+        // running" timer armed across the next turn.
+        if (renderer && displayConfig.showToolExecution) {
+          for (let index = 0; index < toolFibers.length; index++) {
+            const fiber = toolFibers[index];
+            const toolCall = toolCalls[index];
+            if (fiber === undefined || toolCall === undefined || toolCall.type !== "function") {
+              continue;
+            }
+            const poll = yield* Fiber.poll(fiber);
+            if (Option.isNone(poll) || (Option.isSome(poll) && Exit.isInterrupted(poll.value))) {
+              yield* renderer.handleEvent({
+                type: "tool_execution_complete",
+                toolCallId: toolCall.id,
+                result: "Interrupted by user",
+                durationMs: 0,
+                success: false,
+                error: "Interrupted by user",
+              });
+            }
+          }
+        }
         yield* Effect.all(
           toolFibers.map((fiber) => Fiber.interrupt(fiber)),
           { concurrency: "unbounded" },

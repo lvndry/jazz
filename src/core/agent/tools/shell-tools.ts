@@ -1,4 +1,4 @@
-import { spawn } from "child_process";
+import { spawn, type ChildProcess } from "child_process";
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { z } from "zod";
@@ -421,6 +421,89 @@ type ShellCommandDeps = FileSystem.FileSystem | FileSystemContextService | Logge
  */
 export const EXECUTE_COMMAND_OUTPUT_CAP_BYTES = DEFAULT_SPAWN_OUTPUT_CAP_BYTES;
 
+type ShellCommandOutput = {
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly exitCode: number;
+};
+
+/**
+ * Spawn `sh -c command` in a way that Effect can interrupt. `Effect.promise`
+ * is uninterruptible, so a double-Esc during a long `sleep` (or any other
+ * hanging command) used to leave the child running and the UI stuck on
+ * "still running after 30s". Returning an interrupt finalizer from
+ * `Effect.async` SIGKILLs the child when the tool fiber is interrupted.
+ */
+function runShellCommand(input: {
+  readonly command: string;
+  readonly workingDir: string;
+  readonly timeoutMs: number;
+  readonly env: NodeJS.ProcessEnv;
+}): Effect.Effect<ShellCommandOutput, Error> {
+  return Effect.async((resume) => {
+    let settled = false;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    let child: ChildProcess | undefined;
+
+    const finish = (effect: Effect.Effect<ShellCommandOutput, Error>): void => {
+      if (settled) return;
+      settled = true;
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+      resume(effect);
+    };
+
+    try {
+      child = spawn("sh", ["-c", input.command], {
+        cwd: input.workingDir,
+        stdio: ["ignore", "pipe", "pipe"],
+        timeout: input.timeoutMs,
+        env: input.env,
+        detached: false,
+        uid: process.getuid ? process.getuid() : undefined,
+        gid: process.getgid ? process.getgid() : undefined,
+      });
+    } catch (spawnError) {
+      finish(Effect.fail(spawnError instanceof Error ? spawnError : new Error(String(spawnError))));
+      return;
+    }
+
+    const snapshot = bindCappedStdio(child.stdout, child.stderr, EXECUTE_COMMAND_OUTPUT_CAP_BYTES);
+
+    timeoutId = setTimeout(() => {
+      child?.kill("SIGKILL");
+      finish(Effect.fail(new Error(`Command timed out after ${input.timeoutMs}ms`)));
+    }, input.timeoutMs);
+
+    child.on("error", (error) => {
+      finish(Effect.fail(error));
+    });
+
+    child.on("close", (code) => {
+      const collected = snapshot();
+      finish(
+        Effect.succeed({
+          stdout: formatCappedStream(collected.stdout, "stdout", EXECUTE_COMMAND_OUTPUT_CAP_BYTES),
+          stderr: formatCappedStream(collected.stderr, "stderr", EXECUTE_COMMAND_OUTPUT_CAP_BYTES),
+          exitCode: code || 0,
+        }),
+      );
+    });
+
+    return Effect.sync(() => {
+      if (settled) return;
+      settled = true;
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+      child?.kill("SIGKILL");
+    });
+  });
+}
+
 /**
  * Create shell command tools (approval + execution pair).
  *
@@ -507,86 +590,12 @@ This command will be executed on your system. Only approve commands you trust.`;
           const envAllowlist = context.parentAgent?.config.envAllowlist ?? [];
           const sanitizedEnv = createSanitizedEnv({}, envAllowlist);
 
-          const result = yield* Effect.promise<{
-            stdout: string;
-            stderr: string;
-            exitCode: number;
-          }>(
-            () =>
-              new Promise((resolve, reject) => {
-                let resolved = false;
-
-                let child;
-                try {
-                  child = spawn("sh", ["-c", command], {
-                    cwd: workingDir,
-                    stdio: ["ignore", "pipe", "pipe"],
-                    timeout: timeout,
-                    env: sanitizedEnv,
-                    // Additional security options
-                    detached: false,
-                    uid: process.getuid ? process.getuid() : undefined,
-                    gid: process.getgid ? process.getgid() : undefined,
-                  });
-                } catch (spawnError) {
-                  reject(spawnError instanceof Error ? spawnError : new Error(String(spawnError)));
-                  return;
-                }
-
-                const snapshot = bindCappedStdio(
-                  child.stdout,
-                  child.stderr,
-                  EXECUTE_COMMAND_OUTPUT_CAP_BYTES,
-                );
-
-                // Handle timeout
-                let timeoutId: NodeJS.Timeout | null = null;
-
-                const cleanup = (): void => {
-                  if (timeoutId) {
-                    clearTimeout(timeoutId);
-                    timeoutId = null;
-                  }
-                };
-
-                timeoutId = setTimeout(() => {
-                  if (!resolved) {
-                    child.kill("SIGKILL");
-                    resolved = true;
-                    reject(new Error(`Command timed out after ${timeout}ms`));
-                  }
-                }, timeout);
-
-                child.on("error", (error) => {
-                  cleanup();
-                  if (!resolved) {
-                    resolved = true;
-                    reject(error);
-                  }
-                });
-
-                child.on("close", (code) => {
-                  cleanup();
-                  if (!resolved) {
-                    resolved = true;
-                    const collected = snapshot();
-                    resolve({
-                      stdout: formatCappedStream(
-                        collected.stdout,
-                        "stdout",
-                        EXECUTE_COMMAND_OUTPUT_CAP_BYTES,
-                      ),
-                      stderr: formatCappedStream(
-                        collected.stderr,
-                        "stderr",
-                        EXECUTE_COMMAND_OUTPUT_CAP_BYTES,
-                      ),
-                      exitCode: code || 0,
-                    });
-                  }
-                });
-              }),
-          ).pipe(
+          const result = yield* runShellCommand({
+            command,
+            workingDir,
+            timeoutMs: timeout,
+            env: sanitizedEnv,
+          }).pipe(
             Effect.catchAll((error: unknown) =>
               Effect.succeed({
                 stdout: "",

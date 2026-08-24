@@ -372,6 +372,14 @@ function generateSuggestions(error: JazzError): ErrorDisplay {
       };
     }
 
+    case "GenerationInterruptedError": {
+      return {
+        title: "Interrupted",
+        message: error.reason,
+        suggestion: "The run was stopped before it finished. Send another message to continue.",
+      };
+    }
+
     default: {
       // Surface actual error type and message for unhandled tagged errors (e.g. new error types)
       const tag = error._tag;

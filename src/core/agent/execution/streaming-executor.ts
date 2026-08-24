@@ -385,7 +385,10 @@ export function executeWithStreaming(
       strategy,
       observer,
       runRecursive,
-    ).pipe(Effect.ensuring(renderer.setInterruptHandler(null)));
+    ).pipe(
+      Effect.tapError(() => renderer.reset()),
+      Effect.ensuring(renderer.setInterruptHandler(null)),
+    );
 
     return response;
   });

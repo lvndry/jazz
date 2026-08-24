@@ -20,7 +20,12 @@ import {
   type ToolRequirements,
 } from "@/core/interfaces/tool-registry";
 import { getSkillIndexLine, SkillServiceTag, type SkillService } from "@/core/skills/skill-service";
-import { LLMAuthenticationError, LLMRateLimitError, LLMRequestError } from "@/core/types/errors";
+import {
+  GenerationInterruptedError,
+  LLMAuthenticationError,
+  LLMRateLimitError,
+  LLMRequestError,
+} from "@/core/types/errors";
 import type { Agent } from "@/core/types/index";
 import { type ChatMessage } from "@/core/types/message";
 import type { AutoApprovePolicy } from "@/core/types/tools";
@@ -537,6 +542,8 @@ export class ChatServiceImpl implements ChatService {
                       `   Run 'jazz config set llm.${error.provider}.api_key <key>' or 'jazz wizard' to fix.`,
                     );
                   }
+                } else if (error instanceof GenerationInterruptedError) {
+                  store.setActivity({ phase: "idle" });
                 } else {
                   yield* terminal.error(`Error: ${String(error)}`);
                 }

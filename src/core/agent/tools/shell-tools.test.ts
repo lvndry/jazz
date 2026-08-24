@@ -1,7 +1,9 @@
+import { existsSync, rmSync } from "fs";
+import { tmpdir } from "os";
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { describe, expect, it } from "bun:test";
-import { Effect, Layer } from "effect";
+import { Effect, Fiber, Layer } from "effect";
 import { spawnOutputTruncationNotice } from "./capped-output";
 import { createShellCommandTools, EXECUTE_COMMAND_OUTPUT_CAP_BYTES } from "./shell-tools";
 import { createToolRegistryLayer } from "./tool-registry";
@@ -393,4 +395,59 @@ describe("Shell Tools", () => {
     const payload = stderr.split("\n[truncated:")[0] ?? "";
     expect(Buffer.byteLength(payload, "utf8")).toBe(EXECUTE_COMMAND_OUTPUT_CAP_BYTES);
   });
+
+  it("kills a running command when the effect is interrupted", async () => {
+    const tool = shellTools.execute;
+    const pidFile = `${tmpdir()}/jazz-interrupt-pid-${process.pid}-${Date.now()}`;
+
+    const isAlive = (pid: number): boolean => {
+      try {
+        // Signal 0 checks for the process's existence without touching it.
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    const pollUntil = async (condition: () => boolean): Promise<boolean> => {
+      const deadline = Date.now() + 10_000;
+      while (!condition() && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      return condition();
+    };
+
+    const readChildPid = async (): Promise<number> => {
+      const file = Bun.file(pidFile);
+      await pollUntil(() => existsSync(pidFile));
+      const pid = Number.parseInt((await file.text()).trim(), 10);
+      expect(Number.isInteger(pid)).toBe(true);
+      return pid;
+    };
+
+    // `exec` replaces the shell, so the pid recorded by `$$` is the pid of
+    // the sleep itself — the process the interrupt has to kill.
+    const program = tool
+      .execute(
+        {
+          command: `echo $$ > ${pidFile}; exec sleep 30`,
+          description: "Sleep long enough that interrupt must kill the child.",
+        },
+        { agentId: "test-agent", conversationId: "test-conversation" },
+      )
+      .pipe(Effect.provide(createTestLayer()));
+
+    const fiber = Effect.runFork(program);
+    try {
+      const childPid = await readChildPid();
+      expect(await pollUntil(() => isAlive(childPid))).toBe(true);
+
+      await Effect.runPromise(Fiber.interrupt(fiber));
+
+      expect(await pollUntil(() => !isAlive(childPid))).toBe(true);
+    } finally {
+      rmSync(pidFile, { force: true });
+    }
+  }, 30_000);
 });

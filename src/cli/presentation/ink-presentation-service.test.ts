@@ -528,6 +528,46 @@ describe("InkStreamingRenderer", () => {
       expect(toolPhases[0]!.tools[0]!.toolName).toBe("execute_bash");
     });
 
+    test("flush after a running tool returns activity to idle", async () => {
+      const renderer = createRenderer();
+      emitStreamStart(renderer);
+      Effect.runSync(
+        renderer.handleEvent({
+          type: "tool_execution_start",
+          toolName: "execute_command",
+          toolCallId: "tc-1",
+        }),
+      );
+      Effect.runSync(renderer.flush());
+      await new Promise((r) => setTimeout(r, 0));
+
+      const last = setActivityCalls[setActivityCalls.length - 1];
+      expect(last!.phase).toBe("idle");
+    });
+
+    test("error after a running tool leaves activity in error, not tool-execution", async () => {
+      const renderer = createRenderer();
+      emitStreamStart(renderer);
+      Effect.runSync(
+        renderer.handleEvent({
+          type: "tool_execution_start",
+          toolName: "execute_command",
+          toolCallId: "tc-1",
+        }),
+      );
+      Effect.runSync(
+        renderer.handleEvent({
+          type: "error",
+          error: { code: "INTERRUPTED", message: "GenerationInterruptedError" },
+          recoverable: false,
+        } as never),
+      );
+      await new Promise((r) => setTimeout(r, 0));
+
+      const last = setActivityCalls[setActivityCalls.length - 1];
+      expect(last!.phase).toBe("error");
+    });
+
     test("tool_execution_complete transitions back to idle when last tool", async () => {
       const renderer = createRenderer();
       emitStreamStart(renderer);
