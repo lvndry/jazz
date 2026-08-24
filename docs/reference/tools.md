@@ -157,7 +157,7 @@ Opt-in per agent. Reminders persist on disk and fire later on the same surface t
 
 | Tool              | Risk        | Approval pair | What it does                                                                            |
 | ----------------- | ----------- | ------------- | --------------------------------------------------------------------------------------- |
-| `add_reminder`    | `low-risk`  | —             | Schedule a reminder from a duration (`30m`), clock time (`18:00`), or `tomorrow HH:MM`. |
+| `add_reminder`    | `low-risk`  | —             | Schedule a reminder from a duration (`30m`), clock time (`18:00`), `tomorrow HH:MM`, a weekday (`tue 20:00`), or an absolute `2026-08-25 20:00`. |
 | `list_reminders`  | `read-only` | —             | List this person's pending reminders, including their id, fire time, and text.          |
 | `cancel_reminder` | `low-risk`  | —             | Cancel a pending reminder by id (get the id from list_reminders first).                 |
 

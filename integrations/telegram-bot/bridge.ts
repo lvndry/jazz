@@ -1224,7 +1224,8 @@ async function handleRemind(config: BridgeConfig, chatId: number, args: string):
   const usage =
     "Usage: <code>/remind &lt;when&gt; &lt;text&gt;</code>\n" +
     "Examples: <code>/remind 30m take pizza out</code>, <code>/remind 1h30m stretch</code>, " +
-    "<code>/remind 18:00 standup</code>, <code>/remind tomorrow 09:00 gym</code>";
+    "<code>/remind 18:00 standup</code>, <code>/remind tomorrow 09:00 gym</code>, " +
+    "<code>/remind 2026-08-25 20:00 pack shoes</code>";
   const trimmed = args.trim();
   if (trimmed.length === 0) {
     await sendReply(config, chatId, usage);

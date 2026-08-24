@@ -11,7 +11,10 @@ type ReminderToolDeps = ReminderService | FileSystem.FileSystem;
 
 const WHEN_DESCRIPTION =
   'When to fire, e.g. a relative duration ("30m", "2h", "1h30m", "90s", "1d"), a 24h clock ' +
-  'time ("18:00" — next occurrence of that time), or "tomorrow HH:MM".';
+  'time ("18:00" — next occurrence of that time), "tomorrow HH:MM", a weekday and time ' +
+  '("tue 20:00" — next occurrence of that weekday), or an absolute date and time ' +
+  '("2026-08-25 20:00"). When the reminder is about something happening on a known date, ' +
+  "use the absolute or weekday form so it cannot land after the event.";
 
 function formatFireAt(reminder: ReminderRecord): string {
   return new Date(reminder.fireAt).toISOString();

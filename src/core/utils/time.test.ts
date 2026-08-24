@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parseWhen, wallClockToEpoch, zonedDateParts } from "./time";
+import { parseWhen, wallClockToEpoch, zonedDateParts, zonedWeekday } from "./time";
 
 describe("parseWhen", () => {
   test("parses a plain minute duration", () => {
@@ -91,5 +91,67 @@ describe("wallClockToEpoch", () => {
 
   test("accounts for a fixed timezone offset", () => {
     expect(wallClockToEpoch(2026, 6, 15, 9, 0, "Asia/Tokyo")).toBe(Date.UTC(2026, 5, 15, 0, 0, 0));
+  });
+});
+
+describe("parseWhen absolute and weekday forms", () => {
+  test("parses an absolute date and time", () => {
+    const now = Date.UTC(2026, 7, 24, 17, 48, 0);
+    expect(parseWhen("2026-08-25 20:00", now, "UTC")).toBe(Date.UTC(2026, 7, 25, 20, 0, 0));
+  });
+
+  test("accepts an ISO-style T separator", () => {
+    const now = Date.UTC(2026, 7, 24, 17, 48, 0);
+    expect(parseWhen("2026-08-25T20:00", now, "UTC")).toBe(Date.UTC(2026, 7, 25, 20, 0, 0));
+  });
+
+  test("interprets an absolute time in the caller timezone", () => {
+    const now = Date.UTC(2026, 7, 24, 17, 48, 0);
+    expect(parseWhen("2026-08-25 20:00", now, "Europe/Paris")).toBe(
+      Date.UTC(2026, 7, 25, 18, 0, 0),
+    );
+  });
+
+  test("returns a past absolute time rather than null", () => {
+    const now = Date.UTC(2026, 7, 24, 17, 48, 0);
+    expect(parseWhen("2026-08-01 09:00", now, "UTC")).toBe(Date.UTC(2026, 7, 1, 9, 0, 0));
+  });
+
+  test("rejects an out-of-range absolute date", () => {
+    const now = Date.UTC(2026, 7, 24, 17, 48, 0);
+    expect(parseWhen("2026-13-01 09:00", now, "UTC")).toBeNull();
+  });
+
+  test("parses the next occurrence of a weekday", () => {
+    const now = Date.UTC(2026, 7, 24, 17, 48, 0);
+    expect(parseWhen("tue 20:00", now, "UTC")).toBe(Date.UTC(2026, 7, 25, 20, 0, 0));
+    expect(parseWhen("tuesday 20:00", now, "UTC")).toBe(Date.UTC(2026, 7, 25, 20, 0, 0));
+  });
+
+  test("keeps today when that weekday time is still ahead", () => {
+    const now = Date.UTC(2026, 7, 24, 10, 0, 0);
+    expect(parseWhen("monday 20:00", now, "UTC")).toBe(Date.UTC(2026, 7, 24, 20, 0, 0));
+  });
+
+  test("rolls to next week when today's weekday time has passed", () => {
+    const now = Date.UTC(2026, 7, 24, 21, 0, 0);
+    expect(parseWhen("monday 20:00", now, "UTC")).toBe(Date.UTC(2026, 7, 31, 20, 0, 0));
+  });
+
+  test("accepts a next-prefixed weekday", () => {
+    const now = Date.UTC(2026, 7, 24, 17, 48, 0);
+    expect(parseWhen("next fri 09:30", now, "UTC")).toBe(Date.UTC(2026, 7, 28, 9, 30, 0));
+  });
+
+  test("rejects an unknown weekday word", () => {
+    const now = Date.UTC(2026, 7, 24, 17, 48, 0);
+    expect(parseWhen("someday 09:30", now, "UTC")).toBeNull();
+  });
+});
+
+describe("zonedWeekday", () => {
+  test("reports the weekday in the given timezone", () => {
+    expect(zonedWeekday(Date.UTC(2026, 7, 24, 12, 0, 0), "UTC")).toBe(1);
+    expect(zonedWeekday(Date.UTC(2026, 7, 25, 1, 0, 0), "America/Los_Angeles")).toBe(1);
   });
 });
