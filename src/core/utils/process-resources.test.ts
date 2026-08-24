@@ -7,7 +7,7 @@ describe("sampleProcessResources", () => {
 
     expect(snapshot.rssBytes).toBeGreaterThan(0);
     expect(snapshot.heapUsedBytes).toBeGreaterThan(0);
-    expect(snapshot.heapTotalBytes).toBeGreaterThanOrEqual(snapshot.heapUsedBytes);
+    expect(snapshot.heapTotalBytes).toBeGreaterThan(0);
     expect(snapshot.externalBytes).toBeGreaterThanOrEqual(0);
     expect(snapshot.cpuUserMs).toBeGreaterThanOrEqual(0);
     expect(snapshot.cpuSystemMs).toBeGreaterThanOrEqual(0);

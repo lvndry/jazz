@@ -4,6 +4,7 @@
  * These numbers are the harness process (Bun/Node): RSS, V8 heap, and CPU
  * time since process start. They are not the model server. A local LLM's GPU
  * and CPU live in Ollama, llama.cpp, or similar — Jazz is waiting on HTTP.
+ * `heapUsed` can exceed `heapTotal` on some runtimes; treat them as independent.
  */
 import type { ProcessResourceSnapshot } from "@/core/interfaces/telemetry";
 
