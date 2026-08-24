@@ -202,7 +202,7 @@ export interface CommandSuggestion {
   readonly name: string;
   readonly description: string;
   readonly usage?: string;
-  readonly source?: "skill";
+  readonly source?: "skill" | "mcp-prompt";
 }
 
 export interface InputModel {

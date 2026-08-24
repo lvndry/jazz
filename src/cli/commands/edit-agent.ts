@@ -850,12 +850,12 @@ async function promptForAgentUpdates(
     const mcpToolNames = currentToolNames.filter((name) => name.startsWith("mcp_"));
     if (mcpToolNames.length > 0) {
       // Extract server names from MCP tool names
-      const serverNamesResult = await Effect.runPromise(
-        extractServerNamesFromToolNames(mcpToolNames).pipe(
-          Effect.catchAll(() => Effect.succeed(new Set<string>())),
+      const serverNames = await Effect.runPromise(
+        extractServerNamesFromToolNames(
+          mcpToolNames,
+          mcpServerData.displayNameToServerName.values(),
         ),
       );
-      const serverNames = serverNamesResult;
 
       // Map server names to display names (reverse lookup)
       const serverNameToDisplayName = new Map<string, string>();

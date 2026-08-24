@@ -1,6 +1,11 @@
-import { createMCPClient } from "@ai-sdk/mcp";
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import {
+  PromptListChangedNotificationSchema,
+  ToolListChangedNotificationSchema,
+} from "@modelcontextprotocol/sdk/types.js";
 import { Effect, Layer } from "effect";
 import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
@@ -8,155 +13,235 @@ import type { LoggerService } from "@/core/interfaces/logger";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import type {
   MCPServerConfig,
-  MCPServerConnection,
   MCPServerManager,
   MCPTransport,
   MCPTransportType,
+  ToolsChangedHandler,
 } from "@/core/interfaces/mcp-server";
 import { isHttpConfig, isStdioConfig, MCPServerManagerTag } from "@/core/interfaces/mcp-server";
 import {
   MCPConnectionError,
   MCPDisconnectionError,
+  MCPPromptError,
   MCPToolDiscoveryError,
+  MCPToolExecutionError,
 } from "@/core/types/errors";
-import type { MCPClient, MCPTool } from "@/core/types/mcp";
-import { isMCPClient, normalizeMCPToolRegistry } from "@/core/types/mcp";
+import type {
+  MCPJSONSchema,
+  MCPPrompt,
+  MCPPromptResult,
+  MCPServerCapabilities,
+  MCPTool,
+  MCPToolResult,
+} from "@/core/types/mcp";
 import { createSanitizedEnv } from "@/core/utils/env";
 import { retryWithBackoff } from "@/core/utils/mcp";
+import { createStoredTokenProvider, InteractiveAuthRequiredError } from "./oauth";
+import packageJson from "../../../package.json";
+
+/**
+ * Ceiling on a single connect attempt.
+ *
+ * A stdio server that spawns but never answers `initialize` would otherwise
+ * hang the first tool call forever — the child process is alive, so nothing
+ * below this layer ever times out.
+ */
+const CONNECT_TIMEOUT_MS = 30_000;
+
+/** Ceiling on one `tools/call`. Servers reach networks; they can stall. */
+const CALL_TIMEOUT_MS = 120_000;
+
+/** Guard against a server paginating `tools/list` without end. */
+const MAX_LIST_PAGES = 50;
+
+interface Connection {
+  readonly serverName: string;
+  readonly client: Client;
+  readonly transport: MCPTransport;
+  readonly transportType: MCPTransportType;
+  readonly capabilities: MCPServerCapabilities | undefined;
+}
 
 /**
  * MCP Server Manager implementation
  *
- * Manages connections to MCP servers using stdio or HTTP (Streamable HTTP) transport.
- * Handles template variable resolution, process lifecycle, and tool discovery.
+ * Speaks to servers through the reference `Client` from
+ * `@modelcontextprotocol/sdk` rather than a wrapper, which is what makes tool
+ * annotations, prompts, and list-changed notifications reachable.
  */
 class MCPServerManagerImpl implements MCPServerManager {
-  private connections: Map<string, MCPServerConnection>;
+  private connections: Map<string, Connection>;
+  private toolsChangedHandlers: Set<ToolsChangedHandler>;
   private logger: LoggerService;
 
   constructor(logger: LoggerService) {
     this.connections = new Map();
+    this.toolsChangedHandlers = new Set();
     this.logger = logger;
   }
 
-  connectServer(
-    config: MCPServerConfig,
-  ): Effect.Effect<MCPClient, MCPConnectionError, LoggerService> {
-    // Capture this to avoid issues with Effect.gen not preserving context
+  private buildTransport(config: MCPServerConfig): {
+    transport: MCPTransport;
+    transportType: MCPTransportType;
+  } {
+    if (isHttpConfig(config)) {
+      const options: ConstructorParameters<typeof StreamableHTTPClientTransport>[1] = {};
+
+      if (config.headers) {
+        options.requestInit = { headers: config.headers };
+      } else {
+        // Static headers are the user saying "authenticate this way"; only fall
+        // back to OAuth when they have not.
+        options.authProvider = createStoredTokenProvider(config.name);
+      }
+
+      if (config.conversationId) {
+        options.sessionId = config.conversationId;
+      }
+
+      return {
+        transport: new StreamableHTTPClientTransport(new URL(config.url), options),
+        transportType: "http",
+      };
+    }
+
+    const sanitizedEnv = createSanitizedEnv(config.env || {});
+
+    return {
+      transport: new StdioClientTransport({
+        command: config.command,
+        args: [...(config.args ?? [])],
+        env: sanitizedEnv as Record<string, string>,
+      }),
+      transportType: "stdio",
+    };
+  }
+
+  /**
+   * Re-list a server's tools and fan the result out to subscribers.
+   *
+   * Runs detached from any fiber: notifications arrive on the transport's own
+   * callback, not inside an Effect the caller is awaiting.
+   */
+  private handleToolsListChanged(serverName: string): void {
+    if (this.toolsChangedHandlers.size === 0) return;
+
+    void Effect.runPromise(
+      this.getServerTools(serverName).pipe(
+        Effect.provideService(LoggerServiceTag, this.logger),
+        Effect.catchAll(() => Effect.succeed([] as readonly MCPTool[])),
+      ),
+    ).then((tools) => {
+      for (const handler of this.toolsChangedHandlers) {
+        try {
+          handler(serverName, tools);
+        } catch {
+          // One bad subscriber must not stop the others.
+        }
+      }
+    });
+  }
+
+  connectServer(config: MCPServerConfig): Effect.Effect<void, MCPConnectionError, LoggerService> {
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const manager = this;
     return Effect.gen(function* () {
-      // Check if already connected
-      const existing = manager.connections.get(config.name);
-      if (existing && existing.client) {
+      if (manager.connections.has(config.name)) {
         yield* manager.logger.debug(`MCP server ${config.name} already connected`);
-        return existing.client;
+        return;
       }
 
       yield* manager.logger.debug(`Connecting to MCP server: ${config.name}`);
 
-      // Create transport based on config type
-      let transport: MCPTransport;
-      let transportType: MCPTransportType;
+      const { transport, transportType } = manager.buildTransport(config);
 
-      if (isHttpConfig(config)) {
-        // HTTP (Streamable HTTP) transport
-        transportType = "http";
-        yield* manager.logger.debug(`Using HTTP transport for ${config.name}: ${config.url}`);
+      const client = new Client(
+        { name: "jazz", version: packageJson.version },
+        // Declaring `roots` would oblige us to answer `roots/list`; Jazz does
+        // not yet, so it stays out of the handshake.
+        { capabilities: {} },
+      );
 
-        const httpOptions: { requestInit?: RequestInit; conversationId?: string } = {};
+      client.setNotificationHandler(ToolListChangedNotificationSchema, () => {
+        manager.handleToolsListChanged(config.name);
+      });
+      client.setNotificationHandler(PromptListChangedNotificationSchema, () => {
+        // Prompts are re-listed on demand by the chat command, so the
+        // notification only needs to not be an unhandled-method error.
+      });
 
-        if (config.headers) {
-          httpOptions.requestInit = {
-            headers: config.headers,
-          };
-        }
-
-        if (config.conversationId) {
-          httpOptions.conversationId = config.conversationId;
-        }
-
-        transport = new StreamableHTTPClientTransport(new URL(config.url), httpOptions);
-      } else {
-        // Stdio transport (default)
-        transportType = "stdio";
-
-        // Create sanitized environment (explicit env vars are always passed through)
-        const sanitizedEnv = createSanitizedEnv(config.env || {});
-
-        yield* manager.logger.debug(`Using stdio transport for ${config.name}: ${config.command}`);
-
-        transport = new StdioClientTransport({
-          command: config.command,
-          args: [...(config.args ?? [])],
-          env: sanitizedEnv as Record<string, string>,
-        });
-      }
-
-      // Create MCP client with retry logic for transient failures
       const connectEffect = Effect.tryPromise({
-        try: () => createMCPClient({ transport: transport as import("@ai-sdk/mcp").MCPTransport }),
+        try: () => client.connect(transport as Transport),
         catch: (error) => (error instanceof Error ? error : new Error(String(error))),
       }).pipe(
-        Effect.flatMap((client) => {
-          if (!isMCPClient(client)) {
-            return Effect.fail(new Error(`Invalid MCP client returned from createMCPClient`));
-          }
-          return Effect.succeed(client);
+        Effect.timeoutFail({
+          duration: `${CONNECT_TIMEOUT_MS} millis`,
+          onTimeout: () =>
+            new Error(`Server did not complete the MCP handshake within ${CONNECT_TIMEOUT_MS}ms`),
         }),
       );
 
-      const client = yield* retryWithBackoff(connectEffect, {
+      yield* retryWithBackoff(connectEffect, {
         maxRetries: 3,
         initialDelayMs: 1000,
         maxDelayMs: 10_000,
         shouldRetry: (error: unknown) => {
-          // Retry on connection errors, but not on validation errors
+          // An unauthorized server will answer the same way every time, and a
+          // missing binary will never appear mid-retry. Only genuinely
+          // transient transport faults are worth the backoff.
+          if (error instanceof InteractiveAuthRequiredError) return false;
           const errorMessage = error instanceof Error ? error.message : String(error);
+          if (/\b(401|403|ENOENT|EACCES)\b/.test(errorMessage)) return false;
           return (
             errorMessage.includes("ECONNREFUSED") ||
+            errorMessage.includes("ECONNRESET") ||
             errorMessage.includes("ETIMEDOUT") ||
-            errorMessage.includes("timeout") ||
-            errorMessage.includes("connection")
+            errorMessage.includes("socket hang up")
           );
         },
       }).pipe(
         Effect.mapError((error: unknown) => {
           const errorMessage = error instanceof Error ? error.message : String(error);
-          const transportHint = isStdioConfig(config)
-            ? `Check that the command "${config.command}" is available and the server is configured correctly`
-            : `Check that the URL "${config.url}" is accessible and the server is running`;
+          const suggestion =
+            error instanceof InteractiveAuthRequiredError
+              ? `Run: jazz mcp auth ${config.name}`
+              : isStdioConfig(config)
+                ? `Check that the command "${config.command}" is available and the server is configured correctly`
+                : `Check that the URL "${config.url}" is accessible and the server is running`;
           return new MCPConnectionError({
             serverName: config.name,
             reason: `Failed to connect to MCP server: ${errorMessage}`,
             cause: error,
-            suggestion: transportHint,
+            suggestion,
           });
         }),
       );
 
-      // Store connection (process is managed by transport)
-      const connection: MCPServerConnection = {
+      const rawCapabilities = client.getServerCapabilities();
+      const capabilities: MCPServerCapabilities | undefined = rawCapabilities
+        ? {
+            ...(rawCapabilities.tools !== undefined ? { tools: rawCapabilities.tools } : {}),
+            ...(rawCapabilities.prompts !== undefined ? { prompts: rawCapabilities.prompts } : {}),
+            ...(rawCapabilities.resources !== undefined
+              ? { resources: rawCapabilities.resources }
+              : {}),
+          }
+        : undefined;
+
+      manager.connections.set(config.name, {
         serverName: config.name,
-        process: null, // Process is managed internally by transport
         client,
         transport,
         transportType,
-      };
-
-      manager.connections.set(config.name, connection);
+        capabilities,
+      });
 
       yield* manager.logger.info(
         `Connected to MCP server: ${config.name} (${transportType} transport)`,
       );
-
-      return client;
     }).pipe(
       Effect.mapError((error: unknown) => {
-        // Catch any remaining errors and convert to MCPConnectionError
-        if (error instanceof MCPConnectionError) {
-          return error;
-        }
+        if (error instanceof MCPConnectionError) return error;
         const errorMessage = error instanceof Error ? error.message : String(error);
         return new MCPConnectionError({
           serverName: config.name,
@@ -169,7 +254,6 @@ class MCPServerManagerImpl implements MCPServerManager {
   }
 
   disconnectServer(serverName: string): Effect.Effect<void, MCPDisconnectionError, LoggerService> {
-    // Capture this to avoid issues with Effect.gen not preserving context
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const manager = this;
     return Effect.gen(function* () {
@@ -179,52 +263,33 @@ class MCPServerManagerImpl implements MCPServerManager {
         return;
       }
 
-      try {
-        // Close the client if it has a close method
-        if (connection.client.close) {
-          yield* Effect.tryPromise({
-            try: () => connection.client.close!(),
-            catch: (error) => (error instanceof Error ? error : new Error(String(error))),
-          }).pipe(
-            Effect.catchAll((error: unknown) =>
-              Effect.gen(function* () {
-                const errorMessage = error instanceof Error ? error.message : String(error);
-                yield* manager.logger.warn(
-                  `Error closing MCP client for ${serverName}: ${errorMessage}`,
-                );
-                // Continue with cleanup even if close fails
-              }),
-            ),
-          );
-        }
+      // Dropped from the map first: a close that hangs must not leave a dead
+      // connection looking live to the next caller.
+      manager.connections.delete(serverName);
 
-        // Transport cleanup is handled by the SDK
-        manager.connections.delete(serverName);
-        yield* manager.logger.info(`Disconnected from MCP server: ${serverName}`);
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        manager.connections.delete(serverName); // Still remove from connections
-        return yield* Effect.fail(
-          new MCPDisconnectionError({
-            serverName,
-            reason: `Error disconnecting from MCP server: ${errorMessage}`,
-            suggestion:
-              "The connection has been removed from the manager, but cleanup may be incomplete",
-          }),
-        );
-      }
+      yield* Effect.tryPromise({
+        try: () => connection.client.close(),
+        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+      }).pipe(
+        Effect.catchAll((error: unknown) =>
+          manager.logger.warn(
+            `Error closing MCP client for ${serverName}: ${error instanceof Error ? error.message : String(error)}`,
+          ),
+        ),
+      );
+
+      yield* manager.logger.info(`Disconnected from MCP server: ${serverName}`);
     });
   }
 
   getServerTools(
     serverName: string,
   ): Effect.Effect<readonly MCPTool[], MCPToolDiscoveryError, LoggerService> {
-    // Capture this to avoid issues with Effect.gen not preserving context
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const manager = this;
     return Effect.gen(function* () {
       const connection = manager.connections.get(serverName);
-      if (!connection || !connection.client) {
+      if (!connection) {
         return yield* Effect.fail(
           new MCPToolDiscoveryError({
             serverName,
@@ -234,60 +299,258 @@ class MCPServerManagerImpl implements MCPServerManager {
         );
       }
 
-      // Get tools from MCP client with retry logic
-      const getToolsEffect = retryWithBackoff(
+      const tools = yield* retryWithBackoff(
         Effect.tryPromise({
-          try: () => connection.client.tools(),
+          try: async () => {
+            const collected: MCPTool[] = [];
+            let cursor: string | undefined;
+
+            for (let page = 0; page < MAX_LIST_PAGES; page += 1) {
+              const result = await connection.client.listTools(
+                cursor === undefined ? {} : { cursor },
+              );
+
+              for (const tool of result.tools) {
+                collected.push({
+                  name: tool.name,
+                  ...(tool.title !== undefined ? { title: tool.title } : {}),
+                  ...(tool.description !== undefined ? { description: tool.description } : {}),
+                  ...(tool.inputSchema !== undefined
+                    ? { inputSchema: tool.inputSchema as MCPJSONSchema }
+                    : {}),
+                  ...(tool.outputSchema !== undefined
+                    ? { outputSchema: tool.outputSchema as MCPJSONSchema }
+                    : {}),
+                  ...(tool.annotations !== undefined
+                    ? {
+                        annotations: {
+                          readOnlyHint: tool.annotations.readOnlyHint,
+                          destructiveHint: tool.annotations.destructiveHint,
+                          idempotentHint: tool.annotations.idempotentHint,
+                          openWorldHint: tool.annotations.openWorldHint,
+                        },
+                      }
+                    : {}),
+                });
+              }
+
+              cursor = result.nextCursor;
+              if (cursor === undefined) break;
+            }
+
+            return collected;
+          },
           catch: (error) => (error instanceof Error ? error : new Error(String(error))),
         }),
-        {
-          maxRetries: 2,
-          initialDelayMs: 500,
-          maxDelayMs: 5000,
-        },
-      );
-
-      const toolsRegistry = yield* getToolsEffect.pipe(
-        Effect.mapError((error: unknown) => {
-          const errorMessage = error instanceof Error ? error.message : String(error);
-          return new MCPToolDiscoveryError({
-            serverName,
-            reason: `Failed to get tools from MCP server: ${errorMessage}`,
-            cause: error,
-            suggestion: `Check that the MCP server is running and responding correctly`,
-          });
-        }),
-      );
-
-      // Log the raw registry before normalization
-      yield* manager.logger.debug(
-        `[getServerTools] Raw tools registry from ${serverName}: ${JSON.stringify(toolsRegistry, null, 2).substring(0, 500)}`,
-      );
-
-      // Normalize tool registry to array of MCPTool
-      const tools = normalizeMCPToolRegistry(toolsRegistry);
-
-      yield* manager.logger.debug(
-        `[getServerTools] Normalized ${tools.length} tools from registry for ${serverName}`,
+        { maxRetries: 2, initialDelayMs: 500, maxDelayMs: 5000 },
+      ).pipe(
+        Effect.mapError(
+          (error: unknown) =>
+            new MCPToolDiscoveryError({
+              serverName,
+              reason: `Failed to get tools from MCP server: ${error instanceof Error ? error.message : String(error)}`,
+              cause: error,
+              suggestion: `Check that the MCP server is running and responding correctly`,
+            }),
+        ),
       );
 
       if (tools.length === 0) {
         yield* manager.logger.warn(
           `No tools discovered from MCP server ${serverName} - the server may not have any tools available`,
         );
-        yield* manager.logger.debug(
-          `[getServerTools] Tools registry was empty or normalized to empty array for ${serverName}`,
-        );
       } else {
         yield* manager.logger.debug(
           `Discovered ${tools.length} tool(s) from MCP server ${serverName}: ${tools
-            .map((t) => t.name)
+            .map((tool) => tool.name)
             .slice(0, 5)
             .join(", ")}${tools.length > 5 ? "..." : ""}`,
         );
       }
 
       return tools;
+    });
+  }
+
+  callTool(
+    serverName: string,
+    toolName: string,
+    args: Record<string, unknown>,
+  ): Effect.Effect<MCPToolResult, MCPToolExecutionError, LoggerService> {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const manager = this;
+    return Effect.gen(function* () {
+      const connection = manager.connections.get(serverName);
+      if (!connection) {
+        return yield* Effect.fail(
+          new MCPToolExecutionError({
+            serverName,
+            toolName,
+            reason: `MCP server ${serverName} is not connected`,
+            suggestion: `The connection may have dropped; retry to reconnect`,
+          }),
+        );
+      }
+
+      const result = yield* Effect.tryPromise({
+        try: () => connection.client.callTool({ name: toolName, arguments: args }),
+        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+      }).pipe(
+        Effect.timeoutFail({
+          duration: `${CALL_TIMEOUT_MS} millis`,
+          onTimeout: () => new Error(`Tool call exceeded ${CALL_TIMEOUT_MS}ms`),
+        }),
+        Effect.mapError(
+          (error: unknown) =>
+            new MCPToolExecutionError({
+              serverName,
+              toolName,
+              reason: `MCP tool execution failed: ${error instanceof Error ? error.message : String(error)}`,
+              cause: error,
+              suggestion: `Check that the tool arguments are correct and the MCP server is functioning properly`,
+            }),
+        ),
+      );
+
+      return {
+        ...(result.content !== undefined ? { content: result.content } : {}),
+        ...(result.structuredContent !== undefined
+          ? { structuredContent: result.structuredContent }
+          : {}),
+        ...(result.isError !== undefined ? { isError: result.isError === true } : {}),
+      };
+    });
+  }
+
+  getServerPrompts(
+    serverName: string,
+  ): Effect.Effect<readonly MCPPrompt[], MCPPromptError, LoggerService> {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const manager = this;
+    return Effect.gen(function* () {
+      const connection = manager.connections.get(serverName);
+      if (!connection) {
+        return yield* Effect.fail(
+          new MCPPromptError({
+            serverName,
+            reason: `MCP server ${serverName} is not connected`,
+            suggestion: `Call connectServer() before listing prompts`,
+          }),
+        );
+      }
+
+      // Asking a server that never advertised prompts earns a "method not
+      // found" error; absence of the capability is a normal answer, not a
+      // failure.
+      if (connection.capabilities?.prompts === undefined) {
+        yield* manager.logger.debug(`MCP server ${serverName} does not advertise prompts`);
+        return [];
+      }
+
+      return yield* Effect.tryPromise({
+        try: async () => {
+          const collected: MCPPrompt[] = [];
+          let cursor: string | undefined;
+
+          for (let page = 0; page < MAX_LIST_PAGES; page += 1) {
+            const result = await connection.client.listPrompts(
+              cursor === undefined ? {} : { cursor },
+            );
+
+            for (const prompt of result.prompts) {
+              collected.push({
+                name: prompt.name,
+                ...(prompt.title !== undefined ? { title: prompt.title } : {}),
+                ...(prompt.description !== undefined ? { description: prompt.description } : {}),
+                ...(prompt.arguments !== undefined
+                  ? {
+                      arguments: prompt.arguments.map((argument) => ({
+                        name: argument.name,
+                        ...(argument.description !== undefined
+                          ? { description: argument.description }
+                          : {}),
+                        ...(argument.required !== undefined ? { required: argument.required } : {}),
+                      })),
+                    }
+                  : {}),
+              });
+            }
+
+            cursor = result.nextCursor;
+            if (cursor === undefined) break;
+          }
+
+          return collected;
+        },
+        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+      }).pipe(
+        Effect.mapError(
+          (error: unknown) =>
+            new MCPPromptError({
+              serverName,
+              reason: `Failed to list prompts: ${error instanceof Error ? error.message : String(error)}`,
+              cause: error,
+              suggestion: `Check that the MCP server is running and responding correctly`,
+            }),
+        ),
+      );
+    });
+  }
+
+  getPrompt(
+    serverName: string,
+    promptName: string,
+    args: Record<string, string>,
+  ): Effect.Effect<MCPPromptResult, MCPPromptError, LoggerService> {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const manager = this;
+    return Effect.gen(function* () {
+      const connection = manager.connections.get(serverName);
+      if (!connection) {
+        return yield* Effect.fail(
+          new MCPPromptError({
+            serverName,
+            reason: `MCP server ${serverName} is not connected`,
+            suggestion: `Call connectServer() before resolving a prompt`,
+          }),
+        );
+      }
+
+      const result = yield* Effect.tryPromise({
+        try: () => connection.client.getPrompt({ name: promptName, arguments: args }),
+        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+      }).pipe(
+        Effect.mapError(
+          (error: unknown) =>
+            new MCPPromptError({
+              serverName,
+              reason: `Failed to resolve prompt "${promptName}": ${error instanceof Error ? error.message : String(error)}`,
+              cause: error,
+              suggestion: `Check the prompt name and that all required arguments were supplied`,
+            }),
+        ),
+      );
+
+      return {
+        ...(result.description !== undefined ? { description: result.description } : {}),
+        messages: result.messages.map((message) => ({
+          role: message.role,
+          content: message.content,
+        })),
+      };
+    });
+  }
+
+  getCapabilities(serverName: string): Effect.Effect<MCPServerCapabilities | undefined, never> {
+    return Effect.sync(() => this.connections.get(serverName)?.capabilities);
+  }
+
+  onToolsChanged(handler: ToolsChangedHandler): Effect.Effect<() => void, never> {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const manager = this;
+    return Effect.sync(() => {
+      manager.toolsChangedHandlers.add(handler);
+      return () => manager.toolsChangedHandlers.delete(handler);
     });
   }
 
@@ -298,37 +561,27 @@ class MCPServerManagerImpl implements MCPServerManager {
     MCPConnectionError | MCPToolDiscoveryError | MCPDisconnectionError,
     LoggerService
   > {
-    // Capture this to avoid issues with Effect.gen not preserving context
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const manager = this;
     return Effect.gen(function* () {
-      // Connect to server
-      yield* manager.logger.debug(`[discoverTools] Connecting to ${config.name}...`);
+      // A server already in use stays connected: discovery is a read, and
+      // tearing down a live connection to satisfy it would break the caller.
+      const wasConnected = manager.connections.has(config.name);
+
       yield* manager.connectServer(config);
-      yield* manager.logger.debug(`[discoverTools] Connected to ${config.name}`);
-
-      // Get tools
-      yield* manager.logger.debug(`[discoverTools] Getting tools from ${config.name}...`);
       const tools = yield* manager.getServerTools(config.name);
-      yield* manager.logger.debug(`[discoverTools] Got ${tools.length} tools from ${config.name}`);
 
-      // Disconnect (cleanup)
-      yield* manager.disconnectServer(config.name).pipe(
-        Effect.catchAll((error: unknown) =>
-          Effect.gen(function* () {
-            // Log but don't fail - we already have the tools
-            const errorMessage =
-              error instanceof MCPDisconnectionError
-                ? error.reason
-                : error instanceof Error
-                  ? error.message
-                  : String(error);
-            yield* manager.logger.warn(
-              `Error disconnecting after tool discovery for ${config.name}: ${errorMessage}`,
-            );
-          }),
-        ),
-      );
+      if (!wasConnected) {
+        yield* manager
+          .disconnectServer(config.name)
+          .pipe(
+            Effect.catchAll((error) =>
+              manager.logger.warn(
+                `Error disconnecting after tool discovery for ${config.name}: ${error.reason}`,
+              ),
+            ),
+          );
+      }
 
       return tools;
     });
@@ -341,7 +594,6 @@ class MCPServerManagerImpl implements MCPServerManager {
         "mcpServers",
         {},
       );
-      // Add server name to each config
       return Object.entries(mcpServers).map(([name, config]) => ({
         ...config,
         name,
@@ -354,34 +606,27 @@ class MCPServerManagerImpl implements MCPServerManager {
   }
 
   disconnectAllServers(): Effect.Effect<void, MCPDisconnectionError, LoggerService> {
-    // Capture this to avoid issues with Effect.gen not preserving context
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const manager = this;
     return Effect.gen(function* () {
       const serverNames = Array.from(manager.connections.keys());
       yield* manager.logger.debug(`Disconnecting ${serverNames.length} MCP server(s)...`);
 
-      // Disconnect all servers in parallel
-      const disconnectEffects = serverNames.map((serverName) =>
-        manager.disconnectServer(serverName).pipe(
-          Effect.catchAll((error: unknown) =>
-            Effect.gen(function* () {
-              const errorMessage =
-                error instanceof MCPDisconnectionError
-                  ? error.reason
-                  : error instanceof Error
-                    ? error.message
-                    : String(error);
-              yield* manager.logger.warn(
-                `Failed to disconnect MCP server ${serverName}: ${errorMessage}`,
-              );
-              // Continue with other servers even if one fails
-            }),
-          ),
+      yield* Effect.all(
+        serverNames.map((serverName) =>
+          manager
+            .disconnectServer(serverName)
+            .pipe(
+              Effect.catchAll((error) =>
+                manager.logger.warn(
+                  `Failed to disconnect MCP server ${serverName}: ${error.reason}`,
+                ),
+              ),
+            ),
         ),
+        { concurrency: "unbounded" },
       );
 
-      yield* Effect.all(disconnectEffects, { concurrency: "unbounded" });
       yield* manager.logger.debug("All MCP servers disconnected");
     });
   }

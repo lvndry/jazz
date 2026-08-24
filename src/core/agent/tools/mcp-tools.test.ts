@@ -12,15 +12,22 @@ const context: ToolExecutionContext = {
   conversationId: "test-conversation",
 };
 
+/**
+ * An MCP tool from an untrusted server registers as an approval/execute pair.
+ * Both halves share the advertised schema and validator; only the execute half
+ * carries the handler that reaches the server, so argument handling has to be
+ * probed there.
+ */
 async function buildTool(inputSchema: unknown) {
   const tools = await Effect.runPromise(
     registerMCPServerTools(serverConfig, [
       { name: "search", description: "probe tool", inputSchema } as unknown as MCPTool,
     ]),
   );
-  const tool = tools[0];
-  if (!tool) throw new Error("no tool registered");
-  return tool;
+  const approval = tools[0];
+  const execute = tools[1];
+  if (!approval || !execute) throw new Error("no tool pair registered");
+  return { approval, execute };
 }
 
 /**
@@ -34,7 +41,7 @@ async function localValidationError(
   args: Record<string, unknown>,
 ): Promise<string | null> {
   const exit = await Effect.runPromiseExit(
-    tool.execute(args, context) as unknown as Effect.Effect<
+    tool.execute.execute(args, context) as unknown as Effect.Effect<
       { success: boolean; error?: string },
       unknown
     >,
@@ -48,7 +55,7 @@ function parseWithAdvertisedSchema(
   args: Record<string, unknown>,
 ) {
   return (
-    tool.parameters as unknown as {
+    tool.approval.parameters as unknown as {
       safeParse: (value: unknown) => { success: boolean; data?: unknown };
     }
   ).safeParse(args);

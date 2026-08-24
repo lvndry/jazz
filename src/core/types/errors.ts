@@ -261,6 +261,13 @@ export class MCPToolDiscoveryError extends Data.TaggedError("MCPToolDiscoveryErr
   readonly suggestion?: string;
 }> {}
 
+export class MCPPromptError extends Data.TaggedError("MCPPromptError")<{
+  readonly serverName: string;
+  readonly reason: string;
+  readonly cause?: unknown;
+  readonly suggestion?: string;
+}> {}
+
 export class MCPSchemaConversionError extends Data.TaggedError("MCPSchemaConversionError")<{
   readonly toolName: string;
   readonly reason: string;

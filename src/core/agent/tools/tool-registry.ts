@@ -58,6 +58,25 @@ class DefaultToolRegistry implements ToolRegistry {
     });
   }
 
+  unregisterTool(name: string): Effect.Effect<void, never> {
+    return Effect.sync(() => {
+      const tool = this.tools.get(name);
+      if (!tool) return;
+
+      this.tools.delete(name);
+      this.toolCategories.delete(name);
+      this.cachedDefinitions = null;
+
+      if (tool.aliases) {
+        for (const alias of tool.aliases) {
+          if (this.aliasMap.get(alias) === name) {
+            this.aliasMap.delete(alias);
+          }
+        }
+      }
+    });
+  }
+
   registerForCategory(
     category: ToolCategory,
   ): (tool: Tool<ToolRequirements>) => Effect.Effect<void, never> {

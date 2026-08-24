@@ -4,10 +4,12 @@ import { normalizeToolConfig } from "@/core/agent/utils/tool-config";
 import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import type { MCPServerManager } from "@/core/interfaces/mcp-server";
+import { MCPServerManagerTag } from "@/core/interfaces/mcp-server";
 import { PresentationServiceTag, type PresentationService } from "@/core/interfaces/presentation";
 import type { TerminalService } from "@/core/interfaces/terminal";
 import type { ToolRegistry } from "@/core/interfaces/tool-registry";
 import type { Agent } from "@/core/types";
+import { setMcpPromptCommands } from "@/services/chat/commands";
 
 /**
  * Set up agent before first message: Connect to MCP servers and register tools.
@@ -63,6 +65,65 @@ export function setupAgent(
       );
     } else {
       yield* logger.debug("Agent setup completed - MCP tools registered");
+      yield* registerMcpPromptCommands(setupResult.right);
+    }
+  });
+}
+
+/**
+ * Publish the connected servers' prompts as `/server:prompt` slash commands.
+ *
+ * MCP prompts are user-initiated, so a slash command is the right surface —
+ * unlike tools, the model never invokes these. Servers that advertise no
+ * prompts simply contribute nothing.
+ */
+function registerMcpPromptCommands(
+  connectedServers: readonly string[],
+): Effect.Effect<void, never, MCPServerManager | LoggerService> {
+  return Effect.gen(function* () {
+    const logger = yield* LoggerServiceTag;
+
+    if (connectedServers.length === 0) {
+      setMcpPromptCommands([]);
+      return;
+    }
+
+    const mcpManager = yield* MCPServerManagerTag;
+    const commands: { name: string; description: string; usage?: string }[] = [];
+
+    for (const serverName of connectedServers) {
+      const prompts = yield* mcpManager.getServerPrompts(serverName).pipe(Effect.either);
+      if (prompts._tag === "Left") {
+        yield* logger.debug(
+          `Could not list prompts for MCP server ${serverName}: ${prompts.left.reason}`,
+        );
+        continue;
+      }
+
+      for (const prompt of prompts.right) {
+        const declared = prompt.arguments ?? [];
+        commands.push({
+          name: `${serverName}:${prompt.name}`,
+          description: prompt.description ?? prompt.title ?? `${serverName} prompt`,
+          ...(declared.length > 0
+            ? {
+                usage: declared
+                  .map((argument) =>
+                    argument.required === true ? `<${argument.name}>` : `[${argument.name}]`,
+                  )
+                  .join(" "),
+              }
+            : {}),
+        });
+      }
+    }
+
+    setMcpPromptCommands(commands);
+
+    if (commands.length > 0) {
+      yield* logger.info(
+        `Registered ${commands.length} MCP prompt command(s): ${commands.map((command) => `/${command.name}`).join(", ")}`,
+      );
     }
   });
 }

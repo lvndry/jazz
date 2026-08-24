@@ -1,7 +1,9 @@
 export {
   CHAT_COMMANDS,
   filterCommandsByPrefix,
+  getMcpPromptCommandNames,
   getSkillCommandNames,
+  setMcpPromptCommands,
   setSkillCommands,
   slashCommandQuery,
 } from "./constants";

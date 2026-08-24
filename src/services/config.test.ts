@@ -141,6 +141,53 @@ describe("AgentConfigService", () => {
     expect(parsed.mcpServers.testServer).toEqual({ enabled: false });
     expect(parsed.mcpServers.testServer.command).toBeUndefined();
   });
+
+  it("should persist the trusted override alongside enabled", async () => {
+    // Trust decides whether a server's own tool annotations may skip approval
+    // prompts, so dropping it here would silently make every `mcp trust` a
+    // no-op.
+    const configPath = "/tmp/jazz-mcp-trust-test.json";
+    const configWithMcp: AppConfig = {
+      ...initialConfig,
+      mcpServers: {
+        testServer: {
+          name: "testServer",
+          command: "npx",
+          args: ["-y", "some-mcp"],
+          enabled: true,
+        },
+      },
+    };
+    const service = new AgentConfigServiceImpl(
+      configWithMcp,
+      { testServer: { enabled: true as const } },
+      configPath,
+      mockFS,
+    );
+
+    await Effect.runPromise(service.set("mcpServers.testServer.trusted", true));
+
+    const calls = (mockFS.writeFileString as ReturnType<typeof mock>).mock.calls;
+    const parsed = JSON.parse(calls[calls.length - 1]?.[1] as string);
+    expect(parsed.mcpServers.testServer).toEqual({ enabled: true, trusted: true });
+  });
+
+  it("should persist a trusted override for a server whose enabled state was never set", async () => {
+    const configPath = "/tmp/jazz-mcp-trust-only-test.json";
+    const configWithMcp: AppConfig = {
+      ...initialConfig,
+      mcpServers: {
+        testServer: { name: "testServer", command: "npx" },
+      },
+    };
+    const service = new AgentConfigServiceImpl(configWithMcp, {}, configPath, mockFS);
+
+    await Effect.runPromise(service.set("mcpServers.testServer.trusted", true));
+
+    const calls = (mockFS.writeFileString as ReturnType<typeof mock>).mock.calls;
+    const parsed = JSON.parse(calls[calls.length - 1]?.[1] as string);
+    expect(parsed.mcpServers.testServer).toEqual({ trusted: true });
+  });
 });
 
 describe("createConfigLayer", () => {

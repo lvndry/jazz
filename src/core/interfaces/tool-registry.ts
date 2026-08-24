@@ -165,6 +165,13 @@ export interface ToolRegistry {
    * @returns A function that registers tools under the specified category.
    *
    */
+  /**
+   * Removes a tool from the registry. Unknown names are ignored.
+   *
+   * Needed so a server that drops a tool via `notifications/tools/list_changed`
+   * stops advertising it, rather than leaving a name the model can still call.
+   */
+  readonly unregisterTool: (name: string) => Effect.Effect<void, never>;
   readonly registerForCategory: (
     category: ToolCategory,
   ) => (tool: Tool<ToolRequirements>) => Effect.Effect<void, never>;
