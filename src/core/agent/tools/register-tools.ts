@@ -1,4 +1,5 @@
 import { Effect, Layer } from "effect";
+import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import type { ToolRegistry } from "@/core/interfaces/tool-registry";
 import { ToolRegistryTag } from "@/core/interfaces/tool-registry";
 import { createContextInfoTool, createGetTimeTool } from "./context-tools";
@@ -6,6 +7,7 @@ import { fs } from "./fs";
 import { createHttpRequestTool } from "./http-tools";
 import { createManageMemoryTool, createViewMemoryTool } from "./memory-tools";
 import { createPdfTool } from "./pdf-tools";
+import { createAskPeerTool } from "./peer-tools";
 import {
   createAddReminderTool,
   createCancelReminderTool,
@@ -20,6 +22,7 @@ import {
   FILE_MANAGEMENT_CATEGORY,
   HTTP_CATEGORY,
   MEMORY_CATEGORY,
+  PEERS_CATEGORY,
   REMINDER_CATEGORY,
   SHELL_COMMANDS_CATEGORY,
   SKILLS_CATEGORY,
@@ -170,6 +173,26 @@ export function registerMemoryTools(): Effect.Effect<void, Error, ToolRegistry> 
 
     yield* registerTool(createViewMemoryTool());
     yield* registerTool(createManageMemoryTool());
+  });
+}
+
+/**
+ * Registers `ask_peer`, when peers are configured and at least one is not suspended.
+ *
+ * Config-dependent, so unlike the other groups this reads the config rather than being a
+ * fixed list. An agent with no peers never sees the tool at all: a tool the model can see is
+ * a tool it will try, and "you have no peers" is a worse answer than never offering.
+ */
+export function registerPeerTools(): Effect.Effect<void, Error, ToolRegistry | AgentConfigService> {
+  return Effect.gen(function* () {
+    const configService = yield* AgentConfigServiceTag;
+    const appConfig = yield* configService.appConfig;
+    const tool = createAskPeerTool(appConfig.peers ?? []);
+    if (tool === undefined) return;
+
+    const registry = yield* ToolRegistryTag;
+    const registerTool = registry.registerForCategory(PEERS_CATEGORY);
+    yield* registerTool(tool);
   });
 }
 
