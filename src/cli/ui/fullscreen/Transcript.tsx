@@ -471,7 +471,10 @@ function headingMarker(level: number, glyphs: GlyphSet): string {
   return glyphs.heading4;
 }
 
-/** Split agent markdown into items that read at the measure and items that scan. */
+/**
+ * Split agent markdown into items that read at the measure and items that scan.
+ * CommonMark ordered markers (`1.` and `1)`) start a new item even without a blank line.
+ */
 export function parseProse(markdown: string, glyphs: GlyphSet = getGlyphs()): ProseItem[] {
   const items: ProseItem[] = [];
   const lines = markdown.split("\n");
@@ -561,15 +564,16 @@ export function parseProse(markdown: string, glyphs: GlyphSet = getGlyphs()): Pr
       continue;
     }
 
-    const bullet = /^(\s*)(?:[-*+]|\d+\.)\s+(.*)$/.exec(line);
+    const bullet = /^(\s*)(?:[-*+]|\d+\.|(\d+\)))\s+(.*)$/.exec(line);
     if (bullet !== null) {
       const depth = Math.floor(terminalCellWidth(bullet[1] ?? "") / 2);
+      const paren = bullet[2];
       items.push({
         kind: "text",
-        indent: depth * 2 + 2,
+        indent: depth * 2 + (paren !== undefined ? 0 : 2),
         segments: [
-          { text: `${glyphs.bullet} `, fg: THEME.border },
-          ...inlineSegments(bullet[2] ?? "", THEME.selected, glyphs),
+          { text: `${paren ?? glyphs.bullet} `, fg: THEME.border },
+          ...inlineSegments(bullet[3] ?? "", THEME.selected, glyphs),
         ],
       });
       index += 1;
@@ -582,7 +586,7 @@ export function parseProse(markdown: string, glyphs: GlyphSet = getGlyphs()): Pr
       const candidate = lines[index] ?? "";
       if (
         candidate.trim().length === 0 ||
-        /^\s*(\||```|#{1,6}\s|>|[-*+]\s|\d+\.\s)/.test(candidate)
+        /^\s*(\||```|#{1,6}\s|>|[-*+]\s|\d+[.)]\s)/.test(candidate)
       ) {
         break;
       }

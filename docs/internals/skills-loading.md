@@ -113,6 +113,11 @@ what's available.
 price of not spending the window on skills nobody asked for. When the agent already knows
 the name from the index — the common case — it's one call.
 
+The loaded body stays in the conversation as a tool result. It is not copied into the system
+prompt on later turns: that prefix is cached, and mutating it on `load_skill` would miss on
+every subsequent request. The Skills instructions tell the model to treat that tool result
+as the playbook and execute it rather than improvise a shorter path.
+
 ---
 
 ## Related

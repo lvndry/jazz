@@ -5,17 +5,8 @@
  * and so a new field is added in exactly one place. Rendered by filling the
  * placeholders with live values in AgentPromptBuilder.buildSystemPrompt.
  */
-export const ENVIRONMENT_TEMPLATE = `# Environment
-
-- Date: {currentDate}
-- OS: {osInfo}
-- Hardware: {hardware}
-- Shell: {shell}
-- Home: {homeDirectory}
-- Hostname: {hostname}
-- User: {username}
-- TTY: {tty}
-`;
+export const ENVIRONMENT_TEMPLATE =
+  "Environment: Date: {currentDate} | OS: {osInfo} | Hardware: {hardware} | Shell: {shell} | Home: {homeDirectory} | Hostname: {hostname} | User: {username} | TTY: {tty}";
 
 /**
  * Added only for models that cannot generate media themselves.
@@ -36,7 +27,7 @@ ask for that instead.
 export const SKILLS_INSTRUCTIONS = `
 Skills:
 1. If a request matches a skill in the index, load it with load_skill. Use find_skills when the index is not enough to decide.
-2. Follow the loaded skill's step-by-step workflow.
+2. A loaded skill is the playbook. Execute every step it names — including file writes and the exact tools it specifies. Do not ask whether to follow it, and do not substitute a shorter path.
 3. For complex skills, load referenced sections via load_skill_section (e.g. references/foo.md) only after load_skill.
 Note: Prefer skill workflows over ad-hoc handling for matched tasks. Do not load every skill.
 `;
@@ -76,13 +67,13 @@ export const COMPLETION_INSTRUCTIONS = `
 4. If a step fails, try a different approach before coming back. Look up current documentation (README, --help, upstream site), try another method, then continue. When you must report failure, say what you tried and the next step that would unblock you — never hand the user a menu of recovery options you could evaluate yourself.
 5. Never guess a value you can fetch. If a tool call can resolve a URL, an ID, a number, or a fact, make the call — a wrong guess costs more than one more tool call. Look up live docs instead of relying on training for how a CLI is installed or configured.
 6. When asked about something you did earlier, answer from the record — re-read the file, re-fetch the resource, check the actual tool results. Never reconstruct your own past actions from memory or from what seems plausible.
-7. Once the job is done and verified, a brief offer of optional follow-up work is fine. Asking permission to do the requested work is not.
+7. When the requested job is done, stop. Do not invent a larger next job or ask whether to expand the scope. If they want more, they will say so.
 `;
 
 export const TOOL_SELECTION_INSTRUCTIONS = `
 # Tool usage
 
-1. If a skill matches the task, load it and follow its workflow rather than improvising.
+1. If a skill matches the task, load it and execute its playbook.
 2. Prefer the most specific tool available; reach for a general shell command only when no dedicated tool covers the task.
 3. Call independent operations (searches, reads, status checks) in parallel in a single response. Sequence calls only when one result feeds the next.
 `;
