@@ -254,10 +254,14 @@ export class OneShotPresentationService implements PresentationService {
     return Effect.succeed(emittingRenderer);
   }
 
-  writeOutput(message: string): Effect.Effect<void, never> {
+  writeOutput(message: string, agentName?: string): Effect.Effect<void, never> {
     return Effect.sync(() => {
       if (this.eventsActive) {
-        this.emitNdjson({ type: "output", message });
+        this.emitNdjson({
+          type: "output",
+          message,
+          ...(agentName !== undefined ? { agentName } : {}),
+        });
         return;
       }
       process.stderr.write(message);
@@ -271,10 +275,16 @@ export class OneShotPresentationService implements PresentationService {
   presentStatus(
     message: string,
     level: "info" | "success" | "warning" | "error" | "progress",
+    agentName?: string,
   ): Effect.Effect<void, never> {
     return Effect.sync(() => {
       if (this.eventsActive) {
-        this.emitNdjson({ type: "status", level, message });
+        this.emitNdjson({
+          type: "status",
+          level,
+          message,
+          ...(agentName !== undefined ? { agentName } : {}),
+        });
         return;
       }
       const prefixes: Record<typeof level, string> = {

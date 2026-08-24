@@ -87,7 +87,7 @@ export function executeWithoutStreaming(
           const showAgentStatus = (
             message: string,
             level: "info" | "success" | "warning" | "error" | "progress",
-          ) => presentationService.presentStatus(message, level);
+          ) => presentationService.presentStatus(message, level, agent.name);
 
           const retryAttemptRef = yield* Ref.make(0);
           const batchRetrySchedule = makeUserVisibleLlmRetrySchedule(

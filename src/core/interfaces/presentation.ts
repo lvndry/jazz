@@ -144,9 +144,13 @@ export interface PresentationService {
   readonly emitsToolEventsViaRenderer?: () => boolean;
 
   /**
-   * Write output directly (for non-streaming mode)
+   * Write output directly (for non-streaming mode).
+   *
+   * @param agentName - Who produced the content, when the caller knows. Visual
+   *   implementations ignore it; the NDJSON emitter puts it on the line, so a
+   *   consumer can tell which of several concurrent sub-agents is speaking.
    */
-  readonly writeOutput: (message: string) => Effect.Effect<void, never>;
+  readonly writeOutput: (message: string, agentName?: string) => Effect.Effect<void, never>;
 
   /**
    * Write a blank line
@@ -166,10 +170,13 @@ export interface PresentationService {
    *
    * @param message - The status message to display
    * @param level - The type of status: info, success, warning, error, or progress
+   * @param agentName - Which agent the status is about, when the caller knows.
+   *   Carried on the NDJSON line for the same reason as {@link writeOutput}.
    */
   readonly presentStatus: (
     message: string,
     level: "info" | "success" | "warning" | "error" | "progress",
+    agentName?: string,
   ) => Effect.Effect<void, never>;
 
   /**

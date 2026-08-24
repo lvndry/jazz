@@ -260,7 +260,7 @@ ${args.task}`;
           const maxLines = 10;
           const previewLines = fullResult.split("\n").slice(-maxLines).join("\n");
           const indentedLines = previewLines.split("\n").map((line) => `     ${line}`);
-          yield* presentation.writeOutput(indentedLines.join("\n"));
+          yield* presentation.writeOutput(indentedLines.join("\n"), subagentLabel);
 
           yield* logger.info("Sub-agent completed", {
             parentAgentId: parentAgent.id,
