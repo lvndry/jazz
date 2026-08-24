@@ -119,7 +119,7 @@ export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, ReadFileParams>({
     name: "read_file",
-    disclosure: "personal",
+    disclosure: "private",
     description:
       "Read a file relative to the session working directory. UTF-8 text is returned as numbered lines (`   12|content`) so edit_file can use those numbers for replace_lines, insert, and delete_lines. " +
       "Images, PDFs, audio, and video are attached to the conversation when the active model supports that modality. " +

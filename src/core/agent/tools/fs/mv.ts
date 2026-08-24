@@ -48,7 +48,7 @@ type MvDeps = FileSystem.FileSystem | FileSystemContextService;
 export function createMvTools(): ApprovalToolPair<MvDeps> {
   const config: ApprovalToolConfig<MvDeps, MvArgs> = {
     name: "mv",
-    disclosure: "none",
+    disclosure: "public",
     description:
       "Rename or move a file or directory on the same filesystem. destination is the exact target path: if it is an existing directory, the source is not moved into it (unlike shell mv). force deletes the destination first. Moves across devices fail; use execute_command for those.",
     tags: ["filesystem", "write"],

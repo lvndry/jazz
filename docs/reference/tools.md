@@ -59,28 +59,28 @@ You never call `execute_*` names yourself; they are hidden from the model's tool
 ## What each tool reveals
 
 Risk is not the same question as disclosure. Risk asks what a tool can do **to** the
-machine; disclosure asks what its answer says **about you**. The two do not correlate:
+machine; disclosure asks how freely its answer can be shared. The two do not correlate:
 `read_file` is read-only and can reveal anything, `get_time` is read-only and reveals
 nothing, `write_file` changes the machine and reveals nothing at all.
 
 Every tool declares both. The field is required, with no default anywhere, so a new tool
 cannot be added without someone deciding.
 
-| Level        | The answer reveals                                                        | Tools |
+| Level        | Safe to tell                                                              | Tools |
 | ------------ | ------------------------------------------------------------------------- | ----- |
-| `none`       | nothing about you or your machine                                         | `add_reminder`, `cp`, `mkdir`, `mv`, `rm`, `web_fetch`, `web_search`, `write_file` |
-| `context`    | the shape of the machine or session — paths, names, what is installed     | `cd`, `context_info`, `create_pdf`, `create_web_app`, `find`, `get_time`, `ls`, `pdf_page_count`, `pwd`, `stat` |
-| `personal`   | your own material — file contents, memory, schedule, transcript           | `ask_file_picker`, `ask_user_question`, `cancel_reminder`, `edit_file`, `execute_command`, `grep`, `http_request`, `list_reminders`, `list_todos`, `manage_memory`, `manage_todos`, `read_file`, `read_pdf`, `spawn_subagent`, `summarize_context`, `update_work_state`, `view_memory` |
+| `public`     | safe to tell anyone                                                       | `add_reminder`, `cp`, `mkdir`, `mv`, `rm`, `web_fetch`, `web_search`, `write_file` |
+| `internal`   | the shape of this machine — paths, names, what is installed               | `cd`, `context_info`, `create_pdf`, `create_web_app`, `find`, `get_time`, `ls`, `pdf_page_count`, `pwd`, `stat` |
+| `private`    | your own material — file contents, memory, schedule, transcript           | `ask_file_picker`, `ask_user_question`, `cancel_reminder`, `edit_file`, `execute_command`, `grep`, `http_request`, `list_reminders`, `list_todos`, `manage_memory`, `manage_todos`, `read_file`, `read_pdf`, `spawn_subagent`, `summarize_context`, `update_work_state`, `view_memory` |
 
-A tool spanning two levels takes the higher one — `edit_file` writes, but its approval
-message carries a diff of your file, so it is `personal`. `http_request` reaches private
+A tool spanning two levels takes the more sensitive one — `edit_file` writes, but its approval
+message carries a diff of your file, so it is `private`. `http_request` reaches private
 networks including services on localhost, so it is too.
 
-Skill tools (`find_skills`, `load_skill`, `load_skill_section`) are `context` too, and are
+Skill tools (`find_skills`, `load_skill`, `load_skill_section`) are `internal` too, and are
 absent from the table for the same reason they are absent from the one below: they are
 registered per agent rather than globally.
 
-There is no `unknown` level. **MCP and custom tools are `personal`**, because a tool defined
+There is no `unknown` level. **MCP and custom tools are `private`**, because a tool defined
 outside this codebase returns something this codebase cannot classify, and the safe reading
 of "unknown" is the most restrictive one.
 

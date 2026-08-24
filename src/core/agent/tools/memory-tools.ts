@@ -69,7 +69,7 @@ type ViewMemoryArgs = z.infer<typeof viewMemoryParameters>;
 export function createViewMemoryTool(): Tool<MemoryToolDeps> {
   return defineTool<MemoryToolDeps, ViewMemoryArgs>({
     name: "view_memory",
-    disclosure: "personal",
+    disclosure: "private",
     description:
       "Call this first, before you answer, at the start of every conversation — even a casual one. " +
       "No path lists everything you've stored; a path reads one file. " +
@@ -171,7 +171,7 @@ type ManageMemoryArgs = z.infer<typeof manageMemoryParameters>;
 export function createManageMemoryTool(): Tool<MemoryToolDeps> {
   return defineTool<MemoryToolDeps, ManageMemoryArgs>({
     name: "manage_memory",
-    disclosure: "personal",
+    disclosure: "private",
     description:
       "Save facts about this person that will still matter later — preferences, location, age, how they like to work. Write as soon as you learn it. " +
       "Update an existing file instead of creating a new one for the same topic — call view_memory first. One file per person or project, not a running log. " +

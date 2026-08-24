@@ -25,8 +25,7 @@ import type { Tool } from "@/core/interfaces/tool-registry";
 import type { PeerConfig } from "@/core/types/peer";
 import type { ToolExecutionResult } from "@/core/types/tools";
 import { record as recordLedger, type LedgerOutcome } from "@/services/peers/ledger";
-import { detectKeyringBackend, keyringGet } from "@/services/secrets/keyring";
-import { peerTokenPath } from "@/services/secrets/registry";
+import { resolvePeerToken } from "@/services/peers/token";
 import { defineTool, makeZodValidator } from "./base-tool";
 
 /** A peer that cannot answer within this is treated as unreachable rather than waited on. */
@@ -170,7 +169,7 @@ export function createAskPeerTool(
     riskLevel: "low-risk",
     // The answer is a third party's text about their own affairs. What this tool discloses
     // travels in the request, which the ledger records, not in what it returns.
-    disclosure: "none",
+    disclosure: "public",
     hidden: false,
     longRunning: true,
     validate: makeZodValidator(parameters),
@@ -188,8 +187,7 @@ export function createAskPeerTool(
           return failure(`Peer "${peer.name}" is suspended and is not being contacted.`);
         }
 
-        const backend = yield* detectKeyringBackend();
-        const token = yield* keyringGet(backend, peerTokenPath(peer.name));
+        const token = yield* resolvePeerToken(peer.name);
 
         yield* logger.info("Asking a peer", { peer: peer.name });
 

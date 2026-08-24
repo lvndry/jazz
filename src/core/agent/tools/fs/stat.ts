@@ -27,7 +27,7 @@ export function createStatTool(): Tool<FileSystem.FileSystem | FileSystemContext
 
   return defineTool<FileSystem.FileSystem | FileSystemContextService, StatArgs>({
     name: "stat",
-    disclosure: "context",
+    disclosure: "internal",
     description:
       "Check whether a path exists and return its type, size in bytes, and modification times. A missing path is a successful result with exists set to false — not an error. Prefer this over ls -la or test -f via execute_command.",
     tags: ["filesystem", "info"],

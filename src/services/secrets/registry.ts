@@ -80,6 +80,18 @@ export function peerTokenPath(peerName: string): string {
   return `peers.${peerName}.token`;
 }
 
+/**
+ * Environment variable supplying a peer's token, for hosts with no keyring.
+ *
+ * The keyring is the right home on a workstation and simply absent in a container — which
+ * is exactly where jazz already runs. The Telegram bridge takes its Telegram and search
+ * credentials from the environment for this reason; without the same option here, a
+ * containerised jazz could not authenticate a peer at all.
+ */
+export function peerTokenEnvVar(peerName: string): string {
+  return `JAZZ_PEER_TOKEN_${peerName.toUpperCase().replace(/[^A-Z0-9]/g, "_")}`;
+}
+
 /** Every config path Jazz treats as a secret. */
 export const SECRET_PATHS: readonly string[] = [
   ...Object.keys(SECRET_ENV_VARS),
@@ -107,5 +119,8 @@ export function isSecretPath(path: string): boolean {
 
 /** Environment variable that supplies a secret path, if one is defined. */
 export function envVarForSecretPath(path: string): string | undefined {
+  // Peer names are user-defined, so their variables are derived rather than enumerated.
+  const peer = /^peers\.([^.]+)\.token$/.exec(path);
+  if (peer?.[1] !== undefined) return peerTokenEnvVar(peer[1]);
   return SECRET_ENV_VARS[path];
 }

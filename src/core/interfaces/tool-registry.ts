@@ -43,18 +43,21 @@ export type ToolRiskLevel = "read-only" | "low-risk" | "high-risk" | "unknown";
  * The question is always about the *answer*, not the request. What an agent chooses to put
  * into an outgoing call is a separate problem, handled where such calls are made.
  *
- * - `none` — the answer is not about the operator or their machine. A web search result, a
- *   fetched page, a confirmation that something was written.
- * - `context` — the shape of the machine or session: paths, filenames, the working
+ * Levels name **sensitivity**, not subject — how freely an answer can be shared, which is
+ * the question somebody actually asks when deciding what to permit.
+ *
+ * - `public` — safe to tell anyone. A web search result, a fetched page, a confirmation
+ *   that something was written.
+ * - `internal` — the shape of this machine or session: paths, filenames, the working
  *   directory, which skills are installed, how full the context window is. Not contents.
- * - `personal` — the operator's own material: file contents, memory, reminders, todos, the
+ * - `private` — the operator's own material: file contents, memory, reminders, todos, the
  *   transcript, or anything a shell command might print.
  *
- * When a tool spans two, it takes the higher one. `unknown` does not exist here on purpose:
- * an unclassifiable tool is `personal`, because the safe reading of "I do not know what
- * this returns" is "it could be anything".
+ * When a tool spans two, it takes the more sensitive one. `unknown` does not exist here on
+ * purpose: an unclassifiable tool is `private`, because the safe reading of "I do not know
+ * what this returns" is "it could be anything".
  */
-export type ToolDisclosure = "none" | "context" | "personal";
+export type ToolDisclosure = "public" | "internal" | "private";
 
 /**
  * Union type representing all possible tool requirements.

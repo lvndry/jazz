@@ -48,7 +48,7 @@ type CpDeps = FileSystem.FileSystem | FileSystemContextService;
 export function createCpTools(): ApprovalToolPair<CpDeps> {
   const config: ApprovalToolConfig<CpDeps, CpArgs> = {
     name: "cp",
-    disclosure: "none",
+    disclosure: "public",
     description:
       "Copy a file or directory. Directories are always copied recursively. destination is the exact target path: if it is an existing directory, the source is not copied into it (unlike shell cp). force deletes the destination first.",
     tags: ["filesystem", "write"],

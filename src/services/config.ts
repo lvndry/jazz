@@ -439,6 +439,9 @@ function mergeConfig(base: AppConfig, override?: Partial<AppConfig>): AppConfig 
     ...(override.autoApprovedCommands && {
       autoApprovedCommands: override.autoApprovedCommands,
     }),
+    // Replaced wholesale rather than merged: peers are a list keyed by name, and a
+    // per-element merge would make removing one from a local override impossible.
+    ...(override.peers && { peers: override.peers }),
     ...(override.maxRetries !== undefined && { maxRetries: override.maxRetries }),
     ...(override.maxSubagentDepth !== undefined && {
       maxSubagentDepth: override.maxSubagentDepth,

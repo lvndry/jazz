@@ -498,7 +498,7 @@ function extractErrorType(error: unknown): string {
 export function createEditFileTools(): ApprovalToolPair<EditFileDeps> {
   const config: ApprovalToolConfig<EditFileDeps, EditFileArgs> = {
     name: "edit_file",
-    disclosure: "personal",
+    disclosure: "private",
     description:
       "Change part of a file that already exists. To create a new file, use write_file. You can pass several edits in one call; they run one after another. If an earlier edit inserts or deletes lines, later edits must use the line numbers of the file as it is after those edits — not the numbers from the original read_file. " +
       "Use this whenever you are changing an existing file. Do not use this to create a file (write_file), to rewrite the whole file after a failed edit (read the errorType and retry), or to run sed via execute_command. " +

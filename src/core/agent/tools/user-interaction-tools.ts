@@ -55,7 +55,7 @@ type FilePickerArgs = z.infer<typeof filePickerSchema>;
 export const userInteractionTools: Tool<ToolRequirements>[] = [
   defineTool({
     name: "ask_user_question",
-    disclosure: "personal",
+    disclosure: "private",
     longRunning: true,
     description:
       "Ask the human one blocking question with 2–4 concrete options. Use this tool; do not bury the question in prose. " +
@@ -87,7 +87,7 @@ export const userInteractionTools: Tool<ToolRequirements>[] = [
   }),
   defineTool({
     name: "ask_file_picker",
-    disclosure: "personal",
+    disclosure: "private",
     longRunning: true,
     description:
       "Show an interactive file picker so the human can choose a path. Use this when they need to pick among files you cannot uniquely identify. Prefer find or ls when you can locate the file yourself. When there is no TTY (headless), do not call this — decide or fail.",
