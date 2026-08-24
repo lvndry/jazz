@@ -77,6 +77,46 @@ describe("OneShotPresentationService streaming renderer", () => {
     expect(parsed.type).toBe("tool_execution_start");
   });
 
+  it("stamps the renderer's agent name on events that carry none", () => {
+    const service = new OneShotPresentationService(
+      DEFAULT_DISPLAY_CONFIG,
+      new Set<StreamEvent["type"]>(["text_chunk"]),
+    );
+    const renderer = Effect.runSync(
+      service.createStreamingRenderer({ ...rendererConfig, agentName: "airgap verifier" }),
+    );
+
+    const captured = captureStderr();
+    Effect.runSync(renderer.handleEvent(textChunkEvent));
+
+    const parsed = JSON.parse(captured.lines[0] as string) as { agentName: string; delta: string };
+    expect(parsed.agentName).toBe("airgap verifier");
+    expect(parsed.delta).toBe("hello");
+  });
+
+  it("keeps an event's own agent name rather than the renderer's", () => {
+    const service = new OneShotPresentationService(
+      DEFAULT_DISPLAY_CONFIG,
+      new Set<StreamEvent["type"]>(["tools_detected"]),
+    );
+    const renderer = Effect.runSync(
+      service.createStreamingRenderer({ ...rendererConfig, agentName: "parent" }),
+    );
+
+    const captured = captureStderr();
+    Effect.runSync(
+      renderer.handleEvent({
+        type: "tools_detected",
+        toolNames: ["grep"],
+        toolsRequiringApproval: [],
+        agentName: "komodo/roles verifier",
+      }),
+    );
+
+    const parsed = JSON.parse(captured.lines[0] as string) as { agentName: string };
+    expect(parsed.agentName).toBe("komodo/roles verifier");
+  });
+
   it("returns a noop renderer that writes nothing when no types are selected", () => {
     const service = new OneShotPresentationService(DEFAULT_DISPLAY_CONFIG, new Set());
     const renderer = Effect.runSync(service.createStreamingRenderer(rendererConfig));

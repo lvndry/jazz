@@ -202,6 +202,12 @@ export function runWorkflowCommand(
     timeoutMs?: number;
     /** Stream these event types as NDJSON to stderr during the run (json mode only). */
     eventTypes?: ReadonlySet<StreamEvent["type"]>;
+    /**
+     * Force streaming on/off. Streaming auto-disables when stdout is not a TTY, and the
+     * batch path never produces reasoning or text events — so a headless consumer asking
+     * for `--events reasoning,text` gets tool events only unless this forces it back on.
+     */
+    stream?: boolean;
   },
 ) {
   const jsonMode = options?.json === true;
@@ -384,6 +390,7 @@ export function runWorkflowCommand(
       conversationId: generateConversationId(`workflow-${workflowName}`),
       ...(resolvedMaxIterations != null ? { maxIterations: resolvedMaxIterations } : {}),
       ...(autoApprovePolicy !== undefined ? { autoApprovePolicy } : {}),
+      ...(options?.stream !== undefined ? { stream: options.stream } : {}),
     });
     const runResult = yield* (
       options?.timeoutMs != null

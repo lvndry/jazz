@@ -140,8 +140,13 @@ jazz workflow run email-cleanup --agent research-bot
 # --json prints exactly one JSON envelope { ok, answer, costUSD, tokenUsage, toolCalls }
 # on stdout (ok:false + non-zero exit on failure), suppressing all terminal chatter.
 # --timeout aborts the run cleanly after the given milliseconds.
-# --events streams event categories as NDJSON to stderr while stdout stays clean.
+# --events streams event categories as NDJSON to stderr while stdout stays clean; every
+# line carries the agentName that produced it, so concurrent sub-agents stay apart.
 jazz workflow run email-cleanup --auto-approve --json --timeout 1200000 --events tools
+
+# Reasoning and answer text exist only on the streaming path, which auto-disables when
+# stdout is a pipe — asking for those categories turns it back on (--no-stream opts out).
+jazz workflow run email-cleanup --auto-approve --json --events tools,reasoning,text
 ```
 
 **Note for headless runs**: `--json` implies non-interactive — if the agent is missing

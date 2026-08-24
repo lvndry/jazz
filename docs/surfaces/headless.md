@@ -100,7 +100,7 @@ interpret that fallback as a free run.
 | `--reasoning <effort>`     | `low` \| `medium` \| `high` \| `disable`. Overrides the agent's config for this run.                                                               |
 | `--timeout <ms>`           | Abort the run after this many milliseconds.                                                                                                        |
 | `--max-iterations <n>`     | Cap the agent's reasoning iterations (default 100).                                                                                                 |
-| `--stream` / `--no-stream` | Force streaming on/off. Streaming auto-disables for non-TTY stdout, which also suppresses `--events` — pass `--stream` to re-enable it in scripts. |
+| `--stream` / `--no-stream` | Force streaming on/off. Streaming auto-disables for non-TTY stdout; `--events reasoning`/`text` re-enable it on their own, since those events exist only on the streaming path. |
 
 ---
 
@@ -176,8 +176,11 @@ jazz run --json --stream --events tools,subagent --agent dev "audit this repo" \
 `error` events are **always** included regardless of what you select, so a failure can
 never be invisible on the live stream.
 
-> `--events` needs streaming. stdout being a pipe auto-disables streaming, so pass
-> `--stream` explicitly in scripts and webhooks.
+Streaming auto-disables when stdout is a pipe, which is every headless caller. Tool,
+approval and subagent events survive that — the batch path routes them through the same
+renderer — but `reasoning` and `text` deltas exist only on the streaming path. Asking for
+either category therefore turns streaming back on for you; pass `--no-stream` if you would
+rather keep the batch path and take tool events only.
 
 ---
 
