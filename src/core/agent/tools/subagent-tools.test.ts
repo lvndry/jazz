@@ -133,6 +133,40 @@ describe("spawn_subagent auto-approve inheritance", () => {
   });
 });
 
+describe("spawn_subagent event bracket", () => {
+  it("names the sub-agent on both events so a consumer can pair them", async () => {
+    const events: Array<Record<string, unknown>> = [];
+    const spy = spyOn(AgentRunner, "runRecursive").mockImplementation(
+      () =>
+        Effect.succeed({
+          content: "done",
+          conversationId: "conv-test",
+          messages: [],
+        }) as ReturnType<typeof AgentRunner.runRecursive>,
+    );
+
+    try {
+      const { presentation } = createPresentationHarness();
+      await runSpawn(presentation, {
+        emitEvent: (event: Record<string, unknown>) =>
+          Effect.sync(() => {
+            events.push(event);
+          }),
+      });
+
+      const start = events.find((event) => event["type"] === "subagent_start");
+      const complete = events.find((event) => event["type"] === "subagent_complete");
+      expect(start?.["agentName"]).toBeDefined();
+      // Without this the complete event reaches the stream through the parent's
+      // renderer and gets attributed to the parent instead of the specialist.
+      expect(complete?.["agentName"]).toBe(start?.["agentName"]);
+      expect(typeof complete?.["durationMs"]).toBe("number");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
 describe("spawn_subagent persona handling", () => {
   it("passes the persona through as config rather than restating it in the task", async () => {
     let captured: Omit<AgentRunnerOptions, "internal"> | undefined;
