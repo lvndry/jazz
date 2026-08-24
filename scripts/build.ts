@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import manifest from "../package.json" with { type: "json" };
+import { ensureNativeLibrariesForTarget } from "./opentui-natives";
 
 type SpawnResult = {
   readonly exitCode: number | null;
@@ -350,6 +351,8 @@ async function buildStandaloneBinary(compileTarget: string): Promise<string> {
   const targetPlatform = compileTarget.split("-")[1] ?? "";
   const generatedAssets = generateEmbeddedAssetsModule(targetPlatform);
   const outfile = path.join("binaries", outputName);
+
+  await ensureNativeLibrariesForTarget(compileTarget);
 
   // Matches the reasoning in buildNpmBundle: the bundler picks the JSX runtime
   // from NODE_ENV at build time, and the dev runtime is unusable at runtime.
