@@ -213,7 +213,7 @@ flowchart TB
     META --> FORK["Fork all 6 as fibers<br/>≤10 running concurrently"]
     FORK --> JOIN{"Race"}
     JOIN -->|"all complete"| RESULTS(["6 results"])
-    JOIN -->|"interrupt signal<br/>(double-Esc)"| KILL["Interrupt every fiber<br/>→ GenerationInterruptedError"]
+    JOIN -->|"interrupt signal<br/>(double-Esc)"| KILL["Interrupt every fiber<br/>settle UI · stop the loop"]
 
     classDef act fill:#4f9d9d,stroke:#2f6d6d,color:#ffffff
     class FORK act
@@ -230,6 +230,11 @@ sees it, and the run continues. A tool that can't finish shouldn't take the whol
 
 Approval prompts are queued rather than raced, and re-checked at dequeue time — a parallel
 tool's "always approve" may have changed the answer while this one waited.
+
+Double-Esc during a running tool is a **clean stop**, not a crash. In-flight tools get a
+cancelled receipt, `execute_command`'s child process is killed, dangling `tool_calls` in
+the transcript get a matching tool-result so the next turn stays valid, and the loop
+exits the same way an LLM-stream interrupt does.
 
 ---
 
