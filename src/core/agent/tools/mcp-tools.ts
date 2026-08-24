@@ -359,6 +359,7 @@ export function buildResourceTools(
     }),
     hidden: false,
     riskLevel: "read-only",
+    disclosure: "personal",
     handler: (args: Record<string, unknown>) =>
       Effect.gen(function* () {
         const mcpManager = yield* MCPServerManagerTag;
@@ -417,6 +418,7 @@ export function buildResourceTools(
     }),
     hidden: false,
     riskLevel: "read-only",
+    disclosure: "personal",
     handler: (args: Record<string, unknown>) =>
       Effect.gen(function* () {
         const mcpManager = yield* MCPServerManagerTag;
