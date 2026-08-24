@@ -1,3 +1,5 @@
+import { existsSync, rmSync } from "fs";
+import { tmpdir } from "os";
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { describe, expect, it } from "bun:test";
@@ -396,31 +398,40 @@ describe("Shell Tools", () => {
 
   it("kills a running command when the effect is interrupted", async () => {
     const tool = shellTools.execute;
-    // A duration no other process on the machine is plausibly sleeping for, so
-    // `ps` can tell this test's child apart from unrelated sleeps.
-    const uniqueSleepSeconds = "31.4159265";
-    const countLiveChildren = async (): Promise<number> => {
-      const listing = Bun.spawn(["ps", "-eo", "command"]);
-      const output = await new Response(listing.stdout).text();
-      return output.split("\n").filter((line) => line.trim() === `sleep ${uniqueSleepSeconds}`)
-        .length;
-    };
+    const pidFile = `${tmpdir()}/jazz-interrupt-pid-${process.pid}-${Date.now()}`;
 
-    const waitForChildCount = async (expected: number): Promise<number> => {
-      const deadline = Date.now() + 5_000;
-      let count = await countLiveChildren();
-      while (count !== expected && Date.now() < deadline) {
-        await new Promise((resolve) => setTimeout(resolve, 50));
-        count = await countLiveChildren();
+    const isAlive = (pid: number): boolean => {
+      try {
+        // Signal 0 checks for the process's existence without touching it.
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false;
       }
-      return count;
     };
 
-    const started = Date.now();
+    const pollUntil = async (condition: () => boolean): Promise<boolean> => {
+      const deadline = Date.now() + 10_000;
+      while (!condition() && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      return condition();
+    };
+
+    const readChildPid = async (): Promise<number> => {
+      const file = Bun.file(pidFile);
+      await pollUntil(() => existsSync(pidFile));
+      const pid = Number.parseInt((await file.text()).trim(), 10);
+      expect(Number.isInteger(pid)).toBe(true);
+      return pid;
+    };
+
+    // `exec` replaces the shell, so the pid recorded by `$$` is the pid of
+    // the sleep itself — the process the interrupt has to kill.
     const program = tool
       .execute(
         {
-          command: `sleep ${uniqueSleepSeconds}`,
+          command: `echo $$ > ${pidFile}; exec sleep 30`,
           description: "Sleep long enough that interrupt must kill the child.",
         },
         { agentId: "test-agent", conversationId: "test-conversation" },
@@ -428,11 +439,15 @@ describe("Shell Tools", () => {
       .pipe(Effect.provide(createTestLayer()));
 
     const fiber = Effect.runFork(program);
-    expect(await waitForChildCount(1)).toBe(1);
+    try {
+      const childPid = await readChildPid();
+      expect(await pollUntil(() => isAlive(childPid))).toBe(true);
 
-    await Effect.runPromise(Fiber.interrupt(fiber));
-    expect(Date.now() - started).toBeLessThan(10_000);
+      await Effect.runPromise(Fiber.interrupt(fiber));
 
-    expect(await waitForChildCount(0)).toBe(0);
-  });
+      expect(await pollUntil(() => !isAlive(childPid))).toBe(true);
+    } finally {
+      rmSync(pidFile, { force: true });
+    }
+  }, 30_000);
 });
