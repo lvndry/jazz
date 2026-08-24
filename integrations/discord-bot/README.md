@@ -139,6 +139,11 @@ While a message is processing, the progress message carries a **⏹ Cancel**
 button that kills the run. Each answer gets follow-up buttons (`🔍 Go deeper`,
 `✂️ Shorter`, …) that upgrade to contextual ones a beat later; set
 `JAZZ_DISCORD_DYNAMIC_CTA=0` to keep only the static ones.
+The 💭 line on the progress message is only the tail of the model's current
+thought, and that message is replaced when the answer lands — so the full
+reasoning follows the answer as **Reasoning** spoilers you click to reveal.
+Very long runs are split across a few spoilers, and the last one says how much
+was left out; set `JAZZ_DISCORD_SHOW_REASONING=0` to drop them.
 Set `JAZZ_DAILY_COST_CAP_USD` to cap known spend per UTC day (0 = no cap).
 If a completed run has no pricing metadata, its exact cost cannot be capped;
 the bot records it as unpriced and pauses later requests until the next UTC day.

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "bun:test";
-import { neutralizeBroadcastMentions, splitForDiscord, threadNameFromPrompt } from "./discord-md";
+import {
+  neutralizeBroadcastMentions,
+  spoilerBlock,
+  splitForDiscord,
+  threadNameFromPrompt,
+} from "./discord-md";
 
 describe("splitForDiscord", () => {
   it("returns a placeholder for empty input", () => {
@@ -40,5 +45,18 @@ describe("threadNameFromPrompt", () => {
 
   it("falls back when the prompt is empty", () => {
     expect(threadNameFromPrompt("   ")).toBe("Jazz");
+  });
+});
+
+describe("spoilerBlock", () => {
+  it("wraps text so Discord hides it until clicked", () => {
+    expect(spoilerBlock("thinking out loud")).toBe("||thinking out loud||");
+  });
+
+  it("keeps a literal pipe pair from closing the spoiler early", () => {
+    const wrapped = spoilerBlock("a || b");
+    expect(wrapped.startsWith("||")).toBe(true);
+    expect(wrapped.endsWith("||")).toBe(true);
+    expect(wrapped.slice(2, -2)).not.toContain("||");
   });
 });

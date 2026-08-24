@@ -85,6 +85,11 @@ the nearest pharmacy" → "🧭 Directions", "🕒 Opening hours", "🔍 Go deep
 one sends it as your next message. Answers appear instantly with static
 `🔍 Go deeper` / `✂️ Shorter` buttons that upgrade to the contextual set a beat
 later; set `JAZZ_TELEGRAM_DYNAMIC_CTA=0` to keep only the static ones.
+The 💭 line on the progress bubble is only the tail of the model's current
+thought, and that bubble is replaced when the answer lands — so the full
+reasoning follows the answer as collapsed **Reasoning** quotes you tap to
+expand. Very long runs are split across a few quotes, and the last one says
+how much was left out; set `JAZZ_TELEGRAM_SHOW_REASONING=0` to drop them.
 Set `JAZZ_DAILY_COST_CAP_USD` to cap known spend per UTC day (0 = no cap).
 If a completed run has no pricing metadata, its exact cost cannot be capped;
 the bot records it as unpriced and pauses later requests until the next UTC day.

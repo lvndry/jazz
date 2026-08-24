@@ -71,15 +71,27 @@ import {
   triggerTyping,
   type SlashCommand,
 } from "./discord";
-import { neutralizeBroadcastMentions, splitForDiscord, threadNameFromPrompt } from "./discord-md";
+import {
+  neutralizeBroadcastMentions,
+  spoilerBlock,
+  splitForDiscord,
+  threadNameFromPrompt,
+} from "./discord-md";
 import { startReminderSweep } from "./reminders";
 import { conversationKey, isIncognito, setIncognito, startNewConversation } from "./sessions";
 import { formatWhen, hasChatTz, isValidTimeZone, setTzForChat, tzForChat } from "./timezone";
 import { dailyCostCapBlockReason, recordUsage, todayUsage } from "./usage";
+import { reasoningSnippet, splitReasoning } from "../shared/reasoning";
 
 const PROGRESS_MIN_INTERVAL_MS = 2_000;
 const PROGRESS_MAX_TOOLS_SHOWN = 8;
-const PROGRESS_REASONING_CHARS = 180;
+// The reasoning log goes out inside a spoiler, which costs four characters;
+// budget under the 1900 the answer splitter uses so a part plus its heading
+// stays clear of Discord's 2000 hard limit without splitting mid-spoiler.
+const REASONING_PART_CHARS = 1_700;
+// A long agentic run would otherwise post a wall of spoilers; past this the
+// tail is dropped and the final part says how much.
+const REASONING_MAX_PARTS = 4;
 const BRIDGE_STARTED_AT = Date.now();
 
 const activeRuns = new Map<
@@ -114,6 +126,12 @@ interface BridgeConfig extends AccessConfig {
   readonly port: number;
   readonly dailyCostCapUsd: number;
   readonly dynamicCta: boolean;
+  /**
+   * Attach the run's full reasoning under the answer as click-to-reveal
+   * spoilers. The live progress line only ever shows a rolling tail, and that
+   * message is overwritten when the answer lands.
+   */
+  readonly showReasoning: boolean;
   readonly publicBaseUrl: string | undefined;
 }
 
@@ -206,6 +224,7 @@ function loadConfig(): BridgeConfig {
     port: Number.parseInt(process.env["PORT"]?.trim() || "8080", 10),
     dailyCostCapUsd: Number.parseFloat(process.env["JAZZ_DAILY_COST_CAP_USD"]?.trim() || "0") || 0,
     dynamicCta: envFlag("JAZZ_DISCORD_DYNAMIC_CTA", true),
+    showReasoning: envFlag("JAZZ_DISCORD_SHOW_REASONING", true),
     publicBaseUrl: process.env["DISCORD_PUBLIC_BASE_URL"]?.trim() || undefined,
   };
 }
@@ -343,15 +362,6 @@ async function streamLines(
   }
 }
 
-function reasoningSnippet(reasoning: string): string {
-  const normalized = reasoning.replace(/\s+/g, " ").trim();
-  if (normalized.length <= PROGRESS_REASONING_CHARS) return normalized;
-  let tail = normalized.slice(-PROGRESS_REASONING_CHARS).trimStart();
-  const firstSpace = tail.indexOf(" ");
-  if (firstSpace > 0 && firstSpace < 40) tail = tail.slice(firstSpace + 1);
-  return `… ${tail}`;
-}
-
 function createProgressReporter(
   config: BridgeConfig,
   channelId: string,
@@ -424,11 +434,34 @@ function createProgressReporter(
     },
     finish: (summary: string): Promise<void> => edit(summary, []),
     toolsUsed: (): string[] => [...new Set(tools)],
+    // The progress bubble only ever showed a rolling tail; this is everything
+    // the model thought, for the spoiler log attached to the answer.
+    reasoningLog: (): string => reasoning,
   };
 }
 
 const APPROVAL_MESSAGE_MAX_CHARS = 500;
 const APPROVAL_PREVIEW_DIFF_MAX_CHARS = 500;
+
+/**
+ * Attach a run's full reasoning under the answer as click-to-reveal spoilers.
+ * Sent as its own messages rather than appended to the answer so the answer
+ * keeps its follow-up buttons and its own splitting untouched.
+ */
+async function sendReasoningLog(
+  config: BridgeConfig,
+  channelId: string,
+  reasoning: string,
+): Promise<void> {
+  const parts = splitReasoning(reasoning, {
+    budget: REASONING_PART_CHARS,
+    maxParts: REASONING_MAX_PARTS,
+  });
+  for (const [index, part] of parts.entries()) {
+    const counter = parts.length > 1 ? ` (${index + 1}/${parts.length})` : "";
+    await sendReply(config, channelId, `💭 **Reasoning**${counter}\n${spoilerBlock(part)}`);
+  }
+}
 
 async function sendApprovalRequest(
   config: BridgeConfig,
@@ -676,6 +709,9 @@ async function handleMessage(
       });
       if (config.dynamicCta && answerMessageId !== undefined) {
         void upgradeToDynamicCtas(config, channelId, answerMessageId, text, envelope.answer);
+      }
+      if (config.showReasoning) {
+        await sendReasoningLog(config, channelId, reporter?.reasoningLog() ?? "");
       }
       if (envelope.webApp) {
         await deliverWebApp(config, channelId, envelope.webApp);
