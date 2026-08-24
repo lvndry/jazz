@@ -20,18 +20,13 @@ mkdir -p "${XDG_CONFIG_HOME:-/data/xdg-config}" "${XDG_DATA_HOME:-/data/xdg-data
 mkdir -p "${GNUPGHOME:-/data/gnupg}"
 chmod 700 "${GNUPGHOME:-/data/gnupg}"
 
-# Write config.json. When BRAVE_API_KEY is set, configure Brave as the web_search
-# provider — the key comes from the environment so it's never baked into the image.
+# Merge the bridge-managed keys into config.json, leaving anything the operator
+# put there alone — the volume outlives the container, so writing this file
+# wholesale discarded their settings on every restart. Keys come from the
+# environment so no secret is ever baked into the image.
 # Nothing here needs to force streaming: the bridge asks for reasoning and text
 # events, and jazz selects the streaming path for those on its own.
-if [ -n "${BRAVE_API_KEY:-}" ]; then
-  cat > "${JAZZ_HOME}/config.json" <<JSON
-{"web_search":{"provider":"brave","brave":{"api_key":"${BRAVE_API_KEY}"}}}
-JSON
-  echo "Configured Brave web search"
-else
-  printf '{}\n' > "${JAZZ_HOME}/config.json"
-fi
+bun /app/integrations/shared/write-bridge-config.ts "${JAZZ_HOME}/config.json"
 
 # Seed / refresh the template agent that per-chat agents are cloned from.
 sed -e "s#__JAZZ_PROVIDER__#${JAZZ_TELEGRAM_PROVIDER}#g" \
