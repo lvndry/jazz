@@ -61,7 +61,7 @@ export const userInteractionTools: Tool<ToolRequirements>[] = [
       "Ask the human one blocking question with 2–4 concrete options. Use this tool; do not bury the question in prose. " +
       "Ask only when you are actually blocked: a scope or approach decision with no clearly best option, a destructive action that needs explicit sign-off, or a secret or provider choice no tool can fetch. " +
       "Do not ask permission to do work they already requested, confirmation of safe reversible actions, anything already answered, or anything a tool can resolve. " +
-      "When there is no TTY (headless), do not call this — decide or fail. One decision per call.",
+      "Surfaces work anywhere a human is reachable, including chat bridges with no TTY; when nobody is, the tool says so and you must then decide on a stated assumption or ask in your reply. One decision per call.",
     parameters: askUserSchema,
     hidden: false,
     riskLevel: "read-only",

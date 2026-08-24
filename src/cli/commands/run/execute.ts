@@ -120,6 +120,12 @@ export interface RunAgentOnceOptions {
    */
   readonly stream?: boolean | undefined;
   /**
+   * This caller will relay an `ask_user_question` to a human and write the answer
+   * back on stdin (a chat bridge). Without it the interactive tools are withheld
+   * entirely, so an unattended run cannot stop to ask something nobody will read.
+   */
+  readonly interactiveStdin?: boolean | undefined;
+  /**
    * Caller-supplied stable conversation key (e.g. a Telegram chat id). When
    * set, prior history for this conversation is loaded before the run and the
    * updated transcript is saved back after — giving stateless webhook bridges
@@ -339,6 +345,9 @@ export function runAgentOnceCommand(
       ...(options.timezone !== undefined ? { timezone: options.timezone } : {}),
       ...(options.maxIterations != null ? { maxIterations: options.maxIterations } : {}),
       ...(options.stream !== undefined ? { stream: options.stream } : {}),
+      // Headless by default: only a caller that said it can relay a question
+      // keeps the tools that ask one.
+      ...(options.interactiveStdin === true ? {} : { withholdInteractiveTools: true }),
       ...(ephemeral ? { disablePersistence: true } : {}),
       ...(options.park === true ? { parkWhenUnattended: true } : {}),
     });
@@ -444,6 +453,7 @@ export function runAgentOnceCommand(
         deadline && options.timeoutMs != null
           ? () => deadline.extend(options.timeoutMs!)
           : undefined,
+        options.interactiveStdin === true,
       ),
     ),
   );

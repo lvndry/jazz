@@ -134,6 +134,10 @@ function registerRunCommand(program: Command): void {
     )
     .option("--no-stream", "Disable streaming mode")
     .option(
+      "--interactive-stdin",
+      "This caller relays the agent's questions to a human and writes answers back on stdin (a chat bridge). Without it, tools that ask the user are withheld, so an unattended run never stops for an answer nobody will see.",
+    )
+    .option(
       "--ephemeral",
       "Skip persistence entirely: --conversation is ignored (no history load/save) and long-term memory writes are withheld. Nothing about this run touches disk.",
     )
@@ -161,6 +165,7 @@ function registerRunCommand(program: Command): void {
           conversation?: string;
           stream?: boolean;
           noStream?: boolean;
+          interactiveStdin?: boolean;
           ephemeral?: boolean;
           historyJson?: string;
           park?: boolean;
@@ -255,6 +260,7 @@ function registerRunCommand(program: Command): void {
                   ? { conversationId: options.conversation }
                   : {}),
                 ...resolveStreamOption(options, eventCategories),
+                ...(options.interactiveStdin === true ? { interactiveStdin: true } : {}),
                 ...(options.ephemeral === true ? { ephemeral: true } : {}),
                 ...(options.historyJson !== undefined ? { historyJson: options.historyJson } : {}),
                 ...(options.park === true ? { park: true } : {}),

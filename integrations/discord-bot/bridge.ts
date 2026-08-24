@@ -527,6 +527,9 @@ async function runJazz(
       "--json",
       "--events",
       "tools,reasoning,text,approval,subagent",
+      // This bridge relays the agent's questions as buttons and writes the answer
+      // back on stdin, so the tools that ask one are worth having here.
+      "--interactive-stdin",
       "--agent",
       agentIdForChannel(channelId),
       "--approval-policy",

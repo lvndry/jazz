@@ -79,6 +79,16 @@ const activeRuns = new Map<
 // `commandKey` (set only for execute_command approvals) is the binary name an
 // "Always allow" tap persists to autoApprovedCommands — present only when we
 // could parse one out, since not every approval is a shell command.
+/**
+ * Questions the agent is blocked on, keyed by the id it minted. The run is
+ * parked on stdin until one of these buttons is tapped, so an entry left behind
+ * would be a run that never finishes — they are swept when the run ends.
+ */
+const pendingUserInputs = new Map<
+  string,
+  { chatId: number; messageId: number; runToken: string; options: readonly string[] }
+>();
+
 const pendingApprovals = new Map<
   string,
   { chatId: number; messageId: number; runToken: string; commandKey?: string }
@@ -552,6 +562,10 @@ interface JazzEvent {
   readonly toolCallId?: string;
   readonly message?: string;
   readonly previewDiff?: string;
+  // `user_input_required`: the agent is blocked on a question for the human.
+  readonly requestId?: string;
+  readonly question?: string;
+  readonly suggestions?: readonly { value: string; label?: string; description?: string }[];
 }
 
 /** Read a byte stream and invoke onLine for each newline-delimited line. */
@@ -777,6 +791,55 @@ async function sendApprovalRequest(
   }
 }
 
+/**
+ * Put the agent's question in front of the human with one button per option.
+ *
+ * A new message rather than an edit of the progress bubble: the bubble is
+ * overwritten every couple of seconds and replaced by the answer, so a question
+ * living there would vanish before it could be read.
+ */
+async function sendUserInputRequest(
+  config: BridgeConfig,
+  chatId: number,
+  runToken: string,
+  event: JazzEvent,
+): Promise<void> {
+  const requestId = event.requestId;
+  const question = event.question?.trim();
+  if (requestId === undefined || !question) return;
+
+  const suggestions = event.suggestions ?? [];
+  const lines = ["❓ <b>The agent needs an answer</b>", escapeHtml(question)];
+  for (const suggestion of suggestions) {
+    if (suggestion.description) {
+      lines.push(
+        `• <b>${escapeHtml(suggestion.label ?? suggestion.value)}</b> — ${escapeHtml(suggestion.description)}`,
+      );
+    }
+  }
+
+  // The value is what the agent gets back; the label is only ever shown. Sending
+  // an index keeps the callback payload inside Telegram's 64-byte limit however
+  // long the option text is.
+  const buttons = suggestions.map((suggestion, index) => ({
+    text: (suggestion.label ?? suggestion.value).slice(0, 60),
+    callback_data: `q:${requestId}:${index}`,
+  }));
+  const rows: Record<string, unknown>[][] = buttons.map((button) => [button]);
+
+  const messageId = await sendReply(config, chatId, lines.join("\n"), {
+    markup: { inline_keyboard: rows },
+  });
+  if (typeof messageId === "number") {
+    pendingUserInputs.set(requestId, {
+      chatId,
+      messageId,
+      runToken,
+      options: suggestions.map((suggestion) => suggestion.value),
+    });
+  }
+}
+
 // --- Jazz invocation ------------------------------------------------------
 
 async function runJazz(
@@ -796,6 +859,9 @@ async function runJazz(
       "--json",
       "--events",
       "tools,reasoning,text,approval,subagent",
+      // This bridge relays the agent's questions as buttons and writes the answer
+      // back on stdin, so the tools that ask one are worth having here.
+      "--interactive-stdin",
       "--agent",
       agentIdForChat(chatId),
       "--approval-policy",
@@ -834,6 +900,11 @@ async function runJazz(
       if (event.type === "approval_required" && event.toolCallId) {
         void sendApprovalRequest(config, chatId, runToken, event).catch((error) =>
           console.error(`Failed to send approval request for chat ${chatId}: ${String(error)}`),
+        );
+      }
+      if (event.type === "user_input_required" && event.requestId) {
+        void sendUserInputRequest(config, chatId, runToken, event).catch((error) =>
+          console.error(`Failed to send question for chat ${chatId}: ${String(error)}`),
         );
       }
     } catch {
@@ -1041,6 +1112,9 @@ async function handleMessage(config: BridgeConfig, chatId: number, text: string)
     // errored before a human tapped Accept/Reject).
     for (const [toolCallId, pending] of pendingApprovals) {
       if (pending.runToken === runToken) pendingApprovals.delete(toolCallId);
+    }
+    for (const [requestId, pending] of pendingUserInputs) {
+      if (pending.runToken === runToken) pendingUserInputs.delete(requestId);
     }
   }
 }
@@ -1545,6 +1619,44 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
         reply_markup: { inline_keyboard: [] },
       }).catch(() => undefined);
     }
+    return;
+  }
+
+  if (kind === "q") {
+    const requestId = parts[1] ?? "";
+    const optionIndex = Number.parseInt(parts[2] ?? "", 10);
+    const pending = pendingUserInputs.get(requestId);
+    const run = pending ? activeRuns.get(pending.runToken) : undefined;
+    const answer = pending?.options[optionIndex];
+    if (!pending || !run || answer === undefined) {
+      await callTelegram(config, "answerCallbackQuery", {
+        callback_query_id: callback.id,
+        text: "This question already expired or the run finished.",
+      });
+      return;
+    }
+    pendingUserInputs.delete(requestId);
+    try {
+      // The run is parked on stdin waiting for exactly this line; flush rather
+      // than let Bun's FileSink hold it until the buffer fills.
+      run.child.stdin.write(
+        `${JSON.stringify({ type: "user_input_response", requestId, response: answer })}\n`,
+      );
+      run.child.stdin.flush();
+    } catch (error) {
+      console.error(`Failed to write user input response: ${String(error)}`);
+    }
+    await callTelegram(config, "answerCallbackQuery", {
+      callback_query_id: callback.id,
+      text: `Answered: ${answer}`.slice(0, 200),
+    });
+    // Keep the question visible but retire the buttons, so the thread still
+    // reads as a question that was answered.
+    await callTelegram(config, "editMessageReplyMarkup", {
+      chat_id: chatId,
+      message_id: messageId,
+      reply_markup: { inline_keyboard: [] },
+    });
     return;
   }
 

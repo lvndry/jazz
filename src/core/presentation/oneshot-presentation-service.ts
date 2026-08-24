@@ -7,6 +7,7 @@ import type {
   PresentationService,
   StreamingRenderer,
   StreamingRendererConfig,
+  UserInputRequest,
 } from "@/core/interfaces/presentation";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import { resolveDisplayConfig } from "@/core/presentation/display-config";
@@ -49,6 +50,13 @@ interface ApprovalDecisionLine {
   readonly approved: boolean;
 }
 
+/** Shape of a line written back to `stdinStream` to answer a pending question. */
+interface UserInputResponseLine {
+  readonly type: "user_input_response";
+  readonly requestId: string;
+  readonly response: string;
+}
+
 function parseApprovalDecisionLine(line: string): ApprovalDecisionLine | undefined {
   let parsed: unknown;
   try {
@@ -72,6 +80,29 @@ function parseApprovalDecisionLine(line: string): ApprovalDecisionLine | undefin
   return undefined;
 }
 
+function parseUserInputResponseLine(line: string): UserInputResponseLine | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(line);
+  } catch {
+    return undefined;
+  }
+  if (!parsed || typeof parsed !== "object") return undefined;
+  const candidate = parsed as Record<string, unknown>;
+  if (
+    candidate["type"] === "user_input_response" &&
+    typeof candidate["requestId"] === "string" &&
+    typeof candidate["response"] === "string"
+  ) {
+    return {
+      type: "user_input_response",
+      requestId: candidate["requestId"],
+      response: candidate["response"],
+    };
+  }
+  return undefined;
+}
+
 /**
  * Presentation service for headless, one-shot agent runs (`jazz run`).
  *
@@ -87,13 +118,22 @@ function parseApprovalDecisionLine(line: string): ApprovalDecisionLine | undefin
  *    `autoApprovePolicy` already auto-approved everything it was allowed to;
  *    anything still asking is above the policy threshold and is refused
  *    rather than blanket-approved or left hanging forever,
- *  - user-input / file-picker requests return empty.
+ *  - user-input requests are relayed as a `user_input_required` event and wait
+ *    for a `user_input_response` line, but only when the caller declared it can
+ *    answer them; otherwise they return empty and the calling tool reports that
+ *    it could not ask,
+ *  - file-picker requests return empty.
  *
  * This differs from QuietPresentationService, which blanket-approves every tool
  * and is meant for trusted background runs.
  */
 export class OneShotPresentationService implements PresentationService {
   private readonly pendingApprovals = new Map<string, (outcome: ApprovalOutcome) => void>();
+  private readonly pendingUserInputs = new Map<string, (response: string) => void>();
+  // Questions have no id of their own the way a tool call does, so one is minted
+  // here. Only ever compared against ids this process emitted, so a counter is
+  // enough — it does not need to be unguessable or unique across runs.
+  private userInputSequence = 0;
   private stdinReaderStarted = false;
 
   constructor(
@@ -101,6 +141,13 @@ export class OneShotPresentationService implements PresentationService {
     private readonly emitEventTypes: ReadonlySet<StreamEvent["type"]> = new Set(),
     private readonly stdinStream: NodeJS.ReadableStream = process.stdin,
     private readonly onApprovalWaitStart?: () => void,
+    /**
+     * The consumer on stdin will relay a question to a human and write the answer
+     * back. Off unless the caller says so: `--events` alone only means something
+     * is reading the stream, and a CI job reading it for progress would otherwise
+     * park the run on a question nobody will ever see.
+     */
+    private readonly canAskUser: boolean = false,
   ) {}
 
   /**
@@ -123,11 +170,20 @@ export class OneShotPresentationService implements PresentationService {
         newlineIndex = buffer.indexOf("\n");
         if (line.length === 0) continue;
         const decision = parseApprovalDecisionLine(line);
-        if (!decision) continue;
-        const resolve = this.pendingApprovals.get(decision.toolCallId);
-        if (!resolve) continue;
-        this.pendingApprovals.delete(decision.toolCallId);
-        resolve({ approved: decision.approved });
+        if (decision) {
+          const resolveApproval = this.pendingApprovals.get(decision.toolCallId);
+          if (!resolveApproval) continue;
+          this.pendingApprovals.delete(decision.toolCallId);
+          resolveApproval({ approved: decision.approved });
+          continue;
+        }
+        const answer = parseUserInputResponseLine(line);
+        if (answer) {
+          const resolveInput = this.pendingUserInputs.get(answer.requestId);
+          if (!resolveInput) continue;
+          this.pendingUserInputs.delete(answer.requestId);
+          resolveInput(answer.response);
+        }
       }
     });
   }
@@ -333,8 +389,44 @@ export class OneShotPresentationService implements PresentationService {
     return Effect.void;
   }
 
-  requestUserInput(): Effect.Effect<string, never> {
-    return Effect.succeed("");
+  /**
+   * Ask the human a question, when something is listening.
+   *
+   * Mirrors `requestApproval`: with `--events` a consumer (a chat bridge) sees the
+   * `user_input_required` line, puts the question in front of a person, and writes
+   * a `user_input_response` line back on stdin. Without events nobody could
+   * answer, so this returns empty and the calling tool reports that it could not
+   * ask rather than treating a blank as an answer.
+   */
+  requestUserInput(request: UserInputRequest): Effect.Effect<string, never> {
+    if (!this.eventsActive || !this.canAskUser) return Effect.succeed("");
+
+    this.userInputSequence += 1;
+    const requestId = `ui-${this.userInputSequence}`;
+    // Not truncated: the whole point is that a human reads the question and its
+    // options, and a clipped option is an option they cannot choose meaningfully.
+    process.stderr.write(
+      `${JSON.stringify({
+        type: "user_input_required",
+        requestId,
+        question: request.question,
+        suggestions: request.suggestions,
+        allowCustom: request.allowCustom,
+        ...(request.allowMultiple === true ? { allowMultiple: true } : {}),
+      })}\n`,
+    );
+
+    // Waiting on a person must not spend the agent's own time budget, same as an
+    // approval.
+    this.onApprovalWaitStart?.();
+    this.ensureStdinReaderStarted();
+    const pendingUserInputs = this.pendingUserInputs;
+    return Effect.async<string, never>((resume) => {
+      pendingUserInputs.set(requestId, (response) => resume(Effect.succeed(response)));
+      return Effect.sync(() => {
+        pendingUserInputs.delete(requestId);
+      });
+    });
   }
 
   requestFilePicker(): Effect.Effect<string, never> {
@@ -368,6 +460,7 @@ export class OneShotPresentationService implements PresentationService {
 export function makeOneShotPresentationServiceLayer(
   emitEventTypes: ReadonlySet<StreamEvent["type"]> = new Set(),
   onApprovalWaitStart?: () => void,
+  canAskUser = false,
 ) {
   return Layer.effect(
     PresentationServiceTag,
@@ -381,6 +474,7 @@ export function makeOneShotPresentationServiceLayer(
         emitEventTypes,
         undefined,
         onApprovalWaitStart,
+        canAskUser,
       );
     }),
   );

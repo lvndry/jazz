@@ -391,3 +391,155 @@ describe("OneShotPresentationService requestApproval", () => {
     expect(await pendingA).toEqual({ approved: true });
   });
 });
+
+describe("OneShotPresentationService.requestUserInput", () => {
+  const originalWrite = process.stderr.write;
+  afterEach(() => {
+    process.stderr.write = originalWrite;
+  });
+
+  function captureStderr(): { lines: string[] } {
+    const captured = { lines: [] as string[] };
+    process.stderr.write = ((chunk: string | Uint8Array): boolean => {
+      captured.lines.push(typeof chunk === "string" ? chunk : chunk.toString());
+      return true;
+    }) as typeof process.stderr.write;
+    return captured;
+  }
+
+  const request = {
+    question: "When is your appointment?",
+    suggestions: [
+      { value: "today", label: "Today" },
+      { value: "tomorrow", label: "Tomorrow" },
+    ],
+    allowCustom: true,
+  };
+
+  it("answers empty without asking when the caller cannot relay a question", async () => {
+    // The CI case: --events is on so something is reading the stream, but nothing
+    // will ever write an answer back. Asking here would hang the job.
+    const stdin = new PassThrough();
+    const service = new OneShotPresentationService(
+      DEFAULT_DISPLAY_CONFIG,
+      new Set<StreamEvent["type"]>(["tool_execution_start"]),
+      stdin,
+      undefined,
+      false,
+    );
+    const captured = captureStderr();
+    const answer = await Effect.runPromise(service.requestUserInput(request));
+    expect(answer).toBe("");
+    // Nothing was emitted, so no consumer is left waiting on a question either.
+    expect(captured.lines).toHaveLength(0);
+  });
+
+  it("answers empty with no events at all", async () => {
+    const service = new OneShotPresentationService(DEFAULT_DISPLAY_CONFIG, new Set());
+    expect(await Effect.runPromise(service.requestUserInput(request))).toBe("");
+  });
+
+  it("emits the question and resolves from a response line on stdin", async () => {
+    const stdin = new PassThrough();
+    const service = new OneShotPresentationService(
+      DEFAULT_DISPLAY_CONFIG,
+      new Set<StreamEvent["type"]>(["tool_execution_start"]),
+      stdin,
+      undefined,
+      true,
+    );
+    const captured = captureStderr();
+    const pending = Effect.runPromise(service.requestUserInput(request));
+    await tick();
+
+    expect(captured.lines).toHaveLength(1);
+    const emitted = JSON.parse(captured.lines[0] as string) as {
+      type: string;
+      requestId: string;
+      question: string;
+      suggestions: { value: string }[];
+      allowCustom: boolean;
+    };
+    expect(emitted.type).toBe("user_input_required");
+    expect(emitted.question).toBe("When is your appointment?");
+    expect(emitted.suggestions.map((s) => s.value)).toEqual(["today", "tomorrow"]);
+    expect(emitted.allowCustom).toBe(true);
+
+    stdin.write(
+      `${JSON.stringify({
+        type: "user_input_response",
+        requestId: emitted.requestId,
+        response: "tomorrow",
+      })}\n`,
+    );
+    expect(await pending).toBe("tomorrow");
+  });
+
+  it("does not truncate a long question a human has to read", async () => {
+    const stdin = new PassThrough();
+    const longQuestion = `Which of these should I use? ${"x".repeat(500)}`;
+    const service = new OneShotPresentationService(
+      DEFAULT_DISPLAY_CONFIG,
+      new Set<StreamEvent["type"]>(["tool_execution_start"]),
+      stdin,
+      undefined,
+      true,
+    );
+    const captured = captureStderr();
+    void Effect.runPromise(service.requestUserInput({ ...request, question: longQuestion }));
+    await tick();
+    const emitted = JSON.parse(captured.lines[0] as string) as { question: string };
+    expect(emitted.question).toBe(longQuestion);
+    expect(emitted.question).not.toContain("…");
+  });
+
+  it("ignores a response for a question it did not ask", async () => {
+    const stdin = new PassThrough();
+    const service = new OneShotPresentationService(
+      DEFAULT_DISPLAY_CONFIG,
+      new Set<StreamEvent["type"]>(["tool_execution_start"]),
+      stdin,
+      undefined,
+      true,
+    );
+    captureStderr();
+    const pending = Effect.runPromise(service.requestUserInput(request));
+    await tick();
+    stdin.write(
+      `${JSON.stringify({ type: "user_input_response", requestId: "ui-999", response: "nope" })}\n`,
+    );
+    stdin.write("not json at all\n");
+    await tick();
+    stdin.write(
+      `${JSON.stringify({ type: "user_input_response", requestId: "ui-1", response: "today" })}\n`,
+    );
+    expect(await pending).toBe("today");
+  });
+
+  it("keeps concurrent questions apart", async () => {
+    const stdin = new PassThrough();
+    const service = new OneShotPresentationService(
+      DEFAULT_DISPLAY_CONFIG,
+      new Set<StreamEvent["type"]>(["tool_execution_start"]),
+      stdin,
+      undefined,
+      true,
+    );
+    const captured = captureStderr();
+    const first = Effect.runPromise(service.requestUserInput(request));
+    const second = Effect.runPromise(
+      service.requestUserInput({ ...request, question: "And the other one?" }),
+    );
+    await tick();
+    const ids = captured.lines.map((line) => (JSON.parse(line) as { requestId: string }).requestId);
+    expect(new Set(ids).size).toBe(2);
+    stdin.write(
+      `${JSON.stringify({ type: "user_input_response", requestId: ids[1], response: "second" })}\n`,
+    );
+    stdin.write(
+      `${JSON.stringify({ type: "user_input_response", requestId: ids[0], response: "first" })}\n`,
+    );
+    expect(await first).toBe("first");
+    expect(await second).toBe("second");
+  });
+});
