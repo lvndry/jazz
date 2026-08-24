@@ -103,12 +103,16 @@ export function eventsRequireStreaming(types: ReadonlySet<StreamEvent["type"]>):
  * Resolve a run's streaming mode from the `--stream` / `--no-stream` pair, defaulting to
  * streaming when the requested `--events` categories can only be produced there. An
  * explicit `--no-stream` still wins: the caller is then choosing tool events only.
+ *
+ * Commander folds `--no-stream` into `stream: false` because a positive `--stream` is
+ * declared alongside it, so that is the shape actually seen at runtime; `noStream` is
+ * accepted too rather than trusting one library's negation rules to stay put.
  */
 export function resolveStreamOption(
   options: { stream?: boolean | undefined; noStream?: boolean | undefined },
   eventCategories: ReturnType<typeof parseEventCategories> | undefined,
 ): { stream?: boolean } {
-  if (options.noStream === true) return { stream: false };
+  if (options.noStream === true || options.stream === false) return { stream: false };
   if (options.stream === true) return { stream: true };
   if (eventCategories?.ok === true && eventsRequireStreaming(eventCategories.types)) {
     return { stream: true };

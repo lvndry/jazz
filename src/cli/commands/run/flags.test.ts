@@ -152,6 +152,8 @@ describe("resolveStreamOption", () => {
   });
 
   it("lets an explicit --no-stream win over the events request", () => {
+    // Commander folds `--no-stream` into `stream: false`; both shapes must opt out.
+    expect(resolveStreamOption({ stream: false }, reasoning)).toEqual({ stream: false });
     expect(resolveStreamOption({ noStream: true }, reasoning)).toEqual({ stream: false });
   });
 
