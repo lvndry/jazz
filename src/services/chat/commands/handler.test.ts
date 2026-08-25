@@ -6,9 +6,11 @@ import { NodeFileSystem } from "@effect/platform-node";
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { Effect, Layer } from "effect";
 import { JazzStateServiceTag, type JazzStateService } from "@/core/interfaces/jazz-state";
+import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import { TerminalServiceTag, type TerminalService } from "@/core/interfaces/terminal";
 import type { Agent } from "@/core/types/agent";
 import type { ChatMessage } from "@/core/types/message";
+import { createFileSystemContextServiceLayer } from "@/services/fs";
 import { saveConversation } from "@/services/history/conversation-history-service";
 import { handleSpecialCommand } from "./handler";
 import type { CommandContext, CommandResult } from "./types";
@@ -154,5 +156,75 @@ describe("handleSpecialCommand resume", () => {
 
     expect(result).toEqual({ shouldContinue: true });
     expect(info).toHaveBeenCalled();
+  });
+});
+
+describe("handleSpecialCommand shell escape", () => {
+  test("executes the command and returns its bounded result as agent context", async () => {
+    const output: string[] = [];
+    const mockTerminal: Partial<TerminalService> = {
+      log: mock((message: string) => {
+        output.push(message);
+        return Effect.succeed(undefined);
+      }) as TerminalService["log"],
+      error: mock(() => Effect.void),
+    };
+    const mockLogger: Partial<LoggerService> = {
+      info: mock(() => Effect.void),
+    };
+    const fsContextLayer = createFileSystemContextServiceLayer().pipe(
+      Layer.provide(NodeFileSystem.layer),
+    );
+    const layers = Layer.mergeAll(
+      Layer.succeed(TerminalServiceTag, mockTerminal as TerminalService),
+      Layer.succeed(LoggerServiceTag, mockLogger as LoggerService),
+      fsContextLayer,
+    );
+
+    const result = await Effect.runPromise(
+      handleSpecialCommand(
+        { type: "shell", args: ["printf 'alpha'"] },
+        {
+          agent: testAgent,
+          conversationHistory: [],
+          conversationId: "test-session",
+          sessionUsage: { promptTokens: 0, completionTokens: 0 },
+          sessionStartedAt: new Date(),
+        },
+      ).pipe(Effect.provide(layers)) as Effect.Effect<CommandResult, unknown, never>,
+    );
+
+    expect(output).toEqual(["alpha"]);
+    expect(result.messageForAgent).toContain("Exit code: 0");
+    expect(result.messageForAgent).toContain("alpha");
+  });
+
+  test("does not execute a denylisted command", async () => {
+    const error = mock(() => Effect.void);
+    const mockTerminal: Partial<TerminalService> = { error };
+    const fsContextLayer = createFileSystemContextServiceLayer().pipe(
+      Layer.provide(NodeFileSystem.layer),
+    );
+    const layers = Layer.mergeAll(
+      Layer.succeed(TerminalServiceTag, mockTerminal as TerminalService),
+      Layer.succeed(LoggerServiceTag, { info: () => Effect.void } as LoggerService),
+      fsContextLayer,
+    );
+
+    const result = await Effect.runPromise(
+      handleSpecialCommand(
+        { type: "shell", args: ["rm -rf /"] },
+        {
+          agent: testAgent,
+          conversationHistory: [],
+          conversationId: "test-session",
+          sessionUsage: { promptTokens: 0, completionTokens: 0 },
+          sessionStartedAt: new Date(),
+        },
+      ).pipe(Effect.provide(layers)) as Effect.Effect<CommandResult, unknown, never>,
+    );
+
+    expect(error).toHaveBeenCalled();
+    expect(result.messageForAgent).toContain("blocked");
   });
 });

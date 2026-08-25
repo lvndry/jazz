@@ -12,6 +12,7 @@ import { resolveEffectiveContextWindow } from "@/core/agent/context/effective-co
 import { DEFAULT_TOKEN_COUNTER } from "@/core/agent/context/token-counter";
 import { clearWorkState, readJournal, workStateSizeBytes } from "@/core/agent/context/work-journal";
 import { formatWorkState, readWorkState } from "@/core/agent/context/work-state";
+import { matchForbiddenCommand, runShellCommand } from "@/core/agent/tools/shell-tools";
 import { WEB_SEARCH_PROVIDERS } from "@/core/agent/tools/web-search-tools";
 import { normalizeToolConfig } from "@/core/agent/utils/tool-config";
 import type { ProviderName } from "@/core/constants/models";
@@ -20,7 +21,7 @@ import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interface
 import { AgentServiceTag, type AgentService } from "@/core/interfaces/agent-service";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "@/core/interfaces/fs";
 import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
-import type { LoggerService } from "@/core/interfaces/logger";
+import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import {
   MCPServerManagerTag,
   isHttpConfig,
@@ -41,6 +42,7 @@ import type { ChatMessage } from "@/core/types/message";
 import type { AutoApprovePolicy } from "@/core/types/tools";
 import { generateConversationId } from "@/core/utils/conversation-id";
 import { describeCronSchedule } from "@/core/utils/cron";
+import { createSanitizedEnv } from "@/core/utils/env";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import type { WorkflowMetadata } from "@/core/workflows/workflow-service";
 import { WorkflowServiceTag, type WorkflowService } from "@/core/workflows/workflow-service";
@@ -158,6 +160,9 @@ export function handleSpecialCommand(
       case "retry":
         return yield* handleRetryCommand(terminal, conversationHistory);
 
+      case "shell":
+        return yield* handleShellCommand(command.args[0] ?? "", context);
+
       case "clear":
         return yield* handleClearCommand(terminal, agent);
 
@@ -173,6 +178,89 @@ export function handleSpecialCommand(
       default:
         return { shouldContinue: true };
     }
+  });
+}
+
+/**
+ * Execute a command explicitly entered by the operator with a leading `!`.
+ *
+ * This is intentionally outside the model tool loop: the operator authored the
+ * command and its output is then handed to the model as context. It still uses
+ * the shell tool's denylist, sanitized environment, cwd resolution, timeout,
+ * and output cap so the two shell entry points share the same host boundary.
+ */
+function handleShellCommand(
+  command: string,
+  context: CommandContext,
+): Effect.Effect<CommandResult, never, FileSystemContextService | LoggerService | TerminalService> {
+  return Effect.gen(function* () {
+    const terminal = yield* TerminalServiceTag;
+    const shell = yield* FileSystemContextServiceTag;
+    const logger = yield* LoggerServiceTag;
+    const trimmedCommand = command.trim();
+
+    if (!trimmedCommand) {
+      yield* terminal.error("Usage: ! <shell command>");
+      return { shouldContinue: true };
+    }
+
+    const forbidden = matchForbiddenCommand(trimmedCommand);
+    if (forbidden) {
+      const error = `Command blocked by the built-in safety denylist: ${forbidden.reason}`;
+      yield* terminal.error(error);
+      return {
+        shouldContinue: true,
+        messageForAgent: `The operator tried to run this shell command with \`!\`, but Jazz blocked it: ${error}`,
+      };
+    }
+
+    const workingDirectory = yield* shell.getCwd({
+      agentId: context.agent.id,
+      conversationId: context.conversationId,
+    });
+    const result = yield* runShellCommand({
+      command: trimmedCommand,
+      workingDir: workingDirectory,
+      timeoutMs: 900_000,
+      env: createSanitizedEnv({}, context.agent.config.envAllowlist ?? []),
+    }).pipe(
+      Effect.catchAll((error) =>
+        Effect.succeed({
+          stdout: "",
+          stderr: error.message,
+          exitCode: -1,
+        }),
+      ),
+    );
+
+    const combinedOutput = [result.stdout, result.stderr ? `stderr:\n${result.stderr}` : ""]
+      .filter(Boolean)
+      .join("\n")
+      .trim();
+    yield* logger.info("Interactive shell escape completed", {
+      exitCode: result.exitCode,
+      workingDirectory,
+    });
+    yield* terminal.log(
+      combinedOutput || `(command exited with code ${result.exitCode}; no output)`,
+    );
+
+    return {
+      shouldContinue: true,
+      messageForAgent: [
+        `The operator ran this command with \`!\` in ${workingDirectory}:`,
+        "",
+        "```sh",
+        trimmedCommand,
+        "```",
+        "",
+        `Exit code: ${result.exitCode}`,
+        "",
+        combinedOutput ? `Command output:\n${combinedOutput}` : "Command output: (none)",
+        "",
+        "Use this command result as context for your response. Do not claim to have run the command yourself.",
+      ].join("\n"),
+    };
   });
 }
 
@@ -421,6 +509,9 @@ function handleHelpCommand(
           34,
         ),
       ).join("\n"),
+    );
+    yield* terminal.log(
+      fmt.commandRow("! <command>", "Run a shell command and give its output to the agent", 34),
     );
     yield* terminal.log(fmt.blank());
     yield* terminal.log(fmt.heading("Keyboard Shortcuts"));

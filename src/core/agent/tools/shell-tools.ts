@@ -421,7 +421,7 @@ type ShellCommandDeps = FileSystem.FileSystem | FileSystemContextService | Logge
  */
 export const EXECUTE_COMMAND_OUTPUT_CAP_BYTES = DEFAULT_SPAWN_OUTPUT_CAP_BYTES;
 
-type ShellCommandOutput = {
+export type ShellCommandOutput = {
   readonly stdout: string;
   readonly stderr: string;
   readonly exitCode: number;
@@ -434,7 +434,7 @@ type ShellCommandOutput = {
  * "still running after 30s". Returning an interrupt finalizer from
  * `Effect.async` SIGKILLs the child when the tool fiber is interrupted.
  */
-function runShellCommand(input: {
+export function runShellCommand(input: {
   readonly command: string;
   readonly workingDir: string;
   readonly timeoutMs: number;

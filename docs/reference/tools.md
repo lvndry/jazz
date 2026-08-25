@@ -66,11 +66,11 @@ nothing, `write_file` changes the machine and reveals nothing at all.
 Every tool declares both. The field is required, with no default anywhere, so a new tool
 cannot be added without someone deciding.
 
-| Level        | Safe to tell                                                              | Tools |
-| ------------ | ------------------------------------------------------------------------- | ----- |
-| `public`     | safe to tell anyone                                                       | `add_reminder`, `cp`, `mkdir`, `mv`, `rm`, `web_fetch`, `web_search`, `write_file` |
-| `internal`   | the shape of this machine — paths, names, what is installed               | `cd`, `context_info`, `create_pdf`, `create_web_app`, `find`, `get_time`, `ls`, `pdf_page_count`, `pwd`, `stat` |
-| `private`    | your own material — file contents, memory, schedule, transcript           | `ask_file_picker`, `ask_user_question`, `cancel_reminder`, `edit_file`, `execute_command`, `grep`, `http_request`, `list_reminders`, `list_todos`, `manage_memory`, `manage_todos`, `read_file`, `read_pdf`, `spawn_subagent`, `summarize_context`, `update_work_state`, `view_memory` |
+| Level      | Safe to tell                                                    | Tools                                                                                                                                                                                                                                                                                  |
+| ---------- | --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `public`   | safe to tell anyone                                             | `add_reminder`, `cp`, `mkdir`, `mv`, `rm`, `web_fetch`, `web_search`, `write_file`                                                                                                                                                                                                     |
+| `internal` | the shape of this machine — paths, names, what is installed     | `cd`, `context_info`, `create_pdf`, `create_web_app`, `find`, `get_time`, `ls`, `pdf_page_count`, `pwd`, `stat`                                                                                                                                                                        |
+| `private`  | your own material — file contents, memory, schedule, transcript | `ask_file_picker`, `ask_user_question`, `cancel_reminder`, `edit_file`, `execute_command`, `grep`, `http_request`, `list_reminders`, `list_todos`, `manage_memory`, `manage_todos`, `read_file`, `read_pdf`, `spawn_subagent`, `summarize_context`, `update_work_state`, `view_memory` |
 
 A tool spanning two levels takes the more sensitive one — `edit_file` writes, but its approval
 message carries a diff of your file, so it is `private`. `http_request` reaches private
@@ -114,6 +114,11 @@ of "unknown" is the most restrictive one.
 | ----------------- | --------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `execute_command` | `unknown` | `execute_execute_command` | Run a shell command when no dedicated tool exists. Each command is classified `read-only`, `low-risk`, or `high-risk`, and the active tier then applies to that verdict. Stdout/stderr capped at 256 KB each. |
 
+In the interactive terminal, an operator can also type `! <command>`. That explicit shell escape
+uses the same cwd resolution, environment sanitization, denylist, timeout, interruption, and
+output caps as `execute_command`, then gives the result to the agent as context. It is not
+available through `jazz run` or remote chat surfaces.
+
 ### Web Search
 
 | Tool         | Risk        | Approval pair | What it does                              |
@@ -155,11 +160,11 @@ Opt-in per agent (like File Management) rather than always-on — see [Memory](.
 
 Opt-in per agent. Reminders persist on disk and fire later on the same surface that scheduled them — see [Reminders](../internals/reminders.md).
 
-| Tool              | Risk        | Approval pair | What it does                                                                            |
-| ----------------- | ----------- | ------------- | --------------------------------------------------------------------------------------- |
+| Tool              | Risk        | Approval pair | What it does                                                                                                                                     |
+| ----------------- | ----------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `add_reminder`    | `low-risk`  | —             | Schedule a reminder from a duration (`30m`), clock time (`18:00`), `tomorrow HH:MM`, a weekday (`tue 20:00`), or an absolute `2026-08-25 20:00`. |
-| `list_reminders`  | `read-only` | —             | List this person's pending reminders, including their id, fire time, and text.          |
-| `cancel_reminder` | `low-risk`  | —             | Cancel a pending reminder by id (get the id from list_reminders first).                 |
+| `list_reminders`  | `read-only` | —             | List this person's pending reminders, including their id, fire time, and text.                                                                   |
+| `cancel_reminder` | `low-risk`  | —             | Cancel a pending reminder by id (get the id from list_reminders first).                                                                          |
 
 ### Context
 
@@ -193,7 +198,7 @@ Opt-in per agent via `tools`. Used by chat bridges that can render a Mini App or
 
 ---
 
-## What is *not* a built-in tool
+## What is _not_ a built-in tool
 
 A common and consequential misreading. These capabilities exist, but **not as built-in
 tools** — they are [skills](../concepts/skills.md) that shell out through
@@ -206,7 +211,7 @@ tools** — they are [skills](../concepts/skills.md) that shell out through
 | Obsidian vault writes       | `obsidian` skill → CLI via `execute_command`, or `write_file`                              | `unknown` / `high-risk` |
 
 So a scheduled workflow set to `autoApprove: low-risk` **cannot archive an email** — every
-himalaya invocation is declined. The fix is usually *not* to raise the whole tier to
+himalaya invocation is declined. The fix is usually _not_ to raise the whole tier to
 `high-risk` (which also unlocks `rm` and `git push`), but to allowlist the specific binary:
 
 ```json
@@ -222,8 +227,8 @@ That keeps the tier low while letting the one command through. Matching is on a 
 
 ## Notes
 
-- **`find` vs `grep`** — `find` locates files by name, glob, or path pattern. `grep` searches *inside* file contents. Non-overlapping on purpose.
-- **`execute_command` classifier**. The tool is `unknown`, so a harness-model classifier labels each command `read-only`, `low-risk`, or `high-risk` and the active tier judges that verdict: `--approval-policy read-only` auto-approves an inspect-only command, an interactive session skips its prompt, yolo skips the classifier entirely. The live zone shows `classifying` while it runs, and the verdict is printed on the settled receipt. It sees the last five *user* requests (800 characters) on an interactive session and the command alone everywhere else — never the assistant's own turns. Timeouts and ambiguous replies stay `high-risk`. See [Tools & approval](../internals/tools-and-approval.md#command-classifier).
+- **`find` vs `grep`** — `find` locates files by name, glob, or path pattern. `grep` searches _inside_ file contents. Non-overlapping on purpose.
+- **`execute_command` classifier**. The tool is `unknown`, so a harness-model classifier labels each command `read-only`, `low-risk`, or `high-risk` and the active tier judges that verdict: `--approval-policy read-only` auto-approves an inspect-only command, an interactive session skips its prompt, yolo skips the classifier entirely. The live zone shows `classifying` while it runs, and the verdict is printed on the settled receipt. It sees the last five _user_ requests (800 characters) on an interactive session and the command alone everywhere else — never the assistant's own turns. Timeouts and ambiguous replies stay `high-risk`. See [Tools & approval](../internals/tools-and-approval.md#command-classifier).
 - **`http_request` is `read-only`** by risk classification even though it can issue POSTs. It reaches whatever URL the agent targets; network policy belongs at the firewall, not the tier. Treat it accordingly on surfaces that accept untrusted input.
 - **Timeouts** — 3 minutes by default per tool. `ask_user_question` and `ask_file_picker` are `longRunning` and never time out, because waiting for a human is not a hang.
 - **Concurrency** — up to 10 tools execute in parallel per iteration.

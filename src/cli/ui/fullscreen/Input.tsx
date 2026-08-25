@@ -257,6 +257,9 @@ export function inputRows(
   const width = Math.max(1, viewport.width);
   const contentWidth = Math.max(1, width - GUTTER_CELLS);
   const live = focused && !model.disabled;
+  // A leading "!" hands the line to the shell instead of the model — the rail
+  // and marker pick up the warning hue so that is visible before Enter is hit.
+  const shellCommand = live && model.value.trimStart().startsWith("!");
   const empty = model.value.length === 0;
   const valueCodePoints = [...model.value].length;
   const caretAt = Math.max(0, Math.min(model.caret ?? valueCodePoints, valueCodePoints));
@@ -346,11 +349,14 @@ export function inputRows(
   visible.forEach((line, index) => {
     const rail: InputSegment = {
       text: `${glyphs.rail} `,
-      fg: live ? THEME.primary : THEME.border,
+      fg: shellCommand ? THEME.warning : live ? THEME.primary : THEME.border,
     };
     const marker: InputSegment =
       index === 0
-        ? { text: `${glyphs.promptCursor} `, fg: live ? THEME.prompt : THEME.muted }
+        ? {
+            text: `${glyphs.promptCursor} `,
+            fg: shellCommand ? THEME.warning : live ? THEME.prompt : THEME.muted,
+          }
         : { text: "  ", fg: THEME.muted };
 
     const body: InputSegment[] = [];

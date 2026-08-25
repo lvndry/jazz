@@ -29,6 +29,7 @@ export type CommandType =
   | "theme"
   | "export"
   | "retry"
+  | "shell"
   | "runSkill"
   | "runMcpPrompt"
   | "unknown";
@@ -65,6 +66,8 @@ export interface CommandResult {
   resetStartedAt?: boolean;
   /** Message to re-send to the agent immediately (set by /retry) */
   resendMessage?: string;
+  /** Message to send to the agent after a user-side command has completed. */
+  messageForAgent?: string;
 }
 
 /** Token usage accumulated for the current conversation (for /cost). */

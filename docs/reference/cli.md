@@ -126,12 +126,12 @@ See [Integrations → MCP](../integrations/mcp.md).
 Inspect runs still in flight — including your own parked ones, and, once a daemon started
 one, runs begun from somewhere else entirely.
 
-| Command                    | Purpose                                                             |
-| --------------------------- | -------------------------------------------------------------------- |
-| `jazz runs list`           | List unfinished runs, newest first. `--agent`, `--conversation`, `--all` (include finished, with cost), `--json` |
-| `jazz runs show <runId>`   | Show one run, including what it's waiting for. `--json`             |
-| `jazz runs approve <runId>` | Approve what a parked run is waiting for; blocks until it finishes  |
-| `jazz runs reject <runId>` | Refuse what it's waiting for; `--note <text>` tells it why           |
+| Command                     | Purpose                                                                                                          |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `jazz runs list`            | List unfinished runs, newest first. `--agent`, `--conversation`, `--all` (include finished, with cost), `--json` |
+| `jazz runs show <runId>`    | Show one run, including what it's waiting for. `--json`                                                          |
+| `jazz runs approve <runId>` | Approve what a parked run is waiting for; blocks until it finishes                                               |
+| `jazz runs reject <runId>`  | Refuse what it's waiting for; `--note <text>` tells it why                                                       |
 
 A run parks when it hits something needing your approval and nobody is there to give it — see
 [Daemon](#jazz-daemon) for answering one from a different process than the one that started it.
@@ -145,11 +145,11 @@ Serves runs over HTTP: start one, poll it, approve or reject what a parked one i
 began it. Runs in the foreground; supervision (restart on crash, start on boot) is the host's
 job, not the daemon's.
 
-| Flag                    | Purpose                                                                                          |
-| ------------------------ | -------------------------------------------------------------------------------------------------- |
-| `--port <n>`            | Port to listen on. Default `4747`                                                                 |
-| `--host <address>`      | Interface to bind. Default `127.0.0.1`. Anything else requires `$JAZZ_DAEMON_TOKEN`               |
-| `--serve-peers <agentId>` | Also answer questions from configured peers, using this agent. Off unless given                 |
+| Flag                      | Purpose                                                                             |
+| ------------------------- | ----------------------------------------------------------------------------------- |
+| `--port <n>`              | Port to listen on. Default `4747`                                                   |
+| `--host <address>`        | Interface to bind. Default `127.0.0.1`. Anything else requires `$JAZZ_DAEMON_TOKEN` |
+| `--serve-peers <agentId>` | Also answer questions from configured peers, using this agent. Off unless given     |
 
 `$JAZZ_DAEMON_TOKEN` authenticates the operator routes (`/runs`, `/health`); it is read from
 the environment, never a flag, so it never lands in `ps` output or shell history. `/peer/ask`
@@ -165,11 +165,11 @@ See [Setting up peers](../guide/peers-setup.md) for a full walkthrough, and
 
 Other people's agents this machine talks to, and what has been said to or by them.
 
-| Command                          | Purpose                                                                          |
-| ---------------------------------- | ----------------------------------------------------------------------------------- |
-| `jazz peers list`                | List configured peers and what each may learn. `--json`                          |
-| `jazz peers set-token <name>`    | Store a peer's token, read from `$JAZZ_PEER_TOKEN` (or `--from-env <VAR>`)        |
-| `jazz peers forget-token <name>` | Remove a peer's stored token                                                     |
+| Command                          | Purpose                                                                                  |
+| -------------------------------- | ---------------------------------------------------------------------------------------- |
+| `jazz peers list`                | List configured peers and what each may learn. `--json`                                  |
+| `jazz peers set-token <name>`    | Store a peer's token, read from `$JAZZ_PEER_TOKEN` (or `--from-env <VAR>`)               |
+| `jazz peers forget-token <name>` | Remove a peer's stored token                                                             |
 | `jazz peers log`                 | Everything said to and by a peer, newest first. `--peer <name>`, `--limit <n>`, `--json` |
 
 Peers themselves are added by editing `~/.jazz/config.json` directly, not through a command —
@@ -213,7 +213,7 @@ See [Configuration](./configuration.md).
 
 ---
 
-## In-chat slash commands
+## In-chat commands
 
 Available inside an interactive session. Type `/help` for the current list.
 
@@ -233,6 +233,24 @@ Available inside an interactive session. Type `/help` for the current list.
 
 **Keys:** double-Escape interrupts generation or a running tool. Shift+Tab cycles the
 approval policy. Shift+Enter inserts a newline in the composer; Enter sends.
+
+### Shell escapes
+
+In the interactive terminal, type `! <command>` when the agent asks you to run a command
+yourself. Jazz executes the command in the current session directory and sends its bounded
+stdout, stderr, and exit code to the agent as context for the next response:
+
+```text
+> ! ssh user@test rm -r folder
+> Did that remove the folder successfully?
+```
+
+The command is executed because you entered it explicitly; it does not wait for the model to
+call `execute_command`. The built-in shell denylist, sanitized environment, timeout, process
+interruption, and 256 KiB per-stream output cap still apply. Output is treated as command data,
+not as instructions. A non-zero exit code is still passed to the agent so it can explain or
+suggest the next step. `!` is an interactive terminal feature and is not interpreted by
+`jazz run`, scheduled jobs, CI, or chat bridges.
 
 ---
 

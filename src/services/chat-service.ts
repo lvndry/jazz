@@ -273,7 +273,8 @@ export class ChatServiceImpl implements ChatService {
         if (
           conversationTitle === null &&
           trimmedMessage.length > 0 &&
-          !trimmedMessage.startsWith("/")
+          !trimmedMessage.startsWith("/") &&
+          !trimmedMessage.startsWith("!")
         ) {
           conversationTitle = trimmedMessage.slice(0, 80);
         }
@@ -281,10 +282,11 @@ export class ChatServiceImpl implements ChatService {
         let messageForAgent = userMessage;
 
         // A message with interior newlines (multi-line composition or a
-        // multi-line queued entry) is prose even when it starts with "/" —
+        // multi-line queued entry) is prose even when it starts with "/" or
+        // "!" —
         // command parsing would silently discard everything after line one.
         if (
-          trimmedMessage.startsWith("/") &&
+          (trimmedMessage.startsWith("/") || trimmedMessage.startsWith("!")) &&
           !drainedMultipleEntries &&
           !trimmedMessage.includes("\n")
         ) {
@@ -422,6 +424,10 @@ export class ChatServiceImpl implements ChatService {
               // message instead of prompting again.
               messageForAgent = commandResult.resendMessage;
               yield* terminal.user(messageForAgent);
+            } else if (commandResult.messageForAgent !== undefined) {
+              // A leading `!` executes locally first; only the command result is
+              // sent into the model turn, not the shell escape syntax itself.
+              messageForAgent = commandResult.messageForAgent;
             } else {
               continue;
             }

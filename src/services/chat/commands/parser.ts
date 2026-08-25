@@ -4,11 +4,17 @@ import type { SpecialCommand } from "./types";
 /**
  * Parse special commands from user input.
  *
- * Special commands start with "/" and may have arguments.
- * Examples: /new, /help, /switch agent-name
+ * Slash commands start with "/" and may have arguments. A leading "!" is
+ * preserved as a shell escape whose complete command is kept in one argument.
+ * Examples: /new, /help, /switch agent-name, ! git status
  */
 export function parseSpecialCommand(input: string): SpecialCommand {
   const trimmed = input.trim();
+
+  if (trimmed.startsWith("!")) {
+    const command = trimmed.slice(1).trim();
+    return command.length > 0 ? { type: "shell", args: [command] } : { type: "unknown", args: [] };
+  }
 
   if (!trimmed.startsWith("/")) {
     return { type: "unknown", args: [] };
