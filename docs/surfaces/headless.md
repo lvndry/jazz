@@ -184,6 +184,58 @@ rather keep the batch path and take tool events only.
 
 ---
 
+## Asking the human something
+
+An unattended run has nobody to ask, so by default the tools that solicit an answer —
+`ask_user_question`, `ask_file_picker` — are **not offered to the model at all**. It never
+sees them, so it cannot spend a round on a question that will not be answered, and cannot
+mistake a blank for a reply and act on it. A run in CI or cron that stopped to ask
+something would hang until its timeout for nobody's benefit.
+
+Where a human *is* reachable, the tools come back. That is detected rather than declared
+wherever it can be: **stdin being a terminal is enough on its own**, so running `jazz run`
+by hand needs no flag — the question is printed and you answer by typing a line, either the
+number of an option or something of your own.
+
+```text
+❓ Which database?
+  1) Postgres — the default
+  2) SQLite
+Answer (number, or type your own; empty to skip):
+```
+
+A chat bridge is the case that cannot be detected: through a pipe it looks exactly like a
+cron job. It declares itself with `--interactive-stdin`, and the question then becomes a
+line on the event stream instead of a prompt:
+
+```json
+{"type":"user_input_required","requestId":"ui-1","question":"When is your appointment?",
+ "suggestions":[{"value":"today","label":"Today"},{"value":"tomorrow","label":"Tomorrow"}],
+ "allowCustom":true}
+```
+
+The run blocks until you write the answer back on **stdin**, exactly as approvals work:
+
+```json
+{"type":"user_input_response","requestId":"ui-1","response":"tomorrow"}
+```
+
+`response` should be one of the suggestions' `value` fields, though any string is accepted
+when `allowCustom` is true. An empty response is treated as no answer: the tool reports
+that it could not ask and the model is told to state an assumption or put the question in
+its reply instead. Time spent waiting does not count against `--timeout`, so a human can
+take as long as they like.
+
+The question is never truncated, unlike other event payloads — a clipped option is one
+nobody can meaningfully choose. Both shipped chat bridges pass this flag and render the
+suggestions as buttons.
+
+`CI=true` overrides the terminal check, since some runners allocate a pty and a job that
+stops to ask something would wait out its timeout for nobody. An explicit
+`--interactive-stdin` still wins there, for a bridge running inside a pipeline.
+
+---
+
 ## Autonomy
 
 Unattended runs have nobody to ask, so `--approval-policy` decides in advance. Tools

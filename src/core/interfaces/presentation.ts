@@ -16,6 +16,22 @@ export interface Suggestion {
 }
 
 /**
+ * What came back from asking the human.
+ *
+ * "Nobody was there" and "they said no" call for opposite behaviour — the first
+ * leaves the decision to the agent, the second is the human's decision and must
+ * not be overridden by guessing — so they are distinct outcomes rather than one
+ * empty string. Submitting nothing is a refusal: the question was seen.
+ */
+export type UserInputOutcome =
+  /** They answered. `response` is non-empty. */
+  | { readonly kind: "answered"; readonly response: string }
+  /** They were asked and declined — dismissed the prompt or entered nothing. */
+  | { readonly kind: "declined" }
+  /** Nobody could be asked. No human ever saw this question. */
+  | { readonly kind: "unavailable" };
+
+/**
  * Request for user input with optional suggested responses.
  * Used by the ask_user tool to gather clarifications.
  */
@@ -267,7 +283,7 @@ export interface PresentationService {
    * @param request - The user input request with question and optional suggestions
    * @returns The user's response (either selected suggestion or custom text)
    */
-  readonly requestUserInput: (request: UserInputRequest) => Effect.Effect<string, never>;
+  readonly requestUserInput: (request: UserInputRequest) => Effect.Effect<UserInputOutcome, never>;
 
   /**
    * Request file selection from the user with fuzzy path filtering.

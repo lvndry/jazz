@@ -306,6 +306,15 @@ function initializeAgentRun(
       combinedToolNames = combinedToolNames.filter((name) => name !== "manage_memory");
     }
 
+    // Same reasoning for the tools that solicit an answer from a human. Failing the
+    // call at execution time costs a round and invites the model to invent an
+    // answer; not having the tool leaves it no choice but to decide openly.
+    if (options.withholdInteractiveTools === true) {
+      combinedToolNames = combinedToolNames.filter(
+        (name) => name !== "ask_user_question" && name !== "ask_file_picker",
+      );
+    }
+
     // Applied after personas resolve (earlier would let a child's persona re-add
     // a category the parent denied) and before the registry filter.
     if (options.toolAllowlist) {

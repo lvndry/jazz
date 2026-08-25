@@ -135,6 +135,20 @@ const mockToolRegistry = {
           parameters: {},
         },
       },
+      {
+        function: {
+          name: "ask_user_question",
+          description: "Ask the human a blocking question",
+          parameters: {},
+        },
+      },
+      {
+        function: {
+          name: "ask_file_picker",
+          description: "Show an interactive file picker",
+          parameters: {},
+        },
+      },
     ]),
   ),
 } as unknown as ToolRegistry;
@@ -344,6 +358,53 @@ describe("AgentRunner", () => {
       await runWithTestLayers(AgentRunner.run(options));
 
       expect(lastRequestedToolNames()).toContain("manage_memory");
+    });
+  });
+
+  describe("withholdInteractiveTools", () => {
+    const agentWithAskTool: Agent = {
+      ...mockAgent,
+      config: { ...mockAgent.config, tools: ["tool1", "ask_user_question", "ask_file_picker"] },
+    };
+
+    function lastRequestedToolNames(): string[] {
+      const streamingMock = mockLlmService.createStreamingChatCompletion as Mock<
+        LLMService["createStreamingChatCompletion"]
+      >;
+      const lastCall = streamingMock.mock.calls.at(-1);
+      const llmOptions = lastCall?.[1] as { tools?: { function: { name: string } }[] };
+      return (llmOptions.tools ?? []).map((tool) => tool.function.name);
+    }
+
+    it("withholds the soliciting tools when nobody can answer", async () => {
+      await runWithTestLayers(
+        AgentRunner.run({
+          ...defaultOptions,
+          agent: agentWithAskTool,
+          stream: true,
+          maxIterations: 1,
+          withholdInteractiveTools: true,
+        }),
+      );
+
+      // Not offered rather than failing at call time: a CI run that stops to ask
+      // something hangs until its timeout for nobody.
+      expect(lastRequestedToolNames()).not.toContain("ask_user_question");
+      expect(lastRequestedToolNames()).not.toContain("ask_file_picker");
+      expect(lastRequestedToolNames()).toContain("tool1");
+    });
+
+    it("keeps them when the surface can relay a question", async () => {
+      await runWithTestLayers(
+        AgentRunner.run({
+          ...defaultOptions,
+          agent: agentWithAskTool,
+          stream: true,
+          maxIterations: 1,
+        }),
+      );
+
+      expect(lastRequestedToolNames()).toContain("ask_user_question");
     });
   });
 

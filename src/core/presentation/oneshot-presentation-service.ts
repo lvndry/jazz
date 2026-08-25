@@ -7,6 +7,8 @@ import type {
   PresentationService,
   StreamingRenderer,
   StreamingRendererConfig,
+  UserInputOutcome,
+  UserInputRequest,
 } from "@/core/interfaces/presentation";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import { resolveDisplayConfig } from "@/core/presentation/display-config";
@@ -49,6 +51,33 @@ interface ApprovalDecisionLine {
   readonly approved: boolean;
 }
 
+/**
+ * Can this process put a question in front of a human and get an answer back?
+ *
+ * A person at a terminal answers by typing, so a TTY on stdin settles it. A chat
+ * bridge answers over the event protocol but is indistinguishable from a cron job
+ * through a pipe, so it must declare itself.
+ *
+ * `CI` overrides the TTY check, since some runners allocate one and a job that
+ * stops to ask something waits out its timeout for nobody.
+ */
+export function detectInteractiveInput(
+  declared: boolean,
+  env: NodeJS.ProcessEnv = process.env,
+  stdin: { isTTY?: boolean } = process.stdin,
+): { interactive: boolean; viaTty: boolean } {
+  if (env["CI"] === "true" || env["CI"] === "1") return { interactive: declared, viaTty: false };
+  if (stdin.isTTY === true) return { interactive: true, viaTty: true };
+  return { interactive: declared, viaTty: false };
+}
+
+/** Shape of a line written back to `stdinStream` to answer a pending question. */
+interface UserInputResponseLine {
+  readonly type: "user_input_response";
+  readonly requestId: string;
+  readonly response: string;
+}
+
 function parseApprovalDecisionLine(line: string): ApprovalDecisionLine | undefined {
   let parsed: unknown;
   try {
@@ -72,6 +101,29 @@ function parseApprovalDecisionLine(line: string): ApprovalDecisionLine | undefin
   return undefined;
 }
 
+function parseUserInputResponseLine(line: string): UserInputResponseLine | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(line);
+  } catch {
+    return undefined;
+  }
+  if (!parsed || typeof parsed !== "object") return undefined;
+  const candidate = parsed as Record<string, unknown>;
+  if (
+    candidate["type"] === "user_input_response" &&
+    typeof candidate["requestId"] === "string" &&
+    typeof candidate["response"] === "string"
+  ) {
+    return {
+      type: "user_input_response",
+      requestId: candidate["requestId"],
+      response: candidate["response"],
+    };
+  }
+  return undefined;
+}
+
 /**
  * Presentation service for headless, one-shot agent runs (`jazz run`).
  *
@@ -87,13 +139,22 @@ function parseApprovalDecisionLine(line: string): ApprovalDecisionLine | undefin
  *    `autoApprovePolicy` already auto-approved everything it was allowed to;
  *    anything still asking is above the policy threshold and is refused
  *    rather than blanket-approved or left hanging forever,
- *  - user-input / file-picker requests return empty.
+ *  - user-input requests are relayed as a `user_input_required` event and wait
+ *    for a `user_input_response` line, but only when the caller declared it can
+ *    answer them; otherwise they return empty and the calling tool reports that
+ *    it could not ask,
+ *  - file-picker requests return empty.
  *
  * This differs from QuietPresentationService, which blanket-approves every tool
  * and is meant for trusted background runs.
  */
 export class OneShotPresentationService implements PresentationService {
   private readonly pendingApprovals = new Map<string, (outcome: ApprovalOutcome) => void>();
+  private readonly pendingUserInputs = new Map<string, (response: string) => void>();
+  // Questions have no id of their own the way a tool call does, so one is minted
+  // here. Only ever compared against ids this process emitted, so a counter is
+  // enough — it does not need to be unguessable or unique across runs.
+  private userInputSequence = 0;
   private stdinReaderStarted = false;
 
   constructor(
@@ -101,6 +162,16 @@ export class OneShotPresentationService implements PresentationService {
     private readonly emitEventTypes: ReadonlySet<StreamEvent["type"]> = new Set(),
     private readonly stdinStream: NodeJS.ReadableStream = process.stdin,
     private readonly onApprovalWaitStart?: () => void,
+    /**
+     * How a question reaches a human, if one is reachable at all.
+     *  - `"tty"`: somebody is at a terminal. The question is printed for them and
+     *    answered by typing a line.
+     *  - `"protocol"`: a consumer relays it and writes back a
+     *    `user_input_response` line (a chat bridge).
+     *  - `"none"`: nobody. `requestUserInput` reports `unavailable`, which the
+     *    calling tool must not confuse with a human declining.
+     */
+    private readonly askMode: "tty" | "protocol" | "none" = "none",
   ) {}
 
   /**
@@ -122,12 +193,32 @@ export class OneShotPresentationService implements PresentationService {
         buffer = buffer.slice(newlineIndex + 1);
         newlineIndex = buffer.indexOf("\n");
         if (line.length === 0) continue;
+        // A person types prose, not JSON. Any line that is not one of the two
+        // protocol shapes answers the question that has been waiting longest.
+        if (this.askMode === "tty" && !line.startsWith("{")) {
+          const [requestId] = this.pendingUserInputs.keys();
+          if (requestId !== undefined) {
+            const resolveTyped = this.pendingUserInputs.get(requestId);
+            this.pendingUserInputs.delete(requestId);
+            resolveTyped?.(line);
+          }
+          continue;
+        }
         const decision = parseApprovalDecisionLine(line);
-        if (!decision) continue;
-        const resolve = this.pendingApprovals.get(decision.toolCallId);
-        if (!resolve) continue;
-        this.pendingApprovals.delete(decision.toolCallId);
-        resolve({ approved: decision.approved });
+        if (decision) {
+          const resolveApproval = this.pendingApprovals.get(decision.toolCallId);
+          if (!resolveApproval) continue;
+          this.pendingApprovals.delete(decision.toolCallId);
+          resolveApproval({ approved: decision.approved });
+          continue;
+        }
+        const answer = parseUserInputResponseLine(line);
+        if (answer) {
+          const resolveInput = this.pendingUserInputs.get(answer.requestId);
+          if (!resolveInput) continue;
+          this.pendingUserInputs.delete(answer.requestId);
+          resolveInput(answer.response);
+        }
       }
     });
   }
@@ -333,8 +424,79 @@ export class OneShotPresentationService implements PresentationService {
     return Effect.void;
   }
 
-  requestUserInput(): Effect.Effect<string, never> {
-    return Effect.succeed("");
+  /**
+   * Ask the human a question, when something is listening.
+   *
+   * Mirrors `requestApproval`: with `--events` a consumer (a chat bridge) sees the
+   * `user_input_required` line, puts the question in front of a person, and writes
+   * a `user_input_response` line back on stdin. Without events nobody could
+   * answer, so this returns empty and the calling tool reports that it could not
+   * ask rather than treating a blank as an answer.
+   */
+  requestUserInput(request: UserInputRequest): Effect.Effect<UserInputOutcome, never> {
+    if (this.askMode === "none") return Effect.succeed({ kind: "unavailable" });
+    // Declared but not wired up is a misconfiguration, not a human saying no.
+    if (this.askMode === "protocol" && !this.eventsActive) {
+      return Effect.succeed({ kind: "unavailable" });
+    }
+
+    this.userInputSequence += 1;
+    const requestId = `ui-${this.userInputSequence}`;
+    if (this.askMode === "tty") {
+      // stderr like every other human-facing line, so stdout stays the payload.
+      const lines = [`\n❓ ${request.question}`];
+      request.suggestions.forEach((suggestion, index) => {
+        const label = suggestion.label ?? suggestion.value;
+        const description = suggestion.description ? ` — ${suggestion.description}` : "";
+        lines.push(`  ${index + 1}) ${label}${description}`);
+      });
+      lines.push("Answer (number, or type your own; empty to skip): ");
+      process.stderr.write(lines.join("\n"));
+    } else {
+      // Not truncated: the whole point is that a human reads the question and its
+      // options, and a clipped option is an option they cannot choose meaningfully.
+      process.stderr.write(
+        `${JSON.stringify({
+          type: "user_input_required",
+          requestId,
+          question: request.question,
+          suggestions: request.suggestions,
+          allowCustom: request.allowCustom,
+          ...(request.allowMultiple === true ? { allowMultiple: true } : {}),
+        })}\n`,
+      );
+    }
+
+    // Waiting on a person must not spend the agent's own time budget, same as an
+    // approval.
+    this.onApprovalWaitStart?.();
+    this.ensureStdinReaderStarted();
+    const pendingUserInputs = this.pendingUserInputs;
+    const suggestions = request.suggestions;
+    // "2" means the second option, not the literal string. Only a bare index is
+    // treated this way, so an answer that happens to be a number still works when
+    // it is not in range.
+    const resolveChoice = (answer: string): string => {
+      const index = Number.parseInt(answer.trim(), 10);
+      if (!Number.isNaN(index) && `${index}` === answer.trim()) {
+        const chosen = suggestions[index - 1];
+        if (chosen) return chosen.value;
+      }
+      return answer;
+    };
+    return Effect.async<UserInputOutcome, never>((resume) => {
+      pendingUserInputs.set(requestId, (response) => {
+        const answer = resolveChoice(response).trim();
+        resume(
+          Effect.succeed(
+            answer.length > 0 ? { kind: "answered", response: answer } : { kind: "declined" },
+          ),
+        );
+      });
+      return Effect.sync(() => {
+        pendingUserInputs.delete(requestId);
+      });
+    });
   }
 
   requestFilePicker(): Effect.Effect<string, never> {
@@ -368,6 +530,7 @@ export class OneShotPresentationService implements PresentationService {
 export function makeOneShotPresentationServiceLayer(
   emitEventTypes: ReadonlySet<StreamEvent["type"]> = new Set(),
   onApprovalWaitStart?: () => void,
+  askMode: "tty" | "protocol" | "none" = "none",
 ) {
   return Layer.effect(
     PresentationServiceTag,
@@ -381,6 +544,7 @@ export function makeOneShotPresentationServiceLayer(
         emitEventTypes,
         undefined,
         onApprovalWaitStart,
+        askMode,
       );
     }),
   );

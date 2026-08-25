@@ -160,11 +160,11 @@ describe("classifier usage", () => {
       ),
     );
 
-    expect(logged?.promptTokens).toBe(1000);
-    expect(logged?.completionTokens).toBe(50);
-    expect(logged?.classifierPromptTokens).toBe(82);
-    expect(logged?.classifierCompletionTokens).toBe(2);
-    expect(logged?.classifierRequests).toBe(2);
-    expect(logged?.classifierDurationMs).toBe(21);
+    expect(logged?.["promptTokens"]).toBe(1000);
+    expect(logged?.["completionTokens"]).toBe(50);
+    expect(logged?.["classifierPromptTokens"]).toBe(82);
+    expect(logged?.["classifierCompletionTokens"]).toBe(2);
+    expect(logged?.["classifierRequests"]).toBe(2);
+    expect(logged?.["classifierDurationMs"]).toBe(21);
   });
 });

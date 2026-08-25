@@ -61,7 +61,7 @@ export const userInteractionTools: Tool<ToolRequirements>[] = [
       "Ask the human one blocking question with 2–4 concrete options. Use this tool; do not bury the question in prose. " +
       "Ask only when you are actually blocked: a scope or approach decision with no clearly best option, a destructive action that needs explicit sign-off, or a secret or provider choice no tool can fetch. " +
       "Do not ask permission to do work they already requested, confirmation of safe reversible actions, anything already answered, or anything a tool can resolve. " +
-      "When there is no TTY (headless), do not call this — decide or fail. One decision per call.",
+      "Surfaces work anywhere a human is reachable, including chat bridges with no TTY; when nobody is, the tool says so and you must then decide on a stated assumption or ask in your reply. One decision per call.",
     parameters: askUserSchema,
     hidden: false,
     riskLevel: "read-only",
@@ -77,11 +77,33 @@ export const userInteractionTools: Tool<ToolRequirements>[] = [
           allowMultiple: args.allow_multiple === true,
         };
 
-        const response = yield* presentation.requestUserInput(request);
+        const outcome = yield* presentation.requestUserInput(request);
+
+        // Never collapsed into one message: guessing after a refusal overrides a
+        // decision the human made, while refusing to act after an absence strands
+        // a run nobody is watching.
+        if (outcome.kind === "declined") {
+          return {
+            success: false,
+            result:
+              "The human saw this question and declined to answer. Treat that as their decision, not as a gap to fill: " +
+              "do not pick an answer for them and do not ask again. Do only what is unambiguous without it, " +
+              "and say plainly what remains blocked and why.",
+          };
+        }
+
+        if (outcome.kind === "unavailable") {
+          return {
+            success: false,
+            result:
+              "Nobody could be asked — no human ever saw this question. Do not report it as unanswered or wait for a reply. " +
+              "Decide yourself, state the assumption you are proceeding on, and carry on.",
+          };
+        }
 
         return {
           success: true,
-          result: `User responded: ${response}`,
+          result: `User responded: ${outcome.response}`,
         };
       }),
   }),

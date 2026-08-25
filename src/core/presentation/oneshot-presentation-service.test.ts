@@ -5,7 +5,7 @@ import { DEFAULT_DISPLAY_CONFIG } from "@/core/agent/types";
 import type { StreamingRendererConfig } from "@/core/interfaces/presentation";
 import type { StreamEvent } from "@/core/types/streaming";
 import type { ApprovalRequest } from "@/core/types/tools";
-import { OneShotPresentationService } from "./oneshot-presentation-service";
+import { detectInteractiveInput, OneShotPresentationService } from "./oneshot-presentation-service";
 
 function makeApprovalRequest(overrides: Partial<ApprovalRequest> = {}): ApprovalRequest {
   return {
@@ -389,5 +389,276 @@ describe("OneShotPresentationService requestApproval", () => {
       `${JSON.stringify({ type: "approval_decision", toolCallId: "call_a", approved: true })}\n`,
     );
     expect(await pendingA).toEqual({ approved: true });
+  });
+});
+
+describe("OneShotPresentationService.requestUserInput", () => {
+  const originalWrite = process.stderr.write;
+  afterEach(() => {
+    process.stderr.write = originalWrite;
+  });
+
+  function captureStderr(): { lines: string[] } {
+    const captured = { lines: [] as string[] };
+    process.stderr.write = ((chunk: string | Uint8Array): boolean => {
+      captured.lines.push(typeof chunk === "string" ? chunk : chunk.toString());
+      return true;
+    }) as typeof process.stderr.write;
+    return captured;
+  }
+
+  const request = {
+    question: "When is your appointment?",
+    suggestions: [
+      { value: "today", label: "Today" },
+      { value: "tomorrow", label: "Tomorrow" },
+    ],
+    allowCustom: true,
+  };
+
+  it("answers empty without asking when the caller cannot relay a question", async () => {
+    // --events is on, so something reads the stream — but nothing answers.
+    const stdin = new PassThrough();
+    const service = new OneShotPresentationService(
+      DEFAULT_DISPLAY_CONFIG,
+      new Set<StreamEvent["type"]>(["tool_execution_start"]),
+      stdin,
+      undefined,
+      "none",
+    );
+    const captured = captureStderr();
+    const answer = await Effect.runPromise(service.requestUserInput(request));
+    expect(answer).toEqual({ kind: "unavailable" });
+    expect(captured.lines).toHaveLength(0);
+  });
+
+  it("answers empty with no events at all", async () => {
+    const service = new OneShotPresentationService(DEFAULT_DISPLAY_CONFIG, new Set());
+    expect(await Effect.runPromise(service.requestUserInput(request))).toEqual({
+      kind: "unavailable",
+    });
+  });
+
+  it("emits the question and resolves from a response line on stdin", async () => {
+    const stdin = new PassThrough();
+    const service = new OneShotPresentationService(
+      DEFAULT_DISPLAY_CONFIG,
+      new Set<StreamEvent["type"]>(["tool_execution_start"]),
+      stdin,
+      undefined,
+      "protocol",
+    );
+    const captured = captureStderr();
+    const pending = Effect.runPromise(service.requestUserInput(request));
+    await tick();
+
+    expect(captured.lines).toHaveLength(1);
+    const emitted = JSON.parse(captured.lines[0] as string) as {
+      type: string;
+      requestId: string;
+      question: string;
+      suggestions: { value: string }[];
+      allowCustom: boolean;
+    };
+    expect(emitted.type).toBe("user_input_required");
+    expect(emitted.question).toBe("When is your appointment?");
+    expect(emitted.suggestions.map((s) => s.value)).toEqual(["today", "tomorrow"]);
+    expect(emitted.allowCustom).toBe(true);
+
+    stdin.write(
+      `${JSON.stringify({
+        type: "user_input_response",
+        requestId: emitted.requestId,
+        response: "tomorrow",
+      })}\n`,
+    );
+    expect(await pending).toEqual({ kind: "answered", response: "tomorrow" });
+  });
+
+  it("does not truncate a long question a human has to read", async () => {
+    const stdin = new PassThrough();
+    const longQuestion = `Which of these should I use? ${"x".repeat(500)}`;
+    const service = new OneShotPresentationService(
+      DEFAULT_DISPLAY_CONFIG,
+      new Set<StreamEvent["type"]>(["tool_execution_start"]),
+      stdin,
+      undefined,
+      "protocol",
+    );
+    const captured = captureStderr();
+    void Effect.runPromise(service.requestUserInput({ ...request, question: longQuestion }));
+    await tick();
+    const emitted = JSON.parse(captured.lines[0] as string) as { question: string };
+    expect(emitted.question).toBe(longQuestion);
+    expect(emitted.question).not.toContain("…");
+  });
+
+  it("ignores a response for a question it did not ask", async () => {
+    const stdin = new PassThrough();
+    const service = new OneShotPresentationService(
+      DEFAULT_DISPLAY_CONFIG,
+      new Set<StreamEvent["type"]>(["tool_execution_start"]),
+      stdin,
+      undefined,
+      "protocol",
+    );
+    captureStderr();
+    const pending = Effect.runPromise(service.requestUserInput(request));
+    await tick();
+    stdin.write(
+      `${JSON.stringify({ type: "user_input_response", requestId: "ui-999", response: "nope" })}\n`,
+    );
+    stdin.write("not json at all\n");
+    await tick();
+    stdin.write(
+      `${JSON.stringify({ type: "user_input_response", requestId: "ui-1", response: "today" })}\n`,
+    );
+    expect(await pending).toEqual({ kind: "answered", response: "today" });
+  });
+
+  it("keeps concurrent questions apart", async () => {
+    const stdin = new PassThrough();
+    const service = new OneShotPresentationService(
+      DEFAULT_DISPLAY_CONFIG,
+      new Set<StreamEvent["type"]>(["tool_execution_start"]),
+      stdin,
+      undefined,
+      "protocol",
+    );
+    const captured = captureStderr();
+    const first = Effect.runPromise(service.requestUserInput(request));
+    const second = Effect.runPromise(
+      service.requestUserInput({ ...request, question: "And the other one?" }),
+    );
+    await tick();
+    const ids = captured.lines.map((line) => (JSON.parse(line) as { requestId: string }).requestId);
+    expect(new Set(ids).size).toBe(2);
+    stdin.write(
+      `${JSON.stringify({ type: "user_input_response", requestId: ids[1], response: "second" })}\n`,
+    );
+    stdin.write(
+      `${JSON.stringify({ type: "user_input_response", requestId: ids[0], response: "first" })}\n`,
+    );
+    expect(await first).toEqual({ kind: "answered", response: "first" });
+    expect(await second).toEqual({ kind: "answered", response: "second" });
+  });
+});
+
+describe("detectInteractiveInput", () => {
+  it("recognises a terminal without being told", () => {
+    expect(detectInteractiveInput(false, {}, { isTTY: true })).toEqual({
+      interactive: true,
+      viaTty: true,
+    });
+  });
+
+  it("takes the caller's word when stdin is a pipe", () => {
+    // A bridge looks exactly like a cron job from here, so it has to say so.
+    expect(detectInteractiveInput(true, {}, { isTTY: false })).toEqual({
+      interactive: true,
+      viaTty: false,
+    });
+  });
+
+  it("is off for a pipe with nobody declared", () => {
+    expect(detectInteractiveInput(false, {}, { isTTY: false })).toEqual({
+      interactive: false,
+      viaTty: false,
+    });
+  });
+
+  it("ignores a TTY in CI, where a runner may allocate one anyway", () => {
+    expect(detectInteractiveInput(false, { CI: "true" }, { isTTY: true })).toEqual({
+      interactive: false,
+      viaTty: false,
+    });
+  });
+
+  it("still honours an explicit declaration in CI", () => {
+    // Someone wiring a bridge inside a pipeline meant it.
+    expect(detectInteractiveInput(true, { CI: "1" }, { isTTY: true }).interactive).toBe(true);
+  });
+});
+
+describe("OneShotPresentationService.requestUserInput on a terminal", () => {
+  const originalWrite = process.stderr.write;
+  afterEach(() => {
+    process.stderr.write = originalWrite;
+  });
+
+  function captureStderr(): { lines: string[] } {
+    const captured = { lines: [] as string[] };
+    process.stderr.write = ((chunk: string | Uint8Array): boolean => {
+      captured.lines.push(typeof chunk === "string" ? chunk : chunk.toString());
+      return true;
+    }) as typeof process.stderr.write;
+    return captured;
+  }
+
+  const request = {
+    question: "Which database?",
+    suggestions: [
+      { value: "postgres", label: "Postgres", description: "the default" },
+      { value: "sqlite", label: "SQLite" },
+    ],
+    allowCustom: true,
+  };
+
+  function ttyService(stdin: PassThrough) {
+    return new OneShotPresentationService(
+      DEFAULT_DISPLAY_CONFIG,
+      new Set(),
+      stdin,
+      undefined,
+      "tty",
+    );
+  }
+
+  it("prints a readable prompt instead of NDJSON", async () => {
+    const stdin = new PassThrough();
+    const captured = captureStderr();
+    void Effect.runPromise(ttyService(stdin).requestUserInput(request));
+    await tick();
+    const prompt = captured.lines.join("");
+    expect(prompt).toContain("❓ Which database?");
+    expect(prompt).toContain("1) Postgres — the default");
+    expect(prompt).toContain("2) SQLite");
+    expect(prompt).not.toContain("user_input_required");
+  });
+
+  it("takes a typed line as the answer", async () => {
+    const stdin = new PassThrough();
+    captureStderr();
+    const pending = Effect.runPromise(ttyService(stdin).requestUserInput(request));
+    await tick();
+    stdin.write("something of my own\n");
+    expect(await pending).toEqual({ kind: "answered", response: "something of my own" });
+  });
+
+  it("maps a typed number onto the option it names", async () => {
+    const stdin = new PassThrough();
+    captureStderr();
+    const pending = Effect.runPromise(ttyService(stdin).requestUserInput(request));
+    await tick();
+    stdin.write("2\n");
+    expect(await pending).toEqual({ kind: "answered", response: "sqlite" });
+  });
+
+  it("keeps a number that names no option as literal text", async () => {
+    const stdin = new PassThrough();
+    captureStderr();
+    const pending = Effect.runPromise(ttyService(stdin).requestUserInput(request));
+    await tick();
+    stdin.write("2026\n");
+    expect(await pending).toEqual({ kind: "answered", response: "2026" });
+  });
+
+  it("needs no --events, unlike the bridge protocol", async () => {
+    const stdin = new PassThrough();
+    captureStderr();
+    const pending = Effect.runPromise(ttyService(stdin).requestUserInput(request));
+    await tick();
+    stdin.write("postgres\n");
+    expect(await pending).toEqual({ kind: "answered", response: "postgres" });
   });
 });

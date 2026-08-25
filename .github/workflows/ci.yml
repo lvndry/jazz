@@ -6,6 +6,7 @@ on:
     paths:
       - "src/**"
       - "scripts/**"
+      - "integrations/**"
       - "package.json"
       - "bun.lock"
       - "tsconfig*"
@@ -19,6 +20,7 @@ on:
     paths:
       - "src/**"
       - "scripts/**"
+      - "integrations/**"
       - "package.json"
       - "bun.lock"
       - "tsconfig*"
@@ -91,6 +93,12 @@ jobs:
 
       - name: Lint
         run: bun run lint --no-color
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Typecheck tests
+        run: bun run test:typecheck
 
       - name: Build
         run: bun run build

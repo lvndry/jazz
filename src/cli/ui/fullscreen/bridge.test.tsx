@@ -1111,7 +1111,7 @@ describe("fullscreen bridge", () => {
     await settleKeypress(rendered.flush, 100);
     await rendered.mockInput.pressKey("RETURN");
     await settleKeypress(rendered.flush, 100);
-    expect(await questionnaire).toBe("south");
+    expect(await questionnaire).toEqual({ kind: "answered", response: "south" });
 
     rendered.renderer.destroy();
   });

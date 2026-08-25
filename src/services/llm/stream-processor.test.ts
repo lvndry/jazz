@@ -1,7 +1,7 @@
 import { describe, expect, it, mock } from "bun:test";
 import { Chunk, Effect } from "effect";
 import { selectParser } from "./reasoning";
-import { StreamProcessor } from "./stream-processor";
+import { StreamIdleTimeoutError, StreamProcessor, withIdleTimeout } from "./stream-processor";
 import { type LoggerService } from "../../core/interfaces/logger";
 
 describe("StreamProcessor", () => {
@@ -534,5 +534,72 @@ describe("StreamProcessor", () => {
       expect(thinkingChunks.map((c) => c.content).join("")).toContain("partial thought");
       expect(finalContent).toBe("visible");
     });
+  });
+});
+
+describe("withIdleTimeout", () => {
+  async function* never(): AsyncGenerator<number> {
+    yield 1;
+    // Stalls without closing — the shape of a provider that stops sending.
+    await new Promise(() => {});
+  }
+
+  async function* slowButAlive(): AsyncGenerator<number> {
+    for (const value of [1, 2, 3]) {
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      yield value;
+    }
+  }
+
+  it("passes a healthy stream through untouched", async () => {
+    const seen: number[] = [];
+    for await (const value of withIdleTimeout(slowButAlive(), 1_000)) seen.push(value);
+    expect(seen).toEqual([1, 2, 3]);
+  });
+
+  it("does not fail a stream that is slow but still producing", async () => {
+    // Each gap is under the budget even though the total exceeds it.
+    const seen: number[] = [];
+    for await (const value of withIdleTimeout(slowButAlive(), 50)) seen.push(value);
+    expect(seen).toEqual([1, 2, 3]);
+  });
+
+  it("abandons a stream that stalls without closing", async () => {
+    const seen: number[] = [];
+    const drain = async (): Promise<void> => {
+      for await (const value of withIdleTimeout(never(), 60)) seen.push(value);
+    };
+    await expect(drain()).rejects.toThrow(StreamIdleTimeoutError);
+    // The part that did arrive was still delivered.
+    expect(seen).toEqual([1]);
+  });
+
+  it("names the idle budget in the error, so a log says what happened", async () => {
+    const drain = async (): Promise<void> => {
+      for await (const _value of withIdleTimeout(never(), 60)) {
+        // drain
+      }
+    };
+    await expect(drain()).rejects.toThrow(/produced nothing for/);
+  });
+
+  it("closes the underlying iterator when it gives up", async () => {
+    let returned = false;
+    const source: AsyncIterable<number> = {
+      [Symbol.asyncIterator]: () => ({
+        next: () => new Promise<IteratorResult<number>>(() => {}),
+        return: async () => {
+          returned = true;
+          return { done: true as const, value: undefined };
+        },
+      }),
+    };
+    const drain = async (): Promise<void> => {
+      for await (const _value of withIdleTimeout(source, 40)) {
+        // drain
+      }
+    };
+    await expect(drain()).rejects.toThrow(StreamIdleTimeoutError);
+    expect(returned).toBe(true);
   });
 });

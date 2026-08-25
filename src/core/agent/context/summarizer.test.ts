@@ -112,7 +112,7 @@ const mockPresentationService: PresentationService = {
   collapseEphemeralRegion: () => Effect.void,
   requestApproval: () => Effect.succeed({ approved: true }),
   signalToolExecutionStarted: () => Effect.void,
-  requestUserInput: () => Effect.succeed(""),
+  requestUserInput: () => Effect.succeed({ kind: "unavailable" as const }),
   requestFilePicker: () => Effect.succeed(""),
 };
 

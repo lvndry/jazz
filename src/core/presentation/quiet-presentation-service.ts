@@ -7,6 +7,7 @@ import type {
   PresentationService,
   StreamingRenderer,
   StreamingRendererConfig,
+  UserInputOutcome,
 } from "@/core/interfaces/presentation";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import { resolveDisplayConfig } from "@/core/presentation/display-config";
@@ -123,9 +124,9 @@ class QuietPresentationService implements PresentationService {
     return Effect.void;
   }
 
-  // Quiet mode cannot ask user — return empty string
-  requestUserInput(): Effect.Effect<string, never> {
-    return Effect.succeed("");
+  // Quiet mode has nobody to ask; the caller must not read this as a refusal.
+  requestUserInput(): Effect.Effect<UserInputOutcome, never> {
+    return Effect.succeed({ kind: "unavailable" });
   }
 
   // Quiet mode cannot show file picker — return empty string

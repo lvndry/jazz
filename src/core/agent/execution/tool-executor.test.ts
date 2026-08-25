@@ -13,8 +13,10 @@ import type { LoggerService } from "../../interfaces/logger";
 import { LoggerServiceTag } from "../../interfaces/logger";
 import type { MCPServerManager } from "../../interfaces/mcp-server";
 import { MCPServerManagerTag } from "../../interfaces/mcp-server";
+import { type MemoryService, MemoryServiceTag } from "../../interfaces/memory-service";
 import type { PresentationService, StreamingRenderer } from "../../interfaces/presentation";
 import { PresentationServiceTag } from "../../interfaces/presentation";
+import { type ReminderService, ReminderServiceTag } from "../../interfaces/reminder-service";
 import type { TerminalService } from "../../interfaces/terminal";
 import { TerminalServiceTag } from "../../interfaces/terminal";
 import type { ToolRegistry } from "../../interfaces/tool-registry";
@@ -72,6 +74,10 @@ const emptyTerminal = {} as unknown as TerminalService;
 const emptyFsContext = {} as unknown as FileSystemContextService;
 const emptyLlm = {} as unknown as LLMService;
 const emptyMcp = {} as unknown as MCPServerManager;
+// Required by the tool pipeline's type but never reached by these tests; provided
+// so the requirement is genuinely discharged rather than cast away.
+const emptyMemory = {} as unknown as MemoryService;
+const emptyReminders = {} as unknown as ReminderService;
 
 function makeRunMetrics(): ReturnType<typeof createAgentRunMetrics> {
   return {
@@ -139,6 +145,8 @@ describe("ToolExecutor.executeTool", () => {
       Layer.succeed(SkillServiceTag, mockSkillService),
       Layer.succeed(LLMServiceTag, emptyLlm),
       Layer.succeed(MCPServerManagerTag, emptyMcp),
+      Layer.succeed(MemoryServiceTag, emptyMemory),
+      Layer.succeed(ReminderServiceTag, emptyReminders),
     );
 
     const result = await Effect.runPromise(
@@ -173,6 +181,8 @@ describe("ToolExecutor.executeTool", () => {
       Layer.succeed(SkillServiceTag, mockSkillService),
       Layer.succeed(LLMServiceTag, emptyLlm),
       Layer.succeed(MCPServerManagerTag, emptyMcp),
+      Layer.succeed(MemoryServiceTag, emptyMemory),
+      Layer.succeed(ReminderServiceTag, emptyReminders),
     );
 
     // executeTool still works even if getTool fails for timeout lookup
@@ -215,6 +225,8 @@ describe("ToolExecutor.executeToolCall", () => {
       Layer.succeed(SkillServiceTag, mockSkillService),
       Layer.succeed(LLMServiceTag, emptyLlm),
       Layer.succeed(MCPServerManagerTag, emptyMcp),
+      Layer.succeed(MemoryServiceTag, emptyMemory),
+      Layer.succeed(ReminderServiceTag, emptyReminders),
     );
 
     const toolCall: ToolCall = {
@@ -253,6 +265,8 @@ describe("ToolExecutor.executeToolCall", () => {
       Layer.succeed(SkillServiceTag, mockSkillService),
       Layer.succeed(LLMServiceTag, emptyLlm),
       Layer.succeed(MCPServerManagerTag, emptyMcp),
+      Layer.succeed(MemoryServiceTag, emptyMemory),
+      Layer.succeed(ReminderServiceTag, emptyReminders),
     );
 
     const toolCall = {
@@ -303,6 +317,8 @@ describe("ToolExecutor.executeToolCalls", () => {
       Layer.succeed(SkillServiceTag, mockSkillService),
       Layer.succeed(LLMServiceTag, emptyLlm),
       Layer.succeed(MCPServerManagerTag, emptyMcp),
+      Layer.succeed(MemoryServiceTag, emptyMemory),
+      Layer.succeed(ReminderServiceTag, emptyReminders),
     );
 
     const toolCalls: ToolCall[] = [
@@ -374,6 +390,8 @@ describe("ToolExecutor.executeToolCalls", () => {
       Layer.succeed(SkillServiceTag, mockSkillService),
       Layer.succeed(LLMServiceTag, emptyLlm),
       Layer.succeed(MCPServerManagerTag, emptyMcp),
+      Layer.succeed(MemoryServiceTag, emptyMemory),
+      Layer.succeed(ReminderServiceTag, emptyReminders),
     );
 
     const toolCalls: ToolCall[] = [
@@ -491,6 +509,8 @@ describe("ToolExecutor.executeToolCall approval events", () => {
       Layer.succeed(SkillServiceTag, mockSkillService),
       Layer.succeed(LLMServiceTag, emptyLlm),
       Layer.succeed(MCPServerManagerTag, emptyMcp),
+      Layer.succeed(MemoryServiceTag, emptyMemory),
+      Layer.succeed(ReminderServiceTag, emptyReminders),
     );
 
     const toolCall: ToolCall = {
@@ -591,6 +611,8 @@ describe("ToolExecutor.executeToolCall approval events", () => {
       Layer.succeed(SkillServiceTag, mockSkillService),
       Layer.succeed(LLMServiceTag, classifyingLlm),
       Layer.succeed(MCPServerManagerTag, emptyMcp),
+      Layer.succeed(MemoryServiceTag, emptyMemory),
+      Layer.succeed(ReminderServiceTag, emptyReminders),
     );
 
     const toolCall: ToolCall = {

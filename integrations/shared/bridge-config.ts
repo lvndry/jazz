@@ -25,9 +25,8 @@ function nestedObject(config: JsonObject, key: string): JsonObject {
 /**
  * Apply the bridge-managed keys to `existing`, returning a new object.
  *
- * Only the managed keys are touched; everything else the operator put in the
- * file is passed through, because the data volume outlives the container and
- * writing the file wholesale discarded their settings on every restart.
+ * Only the managed keys are touched; everything else the operator put in the file
+ * is passed through, since the data volume outlives the container.
  *
  * A managed key whose variable is unset is *removed* rather than left behind, so
  * turning an integration off in the environment actually takes effect instead of

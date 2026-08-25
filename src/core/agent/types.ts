@@ -102,6 +102,16 @@ export interface AgentRunnerOptions {
    */
   readonly toolAllowlist?: readonly string[];
   /**
+   * Withhold the tools that solicit an answer from a human (`ask_user_question`,
+   * `ask_file_picker`), so the model is never offered a way to block on somebody
+   * who isn't there.
+   *
+   * Interactive surfaces leave this off. A headless run sets it unless its caller
+   * can relay a question and write the answer back: a CI or cron run that stops to
+   * ask something hangs until its timeout for nobody.
+   */
+  readonly withholdInteractiveTools?: boolean;
+  /**
    * Park instead of declining when a gated tool needs an approval this process cannot
    * obtain. Requires a durable `RunStore` in the layer, since the record is what a later
    * process resumes from. Off by default, and never set for sub-agent runs.

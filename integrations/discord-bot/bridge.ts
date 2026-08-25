@@ -527,6 +527,7 @@ async function runJazz(
       "--json",
       "--events",
       "tools,reasoning,text,approval,subagent",
+      "--interactive-stdin",
       "--agent",
       agentIdForChannel(channelId),
       "--approval-policy",
