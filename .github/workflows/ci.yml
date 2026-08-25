@@ -94,8 +94,6 @@ jobs:
       - name: Lint
         run: bun run lint --no-color
 
-      # Neither typechecker ran in CI, which is how both drifted: the test program
-      # had eighteen errors on main and nothing was failing.
       - name: Typecheck
         run: bun run typecheck
 

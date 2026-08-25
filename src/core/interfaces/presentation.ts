@@ -18,11 +18,10 @@ export interface Suggestion {
 /**
  * What came back from asking the human.
  *
- * A bare string could not tell "nobody was there" apart from "they said no", and
- * those call for opposite behaviour: the first leaves the decision to the agent,
- * the second is the human's decision and must not be overridden by guessing. An
- * empty answer is a refusal, not an absence — someone was shown the question and
- * chose not to pick.
+ * "Nobody was there" and "they said no" call for opposite behaviour — the first
+ * leaves the decision to the agent, the second is the human's decision and must
+ * not be overridden by guessing — so they are distinct outcomes rather than one
+ * empty string. Submitting nothing is a refusal: the question was seen.
  */
 export type UserInputOutcome =
   /** They answered. `response` is non-empty. */

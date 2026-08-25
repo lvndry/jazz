@@ -1510,8 +1510,7 @@ export class InkPresentationService implements PresentationService {
         store.setPrompt(null);
         store.setApprovalRequest(null);
         this.isProcessingUserInput = false;
-        // Submitting nothing is a shrug, and a shrug is the human's answer: it
-        // says "not this", not "I was never here".
+        // Submitting nothing says "not this", which is an answer, not an absence.
         resume(
           Effect.succeed(
             response.length > 0 ? { kind: "answered", response } : { kind: "declined" },

@@ -79,10 +79,9 @@ export const userInteractionTools: Tool<ToolRequirements>[] = [
 
         const outcome = yield* presentation.requestUserInput(request);
 
-        // A refusal and an absence are different facts and lead somewhere
-        // different, so they are never collapsed into one message. Guessing after
-        // a refusal overrides a decision the human actually made; refusing to act
-        // after an absence strands a run nobody is watching.
+        // Never collapsed into one message: guessing after a refusal overrides a
+        // decision the human made, while refusing to act after an absence strands
+        // a run nobody is watching.
         if (outcome.kind === "declined") {
           return {
             success: false,

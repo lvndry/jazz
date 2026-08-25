@@ -26,14 +26,11 @@ type StreamTextResult = ReturnType<typeof streamText>;
  * How long the stream may go without producing anything before it is treated as
  * dead.
  *
- * `for await` over a provider stream waits forever if the server stops sending
- * without closing the connection, and nothing below this layer notices: the
- * process sits in epoll with an idle GPU until whatever wall-clock timeout the
- * caller set fires, which for an unattended bridge was fifteen minutes of a chat
- * showing "Working…". Two minutes is far longer than any real gap between parts —
- * generation on a loaded 27B model still emits tens of tokens a second, and the
- * slowest observed wait for a first part was under twenty seconds — while turning
- * an indefinite hang into a normal failure the caller can report and retry.
+ * A provider that stops sending without closing the connection would otherwise
+ * block `for await` indefinitely, which no layer below the caller's wall-clock
+ * timeout can detect. Two minutes exceeds any legitimate gap between parts —
+ * generation emits tens of tokens a second, and first-part latency stays under
+ * twenty — so exceeding it means the connection is dead, not slow.
  *
  * Tool execution happens between streams, not inside one, so a slow tool cannot
  * trip this.

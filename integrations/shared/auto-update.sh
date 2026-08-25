@@ -25,9 +25,8 @@ REPO=$(cd -- "$BRIDGE_DIR/../.." && pwd)
 STAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 DEPLOY_BRANCH=${JAZZ_DEPLOY_BRANCH:-main}
 
-# Cron has no reader. Anything a human must act on goes to the bridge itself:
-# in a logfile nobody opens, weeks of nightly failures are indistinguishable
-# from an update that never needed to run.
+# Cron has no reader. Anything a human must act on goes to the bridge itself: in a
+# logfile, a nightly failure is indistinguishable from an update that was not needed.
 notify() {
   echo "$STAMP $1"
   if [ -x "$BRIDGE_DIR/notify.sh" ]; then
@@ -107,10 +106,9 @@ rollback() {
   deploy || notify "auto-update: rollback to ${PREV} also failed to start — the bridge is DOWN"
 }
 
-# An `up -d --build` that exits non-zero used to abort the script outright,
-# leaving the checkout fast-forwarded to a commit that never deployed, with no
-# rollback and nothing said. A failed build is the common case here, not a rare
-# one, so it gets the same treatment as a failed health check.
+# Without this, `set -e` would abort with the checkout already fast-forwarded to a
+# commit that never deployed. A failed build gets the same treatment as a failed
+# health check.
 if ! deploy; then
   notify "auto-update: build/start of ${LATEST} failed — rolling back to ${PREV}"
   rollback

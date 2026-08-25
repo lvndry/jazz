@@ -107,9 +107,8 @@ export interface AgentRunnerOptions {
    * who isn't there.
    *
    * Interactive surfaces leave this off. A headless run sets it unless its caller
-   * has said it can relay a question and write the answer back, because a run in
-   * CI or cron that stops to ask something is a job that hangs until its timeout
-   * for no reason anyone will see.
+   * can relay a question and write the answer back: a CI or cron run that stops to
+   * ask something hangs until its timeout for nobody.
    */
   readonly withholdInteractiveTools?: boolean;
   /**

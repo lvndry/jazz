@@ -1,14 +1,10 @@
 /**
- * @fileoverview Per-turn NDJSON record of what a bridge run actually did.
+ * @fileoverview Per-turn NDJSON record of what a bridge run did.
  *
- * A bridge already parses jazz's whole event stream to drive its progress
- * message and then discards it. That is fine until a run misbehaves: a 15-minute
- * agentic loop left one Telegram API error in `docker logs` and nothing about
- * the tool calls or model rounds that consumed it, and the conversation
- * transcript is only written when a run *completes*, so a run that times out
- * leaves no trace at all. Writing the stream we have already decoded costs one
- * append per event and is the difference between diagnosing a stuck run in one
- * command and reconstructing it from the model server's logs.
+ * The conversation transcript is only written once a run completes, so a run that
+ * hangs or times out leaves no other trace. The event stream is already decoded to
+ * drive the progress message; recording it costs one append per event and is what
+ * makes a stuck run diagnosable without the model server's logs.
  *
  * Appends are fire-and-forget: a logging failure must never interrupt a run, so
  * every error is swallowed after the first, which is reported once.
@@ -21,10 +17,10 @@ import { join } from "node:path";
 const OMITTED_FIELDS = ["accumulated", "previewDiff"] as const;
 
 /**
- * Deltas arrive one per token-ish chunk. Written individually they dominate the
- * file — a single runaway generation produced over nine thousand of them — for no
- * diagnostic gain, since what a reader needs is when the stream started, how much
- * came out and how long it took. They are counted and flushed as one line.
+ * Deltas arrive one per token-ish chunk, thousands to a long generation. Written
+ * individually they dominate the file for no diagnostic gain: a reader needs when
+ * the stream started, how much came out and how long it took. Counted and flushed
+ * as one line.
  */
 const COALESCED_TYPES = new Set(["thinking_chunk", "text_chunk"]);
 
@@ -34,9 +30,8 @@ const RUNS_RETAINED = 200;
 /**
  * How long a run of deltas may stay buffered before it is written anyway.
  *
- * Without this the buffer is only flushed by the *next* event, so a run that
- * hangs mid-stream — the exact case this log exists for — ends with the buffered
- * deltas never written and its last line naming the event before them. Two
+ * The next event would otherwise be the only thing that flushes them, which loses
+ * the tail of any run that stalls mid-stream — the case this log exists for. Two
  * seconds keeps a healthy run to a handful of lines while making a stall visible
  * within one.
  */

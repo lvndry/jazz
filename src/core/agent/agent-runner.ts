@@ -306,9 +306,8 @@ function initializeAgentRun(
       combinedToolNames = combinedToolNames.filter((name) => name !== "manage_memory");
     }
 
-    // Same reasoning for the tools that solicit an answer from a human: a surface
-    // with nobody attached should not offer them at all. Failing the call at
-    // execution time costs a wasted round and invites the model to invent an
+    // Same reasoning for the tools that solicit an answer from a human. Failing the
+    // call at execution time costs a round and invites the model to invent an
     // answer; not having the tool leaves it no choice but to decide openly.
     if (options.withholdInteractiveTools === true) {
       combinedToolNames = combinedToolNames.filter(

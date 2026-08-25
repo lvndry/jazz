@@ -54,14 +54,12 @@ interface ApprovalDecisionLine {
 /**
  * Can this process put a question in front of a human and get an answer back?
  *
- * Two shapes qualify, which is what makes this worth detecting rather than
- * demanding a flag for. A person at a terminal answers by typing, so a TTY on
- * stdin is enough on its own. A chat bridge answers over the event protocol, and
- * nothing about its environment distinguishes it from a cron job — pipes either
- * way — so that case stays an explicit `--interactive-stdin`.
+ * A person at a terminal answers by typing, so a TTY on stdin settles it. A chat
+ * bridge answers over the event protocol but is indistinguishable from a cron job
+ * through a pipe, so it must declare itself.
  *
- * `CI` wins over the TTY check: some runners allocate one, and a job that stops
- * to ask something waits out its timeout for nobody.
+ * `CI` overrides the TTY check, since some runners allocate one and a job that
+ * stops to ask something waits out its timeout for nobody.
  */
 export function detectInteractiveInput(
   declared: boolean,
@@ -446,8 +444,7 @@ export class OneShotPresentationService implements PresentationService {
     this.userInputSequence += 1;
     const requestId = `ui-${this.userInputSequence}`;
     if (this.askMode === "tty") {
-      // Written to stderr like every other human-facing line here, so stdout stays
-      // the machine-readable payload even while somebody is being asked something.
+      // stderr like every other human-facing line, so stdout stays the payload.
       const lines = [`\n❓ ${request.question}`];
       request.suggestions.forEach((suggestion, index) => {
         const label = suggestion.label ?? suggestion.value;
@@ -490,8 +487,7 @@ export class OneShotPresentationService implements PresentationService {
     };
     return Effect.async<UserInputOutcome, never>((resume) => {
       pendingUserInputs.set(requestId, (response) => {
-        // Someone was shown the question and sent nothing back: a refusal, and
-        // reported as one so the agent does not answer it on their behalf.
+        // Nothing sent back is a refusal, not an absence: the question was seen.
         const answer = resolveChoice(response).trim();
         resume(
           Effect.succeed(

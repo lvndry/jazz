@@ -1,9 +1,8 @@
 /**
  * @fileoverview Apply the bridge-managed keys to a bridge's `config.json`.
  *
- * The entrypoints used to write this file wholesale, which silently discarded
- * anything the operator had put there — the data volume outlives the container,
- * so a hand-added provider block or tool setting vanished on the next restart.
+ * Merged rather than written wholesale: the data volume outlives the container, so
+ * anything the operator added by hand must survive a restart.
  *
  * Usage: bun write-bridge-config.ts <path-to-config.json>
  */
@@ -41,10 +40,9 @@ function readExistingConfig(path: string): JsonObject {
   return parsed as JsonObject;
 }
 
-// Ollama unloads a model after 5 minutes by default, so the first message after
-// a quiet spell pays a full cold load — minutes on a CPU-bound host, during
-// which the run emits no events at all and a bridge's progress bubble sits at
-// "Working…". Operators pointing a bridge at a local Ollama want it pinned.
+// Ollama unloads a model after 5 minutes by default, so the first message after a
+// quiet spell pays a full cold load — minutes on a CPU-bound host, emitting no
+// events while it happens.
 const { config, applied } = mergeBridgeConfig(readExistingConfig(configPath), {
   braveApiKey: process.env["BRAVE_API_KEY"]?.trim(),
   ollamaKeepAlive: process.env["JAZZ_OLLAMA_KEEP_ALIVE"]?.trim(),
