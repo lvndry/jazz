@@ -192,8 +192,21 @@ sees them, so it cannot spend a round on a question that will not be answered, a
 mistake a blank for a reply and act on it. A run in CI or cron that stopped to ask
 something would hang until its timeout for nobody's benefit.
 
-A caller that *can* put a question in front of a person passes `--interactive-stdin`. Then
-the tools are available, and a question becomes a line on the event stream:
+Where a human *is* reachable, the tools come back. That is detected rather than declared
+wherever it can be: **stdin being a terminal is enough on its own**, so running `jazz run`
+by hand needs no flag — the question is printed and you answer by typing a line, either the
+number of an option or something of your own.
+
+```
+❓ Which database?
+  1) Postgres — the default
+  2) SQLite
+Answer (number, or type your own; empty to skip):
+```
+
+A chat bridge is the case that cannot be detected: through a pipe it looks exactly like a
+cron job. It declares itself with `--interactive-stdin`, and the question then becomes a
+line on the event stream instead of a prompt:
 
 ```json
 {"type":"user_input_required","requestId":"ui-1","question":"When is your appointment?",
@@ -216,6 +229,10 @@ take as long as they like.
 The question is never truncated, unlike other event payloads — a clipped option is one
 nobody can meaningfully choose. Both shipped chat bridges pass this flag and render the
 suggestions as buttons.
+
+`CI=true` overrides the terminal check, since some runners allocate a pty and a job that
+stops to ask something would wait out its timeout for nobody. An explicit
+`--interactive-stdin` still wins there, for a bridge running inside a pipeline.
 
 ---
 

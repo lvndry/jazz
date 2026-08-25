@@ -135,7 +135,7 @@ function registerRunCommand(program: Command): void {
     .option("--no-stream", "Disable streaming mode")
     .option(
       "--interactive-stdin",
-      "This caller relays the agent's questions to a human and writes answers back on stdin (a chat bridge). Without it, tools that ask the user are withheld, so an unattended run never stops for an answer nobody will see.",
+      "Declare that this caller relays the agent's questions to a human and writes answers back on stdin (a chat bridge). Not needed on a terminal, where questions are asked directly. Without either, tools that ask the user are withheld so an unattended run never stops for an answer nobody will see.",
     )
     .option(
       "--ephemeral",

@@ -50,6 +50,28 @@ interface ApprovalDecisionLine {
   readonly approved: boolean;
 }
 
+/**
+ * Can this process put a question in front of a human and get an answer back?
+ *
+ * Two shapes qualify, which is what makes this worth detecting rather than
+ * demanding a flag for. A person at a terminal answers by typing, so a TTY on
+ * stdin is enough on its own. A chat bridge answers over the event protocol, and
+ * nothing about its environment distinguishes it from a cron job — pipes either
+ * way — so that case stays an explicit `--interactive-stdin`.
+ *
+ * `CI` wins over the TTY check: some runners allocate one, and a job that stops
+ * to ask something waits out its timeout for nobody.
+ */
+export function detectInteractiveInput(
+  declared: boolean,
+  env: NodeJS.ProcessEnv = process.env,
+  stdin: { isTTY?: boolean } = process.stdin,
+): { interactive: boolean; viaTty: boolean } {
+  if (env["CI"] === "true" || env["CI"] === "1") return { interactive: declared, viaTty: false };
+  if (stdin.isTTY === true) return { interactive: true, viaTty: true };
+  return { interactive: declared, viaTty: false };
+}
+
 /** Shape of a line written back to `stdinStream` to answer a pending question. */
 interface UserInputResponseLine {
   readonly type: "user_input_response";
@@ -142,12 +164,15 @@ export class OneShotPresentationService implements PresentationService {
     private readonly stdinStream: NodeJS.ReadableStream = process.stdin,
     private readonly onApprovalWaitStart?: () => void,
     /**
-     * The consumer on stdin will relay a question to a human and write the answer
-     * back. Off unless the caller says so: `--events` alone only means something
-     * is reading the stream, and a CI job reading it for progress would otherwise
-     * park the run on a question nobody will ever see.
+     * How a question reaches a human, if one is reachable at all.
+     *  - `"tty"`: somebody is at a terminal. The question is printed for them and
+     *    answered by typing a line.
+     *  - `"protocol"`: a consumer relays it and writes back a
+     *    `user_input_response` line (a chat bridge).
+     *  - `"none"`: nobody. `requestUserInput` answers empty and the calling tool
+     *    reports that it could not ask.
      */
-    private readonly canAskUser: boolean = false,
+    private readonly askMode: "tty" | "protocol" | "none" = "none",
   ) {}
 
   /**
@@ -169,6 +194,17 @@ export class OneShotPresentationService implements PresentationService {
         buffer = buffer.slice(newlineIndex + 1);
         newlineIndex = buffer.indexOf("\n");
         if (line.length === 0) continue;
+        // A person types prose, not JSON. Any line that is not one of the two
+        // protocol shapes answers the question that has been waiting longest.
+        if (this.askMode === "tty" && !line.startsWith("{")) {
+          const [requestId] = this.pendingUserInputs.keys();
+          if (requestId !== undefined) {
+            const resolveTyped = this.pendingUserInputs.get(requestId);
+            this.pendingUserInputs.delete(requestId);
+            resolveTyped?.(line);
+          }
+          continue;
+        }
         const decision = parseApprovalDecisionLine(line);
         if (decision) {
           const resolveApproval = this.pendingApprovals.get(decision.toolCallId);
@@ -399,30 +435,59 @@ export class OneShotPresentationService implements PresentationService {
    * ask rather than treating a blank as an answer.
    */
   requestUserInput(request: UserInputRequest): Effect.Effect<string, never> {
-    if (!this.eventsActive || !this.canAskUser) return Effect.succeed("");
+    if (this.askMode === "none") return Effect.succeed("");
+    // The protocol needs a consumer parsing the event stream; a terminal does not.
+    if (this.askMode === "protocol" && !this.eventsActive) return Effect.succeed("");
 
     this.userInputSequence += 1;
     const requestId = `ui-${this.userInputSequence}`;
-    // Not truncated: the whole point is that a human reads the question and its
-    // options, and a clipped option is an option they cannot choose meaningfully.
-    process.stderr.write(
-      `${JSON.stringify({
-        type: "user_input_required",
-        requestId,
-        question: request.question,
-        suggestions: request.suggestions,
-        allowCustom: request.allowCustom,
-        ...(request.allowMultiple === true ? { allowMultiple: true } : {}),
-      })}\n`,
-    );
+    if (this.askMode === "tty") {
+      // Written to stderr like every other human-facing line here, so stdout stays
+      // the machine-readable payload even while somebody is being asked something.
+      const lines = [`\n❓ ${request.question}`];
+      request.suggestions.forEach((suggestion, index) => {
+        const label = suggestion.label ?? suggestion.value;
+        const description = suggestion.description ? ` — ${suggestion.description}` : "";
+        lines.push(`  ${index + 1}) ${label}${description}`);
+      });
+      lines.push("Answer (number, or type your own; empty to skip): ");
+      process.stderr.write(lines.join("\n"));
+    } else {
+      // Not truncated: the whole point is that a human reads the question and its
+      // options, and a clipped option is an option they cannot choose meaningfully.
+      process.stderr.write(
+        `${JSON.stringify({
+          type: "user_input_required",
+          requestId,
+          question: request.question,
+          suggestions: request.suggestions,
+          allowCustom: request.allowCustom,
+          ...(request.allowMultiple === true ? { allowMultiple: true } : {}),
+        })}\n`,
+      );
+    }
 
     // Waiting on a person must not spend the agent's own time budget, same as an
     // approval.
     this.onApprovalWaitStart?.();
     this.ensureStdinReaderStarted();
     const pendingUserInputs = this.pendingUserInputs;
+    const suggestions = request.suggestions;
+    // "2" means the second option, not the literal string. Only a bare index is
+    // treated this way, so an answer that happens to be a number still works when
+    // it is not in range.
+    const resolveChoice = (answer: string): string => {
+      const index = Number.parseInt(answer.trim(), 10);
+      if (!Number.isNaN(index) && `${index}` === answer.trim()) {
+        const chosen = suggestions[index - 1];
+        if (chosen) return chosen.value;
+      }
+      return answer;
+    };
     return Effect.async<string, never>((resume) => {
-      pendingUserInputs.set(requestId, (response) => resume(Effect.succeed(response)));
+      pendingUserInputs.set(requestId, (response) =>
+        resume(Effect.succeed(resolveChoice(response))),
+      );
       return Effect.sync(() => {
         pendingUserInputs.delete(requestId);
       });
@@ -460,7 +525,7 @@ export class OneShotPresentationService implements PresentationService {
 export function makeOneShotPresentationServiceLayer(
   emitEventTypes: ReadonlySet<StreamEvent["type"]> = new Set(),
   onApprovalWaitStart?: () => void,
-  canAskUser = false,
+  askMode: "tty" | "protocol" | "none" = "none",
 ) {
   return Layer.effect(
     PresentationServiceTag,
@@ -474,7 +539,7 @@ export function makeOneShotPresentationServiceLayer(
         emitEventTypes,
         undefined,
         onApprovalWaitStart,
-        canAskUser,
+        askMode,
       );
     }),
   );

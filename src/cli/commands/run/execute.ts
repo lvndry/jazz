@@ -4,7 +4,10 @@ import { getAgentByIdentifier } from "@/core/agent/agent-service";
 import { buildWorkStatePreamble } from "@/core/agent/context/work-state-preamble";
 import { RunParkRequested, isRunParkRequested } from "@/core/agent/run/park-signal";
 import { CommonSuggestions, getErrorMessage } from "@/core/presentation/error-handler";
-import { makeOneShotPresentationServiceLayer } from "@/core/presentation/oneshot-presentation-service";
+import {
+  detectInteractiveInput,
+  makeOneShotPresentationServiceLayer,
+} from "@/core/presentation/oneshot-presentation-service";
 import { AgentNotFoundError } from "@/core/types/errors";
 import type { ChatMessage } from "@/core/types/message";
 import type { StreamEvent } from "@/core/types/streaming";
@@ -121,8 +124,10 @@ export interface RunAgentOnceOptions {
   readonly stream?: boolean | undefined;
   /**
    * This caller will relay an `ask_user_question` to a human and write the answer
-   * back on stdin (a chat bridge). Without it the interactive tools are withheld
-   * entirely, so an unattended run cannot stop to ask something nobody will read.
+   * back on stdin (a chat bridge). Only needed where that cannot be detected: a
+   * terminal is recognised on its own. Without either, the interactive tools are
+   * withheld entirely, so an unattended run cannot stop to ask something nobody
+   * will read.
    */
   readonly interactiveStdin?: boolean | undefined;
   /**
@@ -243,6 +248,9 @@ export function runAgentOnceCommand(
   options: RunAgentOnceOptions,
 ) {
   const outputOptions: OneShotOutputOptions = { json: options.json };
+  // Resolved once and shared, so the toolset the model is offered and the way a
+  // question is delivered can never disagree about whether anyone is reachable.
+  const interactiveInput = detectInteractiveInput(options.interactiveStdin === true);
   // Deadline can be pushed out while blocked on a human approval decision (see
   // requestApproval in OneShotPresentationService) so waiting on a person
   // doesn't count against the same budget as the agent's own work.
@@ -345,9 +353,9 @@ export function runAgentOnceCommand(
       ...(options.timezone !== undefined ? { timezone: options.timezone } : {}),
       ...(options.maxIterations != null ? { maxIterations: options.maxIterations } : {}),
       ...(options.stream !== undefined ? { stream: options.stream } : {}),
-      // Headless by default: only a caller that said it can relay a question
-      // keeps the tools that ask one.
-      ...(options.interactiveStdin === true ? {} : { withholdInteractiveTools: true }),
+      // Only a surface that can actually reach a human keeps the tools that ask
+      // one: a terminal, or a caller that declared it will relay the question.
+      ...(interactiveInput.interactive ? {} : { withholdInteractiveTools: true }),
       ...(ephemeral ? { disablePersistence: true } : {}),
       ...(options.park === true ? { parkWhenUnattended: true } : {}),
     });
@@ -453,7 +461,7 @@ export function runAgentOnceCommand(
         deadline && options.timeoutMs != null
           ? () => deadline.extend(options.timeoutMs!)
           : undefined,
-        options.interactiveStdin === true,
+        interactiveInput.interactive ? (interactiveInput.viaTty ? "tty" : "protocol") : "none",
       ),
     ),
   );

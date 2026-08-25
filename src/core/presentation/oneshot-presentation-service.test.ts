@@ -5,7 +5,7 @@ import { DEFAULT_DISPLAY_CONFIG } from "@/core/agent/types";
 import type { StreamingRendererConfig } from "@/core/interfaces/presentation";
 import type { StreamEvent } from "@/core/types/streaming";
 import type { ApprovalRequest } from "@/core/types/tools";
-import { OneShotPresentationService } from "./oneshot-presentation-service";
+import { detectInteractiveInput, OneShotPresentationService } from "./oneshot-presentation-service";
 
 function makeApprovalRequest(overrides: Partial<ApprovalRequest> = {}): ApprovalRequest {
   return {
@@ -425,7 +425,7 @@ describe("OneShotPresentationService.requestUserInput", () => {
       new Set<StreamEvent["type"]>(["tool_execution_start"]),
       stdin,
       undefined,
-      false,
+      "none",
     );
     const captured = captureStderr();
     const answer = await Effect.runPromise(service.requestUserInput(request));
@@ -446,7 +446,7 @@ describe("OneShotPresentationService.requestUserInput", () => {
       new Set<StreamEvent["type"]>(["tool_execution_start"]),
       stdin,
       undefined,
-      true,
+      "protocol",
     );
     const captured = captureStderr();
     const pending = Effect.runPromise(service.requestUserInput(request));
@@ -483,7 +483,7 @@ describe("OneShotPresentationService.requestUserInput", () => {
       new Set<StreamEvent["type"]>(["tool_execution_start"]),
       stdin,
       undefined,
-      true,
+      "protocol",
     );
     const captured = captureStderr();
     void Effect.runPromise(service.requestUserInput({ ...request, question: longQuestion }));
@@ -500,7 +500,7 @@ describe("OneShotPresentationService.requestUserInput", () => {
       new Set<StreamEvent["type"]>(["tool_execution_start"]),
       stdin,
       undefined,
-      true,
+      "protocol",
     );
     captureStderr();
     const pending = Effect.runPromise(service.requestUserInput(request));
@@ -523,7 +523,7 @@ describe("OneShotPresentationService.requestUserInput", () => {
       new Set<StreamEvent["type"]>(["tool_execution_start"]),
       stdin,
       undefined,
-      true,
+      "protocol",
     );
     const captured = captureStderr();
     const first = Effect.runPromise(service.requestUserInput(request));
@@ -541,5 +541,127 @@ describe("OneShotPresentationService.requestUserInput", () => {
     );
     expect(await first).toBe("first");
     expect(await second).toBe("second");
+  });
+});
+
+describe("detectInteractiveInput", () => {
+  it("recognises a terminal without being told", () => {
+    // The case that should not need a flag: someone running jazz by hand.
+    expect(detectInteractiveInput(false, {}, { isTTY: true })).toEqual({
+      interactive: true,
+      viaTty: true,
+    });
+  });
+
+  it("takes the caller's word when stdin is a pipe", () => {
+    // A bridge looks exactly like a cron job from here, so it has to say so.
+    expect(detectInteractiveInput(true, {}, { isTTY: false })).toEqual({
+      interactive: true,
+      viaTty: false,
+    });
+  });
+
+  it("is off for a pipe with nobody declared", () => {
+    expect(detectInteractiveInput(false, {}, { isTTY: false })).toEqual({
+      interactive: false,
+      viaTty: false,
+    });
+  });
+
+  it("ignores a TTY in CI, where a runner may allocate one anyway", () => {
+    expect(detectInteractiveInput(false, { CI: "true" }, { isTTY: true })).toEqual({
+      interactive: false,
+      viaTty: false,
+    });
+  });
+
+  it("still honours an explicit declaration in CI", () => {
+    // Someone wiring a bridge inside a pipeline meant it.
+    expect(detectInteractiveInput(true, { CI: "1" }, { isTTY: true }).interactive).toBe(true);
+  });
+});
+
+describe("OneShotPresentationService.requestUserInput on a terminal", () => {
+  const originalWrite = process.stderr.write;
+  afterEach(() => {
+    process.stderr.write = originalWrite;
+  });
+
+  function captureStderr(): { lines: string[] } {
+    const captured = { lines: [] as string[] };
+    process.stderr.write = ((chunk: string | Uint8Array): boolean => {
+      captured.lines.push(typeof chunk === "string" ? chunk : chunk.toString());
+      return true;
+    }) as typeof process.stderr.write;
+    return captured;
+  }
+
+  const request = {
+    question: "Which database?",
+    suggestions: [
+      { value: "postgres", label: "Postgres", description: "the default" },
+      { value: "sqlite", label: "SQLite" },
+    ],
+    allowCustom: true,
+  };
+
+  function ttyService(stdin: PassThrough) {
+    return new OneShotPresentationService(
+      DEFAULT_DISPLAY_CONFIG,
+      new Set(),
+      stdin,
+      undefined,
+      "tty",
+    );
+  }
+
+  it("prints a readable prompt instead of NDJSON", async () => {
+    const stdin = new PassThrough();
+    const captured = captureStderr();
+    void Effect.runPromise(ttyService(stdin).requestUserInput(request));
+    await tick();
+    const prompt = captured.lines.join("");
+    expect(prompt).toContain("❓ Which database?");
+    expect(prompt).toContain("1) Postgres — the default");
+    expect(prompt).toContain("2) SQLite");
+    expect(prompt).not.toContain("user_input_required");
+  });
+
+  it("takes a typed line as the answer", async () => {
+    const stdin = new PassThrough();
+    captureStderr();
+    const pending = Effect.runPromise(ttyService(stdin).requestUserInput(request));
+    await tick();
+    stdin.write("something of my own\n");
+    expect(await pending).toBe("something of my own");
+  });
+
+  it("maps a typed number onto the option it names", async () => {
+    const stdin = new PassThrough();
+    captureStderr();
+    const pending = Effect.runPromise(ttyService(stdin).requestUserInput(request));
+    await tick();
+    stdin.write("2\n");
+    // The agent gets the option's value, not the digit the human typed.
+    expect(await pending).toBe("sqlite");
+  });
+
+  it("keeps a number that names no option as literal text", async () => {
+    const stdin = new PassThrough();
+    captureStderr();
+    const pending = Effect.runPromise(ttyService(stdin).requestUserInput(request));
+    await tick();
+    stdin.write("2026\n");
+    expect(await pending).toBe("2026");
+  });
+
+  it("needs no --events, unlike the bridge protocol", async () => {
+    // A terminal run has no consumer parsing an event stream.
+    const stdin = new PassThrough();
+    captureStderr();
+    const pending = Effect.runPromise(ttyService(stdin).requestUserInput(request));
+    await tick();
+    stdin.write("postgres\n");
+    expect(await pending).toBe("postgres");
   });
 });
