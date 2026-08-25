@@ -161,6 +161,85 @@ Everything else — memory, tools, approvals, cost — you get from the flags.
 
 ---
 
+## Sending yourself a message
+
+A bridge is a bot, and a bot can post without being asked. Once one is running you
+have a push channel to your own phone that anything on that machine can use — a
+script, a cron job, a long-running agent run, another session on another host, you
+at a shell. It does not have to be about the bridge, and it does not have to be
+about a deploy.
+
+Each bridge ships a `notify.sh` next to it that takes one argument:
+
+```sh
+~/jazz/integrations/telegram-bot/notify.sh "backup finished, 41 GB, no errors"
+~/jazz/integrations/telegram-bot/notify.sh "$(df -h / | tail -1)"
+~/jazz/integrations/telegram-bot/notify.sh "training run 7 done — val loss 0.312"
+~/jazz/integrations/discord-bot/notify.sh "nightly update rolled back, needs a look"
+```
+
+It reads the same `.env` the bridge runs on and posts to the first allowed chat
+(`TELEGRAM_ALLOWED_CHAT_IDS`, or `DISCORD_ALLOWED_CHANNEL_IDS`).
+
+What makes it worth reaching for over any other alerting: **no run is started and
+no model is called.** It is a single API call, so it costs nothing, needs no
+provider key, and works while the agent is busy, wedged, or not running at all —
+which is exactly when you most want to hear from the machine. It also means you can
+call it from inside something the agent is doing without recursing into a new run.
+
+Chain it onto anything long:
+
+```sh
+./long-job.sh && notify.sh "long-job: done" || notify.sh "long-job: FAILED ($?)"
+```
+
+Or hand it to `cron`, where it replaces the usual habit of appending to a logfile
+nobody opens. That habit has a real cost: a nightly updater on one box failed for
+over two weeks before anyone noticed, because its only output went to
+`~/jazz-autoupdate.log`. `auto-update.sh` now calls `notify.sh` instead.
+
+It exits non-zero and explains itself if the credentials are missing, so a caller
+can note that without failing whatever it was doing:
+
+```sh
+notify.sh "..." || echo "(notify failed)"
+```
+
+### Doing it without the script
+
+Useful from a machine that has no checkout, or when the script itself is what is
+broken. The shape matters more than the URL:
+
+```sh
+ENV=~/jazz/integrations/telegram-bot/.env
+token=$(sed -n 's/^TELEGRAM_BOT_TOKEN=//p' "$ENV" | tail -1)
+chat=$(sed -n 's/^TELEGRAM_ALLOWED_CHAT_IDS=//p' "$ENV" | tail -1 | cut -d, -f1)
+
+curl -sS -o /dev/null -X POST \
+  "https://api.telegram.org/bot${token}/sendMessage" \
+  --data-urlencode "chat_id=${chat}" \
+  --data-urlencode "text=multi-line messages
+work fine this way"
+```
+
+Three details that are easy to get wrong:
+
+- **Read the token, don't print it.** Assign it to a variable; never `cat` the
+  `.env` or `echo` the token. Anything that reaches a terminal reaches shell
+  history, CI logs, and whatever is reading over your shoulder.
+- **Use `--data-urlencode`, not a JSON body.** It handles newlines and any `&`,
+  `#` or quote in the message without escaping, which matters when the text is
+  command output or an error string you did not write.
+- **Send no `parse_mode`.** Telegram rejects the whole request if the text does not
+  parse as the markup you claimed, and piped-in output is exactly where an
+  unbalanced `*` or `_` turns up. Plain text always sends.
+
+Telegram caps a message at 4096 characters and rejects anything longer, so pipe
+long output through `tail -c 4000` rather than sending it whole.
+
+Discord's equivalent needs a bot token in an `Authorization: Bot …` header and a
+JSON body, so escaping is on you — which is the main reason to prefer `notify.sh`.
+
 ## Security for chat surfaces
 
 A chat surface accepts input from **other people**. That changes the threat model in a way

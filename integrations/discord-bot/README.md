@@ -233,6 +233,19 @@ isn't healthy. Install it (as the deploy user):
 (crontab -l 2>/dev/null; echo "30 4 * * * $HOME/jazz/integrations/discord-bot/auto-update.sh >> $HOME/jazz-autoupdate.log 2>&1") | crontab -
 ```
 
+**Sending yourself a message:** `notify.sh` posts one message to the first allowed
+chat, reading the token from this directory's `.env`. It starts no run and calls no
+model, so it costs nothing and works even while the agent is busy or down:
+
+```sh
+./notify.sh "backup finished, 41 GB, no errors"
+./long-job.sh && ./notify.sh "done" || ./notify.sh "FAILED ($?)"
+```
+
+Anything on the host can use it — scripts, cron, a finished job, you at a shell.
+`auto-update.sh` uses it to report failures. See
+[Chat platforms — sending yourself a message](../../docs/surfaces/chat-platforms.md#sending-yourself-a-message).
+
 **Run logs:** every turn appends an NDJSON record of the jazz event stream to
 `<JAZZ_HOME>/logs/runs/<conversation>-<timestamp>.ndjson`, written as the run
 happens rather than when it finishes — so a run that times out still leaves a
