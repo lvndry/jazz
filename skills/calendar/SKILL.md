@@ -13,7 +13,7 @@ Manage calendars using [khal](https://github.com/pimutils/khal) - a standards-ba
 
 **When using this skill as an agent**, run commands via `execute_command`. Prefer these patterns:
 
-1. **Sync before read**: Run `vdirsyncer sync` first to ensure local data is up to date, especially for remote calendars.
+1. **Sync before read**: Run `vdirsyncer sync` first to ensure local data is up to date, especially for remote calendars. **Skip this entirely for Google accounts** — gcalcli reads the live API, and a Google-only deployment has no working vdirsyncer pair to sync. If `khal printcalendars` errors or lists nothing, khal is not the path on this machine: check for gcalcli accounts (see [Google Calendar (gcalcli)](#google-calendar-gcalcli)) before reporting the calendar as unreachable.
 
 2. **Use `khal list`** for human-readable output, or `khal list --format "{start} {end} {title}" <date range>` for parsing. For machine parsing, `khal printcalendars -p` exports ICS.
 
@@ -298,6 +298,36 @@ XDG_DATA_HOME=~/.local/share/gcalcli-account-b gcalcli agenda
 XDG_DATA_HOME=~/.local/share/gcalcli-account-a gcalcli quick "Lunch with John tomorrow at noon"
 XDG_DATA_HOME=~/.local/share/gcalcli-account-b gcalcli add --title "Sprint Planning" --where "Room A" --when "2026-02-15 14:00" --duration 1h
 ```
+
+#### Date ranges: a bare number is a *date*, never a count of days
+
+`agenda` and `search` take `[start] [end]` as **dates**, not a window size. `gcalcli agenda 30`
+does not mean "the next 30 days" — dateutil parses `30` as *the 30th of the current month*, so
+the window starts there and silently hides everything before it. `agenda 120` is not a valid
+date at all and returns a bare `No Events Found...` rather than an error, which reads exactly
+like an empty calendar. Always give a real range:
+
+```bash
+XDG_DATA_HOME=~/.local/share/gcalcli-account-a gcalcli agenda today "120 days"
+XDG_DATA_HOME=~/.local/share/gcalcli-account-a gcalcli agenda 2026-08-25 2026-12-25
+```
+
+#### Search matches whole words, not substrings
+
+`search` forwards the query to Google's Calendar API, which tokenises event text and matches
+whole words — it is not `grep`. Searching a truncated stem finds nothing even when the event is
+right there: `gcalcli search podo` returns `No Events Found...` for an event titled
+`Rendez vous podologue`, while `gcalcli search podologue` finds it. Search the full word the
+event would actually contain, and if a search comes back empty, confirm against a date-ranged
+`agenda` before concluding the calendar is empty or unreachable.
+
+#### Run one plain command per account, not a shell loop
+
+Wrapping calls in `for account in a b; do … gcalcli …; done` defeats the `autoApprovedCommands`
+allowlist: approval keys off the *first* binary in the command, so the key becomes `for account`
+and never matches an allowlisted `gcalcli`, forcing a manual approval prompt on every turn. A
+leading `XDG_DATA_HOME=…` assignment is fine — env-var prefixes are skipped when the key is
+extracted. Issue one command per account instead.
 
 ---
 
