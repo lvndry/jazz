@@ -34,6 +34,7 @@ describe("defineTool", () => {
     const tool = defineTool({
       name: "echo_path",
       description: "Echo a path",
+      disclosure: "public",
       parameters: echoParameters,
       validate: makeZodValidator(echoParameters),
       handler: (args: EchoArgs) => Effect.succeed({ success: true, result: { path: args.path } }),
@@ -48,6 +49,7 @@ describe("defineTool", () => {
     const tool = defineTool({
       name: "echo_path",
       description: "Echo a path",
+      disclosure: "public",
       parameters: echoParameters,
       handler: (args: EchoArgs) => Effect.succeed({ success: true, result: { path: args.path } }),
     });
@@ -61,6 +63,7 @@ describe("defineTool", () => {
     const tool = defineTool({
       name: "echo_path",
       description: "Echo a path",
+      disclosure: "public",
       parameters: echoParameters,
       handler: () => Effect.succeed({ success: true, result: null }),
     });
@@ -73,6 +76,7 @@ describe("defineApprovalTool", () => {
     const pair = defineApprovalTool({
       name: "write_note",
       description: "Write a note",
+      disclosure: "public",
       parameters: echoParameters,
       approvalMessage: (args: EchoArgs) => Effect.succeed(`Write ${args.path}`),
       handler: (args: EchoArgs) => Effect.succeed({ success: true, result: { path: args.path } }),
@@ -97,6 +101,7 @@ describe("defineApprovalTool", () => {
     const pair = defineApprovalTool({
       name: "write_note",
       description: "Write a note",
+      disclosure: "public",
       parameters: echoParameters,
       approvalMessage: () =>
         Effect.succeed({

@@ -15,6 +15,7 @@ describe("ToolRegistry", () => {
       parameters: z.object({}),
       hidden: false,
       riskLevel: "read-only",
+      disclosure: "public",
       execute: mock(() => Effect.succeed({ success: true, result: "ok" })),
       createSummary: undefined,
     };
@@ -47,6 +48,7 @@ describe("ToolRegistry", () => {
       parameters: z.object({}),
       hidden: false,
       riskLevel: "read-only",
+      disclosure: "public",
       execute: () => Effect.succeed({ success: true, result: "" }),
       createSummary: undefined,
     };
@@ -56,6 +58,7 @@ describe("ToolRegistry", () => {
       parameters: z.object({}),
       hidden: true,
       riskLevel: "read-only",
+      disclosure: "public",
       execute: () => Effect.succeed({ success: true, result: "" }),
       createSummary: undefined,
     };
@@ -80,6 +83,7 @@ describe("ToolRegistry", () => {
       parameters: z.object({}),
       hidden: false,
       riskLevel: "read-only",
+      disclosure: "public",
       execute: mock(() => Effect.succeed({ success: true, result: "ok" })),
       createSummary: undefined,
     };
@@ -107,6 +111,7 @@ describe("ToolRegistry", () => {
       parameters: z.object({}),
       hidden: false,
       riskLevel: "read-only",
+      disclosure: "public",
       execute: mock(() => Effect.succeed({ success: true, result: "ok" })),
       createSummary: undefined,
     };
@@ -135,6 +140,7 @@ describe("ToolRegistry", () => {
       parameters: z.object({}),
       hidden: false,
       riskLevel: "read-only",
+      disclosure: "public",
       execute: () => Effect.succeed({ success: true, result: "" }),
       createSummary: undefined,
     };
