@@ -5,13 +5,16 @@ import { userInteractionTools } from "./user-interaction-tools";
 
 const askUserQuestion = userInteractionTools.find((tool) => tool.name === "ask_user_question");
 
-function harness(response: string) {
+function harness(outcome: Record<string, unknown>) {
   return Layer.succeed(PresentationServiceTag, {
-    requestUserInput: () => Effect.succeed(response),
+    requestUserInput: () => Effect.succeed(outcome),
   } as never);
 }
 
-async function ask(response: string): Promise<{ success: boolean; result: string }> {
+async function ask(outcome: Record<string, unknown>): Promise<{
+  success: boolean;
+  result: string;
+}> {
   const effect = askUserQuestion!.execute(
     {
       question: "When is your appointment?",
@@ -23,7 +26,7 @@ async function ask(response: string): Promise<{ success: boolean; result: string
     { agentId: "a", conversationId: "c" },
   ) as never as Effect.Effect<{ success: boolean; result: string }, never, never>;
   return Effect.runPromise(
-    effect.pipe(Effect.provide(harness(response))) as Effect.Effect<
+    effect.pipe(Effect.provide(harness(outcome))) as Effect.Effect<
       { success: boolean; result: string },
       never,
       never
@@ -33,29 +36,36 @@ async function ask(response: string): Promise<{ success: boolean; result: string
 
 describe("ask_user_question", () => {
   it("passes a real answer through", async () => {
-    const outcome = await ask("next Tuesday at 3pm");
-    expect(outcome.success).toBe(true);
-    expect(outcome.result).toBe("User responded: next Tuesday at 3pm");
+    const result = await ask({ kind: "answered", response: "next Tuesday at 3pm" });
+    expect(result.success).toBe(true);
+    expect(result.result).toBe("User responded: next Tuesday at 3pm");
   });
 
-  it("reports failure when there is nobody to ask", async () => {
-    // Every non-interactive presentation answers with "".
-    const outcome = await ask("");
-    expect(outcome.success).toBe(false);
-    expect(outcome.result).toContain("No answer was given");
-    // The model must not read this as an answer it can act on.
-    expect(outcome.result).not.toContain("User responded");
+  it("reports a refusal as the human's decision, not a gap to fill", async () => {
+    const result = await ask({ kind: "declined" });
+    expect(result.success).toBe(false);
+    expect(result.result).toContain("declined to answer");
+    expect(result.result).toContain("do not pick an answer for them");
+    // Must not read as an answer, nor as nobody having been there.
+    expect(result.result).not.toContain("User responded");
+    expect(result.result).not.toContain("Nobody could be asked");
   });
 
-  it("treats whitespace as no answer too", async () => {
-    const outcome = await ask("   \n  ");
-    expect(outcome.success).toBe(false);
-    expect(outcome.result).toContain("No answer was given");
+  it("reports an absent human as something to decide around", async () => {
+    const result = await ask({ kind: "unavailable" });
+    expect(result.success).toBe(false);
+    expect(result.result).toContain("Nobody could be asked");
+    expect(result.result).toContain("state the assumption");
+    // The opposite instruction to a refusal: here the agent should proceed.
+    expect(result.result).not.toContain("declined");
   });
 
-  it("tells the model what to do instead of inventing one", async () => {
-    const outcome = await ask("");
-    expect(outcome.result).toContain("ask in your reply");
-    expect(outcome.result).toContain("assumption");
+  it("gives opposite guidance for the two failures", async () => {
+    const declined = await ask({ kind: "declined" });
+    const unavailable = await ask({ kind: "unavailable" });
+    // Refusal: do not decide for them. Absence: decide.
+    expect(declined.result).toContain("do not pick an answer");
+    expect(unavailable.result).toContain("Decide yourself");
+    expect(declined.result).not.toBe(unavailable.result);
   });
 });

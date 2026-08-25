@@ -429,14 +429,16 @@ describe("OneShotPresentationService.requestUserInput", () => {
     );
     const captured = captureStderr();
     const answer = await Effect.runPromise(service.requestUserInput(request));
-    expect(answer).toBe("");
+    expect(answer).toEqual({ kind: "unavailable" });
     // Nothing was emitted, so no consumer is left waiting on a question either.
     expect(captured.lines).toHaveLength(0);
   });
 
   it("answers empty with no events at all", async () => {
     const service = new OneShotPresentationService(DEFAULT_DISPLAY_CONFIG, new Set());
-    expect(await Effect.runPromise(service.requestUserInput(request))).toBe("");
+    expect(await Effect.runPromise(service.requestUserInput(request))).toEqual({
+      kind: "unavailable",
+    });
   });
 
   it("emits the question and resolves from a response line on stdin", async () => {
@@ -472,7 +474,7 @@ describe("OneShotPresentationService.requestUserInput", () => {
         response: "tomorrow",
       })}\n`,
     );
-    expect(await pending).toBe("tomorrow");
+    expect(await pending).toEqual({ kind: "answered", response: "tomorrow" });
   });
 
   it("does not truncate a long question a human has to read", async () => {
@@ -513,7 +515,7 @@ describe("OneShotPresentationService.requestUserInput", () => {
     stdin.write(
       `${JSON.stringify({ type: "user_input_response", requestId: "ui-1", response: "today" })}\n`,
     );
-    expect(await pending).toBe("today");
+    expect(await pending).toEqual({ kind: "answered", response: "today" });
   });
 
   it("keeps concurrent questions apart", async () => {
@@ -539,8 +541,8 @@ describe("OneShotPresentationService.requestUserInput", () => {
     stdin.write(
       `${JSON.stringify({ type: "user_input_response", requestId: ids[0], response: "first" })}\n`,
     );
-    expect(await first).toBe("first");
-    expect(await second).toBe("second");
+    expect(await first).toEqual({ kind: "answered", response: "first" });
+    expect(await second).toEqual({ kind: "answered", response: "second" });
   });
 });
 
@@ -633,7 +635,7 @@ describe("OneShotPresentationService.requestUserInput on a terminal", () => {
     const pending = Effect.runPromise(ttyService(stdin).requestUserInput(request));
     await tick();
     stdin.write("something of my own\n");
-    expect(await pending).toBe("something of my own");
+    expect(await pending).toEqual({ kind: "answered", response: "something of my own" });
   });
 
   it("maps a typed number onto the option it names", async () => {
@@ -643,7 +645,7 @@ describe("OneShotPresentationService.requestUserInput on a terminal", () => {
     await tick();
     stdin.write("2\n");
     // The agent gets the option's value, not the digit the human typed.
-    expect(await pending).toBe("sqlite");
+    expect(await pending).toEqual({ kind: "answered", response: "sqlite" });
   });
 
   it("keeps a number that names no option as literal text", async () => {
@@ -652,7 +654,7 @@ describe("OneShotPresentationService.requestUserInput on a terminal", () => {
     const pending = Effect.runPromise(ttyService(stdin).requestUserInput(request));
     await tick();
     stdin.write("2026\n");
-    expect(await pending).toBe("2026");
+    expect(await pending).toEqual({ kind: "answered", response: "2026" });
   });
 
   it("needs no --events, unlike the bridge protocol", async () => {
@@ -662,6 +664,6 @@ describe("OneShotPresentationService.requestUserInput on a terminal", () => {
     const pending = Effect.runPromise(ttyService(stdin).requestUserInput(request));
     await tick();
     stdin.write("postgres\n");
-    expect(await pending).toBe("postgres");
+    expect(await pending).toEqual({ kind: "answered", response: "postgres" });
   });
 });

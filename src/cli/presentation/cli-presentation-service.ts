@@ -10,6 +10,7 @@ import type {
   PresentationService,
   StreamingRenderer,
   StreamingRendererConfig,
+  UserInputOutcome,
   UserInputRequest,
 } from "@/core/interfaces/presentation";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
@@ -290,7 +291,7 @@ export class CLIPresentationService implements PresentationService {
     return Effect.void;
   }
 
-  requestUserInput(request: UserInputRequest): Effect.Effect<string, never> {
+  requestUserInput(request: UserInputRequest): Effect.Effect<UserInputOutcome, never> {
     return Effect.gen(this, function* () {
       const separator = chalk.dim(separatorLine(50));
 
@@ -315,9 +316,14 @@ export class CLIPresentationService implements PresentationService {
 
       yield* this.writeOutput(`${separator}\n`);
 
-      // Use the existing ask method
+      // A terminal that cannot prompt has nobody to ask; one that can and comes
+      // back empty was answered with a shrug, which is the human's call to make.
+      if (!this.interactive) return { kind: "unavailable" } as const;
       const response = yield* this.ask("Your response:", {});
-      return response ?? "";
+      const answer = (response ?? "").trim();
+      return answer.length > 0
+        ? ({ kind: "answered", response: answer } as const)
+        : ({ kind: "declined" } as const);
     });
   }
 

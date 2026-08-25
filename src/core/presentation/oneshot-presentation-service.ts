@@ -7,6 +7,7 @@ import type {
   PresentationService,
   StreamingRenderer,
   StreamingRendererConfig,
+  UserInputOutcome,
   UserInputRequest,
 } from "@/core/interfaces/presentation";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
@@ -169,8 +170,8 @@ export class OneShotPresentationService implements PresentationService {
      *    answered by typing a line.
      *  - `"protocol"`: a consumer relays it and writes back a
      *    `user_input_response` line (a chat bridge).
-     *  - `"none"`: nobody. `requestUserInput` answers empty and the calling tool
-     *    reports that it could not ask.
+     *  - `"none"`: nobody. `requestUserInput` reports `unavailable`, which the
+     *    calling tool must not confuse with a human declining.
      */
     private readonly askMode: "tty" | "protocol" | "none" = "none",
   ) {}
@@ -434,10 +435,13 @@ export class OneShotPresentationService implements PresentationService {
    * answer, so this returns empty and the calling tool reports that it could not
    * ask rather than treating a blank as an answer.
    */
-  requestUserInput(request: UserInputRequest): Effect.Effect<string, never> {
-    if (this.askMode === "none") return Effect.succeed("");
+  requestUserInput(request: UserInputRequest): Effect.Effect<UserInputOutcome, never> {
+    if (this.askMode === "none") return Effect.succeed({ kind: "unavailable" });
     // The protocol needs a consumer parsing the event stream; a terminal does not.
-    if (this.askMode === "protocol" && !this.eventsActive) return Effect.succeed("");
+    // Declared but not wired up is a misconfiguration, not a human saying no.
+    if (this.askMode === "protocol" && !this.eventsActive) {
+      return Effect.succeed({ kind: "unavailable" });
+    }
 
     this.userInputSequence += 1;
     const requestId = `ui-${this.userInputSequence}`;
@@ -484,10 +488,17 @@ export class OneShotPresentationService implements PresentationService {
       }
       return answer;
     };
-    return Effect.async<string, never>((resume) => {
-      pendingUserInputs.set(requestId, (response) =>
-        resume(Effect.succeed(resolveChoice(response))),
-      );
+    return Effect.async<UserInputOutcome, never>((resume) => {
+      pendingUserInputs.set(requestId, (response) => {
+        // Someone was shown the question and sent nothing back: a refusal, and
+        // reported as one so the agent does not answer it on their behalf.
+        const answer = resolveChoice(response).trim();
+        resume(
+          Effect.succeed(
+            answer.length > 0 ? { kind: "answered", response: answer } : { kind: "declined" },
+          ),
+        );
+      });
       return Effect.sync(() => {
         pendingUserInputs.delete(requestId);
       });

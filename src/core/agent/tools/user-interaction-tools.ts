@@ -77,26 +77,34 @@ export const userInteractionTools: Tool<ToolRequirements>[] = [
           allowMultiple: args.allow_multiple === true,
         };
 
-        const response = yield* presentation.requestUserInput(request);
+        const outcome = yield* presentation.requestUserInput(request);
 
-        // Every non-interactive presentation answers with an empty string: there
-        // is nobody at a TTY to ask. Reporting that as a successful answer is how
-        // an agent ends up acting on a decision the human never made — a bridge
-        // asked for an appointment date, got "", and set a reminder for 30
-        // minutes' time. Say plainly that no answer arrived so the model decides
-        // openly, or puts the question in its reply where a human will see it.
-        if (response.trim().length === 0) {
+        // A refusal and an absence are different facts and lead somewhere
+        // different, so they are never collapsed into one message. Guessing after
+        // a refusal overrides a decision the human actually made; refusing to act
+        // after an absence strands a run nobody is watching.
+        if (outcome.kind === "declined") {
           return {
             success: false,
             result:
-              "No answer was given — there is no interactive channel here, or the human dismissed the question. " +
-              "Do not treat this as an answer or invent one. Either proceed on a stated assumption, or ask in your reply.",
+              "The human saw this question and declined to answer. Treat that as their decision, not as a gap to fill: " +
+              "do not pick an answer for them and do not ask again. Do only what is unambiguous without it, " +
+              "and say plainly what remains blocked and why.",
+          };
+        }
+
+        if (outcome.kind === "unavailable") {
+          return {
+            success: false,
+            result:
+              "Nobody could be asked — no human ever saw this question. Do not report it as unanswered or wait for a reply. " +
+              "Decide yourself, state the assumption you are proceeding on, and carry on.",
           };
         }
 
         return {
           success: true,
-          result: `User responded: ${response}`,
+          result: `User responded: ${outcome.response}`,
         };
       }),
   }),

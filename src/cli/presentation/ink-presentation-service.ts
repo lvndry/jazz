@@ -15,6 +15,7 @@ import type {
   StreamingRenderer,
   StreamingRendererConfig,
   StreamTarget,
+  UserInputOutcome,
   UserInputRequest,
 } from "@/core/interfaces/presentation";
 import { PresentationServiceTag } from "@/core/interfaces/presentation";
@@ -987,7 +988,7 @@ interface QueuedApproval {
  */
 interface QueuedUserInput {
   request: UserInputRequest;
-  resume: (effect: Effect.Effect<string, never>) => void;
+  resume: (effect: Effect.Effect<UserInputOutcome, never>) => void;
 }
 
 /**
@@ -1439,7 +1440,7 @@ export class InkPresentationService implements PresentationService {
     });
   }
 
-  requestUserInput(request: UserInputRequest): Effect.Effect<string, never> {
+  requestUserInput(request: UserInputRequest): Effect.Effect<UserInputOutcome, never> {
     return Effect.async((resume) => {
       // Add to queue and process
       this.userInputQueue.push({ request, resume });
@@ -1504,19 +1505,25 @@ export class InkPresentationService implements PresentationService {
         allowMultiple: request.allowMultiple,
       },
       resolve: (value: unknown) => {
-        const response = String(value);
+        const response = String(value).trim();
         echoUserTurn(response);
         store.setPrompt(null);
         store.setApprovalRequest(null);
         this.isProcessingUserInput = false;
-        resume(Effect.succeed(response));
+        // Submitting nothing is a shrug, and a shrug is the human's answer: it
+        // says "not this", not "I was never here".
+        resume(
+          Effect.succeed(
+            response.length > 0 ? { kind: "answered", response } : { kind: "declined" },
+          ),
+        );
         this.processNextUserInput();
       },
       reject: () => {
         store.setPrompt(null);
         store.setApprovalRequest(null);
         this.isProcessingUserInput = false;
-        resume(Effect.succeed("")); // Return empty on cancel
+        resume(Effect.succeed({ kind: "declined" })); // Dismissed the prompt.
         this.processNextUserInput();
       },
     });
