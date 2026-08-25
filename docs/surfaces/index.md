@@ -1,6 +1,6 @@
 # Where it runs
 
-This page helps you decide how Jazz fits into *your* setup.
+This page helps you decide how Jazz fits into _your_ setup.
 
 Most agent CLIs are one thing: a terminal REPL. Jazz is a runtime that happens to ship
 with a terminal REPL. The same agent — same tools, same config, same memory — also runs
@@ -14,8 +14,8 @@ want.
 
 ## The surface matrix
 
-| Surface                                                                              | Entry point                        | Human in the loop?             | Status                        |
-| ------------------------------------------------------------------------------------ | ---------------------------------- | ------------------------------ | ----------------------------- |
+| Surface                                                                              | Entry point                        | Human in the loop?             | Status                         |
+| ------------------------------------------------------------------------------------ | ---------------------------------- | ------------------------------ | ------------------------------ |
 | **[Terminal](../guide/quick-start.md)** — interactive TUI, streaming, slash commands | `jazz`                             | Yes, per tool call             | ✅ Shipped                     |
 | **[Headless](./headless.md)** — one-shot, clean stdout, JSON envelope                | `jazz run`                         | Optional (`--approval-policy`) | ✅ Shipped                     |
 | **[Scheduled](./scheduled.md)** — launchd / cron, with catch-up for missed slots     | `jazz workflow schedule`           | No                             | ✅ Shipped                     |
@@ -32,6 +32,10 @@ want.
 ---
 
 ## One primitive, many surfaces
+
+The `! <command>` shell escape is intentionally a terminal-chat affordance. It is not parsed
+as a command by `jazz run`, scheduled workflows, CI, or chat bridges; those surfaces must use
+their configured approval and authorization policies.
 
 Everything above is the same agent core reached through a different front door. Only two
 of those doors are interactive; the rest all funnel through `jazz run`.
@@ -125,7 +129,7 @@ flag, and it means the same thing everywhere. See
 Because surfaces are front doors rather than forks, all of this is identical no matter
 how the run started:
 
-- **Agent definitions** — `~/.jazz/agents/*.json`. The Telegram bridge, the Discord bridge, your CI job, and your terminal can all run the *same* agent, or different ones.
+- **Agent definitions** — `~/.jazz/agents/*.json`. The Telegram bridge, the Discord bridge, your CI job, and your terminal can all run the _same_ agent, or different ones.
 - **Tools, skills, and MCP servers** — one registry. A skill you add is available headless.
 - **Approval model** — the same two-phase propose/execute path, with a policy dial instead of a prompt when unattended. There is no separate "unattended mode" to drift out of sync.
 - **Conversation history** — `~/.jazz/history/`, keyed by conversation id. A bridge passes its chat id and gets memory for free.

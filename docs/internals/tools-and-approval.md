@@ -14,6 +14,17 @@ Source:
 
 ## The lifecycle of one tool call
 
+### Operator shell escapes
+
+Interactive terminal users can explicitly run a command with `! <command>`. This path runs
+before the model turn and feeds the bounded result back as tagged command context. It shares
+the shell executor's working-directory resolution, sanitized environment, timeout, interruption
+handling, denylist, and stdout/stderr caps. Because the operator authored the command directly,
+the `!` path is an explicit operator action rather than a model-issued approval request; it does
+not make the command safe or weaken the denylist. Shell output is untrusted data and must be
+treated as context, not as instructions. This syntax is available only in the interactive
+terminal; headless and remote surfaces retain their own authorization contracts.
+
 ```mermaid
 flowchart TD
     IN(["Model emits a tool call"]) --> PARSE{"Arguments<br/>valid JSON?"}
@@ -49,7 +60,7 @@ flowchart TD
 ## Two-phase execution
 
 A gated tool doesn't act when the model calls it. It returns a description of what it
-*would* do:
+_would_ do:
 
 ```mermaid
 sequenceDiagram
@@ -73,10 +84,10 @@ sequenceDiagram
 
 **Why a pair rather than a `dangerous: true` flag.** You cannot show a useful preview
 without doing the work — computing a diff means reading the target and resolving the path.
-Two phases let the propose step do real work and *still* not mutate anything, which is what
+Two phases let the propose step do real work and _still_ not mutate anything, which is what
 makes "here is the exact diff, approve?" possible.
 
-**What it buys.** Interactive and unattended runs go down the *same* path. The only
+**What it buys.** Interactive and unattended runs go down the _same_ path. The only
 difference is who answers the gate. There is no separate headless mode to drift out of sync
 with the interactive one.
 
@@ -156,7 +167,7 @@ Fail closed: timeouts, provider errors, empty replies, and anything other than t
 token `read-only` or `low-risk` stay `high-risk`. A clearly mutating command stays
 `high-risk` regardless of context.
 
-**What the classifier is allowed to read.** The command, always. Plus the last five *user*
+**What the classifier is allowed to read.** The command, always. Plus the last five _user_
 requests (hard-capped at 800 characters) when the session is interactive, so an ambiguous
 command can be lowered only when the person at the keyboard asked for that milder action.
 Two exclusions are deliberate:
@@ -245,7 +256,7 @@ exits the same way an LLM-stream interrupt does.
 
 ### A 56-pattern denylist
 
-Commands are matched against a denylist *before* execution — privilege escalation (`sudo`,
+Commands are matched against a denylist _before_ execution — privilege escalation (`sudo`,
 `su`), filesystem destruction (`rm -rf /`), remote code execution (`curl … | sh`),
 power/runlevel changes (`shutdown`), and reads or copies of `/etc/passwd`, `/etc/shadow`,
 `/etc/sudoers`. A blocked command returns the specific reason, so the agent learns why rather
@@ -267,7 +278,7 @@ worth reading before you rely on the denylist for anything.
 
 ### Environment sanitization
 
-Shell commands do not inherit your full environment. Variables whose *names* match
+Shell commands do not inherit your full environment. Variables whose _names_ match
 `API|KEY|SECRET|TOKEN|PASSWORD|CREDENTIAL|AUTH` (case-insensitive), plus everything prefixed
 `SSH_`, are stripped before the command runs — so a command that echoes its environment cannot
 exfiltrate your provider keys.

@@ -167,6 +167,26 @@ describe("parseSpecialCommand", () => {
     });
   });
 
+  describe("shell escapes", () => {
+    it("preserves the complete command after a leading !", () => {
+      expect(parseSpecialCommand("! ssh user@test rm -r folder")).toEqual({
+        type: "shell",
+        args: ["ssh user@test rm -r folder"],
+      });
+    });
+
+    it("allows whitespace before the shell escape", () => {
+      expect(parseSpecialCommand("  ! ls -la  ")).toEqual({
+        type: "shell",
+        args: ["ls -la"],
+      });
+    });
+
+    it("does not treat a bare ! as a shell command", () => {
+      expect(parseSpecialCommand("!").type).toBe("unknown");
+    });
+  });
+
   describe("skill commands", () => {
     afterEach(() => {
       setSkillCommands([]);
