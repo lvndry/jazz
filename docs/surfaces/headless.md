@@ -197,7 +197,7 @@ wherever it can be: **stdin being a terminal is enough on its own**, so running 
 by hand needs no flag — the question is printed and you answer by typing a line, either the
 number of an option or something of your own.
 
-```
+```text
 ❓ Which database?
   1) Postgres — the default
   2) SQLite
