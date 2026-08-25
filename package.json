@@ -1,6 +1,6 @@
 {
   "name": "jazz-ai",
-  "version": "0.15.4",
+  "version": "0.15.5",
   "description": "One agent. Every surface. Your rules.",
   "license": "MIT",
   "main": "dist/main.js",
