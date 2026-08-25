@@ -435,7 +435,6 @@ export class OneShotPresentationService implements PresentationService {
    */
   requestUserInput(request: UserInputRequest): Effect.Effect<UserInputOutcome, never> {
     if (this.askMode === "none") return Effect.succeed({ kind: "unavailable" });
-    // The protocol needs a consumer parsing the event stream; a terminal does not.
     // Declared but not wired up is a misconfiguration, not a human saying no.
     if (this.askMode === "protocol" && !this.eventsActive) {
       return Effect.succeed({ kind: "unavailable" });
@@ -487,7 +486,6 @@ export class OneShotPresentationService implements PresentationService {
     };
     return Effect.async<UserInputOutcome, never>((resume) => {
       pendingUserInputs.set(requestId, (response) => {
-        // Nothing sent back is a refusal, not an absence: the question was seen.
         const answer = resolveChoice(response).trim();
         resume(
           Effect.succeed(

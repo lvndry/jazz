@@ -387,8 +387,8 @@ describe("AgentRunner", () => {
         }),
       );
 
-      // Not offered rather than failing at call time: a run in CI that stops to
-      // ask something hangs until its timeout for nobody's benefit.
+      // Not offered rather than failing at call time: a CI run that stops to ask
+      // something hangs until its timeout for nobody.
       expect(lastRequestedToolNames()).not.toContain("ask_user_question");
       expect(lastRequestedToolNames()).not.toContain("ask_file_picker");
       expect(lastRequestedToolNames()).toContain("tool1");

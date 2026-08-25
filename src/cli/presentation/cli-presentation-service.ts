@@ -316,8 +316,6 @@ export class CLIPresentationService implements PresentationService {
 
       yield* this.writeOutput(`${separator}\n`);
 
-      // A terminal that cannot prompt has nobody to ask; an empty answer from one
-      // that can is the human declining.
       if (!this.interactive) return { kind: "unavailable" } as const;
       const response = yield* this.ask("Your response:", {});
       const answer = (response ?? "").trim();

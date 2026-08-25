@@ -46,7 +46,6 @@ describe("ask_user_question", () => {
     expect(result.success).toBe(false);
     expect(result.result).toContain("declined to answer");
     expect(result.result).toContain("do not pick an answer for them");
-    // Must not read as an answer, nor as nobody having been there.
     expect(result.result).not.toContain("User responded");
     expect(result.result).not.toContain("Nobody could be asked");
   });
@@ -56,14 +55,12 @@ describe("ask_user_question", () => {
     expect(result.success).toBe(false);
     expect(result.result).toContain("Nobody could be asked");
     expect(result.result).toContain("state the assumption");
-    // The opposite instruction to a refusal: here the agent should proceed.
     expect(result.result).not.toContain("declined");
   });
 
   it("gives opposite guidance for the two failures", async () => {
     const declined = await ask({ kind: "declined" });
     const unavailable = await ask({ kind: "unavailable" });
-    // Refusal: do not decide for them. Absence: decide.
     expect(declined.result).toContain("do not pick an answer");
     expect(unavailable.result).toContain("Decide yourself");
     expect(declined.result).not.toBe(unavailable.result);

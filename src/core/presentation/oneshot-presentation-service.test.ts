@@ -417,8 +417,7 @@ describe("OneShotPresentationService.requestUserInput", () => {
   };
 
   it("answers empty without asking when the caller cannot relay a question", async () => {
-    // The CI case: --events is on so something is reading the stream, but nothing
-    // will ever write an answer back. Asking here would hang the job.
+    // --events is on, so something reads the stream — but nothing answers.
     const stdin = new PassThrough();
     const service = new OneShotPresentationService(
       DEFAULT_DISPLAY_CONFIG,
@@ -430,7 +429,6 @@ describe("OneShotPresentationService.requestUserInput", () => {
     const captured = captureStderr();
     const answer = await Effect.runPromise(service.requestUserInput(request));
     expect(answer).toEqual({ kind: "unavailable" });
-    // Nothing was emitted, so no consumer is left waiting on a question either.
     expect(captured.lines).toHaveLength(0);
   });
 
@@ -548,7 +546,6 @@ describe("OneShotPresentationService.requestUserInput", () => {
 
 describe("detectInteractiveInput", () => {
   it("recognises a terminal without being told", () => {
-    // The case that should not need a flag: someone running jazz by hand.
     expect(detectInteractiveInput(false, {}, { isTTY: true })).toEqual({
       interactive: true,
       viaTty: true,
@@ -644,7 +641,6 @@ describe("OneShotPresentationService.requestUserInput on a terminal", () => {
     const pending = Effect.runPromise(ttyService(stdin).requestUserInput(request));
     await tick();
     stdin.write("2\n");
-    // The agent gets the option's value, not the digit the human typed.
     expect(await pending).toEqual({ kind: "answered", response: "sqlite" });
   });
 
@@ -658,7 +654,6 @@ describe("OneShotPresentationService.requestUserInput on a terminal", () => {
   });
 
   it("needs no --events, unlike the bridge protocol", async () => {
-    // A terminal run has no consumer parsing an event stream.
     const stdin = new PassThrough();
     captureStderr();
     const pending = Effect.runPromise(ttyService(stdin).requestUserInput(request));

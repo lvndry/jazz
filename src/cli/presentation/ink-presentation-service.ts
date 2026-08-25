@@ -1510,7 +1510,6 @@ export class InkPresentationService implements PresentationService {
         store.setPrompt(null);
         store.setApprovalRequest(null);
         this.isProcessingUserInput = false;
-        // Submitting nothing says "not this", which is an answer, not an absence.
         resume(
           Effect.succeed(
             response.length > 0 ? { kind: "answered", response } : { kind: "declined" },

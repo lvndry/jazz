@@ -353,8 +353,6 @@ export function runAgentOnceCommand(
       ...(options.timezone !== undefined ? { timezone: options.timezone } : {}),
       ...(options.maxIterations != null ? { maxIterations: options.maxIterations } : {}),
       ...(options.stream !== undefined ? { stream: options.stream } : {}),
-      // Only a surface that can actually reach a human keeps the tools that ask
-      // one: a terminal, or a caller that declared it will relay the question.
       ...(interactiveInput.interactive ? {} : { withholdInteractiveTools: true }),
       ...(ephemeral ? { disablePersistence: true } : {}),
       ...(options.park === true ? { parkWhenUnattended: true } : {}),

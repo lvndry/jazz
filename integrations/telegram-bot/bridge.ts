@@ -859,8 +859,6 @@ async function runJazz(
       "--json",
       "--events",
       "tools,reasoning,text,approval,subagent",
-      // This bridge relays the agent's questions as buttons and writes the answer
-      // back on stdin, so the tools that ask one are worth having here.
       "--interactive-stdin",
       "--agent",
       agentIdForChat(chatId),
@@ -1650,8 +1648,6 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
       callback_query_id: callback.id,
       text: `Answered: ${answer}`.slice(0, 200),
     });
-    // Keep the question visible but retire the buttons, so the thread still
-    // reads as a question that was answered.
     await callTelegram(config, "editMessageReplyMarkup", {
       chat_id: chatId,
       message_id: messageId,
