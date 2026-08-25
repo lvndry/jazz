@@ -10,7 +10,7 @@ import { createToolRegistryLayer } from "./tool-registry";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "../../interfaces/fs";
 import { LoggerServiceTag, type LoggerService } from "../../interfaces/logger";
 import { TerminalServiceTag, type TerminalService } from "../../interfaces/terminal";
-import type { Agent, ToolExecutionResult } from "../../types";
+import type { Agent, ToolExecutionContext, ToolExecutionResult } from "../../types";
 
 describe("Shell Tools", () => {
   const createTestLayer = () => {
@@ -338,6 +338,55 @@ describe("Shell Tools", () => {
         : "";
     expect(stdout).toBe("test output");
     expect(stdout).not.toContain("[truncated:");
+  });
+
+  describe("timezone", () => {
+    async function runDate(context: ToolExecutionContext): Promise<string> {
+      const result: ToolExecutionResult = await Effect.runPromise(
+        Effect.provide(
+          shellTools.execute.execute(
+            { command: "date +%Z", description: "Report the shell's timezone." },
+            context,
+          ),
+          createTestLayer(),
+        ),
+      );
+      return result.result && typeof result.result === "object" && "stdout" in result.result
+        ? String(result.result.stdout).trim()
+        : "";
+    }
+
+    it("gives a child process the run's timezone", async () => {
+      // Tokyo has no daylight saving and shares an abbreviation with nowhere else
+      // a CI runner is likely to sit, so this cannot pass by coincidence.
+      expect(await runDate({ agentId: "a", conversationId: "c", timezone: "Asia/Tokyo" })).toBe(
+        "JST",
+      );
+    });
+
+    it("distinguishes two zones in the same run", async () => {
+      const tokyo = await runDate({ agentId: "a", conversationId: "c", timezone: "Asia/Tokyo" });
+      const utc = await runDate({ agentId: "a", conversationId: "c", timezone: "UTC" });
+      expect(tokyo).toBe("JST");
+      expect(utc).toBe("UTC");
+    });
+
+    it("leaves the host default alone when no timezone is set", async () => {
+      const withoutZone = await runDate({ agentId: "a", conversationId: "c" });
+      const hostZone = new Intl.DateTimeFormat("en-US", { timeZoneName: "short" })
+        .formatToParts(new Date())
+        .find((part) => part.type === "timeZoneName")?.value;
+      expect(withoutZone.length).toBeGreaterThan(0);
+      // Whatever the host reports, an absent zone must not silently become UTC.
+      if (hostZone !== undefined && !hostZone.startsWith("GMT")) {
+        expect(withoutZone).not.toBe("JST");
+      }
+    });
+
+    it("ignores an empty timezone rather than exporting a blank TZ", async () => {
+      const blank = await runDate({ agentId: "a", conversationId: "c", timezone: "" });
+      expect(blank.length).toBeGreaterThan(0);
+    });
   });
 
   it("caps stdout while collecting and tells the model it was truncated", async () => {

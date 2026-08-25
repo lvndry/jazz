@@ -588,7 +588,16 @@ This command will be executed on your system. Only approve commands you trust.`;
           // Sanitize environment variables for security, exempting any
           // agent-configured allowlist from the sensitive-name scrub.
           const envAllowlist = context.parentAgent?.config.envAllowlist ?? [];
-          const sanitizedEnv = createSanitizedEnv({}, envAllowlist);
+          // The run's zone governs child processes too. `date`, `khal` and
+          // `gcalcli` read TZ, not the agent's notion of "now", so without this a
+          // caller in Europe/Rome is shown their own calendar in whatever zone the
+          // host happens to be set to.
+          const sanitizedEnv = createSanitizedEnv(
+            typeof context.timezone === "string" && context.timezone.length > 0
+              ? { TZ: context.timezone }
+              : {},
+            envAllowlist,
+          );
 
           const result = yield* runShellCommand({
             command,
