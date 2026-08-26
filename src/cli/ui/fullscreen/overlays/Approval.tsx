@@ -33,7 +33,7 @@ import { clipTerminalCells, sliceTerminalCells, terminalCellWidth } from "../ter
 import type { ApprovalOverlay, Viewport } from "../types";
 
 /** Windowed width, and the floor below which windowing stops making sense. */
-const MAX_WIDTH = 76;
+const MAX_WIDTH = 96;
 const MIN_WINDOWED_HEIGHT = 20;
 
 /** One column of breathing room inside the frame, on each side. */

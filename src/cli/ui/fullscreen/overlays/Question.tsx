@@ -29,6 +29,7 @@ import { getGlyphs, type GlyphSet } from "../../glyphs";
 import { PICKER_WINDOW_SIZE, pickerWindowStart } from "../../picker-window";
 import { THEME } from "../../theme";
 import { clipTerminalCells, terminalCellWidth, wrapTerminalCells } from "../terminal-cells";
+import { centeredOffset } from "./centered";
 import type { Viewport } from "../types";
 import { CaretValue, HintRow, type Hint } from "./TextPrompt";
 
@@ -311,9 +312,7 @@ export function Question({ model, viewport }: QuestionProps): ReactNode {
     );
   }, 0);
   const listOffset =
-    filterable || widestOptionRow >= inner
-      ? 0
-      : Math.max(0, Math.floor((inner - widestOptionRow) / 2));
+    filterable || widestOptionRow >= inner ? 0 : centeredOffset(widestOptionRow, inner);
 
   const windowedHeight = fixedRows + listRows + HINT_ROWS;
   const height = fullscreen ? viewport.height : Math.min(windowedHeight, viewport.height);

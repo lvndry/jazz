@@ -35,7 +35,7 @@ import {
 } from "../terminal-cells";
 import type { Viewport } from "../types";
 
-const MAX_WIDTH = 76;
+const MAX_WIDTH = 96;
 const MIN_WINDOWED_HEIGHT = 20;
 
 const CARD_PAD = 1;
