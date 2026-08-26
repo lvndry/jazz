@@ -67,16 +67,19 @@ const PINNED_MODELS_BY_PROVIDER: Readonly<Record<string, readonly string[]>> = {
 /**
  * OpenRouter's own ids (`openrouter/free`, `openrouter/auto`, `openrouter/fusion`, …)
  * are router meta-models — the reason to pick this provider at all — so the whole
- * prefix pins above its hundreds of plain catalog entries.
+ * prefix pins above its hundreds of plain catalog entries. `free` leads the group
+ * since it's the entry point with no cost attached.
  */
 const ROUTER_MODEL_PREFIX = "openrouter/";
+const ROUTER_MODEL_ORDER = ["openrouter/free", "openrouter/auto"] as const;
 
 function pinnedModelRank(providerId: string, modelId: string): number {
   if (
     canonicalizeProviderId(providerId) === "openrouter" &&
     modelId.startsWith(ROUTER_MODEL_PREFIX)
   ) {
-    return 0;
+    const routerRank = ROUTER_MODEL_ORDER.indexOf(modelId as (typeof ROUTER_MODEL_ORDER)[number]);
+    return routerRank === -1 ? 0 : routerRank - ROUTER_MODEL_ORDER.length;
   }
   const pinned = PINNED_MODELS_BY_PROVIDER[canonicalizeProviderId(providerId)];
   const rank = pinned?.indexOf(modelId) ?? -1;
