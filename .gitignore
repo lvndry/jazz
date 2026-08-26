@@ -12,6 +12,14 @@ binaries/
 .tsbuildinfo.*
 *.tgz
 
+# npm platform-package staging (populated by `bun run stage-npm-packages`).
+# npm/jazz-ai-*/package.json is hand-authored and stays tracked; only the
+# binary each build copies in is generated. Same for npm/jazz-ai's docs,
+# copied in from the repo root at staging time.
+npm/jazz-ai-*/bin/
+npm/jazz-ai/README.md
+npm/jazz-ai/LICENSE
+
 # Environment variables
 .env
 .env.local

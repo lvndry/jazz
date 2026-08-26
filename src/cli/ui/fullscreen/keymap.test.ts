@@ -25,6 +25,7 @@ const IDLE: EscapeContext = {
   runActive: false,
   inputEmpty: true,
   focus: "input",
+  hasQueued: false,
 };
 
 describe("escape ladder", () => {

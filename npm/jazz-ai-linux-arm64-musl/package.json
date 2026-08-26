@@ -1,0 +1,25 @@
+{
+  "name": "jazz-ai-linux-arm64-musl",
+  "version": "0.0.0-placeholder",
+  "description": "Jazz CLI binary for Linux (arm64, musl — Alpine). Installed automatically as an optional dependency of jazz-ai — not meant to be installed directly.",
+  "license": "MIT",
+  "bin": {
+    "jazz": "./bin/jazz"
+  },
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "libc": [
+    "musl"
+  ],
+  "files": [
+    "bin/"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lvndry/jazz.git"
+  }
+}

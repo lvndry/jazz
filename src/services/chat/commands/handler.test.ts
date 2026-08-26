@@ -205,9 +205,10 @@ describe("handleSpecialCommand shell escape", () => {
     const fsContextLayer = createFileSystemContextServiceLayer().pipe(
       Layer.provide(NodeFileSystem.layer),
     );
+    const mockLogger: Partial<LoggerService> = { info: () => Effect.void };
     const layers = Layer.mergeAll(
       Layer.succeed(TerminalServiceTag, mockTerminal as TerminalService),
-      Layer.succeed(LoggerServiceTag, { info: () => Effect.void } as LoggerService),
+      Layer.succeed(LoggerServiceTag, mockLogger as LoggerService),
       fsContextLayer,
     );
 

@@ -1,13 +1,10 @@
 {
   "name": "jazz-ai",
   "version": "0.15.6",
+  "private": true,
   "description": "One agent. Every surface. Your rules.",
   "license": "MIT",
-  "main": "dist/main.js",
   "type": "module",
-  "bin": {
-    "jazz": "./dist/main.js"
-  },
   "author": {
     "name": "lvndry",
     "email": "lvndry@proton.me",
@@ -44,14 +41,13 @@
     "agent-skills"
   ],
   "scripts": {
-    "build": "bun run scripts/build.ts",
     "build:binary": "bun run scripts/build.ts --compile",
     "build:binaries": "bun run scripts/build.ts --compile --all-targets",
+    "stage-npm-packages": "bun run scripts/build.ts --compile --all-targets --npm-packages",
     "typecheck": "bun run tsc --noEmit -p tsconfig.app.json && bun run tsc --noEmit -p tsconfig.build.json && bun run tsc --noEmit -p tsconfig.integrations.json",
     "typecheck:evals": "tsc -p evals/tsconfig.json",
     "evals": "bun run evals/cli.ts",
     "dev": "bun --watch src/main.ts",
-    "start": "bun dist/main.js",
     "cli": "bun src/main.ts",
     "prepare": "git config core.hooksPath .githooks || true",
     "lint": "bun eslint src scripts integrations --cache",
@@ -65,9 +61,7 @@
     "docs:lint": "bunx markdownlint-cli2",
     "docs:lint:fix": "bunx markdownlint-cli2 --fix",
     "test:typecheck": "bunx tsc --project tsconfig.test.json",
-    "clean": "rm -rf dist binaries .build .tsbuild .tsbuildinfo .tsbuildinfo.scripts",
-    "prebuild": "bun run clean",
-    "prepublishOnly": "bun run build"
+    "clean": "rm -rf binaries npm/*/bin .build .tsbuild .tsbuildinfo .tsbuildinfo.scripts"
   },
   "dependencies": {
     "@opentui/core": "^0.5.8",
@@ -150,14 +144,5 @@
   "engines": {
     "node": ">=22.16.0",
     "npm": ">=10.0.0"
-  },
-  "files": [
-    "dist/",
-    "vendor/terminal-notifier/",
-    "personas/",
-    "skills/",
-    "workflows/",
-    "README.md",
-    "LICENSE"
-  ]
+  }
 }

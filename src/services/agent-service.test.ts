@@ -634,7 +634,8 @@ describe("AgentService", () => {
     it("rejects a companion that is not provider/model", async () => {
       const program = service.validateAgentConfig({
         ...baseConfig,
-        companions: { vision: "just-a-model-name" },
+        // Deliberately malformed — this is what the test is asserting gets rejected.
+        companions: { vision: "just-a-model-name" as `${string}/${string}` },
       });
       const result = await Effect.runPromiseExit(program);
       expect(result._tag).toBe("Failure");
