@@ -1,3 +1,7 @@
+---
+description: "Receive a weekly consolidated report on market trends and the specific assets you track, researched and written by a scheduled Jazz agent."
+---
+
 # Use Case: Weekly Investment Report
 
 ## Overview

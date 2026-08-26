@@ -1,3 +1,7 @@
+---
+description: "How a tool call becomes an action in Jazz: risk tiers, the approval card, auto-approve policies, and what no tier can ever bypass."
+---
+
 # Tools & approval
 
 This page explains how a tool call becomes an action, and what stands between the

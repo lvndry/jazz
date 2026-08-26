@@ -1,3 +1,7 @@
+---
+description: "Put a Jazz agent in your pipeline: PR review bots, release-note drafting, and scheduled CI jobs with pinned models and read-only-by-default policies."
+---
+
 # CI/CD — Jazz in your pipeline
 
 How to get an agent reviewing your pull requests and writing your release notes.

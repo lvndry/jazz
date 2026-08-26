@@ -1,3 +1,7 @@
+---
+description: "A weekly Jazz workflow that walks your repos, categorizes TODO/FIXME/HACK markers, and reports whether tech debt is growing or shrinking."
+---
+
 # codebase-tech-debt-radar
 
 **What it does:** Once a week, walks one or more local repos, counts and categorizes `TODO` / `FIXME` / `HACK` / `XXX` markers, and writes a trend report so you can see whether tech debt is growing or shrinking.

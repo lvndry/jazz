@@ -1,3 +1,7 @@
+---
+description: "Connect Jazz to any LLM provider, MCP server, email, calendar, or web search — one interface across 18 providers including fully local models."
+---
+
 # Integrations
 
 How to connect Jazz to the model, service, or data source you need.

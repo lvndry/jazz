@@ -1,3 +1,7 @@
+---
+description: "Every YAML field a WORKFLOW.md accepts: schedules, auto-approve policies, model bindings, and delivery targets — verified against the parser source."
+---
+
 # Workflow frontmatter
 
 How to get the `WORKFLOW.md` YAML fields exactly right.

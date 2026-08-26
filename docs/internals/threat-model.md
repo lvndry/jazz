@@ -1,3 +1,7 @@
+---
+description: "The Jazz threat model: what the harness defends against, what it explicitly does not, and the self-audit checklist behind each safety claim."
+---
+
 # Threat model
 
 **Status: draft — v1 to be dated and published. Items marked ☐ are self-audit checks still

@@ -1,3 +1,7 @@
+---
+description: "What happens between pressing enter and getting an answer: the Jazz agent loop, iteration guards, and how long unattended runs stay alive."
+---
+
 # The agent loop
 
 This page explains what happens between "you press enter" and "you get an answer" —

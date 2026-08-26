@@ -1,3 +1,7 @@
+---
+description: "Jazz is an open-source AI agent harness that runs a general-purpose agent on your own machine — terminal, cron, CI, Telegram, Discord. Any of 18 LLM providers, fully local-capable, MIT licensed."
+---
+
 # Jazz Documentation
 
 **Jazz runs your AI agent everywhere you are** — terminal, script, cron, CI,

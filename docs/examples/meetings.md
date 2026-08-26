@@ -1,3 +1,7 @@
+---
+description: "Jazz gathers context before a meeting and generates minutes afterwards — automated prep notes and follow-up summaries."
+---
+
 # Use Case: Meeting Assistant
 
 ## Overview

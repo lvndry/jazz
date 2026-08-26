@@ -1,3 +1,7 @@
+---
+description: "Install Jazz, configure your first agent, and get it doing real work: quick start, agent creation, airgapped deployment, and observability."
+---
+
 # Guide
 
 Get Jazz installed, configured, and doing real work.

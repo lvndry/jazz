@@ -1,3 +1,7 @@
+---
+description: "Peer links let your Jazz agent ask another person's agent a question and answer theirs, under explicit approval tiers and a tamper-evident ledger."
+---
+
 # Peers — talking to someone else's agent
 
 Your jazz runs on your machine. Your friend's runs on theirs. A peer is a link between the

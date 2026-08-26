@@ -1,3 +1,7 @@
+---
+description: "The visual language of the Jazz terminal interface: one mark, one accent, six hues, and the rules that decide every case not covered explicitly."
+---
+
 # Interface Design
 
 The visual language of the Jazz terminal interface: one mark, one accent, six

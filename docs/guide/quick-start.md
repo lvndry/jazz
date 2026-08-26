@@ -1,3 +1,7 @@
+---
+description: "Install the Jazz CLI with one curl command and run your first AI agent in minutes. Single self-contained binary for macOS and Linux — no Node or npm required."
+---
+
 # Quick start
 
 How to get from nothing to a working agent.

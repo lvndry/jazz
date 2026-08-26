@@ -1,3 +1,7 @@
+---
+description: "How Jazz schedules workflows using your operating system's own scheduler — launchd on macOS, cron on Linux — with behavior and limitations spelled out."
+---
+
 # Workflow Scheduling: Behavior & Limitations
 
 ## How Scheduling Works

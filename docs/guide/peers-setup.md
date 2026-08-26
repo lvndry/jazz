@@ -1,3 +1,7 @@
+---
+description: "Hands-on setup for peer links between two Jazz machines: approval tiers, the request ledger, and what each side can and cannot do to the other."
+---
+
 # Setting up peers
 
 A hands-on walkthrough for letting your agent ask a friend's agent something, and letting

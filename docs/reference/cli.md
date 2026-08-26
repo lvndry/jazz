@@ -1,3 +1,7 @@
+---
+description: "Every jazz command and flag, verified against the source: run agents, manage sessions, configure providers, and drive headless automation."
+---
+
 # CLI Reference
 
 This page helps you find the exact command and flag you need.

@@ -1,3 +1,7 @@
+---
+description: "The Jazz architecture reference has moved: code map and Effect/Layer conventions under Internals, plus where to make common changes."
+---
+
 # Architecture → moved
 
 This page is now split in two, under [Internals](../internals/index.md):

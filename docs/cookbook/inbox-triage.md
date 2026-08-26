@@ -1,3 +1,7 @@
+---
+description: "A Jazz workflow recipe that scans your inbox every weekday morning, surfaces the mail that needs a human, and archives the noise automatically."
+---
+
 # inbox-triage
 
 **What it does:** Each weekday morning, scans your inbox via the `email` skill (Himalaya CLI), surfaces the handful of messages that actually need a human, and archives the noise (newsletters, marketing, automated notifications).

@@ -1,3 +1,7 @@
+---
+description: "The Jazz glossary: which word means what, which two words are not the same thing, and the precise vocabulary used across these docs."
+---
+
 # Lexicon — what Jazz's words mean
 
 This page tells you which word to use, and which two words are not the same thing.

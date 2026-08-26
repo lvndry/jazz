@@ -1,3 +1,7 @@
+---
+description: "Generate detailed, well-structured PR descriptions from your git changes and commit history with one prompt to Jazz."
+---
+
 # Automated PR Description Generation
 
 Generate detailed PR descriptions automatically from your git changes and commit history.

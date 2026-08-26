@@ -1,3 +1,7 @@
+---
+description: "Use Jazz to read PDF documents and generate comprehensive, structured summaries with a single prompt."
+---
+
 # PDF Summary
 
 Use Jazz to read PDF documents and generate comprehensive summaries.

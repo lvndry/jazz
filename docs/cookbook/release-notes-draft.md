@@ -1,3 +1,7 @@
+---
+description: "A CI-triggered Jazz workflow that drafts release notes from commits since the last tag, grouped by feature area, and publishes a GitHub Release."
+---
+
 # release-notes-draft
 
 **What it does:** Triggered by a manual GitHub Actions dispatch (or a `git tag` push), drafts release notes from the commits since the previous tag, grouped by feature area, and creates a GitHub Release.

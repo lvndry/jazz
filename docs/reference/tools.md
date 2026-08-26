@@ -1,3 +1,7 @@
+---
+description: "The complete Jazz tool registry — every tool name, its honest risk tier, and exactly what stands between a tool call and an action on your machine."
+---
+
 # Tools Reference
 
 This page helps you find the exact name, risk tier, and behavior of a tool.

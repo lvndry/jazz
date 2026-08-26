@@ -1,3 +1,7 @@
+---
+description: "Call Jazz from your own code with jazz run: pass a dynamic prompt, get structured JSON back, control autonomy and timeouts — the contract every integration builds on."
+---
+
 # Headless — the `jazz run` contract
 
 How to call Jazz from your own code and get a parseable result back.

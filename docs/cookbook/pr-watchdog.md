@@ -1,3 +1,7 @@
+---
+description: "A daily Jazz workflow that scans open pull requests with the GitHub CLI, flags stale or blocked PRs, and posts a digest you can paste into Slack."
+---
+
 # pr-watchdog
 
 **What it does:** Once a day, scans the open pull requests on your repo(s) using the GitHub CLI, flags PRs that are stale or blocked, and writes a short digest you can paste into Slack.

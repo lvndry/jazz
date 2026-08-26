@@ -33,7 +33,7 @@ import type { Viewport } from "../types";
 import { CaretValue, HintRow, type Hint } from "./TextPrompt";
 
 /** Windowed width, and the floor below which windowing stops making sense. */
-const MAX_WIDTH = 76;
+const MAX_WIDTH = 96;
 const MIN_WINDOWED_HEIGHT = 20;
 
 /** One column of breathing room inside the frame, on each side. */
@@ -55,7 +55,7 @@ const NUMBER_COLUMN = 3;
 const CHECKBOX_COLUMN = 4;
 
 /** Descriptions never take more of the row than the labels they annotate. */
-const DESCRIPTION_SHARE = 0.45;
+const DESCRIPTION_SHARE = 0.55;
 
 /** Two spaces between a label and its description, so the column reads as one. */
 const DESCRIPTION_GAP = 2;

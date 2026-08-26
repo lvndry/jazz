@@ -1,3 +1,7 @@
+---
+description: "Why a long Jazz run doesn't fall off its context window: compaction strategies, priority tiers, and what gets dropped first."
+---
+
 # Context management
 
 This page explains why a long Jazz run doesn't fall off the end of its context

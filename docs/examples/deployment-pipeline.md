@@ -1,3 +1,7 @@
+---
+description: "Coordinate deployments with a Jazz agent: pre-checks, migrations, smoke tests, and rollback plans executed step by step."
+---
+
 # Intelligent Deployment Pipeline
 
 Coordinate complex deployments with pre-checks, migrations, and smoke tests.

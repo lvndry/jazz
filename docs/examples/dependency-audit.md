@@ -1,3 +1,7 @@
+---
+description: "Automate dependency security audits with Jazz: scan for CVEs, propose fixes, and apply upgrades under your approval."
+---
+
 # Dependency Security Audit
 
 Automate security audits of your project dependencies and safely fix vulnerabilities.

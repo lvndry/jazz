@@ -1,3 +1,7 @@
+---
+description: "Workflows are cron jobs for AI agents: schedule a prompt, set an auto-approve policy, and have Jazz triage your inbox or watch your PRs on a clock."
+---
+
 # Workflows - Automated Agent Tasks
 
 Workflows let you automate recurring tasks by scheduling agents to run at specific times. Think of them as "cron jobs for AI agents" - scheduled automation that can read your emails, research topics, manage your calendar, and more.

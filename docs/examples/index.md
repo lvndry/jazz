@@ -1,3 +1,7 @@
+---
+description: "Interactive Jazz walkthroughs — purpose-built agents, real conversations, and what lands on disk: deep research, PDF summaries, git squash, and more."
+---
+
 # Examples
 
 Each example is an interactive walkthrough — a purpose-built agent, the

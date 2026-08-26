@@ -1,3 +1,7 @@
+---
+description: "A weekly Jazz workflow that fetches competitors' blogs and changelogs, summarizes what changed, and files the digest into your Obsidian vault."
+---
+
 # competitor-watch
 
 **What it does:** Once a week, fetches the public blog/changelog/release feeds of competitors you list, summarizes what changed, and writes the digest into your Obsidian vault (or a plain folder if you don't use Obsidian).

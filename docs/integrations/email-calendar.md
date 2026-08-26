@@ -1,3 +1,7 @@
+---
+description: "Give a Jazz agent email and calendar access through the Himalaya-backed email skill and calendar skill — scoped credentials, explicit approval for sends."
+---
+
 # Email & Calendar
 
 How to let an agent read your mail or your calendar.

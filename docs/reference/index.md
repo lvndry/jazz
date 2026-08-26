@@ -1,3 +1,7 @@
+---
+description: "Technical reference for Jazz: the complete CLI surface, configuration files, the full tool registry with risk tiers, and workflow frontmatter fields."
+---
+
 # Technical Reference
 
 Detailed technical documentation for Jazz.

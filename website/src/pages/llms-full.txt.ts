@@ -3,6 +3,11 @@ import type { APIContext } from "astro";
 
 import { SECTIONS, titleOf } from "../lib/docs";
 
+/**
+ * The complete Jazz documentation as a single plain-text file for LLM
+ * consumption (the llms-full.txt convention). Pages appear in the canonical
+ * section order; each page is delimited so models can cite exact sections.
+ */
 export async function GET({ site }: APIContext): Promise<Response> {
   const entries = await getCollection("docs");
   const base = new URL(site ?? "https://jazz-cli.vercel.app");
@@ -13,8 +18,8 @@ export async function GET({ site }: APIContext): Promise<Response> {
     return sectionA - sectionB || a.id.localeCompare(b.id);
   });
 
-  const lines = [
-    "# Jazz",
+  const header = [
+    "# Jazz — full documentation",
     "",
     "> Jazz is an open-source AI agent harness that runs a general-purpose AI agent on your own machine —",
     "> terminal, scripts, cron, CI, Telegram, Discord. Self-hosted and fully local-capable:",
@@ -23,21 +28,24 @@ export async function GET({ site }: APIContext): Promise<Response> {
     "",
     `Install: curl -fsSL https://github.com/lvndry/jazz/releases/latest/download/install.sh | bash`,
     "Source: https://github.com/lvndry/jazz",
-    `Full docs in one file: ${new URL("/llms-full.txt", base).href}`,
+    `Table of contents with per-page links: ${new URL("/llms.txt", base).href}`,
     "",
-    "## Docs",
-    "",
-    ...sorted.map(
-      (entry) =>
-        `- [${titleOf(entry)}](${new URL(`/docs/${entry.id}.md`, base).href}): ${
-          (entry.data.description as string | undefined) ??
-          entry.body?.match(/^#\s+(.+)$/m)?.[1] ??
-          ""
-        }`,
-    ),
   ];
 
-  return new Response(lines.join("\n") + "\n", {
+  const pages = sorted.map((entry) => {
+    const url = new URL(`/docs/${entry.id}.md`, base).href;
+    return [
+      "---",
+      "",
+      `## ${titleOf(entry)}`,
+      `Source: ${url}`,
+      "",
+      entry.body?.trim() ?? "",
+      "",
+    ].join("\n");
+  });
+
+  return new Response(header.join("\n") + pages.join("\n"), {
     headers: { "Content-Type": "text/plain; charset=utf-8" },
   });
 }

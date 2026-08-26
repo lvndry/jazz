@@ -1,3 +1,7 @@
+---
+description: "Delegation in Jazz: how subagents isolate context, why delegation is a context strategy rather than a parallelism trick, and when not to use it."
+---
+
 # Sub-agents
 
 This page explains how Jazz delegates, and why delegation is a context strategy

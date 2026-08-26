@@ -1,3 +1,7 @@
+---
+description: "A GitHub Actions-triggered Jazz agent that reviews every opened PR and posts inline review comments on the changed lines."
+---
+
 # ci-pr-reviewer
 
 **What it does:** On every opened PR (or on `/jazz-review` comment from a trusted user), runs a Jazz agent that reviews the diff and posts inline review comments on the actual changed lines.

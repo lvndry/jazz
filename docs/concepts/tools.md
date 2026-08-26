@@ -1,3 +1,7 @@
+---
+description: "Every action a Jazz agent can take goes through a tool with an honest risk tier — from read-only lookups to gated mutations that always require your approval."
+---
+
 # Tools
 
 This page explains what a tool is, what the risk tiers mean for you, and how to add

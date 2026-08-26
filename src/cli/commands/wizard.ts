@@ -20,9 +20,8 @@ import { TIPS, type WizardMenuOption } from "../ui/WizardHome";
  * Wizard menu option identifiers
  */
 type MenuAction =
-  | "continue"
-  | "new-conversation"
   | "resume-conversation"
+  | "new-conversation"
   | "create-agent"
   | "edit-agent"
   | "list-agents"
@@ -51,21 +50,12 @@ export function wizardCommand() {
       // Get all agents for the menu
       const agents = yield* agentService.listAgents();
 
-      // Get last used agent ID from runtime state
+      // Get last used agent ID from runtime state (used to pre-select agents in pickers)
       const jazzState = yield* JazzStateServiceTag;
       const lastUsedAgentId = yield* jazzState.get("wizard.lastUsedAgentId").pipe(
         Effect.map((value) => (typeof value === "string" ? value : null)),
         Effect.catchAll(() => Effect.succeed(null)),
       );
-
-      // Check if last used agent still exists
-      let lastUsedAgent: Agent | null = null;
-      if (lastUsedAgentId) {
-        const agentResult = yield* Effect.either(agentService.getAgent(lastUsedAgentId));
-        if (agentResult._tag === "Right") {
-          lastUsedAgent = agentResult.right;
-        }
-      }
 
       // Check if any agent has saved conversation history
       let hasConversationHistory = false;
@@ -82,10 +72,10 @@ export function wizardCommand() {
       // Build menu options dynamically
       const menuOptions: WizardMenuOption[] = [];
 
-      if (lastUsedAgent) {
+      if (hasConversationHistory) {
         menuOptions.push({
-          label: `Resume: ${lastUsedAgent.name}`,
-          value: "continue",
+          label: "Resume conversation",
+          value: "resume-conversation",
         });
       }
 
@@ -127,11 +117,9 @@ export function wizardCommand() {
 
       // Handle the selected action
       switch (selection) {
-        case "continue": {
-          if (lastUsedAgent) {
-            yield* startChatWithAgent(lastUsedAgent);
-            yield* terminal.clear();
-          }
+        case "resume-conversation": {
+          yield* resumeConversation(agents, terminal);
+          yield* terminal.clear();
           break;
         }
 
@@ -146,12 +134,6 @@ export function wizardCommand() {
             yield* startChatWithAgent(selectedAgent);
             yield* terminal.clear();
           }
-          break;
-        }
-
-        case "resume-conversation": {
-          yield* resumeConversation(agents, terminal);
-          yield* terminal.clear();
           break;
         }
 

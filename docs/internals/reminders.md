@@ -1,3 +1,7 @@
+---
+description: "How agent reminders are stored, parsed, and delivered in Jazz — from natural-language requests to scheduled notifications."
+---
+
 # Reminders
 
 This page explains how agent reminders are stored, parsed, and delivered.

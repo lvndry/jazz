@@ -1,3 +1,7 @@
+---
+description: "Every Jazz run is recorded locally and can stream OpenTelemetry events to your own collector — traces, token usage, and tool calls for unattended agents."
+---
+
 # Observability
 
 Jazz records every run locally and can push the same events to an OpenTelemetry collector you

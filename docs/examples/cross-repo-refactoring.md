@@ -1,3 +1,7 @@
+---
+description: "Refactor a code pattern across many repositories at once — Jazz finds every occurrence and applies the change consistently."
+---
+
 # Cross-Repository Refactoring
 
 Refactor code patterns across multiple repositories simultaneously.
