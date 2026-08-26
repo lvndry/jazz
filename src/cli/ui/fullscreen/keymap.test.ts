@@ -328,9 +328,15 @@ describe("footer hints", () => {
     ]);
     expect(hintsFor("input", true, true)).toEqual([
       "enter to queue",
+      "esc esc to interrupt",
+      "^r for reasoning",
+      "^c to stop",
+    ]);
+    expect(hintsFor("input", true, true, undefined, false, true, true)).toEqual([
+      "esc to send all",
+      "enter to queue",
       "up to recall",
       "^x to clear",
-      "esc esc to interrupt",
     ]);
     expect(hintsFor("input", false)).toEqual([
       "enter to send",

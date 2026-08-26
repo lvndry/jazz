@@ -664,6 +664,14 @@ describe("UIStore", () => {
       s.takeQueue();
       expect(s.getMessageQueueSnapshot()).toEqual([]);
     });
+
+    test("requestFlushQueue/consumeFlushQueue is a one-shot flag", () => {
+      const s = new UIStore();
+      expect(s.consumeFlushQueue()).toBe(false);
+      s.requestFlushQueue();
+      expect(s.consumeFlushQueue()).toBe(true);
+      expect(s.consumeFlushQueue()).toBe(false);
+    });
   });
 
   describe("chatBusy", () => {

@@ -30,10 +30,25 @@ const KNOWN_UNSAFE: readonly (readonly [number, number, string])[] = [
   [0x2800, 0x28ff, "Braille — 0/256 in every target font"],
 ];
 
+/**
+ * The todo checklist marks are a deliberate, contained exception to the
+ * font-safety rules below: unlike the box-drawing status stubs used
+ * elsewhere, the checklist is read as a list of distinct marks rather than
+ * glanced at, so a font-native pictogram (✓ ◐ ○ ✗) earns its place there even
+ * though it risks fallback-font substitution on SF Mono.
+ */
+const TODO_MARK_FIELDS: readonly (keyof GlyphSet)[] = [
+  "todoPending",
+  "todoActive",
+  "todoDone",
+  "todoCancelled",
+];
+
 /** Every character the set can emit, including animation frames. */
-function everyCharacter(set: GlyphSet): string[] {
+function everyCharacter(set: GlyphSet, exclude: readonly (keyof GlyphSet)[] = []): string[] {
   const out: string[] = [];
-  for (const value of Object.values(set)) {
+  for (const [key, value] of Object.entries(set)) {
+    if (exclude.includes(key as keyof GlyphSet)) continue;
     if (typeof value === "string") out.push(...value);
     else if (Array.isArray(value)) {
       for (const entry of value) {
@@ -248,7 +263,7 @@ describe("glyphs", () => {
 describe("font safety", () => {
   it("every Unicode-set character comes from a verified-safe range", () => {
     const offenders: string[] = [];
-    for (const character of everyCharacter(GLYPHS.unicode)) {
+    for (const character of everyCharacter(GLYPHS.unicode, TODO_MARK_FIELDS)) {
       const codePoint = character.codePointAt(0) as number;
       if (describeRange(codePoint, SAFE_RANGES) !== undefined) continue;
       const unsafe = describeRange(codePoint, KNOWN_UNSAFE);
@@ -268,8 +283,8 @@ describe("font safety", () => {
   });
 
   it("does not reintroduce the glyphs that were missing from SF Mono", () => {
-    const previouslyShipped = ["◆", "◇", "◐", "●", "○", "♪", "✓", "✗", "❯", "⚠", "ℹ", "✧"];
-    const emitted = new Set(everyCharacter(GLYPHS.unicode));
+    const previouslyShipped = ["◆", "◇", "●", "♪", "❯", "⚠", "ℹ", "✧"];
+    const emitted = new Set(everyCharacter(GLYPHS.unicode, TODO_MARK_FIELDS));
     for (const character of previouslyShipped) {
       expect(emitted.has(character)).toBe(false);
     }

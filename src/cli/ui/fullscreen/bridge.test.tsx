@@ -253,8 +253,9 @@ describe("fullscreen bridge", () => {
     });
     expect(text).toContain("gmail");
     expect(text).toContain("search");
-    expect(text).toContain("step 2 of 3");
+    expect(text).toContain("todo 1/3");
     expect(text).toContain("Rank urgent threads");
+    expect(text).toContain("Draft replies");
   });
 
   it("shows the arguments a running tool was called with", async () => {

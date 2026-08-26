@@ -125,6 +125,17 @@ export interface GlyphSet {
   /** Grid cell: used tokens */ readonly gridFilled: string;
   /** Grid cell: free tokens */ readonly gridEmpty: string;
   /** Grid cell: reserved/buffer tokens */ readonly gridReserved: string;
+
+  // ─── Todo checklist ──────────────────────────────────────────────────
+  // A dedicated mark per state, distinct from the box-drawing status stubs
+  // used elsewhere: the checklist is read top-to-bottom as a list of marks,
+  // not scanned as a single glance, so a font-native pictogram (checkmark,
+  // half-fill, circle) earns its place here even though the stubs above
+  // avoid that tradeoff for one-off status indicators.
+  /** Not yet started */ readonly todoPending: string;
+  /** Currently being worked */ readonly todoActive: string;
+  /** Done */ readonly todoDone: string;
+  /** Cancelled */ readonly todoCancelled: string;
 }
 
 const ASCII: GlyphSet = {
@@ -185,6 +196,11 @@ const ASCII: GlyphSet = {
   gridFilled: "#",
   gridEmpty: ".",
   gridReserved: "~",
+
+  todoPending: "o",
+  todoActive: "~",
+  todoDone: "x",
+  todoCancelled: "-",
 };
 
 const UNICODE: GlyphSet = {
@@ -262,6 +278,11 @@ const UNICODE: GlyphSet = {
   gridFilled: "█",
   gridEmpty: "░",
   gridReserved: "▒",
+
+  todoPending: "○",
+  todoActive: "◐",
+  todoDone: "✓",
+  todoCancelled: "✗",
 };
 
 /**

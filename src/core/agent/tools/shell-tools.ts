@@ -390,6 +390,19 @@ export function isDangerousCommand(command: string): boolean {
   return matchForbiddenCommand(command) !== null;
 }
 
+/**
+ * Returns the denylist error for a command, or null when the command is allowed.
+ * Centralizes the blocked-command message so it can be surfaced at two points:
+ * (1) before the approval prompt, so a command that will be denied never
+ * asks the user to approve it, and (2) inside the execution tool as
+ * defense-in-depth.
+ */
+export function denylistBlockedError(command: string): string | null {
+  const forbidden = matchForbiddenCommand(command);
+  if (!forbidden) return null;
+  return `Command blocked by the built-in safety denylist: ${forbidden.reason}. This is a specific pattern match on this command — not a general restriction on running shell commands (other commands still run normally), and tool approval does not override it. If this command is genuinely safe and necessary, ask the user to run it manually.`;
+}
+
 const executeCommandParameters = z
   .object({
     command: z.string().min(1, "command cannot be empty").describe("The shell command to run."),
@@ -533,6 +546,18 @@ export function createShellCommandTools(): ApprovalToolPair<ShellCommandDeps> {
 
     approvalMessage: (args: ExecuteCommandArgs, context: ToolExecutionContext) =>
       Effect.gen(function* () {
+        // Gate the approval prompt on the denylist: a command that the execution
+        // tool will refuse should never be put in front of the user to approve.
+        // Returning `skipApproval` sends the blocked error straight back to the
+        // model so it can adapt (e.g. write code to a temp file instead of -e).
+        const blocked = denylistBlockedError(args.command);
+        if (blocked) {
+          return {
+            skipApproval: true,
+            toolResult: { success: false, result: null, error: blocked } as const,
+          };
+        }
+
         const shell = yield* FileSystemContextServiceTag;
         const cwd = yield* shell.getCwd({
           agentId: context.agentId,
@@ -575,12 +600,12 @@ This command will be executed on your system. Only approve commands you trust.`;
           };
         }
 
-        const forbidden = matchForbiddenCommand(command);
-        if (forbidden) {
+        const blocked = denylistBlockedError(command);
+        if (blocked) {
           return {
             success: false,
             result: null,
-            error: `Command blocked by the built-in safety denylist: ${forbidden.reason}. This is a specific pattern match on this command — not a general restriction on running shell commands (other commands still run normally), and tool approval does not override it. If this command is genuinely safe and necessary, ask the user to run it manually.`,
+            error: blocked,
           };
         }
 

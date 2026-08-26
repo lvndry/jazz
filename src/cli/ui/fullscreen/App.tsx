@@ -381,6 +381,7 @@ function AppView({ view, onAction, onKey, onPaste, overrideContent }: AppProps):
               currentView.live.tools.length > 0 ||
               currentView.live.waiting !== undefined,
             ...(armedAt.current === undefined ? {} : { interruptArmedAt: armedAt.current }),
+            hasQueued: currentView.input.queued.length > 0,
             inputEmpty: currentView.input.value.length === 0,
             focus: currentFocus,
           },
@@ -456,8 +457,17 @@ function AppView({ view, onAction, onKey, onPaste, overrideContent }: AppProps):
         overlayKind,
         view.input.commands !== undefined,
         overlayArmed,
+        view.input.queued.length > 0,
       ),
-    [focus, view.runActive, view.input.queueing, overlayKind, view.input.commands, overlayArmed],
+    [
+      focus,
+      view.runActive,
+      view.input.queueing,
+      overlayKind,
+      view.input.commands,
+      overlayArmed,
+      view.input.queued.length,
+    ],
   );
   const footer = useMemo(
     () => ({

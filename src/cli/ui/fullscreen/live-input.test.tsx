@@ -27,9 +27,12 @@ import {
   type LiveModel,
   type LiveTool,
 } from "./types";
+import type { TodoSnapshotItem } from "../activity-state";
 
 const WIDTH = 120;
-const HEIGHT = 8;
+// Tall enough to hold the live band at its cap (LIVE_ZONE_MAX_ROWS) plus the
+// filler and anchor rows the harness measures against.
+const HEIGHT = 20;
 
 /**
  * Named here rather than imported so a change to the cap has to be a deliberate
@@ -185,6 +188,13 @@ describe("live zone", () => {
         tool("calendar", "freebusy", 1),
         tool("notion", "search", 2),
         tool("github", "list prs", 3),
+        tool("linear", "list issues", 0),
+        tool("figma", "list files", 1),
+        tool("jira", "list issues", 2),
+        tool("zoom", "list meetings", 3),
+        tool("asana", "list tasks", 0),
+        tool("trello", "list boards", 1),
+        tool("dropbox", "list files", 2),
         tool("drive", "list files", 0),
         tool("slack", "list channels", 1),
       ],
@@ -357,6 +367,12 @@ describe("live zone", () => {
         tool("notion", "search across every database in the workspace", 2),
         tool("github", "list prs", 3),
         tool("drive", "list files", 0),
+        tool("slack", "list channels", 1),
+        tool("linear", "list issues", 2),
+        tool("figma", "list files", 3),
+        tool("jira", "list issues", 0),
+        tool("zoom", "list meetings", 1),
+        tool("asana", "list tasks", 2),
       ],
       step: { index: 3, total: 7, label: "rank the whole inbox by urgency and then by sender" },
       waiting: "reading your calendar before it answers",
@@ -374,6 +390,73 @@ describe("live zone", () => {
     const { height, frame } = await bandHeight(model, { width: MIN_WIDTH });
     expect(height).toBe(LIVE_ZONE_MAX_ROWS);
     for (const row of rowsOf(frame)) expect(terminalCellWidth(row)).toBe(MIN_WIDTH);
+  });
+
+  it("renders the todo checklist as a windowed panel, leading with the active item", async () => {
+    const todos: TodoSnapshotItem[] = [
+      { content: "first", status: "completed" },
+      { content: "active", status: "in_progress" },
+      { content: "third", status: "pending" },
+      { content: "fourth", status: "pending" },
+      { content: "fifth", status: "pending" },
+      { content: "sixth", status: "pending" },
+      { content: "seventh", status: "pending" },
+      { content: "eighth", status: "pending" },
+      { content: "ninth", status: "pending" },
+      { content: "tenth", status: "pending" },
+      { content: "eleventh", status: "pending" },
+      { content: "twelfth", status: "pending" },
+      { content: "thirteenth", status: "pending" },
+    ];
+    const model = live({ todoList: todos, reservedRows: LIVE_ZONE_MAX_ROWS });
+    const { height, frame } = await bandHeight(model, { width: WIDTH });
+    expect(height).toBe(LIVE_ZONE_MAX_ROWS);
+    expect(frame).toContain("todo 1/13");
+    expect(frame).toContain("active");
+    // Windowed: not every item fits the band even at its raised cap, so an
+    // overflow line appears.
+    expect(frame).toContain("+");
+    // The step row is suppressed in favour of the checklist.
+    expect(frame).not.toContain("step");
+  });
+
+  it("shows the remaining checklist when it fits the band", async () => {
+    const todos: TodoSnapshotItem[] = [
+      { content: "one", status: "completed" },
+      { content: "two", status: "in_progress" },
+      { content: "three", status: "pending" },
+    ];
+    const model = live({ todoList: todos, reservedRows: 5 });
+    const { frame } = await bandHeight(model, { width: WIDTH });
+    expect(frame).toContain("two");
+    expect(frame).toContain("three");
+    expect(frame).not.toContain("+");
+  });
+
+  it("slides the window forward as the leading item finishes", async () => {
+    const inFlight: TodoSnapshotItem[] = [
+      { content: "one", status: "completed" },
+      { content: "two", status: "in_progress" },
+      { content: "three", status: "pending" },
+    ];
+    const midway = await bandHeight(live({ todoList: inFlight, reservedRows: 5 }), {
+      width: WIDTH,
+    });
+    // The finished leading item has scrolled out of the window entirely.
+    expect(midway.frame).not.toContain("one");
+    expect(midway.frame).toContain("two");
+
+    const advanced: TodoSnapshotItem[] = [
+      { content: "one", status: "completed" },
+      { content: "two", status: "completed" },
+      { content: "three", status: "in_progress" },
+    ];
+    const later = await bandHeight(live({ todoList: advanced, reservedRows: 5 }), {
+      width: WIDTH,
+    });
+    expect(later.frame).not.toContain("one");
+    expect(later.frame).not.toContain("two");
+    expect(later.frame).toContain("three");
   });
 });
 

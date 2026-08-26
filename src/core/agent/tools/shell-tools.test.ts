@@ -208,6 +208,37 @@ describe("Shell Tools", () => {
     }
   });
 
+  it("should block forbidden commands before the approval prompt", async () => {
+    const tool = shellTools.approval;
+    const context = {
+      agentId: "test-agent",
+      conversationId: "test-conversation",
+    };
+
+    const blockedCommands = [
+      "bun -e 'import x from \"y\"'",
+      "python -c 'print(1)'",
+      "rm -rf /",
+      "sudo reboot",
+    ];
+
+    for (const command of blockedCommands) {
+      const result: ToolExecutionResult = await Effect.runPromise(
+        Effect.provide(
+          tool.execute({ command, description: "A command the denylist should catch." }, context),
+          createTestLayer(),
+        ),
+      );
+
+      // The approval tool must NOT surface an approvalRequired prompt for a
+      // command the execution tool will refuse — it returns the blocked error
+      // directly so the model can adapt instead of the user approving a no-op.
+      expect(result.result).not.toHaveProperty("approvalRequired", true);
+      expect(result.success).toBe(false);
+      expect(result.error).toContain("blocked by the built-in safety denylist");
+    }
+  });
+
   it("should execute safe commands successfully", async () => {
     const tool = shellTools.execute;
     const context = {

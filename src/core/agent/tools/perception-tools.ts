@@ -27,9 +27,9 @@ import { isZeroCostLocalModel } from "@/core/constants/local-providers";
 import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";
 import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
-import { PresentationServiceTag, type PresentationService } from "@/core/interfaces/presentation";
+import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import { TerminalServiceTag } from "@/core/interfaces/terminal";
-import type { Tool, ToolRequirements } from "@/core/interfaces/tool-registry";
+import type { Tool, ToolRegistry, ToolRequirements } from "@/core/interfaces/tool-registry";
 import type { Agent } from "@/core/types/agent";
 import type { MessageAttachment } from "@/core/types/attachment";
 import type { ToolExecutionContext } from "@/core/types/tools";
@@ -45,8 +45,8 @@ import {
 } from "@/core/utils/model-capabilities";
 import { getModelsDevProviderModels } from "@/core/utils/models-dev";
 import { parseProviderModel } from "@/core/utils/provider-model";
+import { defineTool, makeZodValidator, type ToolValidatorResult } from "./base-tool";
 import { AgentRunner } from "../agent-runner";
-import { defineTool, makeZodValidator } from "./base-tool";
 
 /** Companion execution timeout: matches spawn_subagent. */
 const COMPANION_TIMEOUT_MS = 30 * 60 * 1000;
@@ -93,9 +93,11 @@ const executeSchema: z.ZodType<Record<string, unknown>> = analyzeMediaSchema.ext
  * selection. Zod would strip the unknown key; the selection is the one argument
  * that legitimately arrives from outside the model.
  */
-function validateWithSelection(args: Record<string, unknown>) {
+function validateWithSelection(args: Record<string, unknown>): ToolValidatorResult<ExecuteArgs> {
   const result = makeZodValidator(executeSchema)(args);
-  if (!result.valid || result.value === undefined) return result;
+  if (!result.valid || result.value === undefined) {
+    return result as ToolValidatorResult<ExecuteArgs>;
+  }
   const selectedOptionId = args[SELECTED_OPTION_KEY];
   return {
     valid: true as const,
@@ -215,7 +217,7 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
     companionAgent: Agent,
     attachments: readonly MessageAttachment[],
     context: ToolExecutionContext,
-  ): Effect.Effect<string, Error, ToolRequirements | PresentationService> =>
+  ): Effect.Effect<string, Error, ToolRequirements | ToolRegistry> =>
     Effect.gen(function* () {
       const logger = yield* LoggerServiceTag;
       const presentation = yield* PresentationServiceTag;

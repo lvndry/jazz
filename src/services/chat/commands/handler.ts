@@ -114,6 +114,9 @@ export function handleSpecialCommand(
       case "model":
         return yield* handleModelCommand(terminal, agent, command.args);
 
+      case "reasoning":
+        return yield* handleReasoningCommand(terminal, agent, command.args);
+
       case "config":
         return yield* handleConfigCommand(terminal, agent, command.args);
 
@@ -626,14 +629,26 @@ function resolveWebSearchProviderLabel(
 }
 
 /**
- * Handle /agents command - List all available agents
+ * Handle /agents command - Open an overlay to switch agents mid-session.
+ *
+ * In an interactive terminal this reuses the `/switch` picker (a searchable
+ * overlay you move through with up/down and accept with enter), so choosing an
+ * agent switches to it without typing its id. In a non-interactive terminal
+ * there is no overlay to render, so the command falls back to the classic
+ * listing of every agent.
  */
 function handleAgentsCommand(
   terminal: TerminalService,
   currentAgent: CommandContext["agent"],
   lastUsedAgentId: string | null,
-): Effect.Effect<CommandResult, StorageError | StorageNotFoundError, AgentService> {
+): Effect.Effect<CommandResult, StorageError | StorageNotFoundError | Error, AgentService> {
   return Effect.gen(function* () {
+    if (terminal.isInteractive) {
+      // Delegate to the interactive `/switch` picker, which opens the agent
+      // overlay and switches on selection. Empty args means "show the picker".
+      return yield* handleSwitchCommand(terminal, currentAgent, [], lastUsedAgentId);
+    }
+
     const agentService = yield* AgentServiceTag;
     const allAgentsUnsorted = yield* agentService.listAgents();
 
@@ -1017,8 +1032,6 @@ function handleModelCommand(
         fmt.keyValueCompact("Reasoning", agent.config.reasoningEffort ?? "default"),
       );
       yield* terminal.log(fmt.blank());
-      yield* terminal.info("Usage: /model <provider>/<model> or /model reasoning <level>");
-      yield* terminal.log(fmt.blank());
       return { shouldContinue: true };
     }
 
@@ -1106,6 +1119,77 @@ function handleModelCommand(
 
     yield* terminal.log("");
     return { shouldContinue: true, newAgent };
+  });
+}
+
+/**
+ * Handle /reasoning command - Change reasoning effort for this session only.
+ *
+ * The level is applied to the live agent for the rest of the session but is
+ * never written back to the stored agent config, so it resets on the next
+ * session. With no args in an interactive terminal this opens the reasoning
+ * picker (an overlay you move through with up/down and accept with enter);
+ * with no args in a non-interactive terminal it prints the valid levels.
+ */
+function handleReasoningCommand(
+  terminal: TerminalService,
+  agent: CommandContext["agent"],
+  args: string[],
+): Effect.Effect<CommandResult, never, never> {
+  const validLevels = ["low", "medium", "high", "disable"] as const;
+  const isLevel = (value: string): value is (typeof validLevels)[number] =>
+    (validLevels as readonly string[]).includes(value);
+
+  const applyLevel = (level: (typeof validLevels)[number]): CommandResult => {
+    // Session-only: override the in-memory agent config without persisting it.
+    const newAgent = {
+      ...agent,
+      config: { ...agent.config, reasoningEffort: level },
+    };
+    return { shouldContinue: true, newAgent };
+  };
+
+  return Effect.gen(function* () {
+    if (args.length > 0) {
+      const level = args[0] ?? "";
+      if (!isLevel(level)) {
+        yield* terminal.error(`Invalid reasoning level. Use: ${validLevels.join(", ")}`);
+        yield* terminal.log("");
+        return { shouldContinue: true };
+      }
+      yield* terminal.success(`Reasoning effort set to: ${level} (this session only)`);
+      yield* terminal.log("");
+      return applyLevel(level);
+    }
+
+    if (terminal.isInteractive) {
+      const selected = yield* terminal.select<(typeof validLevels)[number]>(
+        "Set reasoning effort for this session:",
+        {
+          choices: validLevels.map((level) => ({
+            name: level,
+            value: level,
+            ...(level === (agent.config.reasoningEffort ?? "disable")
+              ? { description: "current" }
+              : {}),
+          })),
+          default: agent.config.reasoningEffort ?? "disable",
+        },
+      );
+      if (!selected) {
+        yield* terminal.log("");
+        return { shouldContinue: true };
+      }
+      yield* terminal.success(`Reasoning effort set to: ${selected} (this session only)`);
+      yield* terminal.log("");
+      return applyLevel(selected);
+    }
+
+    yield* terminal.log(fmt.heading("Reasoning Effort (this session)"));
+    yield* terminal.log(fmt.keyValueCompact("Current", agent.config.reasoningEffort ?? "default"));
+    yield* terminal.info(`Levels: ${validLevels.join(", ")}`);
+    yield* terminal.log(fmt.blank());
+    return { shouldContinue: true };
   });
 }
 

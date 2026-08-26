@@ -9,13 +9,14 @@
  *
  *   header      1 row, never hidden
  *   transcript  flex, owns its own scrolling
- *   live zone   0–5 rows, grows upward, present only while work is in flight
+ *   live zone   0–12 rows, grows upward, present only while work is in flight
  *   gap         1 row, so the live band never sits on the composer
  *   input       1–N rows, anchored to the bottom
  *   footer      1 row, anchored to the bottom
  *   overlay     floats above all of it, and must not disturb the transcript
  */
 
+import type { TodoSnapshotItem } from "../activity-state";
 import type { SuggestionPrefix } from "../suggestion-menu";
 import type { FilePickerModel } from "./overlays/FilePicker";
 import type { QuestionModel } from "./overlays/Question";
@@ -30,8 +31,14 @@ export const PROSE_MEASURE = 88;
 /** Timestamps and lane labels sit here; the rest of the surplus widens prose. */
 export const METADATA_RESERVE = 20;
 
-/** The live zone caps rather than grows, so the input never moves. */
-export const LIVE_ZONE_MAX_ROWS = 5;
+/**
+ * The live zone caps rather than grows, so the input never moves.
+ *
+ * High enough that a typical todo list (5-10 items) renders in full rather
+ * than windowed behind a "+N more" line — the checklist is most useful when
+ * it's the whole plan, not a peephole onto it.
+ */
+export const LIVE_ZONE_MAX_ROWS = 12;
 
 /** Below this the interface refuses to draw a partial frame. */
 export const MIN_WIDTH = 60;
@@ -171,6 +178,12 @@ export interface LiveModel {
   readonly tools: readonly LiveTool[];
   readonly hiddenTools: readonly string[];
   readonly step?: StepLine;
+  /**
+   * The full todo checklist when the agent is managing one. Rendered as a
+   * windowed panel in the band (active/pending items first, `+N more` when it
+   * does not fit) so the plan is visible without breaking the fixed-height band.
+   */
+  readonly todoList?: readonly TodoSnapshotItem[];
   /** House-voice waiting copy. Shown only before the first token lands. */
   readonly waiting?: string;
   readonly elapsedMs?: number;

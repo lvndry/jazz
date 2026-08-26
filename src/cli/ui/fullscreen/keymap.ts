@@ -18,6 +18,7 @@ export type KeyAction =
   | { readonly type: "dismiss-completion" }
   | { readonly type: "interrupt" }
   | { readonly type: "arm-interrupt" }
+  | { readonly type: "flush-queue" }
   | { readonly type: "stash-draft" }
   | { readonly type: "focus-transcript" }
   | { readonly type: "focus-input" }
@@ -340,6 +341,8 @@ export interface EscapeContext {
   readonly runActive: boolean;
   /** When the first Esc of a potential double-tap was seen. */
   readonly interruptArmedAt?: number;
+  /** True when there are queued messages waiting for the next turn. */
+  readonly hasQueued: boolean;
   readonly inputEmpty: boolean;
   readonly focus: Focus;
 }
@@ -372,6 +375,10 @@ export function resolveEscape(context: EscapeContext, now: number): KeyAction {
   if (context.completionOpen) return { type: "dismiss-completion" };
 
   if (context.runActive) {
+    // Queued messages mean the user already committed text to the next turn. A
+    // single Esc flushes them into the chat now (interrupting the current turn)
+    // instead of arming a bare interrupt — the queue is the intent.
+    if (context.hasQueued) return { type: "flush-queue" };
     const armedAt = context.interruptArmedAt;
     if (armedAt !== undefined && now - armedAt <= INTERRUPT_WINDOW_MS) {
       return { type: "interrupt" };
@@ -453,6 +460,7 @@ export function hintsFor(
   overlay?: "approval" | "search" | "question" | "text" | "filepicker",
   commandsOpen = false,
   overlayArmed = true,
+  hasQueued = false,
 ): readonly string[] {
   if (overlay === "approval") {
     return overlayArmed ? ["enter to accept", "esc to reject"] : ["esc to reject"];
@@ -467,9 +475,12 @@ export function hintsFor(
     return ["up down to scroll", "pgup to page", "type to input", "^f to search"];
   }
   if (runActive) {
-    return queueing
-      ? ["enter to queue", "up to recall", "^x to clear", "esc esc to interrupt"]
-      : ["esc esc to interrupt", "^r for reasoning", "^o to expand", "^c to stop"];
+    if (queueing) {
+      return hasQueued
+        ? ["esc to send all", "enter to queue", "up to recall", "^x to clear"]
+        : ["enter to queue", "esc esc to interrupt", "^r for reasoning", "^c to stop"];
+    }
+    return ["esc esc to interrupt", "^r for reasoning", "^o to expand", "^c to stop"];
   }
   return ["enter to send", "up for history", "^f to search", "^r for reasoning"];
 }
