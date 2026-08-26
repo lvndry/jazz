@@ -16,7 +16,6 @@
  *   house convention of saying "unknown" rather than inventing $0.
  */
 
-import type { AttachmentKind } from "@/core/types/attachment";
 import type { ModelInfo, PerceptionCapability } from "@/core/types/llm";
 
 export {
@@ -26,7 +25,9 @@ export {
 } from "@/core/types/llm";
 
 /** The attachment kind this capability travels as on a message. */
-export function attachmentKindForCapability(capability: PerceptionCapability): AttachmentKind {
+export function attachmentKindForCapability(
+  capability: PerceptionCapability,
+): "image" | "audio" | "video" {
   if (capability === "vision") return "image";
   if (capability === "audio") return "audio";
   return "video";
