@@ -26,13 +26,6 @@ export interface FullscreenMountOptions {
   readonly onFailure?: (error: unknown) => void;
 }
 
-const KNOWN_OPEN_TUI_STARTUP_FAILURE =
-  "Failed to initialize OpenTUI render library: OpenTUI native FFI is not available for this runtime yet";
-
-function isKnownOpenTuiStartupFailure(error: unknown): boolean {
-  return String(error).includes(KNOWN_OPEN_TUI_STARTUP_FAILURE);
-}
-
 export function mountFullscreenApp(options: FullscreenMountOptions = {}): FullscreenHandle {
   let released = false;
   let teardown: (() => void) | null = null;
@@ -44,7 +37,6 @@ export function mountFullscreenApp(options: FullscreenMountOptions = {}): Fullsc
         release();
         return;
       }
-
       try {
         const root = createRoot(renderer);
         root.render(<FullscreenBridge />);
@@ -62,11 +54,9 @@ export function mountFullscreenApp(options: FullscreenMountOptions = {}): Fullsc
     })
     .catch((error: unknown) => {
       if (released) return;
-      if (!isKnownOpenTuiStartupFailure(error)) {
-        process.stderr.write(
-          `jazz: could not start the fullscreen interface (${String(error)}); using the standard interface\n`,
-        );
-      }
+      process.stderr.write(
+        `jazz: could not start the fullscreen interface (${String(error)}); using the standard interface\n`,
+      );
       options.onFailure?.(error);
     });
 
