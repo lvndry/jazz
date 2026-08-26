@@ -163,6 +163,13 @@ export interface LlamaCppProviderConfig {
 }
 
 export interface LLMConfig {
+  /**
+   * How long a provider stream may stay silent before jazz abandons it as dead,
+   * in milliseconds. Defaults to 120000, or JAZZ_STREAM_IDLE_TIMEOUT_MS when
+   * set. Local providers loading weights from disk on a cold start can
+   * legitimately exceed the default before their first streamed part.
+   */
+  readonly streamIdleTimeoutMs?: number;
   readonly ai_gateway?: LLMProviderConfig;
   readonly alibaba?: LLMProviderConfig;
   readonly anthropic?: LLMProviderConfig;

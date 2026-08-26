@@ -1724,6 +1724,7 @@ class AISDKService implements LLMService {
                   {
                     providerName,
                     modelName: options.model,
+                    streamIdleTimeoutMs: this.config.llmConfig?.streamIdleTimeoutMs,
                     hasReasoningEnabled: !!(
                       options.reasoning_effort && options.reasoning_effort !== "disable"
                     ),

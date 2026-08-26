@@ -36,22 +36,27 @@ type StreamTextResult = ReturnType<typeof streamText>;
  * Local providers are different: before the first part arrives, the server may
  * still be loading model weights from disk and prefilling a long prompt, which
  * on a cold start can legitimately run past two minutes. That is what
- * JAZZ_STREAM_IDLE_TIMEOUT_MS raises; it does not change what the timeout is
- * for. Tool execution happens between streams, not inside one, so a slow tool
- * cannot trip this either way.
+ * `llm.streamIdleTimeoutMs` in config.json and JAZZ_STREAM_IDLE_TIMEOUT_MS
+ * raise; they do not change what the timeout is for. Tool execution happens
+ * between streams, not inside one, so a slow tool cannot trip this either way.
  */
 const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 120_000;
 
 /**
- * Resolve the stream idle budget, honoring `JAZZ_STREAM_IDLE_TIMEOUT_MS`.
+ * Resolve the stream idle budget: an explicit `llm.streamIdleTimeoutMs` from
+ * config.json wins, then `JAZZ_STREAM_IDLE_TIMEOUT_MS`, then the default.
  *
- * The env var sets the whole budget in milliseconds (not a delta), and must be
- * a positive integer — anything else falls back to the default rather than
- * silently disabling the watchdog or zeroing it.
+ * Both override paths set the whole budget in milliseconds (not a delta), and
+ * must be a positive integer — anything else falls back to the next source
+ * rather than silently disabling the watchdog or zeroing it.
  */
 export function resolveStreamIdleTimeoutMs(
+  configured: unknown,
   env: Record<string, string | undefined> = process.env,
 ): number {
+  if (typeof configured === "number" && Number.isInteger(configured) && configured > 0) {
+    return configured;
+  }
   const raw = env["JAZZ_STREAM_IDLE_TIMEOUT_MS"];
   if (raw === undefined || raw === "") return DEFAULT_STREAM_IDLE_TIMEOUT_MS;
   const parsed = Number(raw);
@@ -117,6 +122,8 @@ type EmitFunction = (
 interface StreamProcessorConfig {
   readonly providerName: string;
   readonly modelName: string;
+  /** `llm.streamIdleTimeoutMs` from config.json, when set — wins over the env var. */
+  readonly streamIdleTimeoutMs?: unknown;
   readonly hasReasoningEnabled: boolean;
   readonly startTime: number;
   readonly toolsDisabled?: boolean;
@@ -287,7 +294,10 @@ export class StreamProcessor {
    */
   private async processFullStream(result: StreamTextResult): Promise<void> {
     try {
-      for await (const part of withIdleTimeout(result.fullStream, resolveStreamIdleTimeoutMs())) {
+      for await (const part of withIdleTimeout(
+        result.fullStream,
+        resolveStreamIdleTimeoutMs(this.config.streamIdleTimeoutMs),
+      )) {
         // Stop if we've finished
         if (this.state.finishEventReceived) {
           break;
