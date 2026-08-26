@@ -220,22 +220,27 @@ function waitingRow(
  *
  * The agent's plan earns a panel, not a single "step N of M" row: the items
  * themselves are the most useful thing on screen while they are being worked.
- * The in-progress item leads so the active task is always visible, the rest
- * follow in order, and a `+N more` line carries what the band cannot fit
- * rather than silently dropping it. The count rides the header so progress is
- * legible at a glance even when items overflow.
+ * At most `TODO_WINDOW_ROWS` items show at once, anchored on the first item
+ * that isn't done yet — a completed item drops out of the window and the next
+ * pending one slides in to take its place, so the band always shows what's
+ * running plus what's coming rather than a static slice of the plan. A
+ * `+N more` line carries what still doesn't fit rather than silently dropping
+ * it. The count rides the header so progress is legible at a glance even
+ * while items are scrolled out of view.
  */
+export const TODO_WINDOW_ROWS = 10;
+
 function todoGlyph(status: TodoSnapshotItem["status"], glyphs: GlyphSet): string {
   switch (status) {
     case "completed":
-      return glyphs.success;
+      return glyphs.todoDone;
     case "in_progress":
-      return glyphs.proposed;
+      return glyphs.todoActive;
     case "cancelled":
-      return glyphs.error;
+      return glyphs.todoCancelled;
     case "pending":
     default:
-      return glyphs.pending;
+      return glyphs.todoPending;
   }
 }
 
@@ -261,10 +266,6 @@ function todoPanelRows(
 ): LiveRow[] {
   if (todos.length === 0 || maxRows <= 0) return [];
 
-  const active = todos.filter((todo) => todo.status === "in_progress");
-  const rest = todos.filter((todo) => todo.status !== "in_progress");
-  const ordered = [...active, ...rest];
-
   const done = todos.filter((todo) => todo.status === "completed").length;
   const header = alignRow(
     "todo-header",
@@ -273,17 +274,23 @@ function todoPanelRows(
     width,
   );
 
-  // One row for the header; the rest of the budget goes to items, with a
+  // One row for the header; the rest of the budget goes to items, capped so
+  // the band never asks for more than the window it actually slides, with a
   // possible `+N more` overflow row eating one of those slots.
-  const itemSlots = Math.max(0, maxRows - 1);
+  const itemSlots = Math.max(0, Math.min(TODO_WINDOW_ROWS, maxRows - 1));
   if (itemSlots === 0) return [header];
 
-  const overflow = ordered.length - itemSlots;
+  // Slide the window to the first item still in play; everything before it
+  // is done and has already scrolled out of view.
+  const anchor = todos.findIndex((todo) => todo.status !== "completed");
+  const start = anchor < 0 ? Math.max(0, todos.length - itemSlots) : anchor;
+
+  const overflow = todos.length - start - itemSlots;
   const shownCount = overflow > 0 ? itemSlots - 1 : itemSlots;
-  const showItems = ordered.slice(0, Math.max(0, shownCount));
+  const showItems = todos.slice(start, start + Math.max(0, shownCount));
   const itemRows = showItems.map((todo, index) =>
     alignRow(
-      `todo:${todo.content}:${index}`,
+      `todo:${todo.content}:${start + index}`,
       [
         ...gutter(glyphs),
         { text: todoGlyph(todo.status, glyphs), fg: todoColor(todo.status) },

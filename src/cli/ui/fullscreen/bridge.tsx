@@ -22,7 +22,7 @@ import { isFileMutationTool } from "@/core/utils/tool-formatter";
 import { filterCommandsByPrefix, slashCommandQuery } from "@/services/chat/commands";
 import { search, type SearchHit } from "@/services/history/conversation-search";
 import packageJson from "../../../../package.json";
-import type { ActivityState } from "../activity-state";
+import type { ActivityState, TodoSnapshotItem } from "../activity-state";
 import { applyAtMention, type AtMentionSpan } from "../at-mention";
 import {
   type FilePickerEntry,
@@ -71,6 +71,7 @@ import {
   isUndoChord,
   type KeyAction,
 } from "./keymap";
+import { TODO_WINDOW_ROWS } from "./LiveZone";
 import type { FilePickerModel } from "./overlays/FilePicker";
 import type { QuestionChoice, QuestionModel } from "./overlays/Question";
 import type { TextPromptModel } from "./overlays/TextPrompt";
@@ -1064,6 +1065,8 @@ export function FullscreenBridge(): React.ReactNode {
   const [elapsedMs, setElapsedMs] = useState<number | undefined>();
   const [reservedRows, setReservedRows] = useState(0);
   const runStartedAt = useRef<number | null>(null);
+  const lastTodoListRef = useRef<readonly TodoSnapshotItem[]>([]);
+  const previousRunActiveRef = useRef(false);
 
   // `useKeyboard` registers its callback once, so a closure over state would keep
   // reading the values from the first render — where `prompt` is null, and a null
@@ -1191,17 +1194,32 @@ export function FullscreenBridge(): React.ReactNode {
 
   const tools = useMemo(() => liveToolsFrom(activity, Date.now()), [activity, elapsedMs]);
   const step = useMemo(() => stepFrom(activity), [activity]);
-  const todoList =
+
+  // The checklist is worth reading once the turn has finished, not just while
+  // manage_todos is the active tool — so its last known shape survives the
+  // phase moving on to streaming, complete, or idle. Only a new run gets to
+  // clear it: the rising edge below fires once, before this render computes
+  // `todoList`, so a stale checklist never flashes ahead of the new run's own.
+  if (runActive && !previousRunActiveRef.current) {
+    lastTodoListRef.current = [];
+  }
+  previousRunActiveRef.current = runActive;
+
+  const freshTodoList =
     activity.phase === "tool-execution" && activity.todoSnapshot !== undefined
       ? activity.todoSnapshot.filter((todo) => todo.status !== "cancelled")
-      : [];
+      : undefined;
+  if (freshTodoList !== undefined && freshTodoList.length > 0) {
+    lastTodoListRef.current = freshTodoList;
+  }
+  const todoList = freshTodoList ?? lastTodoListRef.current;
   const waitingNow = activity.phase === "awaiting" || activity.phase === "thinking";
   const neededRows = Math.min(
     LIVE_ZONE_MAX_ROWS,
     tools.length +
       (waitingNow ? 1 : 0) +
       (step === undefined ? 0 : 1) +
-      (todoList.length > 0 ? 1 + todoList.length : 0),
+      (todoList.length > 0 ? 1 + Math.min(todoList.length, TODO_WINDOW_ROWS) : 0),
   );
 
   useEffect(() => {
