@@ -1,3 +1,7 @@
+---
+description: "Every jazz command and flag, verified against the source: run agents, manage sessions, configure providers, and drive headless automation."
+---
+
 # CLI Reference
 
 This page helps you find the exact command and flag you need.
@@ -26,7 +30,11 @@ Available on every command.
 ## `jazz`
 
 With no arguments, launches the interactive wizard — new conversation, create/list/edit/delete
-agents, update configuration.
+agents, update configuration. The home screen reports what is ready under **setup** (agents) and,
+under **environment**, the same machine facts every agent receives in its system prompt: date,
+OS with shell and user, working directory, and hardware. Both come from one source, so the screen
+cannot drift from what agents are actually told. On a short terminal the environment report is the
+first section dropped, after the tip.
 
 ---
 

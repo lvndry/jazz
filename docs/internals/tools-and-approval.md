@@ -1,3 +1,7 @@
+---
+description: "How a tool call becomes an action in Jazz: risk tiers, the approval card, auto-approve policies, and what no tier can ever bypass."
+---
+
 # Tools & approval
 
 This page explains how a tool call becomes an action, and what stands between the
@@ -90,6 +94,24 @@ makes "here is the exact diff, approve?" possible.
 **What it buys.** Interactive and unattended runs go down the _same_ path. The only
 difference is who answers the gate. There is no separate headless mode to drift out of sync
 with the interactive one.
+
+### Picker-style approvals
+
+Most gates are yes/no. Some decisions are "_which one_" — `analyze_media` asks which
+vision-capable model should do the looking. A proposal may carry `options` alongside its
+message; surfaces then render a picker (same card, rows instead of Yes/No), and the chosen
+row's id returns on the outcome as `selectedOptionId`, merged into the execution tool's
+args under `_selectedOptionId` — a key the model never writes and cannot spoof.
+
+Two properties are load-bearing:
+
+- **A request with options is never auto-approved**, under any policy including yolo.
+  There is nothing to approve until somebody picked a row. The pre-bound path
+  (`config.companions`) skips approval inside the tool itself instead — binding is the
+  consent.
+- **Unattended runs fail loudly when nothing is bound.** Nobody to ask plus no standing
+  consent means a clear refusal naming what would fix it ("bind a vision companion"),
+  not a silent fallback to whichever model happens to be first.
 
 ---
 

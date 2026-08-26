@@ -1,3 +1,7 @@
+---
+description: "How Jazz stays provider-agnostic across 18 LLM providers, and what it does about the places providers genuinely differ."
+---
+
 # Providers & models
 
 This page explains how Jazz stays provider-agnostic, and what it does about the

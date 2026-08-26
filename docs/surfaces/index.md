@@ -1,3 +1,7 @@
+---
+description: "Where a Jazz agent can run: terminal REPL, headless scripts via jazz run, CI pipelines, OS schedulers, and chat platforms like Telegram and Discord."
+---
+
 # Where it runs
 
 This page helps you decide how Jazz fits into _your_ setup.

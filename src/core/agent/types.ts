@@ -1,6 +1,7 @@
 import type { Effect } from "effect";
 import type { ProviderName } from "@/core/constants/models";
 import type { GeneratedArtifact } from "@/core/types/artifact";
+import type { MessageAttachment } from "@/core/types/attachment";
 import type { ChatMessage, ConversationMessages } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
 import type {
@@ -30,6 +31,16 @@ export interface AgentRunnerOptions {
    * This is the primary instruction that the agent will process and respond to.
    */
   readonly userInput: string;
+  /**
+   * Attachments placed directly on this run's first user message.
+   *
+   * For paths a caller has already resolved and validated — model-companion
+   * delegation being the reason this exists. They ride outside path-scanning
+   * (`resolveUserInputAttachments`), which stays reserved for text the user typed;
+   * kinds the target model cannot ingest are dropped with an explanatory note,
+   * same as scanned ones.
+   */
+  readonly initialAttachments?: readonly MessageAttachment[];
   /**
    * Which conversation this turn belongs to.
    *

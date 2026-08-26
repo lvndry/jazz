@@ -1,3 +1,7 @@
+---
+description: "Call Jazz from your own code with jazz run: pass a dynamic prompt, get structured JSON back, control autonomy and timeouts — the contract every integration builds on."
+---
+
 # Headless — the `jazz run` contract
 
 How to call Jazz from your own code and get a parseable result back.
@@ -98,6 +102,9 @@ interpret that fallback as a free run.
 | `--approval-policy <p>`    | `read-only` \| `low-risk` \| `high-risk`. Tools above the tier are **declined**, not queued.                                                       |
 | `--events <categories>`    | Emit NDJSON progress on stderr: `tools,reasoning,text,usage,approval,subagent,all`.                                                                |
 | `--reasoning <effort>`     | `low` \| `medium` \| `high` \| `disable`. Overrides the agent's config for this run.                                                               |
+| `--with-vision <p/m>`      | Bind the vision companion for this run, e.g. `anthropic/claude-sonnet-4-5`. Overrides the agent's config. Without a bound companion (flag or config), `analyze_media` fails loudly rather than guessing. |
+| `--with-audio <p/m>`       | Same, for the audio companion.                                                                                                                     |
+| `--with-video <p/m>`       | Same, for the video companion.                                                                                                                     |
 | `--timeout <ms>`           | Abort the run after this many milliseconds.                                                                                                        |
 | `--max-iterations <n>`     | Cap the agent's reasoning iterations (default 100).                                                                                                 |
 | `--stream` / `--no-stream` | Force streaming on/off. Streaming auto-disables for non-TTY stdout; `--events reasoning`/`text` re-enable it on their own, since those events exist only on the streaming path. |

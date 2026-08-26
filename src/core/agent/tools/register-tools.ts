@@ -8,6 +8,7 @@ import { createHttpRequestTool } from "./http-tools";
 import { createManageMemoryTool, createViewMemoryTool } from "./memory-tools";
 import { createPdfTool } from "./pdf-tools";
 import { createAskPeerTool } from "./peer-tools";
+import { createPerceptionTools } from "./perception-tools";
 import {
   createAddReminderTool,
   createCancelReminderTool,
@@ -23,6 +24,7 @@ import {
   HTTP_CATEGORY,
   MEMORY_CATEGORY,
   PEERS_CATEGORY,
+  PERCEPTION_CATEGORY,
   REMINDER_CATEGORY,
   SHELL_COMMANDS_CATEGORY,
   SKILLS_CATEGORY,
@@ -57,6 +59,7 @@ export function registerAllTools(): Effect.Effect<void, Error, ToolRegistry> {
     yield* registerReminderTools();
     yield* registerContextTools();
     yield* registerSubagentTools();
+    yield* registerPerceptionTools();
     yield* registerUserInteractionTools();
     yield* registerWebAppTools();
   });
@@ -234,6 +237,17 @@ export function registerSubagentTools(): Effect.Effect<void, Error, ToolRegistry
     const registerTool = registry.registerForCategory(SUBAGENT_CATEGORY);
 
     for (const tool of createSubagentTools()) {
+      yield* registerTool(tool);
+    }
+  });
+}
+
+export function registerPerceptionTools(): Effect.Effect<void, Error, ToolRegistry> {
+  return Effect.gen(function* () {
+    const registry = yield* ToolRegistryTag;
+    const registerTool = registry.registerForCategory(PERCEPTION_CATEGORY);
+
+    for (const tool of createPerceptionTools()) {
       yield* registerTool(tool);
     }
   });

@@ -1,3 +1,7 @@
+---
+description: "Personas are reusable characters that shape how a Jazz agent communicates — tone, style, and behavioral rules, decoupled from both agents and models."
+---
+
 # Concept: Custom Personas
 
 ## What is a Persona?

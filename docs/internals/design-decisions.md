@@ -1,3 +1,7 @@
+---
+description: "Why the Jazz harness is built the way it is — the reasoning behind each architectural choice and what every choice gives up."
+---
+
 # Design decisions
 
 This page explains _why_ the harness is built this way — and what each choice

@@ -15,6 +15,10 @@ export const WEB_FETCH_CATEGORY: ToolCategory = { id: "web_fetch", displayName: 
 export const SKILLS_CATEGORY: ToolCategory = { id: "skills", displayName: "Skills" };
 export const CONTEXT_CATEGORY: ToolCategory = { id: "context", displayName: "Context" };
 export const SUBAGENT_CATEGORY: ToolCategory = { id: "subagent", displayName: "Sub Agents" };
+export const PERCEPTION_CATEGORY: ToolCategory = {
+  id: "perception",
+  displayName: "Perception Delegation",
+};
 export const TODO_CATEGORY: ToolCategory = { id: "todo", displayName: "Todo" };
 export const MEMORY_CATEGORY: ToolCategory = { id: "memory", displayName: "Memory" };
 export const PEERS_CATEGORY: ToolCategory = { id: "peers", displayName: "Peers" };
@@ -40,6 +44,7 @@ export const ALL_CATEGORIES: readonly ToolCategory[] = [
   REMINDER_CATEGORY,
   CONTEXT_CATEGORY,
   SUBAGENT_CATEGORY,
+  PERCEPTION_CATEGORY,
   USER_INTERACTION_CATEGORY,
   WEB_APP_CATEGORY,
 ] as const;
@@ -51,6 +56,7 @@ export const BUILTIN_TOOL_CATEGORIES: readonly ToolCategory[] = [
   SKILLS_CATEGORY,
   TODO_CATEGORY,
   SUBAGENT_CATEGORY,
+  PERCEPTION_CATEGORY,
   USER_INTERACTION_CATEGORY,
   CONTEXT_CATEGORY,
   WEB_FETCH_CATEGORY,

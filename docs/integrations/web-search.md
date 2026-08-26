@@ -1,3 +1,7 @@
+---
+description: "Wire web_search and web_fetch into a Jazz agent: choose a search provider, cap result volume, and let scheduled runs pull live information from the web."
+---
+
 # Web Search
 
 How to give an agent live information from the web.

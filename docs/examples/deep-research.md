@@ -1,3 +1,7 @@
+---
+description: "Have a Jazz agent perform deep web research on any topic and save a formatted report straight into your Obsidian vault."
+---
+
 # Use Case: Deep Research & Obsidian
 
 ## Overview

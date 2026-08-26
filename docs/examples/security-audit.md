@@ -1,3 +1,7 @@
+---
+description: "Schedule a weekly Jazz audit of your infrastructure or security news and get a consolidated briefing delivered wherever you are."
+---
+
 # Use Case: Weekly Security Audit
 
 ## Overview

@@ -7,6 +7,10 @@ export const collections = {
       pattern: ["**/*.md", "!superpowers/**", "!plans/**", "!README.md"],
       base: "../docs",
     }),
+    schema: z.object({
+      title: z.string().optional(),
+      description: z.string().optional(),
+    }),
   }),
   blog: defineCollection({
     loader: glob({ pattern: "**/*.md", base: "./src/content/blog" }),

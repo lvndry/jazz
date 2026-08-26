@@ -43,7 +43,7 @@ import type { LLMProvider, LLMProviderListItem } from "@/core/types/llm";
 import type { MCPTool } from "@/core/types/mcp";
 import { isAuthenticationRequired } from "@/core/utils/mcp";
 import { formatProviderDisplayName } from "@/core/utils/provider-model";
-import { sortModelsForPicker, sortProvidersForPicker } from "@/core/utils/provider-picker";
+import { buildModelChoices, sortProvidersForPicker } from "@/core/utils/provider-picker";
 import { toPascalCase } from "@/core/utils/string";
 
 /**
@@ -477,15 +477,7 @@ async function promptForAgentInfo(
       case "model": {
         const result = await Effect.runPromise(
           terminal.search<string>(`Which model would you like to use? ${hint}`, {
-            choices: sortModelsForPicker(
-              state.llmProvider!,
-              state.providerInfo!.supportedModels,
-              (model) => model.id,
-            ).map((model) => ({
-              name: model.displayName || model.id,
-              description: model.displayName || model.id,
-              value: model.id,
-            })),
+            choices: buildModelChoices(state.llmProvider!, state.providerInfo!.supportedModels),
             placeholder: "Search models...",
           }),
         );

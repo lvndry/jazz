@@ -1,3 +1,5 @@
+import type { ModelInfo } from "@/core/types/llm";
+import { describeModelCapabilities } from "@/core/utils/model-capabilities";
 import { formatProviderDisplayName } from "@/core/utils/provider-model";
 
 export const PINNED_PROVIDERS_FOR_PICKER = [
@@ -56,24 +58,28 @@ export function sortProvidersForPicker<T>(
 }
 
 /**
- * Models pinned to the top of a provider's model picker.
- *
- * OpenRouter lists hundreds of models; the two gateway meta-models are the ones that make
- * choosing OpenRouter worthwhile in the first place — `openrouter/free` is the no-cost entry
- * point and `openrouter/auto` picks a model for you — so burying them alphabetically among
- * 300+ siblings hides the reason a newcomer picked this provider. A pinned id that the
- * catalog does not offer simply never matches, so this stays correct as the catalog changes.
+ * Per-provider model ids pinned above their siblings. Empty today — OpenRouter's
+ * routers are covered wholesale by the prefix rule below — but the place to add
+ * a provider's named entry points when one earns them.
  */
-const PINNED_MODELS_BY_PROVIDER: Readonly<Record<string, readonly string[]>> = {
-  openrouter: ["openrouter/free", "openrouter/auto"],
-};
+const PINNED_MODELS_BY_PROVIDER: Readonly<Record<string, readonly string[]>> = {};
+
+/**
+ * OpenRouter's own ids (`openrouter/free`, `openrouter/auto`, `openrouter/fusion`, …)
+ * are router meta-models — the reason to pick this provider at all — so the whole
+ * prefix pins above its hundreds of plain catalog entries.
+ */
+const ROUTER_MODEL_PREFIX = "openrouter/";
 
 function pinnedModelRank(providerId: string, modelId: string): number {
-  const pinned = PINNED_MODELS_BY_PROVIDER[canonicalizeProviderId(providerId)];
-  if (pinned === undefined) {
-    return Number.POSITIVE_INFINITY;
+  if (
+    canonicalizeProviderId(providerId) === "openrouter" &&
+    modelId.startsWith(ROUTER_MODEL_PREFIX)
+  ) {
+    return 0;
   }
-  const rank = pinned.indexOf(modelId);
+  const pinned = PINNED_MODELS_BY_PROVIDER[canonicalizeProviderId(providerId)];
+  const rank = pinned?.indexOf(modelId) ?? -1;
   return rank === -1 ? Number.POSITIVE_INFINITY : rank;
 }
 
@@ -94,4 +100,28 @@ export function sortModelsForPicker<T>(
     }
     return leftRank < rightRank ? -1 : 1;
   });
+}
+
+export interface ModelPickerChoice {
+  readonly name: string;
+  /** Capabilities and price, so nobody picks a model blind. */
+  readonly description: string;
+  readonly value: string;
+}
+
+/**
+ * Ready-to-render choices for a provider's model picker.
+ *
+ * Single source for every model list (create-agent, edit-agent, future surfaces) so the
+ * row shape — display name plus capability/price line — cannot drift between wizards.
+ */
+export function buildModelChoices(
+  providerId: string,
+  models: readonly ModelInfo[],
+): ModelPickerChoice[] {
+  return sortModelsForPicker(providerId, models, (model) => model.id).map((model) => ({
+    name: model.displayName || model.id,
+    description: describeModelCapabilities(model),
+    value: model.id,
+  }));
 }

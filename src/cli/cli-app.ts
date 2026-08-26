@@ -1,4 +1,5 @@
 import { Command } from "commander";
+import { parseProviderModel } from "@/core/utils/provider-model";
 import packageJson from "../../package.json";
 import {
   isApprovalPolicyFlag,
@@ -149,6 +150,18 @@ function registerRunCommand(program: Command): void {
       "--park",
       "When a gated tool needs approval nobody here can give, save the run and exit 2 instead of declining. Resume it later with `jazz runs approve <id>`. Only use this where somebody will actually answer.",
     )
+    .option(
+      "--with-vision <provider/model>",
+      "Bind the vision companion for this run (overrides the agent's config), e.g. anthropic/claude-sonnet-4-5",
+    )
+    .option(
+      "--with-audio <provider/model>",
+      "Bind the audio companion for this run (overrides the agent's config)",
+    )
+    .option(
+      "--with-video <provider/model>",
+      "Bind the video companion for this run (overrides the agent's config)",
+    )
     .action(
       (
         prompt: string | undefined,
@@ -169,6 +182,9 @@ function registerRunCommand(program: Command): void {
           ephemeral?: boolean;
           historyJson?: string;
           park?: boolean;
+          withVision?: string;
+          withAudio?: string;
+          withVideo?: string;
         },
       ) => {
         const json = options.json === true;
@@ -226,6 +242,26 @@ function registerRunCommand(program: Command): void {
           }
         }
 
+        const companionFlags: Record<string, string | undefined> = {
+          vision: options.withVision,
+          audio: options.withAudio,
+          video: options.withVideo,
+        };
+        for (const [capability, companion] of Object.entries(companionFlags)) {
+          if (companion !== undefined && parseProviderModel(companion) === null) {
+            const message = `Invalid --with-${capability} "${companion}". Expected provider/model, e.g. anthropic/claude-sonnet-4-5.`;
+            if (json) {
+              process.stdout.write(
+                `${JSON.stringify({ ok: false, error: message, costUSD: 0 })}\n`,
+              );
+            } else {
+              process.stderr.write(`${message}\n`);
+            }
+            process.exitCode = 1;
+            return;
+          }
+        }
+
         // Force plain terminal so Ink never mounts and writes to stdout; the
         // one-shot presentation layer keeps stdout clean for the payload.
         process.env["JAZZ_NO_TUI"] = "1";
@@ -264,6 +300,13 @@ function registerRunCommand(program: Command): void {
                 ...(options.ephemeral === true ? { ephemeral: true } : {}),
                 ...(options.historyJson !== undefined ? { historyJson: options.historyJson } : {}),
                 ...(options.park === true ? { park: true } : {}),
+                ...(Object.values(companionFlags).some((value) => value !== undefined)
+                  ? {
+                      companions: Object.fromEntries(
+                        Object.entries(companionFlags).filter((entry) => entry[1] !== undefined),
+                      ),
+                    }
+                  : {}),
               }),
             ),
           cliRuntimeOptions(program),

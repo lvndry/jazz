@@ -77,6 +77,11 @@ export interface ActiveMenuRequirement {
   readonly remedy?: string;
 }
 
+export interface ActiveMenuFact {
+  readonly label: string;
+  readonly detail: string;
+}
+
 export interface ActiveAgentChoice {
   readonly id: string;
   readonly name: string;
@@ -90,6 +95,7 @@ export interface ActiveWizardMenu {
   readonly title?: string;
   readonly options: readonly ActiveMenuOption[];
   readonly requirements?: readonly ActiveMenuRequirement[];
+  readonly environment?: readonly ActiveMenuFact[];
   readonly tip?: string;
 }
 

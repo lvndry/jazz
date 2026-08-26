@@ -1,3 +1,7 @@
+---
+description: "The building blocks of Jazz: agents, personas, skills, tools, workflows, peers, and the vocabulary that ties them together."
+---
+
 # Core Concepts
 
 Understand the building blocks of Jazz.

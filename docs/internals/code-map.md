@@ -1,3 +1,7 @@
+---
+description: "Find where your change goes in the Jazz codebase: directory structure, Effect/Layer conventions, adapter patterns, and testing practices."
+---
+
 # Code map
 
 This page helps you find where your change goes, and follow the conventions already there.

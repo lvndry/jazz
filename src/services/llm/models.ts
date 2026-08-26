@@ -30,7 +30,7 @@ export const PROVIDER_MODELS: Record<ProviderName, ModelSource> = {
   xai: { type: "models-dev" },
   openrouter: {
     type: "dynamic",
-    endpointPath: "/api/v1/models",
+    endpointPath: "/api/v1/models?sort=most-popular",
     defaultBaseUrl: "https://openrouter.ai",
   },
   ai_gateway: { type: "dynamic", endpointPath: "" },

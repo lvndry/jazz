@@ -15,10 +15,10 @@ function devMetadata(overrides: Partial<ModelsDevMetadata> = {}): ModelsDevMetad
     contextWindow: 128_000,
     supportsTools: true,
     isReasoningModel: false,
-    supportsVision: false,
-    supportsPdf: false,
-    supportsAudio: false,
-    supportsVideo: false,
+    ingestImage: false,
+    ingestPdf: false,
+    ingestAudio: false,
+    ingestVideo: false,
     generatesImage: false,
     generatesAudio: false,
     generatesVideo: false,
@@ -35,7 +35,7 @@ describe("resolveOllamaAttachmentSupport", () => {
       ["completion", "vision", "tools", "thinking"],
       undefined,
     );
-    expect(support.supportsVision).toBe(true);
+    expect(support.ingestImage).toBe(true);
   });
 
   it("refuses audio even when the model advertises it", () => {
@@ -47,37 +47,34 @@ describe("resolveOllamaAttachmentSupport", () => {
       ["completion", "vision", "audio", "tools", "thinking"],
       undefined,
     );
-    expect(support.supportsAudio).toBe(false);
+    expect(support.ingestAudio).toBe(false);
   });
 
   it("does not claim audio or PDF even when the catalog does", () => {
     // The transport limit is the provider's, so a catalog entry cannot override it.
     const support = resolveOllamaAttachmentSupport(
       ["completion", "vision"],
-      devMetadata({ supportsAudio: true, supportsPdf: true }),
+      devMetadata({ ingestAudio: true, ingestPdf: true }),
     );
-    expect(support.supportsAudio).toBe(false);
-    expect(support.supportsPdf).toBe(false);
+    expect(support.ingestAudio).toBe(false);
+    expect(support.ingestPdf).toBe(false);
   });
 
   it("reports nothing for a text-only local model", () => {
     const support = resolveOllamaAttachmentSupport(["completion", "tools"], undefined);
-    expect(support.supportsVision).toBe(false);
-    expect(support.supportsAudio).toBe(false);
-    expect(support.supportsPdf).toBe(false);
+    expect(support.ingestImage).toBe(false);
+    expect(support.ingestAudio).toBe(false);
+    expect(support.ingestPdf).toBe(false);
   });
 
   it("falls back to the catalog's vision flag when the host reports no capabilities", () => {
     // An older Ollama, or a failed /api/show.
-    const support = resolveOllamaAttachmentSupport(
-      undefined,
-      devMetadata({ supportsVision: true }),
-    );
-    expect(support.supportsVision).toBe(true);
+    const support = resolveOllamaAttachmentSupport(undefined, devMetadata({ ingestImage: true }));
+    expect(support.ingestImage).toBe(true);
   });
 
   it("assumes nothing when neither source knows anything", () => {
     const support = resolveOllamaAttachmentSupport(undefined, undefined);
-    expect(support.supportsVision).toBe(false);
+    expect(support.ingestImage).toBe(false);
   });
 });

@@ -1,3 +1,7 @@
+---
+description: "Point Jazz at a repository URL and let it clone the repo, then execute every setup instruction from the README on its own."
+---
+
 # Automated Project Onboarding
 
 Clone a repository and automatically execute all setup instructions from the README.

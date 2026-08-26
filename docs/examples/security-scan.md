@@ -1,3 +1,7 @@
+---
+description: "Scan a codebase for security issues and have a Jazz agent automatically fix the critical ones, with every change reviewed before commit."
+---
+
 # Security Vulnerability Scanner & Auto-Fix
 
 Scan codebase for security issues and automatically apply fixes.

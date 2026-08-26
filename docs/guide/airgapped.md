@@ -1,3 +1,7 @@
+---
+description: "Run Jazz fully offline on a self-hosted server with Ollama or llama.cpp. No API keys, local-only telemetry, and an offline mode that disables every outbound request."
+---
+
 # Airgapped & Self-Hosted Deployments
 
 Jazz runs fully offline on a self-hosted server when paired with a local inference server such as [Ollama](https://ollama.ai/) or [llama.cpp](https://github.com/ggml-org/llama.cpp). Local providers need no API key, telemetry is written to local disk only, and offline mode turns off every outbound request Jazz would otherwise make on its own.

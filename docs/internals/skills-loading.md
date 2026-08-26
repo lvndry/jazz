@@ -1,3 +1,7 @@
+---
+description: "How Jazz keeps a hundred installed skills free in every request: lazy discovery, progressive disclosure, and loading only what the task needs."
+---
+
 # Skills loading — progressive disclosure
 
 This page explains how Jazz can have a hundred skills installed without paying for

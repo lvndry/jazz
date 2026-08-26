@@ -631,7 +631,7 @@ describe("fullscreen bridge", () => {
         kind: "menu",
         requirements: [
           {
-            label: "agent",
+            label: "agents",
             ready: false,
             detail: "none yet",
             remedy: "create your first one below",
@@ -640,9 +640,27 @@ describe("fullscreen bridge", () => {
         options: [{ label: "Create agent", value: "create-agent" }],
       });
     });
-    expect(text).toContain("agent");
+    expect(text).toContain("agents");
     expect(text).toContain("create your first one below");
     expect(text).toContain("Press enter on");
+    store.setActiveMenu(null);
+  });
+
+  it("draws the environment report the wizard publishes", async () => {
+    const text = await frame(() => {
+      store.setActiveMenu({
+        kind: "menu",
+        options: [{ label: "Exit", value: "exit" }],
+        environment: [
+          { label: "date", detail: "Wednesday, August 26, 2026 (UTC+2, Europe/Paris)" },
+          { label: "os", detail: "darwin 24.6.0 (arm64) · /bin/zsh · lvndry" },
+          { label: "cwd", detail: "/Users/lvndry/github/jazz" },
+          { label: "hardware", detail: "Apple M4 Pro · 14 cores · 24 GB RAM" },
+        ],
+      });
+    });
+    expect(text).toContain("environment");
+    expect(text).toContain("darwin 24.6.0 (arm64) · /bin/zsh · lvndry");
     store.setActiveMenu(null);
   });
 

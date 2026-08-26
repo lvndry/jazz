@@ -1,3 +1,7 @@
+---
+description: "Have a Jazz agent analyze your cloud infrastructure usage and suggest concrete, prioritized cost optimizations."
+---
+
 # Infrastructure Cost Optimizer
 
 Analyze cloud infrastructure usage and suggest cost optimizations.

@@ -1,7 +1,12 @@
 import { describe, expect, it, mock } from "bun:test";
 import { Chunk, Effect } from "effect";
 import { selectParser } from "./reasoning";
-import { StreamIdleTimeoutError, StreamProcessor, withIdleTimeout } from "./stream-processor";
+import {
+  resolveStreamIdleTimeoutMs,
+  StreamIdleTimeoutError,
+  StreamProcessor,
+  withIdleTimeout,
+} from "./stream-processor";
 import { type LoggerService } from "../../core/interfaces/logger";
 
 describe("StreamProcessor", () => {
@@ -601,5 +606,22 @@ describe("withIdleTimeout", () => {
     };
     await expect(drain()).rejects.toThrow(StreamIdleTimeoutError);
     expect(returned).toBe(true);
+  });
+});
+
+describe("resolveStreamIdleTimeoutMs", () => {
+  it("defaults to two minutes when the env var is unset", () => {
+    expect(resolveStreamIdleTimeoutMs({})).toBe(120_000);
+    expect(resolveStreamIdleTimeoutMs({ JAZZ_STREAM_IDLE_TIMEOUT_MS: "" })).toBe(120_000);
+  });
+
+  it("honors JAZZ_STREAM_IDLE_TIMEOUT_MS for local cold starts", () => {
+    expect(resolveStreamIdleTimeoutMs({ JAZZ_STREAM_IDLE_TIMEOUT_MS: "300000" })).toBe(300_000);
+  });
+
+  it("falls back to the default on garbage rather than disabling the watchdog", () => {
+    for (const value of ["zero", "-1", "0", "1.5", "Infinity", "NaN"]) {
+      expect(resolveStreamIdleTimeoutMs({ JAZZ_STREAM_IDLE_TIMEOUT_MS: value })).toBe(120_000);
+    }
   });
 });

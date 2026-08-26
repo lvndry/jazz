@@ -1,3 +1,7 @@
+---
+description: "Where Jazz agent memory lives on disk, how it stays safe across runs, and why memory is opt-in rather than always-on."
+---
+
 # Memory
 
 This page explains where agent memory lives on disk, how it stays safe, and why

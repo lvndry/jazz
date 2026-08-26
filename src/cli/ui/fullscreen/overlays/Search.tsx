@@ -27,7 +27,7 @@ import {
 } from "../terminal-cells";
 import type { SearchHit, SearchOverlay, Viewport } from "../types";
 
-const MAX_WIDTH = 76;
+const MAX_WIDTH = 96;
 const MIN_WINDOWED_HEIGHT = 20;
 
 /** Windowed height, fixed: the overlay does not grow with the result count. */

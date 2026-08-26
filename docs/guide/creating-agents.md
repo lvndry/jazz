@@ -1,3 +1,7 @@
+---
+description: "Configure a Jazz agent for a specific job: system prompt, model, provider, skills, and tool policy — defined in a single AGENT.md file."
+---
+
 # Creating agents
 
 How to get an agent configured for a specific job.

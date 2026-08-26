@@ -1,3 +1,7 @@
+---
+description: "How the Jazz harness works inside: the agent loop, context management, approvals, subagents, memory, and the decisions behind them."
+---
+
 # Internals — how Jazz works
 
 This page explains the machine well enough to trust it, debug it, or extend it.

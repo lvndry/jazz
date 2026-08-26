@@ -52,10 +52,19 @@ function resolveToModelInfo(
       contextWindow: dev.contextWindow,
       supportsTools: dev.supportsTools,
       isReasoningModel: dev.isReasoningModel,
-      supportsVision: dev.supportsVision,
-      supportsPdf: dev.supportsPdf,
-      supportsAudio: dev.supportsAudio,
-      supportsVideo: dev.supportsVideo,
+      ingestImage: dev.ingestImage,
+      ingestPdf: dev.ingestPdf,
+      ingestAudio: dev.ingestAudio,
+      ingestVideo: dev.ingestVideo,
+      generatesImage: dev.generatesImage,
+      generatesAudio: dev.generatesAudio,
+      generatesVideo: dev.generatesVideo,
+      ...(dev.inputPricePerMillion !== undefined && {
+        inputPricePerMillion: dev.inputPricePerMillion,
+      }),
+      ...(dev.outputPricePerMillion !== undefined && {
+        outputPricePerMillion: dev.outputPricePerMillion,
+      }),
       supportsTemperature: dev.supportsTemperature,
     };
   }
@@ -66,10 +75,10 @@ function resolveToModelInfo(
     contextWindow: fb?.contextWindow ?? DEFAULT_CONTEXT_WINDOW,
     supportsTools: fb?.supportsTools ?? false,
     isReasoningModel: fb?.isReasoningModel ?? false,
-    supportsVision: fb?.supportsVision ?? false,
-    supportsPdf: fb?.supportsPdf ?? false,
-    supportsAudio: fb?.supportsAudio ?? false,
-    supportsVideo: fb?.supportsVideo ?? false,
+    ingestImage: fb?.ingestImage ?? false,
+    ingestPdf: fb?.ingestPdf ?? false,
+    ingestAudio: fb?.ingestAudio ?? false,
+    ingestVideo: fb?.ingestVideo ?? false,
     supportsTemperature: fb?.supportsTemperature ?? true,
   };
 }
@@ -127,10 +136,19 @@ export async function fetchModelsDevModels(catalogId: string): Promise<ModelInfo
       contextWindow: entry.metadata.contextWindow,
       supportsTools: entry.metadata.supportsTools,
       isReasoningModel: entry.metadata.isReasoningModel,
-      supportsVision: entry.metadata.supportsVision,
-      supportsPdf: entry.metadata.supportsPdf,
-      supportsAudio: entry.metadata.supportsAudio,
-      supportsVideo: entry.metadata.supportsVideo,
+      ingestImage: entry.metadata.ingestImage,
+      ingestPdf: entry.metadata.ingestPdf,
+      ingestAudio: entry.metadata.ingestAudio,
+      ingestVideo: entry.metadata.ingestVideo,
+      generatesImage: entry.metadata.generatesImage,
+      generatesAudio: entry.metadata.generatesAudio,
+      generatesVideo: entry.metadata.generatesVideo,
+      ...(entry.metadata.inputPricePerMillion !== undefined && {
+        inputPricePerMillion: entry.metadata.inputPricePerMillion,
+      }),
+      ...(entry.metadata.outputPricePerMillion !== undefined && {
+        outputPricePerMillion: entry.metadata.outputPricePerMillion,
+      }),
       supportsTemperature: entry.metadata.supportsTemperature,
     }));
 }
@@ -302,21 +320,21 @@ function ollamaToolSupportFromMetadata(model: OllamaModel): boolean {
 export function resolveOllamaAttachmentSupport(
   capabilities: readonly string[] | undefined,
   dev: ModelsDevMetadata | undefined,
-): { supportsVision: boolean; supportsPdf: boolean; supportsAudio: boolean } {
+): { ingestImage: boolean; ingestPdf: boolean; ingestAudio: boolean } {
   if (capabilities !== undefined) {
     return {
-      supportsVision: capabilities.includes("vision"),
+      ingestImage: capabilities.includes("vision"),
       // Not `capabilities.includes("audio")`: see the transport note above.
-      supportsAudio: false,
-      supportsPdf: false,
+      ingestAudio: false,
+      ingestPdf: false,
     };
   }
   // No capabilities reported (older Ollama, or /api/show failed). The catalog is the only
   // remaining signal, still narrowed to what the provider can actually transport.
   return {
-    supportsVision: dev?.supportsVision ?? false,
-    supportsPdf: false,
-    supportsAudio: false,
+    ingestImage: dev?.ingestImage ?? false,
+    ingestPdf: false,
+    ingestAudio: false,
   };
 }
 
@@ -401,7 +419,7 @@ const LIST_EXTRACTORS: Partial<Record<ProviderName, (data: unknown) => RawModelE
         fallback: {
           contextWindow: model.contextLength ?? DEFAULT_CONTEXT_WINDOW,
           supportsTools: model.supportsTools ?? false,
-          supportsVision: model.supportsImageInput ?? false,
+          ingestImage: model.supportsImageInput ?? false,
         },
       }));
   },

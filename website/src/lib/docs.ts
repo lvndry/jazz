@@ -95,6 +95,33 @@ export function titleOf(entry: DocsEntry): string {
   return humanize(id.split("/").pop() ?? "Documentation");
 }
 
+/**
+ * The page's meta description: frontmatter first, then a cleaned excerpt of
+ * the opening prose. The fallback strips markdown syntax and the H1 so the
+ * snippet reads as a sentence, not source.
+ */
+export function descriptionOf(entry: DocsEntry): string {
+  const fromFrontmatter = (entry.data as Record<string, unknown>)["description"];
+  if (
+    typeof fromFrontmatter === "string" &&
+    fromFrontmatter.length >= 50 &&
+    fromFrontmatter.length <= 320
+  ) {
+    return fromFrontmatter;
+  }
+  const prose = entry.body
+    ?.replace(/^---\n[\s\S]*?\n---/, "")
+    .replace(/^#.*$/m, "")
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/[#*_`[\]()>|-]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!prose) return "Jazz documentation";
+  const sentence = prose.match(/^.{10,300}(?<![a-z])[.!?](\s|$)/)?.[0]?.trim();
+  const text = sentence ?? `${prose.slice(0, 152).trimEnd()}…`;
+  return text.length > 160 ? `${text.slice(0, 157).trimEnd()}…` : text;
+}
+
 export interface SidebarItem {
   title: string;
   route: string;

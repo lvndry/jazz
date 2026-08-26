@@ -1,3 +1,7 @@
+---
+description: "How Jazz is configured: the layered configuration files, every key they accept, and the environment variables that override them."
+---
+
 # Configuration Reference
 
 Jazz is configured via configuration files and environment variables.

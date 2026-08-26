@@ -1,3 +1,7 @@
+---
+description: "A weekly Jazz workflow that runs multi-source research on a topic you choose and writes a synthesized markdown digest to disk every Sunday."
+---
+
 # research-digest
 
 **What it does:** Once a week, picks up where you left off on a topic of your choice (e.g. "agentic LLM systems"), runs a multi-source search, synthesizes the new-this-week material, and writes a markdown digest to disk.

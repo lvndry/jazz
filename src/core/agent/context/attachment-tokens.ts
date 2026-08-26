@@ -36,7 +36,7 @@ const MAX_IMAGE_TOKENS = 3_300;
 
 /**
  * A natively-sent PDF page costs roughly a full-page image plus the text extracted from it,
- * since providers do both. This is why native PDF is gated behind `supportsPdf` and text
+ * since providers do both. This is why native PDF is gated behind `ingestPdf` and text
  * extraction stays the default: a 40-page PDF sent natively is ~80k tokens, which will not fit
  * alongside a working conversation.
  */

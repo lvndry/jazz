@@ -1,3 +1,7 @@
+---
+description: "Ask Jazz to research an external API and generate complete, working integration code for your project."
+---
+
 # API Integration Generator
 
 Research an API and generate complete integration code for your project.

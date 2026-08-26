@@ -125,19 +125,19 @@ function resolveSupportedAttachmentKinds(
       // the mapping stays exhaustive so widening it is a one-line change in one place.
       const support = resolveOllamaAttachmentSupport(extras.capabilities, metadata);
       const localKinds: AttachmentKind[] = [];
-      if (support.supportsVision) localKinds.push("image");
-      if (support.supportsPdf) localKinds.push("pdf");
-      if (support.supportsAudio) localKinds.push("audio");
+      if (support.ingestImage) localKinds.push("image");
+      if (support.ingestPdf) localKinds.push("pdf");
+      if (support.ingestAudio) localKinds.push("audio");
       return localKinds;
     }
 
     if (metadata === undefined) return [];
 
     const kinds: AttachmentKind[] = [];
-    if (metadata.supportsVision) kinds.push("image");
-    if (metadata.supportsPdf) kinds.push("pdf");
-    if (metadata.supportsAudio) kinds.push("audio");
-    if (metadata.supportsVideo) kinds.push("video");
+    if (metadata.ingestImage) kinds.push("image");
+    if (metadata.ingestPdf) kinds.push("pdf");
+    if (metadata.ingestAudio) kinds.push("audio");
+    if (metadata.ingestVideo) kinds.push("video");
     return kinds;
   });
 }
@@ -420,6 +420,9 @@ function initializeAgentRun(
         supportedAttachmentKinds,
         attachmentsAreLocal,
         canGenerateMedia,
+        ...(options.initialAttachments !== undefined && {
+          initialAttachments: options.initialAttachments,
+        }),
         ...(triggeredSkillNames.length > 0 && { triggeredSkillNames }),
         ...(projectInstructions.length > 0 && { projectInstructions }),
       },

@@ -228,6 +228,69 @@ export class CLIPresentationService implements PresentationService {
       const toolLabel = CHALK_THEME.primary(request.toolName);
       const separator = chalk.dim(separatorLine(50));
 
+      // Picker-style request: number the capable models, let the human choose one.
+      // There are no "always approve" follow-ups here — picking a row is the decision.
+      if (request.options && request.options.length > 0) {
+        yield* this.writeOutput(`\n${separator}\n`);
+        yield* this.writeOutput(`${chalk.yellow("⚠️  Approval Required")} for ${toolLabel}\n\n`);
+        yield* this.writeOutput(`${chalk.bold(request.message)}\n\n`);
+
+        let optionIndex = 1;
+        for (const option of request.options) {
+          const detail = option.detail ? chalk.dim(`  ${option.detail}`) : "";
+          yield* this.writeOutput(
+            `  ${chalk.bold(String(optionIndex))}. ${option.label}${detail}\n`,
+          );
+          optionIndex += 1;
+        }
+        yield* this.writeOutput(`\n${separator}\n`);
+
+        // Loop until a valid number, an empty answer, or an explicit decline.
+        let chosenIndex: number | null = null;
+        while (chosenIndex === null) {
+          const raw = (
+            (yield* this.ask(
+              `Pick a model (1-${request.options.length}, Enter for 1, empty to decline):`,
+              {},
+            )) ?? ""
+          ).trim();
+          // Empty answer declines: a bare Enter must never launch a paid model run.
+          if (raw === "") {
+            chosenIndex = -1;
+            break;
+          }
+          const parsed = Number.parseInt(raw, 10);
+          if (Number.isInteger(parsed) && parsed >= 1 && parsed <= request.options.length) {
+            chosenIndex = parsed - 1;
+            break;
+          }
+          yield* this.writeOutput(
+            chalk.yellow(
+              `Enter a number between 1 and ${request.options.length}, or nothing to decline.\n`,
+            ),
+          );
+        }
+
+        if (chosenIndex < 0) {
+          const userMessage = (
+            (yield* this.ask(
+              "What should the agent do instead? (optional — press Enter to skip)",
+              {},
+            )) ?? ""
+          ).trim();
+          return userMessage
+            ? ({ approved: false, userMessage } as const)
+            : ({ approved: false } as const);
+        }
+
+        const selected = request.options[chosenIndex];
+        if (!selected) {
+          return { approved: false } as const;
+        }
+        yield* this.writeOutput(`Pick a model: ${CHALK_THEME.success(selected.label)}\n`);
+        return { approved: true, selectedOptionId: selected.id };
+      }
+
       // Write the approval details
       yield* this.writeOutput(`\n${separator}\n`);
       yield* this.writeOutput(`${chalk.yellow("⚠️  Approval Required")} for ${toolLabel}\n\n`);

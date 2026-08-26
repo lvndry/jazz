@@ -1,3 +1,7 @@
+---
+description: "What a Jazz agent is made of — identity, system prompt, model binding, skills, and tool policy — and how to configure one deliberately instead of by accident."
+---
+
 # Agents
 
 This page explains what an agent is made of, so you can configure one deliberately.

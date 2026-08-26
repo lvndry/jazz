@@ -1,3 +1,7 @@
+---
+description: "A self-contained template showing how to design, implement, wire, and test a service in Jazz following the project architecture."
+---
+
 # Feature Flag Service — Example Template
 
 This example is a self-contained template showing how to design, implement, wire, and test a simple FeatureFlagService following the project architecture:

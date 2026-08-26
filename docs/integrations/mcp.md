@@ -1,3 +1,7 @@
+---
+description: "Attach Model Context Protocol servers to a Jazz agent to connect external services: one line of config per server, tools appear in the agent's registry."
+---
+
 # MCP Servers
 
 How to connect an agent to an external service.

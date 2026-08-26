@@ -29,11 +29,12 @@ import { getGlyphs, type GlyphSet } from "../../glyphs";
 import { PICKER_WINDOW_SIZE, pickerWindowStart } from "../../picker-window";
 import { THEME } from "../../theme";
 import { clipTerminalCells, terminalCellWidth, wrapTerminalCells } from "../terminal-cells";
+import { centeredOffset } from "./centered";
 import type { Viewport } from "../types";
 import { CaretValue, HintRow, type Hint } from "./TextPrompt";
 
 /** Windowed width, and the floor below which windowing stops making sense. */
-const MAX_WIDTH = 76;
+const MAX_WIDTH = 96;
 const MIN_WINDOWED_HEIGHT = 20;
 
 /** One column of breathing room inside the frame, on each side. */
@@ -55,7 +56,7 @@ const NUMBER_COLUMN = 3;
 const CHECKBOX_COLUMN = 4;
 
 /** Descriptions never take more of the row than the labels they annotate. */
-const DESCRIPTION_SHARE = 0.45;
+const DESCRIPTION_SHARE = 0.55;
 
 /** Two spaces between a label and its description, so the column reads as one. */
 const DESCRIPTION_GAP = 2;
@@ -292,6 +293,27 @@ export function Question({ model, viewport }: QuestionProps): ReactNode {
   const visible = takeVisible(pageItems, pageHeights, startInPage, listRows);
   const start = pageStart + startInPage;
 
+  // The option block hangs centered in the card: its widest visible row defines
+  // the block, and the leftover width becomes symmetric padding. The title stays
+  // left-aligned — only the answers float.
+  const widestOptionRow = visible.reduce((widest, choice, offset) => {
+    const index = start + offset;
+    if (choice === null) {
+      return Math.max(widest, GUTTER + NUMBER_COLUMN + displayWidth(CUSTOM_HINT));
+    }
+    const layout = layouts[index] ?? layoutChoice(choice, labelWidth, descriptionWidth);
+    const description = layout.descriptionLines[0] ?? "";
+    return Math.max(
+      widest,
+      GUTTER +
+        NUMBER_COLUMN +
+        displayWidth(layout.labelLines[0] ?? "") +
+        (description.length > 0 ? DESCRIPTION_GAP + displayWidth(description) : 0),
+    );
+  }, 0);
+  const listOffset =
+    filterable || widestOptionRow >= inner ? 0 : centeredOffset(widestOptionRow, inner);
+
   const windowedHeight = fixedRows + listRows + HINT_ROWS;
   const height = fullscreen ? viewport.height : Math.min(windowedHeight, viewport.height);
   const cardHeight = Math.max(1, height - HINT_ROWS);
@@ -384,7 +406,14 @@ export function Question({ model, viewport }: QuestionProps): ReactNode {
 
         <box style={{ height: 1, flexShrink: 0 }} />
 
-        <box style={{ height: listRows, flexShrink: 0, flexDirection: "column" }}>
+        <box
+          style={{
+            height: listRows,
+            flexShrink: 0,
+            flexDirection: "column",
+            paddingLeft: listOffset,
+          }}
+        >
           {filterable && items.length === 0 ? (
             <text style={{ fg: THEME.muted, height: 1, flexShrink: 0 }}>No matching options</text>
           ) : (

@@ -19,12 +19,32 @@ const formatted = post.data.date.toLocaleDateString("en-US", {
   month: "long",
   day: "numeric",
 });
+const site = Astro.site;
+const canonical = site ? new URL(`/blog/${post.id}`, site).href : undefined;
+
+const jsonLd = {
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  headline: post.data.title,
+  description: post.data.description,
+  datePublished: post.data.date.toISOString(),
+  author: { "@type": "Person", name: "lvndry", url: "https://github.com/lvndry" },
+  publisher: {
+    "@type": "Organization",
+    name: "Jazz",
+    ...(site ? { url: new URL("/", site).href } : {}),
+  },
+  mainEntityOfPage: canonical,
+  isPartOf: { "@type": "Blog", name: "Jazz blog" },
+  ...(site ? { image: new URL(`/og/blog/${post.id}.png`, site).href } : {}),
+};
 ---
 
 <Blog
   title={`${post.data.title} — Jazz blog`}
   description={post.data.description}
   image={`/og/blog/${post.id}.png`}
+  jsonLd={jsonLd}
 >
   <article class="post">
     <p class="eyebrow mono">▞ jazz blog</p>

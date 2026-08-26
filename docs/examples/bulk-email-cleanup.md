@@ -1,3 +1,7 @@
+---
+description: "Clean up thousands of old emails by age, sender, or content — a Jazz agent does the triage and archives in bulk under your rules."
+---
+
 # Bulk Email Cleanup
 
 Clean up thousands of old emails based on age, sender, or content.

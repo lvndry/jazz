@@ -1,6 +1,7 @@
 import type { AppConfig } from "@/core/types/index";
+import { systemInfo } from "@/core/utils/system-info";
 import { LLM_PROVIDER_ENV_VARS } from "@/services/secrets/registry";
-import type { HomeRequirement } from "./screens/Home";
+import type { HomeFact, HomeRequirement } from "./screens/Home";
 
 export interface HomeReadinessInput {
   readonly agentCount: number;
@@ -27,19 +28,29 @@ export function configuredProviderNames(config: AppConfig): string[] {
 
 export function homeRequirements(input: HomeReadinessInput): readonly HomeRequirement[] {
   const agentReady = input.agentCount > 0;
-  const agentDetail =
-    input.agentCount === 0
-      ? "none yet"
-      : input.agentCount === 1
-        ? "1 of them"
-        : `${String(input.agentCount)} of them`;
+  const agentDetail = input.agentCount === 0 ? "none yet" : String(input.agentCount);
 
   return [
     {
-      label: "agent",
+      label: "agents",
       ready: agentReady,
       detail: agentDetail,
       ...(agentReady ? {} : { remedy: "create your first one below" }),
     },
+  ];
+}
+
+/**
+ * The machine facts every agent is grounded with, condensed to the four rows
+ * the home screen shows. Same source as the system prompt's `Environment:`
+ * block, so what the wizard reports is exactly what agents are told.
+ */
+export function homeEnvironmentFacts(): readonly HomeFact[] {
+  const info = systemInfo();
+  return [
+    { label: "date", detail: info.currentDate },
+    { label: "os", detail: `${info.osInfo} · ${info.shell} · ${info.username}` },
+    { label: "cwd", detail: info.cwd },
+    { label: "hardware", detail: info.hardware },
   ];
 }

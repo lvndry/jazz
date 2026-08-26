@@ -1,3 +1,7 @@
+---
+description: "Skills give a Jazz agent packaged expertise — proven playbooks discovered and loaded only when relevant, so a hundred installed skills cost nothing per request."
+---
+
 # Skills: Give Your Agent Superpowers Without the Bloat
 
 You've got an agent that can run shell commands, call tools, and search the web. But when you ask it to “plan this project” or “research this topic properly,” you don't want it to wing it every time. You want it to follow a **proven playbook**—decompose the ask, use the right steps, and output something consistent and useful.

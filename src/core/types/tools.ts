@@ -108,6 +108,24 @@ export interface ToolExecutionResult {
 }
 
 /**
+ * One selectable choice in a picker-style approval.
+ *
+ * Most approvals are yes/no, but some decisions are "which of these" — e.g. which
+ * vision-capable model should analyze an image. When a proposal carries `options`,
+ * surfaces render a selector instead of approve/deny, and the chosen option's `id`
+ * comes back on the outcome. A request with options is never auto-approved: there is
+ * nothing to approve until somebody picked.
+ */
+export interface ApprovalOption {
+  /** Stable identifier returned as `selectedOptionId` when this row is chosen. */
+  readonly id: string;
+  /** Primary label, e.g. the model's display name. */
+  readonly label: string;
+  /** Secondary line: provider, pricing, anything that helps compare rows. */
+  readonly detail?: string;
+}
+
+/**
  * Result structure when a tool requires user approval before execution.
  * Returned by approval tools created with `defineApprovalTool`.
  */
@@ -121,6 +139,12 @@ export interface ApprovalRequiredResult {
   readonly executeArgs: Record<string, unknown>;
   /** Optional full diff preview for file edit operations (expandable with Ctrl+O) */
   readonly previewDiff?: string;
+  /**
+   * When present, the human picks one option instead of approving yes/no.
+   * The selected option's id reaches the execution tool via the executor,
+   * merged into its args under `_selectedOptionId`.
+   */
+  readonly options?: readonly ApprovalOption[];
 }
 
 /**
@@ -141,6 +165,11 @@ export interface ApprovalRequest {
   /** Optional full diff preview for file edit operations (expandable with Ctrl+O) */
   readonly previewDiff?: string;
   /**
+   * When present, the surface renders a picker (one row per option) instead of an
+   * approve/deny card. The chosen row's id returns as `selectedOptionId`.
+   */
+  readonly options?: readonly ApprovalOption[];
+  /**
    * Optional callback to re-check auto-approve status at dequeue time.
    * Used by the approval queue to skip prompts for tools that were
    * auto-approved by a parallel tool's "always approve" choice while
@@ -158,6 +187,12 @@ export type ApprovalOutcome =
       readonly approved: true;
       readonly alwaysApproveCommand?: string;
       readonly alwaysApproveTool?: string;
+      /**
+       * For picker-style requests (`ApprovalRequest.options`): which row the human
+       * chose. The executor merges this into the execution tool's args under
+       * `_selectedOptionId`; absent when the request had no options.
+       */
+      readonly selectedOptionId?: string;
     }
   | { readonly approved: false; readonly userMessage?: string };
 

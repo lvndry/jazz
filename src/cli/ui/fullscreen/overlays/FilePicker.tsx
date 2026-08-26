@@ -31,9 +31,10 @@ import {
   terminalCellWidth,
 } from "../terminal-cells";
 import type { Viewport } from "../types";
+import { centeredOffset } from "./centered";
 import { HintRow, type Hint } from "./TextPrompt";
 
-const MAX_WIDTH = 76;
+const MAX_WIDTH = 96;
 const MIN_WINDOWED_HEIGHT = 20;
 
 /** Fixed windowed height: the card does not resize as the filter narrows. */
@@ -190,6 +191,12 @@ export function FilePicker({ model, viewport }: FilePickerProps): ReactNode {
   const nameWidth = Math.max(4, inner - GUTTER);
   const error = oneLine(model.error ?? "");
 
+  const widestEntry = visible.reduce(
+    (widest, entry) => Math.max(widest, displayWidth(oneLine(entry.name))),
+    0,
+  );
+  const listOffset = centeredOffset(GUTTER + widestEntry, inner);
+
   return (
     <box
       style={{
@@ -245,7 +252,14 @@ export function FilePicker({ model, viewport }: FilePickerProps): ReactNode {
           {glyphs.divider.repeat(inner)}
         </text>
 
-        <box style={{ height: listRows, flexShrink: 0, flexDirection: "column" }}>
+        <box
+          style={{
+            height: listRows,
+            flexShrink: 0,
+            flexDirection: "column",
+            paddingLeft: listOffset,
+          }}
+        >
           {total === 0 ? (
             <text style={{ fg: THEME.secondary, height: 1, flexShrink: 0 }}>
               {clip(

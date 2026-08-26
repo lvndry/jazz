@@ -9,6 +9,7 @@ import {
   makeOneShotPresentationServiceLayer,
 } from "@/core/presentation/oneshot-presentation-service";
 import { AgentNotFoundError } from "@/core/types/errors";
+import type { PerceptionCapability } from "@/core/types/llm";
 import type { ChatMessage } from "@/core/types/message";
 import type { StreamEvent } from "@/core/types/streaming";
 import type { AutoApprovePolicy } from "@/core/types/tools";
@@ -114,6 +115,12 @@ export interface RunAgentOnceOptions {
    */
   readonly timezone?: string | undefined;
   readonly reasoningEffort?: ReasoningEffort | undefined;
+  /**
+   * Per-run companion bindings overriding the agent's own `config.companions`.
+   * A bound companion is what lets an unattended run delegate perception without
+   * a human to pick the model.
+   */
+  readonly companions?: Partial<Record<PerceptionCapability, `${string}/${string}`>> | undefined;
   readonly timeoutMs?: number | undefined;
   readonly maxIterations?: number | undefined;
   readonly eventTypes?: ReadonlySet<StreamEvent["type"]> | undefined;
@@ -288,8 +295,17 @@ export function runAgentOnceCommand(
     );
 
     const agentForRun =
-      options.reasoningEffort !== undefined
-        ? { ...agent, config: { ...agent.config, reasoningEffort: options.reasoningEffort } }
+      options.reasoningEffort !== undefined || options.companions !== undefined
+        ? {
+            ...agent,
+            config: {
+              ...agent.config,
+              ...(options.reasoningEffort !== undefined
+                ? { reasoningEffort: options.reasoningEffort }
+                : {}),
+              ...(options.companions !== undefined ? { companions: options.companions } : {}),
+            },
+          }
         : agent;
 
     const ephemeral = options.ephemeral === true;

@@ -661,3 +661,104 @@ describe("ToolExecutor.executeToolCall approval events", () => {
     expect(complete?.success).toBe(true);
   });
 });
+
+describe("ToolExecutor picker-style approvals", () => {
+  function buildPickerHarness(outcome: { approved: true; selectedOptionId: string }) {
+    const executeArgsSeen: Record<string, unknown>[] = [];
+    const receivedRequests: ApprovalRequest[] = [];
+
+    const mockToolRegistry = {
+      getTool: () =>
+        Effect.succeed({
+          name: "analyze_media",
+          timeoutMs: 5000,
+          longRunning: false,
+          approvalExecuteToolName: "execute_analyze_media",
+          riskLevel: "high-risk" as const,
+        }),
+      executeTool: (name: string, args: Record<string, unknown>) => {
+        if (name === "analyze_media") {
+          return Effect.succeed({
+            success: true,
+            result: {
+              approvalRequired: true,
+              message: "Delegate vision analysis to a capable model.",
+              executeToolName: "execute_analyze_media",
+              executeArgs: { capability: "vision", task: "describe", mediaPaths: ["/tmp/a.png"] },
+              options: [
+                {
+                  id: "anthropic/claude-sonnet-4-5",
+                  label: "Claude Sonnet 4.5",
+                  detail: "$3/M in",
+                },
+                { id: "openai/gpt-5", label: "GPT-5", detail: "price unknown" },
+              ],
+            },
+          });
+        }
+        executeArgsSeen.push(args);
+        return Effect.succeed({ success: true, result: { answer: "a cat on a mat" } });
+      },
+    } as unknown as ToolRegistry;
+
+    const presentationService = {
+      ...mockPresentationService,
+      requestApproval: (request: ApprovalRequest) => {
+        receivedRequests.push(request);
+        return Effect.succeed(outcome);
+      },
+    } as unknown as PresentationService;
+
+    const testLayer = Layer.mergeAll(
+      Layer.succeed(LoggerServiceTag, mockLogger),
+      Layer.succeed(PresentationServiceTag, presentationService),
+      Layer.succeed(ToolRegistryTag, mockToolRegistry),
+      Layer.succeed(AgentConfigServiceTag, mockAgentConfigService),
+      Layer.succeed(FileSystem.FileSystem, emptyFs),
+      Layer.succeed(TerminalServiceTag, emptyTerminal),
+      Layer.succeed(FileSystemContextServiceTag, emptyFsContext),
+      Layer.succeed(SkillServiceTag, mockSkillService),
+      Layer.succeed(LLMServiceTag, emptyLlm),
+      Layer.succeed(MCPServerManagerTag, emptyMcp),
+      Layer.succeed(MemoryServiceTag, emptyMemory),
+      Layer.succeed(ReminderServiceTag, emptyReminders),
+    );
+
+    return { testLayer, executeArgsSeen, receivedRequests };
+  }
+
+  it("asks the human even under a yolo policy, and merges the picked row into the execution args", async () => {
+    const { testLayer, executeArgsSeen, receivedRequests } = buildPickerHarness({
+      approved: true,
+      selectedOptionId: "anthropic/claude-sonnet-4-5",
+    });
+
+    await Effect.runPromise(
+      ToolExecutor.executeToolCall(
+        {
+          id: "call_picker_1",
+          type: "function",
+          function: { name: "analyze_media", arguments: "{}" },
+        },
+        // Yolo: every other high-risk tool would sail through. A picker must not.
+        {
+          agentId: "agent-1",
+          getAutoApprovePolicy: () => true,
+        },
+        displayConfig,
+        null,
+        makeRunMetrics(),
+        "agent-1",
+        "conv-123",
+        new Set(["analyze_media"]),
+      ).pipe(Effect.provide(testLayer)) as Effect.Effect<ToolCallExecutionResult, unknown, never>,
+    );
+
+    expect(receivedRequests).toHaveLength(1);
+    expect(receivedRequests[0]?.options).toHaveLength(2);
+
+    expect(executeArgsSeen).toHaveLength(1);
+    const seen = executeArgsSeen[0] as Record<string, unknown> | undefined;
+    expect(seen?._selectedOptionId).toBe("anthropic/claude-sonnet-4-5");
+  });
+});

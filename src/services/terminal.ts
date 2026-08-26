@@ -439,7 +439,11 @@ export class InkTerminalService implements TerminalService {
       // Normalize choices for SearchSelect
       const choices = options.choices.map((c) => {
         if (typeof c === "string") return { label: c, value: c as unknown as T };
-        return { label: c.name, value: c.value };
+        return {
+          label: c.name,
+          value: c.value,
+          ...(c.description !== undefined ? { description: c.description } : {}),
+        };
       });
 
       store.setPrompt({
@@ -482,7 +486,11 @@ export class InkTerminalService implements TerminalService {
       // Normalize choices
       const choices = options.choices.map((c) => {
         if (typeof c === "string") return { label: c, value: c as unknown as T };
-        return { label: c.name, value: c.value };
+        return {
+          label: c.name,
+          value: c.value,
+          ...(c.description !== undefined ? { description: c.description } : {}),
+        };
       });
 
       store.setPrompt({

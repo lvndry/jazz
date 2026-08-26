@@ -1,3 +1,7 @@
+---
+description: "How Jazz measures whether a harness change actually makes agents better: the eval suite, scoring, and regression gates for contributors."
+---
+
 # Evals — measuring the harness
 
 This page shows how to tell whether a harness change actually made agents better, rather than

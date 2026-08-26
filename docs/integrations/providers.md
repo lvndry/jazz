@@ -1,3 +1,7 @@
+---
+description: "Configure any of Jazz's 18 supported LLM providers — Anthropic, OpenAI, Google, Mistral, Groq, Ollama, llama.cpp and more — behind one interface."
+---
+
 # LLM Providers
 
 How to get an API key configured for the model you want to use.

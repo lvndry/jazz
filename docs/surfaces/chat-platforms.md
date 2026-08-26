@@ -1,3 +1,7 @@
+---
+description: "Run a real tool-using AI agent inside Telegram, Discord, Slack, or your own app — same agent, same tools, same approval rules as the terminal."
+---
+
 # Chat platforms — Telegram, Discord, Slack, your own app
 
 How to put a real tool-using agent into a chat thread.

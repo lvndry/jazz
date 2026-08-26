@@ -1,3 +1,7 @@
+---
+description: "Let a Jazz agent analyze your git history and intelligently squash related or useless commits into a clean sequence."
+---
+
 # Analyze Git History and Squash Commits
 
 Clean up your git history by analyzing commits and intelligently squashing related or useless commits together.
