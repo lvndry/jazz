@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "astro dev",
     "tokens": "bun run scripts/generate-tokens.ts",
-    "build": "bun run tokens && astro build && pagefind --site dist",
+    "build": "bun run tokens && astro build && bun run validate-jsonld && pagefind --site dist",
+    "validate-jsonld": "bun run scripts/validate-jsonld.ts",
     "check-links": "bun run scripts/check-links.ts",
     "preview": "astro preview"
   },

@@ -13,6 +13,17 @@ const site = Astro.site;
 const cleanPath = Astro.url.pathname.replace(/index\.html$/, "").replace(/\.html$/, "");
 const canonical = site ? new URL(cleanPath, site).href : undefined;
 const imageUrl = site ? new URL(image, site).href : image;
+
+const organization = {
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  name: "Jazz",
+  ...(site ? { url: new URL("/", site).href } : {}),
+  ...(site ? { logo: new URL("/favicon.svg", site).href } : {}),
+  description:
+    "Open-source AI agent harness that runs a general-purpose AI agent on your own machine.",
+  sameAs: ["https://github.com/lvndry/jazz", "https://www.npmjs.com/package/jazz-ai"],
+};
 ---
 
 <html lang="en" data-skin={skin}>
@@ -41,6 +52,7 @@ const imageUrl = site ? new URL(image, site).href : image;
       rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=Anton&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap"
     />
+    <script type="application/ld+json" is:inline set:html={JSON.stringify(organization)} />
     <slot name="head" />
   </head>
   <body>

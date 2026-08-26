@@ -22,6 +22,7 @@ export async function GET({ site }: APIContext): Promise<Response> {
     "> MIT licensed. Install with a single curl command; ships as a self-contained binary for macOS and Linux.",
     "",
     `Install: curl -fsSL https://github.com/lvndry/jazz/releases/latest/download/install.sh | bash`,
+    "npm package: https://www.npmjs.com/package/jazz-ai",
     "Source: https://github.com/lvndry/jazz",
     `Full docs in one file: ${new URL("/llms-full.txt", base).href}`,
     "",
