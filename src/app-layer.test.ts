@@ -5,17 +5,9 @@ describe("getPresentationConfig", () => {
   const terminalEnvironment = { TERM: "xterm-256color" };
   const terminalOutput = { isTTY: true, columns: 100, rows: 24 };
   const terminalInput = { isTTY: true };
-  const bunRuntime = { isBun: true };
-  const nodeRuntime = { isBun: false };
 
   test("a session on a capable TTY uses the alternate screen", () => {
-    const config = getPresentationConfig(
-      terminalEnvironment,
-      terminalOutput,
-      terminalInput,
-      true,
-      bunRuntime,
-    );
+    const config = getPresentationConfig(terminalEnvironment, terminalOutput, terminalInput, true);
     expect(config.isQuiet).toBe(false);
     expect(config.usePlainTerminal).toBe(false);
     expect(config.useCLIPresentation).toBe(false);
@@ -23,13 +15,7 @@ describe("getPresentationConfig", () => {
   });
 
   test("print-and-exit keeps Ink on the main screen so output stays in scrollback", () => {
-    const config = getPresentationConfig(
-      terminalEnvironment,
-      terminalOutput,
-      terminalInput,
-      false,
-      bunRuntime,
-    );
+    const config = getPresentationConfig(terminalEnvironment, terminalOutput, terminalInput);
     expect(config.isQuiet).toBe(false);
     expect(config.usePlainTerminal).toBe(false);
     expect(config.useCLIPresentation).toBe(false);
@@ -45,7 +31,6 @@ describe("getPresentationConfig", () => {
       terminalOutput,
       terminalInput,
       true,
-      bunRuntime,
     );
     expect(config.isQuiet).toBe(false);
     expect(config.usePlainTerminal).toBe(true);
@@ -58,8 +43,6 @@ describe("getPresentationConfig", () => {
       { ...terminalEnvironment, JAZZ_OUTPUT_MODE: "quiet" },
       terminalOutput,
       terminalInput,
-      false,
-      bunRuntime,
     );
     expect(config.isQuiet).toBe(true);
     expect(config.usePlainTerminal).toBe(true);
@@ -73,7 +56,6 @@ describe("getPresentationConfig", () => {
       { isTTY: false },
       terminalInput,
       true,
-      bunRuntime,
     );
     expect(config.isQuiet).toBe(false);
     expect(config.usePlainTerminal).toBe(true);
@@ -87,14 +69,12 @@ describe("getPresentationConfig", () => {
       { ...terminalOutput, rows: 11 },
       terminalInput,
       true,
-      bunRuntime,
     );
     const narrow = getPresentationConfig(
       terminalEnvironment,
       { ...terminalOutput, columns: 59 },
       terminalInput,
       true,
-      bunRuntime,
     );
     expect(short.usePlainTerminal).toBe(true);
     expect(short.useCLIPresentation).toBe(true);
@@ -112,13 +92,7 @@ describe("getPresentationConfig", () => {
       { ...terminalEnvironment, JAZZ_A11Y: "1" },
     ];
     for (const environment of environments) {
-      const config = getPresentationConfig(
-        environment,
-        terminalOutput,
-        terminalInput,
-        true,
-        bunRuntime,
-      );
+      const config = getPresentationConfig(environment, terminalOutput, terminalInput, true);
       expect(config.usePlainTerminal).toBe(true);
       expect(config.useCLIPresentation).toBe(true);
       expect(config.useFullscreen).toBe(false);
@@ -131,13 +105,7 @@ describe("getPresentationConfig", () => {
       { ...terminalEnvironment, JAZZ_FULLSCREEN: "false" },
     ];
     for (const environment of environments) {
-      const config = getPresentationConfig(
-        environment,
-        terminalOutput,
-        terminalInput,
-        true,
-        bunRuntime,
-      );
+      const config = getPresentationConfig(environment, terminalOutput, terminalInput, true);
       expect(config.usePlainTerminal).toBe(false);
       expect(config.useCLIPresentation).toBe(false);
       expect(config.useFullscreen).toBe(false);
@@ -149,8 +117,6 @@ describe("getPresentationConfig", () => {
       { ...terminalEnvironment, JAZZ_OUTPUT_MODE: "raw" },
       terminalOutput,
       terminalInput,
-      false,
-      bunRuntime,
     );
     expect(config.usePlainTerminal).toBe(true);
     expect(config.useCLIPresentation).toBe(true);
@@ -163,23 +129,9 @@ describe("getPresentationConfig", () => {
       terminalOutput,
       { isTTY: false },
       true,
-      bunRuntime,
     );
     expect(config.usePlainTerminal).toBe(true);
     expect(config.useCLIPresentation).toBe(true);
     expect(config.useFullscreen).toBe(false);
-  });
-
-  test("node-based installs do not request fullscreen", () => {
-    const config = getPresentationConfig(
-      terminalEnvironment,
-      terminalOutput,
-      terminalInput,
-      true,
-      nodeRuntime,
-    );
-    expect(config.useFullscreen).toBe(false);
-    expect(config.usePlainTerminal).toBe(false);
-    expect(config.useCLIPresentation).toBe(false);
   });
 });

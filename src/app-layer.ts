@@ -59,10 +59,6 @@ export interface PresentationConfig {
  * Determine which terminal and presentation layers to use.
  * Pure and testable; createAppLayer uses this with process.env / process.stdout.
  */
-interface RuntimeCapabilities {
-  readonly isBun: boolean;
-}
-
 interface EnvShape extends FullscreenEnvironment {
   readonly JAZZ_OUTPUT_MODE?: string;
   readonly JAZZ_NO_TUI?: string;
@@ -76,7 +72,6 @@ export function getPresentationConfig(
   // Alternate screen is discarded on exit. Only a command that stays until the
   // user leaves should ask for it; print-and-return is the default.
   session = false,
-  runtime: RuntimeCapabilities = { isBun: typeof process.versions["bun"] === "string" },
 ): PresentationConfig {
   const isQuiet = env.JAZZ_OUTPUT_MODE === "quiet";
   const rawOutput = env.JAZZ_OUTPUT_MODE === "raw";
@@ -99,7 +94,7 @@ export function getPresentationConfig(
     isQuiet,
     usePlainTerminal: isQuiet || rawOutput || requestNoTui || capabilityBlocked,
     useCLIPresentation: !isQuiet && (rawOutput || requestNoTui || capabilityBlocked),
-    useFullscreen: decision.fullscreen && !isQuiet && !rawOutput && session && runtime.isBun,
+    useFullscreen: decision.fullscreen && !isQuiet && !rawOutput && session,
   };
 }
 
