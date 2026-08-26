@@ -142,36 +142,45 @@ export function SearchSelect<T = unknown>({
           const queryLength = query.trim().length;
           const labelColor = isActive ? THEME.selected : THEME.secondary;
 
+          const labelNode =
+            matchIndex >= 0 && queryLength > 0 ? (
+              <Text
+                color={labelColor}
+                bold={isActive}
+              >
+                {option.label.slice(0, matchIndex)}
+                <Text
+                  color={THEME.primary}
+                  bold
+                >
+                  {option.label.slice(matchIndex, matchIndex + queryLength)}
+                </Text>
+                {option.label.slice(matchIndex + queryLength)}
+              </Text>
+            ) : (
+              <Text
+                color={labelColor}
+                bold={isActive}
+              >
+                {option.label}
+              </Text>
+            );
+
           return (
-            <Box key={absoluteIndex}>
+            <Box
+              key={absoluteIndex}
+              flexDirection="row"
+            >
               <Text
                 color={THEME.primary}
                 bold
               >
                 {isActive ? `${G.rail} ` : "  "}
               </Text>
-              {matchIndex >= 0 && queryLength > 0 ? (
-                <Text
-                  color={labelColor}
-                  bold={isActive}
-                >
-                  {option.label.slice(0, matchIndex)}
-                  <Text
-                    color={THEME.primary}
-                    bold
-                  >
-                    {option.label.slice(matchIndex, matchIndex + queryLength)}
-                  </Text>
-                  {option.label.slice(matchIndex + queryLength)}
-                </Text>
-              ) : (
-                <Text
-                  color={labelColor}
-                  bold={isActive}
-                >
-                  {option.label}
-                </Text>
-              )}
+              {labelNode}
+              {option.description ? (
+                <Text color={THEME.muted}>{`  ${option.description}`}</Text>
+              ) : null}
             </Box>
           );
         })

@@ -38,6 +38,7 @@ import { highlightCodeLine } from "./syntax-spans";
 import { getGlyphs, laneFrame, type GlyphSet } from "../glyphs";
 import { MOTION, THEME } from "../theme";
 import { fitTerminalSegments, terminalSegmentsWidth } from "./terminal-cells";
+import type { TodoSnapshotItem } from "../activity-state";
 import {
   LIVE_ZONE_MAX_ROWS,
   type LiveModel,
@@ -214,6 +215,100 @@ function waitingRow(
   );
 }
 
+/**
+ * The todo checklist, windowed into the fixed-height band.
+ *
+ * The agent's plan earns a panel, not a single "step N of M" row: the items
+ * themselves are the most useful thing on screen while they are being worked.
+ * The in-progress item leads so the active task is always visible, the rest
+ * follow in order, and a `+N more` line carries what the band cannot fit
+ * rather than silently dropping it. The count rides the header so progress is
+ * legible at a glance even when items overflow.
+ */
+function todoGlyph(status: TodoSnapshotItem["status"], glyphs: GlyphSet): string {
+  switch (status) {
+    case "completed":
+      return glyphs.success;
+    case "in_progress":
+      return glyphs.proposed;
+    case "cancelled":
+      return glyphs.error;
+    case "pending":
+    default:
+      return glyphs.pending;
+  }
+}
+
+function todoColor(status: TodoSnapshotItem["status"]): string {
+  switch (status) {
+    case "completed":
+      return THEME.success;
+    case "in_progress":
+      return THEME.agent;
+    case "cancelled":
+      return THEME.muted;
+    case "pending":
+    default:
+      return THEME.warning;
+  }
+}
+
+function todoPanelRows(
+  todos: readonly TodoSnapshotItem[],
+  glyphs: GlyphSet,
+  width: number,
+  maxRows: number,
+): LiveRow[] {
+  if (todos.length === 0 || maxRows <= 0) return [];
+
+  const active = todos.filter((todo) => todo.status === "in_progress");
+  const rest = todos.filter((todo) => todo.status !== "in_progress");
+  const ordered = [...active, ...rest];
+
+  const done = todos.filter((todo) => todo.status === "completed").length;
+  const header = alignRow(
+    "todo-header",
+    [...gutter(glyphs), { text: `todo ${done}/${todos.length}`, fg: THEME.muted }],
+    [],
+    width,
+  );
+
+  // One row for the header; the rest of the budget goes to items, with a
+  // possible `+N more` overflow row eating one of those slots.
+  const itemSlots = Math.max(0, maxRows - 1);
+  if (itemSlots === 0) return [header];
+
+  const overflow = ordered.length - itemSlots;
+  const shownCount = overflow > 0 ? itemSlots - 1 : itemSlots;
+  const showItems = ordered.slice(0, Math.max(0, shownCount));
+  const itemRows = showItems.map((todo, index) =>
+    alignRow(
+      `todo:${todo.content}:${index}`,
+      [
+        ...gutter(glyphs),
+        { text: todoGlyph(todo.status, glyphs), fg: todoColor(todo.status) },
+        { text: " ", fg: THEME.muted },
+        { text: todo.content, fg: THEME.secondary },
+      ],
+      [],
+      width,
+    ),
+  );
+
+  const rows: LiveRow[] = [header, ...itemRows];
+  if (overflow > 0) {
+    rows.push(
+      alignRow(
+        "todo-overflow",
+        [...gutter(glyphs), { text: `+${overflow} more`, fg: THEME.muted }],
+        [],
+        width,
+      ),
+    );
+  }
+  return rows;
+}
+
 export interface LiveZoneProps {
   readonly model: LiveModel;
   readonly viewport: Viewport;
@@ -262,28 +357,44 @@ export function liveRows(
   const capacity = reservedHeight(model, maxRows);
   if (capacity === 0) return [];
 
+  // The todo checklist, when present, is the plan made visible: it earns the
+  // band's room ahead of the (redundant) manage_todos tool row. The step row is
+  // likewise redundant once the checklist header carries the count, so it yields.
+  const showTodo = model.todoList !== undefined && model.todoList.length > 0;
+  const otherTools = showTodo ? model.tools.filter((tool) => tool.app !== "manage") : model.tools;
+
   // Rows are claimed in the order the reader needs them: what is running, then
   // the plan, then the copy. An under-provisioned reservation therefore loses
   // the waiting line first — it is the only row that says nothing about state.
-  const demand = model.tools.length + (model.hiddenTools.length > 0 ? 1 : 0);
+  const demand = otherTools.length + (model.hiddenTools.length > 0 ? 1 : 0);
   let showWaiting = model.waiting !== undefined && !streaming;
-  let showStep = model.step !== undefined;
+  let showStep = model.step !== undefined && !showTodo;
   while ((showWaiting ? 1 : 0) + (showStep ? 1 : 0) + Math.min(demand, 1) > capacity) {
     if (showWaiting) showWaiting = false;
     else if (showStep) showStep = false;
     else break;
   }
-  const toolBudget = Math.max(0, capacity - (showWaiting ? 1 : 0) - (showStep ? 1 : 0));
 
   // The adapter may already have collapsed some tools; if so the summary row is
   // owed a slot whether or not the remaining tools overflow on their own.
   const carriedOver = model.hiddenTools.length > 0;
-  let shown = model.tools;
+  const reservedForToggles = (showWaiting ? 1 : 0) + (showStep ? 1 : 0);
+  let budget = Math.max(0, capacity - reservedForToggles);
+
+  // The checklist takes priority over the (redundant) manage_todos tool row and
+  // shares the remaining room with any other tools, windowed with `+N more`.
+  const todoPanel: LiveRow[] =
+    showTodo && model.todoList !== undefined
+      ? todoPanelRows(model.todoList, glyphs, width, budget)
+      : [];
+  budget = Math.max(0, budget - todoPanel.length);
+
+  let shown = otherTools;
   let dropped: readonly LiveTool[] = [];
-  if (model.tools.length + (carriedOver ? 1 : 0) > toolBudget) {
-    const slots = Math.max(0, toolBudget - 1);
-    shown = model.tools.slice(0, slots);
-    dropped = model.tools.slice(slots);
+  if (otherTools.length + (carriedOver ? 1 : 0) > budget) {
+    const slots = Math.max(0, budget - 1);
+    shown = otherTools.slice(0, slots);
+    dropped = otherTools.slice(slots);
   }
   const hiddenNames = [...dropped.map((tool) => tool.app), ...model.hiddenTools];
 
@@ -304,6 +415,7 @@ export function liveRows(
       ),
     );
   }
+  rows.push(...todoPanel);
   for (const tool of shown) rows.push(toolRow(tool, tick, glyphs, width));
   if (hiddenNames.length > 0) rows.push(overflowRow(hiddenNames, glyphs, width));
 

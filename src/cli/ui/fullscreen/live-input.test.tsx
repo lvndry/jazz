@@ -27,6 +27,7 @@ import {
   type LiveModel,
   type LiveTool,
 } from "./types";
+import type { TodoSnapshotItem } from "../activity-state";
 
 const WIDTH = 120;
 const HEIGHT = 8;
@@ -374,6 +375,41 @@ describe("live zone", () => {
     const { height, frame } = await bandHeight(model, { width: MIN_WIDTH });
     expect(height).toBe(LIVE_ZONE_MAX_ROWS);
     for (const row of rowsOf(frame)) expect(terminalCellWidth(row)).toBe(MIN_WIDTH);
+  });
+
+  it("renders the todo checklist as a windowed panel, leading with the active item", async () => {
+    const todos: TodoSnapshotItem[] = [
+      { content: "first", status: "completed" },
+      { content: "active", status: "in_progress" },
+      { content: "third", status: "pending" },
+      { content: "fourth", status: "pending" },
+      { content: "fifth", status: "pending" },
+      { content: "sixth", status: "pending" },
+      { content: "seventh", status: "pending" },
+    ];
+    const model = live({ todoList: todos, reservedRows: LIVE_ZONE_MAX_ROWS });
+    const { height, frame } = await bandHeight(model, { width: WIDTH });
+    expect(height).toBe(LIVE_ZONE_MAX_ROWS);
+    expect(frame).toContain("todo 1/7");
+    expect(frame).toContain("active");
+    // Windowed: not every item fits the 5-row band, so an overflow line appears.
+    expect(frame).toContain("+");
+    // The step row is suppressed in favour of the checklist.
+    expect(frame).not.toContain("step");
+  });
+
+  it("shows the whole checklist when it fits the band", async () => {
+    const todos: TodoSnapshotItem[] = [
+      { content: "one", status: "completed" },
+      { content: "two", status: "in_progress" },
+      { content: "three", status: "pending" },
+    ];
+    const model = live({ todoList: todos, reservedRows: 5 });
+    const { frame } = await bandHeight(model, { width: WIDTH });
+    expect(frame).toContain("one");
+    expect(frame).toContain("two");
+    expect(frame).toContain("three");
+    expect(frame).not.toContain("+");
   });
 });
 

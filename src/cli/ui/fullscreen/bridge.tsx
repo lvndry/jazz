@@ -1191,10 +1191,17 @@ export function FullscreenBridge(): React.ReactNode {
 
   const tools = useMemo(() => liveToolsFrom(activity, Date.now()), [activity, elapsedMs]);
   const step = useMemo(() => stepFrom(activity), [activity]);
+  const todoList =
+    activity.phase === "tool-execution" && activity.todoSnapshot !== undefined
+      ? activity.todoSnapshot.filter((todo) => todo.status !== "cancelled")
+      : [];
   const waitingNow = activity.phase === "awaiting" || activity.phase === "thinking";
   const neededRows = Math.min(
     LIVE_ZONE_MAX_ROWS,
-    tools.length + (waitingNow ? 1 : 0) + (step === undefined ? 0 : 1),
+    tools.length +
+      (waitingNow ? 1 : 0) +
+      (step === undefined ? 0 : 1) +
+      (todoList.length > 0 ? 1 + todoList.length : 0),
   );
 
   useEffect(() => {
@@ -2163,6 +2170,7 @@ export function FullscreenBridge(): React.ReactNode {
       tools,
       hiddenTools: [],
       ...(step === undefined ? {} : { step }),
+      ...(todoList.length === 0 ? {} : { todoList }),
       ...(waitingNow
         ? {
             waiting: WAITING[
@@ -2174,7 +2182,7 @@ export function FullscreenBridge(): React.ReactNode {
       reservedRows,
       ...(reasoningElapsedMs === undefined ? {} : { reasoningElapsedMs }),
     };
-  }, [tools, step, waitingNow, elapsedMs, reservedRows, regions]);
+  }, [tools, step, todoList, waitingNow, elapsedMs, reservedRows, regions]);
 
   const view = useMemo<ViewModel>(
     () => ({

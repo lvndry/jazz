@@ -16,6 +16,7 @@
  *   overlay     floats above all of it, and must not disturb the transcript
  */
 
+import type { TodoSnapshotItem } from "../activity-state";
 import type { SuggestionPrefix } from "../suggestion-menu";
 import type { FilePickerModel } from "./overlays/FilePicker";
 import type { QuestionModel } from "./overlays/Question";
@@ -171,6 +172,12 @@ export interface LiveModel {
   readonly tools: readonly LiveTool[];
   readonly hiddenTools: readonly string[];
   readonly step?: StepLine;
+  /**
+   * The full todo checklist when the agent is managing one. Rendered as a
+   * windowed panel in the band (active/pending items first, `+N more` when it
+   * does not fit) so the plan is visible without breaking the fixed-height band.
+   */
+  readonly todoList?: readonly TodoSnapshotItem[];
   /** House-voice waiting copy. Shown only before the first token lands. */
   readonly waiting?: string;
   readonly elapsedMs?: number;
