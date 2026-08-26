@@ -1,0 +1,72 @@
+{
+  "name": "jazz-ai",
+  "version": "0.0.0-placeholder",
+  "description": "One agent. Every surface. Your rules.",
+  "license": "MIT",
+  "bin": {
+    "jazz": "./bin/jazz"
+  },
+  "os": [
+    "darwin",
+    "linux"
+  ],
+  "cpu": [
+    "arm64",
+    "x64"
+  ],
+  "scripts": {
+    "postinstall": "node ./postinstall.mjs"
+  },
+  "optionalDependencies": {
+    "jazz-ai-darwin-arm64": "0.0.0-placeholder",
+    "jazz-ai-darwin-x64": "0.0.0-placeholder",
+    "jazz-ai-linux-arm64": "0.0.0-placeholder",
+    "jazz-ai-linux-arm64-musl": "0.0.0-placeholder",
+    "jazz-ai-linux-x64": "0.0.0-placeholder",
+    "jazz-ai-linux-x64-musl": "0.0.0-placeholder"
+  },
+  "engines": {
+    "npm": ">=10.0.0"
+  },
+  "files": [
+    "bin/",
+    "postinstall.mjs",
+    "README.md",
+    "LICENSE"
+  ],
+  "author": {
+    "name": "lvndry",
+    "email": "lvndry@proton.me",
+    "url": "https://github.com/lvndry"
+  },
+  "homepage": "https://github.com/lvndry/jazz",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lvndry/jazz.git"
+  },
+  "bugs": {
+    "url": "https://github.com/lvndry/jazz/issues"
+  },
+  "keywords": [
+    "cli",
+    "agents",
+    "automation",
+    "agentic",
+    "typescript",
+    "effect-ts",
+    "ai",
+    "llm",
+    "workflow",
+    "email",
+    "git",
+    "productivity",
+    "assistant",
+    "task-automation",
+    "developer-tools",
+    "ai-assistant",
+    "ai-agent",
+    "mcp",
+    "mcp-server",
+    "agent-skills"
+  ]
+}

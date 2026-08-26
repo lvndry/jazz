@@ -1,0 +1,13 @@
+#!/bin/sh
+# Placeholder shipped inside the jazz-ai npm package itself. postinstall.mjs
+# overwrites this file with the real platform binary right after install, so
+# reaching this script means postinstall never ran — most commonly because
+# the install used --ignore-scripts, or a package manager (pnpm, in its
+# default config) that skips postinstall scripts unless explicitly allowed.
+echo "Error: jazz-ai's postinstall script did not run, so no binary was installed." >&2
+echo "" >&2
+echo "If you're on pnpm, allow this package's postinstall script (pnpm approve-builds" >&2
+echo "or the equivalent config) and reinstall. Otherwise, reinstall without --ignore-scripts:" >&2
+echo "" >&2
+echo "  npm install -g jazz-ai" >&2
+exit 1

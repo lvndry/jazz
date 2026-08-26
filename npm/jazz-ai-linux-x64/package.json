@@ -1,0 +1,25 @@
+{
+  "name": "jazz-ai-linux-x64",
+  "version": "0.0.0-placeholder",
+  "description": "Jazz CLI binary for Linux (x64, glibc). Installed automatically as an optional dependency of jazz-ai — not meant to be installed directly.",
+  "license": "MIT",
+  "bin": {
+    "jazz": "./bin/jazz"
+  },
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "libc": [
+    "glibc"
+  ],
+  "files": [
+    "bin/"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lvndry/jazz.git"
+  }
+}

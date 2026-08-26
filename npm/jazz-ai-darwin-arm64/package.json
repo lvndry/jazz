@@ -1,0 +1,22 @@
+{
+  "name": "jazz-ai-darwin-arm64",
+  "version": "0.0.0-placeholder",
+  "description": "Jazz CLI binary for macOS (Apple Silicon). Installed automatically as an optional dependency of jazz-ai — not meant to be installed directly.",
+  "license": "MIT",
+  "bin": {
+    "jazz": "./bin/jazz"
+  },
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "files": [
+    "bin/"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lvndry/jazz.git"
+  }
+}

@@ -48,19 +48,25 @@ When adding features:
 
 ## Distributions
 
-Jazz ships two ways, from one codebase:
+Jazz ships one artifact — a self-contained standalone binary — through two channels, from one
+codebase:
 
-| Command                 | Output                                       | Used by                     |
-| ----------------------- | -------------------------------------------- | --------------------------- |
-| `bun run build`         | `dist/main.js`, a bundle Node runs            | the `jazz-ai` npm package   |
-| `bun run build:binary`  | `binaries/jazz-<os>-<arch>` for this machine  | local testing               |
-| `bun run build:binaries`| every published target                        | `.github/workflows/release-binaries.yml` |
+| Command                      | Output                                         | Used by                                                     |
+| ----------------------------- | ----------------------------------------------- | ------------------------------------------------------------ |
+| `bun run build:binary`        | `binaries/jazz-<os>-<arch>` for this machine     | local testing                                                 |
+| `bun run build:binaries`      | every published target                           | `.github/workflows/release-binaries.yml`                     |
+| `bun run stage-npm-packages`  | binaries copied into `npm/jazz-ai-<platform>/`   | the npm publish job in `.github/workflows/release-binaries.yml` |
+
+Installing via `curl \| bash` gets the binary directly; `npm i -g jazz-ai` gets a thin wrapper
+package whose `postinstall` copies in the matching binary from one of the `jazz-ai-<platform>`
+optionalDependencies (see `npm/`). Both end up running the same compiled binary.
 
 The binary is self-contained, which changes two things a contributor can trip over:
 
-- **Built-in assets.** `personas/`, `skills/`, and `workflows/` are real directories the npm
-  package resolves via `getPackageRootDirectory()`. A binary has no package directory, so the
-  build embeds each file and Jazz unpacks them to `~/.jazz/runtime/<version>/` on first run.
+- **Built-in assets.** `personas/`, `skills/`, and `workflows/` are real directories the repo
+  root resolves via `getPackageRootDirectory()` in development. A binary has no package
+  directory, so the build embeds each file and Jazz unpacks them to `~/.jazz/runtime/<version>/`
+  on first run.
   Adding a new built-in asset directory means adding it to `ASSET_DIRECTORIES` in
   `scripts/build.ts` — otherwise it works everywhere except in the binary.
 - **Reading your own package files at runtime.** Anything that resolves a path relative to the
@@ -68,12 +74,36 @@ The binary is self-contained, which changes two things a contributor can trip ov
   directory in a binary. Reading straight from `import.meta.dirname` lands inside Bun's
   virtual filesystem, where `readFile` works but `readdir` and `copyFile` do not.
 
+### npm package layout
+
+`npm/` holds the packages actually published to npm — the repo root's `package.json` is
+`private` and never gets published itself.
+
+- `npm/jazz-ai/` — the `jazz-ai` package end users install. Ships `bin/jazz` (a guard script
+  that errors if `postinstall` didn't run), `postinstall.mjs` (copies in the real binary from
+  whichever platform package resolved), and `package.json` (`optionalDependencies` listing all
+  six platform packages).
+- `npm/jazz-ai-<platform>/` — one package per `os`/`cpu`/`libc` combination in
+  `COMPILE_TARGETS` (`scripts/build.ts`), e.g. `jazz-ai-darwin-arm64`. Each ships only
+  `package.json` in git; its `bin/jazz` binary is generated, not committed.
+
+`bun run scripts/build.ts --npm-packages-from-dir <dir>` stamps every `npm/*/package.json`
+version to match the root manifest and copies in binaries from `<dir>`. The
+`publish-npm` job in `release-binaries.yml` runs this after `build`, using the same
+macOS-signed binaries that job already produced, then runs `npm publish` from each platform
+package directory before `npm/jazz-ai` — its `optionalDependencies` pin exact versions of
+them, so publishing `jazz-ai` first would point at versions that don't exist yet.
+
+Publishing a brand-new platform package for the first time requires registering it as an npm
+Trusted Publisher for this workflow, the same way `jazz-ai` itself already is — npm has no
+existing trust relationship for a package name it has never seen published.
+
 ## Before Submitting PR
 
 - [ ] `bun run typecheck` passes
 - [ ] `bun run lint` passes
 - [ ] `bun test` passes
-- [ ] `bun run build` succeeds
+- [ ] `bun run build:binary` succeeds
 - [ ] Update relevant READMEs if interfaces change
 
 ## Getting Help

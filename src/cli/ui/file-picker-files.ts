@@ -69,6 +69,18 @@ async function scanDirectory(
   }
 
   await scan(rootPath, 0);
+
+  // Sort by path depth, then name length, then alphabetically — otherwise
+  // `readdir` order determines ranking, which buries a shallow match under
+  // any deeper one whose parent directory happened to sort first.
+  results.sort((left, right) => {
+    const depthDelta = left.name.split(path.sep).length - right.name.split(path.sep).length;
+    if (depthDelta !== 0) return depthDelta;
+    const lengthDelta = left.name.length - right.name.length;
+    if (lengthDelta !== 0) return lengthDelta;
+    return left.name.localeCompare(right.name);
+  });
+
   return results;
 }
 

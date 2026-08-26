@@ -13,6 +13,7 @@ on:
 
 permissions:
   contents: write
+  id-token: write
 
 env:
   TAG_NAME: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag_name || github.event.release.tag_name }}
@@ -112,3 +113,61 @@ jobs:
         run: |
           cp scripts/install.sh artifacts/install.sh
           gh release upload "$TAG_NAME" artifacts/* --clobber
+
+  publish-npm:
+    name: Publish npm packages
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG_NAME }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: https://registry.npmjs.org
+
+      - name: Ensure npm 11.5.1 or later
+        run: npm install -g npm@^11.5.1
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: binaries-*
+          merge-multiple: true
+
+      - name: Unpack binaries
+        run: |
+          mkdir -p binaries
+          cp artifacts/*.gz binaries/
+          gunzip binaries/*.gz
+          chmod +x binaries/*
+
+      # Every jazz-ai-<platform> package gets its binary and version stamped
+      # here; npm/jazz-ai gets its version and optionalDependencies versions
+      # stamped, plus a copy of the repo's README/LICENSE. This reuses the
+      # macOS-signed binaries the build job already produced, rather than
+      # rebuilding — the ad-hoc signature only applies on the OS that made it.
+      - name: Stage npm packages
+        run: bun run scripts/build.ts --npm-packages-from-dir binaries
+
+      # Must publish before jazz-ai, whose optionalDependencies pin this exact version.
+      - name: Publish platform packages
+        run: |
+          for dir in npm/jazz-ai-*/; do
+            echo "Publishing $(node -p "require('./${dir}package.json').name")..."
+            (cd "$dir" && npm publish)
+          done
+
+      - name: Publish jazz-ai
+        working-directory: npm/jazz-ai
+        run: npm publish

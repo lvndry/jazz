@@ -110,7 +110,7 @@ describe("Runtime detection", () => {
     });
 
     it("returns true for a system-wide node_modules installation", () => {
-      process.argv[1] = "/usr/local/lib/node_modules/jazz-ai/dist/main.js";
+      process.argv[1] = "/usr/local/lib/node_modules/jazz-ai/bin/jazz";
 
       expect(isRunningFromGlobalInstall()).toBe(true);
     });
