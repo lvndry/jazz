@@ -82,22 +82,38 @@ describe("capability vocabulary", () => {
 });
 
 describe("describeModelCapabilities", () => {
-  it("reads text-only as explicit, never blank", () => {
-    expect(describeModelCapabilities(model({ id: "x" }))).toBe("text · price unknown");
-  });
-
-  it("lists input modalities, generation, and price", () => {
+  it("puts inputs, arrow, outputs — each side with its own price", () => {
     expect(
       describeModelCapabilities(
         model({
           id: "x",
           ingestImage: true,
           ingestPdf: true,
-          generatesImage: true,
           inputPricePerMillion: 3,
           outputPricePerMillion: 15,
         }),
       ),
-    ).toBe("img·pdf · gen img · $3/M in · $15/M out");
+    ).toBe("txt·img·pdf $3/M → txt $15/M");
+  });
+
+  it("shows generated media on the output side", () => {
+    expect(
+      describeModelCapabilities(
+        model({
+          id: "x",
+          generatesImage: true,
+          generatesAudio: true,
+          inputPricePerMillion: 0,
+          outputPricePerMillion: 0,
+        }),
+      ),
+    ).toBe("txt $0/M → txt·img·aud $0/M");
+  });
+
+  it("marks an unpriced side with ? rather than pretending it is free", () => {
+    expect(describeModelCapabilities(model({ id: "x" }))).toBe("txt ?/M → txt ?/M");
+    expect(describeModelCapabilities(model({ id: "x", inputPricePerMillion: 1.25 }))).toBe(
+      "txt $1.25/M → txt ?/M",
+    );
   });
 });

@@ -1,7 +1,15 @@
 ---
 import { getCollection, render } from "astro:content";
 import Docs from "../../layouts/Docs.astro";
-import { buildSidebar, prevNextFor, routeFor, routeSlugFor, titleOf } from "../../lib/docs";
+import {
+  buildSidebar,
+  descriptionOf,
+  prevNextFor,
+  routeFor,
+  routeSlugFor,
+  SECTIONS,
+  titleOf,
+} from "../../lib/docs";
 import type { DocsEntry } from "../../lib/docs";
 
 export async function getStaticPaths() {
@@ -20,13 +28,12 @@ const { entry } = Astro.props;
 const entries = await getCollection("docs");
 const sidebar = buildSidebar(entries);
 const title = titleOf(entry);
-const description =
-  entry.body
-    ?.replace(/^#.*$/m, "")
-    .replace(/[#*_`[\]()>|-]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 155) ?? "Jazz documentation";
+const description = descriptionOf(entry);
+const sectionDir = entry.id.split("/")[0] ?? "";
+const sectionLabel =
+  sectionDir === "" || sectionDir === "index"
+    ? undefined
+    : (SECTIONS.find((section) => section.dir === sectionDir)?.label ?? undefined);
 const { Content } = await render(entry);
 ---
 
@@ -38,6 +45,8 @@ const { Content } = await render(entry);
   prevNext={prevNextFor(sidebar, entry.id)}
   rawMdPath={`/docs/${entry.id}.md`}
   image={`/og/${entry.id}.png`}
+  sectionLabel={sectionLabel}
+  sectionRoute={sectionDir === "" || sectionDir === "index" ? undefined : `/docs/${sectionDir}`}
 >
   <Content />
 </Docs>

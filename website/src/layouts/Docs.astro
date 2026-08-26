@@ -10,12 +10,55 @@ interface Props {
   prevNext: PrevNext;
   rawMdPath: string;
   image?: string | undefined;
+  sectionLabel?: string | undefined;
+  sectionRoute?: string | undefined;
 }
 
-const { title, description, sidebar, currentRoute, prevNext, rawMdPath, image } = Astro.props;
+const { title, description, sidebar, currentRoute, prevNext, rawMdPath, image, sectionLabel, sectionRoute } =
+  Astro.props;
+
+const site = Astro.site;
+const canonical = site ? new URL(currentRoute, site).href : undefined;
+const breadcrumbItems = [
+  ...(site ? [{ name: "Home", href: new URL("/", site).href }] : []),
+  ...(site ? [{ name: "Docs", href: new URL("/docs", site).href }] : []),
+  ...(sectionLabel && sectionRoute && site
+    ? [{ name: sectionLabel, href: new URL(sectionRoute, site).href }]
+    : []),
+  ...(canonical ? [{ name: title, href: canonical }] : []),
+];
+
+const jsonLd = [
+  {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: breadcrumbItems.map((item, index) => ({
+      "@type": "ListItem",
+      position: index + 1,
+      name: item.name,
+      item: item.href,
+    })),
+  },
+  {
+    "@context": "https://schema.org",
+    "@type": "TechArticle",
+    headline: title,
+    description,
+    ...(canonical ? { url: canonical } : {}),
+    isPartOf: { "@type": "WebSite", name: "Jazz", url: site?.href },
+    about: "AI agent harness — open-source CLI that runs AI agents on your own machine",
+    ...(image && site ? { image: new URL(image, site).href } : {}),
+  },
+];
 ---
 
 <Base title={`${title} — Jazz docs`} description={description} image={image}>
+  <script
+    slot="head"
+    type="application/ld+json"
+    is:inline
+    set:html={JSON.stringify(jsonLd)}
+  />
   <header class="top">
     <a class="brand mono" href="/">▞ jazz</a>
     <a class="mono docs-home" href="/docs">docs</a>

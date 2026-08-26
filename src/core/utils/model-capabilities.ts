@@ -128,11 +128,15 @@ function trimNumber(value: number): string {
 }
 
 /**
- * One-line summary of what a model takes in and puts out, for picker rows.
+ * One-line summary of a model for picker rows: what goes in on the left of the
+ * arrow, what comes out on the right, each with its per-Mtok price.
  *
- * Input modalities read as bare words (`img · pdf`), output modalities as `gen <kind>`,
- * then the price line. A model with no non-text input reads as `text` so absence is
- * always explicit rather than a blank that could mean "unknown".
+ * ```
+ * txt·img $4/M → txt $20/M
+ * ```
+ *
+ * `txt` is always present on both sides because everything listed here converses;
+ * an unpriced side reads `?/M` rather than pretending to be free.
  */
 export function describeModelCapabilities(
   model: Pick<
@@ -148,20 +152,25 @@ export function describeModelCapabilities(
     | "outputPricePerMillion"
   >,
 ): string {
-  const parts: string[] = [];
-  const inputs: string[] = [];
+  const inputs = ["txt"];
   if (model.ingestImage === true) inputs.push("img");
   if (model.ingestAudio === true) inputs.push("aud");
   if (model.ingestVideo === true) inputs.push("vid");
   if (model.ingestPdf === true) inputs.push("pdf");
-  parts.push(inputs.length > 0 ? inputs.join("·") : "text");
 
-  const outputs: string[] = [];
+  const outputs = ["txt"];
   if (model.generatesImage === true) outputs.push("img");
   if (model.generatesAudio === true) outputs.push("aud");
   if (model.generatesVideo === true) outputs.push("vid");
-  if (outputs.length > 0) parts.push(`gen ${outputs.join("·")}`);
 
-  parts.push(formatModelPriceLine(model));
-  return parts.join(" · ");
+  const inputPrice =
+    model.inputPricePerMillion !== undefined
+      ? `$${trimNumber(model.inputPricePerMillion)}/M`
+      : "?/M";
+  const outputPrice =
+    model.outputPricePerMillion !== undefined
+      ? `$${trimNumber(model.outputPricePerMillion)}/M`
+      : "?/M";
+
+  return `${inputs.join("·")} ${inputPrice} → ${outputs.join("·")} ${outputPrice}`;
 }
