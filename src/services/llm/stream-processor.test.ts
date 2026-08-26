@@ -610,18 +610,38 @@ describe("withIdleTimeout", () => {
 });
 
 describe("resolveStreamIdleTimeoutMs", () => {
-  it("defaults to two minutes when the env var is unset", () => {
-    expect(resolveStreamIdleTimeoutMs({})).toBe(120_000);
-    expect(resolveStreamIdleTimeoutMs({ JAZZ_STREAM_IDLE_TIMEOUT_MS: "" })).toBe(120_000);
+  it("defaults to two minutes when neither config nor env is set", () => {
+    expect(resolveStreamIdleTimeoutMs(undefined, {})).toBe(120_000);
+    expect(resolveStreamIdleTimeoutMs(undefined, { JAZZ_STREAM_IDLE_TIMEOUT_MS: "" })).toBe(
+      120_000,
+    );
   });
 
   it("honors JAZZ_STREAM_IDLE_TIMEOUT_MS for local cold starts", () => {
-    expect(resolveStreamIdleTimeoutMs({ JAZZ_STREAM_IDLE_TIMEOUT_MS: "300000" })).toBe(300_000);
+    expect(resolveStreamIdleTimeoutMs(undefined, { JAZZ_STREAM_IDLE_TIMEOUT_MS: "300000" })).toBe(
+      300_000,
+    );
+  });
+
+  it("prefers llm.streamIdleTimeoutMs from config.json over the env var", () => {
+    expect(resolveStreamIdleTimeoutMs(600_000, { JAZZ_STREAM_IDLE_TIMEOUT_MS: "300000" })).toBe(
+      600_000,
+    );
+  });
+
+  it("falls back to the env var when the configured value is not a usable budget", () => {
+    for (const value of [undefined, null, "300000", 0, -1, 1.5, Number.NaN]) {
+      expect(resolveStreamIdleTimeoutMs(value, { JAZZ_STREAM_IDLE_TIMEOUT_MS: "300000" })).toBe(
+        300_000,
+      );
+    }
   });
 
   it("falls back to the default on garbage rather than disabling the watchdog", () => {
     for (const value of ["zero", "-1", "0", "1.5", "Infinity", "NaN"]) {
-      expect(resolveStreamIdleTimeoutMs({ JAZZ_STREAM_IDLE_TIMEOUT_MS: value })).toBe(120_000);
+      expect(resolveStreamIdleTimeoutMs(undefined, { JAZZ_STREAM_IDLE_TIMEOUT_MS: value })).toBe(
+        120_000,
+      );
     }
   });
 });
