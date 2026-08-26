@@ -1,3 +1,5 @@
+import type { ModelInfo } from "@/core/types/llm";
+import { describeModelCapabilities } from "@/core/utils/model-capabilities";
 import { formatProviderDisplayName } from "@/core/utils/provider-model";
 
 export const PINNED_PROVIDERS_FOR_PICKER = [
@@ -94,4 +96,28 @@ export function sortModelsForPicker<T>(
     }
     return leftRank < rightRank ? -1 : 1;
   });
+}
+
+export interface ModelPickerChoice {
+  readonly name: string;
+  /** Capabilities and price, so nobody picks a model blind. */
+  readonly description: string;
+  readonly value: string;
+}
+
+/**
+ * Ready-to-render choices for a provider's model picker.
+ *
+ * Single source for every model list (create-agent, edit-agent, future surfaces) so the
+ * row shape — display name plus capability/price line — cannot drift between wizards.
+ */
+export function buildModelChoices(
+  providerId: string,
+  models: readonly ModelInfo[],
+): ModelPickerChoice[] {
+  return sortModelsForPicker(providerId, models, (model) => model.id).map((model) => ({
+    name: model.displayName || model.id,
+    description: describeModelCapabilities(model),
+    value: model.id,
+  }));
 }

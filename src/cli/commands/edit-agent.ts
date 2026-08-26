@@ -46,11 +46,9 @@ import {
 } from "@/core/types/errors";
 import type { MCPTool } from "@/core/types/mcp";
 import { extractServerNamesFromToolNames, isAuthenticationRequired } from "@/core/utils/mcp";
-import { describeModelCapabilities } from "@/core/utils/model-capabilities";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import { formatProviderDisplayName } from "@/core/utils/provider-model";
-import { sortModelsForPicker } from "@/core/utils/provider-picker";
-import { sortProvidersForPicker } from "@/core/utils/provider-picker";
+import { buildModelChoices, sortProvidersForPicker } from "@/core/utils/provider-picker";
 import { toPascalCase } from "@/core/utils/string";
 
 /**
@@ -666,15 +664,7 @@ async function promptForAgentUpdates(
 
       const llmModel = await Effect.runPromise(
         terminal.search<string>(`Select model for ${providerDisplayName}:`, {
-          choices: sortModelsForPicker(
-            llmProvider,
-            providerInfo.supportedModels,
-            (model) => model.id,
-          ).map((model) => ({
-            name: model.displayName || model.id,
-            description: describeModelCapabilities(model),
-            value: model.id,
-          })),
+          choices: buildModelChoices(llmProvider, providerInfo.supportedModels),
         }),
       );
 
@@ -727,15 +717,7 @@ async function promptForAgentUpdates(
 
     const llmModel = await Effect.runPromise(
       terminal.search<string>(`Select model for ${providerToUse}:`, {
-        choices: sortModelsForPicker(
-          providerToUse,
-          providerInfo.supportedModels,
-          (model) => model.id,
-        ).map((model) => ({
-          name: model.displayName || model.id,
-          description: describeModelCapabilities(model),
-          value: model.id,
-        })),
+        choices: buildModelChoices(providerToUse, providerInfo.supportedModels),
       }),
     );
 
