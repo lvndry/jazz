@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
-import * as os from "os";
 import { Effect } from "effect";
 import type { PersonaService } from "@/core/interfaces/persona-service";
 import type { AttachmentKind, MessageAttachment } from "@/core/types/attachment";
 import type { ChatMessage, ConversationMessages } from "@/core/types/message";
+import { systemInfo } from "@/core/utils/system-info";
 import { renderProjectInstructions, type ProjectInstructionFile } from "./project-instructions";
 import {
   COMPLETION_INSTRUCTIONS,
@@ -16,21 +16,6 @@ import {
   TOOL_SELECTION_INSTRUCTIONS,
 } from "./prompts/shared";
 import { collectUserInputAttachments } from "./user-input-attachments";
-
-function formatUtcOffsetLabel(date: Date): string {
-  const offsetMinutes = -date.getTimezoneOffset();
-  if (offsetMinutes === 0) {
-    return "UTC";
-  }
-  const sign = offsetMinutes > 0 ? "+" : "-";
-  const absoluteMinutes = Math.abs(offsetMinutes);
-  const hours = Math.floor(absoluteMinutes / 60);
-  const minutes = absoluteMinutes % 60;
-  if (minutes === 0) {
-    return `UTC${sign}${hours}`;
-  }
-  return `UTC${sign}${hours}:${String(minutes).padStart(2, "0")}`;
-}
 
 /**
  * Attachments and user-facing notes for the current turn's user message.
@@ -171,7 +156,10 @@ export class AgentPromptBuilder {
   private systemPromptCache = new Map<string, string>();
 
   /**
-   * Get current system information including date and OS details
+   * Get current system information including date and OS details.
+   *
+   * The facts themselves come from `systemInfo()` so the prompt and the
+   * wizard's environment display can never drift apart.
    */
   private getSystemInfo(): Effect.Effect<
     {
@@ -187,31 +175,8 @@ export class AgentPromptBuilder {
     never
   > {
     return Effect.sync(() => {
-      const now = new Date();
-      const calendarDate = now.toLocaleDateString("en-US", {
-        weekday: "long",
-        year: "numeric",
-        month: "long",
-        day: "numeric",
-      });
-      const timeZoneId = Intl.DateTimeFormat().resolvedOptions().timeZone;
-      const currentDate = `${calendarDate} (${formatUtcOffsetLabel(now)}, ${timeZoneId})`;
-      const platform = os.platform();
-      const release = os.release();
-      const machine = os.machine();
-      const username = os.userInfo().username;
-      const shell = process.env["SHELL"] || "unknown";
-      const hostname = os.hostname();
-      const homeDirectory = os.homedir();
-
-      const osInfo = `${platform} ${release} (${machine})`;
-      const cpuModel = os.cpus()[0]?.model ?? "unknown CPU";
-      const coreCount = os.cpus().length;
-      const totalMemoryGb = Math.round(os.totalmem() / 1024 ** 3);
-      const hardware = `${cpuModel} · ${coreCount} cores · ${totalMemoryGb} GB RAM`;
-      const tty = process.stdout.isTTY === true ? "yes" : "no";
-
-      return { currentDate, osInfo, hardware, shell, hostname, username, homeDirectory, tty };
+      const { cwd: _cwd, ...facts } = systemInfo();
+      return facts;
     });
   }
 

@@ -9,12 +9,15 @@
  * forms: a remedy beside each thing that is not ready, a sentence naming the key
  * to press, and the menu itself.
  *
- * Four things, in this order, because that is the order a reader needs them:
+ * Five things, in this order, because that is the order a reader needs them:
  *
- *   identity   the mark, the version, one line of what this is
- *   setup      what is ready and what is not, each with the one thing to do
- *   menu       what you can do next, selection marked by weight and a rail
- *   tip        one line, dim, ignorable
+ *   identity     the mark, the version, one line of what this is
+ *   setup        what is ready and what is not, each with the one thing to do
+ *   environment  the machine facts agents are grounded with — same source as
+ *                the system prompt's `Environment:` block, so the report and
+ *                the prompt cannot drift
+ *   menu         what you can do next, selection marked by weight and a rail
+ *   tip          one line, dim, ignorable
  *
  * Colour carries one job here. A ready row takes the success mark; a row that
  * is not ready stays on the neutral ramp and spends the accent on its *remedy*,
@@ -23,7 +26,8 @@
  * simply have not started yet.
  *
  * Height is a budget, not an assumption. The tip goes first when the terminal is
- * short, then the guidance sentence, then the setup list; the menu and the keys
+ * short, then the environment report, then the guidance sentence, then the
+ * setup list; the menu and the keys
  * row are never dropped, and a menu longer than the space left is windowed
  * around the selection so the selected row is always on screen.
  *
@@ -63,6 +67,13 @@ export interface HomeRequirement {
   readonly remedy?: string;
 }
 
+/** A machine fact the agents are grounded with, reported for orientation. */
+export interface HomeFact {
+  /** A noun, lowercase: "date", "os". */
+  readonly label: string;
+  readonly detail: string;
+}
+
 /** A menu row. `value` is what the caller routes on; this screen never acts. */
 export interface HomeChoice {
   readonly label: string;
@@ -75,6 +86,8 @@ export interface HomeModel {
   readonly version: string;
   readonly tagline: string;
   readonly requirements: readonly HomeRequirement[];
+  /** Machine facts agents are grounded with. Informational, so first to go. */
+  readonly environment?: readonly HomeFact[];
   readonly choices: readonly HomeChoice[];
   /** Index into `choices`. Clamped here, so an out-of-range value cannot break a frame. */
   readonly selected: number;
@@ -314,6 +327,20 @@ export function homeRows(model: HomeModel, viewport: Viewport): HomeRow[] {
           sectionLabel("label:setup", "setup"),
           ...requirementRows(model.requirements, glyphs, content),
         ];
+  // Facts are always true, so they borrow the ready-row voice: active glyph,
+  // muted detail — a report, never an ask.
+  const environment =
+    model.environment === undefined || model.environment.length === 0
+      ? []
+      : [
+          blank("gap:environment"),
+          sectionLabel("label:environment", "environment"),
+          ...requirementRows(
+            model.environment.map((fact) => ({ ...fact, ready: true })),
+            glyphs,
+            content,
+          ),
+        ];
   const guidance = firstRun
     ? [blank("gap:guidance"), ...guidanceRows(model, selected, content)]
     : [];
@@ -322,10 +349,11 @@ export function homeRows(model: HomeModel, viewport: Viewport): HomeRow[] {
   const menuHead = [blank("gap:menu"), sectionLabel("label:menu", "what would you like to do?")];
   const choices = choiceRows(model.choices, selected, glyphs, content);
 
-  // Dropped in this order. The tip is decoration, the guidance repeats what the
-  // remedies already say, and the setup list is a report; the menu is the only
-  // thing you cannot act without.
-  const droppable = ["tip", "guidance", "setup"] as const;
+  // Dropped in this order. The tip is decoration, the environment is a report,
+  // the guidance repeats what the remedies already say, and the setup list is a
+  // report with an action attached; the menu is the only thing you cannot act
+  // without.
+  const droppable = ["tip", "environment", "guidance", "setup"] as const;
   const dropped = new Set<string>();
   let menuRows = choices.length;
 
@@ -333,6 +361,7 @@ export function homeRows(model: HomeModel, viewport: Viewport): HomeRow[] {
     blank("gap:top"),
     ...identity,
     ...(dropped.has("setup") ? [] : setup),
+    ...(dropped.has("environment") ? [] : environment),
     ...(dropped.has("guidance") ? [] : guidance),
     ...menuHead,
     ...windowAround(choices, selected, Math.max(1, menuRows)),

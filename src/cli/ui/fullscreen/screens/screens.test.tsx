@@ -61,7 +61,7 @@ const FIRST_RUN: HomeModel = {
 const SETTLED: HomeModel = {
   version: "0.14.2",
   tagline: "your everyday agentic CLI",
-  requirements: [{ label: "agent", ready: true, detail: "4 of them" }],
+  requirements: [{ label: "agent", ready: true, detail: "4" }],
   choices: [
     { label: "Resume: Basil", value: "continue", hint: "12 minutes ago" },
     { label: "New conversation", value: "new-conversation" },
@@ -72,6 +72,16 @@ const SETTLED: HomeModel = {
   ],
   selected: 1,
   tip: "Local models via Ollama are supported for offline privacy",
+};
+
+const GROUNDED: HomeModel = {
+  ...SETTLED,
+  environment: [
+    { label: "date", detail: "Wednesday, August 26, 2026 (UTC+2, Europe/Paris)" },
+    { label: "os", detail: "darwin 24.6.0 (arm64) · /bin/zsh · lvndry" },
+    { label: "cwd", detail: "/Users/lvndry/github/jazz" },
+    { label: "hardware", detail: "Apple M4 Pro · 14 cores · 24 GB RAM" },
+  ],
 };
 
 const AGENTS: readonly AgentChoice[] = [
@@ -335,6 +345,31 @@ describe("home screen", () => {
     const text = rows.flatMap((row) => row.segments.map((segment) => segment.text)).join(" ");
     expect(text).not.toContain("Ollama");
     expect(text).toContain("New conversation");
+  });
+
+  it("reports the machine facts the agents are grounded with", async () => {
+    const drawn = await draw(
+      <Home
+        model={GROUNDED}
+        viewport={WIDE}
+      />,
+      WIDE,
+    );
+
+    expect(drawn.text).toContain("environment");
+    expect(drawn.text).toContain("date");
+    expect(drawn.text).toContain("Wednesday, August 26, 2026 (UTC+2, Europe/Paris)");
+    expect(drawn.text).toContain("darwin 24.6.0 (arm64) · /bin/zsh · lvndry");
+    expect(drawn.text).toContain("/Users/lvndry/github/jazz");
+    expect(drawn.text).toContain("Apple M4 Pro · 14 cores · 24 GB RAM");
+  });
+
+  it("gives up the environment report before guidance and setup", () => {
+    const short: Viewport = { width: 100, height: 14 };
+    const rows = homeRows(GROUNDED, short);
+    const text = rows.flatMap((row) => row.segments.map((segment) => segment.text)).join(" ");
+    expect(text).not.toContain("environment");
+    expect(rows.length).toBeLessThanOrEqual(short.height - 1);
   });
 
   it("keeps the selection on screen when the menu is longer than the space left", () => {

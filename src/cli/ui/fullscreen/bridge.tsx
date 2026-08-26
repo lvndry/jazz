@@ -2212,6 +2212,7 @@ export function FullscreenBridge(): React.ReactNode {
           version: packageJson.version,
           tagline: "One agent. Every surface. Your rules.",
           requirements: menu.requirements ?? [],
+          ...(menu.environment === undefined ? {} : { environment: menu.environment }),
           choices: menu.options.map((option) => ({ label: option.label, value: option.value })),
           selected: menuIndex,
           ...(menu.tip === undefined ? {} : { tip: menu.tip }),

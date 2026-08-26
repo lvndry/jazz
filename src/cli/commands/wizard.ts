@@ -12,7 +12,7 @@ import { deleteAgentCommand } from "./agent-management";
 import { configWizardCommand } from "./config-wizard";
 import { createAgentCommand } from "./create-agent";
 import { editAgentCommand } from "./edit-agent";
-import { homeRequirements } from "../ui/fullscreen/home-readiness";
+import { homeEnvironmentFacts, homeRequirements } from "../ui/fullscreen/home-readiness";
 import { store, type ActiveAgentChoice } from "../ui/store";
 import { TIPS, type WizardMenuOption } from "../ui/WizardHome";
 
@@ -105,8 +105,9 @@ export function wizardCommand() {
       const requirements = homeRequirements({
         agentCount: agents.length,
       });
+      const environment = homeEnvironmentFacts();
 
-      const selection = yield* showWizardMenu(menuOptions, requirements);
+      const selection = yield* showWizardMenu(menuOptions, requirements, environment);
 
       // Handle the selected action
       switch (selection) {
@@ -265,6 +266,7 @@ export function wizardCommand() {
 function showWizardMenu(
   options: WizardMenuOption[],
   requirements: ReturnType<typeof homeRequirements>,
+  environment: ReturnType<typeof homeEnvironmentFacts>,
 ): Effect.Effect<MenuAction, never, never> {
   return Effect.async<MenuAction>((resume) => {
     const tip = TIPS[Math.floor(Math.random() * TIPS.length)] ?? TIPS[0] ?? "";
@@ -273,6 +275,7 @@ function showWizardMenu(
         kind: "menu",
         options,
         requirements,
+        environment,
         tip,
       },
       (result) => {

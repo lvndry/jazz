@@ -646,6 +646,24 @@ describe("fullscreen bridge", () => {
     store.setActiveMenu(null);
   });
 
+  it("draws the environment report the wizard publishes", async () => {
+    const text = await frame(() => {
+      store.setActiveMenu({
+        kind: "menu",
+        options: [{ label: "Exit", value: "exit" }],
+        environment: [
+          { label: "date", detail: "Wednesday, August 26, 2026 (UTC+2, Europe/Paris)" },
+          { label: "os", detail: "darwin 24.6.0 (arm64) · /bin/zsh · lvndry" },
+          { label: "cwd", detail: "/Users/lvndry/github/jazz" },
+          { label: "hardware", detail: "Apple M4 Pro · 14 cores · 24 GB RAM" },
+        ],
+      });
+    });
+    expect(text).toContain("environment");
+    expect(text).toContain("darwin 24.6.0 (arm64) · /bin/zsh · lvndry");
+    store.setActiveMenu(null);
+  });
+
   it("draws the agent picker with the title that says why the list is open", async () => {
     const text = await frame(() => {
       store.setActiveMenu({
