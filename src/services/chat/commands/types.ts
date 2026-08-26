@@ -16,6 +16,7 @@ export type CommandType =
   | "compact"
   | "copy"
   | "model"
+  | "reasoning"
   | "config"
   | "skills"
   | "context"

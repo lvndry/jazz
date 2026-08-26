@@ -42,6 +42,11 @@ export const CHAT_COMMANDS: readonly ChatCommandInfo[] = [
     description: "Show or change model and reasoning effort",
     usage: "[model | reasoning <level>]",
   },
+  {
+    name: "reasoning",
+    description: "Change reasoning effort for this session only",
+    usage: "[low|medium|high|disable]",
+  },
   { name: "resume", description: "Browse and resume a past conversation" },
   { name: "retry", description: "Re-send your last message" },
   { name: "new", description: "Start a new conversation (clear context)" },

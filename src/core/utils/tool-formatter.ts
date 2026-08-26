@@ -424,17 +424,46 @@ export function formatToolArguments(
     case "manage_todos": {
       const todos = toolArgs["todos"];
       if (!Array.isArray(todos)) return "";
-      const total = todos.length;
-      let completed = 0;
-      let inProgress = 0;
-      for (const todo of todos) {
-        if (typeof todo !== "object" || todo === null || Array.isArray(todo)) continue;
-        const status = (todo as Record<string, unknown>)["status"];
-        if (status === "completed") completed += 1;
-        if (status === "in_progress") inProgress += 1;
+      const ordered = todos
+        .filter(
+          (todo): todo is Record<string, unknown> =>
+            typeof todo === "object" && todo !== null && !Array.isArray(todo),
+        )
+        .sort((a, b) => {
+          const ai = a["status"] === "in_progress" ? 0 : 1;
+          const bi = b["status"] === "in_progress" ? 0 : 1;
+          return ai - bi;
+        });
+      const lines = ordered.flatMap((item) => {
+        const content = safeString(item["content"]);
+        if (!content) return [];
+        const status = safeString(item["status"]) || "unknown";
+        const priority = safeString(item["priority"]);
+        const glyph =
+          status === "completed"
+            ? "✓"
+            : status === "in_progress"
+              ? "◐"
+              : status === "cancelled"
+                ? "✗"
+                : "○";
+        if (usePlain) {
+          return [priority ? `${glyph} ${content} (${priority})` : `${glyph} ${content}`];
+        }
+        const mark = chalk.dim(glyph);
+        return [
+          priority ? `${mark} ${content} ${chalk.dim(`(${priority})`)}` : `${mark} ${content}`,
+        ];
+      });
+      if (lines.length === 0) return "";
+      // The band can't grow unbounded: window long lists and surface the rest.
+      const WINDOW = 8;
+      if (usePlain && lines.length > WINDOW) {
+        const shown = lines.slice(0, WINDOW - 1);
+        const overflow = lines.length - (WINDOW - 1);
+        return `\n${shown.join("\n")}\n+${overflow} more`;
       }
-      const value = `${total} items (${completed} done, ${inProgress} in progress)`;
-      return usePlain ? `{ todos: ${value} }` : formatKeyValue("todos", value);
+      return `\n${lines.join("\n")}`;
     }
     default: {
       const keys = Object.keys(toolArgs).slice(0, usePlain ? 3 : 2);

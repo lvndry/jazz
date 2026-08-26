@@ -228,3 +228,142 @@ describe("handleSpecialCommand shell escape", () => {
     expect(result.messageForAgent).toContain("blocked");
   });
 });
+
+describe("handleSpecialCommand /reasoning", () => {
+  const baseContext: CommandContext = {
+    agent: { ...testAgent, config: { ...testAgent.config, reasoningEffort: "disable" } },
+    conversationHistory: [],
+    conversationId: "test-session",
+    sessionUsage: { promptTokens: 0, completionTokens: 0 },
+    sessionStartedAt: new Date(),
+  };
+
+  test("sets reasoning effort for this session without persisting it", async () => {
+    const success = mock(() => Effect.void);
+    const mockTerminal: Partial<TerminalService> = {
+      isInteractive: false,
+      select: mock(() => Effect.succeed(undefined)) as TerminalService["select"],
+      success,
+      log: mock(() => Effect.succeed(undefined)),
+      error: mock(() => Effect.void),
+      info: mock(() => Effect.void),
+    };
+    const terminalLayer = Layer.succeed(
+      TerminalServiceTag,
+      mockTerminal as unknown as TerminalService,
+    );
+
+    const result = await Effect.runPromise(
+      handleSpecialCommand({ type: "reasoning", args: ["high"] }, baseContext).pipe(
+        Effect.provide(terminalLayer),
+      ) as Effect.Effect<CommandResult, unknown, never>,
+    );
+
+    expect(result.newAgent?.config.reasoningEffort).toBe("high");
+    // The change is session-scoped: the original agent object is untouched.
+    expect(baseContext.agent.config.reasoningEffort).toBe("disable");
+    expect(success).toHaveBeenCalled();
+  });
+
+  test("rejects an invalid level and leaves the agent unchanged", async () => {
+    const error = mock(() => Effect.void);
+    const mockTerminal: Partial<TerminalService> = {
+      isInteractive: false,
+      select: mock(() => Effect.succeed(undefined)) as TerminalService["select"],
+      log: mock(() => Effect.succeed(undefined)),
+      error,
+      info: mock(() => Effect.void),
+    };
+    const terminalLayer = Layer.succeed(
+      TerminalServiceTag,
+      mockTerminal as unknown as TerminalService,
+    );
+
+    const result = await Effect.runPromise(
+      handleSpecialCommand({ type: "reasoning", args: ["bogus"] }, baseContext).pipe(
+        Effect.provide(terminalLayer),
+      ) as Effect.Effect<CommandResult, unknown, never>,
+    );
+
+    expect(result.newAgent).toBeUndefined();
+    expect(error).toHaveBeenCalled();
+  });
+
+  test("opens the picker in interactive mode and applies the chosen level", async () => {
+    const mockTerminal: Partial<TerminalService> = {
+      isInteractive: true,
+      select: mock(() => Effect.succeed("medium")) as unknown as TerminalService["select"],
+      success: mock(() => Effect.void),
+      log: mock(() => Effect.succeed(undefined)),
+      error: mock(() => Effect.void),
+      info: mock(() => Effect.void),
+    };
+    const terminalLayer = Layer.succeed(
+      TerminalServiceTag,
+      mockTerminal as unknown as TerminalService,
+    );
+
+    const result = await Effect.runPromise(
+      handleSpecialCommand({ type: "reasoning", args: [] }, baseContext).pipe(
+        Effect.provide(terminalLayer),
+      ) as Effect.Effect<CommandResult, unknown, never>,
+    );
+
+    expect(result.newAgent?.config.reasoningEffort).toBe("medium");
+  });
+});
+
+describe("handleSpecialCommand /agents", () => {
+  test("delegates to the /switch picker in interactive mode", async () => {
+    const mockTerminal: Partial<TerminalService> = {
+      isInteractive: true,
+      search: mock(() => Effect.succeed("other-agent-id")) as unknown as TerminalService["search"],
+      success: mock(() => Effect.void),
+      log: mock(() => Effect.succeed(undefined)),
+      error: mock(() => Effect.void),
+      info: mock(() => Effect.void),
+      warn: mock(() => Effect.void),
+    };
+    const agentService = {
+      listAgents: () =>
+        Effect.succeed([
+          testAgent,
+          {
+            ...testAgent,
+            id: "other-agent-id",
+            name: "Other",
+            config: { ...testAgent.config, reasoningEffort: "disable" },
+          },
+        ]),
+      getAgent: () =>
+        Effect.succeed({
+          ...testAgent,
+          id: "other-agent-id",
+          name: "Other",
+          config: { ...testAgent.config, reasoningEffort: "disable" },
+        }),
+    } as unknown as import("@/core/interfaces/agent-service").AgentService;
+    const agentServiceTag = (await import("@/core/interfaces/agent-service")).AgentServiceTag;
+    const layers = Layer.mergeAll(
+      Layer.succeed(TerminalServiceTag, mockTerminal as unknown as TerminalService),
+      Layer.succeed(agentServiceTag, agentService),
+    );
+
+    const context: CommandContext = {
+      agent: testAgent,
+      conversationHistory: [],
+      conversationId: "test-session",
+      sessionUsage: { promptTokens: 0, completionTokens: 0 },
+      sessionStartedAt: new Date(),
+      lastUsedAgentId: null,
+    };
+
+    const result = await Effect.runPromise(
+      handleSpecialCommand({ type: "agents", args: [] }, context).pipe(
+        Effect.provide(layers),
+      ) as Effect.Effect<CommandResult, unknown, never>,
+    );
+
+    expect(result.newAgent?.id).toBe("other-agent-id");
+  });
+});
