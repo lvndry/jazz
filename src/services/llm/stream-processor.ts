@@ -23,19 +23,40 @@ import { extractReasoningParts } from "./reasoning-parts";
 type StreamTextResult = ReturnType<typeof streamText>;
 
 /**
- * How long the stream may go without producing anything before it is treated as
- * dead.
+ * Default for how long the stream may go without producing anything before it
+ * is treated as dead.
  *
  * A provider that stops sending without closing the connection would otherwise
  * block `for await` indefinitely, which no layer below the caller's wall-clock
- * timeout can detect. Two minutes exceeds any legitimate gap between parts —
- * generation emits tens of tokens a second, and first-part latency stays under
- * twenty — so exceeding it means the connection is dead, not slow.
+ * timeout can detect. Two minutes exceeds any legitimate gap between parts on
+ * hosted providers — generation emits tens of tokens a second, and first-part
+ * latency stays under twenty seconds — so exceeding it means the connection is
+ * dead, not slow.
  *
- * Tool execution happens between streams, not inside one, so a slow tool cannot
- * trip this.
+ * Local providers are different: before the first part arrives, the server may
+ * still be loading model weights from disk and prefilling a long prompt, which
+ * on a cold start can legitimately run past two minutes. That is what
+ * JAZZ_STREAM_IDLE_TIMEOUT_MS raises; it does not change what the timeout is
+ * for. Tool execution happens between streams, not inside one, so a slow tool
+ * cannot trip this either way.
  */
-const STREAM_IDLE_TIMEOUT_MS = 120_000;
+const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 120_000;
+
+/**
+ * Resolve the stream idle budget, honoring `JAZZ_STREAM_IDLE_TIMEOUT_MS`.
+ *
+ * The env var sets the whole budget in milliseconds (not a delta), and must be
+ * a positive integer — anything else falls back to the default rather than
+ * silently disabling the watchdog or zeroing it.
+ */
+export function resolveStreamIdleTimeoutMs(
+  env: Record<string, string | undefined> = process.env,
+): number {
+  const raw = env["JAZZ_STREAM_IDLE_TIMEOUT_MS"];
+  if (raw === undefined || raw === "") return DEFAULT_STREAM_IDLE_TIMEOUT_MS;
+  const parsed = Number(raw);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : DEFAULT_STREAM_IDLE_TIMEOUT_MS;
+}
 
 /** Raised when a provider stream stops producing without closing. */
 export class StreamIdleTimeoutError extends Error {
@@ -266,7 +287,7 @@ export class StreamProcessor {
    */
   private async processFullStream(result: StreamTextResult): Promise<void> {
     try {
-      for await (const part of withIdleTimeout(result.fullStream, STREAM_IDLE_TIMEOUT_MS)) {
+      for await (const part of withIdleTimeout(result.fullStream, resolveStreamIdleTimeoutMs())) {
         // Stop if we've finished
         if (this.state.finishEventReceived) {
           break;
