@@ -11,13 +11,13 @@ const OPENROUTER_MODELS = [
 ] as never[];
 
 describe("sortModelsForPicker", () => {
-  it("pins every openrouter/* router model above plain models, in catalog order", () => {
+  it("pins openrouter/free and openrouter/auto first, then remaining router models in catalog order, above plain models", () => {
     expect(
       sortModelsForPicker("openrouter", OPENROUTER_MODELS, (m) => m.id).map((m) => m.id),
     ).toEqual([
-      "openrouter/fusion",
-      "openrouter/auto",
       "openrouter/free",
+      "openrouter/auto",
+      "openrouter/fusion",
       "anthropic/claude-sonnet-4-5",
       "deepseek/deepseek-v4",
       "openai/gpt-5",
