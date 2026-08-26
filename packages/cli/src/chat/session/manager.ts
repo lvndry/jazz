@@ -1,3 +1,9 @@
+/**
+ * Chat session lifecycle helpers: initializing the per-conversation working
+ * directory, logging messages to disk, and mirroring the working directory
+ * back into the UI store.
+ */
+
 import { appendFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 import { FileSystem } from "@effect/platform";

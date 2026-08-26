@@ -1,3 +1,8 @@
+/**
+ * Implements `TelemetryService`: buffers events in memory and flushes them on an interval to
+ * one or more sinks (local file, OTLP), plus periodic process resource sampling.
+ */
+
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";

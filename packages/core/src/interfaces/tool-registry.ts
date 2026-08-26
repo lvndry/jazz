@@ -1,3 +1,7 @@
+/**
+ * `Tool` shape and the `ToolRegistry` interface agents use to register,
+ * discover, and execute tools.
+ */
 import { FileSystem } from "@effect/platform";
 import { Context, Effect } from "effect";
 import type z from "zod";

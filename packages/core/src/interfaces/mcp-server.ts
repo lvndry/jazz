@@ -1,3 +1,7 @@
+/**
+ * Types and the `MCPServerManager` interface for connecting to, and calling
+ * tools/prompts/resources on, Model Context Protocol servers.
+ */
 import type { StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import type { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { Context, Effect } from "effect";

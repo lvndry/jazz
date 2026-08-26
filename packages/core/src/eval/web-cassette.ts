@@ -1,3 +1,7 @@
+/**
+ * Records/replays `fetch` calls to a JSON cassette for deterministic evals,
+ * bypassing LLM provider hosts so replay never starves the model itself.
+ */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 
 interface CassetteEntry {

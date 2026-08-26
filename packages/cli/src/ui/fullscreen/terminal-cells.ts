@@ -1,3 +1,10 @@
+/**
+ * Terminal cell-width math for the fullscreen renderer: measures text in
+ * display columns (not code units) via grapheme segmentation, since
+ * wide/combining characters occupy a different number of terminal cells
+ * than their string length would suggest.
+ */
+
 declare const Bun: {
   stringWidth(text: string): number;
 };

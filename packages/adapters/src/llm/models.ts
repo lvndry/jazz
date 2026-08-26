@@ -1,3 +1,5 @@
+/** Per-provider model listing strategy (`models-dev` catalog vs. a `dynamic` API endpoint) and default base URLs, consumed by `model-fetcher`. */
+
 import type { ProviderName } from "@jazz/core/constants/models";
 import { isOllamaCloudModel } from "@jazz/core/constants/ollama";
 import type { LLMConfig } from "@jazz/core/types/config";

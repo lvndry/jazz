@@ -1,3 +1,8 @@
+/**
+ * `ToolExecutor`: runs the tool calls an LLM response requests, handling risk
+ * classification, approval gating, concurrency limits, timeouts, and interruption.
+ */
+
 import { Effect, Either, Exit, Fiber, Option } from "effect";
 import { RunParkRequested } from "@/core/agent/run/park-signal";
 import { classifyCommandRisk, shouldClassifyExecuteCommand } from "@/core/agent/tools/command-risk";

@@ -1,3 +1,9 @@
+/**
+ * Assembles the system prompt and message list sent to the LLM for an agent turn:
+ * persona instructions, environment facts, project instructions, tool guidance, and
+ * the resolved user-input attachments for the current message.
+ */
+
 import { createHash } from "node:crypto";
 import { Effect } from "effect";
 import type { PersonaService } from "@/core/interfaces/persona-service";

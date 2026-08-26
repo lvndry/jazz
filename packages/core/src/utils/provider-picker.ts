@@ -1,3 +1,7 @@
+/**
+ * Sort order for provider and model pickers: pinned providers/models (e.g.
+ * OpenRouter's router meta-models) surface above the rest of the catalog.
+ */
 import type { ModelInfo } from "@/core/types/llm";
 import { describeModelCapabilities } from "@/core/utils/model-capabilities";
 import { formatProviderDisplayName } from "@/core/utils/provider-model";

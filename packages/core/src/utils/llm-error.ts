@@ -1,3 +1,7 @@
+/**
+ * Converts unknown errors from LLM provider calls into typed `LLMError`s
+ * (auth/rate-limit/request), and classifies which are worth retrying.
+ */
 import { APICallError, RetryError } from "ai";
 import { Duration, Schedule } from "effect";
 import { MAX_RETRY_DELAY_SECONDS } from "@/core/constants/agent";

@@ -1,3 +1,7 @@
+/**
+ * `ChatService` interface for running an interactive chat session loop
+ * between a user and an agent.
+ */
 import type { FileSystem } from "@effect/platform";
 import { Context, Effect } from "effect";
 import type { SkillService } from "@/core/skills/skill-service";

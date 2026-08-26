@@ -1,3 +1,10 @@
+/**
+ * Ink implementation of PresentationService: `InkStreamingRenderer` turns
+ * StreamEvents into activity state + output entries pushed to the Ink store,
+ * and `InkPresentationService` wires it up as the primary rendering path when
+ * the Ink UI is active. See cli-renderer.ts for the non-Ink fallback path.
+ */
+
 import { resolveEffectiveContextWindow } from "@jazz/core/agent/context/effective-context-window";
 import { DEFAULT_DISPLAY_CONFIG } from "@jazz/core/agent/types";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";

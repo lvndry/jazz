@@ -1,3 +1,8 @@
+/**
+ * Implements `StorageService`: agents persisted as one JSON file per agent on the local
+ * filesystem.
+ */
+
 import { FileSystem } from "@effect/platform";
 import { normalizeToolConfig } from "@jazz/core/agent/utils/tool-config";
 import { StorageServiceTag, type StorageService } from "@jazz/core/interfaces/storage";

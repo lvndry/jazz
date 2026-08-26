@@ -1,3 +1,8 @@
+/**
+ * Renders the current `ActivityState` phase (thinking, tool call, streaming,
+ * etc.) as the live status line shown above the prompt.
+ */
+
 import { Box, Text } from "ink";
 import React, { useEffect, useRef, useState } from "react";
 import type { ActivityState } from "./activity-state";

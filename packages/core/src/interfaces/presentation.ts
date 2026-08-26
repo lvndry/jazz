@@ -1,3 +1,8 @@
+/**
+ * `PresentationService` interface: abstracts rendering agent output (status,
+ * streaming, approvals, user input) so core logic stays independent of the
+ * concrete surface (CLI, Ink, headless, Telegram, etc.).
+ */
 import { Context, Effect } from "effect";
 import type { StreamEvent, StreamingConfig } from "@/core/types/streaming";
 import type { ApprovalOutcome, ApprovalRequest } from "@/core/types/tools";

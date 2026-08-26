@@ -1,3 +1,9 @@
+/**
+ * ChatService implementation: drives an interactive chat session with an
+ * agent — the message loop, slash-command dispatch, and session lifecycle
+ * (persistence, working directory) glue live here.
+ */
+
 import { FileSystem } from "@effect/platform";
 import {
   loadCommandApprovals,

@@ -1,3 +1,8 @@
+/**
+ * Builds a RenderTheme (colors/styles for terminal output) for a given
+ * ColorProfile, and detects which profile the current terminal supports.
+ */
+
 import type { ColorProfile, RenderTheme } from "@jazz/core/types";
 import chalk from "chalk";
 import { CHALK_THEME } from "../ui/theme";

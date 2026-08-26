@@ -1,3 +1,5 @@
+/** Validates and resolves user-configured context warn/compact ratios against the defaults. */
+
 import type { ContextConfig } from "@/core/types/config";
 import {
   CONTEXT_COMPACT_THRESHOLD_RATIO,

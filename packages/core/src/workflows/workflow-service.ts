@@ -1,3 +1,7 @@
+/**
+ * `WorkflowService`: discovers and loads WORKFLOW.md definitions (builtin,
+ * global, local), the automated prompts that agents run on a schedule.
+ */
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";

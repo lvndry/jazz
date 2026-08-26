@@ -1,3 +1,9 @@
+/**
+ * The core iterate-call-tools-until-done loop shared by the batch and streaming
+ * executors: runs LLM calls, dispatches tool calls, applies context-ladder
+ * pressure checks between iterations, and detects tool-call meltdowns.
+ */
+
 import { Cause, Effect, Fiber, Option, Ref } from "effect";
 import { isRunParkRequested, withTranscript } from "@/core/agent/run/park-signal";
 import { isLocalServerProvider, isZeroCostLocalModel } from "@/core/constants/local-providers";

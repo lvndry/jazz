@@ -1,3 +1,9 @@
+/**
+ * Second-stage entrypoint, imported by entry.ts after process-level setup
+ * (proxy, deprecation warnings) is in place. Builds the Commander program
+ * and parses argv.
+ */
+
 import { createCLIApp } from "./cli-app";
 
 // The `ai` SDK's default warning logger writes its one-time banner via console.info, which is

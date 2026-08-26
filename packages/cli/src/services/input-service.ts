@@ -1,3 +1,9 @@
+/**
+ * Priority-ordered input handler registry: routes parsed terminal input
+ * events to the highest-priority active handler, letting it consume, ignore,
+ * or propagate the event to the next one.
+ */
+
 import { Context, Effect, Layer } from "effect";
 import { TerminalCapabilityServiceTag, type TerminalCapabilities } from "./terminal-service";
 import {

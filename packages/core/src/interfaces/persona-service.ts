@@ -1,3 +1,7 @@
+/**
+ * `PersonaService` interface for managing reusable agent identities, stored
+ * as persona.md files in ~/.jazz/personas/<name>/.
+ */
 import { Context, Effect } from "effect";
 import type {
   PersonaAlreadyExistsError,

@@ -1,3 +1,8 @@
+/**
+ * Implements `AgentService`: creating, validating, and mutating agent definitions on top of
+ * a `StorageService`. Owns the validation rules (name/description/config shape), not just I/O.
+ */
+
 import { validateCustomToolDefinitionShape } from "@jazz/core/agent/tools/custom-tool-validation";
 import { normalizeToolConfig } from "@jazz/core/agent/utils/tool-config";
 import { AgentServiceTag, type AgentService } from "@jazz/core/interfaces/agent-service";

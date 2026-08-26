@@ -1,3 +1,9 @@
+/**
+ * `spawn_subagent` and `summarize_context`: delegate a self-contained task to
+ * a child agent (with its own persona, model, and iteration/depth budget) and
+ * compress the current conversation's context, respectively.
+ */
+
 import { Effect } from "effect";
 import { z } from "zod";
 import {

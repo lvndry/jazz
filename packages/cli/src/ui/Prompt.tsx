@@ -1,3 +1,9 @@
+/**
+ * The main chat text prompt: raw text editing plus every overlay mode it can
+ * switch into (command suggestions, file picker, questionnaires, select
+ * lists, confirm dialogs) driven by `PromptState`.
+ */
+
 import type { Suggestion } from "@jazz/core/interfaces/presentation";
 import { Box, Text, useInput } from "ink";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";

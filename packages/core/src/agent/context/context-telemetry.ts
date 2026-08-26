@@ -1,3 +1,5 @@
+/** Structured logging for the context-compaction ladder (clear/compact/trim). */
+
 import { Effect } from "effect";
 import type { LoggerService } from "@/core/interfaces/logger";
 

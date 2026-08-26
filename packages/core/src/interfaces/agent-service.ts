@@ -1,3 +1,6 @@
+/**
+ * `AgentService` interface for agent CRUD and configuration validation.
+ */
 import { Context, Effect } from "effect";
 import type {
   AgentAlreadyExistsError,

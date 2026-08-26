@@ -1,3 +1,8 @@
+/**
+ * Startup update check: throttled to once per UPDATE_CHECK_INTERVAL_DAYS via a
+ * timestamp file, so it doesn't hit the registry on every invocation.
+ */
+
 import { FileSystem } from "@effect/platform";
 import { LoggerServiceTag, type LoggerService } from "@jazz/core/interfaces/logger";
 import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";

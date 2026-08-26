@@ -1,9 +1,3 @@
-import fs from "node:fs";
-import path from "node:path";
-// Imported through the path alias, not relatively: the standalone build swaps
-// this module out by matching the alias in scripts/build.ts.
-import { EMBEDDED_ASSET_FILES, type EmbeddedAssetFile } from "@/core/assets/embedded-assets";
-
 /**
  * Unpacks the assets embedded in a standalone binary onto the real filesystem.
  *
@@ -14,6 +8,11 @@ import { EMBEDDED_ASSET_FILES, type EmbeddedAssetFile } from "@/core/assets/embe
  * has to be a real executable on disk before it can be spawned. So the binary
  * unpacks its assets once per version and hands the loaders that directory.
  */
+import fs from "node:fs";
+import path from "node:path";
+// Imported through the path alias, not relatively: the standalone build swaps
+// this module out by matching the alias in scripts/build.ts.
+import { EMBEDDED_ASSET_FILES, type EmbeddedAssetFile } from "@/core/assets/embedded-assets";
 
 /**
  * Reports whether the running build carries embedded assets.

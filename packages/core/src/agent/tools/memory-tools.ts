@@ -1,3 +1,9 @@
+/**
+ * `view_memory` and `manage_memory`: read and edit an agent's persistent memory
+ * files, presented with the line-numbered, view-a-range ergonomics of the
+ * filesystem tools rather than raw content blobs.
+ */
+
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { z } from "zod";

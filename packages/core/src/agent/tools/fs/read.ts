@@ -1,3 +1,9 @@
+/**
+ * The `read` tool: returns file contents numbered for coding-model consumption,
+ * with an optional line range (negative values count from the end of the file)
+ * and a hard character cap to avoid flooding the context window.
+ */
+
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { z } from "zod";

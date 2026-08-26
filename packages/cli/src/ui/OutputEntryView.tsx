@@ -1,3 +1,8 @@
+/**
+ * Renders a single scrollback `OutputEntryWithId` (success/error/warn/info/
+ * log/user/streamContent) with the icon and color for its type.
+ */
+
 import { Box, Text } from "ink";
 import React from "react";
 import { PreWrappedText } from "./components/PreWrappedText";

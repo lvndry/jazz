@@ -1,3 +1,9 @@
+/**
+ * Effect service wrapper around the markdown formatter for progressive
+ * (streaming) formatting, where chunks must be buffered until a code block
+ * or other construct is known to be complete.
+ */
+
 import { Context, Effect, Layer } from "effect";
 import {
   formatMarkdown as formatMarkdownFromFormatter,

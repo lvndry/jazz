@@ -1,3 +1,8 @@
+/**
+ * OAuth for MCP servers that require it: runs the authorization-code flow through a loopback
+ * redirect listener and stores the resulting tokens/client info in the OS keyring.
+ */
+
 import { spawn } from "node:child_process";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { auth, discoverOAuthServerInfo } from "@modelcontextprotocol/client";

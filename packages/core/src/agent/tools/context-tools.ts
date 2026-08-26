@@ -1,3 +1,8 @@
+/**
+ * Self-awareness tools exposed to the model: current date/time and context
+ * window usage, for scheduling and deciding when to summarize.
+ */
+
 import { Effect } from "effect";
 import { z } from "zod";
 import type { Tool } from "@/core/interfaces/tool-registry";

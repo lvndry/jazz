@@ -1,3 +1,8 @@
+/**
+ * `http_request`: a general-purpose HTTP client tool for calling arbitrary APIs,
+ * as opposed to `web_fetch`'s read-a-webpage-for-content use case.
+ */
+
 import { Effect } from "effect";
 import { z } from "zod";
 import { HTTP_USER_AGENT } from "@/core/constants/agent";

@@ -1,3 +1,7 @@
+/**
+ * User-facing formatting for tool arguments and results in the terminal UI.
+ * LLM-context formatting has separate rules in tool-result-formatter.ts.
+ */
 import chalk from "chalk";
 import { safeString } from "./string";
 
@@ -107,13 +111,6 @@ export function expandableFileMutationPayload(result: string): string | null {
     return null;
   }
 }
-
-/**
- * User-facing formatting for tool arguments and results.
- *
- * This module targets terminal and log presentation. LLM-context formatting
- * has separate truncation and safety rules in tool-result-formatter.ts.
- */
 
 type FormatStyle = "plain" | "colored";
 

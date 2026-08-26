@@ -1,3 +1,8 @@
+/**
+ * Filesystem scanning for the `@`-mention / file-picker overlay: walks
+ * `basePath` respecting `.gitignore`, filtering by extension and query.
+ */
+
 import type { Dirent } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";

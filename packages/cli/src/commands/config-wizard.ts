@@ -1,3 +1,8 @@
+/**
+ * Interactive `jazz config` wizard — menu-driven editing of LLM providers, web
+ * search providers, output display, logging, and notifications.
+ */
+
 import { WEB_SEARCH_PROVIDERS } from "@jazz/core/agent/tools/web-search-tools";
 import { AVAILABLE_PROVIDERS, type ProviderName } from "@jazz/core/constants/models";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";

@@ -1,3 +1,9 @@
+/**
+ * Root Ink component for the standard (non-fullscreen) TUI. Composes the
+ * "islands" (activity, prompt, ephemeral panels, status footer) against the
+ * global `store`, each isolated so it re-renders independently of scrollback.
+ */
+
 import { Box, Static, Text, useInput } from "ink";
 import React, { useEffect, useRef, useState } from "react";
 import { InputPriority, InputResults } from "@/cli/services/input-service";

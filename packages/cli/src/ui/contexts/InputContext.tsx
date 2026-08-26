@@ -1,3 +1,9 @@
+/**
+ * React context that hands components the shared `InputService` instance,
+ * so key handling stays centralized instead of each component wiring its
+ * own `useInput`.
+ */
+
 import { Effect } from "effect";
 import { useInput, useStdin } from "ink";
 import React, { createContext, useCallback, useEffect, useRef, useState } from "react";

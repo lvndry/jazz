@@ -1,3 +1,9 @@
+/**
+ * React hooks over the InputService: priority-ordered handler registration
+ * so overlapping components (prompt, pickers, modals) can claim key events
+ * without stepping on each other.
+ */
+
 import { Effect } from "effect";
 import { useCallback, useContext, useEffect, useRef, useSyncExternalStore } from "react";
 import type { InputHandler, InputResult, InputService } from "@/cli/services/input-service";

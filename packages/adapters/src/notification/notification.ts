@@ -1,3 +1,8 @@
+/**
+ * Implements `NotificationService`: native macOS notifications via `terminal-notifier` (or an
+ * AppleScript fallback), silently a no-op on other platforms.
+ */
+
 import { execFile } from "node:child_process";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import {

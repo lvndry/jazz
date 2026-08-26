@@ -1,3 +1,8 @@
+/**
+ * Implements `MemoryService`: an agent's persistent notes-to-self, stored as files under a
+ * per-agent memory directory with path and quota guardrails enforced here.
+ */
+
 import * as nodeFs from "node:fs/promises";
 import * as path from "node:path";
 import { FileSystem } from "@effect/platform";

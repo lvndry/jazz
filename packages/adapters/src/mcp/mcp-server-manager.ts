@@ -1,3 +1,8 @@
+/**
+ * Implements `MCPServerManager`: connects to configured MCP servers over stdio or HTTP,
+ * discovers their tools/prompts/resources, and proxies calls with retry and error mapping.
+ */
+
 import type { AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import type { LoggerService } from "@jazz/core/interfaces/logger";

@@ -1,3 +1,9 @@
+/**
+ * Replays a chat session's persisted message history into the scrollback
+ * store, so resuming a conversation shows prior turns instead of starting
+ * from a blank transcript.
+ */
+
 import type { ChatMessage } from "@jazz/core/types/message";
 import { store } from "./store";
 import type { OutputEntry } from "./types";

@@ -1,3 +1,8 @@
+/**
+ * Cursor/buffer helpers for recalling a queued message back into the
+ * composer (prepending it to the current draft) while typing.
+ */
+
 export interface RecalledBuffer {
   readonly value: string;
   readonly cursor: number;

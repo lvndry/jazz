@@ -1,3 +1,7 @@
+/**
+ * Request/response types for `LLMService.createChatCompletion` and its
+ * streaming counterpart.
+ */
 import type { ProviderName } from "@/core/constants/models";
 import type { GeneratedArtifact } from "@/core/types/artifact";
 import type { ChatMessage, StoredReasoningPart } from "./message";

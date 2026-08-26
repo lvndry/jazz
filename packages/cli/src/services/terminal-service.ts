@@ -1,3 +1,9 @@
+/**
+ * Detects the host terminal emulator and its input/output quirks (e.g. Warp's
+ * Option-key interception, backspace-vs-delete byte differences) so other
+ * services can work around them instead of assuming a generic VT100.
+ */
+
 import { Context, Effect, Layer } from "effect";
 
 // ============================================================================

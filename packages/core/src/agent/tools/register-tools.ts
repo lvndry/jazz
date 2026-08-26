@@ -1,3 +1,9 @@
+/**
+ * Wires every builtin tool module into the tool registry under its category.
+ * MCP and skill tools are registered elsewhere (per-server / per-agent), so
+ * `registerAllTools` covers only what's globally available at startup.
+ */
+
 import { Effect, Layer } from "effect";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import type { ToolRegistry } from "@/core/interfaces/tool-registry";

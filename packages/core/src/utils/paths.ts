@@ -1,3 +1,10 @@
+/**
+ * Resolves Jazz's user, project, and package directories.
+ *
+ * User data always lives under `JAZZ_HOME` when set, otherwise `~/.jazz`.
+ * The project-local `./.jazz` directory is reserved for optional overrides;
+ * development mode does not change the user-data location.
+ */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -7,14 +14,6 @@ import {
   pruneStaleAssetDirectories,
 } from "@/core/assets/asset-extraction";
 import packageJson from "../../../../package.json";
-
-/**
- * Resolves Jazz's user, project, and package directories.
- *
- * User data always lives under `JAZZ_HOME` when set, otherwise `~/.jazz`.
- * The project-local `./.jazz` directory is reserved for optional overrides;
- * development mode does not change the user-data location.
- */
 
 function expandHomePath(inputPath: string): string {
   if (inputPath.startsWith("~")) {

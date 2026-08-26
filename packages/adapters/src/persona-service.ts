@@ -1,3 +1,8 @@
+/**
+ * Implements `PersonaService`: reading built-in personas and creating/managing user-defined
+ * ones, each backed by a `persona.md` file with YAML frontmatter.
+ */
+
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";

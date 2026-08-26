@@ -1,3 +1,7 @@
+/**
+ * Shared types for chat slash-command parsing, dispatch, and results.
+ */
+
 import type { Agent } from "@jazz/core/types";
 import type { ChatMessage } from "@jazz/core/types/message";
 import type { AutoApprovePolicy } from "@jazz/core/types/tools";

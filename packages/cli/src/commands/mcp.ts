@@ -1,3 +1,11 @@
+/**
+ * `jazz mcp` — add, remove, list, and test MCP servers.
+ *
+ * Server config is split across two files: the full server definition lives in
+ * ~/.agents/mcp.json (shared with other MCP-aware tools), while jazz-specific
+ * flags (enabled, trusted) live in ~/.jazz/config.json.
+ */
+
 import { execSync } from "node:child_process";
 import os from "node:os";
 import path from "node:path";

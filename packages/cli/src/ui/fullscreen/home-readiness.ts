@@ -1,3 +1,8 @@
+/**
+ * Derives the fullscreen Home screen's "readiness" facts and requirements
+ * (configured LLM providers, agent count) from config and env.
+ */
+
 import { LLM_PROVIDER_ENV_VARS } from "@jazz/adapters/secrets/registry";
 import type { AppConfig } from "@jazz/core/types/index";
 import { systemInfo } from "@jazz/core/utils/system-info";

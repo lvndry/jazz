@@ -1,3 +1,5 @@
+/** Resolves and parses `OtlpTelemetryConfig`/`OTEL_EXPORTER_OTLP_*` env vars into the settings `OtlpTelemetrySink` needs. */
+
 import type { OtlpTelemetryConfig } from "@jazz/core/types/config";
 
 export type OtlpSignal = "traces" | "logs";

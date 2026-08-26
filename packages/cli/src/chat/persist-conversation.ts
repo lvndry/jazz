@@ -1,3 +1,8 @@
+/**
+ * Decides whether a chat session's history is worth writing to disk, and
+ * saves it — skipped for ephemeral sessions or ones with no title/messages yet.
+ */
+
 import { FileSystem } from "@effect/platform";
 import {
   saveConversation,

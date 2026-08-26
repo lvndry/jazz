@@ -1,3 +1,8 @@
+/**
+ * `SkillService`: discovers and loads Progressive-Disclosure skills (builtin,
+ * global, agents, local), with keyword-based ranking and trigger matching for
+ * the system-prompt skill index.
+ */
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";

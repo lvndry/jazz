@@ -5,8 +5,11 @@ import type { ChatMessage, ConversationMessages } from "@/core/types/message";
 import { DEFAULT_TOKEN_COUNTER, type ModelHint, type TokenCounter } from "./token-counter";
 
 /**
- * Configuration for context window management
+ * The compaction ladder's thresholds and `ContextWindowManager`, which decides
+ * whether a conversation needs clearing, compaction, or trimming before the next
+ * LLM call and carries out that decision.
  */
+
 /**
  * Fraction of the context budget at which the user is told the window is filling up,
  * while there is still room to act on it.

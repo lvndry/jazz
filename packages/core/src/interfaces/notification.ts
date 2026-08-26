@@ -1,3 +1,6 @@
+/**
+ * `NotificationService` interface for sending desktop/system notifications.
+ */
 import { Context, Effect } from "effect";
 
 export interface NotificationOptions {

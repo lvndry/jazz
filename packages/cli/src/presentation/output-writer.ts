@@ -1,3 +1,8 @@
+/**
+ * Abstraction over where rendered LLM output goes (terminal, JSON, file, or a
+ * test double), so renderers don't hardcode a write target.
+ */
+
 import { Effect } from "effect";
 
 /**

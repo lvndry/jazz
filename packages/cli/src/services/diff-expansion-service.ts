@@ -1,3 +1,8 @@
+/**
+ * Tracks diffs that were truncated in terminal output so a later user action
+ * (e.g. an expand command) can retrieve the full diff on demand.
+ */
+
 import { Effect, Context, Layer } from "effect";
 
 // ============================================================================

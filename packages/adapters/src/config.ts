@@ -1,3 +1,9 @@
+/**
+ * Implements `AgentConfigService`: reads/writes `~/.jazz/config.json`, resolving secrets from
+ * env vars, the OS keyring, or the file itself (see `secrets/registry`) without ever
+ * persisting a secret that came from somewhere other than the file back into it.
+ */
+
 import { FileSystem } from "@effect/platform";
 import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import type { MCPServerConfig } from "@jazz/core/interfaces/mcp-server";

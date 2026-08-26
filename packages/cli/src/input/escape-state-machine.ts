@@ -1,3 +1,9 @@
+/**
+ * Parses raw terminal escape sequences into structured key events, since
+ * different terminals encode the same key press with different byte
+ * sequences (see terminal-service.ts for the per-terminal quirks this reads).
+ */
+
 import { Effect } from "effect";
 import type { EscapeSequenceProfile, TerminalCapabilities } from "@/cli/services/terminal-service";
 

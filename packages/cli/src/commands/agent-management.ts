@@ -1,3 +1,7 @@
+/**
+ * `jazz agent` — list, inspect, and delete agents.
+ */
+
 import { getAgentByIdentifier, listAllAgents } from "@jazz/core/agent/agent-service";
 import { sortAgents } from "@jazz/core/agent/agent-sort";
 import { AgentServiceTag, type AgentService } from "@jazz/core/interfaces/agent-service";

@@ -1,3 +1,8 @@
+/**
+ * Persists and queries the log of workflow runs (`run-history.json`), used to
+ * decide whether a scheduled workflow needs catch-up and to display recent
+ * run status.
+ */
 import * as path from "node:path";
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";

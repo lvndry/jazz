@@ -1,3 +1,9 @@
+/**
+ * Cross-platform clipboard read/write via OS-native CLI tools (pbcopy/pbpaste
+ * on macOS, PowerShell on Windows, wl-paste/xclip/xsel on Linux) — there is
+ * no cross-platform clipboard API available to a terminal process.
+ */
+
 import { spawn } from "node:child_process";
 import { decodePasteBytes, stripAnsiSequences } from "@opentui/core";
 

@@ -1,3 +1,8 @@
+/**
+ * Metadata and helpers for providers that serve models from the user's own
+ * machine (Ollama, llama.cpp), used for unreachable-server diagnostics and
+ * zero-cost detection.
+ */
 import type { ProviderName } from "@/core/constants/models";
 import { isOllamaCloudModel } from "@/core/constants/ollama";
 

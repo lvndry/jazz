@@ -1,4 +1,10 @@
 /**
+ * Prompt fragments shared across personas: environment facts, and standing
+ * instructions for skills, memory, task state, completion, tool selection, and
+ * interactive questions.
+ */
+
+/**
  * Canonical environment facts block, the single source of truth for the machine
  * grounding appended to every persona system prompt at build time. Kept here so
  * persona authors never hand-copy it (that drifted field lists across personas)

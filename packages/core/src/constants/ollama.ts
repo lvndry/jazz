@@ -1,3 +1,8 @@
+/**
+ * Ollama-specific constants: context-window choices for the picker UI, and
+ * detection of Ollama Cloud model tags (`:cloud` / `-cloud`).
+ */
+
 // Ollama truncates to a small runtime context (~4096) unless num_ctx is set, so
 // agents pick from this ladder, capped to the model's real maximum.
 const OLLAMA_CONTEXT_WINDOW_LADDER = [4096, 8192, 16384, 32768, 65536, 131072] as const;

@@ -1,3 +1,9 @@
+/**
+ * `ReasoningParser` for models that emit reasoning in-band as `<think>`/`<thinking>` tags.
+ * A character-by-character state machine so a tag split across two stream chunks is still
+ * recognized correctly.
+ */
+
 import type {
   ParseChunk,
   ReasoningParser,

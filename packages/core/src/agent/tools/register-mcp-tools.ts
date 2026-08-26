@@ -1,3 +1,9 @@
+/**
+ * Connects to configured MCP servers and syncs their tools into the tool
+ * registry, keeping `registeredServers` current as servers send
+ * `list_changed` notifications so added/removed tools stay in sync live.
+ */
+
 import { Cause, Effect } from "effect";
 import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import type { LoggerService } from "@/core/interfaces/logger";

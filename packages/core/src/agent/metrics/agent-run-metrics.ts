@@ -1,3 +1,8 @@
+/**
+ * Accumulates per-run metrics (iterations, tool calls, token usage, errors) into an
+ * `AgentRunMetrics` record and emits them as telemetry events.
+ */
+
 import { randomUUID } from "node:crypto";
 import { Effect } from "effect";
 import type { LoggerService } from "@/core/interfaces/logger";

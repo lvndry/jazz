@@ -1,3 +1,5 @@
+/** User-visible retry scheduling and slow-response notices for LLM calls. */
+
 import { Duration, Effect, Fiber, Ref, Schedule } from "effect";
 import { LLM_SLOW_MODEL_HINT_SECONDS } from "@/core/constants/agent";
 import {

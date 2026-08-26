@@ -1,3 +1,7 @@
+/**
+ * `PresentationService` implementation that suppresses all output — for
+ * background workflow runs and `--output quiet` mode.
+ */
 import { Effect, Layer, Option } from "effect";
 import { DEFAULT_DISPLAY_CONFIG } from "@/core/agent/types";
 import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";

@@ -1,3 +1,8 @@
+/**
+ * Implements `LoggerService`: writes to a per-run log file on disk, serialized through a
+ * single write queue so concurrent log calls never interleave mid-line.
+ */
+
 import { appendFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 import { jsonBigIntReplacer } from "@jazz/core/agent/tools/tool-logging";

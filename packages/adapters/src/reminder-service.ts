@@ -1,3 +1,8 @@
+/**
+ * Implements `ReminderService`: per-agent reminders persisted as one lock-guarded JSON file
+ * per agent under the jazz home directory.
+ */
+
 import * as path from "node:path";
 import { FileSystem } from "@effect/platform";
 import { MAX_REMINDERS_PER_AGENT, REMINDER_TEXT_MAX_LENGTH } from "@jazz/core/constants/reminders";

@@ -1,31 +1,17 @@
+/**
+ * Catalog integration for https://models.dev/api.json (~3MB JSON) — the single
+ * source of truth for model lists and metadata (context window, tool/vision
+ * support, pricing) across providers.
+ *
+ * Lazy-loaded and cached in memory for `CACHE_TTL_MS`, mirrored to
+ * `<jazz home>/cache/models-dev.json` so offline/airgapped runs (or a network
+ * outage) fall back to the last snapshot instead of losing metadata entirely.
+ */
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { DEFAULT_CONTEXT_WINDOW } from "@/core/constants/models";
 import { getUserDataDirectory } from "@/core/utils/paths";
 import { isOfflineMode } from "@/core/utils/runtime";
-
-/**
- * Catalog integration for https://models.dev/api.json (~3MB JSON)
- *
- * Single source of truth for model catalogs and metadata across providers:
- * - Model lists per provider (id, display name, status, release date, modalities)
- * - Metadata (context window, tool_call, reasoning, vision, pdf, temperature, cost)
- *
- * Efficiency:
- * - Lazy load: JSON fetched only on first use (when first model list is requested).
- * - In-memory cache: fetched once, cached for 1 hour (CACHE_TTL_MS), no repeated HTTP.
- * - Indexed structures: flat Map<modelId, metadata> for O(1) metadata lookups, plus
- *   Map<providerId, entries[]> for provider model listings.
- * - Per-provider cache: ai-sdk-service caches resolved ModelInfo[] so we don't even
- *   re-resolve after first provider load.
- *
- * Airgapped / self-hosted operation:
- * - Every successful fetch is mirrored to <jazz home>/cache/models-dev.json; when the
- *   network is unreachable (or JAZZ_OFFLINE is set) that snapshot is used instead, however
- *   stale — stale metadata beats none, and local providers don't depend on it at all.
- * - JAZZ_MODELS_DEV_URL points the fetch at an internal mirror of api.json.
- * - The fetch is capped at FETCH_TIMEOUT_MS so a blackholed route can't hang model listing.
- */
 
 const MODELS_DEV_API_URL = "https://models.dev/api.json";
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour

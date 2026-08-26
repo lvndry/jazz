@@ -1,3 +1,7 @@
+/**
+ * Decides which scheduled workflows missed a run while Jazz wasn't running,
+ * and re-runs them on startup within a configurable max-age window.
+ */
 import cronParser from "cron-parser";
 import { Effect } from "effect";
 import { AgentRunner } from "@/core/agent/agent-runner";

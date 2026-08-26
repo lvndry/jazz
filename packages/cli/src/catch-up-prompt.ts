@@ -1,3 +1,8 @@
+/**
+ * Interactive prompt shown on jazz startup offering to run any scheduled
+ * workflows that were missed (e.g. the machine was asleep at the scheduled time).
+ */
+
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
 import { QuietPresentationServiceLayer } from "@jazz/core/presentation/quiet-presentation-service";

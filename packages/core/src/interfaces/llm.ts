@@ -1,3 +1,7 @@
+/**
+ * `LLMService` interface: provider lookup and chat completion (streaming and
+ * non-streaming) across all configured LLM providers.
+ */
 import { Context, Effect } from "effect";
 import type { ProviderName } from "@/core/constants/models";
 import type { ChatCompletionOptions, ChatCompletionResponse } from "@/core/types/chat";

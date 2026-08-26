@@ -1,3 +1,8 @@
+/**
+ * `web_search` tool, backed by whichever search provider (Perplexity, Tavily,
+ * Exa, Linkup, Parallel) the agent config selects, normalized to one result shape.
+ */
+
 import Perplexity from "@perplexity-ai/perplexity_ai";
 import { tavily } from "@tavily/core";
 import { Effect, Schedule } from "effect";

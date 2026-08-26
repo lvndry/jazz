@@ -1,3 +1,9 @@
+/**
+ * `AgentRunner`: top-level entry point that resolves an agent's config, LLM, and
+ * tool registry, then drives one conversation turn through the batch or streaming
+ * executor depending on the model's capabilities.
+ */
+
 import { Effect, Option } from "effect";
 import {
   DEFAULT_MAX_ITERATIONS,

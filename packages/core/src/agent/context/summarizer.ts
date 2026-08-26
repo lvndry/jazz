@@ -1,3 +1,9 @@
+/**
+ * The `compact` rung of the context ladder: spends an LLM call to summarize a
+ * conversation's transcript (including tool calls and prior work state) into a
+ * running summary, replacing the messages it condenses.
+ */
+
 import { Effect } from "effect";
 import type { ProviderName } from "@/core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";

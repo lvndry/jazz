@@ -1,3 +1,7 @@
+/**
+ * Parses and formats "provider/model" strings, and maps provider ids to
+ * their official brand display names.
+ */
 import { AVAILABLE_PROVIDERS, type ProviderName } from "@/core/constants/models";
 
 const PROVIDER_DISPLAY_NAMES: Readonly<Record<string, string>> = {

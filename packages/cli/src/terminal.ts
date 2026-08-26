@@ -1,3 +1,8 @@
+/**
+ * TerminalService implementation backed by Ink — mounts the React/Ink app and
+ * routes terminal output/input through it.
+ */
+
 import {
   TerminalServiceTag,
   type TerminalOutput,

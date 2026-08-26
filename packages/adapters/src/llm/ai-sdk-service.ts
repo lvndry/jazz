@@ -1,3 +1,9 @@
+/**
+ * Implements `LLMService` on top of Vercel's AI SDK: wires each supported provider's SDK
+ * package to a common `ChatCompletionOptions`/`StreamEvent` interface, including streaming,
+ * tool calls, attachments, and reasoning.
+ */
+
 import { alibaba, createAlibaba, type AlibabaLanguageModelOptions } from "@ai-sdk/alibaba";
 import { anthropic, createAnthropic, type AnthropicProviderOptions } from "@ai-sdk/anthropic";
 import { cerebras, createCerebras } from "@ai-sdk/cerebras";

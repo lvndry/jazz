@@ -1,3 +1,9 @@
+/**
+ * Handles MCP "elicitation": an MCP server pausing mid-tool-call to ask the
+ * user a structured question (text/number/enum/boolean fields) it needs an
+ * answer to before it can continue.
+ */
+
 import type { LoggerService } from "@jazz/core/interfaces/logger";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import type { MCPServerManager } from "@jazz/core/interfaces/mcp-server";

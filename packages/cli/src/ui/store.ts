@@ -1,3 +1,9 @@
+/**
+ * Global UI state store (`UIStore`) that every "island" component reads via
+ * `useSyncExternalStore`, sliced by concern (output, session, prompt,
+ * ephemeral) so a change in one slice doesn't re-render unrelated islands.
+ */
+
 import { useSyncExternalStore } from "react";
 import { isActivityEqual, type ActivityState } from "./activity-state";
 import {

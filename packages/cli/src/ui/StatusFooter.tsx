@@ -1,3 +1,7 @@
+/**
+ * Bottom status bar: working directory, model, and running cost/token stats.
+ */
+
 import { Box, Text } from "ink";
 import React from "react";
 import { ActivityIndicator } from "./components/ActivityIndicator";

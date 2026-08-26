@@ -1,3 +1,8 @@
+/**
+ * `SchedulerService`: schedules workflows with the host OS scheduler (launchd
+ * on macOS, cron on Linux), converting cron expressions to each backend's
+ * native format.
+ */
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";

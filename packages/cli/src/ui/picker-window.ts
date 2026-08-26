@@ -1,3 +1,9 @@
+/**
+ * Windowing math shared by every scrollable/select picker: which slice of
+ * items is visible around the current selection, wrapping around the ends
+ * carousel-style rather than clamping.
+ */
+
 export const PICKER_WINDOW_SIZE = 10;
 
 export interface PickerFilterable {

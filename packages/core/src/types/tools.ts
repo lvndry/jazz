@@ -1,3 +1,8 @@
+/**
+ * Tool-calling types shared across the agent runner: definitions/results,
+ * approval requests and outcomes, auto-approve policy, and the execution
+ * context passed into every tool.
+ */
 import type { Effect } from "effect";
 import type z from "zod";
 import type { ToolRiskLevel } from "@/core/interfaces/tool-registry";

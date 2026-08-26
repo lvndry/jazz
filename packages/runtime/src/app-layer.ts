@@ -1,3 +1,9 @@
+/**
+ * Composition root: builds the Effect `Layer` that wires every adapter
+ * (storage, LLM, terminal, presentation, telemetry, ...) behind core's
+ * service tags, then runs a command's effect against it.
+ */
+
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { createAgentServiceLayer } from "@jazz/adapters/agent-service";

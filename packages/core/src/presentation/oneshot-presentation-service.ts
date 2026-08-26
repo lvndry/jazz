@@ -1,3 +1,8 @@
+/**
+ * `PresentationService` implementation for headless one-shot runs (`jazz
+ * run`): keeps stdout reserved for the machine-readable payload, and relays
+ * approvals/user-input over stdin/stderr NDJSON when a consumer can answer.
+ */
 import { Effect, Layer, Option } from "effect";
 import { DEFAULT_DISPLAY_CONFIG } from "@/core/agent/types";
 import { AgentConfigServiceTag } from "@/core/interfaces/agent-config";

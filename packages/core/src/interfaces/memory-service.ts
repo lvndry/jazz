@@ -1,3 +1,7 @@
+/**
+ * Service contract for `MemoryService` — per-agent, file-backed memory
+ * exposed as a virtual filesystem the agent mutates via tool calls.
+ */
 import { FileSystem } from "@effect/platform";
 import { Context, Effect } from "effect";
 

@@ -1,3 +1,8 @@
+/**
+ * Implements `JazzStateService`: small persistent key-value state (e.g. "have I shown this
+ * prompt before") stored at `~/.jazz/state.json`, distinct from user-facing config.
+ */
+
 import { FileSystem } from "@effect/platform";
 import {
   JazzStateServiceTag,
