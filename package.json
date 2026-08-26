@@ -45,6 +45,7 @@
     "@types/node": "^26.3.0",
     "@types/react": "^19.2.18",
     "ai": "^7.0.79",
+    "bun-types": "^1.4.0",
     "chalk": "^6.0.0",
     "cli-highlight": "^2.1.11",
     "commander": "^15.0.0",
