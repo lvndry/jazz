@@ -436,6 +436,24 @@ export class UIStore {
     patchSlice(this.prompt, { messageQueue: EMPTY_QUEUE });
   };
 
+  /**
+   * Set when the user asks to flush the queue into the running chat immediately
+   * (Esc with queued messages during a run). The chat loop reads and clears this
+   * on its next turn so the queued entries are drained even though the prior turn
+   * ended in an interrupt, which would otherwise seed them for re-editing.
+   */
+  private flushQueueRequested = false;
+
+  requestFlushQueue = (): void => {
+    this.flushQueueRequested = true;
+  };
+
+  consumeFlushQueue = (): boolean => {
+    const requested = this.flushQueueRequested;
+    this.flushQueueRequested = false;
+    return requested;
+  };
+
   setChatBusy = (busy: boolean): void => {
     patchSlice(this.session, { chatBusy: busy });
   };

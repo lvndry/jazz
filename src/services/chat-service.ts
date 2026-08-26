@@ -188,12 +188,16 @@ export class ChatServiceImpl implements ChatService {
         let userMessage: string | undefined;
         const queuedEntryCount = store.getMessageQueueSnapshot().length;
         const queued = store.peekQueue();
+        // A flush (Esc with queued messages during a run) takes priority over the
+        // error path: even though the prior turn was interrupted, the user asked
+        // for the queue to go into the chat now, not to be re-edited.
+        const flushRequested = store.consumeFlushQueue();
         // A multi-entry drain is prose for the agent even if the first entry
         // starts with "/" — parsing the joined text as one command would
         // silently discard the other entries.
         let drainedMultipleEntries = false;
 
-        if (queued.length > 0 && !lastTurnErrored) {
+        if (queued.length > 0 && (!lastTurnErrored || flushRequested)) {
           // Clean prior turn → drain the queue as the next user message
           // without re-prompting. Record entries in input history for ↑
           // recall parity with interactively typed messages.
