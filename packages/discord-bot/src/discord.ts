@@ -115,6 +115,32 @@ const OP_HEARTBEAT_ACK = 11;
 
 const REST_MAX_RETRIES = 3;
 
+/** Bounds on the HELLO payload's heartbeat_interval, to survive a malformed or hostile value. */
+const MIN_HEARTBEAT_INTERVAL_MS = 1_000;
+const MAX_HEARTBEAT_INTERVAL_MS = 5 * 60_000;
+
+/**
+ * `/gateway/bot` and the READY payload's `resume_gateway_url` are both meant to
+ * point at Discord's own infrastructure. Only ever connect the gateway
+ * WebSocket to a `discord.gg`/`discord.com` host, so a compromised or spoofed
+ * API response can't redirect the connection (and the bot token sent over it)
+ * to an attacker-controlled endpoint.
+ */
+function isTrustedGatewayUrl(url: string): boolean {
+  try {
+    const { protocol, hostname } = new URL(url);
+    if (protocol !== "wss:") return false;
+    return (
+      hostname === "discord.gg" ||
+      hostname === "discord.com" ||
+      hostname.endsWith(".discord.gg") ||
+      hostname.endsWith(".discord.com")
+    );
+  } catch {
+    return false;
+  }
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -474,7 +500,12 @@ export function connectGateway(token: string, handlers: GatewayHandlers): { stop
         application?: { id?: string };
       };
       if (typeof ready.session_id === "string") sessionId = ready.session_id;
-      if (typeof ready.resume_gateway_url === "string") resumeUrl = ready.resume_gateway_url;
+      if (
+        typeof ready.resume_gateway_url === "string" &&
+        isTrustedGatewayUrl(ready.resume_gateway_url)
+      ) {
+        resumeUrl = ready.resume_gateway_url;
+      }
       const userId = ready.user?.id;
       const applicationId = ready.application?.id ?? userId;
       if (typeof userId === "string" && typeof applicationId === "string") {
@@ -511,8 +542,10 @@ export function connectGateway(token: string, handlers: GatewayHandlers): { stop
       case OP_HELLO: {
         const interval = (payload.d as { heartbeat_interval?: number } | undefined)
           ?.heartbeat_interval;
-        if (typeof interval !== "number") return;
-        startHeartbeat(interval);
+        if (typeof interval !== "number" || !Number.isFinite(interval)) return;
+        startHeartbeat(
+          Math.min(Math.max(interval, MIN_HEARTBEAT_INTERVAL_MS), MAX_HEARTBEAT_INTERVAL_MS),
+        );
         if (identifyAfterInvalidSession || sessionId === undefined) {
           identifyAfterInvalidSession = false;
           identify();
@@ -561,7 +594,10 @@ export function connectGateway(token: string, handlers: GatewayHandlers): { stop
         console.warn(`Discord session start limit exhausted — waiting ${wait}ms`);
         await sleep(wait);
       }
-      url = typeof info?.url === "string" ? info.url : "wss://gateway.discord.gg";
+      url =
+        typeof info?.url === "string" && isTrustedGatewayUrl(info.url)
+          ? info.url
+          : "wss://gateway.discord.gg";
     }
 
     const ws = new WebSocket(`${url}/?v=10&encoding=json`);

@@ -38,7 +38,7 @@ export function parseSnowflakeList(raw: string): Set<string> {
     const id = entry.trim();
     if (id.length === 0) continue;
     if (!SNOWFLAKE.test(id)) {
-      console.warn(`Ignoring invalid Discord id "${id}" (expected a snowflake)`);
+      console.warn(`Ignoring invalid Discord id of length ${id.length} (expected a snowflake)`);
       continue;
     }
     ids.add(id);
