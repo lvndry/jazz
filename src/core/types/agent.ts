@@ -12,6 +12,7 @@
 
 import type { ProviderName } from "@/core/constants/models";
 import type { WebSearchProviderName } from "@/core/types/config";
+import type { PerceptionCapability } from "@/core/types/llm";
 
 /**
  * Core Agent entity representing an AI agent configuration
@@ -87,6 +88,16 @@ export interface AgentConfig {
    * registered builtin tool names are rejected at registration time, not here.
    */
   readonly customTools?: readonly CustomToolDefinition[];
+  /**
+   * Pre-bound model companions for delegated perception (`analyze_media`), per
+   * modality, each as `"provider/model"`.
+   *
+   * A bound companion is standing consent: delegation routes there with no prompt,
+   * which is the only path an unattended run (cron, bridge) can take. Unbound means
+   * interactive sessions ask the human to pick from the capable models, and an
+   * unattended session fails loudly instead of guessing.
+   */
+  readonly companions?: Partial<Record<PerceptionCapability, `${string}/${string}`>>;
 }
 
 /**

@@ -2,7 +2,7 @@
  * @fileoverview Finding which of your agents can generate media
  *
  * Jazz has no image-generation tool on purpose: producing media is a capability of the model an
- * agent runs on, not something jazz can hand to any agent (see the media-generation decision).
+ * agent runs on, not something jazz can hand to any agent.
  * The cost of that choice is discoverability — "use a model that can" is useless advice if you
  * cannot see which of your agents qualify, or which model to pick when none do.
  *

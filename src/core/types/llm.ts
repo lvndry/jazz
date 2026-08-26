@@ -23,13 +23,24 @@ export interface ModelInfo {
   readonly isReasoningModel?: boolean;
   readonly supportsTools: boolean;
   /** Whether the model accepts image input (vision/multimodal). */
-  readonly supportsVision?: boolean;
+  readonly ingestImage?: boolean;
   /** Whether the model accepts PDF input natively. */
-  readonly supportsPdf?: boolean;
+  readonly ingestPdf?: boolean;
   /** Whether the model accepts audio input. */
-  readonly supportsAudio?: boolean;
+  readonly ingestAudio?: boolean;
   /** Whether the model accepts video input. */
-  readonly supportsVideo?: boolean;
+  readonly ingestVideo?: boolean;
+  /**
+   * Whether the model produces images, from models.dev `modalities.output`.
+   * Distinct from `ingestImage` (what it accepts): this is what it makes.
+   */
+  readonly generatesImage?: boolean;
+  readonly generatesAudio?: boolean;
+  readonly generatesVideo?: boolean;
+  /** Input price in USD per 1M tokens, from the catalog. Absent when unpriced. */
+  readonly inputPricePerMillion?: number;
+  /** Output price in USD per 1M tokens, from the catalog. Absent when unpriced. */
+  readonly outputPricePerMillion?: number;
   /** Whether the model accepts a custom temperature. Defaults to true when unknown. */
   readonly supportsTemperature?: boolean;
   /** Context window size in tokens. If not specified, defaults to 128000. */
@@ -38,6 +49,24 @@ export interface ModelInfo {
   readonly chatTemplate?: string;
   /** Provider-reported capability tags (e.g. ["completion", "tools", "thinking"] from ollama). */
   readonly capabilities?: readonly string[];
+}
+
+/**
+ * A modality an agent can delegate to a capable model companion (`analyze_media`).
+ *
+ * Mirrors the attachment kinds such delegation can carry, minus `pdf`: every text
+ * agent reads PDFs through `read_pdf`, so there is nothing to delegate.
+ */
+export type PerceptionCapability = "vision" | "audio" | "video";
+
+export const PERCEPTION_CAPABILITIES: readonly PerceptionCapability[] = [
+  "vision",
+  "audio",
+  "video",
+];
+
+export function isPerceptionCapability(value: string): value is PerceptionCapability {
+  return (PERCEPTION_CAPABILITIES as readonly string[]).includes(value);
 }
 
 /**

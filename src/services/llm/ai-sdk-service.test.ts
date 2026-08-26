@@ -40,8 +40,8 @@ const mockCatalogMetadata = {
   contextWindow: 128000,
   supportsTools: true,
   isReasoningModel: false,
-  supportsVision: false,
-  supportsPdf: false,
+  ingestImage: false,
+  ingestPdf: false,
   supportsTemperature: true,
 };
 

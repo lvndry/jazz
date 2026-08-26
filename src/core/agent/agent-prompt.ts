@@ -138,6 +138,12 @@ export interface AgentPromptOptions {
    * the agent how to point the user at an agent that can, instead of dead-ending on "I can't".
    */
   readonly canGenerateMedia?: boolean;
+  /**
+   * Attachments placed directly by the caller (model-companion delegation), merged onto
+   * this run's first user message. Kinds the model cannot ingest are dropped with an
+   * explanatory note; they are already resolved, so no path scanning touches them.
+   */
+  readonly initialAttachments?: readonly MessageAttachment[];
 }
 
 /**
@@ -498,13 +504,32 @@ ${triggeredBlock}`;
           // Media paths the user typed (or dropped into the terminal) become attachments on
           // this message, so the model receives the file itself rather than its name.
           const ingested = yield* resolveUserInputAttachments(options);
+
+          // Caller-placed attachments (companion delegation) ride outside path scanning.
+          // The same modality gate applies: a kind this model cannot ingest is dropped
+          // with a note, because a provider would reject it outright.
+          const callerAttachments: MessageAttachment[] = [];
+          for (const attachment of options.initialAttachments ?? []) {
+            if (
+              options.supportedAttachmentKinds === undefined ||
+              options.supportedAttachmentKinds.includes(attachment.kind)
+            ) {
+              callerAttachments.push(attachment);
+              continue;
+            }
+            ingested.notes.push(
+              `[${attachment.path} is a ${attachment.kind} file and this model has no ${attachment.kind} input, so its contents were not sent. Say it could not be read rather than guessing at it.]`,
+            );
+          }
+
+          const attachments = [...ingested.attachments, ...callerAttachments];
           messages.push({
             role: "user",
             content:
               ingested.notes.length > 0
                 ? `${effectiveUserContent}\n\n${ingested.notes.join("\n")}`
                 : effectiveUserContent,
-            ...(ingested.attachments.length > 0 ? { attachments: ingested.attachments } : {}),
+            ...(attachments.length > 0 ? { attachments } : {}),
           });
         }
 

@@ -13,6 +13,7 @@ import {
   ValidationError,
 } from "@/core/types/errors";
 import { type Agent, type AgentConfig, type CustomToolDefinition } from "@/core/types/index";
+import { isPerceptionCapability } from "@/core/types/llm";
 import { parseProviderModel } from "@/core/utils/provider-model";
 
 export class AgentServiceImpl implements AgentService {
@@ -196,6 +197,46 @@ export class AgentServiceImpl implements AgentService {
                 'Use "provider/model" with a known provider, e.g. "anthropic/claude-3-5-haiku-latest", or remove the field to use the agent\'s own model.',
             }),
           );
+        }
+      }
+
+      const companions: unknown = config.companions;
+      if (companions !== undefined && companions !== null) {
+        if (typeof companions !== "object" || Array.isArray(companions)) {
+          return yield* Effect.fail(
+            new AgentConfigurationError({
+              agentId: "unknown",
+              field: "config.companions",
+              message: "companions must be an object keyed by perception capability",
+              suggestion:
+                'Use { "vision": "provider/model", ... } with capabilities vision, audio, video.',
+            }),
+          );
+        }
+        for (const [capability, companion] of Object.entries(
+          companions as Record<string, unknown>,
+        )) {
+          if (!isPerceptionCapability(capability)) {
+            return yield* Effect.fail(
+              new AgentConfigurationError({
+                agentId: "unknown",
+                field: `config.companions.${capability}`,
+                message: `Unknown companion capability "${capability}"`,
+                suggestion: "Use one of: vision, audio, video.",
+              }),
+            );
+          }
+          if (typeof companion !== "string" || parseProviderModel(companion) === null) {
+            return yield* Effect.fail(
+              new AgentConfigurationError({
+                agentId: "unknown",
+                field: `config.companions.${capability}`,
+                message: `Invalid ${capability} companion ${JSON.stringify(companion)}`,
+                suggestion:
+                  'Use "provider/model", e.g. "anthropic/claude-sonnet-4-5", or remove the entry to let interactive sessions ask you to pick.',
+              }),
+            );
+          }
         }
       }
 

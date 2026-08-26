@@ -276,7 +276,11 @@ export class ToolExecutor {
             isToolNameAutoApproved(name, context.autoApprovedTools) ||
             isCommandAutoApproved(name, approvalResult.executeArgs, context.autoApprovedCommands);
 
-          const isAutoApproved = checkAutoApproved();
+          // A picker-style request is never auto-approved, under any policy including
+          // yolo: there is nothing to approve until somebody picked a row. The
+          // companion-bound path skips approval inside the tool itself instead.
+          const hasSelectionOptions = (approvalResult.options?.length ?? 0) > 0;
+          const isAutoApproved = !hasSelectionOptions && checkAutoApproved();
 
           if (classifiedRisk !== undefined && displayConfig.showToolExecution) {
             if (renderer) {
@@ -303,6 +307,7 @@ export class ToolExecutor {
               toolName: name,
               message: approvalResult.message,
               ...(approvalResult.previewDiff ? { previewDiff: approvalResult.previewDiff } : {}),
+              ...(hasSelectionOptions ? { options: approvalResult.options } : {}),
               riskLevel,
               ...(autoApprovePolicy !== undefined
                 ? { autoApprovePolicy: String(autoApprovePolicy) }
@@ -338,6 +343,7 @@ export class ToolExecutor {
             executeToolName: approvalResult.executeToolName,
             executeArgs: approvalResult.executeArgs,
             ...(approvalResult.previewDiff ? { previewDiff: approvalResult.previewDiff } : {}),
+            ...(hasSelectionOptions ? { options: approvalResult.options } : {}),
             isAutoApproved: checkAutoApproved,
           };
 
@@ -403,7 +409,13 @@ export class ToolExecutor {
               });
             }
 
-            // Execute the execution tool
+            // Execute the execution tool. A picker-style outcome carries the row the
+            // human chose; it rides to the execution tool under a reserved key the
+            // model never writes and cannot spoof.
+            const executeArgs =
+              "selectedOptionId" in outcome && typeof outcome.selectedOptionId === "string"
+                ? { ...approvalResult.executeArgs, _selectedOptionId: outcome.selectedOptionId }
+                : approvalResult.executeArgs;
             const executeStartTime = Date.now();
 
             // Emit execution start for the follow-up tool
@@ -417,13 +429,13 @@ export class ToolExecutor {
                   type: "tool_execution_start",
                   toolName: name,
                   toolCallId: toolCall.id,
-                  arguments: approvalResult.executeArgs,
+                  arguments: executeArgs,
                   ...(executeMetadata ? { metadata: executeMetadata } : {}),
                 });
               } else {
                 const message = yield* presentationService.formatToolExecutionStart(
                   name,
-                  approvalResult.executeArgs,
+                  executeArgs,
                   executeMetadata ? { metadata: executeMetadata } : undefined,
                 );
                 yield* presentationService.writeBlankLine();
@@ -434,7 +446,7 @@ export class ToolExecutor {
             // Execute the actual tool
             result = yield* ToolExecutor.executeTool(
               approvalResult.executeToolName,
-              approvalResult.executeArgs,
+              executeArgs,
               context,
             );
             toolDuration = Date.now() - executeStartTime;

@@ -42,6 +42,7 @@ import type { AgentConfig } from "@/core/types/index";
 import type { LLMProvider, LLMProviderListItem } from "@/core/types/llm";
 import type { MCPTool } from "@/core/types/mcp";
 import { isAuthenticationRequired } from "@/core/utils/mcp";
+import { describeModelCapabilities } from "@/core/utils/model-capabilities";
 import { formatProviderDisplayName } from "@/core/utils/provider-model";
 import { sortModelsForPicker, sortProvidersForPicker } from "@/core/utils/provider-picker";
 import { toPascalCase } from "@/core/utils/string";
@@ -483,7 +484,7 @@ async function promptForAgentInfo(
               (model) => model.id,
             ).map((model) => ({
               name: model.displayName || model.id,
-              description: model.displayName || model.id,
+              description: describeModelCapabilities(model),
               value: model.id,
             })),
             placeholder: "Search models...",

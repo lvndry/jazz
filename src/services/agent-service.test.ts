@@ -597,6 +597,55 @@ describe("AgentService", () => {
     });
   });
 
+  describe("validateAgentConfig companions", () => {
+    const baseConfig: AgentConfig = {
+      persona: "default",
+      llmProvider: "openai",
+      llmModel: "gpt-4",
+    };
+
+    it("accepts a well-formed companions map", async () => {
+      const program = service.validateAgentConfig({
+        ...baseConfig,
+        companions: { vision: "anthropic/claude-sonnet-4-5", audio: "gemini/gemini-2.0-flash" },
+      });
+      await expect(Effect.runPromise(program)).resolves.toBeUndefined();
+    });
+
+    it("accepts config with no companions", async () => {
+      const program = service.validateAgentConfig(baseConfig);
+      await expect(Effect.runPromise(program)).resolves.toBeUndefined();
+    });
+
+    it("rejects an unknown capability key", async () => {
+      const program = service.validateAgentConfig({
+        ...baseConfig,
+        companions: { smell: "anthropic/claude-sonnet-4-5" } as never,
+      });
+      const result = await Effect.runPromiseExit(program);
+      expect(result._tag).toBe("Failure");
+      if (result._tag === "Failure") {
+        // @ts-expect-error - accessing error
+        const error = result.cause.error as AgentConfigurationError;
+        expect(error.field).toBe("config.companions.smell");
+      }
+    });
+
+    it("rejects a companion that is not provider/model", async () => {
+      const program = service.validateAgentConfig({
+        ...baseConfig,
+        companions: { vision: "just-a-model-name" },
+      });
+      const result = await Effect.runPromiseExit(program);
+      expect(result._tag).toBe("Failure");
+      if (result._tag === "Failure") {
+        // @ts-expect-error - accessing error
+        const error = result.cause.error as AgentConfigurationError;
+        expect(error.field).toBe("config.companions.vision");
+      }
+    });
+  });
+
   describe("deleteAgent", () => {
     it("should delete an agent", async () => {
       // @ts-expect-error - mocking

@@ -1071,10 +1071,10 @@ export function executeAgentLoop(
         // unknown model is assumed to have no media input, because sending an image to a
         // text-only model is a hard provider error rather than a worse answer.
         const supportedAttachmentKinds: AttachmentKind[] = [];
-        if (modelMetadata?.supportsVision) supportedAttachmentKinds.push("image");
-        if (modelMetadata?.supportsPdf) supportedAttachmentKinds.push("pdf");
-        if (modelMetadata?.supportsAudio) supportedAttachmentKinds.push("audio");
-        if (modelMetadata?.supportsVideo) supportedAttachmentKinds.push("video");
+        if (modelMetadata?.ingestImage) supportedAttachmentKinds.push("image");
+        if (modelMetadata?.ingestPdf) supportedAttachmentKinds.push("pdf");
+        if (modelMetadata?.ingestAudio) supportedAttachmentKinds.push("audio");
+        if (modelMetadata?.ingestVideo) supportedAttachmentKinds.push("video");
 
         const deps: LoopDeps = {
           agent,

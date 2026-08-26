@@ -1,7 +1,7 @@
 import { Effect, Stream } from "effect";
 import type { ChatCompletionResponse } from "./chat";
 import type { LLMError } from "./errors";
-import type { ToolCall } from "./tools";
+import type { ToolCall, ApprovalOption } from "./tools";
 
 /**
  * Streaming LLM types and interfaces
@@ -121,6 +121,8 @@ export type StreamEvent =
       toolName: string;
       message: string;
       previewDiff?: string;
+      /** Picker-style approval: the rows a surface should offer instead of yes/no. */
+      options?: readonly ApprovalOption[];
       riskLevel?: string;
       autoApprovePolicy?: string;
     }

@@ -15,12 +15,12 @@ and [Security](../../SECURITY.md) for the threat model.
 
 |                                                                         | Count  |
 | ----------------------------------------------------------------------- | ------ |
-| **Agent-facing tools**                                                  | **35** |
-| Hidden `execute_*` counterparts (the second half of each approval pair) | 7      |
-| Total registered                                                        | 41     |
+| **Agent-facing tools**                                                  | **36** |
+| Hidden `execute_*` counterparts (the second half of each approval pair) | 8      |
+| Total registered                                                        | 42     |
 | `read-only`                                                             | 20     |
 | `low-risk`                                                              | 7      |
-| `high-risk`                                                             | 6      |
+| `high-risk`                                                             | 7      |
 | `unknown`                                                               | 1      |
 
 Plus, registered per agent rather than globally:
@@ -69,7 +69,7 @@ cannot be added without someone deciding.
 | Level      | Safe to tell                                                    | Tools                                                                                                                                                                                                                                                                                  |
 | ---------- | --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `public`   | safe to tell anyone                                             | `add_reminder`, `cp`, `mkdir`, `mv`, `rm`, `web_fetch`, `web_search`, `write_file`                                                                                                                                                                                                     |
-| `internal` | the shape of this machine — paths, names, what is installed     | `cd`, `context_info`, `create_pdf`, `create_web_app`, `find`, `get_time`, `ls`, `pdf_page_count`, `pwd`, `stat`                                                                                                                                                                        |
+| `internal` | the shape of this machine — paths, names, what is installed     | `analyze_media`, `cd`, `context_info`, `create_pdf`, `create_web_app`, `find`, `get_time`, `ls`, `pdf_page_count`, `pwd`, `stat`                                                                                                                                                       |
 | `private`  | your own material — file contents, memory, schedule, transcript | `ask_file_picker`, `ask_user_question`, `cancel_reminder`, `edit_file`, `execute_command`, `grep`, `http_request`, `list_reminders`, `list_todos`, `manage_memory`, `manage_todos`, `read_file`, `read_pdf`, `spawn_subagent`, `summarize_context`, `update_work_state`, `view_memory` |
 
 A tool spanning two levels takes the more sensitive one — `edit_file` writes, but its approval
@@ -179,6 +179,14 @@ Opt-in per agent. Reminders persist on disk and fire later on the same surface t
 | ------------------- | ----------- | ------------- | ------------------------------------------------------------------------------------------------------------ |
 | `spawn_subagent`    | `low-risk`  | —             | Spawn a sub-agent with fresh context for a specific task. Personas: coder, researcher, default. Pass a shor… |
 | `summarize_context` | `read-only` | —             | Compact conversation by summarizing older messages to free token budget. Always performs summarization when… |
+
+### Perception Delegation
+
+Always-on. Lets a text-only agent borrow eyes, ears, or a watch from a model that has them.
+
+| Tool                        | Risk        | Approval pair          | What it does                                                                                                 |
+| --------------------------- | ----------- | ---------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `analyze_media`             | `high-risk` | `execute_analyze_media` | Delegate image/audio/video analysis to a capable model companion and get the textual answer back. The person at the keyboard picks which model does the looking (picker-style approval, never auto-approved); an agent with a pre-bound `companions` entry for the modality routes there silently instead. |
 
 ### User Interaction
 

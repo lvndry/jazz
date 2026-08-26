@@ -37,13 +37,13 @@ export interface ModelsDevMetadata {
   readonly supportsTools: boolean;
   readonly isReasoningModel: boolean;
   /** Whether the model accepts image input (vision). Derived from modalities.input containing "image". */
-  readonly supportsVision: boolean;
+  readonly ingestImage: boolean;
   /** Whether the model accepts PDF input natively. Derived from modalities.input containing "pdf". */
-  readonly supportsPdf: boolean;
+  readonly ingestPdf: boolean;
   /** Whether the model accepts audio input. Derived from modalities.input containing "audio". */
-  readonly supportsAudio: boolean;
+  readonly ingestAudio: boolean;
   /** Whether the model accepts video input. Derived from modalities.input containing "video". */
-  readonly supportsVideo: boolean;
+  readonly ingestVideo: boolean;
   /**
    * Whether the model *produces* media, from `modalities.output`.
    *
@@ -152,10 +152,10 @@ function toMetadata(spec: ModelsDevModelSpec): ModelsDevMetadata {
     contextWindow,
     supportsTools: Boolean(spec.tool_call),
     isReasoningModel: Boolean(spec.reasoning),
-    supportsVision: inputModalities.includes("image"),
-    supportsPdf: inputModalities.includes("pdf"),
-    supportsAudio: inputModalities.includes("audio"),
-    supportsVideo: inputModalities.includes("video"),
+    ingestImage: inputModalities.includes("image"),
+    ingestPdf: inputModalities.includes("pdf"),
+    ingestAudio: inputModalities.includes("audio"),
+    ingestVideo: inputModalities.includes("video"),
     generatesImage: outputModalities.includes("image"),
     generatesAudio: outputModalities.includes("audio"),
     generatesVideo: outputModalities.includes("video"),

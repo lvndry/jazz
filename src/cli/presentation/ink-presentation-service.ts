@@ -1259,6 +1259,8 @@ export class InkPresentationService implements PresentationService {
     // Format the approval message as an Ink bordered card
     const pendingCount = this.approvalQueue.length;
 
+    const isPicker = (request.options?.length ?? 0) > 0;
+
     const approvalCard = React.createElement(
       Box,
       {
@@ -1272,9 +1274,16 @@ export class InkPresentationService implements PresentationService {
       React.createElement(
         Box,
         {},
-        React.createElement(Text, { color: THEME.warning, bold: true }, "Approval Required"),
-        React.createElement(Text, {}, " for "),
-        React.createElement(Text, { color: THEME.primary, bold: true }, request.toolName),
+        React.createElement(
+          Text,
+          { color: THEME.warning, bold: true },
+          isPicker ? "Pick a model" : "Approval Required",
+        ),
+        isPicker
+          ? React.createElement(Text, { dimColor: true }, `  ${request.toolName}`)
+          : React.createElement(Text, {}, " for "),
+        !isPicker &&
+          React.createElement(Text, { color: THEME.primary, bold: true }, request.toolName),
         pendingCount > 0
           ? React.createElement(Text, { dimColor: true }, ` (${pendingCount} more pending)`)
           : null,
@@ -1318,6 +1327,48 @@ export class InkPresentationService implements PresentationService {
     // Extract a subcommand-level approval key (e.g. "git diff" instead of
     // "git diff --name-only") so one approval covers all flag variants.
     const approvalKey = rawCommand ? extractCommandApprovalKey(rawCommand) : null;
+
+    // Picker-style request: the human chooses *which* capable model handles the work,
+    // or declines. "Always approve" choices are deliberately absent — picking a row is
+    // the whole decision, and there is nothing sensible to remember for next time.
+    if (isPicker && request.options) {
+      const pickerChoices: Array<{ label: string; value: string }> = request.options.map(
+        (option) => ({
+          label: option.detail ? `${option.label}  —  ${option.detail}` : option.label,
+          value: option.id,
+        }),
+      );
+      pickerChoices.push({ label: "No, don't delegate", value: "__decline__" });
+
+      store.setPrompt({
+        type: "select",
+        message: "Pick a model",
+        options: { choices: pickerChoices },
+        resolve: (val: unknown) => {
+          const choice = val as string;
+          store.setPrompt(null);
+          store.setApprovalRequest(null);
+          store.printOutput({
+            type: "log",
+            message: `Pick a model: ${
+              choice === "__decline__"
+                ? CHALK_THEME.error("No")
+                : CHALK_THEME.success(
+                    request.options?.find((o) => o.id === choice)?.label ?? choice,
+                  )
+            }`,
+            timestamp: new Date(),
+          });
+
+          if (choice === "__decline__") {
+            this.promptRejectionMessage(resume);
+            return;
+          }
+          this.completeApproval(resume, { approved: true, selectedOptionId: choice });
+        },
+      });
+      return;
+    }
 
     const choices: Array<{ label: string; value: string }> = [{ label: "Yes", value: "yes" }];
 
