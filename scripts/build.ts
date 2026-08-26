@@ -178,7 +178,7 @@ async function buildStandaloneBinary(compileTarget: string): Promise<string> {
   process.env["NODE_ENV"] = "production";
 
   const result = await Bun.build({
-    entrypoints: ["src/entry.ts"],
+    entrypoints: ["packages/runtime/src/entry.ts"],
     target: "bun",
     minify: true,
     plugins: createStandalonePlugins(generatedAssets),

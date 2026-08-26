@@ -2,7 +2,10 @@
 // cost profile differs by an order of magnitude across script classes, so each
 // class gets its own row.
 import { bench, report } from "./harness";
-import { terminalCellWidth, wrapTerminalCells } from "../src/cli/ui/fullscreen/terminal-cells";
+import {
+  terminalCellWidth,
+  wrapTerminalCells,
+} from "../packages/cli/src/ui/fullscreen/terminal-cells";
 
 const ascii = "The quick brown fox jumps over the lazy dog, twice around the block. ".repeat(20);
 const cjk = "混合宽度的中文文本会让每个字符占用两个终端单元格进行渲染测量。".repeat(20);

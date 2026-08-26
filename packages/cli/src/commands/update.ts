@@ -1,0 +1,470 @@
+import { type AgentConfigService } from "@jazz/core/interfaces/agent-config";
+import { LoggerServiceTag, type LoggerService } from "@jazz/core/interfaces/logger";
+import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
+import { UpdateCheckError, UpdateInstallError } from "@jazz/core/types/errors";
+import {
+  detectPackageManagerFromPath,
+  findExecutablePathViaShell,
+  isStandaloneBinary,
+} from "@jazz/core/utils/runtime";
+import { Effect } from "effect";
+import { installBinaryUpdate } from "./update-binary";
+import packageJson from "../../../../package.json";
+
+/**
+ * CLI command for updating Jazz to the latest version
+ */
+
+/**
+ * Version information from npm registry
+ */
+export interface NpmPackageInfo {
+  "dist-tags": {
+    latest: string;
+    [key: string]: string;
+  };
+  versions: Record<string, unknown>;
+}
+
+/**
+ * Compare two semantic version strings
+ * @returns -1 if v1 < v2, 0 if equal, 1 if v1 > v2
+ */
+function compareVersions(v1: string, v2: string): number {
+  const parts1 = v1.split(".").map((n) => parseInt(n, 10));
+  const parts2 = v2.split(".").map((n) => parseInt(n, 10));
+
+  for (let i = 0; i < Math.max(parts1.length, parts2.length); i++) {
+    const part1 = parts1[i] || 0;
+    const part2 = parts2[i] || 0;
+
+    if (part1 > part2) return 1;
+    if (part1 < part2) return -1;
+  }
+
+  return 0;
+}
+
+/**
+ * Check if a newer version is available on npm
+ */
+export function checkForUpdate(): Effect.Effect<
+  { hasUpdate: boolean; currentVersion: string; latestVersion: string },
+  UpdateCheckError
+> {
+  return Effect.gen(function* () {
+    const currentVersion = packageJson.version;
+
+    // Fetch the latest version from npm registry
+    const response = yield* Effect.tryPromise({
+      try: () =>
+        fetch(`https://registry.npmjs.org/${packageJson.name}`, {
+          headers: {
+            Accept: "application/json",
+          },
+        }),
+      catch: (unknownError: unknown) =>
+        new UpdateCheckError({
+          message: "Failed to fetch version information from npm registry",
+          cause: unknownError,
+        }),
+    });
+
+    if (!response.ok) {
+      return yield* Effect.fail(
+        new UpdateCheckError({
+          message: `npm registry returned status ${response.status}`,
+        }),
+      );
+    }
+
+    const data = (yield* Effect.tryPromise({
+      try: () => response.json(),
+      catch: (unknownError: unknown) =>
+        new UpdateCheckError({
+          message: "Failed to parse npm registry response",
+          cause: unknownError,
+        }),
+    })) as NpmPackageInfo;
+
+    const latestVersion = data["dist-tags"].latest;
+
+    if (!latestVersion) {
+      return yield* Effect.fail(
+        new UpdateCheckError({
+          message: "Could not determine latest version from npm registry",
+        }),
+      );
+    }
+
+    const hasUpdate = compareVersions(latestVersion, currentVersion) > 0;
+
+    return {
+      hasUpdate,
+      currentVersion,
+      latestVersion,
+    };
+  });
+}
+
+/**
+ * Release note summary
+ */
+export interface ReleaseNote {
+  version: string;
+  summary: string;
+}
+
+/**
+ * GitHub release response structure
+ */
+interface GitHubRelease {
+  tag_name: string;
+  name: string;
+  body: string;
+}
+
+/**
+ * Fetch release notes for all versions since the specified version
+ * Uses GitHub releases API to get version information
+ */
+export function fetchReleaseNotesSince(
+  sinceVersion: string,
+): Effect.Effect<ReleaseNote[], UpdateCheckError> {
+  return Effect.gen(function* () {
+    // Extract owner/repo from package.json repository URL
+    const repoUrl = packageJson.repository?.url || "";
+    const match = repoUrl.match(/github\.com[:/]([^/]+\/[^/]+?)(\.git)?$/);
+    if (!match) {
+      return [];
+    }
+
+    const repo = match[1];
+
+    // Fetch releases from GitHub API
+    const response = yield* Effect.tryPromise({
+      try: () =>
+        fetch(`https://api.github.com/repos/${repo}/releases`, {
+          headers: {
+            Accept: "application/vnd.github.v3+json",
+            "User-Agent": packageJson.name,
+          },
+        }),
+      catch: (unknownError: unknown) =>
+        new UpdateCheckError({
+          message: "Failed to fetch releases from GitHub",
+          cause: unknownError,
+        }),
+    });
+
+    if (!response.ok) {
+      return [];
+    }
+
+    const releases = (yield* Effect.tryPromise({
+      try: () => response.json(),
+      catch: (unknownError: unknown) =>
+        new UpdateCheckError({
+          message: "Failed to parse GitHub releases response",
+          cause: unknownError,
+        }),
+    })) as GitHubRelease[];
+
+    // Filter releases newer than sinceVersion and extract summaries
+    const notes: ReleaseNote[] = [];
+    for (const release of releases) {
+      const version = release.tag_name.replace(/^v/, "");
+
+      // Stop when we reach the current version or older
+      if (compareVersions(version, sinceVersion) <= 0) {
+        break;
+      }
+
+      // Get the release body, cleaned up
+      const body = (release.body || release.name || "No release notes")
+        .trim()
+        .split("\n")
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0)
+        .join("\n");
+
+      notes.push({
+        version,
+        summary: body,
+      });
+    }
+
+    return notes;
+  });
+}
+
+/**
+ * Package manager information
+ */
+interface PackageManagerInfo {
+  readonly name: string;
+  readonly version: string;
+}
+
+/**
+ * Get the version of a package manager command
+ * Gracefully handles errors - returns null if command doesn't exist or version check fails
+ */
+function getPackageManagerVersion(
+  command: string,
+): Effect.Effect<PackageManagerInfo | null, never> {
+  return Effect.gen(function* () {
+    const { spawn } = yield* Effect.promise(() => import("child_process"));
+
+    return yield* Effect.async<PackageManagerInfo | null, never>((resume) => {
+      const child = spawn(command, ["--version"], {
+        stdio: ["ignore", "pipe", "ignore"],
+        shell: true,
+      });
+
+      let stdout = "";
+
+      if (child.stdout) {
+        child.stdout.on("data", (data: Buffer) => {
+          stdout += data.toString();
+        });
+      }
+
+      child.on("close", (code) => {
+        if (code === 0 && stdout.trim()) {
+          // Successfully got version
+          resume(
+            Effect.succeed({
+              name: command,
+              version: stdout.trim(),
+            }),
+          );
+        } else {
+          // Command doesn't exist or version check failed
+          resume(Effect.succeed(null));
+        }
+      });
+
+      child.on("error", () => {
+        // Command doesn't exist or spawn failed
+        resume(Effect.succeed(null));
+      });
+    });
+  });
+}
+
+/**
+ * Detect which package manager to use for updating
+ * First tries to detect which package manager was used to install Jazz
+ * Falls back to checking available package managers if detection fails
+ *
+ * Future: Can add minimum version checks here
+ */
+function detectPackageManager(): Effect.Effect<PackageManagerInfo, UpdateInstallError> {
+  return Effect.gen(function* () {
+    const installPath = yield* findExecutablePathViaShell();
+
+    if (installPath) {
+      const detectedPm = yield* detectPackageManagerFromPath(installPath);
+
+      if (detectedPm) {
+        const pmInfo = yield* getPackageManagerVersion(detectedPm);
+        if (pmInfo) {
+          return pmInfo;
+        }
+        // Package manager detected but version check failed - fall through to fallback
+      }
+    }
+
+    // Fallback: Check available package managers in order of preference
+    // Check bun first
+    const bunInfo = yield* getPackageManagerVersion("bun");
+    if (bunInfo) return bunInfo;
+
+    // Check pnpm
+    const pnpmInfo = yield* getPackageManagerVersion("pnpm");
+    if (pnpmInfo) return pnpmInfo;
+
+    // Check yarn
+    const yarnInfo = yield* getPackageManagerVersion("yarn");
+    if (yarnInfo) return yarnInfo;
+
+    // Check npm
+    const npmInfo = yield* getPackageManagerVersion("npm");
+    if (npmInfo) return npmInfo;
+
+    // None of the package managers are installed
+    return yield* Effect.fail(
+      new UpdateInstallError({
+        message:
+          "No package manager found. Please install one of: bun, pnpm, yarn, or npm\n" +
+          "npm usually comes with Node.js: https://nodejs.org/\n" +
+          "bun: https://bun.sh/\n" +
+          "pnpm: https://pnpm.io/\n" +
+          "yarn: https://yarnpkg.com/",
+      }),
+    );
+  });
+}
+
+/**
+ * Install the latest version.
+ *
+ * Binary installations replace themselves from the GitHub release; package
+ * installations hand the job to whichever package manager put Jazz there.
+ */
+function installUpdate(
+  packageName: string,
+  latestVersion: string,
+  terminal: TerminalService,
+): Effect.Effect<void, UpdateInstallError> {
+  return Effect.gen(function* () {
+    if (isStandaloneBinary()) {
+      return yield* installBinaryUpdate(latestVersion, terminal);
+    }
+
+    const { spawn } = yield* Effect.promise(() => import("child_process"));
+
+    // Detect which package manager to use
+    const pmInfo = yield* detectPackageManager();
+
+    yield* terminal.log(`\n📦 Installing update using ${pmInfo.name} ${pmInfo.version}...`);
+
+    if (pmInfo.name === "yarn") {
+      const majorString = pmInfo.version.split(".")[0] ?? "";
+      const major = Number.parseInt(majorString, 10);
+      if (Number.isFinite(major) && major >= 2) {
+        return yield* Effect.fail(
+          new UpdateInstallError({
+            message:
+              "Yarn 2+ (Berry) does not support global installs in the same way as Yarn classic.\n" +
+              "Please update Jazz using one of:\n" +
+              "- npm: npm install -g jazz-ai@latest\n" +
+              "- pnpm: pnpm add -g jazz-ai@latest\n" +
+              "- bun: bun add -g jazz-ai@latest",
+          }),
+        );
+      }
+    }
+
+    const installArgs =
+      pmInfo.name === "bun"
+        ? ["add", "-g", `${packageName}@latest`]
+        : pmInfo.name === "pnpm"
+          ? ["add", "-g", `${packageName}@latest`]
+          : pmInfo.name === "yarn"
+            ? ["global", "add", `${packageName}@latest`]
+            : ["install", "-g", `${packageName}@latest`];
+
+    yield* Effect.async<void, UpdateInstallError>((resume) => {
+      const child = spawn(pmInfo.name, installArgs, {
+        stdio: "inherit",
+        shell: true,
+      });
+
+      child.on("close", (code) => {
+        if (code === 0) {
+          resume(Effect.succeed(undefined));
+        } else {
+          resume(
+            Effect.fail(
+              new UpdateInstallError({
+                message: `${pmInfo.name} install failed with exit code ${code ?? "unknown"}`,
+              }),
+            ),
+          );
+        }
+      });
+
+      child.on("error", (unknownError: unknown) => {
+        resume(
+          Effect.fail(
+            new UpdateInstallError({
+              message: `Failed to spawn ${pmInfo.name}`,
+              cause: unknownError,
+            }),
+          ),
+        );
+      });
+    });
+  });
+}
+
+/**
+ * Update command - checks for updates and installs if available
+ */
+export function updateCommand(options?: {
+  check?: boolean;
+}): Effect.Effect<void, never, LoggerService | AgentConfigService | TerminalService> {
+  return Effect.gen(function* () {
+    const logger = yield* LoggerServiceTag;
+    const terminal = yield* TerminalServiceTag;
+
+    yield* terminal.info("Checking for updates...");
+    yield* terminal.log("");
+
+    // Check for updates
+    const versionInfo = yield* checkForUpdate().pipe(
+      Effect.catchAll((checkError: UpdateCheckError) => {
+        return Effect.gen(function* () {
+          yield* logger.error("Failed to check for updates", { error: checkError.message });
+          yield* terminal.error("Failed to check for updates:");
+          yield* terminal.log(`   ${checkError.message}`);
+          yield* terminal.log("\n💡 You can manually check for updates at:");
+          yield* terminal.log(`   https://www.npmjs.com/package/${packageJson.name}`);
+          return yield* Effect.fail(checkError);
+        });
+      }),
+      Effect.catchAll(() =>
+        Effect.succeed({
+          hasUpdate: false,
+          currentVersion: packageJson.version,
+          latestVersion: packageJson.version,
+        }),
+      ),
+    );
+
+    yield* terminal.log(`📦 Current version: ${versionInfo.currentVersion}`);
+    yield* terminal.log(`📦 Latest version:  ${versionInfo.latestVersion}`);
+    yield* terminal.log("");
+
+    if (!versionInfo.hasUpdate) {
+      yield* logger.info("Already on latest version");
+      yield* terminal.success("You're already on the latest version!");
+      return;
+    }
+
+    yield* terminal.success("A new version is available!");
+
+    // If --check flag is used, just show the info and exit
+    if (options?.check) {
+      yield* terminal.log("\n💡 Run 'jazz update' to install the latest version");
+      return;
+    }
+
+    yield* terminal.log("");
+    yield* terminal.log("⚡ Starting update process...");
+    yield* terminal.log("");
+
+    // Install the update
+    yield* installUpdate(packageJson.name, versionInfo.latestVersion, terminal).pipe(
+      Effect.catchAll((installError: UpdateInstallError) => {
+        return Effect.gen(function* () {
+          yield* logger.error("Failed to install update", { error: installError.message });
+          yield* terminal.error("Failed to install update:");
+          yield* terminal.log(`   ${installError.message}`);
+          if (!isStandaloneBinary()) {
+            yield* terminal.log("\n💡 You can manually update by running:");
+            yield* terminal.log(`   npm install -g ${packageJson.name}@latest`);
+            yield* terminal.log(`   bun add -g ${packageJson.name}@latest`);
+            yield* terminal.log(`   pnpm add -g ${packageJson.name}@latest`);
+          }
+        });
+      }),
+    );
+
+    yield* logger.info("Update completed successfully");
+    yield* terminal.success("Update completed successfully!");
+    yield* terminal.log(`🎉 Jazz has been updated to version ${versionInfo.latestVersion}`);
+  });
+}

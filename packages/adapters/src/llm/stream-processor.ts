@@ -1,0 +1,773 @@
+/**
+ * Stream Processing Utilities
+ *
+ * Clean separation of concerns for AI SDK streaming:
+ * - Handles AI SDK StreamText responses
+ * - Emits Effect Stream events
+ * - Manages completion signals
+ * - Tracks reasoning and text streams
+ */
+
+import type { LoggerService } from "@jazz/core/interfaces/logger";
+import type { ChatCompletionResponse, StreamEvent } from "@jazz/core/types";
+import { type LLMError } from "@jazz/core/types/errors";
+import type { ToolCall } from "@jazz/core/types/tools";
+import type { streamText } from "ai";
+import { Chunk, Effect, Option } from "effect";
+import type { ParseChunk, ReasoningParser } from "./reasoning";
+import { extractReasoningParts } from "./reasoning-parts";
+
+/**
+ * Type for AI SDK StreamText result
+ */
+type StreamTextResult = ReturnType<typeof streamText>;
+
+/**
+ * Default for how long the stream may go without producing anything before it
+ * is treated as dead.
+ *
+ * A provider that stops sending without closing the connection would otherwise
+ * block `for await` indefinitely, which no layer below the caller's wall-clock
+ * timeout can detect. Two minutes exceeds any legitimate gap between parts on
+ * hosted providers — generation emits tens of tokens a second, and first-part
+ * latency stays under twenty seconds — so exceeding it means the connection is
+ * dead, not slow.
+ *
+ * Local providers are different: before the first part arrives, the server may
+ * still be loading model weights from disk and prefilling a long prompt, which
+ * on a cold start can legitimately run past two minutes. That is what
+ * `llm.streamIdleTimeoutMs` in config.json and JAZZ_STREAM_IDLE_TIMEOUT_MS
+ * raise; they do not change what the timeout is for. Tool execution happens
+ * between streams, not inside one, so a slow tool cannot trip this either way.
+ */
+const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 120_000;
+
+/**
+ * Resolve the stream idle budget: an explicit `llm.streamIdleTimeoutMs` from
+ * config.json wins, then `JAZZ_STREAM_IDLE_TIMEOUT_MS`, then the default.
+ *
+ * Both override paths set the whole budget in milliseconds (not a delta), and
+ * must be a positive integer — anything else falls back to the next source
+ * rather than silently disabling the watchdog or zeroing it.
+ */
+export function resolveStreamIdleTimeoutMs(
+  configured: unknown,
+  env: Record<string, string | undefined> = process.env,
+): number {
+  if (typeof configured === "number" && Number.isInteger(configured) && configured > 0) {
+    return configured;
+  }
+  const raw = env["JAZZ_STREAM_IDLE_TIMEOUT_MS"];
+  if (raw === undefined || raw === "") return DEFAULT_STREAM_IDLE_TIMEOUT_MS;
+  const parsed = Number(raw);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : DEFAULT_STREAM_IDLE_TIMEOUT_MS;
+}
+
+/** Raised when a provider stream stops producing without closing. */
+export class StreamIdleTimeoutError extends Error {
+  constructor(readonly idleMs: number) {
+    super(
+      `Provider stream produced nothing for ${Math.round(idleMs / 1000)}s and was abandoned. ` +
+        `The connection stalled without closing.`,
+    );
+    this.name = "StreamIdleTimeoutError";
+  }
+}
+
+/**
+ * Re-yield `source`, failing if any single step takes longer than `idleMs`.
+ *
+ * The timer is per part rather than for the whole stream: a long answer is
+ * healthy, a long *silence* is not.
+ */
+export async function* withIdleTimeout<T>(
+  source: AsyncIterable<T>,
+  idleMs: number,
+): AsyncGenerator<T> {
+  const iterator = source[Symbol.asyncIterator]();
+  try {
+    for (;;) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const idle = new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new StreamIdleTimeoutError(idleMs)), idleMs);
+      });
+      let step: IteratorResult<T>;
+      try {
+        step = await Promise.race([iterator.next(), idle]);
+      } finally {
+        if (timer !== undefined) clearTimeout(timer);
+      }
+      if (step.done === true) return;
+      yield step.value;
+    }
+  } finally {
+    // Signal the provider we are done so a stalled connection is torn down, but
+    // never wait for it: `return()` on an iterator suspended mid-await resolves
+    // only when that await does, so awaiting here would hang on exactly the
+    // stream this function exists to escape.
+    void iterator.return?.()?.catch(() => undefined);
+  }
+}
+
+/**
+ * Emit function type for Effect streams
+ */
+type EmitFunction = (
+  effect: Effect.Effect<Chunk.Chunk<StreamEvent>, Option.Option<LLMError>>,
+) => void;
+
+/**
+ * Configuration for stream processor
+ */
+interface StreamProcessorConfig {
+  readonly providerName: string;
+  readonly modelName: string;
+  /** `llm.streamIdleTimeoutMs` from config.json, when set — wins over the env var. */
+  readonly streamIdleTimeoutMs?: unknown;
+  readonly hasReasoningEnabled: boolean;
+  readonly startTime: number;
+  readonly toolsDisabled?: boolean;
+  /** Local-provider `num_ctx` for this request, when the agent pinned one. */
+  readonly pinnedContextWindow?: number;
+  readonly providerNativeToolNames?: Set<string>;
+  /** Estimated character count of tool definitions for telemetry. */
+  readonly toolDefinitionChars?: number;
+  /** Number of tool definitions sent to the LLM. */
+  readonly toolDefinitionCount?: number;
+  /**
+   * Optional client-side parser for reasoning tags in text-delta content.
+   * When set, text-delta chunks flow through parser.feed() instead of being
+   * emitted directly. Used for local providers (llamacpp, sometimes ollama)
+   * where reasoning arrives inline rather than as structured events.
+   */
+  readonly reasoningParser?: ReasoningParser;
+}
+
+/**
+ * Stream processor state
+ */
+interface StreamProcessorState {
+  // Text accumulation
+  accumulatedText: string;
+  textSequence: number;
+  hasStartedText: boolean;
+
+  // Reasoning tracking
+  reasoningSequence: number;
+  reasoningTokens: number | undefined;
+  reasoningStreamCompleted: boolean;
+  /**
+   * Reasoning text accumulated across reasoning-delta events. Always captured
+   * (regardless of whether the user enabled reasoning) so a response that
+   * emits only reasoning — e.g. llama.cpp models with `--jinja` routing
+   * everything into `reasoning_content` — can still be surfaced to the user
+   * instead of looking empty.
+   */
+  accumulatedReasoning: string;
+
+  // Tool calls
+  collectedToolCalls: ToolCall[];
+  /** Provider-native tool calls waiting for tool-result to arrive with enriched data (e.g. query) */
+  pendingNativeToolCalls: Map<string, { toolCall: ToolCall; sequence: number }>;
+
+  // Timing
+  firstTokenTime: number | null;
+  firstTextTime: number | null;
+  firstReasoningTime: number | null;
+
+  // Completion tracking
+  finishEventReceived: boolean;
+  finishReason: string | undefined;
+
+  // Interruption
+  cancelled: boolean;
+}
+
+/**
+ * Create initial processor state
+ */
+function createInitialState(): StreamProcessorState {
+  return {
+    accumulatedText: "",
+    textSequence: 0,
+    hasStartedText: false,
+    reasoningSequence: 0,
+    reasoningTokens: undefined,
+    reasoningStreamCompleted: false,
+    accumulatedReasoning: "",
+    collectedToolCalls: [],
+    pendingNativeToolCalls: new Map(),
+    firstTokenTime: null,
+    firstTextTime: null,
+    firstReasoningTime: null,
+    finishEventReceived: false,
+    finishReason: undefined,
+    cancelled: false,
+  };
+}
+
+/**
+ * Stream Processor
+ * Handles AI SDK streaming responses and emits Effect stream events
+ */
+export class StreamProcessor {
+  private state: StreamProcessorState;
+  private completionResolver: (() => void) | null = null;
+  private completionPromise: Promise<void>;
+
+  constructor(
+    private readonly config: StreamProcessorConfig,
+    private readonly emit: EmitFunction,
+    private readonly logger: LoggerService,
+  ) {
+    this.state = createInitialState();
+
+    // Create completion promise
+    this.completionPromise = new Promise<void>((resolve) => {
+      this.completionResolver = resolve;
+    });
+  }
+
+  /**
+   * Signal that the stream has been cancelled externally
+   */
+  cancel(): void {
+    this.state.cancelled = true;
+  }
+
+  /**
+   * Get the completion promise
+   */
+  get completion(): Promise<void> {
+    return this.completionPromise;
+  }
+
+  /**
+   * Process AI SDK StreamText result
+   * Returns the final ChatCompletionResponse
+   */
+  async process(result: StreamTextResult): Promise<ChatCompletionResponse> {
+    // Emit stream start
+    void this.emitEvent({
+      type: "stream_start",
+      provider: this.config.providerName,
+      model: this.config.modelName,
+      timestamp: this.config.startTime,
+      ...(this.config.pinnedContextWindow !== undefined && {
+        pinnedContextWindow: this.config.pinnedContextWindow,
+      }),
+    });
+
+    // Start processing stream
+    void this.logger.debug(`[LLM Timing] 🔄 Starting to process fullStream...`);
+    const streamProcessStart = Date.now();
+    await this.processFullStream(result);
+
+    if (this.config.reasoningParser) {
+      this.routeParsedChunk(this.config.reasoningParser.flush());
+    }
+
+    void this.logger.debug(
+      `[LLM Timing] ✓ Stream processing completed in ${Date.now() - streamProcessStart}ms`,
+    );
+
+    // Wait for completion
+    await this.completionPromise;
+
+    // Validate that we received finish event
+    if (!this.state.finishEventReceived && !this.state.cancelled) {
+      const error = new Error("Stream completed without finish event");
+      throw error;
+    }
+
+    // Build final response
+    const finalResponse = await this.buildFinalResponse(result);
+
+    // Emit complete event
+    this.emitCompleteEvent(finalResponse);
+
+    return finalResponse;
+  }
+
+  /**
+   * Process full stream for all events (text, reasoning, tools)
+   */
+  private async processFullStream(result: StreamTextResult): Promise<void> {
+    try {
+      for await (const part of withIdleTimeout(
+        result.fullStream,
+        resolveStreamIdleTimeoutMs(this.config.streamIdleTimeoutMs),
+      )) {
+        // Stop if we've finished
+        if (this.state.finishEventReceived) {
+          break;
+        }
+
+        switch (part.type) {
+          case "text-delta": {
+            if (this.state.reasoningSequence > 0 && !this.state.reasoningStreamCompleted) {
+              this.state.reasoningStreamCompleted = true;
+              void this.emitEvent({
+                type: "thinking_complete",
+                ...(this.state.reasoningTokens !== undefined && {
+                  totalTokens: this.state.reasoningTokens,
+                }),
+              });
+              this.state.reasoningSequence = 0;
+              this.state.reasoningStreamCompleted = false;
+            }
+            let textChunk: string;
+            if (typeof part.text === "string") {
+              textChunk = part.text;
+            } else if (Array.isArray(part.text)) {
+              const textArray = part.text as Array<unknown>;
+              textChunk = textArray
+                .map((item: unknown) => {
+                  if (typeof item === "object" && item !== null) {
+                    const itemData = item as Record<string, unknown>;
+                    if (itemData["type"] === "text" && "text" in itemData) {
+                      return String(itemData["text"]);
+                    }
+                    if (itemData["type"] === "reference") {
+                      return "";
+                    }
+                  }
+                  return typeof item === "string" ? item : "";
+                })
+                .join("");
+            } else {
+              textChunk = String(part.text ?? "");
+            }
+
+            if (textChunk.length === 0) break;
+
+            if (this.config.reasoningParser) {
+              this.routeParsedChunk(this.config.reasoningParser.feed(textChunk));
+            } else {
+              this.emitVisibleText(textChunk);
+            }
+            break;
+          }
+
+          case "reasoning-start": {
+            // Emit thinking start on reasoning-start event. Reasoning is always
+            // surfaced when the provider sends it: providers that respect
+            // disabled reasoning won't emit these parts, and providers that
+            // emit reasoning anyway (e.g. llama-server with --jinja) should
+            // remain visible to the user rather than be silently dropped.
+            if (this.state.reasoningSequence === 0) {
+              const firstReasoningLatency = Date.now() - this.config.startTime;
+              void this.logger.debug(
+                `[LLM Timing] 🧠 REASONING START arrived after ${firstReasoningLatency}ms`,
+              );
+              void this.emitEvent({ type: "thinking_start", provider: this.config.providerName });
+              this.recordFirstToken("reasoning");
+            }
+            break;
+          }
+
+          case "reasoning-delta": {
+            const textDelta = part.text;
+
+            if (textDelta && textDelta.length > 0) {
+              this.state.accumulatedReasoning += textDelta;
+
+              // Emit thinking start if we haven't received reasoning-start event
+              if (this.state.reasoningSequence === 0) {
+                const firstReasoningLatency = Date.now() - this.config.startTime;
+                void this.logger.debug(
+                  `[LLM Timing] 🧠 FIRST REASONING TOKEN arrived after ${firstReasoningLatency}ms`,
+                );
+                void this.emitEvent({ type: "thinking_start", provider: this.config.providerName });
+                this.recordFirstToken("reasoning");
+              }
+
+              void this.emitEvent({
+                type: "thinking_chunk",
+                content: textDelta,
+                sequence: this.state.reasoningSequence++,
+              });
+            }
+            break;
+          }
+
+          case "reasoning-end": {
+            // Extract reasoning tokens from metadata
+            const totalUsage = "totalUsage" in part ? part.totalUsage : undefined;
+            const usage = "usage" in part ? part.usage : undefined;
+
+            const reasoningTokens =
+              totalUsage && typeof totalUsage === "object" && "reasoningTokens" in totalUsage
+                ? (totalUsage as { reasoningTokens?: number }).reasoningTokens
+                : usage && typeof usage === "object" && "reasoningTokens" in usage
+                  ? (usage as { reasoningTokens?: number }).reasoningTokens
+                  : undefined;
+
+            if (reasoningTokens !== undefined) {
+              this.state.reasoningTokens = reasoningTokens;
+            }
+
+            // Emit thinking complete whenever a reasoning stream was opened
+            // (matches reasoning-start / reasoning-delta: not gated on
+            // hasReasoningEnabled so provider-emitted reasoning always closes).
+            if (this.state.reasoningSequence > 0 && !this.state.reasoningStreamCompleted) {
+              this.state.reasoningStreamCompleted = true;
+              void this.emitEvent({
+                type: "thinking_complete",
+                ...(this.state.reasoningTokens !== undefined && {
+                  totalTokens: this.state.reasoningTokens,
+                }),
+              });
+
+              this.state.reasoningSequence = 0;
+              this.state.reasoningStreamCompleted = false;
+            }
+            break;
+          }
+
+          case "tool-call": {
+            const isProviderNative =
+              this.config.providerNativeToolNames?.has(part.toolName) ?? false;
+
+            const toolCall: ToolCall = {
+              id: part.toolCallId,
+              type: "function",
+              function: {
+                name: part.toolName,
+                arguments: JSON.stringify(part.input),
+              },
+            };
+
+            // Preserve thought_signature for Google/Gemini models if present
+            // The AI SDK includes it in providerMetadata.google.thoughtSignature
+            if ("providerMetadata" in part && part.providerMetadata) {
+              const providerMetadata = part.providerMetadata as {
+                google?: { thoughtSignature?: string };
+              };
+              if (providerMetadata?.google?.thoughtSignature) {
+                toolCall.thought_signature = providerMetadata.google.thoughtSignature;
+              }
+            }
+
+            if (isProviderNative) {
+              // Buffer provider-native tool calls (e.g. OpenAI web_search).
+              // The AI SDK hardcodes empty input for these; the real data (e.g.
+              // search query) arrives in the subsequent tool-result event.
+              // We wait for tool-result to emit a single, complete tool_call.
+              this.state.pendingNativeToolCalls.set(toolCall.id, {
+                toolCall,
+                sequence: this.state.textSequence++,
+              });
+            } else {
+              void this.emitEvent({
+                type: "tool_call",
+                toolCall,
+                sequence: this.state.textSequence++,
+              });
+              this.state.collectedToolCalls.push(toolCall);
+            }
+            break;
+          }
+
+          // Provider-native tool results (e.g. OpenAI web_search).
+          // The AI SDK emits tool-result after tool-call for provider-executed tools.
+          // For web_search the query is NOT in tool-call input (hardcoded {})
+          // but IS in tool-result output as action.query.
+          case "tool-result": {
+            const pending = this.state.pendingNativeToolCalls.get(part.toolCallId);
+            if (!pending) break;
+            this.state.pendingNativeToolCalls.delete(part.toolCallId);
+
+            // Enrich the buffered tool call with data from the result
+            const output = part.output as Record<string, unknown> | undefined;
+            const action = output?.["action"] as Record<string, unknown> | undefined;
+            if (action?.["type"] === "search" && typeof action["query"] === "string") {
+              pending.toolCall.function.arguments = JSON.stringify({ query: action["query"] });
+            }
+
+            void this.emitEvent({
+              type: "tool_call",
+              toolCall: pending.toolCall,
+              sequence: pending.sequence,
+              providerNative: true,
+            });
+            break;
+          }
+
+          case "finish": {
+            // Flush any buffered provider-native tool calls that never got a tool-result
+            for (const [id, pending] of this.state.pendingNativeToolCalls) {
+              void this.emitEvent({
+                type: "tool_call",
+                toolCall: pending.toolCall,
+                sequence: pending.sequence,
+                providerNative: true,
+              });
+              this.state.pendingNativeToolCalls.delete(id);
+            }
+
+            const finishReason = part.finishReason || "unknown";
+            this.state.finishEventReceived = true;
+            this.state.finishReason = finishReason;
+
+            // Handle error finish reason
+            if (finishReason === "error") {
+              const error = new Error(
+                `Unexpected error during stream processing: ${JSON.stringify(part)}`,
+              );
+              throw error;
+            }
+
+            if (
+              finishReason !== "stop" &&
+              finishReason !== "length" &&
+              finishReason !== "tool-calls"
+            ) {
+              void this.logger.warn(`[StreamProcessor] Unexpected finish reason: ${finishReason}`);
+            }
+            break;
+          }
+
+          case "error": {
+            throw part.error;
+          }
+        }
+      }
+    } catch (error) {
+      if (error instanceof Error && error.name === "AI_TypeValidationError") {
+        void this.logger.warn(
+          `[StreamProcessor] AI SDK validation error (likely due to provider-specific content format): ${error.message}`,
+          {
+            provider: this.config.providerName,
+            model: this.config.modelName,
+            errorName: error.name,
+          },
+        );
+
+        throw error;
+      }
+      // Re-throw other errors
+      throw error;
+    } finally {
+      this.resolveCompletion();
+    }
+  }
+
+  private emitVisibleText(textChunk: string): void {
+    if (!this.state.hasStartedText) {
+      const firstTokenLatency = Date.now() - this.config.startTime;
+      void this.logger.debug(`[LLM Timing] 🎯 FIRST TOKEN arrived after ${firstTokenLatency}ms`);
+      void this.emitEvent({ type: "text_start" });
+      this.state.hasStartedText = true;
+      this.recordFirstToken("text");
+    }
+    this.state.accumulatedText += textChunk;
+    void this.emitEvent({
+      type: "text_chunk",
+      delta: textChunk,
+      accumulated: this.state.accumulatedText,
+      sequence: this.state.textSequence++,
+    });
+  }
+
+  private routeParsedChunk(chunk: ParseChunk): void {
+    if (chunk.thinkingStarted && this.state.reasoningSequence === 0) {
+      const firstReasoningLatency = Date.now() - this.config.startTime;
+      void this.logger.debug(
+        `[LLM Timing] 🧠 PARSER REASONING START after ${firstReasoningLatency}ms`,
+      );
+      void this.emitEvent({ type: "thinking_start", provider: this.config.providerName });
+      this.recordFirstToken("reasoning");
+    }
+    if (chunk.thinkingText.length > 0) {
+      this.state.accumulatedReasoning += chunk.thinkingText;
+      void this.emitEvent({
+        type: "thinking_chunk",
+        content: chunk.thinkingText,
+        sequence: this.state.reasoningSequence++,
+      });
+    }
+    // Mirrors the reasoning-end handler above: reset reasoningSequence to 0 so a
+    // second thinking block in the same response can re-enter the thinking_start
+    // gate. The reasoningStreamCompleted toggle is kept symmetric with that handler
+    // for consistency, even though emitEvent is synchronous and re-entrancy isn't
+    // possible here.
+    if (
+      chunk.thinkingEnded &&
+      this.state.reasoningSequence > 0 &&
+      !this.state.reasoningStreamCompleted
+    ) {
+      this.state.reasoningStreamCompleted = true;
+      void this.emitEvent({
+        type: "thinking_complete",
+        ...(this.state.reasoningTokens !== undefined && {
+          totalTokens: this.state.reasoningTokens,
+        }),
+      });
+      this.state.reasoningSequence = 0;
+      this.state.reasoningStreamCompleted = false;
+    }
+    if (chunk.visibleText.length > 0) {
+      this.emitVisibleText(chunk.visibleText);
+    }
+  }
+
+  /**
+   * Build final response
+   */
+  private async buildFinalResponse(result: StreamTextResult): Promise<ChatCompletionResponse> {
+    const finalText = this.state.accumulatedText;
+    const toolCalls =
+      this.state.collectedToolCalls.length > 0 ? this.state.collectedToolCalls : undefined;
+
+    let usage: ChatCompletionResponse["usage"];
+    try {
+      const usageResult = await Promise.race([
+        result.usage,
+        new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 50)),
+      ]);
+
+      if (usageResult) {
+        usage = {
+          promptTokens: usageResult.inputTokens ?? 0,
+          completionTokens: usageResult.outputTokens ?? 0,
+          totalTokens: usageResult.totalTokens ?? 0,
+          ...(this.state.reasoningTokens !== undefined && {
+            reasoningTokens: this.state.reasoningTokens,
+          }),
+          ...(usageResult.outputTokenDetails?.reasoningTokens != null &&
+            this.state.reasoningTokens === undefined && {
+              reasoningTokens: usageResult.outputTokenDetails.reasoningTokens,
+            }),
+          ...(usageResult.inputTokenDetails?.cacheReadTokens != null && {
+            cacheReadTokens: usageResult.inputTokenDetails.cacheReadTokens,
+          }),
+          ...(usageResult.inputTokenDetails?.cacheWriteTokens != null && {
+            cacheWriteTokens: usageResult.inputTokenDetails.cacheWriteTokens,
+          }),
+        };
+
+        // Emit usage update
+        void this.emitEvent({ type: "usage_update", usage });
+      }
+    } catch {
+      // Ignore usage errors
+    }
+
+    let reasoningParts: ChatCompletionResponse["reasoningParts"];
+    try {
+      const responseData = await Promise.race([
+        result.response,
+        new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 50)),
+      ]);
+      if (responseData?.messages) {
+        reasoningParts = extractReasoningParts(responseData.messages, this.config.providerName);
+      }
+    } catch {
+      // Best-effort: never fail the completion over reasoning capture
+    }
+
+    const reasoningText = this.state.accumulatedReasoning;
+
+    return {
+      id: "",
+      model: this.config.modelName,
+      content: finalText,
+      ...(reasoningText.length > 0 && { reasoning: reasoningText }),
+      ...(reasoningParts ? { reasoningParts } : {}),
+      ...(toolCalls && { toolCalls }),
+      ...(usage && { usage }),
+      ...(this.config.toolsDisabled ? { toolsDisabled: true } : {}),
+      ...(this.config.toolDefinitionChars != null
+        ? { toolDefinitionChars: this.config.toolDefinitionChars }
+        : {}),
+      ...(this.config.toolDefinitionCount != null
+        ? { toolDefinitionCount: this.config.toolDefinitionCount }
+        : {}),
+    };
+  }
+
+  /**
+   * Emit complete event with metrics
+   */
+  private emitCompleteEvent(response: ChatCompletionResponse): void {
+    const endTime = Date.now();
+    const totalDurationMs = endTime - this.config.startTime;
+
+    let metrics:
+      | {
+          firstTokenLatencyMs: number;
+          firstTextLatencyMs?: number;
+          firstReasoningLatencyMs?: number;
+          tokensPerSecond?: number;
+          totalTokens?: number;
+        }
+      | undefined;
+
+    if (this.state.firstTokenTime) {
+      const firstTokenLatencyMs = this.state.firstTokenTime - this.config.startTime;
+      metrics = { firstTokenLatencyMs };
+
+      if (this.state.firstTextTime) {
+        metrics.firstTextLatencyMs = this.state.firstTextTime - this.config.startTime;
+      }
+
+      if (this.state.firstReasoningTime) {
+        metrics.firstReasoningLatencyMs = this.state.firstReasoningTime - this.config.startTime;
+      }
+
+      if (response.usage?.totalTokens) {
+        metrics.tokensPerSecond = (response.usage.totalTokens / totalDurationMs) * 1000;
+        metrics.totalTokens = response.usage.totalTokens;
+      }
+    }
+
+    this.emitEvent({
+      type: "complete",
+      response,
+      totalDurationMs,
+      ...(metrics && { metrics }),
+    });
+  }
+
+  /**
+   * Record first token time
+   */
+  private recordFirstToken(type: "text" | "reasoning"): void {
+    const now = Date.now();
+    if (!this.state.firstTokenTime) {
+      this.state.firstTokenTime = now;
+    }
+
+    if (type === "text" && !this.state.firstTextTime) {
+      this.state.firstTextTime = now;
+    } else if (type === "reasoning" && !this.state.firstReasoningTime) {
+      this.state.firstReasoningTime = now;
+    }
+  }
+
+  /**
+   * Resolve completion
+   */
+  private resolveCompletion(): void {
+    if (this.completionResolver) {
+      this.completionResolver();
+      this.completionResolver = null;
+    }
+  }
+
+  /**
+   * Emit a stream event
+   */
+  private emitEvent(event: StreamEvent): void {
+    this.emit(Effect.succeed(Chunk.of(event)));
+  }
+
+  /**
+   * Close the stream
+   */
+  close(): void {
+    // Signal end of stream
+    this.emit(Effect.fail(Option.none()));
+  }
+}

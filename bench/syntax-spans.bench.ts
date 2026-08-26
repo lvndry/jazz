@@ -2,7 +2,7 @@
 // with a visible code block or diff receipt.
 import { codeFenceLines, unifiedDiffLines } from "./corpus";
 import { bench, report } from "./harness";
-import { highlightFenceLines } from "../src/cli/ui/fullscreen/syntax-spans";
+import { highlightFenceLines } from "../packages/cli/src/ui/fullscreen/syntax-spans";
 
 const shortFence = codeFenceLines(20);
 const longFence = codeFenceLines(300);

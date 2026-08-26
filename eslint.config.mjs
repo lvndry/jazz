@@ -15,8 +15,8 @@ const tsconfigRootDir = path.dirname(fileURLToPath(import.meta.url));
 const nodeGlobals = globals.node;
 
 export default [
-  // The website package lints with its own config (see website/README.md).
-  { ignores: ["website/**"] },
+  // The website package lints with its own config (see packages/website/README.md).
+  { ignores: ["packages/website/**", "**/dist/**"] },
   js.configs.recommended,
   // Base TS rules (apply to all TS files including tests)
   ...tseslint.configs.recommended,
@@ -24,7 +24,7 @@ export default [
   ...tseslint.configs.recommendedTypeChecked.map((config) => ({
     ...config,
     files: ["**/*.{ts,tsx}"],
-    ignores: ["**/*.test.{ts,tsx}", "test-preload.ts", "integrations/**", "bench/**"],
+    ignores: ["**/*.test.{ts,tsx}", "test-preload.ts", "bench/**"],
   })),
   prettierConfig,
   nodePlugin.configs["flat/recommended-script"],
@@ -37,10 +37,12 @@ export default [
   },
   {
     files: ["**/*.{ts,tsx}"],
-    ignores: ["**/*.test.{ts,tsx}", "test-preload.ts", "integrations/**", "bench/**"],
+    ignores: ["**/*.test.{ts,tsx}", "test-preload.ts", "bench/**"],
     languageOptions: {
       parserOptions: {
-        project: ["./tsconfig.app.json", "./tsconfig.build.json"],
+        projectService: {
+          allowDefaultProject: [],
+        },
         tsconfigRootDir,
       },
       globals: {
@@ -55,25 +57,16 @@ export default [
       "@typescript-eslint/no-explicit-any": "warn",
       "no-console": "off",
       "@typescript-eslint/explicit-function-return-type": "off",
+      // eslint-plugin-n does raw Node resolution and can't see through tsconfig
+      // `paths`/`exports`, so both rules misread every "@/core/..."-style same-package
+      // self-reference as an unresolvable or undeclared import. tsc -b already checks
+      // resolution; a type-aware `import-x` replacement for no-unpublished-import exists
+      // but was too slow across this many tsconfigs to be worth it.
       "n/no-missing-import": "off",
+      "n/no-unpublished-import": "off",
       "n/no-unsupported-features/es-syntax": "off",
       "n/no-unsupported-features/node-builtins": ["error", { allowExperimental: true }],
       "n/no-process-exit": "off",
-    },
-  },
-  {
-    // Standalone integrations (run under Bun, not part of the src tsconfig).
-    files: ["integrations/**/*.{ts,tsx}"],
-    languageOptions: {
-      globals: {
-        ...nodeGlobals,
-      },
-    },
-    rules: {
-      "n/no-process-exit": "off",
-      "n/no-missing-import": "off",
-      "n/no-unsupported-features/es-syntax": "off",
-      "n/no-unsupported-features/node-builtins": ["error", { allowExperimental: true }],
     },
   },
   {
@@ -123,6 +116,7 @@ export default [
     rules: {
       "no-console": "off",
       "n/no-missing-import": "off",
+      "n/no-unpublished-import": "off",
       "n/no-unsupported-features/es-syntax": "off",
     },
   },
@@ -152,6 +146,7 @@ export default [
       "@typescript-eslint/no-explicit-any": "off",
       "no-console": "off",
       "n/no-missing-import": "off",
+      "n/no-unpublished-import": "off",
       "n/no-unsupported-features/es-syntax": "off",
     },
   },
@@ -175,7 +170,13 @@ export default [
       "@typescript-eslint/no-explicit-any": "warn",
       "no-console": "off",
       "@typescript-eslint/explicit-function-return-type": "off",
+      // eslint-plugin-n does raw Node resolution and can't see through tsconfig
+      // `paths`/`exports`, so both rules misread every "@/core/..."-style same-package
+      // self-reference as an unresolvable or undeclared import. tsc -b already checks
+      // resolution; a type-aware `import-x` replacement for no-unpublished-import exists
+      // but was too slow across this many tsconfigs to be worth it.
       "n/no-missing-import": "off",
+      "n/no-unpublished-import": "off",
       "n/no-unsupported-features/es-syntax": "off",
       "n/no-unsupported-features/node-builtins": ["error", { allowExperimental: true }],
       "n/no-process-exit": "off",

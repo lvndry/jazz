@@ -4,8 +4,8 @@
 // models run the real BPE tokenizer, everything else takes the ratio shortcut.
 import { markdownReply } from "./corpus";
 import { bench, report } from "./harness";
-import { ContextWindowManager } from "../src/core/agent/context/context-window-manager";
-import type { ChatMessage } from "../src/core/types/message";
+import { ContextWindowManager } from "../packages/core/src/agent/context/context-window-manager";
+import type { ChatMessage } from "../packages/core/src/types/message";
 
 const bpeManager = new ContextWindowManager({
   maxTokens: 100_000,

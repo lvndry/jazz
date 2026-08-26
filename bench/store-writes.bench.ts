@@ -1,7 +1,7 @@
 // Store write paths: per-delta appendStream and batched printOutput.
 import { outputEntries, streamDeltas } from "./corpus";
 import { bench, report } from "./harness";
-import { UIStore } from "../src/cli/ui/store";
+import { UIStore } from "../packages/cli/src/ui/store";
 
 const entries = outputEntries(500);
 const deltas = streamDeltas(500);

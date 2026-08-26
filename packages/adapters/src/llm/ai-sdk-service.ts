@@ -1,0 +1,1901 @@
+import { alibaba, createAlibaba, type AlibabaLanguageModelOptions } from "@ai-sdk/alibaba";
+import { anthropic, createAnthropic, type AnthropicProviderOptions } from "@ai-sdk/anthropic";
+import { cerebras, createCerebras } from "@ai-sdk/cerebras";
+import { createDeepSeek, deepseek } from "@ai-sdk/deepseek";
+import { createFireworks, fireworks, type FireworksLanguageModelOptions } from "@ai-sdk/fireworks";
+import {
+  createGoogleGenerativeAI,
+  google,
+  type GoogleGenerativeAIProviderOptions,
+} from "@ai-sdk/google";
+import { groq } from "@ai-sdk/groq";
+import { createMistral, mistral } from "@ai-sdk/mistral";
+import {
+  createMoonshotAI,
+  moonshotai,
+  type MoonshotAILanguageModelOptions,
+} from "@ai-sdk/moonshotai";
+import { createOpenAI, openai, type OpenAIResponsesProviderOptions } from "@ai-sdk/openai";
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
+import { createProviderDefinedToolFactory } from "@ai-sdk/provider-utils";
+import { createTogetherAI, togetherai } from "@ai-sdk/togetherai";
+import { createXai, xai, type XaiProviderOptions } from "@ai-sdk/xai";
+import { AI_SDK_MAX_RETRIES, AI_SDK_MAX_STEPS } from "@jazz/core/constants/agent";
+import { OPENROUTER_GATEWAY_MODELS, type ProviderName } from "@jazz/core/constants/models";
+import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
+import { LLMServiceTag, type LLMService, type OllamaShowExtras } from "@jazz/core/interfaces/llm";
+import { LoggerServiceTag, type LoggerService } from "@jazz/core/interfaces/logger";
+import type {
+  ChatCompletionOptions,
+  ChatCompletionResponse,
+  LLMConfig,
+  LLMProvider,
+  LLMProviderListItem,
+  ModelInfo,
+  StreamEvent,
+  StreamingResult,
+} from "@jazz/core/types";
+import {
+  describeAttachment,
+  inlineAttachmentMessageIndices,
+  type MessageAttachment,
+} from "@jazz/core/types/attachment";
+import type { WebSearchConfig } from "@jazz/core/types/config";
+import {
+  LLMAuthenticationError,
+  LLMConfigurationError,
+  type LLMError,
+} from "@jazz/core/types/errors";
+import type { JsonValue } from "@jazz/core/types/message";
+import type { ToolCall } from "@jazz/core/types/tools";
+import { safeParseJson } from "@jazz/core/utils/json";
+import {
+  convertToLLMError,
+  extractCleanErrorMessage,
+  truncateRequestBodyValues,
+} from "@jazz/core/utils/llm-error";
+import { createDeferred } from "@jazz/core/utils/promise";
+import { formatProviderDisplayName } from "@jazz/core/utils/provider-model";
+import { sanitize } from "@jazz/core/utils/string";
+import {
+  createOpenRouter,
+  openrouter as openrouterDefaultInstance,
+  type OpenRouterProviderOptions,
+  type OpenRouterProviderSettings,
+} from "@openrouter/ai-sdk-provider";
+import {
+  gateway,
+  generateText,
+  stepCountIs,
+  streamText,
+  jsonSchema,
+  tool,
+  type LanguageModel,
+  type FilePart,
+  type ModelMessage,
+  type SystemModelMessage,
+  type ToolCallPart,
+  type ToolModelMessage,
+  type ToolSet,
+  type TypedToolCall,
+} from "ai";
+import { Chunk, Effect, Layer, Option, Stream } from "effect";
+import { createOllama } from "ollama-ai-provider-v2";
+import shortUUID from "short-uuid";
+import { minimax } from "vercel-minimax-ai-provider";
+import { createZhipu, zhipu } from "zhipu-ai-provider";
+import { z } from "zod";
+import { LLM_PROVIDER_ENV_VARS } from "@/adapters/secrets/registry";
+import { resolveAttachments, type ResolvedAttachments } from "./attachment-resolver";
+import { saveModelGeneratedFiles } from "./generated-files";
+import {
+  createModelFetcher,
+  fetchModelsDevModels,
+  fetchOllamaModelDetails,
+  type ModelFetcherService,
+} from "./model-fetcher";
+import {
+  PROVIDER_MODELS,
+  resolveLocalProviderBaseUrl,
+  resolveOllamaRequestBaseUrl,
+} from "./models";
+import { selectParser } from "./reasoning";
+import { extractReasoningParts } from "./reasoning-parts";
+import { StreamProcessor } from "./stream-processor";
+
+/** DelayedPromise fields on streamText results reject when the stream fails. */
+const STREAM_TEXT_PROMISE_FIELDS = [
+  "content",
+  "text",
+  "reasoning",
+  "reasoningText",
+  "files",
+  "sources",
+  "toolCalls",
+  "staticToolCalls",
+  "dynamicToolCalls",
+  "staticToolResults",
+  "dynamicToolResults",
+  "toolResults",
+  "finishReason",
+  "rawFinishReason",
+  "usage",
+  "totalUsage",
+  "warnings",
+  "steps",
+  "request",
+  "response",
+  "providerMetadata",
+  "experimental_output",
+  "output",
+] as const;
+
+function suppressStreamTextUnhandledRejections(
+  result: Awaited<ReturnType<typeof streamText>>,
+): void {
+  const record = result as unknown as Record<string, unknown>;
+  for (const field of STREAM_TEXT_PROMISE_FIELDS) {
+    const value = record[field];
+    if (value != null && typeof (value as { then?: unknown }).then === "function") {
+      void Promise.resolve(value).catch(() => {});
+    }
+  }
+}
+
+interface AISDKConfig {
+  llmConfig?: LLMConfig;
+  webSearchConfig?: WebSearchConfig;
+}
+
+function mergeProviderApiKeysIntoLLMConfig(
+  baseLLMConfig: LLMConfig | undefined,
+  providerApiKeys: ChatCompletionOptions["providerApiKeys"] | undefined,
+): LLMConfig | undefined {
+  if (!providerApiKeys || Object.keys(providerApiKeys).length === 0) {
+    return baseLLMConfig;
+  }
+
+  const merged: Record<string, unknown> = { ...(baseLLMConfig ?? {}) };
+  for (const [provider, apiKey] of Object.entries(providerApiKeys)) {
+    if (typeof apiKey !== "string" || apiKey.length === 0) continue;
+    const existingProviderConfig =
+      merged[provider] && typeof merged[provider] === "object"
+        ? (merged[provider] as Record<string, unknown>)
+        : {};
+    merged[provider] = {
+      ...existingProviderConfig,
+      api_key: apiKey,
+    };
+  }
+
+  return merged;
+}
+
+function parseToolArguments(input: string): Record<string, unknown> {
+  const parsed = safeParseJson<Record<string, unknown>>(input);
+  return Option.match(parsed, {
+    onNone: () => ({}),
+    onSome: (value) => (value && typeof value === "object" ? value : {}),
+  });
+}
+
+function toAISDKToolChoice(
+  toolChoice: ChatCompletionOptions["toolChoice"],
+): AISDKToolChoice | undefined {
+  if (!toolChoice) return undefined;
+  if (toolChoice === "auto" || toolChoice === "none") return toolChoice;
+
+  return {
+    type: "tool",
+    toolName: toolChoice.function.name,
+  };
+}
+
+function buildToolConfig(
+  supportsTools: boolean,
+  tools: ChatCompletionOptions["tools"],
+  toolChoice: ChatCompletionOptions["toolChoice"],
+): {
+  tools: ChatCompletionOptions["tools"] | undefined;
+  toolChoice: AISDKToolChoice | undefined;
+  toolsDisabled: boolean;
+} {
+  if (!tools || tools.length === 0 || !supportsTools) {
+    return {
+      tools: undefined,
+      toolChoice: undefined,
+      toolsDisabled: !!tools && tools.length > 0 && !supportsTools,
+    };
+  }
+
+  return {
+    tools,
+    toolChoice: toAISDKToolChoice(toolChoice),
+    toolsDisabled: false,
+  };
+}
+
+const REASONING_ROUND_TRIP_PROVIDERS = new Set(["anthropic"]);
+
+/**
+ * File parts for a message's attachments, plus text notes for any that could not be sent.
+ *
+ * Both halves matter. The parts are what the model sees; the notes are what stops it from
+ * inventing the contents of something it never received.
+ */
+function buildAttachmentParts(
+  attachments: ReadonlyArray<MessageAttachment> | undefined,
+  resolved: ResolvedAttachments | undefined,
+  inlineAllowed: boolean,
+): { parts: FilePart[]; notes: string[] } {
+  if (attachments === undefined || attachments.length === 0) return { parts: [], notes: [] };
+
+  const parts: FilePart[] = [];
+  const notes: string[] = [];
+
+  for (const attachment of attachments) {
+    if (!inlineAllowed) {
+      notes.push(
+        `${describeAttachment(attachment)} was attached earlier in this conversation and is no longer inlined. Read the path again if you need its contents.`,
+      );
+      continue;
+    }
+
+    const payload = resolved?.get(attachment.path);
+    if (payload === undefined) {
+      notes.push(`${describeAttachment(attachment)} could not be loaded.`);
+      continue;
+    }
+    if (payload.kind === "unavailable") {
+      notes.push(`${describeAttachment(attachment)} was not sent: ${payload.reason}`);
+      continue;
+    }
+
+    parts.push({
+      type: "file",
+      mediaType: attachment.mediaType,
+      filename: attachment.path.split("/").pop() ?? "attachment",
+      data: payload.kind === "inline" ? payload.base64 : (payload.reference as FilePart["data"]),
+    });
+  }
+
+  return { parts, notes };
+}
+
+export function toCoreMessages(
+  messages: ReadonlyArray<{
+    role: "system" | "user" | "assistant" | "tool";
+    content: string;
+    name?: string;
+    tool_call_id?: string;
+    tool_calls?: ReadonlyArray<{
+      id: string;
+      type: "function";
+      function: { name: string; arguments: string };
+      thought_signature?: string;
+    }>;
+    reasoning_parts?: ReadonlyArray<{
+      text: string;
+      provider: string;
+      providerOptions?: Record<string, Record<string, JsonValue>>;
+    }>;
+    attachments?: ReadonlyArray<MessageAttachment>;
+  }>,
+  providerName?: ProviderName,
+  resolvedAttachments?: ResolvedAttachments,
+): ModelMessage[] {
+  let lastUserMessageIndex = -1;
+  for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex--) {
+    if (messages[messageIndex]?.role === "user") {
+      lastUserMessageIndex = messageIndex;
+      break;
+    }
+  }
+
+  // Aging an attachment out rewrites an earlier message, which moves the prompt-cache
+  // breakpoint and costs one cache miss. That happens once per attachment and buys its tokens
+  // back on every subsequent turn.
+  const inlineAttachmentIndices = inlineAttachmentMessageIndices(messages);
+
+  const normalizedProviderName = providerName?.toLowerCase();
+
+  const result = messages.map((m, messageIndex) => {
+    const role = m.role;
+    const content = sanitize(m.content);
+
+    if (role === "system") {
+      const msg: SystemModelMessage = {
+        role: "system",
+        content,
+      };
+      // Enable prompt caching: the system prompt is stable across turns,
+      // so caching it gives cost reduction and latency improvement on the cached prefix
+      const normalized = providerName?.toLowerCase();
+      if (normalized === "anthropic" || normalized === "ai_gateway") {
+        (
+          msg as SystemModelMessage & { providerOptions?: Record<string, unknown> }
+        ).providerOptions = {
+          anthropic: { cacheControl: { type: "ephemeral" } },
+        };
+      } else if (normalized === "openai") {
+        (
+          msg as SystemModelMessage & { providerOptions?: Record<string, unknown> }
+        ).providerOptions = {
+          openai: { promptCacheKey: "system-prompt" },
+        };
+      } else if (normalized === "openrouter") {
+        // OpenRouter supports Anthropic-style prompt caching via its own providerOptions.
+        // When routing to Anthropic models (e.g., anthropic/claude-*), this enables cache hits
+        // on the system prompt, reducing cost and latency.
+        (
+          msg as SystemModelMessage & { providerOptions?: Record<string, unknown> }
+        ).providerOptions = {
+          openrouter: { cacheControl: { type: "ephemeral" } },
+        };
+      }
+      return msg;
+    }
+
+    if (role === "user") {
+      // Attachments are emitted as AI SDK `FilePart`s, which is the one shape that covers every
+      // modality: `mediaType` carries image/pdf/audio/video alike and each provider maps it to
+      // its own wire format. (`ImagePart` exists but is deprecated, and would only handle one
+      // of the four.)
+      const attachmentParts = buildAttachmentParts(
+        m.attachments,
+        resolvedAttachments,
+        inlineAttachmentIndices.has(messageIndex),
+      );
+      if (attachmentParts.parts.length === 0 && attachmentParts.notes.length === 0) {
+        return {
+          role: "user" as const,
+          content,
+        };
+      }
+
+      // Unresolvable attachments become text so the model learns the file existed and could not
+      // be read. Dropping them silently is the one behaviour to avoid: a model told nothing
+      // about a promised screenshot will describe one it never saw.
+      const textSegments = [content, ...attachmentParts.notes].filter(
+        (segment) => segment.length > 0,
+      );
+      const userContent: Array<{ type: "text"; text: string } | FilePart> = [];
+      if (textSegments.length > 0) {
+        userContent.push({ type: "text", text: textSegments.join("\n\n") });
+      }
+      userContent.push(...attachmentParts.parts);
+
+      return {
+        role: "user" as const,
+        content: userContent,
+      };
+    }
+
+    if (role === "assistant") {
+      const contentParts: Array<
+        | { type: "text"; text: string }
+        | {
+            type: "reasoning";
+            text: string;
+            providerOptions?: Record<string, Record<string, JsonValue>>;
+          }
+        | ToolCallPart
+      > = [];
+
+      if (
+        m.reasoning_parts &&
+        messageIndex > lastUserMessageIndex &&
+        normalizedProviderName &&
+        REASONING_ROUND_TRIP_PROVIDERS.has(normalizedProviderName)
+      ) {
+        for (const storedPart of m.reasoning_parts) {
+          if (storedPart.provider.toLowerCase() !== normalizedProviderName) continue;
+          contentParts.push({
+            type: "reasoning",
+            text: storedPart.text,
+            ...(storedPart.providerOptions ? { providerOptions: storedPart.providerOptions } : {}),
+          });
+        }
+      }
+
+      if (content && content.length > 0) {
+        contentParts.push({ type: "text", text: content });
+      }
+
+      if (m.tool_calls && m.tool_calls.length > 0) {
+        for (const tc of m.tool_calls) {
+          const toolArgs = sanitize(tc.function.arguments);
+          const toolCallPart: ToolCallPart = {
+            type: "tool-call",
+            toolCallId: tc.id,
+            toolName: tc.function.name,
+            input: parseToolArguments(toolArgs),
+          };
+
+          // Preserve thought_signature for Google/Gemini models
+          // The AI SDK expects it in providerOptions.google.thoughtSignature format
+          if (tc.thought_signature) {
+            toolCallPart.providerOptions = {
+              google: {
+                thoughtSignature: tc.thought_signature,
+              },
+            };
+          }
+
+          contentParts.push(toolCallPart);
+        }
+      }
+
+      return { role: "assistant" as const, content: contentParts };
+    }
+
+    if (role === "tool") {
+      const contentParts: ToolModelMessage["content"] = [];
+
+      contentParts.push({
+        type: "tool-result",
+        toolCallId: m.tool_call_id ?? "",
+        toolName: m.name ?? "tool",
+        output: { type: "text", value: content },
+      });
+
+      return { role: "tool" as const, content: contentParts };
+    }
+
+    // Fallback - should not reach here
+    throw new Error(`Unsupported message role: ${String(role)}`);
+  });
+
+  return result;
+}
+
+type ModelName = string;
+type ProviderOptions = NonNullable<Parameters<typeof generateText>[0]["providerOptions"]>;
+type AISDKToolChoice = Parameters<typeof generateText>[0]["toolChoice"];
+
+/**
+ * Get provider-native web search tool if supported by the provider
+ * Returns the tool instance or null if not supported
+ */
+function getProviderNativeWebSearchTool(
+  providerName: ProviderName,
+  logger?: LoggerService,
+): ToolSet[string] | null {
+  const normalizedProvider = providerName.toLowerCase();
+
+  try {
+    switch (normalizedProvider) {
+      case "openai": {
+        const openaiWithTools = openai as typeof openai & {
+          tools?: {
+            webSearch?: (config?: {
+              externalWebAccess?: boolean;
+              searchContextSize?: string;
+            }) => ToolSet[string];
+          };
+        };
+        if (typeof openaiWithTools.tools?.webSearch === "function") {
+          return openaiWithTools.tools.webSearch({
+            externalWebAccess: true,
+            searchContextSize: "high",
+          });
+        }
+        return null;
+      }
+      case "anthropic": {
+        const anthropicWithTools = anthropic as typeof anthropic & {
+          tools?: { webSearch_20250305?: (config?: { maxUses?: number }) => ToolSet[string] };
+        };
+        if (typeof anthropicWithTools.tools?.webSearch_20250305 === "function") {
+          return anthropicWithTools.tools.webSearch_20250305({
+            maxUses: 5,
+          });
+        }
+        return null;
+      }
+      case "google": {
+        const googleWithTools = google as typeof google & {
+          tools?: { googleSearch?: (config?: Record<string, unknown>) => ToolSet[string] };
+        };
+        if (typeof googleWithTools.tools?.googleSearch === "function") {
+          return googleWithTools.tools.googleSearch({});
+        }
+        return null;
+      }
+      case "xai":
+        return null;
+      case "groq": {
+        const groqWithTools = groq as typeof groq & {
+          tools?: { browserSearch?: (config?: Record<string, unknown>) => ToolSet[string] };
+        };
+        if (typeof groqWithTools.tools?.browserSearch === "function") {
+          return groqWithTools.tools.browserSearch({});
+        }
+        return null;
+      }
+      case "openrouter": {
+        if (typeof openrouterDefaultInstance.tools?.webSearch === "function") {
+          return openrouterDefaultInstance.tools.webSearch({});
+        }
+        return null;
+      }
+      default:
+        return null;
+    }
+  } catch (error) {
+    if (logger) {
+      void logger.warn(
+        `[Web Search Error] Failed to get native web search tool for ${providerName}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+    return null;
+  }
+}
+
+const openrouterWebFetchTool = createProviderDefinedToolFactory<unknown, Record<string, never>>({
+  id: "openrouter.web_fetch",
+  inputSchema: z.object({
+    url: z.url().describe("The URL to fetch content from"),
+  }),
+});
+
+/**
+ * Get provider-native web fetch tool if supported by the provider.
+ * Currently only OpenRouter supports server-side web fetch.
+ */
+function getProviderNativeWebFetchTool(providerName: ProviderName): ToolSet[string] | null {
+  if (providerName.toLowerCase() === "openrouter") {
+    return openrouterWebFetchTool({});
+  }
+  return null;
+}
+
+/**
+ * Check if a provider supports native web search
+ * This is exposed via LLMService for CLI logic
+ */
+function checkProviderNativeWebSearchSupport(
+  providerName: ProviderName,
+  logger?: LoggerService,
+): boolean {
+  if (providerName.toLowerCase() === "xai") return true;
+  return getProviderNativeWebSearchTool(providerName, logger) !== null;
+}
+
+/**
+ * Extract all configured providers from LLMConfig with their API keys
+ */
+/**
+ * Environment variable names for each provider's API key.
+ * Used as a fallback when no key is configured in the config file.
+ */
+const PROVIDER_ENV_VARS = LLM_PROVIDER_ENV_VARS;
+
+function getConfiguredProviders(
+  llmConfig?: LLMConfig,
+): { name: ProviderName; apiKey: string; displayName?: string }[] {
+  const providers: { name: ProviderName; apiKey: string; displayName?: string }[] = [];
+  const addedProviders = new Set<string>();
+
+  if (llmConfig) {
+    if (llmConfig.ai_gateway?.api_key) {
+      providers.push({
+        name: "ai_gateway",
+        displayName: "ai gateway",
+        apiKey: llmConfig.ai_gateway.api_key,
+      });
+      addedProviders.add("ai_gateway");
+    }
+    if (llmConfig.alibaba?.api_key) {
+      providers.push({ name: "alibaba", apiKey: llmConfig.alibaba.api_key });
+      addedProviders.add("alibaba");
+    }
+    if (llmConfig.anthropic?.api_key) {
+      providers.push({ name: "anthropic", apiKey: llmConfig.anthropic.api_key });
+      addedProviders.add("anthropic");
+    }
+    if (llmConfig.cerebras?.api_key) {
+      providers.push({ name: "cerebras", apiKey: llmConfig.cerebras.api_key });
+      addedProviders.add("cerebras");
+    }
+    if (llmConfig.deepseek?.api_key) {
+      providers.push({ name: "deepseek", apiKey: llmConfig.deepseek.api_key });
+      addedProviders.add("deepseek");
+    }
+    if (llmConfig.fireworks?.api_key) {
+      providers.push({ name: "fireworks", apiKey: llmConfig.fireworks.api_key });
+      addedProviders.add("fireworks");
+    }
+    if (llmConfig.gemini?.api_key) {
+      providers.push({ name: "gemini", apiKey: llmConfig.gemini.api_key });
+      addedProviders.add("gemini");
+    }
+    if (llmConfig.groq?.api_key) {
+      providers.push({ name: "groq", apiKey: llmConfig.groq.api_key });
+      addedProviders.add("groq");
+    }
+    if (llmConfig.minimax?.api_key) {
+      providers.push({ name: "minimax", apiKey: llmConfig.minimax.api_key });
+      addedProviders.add("minimax");
+    }
+    if (llmConfig.mistral?.api_key) {
+      providers.push({ name: "mistral", apiKey: llmConfig.mistral.api_key });
+      addedProviders.add("mistral");
+    }
+    if (llmConfig.moonshotai?.api_key) {
+      providers.push({ name: "moonshotai", apiKey: llmConfig.moonshotai.api_key });
+      addedProviders.add("moonshotai");
+    }
+    if (llmConfig.openai?.api_key) {
+      providers.push({ name: "openai", apiKey: llmConfig.openai.api_key });
+      addedProviders.add("openai");
+    }
+    if (llmConfig.openrouter?.api_key) {
+      providers.push({ name: "openrouter", apiKey: llmConfig.openrouter.api_key });
+      addedProviders.add("openrouter");
+    }
+    if (llmConfig.togetherai?.api_key) {
+      providers.push({ name: "togetherai", apiKey: llmConfig.togetherai.api_key });
+      addedProviders.add("togetherai");
+    }
+    if (llmConfig.xai?.api_key) {
+      providers.push({ name: "xai", apiKey: llmConfig.xai.api_key });
+      addedProviders.add("xai");
+    }
+    if (llmConfig.zhipuai?.api_key) {
+      providers.push({ name: "zhipuai", apiKey: llmConfig.zhipuai.api_key });
+      addedProviders.add("zhipuai");
+    }
+  }
+
+  // Fallback: check environment variables for providers not yet configured
+  for (const [providerName, envVar] of Object.entries(PROVIDER_ENV_VARS)) {
+    if (!addedProviders.has(providerName)) {
+      const envKey = process.env[envVar];
+      if (envKey) {
+        providers.push({ name: providerName as ProviderName, apiKey: envKey });
+        addedProviders.add(providerName);
+      }
+    }
+  }
+
+  // Local-server providers are always available (no API key required)
+  if (!addedProviders.has("ollama")) {
+    providers.push({ name: "ollama", apiKey: llmConfig?.ollama?.api_key ?? "" });
+  }
+  if (!addedProviders.has("llamacpp")) {
+    providers.push({ name: "llamacpp", apiKey: llmConfig?.llamacpp?.api_key ?? "" });
+  }
+
+  return providers;
+}
+
+function selectModel(
+  providerName: ProviderName,
+  modelId: ModelName,
+  llmConfig?: LLMConfig,
+  cache?: Map<string, LanguageModel>,
+): LanguageModel {
+  // Check cache first
+  const cacheKey = `${providerName}:${modelId}:${buildProviderCacheFingerprint(providerName, llmConfig)}`;
+  if (cache?.has(cacheKey)) {
+    return cache.get(cacheKey)!;
+  }
+
+  let model: LanguageModel;
+  const resolveApiKey = (provider: ProviderName): string | undefined => {
+    const envVar = PROVIDER_ENV_VARS[provider];
+    return llmConfig?.[provider]?.api_key ?? (envVar ? process.env[envVar] : undefined);
+  };
+
+  switch (providerName.toLowerCase()) {
+    case "openai": {
+      const apiKey = resolveApiKey("openai");
+      model = apiKey ? createOpenAI({ apiKey })(modelId) : openai(modelId);
+      break;
+    }
+    case "anthropic": {
+      const apiKey = resolveApiKey("anthropic");
+      model = apiKey ? createAnthropic({ apiKey })(modelId) : anthropic(modelId);
+      break;
+    }
+    case "gemini": {
+      const apiKey = resolveApiKey("gemini");
+      model = apiKey ? createGoogleGenerativeAI({ apiKey })(modelId) : google(modelId);
+      break;
+    }
+    case "mistral": {
+      const apiKey = resolveApiKey("mistral");
+      model = apiKey ? createMistral({ apiKey })(modelId) : mistral(modelId);
+      break;
+    }
+    case "xai": {
+      const apiKey = resolveApiKey("xai");
+      model = apiKey ? createXai({ apiKey })(modelId) : xai(modelId);
+      break;
+    }
+    case "deepseek": {
+      const apiKey = resolveApiKey("deepseek");
+      model = apiKey
+        ? createDeepSeek({ apiKey })(modelId)
+        : (deepseek as (modelId: ModelName) => LanguageModel)(modelId);
+      break;
+    }
+    case "moonshotai": {
+      const apiKey = resolveApiKey("moonshotai");
+      model = apiKey ? createMoonshotAI({ apiKey })(modelId) : moonshotai(modelId);
+      break;
+    }
+    case "minimax":
+      model = minimax(modelId);
+      break;
+    case "alibaba": {
+      const apiKey = resolveApiKey("alibaba");
+      model = apiKey ? createAlibaba({ apiKey })(modelId) : alibaba(modelId);
+      break;
+    }
+    case "cerebras": {
+      const apiKey = resolveApiKey("cerebras");
+      model = apiKey ? createCerebras({ apiKey })(modelId) : cerebras(modelId);
+      break;
+    }
+    case "fireworks": {
+      const apiKey = resolveApiKey("fireworks");
+      model = apiKey ? createFireworks({ apiKey })(modelId) : fireworks(modelId);
+      break;
+    }
+    case "togetherai": {
+      const apiKey = resolveApiKey("togetherai");
+      model = apiKey ? createTogetherAI({ apiKey })(modelId) : togetherai(modelId);
+      break;
+    }
+    case "ollama": {
+      const apiKey = resolveApiKey("ollama")?.trim();
+      const headers = apiKey ? { Authorization: `Bearer ${apiKey}` } : {};
+      const baseURL = resolveOllamaRequestBaseUrl(modelId, llmConfig);
+      const keepAlive = llmConfig?.ollama?.keep_alive;
+      const fetchImpl = apiKey
+        ? makeOllamaAuthorizedFetch(apiKey, keepAlive)
+        : keepAlive
+          ? makeOllamaKeepAliveFetch(keepAlive)
+          : undefined;
+      const ollamaInstance = createOllama({
+        baseURL,
+        headers,
+        ...(fetchImpl ? { fetch: fetchImpl } : {}),
+      });
+      model = ollamaInstance(modelId);
+      break;
+    }
+    case "llamacpp": {
+      const apiKey = llmConfig?.llamacpp?.api_key;
+      const baseURL = resolveLocalProviderBaseUrl("llamacpp", llmConfig);
+      const headers = apiKey ? { Authorization: `Bearer ${apiKey}` } : undefined;
+      const llamacpp = createOpenAICompatible({
+        name: "llamacpp",
+        baseURL,
+        ...(headers ? { headers } : {}),
+      });
+      model = llamacpp(modelId);
+      break;
+    }
+    case "openrouter": {
+      const apiKey: string | undefined = llmConfig?.openrouter?.api_key;
+      const headers: Record<string, string> = {
+        "HTTP-Referer": "https://github.com/lvndry/jazz",
+        "X-Title": "Jazz CLI",
+      };
+      const config: OpenRouterProviderSettings = {
+        ...(apiKey ? { apiKey } : {}),
+        compatibility: "strict",
+        headers,
+      };
+
+      const openrouter = (
+        createOpenRouter as (
+          config: OpenRouterProviderSettings,
+        ) => (modelId: ModelName) => LanguageModel
+      )(config);
+      model = openrouter(modelId);
+      break;
+    }
+    case "ai_gateway": {
+      model = gateway(modelId);
+      break;
+    }
+    case "groq": {
+      model = groq(modelId);
+      break;
+    }
+    case "zhipuai": {
+      const apiKey = resolveApiKey("zhipuai");
+      model = apiKey ? createZhipu({ apiKey })(modelId) : zhipu(modelId);
+      break;
+    }
+    default:
+      throw new Error(`Unsupported provider: ${providerName}`);
+  }
+
+  // Store in cache
+  cache?.set(cacheKey, model);
+  return model;
+}
+
+/** Guarantee the Bearer token is on every request, including after redirects. */
+export function makeOllamaAuthorizedFetch(
+  apiKey: string,
+  keepAlive?: string,
+): typeof globalThis.fetch {
+  const inner = keepAlive ? makeOllamaKeepAliveFetch(keepAlive) : globalThis.fetch;
+  // Bun's `typeof fetch` demands a `preconnect` member that providers never call.
+  return (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const headers = new Headers(init?.headers);
+    if (!headers.has("Authorization")) {
+      headers.set("Authorization", `Bearer ${apiKey}`);
+    }
+    return inner(input, { ...init, headers });
+  }) as typeof globalThis.fetch;
+}
+
+// ollama-ai-provider-v2 drops keep_alive from the chat body, so splice it into
+// POST /api/chat requests here (never overriding an existing value).
+export function makeOllamaKeepAliveFetch(keepAlive: string): typeof globalThis.fetch {
+  // Bun's `typeof fetch` demands a `preconnect` member that providers never call.
+  return (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    if (init?.method === "POST" && typeof init.body === "string") {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      if (url.includes("/api/chat")) {
+        try {
+          const parsedBody: unknown = JSON.parse(init.body);
+          if (
+            parsedBody &&
+            typeof parsedBody === "object" &&
+            (parsedBody as Record<string, unknown>)["keep_alive"] === undefined
+          ) {
+            (parsedBody as Record<string, unknown>)["keep_alive"] = keepAlive;
+            return fetch(input, { ...init, body: JSON.stringify(parsedBody) });
+          }
+        } catch {
+          // Non-JSON body — forward unchanged.
+        }
+      }
+    }
+    return fetch(input, init);
+  }) as typeof globalThis.fetch;
+}
+
+function buildProviderCacheFingerprint(providerName: ProviderName, llmConfig?: LLMConfig): string {
+  if (!llmConfig) return "";
+
+  switch (providerName) {
+    case "ollama": {
+      const cfg = llmConfig.ollama;
+      return `${cfg?.api_key ?? ""}|${cfg?.base_url ?? ""}|${cfg?.keep_alive ?? ""}`;
+    }
+    case "llamacpp": {
+      const cfg = llmConfig.llamacpp;
+      return `${cfg?.api_key ?? ""}|${cfg?.base_url ?? ""}`;
+    }
+    default: {
+      const apiKey = llmConfig[providerName]?.api_key;
+      return apiKey ?? "";
+    }
+  }
+}
+
+export function buildProviderOptions(
+  providerName: ProviderName,
+  options: ChatCompletionOptions,
+  webSearchConfig?: WebSearchConfig,
+): ProviderOptions | undefined {
+  const normalizedProvider = providerName.toLowerCase();
+
+  switch (normalizedProvider) {
+    case "openai": {
+      const reasoningEffort = options.reasoning_effort;
+      if (reasoningEffort && reasoningEffort !== "disable") {
+        return {
+          openai: {
+            reasoningEffort,
+            reasoningSummary: "auto",
+            systemMessageMode: "system",
+            promptCacheKey: "conversation",
+            store: false,
+            include: ["reasoning.encrypted_content"],
+          } satisfies OpenAIResponsesProviderOptions,
+        };
+      }
+      break;
+    }
+    case "anthropic": {
+      const reasoningEffort = options.reasoning_effort;
+      if (reasoningEffort && reasoningEffort !== "disable") {
+        return {
+          anthropic: {
+            thinking: { type: "enabled" },
+          } satisfies AnthropicProviderOptions,
+        };
+      }
+      break;
+    }
+    case "gemini": {
+      const reasoningEffort = options.reasoning_effort;
+      if (reasoningEffort && reasoningEffort !== "disable") {
+        const geminiProReasoningEffort = options.model.includes("gemini-3")
+          ? reasoningEffort
+          : undefined;
+        return {
+          google: {
+            thinkingConfig: {
+              includeThoughts: true,
+              ...(geminiProReasoningEffort ? { thinkingLevel: geminiProReasoningEffort } : {}),
+            },
+          } satisfies GoogleGenerativeAIProviderOptions,
+        };
+      }
+      break;
+    }
+    case "xai": {
+      const xaiOptions: XaiProviderOptions = {};
+
+      const reasoningEffort = options.reasoning_effort;
+      if (reasoningEffort && reasoningEffort !== "disable") {
+        xaiOptions.reasoningEffort = reasoningEffort === "medium" ? "low" : reasoningEffort;
+      }
+
+      const hasWebSearch = options.tools?.some((t) => t.function.name === "web_search");
+      const selectedExternalProvider = webSearchConfig?.provider;
+      const hasExternalKey = selectedExternalProvider
+        ? !!webSearchConfig?.[selectedExternalProvider]?.api_key
+        : false;
+      if (hasWebSearch && !selectedExternalProvider && !hasExternalKey) {
+        xaiOptions.searchParameters = {
+          mode: "auto",
+          returnCitations: true,
+          sources: [{ type: "web" }, { type: "news" }],
+        };
+      }
+
+      if (Object.keys(xaiOptions).length > 0) {
+        return { xai: xaiOptions };
+      }
+      break;
+    }
+    case "ollama": {
+      // Ollama defaults thinking ON when no flag is sent, which empties content and
+      // drops tool calls, so disabling must explicitly send think:false.
+      const think = !!(options.reasoning_effort && options.reasoning_effort !== "disable");
+      // num_ctx nests under `options`; without it Ollama truncates to a small default.
+      const numCtx =
+        typeof options.num_ctx === "number" && options.num_ctx > 0 ? options.num_ctx : undefined;
+      return {
+        ollama: {
+          think,
+          ...(numCtx ? { options: { num_ctx: numCtx } } : {}),
+        },
+      };
+    }
+    case "openrouter": {
+      const reasoningEffort = options.reasoning_effort;
+      if (reasoningEffort && reasoningEffort !== "disable") {
+        // Map Jazz's reasoning_effort to OpenRouter's effort levels
+        // Jazz uses: "low" | "medium" | "high" | "disable"
+        // OpenRouter uses: "minimal" | "low" | "medium" | "high" | "xhigh" | "none"
+        const effortMap: Record<string, "low" | "medium" | "high"> = {
+          low: "low",
+          medium: "medium",
+          high: "high",
+        };
+        const effort = effortMap[reasoningEffort] ?? "medium";
+        return {
+          openrouter: {
+            reasoning: {
+              enabled: true,
+              effort,
+            },
+          } satisfies OpenRouterProviderOptions,
+        };
+      }
+      break;
+    }
+    case "moonshotai": {
+      const reasoningEffort = options.reasoning_effort;
+      if (reasoningEffort && reasoningEffort !== "disable") {
+        // Moonshot thinking models (kimi-k2-thinking) support budgeted reasoning
+        const budgetMap: Record<string, number> = {
+          low: 1024,
+          medium: 4096,
+          high: 16384,
+        };
+        return {
+          moonshotai: {
+            thinking: { type: "enabled", budgetTokens: budgetMap[reasoningEffort] ?? 4096 },
+            reasoningHistory: "interleaved",
+          } satisfies MoonshotAILanguageModelOptions,
+        };
+      }
+      break;
+    }
+    case "alibaba": {
+      const reasoningEffort = options.reasoning_effort;
+      if (reasoningEffort && reasoningEffort !== "disable") {
+        const budgetMap: Record<string, number> = {
+          low: 1024,
+          medium: 4096,
+          high: 16384,
+        };
+        return {
+          alibaba: {
+            enableThinking: true,
+            thinkingBudget: budgetMap[reasoningEffort] ?? 4096,
+          } satisfies AlibabaLanguageModelOptions,
+        };
+      }
+      break;
+    }
+    case "cerebras": {
+      const reasoningEffort = options.reasoning_effort;
+      if (reasoningEffort && reasoningEffort !== "disable") {
+        return {
+          cerebras: {
+            reasoningEffort,
+          },
+        };
+      }
+      break;
+    }
+    case "llamacpp": {
+      // reasoning_budget (0 = off, N = token budget) rides through the
+      // openai-compatible provider's passthrough of unrecognized body keys.
+      const reasoningEffort = options.reasoning_effort;
+      if (reasoningEffort === "disable") {
+        return {
+          llamacpp: {
+            reasoning_budget: 0,
+            chat_template_kwargs: { enable_thinking: false },
+          },
+        };
+      }
+      if (reasoningEffort) {
+        const budgetMap: Record<string, number> = {
+          low: 1024,
+          medium: 4096,
+          high: 16384,
+        };
+        return {
+          llamacpp: {
+            reasoning_budget: budgetMap[reasoningEffort] ?? 4096,
+            chat_template_kwargs: { enable_thinking: true },
+          },
+        };
+      }
+      break;
+    }
+    case "fireworks": {
+      const reasoningEffort = options.reasoning_effort;
+      if (reasoningEffort && reasoningEffort !== "disable") {
+        const budgetMap: Record<string, number> = {
+          low: 1024,
+          medium: 4096,
+          high: 16384,
+        };
+        return {
+          fireworks: {
+            thinking: { type: "enabled", budgetTokens: budgetMap[reasoningEffort] ?? 4096 },
+            reasoningHistory: "interleaved",
+          } satisfies FireworksLanguageModelOptions,
+        };
+      }
+      break;
+    }
+    case "zhipuai": {
+      // The zhipu provider spreads providerOptions.zhipu verbatim into the request
+      // body, so `thinking` is passed in the API's native snake_case shape. GLM-4.5+
+      // models toggle reasoning on/off only (no effort levels or token budget), so
+      // any non-disable effort maps to "enabled".
+      const reasoningEffort = options.reasoning_effort;
+      if (reasoningEffort === "disable") {
+        return { zhipu: { thinking: { type: "disabled" } } };
+      }
+      if (reasoningEffort) {
+        return { zhipu: { thinking: { type: "enabled" } } };
+      }
+      break;
+    }
+    default:
+      break;
+  }
+
+  return undefined;
+}
+
+function schemaCharCount(toolDef: {
+  function: { parameters: z.ZodTypeAny; jsonSchema?: Readonly<Record<string, unknown>> };
+}): number {
+  if (toolDef.function.jsonSchema !== undefined) {
+    try {
+      return JSON.stringify(toolDef.function.jsonSchema).length;
+    } catch {
+      return 0;
+    }
+  }
+  try {
+    return JSON.stringify(z.toJSONSchema(toolDef.function.parameters)).length;
+  } catch {
+    return 0;
+  }
+}
+
+class AISDKService implements LLMService {
+  private config: AISDKConfig;
+  private readonly providerModels = PROVIDER_MODELS;
+  private readonly modelFetcher: ModelFetcherService;
+  private readonly configService: AgentConfigService;
+  private lastSeenConfigRevision = -1;
+  // Model instance cache: key = "provider:modelId"
+  private readonly modelCache = new Map<string, LanguageModel>();
+  private readonly modelInfoCache = new Map<ProviderName, readonly ModelInfo[]>();
+
+  constructor(
+    config: AISDKConfig,
+    configService: AgentConfigService,
+    private readonly logger: LoggerService,
+  ) {
+    this.config = config;
+    this.configService = configService;
+    this.modelFetcher = createModelFetcher();
+  }
+
+  private isProviderName(name: string): name is ProviderName {
+    return Object.hasOwn(this.providerModels, name);
+  }
+
+  private async refreshRuntimeConfigIfChanged(): Promise<void> {
+    const latestRevision = Effect.runSync(this.configService.revision);
+    if (latestRevision === this.lastSeenConfigRevision) return;
+
+    const latest = await Effect.runPromise(this.configService.appConfig);
+    const llmChanged =
+      JSON.stringify(latest.llm ?? {}) !== JSON.stringify(this.config.llmConfig ?? {});
+
+    this.config = {
+      ...(latest.llm ? { llmConfig: latest.llm } : {}),
+      ...(latest.web_search ? { webSearchConfig: latest.web_search } : {}),
+    };
+    this.lastSeenConfigRevision = latestRevision;
+
+    if (llmChanged) {
+      // Provider instances may capture API keys, so invalidate cached models on key/config changes.
+      this.modelCache.clear();
+    }
+  }
+
+  private getProviderModels(
+    providerName: ProviderName,
+  ): Effect.Effect<readonly ModelInfo[], LLMConfigurationError, never> {
+    const cached = this.modelInfoCache.get(providerName);
+    if (cached) {
+      return Effect.succeed(cached);
+    }
+
+    const modelSource = this.providerModels[providerName];
+
+    if (modelSource.type === "models-dev") {
+      return Effect.tryPromise({
+        try: async () => {
+          const resolved = await fetchModelsDevModels(modelSource.catalogId ?? providerName);
+          this.modelInfoCache.set(providerName, resolved);
+          return resolved;
+        },
+        catch: (error) =>
+          new LLMConfigurationError({
+            provider: providerName,
+            message: `Failed to list models from models.dev: ${error instanceof Error ? error.message : String(error)}`,
+          }),
+      });
+    }
+
+    const providerConfig = this.config.llmConfig?.[providerName];
+    const baseUrl =
+      providerName === "ollama" || providerName === "llamacpp"
+        ? resolveLocalProviderBaseUrl(providerName, this.config.llmConfig)
+        : modelSource.defaultBaseUrl;
+
+    if (!baseUrl) {
+      void this.logger.warn(
+        `[LLM Warning] Provider '${providerName}' requires dynamic model fetching but no defaultBaseUrl is defined. Skipping provider.`,
+      );
+      return Effect.succeed([]);
+    }
+
+    const apiKey = providerConfig?.api_key;
+
+    return this.modelFetcher
+      .fetchModels(providerName, baseUrl, modelSource.endpointPath, apiKey)
+      .pipe(
+        Effect.tap((models) =>
+          Effect.sync(() => {
+            this.modelInfoCache.set(providerName, models);
+          }),
+        ),
+      );
+  }
+
+  private async resolveModelInfo(
+    providerName: ProviderName,
+    modelId: ModelName,
+  ): Promise<ModelInfo | undefined> {
+    const models = await Effect.runPromise(
+      this.getProviderModels(providerName).pipe(
+        Effect.catchAll(() => Effect.succeed([] as readonly ModelInfo[])),
+      ),
+    );
+    return models.find((model) => model.id === modelId);
+  }
+
+  readonly getProvider = (
+    providerName: ProviderName,
+  ): Effect.Effect<LLMProvider, LLMConfigurationError, never> => {
+    return this.getProviderModels(providerName).pipe(
+      Effect.map((models) => {
+        const provider: LLMProvider = {
+          name: providerName,
+          supportedModels: models.map((model) => model),
+          defaultModel: models[0]?.id ?? "",
+          authenticate: () => {
+            const providerConfig = this.config.llmConfig?.[providerName];
+            const apiKey = providerConfig?.api_key;
+
+            if (!apiKey) {
+              // API Key is optional for Ollama
+              const lower = providerName.toLowerCase();
+              if (lower === "ollama" || lower === "llamacpp") {
+                return Effect.succeed(void 0);
+              }
+              return Effect.fail(
+                new LLMAuthenticationError({
+                  provider: providerName,
+                  message: "API key not configured",
+                }),
+              );
+            }
+            return Effect.succeed(apiKey);
+          },
+        };
+
+        return provider;
+      }),
+    );
+  };
+
+  listProviders(): Effect.Effect<readonly LLMProviderListItem[], never> {
+    const configuredProviders = getConfiguredProviders(this.config.llmConfig);
+    const configuredNames = new Set(configuredProviders.map((p) => p.name));
+
+    const allProviders = Object.keys(this.providerModels)
+      .filter((provider): provider is ProviderName => this.isProviderName(provider))
+      .map((name) => ({
+        name,
+        displayName: formatProviderDisplayName(name),
+        configured: configuredNames.has(name),
+      }));
+
+    return Effect.succeed(allProviders);
+  }
+
+  private prepareTools(
+    providerName: ProviderName,
+    requestedTools: ChatCompletionOptions["tools"],
+  ):
+    | { tools: ToolSet; providerNativeToolNames: Set<string>; toolDefinitionChars: number }
+    | undefined {
+    if (!requestedTools || requestedTools.length === 0) {
+      return undefined;
+    }
+
+    const toolConversionStart = Date.now();
+    const tools: ToolSet = {};
+    const providerNativeToolNames = new Set<string>();
+
+    // First, map all requested tools to the AI SDK format.
+    for (const toolDef of requestedTools) {
+      const inputSchema =
+        toolDef.function.jsonSchema !== undefined
+          ? jsonSchema(toolDef.function.jsonSchema)
+          : toolDef.function.parameters;
+      tools[toolDef.function.name] = tool({
+        description: toolDef.function.description,
+        inputSchema,
+      });
+    }
+
+    const hasWebSearch = requestedTools.some((toolDef) => toolDef.function.name === "web_search");
+    if (hasWebSearch) {
+      const providerNativeWebSearch = getProviderNativeWebSearchTool(providerName, this.logger);
+      // Check if user explicitly selected an external provider (vs "none"/undefined for builtin)
+      const selectedExternalProvider = this.config.webSearchConfig?.provider;
+      const hasSelectedProviderKey = selectedExternalProvider
+        ? !!this.config.webSearchConfig?.[selectedExternalProvider]?.api_key
+        : false;
+
+      const isXaiLiveSearch =
+        providerName.toLowerCase() === "xai" &&
+        !selectedExternalProvider &&
+        !hasSelectedProviderKey;
+      if (isXaiLiveSearch) {
+        void this.logger.debug(
+          `[Web Search] Using xAI Live Search (searchParameters) for ${providerName}`,
+        );
+        delete tools["web_search"];
+        providerNativeToolNames.add("web_search");
+      }
+
+      // Use native if: no external provider selected AND native is available
+      // Use external if: external provider is selected AND has API key
+      const shouldUseProviderNative = !selectedExternalProvider && providerNativeWebSearch;
+      const shouldUseExternal = selectedExternalProvider && hasSelectedProviderKey;
+
+      if (!isXaiLiveSearch && shouldUseProviderNative) {
+        void this.logger.debug(
+          `[Web Search] Using provider-native web search tool for ${providerName} (builtin selected, no external provider configured)`,
+        );
+        tools["web_search"] = providerNativeWebSearch;
+        providerNativeToolNames.add("web_search");
+      } else if (shouldUseExternal) {
+        void this.logger.debug(
+          `[Web Search] Using Jazz web_search tool with external provider: ${selectedExternalProvider}`,
+        );
+        // Keep Jazz's web_search tool - it will route to the external provider
+      } else if (!isXaiLiveSearch && !providerNativeWebSearch && !shouldUseExternal) {
+        void this.logger.debug(
+          `[Web Search] web_search tool available but may fail: provider ${providerName} has no native support and no external provider configured`,
+        );
+        // Keep Jazz's web_search tool but it will return an error when called
+      }
+    }
+
+    // Handle the special case for web_fetch.
+    const hasWebFetch = requestedTools.some((t) => t.function.name === "web_fetch");
+    if (hasWebFetch) {
+      const providerNativeWebFetch = getProviderNativeWebFetchTool(providerName);
+      if (providerNativeWebFetch) {
+        void this.logger.debug(
+          `[Web Fetch] Using provider-native web fetch tool for ${providerName}`,
+        );
+        tools["web_fetch"] = providerNativeWebFetch;
+        providerNativeToolNames.add("web_fetch");
+      }
+    }
+
+    // Estimate tool definition token cost for telemetry
+    let toolDefinitionChars = 0;
+    for (const toolDef of requestedTools) {
+      toolDefinitionChars +=
+        toolDef.function.name.length +
+        toolDef.function.description.length +
+        schemaCharCount(toolDef);
+    }
+
+    void this.logger.debug(
+      `[Tool Telemetry] ${Object.keys(tools).length} tools, ~${toolDefinitionChars} chars (~${Math.ceil(toolDefinitionChars / 4)} tokens est.) sent to ${providerName}`,
+    );
+    void this.logger.debug(
+      `[LLM Timing] Tool conversion (${Object.keys(tools).length} tools) took ${Date.now() - toolConversionStart}ms`,
+    );
+
+    return { tools, providerNativeToolNames, toolDefinitionChars };
+  }
+
+  createChatCompletion(
+    providerName: ProviderName,
+    options: ChatCompletionOptions,
+  ): Effect.Effect<ChatCompletionResponse, LLMError> {
+    return Effect.tryPromise({
+      try: async () => {
+        await this.refreshRuntimeConfigIfChanged();
+        const effectiveLLMConfig = mergeProviderApiKeysIntoLLMConfig(
+          this.config.llmConfig,
+          options.providerApiKeys,
+        );
+        const timingStart = Date.now();
+        void this.logger.debug(
+          `[LLM Timing] Starting non-streaming completion for ${providerName}:${options.model}`,
+        );
+
+        const modelSelectStart = Date.now();
+        const model = selectModel(providerName, options.model, effectiveLLMConfig, this.modelCache);
+        void this.logger.debug(
+          `[LLM Timing] Model selection took ${Date.now() - modelSelectStart}ms`,
+        );
+
+        const modelInfo = await this.resolveModelInfo(providerName, options.model);
+        // STEP 6: Tools selection
+        // Check if the selected model supports tools
+        // OpenRouter gateway models (e.g., openrouter/free) are meta-models that route to various
+        // underlying models, so we assume tool support and pass tools through.
+        const isGatewayModel = OPENROUTER_GATEWAY_MODELS.has(options.model);
+        const supportsTools: boolean = isGatewayModel || (modelInfo?.supportsTools ?? false);
+        const {
+          tools: requestedTools,
+          toolChoice: requestedToolChoice,
+          toolsDisabled,
+        } = buildToolConfig(supportsTools, options.tools, options.toolChoice);
+
+        const prepared = this.prepareTools(providerName, requestedTools);
+        const tools = prepared?.tools;
+        const providerNativeToolNames = prepared?.providerNativeToolNames ?? new Set<string>();
+
+        const providerOptions = buildProviderOptions(
+          providerName,
+          options,
+          this.config.webSearchConfig,
+        );
+
+        const messageConversionStart = Date.now();
+        // Attachments are stored as paths, so their payloads are loaded (or uploaded) here,
+        // outside the pure conversion function.
+        const resolvedAttachments = await resolveAttachments(
+          options.messages,
+          providerName,
+          effectiveLLMConfig,
+          this.logger,
+        );
+        const coreMessages = toCoreMessages(options.messages, providerName, resolvedAttachments);
+        void this.logger.debug(
+          `[LLM Timing] Message conversion (${options.messages.length} messages) took ${Date.now() - messageConversionStart}ms`,
+        );
+
+        const generateTextStart = Date.now();
+        void this.logger.debug(`[LLM Timing] Calling generateText...`);
+        const result = await generateText({
+          model,
+          messages: coreMessages,
+          allowSystemInMessages: true,
+          maxRetries: AI_SDK_MAX_RETRIES,
+          ...(typeof options.temperature === "number" && modelInfo?.supportsTemperature !== false
+            ? { temperature: options.temperature }
+            : {}),
+          ...(tools ? { tools } : {}),
+          ...(requestedToolChoice ? { toolChoice: requestedToolChoice } : {}),
+          ...(providerOptions ? { providerOptions } : {}),
+          stopWhen: stepCountIs(AI_SDK_MAX_STEPS),
+        });
+        void this.logger.debug(
+          `[LLM Timing] generateText completed in ${Date.now() - generateTextStart}ms`,
+        );
+        void this.logger.info(`[LLM Timing] Total completion time: ${Date.now() - timingStart}ms`);
+
+        if (toolsDisabled) {
+          void this.logger.info(
+            `Tools were provided but skipped because ${options.model} does not support tools`,
+          );
+        }
+
+        const responseModel = options.model;
+        const content = result.text ?? "";
+        // Files the model itself produced. Empty for every text-only model, so this costs
+        // nothing on the common path.
+        const generatedArtifacts = await saveModelGeneratedFiles(result.files ?? [], responseModel);
+        let toolCalls: ChatCompletionResponse["toolCalls"] = undefined;
+        let usage: ChatCompletionResponse["usage"] = undefined;
+
+        // Extract usage information
+        if (result.usage) {
+          const usageData = result.usage;
+          usage = {
+            promptTokens: usageData.inputTokens ?? 0,
+            completionTokens: usageData.outputTokens ?? 0,
+            totalTokens: usageData.totalTokens ?? 0,
+            ...(usageData.outputTokenDetails?.reasoningTokens != null && {
+              reasoningTokens: usageData.outputTokenDetails.reasoningTokens,
+            }),
+            ...(usageData.inputTokenDetails?.cacheReadTokens != null && {
+              cacheReadTokens: usageData.inputTokenDetails.cacheReadTokens,
+            }),
+            ...(usageData.inputTokenDetails?.cacheWriteTokens != null && {
+              cacheWriteTokens: usageData.inputTokenDetails.cacheWriteTokens,
+            }),
+          };
+        }
+
+        // Extract tool calls if present, filtering out provider-native tool calls.
+        // Provider-native tools (e.g., OpenAI web search) are handled server-side by the
+        // provider during the API call. The results are already embedded in the response
+        // content. We must not pass these to Jazz's tool executor.
+        if (result.toolCalls && result.toolCalls.length > 0) {
+          // Log provider-native tool calls so they're visible to the user
+          for (const tc of result.toolCalls) {
+            if (providerNativeToolNames.has(tc.toolName)) {
+              void this.logger.info(`Provider-native tool used: ${tc.toolName}`, {
+                provider: providerName,
+                toolName: tc.toolName,
+              });
+            }
+          }
+
+          const filteredToolCalls = result.toolCalls.filter(
+            (tc: TypedToolCall<ToolSet>) => !providerNativeToolNames.has(tc.toolName),
+          );
+
+          if (filteredToolCalls.length > 0) {
+            toolCalls = filteredToolCalls.map((tc: TypedToolCall<ToolSet>) => {
+              const toolCall: ToolCall = {
+                id: tc.toolCallId,
+                type: "function" as const,
+                function: {
+                  name: tc.toolName,
+                  arguments: JSON.stringify(tc.input ?? {}),
+                },
+              };
+
+              // Preserve thought_signature for Google/Gemini models if present
+              // The AI SDK includes it in providerMetadata.google.thoughtSignature
+              if ("providerMetadata" in tc && tc.providerMetadata) {
+                const providerMetadata = tc.providerMetadata as {
+                  google?: { thoughtSignature?: string };
+                };
+                if (providerMetadata?.google?.thoughtSignature) {
+                  (toolCall as { thought_signature?: string }).thought_signature =
+                    providerMetadata.google.thoughtSignature;
+                }
+              }
+
+              return toolCall;
+            });
+          }
+        }
+
+        const reasoningParts = extractReasoningParts(result.response.messages, providerName);
+
+        const resultObj: ChatCompletionResponse = {
+          id: shortUUID.generate(),
+          model: responseModel,
+          content,
+          ...(reasoningParts ? { reasoningParts } : {}),
+          ...(toolCalls ? { toolCalls } : {}),
+          ...(usage ? { usage } : {}),
+          ...(toolsDisabled ? { toolsDisabled } : {}),
+          ...(generatedArtifacts.length > 0 ? { artifacts: generatedArtifacts } : {}),
+          ...(prepared
+            ? {
+                toolDefinitionChars: prepared.toolDefinitionChars,
+                toolDefinitionCount: Object.keys(prepared.tools).length,
+              }
+            : {}),
+        };
+        return resultObj;
+      },
+      catch: (error: unknown) => {
+        const llmError = convertToLLMError(error, providerName);
+
+        const cleanMessage = extractCleanErrorMessage(error);
+
+        // Log clean error message at error level (user-facing)
+        void this.logger.error(`LLM Error: ${llmError._tag} - ${cleanMessage}`);
+
+        // Log detailed error information at debug level (for debugging)
+        const errorDetails: Record<string, unknown> = {
+          provider: providerName,
+          errorType: llmError._tag,
+          message: llmError.message,
+        };
+
+        if (error instanceof Error) {
+          const e = error as Error & {
+            code?: string;
+            status?: number;
+            statusCode?: number;
+            type?: string;
+          };
+          if (e.code) errorDetails["code"] = e.code;
+          if (e.status) errorDetails["status"] = e.status;
+          if (e.statusCode) errorDetails["statusCode"] = e.statusCode;
+          if (e.type) errorDetails["type"] = e.type;
+        }
+
+        const truncatedRequestBody = truncateRequestBodyValues(error);
+        if (truncatedRequestBody) {
+          errorDetails["requestBodyValues"] = truncatedRequestBody;
+        }
+
+        void this.logger.debug("LLM Error Details", errorDetails);
+
+        return llmError;
+      },
+    });
+  }
+
+  readonly supportsNativeWebSearch = (
+    providerName: ProviderName,
+  ): Effect.Effect<boolean, never> => {
+    return Effect.succeed(checkProviderNativeWebSearchSupport(providerName, this.logger));
+  };
+
+  readonly fetchOllamaModelDetails = (
+    baseUrl: string,
+    model: string,
+  ): Effect.Effect<OllamaShowExtras, unknown> => {
+    return Effect.tryPromise({
+      try: () => fetchOllamaModelDetails(baseUrl, model),
+      catch: (error) => error,
+    });
+  };
+
+  readonly resolveLocalProviderBaseUrl = (
+    provider: "llamacpp" | "ollama",
+    llmConfig?: LLMConfig,
+  ): string => {
+    return resolveLocalProviderBaseUrl(provider, llmConfig);
+  };
+
+  createStreamingChatCompletion(
+    providerName: ProviderName,
+    options: ChatCompletionOptions,
+  ): Effect.Effect<StreamingResult, LLMError> {
+    return Effect.tryPromise({
+      try: async () => {
+        await this.refreshRuntimeConfigIfChanged();
+        const effectiveLLMConfig = mergeProviderApiKeysIntoLLMConfig(
+          this.config.llmConfig,
+          options.providerApiKeys,
+        );
+        const timingStart = Date.now();
+        void this.logger.debug(
+          `[LLM Timing] ⏱️  Starting streaming completion for ${providerName}:${options.model}`,
+        );
+
+        const modelSelectStart = Date.now();
+        const model = selectModel(providerName, options.model, effectiveLLMConfig, this.modelCache);
+        void this.logger.debug(
+          `[LLM Timing] Model selection took ${Date.now() - modelSelectStart}ms`,
+        );
+
+        const providerOptions = buildProviderOptions(
+          providerName,
+          options,
+          this.config.webSearchConfig,
+        );
+
+        // Message conversion timing
+        const messageConversionStart = Date.now();
+        const resolvedAttachments = await resolveAttachments(
+          options.messages,
+          providerName,
+          effectiveLLMConfig,
+          this.logger,
+        );
+        const coreMessages = toCoreMessages(options.messages, providerName, resolvedAttachments);
+        void this.logger.debug(
+          `[LLM Timing] Message conversion (${options.messages.length} messages) took ${Date.now() - messageConversionStart}ms`,
+        );
+
+        return { timingStart, model, providerOptions, coreMessages };
+      },
+      catch: (error) => convertToLLMError(error, providerName),
+    }).pipe(
+      Effect.flatMap(({ timingStart, model, providerOptions, coreMessages }) => {
+        const abortController = new AbortController();
+
+        const responseDeferred = createDeferred<ChatCompletionResponse>();
+
+        let processorRef: StreamProcessor | null = null;
+        const stream = Stream.async<StreamEvent, LLMError>(
+          (
+            emit: (
+              effect: Effect.Effect<Chunk.Chunk<StreamEvent>, Option.Option<LLMError>>,
+            ) => void,
+          ) => {
+            void (async (): Promise<void> => {
+              let streamTextResult: Awaited<ReturnType<typeof streamText>> | undefined;
+              try {
+                const streamTextStart = Date.now();
+                void this.logger.debug(
+                  `[LLM Timing] 🚀 Calling streamText at +${streamTextStart - timingStart}ms...`,
+                );
+
+                const modelInfo = await this.resolveModelInfo(providerName, options.model);
+                const reasoningParser = selectParser({
+                  provider: providerName,
+                  modelId: options.model,
+                  ...(modelInfo?.chatTemplate ? { chatTemplate: modelInfo.chatTemplate } : {}),
+                  ...(modelInfo?.capabilities ? { capabilities: modelInfo.capabilities } : {}),
+                });
+                // OpenRouter gateway models (e.g., openrouter/free) are meta-models that route to various
+                // underlying models, so we assume tool support and pass tools through.
+                const isGatewayModel = OPENROUTER_GATEWAY_MODELS.has(options.model);
+                const supportsTools = isGatewayModel || (modelInfo?.supportsTools ?? false);
+                const {
+                  tools: requestedTools,
+                  toolChoice: requestedToolChoice,
+                  toolsDisabled,
+                } = buildToolConfig(supportsTools, options.tools, options.toolChoice);
+
+                const prepared = this.prepareTools(providerName, requestedTools);
+                const tools = prepared?.tools;
+
+                if (toolsDisabled) {
+                  void this.logger.info(
+                    `Tools were provided but skipped because ${options.model} does not support tools`,
+                  );
+                }
+
+                streamTextResult = streamText({
+                  model,
+                  messages: coreMessages,
+                  allowSystemInMessages: true,
+                  maxRetries: AI_SDK_MAX_RETRIES,
+                  ...(typeof options.temperature === "number" &&
+                  modelInfo?.supportsTemperature !== false
+                    ? { temperature: options.temperature }
+                    : {}),
+                  ...(tools ? { tools } : {}),
+                  ...(requestedToolChoice ? { toolChoice: requestedToolChoice } : {}),
+                  ...(providerOptions ? { providerOptions } : {}),
+                  abortSignal: abortController.signal,
+                  stopWhen: stepCountIs(AI_SDK_MAX_STEPS),
+                });
+                const result = streamTextResult;
+
+                void this.logger.debug(
+                  `[LLM Timing] ✓ streamText returned (initialization) in ${Date.now() - streamTextStart}ms`,
+                );
+
+                const providerNativeToolNames = prepared?.providerNativeToolNames;
+
+                const processor = new StreamProcessor(
+                  {
+                    providerName,
+                    modelName: options.model,
+                    streamIdleTimeoutMs: this.config.llmConfig?.streamIdleTimeoutMs,
+                    hasReasoningEnabled: !!(
+                      options.reasoning_effort && options.reasoning_effort !== "disable"
+                    ),
+                    startTime: Date.now(),
+                    toolsDisabled,
+                    ...(typeof options.num_ctx === "number" &&
+                      options.num_ctx > 0 && { pinnedContextWindow: options.num_ctx }),
+                    ...(providerNativeToolNames && { providerNativeToolNames }),
+                    ...(reasoningParser ? { reasoningParser } : {}),
+                    ...(prepared
+                      ? {
+                          toolDefinitionChars: prepared.toolDefinitionChars,
+                          toolDefinitionCount: Object.keys(prepared.tools).length,
+                        }
+                      : {}),
+                  },
+                  emit,
+                  this.logger,
+                );
+                processorRef = processor;
+
+                // Process the stream and get final response
+                const finalResponse = await processor.process(result);
+
+                // `files` resolves once the stream finishes, so media a model emitted mid-answer
+                // is saved after the text has already been rendered. Awaited here rather than in
+                // the processor so streaming stays purely about text deltas.
+                const streamedArtifacts = await saveModelGeneratedFiles(
+                  await result.files,
+                  options.model,
+                );
+
+                // Resolve deferred for consumers who just await response
+                responseDeferred.resolve(
+                  streamedArtifacts.length > 0
+                    ? { ...finalResponse, artifacts: streamedArtifacts }
+                    : finalResponse,
+                );
+
+                // Close the stream
+                processor.close();
+              } catch (error) {
+                // Suppress unhandled rejections on streamText DelayedPromise fields.
+                // When the stream fails these all reject; we only consume fullStream,
+                // so they'd otherwise surface as Bun/Node unhandled-rejection dumps.
+                if (streamTextResult) {
+                  suppressStreamTextUnhandledRejections(streamTextResult);
+                }
+
+                const llmError = convertToLLMError(error, providerName);
+
+                const errorDetails: Record<string, unknown> = {
+                  provider: providerName,
+                  errorType: llmError._tag,
+                  message: llmError.message,
+                };
+
+                if (error instanceof Error) {
+                  const e = error as Error & {
+                    code?: string;
+                    status?: number;
+                    statusCode?: number;
+                    type?: string;
+                  };
+                  if (e.code) errorDetails["code"] = e.code;
+                  if (e.status) errorDetails["status"] = e.status;
+                  if (e.statusCode) errorDetails["statusCode"] = e.statusCode;
+                  if (e.type) errorDetails["type"] = e.type;
+                  if (typeof error === "object" && error !== null) {
+                    try {
+                      const errorObj = error as unknown as Record<string, unknown>;
+                      if (errorObj["param"]) errorDetails["param"] = errorObj["param"];
+                    } catch {
+                      // Ignore
+                    }
+                  }
+                }
+
+                // Truncate requestBodyValues to keep only last 5 messages
+                const truncatedRequestBody = truncateRequestBodyValues(error, 5);
+                if (truncatedRequestBody) {
+                  errorDetails["requestBodyValues"] = truncatedRequestBody;
+                }
+
+                const cleanMessage = extractCleanErrorMessage(error);
+                // Log clean error message at error level (user-facing)
+                void this.logger.error(`LLM Error: ${llmError._tag} - ${cleanMessage}`);
+                // Log detailed error information at debug level (for debugging)
+                void this.logger.debug("LLM Error Details", errorDetails);
+
+                void emit(Effect.fail(Option.some(llmError)));
+
+                responseDeferred.reject(llmError);
+              } finally {
+                if (processorRef && !abortController.signal.aborted) {
+                  processorRef.cancel();
+                }
+              }
+            })();
+          },
+        );
+
+        return Effect.succeed({
+          stream,
+          response: Effect.tryPromise({
+            try: () => responseDeferred.promise,
+            catch: (error) => convertToLLMError(error, providerName),
+          }),
+          cancel: Effect.sync(() => {
+            if (processorRef) {
+              processorRef.cancel();
+            }
+            abortController.abort();
+          }),
+        });
+      }), // close Effect.flatMap
+    ); // close pipe
+  }
+}
+
+export function createAISDKServiceLayer(): Layer.Layer<
+  LLMService,
+  LLMConfigurationError,
+  AgentConfigService | LoggerService
+> {
+  return Layer.effect(
+    LLMServiceTag,
+    Effect.gen(function* () {
+      const configService = yield* AgentConfigServiceTag;
+      const logger = yield* LoggerServiceTag;
+      const appConfig = yield* configService.appConfig;
+
+      const configuredProviders = getConfiguredProviders(appConfig.llm);
+
+      if (configuredProviders.length === 0) {
+        return yield* Effect.fail(
+          new LLMConfigurationError({
+            provider: "unknown",
+            message:
+              "No LLM API keys configured. Set config.llm.<provider>.api_key or env (e.g., OPENAI_API_KEY).",
+          }),
+        );
+      }
+
+      const cfg: AISDKConfig = {
+        ...(appConfig.llm ? { llmConfig: appConfig.llm } : {}),
+        ...(appConfig.web_search ? { webSearchConfig: appConfig.web_search } : {}),
+      };
+      return new AISDKService(cfg, configService, logger);
+    }),
+  );
+}

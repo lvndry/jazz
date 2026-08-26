@@ -1,15 +1,19 @@
 {
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
-    "noEmit": true
+    "noEmit": true,
+    "paths": {
+      "@/core/*": ["./packages/core/src/*"],
+      "@/adapters/*": ["./packages/adapters/src/*"],
+      "@/cli/*": ["./packages/cli/src/*"]
+    }
   },
   "include": [
     "test-preload.ts",
-    "src/**/*.test.ts",
-    "src/**/*.test.tsx",
+    "packages/*/src/**/*.test.ts",
+    "packages/*/src/**/*.test.tsx",
     "scripts/**/*.test.ts",
     "evals/**/*.test.ts",
-    "integrations/**/*.test.ts",
     "bench/**/*.ts"
   ],
   "exclude": ["node_modules", "dist"]

@@ -1,0 +1,875 @@
+import { AgentRunner } from "@jazz/core/agent/agent-runner";
+import { getAgentByIdentifier, listAllAgents } from "@jazz/core/agent/agent-service";
+import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
+import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
+import { getErrorMessage } from "@jazz/core/presentation/error-handler";
+import { makeOneShotPresentationServiceLayer } from "@jazz/core/presentation/oneshot-presentation-service";
+import type { Agent } from "@jazz/core/types/agent";
+import type { StreamEvent } from "@jazz/core/types/streaming";
+import { generateConversationId } from "@jazz/core/utils/conversation-id";
+import { describeCronSchedule } from "@jazz/core/utils/cron";
+import {
+  getCatchUpCandidates,
+  runCatchUpForWorkflows,
+  type CatchUpCandidate,
+} from "@jazz/core/workflows/catch-up";
+import {
+  addRunRecord,
+  getRecentRuns,
+  getRunHistoryFilePath,
+  loadRunHistory,
+  updateLatestRunRecord,
+} from "@jazz/core/workflows/run-history";
+import { SchedulerServiceTag } from "@jazz/core/workflows/scheduler-service";
+import { WorkflowServiceTag, type WorkflowMetadata } from "@jazz/core/workflows/workflow-service";
+import { formatWorkflow, groupWorkflows } from "@jazz/core/workflows/workflow-utils";
+import { Duration, Effect } from "effect";
+import { store } from "@/cli/ui/store";
+import { separatorLine } from "@/cli/utils/string-utils";
+import { formatOneShotError, formatOneShotResult, isRunCostKnown } from "./run/envelope";
+
+/**
+ * CLI commands for managing and running workflows.
+ */
+
+/**
+ * List all available workflows.
+ */
+export function listWorkflowsCommand() {
+  return Effect.gen(function* () {
+    const terminal = yield* TerminalServiceTag;
+    const workflowService = yield* WorkflowServiceTag;
+    const scheduler = yield* SchedulerServiceTag;
+
+    yield* terminal.heading("📋 Available Workflows");
+    yield* terminal.log("");
+
+    const workflows = yield* workflowService.listWorkflows();
+
+    if (workflows.length === 0) {
+      yield* terminal.info("No workflows found.");
+      yield* terminal.log("");
+      yield* terminal.info("Create a workflow by adding a WORKFLOW.md file to:");
+      yield* terminal.log("  • ./workflows/<name>/WORKFLOW.md (local)");
+      yield* terminal.log("  • ~/.jazz/workflows/<name>/WORKFLOW.md (global)");
+      return;
+    }
+
+    // Resolve scheduled and running status (best-effort; ignore scheduler errors on unsupported platforms)
+    const scheduledNames = yield* scheduler.listScheduled().pipe(
+      Effect.map((list) => new Set(list.map((s) => s.workflowName))),
+      Effect.catchAll(() => Effect.succeed(new Set<string>())),
+    );
+    const STALE_THRESHOLD_MS = 4 * 60 * 60 * 1000; // 4 hours
+    const { runningNames, staleNames } = yield* loadRunHistory().pipe(
+      Effect.map((history) => {
+        const running = new Set<string>();
+        const stale = new Set<string>();
+        for (const r of history) {
+          if (r.status === "running") {
+            const startedAtMs = Date.parse(r.startedAt);
+            if (!Number.isFinite(startedAtMs)) continue;
+            if (Date.now() - startedAtMs > STALE_THRESHOLD_MS) {
+              stale.add(r.workflowName);
+            } else {
+              running.add(r.workflowName);
+            }
+          }
+        }
+        return { runningNames: running, staleNames: stale };
+      }),
+      Effect.catchAll(() =>
+        Effect.succeed({ runningNames: new Set<string>(), staleNames: new Set<string>() }),
+      ),
+    );
+
+    const { local, global, builtin } = groupWorkflows(workflows);
+
+    function statusBadge(w: WorkflowMetadata): string {
+      if (runningNames.has(w.name)) return " ● running";
+      if (staleNames.has(w.name)) return " ✗ failed (stale)";
+      if (scheduledNames.has(w.name)) return " ○ scheduled";
+      if (w.schedule) return " — not scheduled";
+      return "";
+    }
+
+    if (local.length > 0) {
+      yield* terminal.log("Local workflows:");
+      for (const w of local) {
+        yield* terminal.log(formatWorkflow(w, { statusBadge: statusBadge(w) }));
+      }
+      yield* terminal.log("");
+    }
+
+    if (global.length > 0) {
+      yield* terminal.log("Global workflows (~/.jazz/workflows):");
+      for (const w of global) {
+        yield* terminal.log(formatWorkflow(w, { statusBadge: statusBadge(w) }));
+      }
+      yield* terminal.log("");
+    }
+
+    if (builtin.length > 0) {
+      yield* terminal.log("Built-in workflows:");
+      for (const w of builtin) {
+        yield* terminal.log(formatWorkflow(w, { statusBadge: statusBadge(w) }));
+      }
+      yield* terminal.log("");
+    }
+
+    yield* terminal.info(`Total: ${workflows.length} workflow(s)`);
+  });
+}
+
+/**
+ * Show details of a specific workflow.
+ */
+export function showWorkflowCommand(workflowName: string) {
+  return Effect.gen(function* () {
+    const terminal = yield* TerminalServiceTag;
+    const workflowService = yield* WorkflowServiceTag;
+
+    const workflow = yield* workflowService.loadWorkflow(workflowName).pipe(
+      Effect.catchAll((error) =>
+        Effect.gen(function* () {
+          yield* terminal.error(`Workflow not found: ${workflowName}`);
+          yield* terminal.info("Run 'jazz workflow list' to see available workflows.");
+          return yield* Effect.fail(error);
+        }),
+      ),
+    );
+
+    yield* terminal.heading(`📋 Workflow: ${workflow.metadata.name}`);
+    yield* terminal.log("");
+    yield* terminal.log(`Description: ${workflow.metadata.description}`);
+    yield* terminal.log(`Path: ${workflow.metadata.path}`);
+
+    if (workflow.metadata.agent) {
+      yield* terminal.log(`Agent: ${workflow.metadata.agent}`);
+    }
+
+    if (workflow.metadata.schedule) {
+      const desc = describeCronSchedule(workflow.metadata.schedule);
+      const scheduleDisplay = desc
+        ? `${desc} (${workflow.metadata.schedule})`
+        : workflow.metadata.schedule;
+      yield* terminal.log(`Schedule: ${scheduleDisplay}`);
+    }
+
+    if (workflow.metadata.autoApprove !== undefined) {
+      yield* terminal.log(`Auto-approve: ${workflow.metadata.autoApprove}`);
+    }
+
+    if (workflow.metadata.skills && workflow.metadata.skills.length > 0) {
+      yield* terminal.log(`Skills: ${workflow.metadata.skills.join(", ")}`);
+    }
+
+    if (workflow.metadata.catchUpOnStartup !== undefined) {
+      yield* terminal.log(`Catch-up on startup: ${workflow.metadata.catchUpOnStartup}`);
+    }
+
+    if (workflow.metadata.maxCatchUpAge !== undefined) {
+      yield* terminal.log(`Max catch-up age (seconds): ${workflow.metadata.maxCatchUpAge}`);
+    }
+
+    yield* terminal.log("");
+    yield* terminal.log(separatorLine(60));
+    yield* terminal.log("Prompt:");
+    yield* terminal.log(separatorLine(60));
+    yield* terminal.log(workflow.prompt);
+  });
+}
+
+/**
+ * Run a workflow once (manually or via system scheduler).
+ *
+ * When `options.scheduled` is true, the run was triggered by the system scheduler
+ * (launchd/cron). In this case, we verify that a scheduled time was actually missed
+ * before running. This prevents spurious runs from launchd's RunAtLoad (which fires
+ * immediately when the plist is loaded, e.g. during `jazz workflow schedule` or on login
+ * when no run was actually missed).
+ */
+export function runWorkflowCommand(
+  workflowName: string,
+  options?: {
+    autoApprove?: boolean;
+    agent?: string;
+    maxIterations?: number;
+    scheduled?: boolean;
+    /** Emit a single JSON envelope on stdout (same shape as `jazz run --json`) and suppress terminal chatter. */
+    json?: boolean;
+    /** Abort the run after this many milliseconds. */
+    timeoutMs?: number;
+    /** Stream these event types as NDJSON to stderr during the run (json mode only). */
+    eventTypes?: ReadonlySet<StreamEvent["type"]>;
+    /**
+     * Force streaming on/off. Streaming auto-disables when stdout is not a TTY, and the
+     * batch path never produces reasoning or text events — so a headless consumer asking
+     * for `--events reasoning,text` gets tool events only unless this forces it back on.
+     */
+    stream?: boolean;
+  },
+) {
+  const jsonMode = options?.json === true;
+
+  // In json mode every terminal write is suppressed: stdout must carry exactly
+  // one JSON envelope, and error detail travels inside that envelope instead.
+  // Takes a thunk so the terminal call isn't even constructed when suppressed.
+  const say = <E, R>(make: () => Effect.Effect<void, E, R>): Effect.Effect<void, E, R> =>
+    jsonMode ? Effect.void : Effect.suspend(make);
+
+  const command = Effect.gen(function* () {
+    const terminal = yield* TerminalServiceTag;
+    const workflowService = yield* WorkflowServiceTag;
+    const logger = yield* LoggerServiceTag;
+
+    // json mode implies non-interactive: a headless caller can never answer
+    // the agent picker, so missing agents must fail fast.
+    const isNonInteractive = options?.autoApprove === true || jsonMode;
+    const isSchedulerTriggered = options?.scheduled === true;
+
+    // When triggered by the system scheduler (--scheduled), guard against RunAtLoad
+    // firing the workflow immediately when the plist is first loaded during
+    // `jazz workflow schedule`. RunAtLoad triggers arrive within seconds of plist
+    // creation, so we compare the current time against the scheduledAt timestamp in
+    // the metadata. If the workflow was scheduled very recently (within 60s), this is
+    // a RunAtLoad trigger from plist loading, not a genuine cron/calendar interval or
+    // a login/wake catch-up -- skip it.
+    //
+    // All other --scheduled triggers (StartCalendarInterval, cron, and RunAtLoad on
+    // subsequent logins) proceed normally.
+    if (isSchedulerTriggered) {
+      const scheduler = yield* SchedulerServiceTag;
+      const allScheduled = yield* scheduler
+        .listScheduled()
+        .pipe(Effect.catchAll(() => Effect.succeed([] as const)));
+      const scheduleMeta = allScheduled.find((s) => s.workflowName === workflowName);
+
+      if (scheduleMeta?.scheduledAt) {
+        const scheduledAtTime = new Date(scheduleMeta.scheduledAt).getTime();
+        const now = Date.now();
+        const RECENT_SCHEDULE_THRESHOLD_MS = 60_000; // 60 seconds
+
+        if (
+          !Number.isNaN(scheduledAtTime) &&
+          now - scheduledAtTime < RECENT_SCHEDULE_THRESHOLD_MS
+        ) {
+          yield* logger.info("Scheduler-triggered run skipped: workflow was just scheduled", {
+            workflow: workflowName,
+            scheduledAt: scheduleMeta.scheduledAt,
+            elapsedMs: now - scheduledAtTime,
+          });
+          return;
+        }
+      }
+    }
+
+    yield* say(() => terminal.heading(`🚀 Running workflow: ${workflowName}`));
+    yield* say(() => terminal.log(""));
+
+    // Record the run start as early as possible. Until this lands every
+    // failed scheduled run (e.g. agent not found) exited before reaching
+    // addRunRecord, so the run history showed nothing and the catch-up
+    // logic kept treating the slot as a missed run.
+    const startedAt = new Date().toISOString();
+    const triggeredBy = isSchedulerTriggered ? ("scheduled" as const) : ("manual" as const);
+    yield* addRunRecord({
+      workflowName,
+      startedAt,
+      status: "running",
+      triggeredBy,
+    }).pipe(Effect.catchAll(() => Effect.void));
+
+    // Helper: mark the just-opened "running" record as failed. Called on
+    // every early-exit error path so failures show up in `jazz workflow
+    // history` and the next-startup warning surfaces them to the user.
+    const markFailed = (errorMessage: string) =>
+      updateLatestRunRecord(workflowName, {
+        completedAt: new Date().toISOString(),
+        status: "failed",
+        error: errorMessage,
+      }).pipe(Effect.catchAll(() => Effect.void));
+
+    // Load the workflow
+    const workflow = yield* workflowService.loadWorkflow(workflowName).pipe(
+      Effect.catchAll((error) =>
+        Effect.gen(function* () {
+          yield* markFailed(`Workflow not found: ${workflowName}`);
+          yield* say(() => terminal.error(`Workflow not found: ${workflowName}`));
+          yield* say(() => terminal.info("Run 'jazz workflow list' to see available workflows."));
+          return yield* Effect.fail(error);
+        }),
+      ),
+    );
+
+    // Determine which agent to use (CLI flag > workflow metadata > default)
+    const agentIdentifier = options?.agent || workflow.metadata.agent || "default";
+
+    // Try to get the specified agent, or prompt user to select one
+    let agent: Agent;
+    const agentResult = yield* getAgentByIdentifier(agentIdentifier).pipe(Effect.either);
+
+    if (agentResult._tag === "Right") {
+      agent = agentResult.right;
+      yield* say(() => terminal.info(`Using agent: ${agent.name} (${agent.model})`));
+    } else {
+      // In non-interactive mode (--auto-approve or --json), fail immediately if agent not found
+      if (isNonInteractive) {
+        const errorMessage = `Agent '${agentIdentifier}' not found. Scheduled workflows require a valid agent — update the workflow or re-schedule with an existing agent.`;
+        yield* markFailed(errorMessage);
+        yield* say(() => terminal.error(`Agent '${agentIdentifier}' not found.`));
+        yield* say(() =>
+          terminal.info(
+            "Scheduled workflows require a valid agent. Update the workflow or create the agent.",
+          ),
+        );
+        return yield* Effect.fail(new Error(errorMessage));
+      }
+
+      // Agent not found - list available agents and let user choose
+      const allAgents = yield* listAllAgents();
+
+      if (allAgents.length === 0) {
+        const errorMessage = "No agents available. Create an agent first with: jazz agent create";
+        yield* markFailed(errorMessage);
+        yield* terminal.error("No agents available.");
+        yield* terminal.info("Create an agent first with: jazz agent create");
+        return yield* Effect.fail(new Error(errorMessage));
+      }
+
+      if (agentIdentifier !== "default") {
+        yield* terminal.warn(`Agent '${agentIdentifier}' not found.`);
+      } else {
+        yield* terminal.info("No default agent configured.");
+      }
+      yield* terminal.log("");
+
+      // Prompt user to select an agent
+      const selectedAgent = yield* selectAgentForWorkflow(
+        allAgents,
+        "Select an agent to run this workflow:",
+      );
+      if (!selectedAgent) {
+        // User cancelled the picker. Mark the record skipped so it doesn't
+        // sit as a stale "running" entry forever.
+        yield* updateLatestRunRecord(workflowName, {
+          completedAt: new Date().toISOString(),
+          status: "skipped",
+        }).pipe(Effect.catchAll(() => Effect.void));
+        yield* terminal.info("Workflow cancelled.");
+        return;
+      }
+
+      agent = selectedAgent;
+      yield* terminal.info(`Using agent: ${agent.name} (${agent.model})`);
+    }
+
+    // Determine auto-approve policy
+    const autoApprovePolicy =
+      options?.autoApprove === true
+        ? (workflow.metadata.autoApprove ?? true)
+        : workflow.metadata.autoApprove;
+
+    if (autoApprovePolicy) {
+      yield* say(() => terminal.info(`Auto-approve policy: ${autoApprovePolicy}`));
+    }
+
+    yield* say(() => terminal.log(""));
+    yield* logger.info("Starting workflow execution", {
+      workflow: workflowName,
+      agent: agent.name,
+      autoApprove: autoApprovePolicy,
+    });
+
+    // Run the agent with the workflow prompt. Iteration cap precedence:
+    // CLI --max-iterations flag > workflow metadata > default (omitted here).
+    const resolvedMaxIterations = options?.maxIterations ?? workflow.metadata.maxIterations;
+    const runEffect = AgentRunner.run({
+      agent,
+      userInput: workflow.prompt,
+      conversationId: generateConversationId(`workflow-${workflowName}`),
+      ...(resolvedMaxIterations != null ? { maxIterations: resolvedMaxIterations } : {}),
+      ...(autoApprovePolicy !== undefined ? { autoApprovePolicy } : {}),
+      ...(options?.stream !== undefined ? { stream: options.stream } : {}),
+    });
+    const runResult = yield* (
+      options?.timeoutMs != null
+        ? runEffect.pipe(
+            Effect.timeoutFail({
+              duration: Duration.millis(options.timeoutMs),
+              onTimeout: () => new Error(`Run exceeded the ${options.timeoutMs}ms timeout.`),
+            }),
+          )
+        : runEffect
+    ).pipe(
+      Effect.tap((result) =>
+        updateLatestRunRecord(workflowName, {
+          completedAt: new Date().toISOString(),
+          status: "completed",
+          ...runCostFields(result),
+        }).pipe(Effect.catchAll(() => Effect.void)),
+      ),
+      Effect.tapError((error) =>
+        updateLatestRunRecord(workflowName, {
+          completedAt: new Date().toISOString(),
+          status: "failed",
+          error: error instanceof Error ? error.message : String(error),
+        }).pipe(Effect.catchAll(() => Effect.void)),
+      ),
+      // The generic top-level error handler renders this failure (e.g. an
+      // LLMRateLimitError after retries are exhausted) but never sets the
+      // process exit code, so `jazz workflow run` would print an error and
+      // still exit 0. Set it here, right after the failure is captured, so
+      // CI (and any other caller) can tell the run actually failed.
+      Effect.tapError(() =>
+        Effect.sync(() => {
+          process.exitCode = 1;
+        }),
+      ),
+    );
+
+    if (jsonMode) {
+      const promptTokens = runResult.usage?.promptTokens ?? 0;
+      const completionTokens = runResult.usage?.completionTokens ?? 0;
+      const toolCalls = (runResult.toolCalls ?? []).map((toolCall) => ({
+        id: toolCall.id,
+        name: toolCall.function?.name ?? "",
+        arguments: toolCall.function?.arguments ?? "",
+      }));
+      yield* Effect.sync(() => {
+        process.stdout.write(
+          formatOneShotResult(
+            {
+              answer: runResult.content,
+              costUSD: runResult.costUSD ?? 0,
+              costKnown: isRunCostKnown(
+                runResult.costUSD,
+                agent.config.llmProvider,
+                agent.config.llmModel,
+                runResult.costIncomplete === true,
+              ),
+              tokenUsage: {
+                promptTokens,
+                completionTokens,
+                totalTokens: promptTokens + completionTokens,
+              },
+              toolCalls,
+            },
+            { json: true },
+          ),
+        );
+      });
+      return;
+    }
+
+    yield* terminal.log("");
+    yield* terminal.success(`Workflow completed: ${workflowName}`);
+
+    if (isNonInteractive) {
+      const summary = { workflow: workflowName, ...runCostFields(runResult) };
+      yield* terminal.log(`[JAZZ_SUMMARY] ${JSON.stringify(summary)}`);
+    }
+  });
+
+  if (!jsonMode) {
+    return command;
+  }
+
+  // json mode: stdout carries exactly one envelope — on failure an ok:false
+  // envelope (with a non-zero exit code) instead of a rendered error, and the
+  // one-shot presentation layer keeps agent streaming off stdout (optionally
+  // emitting NDJSON events on stderr, as `jazz run --events` does).
+  return command.pipe(
+    Effect.catchAll((error) =>
+      Effect.sync(() => {
+        process.stdout.write(formatOneShotError(getErrorMessage(error), { json: true }));
+        process.exitCode = 1;
+      }),
+    ),
+    Effect.provide(makeOneShotPresentationServiceLayer(options?.eventTypes ?? new Set())),
+  );
+}
+
+/**
+ * Schedule a workflow for periodic execution.
+ */
+export function scheduleWorkflowCommand(workflowName: string) {
+  return Effect.gen(function* () {
+    const terminal = yield* TerminalServiceTag;
+    const workflowService = yield* WorkflowServiceTag;
+    const scheduler = yield* SchedulerServiceTag;
+
+    yield* terminal.heading(`⏰ Scheduling workflow: ${workflowName}`);
+    yield* terminal.log("");
+
+    // Load the workflow to verify it exists and has a schedule
+    const workflow = yield* workflowService.loadWorkflow(workflowName).pipe(
+      Effect.catchAll((error) =>
+        Effect.gen(function* () {
+          yield* terminal.error(`Workflow not found: ${workflowName}`);
+          yield* terminal.info("Run 'jazz workflow list' to see available workflows.");
+          return yield* Effect.fail(error);
+        }),
+      ),
+    );
+
+    if (!workflow.metadata.schedule) {
+      yield* terminal.error(`Workflow '${workflowName}' has no schedule defined.`);
+      yield* terminal.info("Add a 'schedule' field to the workflow's WORKFLOW.md frontmatter.");
+      yield* terminal.log("");
+      yield* terminal.log("Example:");
+      yield* terminal.log("  ---");
+      yield* terminal.log("  name: my-workflow");
+      yield* terminal.log('  schedule: "0 * * * *"  # Every hour');
+      yield* terminal.log("  ---");
+      return;
+    }
+
+    const schedulerType = scheduler.getSchedulerType();
+    if (schedulerType === "unsupported") {
+      yield* terminal.error("Scheduling is not supported on this platform.");
+      yield* terminal.info("Supported platforms: macOS (launchd), Linux (cron)");
+      return;
+    }
+
+    // Check if already scheduled
+    const isScheduled = yield* scheduler.isScheduled(workflowName);
+    if (isScheduled) {
+      yield* terminal.info(`Workflow '${workflowName}' is already scheduled. Updating...`);
+    }
+
+    // Determine which agent to use for scheduled runs
+    let agentId: string;
+    let agentName: string;
+    const workflowAgentId = workflow.metadata.agent || "default";
+
+    // Try to verify the agent exists
+    const agentResult = yield* getAgentByIdentifier(workflowAgentId).pipe(Effect.either);
+
+    if (agentResult._tag === "Right") {
+      agentId = workflowAgentId;
+      agentName = agentResult.right.name;
+      yield* terminal.info(`Using agent: ${agentName}`);
+    } else {
+      // Agent not found or not specified - prompt user to select one
+      const allAgents = yield* listAllAgents();
+
+      if (allAgents.length === 0) {
+        yield* terminal.error("No agents available.");
+        yield* terminal.info("Create an agent first with: jazz agent create");
+        return yield* Effect.fail(
+          new Error("No agents available. Create an agent first with: jazz agent create"),
+        );
+      }
+
+      if (workflowAgentId !== "default") {
+        yield* terminal.warn(`Agent '${workflowAgentId}' specified in workflow not found.`);
+      } else {
+        yield* terminal.info("No agent specified in workflow. Please select an agent:");
+      }
+      yield* terminal.log("");
+
+      // Prompt user to select an agent
+      const selectedAgent = yield* selectAgentForWorkflow(
+        allAgents,
+        "Select an agent to run this scheduled workflow:",
+      );
+      if (!selectedAgent) {
+        yield* terminal.info("Scheduling cancelled.");
+        return;
+      }
+
+      agentId = selectedAgent.id;
+      agentName = selectedAgent.name;
+      yield* terminal.info(`Using agent: ${agentName}`);
+    }
+
+    yield* terminal.log("");
+
+    // On macOS, ask if the workflow should also run on login/wake to catch missed runs
+    let runAtLoad = false;
+    if (schedulerType === "launchd") {
+      runAtLoad = yield* terminal.confirm(
+        "Run on login? (catches missed runs when your Mac was asleep)",
+        false,
+      );
+      yield* terminal.log("");
+    }
+
+    // Schedule the workflow with the selected agent
+    yield* scheduler.schedule(workflow.metadata, agentId, { runAtLoad });
+
+    yield* terminal.success(`Workflow '${workflowName}' scheduled successfully!`);
+    yield* terminal.log("");
+    yield* terminal.log(`  Schedule: ${workflow.metadata.schedule}`);
+    yield* terminal.log(`  Agent: ${agentName}`);
+    yield* terminal.log(`  Scheduler: ${schedulerType}`);
+    if (runAtLoad) {
+      yield* terminal.log(`  Run on login: yes`);
+    }
+    yield* terminal.log("");
+
+    if (workflow.metadata.autoApprove) {
+      yield* terminal.info(`Auto-approve policy: ${workflow.metadata.autoApprove}`);
+    } else {
+      yield* terminal.warn(
+        "No auto-approve policy set. The workflow may pause for approval during scheduled runs.",
+      );
+      yield* terminal.info("Add 'autoApprove: true' or 'autoApprove: low-risk' to the workflow.");
+    }
+
+    yield* terminal.log("");
+    yield* terminal.info("Logs will be written to: ~/.jazz/logs/");
+    yield* terminal.info(`To unschedule: jazz workflow unschedule ${workflowName}`);
+  });
+}
+
+/**
+ * Remove a workflow from the schedule.
+ */
+export function unscheduleWorkflowCommand(workflowName: string) {
+  return Effect.gen(function* () {
+    const terminal = yield* TerminalServiceTag;
+    const scheduler = yield* SchedulerServiceTag;
+
+    yield* terminal.heading(`🛑 Unscheduling workflow: ${workflowName}`);
+    yield* terminal.log("");
+
+    const schedulerType = scheduler.getSchedulerType();
+    if (schedulerType === "unsupported") {
+      yield* terminal.error("Scheduling is not supported on this platform.");
+      return;
+    }
+
+    // Check if scheduled
+    const isScheduled = yield* scheduler.isScheduled(workflowName);
+    if (!isScheduled) {
+      yield* terminal.info(`Workflow '${workflowName}' is not currently scheduled.`);
+      return;
+    }
+
+    // Unschedule the workflow
+    yield* scheduler.unschedule(workflowName);
+
+    yield* terminal.success(`Workflow '${workflowName}' unscheduled successfully.`);
+  });
+}
+
+/**
+ * List workflows that need catch-up, let user select which to run, then run them.
+ */
+export function catchupWorkflowCommand() {
+  return Effect.gen(function* () {
+    const terminal = yield* TerminalServiceTag;
+
+    yield* terminal.heading("🔄 Workflow catch-up");
+    yield* terminal.log("");
+    yield* terminal.info(
+      "Scheduled runs only fire when the machine is awake. If your Mac was asleep or off at the scheduled time, those runs were missed. Here you can run them now.",
+    );
+    yield* terminal.log("");
+
+    const candidates = yield* getCatchUpCandidates().pipe(
+      Effect.catchAll(() => Effect.succeed([] as readonly CatchUpCandidate[])),
+    );
+
+    if (candidates.length === 0) {
+      yield* terminal.info("No workflows need catch-up right now.");
+      yield* terminal.log("");
+      yield* terminal.info(
+        "Workflows must be scheduled, have catchUpOnStartup: true, and have missed their last run within the max catch-up window.",
+      );
+      return;
+    }
+
+    yield* terminal.log("Workflows that missed a scheduled run:");
+    yield* terminal.log("");
+
+    for (const c of candidates) {
+      const scheduledStr = c.decision.scheduledAt?.toISOString() ?? "—";
+      const scheduleLabel = describeCronSchedule(c.entry.schedule) ?? c.entry.schedule;
+      yield* terminal.log(
+        `  • ${c.entry.workflowName} (${scheduleLabel}) — missed at ${scheduledStr}`,
+      );
+    }
+
+    yield* terminal.log("");
+
+    const choices = candidates.map((c) => ({
+      name: `${c.entry.workflowName} (${c.decision.scheduledAt?.toISOString() ?? "—"})`,
+      value: c.entry.workflowName,
+    }));
+
+    const selected = yield* terminal.checkbox<string>(
+      "Select workflows to run now (Space to toggle, Enter to confirm):",
+      { choices, default: [] },
+    );
+
+    if (selected.length === 0) {
+      yield* terminal.info("No workflows selected. Exiting.");
+      return;
+    }
+
+    const entriesToRun = candidates
+      .filter((c) => selected.includes(c.entry.workflowName))
+      .map((c) => c.entry);
+
+    yield* terminal.log("");
+    yield* terminal.info(`Running catch-up for ${entriesToRun.length} workflow(s)...`);
+    yield* terminal.log("");
+
+    yield* runCatchUpForWorkflows(entriesToRun);
+
+    yield* terminal.log("");
+    yield* terminal.success("Catch-up finished.");
+  });
+}
+
+/**
+ * List all scheduled workflows.
+ */
+export function listScheduledWorkflowsCommand() {
+  return Effect.gen(function* () {
+    const terminal = yield* TerminalServiceTag;
+    const scheduler = yield* SchedulerServiceTag;
+
+    yield* terminal.heading("⏰ Scheduled Workflows");
+    yield* terminal.log("");
+
+    const schedulerType = scheduler.getSchedulerType();
+    if (schedulerType === "unsupported") {
+      yield* terminal.error("Scheduling is not supported on this platform.");
+      yield* terminal.info("Supported platforms: macOS (launchd), Linux (cron)");
+      return;
+    }
+
+    yield* terminal.info(`Scheduler: ${schedulerType}`);
+    yield* terminal.log("");
+
+    const scheduled = yield* scheduler.listScheduled();
+
+    if (scheduled.length === 0) {
+      yield* terminal.info("No workflows are currently scheduled.");
+      yield* terminal.log("");
+      yield* terminal.info("To schedule a workflow: jazz workflow schedule <name>");
+      return;
+    }
+
+    for (const s of scheduled) {
+      const status = s.enabled ? "✓ enabled" : "✗ disabled";
+      const scheduleLabel = describeCronSchedule(s.schedule) ?? s.schedule;
+      yield* terminal.log(`  ${s.workflowName} (${scheduleLabel}) agent: ${s.agent} ${status}`);
+    }
+
+    yield* terminal.log("");
+    yield* terminal.info(`Total: ${scheduled.length} scheduled workflow(s)`);
+  });
+}
+
+/**
+ * Show workflow run history.
+ */
+export function workflowHistoryCommand(workflowName?: string) {
+  return Effect.gen(function* () {
+    const terminal = yield* TerminalServiceTag;
+
+    if (workflowName) {
+      yield* terminal.heading(`📜 Run History: ${workflowName}`);
+    } else {
+      yield* terminal.heading("📜 Recent Workflow Runs");
+    }
+    yield* terminal.log("");
+
+    const runs = yield* getRecentRuns(20);
+
+    // Filter by workflow name if provided
+    const filteredRuns = workflowName ? runs.filter((r) => r.workflowName === workflowName) : runs;
+
+    if (filteredRuns.length === 0) {
+      yield* terminal.info("No run history found.");
+      yield* terminal.log(`   History file: ${getRunHistoryFilePath()}`);
+      return;
+    }
+
+    const STALE_THRESHOLD_MS = 4 * 60 * 60 * 1000; // 4 hours
+
+    for (const run of filteredRuns) {
+      const startedAtMs = Date.parse(run.startedAt);
+      const isStale =
+        run.status === "running" &&
+        Number.isFinite(startedAtMs) &&
+        Date.now() - startedAtMs > STALE_THRESHOLD_MS;
+      const displayStatus = isStale ? "failed" : run.status;
+      const statusIcon =
+        displayStatus === "completed"
+          ? "✓"
+          : displayStatus === "failed"
+            ? "✗"
+            : displayStatus === "skipped"
+              ? "⊘"
+              : "…";
+
+      const duration = run.completedAt
+        ? `${Math.round((new Date(run.completedAt).getTime() - new Date(run.startedAt).getTime()) / 1000)}s`
+        : isStale
+          ? "failed (stale — process exited without updating)"
+          : "in progress";
+
+      const trigger = run.triggeredBy === "scheduled" ? " (scheduled)" : "";
+
+      yield* terminal.log(
+        `  ${statusIcon} ${run.workflowName}${trigger} - ${displayStatus} (${duration})`,
+      );
+      yield* terminal.log(`    Started: ${run.startedAt}`);
+      if (run.error) {
+        yield* terminal.log(`    Error: ${run.error}`);
+      }
+      yield* terminal.log("");
+    }
+
+    yield* terminal.info(`Showing ${filteredRuns.length} most recent run(s)`);
+  });
+}
+
+function runCostFields(result: {
+  costUSD?: number;
+  usage?: { promptTokens: number; completionTokens: number };
+}) {
+  return {
+    ...(result.costUSD !== undefined ? { costUSD: result.costUSD } : {}),
+    ...(result.usage !== undefined ? { tokenUsage: result.usage } : {}),
+  };
+}
+
+/**
+ * Helper to prompt user to select an agent for workflow execution.
+ */
+export function selectAgentForWorkflow(
+  agents: readonly Agent[],
+  prompt: string,
+): Effect.Effect<Agent | null, never> {
+  return Effect.async<Agent | null, never>((resume) => {
+    store.setActiveMenu(
+      {
+        kind: "agents",
+        title: prompt,
+        action: "run",
+        agents: agents.map((agent) => ({
+          id: agent.id,
+          name: agent.name,
+          model: agent.config.llmModel,
+          ...(agent.description !== undefined && agent.description !== agent.name
+            ? { description: agent.description }
+            : {}),
+        })),
+      },
+      (result) => {
+        if (result.kind === "exit") {
+          resume(Effect.succeed(null));
+          return;
+        }
+        resume(Effect.succeed(agents.find((agent) => agent.id === result.value) ?? null));
+      },
+    );
+  });
+}

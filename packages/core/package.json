@@ -1,0 +1,44 @@
+{
+  "name": "@jazz/core",
+  "version": "0.15.6",
+  "description": "Jazz's agent runtime \u2014 a framework-agnostic, ports-and-adapters core: the agent loop, tool execution, context management, and the service interfaces adapters implement.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    "./types": "./src/types/index.ts",
+    "./agent/execution": "./src/agent/execution/index.ts",
+    "./agent/tools/fs": "./src/agent/tools/fs/index.ts",
+    "./*": [
+      "./src/*.ts",
+      "./src/*/index.ts"
+    ]
+  },
+  "files": ["src/"],
+  "dependencies": {
+    "@ai-sdk/provider": "^4.0.8",
+    "@effect/platform": "^0.97.1",
+    "@effect/platform-node": "^0.108.1",
+    "@modelcontextprotocol/client": "^2.0.0",
+    "@perplexity-ai/perplexity_ai": "^0.38.3",
+    "@tavily/core": "^0.7.8",
+    "ai": "^7.0.79",
+    "chalk": "^6.0.0",
+    "cron-parser": "^5.10.0",
+    "cronstrue": "^3.24.0",
+    "diff": "^9.0.0",
+    "effect": "^3.22.1",
+    "exa-js": "^2.18.1",
+    "fast-glob": "^3.3.3",
+    "gpt-tokenizer": "^3.4.0",
+    "gray-matter": "^4.0.3",
+    "linkup-sdk": "^3.5.0",
+    "parallel-web": "^1.3.0",
+    "plist": "^5.0.0",
+    "puppeteer-core": "^25.9.0",
+    "short-uuid": "^6.0.3",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@jazz/adapters": "workspace:*"
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "name": "@jazz/cli",
+  "version": "0.15.6",
+  "private": true,
+  "description": "Jazz's terminal presentation layer — Ink/OpenTUI rendering, commands, and the interactive chat loop.",
+  "type": "module",
+  "exports": {
+    "./chat/commands": "./src/chat/commands/index.ts",
+    "./chat/session": "./src/chat/session/index.ts",
+    "./ui/prompt-core": "./src/ui/prompt-core/index.ts",
+    "./*": [
+      "./src/*.ts",
+      "./src/*/index.ts"
+    ]
+  },
+  "dependencies": {
+    "@jazz/adapters": "workspace:*",
+    "@jazz/core": "workspace:*",
+    "ignore": "^7.0.6"
+  }
+}

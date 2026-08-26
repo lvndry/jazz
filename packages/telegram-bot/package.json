@@ -1,0 +1,18 @@
+{
+  "name": "@jazz/telegram-bot",
+  "version": "0.15.6",
+  "private": true,
+  "description": "Telegram bridge for Jazz agents.",
+  "type": "module",
+  "exports": {
+    "./*": [
+      "./src/*.ts",
+      "./src/*/index.ts"
+    ]
+  },
+  "dependencies": {
+    "@jazz/adapters": "workspace:*",
+    "@jazz/bot-shared": "workspace:*",
+    "@jazz/core": "workspace:*"
+  }
+}

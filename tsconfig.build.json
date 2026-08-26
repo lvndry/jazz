@@ -9,6 +9,11 @@
     "declaration": true,
     "tsBuildInfoFile": ".tsbuildinfo.scripts"
   },
-  "include": ["scripts/**/*.ts", "package.json", "src/cli/ui/theme.ts", "src/cli/ui/glyphs.ts"],
+  "include": [
+    "scripts/**/*.ts",
+    "package.json",
+    "packages/cli/src/ui/theme.ts",
+    "packages/cli/src/ui/glyphs.ts"
+  ],
   "exclude": ["node_modules", "dist"]
 }

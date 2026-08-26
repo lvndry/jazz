@@ -1,0 +1,18 @@
+{
+  "name": "@jazz/adapters",
+  "version": "0.15.6",
+  "private": true,
+  "description": "Service adapters implementing @jazz/core's interfaces \u2014 LLM providers, storage, secrets, peers, telemetry.",
+  "type": "module",
+  "exports": {
+    "./notification": "./src/notification/index.ts",
+    "./llm/reasoning": "./src/llm/reasoning/index.ts",
+    "./*": [
+      "./src/*.ts",
+      "./src/*/index.ts"
+    ]
+  },
+  "dependencies": {
+    "@jazz/core": "workspace:*"
+  }
+}

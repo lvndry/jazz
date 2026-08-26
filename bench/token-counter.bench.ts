@@ -3,8 +3,8 @@
 // takes the chars-per-token ratio shortcut — the gap is the interesting number.
 import { markdownReply } from "./corpus";
 import { bench, report } from "./harness";
-import { TokenCounter } from "../src/core/agent/context/token-counter";
-import type { ChatMessage } from "../src/core/types/message";
+import { TokenCounter } from "../packages/core/src/agent/context/token-counter";
+import type { ChatMessage } from "../packages/core/src/types/message";
 
 const OPENAI_HINT = { provider: "openai", modelId: "gpt-4o" };
 const ANTHROPIC_HINT = { provider: "anthropic", modelId: "claude-sonnet-4-5" };

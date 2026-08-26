@@ -2,7 +2,7 @@
 // diffs); formatting runs once per tool call, at peak byte volume.
 import chalk from "chalk";
 import { bench, report } from "./harness";
-import { formatToolResult } from "../src/core/utils/tool-formatter";
+import { formatToolResult } from "../packages/core/src/utils/tool-formatter";
 
 chalk.level = 3;
 

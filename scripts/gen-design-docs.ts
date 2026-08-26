@@ -13,8 +13,8 @@
 
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { GLYPHS, type GlyphSet } from "../src/cli/ui/glyphs";
-import { PALETTES, type ThemeColors, type ThemeVariant } from "../src/cli/ui/theme";
+import { GLYPHS, type GlyphSet } from "../packages/cli/src/ui/glyphs";
+import { PALETTES, type ThemeColors, type ThemeVariant } from "../packages/cli/src/ui/theme";
 
 const DOC = path.join("docs", "design", "index.md");
 
@@ -63,7 +63,7 @@ function paletteTable(variant: ThemeVariant): string {
   const palette = PALETTES[variant];
   const rows = (Object.keys(palette) as (keyof ThemeColors)[]).map((key) => {
     const note = TOKEN_NOTES[key] ?? "";
-    return `| \`${key}\` | \`${palette[key]}\` | ${note} |`;
+    return `| \`${String(key)}\` | \`${palette[key]}\` | ${note} |`;
   });
   return [`| Token | ${variant} | Role |`, "| --- | --- | --- |", ...rows].join("\n");
 }
@@ -87,7 +87,10 @@ function indicatorTable(): string {
   const { lanePeriods, laneBurst, laneRest } = GLYPHS.unicode;
   const greatestCommonDivisor = (a: number, b: number): number =>
     b === 0 ? a : greatestCommonDivisor(b, a % b);
-  const cycle = lanePeriods.reduce((a, b) => (a * b) / greatestCommonDivisor(a, b), 1);
+  const cycle = lanePeriods.reduce(
+    (a: number, b: number) => (a * b) / greatestCommonDivisor(a, b),
+    1,
+  );
   return [
     "| Property | Value |",
     "| --- | --- |",

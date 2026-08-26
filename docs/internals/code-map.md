@@ -13,26 +13,42 @@ the code lives and how it's wired, rather than what the harness does at runtime.
 
 ## Core Principles
 
-- **`core/`** contains the domain, contracts (interfaces and types), and business logic.
-  - No imports from `services/` allowed in core/ except in tests.
+Jazz is a Bun workspace under `packages/*`. The dependency rule below is not just documented
+convention — it's structurally enforced by TypeScript project references, so `tsc -b` rejects a
+package importing from one it doesn't declare a reference to.
+
+- **`packages/core/`** contains the domain, contracts (interfaces and types), and business logic.
+  - No imports from `packages/adapters/` or `packages/cli/` allowed in core, except in tests.
   - Contracts are expressed as interfaces + Context tags (e.g., `AgentConfigServiceTag`).
-- **`services/`** implements adapters (database, LLM providers, Gmail, file system, logger, etc.).
-  - Services provide Layers that satisfy the tags declared in `core/interfaces`.
-- **`cli/`** contains user-facing command implementations and presentation code.
+  - Publishable standalone as `@jazz/core` — no workspace dependencies of its own.
+- **`packages/adapters/`** implements adapters (database, LLM providers, Gmail, file system, logger, etc.).
+  - Adapters provide Layers that satisfy the tags declared in `core/interfaces`.
+  - Depends on `core` only.
+- **`packages/cli/`** contains user-facing command implementations, Ink/OpenTUI presentation,
+  and the terminal-rendering `TerminalService` implementation.
+  - Depends on `core` only.
+- **`packages/runtime/`** is the composition root — wires core, adapters, and cli into the
+  Effect Layer graph that becomes the `jazz` binary.
+  - Depends on `core`, `adapters`, and `cli`.
+- **`packages/bot-shared/`**, **`packages/telegram-bot/`**, **`packages/discord-bot/`** are the
+  chat-bridge integrations, each depending on `core`, `adapters`, and `bot-shared`.
 
 ## The dependency rule
 
 ```mermaid
 flowchart TB
-    CLI["<b>cli/</b><br/>commands · Ink TUI · presentation"]
-    CORE["<b>core/</b><br/>agent loop · tools · context · types<br/><b>interfaces = ports</b><br/><i>imports nothing outward</i>"]
-    SVC["<b>services/</b><br/>llm · storage · mcp · history<br/>logger · telemetry · notification"]
+    CLI["<b>packages/cli/</b><br/>commands · Ink TUI · presentation · TerminalService"]
+    CORE["<b>packages/core/</b><br/>agent loop · tools · context · types<br/><b>interfaces = ports</b><br/><i>imports nothing outward</i>"]
+    ADP["<b>packages/adapters/</b><br/>llm · storage · mcp · history<br/>logger · telemetry · notification"]
+    RT["<b>packages/runtime/</b><br/>composition root · jazz binary"]
 
     CLI -->|"calls"| CORE
-    SVC -->|"implements ports"| CORE
-    CLI -.->|"merges Layers at startup"| SVC
+    ADP -->|"implements ports"| CORE
+    RT -.->|"merges Layers at startup"| CLI
+    RT -.->|"merges Layers at startup"| ADP
+    RT -.->|"merges Layers at startup"| CORE
 
-    NO["core/ → services/<br/><b>never</b> (except in tests)"]
+    NO["core/ → adapters/ or cli/<br/><b>never</b> (except in tests)"]
 
     classDef core fill:#4f9d9d,stroke:#2f6d6d,color:#ffffff
     classDef forbidden fill:#c1443c,stroke:#7d2b26,color:#ffffff
@@ -41,15 +57,15 @@ flowchart TB
 ```
 
 Arrows point inward, always. That's what lets you swap a storage backend or add an LLM
-provider by touching one directory, and test the agent loop with plain mocks.
+provider by touching one package, and test the agent loop with plain mocks.
 
 Adding a capability follows the arrows in reverse:
 
 ```mermaid
 flowchart LR
-    A["1 · Define the port<br/>core/interfaces/foo.ts<br/>interface + Context.GenericTag"]
-    B["2 · Implement the adapter<br/>services/foo.ts<br/>+ a Layer"]
-    C["3 · Register the Layer<br/>src/app-layer.ts"]
+    A["1 · Define the port<br/>packages/core/src/interfaces/foo.ts<br/>interface + Context.GenericTag"]
+    B["2 · Implement the adapter<br/>packages/adapters/src/foo.ts<br/>+ a Layer"]
+    C["3 · Register the Layer<br/>packages/runtime/src/app-layer.ts"]
     D["4 · Test with a mock Layer<br/>Layer.succeed(FooTag, fake)"]
     A --> B --> C --> D
 
@@ -62,17 +78,26 @@ flowchart LR
 ## Directory Structure
 
 ```text
-src/
-├── cli/                          # User-facing CLI
+packages/
+├── cli/src/                      # @jazz/cli — user-facing CLI
 │   ├── commands/                 # Command implementations (chat, agent, config)
 │   ├── presentation/             # Output formatting (markdown, CLI renderer)
+│   ├── chat-service.ts           # Chat orchestrator (UI-touching; lives here, not adapters)
+│   ├── chat/                     # Chat service modules
+│   │   ├── commands/             # Slash command handling
+│   │   │   ├── parser.ts         # Parse /help, /new, etc.
+│   │   │   └── handler.ts        # Execute commands
+│   │   └── session/              # Session management
+│   │       ├── manager.ts        # ID generation, logging
+│   │       └── agent-setup.ts    # MCP connection setup
+│   ├── terminal.ts               # TerminalService implementation (Ink/OpenTUI rendering)
 │   └── ui/                       # Ink React components
 │       ├── App.tsx               # Main app with store pattern
 │       ├── ErrorBoundary.tsx     # Error boundary for graceful failures
 │       ├── LineInput.tsx         # Readline-style input component
 │       └── text-utils.ts         # Word boundary utilities
 │
-├── core/                         # Domain and contracts
+├── core/src/                     # @jazz/core — domain and contracts
 │   ├── agent/                    # Agent execution engine
 │   │   ├── agent-runner.ts       # Orchestrator (delegates to executors)
 │   │   ├── types.ts              # Shared types (AgentRunnerOptions, etc.)
@@ -92,24 +117,27 @@ src/
 │   ├── types/                    # Domain types
 │   └── utils/                    # Shared utilities
 │
-└── services/                     # Adapter implementations
-    ├── chat/                     # Chat service modules
-    │   ├── commands/             # Slash command handling
-    │   │   ├── parser.ts         # Parse /help, /new, etc.
-    │   │   └── handler.ts        # Execute commands
-    │   └── session/              # Session management
-    │       ├── manager.ts        # ID generation, logging
-    │       └── agent-setup.ts    # MCP connection setup
-    ├── chat-service.ts           # Chat orchestrator
-    ├── llm/                      # LLM provider adapters
-    └── storage/                  # Persistence (JSON file storage)
+├── adapters/src/                 # @jazz/adapters — adapter implementations
+│   ├── llm/                      # LLM provider adapters
+│   ├── mcp/                      # MCP client + OAuth
+│   ├── peers/                    # ask_peer ledger/token adapters
+│   └── storage/                  # Persistence (JSON file storage)
+│
+├── runtime/src/                  # @jazz/runtime — composition root
+│   ├── entry.ts                  # Binary entrypoint
+│   ├── cli-app.ts                # Commander.js program, command registration
+│   └── app-layer.ts              # Effect Layer composition
+│
+├── bot-shared/src/                # @jazz/bot-shared — shared bridge helpers
+├── telegram-bot/src/              # Telegram bridge
+└── discord-bot/src/               # Discord bridge
 ```
 
 ---
 
 ## Key modules
 
-### Agent Runner (`core/agent/`)
+### Agent Runner (`packages/core/src/agent/`)
 
 The agent runner is split into focused modules; runtime behavior is documented in
 [Agent loop](./agent-loop.md) and [Context management](./context-management.md).
@@ -124,7 +152,7 @@ The agent runner is split into focused modules; runtime behavior is documented i
 
 **Dependency Injection Pattern**: To avoid circular dependencies, the `summarizer.ts` accepts a `RecursiveRunner` function parameter instead of importing `AgentRunner` directly.
 
-### Chat Service (`services/chat/`)
+### Chat Service (`packages/cli/src/chat/`)
 
 The chat service is split into focused modules:
 
@@ -143,10 +171,10 @@ The chat service is split into focused modules:
 
 ### Service Contracts
 
-A service contract is an interface + a Context tag, defined under `src/core/interfaces/`.
+A service contract is an interface + a Context tag, defined under `packages/core/src/interfaces/`.
 
 ```typescript
-// src/core/interfaces/agent-config.ts
+// packages/core/src/interfaces/agent-config.ts
 export interface AgentConfigService {
   getConfig(): Effect.Effect<AgentConfig, Error>;
 }
@@ -171,9 +199,9 @@ Layer.effect(AgentConfigServiceTag, Effect.succeed(new ConfigServiceImpl(...)))
 
 ## How to Add a New Adapter/Service
 
-1. Add the contract to `src/core/interfaces/` (interface + Tag).
-2. Implement the adapter in `src/services/` and create a Layer.
-3. Add registration in [`src/app-layer.ts`](../../src/app-layer.ts) by merging the new Layer.
+1. Add the contract to `packages/core/src/interfaces/` (interface + Tag).
+2. Implement the adapter in `packages/adapters/src/` and create a Layer.
+3. Add registration in [`packages/runtime/src/app-layer.ts`](../../packages/runtime/src/app-layer.ts) by merging the new Layer.
 4. Add tests with a mock Layer.
 
 ---
@@ -214,7 +242,7 @@ const result = await Effect.runPromise(myEffect.pipe(Effect.provide(testLayer)))
 
 ## UI Architecture
 
-The CLI uses [Ink](https://github.com/vadimdemedes/ink) (React for terminals) with a dual-pattern state management:
+`@jazz/cli` uses [Ink](https://github.com/vadimdemedes/ink) (React for terminals) with a dual-pattern state management:
 
 1. **External Store (`store` object)**: Imperative access for Effect-based services
 2. **React Context (`AppContext`)**: Reactive state for components
@@ -225,7 +253,7 @@ The `ErrorBoundary` component wraps the app to catch rendering errors gracefully
 
 ## Why This Structure
 
-- **Separates policy (core) from mechanics (services)** — makes it easy to:
+- **Separates policy (core) from mechanics (adapters)** — makes it easy to:
   - Swap LLM providers
   - Substitute storage backends
   - Test core logic with deterministic mocks

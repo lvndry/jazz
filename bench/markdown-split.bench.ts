@@ -3,11 +3,11 @@
 // through reduceScrollback exposes the quadratic when a tail cannot promote.
 import { markdownReply, streamDeltas } from "./corpus";
 import { bench, report } from "./harness";
-import { findLastSafeSplitPoint } from "../src/cli/presentation/markdown-split";
+import { findLastSafeSplitPoint } from "../packages/cli/src/presentation/markdown-split";
 import {
   initialScrollbackState,
   reduceScrollback,
-} from "../src/cli/ui/adapters/terminal-output-adapter";
+} from "../packages/cli/src/ui/adapters/terminal-output-adapter";
 
 const proseTail = markdownReply(8_000);
 const openFenceTail = "```ts\n" + "const line = compute();\n".repeat(300);
