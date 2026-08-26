@@ -1,9 +1,10 @@
 import { Box, Text } from "ink";
-import React, { useState } from "react";
+import React, { useMemo } from "react";
 import type { Suggestion } from "@/core/interfaces/presentation";
 import { THEME } from "../theme";
 import { TextInput } from "./TextInput";
 import { useInputHandler, InputPriority, InputResults } from "../hooks/use-input-service";
+import { usePicker, type PickerChoice } from "../prompt-core";
 
 interface QuestionnaireProps {
   suggestions: readonly Suggestion[];
@@ -13,11 +14,21 @@ interface QuestionnaireProps {
   onCancel?: () => void;
 }
 
+function toPickerChoice(suggestion: Suggestion): PickerChoice {
+  return {
+    label: suggestion.label ?? suggestion.value,
+    value: suggestion.value,
+    ...(suggestion.description === undefined ? {} : { description: suggestion.description }),
+  };
+}
+
 /**
- * Questionnaire component that displays suggested responses and an inline custom input.
- * Supports both single-select (radio) and multi-select (checkbox) modes.
- * The custom input is the last option and can be typed into directly when selected.
- * When there are no suggestions, only the custom text input is shown so the user is never blocked.
+ * Suggested-responses picker. Selection, multi-select and custom-input state
+ * come from the shared picker core; this component maps suggestions into core
+ * choices, feeds `useInputHandler` actions into intents, and paints the view.
+ * The inline custom text field keeps its own `TextInput` (which submits
+ * directly) — the core only owns the suggestion list and selection.
+ * See `prompt-core/picker-core.ts`.
  */
 export function Questionnaire({
   suggestions,
@@ -26,58 +37,45 @@ export function Questionnaire({
   onSubmit,
   onCancel,
 }: QuestionnaireProps): React.ReactElement {
-  const [selectedIndex, setSelectedIndex] = useState(0);
-  const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
-  const [customValue] = useState("");
-
-  // When no suggestions, always show custom input so the user can type (never blocked)
+  const choices = useMemo(() => suggestions.map(toPickerChoice), [suggestions]);
   const effectiveAllowCustom = allowCustom || suggestions.length === 0;
-  const totalItems = effectiveAllowCustom ? suggestions.length + 1 : suggestions.length;
   const customOptionIndex = suggestions.length;
+
+  const picker = usePicker({
+    type: "questionnaire",
+    choices,
+    allowMultiple,
+    allowCustom: effectiveAllowCustom,
+    onResolve: (resolution) => {
+      if (resolution.kind === "single") {
+        onSubmit(resolution.value);
+      } else if (resolution.kind === "multi") {
+        onSubmit(resolution.values.join(", "));
+      }
+    },
+    onCancel,
+  });
+
+  const { view, state, dispatch } = picker;
 
   useInputHandler({
     id: "questionnaire-nav",
     priority: InputPriority.PROMPT,
     onInput: (action) => {
       if (action.type === "up") {
-        setSelectedIndex((i) => Math.max(0, i - 1));
+        dispatch({ kind: "move", delta: -1 });
         return InputResults.consumed();
       }
       if (action.type === "down") {
-        setSelectedIndex((i) => Math.min(totalItems - 1, i + 1));
+        dispatch({ kind: "move", delta: 1 });
         return InputResults.consumed();
       }
       if (action.type === "submit") {
-        if (allowMultiple) {
-          // In multiselect mode, Enter submits all selected items
-          if (selectedIndices.size > 0) {
-            const selectedValues = Array.from(selectedIndices)
-              .sort((a, b) => a - b)
-              .map((i) => suggestions[i]?.value)
-              .filter(Boolean) as string[];
-            onSubmit(selectedValues.join(", "));
-            return InputResults.consumed();
-          }
-          // If nothing selected, select the current item and submit
-          if (selectedIndex < suggestions.length) {
-            const suggestion = suggestions[selectedIndex];
-            if (suggestion) {
-              onSubmit(suggestion.value);
-              return InputResults.consumed();
-            }
-          }
-        } else {
-          // Single-select mode: submit the current selection
-          if (selectedIndex < suggestions.length) {
-            const suggestion = suggestions[selectedIndex];
-            if (suggestion) {
-              onSubmit(suggestion.value);
-              return InputResults.consumed();
-            }
-          }
+        if (state.cursor === customOptionIndex && effectiveAllowCustom) {
+          return InputResults.ignored();
         }
-        // If on custom input, TextInput component handles the submit
-        return InputResults.ignored();
+        dispatch({ kind: "submit" });
+        return InputResults.consumed();
       }
       if (action.type === "escape") {
         if (onCancel) {
@@ -86,132 +84,87 @@ export function Questionnaire({
         }
       }
       if (action.type === "char") {
-        // Space toggles selection in multiselect mode
-        if (allowMultiple && action.char === " " && selectedIndex < suggestions.length) {
-          setSelectedIndices((prev) => {
-            const next = new Set(prev);
-            if (next.has(selectedIndex)) {
-              next.delete(selectedIndex);
-            } else {
-              next.add(selectedIndex);
-            }
-            return next;
-          });
+        if (allowMultiple && action.char === " " && state.cursor < suggestions.length) {
+          dispatch({ kind: "toggle" });
           return InputResults.consumed();
         }
-
-        // Quick select by number key (only if not currently typing in the input field)
-        const isTyping = selectedIndex === customOptionIndex && effectiveAllowCustom;
+        const isTyping = state.cursor === customOptionIndex && effectiveAllowCustom;
         if (!isTyping && action.char >= "1" && action.char <= "9") {
           const index = parseInt(action.char, 10) - 1;
           if (index < suggestions.length) {
-            const suggestion = suggestions[index];
-            if (suggestion) {
-              if (allowMultiple) {
-                // Toggle selection in multiselect mode
-                setSelectedIndices((prev) => {
-                  const next = new Set(prev);
-                  if (next.has(index)) {
-                    next.delete(index);
-                  } else {
-                    next.add(index);
-                  }
-                  return next;
-                });
-                setSelectedIndex(index);
-              } else {
-                onSubmit(suggestion.value);
-              }
-              return InputResults.consumed();
-            }
+            dispatch({ kind: "quickPick", index });
+            if (!allowMultiple) dispatch({ kind: "submit" });
+            return InputResults.consumed();
           }
         }
       }
       return InputResults.ignored();
     },
-    deps: [
-      selectedIndex,
-      selectedIndices,
-      suggestions,
-      effectiveAllowCustom,
-      allowMultiple,
-      onSubmit,
-      onCancel,
-    ],
+    deps: [state, suggestions, effectiveAllowCustom, allowMultiple, onSubmit, onCancel],
   });
 
-  const renderIndicator = (index: number) => {
+  const renderIndicator = (row: (typeof view.rows)[number]) => {
     if (allowMultiple) {
-      const isSelected = selectedIndices.has(index);
-      const isFocused = index === selectedIndex;
       return (
-        <Text color={isFocused ? THEME.selected : THEME.secondary}>
-          {isFocused ? "› " : "  "}
-          <Text color={isSelected ? THEME.selected : "gray"}>{isSelected ? "[✓]" : "[ ]"}</Text>
+        <Text color={row.active ? THEME.selected : THEME.secondary}>
+          {row.active ? "› " : "  "}
+          <Text color={row.selected ? THEME.selected : "gray"}>{row.selected ? "[✓]" : "[ ]"}</Text>
         </Text>
       );
     }
     return (
       <Text
-        color={index === selectedIndex ? THEME.selected : THEME.secondary}
-        bold={index === selectedIndex}
+        color={row.active ? THEME.selected : THEME.secondary}
+        bold={row.active}
       >
-        {index === selectedIndex ? "› " : "  "}
+        {row.active ? "› " : "  "}
       </Text>
     );
   };
 
   return (
     <Box flexDirection="column">
-      {/* Suggested responses */}
-      {suggestions.map((suggestion, i) => {
-        const label = suggestion.label ?? suggestion.value;
-        const description = suggestion.description;
-        const isFocused = i === selectedIndex;
-
+      {view.rows.map((row, i) => {
+        const isFocused = i === view.cursor;
         return (
           <Box
-            key={i}
+            key={row.originalIndex}
             flexDirection="column"
           >
             <Box>
-              {renderIndicator(i)}
+              {renderIndicator(row)}
               <Text color={isFocused ? THEME.selected : THEME.primary}> {i + 1}.</Text>
               <Text
                 color={isFocused ? THEME.selected : THEME.secondary}
                 bold={isFocused}
               >
                 {" "}
-                {label}
+                {row.label}
               </Text>
             </Box>
-            {description && (
+            {row.description ? (
               <Box paddingLeft={5}>
-                <Text dimColor>{description}</Text>
+                <Text dimColor>{row.description}</Text>
               </Box>
-            )}
+            ) : null}
           </Box>
         );
       })}
 
-      {/* Inline Custom input */}
       {effectiveAllowCustom && (
         <Box marginTop={suggestions.length > 0 ? 1 : 0}>
           <Box>
             <Text
-              color={selectedIndex === customOptionIndex ? THEME.selected : "gray"}
-              bold={selectedIndex === customOptionIndex}
+              color={state.cursor === customOptionIndex ? THEME.selected : "gray"}
+              bold={state.cursor === customOptionIndex}
             >
-              {selectedIndex === customOptionIndex ? "› " : "  "}
+              {state.cursor === customOptionIndex ? "› " : "  "}
             </Text>
-            {selectedIndex === customOptionIndex ? (
+            {state.cursor === customOptionIndex ? (
               <TextInput
                 inputId="questionnaire-inline-custom"
-                defaultValue={customValue}
                 onSubmit={(value) => {
-                  if (value.trim()) {
-                    onSubmit(value.trim());
-                  }
+                  if (value.trim()) onSubmit(value.trim());
                 }}
               />
             ) : (
@@ -221,7 +174,6 @@ export function Questionnaire({
         </Box>
       )}
 
-      {/* Keyboard hints */}
       <Box marginTop={1}>
         <Text dimColor>
           {allowMultiple

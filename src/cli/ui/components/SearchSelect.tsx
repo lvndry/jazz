@@ -1,12 +1,13 @@
 import { Box, Text, useInput } from "ink";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo } from "react";
 import { getGlyphs } from "../glyphs";
+import { PICKER_WINDOW_SIZE, pickerWindowStart } from "../picker-window";
 import {
-  PICKER_WINDOW_SIZE,
-  pickerWindowStart,
-  rankPickerMatches,
-  wrapIndex,
-} from "../picker-window";
+  originalValueFromPicker,
+  toPickerChoices,
+  usePicker,
+  type PickerView,
+} from "../prompt-core";
 import { THEME } from "../theme";
 import type { Choice } from "../types";
 
@@ -21,8 +22,9 @@ interface SearchSelectProps<T = unknown> {
 }
 
 /**
- * SearchSelect - a searchable select component with filtering and pagination.
- * Type to filter options, use arrow keys to navigate, Enter to select, Escape to cancel.
+ * Searchable picker. Behaviour (filtering, ranking, cursor, resolution) comes
+ * from the shared picker core; this component only translates ink keys into
+ * intents and paints the derived view. See `prompt-core/picker-core.ts`.
  */
 export function SearchSelect<T = unknown>({
   options,
@@ -31,77 +33,59 @@ export function SearchSelect<T = unknown>({
   onSelect,
   onCancel,
 }: SearchSelectProps<T>): React.ReactElement {
-  const [query, setQuery] = useState("");
-  const [cursorIndex, setCursorIndex] = useState(0);
+  const choices = useMemo(() => toPickerChoices(options), [options]);
+  const picker = usePicker({
+    type: "search",
+    choices,
+    onResolve: (resolution) => {
+      if (resolution.kind === "single") {
+        const value = originalValueFromPicker(options, resolution.value);
+        if (value !== undefined) onSelect(value);
+      } else if (resolution.kind === "custom") {
+        const value = originalValueFromPicker(options, resolution.value);
+        if (value !== undefined) onSelect(value);
+      }
+    },
+    onCancel,
+  });
 
-  const filteredOptions = useMemo(() => rankPickerMatches(options, query), [options, query]);
-
-  const effectivePageSize = Math.max(1, Math.min(pageSize, filteredOptions.length || 1));
-  const windowStart = pickerWindowStart(cursorIndex, filteredOptions.length, effectivePageSize);
-  const windowEndExclusive = Math.min(filteredOptions.length, windowStart + effectivePageSize);
-  const hasMoreAbove = windowStart > 0;
-  const hasMoreBelow = windowEndExclusive < filteredOptions.length;
-
-  useEffect(() => {
-    setCursorIndex(0);
-  }, [query]);
-
-  useEffect(() => {
-    setQuery("");
-    setCursorIndex(0);
-  }, [options]);
-
-  function moveCursor(delta: number): void {
-    if (filteredOptions.length === 0) return;
-    setCursorIndex(wrapIndex(cursorIndex + delta, filteredOptions.length));
-  }
-
-  function submit(): void {
-    const selected = filteredOptions[cursorIndex];
-    if (selected) {
-      onSelect(selected.item.value);
-    }
-  }
+  const { view, state, dispatch } = picker;
+  const query = state.query;
 
   useInput((input, key) => {
-    // Handle escape for cancellation
     if (key.escape) {
       onCancel?.();
       return;
     }
-
-    // Navigation
     if (key.upArrow) {
-      moveCursor(-1);
+      dispatch({ kind: "move", delta: -1 });
       return;
     }
-
     if (key.downArrow) {
-      moveCursor(1);
+      dispatch({ kind: "move", delta: 1 });
       return;
     }
-
-    // Selection
     if (key.return) {
-      submit();
+      dispatch({ kind: "submit" });
       return;
     }
-
-    // Backspace handling
     if (key.backspace || key.delete) {
-      setQuery((prev) => prev.slice(0, -1));
+      dispatch({ kind: "setQuery", query: query.slice(0, -1) });
       return;
     }
-
-    // Text input - only printable characters
     if (input && !key.ctrl && !key.meta) {
-      setQuery((prev) => prev + input);
+      dispatch({ kind: "setQuery", query: query + input });
     }
   });
 
+  const effectivePageSize = Math.max(1, Math.min(pageSize, view.rows.length || 1));
+  const windowStart = pickerWindowStart(view.cursor, view.rows.length, effectivePageSize);
+  const windowEndExclusive = Math.min(view.rows.length, windowStart + effectivePageSize);
+  const hasMoreAbove = windowStart > 0;
+  const hasMoreBelow = windowEndExclusive < view.rows.length;
+
   return (
     <Box flexDirection="column">
-      {/* Search input */}
       <Box>
         <Text color={THEME.muted}>Search: </Text>
         {query.length === 0 ? (
@@ -120,70 +104,77 @@ export function SearchSelect<T = unknown>({
         )}
       </Box>
 
-      {/* Results count */}
       <Box marginTop={1}>
         <Text dimColor>
-          {filteredOptions.length} of {options.length} results
+          {view.filteredCount} of {view.totalCount} results
           {hasMoreAbove || hasMoreBelow ? " (↑/↓ to scroll)" : ""}
         </Text>
       </Box>
 
-      {/* Scroll indicator - top */}
       {hasMoreAbove && <Text dimColor>↑ more</Text>}
 
-      {/* Options list */}
-      {filteredOptions.length === 0 ? (
+      {view.rows.length === 0 ? (
         <Text dimColor>(No matching options)</Text>
       ) : (
-        filteredOptions.slice(windowStart, windowEndExclusive).map((entry, localIndex) => {
-          const absoluteIndex = windowStart + localIndex;
-          const isActive = absoluteIndex === cursorIndex;
-          const { item: option, matchIndex } = entry;
-          const queryLength = query.trim().length;
-          const labelColor = isActive ? THEME.selected : THEME.secondary;
-
-          return (
-            <Box key={absoluteIndex}>
-              <Text
-                color={THEME.primary}
-                bold
-              >
-                {isActive ? `${G.rail} ` : "  "}
-              </Text>
-              {matchIndex >= 0 && queryLength > 0 ? (
-                <Text
-                  color={labelColor}
-                  bold={isActive}
-                >
-                  {option.label.slice(0, matchIndex)}
-                  <Text
-                    color={THEME.primary}
-                    bold
-                  >
-                    {option.label.slice(matchIndex, matchIndex + queryLength)}
-                  </Text>
-                  {option.label.slice(matchIndex + queryLength)}
-                </Text>
-              ) : (
-                <Text
-                  color={labelColor}
-                  bold={isActive}
-                >
-                  {option.label}
-                </Text>
-              )}
-            </Box>
-          );
-        })
+        view.rows.slice(windowStart, windowEndExclusive).map((row) => (
+          <PickerRowLine
+            key={row.originalIndex}
+            row={row}
+            query={query}
+          />
+        ))
       )}
 
-      {/* Scroll indicator - bottom */}
       {hasMoreBelow && <Text dimColor>↓ more</Text>}
 
-      {/* Help text */}
       <Box marginTop={1}>
         <Text dimColor>Type to filter · ↑/↓ navigate · Enter select · Esc cancel</Text>
       </Box>
+    </Box>
+  );
+}
+
+function PickerRowLine({
+  row,
+  query,
+}: {
+  readonly row: PickerView["rows"][number];
+  readonly query: string;
+}): React.ReactElement {
+  const queryLength = query.trim().length;
+  const labelColor = row.active ? THEME.selected : THEME.secondary;
+
+  return (
+    <Box flexDirection="row">
+      <Text
+        color={THEME.primary}
+        bold
+      >
+        {row.active ? `${G.rail} ` : "  "}
+      </Text>
+      {row.matchIndex >= 0 && queryLength > 0 ? (
+        <Text
+          color={labelColor}
+          bold={row.active}
+        >
+          {row.label.slice(0, row.matchIndex)}
+          <Text
+            color={THEME.primary}
+            bold
+          >
+            {row.label.slice(row.matchIndex, row.matchIndex + queryLength)}
+          </Text>
+          {row.label.slice(row.matchIndex + queryLength)}
+        </Text>
+      ) : (
+        <Text
+          color={labelColor}
+          bold={row.active}
+        >
+          {row.label}
+        </Text>
+      )}
+      {row.description ? <Text color={THEME.muted}>{`  ${row.description}`}</Text> : null}
     </Box>
   );
 }

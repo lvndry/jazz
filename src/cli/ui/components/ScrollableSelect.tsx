@@ -1,7 +1,8 @@
 import { Box, Text, useInput } from "ink";
-import React, { useEffect, useState } from "react";
+import React, { useMemo } from "react";
 import { getGlyphs } from "../glyphs";
-import { PICKER_WINDOW_SIZE, pickerWindowStart, wrapIndex } from "../picker-window";
+import { PICKER_WINDOW_SIZE, pickerWindowStart } from "../picker-window";
+import { originalValueFromPicker, toPickerChoices, usePicker } from "../prompt-core";
 import { THEME } from "../theme";
 import type { Choice } from "../types";
 
@@ -16,9 +17,9 @@ interface ScrollableSelectProps<T = unknown> {
 }
 
 /**
- * ScrollableSelect - a scrollable select component with pagination.
- * Uses arrow keys to navigate, Enter to select, Escape to cancel.
- * Shows 10 items at a time with scroll indicators.
+ * Scrollable single-select (also used for `confirm`). Behaviour comes from the
+ * shared picker core; this component translates ink keys into intents and
+ * paints the derived view. See `prompt-core/picker-core.ts`.
  */
 export function ScrollableSelect<T = unknown>({
   options,
@@ -27,127 +28,92 @@ export function ScrollableSelect<T = unknown>({
   onSelect,
   onCancel,
 }: ScrollableSelectProps<T>): React.ReactElement {
-  const effectivePageSize = Math.max(1, Math.min(pageSize, options.length || 1));
+  const choices = useMemo(() => toPickerChoices(options), [options]);
+  const picker = usePicker({
+    type: "select",
+    choices,
+    initialCursor: initialIndex,
+    onResolve: (resolution) => {
+      if (resolution.kind === "single") {
+        const value = originalValueFromPicker(options, resolution.value);
+        if (value !== undefined) onSelect(value);
+      }
+    },
+    onCancel,
+  });
 
-  const clampedInitialIndex = Math.max(0, Math.min(Math.max(0, options.length - 1), initialIndex));
-  const [cursorIndex, setCursorIndex] = useState(clampedInitialIndex);
-  const windowStart = pickerWindowStart(cursorIndex, options.length, effectivePageSize);
-
-  const windowEndExclusive = Math.min(options.length, windowStart + effectivePageSize);
-  const hasMoreAbove = windowStart > 0;
-  const hasMoreBelow = windowEndExclusive < options.length;
-
-  useEffect(() => {
-    setCursorIndex(clampedInitialIndex);
-  }, [options, clampedInitialIndex]);
-
-  function findNextEnabledIndex(from: number, direction: 1 | -1): number {
-    if (options.length === 0) return 0;
-    let index = from;
-    for (let step = 0; step < options.length; step += 1) {
-      index = wrapIndex(index + direction, options.length);
-      if (options[index]?.disabled !== true) return index;
-    }
-    return from;
-  }
-
-  function moveCursor(delta: number): void {
-    const direction = delta > 0 ? 1 : -1;
-    setCursorIndex(findNextEnabledIndex(cursorIndex, direction));
-  }
-
-  function submit(): void {
-    const selected = options[cursorIndex];
-    if (selected && !selected.disabled) {
-      onSelect(selected.value);
-    }
-  }
+  const { view, dispatch } = picker;
 
   useInput((input, key) => {
-    // Handle escape for cancellation
     if (key.escape) {
       onCancel?.();
       return;
     }
-
-    // Navigation
     if (key.upArrow || input === "k") {
-      moveCursor(-1);
+      dispatch({ kind: "move", delta: -1 });
       return;
     }
-
     if (key.downArrow || input === "j") {
-      moveCursor(1);
+      dispatch({ kind: "move", delta: 1 });
       return;
     }
-
-    // Selection
     if (key.return) {
-      submit();
+      dispatch({ kind: "submit" });
     }
   });
 
-  if (options.length === 0) {
-    return (
-      <Box flexDirection="column">
-        <Text dimColor>(No options)</Text>
-      </Box>
-    );
-  }
+  const effectivePageSize = Math.max(1, Math.min(pageSize, view.rows.length || 1));
+  const windowStart = pickerWindowStart(view.cursor, view.rows.length, effectivePageSize);
+  const windowEndExclusive = Math.min(view.rows.length, windowStart + effectivePageSize);
+  const hasMoreAbove = windowStart > 0;
+  const hasMoreBelow = windowEndExclusive < view.rows.length;
 
   return (
     <Box flexDirection="column">
-      {/* Results count */}
       {(hasMoreAbove || hasMoreBelow) && (
         <Box>
-          <Text dimColor>{options.length} options (↑/↓ to scroll)</Text>
+          <Text dimColor>{view.totalCount} options (↑/↓ to scroll)</Text>
         </Box>
       )}
 
-      {/* Scroll indicator - top */}
       {hasMoreAbove && <Text dimColor>↑ more</Text>}
 
-      {/* Options list */}
-      {options.slice(windowStart, windowEndExclusive).map((choice, localIndex) => {
-        const absoluteIndex = windowStart + localIndex;
-        const isActive = absoluteIndex === cursorIndex;
-        const isDisabled = choice.disabled ?? false;
-
-        // Disabled items: dimmed, cannot be selected
-        if (isDisabled) {
+      {view.rows.length === 0 ? (
+        <Text dimColor>(No options)</Text>
+      ) : (
+        view.rows.slice(windowStart, windowEndExclusive).map((row) => {
+          if (row.disabled) {
+            return (
+              <Text
+                key={row.originalIndex}
+                dimColor
+              >
+                {"  "}
+                {row.label}
+              </Text>
+            );
+          }
           return (
-            <Text
-              key={absoluteIndex}
-              dimColor
-            >
-              {"  "}
-              {choice.label}
-            </Text>
+            <Box key={row.originalIndex}>
+              <Text
+                color={THEME.primary}
+                bold
+              >
+                {row.active ? `${G.rail} ` : "  "}
+              </Text>
+              <Text
+                color={row.active ? THEME.selected : THEME.secondary}
+                bold={row.active}
+              >
+                {row.label}
+              </Text>
+            </Box>
           );
-        }
+        })
+      )}
 
-        return (
-          <Box key={absoluteIndex}>
-            <Text
-              color={THEME.primary}
-              bold
-            >
-              {isActive ? `${G.rail} ` : "  "}
-            </Text>
-            <Text
-              color={isActive ? THEME.selected : THEME.secondary}
-              bold={isActive}
-            >
-              {choice.label}
-            </Text>
-          </Box>
-        );
-      })}
-
-      {/* Scroll indicator - bottom */}
       {hasMoreBelow && <Text dimColor>↓ more</Text>}
 
-      {/* Help text */}
       <Box marginTop={1}>
         <Text dimColor>↑/↓ navigate · Enter select · Esc cancel</Text>
       </Box>

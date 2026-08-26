@@ -29,7 +29,8 @@ import {
   resolveFilePickerPath,
   scanFilePickerEntries,
 } from "../file-picker-files";
-import { pickerItemMatches, wrapIndex } from "../picker-window";
+import { wrapIndex } from "../picker-window";
+import { filterAndRank, type PickerChoice } from "../prompt-core";
 import { composeRecalledBuffer, isCursorOnFirstLine, isCursorOnLastLine } from "../queue-recall";
 import {
   store,
@@ -182,16 +183,16 @@ function firstEnabledChoice(choices: readonly { readonly disabled?: boolean }[])
   return index < 0 ? 0 : index;
 }
 
-function choiceMatchesFilter(choice: Choice, filter: string): boolean {
-  return pickerItemMatches(choice, filter);
-}
-
 function promptIsFilterable(prompt: PromptState): boolean {
   return prompt.type === "search" || prompt.type === "select";
 }
 
 function matchingChoiceIndices(choices: readonly Choice[], filter: string): number[] {
-  return choices.flatMap((choice, index) => (choiceMatchesFilter(choice, filter) ? [index] : []));
+  // Route through the shared core so fullscreen ranks choices identically to
+  // the standard (ink) renderer — this ends the two-mode divergence.
+  return filterAndRank(choices as readonly PickerChoice[], filter).map(
+    (ranked) => ranked.originalIndex,
+  );
 }
 
 function choicesAtIndices(choices: readonly Choice[], indices: readonly number[]): Choice[] {
@@ -1191,10 +1192,17 @@ export function FullscreenBridge(): React.ReactNode {
 
   const tools = useMemo(() => liveToolsFrom(activity, Date.now()), [activity, elapsedMs]);
   const step = useMemo(() => stepFrom(activity), [activity]);
+  const todoList =
+    activity.phase === "tool-execution" && activity.todoSnapshot !== undefined
+      ? activity.todoSnapshot.filter((todo) => todo.status !== "cancelled")
+      : [];
   const waitingNow = activity.phase === "awaiting" || activity.phase === "thinking";
   const neededRows = Math.min(
     LIVE_ZONE_MAX_ROWS,
-    tools.length + (waitingNow ? 1 : 0) + (step === undefined ? 0 : 1),
+    tools.length +
+      (waitingNow ? 1 : 0) +
+      (step === undefined ? 0 : 1) +
+      (todoList.length > 0 ? 1 + todoList.length : 0),
   );
 
   useEffect(() => {
@@ -1334,7 +1342,10 @@ export function FullscreenBridge(): React.ReactNode {
           const sourceChoices = choicesForQuestion(active, suggestions);
           updatePromptQuestion((state) => {
             const filter = state.filter + flat;
-            const choices = sourceChoices.filter((choice) => choiceMatchesFilter(choice, filter));
+            const choices = choicesAtIndices(
+              sourceChoices,
+              matchingChoiceIndices(sourceChoices, filter),
+            );
             return { ...state, filter, selected: firstEnabledChoice(choices) };
           });
           return true;
@@ -1692,7 +1703,10 @@ export function FullscreenBridge(): React.ReactNode {
         if (promptIsFilterable(active) && name === "backspace") {
           updatePromptQuestion((state) => {
             const filter = [...state.filter].slice(0, -1).join("");
-            const choices = sourceChoices.filter((choice) => choiceMatchesFilter(choice, filter));
+            const choices = choicesAtIndices(
+              sourceChoices,
+              matchingChoiceIndices(sourceChoices, filter),
+            );
             return { ...state, filter, selected: firstEnabledChoice(choices) };
           });
           return true;
@@ -1746,7 +1760,10 @@ export function FullscreenBridge(): React.ReactNode {
         if (promptIsFilterable(active) && isPrintableSequence(sequence, ctrl, superKey)) {
           updatePromptQuestion((state) => {
             const filter = state.filter + sequence;
-            const choices = sourceChoices.filter((choice) => choiceMatchesFilter(choice, filter));
+            const choices = choicesAtIndices(
+              sourceChoices,
+              matchingChoiceIndices(sourceChoices, filter),
+            );
             return { ...state, filter, selected: firstEnabledChoice(choices) };
           });
           return true;
@@ -2163,6 +2180,7 @@ export function FullscreenBridge(): React.ReactNode {
       tools,
       hiddenTools: [],
       ...(step === undefined ? {} : { step }),
+      ...(todoList.length === 0 ? {} : { todoList }),
       ...(waitingNow
         ? {
             waiting: WAITING[
@@ -2174,7 +2192,7 @@ export function FullscreenBridge(): React.ReactNode {
       reservedRows,
       ...(reasoningElapsedMs === undefined ? {} : { reasoningElapsedMs }),
     };
-  }, [tools, step, waitingNow, elapsedMs, reservedRows, regions]);
+  }, [tools, step, todoList, waitingNow, elapsedMs, reservedRows, regions]);
 
   const view = useMemo<ViewModel>(
     () => ({
