@@ -1,6 +1,8 @@
 import { Box, Text, useInput } from "ink";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo } from "react";
 import { getGlyphs } from "../glyphs";
+import { pickerWindowStart } from "../picker-window";
+import { originalValuesFromPicker, toPickerChoices, usePicker } from "../prompt-core";
 import { THEME } from "../theme";
 import type { Choice } from "../types";
 
@@ -11,6 +13,7 @@ interface ScrollableMultiSelectProps<T = unknown> {
   readonly defaultSelected?: T | readonly T[];
   readonly pageSize?: number;
   readonly onSubmit: (selectedValues: readonly T[]) => void;
+  readonly onCancel?: () => void;
 }
 
 function normalizeDefaultSelected<T>(defaultSelected: T | readonly T[] | undefined): readonly T[] {
@@ -19,125 +22,68 @@ function normalizeDefaultSelected<T>(defaultSelected: T | readonly T[] | undefin
   return [defaultSelected as T];
 }
 
-function buildDefaultSelectedIndexSet<T>(
-  options: readonly Choice<T>[],
-  defaultSelected: readonly T[],
-): ReadonlySet<number> {
-  if (defaultSelected.length === 0 || options.length === 0) return new Set<number>();
-
-  const selected = new Set<number>();
-  for (let i = 0; i < options.length; i++) {
-    const value = options[i]!.value;
-    if (defaultSelected.includes(value)) selected.add(i);
-  }
-  return selected;
-}
-
+/**
+ * Multi-select checkbox list. Behaviour comes from the shared picker core;
+ * this component translates ink keys into intents and paints the derived view.
+ * See `prompt-core/picker-core.ts`.
+ */
 export function ScrollableMultiSelect<T = unknown>({
   options,
   defaultSelected,
   pageSize = 10,
   onSubmit,
+  onCancel,
 }: ScrollableMultiSelectProps<T>): React.ReactElement {
-  const normalizedDefaultSelected = useMemo(
-    () => normalizeDefaultSelected(defaultSelected),
-    [defaultSelected],
-  );
+  const choices = useMemo(() => toPickerChoices(options), [options]);
+  const defaultChecked = useMemo(() => {
+    const values = new Set(normalizeDefaultSelected(defaultSelected).map(String));
+    return choices
+      .map((choice, index) => (values.has(choice.value) ? index : -1))
+      .filter((i) => i >= 0);
+  }, [choices, defaultSelected]);
 
-  const [cursorIndex, setCursorIndex] = useState(0);
-  const [windowStart, setWindowStart] = useState(0);
-  const [selectedIndexes, setSelectedIndexes] = useState<ReadonlySet<number>>(() =>
-    buildDefaultSelectedIndexSet(options, normalizedDefaultSelected),
-  );
+  const picker = usePicker({
+    type: "checkbox",
+    choices,
+    allowMultiple: true,
+    defaultChecked,
+    onResolve: (resolution) => {
+      if (resolution.kind === "multi") {
+        onSubmit(originalValuesFromPicker(options, resolution.values));
+      }
+    },
+    onCancel,
+  });
 
-  const effectivePageSize = Math.max(1, Math.min(pageSize, options.length || 1));
-  const windowEndExclusive = Math.min(options.length, windowStart + effectivePageSize);
-  const hasMoreAbove = windowStart > 0;
-  const hasMoreBelow = windowEndExclusive < options.length;
-
-  // React can keep this component mounted between prompts; ensure state resets.
-  useEffect(() => {
-    setCursorIndex(0);
-    setWindowStart(0);
-    setSelectedIndexes(buildDefaultSelectedIndexSet(options, normalizedDefaultSelected));
-  }, [options, normalizedDefaultSelected]);
-
-  function clampCursor(nextIndex: number): number {
-    if (options.length === 0) return 0;
-    return Math.max(0, Math.min(options.length - 1, nextIndex));
-  }
-
-  function ensureCursorVisible(nextCursor: number): void {
-    if (options.length <= effectivePageSize) {
-      setWindowStart(0);
-      return;
-    }
-
-    if (nextCursor < windowStart) {
-      setWindowStart(nextCursor);
-      return;
-    }
-
-    const endInclusive = windowStart + effectivePageSize - 1;
-    if (nextCursor > endInclusive) {
-      setWindowStart(Math.max(0, nextCursor - (effectivePageSize - 1)));
-    }
-  }
-
-  function moveCursor(delta: number): void {
-    const nextCursor = clampCursor(cursorIndex + delta);
-    setCursorIndex(nextCursor);
-    ensureCursorVisible(nextCursor);
-  }
-
-  function toggleSelected(index: number): void {
-    setSelectedIndexes((prev) => {
-      const next = new Set(prev);
-      if (next.has(index)) next.delete(index);
-      else next.add(index);
-      return next;
-    });
-  }
-
-  function submit(): void {
-    const selected = Array.from(selectedIndexes).sort((a, b) => a - b);
-    const values: T[] = [];
-    for (const idx of selected) {
-      const choice = options[idx];
-      if (choice) values.push(choice.value);
-    }
-    onSubmit(values);
-  }
+  const { view, dispatch } = picker;
 
   useInput((input, key) => {
+    if (key.escape) {
+      onCancel?.();
+      return;
+    }
     if (key.upArrow || input === "k") {
-      moveCursor(-1);
+      dispatch({ kind: "move", delta: -1 });
       return;
     }
-
     if (key.downArrow || input === "j") {
-      moveCursor(1);
+      dispatch({ kind: "move", delta: 1 });
       return;
     }
-
     if (input === " ") {
-      if (options.length > 0) toggleSelected(cursorIndex);
+      dispatch({ kind: "toggle" });
       return;
     }
-
     if (key.return) {
-      submit();
+      dispatch({ kind: "submit" });
     }
   });
 
-  if (options.length === 0) {
-    return (
-      <Box flexDirection="column">
-        <Text dimColor>(No options)</Text>
-        <Text dimColor>Press Enter to submit.</Text>
-      </Box>
-    );
-  }
+  const effectivePageSize = Math.max(1, Math.min(pageSize, view.rows.length || 1));
+  const windowStart = pickerWindowStart(view.cursor, view.rows.length, effectivePageSize);
+  const windowEndExclusive = Math.min(view.rows.length, windowStart + effectivePageSize);
+  const hasMoreAbove = windowStart > 0;
+  const hasMoreBelow = windowEndExclusive < view.rows.length;
 
   return (
     <Box flexDirection="column">
@@ -149,29 +95,30 @@ export function ScrollableMultiSelect<T = unknown>({
 
       {hasMoreAbove && <Text dimColor>↑ more</Text>}
 
-      {options.slice(windowStart, windowEndExclusive).map((choice, localIndex) => {
-        const absoluteIndex = windowStart + localIndex;
-        const isActive = absoluteIndex === cursorIndex;
-        const isSelected = selectedIndexes.has(absoluteIndex);
-
-        return (
-          <Box key={absoluteIndex}>
+      {view.rows.length === 0 ? (
+        <Box flexDirection="column">
+          <Text dimColor>(No options)</Text>
+          <Text dimColor>Press Enter to submit.</Text>
+        </Box>
+      ) : (
+        view.rows.slice(windowStart, windowEndExclusive).map((row) => (
+          <Box key={row.originalIndex}>
             <Text
               color={THEME.primary}
               bold
             >
-              {isActive ? G.rail : " "}
+              {row.active ? G.rail : " "}
             </Text>
             <Text
-              color={isActive ? THEME.selected : THEME.secondary}
-              bold={isActive}
+              color={row.active ? THEME.selected : THEME.secondary}
+              bold={row.active}
             >
               {" "}
-              [{isSelected ? "x" : " "}] {choice.label}
+              [{row.selected ? "x" : " "}] {row.label}
             </Text>
           </Box>
-        );
-      })}
+        ))
+      )}
 
       {hasMoreBelow && <Text dimColor>↓ more</Text>}
 
