@@ -1080,12 +1080,7 @@ function deepDelete(obj: Record<string, unknown>, path: string): void {
   }
 }
 
-/**
- * Sets a value at a dotted path on any object. Takes `object` rather than
- * `Record<string, unknown>` so callers can pass concrete config/domain types
- * (which have no index signature) directly instead of casting at every call
- * site — the mutation itself is generic regardless of the object's real shape.
- */
+/** Sets a value at a dotted path on any object. */
 function deepSet(obj: object, path: string, value: unknown): void {
   const parts = path.split(".").filter(Boolean);
   let cur: Record<string, unknown> = obj as Record<string, unknown>;

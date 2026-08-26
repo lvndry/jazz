@@ -38,11 +38,7 @@ const RUNS_RETAINED = 200;
 const FLUSH_INTERVAL_MS = 2_000;
 
 export interface RunLog {
-  /**
-   * Record one event from the jazz stream. Takes `object` rather than
-   * `Record<string, unknown>` so callers can pass a concrete event type (which has no
-   * index signature) directly instead of casting at the call site.
-   */
+  /** Record one event from the jazz stream. */
   event: (event: object) => void;
   /**
    * Record the run's outcome, including a timeout or crash. Also releases the
