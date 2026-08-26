@@ -759,6 +759,6 @@ describe("ToolExecutor picker-style approvals", () => {
 
     expect(executeArgsSeen).toHaveLength(1);
     const seen = executeArgsSeen[0] as Record<string, unknown> | undefined;
-    expect(seen?._selectedOptionId).toBe("anthropic/claude-sonnet-4-5");
+    expect(seen?.["_selectedOptionId"]).toBe("anthropic/claude-sonnet-4-5");
   });
 });

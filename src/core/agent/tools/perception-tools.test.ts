@@ -14,7 +14,7 @@ import { PresentationServiceTag } from "@/core/interfaces/presentation";
 import type { TerminalService } from "@/core/interfaces/terminal";
 import { TerminalServiceTag } from "@/core/interfaces/terminal";
 import type { Agent } from "@/core/types/agent";
-import type { ToolExecutionContext } from "@/core/types/tools";
+import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types/tools";
 import * as modelsDevActual from "@/core/utils/models-dev";
 
 // Deterministic catalog for the unconfigured-provider lookup: openai has an
@@ -156,7 +156,11 @@ function runProposal(args: Record<string, unknown>, context: ToolExecutionContex
     Layer.succeed(LLMServiceTag, makeLlmService()),
   );
   return Effect.runPromise(
-    proposal.execute(args, context).pipe(Effect.provide(layer)),
+    proposal.execute(args, context).pipe(Effect.provide(layer)) as Effect.Effect<
+      ToolExecutionResult,
+      Error,
+      never
+    >,
   ) as Promise<ProposalOutcome>;
 }
 
@@ -224,7 +228,7 @@ describe("analyze_media empty state", () => {
           },
           makeContext(),
         )
-        .pipe(Effect.provide(layer)),
+        .pipe(Effect.provide(layer)) as Effect.Effect<ToolExecutionResult, Error, never>,
     )) as ProposalOutcome;
 
     expect(setCalls).toEqual(["llm.openai.api_key"]);
@@ -273,7 +277,7 @@ describe("analyze_media empty state", () => {
           },
           makeContext(),
         )
-        .pipe(Effect.provide(layer)),
+        .pipe(Effect.provide(layer)) as Effect.Effect<ToolExecutionResult, Error, never>,
     )) as ProposalOutcome;
 
     expect(outcome.success).toBe(false);

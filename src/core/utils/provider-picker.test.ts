@@ -8,7 +8,7 @@ const OPENROUTER_MODELS = [
   { id: "openrouter/auto", displayName: "Auto Router" },
   { id: "openai/gpt-5", displayName: "GPT-5" },
   { id: "openrouter/free", displayName: "Free Router" },
-] as never[];
+];
 
 describe("sortModelsForPicker", () => {
   it("pins openrouter/free and openrouter/auto first, then remaining router models in catalog order, above plain models", () => {
@@ -25,7 +25,7 @@ describe("sortModelsForPicker", () => {
   });
 
   it("does not pin router ids under other providers", () => {
-    const models = [{ id: "plain-model" }, { id: "openrouter/free" }] as never[];
+    const models = [{ id: "plain-model" }, { id: "openrouter/free" }];
     expect(sortModelsForPicker("mistral", models, (m) => m.id).map((m) => m.id)).toEqual([
       "plain-model",
       "openrouter/free",
