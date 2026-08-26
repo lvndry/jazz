@@ -482,12 +482,16 @@ describe("question overlay", () => {
     expect(rowFor("Restaurants")).toContain(`[${glyphs.success}]`);
     expect(rowFor("Hotels")).toContain("[ ]");
     // Focused but unchecked, and checked but unfocused, both exist at once. The
-    // rail lives in the gutter, one pad column past the frame edge — asserted
-    // by position, since in ascii mode the rail and the frame share a glyph.
-    const gutterOf = (label: string): string =>
-      rowFor(label).charAt(rowFor(label).indexOf(glyphs.boxV) + 2);
-    expect(gutterOf("Restaurants")).toBe(glyphs.rail);
-    expect(gutterOf("Flights")).toBe(" ");
+    // rail lives in the gutter between the frame edge and the label — asserted
+    // by containment rather than column, since the option block is centered and
+    // its offset depends on row widths.
+    const gutterSegmentOf = (label: string): string => {
+      const line = rowFor(label);
+      const borderIndex = line.indexOf(glyphs.boxV);
+      return line.slice(borderIndex + 1, line.indexOf(label));
+    };
+    expect(gutterSegmentOf("Restaurants")).toContain(glyphs.rail);
+    expect(gutterSegmentOf("Flights")).not.toContain(glyphs.rail);
 
     expect(lines.join("\n")).toContain("2 selected");
     expect(lines.join("\n")).toContain("toggle");

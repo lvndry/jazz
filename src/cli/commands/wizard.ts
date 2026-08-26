@@ -86,13 +86,6 @@ export function wizardCommand() {
         });
       }
 
-      if (hasConversationHistory) {
-        menuOptions.push({
-          label: "Resume conversation",
-          value: "resume-conversation",
-        });
-      }
-
       menuOptions.push({ label: "Create agent", value: "create-agent" });
 
       if (agents.length > 0) {

@@ -292,6 +292,29 @@ export function Question({ model, viewport }: QuestionProps): ReactNode {
   const visible = takeVisible(pageItems, pageHeights, startInPage, listRows);
   const start = pageStart + startInPage;
 
+  // The option block hangs centered in the card: its widest visible row defines
+  // the block, and the leftover width becomes symmetric padding. The title stays
+  // left-aligned — only the answers float.
+  const widestOptionRow = visible.reduce((widest, choice, offset) => {
+    const index = start + offset;
+    if (choice === null) {
+      return Math.max(widest, GUTTER + NUMBER_COLUMN + displayWidth(CUSTOM_HINT));
+    }
+    const layout = layouts[index] ?? layoutChoice(choice, labelWidth, descriptionWidth);
+    const description = layout.descriptionLines[0] ?? "";
+    return Math.max(
+      widest,
+      GUTTER +
+        NUMBER_COLUMN +
+        displayWidth(layout.labelLines[0] ?? "") +
+        (description.length > 0 ? DESCRIPTION_GAP + displayWidth(description) : 0),
+    );
+  }, 0);
+  const listOffset =
+    filterable || widestOptionRow >= inner
+      ? 0
+      : Math.max(0, Math.floor((inner - widestOptionRow) / 2));
+
   const windowedHeight = fixedRows + listRows + HINT_ROWS;
   const height = fullscreen ? viewport.height : Math.min(windowedHeight, viewport.height);
   const cardHeight = Math.max(1, height - HINT_ROWS);
@@ -384,7 +407,14 @@ export function Question({ model, viewport }: QuestionProps): ReactNode {
 
         <box style={{ height: 1, flexShrink: 0 }} />
 
-        <box style={{ height: listRows, flexShrink: 0, flexDirection: "column" }}>
+        <box
+          style={{
+            height: listRows,
+            flexShrink: 0,
+            flexDirection: "column",
+            paddingLeft: listOffset,
+          }}
+        >
           {filterable && items.length === 0 ? (
             <text style={{ fg: THEME.muted, height: 1, flexShrink: 0 }}>No matching options</text>
           ) : (
