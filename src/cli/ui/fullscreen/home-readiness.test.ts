@@ -8,7 +8,7 @@ describe("homeRequirements", () => {
       agentCount: 0,
     });
     expect(rows).toEqual([
-      { label: "agent", ready: false, detail: "none yet", remedy: "create your first one below" },
+      { label: "agents", ready: false, detail: "none yet", remedy: "create your first one below" },
     ]);
   });
 
@@ -16,14 +16,14 @@ describe("homeRequirements", () => {
     const rows = homeRequirements({
       agentCount: 4,
     });
-    expect(rows).toEqual([{ label: "agent", ready: true, detail: "4" }]);
+    expect(rows).toEqual([{ label: "agents", ready: true, detail: "4" }]);
   });
 
   it("names a single agent", () => {
     const rows = homeRequirements({
       agentCount: 1,
     });
-    expect(rows).toEqual([{ label: "agent", ready: true, detail: "1" }]);
+    expect(rows).toEqual([{ label: "agents", ready: true, detail: "1" }]);
   });
 });
 

@@ -32,7 +32,7 @@ export function homeRequirements(input: HomeReadinessInput): readonly HomeRequir
 
   return [
     {
-      label: "agent",
+      label: "agents",
       ready: agentReady,
       detail: agentDetail,
       ...(agentReady ? {} : { remedy: "create your first one below" }),

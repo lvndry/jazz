@@ -631,7 +631,7 @@ describe("fullscreen bridge", () => {
         kind: "menu",
         requirements: [
           {
-            label: "agent",
+            label: "agents",
             ready: false,
             detail: "none yet",
             remedy: "create your first one below",
@@ -640,7 +640,7 @@ describe("fullscreen bridge", () => {
         options: [{ label: "Create agent", value: "create-agent" }],
       });
     });
-    expect(text).toContain("agent");
+    expect(text).toContain("agents");
     expect(text).toContain("create your first one below");
     expect(text).toContain("Press enter on");
     store.setActiveMenu(null);
