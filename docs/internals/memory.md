@@ -8,9 +8,9 @@ This page explains where agent memory lives on disk, how it stays safe, and why
 it's opt-in rather than always-on.
 
 Source:
-[`services/memory-service.ts`](../../src/services/memory-service.ts) ·
-[`interfaces/memory-service.ts`](../../src/core/interfaces/memory-service.ts) ·
-[`tools/memory-tools.ts`](../../src/core/agent/tools/memory-tools.ts)
+[`services/memory-service.ts`](../../packages/adapters/src/memory-service.ts) ·
+[`interfaces/memory-service.ts`](../../packages/core/src/interfaces/memory-service.ts) ·
+[`tools/memory-tools.ts`](../../packages/core/src/agent/tools/memory-tools.ts)
 
 ---
 

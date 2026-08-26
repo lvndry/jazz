@@ -114,7 +114,7 @@ Ollama, llama.cpp, or whichever server you pointed at.
 They are exported as log records when `logs` is in `signals`, and never as spans.
 
 These attribute names are still moving upstream. Jazz pins the semconv version it targets in
-`src/services/telemetry/otlp-mapping.ts`; treat a rename upstream as a deliberate change.
+`packages/adapters/src/telemetry/otlp-mapping.ts`; treat a rename upstream as a deliberate change.
 
 ## Prompts and completions
 

@@ -7,7 +7,7 @@ description: "What happens between pressing enter and getting an answer: the Jaz
 This page explains what happens between "you press enter" and "you get an answer" —
 especially on runs that take a long time.
 
-Source: [`src/core/agent/execution/agent-loop.ts`](../../src/core/agent/execution/agent-loop.ts)
+Source: [`packages/core/src/agent/execution/agent-loop.ts`](../../packages/core/src/agent/execution/agent-loop.ts)
 
 An agent run is a bounded loop: ask the model, execute whatever tools it asked for, feed
 the results back, repeat until it stops asking for tools. The loop itself is twenty lines.

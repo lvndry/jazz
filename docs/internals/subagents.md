@@ -7,7 +7,7 @@ description: "Delegation in Jazz: how subagents isolate context, why delegation 
 This page explains how Jazz delegates, and why delegation is a context strategy
 rather than a parallelism trick.
 
-Source: [`tools/subagent-tools.ts`](../../src/core/agent/tools/subagent-tools.ts)
+Source: [`tools/subagent-tools.ts`](../../packages/core/src/agent/tools/subagent-tools.ts)
 
 ---
 

@@ -114,7 +114,7 @@ Details and conventions: [Code map](./code-map.md).
 ## Key numbers
 
 Useful when reading logs or sizing a deployment. All from
-[`src/core/constants/agent.ts`](../../src/core/constants/agent.ts).
+[`packages/core/src/constants/agent.ts`](../../packages/core/src/constants/agent.ts).
 
 | Constant | Value | Meaning |
 | --- | --- | --- |

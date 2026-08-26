@@ -8,8 +8,8 @@ This page explains how Jazz can have a hundred skills installed without paying f
 them in every request.
 
 Source:
-[`tools/skill-tools.ts`](../../src/core/agent/tools/skill-tools.ts) ·
-[`core/skills/skill-service.ts`](../../src/core/skills/skill-service.ts)
+[`tools/skill-tools.ts`](../../packages/core/src/agent/tools/skill-tools.ts) ·
+[`core/skills/skill-service.ts`](../../packages/core/src/skills/skill-service.ts)
 
 For what skills *are* and how to write one, see [Skills](../concepts/skills.md). This page
 is about the loading mechanism.

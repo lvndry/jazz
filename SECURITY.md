@@ -85,14 +85,14 @@ Quoting the implementation directly, because it matters:
 Its job is catching an *accident* from a confused model. Do not treat it as a boundary against
 a hostile one. If you need a real boundary, use [container isolation](#harden-the-host).
 Implementation and the documented set of known bypasses:
-[`shell-tools.ts`](src/core/agent/tools/shell-tools.ts),
-[`shell-tools.security.test.ts`](src/core/agent/tools/shell-tools.security.test.ts).
+[`shell-tools.ts`](packages/core/src/agent/tools/shell-tools.ts),
+[`shell-tools.security.test.ts`](packages/core/src/agent/tools/shell-tools.security.test.ts).
 
 **Environment sanitization.** Shell commands run with variables matching
 `API|KEY|SECRET|TOKEN|PASSWORD|CREDENTIAL|AUTH` (case-insensitive), plus everything prefixed
 `SSH_`, stripped from the environment. An agent's `envAllowlist` can exempt specific names when
 a command genuinely needs one. Implementation:
-[`env.ts`](src/core/utils/env.ts).
+[`env.ts`](packages/core/src/utils/env.ts).
 
 **Local-only data.** Credentials live in your config; telemetry is JSON on your disk and is
 never transmitted. `JAZZ_OFFLINE=1` stops Jazz initiating any outbound request of its own. See

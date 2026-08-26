@@ -8,11 +8,11 @@ This page explains how a tool call becomes an action, and what stands between th
 two.
 
 Source:
-[`execution/tool-executor.ts`](../../src/core/agent/execution/tool-executor.ts) ·
-[`tools/tool-registry.ts`](../../src/core/agent/tools/tool-registry.ts) ·
-[`tools/register-tools.ts`](../../src/core/agent/tools/register-tools.ts) ·
-[`tools/register-mcp-tools.ts`](../../src/core/agent/tools/register-mcp-tools.ts) ·
-[`types/tools.ts`](../../src/core/types/tools.ts)
+[`execution/tool-executor.ts`](../../packages/core/src/agent/execution/tool-executor.ts) ·
+[`tools/tool-registry.ts`](../../packages/core/src/agent/tools/tool-registry.ts) ·
+[`tools/register-tools.ts`](../../packages/core/src/agent/tools/register-tools.ts) ·
+[`tools/register-mcp-tools.ts`](../../packages/core/src/agent/tools/register-mcp-tools.ts) ·
+[`types/tools.ts`](../../packages/core/src/types/tools.ts)
 
 ---
 
@@ -210,7 +210,7 @@ and wall-clock latency) and rolled into `classifierUsage` on `agent_run_complete
 numbers stay beside the agent-loop `usage` — they are not mixed into it — so a run shows how
 much was approval gating versus the conversation. See [Observability](../guide/observability.md).
 
-Implementation: [`command-risk.ts`](../../src/core/agent/tools/command-risk.ts).
+Implementation: [`command-risk.ts`](../../packages/core/src/agent/tools/command-risk.ts).
 
 ### Two sharper controls
 
@@ -274,7 +274,7 @@ exits the same way an LLM-stream interrupt does.
 ## Two shell-specific defenses
 
 `execute_command` gets two protections beyond the approval gate, both in
-[`shell-tools.ts`](../../src/core/agent/tools/shell-tools.ts).
+[`shell-tools.ts`](../../packages/core/src/agent/tools/shell-tools.ts).
 
 ### A 56-pattern denylist
 
@@ -295,7 +295,7 @@ against a real path — or a mix of temp and real paths — still blocks.
 
 Its purpose is catching an accident from a confused model. Approval is the real control, and
 container isolation is the real boundary. The known bypasses are documented as a regression
-suite in [`shell-tools.security.test.ts`](../../src/core/agent/tools/shell-tools.security.test.ts) —
+suite in [`shell-tools.security.test.ts`](../../packages/core/src/agent/tools/shell-tools.security.test.ts) —
 worth reading before you rely on the denylist for anything.
 
 ### Environment sanitization
@@ -308,7 +308,7 @@ exfiltrate your provider keys.
 When a command genuinely needs one, an agent's `envAllowlist` exempts specific names. The
 allowlist can only un-hide a variable that already exists in the parent environment; it never
 invents a value, and the `SSH_` block applies regardless. Implementation:
-[`env.ts`](../../src/core/utils/env.ts).
+[`env.ts`](../../packages/core/src/utils/env.ts).
 
 ---
 

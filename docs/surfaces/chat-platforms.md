@@ -12,8 +12,8 @@ from your phone.
 
 | Platform         | Status                        | Where                                                            |
 | ---------------- | ----------------------------- | ---------------------------------------------------------------- |
-| **Telegram**     | ✅ Deployable reference bridge | [`integrations/telegram-bot/`](../../integrations/telegram-bot/) |
-| **Discord**      | ✅ Deployable reference bridge | [`integrations/discord-bot/`](../../integrations/discord-bot/)   |
+| **Telegram**     | ✅ Deployable reference bridge | [`packages/telegram-bot/`](../../packages/telegram-bot/) |
+| **Discord**      | ✅ Deployable reference bridge | [`packages/discord-bot/`](../../packages/discord-bot/)   |
 | **Slack**        | 🔧 Bring your own bridge       | pattern below                                                    |
 | **Google Chat**  | 🔧 Bring your own bridge       | pattern below                                                    |
 | **Your own app** | 🔧 Bring your own bridge       | pattern below                                                    |
@@ -76,7 +76,7 @@ docker compose up -d --build
 ```
 
 That's a working agent in your DMs. Full setup, configuration table, and security notes:
-[`integrations/telegram-bot/README.md`](../../integrations/telegram-bot/README.md).
+[`packages/telegram-bot/README.md`](../../packages/telegram-bot/README.md).
 
 What the Telegram bridge demonstrates — worth reading before you write your own:
 
@@ -125,7 +125,7 @@ docker compose up -d --build
 ```
 
 DM the bot, or `@mention` it in an allowlisted channel. Full setup (intents, invite URL,
-mention-gating): [`integrations/discord-bot/README.md`](../../integrations/discord-bot/README.md).
+mention-gating): [`packages/discord-bot/README.md`](../../packages/discord-bot/README.md).
 
 Same `jazz run` contract as Telegram. What Discord adds on top:
 
@@ -278,6 +278,6 @@ Full model: [Security](../../SECURITY.md).
 ## Related
 
 - [Headless](./headless.md) — the contract every bridge uses
-- [`integrations/telegram-bot/`](../../integrations/telegram-bot/) — Telegram reference implementation
-- [`integrations/discord-bot/`](../../integrations/discord-bot/) — Discord reference implementation
+- [`packages/telegram-bot/`](../../packages/telegram-bot/) — Telegram reference implementation
+- [`packages/discord-bot/`](../../packages/discord-bot/) — Discord reference implementation
 - [Airgapped & self-hosted](../guide/airgapped.md) — running a bridge with no cloud provider

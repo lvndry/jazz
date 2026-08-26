@@ -6,7 +6,7 @@ description: "Every jazz command and flag, verified against the source: run agen
 
 This page helps you find the exact command and flag you need.
 
-Verified against [`src/cli/cli-app.ts`](../../src/cli/cli-app.ts). Run `jazz <command> --help`
+Verified against [`packages/runtime/src/cli-app.ts`](../../packages/runtime/src/cli-app.ts). Run `jazz <command> --help`
 for the same information at the terminal.
 
 ---
