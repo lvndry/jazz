@@ -65,18 +65,18 @@ Message your bot: it shows a "typing…" indicator, then the agent's reply.
 
 ## Commands
 
-| Command                 | What it does                                                                                                                                                                                       |
-| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| _(any message)_         | Answered by your agent                                                                                                                                                                             |
-| `/model`                | Inline keyboard of models pulled in Ollama — pick one (switches you to that local model)                                                                                                           |
-| `/persona`              | Inline keyboard of available personas                                                                                                                                                              |
-| `/new` (`/reset`)       | Start a fresh conversation — clears earlier context; keeps your model/persona                                                                                                                      |
-| `/remind <when> <text>` | Schedule a reminder DM. `<when>` = `30m`, `1h30m`, `90s`, `2d`, `18:00`, `tomorrow 09:00`, `tue 20:00`, or `2026-08-25 20:00`. Routed through a normal agent turn, which calls the `add_reminder` tool.                             |
+| Command                 | What it does                                                                                                                                                                                                                 |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| _(any message)_         | Answered by your agent                                                                                                                                                                                                       |
+| `/model`                | Inline keyboard of models pulled in Ollama — pick one (switches you to that local model)                                                                                                                                     |
+| `/persona`              | Inline keyboard of available personas                                                                                                                                                                                        |
+| `/new` (`/reset`)       | Start a fresh conversation — clears earlier context; keeps your model/persona                                                                                                                                                |
+| `/remind <when> <text>` | Schedule a reminder DM. `<when>` = `30m`, `1h30m`, `90s`, `2d`, `18:00`, `tomorrow 09:00`, `tue 20:00`, or `2026-08-25 20:00`. Routed through a normal agent turn, which calls the `add_reminder` tool.                      |
 | _(natural language)_    | Just say it — "remind me to call the dentist in 2 hours". The agent calls `add_reminder` itself; it understands the same `<when>` formats as `/remind` (durations, clock times, `tomorrow HH:MM`, weekdays, absolute dates). |
-| `/reminders`            | List your pending reminders (in your timezone); tap one to cancel                                                                                                                                  |
-| `/tz [zone]`            | Show or set your timezone (IANA name, e.g. `/tz Europe/Paris`) so reminder times are local                                                                                                         |
-| `/status`               | Current model, your timezone, today's runs/tokens/cost, daily cap, uptime                                                                                                                          |
-| `/help`                 | Usage                                                                                                                                                                                              |
+| `/reminders`            | List your pending reminders (in your timezone); tap one to cancel                                                                                                                                                            |
+| `/tz [zone]`            | Show or set your timezone (IANA name, e.g. `/tz Europe/Paris`) so reminder times are local                                                                                                                                   |
+| `/status`               | Current model, your timezone, today's runs/tokens/cost, daily cap, uptime                                                                                                                                                    |
+| `/help`                 | Usage                                                                                                                                                                                                                        |
 
 While a message is processing, the progress bubble carries a **⏹ Cancel** button
 that kills the run. Each answer gets **contextual follow-up buttons** — a quick
@@ -141,11 +141,12 @@ trivial, especially Google Calendar — follow it closely.
 docker compose exec jazz-telegram sh
 ```
 
-*Email (any provider, via Himalaya):*
+_Email (any provider, via Himalaya):_
 
 ```sh
 himalaya   # interactive account wizard — IMAP/SMTP, or a Gmail app password
 ```
+
 For Gmail specifically, generate an [app password](https://myaccount.google.com/apppasswords)
 first (needs 2-Step Verification on). **Repeat this step for every account**:
 running bare `himalaya` again — with a config already present — offers to add
@@ -153,7 +154,7 @@ another named account rather than reconfiguring the existing one; target a
 specific one afterward with `himalaya --account account-a ...` /
 `himalaya --account account-b ...`.
 
-*Calendar, non-Google (iCloud, Nextcloud, Fastmail, any real CalDAV server), via khal/vdirsyncer:*
+_Calendar, non-Google (iCloud, Nextcloud, Fastmail, any real CalDAV server), via khal/vdirsyncer:_
 
 ```sh
 gpg --full-generate-key   # one-time only, for `pass` — khal/vdirsyncer store
@@ -173,7 +174,7 @@ vdirsyncer discover && vdirsyncer sync   # syncs every configured pair/account a
 khal configure                           # or hand-write ~/.config/khal/config, one calendar block per account
 ```
 
-*Calendar, Google, via gcalcli:* **do not use khal/vdirsyncer for Google Calendar
+_Calendar, Google, via gcalcli:_ **do not use khal/vdirsyncer for Google Calendar
 — it doesn't work.** Google's CalDAV endpoint rejects the standard discovery
 handshake khal/vdirsyncer need (confirmed: `403 Given URL is not a homeset URL`,
 even with a valid OAuth token), on top of no longer accepting app-password auth
@@ -209,11 +210,13 @@ third or fourth: pick a new account name/email and a new
    be that specific account's address), click Allow, copy the failed
    `http://localhost:8080/?...&code=...` URL from the address bar, then
    exchange the code directly:
+
    ```sh
    curl -s -X POST https://oauth2.googleapis.com/token \
      -d "code=$CODE" -d "client_id=$CLIENT_ID" -d "client_secret=$CLIENT_SECRET" \
      -d "redirect_uri=http://localhost:8080" -d "grant_type=authorization_code"
    ```
+
    and write the JSON response into **that account's**
    `$XDG_DATA_HOME/gcalcli/oauth` (e.g. `.../gcalcli-account-a/gcalcli/oauth`)
    with keys `access_token`, `client_id`, `client_secret`, `refresh_token`,
@@ -226,6 +229,7 @@ third or fourth: pick a new account name/email and a new
    silently reuses whichever account is already logged into the browser, so
    `account-b`'s token ends up authenticating as `account-a` — this happened
    during initial setup and was only caught by checking step 4 below.
+
 4. Verify **before moving on to the next account**:
    ```sh
    XDG_DATA_HOME=/data/xdg-data/gcalcli-account-a gcalcli list
@@ -239,24 +243,24 @@ Full walkthrough, including the connection-race recovery in more detail, is in t
 
 ## Configuration
 
-| Variable                             | Default                                 | Purpose                                                                                                                                                                                                                                                     |
-| ------------------------------------ | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `TELEGRAM_BOT_TOKEN`                 | —                                       | **Required.** Bot token from @BotFather.                                                                                                                                                                                                                    |
-| `TELEGRAM_ALLOWED_CHAT_IDS`          | —                                       | **Required.** Comma-separated chat ids allowed to use the bot.                                                                                                                                                                                              |
-| `JAZZ_TELEGRAM_PROVIDER`             | `openai`                                | LLM provider — `openai`, `openrouter`, `anthropic`, `groq`, `mistral`, `deepseek`, `xai`, `ollama`, …                                                                                                                                                       |
-| `JAZZ_TELEGRAM_MODEL`                | `gpt-5.4`                               | Default model id for the provider.                                                                                                                                                                                                                          |
-| `OPENAI_API_KEY` (or provider's key) | —                                       | API key for the chosen provider (`OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, …). Not needed for `ollama`.                                                                                                                                                    |
-| `BRAVE_API_KEY`                      | —                                       | If set, `web_search` uses Brave (configured as the provider in `config.json`).                                                                                                                                                                              |
-| `JAZZ_OLLAMA_KEEP_ALIVE`              | —                                        | How long a local Ollama keeps the model loaded (`keep_alive`): `-1` pins it indefinitely, or a duration like `30m`. Unset uses Ollama's 5-minute default, so the first message after a quiet spell pays a full cold model load with no progress shown while it happens. |
-| `JAZZ_REASONING`                     | `medium`                                | `disable`\|`low`\|`medium`\|`high`.                                                                                                                                                                                                                         |
-| `OLLAMA_BASE_URL`                    | `http://host.docker.internal:11434/api` | Ollama endpoint (only for `provider=ollama` / `/model`).                                                                                                                                                                                                    |
-| `JAZZ_APPROVAL_POLICY`               | `low-risk`                              | Auto-approve tools up to: `read-only`\|`low-risk`\|`high-risk`.                                                                                                                                                                                             |
-| `JAZZ_AUTO_APPROVE_TOOLS`            | —                                       | Comma-separated tool names to auto-approve regardless of policy (e.g. `execute_command`) — narrower than raising the whole tier. Tools needing approval that aren't in this list are sent to the chat as an accept/reject prompt instead of being declined. |
-| `JAZZ_RUN_TIMEOUT_MS`                | `300000`                                | Per-message agent timeout.                                                                                                                                                                                                                                  |
-| `TELEGRAM_MODE`                      | `polling`                               | `polling` or `webhook`.                                                                                                                                                                                                                                     |
-| `PORT`                               | `8080`                                  | In-container health-check port.                                                                                                                                                                                                                             |
-| `TELEGRAM_WEBAPP_BASE_URL`           | webhook URL's origin, else unset        | Public HTTPS origin used to serve `create_web_app`'s "interactive" pages as Telegram Web App buttons. Unset disables interactive mode (the static/image mode always works).                                                                                 |
-| `PUPPETEER_EXECUTABLE_PATH`          | `/usr/bin/chromium`                     | Browser used to screenshot `create_web_app`'s "static" mode. The image installs Chromium and points here; Jazz ships no bundled browser. Interactive mode needs no browser.                                                                                 |
+| Variable                             | Default                                 | Purpose                                                                                                                                                                                                                                                                 |
+| ------------------------------------ | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `TELEGRAM_BOT_TOKEN`                 | —                                       | **Required.** Bot token from @BotFather.                                                                                                                                                                                                                                |
+| `TELEGRAM_ALLOWED_CHAT_IDS`          | —                                       | **Required.** Comma-separated chat ids allowed to use the bot.                                                                                                                                                                                                          |
+| `JAZZ_TELEGRAM_PROVIDER`             | `openai`                                | LLM provider — `openai`, `openrouter`, `anthropic`, `groq`, `mistral`, `deepseek`, `xai`, `ollama`, …                                                                                                                                                                   |
+| `JAZZ_TELEGRAM_MODEL`                | `gpt-5.4`                               | Default model id for the provider.                                                                                                                                                                                                                                      |
+| `OPENAI_API_KEY` (or provider's key) | —                                       | API key for the chosen provider (`OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, …). Not needed for `ollama`.                                                                                                                                                                |
+| `BRAVE_API_KEY`                      | —                                       | If set, `web_search` uses Brave (configured as the provider in `config.json`).                                                                                                                                                                                          |
+| `JAZZ_OLLAMA_KEEP_ALIVE`             | —                                       | How long a local Ollama keeps the model loaded (`keep_alive`): `-1` pins it indefinitely, or a duration like `30m`. Unset uses Ollama's 5-minute default, so the first message after a quiet spell pays a full cold model load with no progress shown while it happens. |
+| `JAZZ_REASONING`                     | `medium`                                | `disable`\|`low`\|`medium`\|`high`.                                                                                                                                                                                                                                     |
+| `OLLAMA_BASE_URL`                    | `http://host.docker.internal:11434/api` | Ollama endpoint (only for `provider=ollama` / `/model`).                                                                                                                                                                                                                |
+| `JAZZ_APPROVAL_POLICY`               | `low-risk`                              | Auto-approve tools up to: `read-only`\|`low-risk`\|`high-risk`.                                                                                                                                                                                                         |
+| `JAZZ_AUTO_APPROVE_TOOLS`            | —                                       | Comma-separated tool names to auto-approve regardless of policy (e.g. `execute_command`) — narrower than raising the whole tier. Tools needing approval that aren't in this list are sent to the chat as an accept/reject prompt instead of being declined.             |
+| `JAZZ_RUN_TIMEOUT_MS`                | `300000`                                | Per-message agent timeout.                                                                                                                                                                                                                                              |
+| `TELEGRAM_MODE`                      | `polling`                               | `polling` or `webhook`.                                                                                                                                                                                                                                                 |
+| `PORT`                               | `8080`                                  | In-container health-check port.                                                                                                                                                                                                                                         |
+| `TELEGRAM_WEBAPP_BASE_URL`           | webhook URL's origin, else unset        | Public HTTPS origin used to serve `create_web_app`'s "interactive" pages as Telegram Web App buttons. Unset disables interactive mode (the static/image mode always works).                                                                                             |
+| `PUPPETEER_EXECUTABLE_PATH`          | `/usr/bin/chromium`                     | Browser used to screenshot `create_web_app`'s "static" mode. The image installs Chromium and points here; Jazz ships no bundled browser. Interactive mode needs no browser.                                                                                             |
 
 > **Model ↔ reasoning:** reasoning-capable models (`gpt-5.4`, qwen3, …) work with
 > `medium`/`high`; models without it (mistral-small, gemma, …) error unless

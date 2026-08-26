@@ -74,11 +74,11 @@ In Discord: **User Settings → Advanced → Developer Mode** (on).
 
 Then right-click and **Copy … ID**:
 
-| You want… | Right-click |
-| --- | --- |
+| You want…                       | Right-click                           |
+| ------------------------------- | ------------------------------------- |
 | Yourself (DMs + your @mentions) | your avatar / username → Copy User ID |
-| One channel only | the channel → Copy Channel ID |
-| The whole server | the server name → Copy Server ID |
+| One channel only                | the channel → Copy Channel ID         |
+| The whole server                | the server name → Copy Server ID      |
 
 For a private server the usual choice is `DISCORD_ALLOWED_GUILD_IDS=<server id>`
 (anyone in the server can @mention the bot) **or** `DISCORD_ALLOWED_USER_IDS=<your id>`
@@ -121,19 +121,19 @@ allowlisted, or you didn’t @mention it (`DISCORD_REQUIRE_MENTION=1` by default
 
 ## Commands
 
-| Command | What it does |
-| --- | --- |
-| _(DM, or @mention in a server)_ | Answered by your agent |
-| `/model` | Select menu of models pulled in Ollama — pick one (switches this conversation to that local model) |
-| `/persona` | Select menu of available personas |
-| `/new` | Start a fresh conversation — clears earlier context; keeps your model/persona |
-| `/incognito` | Private conversation (nothing saved to history or memory) until `/new` |
-| `/remind` | Schedule a reminder. `when` = `30m`, `1h30m`, `18:00`, `tomorrow 09:00`, `tue 20:00`, or `2026-08-25 20:00`. Routed through a normal agent turn, which calls the `add_reminder` tool. |
-| _(natural language)_ | Just say it — "remind me to call the dentist in 2 hours". The agent calls `add_reminder` itself. |
-| `/reminders` | List your pending reminders (in your timezone); tap one to cancel |
-| `/tz` | Show or set your timezone (IANA name, e.g. `/tz zone:Europe/Paris`) so reminder times are local |
-| `/status` | Current model, your timezone, today's runs/tokens/cost, daily cap, uptime |
-| `/help` | Usage |
+| Command                         | What it does                                                                                                                                                                          |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| _(DM, or @mention in a server)_ | Answered by your agent                                                                                                                                                                |
+| `/model`                        | Select menu of models pulled in Ollama — pick one (switches this conversation to that local model)                                                                                    |
+| `/persona`                      | Select menu of available personas                                                                                                                                                     |
+| `/new`                          | Start a fresh conversation — clears earlier context; keeps your model/persona                                                                                                         |
+| `/incognito`                    | Private conversation (nothing saved to history or memory) until `/new`                                                                                                                |
+| `/remind`                       | Schedule a reminder. `when` = `30m`, `1h30m`, `18:00`, `tomorrow 09:00`, `tue 20:00`, or `2026-08-25 20:00`. Routed through a normal agent turn, which calls the `add_reminder` tool. |
+| _(natural language)_            | Just say it — "remind me to call the dentist in 2 hours". The agent calls `add_reminder` itself.                                                                                      |
+| `/reminders`                    | List your pending reminders (in your timezone); tap one to cancel                                                                                                                     |
+| `/tz`                           | Show or set your timezone (IANA name, e.g. `/tz zone:Europe/Paris`) so reminder times are local                                                                                       |
+| `/status`                       | Current model, your timezone, today's runs/tokens/cost, daily cap, uptime                                                                                                             |
+| `/help`                         | Usage                                                                                                                                                                                 |
 
 While a message is processing, the progress message carries a **⏹ Cancel**
 button that kills the run. Each answer gets follow-up buttons (`🔍 Go deeper`,
@@ -170,27 +170,27 @@ _that_ conversation. `JAZZ_DISCORD_PROVIDER` / `JAZZ_DISCORD_MODEL` /
 
 ## Configuration
 
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `DISCORD_BOT_TOKEN` | — | **Required.** Bot token from the developer portal. |
-| `DISCORD_ALLOWED_USER_IDS` | — | Comma-separated user ids. Required for DMs; also gates guild senders when set. |
-| `DISCORD_ALLOWED_CHANNEL_IDS` | — | Comma-separated channel ids (threads of these channels inherit). |
-| `DISCORD_ALLOWED_GUILD_IDS` | — | Comma-separated server ids. At least one of the three allowlists is required. |
-| `DISCORD_REQUIRE_MENTION` | `1` | In servers, only respond to mentions / replies / existing threads. |
-| `DISCORD_CREATE_THREADS` | `1` | `@mention` in a channel starts a thread and keeps the conversation there. |
-| `JAZZ_DISCORD_PROVIDER` | `openai` | LLM provider. |
-| `JAZZ_DISCORD_MODEL` | `gpt-5.4` | Default model id for the provider. |
-| `OPENAI_API_KEY` (or provider's key) | — | API key for the chosen provider. Not needed for `ollama`. |
-| `BRAVE_API_KEY` | — | If set, `web_search` uses Brave. |
-| `JAZZ_OLLAMA_KEEP_ALIVE` | — | How long a local Ollama keeps the model loaded (`keep_alive`): `-1` pins it indefinitely, or a duration like `30m`. Unset uses Ollama's 5-minute default, so the first message after a quiet spell pays a full cold model load with no progress shown while it happens. |
-| `JAZZ_REASONING` | `medium` | `disable`\|`low`\|`medium`\|`high`. |
-| `OLLAMA_BASE_URL` | `http://host.docker.internal:11434/api` | Ollama endpoint (only for `provider=ollama` / `/model`). |
-| `JAZZ_APPROVAL_POLICY` | `low-risk` | Auto-approve tools up to: `read-only`\|`low-risk`\|`high-risk`. |
-| `JAZZ_AUTO_APPROVE_TOOLS` | — | Comma-separated tool names to auto-approve regardless of policy. Tools needing approval that aren't in this list are sent to the channel as an accept/reject prompt instead of being declined. |
-| `JAZZ_RUN_TIMEOUT_MS` | `300000` | Per-message agent timeout. |
-| `JAZZ_DAILY_COST_CAP_USD` | `0` | Daily known-spend ceiling across all conversations; an unpriced run pauses later requests for the UTC day; `0` disables the cap. |
-| `DISCORD_PUBLIC_BASE_URL` | unset | Public HTTPS origin used to link `create_web_app`'s interactive pages. Unset disables interactive mode (static/image mode always works). |
-| `PUPPETEER_EXECUTABLE_PATH` | `/usr/bin/chromium` | Browser used to screenshot `create_web_app`'s "static" mode. |
+| Variable                             | Default                                 | Purpose                                                                                                                                                                                                                                                                 |
+| ------------------------------------ | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DISCORD_BOT_TOKEN`                  | —                                       | **Required.** Bot token from the developer portal.                                                                                                                                                                                                                      |
+| `DISCORD_ALLOWED_USER_IDS`           | —                                       | Comma-separated user ids. Required for DMs; also gates guild senders when set.                                                                                                                                                                                          |
+| `DISCORD_ALLOWED_CHANNEL_IDS`        | —                                       | Comma-separated channel ids (threads of these channels inherit).                                                                                                                                                                                                        |
+| `DISCORD_ALLOWED_GUILD_IDS`          | —                                       | Comma-separated server ids. At least one of the three allowlists is required.                                                                                                                                                                                           |
+| `DISCORD_REQUIRE_MENTION`            | `1`                                     | In servers, only respond to mentions / replies / existing threads.                                                                                                                                                                                                      |
+| `DISCORD_CREATE_THREADS`             | `1`                                     | `@mention` in a channel starts a thread and keeps the conversation there.                                                                                                                                                                                               |
+| `JAZZ_DISCORD_PROVIDER`              | `openai`                                | LLM provider.                                                                                                                                                                                                                                                           |
+| `JAZZ_DISCORD_MODEL`                 | `gpt-5.4`                               | Default model id for the provider.                                                                                                                                                                                                                                      |
+| `OPENAI_API_KEY` (or provider's key) | —                                       | API key for the chosen provider. Not needed for `ollama`.                                                                                                                                                                                                               |
+| `BRAVE_API_KEY`                      | —                                       | If set, `web_search` uses Brave.                                                                                                                                                                                                                                        |
+| `JAZZ_OLLAMA_KEEP_ALIVE`             | —                                       | How long a local Ollama keeps the model loaded (`keep_alive`): `-1` pins it indefinitely, or a duration like `30m`. Unset uses Ollama's 5-minute default, so the first message after a quiet spell pays a full cold model load with no progress shown while it happens. |
+| `JAZZ_REASONING`                     | `medium`                                | `disable`\|`low`\|`medium`\|`high`.                                                                                                                                                                                                                                     |
+| `OLLAMA_BASE_URL`                    | `http://host.docker.internal:11434/api` | Ollama endpoint (only for `provider=ollama` / `/model`).                                                                                                                                                                                                                |
+| `JAZZ_APPROVAL_POLICY`               | `low-risk`                              | Auto-approve tools up to: `read-only`\|`low-risk`\|`high-risk`.                                                                                                                                                                                                         |
+| `JAZZ_AUTO_APPROVE_TOOLS`            | —                                       | Comma-separated tool names to auto-approve regardless of policy. Tools needing approval that aren't in this list are sent to the channel as an accept/reject prompt instead of being declined.                                                                          |
+| `JAZZ_RUN_TIMEOUT_MS`                | `300000`                                | Per-message agent timeout.                                                                                                                                                                                                                                              |
+| `JAZZ_DAILY_COST_CAP_USD`            | `0`                                     | Daily known-spend ceiling across all conversations; an unpriced run pauses later requests for the UTC day; `0` disables the cap.                                                                                                                                        |
+| `DISCORD_PUBLIC_BASE_URL`            | unset                                   | Public HTTPS origin used to link `create_web_app`'s interactive pages. Unset disables interactive mode (static/image mode always works).                                                                                                                                |
+| `PUPPETEER_EXECUTABLE_PATH`          | `/usr/bin/chromium`                     | Browser used to screenshot `create_web_app`'s "static" mode.                                                                                                                                                                                                            |
 
 > **Model ↔ reasoning:** reasoning-capable models (`gpt-5.4`, qwen3, …) work with
 > `medium`/`high`; models without it (mistral-small, gemma, …) error unless

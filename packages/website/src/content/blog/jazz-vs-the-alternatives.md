@@ -12,13 +12,13 @@ shape costs more than picking the wrong brand. Here's the honest map.
 
 **Chat-first coding CLIs** (Claude Code, Codex CLI, Gemini CLI, Aider) put a
 model in your terminal and let it edit code. They're excellent at the job in
-their name: *coding, interactively*. What they generally don't do is leave the
+their name: _coding, interactively_. What they generally don't do is leave the
 terminal — running unattended on a schedule, answering you in Telegram while
 you're out, or sitting inside a CI pipeline as a reviewer.
 
 **Hosted agent platforms** (the cloud products from the big labs, plus
-no-code automation suites with LLM steps) run *your prompts on their
-machines*. That's convenient until your agent needs your files, your git
+no-code automation suites with LLM steps) run _your prompts on their
+machines_. That's convenient until your agent needs your files, your git
 repos, your credentials, or your inbox — then you're either shipping secrets
 to a third party or discovering the platform was never built for that.
 
@@ -28,7 +28,7 @@ no context strategy, no approval gate, no record of what happened. You
 reinvent the harness badly, one bash script at a time.
 
 **Agent harnesses** are the fourth shape: a general-purpose runtime whose
-whole job is making one model usable as an autonomous worker on *your*
+whole job is making one model usable as an autonomous worker on _your_
 machine. Jazz is in this category by design.
 
 ## Where Jazz differs
@@ -50,7 +50,7 @@ hardware you own.
 **Approval as a first-class mechanism.** Every tool declares an honest risk
 tier; mutating actions are gated; scheduled workflows carry a per-workflow
 auto-approve policy that you set and can audit. The design goal is specific:
-an agent you can leave running unattended *because* you know exactly what it
+an agent you can leave running unattended _because_ you know exactly what it
 can't do without asking.
 
 ## The trade-offs, stated plainly
@@ -65,7 +65,7 @@ Choosing Jazz means choosing the trade-offs that come with self-hosting:
   tools built specifically for that will feel tighter in that one mode.
 
 If those trade-offs bother you, use the tool shaped for you. If they sound
-like *the point* — an agent that lives on your machine, works while you
+like _the point_ — an agent that lives on your machine, works while you
 don't, and asks before touching anything real — that's what Jazz is for.
 
 ## Try it

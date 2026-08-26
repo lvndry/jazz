@@ -18,14 +18,14 @@ results back, repeat until it answers. You can write it in an afternoon, and
 most agents are exactly that afternoon project with a nicer README.
 
 The difference between a demo and something you can leave running unattended
-is everything *around* those twenty lines. That's the harness, and in Jazz
+is everything _around_ those twenty lines. That's the harness, and in Jazz
 it's the part we treat as the actual product. This post is the tour — starting
 from the obvious parts, because the obvious parts are where the design
 decisions hide.
 
 ## Start with the hands: tools
 
-A language model can only emit text. A *tool call* is the one trick that
+A language model can only emit text. A _tool call_ is the one trick that
 turns text into action: the model emits a small JSON object — a name and
 arguments, `read_file({"path": "notes.md"})` — the harness executes the real
 function behind that name, and the result goes back into the conversation as
@@ -43,10 +43,10 @@ bookkeeping around it.
 Three pieces of bookkeeping, specifically:
 
 - **Every tool declares a risk tier** — 20 are read-only, 7 low-risk, 6
-  high-risk, and one (`execute_command`) is *unknown*, because the command
+  high-risk, and one (`execute_command`) is _unknown_, because the command
   decides its own blast radius. More on what the tiers buy below.
 - **Seven tools are approval pairs.** Calling `write_file` doesn't write a
-  file — it returns a description of what *would* happen, and a hidden
+  file — it returns a description of what _would_ happen, and a hidden
   `execute_write_file` counterpart does the writing only after the gate says
   yes. The model can't even see the `execute_*` names.
 - **The reference page for all of this is enforced by a test** that fails if
@@ -58,7 +58,7 @@ Beyond the built-ins, the registry is open on three sides: MCP servers add
 their three loader tools, and agent configs can define custom tools. Same
 registry, same tiers, same gates.
 
-## Skills: tools are *what*, skills are *how*
+## Skills: tools are _what_, skills are _how_
 
 Give an agent `web_search` and `write_file` and ask it to "deep-research this
 topic properly," and it will wing it — differently every time. A **skill** is
@@ -97,7 +97,7 @@ So the agent can delegate: `spawn_subagent(task)` starts a child run with
 **its own context window**. The child burns its 100k tokens, returns one
 paragraph, and its context is discarded. The parent pays a paragraph for
 twelve sources. People assume sub-agents are about parallelism; in Jazz
-they're primarily about *quarantining token spend*. (And the child's cost is
+they're primarily about _quarantining token spend_. (And the child's cost is
 added to the parent's bill — more on receipts later.)
 
 With the structure in place — tools as hands, skills as playbooks,
@@ -111,7 +111,7 @@ sense of time will happily spend all 100 on research and produce nothing —
 so past 70% of the budget the harness tells it to consolidate, and past 90%
 to write its final output with what it has.
 
-The interesting detail is what *doesn't* happen: the pressure message is
+The interesting detail is what _doesn't_ happen: the pressure message is
 ephemeral. It's appended to the array sent to the model for that one call
 and never stored in the conversation:
 
@@ -136,7 +136,7 @@ const uniqueness = new Set(keys).size / windowSize;
 return uniqueness < 0.4;
 ```
 
-The key is composite — tool name *plus* arguments — and that distinction is
+The key is composite — tool name _plus_ arguments — and that distinction is
 the whole design. Ten `web_search` calls with ten different queries is 100%
 unique: that's research, leave it alone. Ten `web_search` calls with the
 same query is 10% unique: that's a groove. Keying on the tool name alone
@@ -145,7 +145,7 @@ behavior you want from an agent reading a codebase.
 
 When the detector trips, the harness injects a message telling the agent to
 stop, summarize what it has, and try a fundamentally different approach —
-and unlike budget pressure, this one *is* stored, because "your last
+and unlike budget pressure, this one _is_ stored, because "your last
 approach didn't work" is something the run should keep remembering.
 
 ## Guard: context is managed like the scarce resource it is
@@ -174,7 +174,7 @@ first refusal; trimming only fires when summarizing couldn't help. When
 messages do get discarded unsummarized, you're told.
 
 And because a summary is still lossy, working state — the todo list, key
-findings — lives *outside* the message history and survives compaction
+findings — lives _outside_ the message history and survives compaction
 untouched.
 
 ## Guard: the gate, and who answers it
@@ -187,12 +187,12 @@ approve?" possible instead of "the model wants to write a file, trust it?".
 
 The risk tiers turn this into one dial: `--approval-policy read-only` means
 anything read-only runs unattended and everything else waits for a human.
-For `execute_command`, whose declared tier is *unknown*, a cheap harness
+For `execute_command`, whose declared tier is _unknown_, a cheap harness
 model classifies each specific command first — so `git log` runs unattended
 under a read-only policy without also unlocking `rm`.
 
 The part that matters most for an everyday agent: interactive and unattended
-runs go down the *same* path. The only difference is who answers the gate —
+runs go down the _same_ path. The only difference is who answers the gate —
 you at the terminal, you on Telegram, or a policy you set in advance. There
 is no separate headless mode to drift out of sync with the interactive one.
 And this isn't paranoia for its own sake: a coding agent asks to edit a file
@@ -207,7 +207,7 @@ understate what you paid. Metrics are written on a forked fiber that the
 loop awaits on release: you get your answer immediately, and the telemetry
 still lands even if the process is shutting down.
 
-And when something *is* wrong, it fails loudly at the source. If a requested
+And when something _is_ wrong, it fails loudly at the source. If a requested
 tool call comes back without a result, the run hard-fails rather than
 pasting in a placeholder — because the placeholder version produces a
 provider error three iterations later, somewhere unrelated, and the bug

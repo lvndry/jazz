@@ -13,7 +13,9 @@
       "./src/*/index.ts"
     ]
   },
-  "files": ["src/"],
+  "files": [
+    "src/"
+  ],
   "dependencies": {
     "@ai-sdk/provider": "^4.0.8",
     "@effect/platform": "^0.97.1",
