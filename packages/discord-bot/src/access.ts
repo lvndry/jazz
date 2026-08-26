@@ -34,14 +34,18 @@ const SNOWFLAKE = /^\d{17,20}$/;
 /** Parse a comma-separated list of Discord snowflakes; skip blanks and junk. */
 export function parseSnowflakeList(raw: string): Set<string> {
   const ids = new Set<string>();
+  let invalidCount = 0;
   for (const entry of raw.split(",")) {
     const id = entry.trim();
     if (id.length === 0) continue;
     if (!SNOWFLAKE.test(id)) {
-      console.warn(`Ignoring invalid Discord id of length ${id.length} (expected a snowflake)`);
+      invalidCount += 1;
       continue;
     }
     ids.add(id);
+  }
+  if (invalidCount > 0) {
+    console.warn(`Ignoring ${invalidCount} invalid Discord id(s) (expected snowflakes)`);
   }
   return ids;
 }
