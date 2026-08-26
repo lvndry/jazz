@@ -29,9 +29,53 @@ describe("decideFullscreen", () => {
 });
 
 describe("mountFullscreenApp", () => {
-  test("reports OpenTUI startup failure so the caller can mount its fallback", async () => {
+  test("swallows the known OpenTUI startup failure and still mounts fallback", async () => {
     const originalWrite = process.stderr.write;
-    process.stderr.write = (() => true) as typeof process.stderr.write;
+    let stderrWrites = 0;
+    process.stderr.write = ((...args: Parameters<typeof process.stderr.write>) => {
+      stderrWrites += 1;
+      return originalWrite.apply(process.stderr, args as []);
+    }) as typeof process.stderr.write;
+
+    let handle: FullscreenHandle | undefined;
+    let failure: unknown;
+
+    try {
+      await new Promise<void>((resolve) => {
+        handle = mountFullscreenApp({
+          mount: () =>
+            Promise.reject(
+              new Error(
+                "Failed to initialize OpenTUI render library: OpenTUI native FFI is not available for this runtime yet",
+              ),
+            ),
+          onFailure: (error) => {
+            failure = error;
+            resolve();
+          },
+        });
+      });
+    } finally {
+      handle?.release();
+      process.stderr.write = originalWrite;
+    }
+
+    expect(failure).toEqual(
+      new Error(
+        "Failed to initialize OpenTUI render library: OpenTUI native FFI is not available for this runtime yet",
+      ),
+    );
+    expect(stderrWrites).toBe(0);
+  });
+
+  test("still warns for unexpected startup failures", async () => {
+    const originalWrite = process.stderr.write;
+    let stderrWrites = 0;
+    process.stderr.write = ((...args: Parameters<typeof process.stderr.write>) => {
+      stderrWrites += 1;
+      return originalWrite.apply(process.stderr, args as []);
+    }) as typeof process.stderr.write;
+
     let handle: FullscreenHandle | undefined;
     let failure: unknown;
 
@@ -51,6 +95,7 @@ describe("mountFullscreenApp", () => {
     }
 
     expect(failure).toEqual(new Error("terminal setup failed"));
+    expect(stderrWrites).toBe(1);
   });
 
   test("does not mount a fallback after release", async () => {
