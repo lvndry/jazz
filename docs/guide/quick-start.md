@@ -44,6 +44,9 @@ yarn global add jazz-ai
 `jazz update` upgrades either kind of installation: a binary replaces itself from the GitHub
 release, and a package install goes back through the package manager that put it there.
 
+Jazz uses the fullscreen interface when it is running under Bun or as the standalone binary. Package-manager installs stay on the standard terminal interface, which avoids the OpenTUI startup warning you would otherwise see from a Node-based install.
+
+
 ## 2. Start talking to it
 
 ```bash
