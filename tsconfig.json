@@ -2,7 +2,13 @@
   "extends": "./tsconfig.base.json",
   "files": [],
   "references": [
-    { "path": "./tsconfig.app.json" },
+    { "path": "./packages/core" },
+    { "path": "./packages/adapters" },
+    { "path": "./packages/cli" },
+    { "path": "./packages/runtime" },
+    { "path": "./packages/bot-shared" },
+    { "path": "./packages/discord-bot" },
+    { "path": "./packages/telegram-bot" },
     { "path": "./tsconfig.build.json" }
   ]
 }

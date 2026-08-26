@@ -3,9 +3,9 @@
 // the fingerprint tax paid even when nothing changed.
 import { settledBlocks, PROSE_PARAGRAPH } from "./corpus";
 import { bench, report } from "./harness";
-import { transcriptRows } from "../src/cli/ui/fullscreen/Transcript";
-import type { Block } from "../src/cli/ui/fullscreen/types";
-import { setThemeVariant } from "../src/cli/ui/theme";
+import { transcriptRows } from "../packages/cli/src/ui/fullscreen/Transcript";
+import type { Block } from "../packages/cli/src/ui/fullscreen/types";
+import { setThemeVariant } from "../packages/cli/src/ui/theme";
 
 const VIEWPORT = { width: 120, height: 40 };
 const TURNS = Number(process.env["BENCH_TURNS"] ?? 200);

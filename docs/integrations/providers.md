@@ -14,7 +14,7 @@ keys by running `jazz` → *Update configuration*, or by editing `~/.jazz/config
 > to the keyring when one is available, and existing plaintext keys are migrated there on next
 > start. See [Security → Know where your API keys live](../../SECURITY.md#know-where-your-api-keys-live).
 
-Full provider list: [`src/core/constants/models.ts`](../../src/core/constants/models.ts).
+Full provider list: [`packages/core/src/constants/models.ts`](../../packages/core/src/constants/models.ts).
 For how the provider abstraction works, see
 [Internals → Providers & models](../internals/providers-and-models.md).
 
@@ -47,7 +47,7 @@ You can set or update your API keys in config by running `jazz` -> `update confi
 }
 ```
 
-**Supported Models:** [`src/core/constants/models.ts`](../../src/core/constants/models.ts#L13-L27)
+**Supported Models:** [`packages/core/src/constants/models.ts`](../../packages/core/src/constants/models.ts#L13-L27)
 
 ## Anthropic
 
@@ -68,7 +68,7 @@ You can set or update your API keys in config by running `jazz` -> `update confi
 }
 ```
 
-**Supported Models:** [`src/core/constants/models.ts`](../../src/core/constants/models.ts#L28-L32)
+**Supported Models:** [`packages/core/src/constants/models.ts`](../../packages/core/src/constants/models.ts#L28-L32)
 
 ## Gemini
 
@@ -93,7 +93,7 @@ You can set or update your API keys in config by running `jazz` -> `update confi
 > `gemini` automatically the first time Jazz reads them. The environment
 > variable keeps its upstream name, `GOOGLE_GENERATIVE_AI_API_KEY`.
 
-**Supported Models:** [`src/core/constants/models.ts`](../../src/core/constants/models.ts#L33-L42)
+**Supported Models:** [`packages/core/src/constants/models.ts`](../../packages/core/src/constants/models.ts#L33-L42)
 
 ## Mistral AI
 
@@ -114,7 +114,7 @@ You can set or update your API keys in config by running `jazz` -> `update confi
 }
 ```
 
-**Supported Models:** [`src/core/constants/models.ts`](../../src/core/constants/models.ts#L43-L49)
+**Supported Models:** [`packages/core/src/constants/models.ts`](../../packages/core/src/constants/models.ts#L43-L49)
 
 ## xAI (Grok)
 
@@ -135,7 +135,7 @@ You can set or update your API keys in config by running `jazz` -> `update confi
 }
 ```
 
-**Supported Models:** [`src/core/constants/models.ts`](../../src/core/constants/models.ts#L50-L65)
+**Supported Models:** [`packages/core/src/constants/models.ts`](../../packages/core/src/constants/models.ts#L50-L65)
 
 ## DeepSeek
 
@@ -156,7 +156,7 @@ You can set or update your API keys in config by running `jazz` -> `update confi
 }
 ```
 
-**Supported Models:** [`src/core/constants/models.ts`](../../src/core/constants/models.ts#L66)
+**Supported Models:** [`packages/core/src/constants/models.ts`](../../packages/core/src/constants/models.ts#L66)
 
 ## Ollama (Local Models)
 

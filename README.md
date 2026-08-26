@@ -78,8 +78,8 @@ The [Cookbook](docs/cookbook/index.md) walks through each one.
 | Scripts & pipes      | `jazz run --json --agent dev "…"`                                               |
 | Cron / launchd       | `jazz workflow schedule <name>`                                                 |
 | GitHub PRs & Actions | [`.github/jazz/`](.github/jazz/), reviews every PR in this repo                 |
-| Telegram             | [`integrations/telegram-bot/`](integrations/telegram-bot/), `docker compose up` |
-| Discord              | [`integrations/discord-bot/`](integrations/discord-bot/), `docker compose up`   |
+| Telegram             | [`packages/telegram-bot/`](packages/telegram-bot/), `docker compose up` |
+| Discord              | [`packages/discord-bot/`](packages/discord-bot/), `docker compose up`   |
 
 Slack, Google Chat, or your own app work the same way. See
 [Chat platforms](docs/surfaces/chat-platforms.md).

@@ -3,7 +3,7 @@
 // identity so the transcriptRows memo can hit.
 import { outputEntries } from "./corpus";
 import { bench, report } from "./harness";
-import { blocksFrom, shareUnchangedBlocks } from "../src/cli/ui/fullscreen/bridge";
+import { blocksFrom, shareUnchangedBlocks } from "../packages/cli/src/ui/fullscreen/bridge";
 
 const ENTRIES = Number(process.env["BENCH_ENTRIES"] ?? 600);
 const entries = outputEntries(ENTRIES);

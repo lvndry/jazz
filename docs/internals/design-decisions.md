@@ -55,7 +55,7 @@ next summarization.
 **Cost accepted.** The agent can't see the pressure history, so it can't reason about "I've
 been told this twice". In practice escalating tiers cover that.
 
-📄 [`agent-loop.ts:40`](../../src/core/agent/execution/agent-loop.ts#L40) · [Agent loop](./agent-loop.md#guard-1--budget-pressure)
+📄 [`agent-loop.ts:40`](../../packages/core/src/agent/execution/agent-loop.ts#L40) · [Agent loop](./agent-loop.md#guard-1--budget-pressure)
 
 ### Meltdown detection keyed on name + arguments
 
@@ -71,7 +71,7 @@ looks like. Both are the behaviors you're trying to encourage.
 counter to the same query — slips through. Catching that needs semantic similarity, which
 costs a model call per check.
 
-📄 [`agent-loop.ts:101`](../../src/core/agent/execution/agent-loop.ts#L101) · [Agent loop](./agent-loop.md#guard-2--meltdown-detection)
+📄 [`agent-loop.ts:101`](../../packages/core/src/agent/execution/agent-loop.ts#L101) · [Agent loop](./agent-loop.md#guard-2--meltdown-detection)
 
 ### Compaction at 80%, not truncation
 
@@ -87,7 +87,7 @@ Mitigated by a configurable `summarizerModel` (point it at something cheap), by 
 visible rather than silent, and by letting the agent trigger it deliberately via
 `summarize_context`.
 
-📄 [`summarizer.ts:222`](../../src/core/agent/context/summarizer.ts#L222) · [Context management](./context-management.md#3--compaction-summarize-dont-truncate)
+📄 [`summarizer.ts:222`](../../packages/core/src/agent/context/summarizer.ts#L222) · [Context management](./context-management.md#3--compaction-summarize-dont-truncate)
 
 ### Turn-aware trimming
 
@@ -101,7 +101,7 @@ iterations later, far from the cause.
 **Cost accepted.** Trimming is coarser: sometimes a whole turn is dropped where a couple of
 messages would have sufficed.
 
-📄 [`context-window-manager.ts:94`](../../src/core/agent/context/context-window-manager.ts#L94) · [Context management](./context-management.md#2--trimming-turn-aware-never-mid-tool-call)
+📄 [`context-window-manager.ts:94`](../../packages/core/src/agent/context/context-window-manager.ts#L94) · [Context management](./context-management.md#2--trimming-turn-aware-never-mid-tool-call)
 
 ---
 
@@ -120,7 +120,7 @@ stale, Claude-2 era. Their `count_tokens` API — a network round trip on the ho
 **Cost accepted.** The first call against an unfamiliar model uses a seed estimate and can
 be off. It self-corrects after one exchange.
 
-📄 [`token-counter.ts`](../../src/core/agent/context/token-counter.ts) · [Context management](./context-management.md#1--counting-tokens)
+📄 [`token-counter.ts`](../../packages/core/src/agent/context/token-counter.ts) · [Context management](./context-management.md#1--counting-tokens)
 
 ### Tool results reformatted before entering context
 
@@ -134,7 +134,7 @@ anything.
 **Cost accepted.** Formatting is lossy; a tool whose output genuinely needs full fidelity
 must say so in its own formatter.
 
-📄 [`tool-result-formatter.ts`](../../src/core/utils/tool-result-formatter.ts)
+📄 [`tool-result-formatter.ts`](../../packages/core/src/utils/tool-result-formatter.ts)
 
 ### Sub-agent cost rolls up into the parent
 
@@ -147,7 +147,7 @@ that spawned three cloud sub-agents would report `$0.00` while your bill said ot
 **Cost accepted.** You can't read per-child spend off the top-level number; that lives in
 the telemetry records.
 
-📄 [`agent-loop.ts:221`](../../src/core/agent/execution/agent-loop.ts#L221)
+📄 [`agent-loop.ts:221`](../../packages/core/src/agent/execution/agent-loop.ts#L221)
 
 ---
 
@@ -166,7 +166,7 @@ that only _mostly_ suppresses chatter — same problem, later.
 **Cost accepted.** Two streams to wire up in a bridge instead of one. That's the entire
 cost, and it's what makes every non-terminal surface possible.
 
-📄 [`execute.ts:30`](../../src/cli/commands/run/execute.ts#L30) · [Headless](../surfaces/headless.md)
+📄 [`execute.ts:30`](../../packages/cli/src/commands/run/execute.ts#L30) · [Headless](../surfaces/headless.md)
 
 ### Risk tiers instead of a tool allowlist
 
@@ -182,7 +182,7 @@ Sharper control comes from the two escape hatches — a per-tool session allowli
 per-command allowlist for `execute_command` — and from trimming the agent's toolset, which
 is the strongest control available.
 
-📄 [`types/tools.ts:19`](../../src/core/types/tools.ts#L19) · [Tools & approval](./tools-and-approval.md)
+📄 [`types/tools.ts:19`](../../packages/core/src/types/tools.ts#L19) · [Tools & approval](./tools-and-approval.md)
 
 ### Two-phase execution (propose → approve → execute)
 
@@ -201,7 +201,7 @@ carries the propose→execute mapping.
 separate headless mode that can drift from the interactive one — the only difference is who
 answers.
 
-📄 [`tool-executor.ts:192`](../../src/core/agent/execution/tool-executor.ts#L192)
+📄 [`tool-executor.ts:192`](../../packages/core/src/agent/execution/tool-executor.ts#L192)
 
 ### Command approval matches on a parsed key, never a raw prefix
 
@@ -214,7 +214,7 @@ answers.
 
 **Cost accepted.** Approving `git` broadly takes several confirmations instead of one.
 
-📄 [`tool-executor.ts:601`](../../src/core/agent/execution/tool-executor.ts#L601)
+📄 [`tool-executor.ts:601`](../../packages/core/src/agent/execution/tool-executor.ts#L601)
 
 ---
 
@@ -234,7 +234,7 @@ normalized in `services/llm/reasoning/`. AI SDK's internal retries are turned of
 (`AI_SDK_MAX_RETRIES = 0`) so Jazz owns retry policy via Effect rather than having two
 retry loops fighting.
 
-📄 [`ai-sdk-service.ts`](../../src/services/llm/ai-sdk-service.ts) · [Providers & models](./providers-and-models.md)
+📄 [`ai-sdk-service.ts`](../../packages/adapters/src/llm/ai-sdk-service.ts) · [Providers & models](./providers-and-models.md)
 
 ### Model catalog from models.dev, with an on-disk snapshot
 
@@ -250,7 +250,7 @@ deployment.
 provider-reported metadata and a 128k default. Ollama and llama.cpp need no catalog at all —
 model lists, context windows, and tool support are read from the local server.
 
-📄 [`models-dev.ts`](../../src/core/utils/models-dev.ts) · [Airgapped](../guide/airgapped.md)
+📄 [`models-dev.ts`](../../packages/core/src/utils/models-dev.ts) · [Airgapped](../guide/airgapped.md)
 
 ### Effect-TS for the entire runtime
 
@@ -278,7 +278,7 @@ server misbehaves.
 **Cost accepted.** The first call to an MCP tool pays the connection cost, and a broken
 server surfaces mid-run instead of at startup.
 
-📄 [`register-tools.ts`](../../src/core/agent/tools/register-tools.ts)
+📄 [`register-tools.ts`](../../packages/core/src/agent/tools/register-tools.ts)
 
 ### Progressive skill loading
 
@@ -293,7 +293,7 @@ the playbook stays in the conversation as the `load_skill` tool result.
 **Cost accepted.** Two extra round trips before the agent starts working with a skill. Later
 turns must follow a playbook that lives in transcript history, not in the system prompt.
 
-📄 [`skill-tools.ts`](../../src/core/agent/tools/skill-tools.ts) · [Skills loading](./skills-loading.md)
+📄 [`skill-tools.ts`](../../packages/core/src/agent/tools/skill-tools.ts) · [Skills loading](./skills-loading.md)
 
 ---
 

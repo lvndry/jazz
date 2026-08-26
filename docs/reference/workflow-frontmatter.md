@@ -7,7 +7,7 @@ description: "Every YAML field a WORKFLOW.md accepts: schedules, auto-approve po
 How to get the `WORKFLOW.md` YAML fields exactly right.
 
 Verified against
-[`src/core/workflows/workflow-service.ts`](../../src/core/workflows/workflow-service.ts).
+[`packages/core/src/workflows/workflow-service.ts`](../../packages/core/src/workflows/workflow-service.ts).
 For what a workflow *is*, see [Workflows](../concepts/workflows.md); for ready-made ones, the
 [Cookbook](../cookbook/index.md).
 

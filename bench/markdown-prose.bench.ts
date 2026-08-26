@@ -1,8 +1,8 @@
 // The markdown lexers that re-run for every dirty block on every frame.
 import { markdownReply, PROSE_PARAGRAPH } from "./corpus";
 import { bench, report } from "./harness";
-import { parseProse, inlineSegments } from "../src/cli/ui/fullscreen/Transcript";
-import { getGlyphs } from "../src/cli/ui/glyphs";
+import { parseProse, inlineSegments } from "../packages/cli/src/ui/fullscreen/Transcript";
+import { getGlyphs } from "../packages/cli/src/ui/glyphs";
 
 const glyphs = getGlyphs();
 const shortReply = markdownReply(500);

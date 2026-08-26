@@ -2,8 +2,8 @@
 // This folds a realistic recorded-run shape: thinking, tool round, streamed
 // reply.
 import { bench, report } from "./harness";
-import { createAccumulator, reduceEvent } from "../src/cli/presentation/activity-reducer";
-import type { StreamEvent } from "../src/core/types/streaming";
+import { createAccumulator, reduceEvent } from "../packages/cli/src/presentation/activity-reducer";
+import type { StreamEvent } from "../packages/core/src/types/streaming";
 
 const stubInk = (node: unknown): string => `[ink:${typeof node}]`;
 

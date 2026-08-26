@@ -6,8 +6,8 @@ description: "A self-contained template showing how to design, implement, wire, 
 
 This example is a self-contained template showing how to design, implement, wire, and test a simple FeatureFlagService following the project architecture:
 
-- Contract (core) — `src/core/interfaces` (interface + Tag)
-- Adapter (services) — `src/services` (implementation + Layer)
+- Contract (core) — `packages/core/src/interfaces` (interface + Tag)
+- Adapter (services) — `packages/adapters` (implementation + Layer)
 - App wiring — layer composition in `createAppLayer` (main)
 - Tests — how to mock the service with `Layer.succeed`
 
@@ -40,10 +40,10 @@ Feature flags are a common cross-cutting concern. The pattern below shows how to
 
 ## 1. Contract — core interface
 
-Place this under `src/core/interfaces/feature-flag.ts` in your real codebase. In this example it's shown inline.
+Place this under `packages/core/src/interfaces/feature-flag.ts` in your real codebase. In this example it's shown inline.
 
 ```ts
-// src/core/interfaces/feature-flag.ts — example
+// packages/core/src/interfaces/feature-flag.ts — example
 import { Context, Effect } from "effect";
 
 export interface FeatureFlagService {
@@ -64,7 +64,7 @@ Design guidance
 
 - Keep the contract small and focused.
 - Prefer safe return types (boolean/number) for non-critical features — allow graceful degradation.
-- Put contracts in `src/core/interfaces` so the core layer depends only on the contract.
+- Put contracts in `packages/core/src/interfaces` so the core layer depends only on the contract.
 - Use `Effect.Effect<ReturnType, ErrorType, Dependencies>`:
   - `ReturnType`: what the function returns (boolean, number, etc.)
   - `ErrorType`: error types it can fail with (`never` means it never fails)
@@ -80,10 +80,10 @@ This is an example service implementation showing:
 - How to build a Layer that depends on the config tag
 - How to implement safe fallbacks
 
-Place something like this under `src/services/feature-flag/http.ts` in your real project (here we show the template).
+Place something like this under `packages/adapters/src/feature-flag/http.ts` in your real project (here we show the template).
 
 ```ts
-// src/services/feature-flag/http.ts
+// packages/adapters/src/feature-flag/http.ts
 import { Effect, Layer } from "effect";
 import { FeatureFlagServiceTag, type FeatureFlagService } from "../../core/interfaces/feature-flag";
 import { AgentConfigServiceTag, type AgentConfigService } from "../../core/interfaces/agent-config";
@@ -209,10 +209,10 @@ Both **core** and **CLI** layers can use the service by:
 
 **Creating utility functions**:
 
-Utility functions that wrap service calls should live in `src/core/utils/` (or `src/core/agent/` if agent-specific). These are convenience wrappers that use the service tag — they're not part of the service implementation itself.
+Utility functions that wrap service calls should live in `packages/core/src/utils/` (or `packages/core/src/agent/` if agent-specific). These are convenience wrappers that use the service tag — they're not part of the service implementation itself.
 
 ````ts
-// src/core/utils/feature-flag.ts
+// packages/core/src/utils/feature-flag.ts
 import { Effect } from "effect";
 import { FeatureFlagServiceTag, type FeatureFlagService } from "../interfaces/feature-flag";
 
@@ -261,7 +261,7 @@ export function whenFeatureEnabled<T>(
 
 **Usage examples**:
 
-**In core code** (`src/core/agent/agent-runner.ts`):
+**In core code** (`packages/core/src/agent/agent-runner.ts`):
 
 ```ts
 import { Effect } from "effect";
@@ -283,7 +283,7 @@ export function executeAgent(agentId: string) {
 }
 ```
 
-**In CLI code** (`src/cli/commands/chat-agent.ts`):
+**In CLI code** (`packages/cli/src/commands/chat-agent.ts`):
 
 ```ts
 import { Effect } from "effect";
@@ -347,7 +347,7 @@ const result = yield * program.pipe(Effect.provide(appLayer));
 Unit tests should not call the remote flag service. Provide a mock implementation with `Layer.succeed`.
 
 ```ts
-// src/services/feature-flag-service.test.ts
+// packages/adapters/src/feature-flag-service.test.ts
 import { describe, it, expect } from "bun:test";
 import { Effect, Layer } from "effect";
 import { FeatureFlagServiceTag } from "@/core/interfaces/feature-flag";
@@ -383,8 +383,8 @@ Notes:
 
 Checklist before copying into production `src/`:
 
-- [ ] Add configuration types to `src/core/types/config.ts` (featureFlags config block)
-- [ ] Add typed errors in `src/core/types/errors.ts` if the service needs to surface structured failures
+- [ ] Add configuration types to `packages/core/src/types/config.ts` (featureFlags config block)
+- [ ] Add typed errors in `packages/core/src/types/errors.ts` if the service needs to surface structured failures
 - [ ] Use LoggerServiceTag for structured logging inside the service (instead of console)
 - [ ] Add unit tests and, optionally, integration tests that run against a test flag server
 - [ ] Ensure no secrets (API keys) are committed to the repo — use env variables or secure stores

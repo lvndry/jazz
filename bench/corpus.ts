@@ -1,7 +1,7 @@
 // Deterministic inputs shared across benches. No randomness: two runs of the
 // same commit must do identical work so numbers are comparable.
-import type { Block } from "../src/cli/ui/fullscreen/types";
-import type { OutputEntry } from "../src/cli/ui/types";
+import type { Block } from "../packages/cli/src/ui/fullscreen/types";
+import type { OutputEntry } from "../packages/cli/src/ui/types";
 
 export const PROSE_PARAGRAPH =
   "The quick brown fox jumps over the lazy dog while `code spans` and **bold runs** " +

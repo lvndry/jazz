@@ -12,8 +12,8 @@ everything else is apparatus, so the design is measured against legibility
 rather than density.
 
 The tables below are generated from the modules that define them — run
-`bun run docs:design` after changing [`theme.ts`](../../src/cli/ui/theme.ts) or
-[`glyphs.ts`](../../src/cli/ui/glyphs.ts). A design document that restates hex
+`bun run docs:design` after changing [`theme.ts`](../../packages/cli/src/ui/theme.ts) or
+[`glyphs.ts`](../../packages/cli/src/ui/glyphs.ts). A design document that restates hex
 values by hand starts drifting the first time someone tunes a colour, and a
 drifted design doc is worse than none.
 
@@ -165,7 +165,7 @@ pictograms: `╺` is heavier than `╴`, which is the distinction being drawn an
 | `░` | `.` | context free |
 <!-- /generated:glyphs -->
 
-`src/cli/ui/glyphs.test.ts` enforces this: every character in the Unicode set
+`packages/cli/src/ui/glyphs.test.ts` enforces this: every character in the Unicode set
 must come from a verified-safe range, and the glyphs that were previously
 shipping from unsafe ranges are named so they cannot return.
 
@@ -267,7 +267,7 @@ to separate by hue rather than by lightness.
 | `syntaxType` | `#2F6690` | types and constructors |
 <!-- /generated:palette-light -->
 
-`src/cli/ui/theme.test.ts` asserts contrast against the canvas, perceptual
+`packages/cli/src/ui/theme.test.ts` asserts contrast against the canvas, perceptual
 distance between roles that must never be confused, and that the accent sits on
 an exact cube vertex. It forces truecolor to do so, because the rest of the suite
 runs with colour disabled, which makes ordinary colour assertions vacuous.

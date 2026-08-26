@@ -5,7 +5,7 @@ import { bench, report } from "./harness";
 import {
   parseConversationLog,
   reduceConversationLog,
-} from "../src/services/history/conversation-log";
+} from "../packages/adapters/src/history/conversation-log";
 
 function logContent(eventCount: number): string {
   const lines: string[] = [

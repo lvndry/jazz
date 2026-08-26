@@ -8,9 +8,9 @@ This page explains why a long Jazz run doesn't fall off the end of its context
 window.
 
 Source:
-[`context/summarizer.ts`](../../src/core/agent/context/summarizer.ts) ·
-[`context/context-window-manager.ts`](../../src/core/agent/context/context-window-manager.ts) ·
-[`context/token-counter.ts`](../../src/core/agent/context/token-counter.ts)
+[`context/summarizer.ts`](../../packages/core/src/agent/context/summarizer.ts) ·
+[`context/context-window-manager.ts`](../../packages/core/src/agent/context/context-window-manager.ts) ·
+[`context/token-counter.ts`](../../packages/core/src/agent/context/token-counter.ts)
 
 Context is the scarce resource in an agent run. Tool results are large, they accumulate
 every iteration, and running out means either a provider error or silently forgetting the

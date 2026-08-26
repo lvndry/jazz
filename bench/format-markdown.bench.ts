@@ -4,7 +4,7 @@
 import chalk from "chalk";
 import { markdownReply } from "./corpus";
 import { bench, report } from "./harness";
-import { formatMarkdown } from "../src/cli/presentation/markdown-formatter";
+import { formatMarkdown } from "../packages/cli/src/presentation/markdown-formatter";
 
 chalk.level = 3;
 

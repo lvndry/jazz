@@ -7,10 +7,10 @@ description: "How agent reminders are stored, parsed, and delivered in Jazz — 
 This page explains how agent reminders are stored, parsed, and delivered.
 
 Source:
-[`services/reminder-service.ts`](../../src/services/reminder-service.ts) ·
-[`interfaces/reminder-service.ts`](../../src/core/interfaces/reminder-service.ts) ·
-[`tools/reminder-tools.ts`](../../src/core/agent/tools/reminder-tools.ts) ·
-[`utils/time.ts`](../../src/core/utils/time.ts)
+[`services/reminder-service.ts`](../../packages/adapters/src/reminder-service.ts) ·
+[`interfaces/reminder-service.ts`](../../packages/core/src/interfaces/reminder-service.ts) ·
+[`tools/reminder-tools.ts`](../../packages/core/src/agent/tools/reminder-tools.ts) ·
+[`utils/time.ts`](../../packages/core/src/utils/time.ts)
 
 ---
 

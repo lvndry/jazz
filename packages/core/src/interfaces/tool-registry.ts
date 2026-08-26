@@ -1,0 +1,309 @@
+/**
+ * `Tool` shape and the `ToolRegistry` interface agents use to register,
+ * discover, and execute tools.
+ */
+import { FileSystem } from "@effect/platform";
+import { Context, Effect } from "effect";
+import type z from "zod";
+import type { SkillService } from "@/core/skills/skill-service";
+import type { CustomToolDefinition } from "@/core/types/agent";
+import type { ToolNotFoundError } from "@/core/types/errors";
+import type {
+  ToolCategory,
+  ToolDefinition,
+  ToolExecutionContext,
+  ToolExecutionResult,
+} from "../types";
+import type { AgentConfigService } from "./agent-config";
+import type { FileSystemContextService } from "./fs";
+import type { LLMService } from "./llm";
+import type { LoggerService } from "./logger";
+import type { MCPServerManager } from "./mcp-server";
+import type { MemoryService } from "./memory-service";
+import type { PeerLedgerService, PeerTokenService } from "./peers";
+import type { PresentationService } from "./presentation";
+import type { ReminderService } from "./reminder-service";
+import type { TerminalService } from "./terminal";
+
+/**
+ * Risk level for tool execution.
+ * Used to determine auto-approval behavior in workflows.
+ *
+ * - `read-only`: Tools that only read data (web search, list emails, read files)
+ * - `low-risk`: Tools that make minor changes (archive email, create calendar event)
+ * - `high-risk`: Tools that make significant changes (delete files, send email)
+ * - `unknown`: Blast radius depends on arguments (e.g. `execute_command`)
+ */
+export type ToolRiskLevel = "read-only" | "low-risk" | "high-risk" | "unknown";
+
+/**
+ * What an answer from this tool reveals about the person the agent works for.
+ *
+ * Independent of {@link ToolRiskLevel}, which measures what a tool can do *to* the machine.
+ * The two do not correlate: `read_file` is read-only and can disclose anything, `get_time`
+ * is read-only and discloses nothing, `write_file` changes the machine and reveals nothing.
+ * A policy built on risk alone would let a caller read someone's notes on the grounds that
+ * reading is safe.
+ *
+ * The question is always about the *answer*, not the request. What an agent chooses to put
+ * into an outgoing call is a separate problem, handled where such calls are made.
+ *
+ * Levels name **sensitivity**, not subject — how freely an answer can be shared, which is
+ * the question somebody actually asks when deciding what to permit.
+ *
+ * - `public` — safe to tell anyone. A web search result, a fetched page, a confirmation
+ *   that something was written.
+ * - `internal` — the shape of this machine or session: paths, filenames, the working
+ *   directory, which skills are installed, how full the context window is. Not contents.
+ * - `private` — the operator's own material: file contents, memory, reminders, todos, the
+ *   transcript, or anything a shell command might print.
+ *
+ * When a tool spans two, it takes the more sensitive one. `unknown` does not exist here on
+ * purpose: an unclassifiable tool is `private`, because the safe reading of "I do not know
+ * what this returns" is "it could be anything".
+ */
+export type ToolDisclosure = "public" | "internal" | "private";
+
+/**
+ * Union type representing all possible tool requirements.
+ * This allows the registry to store tools with different requirement types
+ *
+ * Note: Tools with `never` requirements are still assignable to `Tool<ToolRequirements>`
+ * because `never` is a bottom type that's compatible with any union.
+ */
+export type ToolRequirements =
+  | FileSystemContextService
+  | FileSystem.FileSystem
+  | AgentConfigService
+  | LLMService
+  | LoggerService
+  | MCPServerManager
+  | TerminalService
+  | SkillService
+  | PresentationService
+  | MemoryService
+  | ReminderService
+  | PeerLedgerService
+  | PeerTokenService;
+
+export interface Tool<R = never> {
+  /** Function name the model calls (`read_file`, `execute_command`). Must be unique in the registry. */
+  readonly name: string;
+  /** Model-facing summary of when to use the tool, what it returns, and when not to. */
+  readonly description: string;
+  /** Optional labels for grouping (UI, docs). Not sent to the model. */
+  readonly tags?: readonly string[];
+  /** Alternative names the LLM may use to call this tool. Resolved transparently at execution time. */
+  readonly aliases?: readonly string[];
+  /** Zod schema for arguments. Validated before `execute` unless a custom `validate` is used. */
+  readonly parameters: z.ZodTypeAny;
+  /**
+   * Original JSON Schema advertised to the model when Zod conversion is lossy.
+   * MCP tools set this so the provider sees the server's schema, not a reconstruction.
+   */
+  readonly jsonSchema?: Readonly<Record<string, unknown>>;
+  /** If true, this tool is hidden from UI listings (but still usable programmatically). */
+  readonly hidden: boolean;
+  /**
+   * Risk level for auto-approval in workflows.
+   * - `read-only`: Always auto-approved (default for non-approval tools)
+   * - `low-risk`: Auto-approved when workflow allows low-risk operations
+   * - `high-risk`: Only auto-approved when explicitly allowed (default for approval tools)
+   * - `unknown`: Resolved by the command classifier under every tier below yolo;
+   *   an unresolved `unknown` is only auto-approved under yolo
+   */
+  readonly riskLevel: ToolRiskLevel;
+  /**
+   * What an answer from this tool reveals about the operator.
+   *
+   * Required, and with no default anywhere, so that adding a tool forces someone to decide.
+   * Every tool that skipped this decision would otherwise be silently readable by anything
+   * the machine ever answers to.
+   */
+  readonly disclosure: ToolDisclosure;
+  /**
+   * Optional helper for approval-based tools pointing to the follow-up tool name
+   * that should be made available once user confirmation is granted.
+   */
+  readonly approvalExecuteToolName?: string;
+  /**
+   * If true, this tool is expected to take a long time (e.g., sub-agent, user input).
+   * The UI will suppress the "taking longer than expected" warning.
+   */
+  readonly longRunning?: boolean;
+  /**
+   * Custom timeout in milliseconds for this tool's execution.
+   * Overrides the default TOOL_TIMEOUT_MS (3 minutes).
+   */
+  readonly timeoutMs?: number;
+  /**
+   * Present only on tools built from an agent's declared `customTools` config
+   * (see `CustomToolDefinition` in `@/core/types/agent`). The `ToolRegistry` is
+   * a session-lifetime singleton and custom-tool registration re-runs on every
+   * `AgentRunner.run`, so this lets the registration path tell whether a name
+   * collision is a harmless re-registration of the same custom tool (safe to
+   * skip) versus a genuine conflict with a different tool.
+   */
+  readonly sourceCustomToolDefinition?: CustomToolDefinition;
+  /**
+   * Executes the tool with the provided arguments and context.
+   *
+   * This is the core execution method that performs the actual work of the tool.
+   * It receives validated arguments (typically from an LLM function call) and
+   * execution context, then returns an Effect that represents the asynchronous
+   * operation with proper error handling and dependency requirements.
+   *
+   * @param args - The tool arguments as a record of key-value pairs. These are
+   *               typically provided by the LLM and should match the tool's
+   *               parameter schema.
+   * @param context - The execution context containing agent ID, conversation ID,
+   *                  user ID, and other contextual information.
+   * @returns An Effect that resolves to a ToolExecutionResult, which indicates
+   *          success or failure along with any result data or error messages.
+   *          The Effect's requirements type `R` represents the services this
+   *          tool depends on (e.g., FileSystem, LoggerService).
+   */
+  readonly execute: (
+    args: Record<string, unknown>,
+    context: ToolExecutionContext,
+  ) => Effect.Effect<ToolExecutionResult, Error, R>;
+  /** Optional function to create a summary of the tool execution result */
+  readonly createSummary: ((result: ToolExecutionResult) => string | undefined) | undefined;
+}
+
+/**
+ * Registry for managing and executing agent tools.
+ *
+ * The ToolRegistry provides a centralized way to register, discover, and execute
+ * tools that agents can use. Tools are organized by categories for better
+ * organization and discovery. The registry handles tool execution with proper
+ * error handling, logging, and dependency management.
+ */
+export interface ToolRegistry {
+  /**
+   * Registers a tool in the registry, optionally assigning it to a category.
+   *
+   * Once registered, the tool becomes available for discovery and execution.
+   * If a category is provided, the tool will be grouped with other tools in
+   * that category for better organization.
+   *
+   * @param tool - The tool to register. Must be a Tool with requirements
+   *               that are part of the ToolRequirements union type.
+   * @param category - Optional category to assign the tool to. If provided,
+   *                   the tool will be grouped with other tools in this category.
+   * @returns An Effect that completes when the tool is registered.
+   */
+  readonly registerTool: (
+    tool: Tool<ToolRequirements>,
+    category?: ToolCategory,
+  ) => Effect.Effect<void, never>;
+  /**
+   * Creates a category-scoped tool registration function.
+   *
+   * Returns a function that registers tools under a specific category.
+   * This provides a convenient API for registering multiple tools in the same
+   * category without having to pass the category to each registration call.
+   *
+   * @param category - The category to scope tool registrations to.
+   * @returns A function that registers tools under the specified category.
+   *
+   */
+  /**
+   * Removes a tool from the registry. Unknown names are ignored.
+   *
+   * Needed so a server that drops a tool via `notifications/tools/list_changed`
+   * stops advertising it, rather than leaving a name the model can still call.
+   */
+  readonly unregisterTool: (name: string) => Effect.Effect<void, never>;
+  readonly registerForCategory: (
+    category: ToolCategory,
+  ) => (tool: Tool<ToolRequirements>) => Effect.Effect<void, never>;
+  /**
+   * Retrieves a tool by name from the registry.
+   *
+   * @param name - The name of the tool to retrieve.
+   * @returns An Effect that resolves to the tool, or fails with an Error
+   *          if the tool is not found.
+   */
+  readonly getTool: (name: string) => Effect.Effect<Tool<ToolRequirements>, ToolNotFoundError>;
+  /**
+   * Lists all registered tool names.
+   *
+   * Returns only non-hidden tools. Hidden tools are excluded from listings
+   * but remain callable programmatically.
+   *
+   * @returns An Effect that resolves to an array of tool names.
+   */
+  readonly listTools: () => Effect.Effect<readonly string[], never>;
+  /**
+   * Lists all registered tool names, including hidden tools.
+   *
+   * Used for validation to ensure hidden builtin tools (like ask_user)
+   * can be referenced in agent configurations.
+   *
+   * @returns An Effect that resolves to an array of all tool names.
+   */
+  readonly listAllTools: () => Effect.Effect<readonly string[], never>;
+  /**
+   * Gets tool definitions in the format expected by LLM function calling APIs.
+   *
+   * Returns tool definitions that can be passed to LLM APIs to enable
+   * function calling. Each definition includes the tool name, description,
+   * and parameter schema.
+   *
+   * @returns An Effect that resolves to an array of ToolDefinition objects.
+   */
+  readonly getToolDefinitions: () => Effect.Effect<readonly ToolDefinition[], never>;
+  /**
+   * Lists tools organized by category.
+   *
+   * Returns a record where keys are category display names and values are
+   * arrays of tool names in that category. Tools without a category are
+   * grouped under "Other".
+   *
+   * @returns An Effect that resolves to a record mapping category names to
+   *          arrays of tool names.
+   */
+  readonly listToolsByCategory: () => Effect.Effect<Record<string, readonly string[]>, never>;
+  /**
+   * Gets all tools in a specific category.
+   *
+   * @param categoryId - The ID of the category to filter by.
+   * @returns An Effect that resolves to an array of tool names in the
+   *          specified category, sorted alphabetically.
+   */
+  readonly getToolsInCategory: (categoryId: string) => Effect.Effect<readonly string[], never>;
+  /**
+   * Lists all registered categories.
+   *
+   * Returns categories that have at least one non-hidden tool assigned to them.
+   *
+   * @returns An Effect that resolves to an array of ToolCategory objects,
+   *          sorted by display name.
+   */
+  readonly listCategories: () => Effect.Effect<readonly ToolCategory[], never>;
+  /**
+   * Executes a tool by name with the provided arguments and context and returns the result.
+   *
+   * @param name - The name of the tool to execute.
+   * @param args - The arguments to pass to the tool, typically provided by
+   *               an LLM function call.
+   * @param context - The execution context containing agent ID, conversation
+   *                  ID, user ID, and other contextual information.
+   * @returns An Effect that resolves to a ToolExecutionResult indicating
+   *          success or failure, along with any result data or error messages.
+   *          The Effect requires ToolRegistry, LoggerService, AgentConfigService,
+   *          and any services required by the tool itself.
+   */
+  readonly executeTool: (
+    name: string,
+    args: Record<string, unknown>,
+    context: ToolExecutionContext,
+  ) => Effect.Effect<
+    ToolExecutionResult,
+    never,
+    ToolRegistry | LoggerService | AgentConfigService | ToolRequirements
+  >;
+}
+
+export const ToolRegistryTag = Context.GenericTag<ToolRegistry>("ToolRegistry");

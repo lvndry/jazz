@@ -1,0 +1,592 @@
+import { DEFAULT_CONTEXT_WINDOW, type ProviderName } from "@jazz/core/constants/models";
+import type { OllamaShowExtras } from "@jazz/core/interfaces/llm";
+import type { ModelInfo } from "@jazz/core/types";
+import { LLMConfigurationError } from "@jazz/core/types/errors";
+import { isConnectionError, localServerUnreachableMessage } from "@jazz/core/utils/llm-error";
+import {
+  getMetadataFromMap,
+  getModelsDevMap,
+  getModelsDevProviderModels,
+  type ModelsDevMetadata,
+  type ModelsDevModelEntry,
+} from "@jazz/core/utils/models-dev";
+import { resolveOllamaAttachmentSupport } from "@jazz/core/utils/ollama-attachment-support";
+import { gateway } from "ai";
+import { Effect } from "effect";
+import { hasReasoningParser } from "./reasoning";
+
+/**
+ * Model fetcher: models.dev as single source of metadata
+ *
+ * Architecture:
+ * 1. Fetch models.dev once at start of fetchModels() for metadata (context, tool_call, reasoning).
+ * 2. Each provider only supplies the list of models: id + displayName + optional fallback metadata.
+ * 3. Shared resolve step: for each model, use models.dev when present, else provider fallback or defaults.
+ * 4. No per-provider metadata heuristics; fallbacks only for models not in models.dev (e.g. Ollama /api/show).
+ */
+
+export interface ModelFetcherService {
+  fetchModels(
+    providerName: ProviderName,
+    baseUrl: string,
+    endpointPath: string,
+    apiKey?: string,
+  ): Effect.Effect<readonly ModelInfo[], LLMConfigurationError, never>;
+}
+
+/** Per-model entry from a provider before resolving metadata (models.dev or fallback). */
+type RawModelEntry = {
+  id: string;
+  displayName: string;
+  fallback?: Partial<ModelsDevMetadata>;
+};
+
+/** Resolve to ModelInfo: models.dev first, then entry.fallback, then defaults. */
+function resolveToModelInfo(
+  entry: RawModelEntry,
+  devMap: Map<string, ModelsDevMetadata> | null,
+): ModelInfo {
+  const dev = getMetadataFromMap(devMap, entry.id);
+  if (dev) {
+    return {
+      id: entry.id,
+      displayName: entry.displayName,
+      contextWindow: dev.contextWindow,
+      supportsTools: dev.supportsTools,
+      isReasoningModel: dev.isReasoningModel,
+      ingestImage: dev.ingestImage,
+      ingestPdf: dev.ingestPdf,
+      ingestAudio: dev.ingestAudio,
+      ingestVideo: dev.ingestVideo,
+      generatesImage: dev.generatesImage,
+      generatesAudio: dev.generatesAudio,
+      generatesVideo: dev.generatesVideo,
+      ...(dev.inputPricePerMillion !== undefined && {
+        inputPricePerMillion: dev.inputPricePerMillion,
+      }),
+      ...(dev.outputPricePerMillion !== undefined && {
+        outputPricePerMillion: dev.outputPricePerMillion,
+      }),
+      supportsTemperature: dev.supportsTemperature,
+    };
+  }
+  const fb = entry.fallback;
+  return {
+    id: entry.id,
+    displayName: entry.displayName,
+    contextWindow: fb?.contextWindow ?? DEFAULT_CONTEXT_WINDOW,
+    supportsTools: fb?.supportsTools ?? false,
+    isReasoningModel: fb?.isReasoningModel ?? false,
+    ingestImage: fb?.ingestImage ?? false,
+    ingestPdf: fb?.ingestPdf ?? false,
+    ingestAudio: fb?.ingestAudio ?? false,
+    ingestVideo: fb?.ingestVideo ?? false,
+    supportsTemperature: fb?.supportsTemperature ?? true,
+  };
+}
+
+/** Dated snapshot suffixes like "-20251001" or "-2024-05-13" (kept only when no undated base id exists). */
+const DATED_SNAPSHOT_SUFFIX = /-(\d{8}|\d{4}-\d{2}-\d{2})$/;
+
+/**
+ * Keep models a person can actually hold a conversation with: text in, text out.
+ *
+ * That pair is the whole test, and it already excludes what this filter exists to exclude —
+ * embeddings and TTS produce no text, transcription models like `whisper-large-v3` accept no
+ * text, and a pure generator like `gpt-image-1` outputs only an image.
+ *
+ * It deliberately does *not* exclude a model that emits text **and** media. `gemini-3-pro-image`
+ * and `gpt-image-1.5` converse normally and can also return an image, and generating media is a
+ * capability of the model rather than a tool jazz provides — so the way to get an image is to
+ * run an agent on a model that makes them. Hiding those models here made that impossible.
+ */
+function isTextChatModel(entry: ModelsDevModelEntry): boolean {
+  return entry.inputModalities.includes("text") && entry.outputModalities.includes("text");
+}
+
+/**
+ * List a provider's models from the models.dev catalog.
+ *
+ * models.dev is the single source of truth for these providers — no hardcoded lists,
+ * no fallback. Filters to active text-chat models, drops dated snapshot duplicates
+ * (e.g. "claude-haiku-4-5-20251001" when "claude-haiku-4-5" exists), and sorts by
+ * release date, newest first.
+ *
+ * Throws when models.dev is unavailable.
+ */
+export async function fetchModelsDevModels(catalogId: string): Promise<ModelInfo[]> {
+  const entries = await getModelsDevProviderModels(catalogId);
+
+  const ids = new Set(entries.map((entry) => entry.id));
+  const isSnapshotDuplicate = (id: string): boolean => {
+    const base = id.replace(DATED_SNAPSHOT_SUFFIX, "");
+    return base !== id && ids.has(base);
+  };
+
+  return entries
+    .filter(
+      (entry) =>
+        entry.status !== "deprecated" && isTextChatModel(entry) && !isSnapshotDuplicate(entry.id),
+    )
+    .sort((left, right) => {
+      const byDate = (right.releaseDate ?? "").localeCompare(left.releaseDate ?? "");
+      return byDate !== 0 ? byDate : left.id.localeCompare(right.id);
+    })
+    .map((entry) => ({
+      id: entry.id,
+      displayName: entry.displayName,
+      contextWindow: entry.metadata.contextWindow,
+      supportsTools: entry.metadata.supportsTools,
+      isReasoningModel: entry.metadata.isReasoningModel,
+      ingestImage: entry.metadata.ingestImage,
+      ingestPdf: entry.metadata.ingestPdf,
+      ingestAudio: entry.metadata.ingestAudio,
+      ingestVideo: entry.metadata.ingestVideo,
+      generatesImage: entry.metadata.generatesImage,
+      generatesAudio: entry.metadata.generatesAudio,
+      generatesVideo: entry.metadata.generatesVideo,
+      ...(entry.metadata.inputPricePerMillion !== undefined && {
+        inputPricePerMillion: entry.metadata.inputPricePerMillion,
+      }),
+      ...(entry.metadata.outputPricePerMillion !== undefined && {
+        outputPricePerMillion: entry.metadata.outputPricePerMillion,
+      }),
+      supportsTemperature: entry.metadata.supportsTemperature,
+    }));
+}
+
+type OpenRouterModel = {
+  id: string;
+  name: string;
+  context_length?: number;
+  supported_parameters?: string[];
+};
+
+export type OllamaModel = {
+  name: string;
+  model?: string;
+  details?: {
+    family?: string;
+    parameter_size?: string;
+    metadata?: Record<string, unknown>;
+  };
+};
+
+/**
+ * Response from Ollama /api/show endpoint
+ */
+type OllamaShowResponse = {
+  model_info?: Record<string, unknown>;
+  details?: { family?: string };
+  template?: string;
+  capabilities?: string[];
+};
+
+type LlamaCppModelEntry = { id: string };
+type LlamaCppModelsResponse = { data?: LlamaCppModelEntry[] };
+type LlamaCppPropsResponse = {
+  default_generation_settings?: { n_ctx?: number };
+  chat_template_caps?: Record<string, boolean>;
+  chat_template?: string;
+};
+
+/**
+ * Strip a trailing `/v1` (or `/v1/`) from a llama-server base URL so we can
+ * reach the server-root `/props` endpoint. `/props` lives at the root, not
+ * under `/v1`.
+ */
+function llamaCppServerRoot(baseUrl: string): string {
+  // Strip trailing /v1 (or /v1/), then any trailing slash, so callers can safely append /props.
+  return baseUrl.replace(/\/v1\/?$/, "").replace(/\/$/, "");
+}
+
+async function fetchLlamaCppProps(baseUrl: string): Promise<LlamaCppPropsResponse | undefined> {
+  try {
+    const response = await fetch(`${llamaCppServerRoot(baseUrl)}/props`, {
+      method: "GET",
+      headers: { "Content-Type": "application/json" },
+    });
+    if (!response.ok) return undefined;
+    return (await response.json()) as LlamaCppPropsResponse;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Extract context length from Ollama model_info
+ * The key format is `<family>.context_length` (e.g., "gemma3.context_length")
+ */
+function extractOllamaContextLength(
+  modelInfo: Record<string, unknown> | undefined,
+): number | undefined {
+  if (!modelInfo) return undefined;
+
+  for (const [key, value] of Object.entries(modelInfo)) {
+    if (key.endsWith(".context_length") && typeof value === "number") {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Fetch detailed model info from Ollama /api/show endpoint
+ * Returns context window, template, and capabilities when available.
+ * `baseUrl` is the canonical `/api` root (see resolveLocalProviderBaseUrl), so `/show` appends directly.
+ */
+export async function fetchOllamaModelDetails(
+  baseUrl: string,
+  modelName: string,
+): Promise<OllamaShowExtras> {
+  try {
+    const response = await fetch(`${baseUrl}/show`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: modelName }),
+    });
+    if (!response.ok) return {};
+    const data = (await response.json()) as OllamaShowResponse;
+    const ctx = extractOllamaContextLength(data.model_info);
+    return {
+      ...(ctx !== undefined ? { contextWindow: ctx } : {}),
+      ...(typeof data.template === "string" ? { template: data.template } : {}),
+      ...(Array.isArray(data.capabilities) ? { capabilities: data.capabilities } : {}),
+    };
+  } catch {
+    return {};
+  }
+}
+
+const TOOL_PARAMS = new Set([
+  "tools",
+  "tool_choice",
+  "function_call",
+  "functions",
+  "response_format:json_schema",
+]);
+
+/**
+ * Tool support from Ollama's `/api/show` `capabilities` array
+ * (e.g. ["completion","tools","thinking"]). Present for every modern tool-capable model,
+ * including thinking/vision models like gemma4; tool capability is independent of the
+ * thinking capability, so a model can have both. Never gate on the thinking/reasoning
+ * capability.
+ */
+function ollamaToolSupportFromCapabilities(capabilities: readonly string[] | undefined): boolean {
+  if (!capabilities) return false;
+  return capabilities.includes("tools");
+}
+
+function ollamaToolSupportFromMetadata(model: OllamaModel): boolean {
+  const metadata = model.details?.metadata;
+  if (!metadata || typeof metadata !== "object") return false;
+  const flag = metadata["supports_tools"] ?? metadata["tool_use"] ?? metadata["function_calling"];
+  return typeof flag === "boolean" && flag;
+}
+
+/**
+ * Authoritative tool-support decision for a local Ollama model.
+ *
+ * Ollama's `/api/show` `capabilities` array describes the actual model loaded on the host,
+ * so it outranks models.dev. models.dev is matched by a normalized bare key
+ * ("last-provider-wins"), which can miss an Ollama tag entirely or collide with a different
+ * provider's same-named model and report a stale/wrong `tool_call` — either way it would
+ * gate tools incorrectly. Precedence:
+ *  1. `/api/show` capabilities, when present (authoritative for the real local model).
+ *  2. models.dev `tool_call`, when the model resolved against models.dev.
+ *  3. legacy `/api/tags` manifest metadata flags.
+ *
+ * This is shared by both the model-listing path and the agent run path, which resolve
+ * supportsTools through the same fetched ModelInfo, so a tool-capable local model is never
+ * silently stripped of its tools.
+ */
+export function resolveOllamaToolSupport(
+  capabilities: readonly string[] | undefined,
+  dev: ModelsDevMetadata | undefined,
+  model: OllamaModel,
+): boolean {
+  if (capabilities !== undefined) {
+    return ollamaToolSupportFromCapabilities(capabilities);
+  }
+  if (dev) {
+    return dev.supportsTools;
+  }
+  return ollamaToolSupportFromMetadata(model);
+}
+
+// List extractors: provider API response → RawModelEntry[] (metadata resolved via models.dev or fallback)
+const LIST_EXTRACTORS: Partial<Record<ProviderName, (data: unknown) => RawModelEntry[]>> = {
+  openrouter: (data: unknown) => {
+    const response = data as { data?: OpenRouterModel[] };
+    return (response.data ?? []).map((model) => {
+      const supportedParameters = model.supported_parameters ?? [];
+      const isReasoningModel =
+        supportedParameters.includes("reasoning") ||
+        supportedParameters.includes("include_reasoning");
+      const supportsTools = supportedParameters.some((param) => TOOL_PARAMS.has(param));
+      return {
+        id: model.id,
+        displayName: model.name,
+        fallback: {
+          contextWindow: model.context_length ?? DEFAULT_CONTEXT_WINDOW,
+          supportsTools,
+          isReasoningModel,
+          supportsTemperature: supportedParameters.includes("temperature"),
+        },
+      };
+    });
+  },
+  ai_gateway: (data: unknown) => {
+    const response = data as { id: string; name: string; tags?: string[] }[];
+    return response.map((model) => ({
+      id: model.id,
+      displayName: model.name,
+      fallback: {
+        contextWindow: DEFAULT_CONTEXT_WINDOW,
+        supportsTools: model.tags?.includes("tool-use") ?? false,
+        isReasoningModel: model.tags?.includes("reasoning") ?? false,
+      },
+    }));
+  },
+  groq: (data: unknown) => {
+    const response = data as {
+      data: { id: string; owned_by: string }[];
+    };
+    return response.data.map((model) => ({
+      id: model.id,
+      displayName: `${model.owned_by.toLowerCase()}/${model.id.toLowerCase()}`,
+      // no fallback; models.dev or defaults
+    }));
+  },
+  fireworks: (data: unknown) => {
+    const response = data as {
+      models?: {
+        name: string;
+        displayName?: string;
+        contextLength?: number;
+        supportsTools?: boolean;
+        supportsImageInput?: boolean;
+        state?: string;
+        conversationConfig?: unknown;
+        supportsServerless?: boolean;
+      }[];
+    };
+    return (response.models ?? [])
+      .filter(
+        (model) => model.state === "READY" && model.conversationConfig && model.supportsServerless,
+      )
+      .map((model) => ({
+        id: model.name,
+        displayName: model.displayName ?? model.name,
+        fallback: {
+          contextWindow: model.contextLength ?? DEFAULT_CONTEXT_WINDOW,
+          supportsTools: model.supportsTools ?? false,
+          ingestImage: model.supportsImageInput ?? false,
+        },
+      }));
+  },
+  cerebras: (data: unknown) => {
+    const response = data as {
+      data: { id: string; owned_by?: string }[];
+    };
+    return response.data.map((model) => ({
+      id: model.id,
+      displayName: model.id,
+      // no fallback; models.dev or defaults
+    }));
+  },
+  togetherai: (data: unknown) => {
+    const models = data as {
+      id: string;
+      display_name?: string;
+      type?: string;
+      context_length?: number;
+    }[];
+    // Together.ai returns a flat array (not wrapped in { data }), filter to chat models only
+    return models
+      .filter((model) => model.type === "chat")
+      .map((model) => ({
+        id: model.id,
+        displayName: model.display_name ?? model.id,
+        fallback: {
+          contextWindow: model.context_length ?? DEFAULT_CONTEXT_WINDOW,
+        },
+      }));
+  },
+};
+
+/**
+ * Ollama: list from /api/tags, resolve via models.dev or async fallback (/api/show + metadata).
+ */
+async function transformOllamaModels(
+  data: unknown,
+  baseUrl: string,
+  modelsDevMap: Map<string, ModelsDevMetadata> | null,
+): Promise<ModelInfo[]> {
+  const response = data as { models?: OllamaModel[] };
+  const models = response.models ?? [];
+  const CONCURRENCY_LIMIT = 5;
+  const results: ModelInfo[] = [];
+
+  for (let i = 0; i < models.length; i += CONCURRENCY_LIMIT) {
+    const batch = models.slice(i, i + CONCURRENCY_LIMIT);
+    const batchResults = await Promise.all(
+      batch.map(async (model): Promise<ModelInfo> => {
+        const extras = await fetchOllamaModelDetails(baseUrl, model.name);
+        const entry: RawModelEntry = { id: model.name, displayName: model.name };
+        const dev = getMetadataFromMap(modelsDevMap, model.name);
+        const supportsTools = resolveOllamaToolSupport(extras.capabilities, dev, model);
+        const attachmentSupport = resolveOllamaAttachmentSupport(extras.capabilities, dev);
+        let base: ModelInfo;
+        if (dev) {
+          base = resolveToModelInfo(entry, modelsDevMap);
+        } else {
+          entry.fallback = {
+            contextWindow: extras.contextWindow ?? DEFAULT_CONTEXT_WINDOW,
+            supportsTools,
+            isReasoningModel: hasReasoningParser({
+              provider: "ollama",
+              modelId: model.name,
+              ...(extras.template ? { chatTemplate: extras.template } : {}),
+              ...(extras.capabilities ? { capabilities: extras.capabilities } : {}),
+            }),
+          };
+          base = resolveToModelInfo(entry, null);
+        }
+        return {
+          ...base,
+          supportsTools,
+          ...attachmentSupport,
+          // `/api/show` describes the model file actually on this host, so it outranks
+          // the catalog's normalized bare-name match for the same reason tool support does.
+          ...(extras.contextWindow !== undefined ? { contextWindow: extras.contextWindow } : {}),
+          ...(extras.template ? { chatTemplate: extras.template } : {}),
+          ...(extras.capabilities ? { capabilities: extras.capabilities } : {}),
+        };
+      }),
+    );
+    results.push(...batchResults);
+  }
+
+  return results;
+}
+
+// Lists /v1/models, enriches from /props. supportsTools needs both caps flags,
+// which llama-server only populates under --jinja.
+async function transformLlamaCppModels(
+  data: unknown,
+  baseUrl: string,
+  modelsDevMap: Map<string, ModelsDevMetadata> | null,
+): Promise<ModelInfo[]> {
+  const response = data as LlamaCppModelsResponse;
+  const models = response.data ?? [];
+  if (models.length === 0) {
+    throw new Error("No models loaded. Start `llama-server` with `-m <path>.gguf` first.");
+  }
+
+  const props = await fetchLlamaCppProps(baseUrl);
+  const ctx = props?.default_generation_settings?.n_ctx;
+  const caps = props?.chat_template_caps ?? {};
+  const supportsTools = caps["supports_tools"] === true && caps["supports_tool_calls"] === true;
+  const chatTemplate = props?.chat_template;
+
+  const isReasoning = hasReasoningParser({
+    provider: "llamacpp",
+    modelId: "",
+    ...(chatTemplate ? { chatTemplate } : {}),
+  });
+
+  return models.map((model) => {
+    const entry: RawModelEntry = { id: model.id, displayName: model.id };
+    const dev = getMetadataFromMap(modelsDevMap, model.id);
+    if (!dev) {
+      entry.fallback = {
+        contextWindow: ctx ?? DEFAULT_CONTEXT_WINDOW,
+        supportsTools,
+        isReasoningModel: isReasoning,
+      };
+    }
+    const base = resolveToModelInfo(entry, dev ? modelsDevMap : null);
+    return {
+      ...base,
+      // `/props` reports the window llama-server was started with (`-c`), which is what
+      // it will honour — the catalog's advertised maximum is not.
+      ...(ctx !== undefined ? { contextWindow: ctx } : {}),
+      ...(chatTemplate ? { chatTemplate } : {}),
+    };
+  });
+}
+
+export function createModelFetcher(): ModelFetcherService {
+  return {
+    fetchModels: (providerName, baseUrl, endpointPath, apiKey) =>
+      Effect.tryPromise({
+        try: async () => {
+          const url = `${baseUrl}${endpointPath}`;
+          const headers: Record<string, string> = {
+            "Content-Type": "application/json",
+          };
+
+          if (apiKey) {
+            headers["Authorization"] = `Bearer ${apiKey}`;
+          }
+
+          const modelsDevMap = await getModelsDevMap();
+
+          if (providerName === "ai_gateway") {
+            const availableModels = await gateway.getAvailableModels();
+            const extractor = LIST_EXTRACTORS["ai_gateway"]!;
+            const raw = extractor(availableModels.models);
+            return raw.map((entry) => resolveToModelInfo(entry, modelsDevMap));
+          }
+
+          const response = await fetch(url, {
+            method: "GET",
+            headers,
+          });
+
+          if (!response.ok) {
+            if (response.status === 404) {
+              if (providerName === "ollama") {
+                throw new Error(
+                  "Failed to fetch models: No models found. Pull a model using `ollama pull` first.",
+                );
+              }
+            }
+
+            throw new Error(`Failed to fetch models: ${response.status} ${response.statusText}`);
+          }
+
+          const data: unknown = await response.json();
+
+          if (providerName === "ollama") {
+            return transformOllamaModels(data, baseUrl, modelsDevMap);
+          }
+
+          if (providerName === "llamacpp") {
+            return transformLlamaCppModels(data, baseUrl, modelsDevMap);
+          }
+
+          const extractor = LIST_EXTRACTORS[providerName];
+          if (!extractor) {
+            throw new Error(`No list extractor found for provider: ${providerName}`);
+          }
+          const raw = extractor(data);
+          return raw.map((entry) => resolveToModelInfo(entry, modelsDevMap));
+        },
+        catch: (error) => {
+          if (isConnectionError(error)) {
+            const localMessage = localServerUnreachableMessage(providerName);
+            if (localMessage) {
+              return new LLMConfigurationError({ provider: providerName, message: localMessage });
+            }
+          }
+          return new LLMConfigurationError({
+            provider: providerName,
+            message: `Model discovery failed: ${error instanceof Error ? error.message : String(error)}`,
+          });
+        },
+      }),
+  };
+}

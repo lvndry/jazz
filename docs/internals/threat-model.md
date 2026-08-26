@@ -38,7 +38,7 @@ Two sharper controls sit under the dial:
 - **`autoApprovedCommands`.** A persisted allowlist that admits single commands without
   raising the whole tier. Matching is a parsed key (binary + first subcommand) with
   word-boundary comparison — `git status` does not also permit
-  `git status && rm -rf /`. Source: `src/core/agent/tools/command-risk.ts`,
+  `git status && rm -rf /`. Source: `packages/core/src/agent/tools/command-risk.ts`,
   [configuration](../reference/configuration.md).
 
 ## Shell commands fail closed
@@ -48,12 +48,12 @@ instruction is explicit: *"high-risk = anything else, including uncertainty"* an
 clearly mutating command is high-risk even if the conversation asked for something
 milder."* Text inside the command is treated as data to classify, never as instructions.
 An ambiguous command on an unattended run therefore blocks rather than runs.
-Source: `src/core/agent/tools/command-risk.ts`.
+Source: `packages/core/src/agent/tools/command-risk.ts`.
 
 ## Where secrets live
 
 - **API keys** are stored in the OS keyring, not in config files
-  (`src/services/secrets/keyring.ts`; `JAZZ_DISABLE_KEYRING` opts out).
+  (`packages/adapters/src/secrets/keyring.ts`; `JAZZ_DISABLE_KEYRING` opts out).
 - **Child processes are scrubbed.** Any environment variable whose name matches
   `API|KEY|SECRET|TOKEN|PASSWORD|CREDENTIAL|AUTH` is stripped before a shell command or
   custom command tool spawns. Exceptions require an explicit per-agent `envAllowlist`
@@ -70,7 +70,7 @@ Source: `src/core/agent/tools/command-risk.ts`.
 - The Telegram bridge defaults to **long-polling** (`getUpdates`): outbound connections
   only, no public URL, works behind NAT. Webhook mode exists but is opt-in and requires a
   secret. One caveat stated honestly: the bridge container always runs a minimal `/health`
-  HTTP endpoint for container health checks. Source: `integrations/telegram-bot/bridge.ts`.
+  HTTP endpoint for container health checks. Source: `packages/telegram-bot/bridge.ts`.
 - `JAZZ_OFFLINE=1` stops every outbound request Jazz makes on its own behalf except model
   inference itself. Source: [airgapped](../guide/airgapped.md).
 

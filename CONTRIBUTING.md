@@ -2,23 +2,33 @@
 
 Thank you for your interest in contributing to Jazz! Please read the [Quick Start](docs/guide/quick-start.md) guide, and the [Code map](docs/internals/code-map.md) for how the codebase is organized.
 
-## Project Structure
+## Workspace
 
-Jazz uses clean architecture with strict dependency rules:
+Jazz is a Bun workspace (`packages/*`), split along clean-architecture lines with the boundary
+structurally enforced by TypeScript project references — `tsc -b` rejects a package importing
+from one it doesn't declare as a dependency, not just a documented convention.
 
-- **`src/core/`** - Business logic, interfaces, types (no I/O)
-- **`src/services/`** - Service implementations
-- **`src/cli/`** - CLI commands and presentation
+| Package             | Purpose                                                          | Depends on                      |
+| -------------------- | ----------------------------------------------------------------- | --------------------------------- |
+| `packages/core`       | Business logic, interfaces, types (no I/O); publishable as `@jazz/core` | nothing else in the workspace     |
+| `packages/adapters`   | Service implementations (LLM, storage, MCP, keyring, etc.)         | `core`                            |
+| `packages/cli`        | Ink/OpenTUI commands and presentation                              | `core`                            |
+| `packages/runtime`    | Composition root — wires core+adapters+cli into the `jazz` binary  | `core`, `adapters`, `cli`         |
+| `packages/bot-shared`  | Shared run-logging/usage helpers for the bot bridges                | `core`                            |
+| `packages/telegram-bot`| Telegram bridge                                                    | `core`, `adapters`, `bot-shared`  |
+| `packages/discord-bot` | Discord bridge                                                     | `core`, `adapters`, `bot-shared`  |
+| `packages/website`    | Astro docs/marketing site, reads `docs/` as a content collection    | `cli` (design tokens only)        |
 
-**Critical rule**: `core/` must **never** import from `services/` or `cli/`. Dependencies flow inward only.
+**Critical rule**: `core/` must **never** import from `adapters/`, `cli/`, or `runtime/`.
+Dependencies flow inward only.
 
 Read the READMEs:
 
 - `docs/guide/quick-start.md` - Install and first run
 - `docs/internals/code-map.md` - Code organization and conventions
-- `src/core/README.md` - Core layer patterns
-- `src/services/README.md` - Service implementations
-- `src/cli/README.md` - CLI commands
+- `packages/core/README.md` - Core package patterns
+- `packages/adapters/README.md` - Adapter implementations
+- `packages/cli/README.md` - CLI commands
 - `docs/ARCHITECTURE.md` - System architecture
 - `docs/FAQ.md` - Common patterns
 
@@ -36,9 +46,9 @@ Read the READMEs:
 
 When adding features:
 
-- **New service**: Add interface to `src/core/interfaces/<name>.ts` and implementation to `src/services/<name>.ts`
-- **Business logic**: Add to `src/core/agent/` or `src/core/utils/` (keep it pure, no I/O)
-- **CLI command**: Add to `src/cli/commands/<name>.ts` and register in `src/cli/commands/index.ts`
+- **New service**: Add interface to `packages/core/src/interfaces/<name>.ts` and implementation to `packages/adapters/src/<name>.ts`
+- **Business logic**: Add to `packages/core/src/agent/` or `packages/core/src/utils/` (keep it pure, no I/O)
+- **CLI command**: Add to `packages/cli/src/commands/<name>.ts` and register in `packages/runtime/src/cli-app.ts`
 
 ### Testing
 

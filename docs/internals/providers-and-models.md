@@ -8,9 +8,9 @@ This page explains how Jazz stays provider-agnostic, and what it does about the
 places providers genuinely differ.
 
 Source:
-[`services/llm/ai-sdk-service.ts`](../../src/services/llm/ai-sdk-service.ts) ·
-[`services/llm/reasoning/`](../../src/services/llm/reasoning/) ·
-[`core/utils/models-dev.ts`](../../src/core/utils/models-dev.ts)
+[`services/llm/ai-sdk-service.ts`](../../packages/adapters/src/llm/ai-sdk-service.ts) ·
+[`services/llm/reasoning/`](../../packages/adapters/src/llm/reasoning/) ·
+[`core/utils/models-dev.ts`](../../packages/core/src/utils/models-dev.ts)
 
 ---
 
