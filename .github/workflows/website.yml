@@ -31,8 +31,6 @@ jobs:
           path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
           restore-keys: bun-${{ runner.os }}-
-      # packages/website is a workspace member now, so one install at the root
-      # sets up every package, including it — no separate lockfile to sync.
       - name: Install dependencies
         run: bun install --frozen-lockfile
       - name: Generated tokens are fresh
