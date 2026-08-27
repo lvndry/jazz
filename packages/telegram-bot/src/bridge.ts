@@ -16,14 +16,17 @@
  * Runs on Bun. All configuration is via environment variables (see .env.example).
  */
 
-import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { NodeFileSystem } from "@effect/platform-node";
+import { createConfigLayer } from "@jazz/adapters/config";
 import { ReminderServiceImpl } from "@jazz/adapters/reminder-service";
 import { listOllamaModels, modelSupportsThinking } from "@jazz/bot-shared/ollama";
+import { listPersonaNames } from "@jazz/bot-shared/personas";
 import { reasoningSnippet, splitReasoning } from "@jazz/bot-shared/reasoning";
 import { createRunLog, type RunLog } from "@jazz/bot-shared/run-log";
 import { AVAILABLE_PROVIDERS } from "@jazz/core/constants/models";
+import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import type { ReminderRecord } from "@jazz/core/interfaces/reminder-service";
 import { getModelsDevMetadata } from "@jazz/core/utils/models-dev";
 import { parseProviderModel } from "@jazz/core/utils/provider-model";
@@ -381,32 +384,8 @@ async function handleLocation(
 
 // --- Persona discovery ----------------------------------------------------
 
-function listPersonasIn(directory: string): string[] {
-  if (!existsSync(directory)) {
-    return [];
-  }
-  try {
-    return readdirSync(directory, { withFileTypes: true })
-      .filter(
-        (entry) => entry.isDirectory() && existsSync(join(directory, entry.name, "persona.md")),
-      )
-      .map((entry) => entry.name);
-  } catch {
-    return [];
-  }
-}
-
-function listPersonas(config: BridgeConfig): string[] {
-  const found = new Set<string>([
-    ...listPersonasIn(config.builtinPersonasDir),
-    ...listPersonasIn(join(config.jazzHome, "personas")),
-  ]);
-  found.delete("summarizer"); // internal
-  const names = [...found];
-  if (names.length === 0) {
-    return ["default", "coder", "researcher"];
-  }
-  return names.sort((left, right) => left.localeCompare(right));
+function listPersonas(config: BridgeConfig): Promise<string[]> {
+  return listPersonaNames(config.jazzHome, config.builtinPersonasDir);
 }
 
 function messageIdOf(response: unknown): number | undefined {
@@ -486,23 +465,20 @@ function commandKeyFromApprovalMessage(
  * Persist a command key to autoApprovedCommands in config.json so future
  * `jazz run` invocations (each a fresh process — nothing in-memory here
  * would survive to the next message) auto-approve it without prompting.
+ * Goes through the same `AgentConfigService` the CLI itself uses to mutate
+ * config.json, rather than a hand-rolled read/modify/write, so this stays
+ * consistent with whatever else (secrets, mcpOverrides) that file holds.
  */
 async function addAutoApprovedCommand(jazzHome: string, commandKey: string): Promise<void> {
-  const configPath = join(jazzHome, "config.json");
-  let config: Record<string, unknown> = {};
-  try {
-    config = JSON.parse(await Bun.file(configPath).text()) as Record<string, unknown>;
-  } catch (error) {
-    console.error(
-      `Failed to read ${configPath} before adding auto-approved command: ${String(error)}`,
-    );
-  }
-  const existing = Array.isArray(config["autoApprovedCommands"])
-    ? (config["autoApprovedCommands"] as unknown[]).filter((entry) => typeof entry === "string")
-    : [];
-  if (existing.includes(commandKey)) return;
-  config["autoApprovedCommands"] = [...existing, commandKey];
-  await Bun.write(configPath, JSON.stringify(config));
+  const configLayer = createConfigLayer(undefined, join(jazzHome, "config.json"));
+  await Effect.runPromise(
+    Effect.gen(function* () {
+      const configService = yield* AgentConfigServiceTag;
+      const current = yield* configService.getOrElse<readonly string[]>("autoApprovedCommands", []);
+      if (current.includes(commandKey)) return;
+      yield* configService.set("autoApprovedCommands", [...current, commandKey]);
+    }).pipe(Effect.provide(configLayer), Effect.provide(NodeFileSystem.layer)),
+  );
 }
 
 function webAppKeyboard(url: string, title: string): Record<string, unknown> {
@@ -1549,7 +1525,7 @@ async function handleCommand(
   }
 
   if (command === "persona") {
-    const personas = listPersonas(config);
+    const personas = await listPersonas(config);
     await callTelegram(config, "sendMessage", {
       chat_id: chatId,
       text: "Pick a persona:",
@@ -1770,7 +1746,7 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
     writeAgentFile(config.jazzHome, agent);
     confirmation = `✅ Model → ${model}\nReasoning: ${reasoning}`;
   } else if (kind === "p") {
-    const personas = listPersonas(config);
+    const personas = await listPersonas(config);
     const persona = Number.isInteger(index) ? personas[index] : undefined;
     if (persona === undefined) {
       await callTelegram(config, "answerCallbackQuery", {

@@ -93,6 +93,10 @@
     "packages/bot-shared": {
       "name": "@jazz/bot-shared",
       "version": "0.15.6",
+      "dependencies": {
+        "@jazz/adapters": "workspace:*",
+        "@jazz/core": "workspace:*",
+      },
     },
     "packages/cli": {
       "name": "@jazz/cli",

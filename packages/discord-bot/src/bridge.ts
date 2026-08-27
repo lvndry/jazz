@@ -9,11 +9,12 @@
  * Runs on Bun. All configuration is via environment variables (see .env.example).
  */
 
-import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { NodeFileSystem } from "@effect/platform-node";
 import { ReminderServiceImpl } from "@jazz/adapters/reminder-service";
 import { listOllamaModels, modelSupportsThinking } from "@jazz/bot-shared/ollama";
+import { listPersonaNames } from "@jazz/bot-shared/personas";
 import { reasoningSnippet, splitReasoning } from "@jazz/bot-shared/reasoning";
 import { createRunLog, type RunLog } from "@jazz/bot-shared/run-log";
 import { AVAILABLE_PROVIDERS } from "@jazz/core/constants/models";
@@ -1024,28 +1025,8 @@ async function cancelReminderForChannel(
   return outcome.success;
 }
 
-function listPersonasIn(directory: string): string[] {
-  if (!existsSync(directory)) return [];
-  try {
-    return readdirSync(directory, { withFileTypes: true })
-      .filter(
-        (entry) => entry.isDirectory() && existsSync(join(directory, entry.name, "persona.md")),
-      )
-      .map((entry) => entry.name);
-  } catch {
-    return [];
-  }
-}
-
-function listPersonas(config: BridgeConfig): string[] {
-  const found = new Set<string>([
-    ...listPersonasIn(config.builtinPersonasDir),
-    ...listPersonasIn(join(config.jazzHome, "personas")),
-  ]);
-  found.delete("summarizer");
-  const names = [...found];
-  if (names.length === 0) return ["default", "coder", "researcher"];
-  return names.sort((left, right) => left.localeCompare(right));
+function listPersonas(config: BridgeConfig): Promise<string[]> {
+  return listPersonaNames(config.jazzHome, config.builtinPersonasDir);
 }
 
 interface CommandResult {
@@ -1211,7 +1192,7 @@ async function handleCommand(
   }
 
   if (command === "persona") {
-    const personas = listPersonas(config);
+    const personas = await listPersonas(config);
     const options = personas.slice(0, 25).map((persona) => ({
       label: persona,
       value: persona,

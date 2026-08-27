@@ -71,6 +71,13 @@ export function isBuiltinPersonaId(id: string): boolean {
 export interface PersonaServiceImplOptions {
   /** Override base data directory (for tests). Default: ~/.jazz. Personas live in {base}/personas/. */
   readonly baseDataPath?: string;
+  /**
+   * Override the built-in personas directory. Default: resolved from the
+   * running package via `getBuiltinPersonasDirectory()`, which assumes the
+   * CLI's own package layout. A host that ships built-ins at a different,
+   * fixed path (e.g. a container image) needs this instead.
+   */
+  readonly builtinPersonasDir?: string;
 }
 
 /** Metadata from persona.md frontmatter (used for scanning). */
@@ -134,14 +141,21 @@ function parseToolProfile(data: Record<string, unknown>): PersonaToolProfile | u
  */
 export class PersonaServiceImpl implements PersonaService {
   private readonly basePath: string;
+  private readonly builtinPersonasDirOverride: string | undefined;
 
   constructor(options?: PersonaServiceImplOptions) {
     this.basePath = options?.baseDataPath ?? path.join(os.homedir(), ".jazz");
+    this.builtinPersonasDirOverride = options?.builtinPersonasDir;
   }
 
   /** Returns the custom personas directory (~/.jazz/personas/). */
   private getCustomPersonasDir(): string {
     return path.join(this.basePath, "personas");
+  }
+
+  /** Built-in personas directory: the override if given, else the package's own. */
+  private getBuiltinPersonasDir(): string | null {
+    return this.builtinPersonasDirOverride ?? getBuiltinPersonasDirectory();
   }
 
   private getPersonaDir(name: string): string {
@@ -286,7 +300,7 @@ updatedAt: "${now.toISOString()}"
     return Effect.gen(
       function* (this: PersonaServiceImpl) {
         const builtinName = id.startsWith("builtin-") ? id.slice("builtin-".length) : id;
-        const builtinDir = getBuiltinPersonasDirectory();
+        const builtinDir = this.getBuiltinPersonasDir();
 
         // 1. Try built-in: personas/<name>/persona.md
         if (builtinDir) {
@@ -445,7 +459,7 @@ updatedAt: "${now.toISOString()}"
         const result: Persona[] = [];
 
         // 1. Built-in personas (excluding summarizer)
-        const builtinDir = getBuiltinPersonasDirectory();
+        const builtinDir = this.getBuiltinPersonasDir();
         if (builtinDir) {
           const builtinPersonas = yield* this.listPersonasFromDir(builtinDir, "builtin", true);
           for (const p of builtinPersonas) {
