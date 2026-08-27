@@ -6,7 +6,7 @@
 # not come up healthy.
 #
 # Usage (from a bridge's own auto-update.sh):
-#   exec "$DIR/../shared/auto-update.sh" "$DIR" jazz-telegram
+#   exec "$DIR/../../bot-shared/src/auto-update.sh" "$DIR" jazz-telegram
 #
 # A bridge may sit next to an executable `notify.sh` taking one message
 # argument; it is called on every outcome a human needs to see. Failure to
@@ -21,7 +21,7 @@ export PATH
 
 BRIDGE_DIR=${1:?usage: auto-update.sh <bridge-dir> <compose-project>}
 PROJECT=${2:?usage: auto-update.sh <bridge-dir> <compose-project>}
-REPO=$(cd -- "$BRIDGE_DIR/../.." && pwd)
+REPO=$(cd -- "$BRIDGE_DIR/../../.." && pwd)
 STAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 DEPLOY_BRANCH=${JAZZ_DEPLOY_BRANCH:-main}
 

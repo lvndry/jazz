@@ -43,7 +43,7 @@ Telegram  ◀──(getUpdates long-poll)──▶  bridge  ──jazz run --jso
 name and a username ending in `bot`, copy the token. Get your numeric chat id from
 [@userinfobot](https://t.me/userinfobot).
 
-**2. Configure.** From this directory (`integrations/telegram-bot/` in the Jazz repo):
+**2. Configure.** From this directory (`packages/telegram-bot/src/` in the Jazz repo):
 
 ```sh
 cp .env.example .env
@@ -301,7 +301,7 @@ update on its own. To update manually:
 
 ```sh
 cd <repo> && git pull origin main
-cd integrations/telegram-bot && docker compose -p jazz-telegram up -d --build
+cd packages/telegram-bot/src && docker compose -p jazz-telegram up -d --build
 ```
 
 **Nightly auto-update:** `auto-update.sh` fast-forwards to the latest `origin/main`,
@@ -309,7 +309,7 @@ rebuilds only if it changed, and rolls back if the new build fails to build or
 isn't healthy. Install it (as the deploy user):
 
 ```sh
-(crontab -l 2>/dev/null; echo "30 4 * * * $HOME/jazz/integrations/telegram-bot/auto-update.sh >> $HOME/jazz-autoupdate.log 2>&1") | crontab -
+(crontab -l 2>/dev/null; echo "30 4 * * * $HOME/jazz/packages/telegram-bot/src/auto-update.sh >> $HOME/jazz-autoupdate.log 2>&1") | crontab -
 ```
 
 **Sending yourself a message:** `notify.sh` posts one message to the first allowed

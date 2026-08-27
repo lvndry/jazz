@@ -1,8 +1,8 @@
 services:
   jazz-discord:
     build:
-      context: ../..
-      dockerfile: integrations/discord-bot/Dockerfile
+      context: ../../..
+      dockerfile: packages/discord-bot/src/Dockerfile
     image: jazz-discord-bridge:latest
     container_name: jazz-discord
     restart: always

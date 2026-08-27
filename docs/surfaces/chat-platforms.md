@@ -70,7 +70,7 @@ cover those. See [Headless](./headless.md) for the contract in full.
 ## Telegram (shipped)
 
 ```bash
-cd integrations/telegram-bot
+cd packages/telegram-bot/src
 cp .env.example .env     # set TELEGRAM_BOT_TOKEN + TELEGRAM_ALLOWED_CHAT_IDS + a model key
 docker compose up -d --build
 ```
@@ -120,7 +120,7 @@ sequenceDiagram
 ## Discord (shipped)
 
 ```bash
-cd integrations/discord-bot
+cd packages/discord-bot/src
 cp .env.example .env     # set DISCORD_BOT_TOKEN + an allowlist + a model key
 docker compose up -d --build
 ```
@@ -178,10 +178,10 @@ about a deploy.
 Each bridge ships a `notify.sh` next to it that takes one argument:
 
 ```sh
-~/jazz/integrations/telegram-bot/notify.sh "backup finished, 41 GB, no errors"
-~/jazz/integrations/telegram-bot/notify.sh "$(df -h / | tail -1)"
-~/jazz/integrations/telegram-bot/notify.sh "training run 7 done — val loss 0.312"
-~/jazz/integrations/discord-bot/notify.sh "nightly update rolled back, needs a look"
+~/jazz/packages/telegram-bot/src/notify.sh "backup finished, 41 GB, no errors"
+~/jazz/packages/telegram-bot/src/notify.sh "$(df -h / | tail -1)"
+~/jazz/packages/telegram-bot/src/notify.sh "training run 7 done — val loss 0.312"
+~/jazz/packages/discord-bot/src/notify.sh "nightly update rolled back, needs a look"
 ```
 
 It reads the same `.env` the bridge runs on and posts to the first allowed chat
@@ -217,7 +217,7 @@ Useful from a machine that has no checkout, or when the script itself is what is
 broken. The shape matters more than the URL:
 
 ```sh
-ENV=~/jazz/integrations/telegram-bot/.env
+ENV=~/jazz/packages/telegram-bot/src/.env
 token=$(sed -n 's/^TELEGRAM_BOT_TOKEN=//p' "$ENV" | tail -1)
 chat=$(sed -n 's/^TELEGRAM_ALLOWED_CHAT_IDS=//p' "$ENV" | tail -1 | cut -d, -f1)
 

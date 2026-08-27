@@ -86,7 +86,7 @@ For a private server the usual choice is `DISCORD_ALLOWED_GUILD_IDS=<server id>`
 
 ### 4. Configure and run the bridge
 
-From this directory (`integrations/discord-bot/` in the Jazz repo):
+From this directory (`packages/discord-bot/src/` in the Jazz repo):
 
 ```sh
 cp .env.example .env
@@ -230,7 +230,7 @@ update on its own. To update manually:
 
 ```sh
 cd <repo> && git pull origin main
-cd integrations/discord-bot && docker compose -p jazz-discord up -d --build
+cd packages/discord-bot/src && docker compose -p jazz-discord up -d --build
 ```
 
 **Nightly auto-update:** `auto-update.sh` fast-forwards to the latest `origin/main`,
@@ -238,7 +238,7 @@ rebuilds only if it changed, and rolls back if the new build fails to build or
 isn't healthy. Install it (as the deploy user):
 
 ```sh
-(crontab -l 2>/dev/null; echo "30 4 * * * $HOME/jazz/integrations/discord-bot/auto-update.sh >> $HOME/jazz-autoupdate.log 2>&1") | crontab -
+(crontab -l 2>/dev/null; echo "30 4 * * * $HOME/jazz/packages/discord-bot/src/auto-update.sh >> $HOME/jazz-autoupdate.log 2>&1") | crontab -
 ```
 
 **Sending yourself a message:** `notify.sh` posts one message to the first allowed
