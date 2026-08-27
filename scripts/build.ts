@@ -29,9 +29,9 @@ const COMPILE_TARGETS: Readonly<Partial<Record<Bun.Build.CompileTarget, string>>
 
 /**
  * The same targets, mapped to the npm package that carries each platform's
- * binary as an optionalDependency of `jazz-ai` (see `npm/`). One binary, two
- * distribution channels — this just names where the compiled output goes for
- * the second one.
+ * binary as an optionalDependency of `jazz-ai` (see `deploy/npm/`). One
+ * binary, two distribution channels — this just names where the compiled
+ * output goes for the second one.
  */
 const NPM_PLATFORM_PACKAGES: Readonly<Partial<Record<Bun.Build.CompileTarget, string>>> = {
   "bun-darwin-arm64": "jazz-ai-darwin-arm64",
@@ -169,7 +169,7 @@ async function buildStandaloneBinary(compileTarget: string): Promise<string> {
 
   const targetPlatform = compileTarget.split("-")[1] ?? "";
   const generatedAssets = generateEmbeddedAssetsModule(targetPlatform);
-  const outfile = path.join("binaries", outputName);
+  const outfile = path.join("deploy", "binaries", outputName);
 
   await ensureNativeLibrariesForTarget(compileTarget);
 
@@ -196,7 +196,7 @@ async function buildStandaloneBinary(compileTarget: string): Promise<string> {
 }
 
 /**
- * Copies a compiled binary into its npm platform package (`npm/jazz-ai-<platform>/`)
+ * Copies a compiled binary into its npm platform package (`deploy/npm/jazz-ai-<platform>/`)
  * and stamps that package's version to match the root manifest, so `npm publish`
  * run from that directory ships exactly this binary at exactly this version.
  *
@@ -209,7 +209,7 @@ function stageNpmPlatformPackage(compileTarget: string, binaryPath: string): voi
     throw new Error(`No npm platform package mapped for target "${compileTarget}".`);
   }
 
-  const packageDir = path.join("npm", packageName);
+  const packageDir = path.join("deploy", "npm", packageName);
   const binDir = path.join(packageDir, "bin");
   fs.mkdirSync(binDir, { recursive: true });
   fs.copyFileSync(binaryPath, path.join(binDir, "jazz"));
@@ -227,13 +227,13 @@ function stageNpmPlatformPackage(compileTarget: string, binaryPath: string): voi
 }
 
 /**
- * Stamps `npm/jazz-ai`'s version and its optionalDependencies versions to
+ * Stamps `deploy/npm/jazz-ai`'s version and its optionalDependencies versions to
  * match the root manifest, and copies in the docs `files` references.
- * `npm/jazz-ai` never contains the binary itself — that only ever ships
+ * `deploy/npm/jazz-ai` never contains the binary itself — that only ever ships
  * inside the platform packages it depends on (see {@link stageNpmPlatformPackage}).
  */
 function stageNpmMainPackage(): void {
-  const packageDir = path.join("npm", "jazz-ai");
+  const packageDir = path.join("deploy", "npm", "jazz-ai");
   const packageJsonPath = path.join(packageDir, "package.json");
   const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8")) as {
     version: string;
@@ -299,7 +299,7 @@ async function main(): Promise<void> {
 
   const stageNpm = args.includes("--npm-packages");
 
-  fs.mkdirSync("binaries", { recursive: true });
+  fs.mkdirSync(path.join("deploy", "binaries"), { recursive: true });
   for (const target of targets) {
     const binaryPath = await buildStandaloneBinary(target);
     if (stageNpm) stageNpmPlatformPackage(target, binaryPath);
