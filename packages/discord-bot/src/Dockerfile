@@ -12,9 +12,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
 COPY package.json bun.lock bunfig.toml ./
-RUN bun install --frozen-lockfile
 
+# Workspace packages must be on disk before install, or bun skips their
+# node_modules/@jazz/* symlinks.
 COPY . .
+RUN bun install --frozen-lockfile
 
 RUN printf '#!/bin/sh\nexec bun /app/packages/runtime/src/entry.ts "$@"\n' > /usr/local/bin/jazz \
     && chmod +x /usr/local/bin/jazz \

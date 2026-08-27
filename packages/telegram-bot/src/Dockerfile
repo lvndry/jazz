@@ -53,13 +53,12 @@ ENV XDG_CONFIG_HOME=/data/xdg-config \
     GNUPGHOME=/data/gnupg \
     PASSWORD_STORE_DIR=/data/password-store
 
-# Dependencies first so the install layer caches across source edits.
 COPY package.json bun.lock bunfig.toml ./
-RUN bun install --frozen-lockfile
 
-# Jazz runs from source under Bun; it locates built-in personas/skills by
-# walking up to the package.json named "jazz-ai", so the whole tree is copied.
+# Workspace packages must be on disk before install, or bun skips their
+# node_modules/@jazz/* symlinks.
 COPY . .
+RUN bun install --frozen-lockfile
 
 RUN printf '#!/bin/sh\nexec bun /app/packages/runtime/src/entry.ts "$@"\n' > /usr/local/bin/jazz \
     && chmod +x /usr/local/bin/jazz \
