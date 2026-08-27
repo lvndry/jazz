@@ -163,8 +163,6 @@ jobs:
 
       # Must publish before jazz-ai, whose optionalDependencies pin this exact version.
       - name: Publish platform packages
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           failed=()
           for dir in deploy/npm/jazz-ai-*/; do
@@ -179,6 +177,4 @@ jobs:
 
       - name: Publish jazz-ai
         working-directory: deploy/npm/jazz-ai
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish
