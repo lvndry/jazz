@@ -591,6 +591,56 @@ describe("Summarizer", () => {
       expect(result.length).toBeLessThan(messages.length);
       expect(result.some((message) => message.role === "user")).toBe(true);
     });
+
+    it("keeps a pinned task message verbatim across two consecutive compaction cycles", async () => {
+      const mockRunner = createMockRecursiveRunner("Summary of prior tool calls.");
+      const agent = createMockAgent();
+      const filler = "x ".repeat(200);
+      const taskContent =
+        "Emit exactly two fenced blocks, four backticks, nothing before or after them. " + filler;
+
+      const messages: ConversationMessages = [
+        { role: "system", content: "You are an assistant" },
+        { role: "user", content: taskContent, kind: "task" },
+        ...Array.from({ length: 20 }, (_, index) => ({
+          role: "assistant" as const,
+          content: `Findings for file ${index}. ${filler}`,
+        })),
+      ];
+
+      const runEffect = (input: ConversationMessages) =>
+        Effect.runPromise(
+          Summarizer.compactIfNeeded(input, agent, "conv-1", mockRunner, 500).pipe(
+            Effect.provide(createTestLayer()),
+          ) as Effect.Effect<ConversationMessages, Error, never>,
+        );
+
+      const firstPass = await runEffect(messages);
+      const pinnedAfterFirst = firstPass.find(
+        (message) => message.kind === "task" && message.content === taskContent,
+      );
+      expect(pinnedAfterFirst).toBeDefined();
+      expect(firstPass.length).toBeLessThan(messages.length);
+
+      // A second round of work, appended onto the already-compacted transcript — this is
+      // where a fix that only protects the task message's original position would fail:
+      // the task message no longer sits at index 1 after the first compaction rebuilt
+      // the array as [system, task, summary, continuation, ...recent].
+      const secondRoundMessages: ConversationMessages = [
+        ...firstPass,
+        ...Array.from({ length: 20 }, (_, index) => ({
+          role: "assistant" as const,
+          content: `More findings ${index}. ${filler}`,
+        })),
+      ];
+
+      const secondPass = await runEffect(secondRoundMessages);
+      const pinnedAfterSecond = secondPass.find(
+        (message) => message.kind === "task" && message.content === taskContent,
+      );
+      expect(pinnedAfterSecond).toBeDefined();
+      expect(secondPass.length).toBeLessThan(secondRoundMessages.length);
+    });
   });
 });
 

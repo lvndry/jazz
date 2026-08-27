@@ -176,6 +176,14 @@ export interface AgentRunnerOptions {
    * flag behind `jazz run --ephemeral`.
    */
   readonly disablePersistence?: boolean;
+  /**
+   * True when `userInput` carries a literal task contract (exact output format, step
+   * ordering) rather than an ordinary conversational turn — e.g. a workflow's prompt.
+   * The initial user message it becomes is tagged `kind: "task"` so compaction pins
+   * it instead of summarizing it away, which an LLM-generated summary is not obliged
+   * to preserve verbatim.
+   */
+  readonly pinInitialMessage?: boolean;
 }
 
 /**

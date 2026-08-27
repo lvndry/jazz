@@ -360,6 +360,47 @@ describe("AgentRunner", () => {
     });
   });
 
+  describe("pinInitialMessage", () => {
+    function lastRequestedMessages(): { role: string; kind?: string; content?: string }[] {
+      const streamingMock = mockLlmService.createStreamingChatCompletion as Mock<
+        LLMService["createStreamingChatCompletion"]
+      >;
+      const lastCall = streamingMock.mock.calls.at(-1);
+      const llmOptions = lastCall?.[1] as {
+        messages?: { role: string; kind?: string; content?: string }[];
+      };
+      return llmOptions.messages ?? [];
+    }
+
+    it("tags the initial user message kind: task when set", async () => {
+      const options = {
+        ...defaultOptions,
+        userInput: "Emit exactly two fenced blocks, nothing before or after them.",
+        stream: true,
+        maxIterations: 1,
+        pinInitialMessage: true,
+      };
+
+      await runWithTestLayers(AgentRunner.run(options));
+
+      const initialUserMessage = lastRequestedMessages().find((message) => message.role === "user");
+      expect(initialUserMessage?.kind).toBe("task");
+    });
+
+    it("leaves the initial user message untagged for an ordinary turn", async () => {
+      const options = {
+        ...defaultOptions,
+        stream: true,
+        maxIterations: 1,
+      };
+
+      await runWithTestLayers(AgentRunner.run(options));
+
+      const initialUserMessage = lastRequestedMessages().find((message) => message.role === "user");
+      expect(initialUserMessage?.kind).toBeUndefined();
+    });
+  });
+
   describe("withholdInteractiveTools", () => {
     const agentWithAskTool: Agent = {
       ...mockAgent,

@@ -391,6 +391,7 @@ export function runWorkflowCommand(
       agent,
       userInput: workflow.prompt,
       conversationId: generateConversationId(`workflow-${workflowName}`),
+      pinInitialMessage: true,
       ...(resolvedMaxIterations != null ? { maxIterations: resolvedMaxIterations } : {}),
       ...(autoApprovePolicy !== undefined ? { autoApprovePolicy } : {}),
       ...(options?.stream !== undefined ? { stream: options.stream } : {}),

@@ -46,11 +46,15 @@ export interface ChatMessage {
    */
   cleared?: true;
   /**
-   * Marks an assistant message as a compaction summary rather than model output.
-   * Identified by flag rather than position so summarization can carry it forward
-   * as prior state instead of re-summarizing its own previous summary.
+   * Marks a message's role in compaction rather than its literal content.
+   * "summary" is an assistant message holding a compaction summary rather than model
+   * output — identified by flag rather than position so summarization can carry it
+   * forward as prior state instead of re-summarizing its own previous summary.
+   * "task" is a user message holding a task specification (e.g. a workflow's prompt)
+   * rather than conversational history — pinned so compaction never summarizes it away,
+   * the same way the system message at index 0 is pinned.
    */
-  kind?: "summary";
+  kind?: "summary" | "task";
   /**
    * For role === "assistant": include tool calls emitted by the model so that
    * subsequent tool messages are valid according to the OpenAI API.
