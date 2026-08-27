@@ -154,6 +154,7 @@ Because the answer is on stdout and the noise is on stderr, this composes with `
 | **Flaky provider**                | Jazz retries transient LLM failures with capped exponential backoff (up to 10 attempts, 15-minute ceiling for the whole call), so a single 429 doesn't fail your build.           |
 | **Reproducibility**               | Pin the model in the agent JSON. `latest` aliases move under you.                                                                                                                 |
 | **Provider choice**               | CI is where a cheap fast model usually wins. This is one field in the agent config.                                                                                               |
+| **Read-only sandbox**              | Don't bind-mount seed config straight at `JAZZ_HOME` read-only — jazz writes there too (personas, work state). See [Running in a read-only container](./headless.md#running-in-a-read-only-container). |
 
 ---
 

@@ -275,6 +275,49 @@ input from strangers means a prompt injection can run shell commands on that hos
 
 ---
 
+## Running in a read-only container
+
+A common pattern for a headless, single-task run — CI, a review bot, any service that spins up
+one ephemeral container per job — is to isolate the agent with a read-only root filesystem and
+seed its config from the host. The natural-looking way to do that is a read-only bind mount
+straight at `JAZZ_HOME`:
+
+```bash
+docker run --rm --read-only --tmpfs /tmp \
+  -v /etc/myapp/jazz-config:/home/jazz/.jazz:ro \
+  my-image jazz run --agent reviewer
+```
+
+This breaks. `JAZZ_HOME` isn't read-only config — jazz writes there too: custom personas
+(`jazz persona create`), per-conversation work state and the compaction journal, cached model
+metadata. A live read-only mount at that path fails those writes, and depending on what's
+running, that shows up anywhere from a hard crash at startup (persona resolution falls through
+to listing `~/.jazz/personas`, which tries to create the directory) to a silently-dropped
+write nobody notices until task state that was supposed to survive compaction just isn't there.
+
+**Stage the config somewhere else, and copy it into a genuinely writable `JAZZ_HOME` on
+container start:**
+
+```bash
+docker run --rm --read-only --tmpfs /tmp --tmpfs /home/jazz/.jazz:rw,mode=1777 \
+  -v /etc/myapp/jazz-config:/config/jazz:ro \
+  my-image sh -c 'cp -r /config/jazz/. /home/jazz/.jazz/ && exec jazz run --agent reviewer'
+```
+
+The isolation guarantee — the agent can't tamper with its own durable config while doing
+whatever the task is — doesn't actually need a read-only permission bit on `JAZZ_HOME` itself.
+It only needs whatever the agent writes to be discarded, which `--rm` (or the container simply
+never being reused) already does. Copying the seed config into an ephemeral tmpfs at startup
+gets you that guarantee while jazz still gets one ordinary, fully-writable home directory —
+exactly like every other environment it runs in.
+
+If you'd rather not do the copy in the container's own entrypoint, `JAZZ_HOME` also just
+respects the environment variable of the same name, so a wrapper script or your own image's
+entrypoint can do the copy into any writable location and point `JAZZ_HOME` there instead of
+`~/.jazz`.
+
+---
+
 ## A complete bridge
 
 Everything above, in one function. This is genuinely the whole integration:
