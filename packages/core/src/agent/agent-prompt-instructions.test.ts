@@ -8,8 +8,8 @@ import { AgentPromptBuilder, type AgentPromptOptions } from "./agent-prompt";
  * Runtime instruction blocks are injected by the prompt builder, not authored
  * into persona files. These tests lock the gating: every acting persona gets
  * the completion contract, tool guidance only appears when the agent has
- * tools, and the ask_user_question guidance only ships alongside the tool
- * itself.
+ * tools, and the interactive-question guidance only ships alongside
+ * ask_user_question or ask_file_picker.
  */
 
 function personaServiceReturning(systemPrompt: string): PersonaService {
@@ -73,17 +73,6 @@ describe("tool guidance injection", () => {
     const result = build("default", { toolNames: ["http_request"] });
     expect(result).toContain("# Tool usage");
     expect(result).toContain("execute its playbook");
-  });
-
-  test("question guidance is gated on ask_user_question", () => {
-    const without = build("default", { toolNames: ["http_request"] });
-    expect(without).not.toContain("# Asking the user questions");
-
-    const withTool = build("default", { toolNames: ["http_request", "ask_user_question"] });
-    expect(withTool).toContain("# Asking the user questions");
-    expect(withTool).toContain("Permission to do work the user already requested");
-    expect(withTool).toContain("A required CLI or account is not set up");
-    expect(withTool).toContain("When TTY is no — there is no one to respond");
   });
 });
 

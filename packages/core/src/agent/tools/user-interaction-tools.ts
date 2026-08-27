@@ -23,8 +23,8 @@ const askUserSchema = z.object({
     )
     .min(2)
     .max(4)
-    .describe("2–4 concrete, self-contained options."),
-  allow_multiple: z.boolean().optional().describe("Allow multiple selections (default: false)."),
+    .describe("2-4 concrete, self-contained options."),
+  allow_multiple: z.boolean().optional().default(false).describe("Allow multiple selections."),
 });
 
 type AskUserArgs = z.infer<typeof askUserSchema>;
@@ -58,7 +58,7 @@ export const userInteractionTools: Tool<ToolRequirements>[] = [
     disclosure: "private",
     longRunning: true,
     description:
-      "Ask the human one blocking question with 2–4 concrete options. Use this tool; do not bury the question in prose. " +
+      "Ask the human one blocking question with 2-4 concrete options. " +
       "Ask only when you are actually blocked: a scope or approach decision with no clearly best option, a destructive action that needs explicit sign-off, or a secret or provider choice no tool can fetch. " +
       "Do not ask permission to do work they already requested, confirmation of safe reversible actions, anything already answered, or anything a tool can resolve. " +
       "Surfaces work anywhere a human is reachable, including chat bridges with no TTY; when nobody is, the tool says so and you must then decide on a stated assumption or ask in your reply. One decision per call.",
@@ -79,9 +79,6 @@ export const userInteractionTools: Tool<ToolRequirements>[] = [
 
         const outcome = yield* presentation.requestUserInput(request);
 
-        // Never collapsed into one message: guessing after a refusal overrides a
-        // decision the human made, while refusing to act after an absence strands
-        // a run nobody is watching.
         if (outcome.kind === "declined") {
           return {
             success: false,

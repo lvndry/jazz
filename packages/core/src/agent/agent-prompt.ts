@@ -14,7 +14,6 @@ import { renderProjectInstructions, type ProjectInstructionFile } from "./projec
 import {
   COMPLETION_INSTRUCTIONS,
   ENVIRONMENT_TEMPLATE,
-  INTERACTIVE_QUESTIONS_GUIDELINES,
   MEDIA_GENERATION_UNAVAILABLE,
   MEMORY_INSTRUCTIONS,
   SKILLS_INSTRUCTIONS,
@@ -211,7 +210,11 @@ export class AgentPromptBuilder {
     hash.update(options.agentName);
     hash.update(options.agentDescription);
     if (options.knownSkills && options.knownSkills.length > 0) {
-      hash.update(JSON.stringify(options.knownSkills.map((s) => s.name).sort()));
+      const skillFingerprints = options.knownSkills.map(
+        (s) =>
+          `${s.name}|${s.description}|${s.tagline ?? ""}|${(s.triggers ?? []).join(",")}|${s.path}`,
+      );
+      hash.update(JSON.stringify(skillFingerprints.sort()));
     }
     // Triggered-skill set varies per turn; mix it into the cache key so the
     // injected detail block is rebuilt whenever the trigger match changes.
@@ -230,6 +233,7 @@ export class AgentPromptBuilder {
         hash.update(`agentsmd:${file.path}:${file.content}`);
       }
     }
+    hash.update(`canGenerateMedia:${options.canGenerateMedia ?? true}`);
     // Invalidate daily since prompts include current date
     hash.update(new Date().toDateString());
     return hash.digest("hex");
@@ -358,10 +362,6 @@ export class AgentPromptBuilder {
 
         if (options.toolNames && options.toolNames.length > 0) {
           systemPrompt = systemPrompt + TOOL_SELECTION_INSTRUCTIONS;
-        }
-
-        if (options.toolNames?.includes("ask_user_question")) {
-          systemPrompt = systemPrompt + INTERACTIVE_QUESTIONS_GUIDELINES;
         }
 
         if (options.knownSkills && options.knownSkills.length > 0) {
