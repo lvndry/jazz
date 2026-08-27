@@ -163,12 +163,22 @@ jobs:
 
       # Must publish before jazz-ai, whose optionalDependencies pin this exact version.
       - name: Publish platform packages
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
+          failed=()
           for dir in deploy/npm/jazz-ai-*/; do
-            echo "Publishing $(node -p "require('./${dir}package.json').name")..."
-            (cd "$dir" && npm publish)
+            name="$(node -p "require('./${dir}package.json').name")"
+            echo "Publishing $name..."
+            (cd "$dir" && npm publish) || failed+=("$name")
           done
+          if [ "${#failed[@]}" -gt 0 ]; then
+            echo "::error::Failed to publish: ${failed[*]}"
+            exit 1
+          fi
 
       - name: Publish jazz-ai
         working-directory: deploy/npm/jazz-ai
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish
