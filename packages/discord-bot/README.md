@@ -16,7 +16,7 @@ Discord  ◀──(Gateway websocket)──▶  bridge  ──jazz run --json─
 
 - 🤖 **Any Jazz agent over Discord** — a full tool-using agent, not an echo bot.
 - 🔌 **Bring your own model** — OpenAI `gpt-5.4` out of the box, or any provider Jazz supports (including local Ollama).
-- 🎛️ **Per-conversation `/model` and `/persona`** — `/model` picks from a select menu of local Ollama models, or set `/model provider_model:openai/gpt-5.2` (or any provider Jazz supports) directly; each DM or thread keeps its own choice.
+- 🎛️ **Per-conversation `/model` and `/persona`** — `/model` picks from a select menu of the current provider's models, or `/model provider_model:openai/gpt-5.2` switches to any other provider Jazz supports outright; each DM or thread keeps its own choice.
 - 🧵 **Thread binding in servers** — `@mention` in a channel starts a thread; follow-ups in that thread don't need another mention.
 - 🤫 **Mention-gating** — in servers the bot ignores chatter unless mentioned, replied-to, or already in the thread. DMs always respond.
 - 📡 **Live progress** — a status message updates in real time with thinking, tool calls, sub-agents (🤖), and tools awaiting approval (⛔); it closes with a `✅ Done · tools · tokens · $cost` summary, and the answer lands as a new message.
@@ -124,7 +124,7 @@ allowlisted, or you didn’t @mention it (`DISCORD_REQUIRE_MENTION=1` by default
 | Command                         | What it does                                                                                                                                                                          |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | _(DM, or @mention in a server)_ | Answered by your agent                                                                                                                                                                |
-| `/model`                        | Select menu of models pulled in Ollama, or `/model provider_model:provider/model` (e.g. `anthropic/claude-sonnet-5`) for any other provider Jazz supports — switches this conversation |
+| `/model`                        | Select menu of the current provider's models; `/model provider_model:provider/model` (e.g. `anthropic/claude-sonnet-5`) switches this conversation to a different provider outright |
 | `/persona`                      | Select menu of available personas                                                                                                                                                     |
 | `/new`                          | Start a fresh conversation — clears earlier context; keeps your model/persona                                                                                                         |
 | `/incognito`                    | Private conversation (nothing saved to history or memory) until `/new`                                                                                                                |
@@ -167,10 +167,12 @@ Each DM or thread gets an independent agent (`dc_<channel_id>.json`, cloned from
 the `discord` template on first contact), so `/model` and `/persona` change only
 _that_ conversation. `JAZZ_DISCORD_PROVIDER` / `JAZZ_DISCORD_MODEL` /
 `JAZZ_REASONING` set the defaults new conversations start from. Bare `/model`
-lists Ollama models — handy when you run Ollama; anyone else can switch
-provider directly with `/model provider_model:provider/model`, e.g.
-`/model provider_model:anthropic/claude-sonnet-5` (needs that provider's API
-key set in the bot's environment).
+lists whatever the conversation's current provider offers. To let people
+switch to a **different** provider — `/model provider_model:anthropic/claude-sonnet-5`,
+for example — set that provider's API key as an env var on the bot (see
+`.env.example` for the full list, e.g. `ANTHROPIC_API_KEY`) and restart the
+container; `JAZZ_DISCORD_PROVIDER`/`JAZZ_DISCORD_MODEL` don't need to change —
+they only set what a brand-new conversation starts on.
 
 ## Configuration
 
@@ -184,11 +186,11 @@ key set in the bot's environment).
 | `DISCORD_CREATE_THREADS`             | `1`                                     | `@mention` in a channel starts a thread and keeps the conversation there.                                                                                                                                                                                               |
 | `JAZZ_DISCORD_PROVIDER`              | `openai`                                | LLM provider.                                                                                                                                                                                                                                                           |
 | `JAZZ_DISCORD_MODEL`                 | `gpt-5.4`                               | Default model id for the provider.                                                                                                                                                                                                                                      |
-| `OPENAI_API_KEY` (or provider's key) | —                                       | API key for the chosen provider. Not needed for `ollama`.                                                                                                                                                                                                               |
+| `OPENAI_API_KEY` (+ others)          | —                                       | API key for the default provider. Set any other provider's key too (`ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, …, see `.env.example` for the full list) to let `/model` switch to it. Not needed for local `ollama`/`llamacpp`.                                       |
 | `BRAVE_API_KEY`                      | —                                       | If set, `web_search` uses Brave.                                                                                                                                                                                                                                        |
 | `JAZZ_OLLAMA_KEEP_ALIVE`             | —                                       | How long a local Ollama keeps the model loaded (`keep_alive`): `-1` pins it indefinitely, or a duration like `30m`. Unset uses Ollama's 5-minute default, so the first message after a quiet spell pays a full cold model load with no progress shown while it happens. |
 | `JAZZ_REASONING`                     | `medium`                                | `disable`\|`low`\|`medium`\|`high`.                                                                                                                                                                                                                                     |
-| `OLLAMA_BASE_URL`                    | `http://host.docker.internal:11434/api` | Ollama endpoint (only for `provider=ollama` / `/model`).                                                                                                                                                                                                                |
+| `OLLAMA_BASE_URL`                    | `http://host.docker.internal:11434/api` | Ollama endpoint, used whenever a conversation's provider is `ollama` (default or via `/model`).                                                                                                                                                                                                                |
 | `JAZZ_APPROVAL_POLICY`               | `low-risk`                              | Auto-approve tools up to: `read-only`\|`low-risk`\|`high-risk`.                                                                                                                                                                                                         |
 | `JAZZ_AUTO_APPROVE_TOOLS`            | —                                       | Comma-separated tool names to auto-approve regardless of policy. Tools needing approval that aren't in this list are sent to the channel as an accept/reject prompt instead of being declined.                                                                          |
 | `JAZZ_RUN_TIMEOUT_MS`                | `300000`                                | Per-message agent timeout.                                                                                                                                                                                                                                              |
@@ -198,9 +200,9 @@ key set in the bot's environment).
 
 > **Model ↔ reasoning:** reasoning-capable models (`gpt-5.4`, qwen3, …) work with
 > `medium`/`high`; models without it (mistral-small, gemma, …) error unless
-> reasoning is `disable`. `/model` sets this automatically — from Ollama's own
-> reported capabilities for a local model, or from the models.dev catalog when
-> you switch to another provider by name.
+> reasoning is `disable`. `/model` sets this automatically, from whichever
+> source knows that model's capabilities: a local Ollama's own reporting, the
+> models.dev catalog, or the provider's own model-listing endpoint.
 
 ## How it works
 

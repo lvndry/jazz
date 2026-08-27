@@ -13,8 +13,8 @@ import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { NodeFileSystem } from "@effect/platform-node";
 import { ReminderServiceImpl } from "@jazz/adapters/reminder-service";
-import { listOllamaModels } from "@jazz/bot-shared/ollama";
 import { listPersonaNames } from "@jazz/bot-shared/personas";
+import { listModelsForProvider } from "@jazz/bot-shared/provider-models";
 import { reasoningSnippet, splitReasoning } from "@jazz/bot-shared/reasoning";
 import { createRunLog, type RunLog } from "@jazz/bot-shared/run-log";
 import {
@@ -31,7 +31,7 @@ import {
   tzForChat,
 } from "@jazz/bot-shared/timezone-store";
 import { dailyCostCapBlockReason, recordUsage, todayUsage } from "@jazz/bot-shared/usage-store";
-import { AVAILABLE_PROVIDERS } from "@jazz/core/constants/models";
+import { AVAILABLE_PROVIDERS, type ProviderName } from "@jazz/core/constants/models";
 import type { ReminderRecord } from "@jazz/core/interfaces/reminder-service";
 import { getModelsDevMetadata } from "@jazz/core/utils/models-dev";
 import { parseProviderModel } from "@jazz/core/utils/provider-model";
@@ -146,7 +146,6 @@ interface BridgeConfig extends AccessConfig {
   readonly runTimeoutMs: number;
   readonly jazzBinary: string;
   readonly jazzHome: string;
-  readonly ollamaBaseUrl: string;
   readonly builtinPersonasDir: string;
   readonly port: number;
   readonly dailyCostCapUsd: number;
@@ -244,7 +243,6 @@ function loadConfig(): BridgeConfig {
     runTimeoutMs: Number.parseInt(process.env["JAZZ_RUN_TIMEOUT_MS"]?.trim() || "300000", 10),
     jazzBinary: process.env["JAZZ_BIN"]?.trim() || "jazz",
     jazzHome: process.env["JAZZ_HOME"]?.trim() || "/data",
-    ollamaBaseUrl: process.env["OLLAMA_BASE_URL"]?.trim() || "http://localhost:11434/api",
     builtinPersonasDir: process.env["JAZZ_BUILTIN_PERSONAS_DIR"]?.trim() || "/opt/jazz/personas",
     port: Number.parseInt(process.env["PORT"]?.trim() || "8080", 10),
     dailyCostCapUsd: Number.parseFloat(process.env["JAZZ_DAILY_COST_CAP_USD"]?.trim() || "0") || 0,
@@ -1193,12 +1191,21 @@ async function handleCommand(
       };
     }
 
-    const models = await listOllamaModels(config.ollamaBaseUrl);
+    const provider = agent.config.llmProvider;
+    if (!(AVAILABLE_PROVIDERS as readonly string[]).includes(provider)) {
+      return {
+        content:
+          `⚠️ Unknown provider \`${provider}\` on this conversation's agent. ` +
+          "Set one with `/model provider_model:provider/model`.",
+      };
+    }
+    const models = await listModelsForProvider(provider as ProviderName);
     if (models.length === 0) {
       return {
         content:
-          "⚠️ No models available from Ollama right now. To use another provider, run " +
-          "`/model provider_model:provider/model`, e.g. `/model provider_model:openai/gpt-5.2`.",
+          `⚠️ No models available for \`${provider}\` right now — check its API key is set. ` +
+          "Switch provider directly with `/model provider_model:provider/model`, " +
+          "e.g. `/model provider_model:openai/gpt-5.2`.",
       };
     }
     const options = models.slice(0, 25).map((model) => ({
@@ -1207,8 +1214,7 @@ async function handleCommand(
       default: model.id === agent.config.llmModel,
     }));
     return {
-      content:
-        "Pick an Ollama model, or use /model provider_model:provider/model for any other provider:",
+      content: `Pick a ${provider} model, or use /model provider_model:provider/model to switch provider:`,
       components: [actionRow([stringSelect("m", "Model", options)])],
     };
   }
@@ -1235,12 +1241,11 @@ async function applyModelChoice(
   model: string,
 ): Promise<string> {
   const agent = ensureChatAgent(config.jazzHome, channelId, config.baseAgentId);
-  const models = await listOllamaModels(config.ollamaBaseUrl);
+  const models = await listModelsForProvider(agent.config.llmProvider as ProviderName);
   const reasoning = models.find((entry) => entry.id === model)?.isReasoningModel
     ? "medium"
     : "disable";
   agent.config.llmModel = model;
-  agent.config.llmProvider = "ollama";
   agent.config.reasoningEffort = reasoning;
   writeAgentFile(config.jazzHome, agent);
   return `✅ Model → ${model}\nReasoning: ${reasoning}`;

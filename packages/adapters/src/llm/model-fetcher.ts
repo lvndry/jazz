@@ -1,6 +1,7 @@
 import { DEFAULT_CONTEXT_WINDOW, type ProviderName } from "@jazz/core/constants/models";
 import type { OllamaShowExtras } from "@jazz/core/interfaces/llm";
 import type { ModelInfo } from "@jazz/core/types";
+import type { LLMConfig } from "@jazz/core/types/config";
 import { LLMConfigurationError } from "@jazz/core/types/errors";
 import { isConnectionError, localServerUnreachableMessage } from "@jazz/core/utils/llm-error";
 import {
@@ -13,6 +14,7 @@ import {
 import { resolveOllamaAttachmentSupport } from "@jazz/core/utils/ollama-attachment-support";
 import { gateway } from "ai";
 import { Effect } from "effect";
+import { PROVIDER_MODELS, resolveLocalProviderBaseUrl } from "./models";
 import { hasReasoningParser } from "./reasoning";
 
 /**
@@ -589,4 +591,39 @@ export function createModelFetcher(): ModelFetcherService {
         },
       }),
   };
+}
+
+/**
+ * List a provider's available models, resolving from `PROVIDER_MODELS`
+ * whether that means the models.dev catalog or a live fetch against the
+ * provider's own endpoint. Callers own their own caching and credentials
+ * (an already-resolved `apiKey`, and an optional `llmConfig` only used to
+ * override a local server's base URL).
+ */
+export function listModelsForProvider(
+  provider: ProviderName,
+  options?: { readonly apiKey?: string | undefined; readonly llmConfig?: LLMConfig | undefined },
+): Effect.Effect<readonly ModelInfo[], LLMConfigurationError, never> {
+  const source = PROVIDER_MODELS[provider];
+
+  if (source.type === "models-dev") {
+    return Effect.tryPromise({
+      try: () => fetchModelsDevModels(source.catalogId ?? provider),
+      catch: (error) =>
+        new LLMConfigurationError({
+          provider,
+          message: `Failed to list models from models.dev: ${error instanceof Error ? error.message : String(error)}`,
+        }),
+    });
+  }
+
+  const baseUrl =
+    provider === "ollama" || provider === "llamacpp"
+      ? resolveLocalProviderBaseUrl(provider, options?.llmConfig)
+      : source.defaultBaseUrl;
+  if (baseUrl === undefined) {
+    return Effect.succeed([]);
+  }
+
+  return createModelFetcher().fetchModels(provider, baseUrl, source.endpointPath, options?.apiKey);
 }

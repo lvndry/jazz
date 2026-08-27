@@ -21,8 +21,8 @@ import { join } from "node:path";
 import { NodeFileSystem } from "@effect/platform-node";
 import { createConfigLayer } from "@jazz/adapters/config";
 import { ReminderServiceImpl } from "@jazz/adapters/reminder-service";
-import { listOllamaModels } from "@jazz/bot-shared/ollama";
 import { listPersonaNames } from "@jazz/bot-shared/personas";
+import { listModelsForProvider } from "@jazz/bot-shared/provider-models";
 import { reasoningSnippet, splitReasoning } from "@jazz/bot-shared/reasoning";
 import { createRunLog, type RunLog } from "@jazz/bot-shared/run-log";
 import {
@@ -39,7 +39,7 @@ import {
   tzForChat,
 } from "@jazz/bot-shared/timezone-store";
 import { dailyCostCapBlockReason, recordUsage, todayUsage } from "@jazz/bot-shared/usage-store";
-import { AVAILABLE_PROVIDERS } from "@jazz/core/constants/models";
+import { AVAILABLE_PROVIDERS, type ProviderName } from "@jazz/core/constants/models";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import type { ReminderRecord } from "@jazz/core/interfaces/reminder-service";
 import { getModelsDevMetadata } from "@jazz/core/utils/models-dev";
@@ -136,7 +136,6 @@ interface BridgeConfig {
   readonly runTimeoutMs: number;
   readonly jazzBinary: string;
   readonly jazzHome: string;
-  readonly ollamaBaseUrl: string;
   readonly builtinPersonasDir: string;
   readonly port: number;
   /** Per-day spend ceiling in USD across all chats; 0 disables the cap. */
@@ -244,7 +243,6 @@ function loadConfig(): BridgeConfig {
     runTimeoutMs: Number.parseInt(process.env["JAZZ_RUN_TIMEOUT_MS"]?.trim() || "300000", 10),
     jazzBinary: process.env["JAZZ_BIN"]?.trim() || "jazz",
     jazzHome: process.env["JAZZ_HOME"]?.trim() || "/data",
-    ollamaBaseUrl: process.env["OLLAMA_BASE_URL"]?.trim() || "http://localhost:11434/api",
     builtinPersonasDir: process.env["JAZZ_BUILTIN_PERSONAS_DIR"]?.trim() || "/opt/jazz/personas",
     port: Number.parseInt(process.env["PORT"]?.trim() || "8080", 10),
     dailyCostCapUsd: Number.parseFloat(process.env["JAZZ_DAILY_COST_CAP_USD"]?.trim() || "0") || 0,
@@ -1527,19 +1525,30 @@ async function handleCommand(
       return;
     }
 
-    const models = await listOllamaModels(config.ollamaBaseUrl);
+    const provider = agent.config.llmProvider;
+    if (!(AVAILABLE_PROVIDERS as readonly string[]).includes(provider)) {
+      await sendReply(
+        config,
+        chatId,
+        `⚠️ Unknown provider <code>${escapeHtml(provider)}</code> on this chat's agent. ` +
+          "Set one with <code>/model provider/model</code>.",
+      );
+      return;
+    }
+    const models = await listModelsForProvider(provider as ProviderName);
     if (models.length === 0) {
       await sendReply(
         config,
         chatId,
-        "⚠️ No models available from Ollama right now. To use another provider, send " +
-          "<code>/model provider/model</code>, e.g. <code>/model openai/gpt-5.2</code>.",
+        `⚠️ No models available for <code>${escapeHtml(provider)}</code> right now — check its ` +
+          "API key is set. Switch provider directly with <code>/model provider/model</code>, " +
+          "e.g. <code>/model openai/gpt-5.2</code>.",
       );
       return;
     }
     await callTelegram(config, "sendMessage", {
       chat_id: chatId,
-      text: "Pick an Ollama model, or send /model provider/model for any other provider:",
+      text: `Pick a ${provider} model, or send /model provider/model to switch provider:`,
       reply_markup: {
         inline_keyboard: keyboardFrom(
           models.map((model) => model.id),
@@ -1755,7 +1764,7 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
   let confirmation: string;
 
   if (kind === "m") {
-    const models = await listOllamaModels(config.ollamaBaseUrl);
+    const models = await listModelsForProvider(agent.config.llmProvider as ProviderName);
     const choice = Number.isInteger(index) ? models[index] : undefined;
     if (choice === undefined) {
       await callTelegram(config, "answerCallbackQuery", {
@@ -1766,7 +1775,6 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
     }
     const reasoning = choice.isReasoningModel ? "medium" : "disable";
     agent.config.llmModel = choice.id;
-    agent.config.llmProvider = "ollama";
     agent.config.reasoningEffort = reasoning;
     writeAgentFile(config.jazzHome, agent);
     confirmation = `✅ Model → ${choice.id}\nReasoning: ${reasoning}`;
