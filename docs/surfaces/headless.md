@@ -275,11 +275,16 @@ input from strangers means a prompt injection can run shell commands on that hos
 
 ---
 
-## Running in a read-only container
+## Securing a single-shot run
 
-A common pattern for a headless, single-task run — CI, a review bot, any service that spins up
-one ephemeral container per job — is to isolate the agent with a read-only root filesystem and
-seed its config from the host. The natural-looking way to do that is a read-only bind mount
+CI, a review bot, any service that spins up one ephemeral container per job — these all want
+the same guarantee: the agent can do whatever the task needs, but nothing it writes should
+outlive the container, and it shouldn't be able to tamper with the config it was seeded with.
+That's a security requirement, not a filesystem preference — a compromised or misbehaving task
+shouldn't be able to plant a persona, poison the model config, or otherwise leave something
+behind for the next run to pick up.
+
+The natural-looking way to get there is a read-only root filesystem with a read-only bind mount
 straight at `JAZZ_HOME`:
 
 ```bash
@@ -304,12 +309,15 @@ docker run --rm --read-only --tmpfs /tmp --tmpfs /home/jazz/.jazz:rw,mode=1777 \
   my-image sh -c 'cp -r /config/jazz/. /home/jazz/.jazz/ && exec jazz run --agent reviewer'
 ```
 
-The isolation guarantee — the agent can't tamper with its own durable config while doing
-whatever the task is — doesn't actually need a read-only permission bit on `JAZZ_HOME` itself.
-It only needs whatever the agent writes to be discarded, which `--rm` (or the container simply
-never being reused) already does. Copying the seed config into an ephemeral tmpfs at startup
-gets you that guarantee while jazz still gets one ordinary, fully-writable home directory —
-exactly like every other environment it runs in.
+The security guarantee this was after — the agent can't tamper with its own durable config, and
+nothing it writes survives past the job — doesn't actually need a read-only permission bit on
+`JAZZ_HOME` itself. It only needs whatever the agent writes to be discarded, which `--rm` (or
+the container simply never being reused) already does. Copying the seed config into an ephemeral
+tmpfs at startup gets you that guarantee while jazz still gets one ordinary, fully-writable home
+directory — exactly like every other environment it runs in. The container's read-only root
+filesystem is still doing real work here (nothing outside `/tmp` and the seeded tmpfs can be
+touched at all); it's specifically a read-only `JAZZ_HOME` that's the wrong tool for isolating
+this agent.
 
 If you'd rather not do the copy in the container's own entrypoint, `JAZZ_HOME` also just
 respects the environment variable of the same name, so a wrapper script or your own image's
