@@ -153,7 +153,6 @@ export class PersonaServiceImpl implements PersonaService {
     return path.join(this.basePath, "personas");
   }
 
-  /** Built-in personas directory: the override if given, else the package's own. */
   private getBuiltinPersonasDir(): string | null {
     return this.builtinPersonasDirOverride ?? getBuiltinPersonasDirectory();
   }

@@ -29,7 +29,6 @@ export function hasChatTz(dataDir: string, fileName: string, scopeId: string | n
   return typeof stored === "string" && isValidTimeZone(stored);
 }
 
-/** Resolve the effective IANA zone for a conversation, with fallbacks. */
 export function tzForChat(dataDir: string, fileName: string, scopeId: string | number): string {
   const stored = readRecordStore<string>(recordStorePath(dataDir, fileName))?.[String(scopeId)];
   if (typeof stored === "string" && isValidTimeZone(stored)) return stored;

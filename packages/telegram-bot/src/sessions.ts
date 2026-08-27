@@ -18,12 +18,10 @@ import {
 const EPOCHS_FILE = "tg-sessions.json";
 const INCOGNITO_FILE = "tg-incognito.json";
 
-/** Conversation key for the chat's current session (epoch 0 keeps the raw id). */
 export function conversationKey(dataDir: string, chatId: number): string {
   return conversationKeyShared(dataDir, EPOCHS_FILE, chatId);
 }
 
-/** Bump the chat's session epoch so the next run starts a fresh conversation. */
 export function startNewConversation(dataDir: string, chatId: number): void {
   startNewConversationShared(dataDir, EPOCHS_FILE, chatId);
 }

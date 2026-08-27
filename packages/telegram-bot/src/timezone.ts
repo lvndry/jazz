@@ -23,17 +23,14 @@ export { formatWhen, isValidTimeZone };
 
 const TZ_FILE = "tg-tz.json";
 
-/** True when this chat has an explicitly stored, valid zone (vs. falling back). */
 export function hasChatTz(dataDir: string, chatId: number): boolean {
   return hasChatTzShared(dataDir, TZ_FILE, chatId);
 }
 
-/** Resolve the effective IANA zone for a chat, with fallbacks. */
 export function tzForChat(dataDir: string, chatId: number): string {
   return tzForChatShared(dataDir, TZ_FILE, chatId);
 }
 
-/** Persist an explicit zone for a chat. Returns the previously stored value. */
 export function setTzForChat(dataDir: string, chatId: number, tz: string): string | undefined {
   return setTzForChatShared(dataDir, TZ_FILE, chatId, tz);
 }
