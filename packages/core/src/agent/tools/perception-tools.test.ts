@@ -54,7 +54,6 @@ const parentAgent: Agent = {
   id: "agent-parent",
   name: "Text Agent",
   description: "",
-  model: "mistral/mistral-small",
   config: {
     persona: "default",
     llmProvider: "mistral",

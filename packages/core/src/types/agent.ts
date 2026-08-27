@@ -25,7 +25,6 @@ export interface Agent {
   readonly id: string;
   readonly name: string;
   readonly description?: string;
-  readonly model: `${string}/${string}`;
   readonly config: AgentConfig;
   readonly createdAt: Date;
   readonly updatedAt: Date;

@@ -18,7 +18,6 @@ import {
   type ModelsDevMetadata,
   type ModelsDevModelEntry,
 } from "@jazz/core/utils/models-dev";
-import { parseProviderModel } from "@jazz/core/utils/provider-model";
 
 /** The media an agent can be asked to produce. */
 export type MediaCapability = "image" | "audio" | "video";
@@ -59,12 +58,9 @@ export async function findAgentsWithCapability(
 ): Promise<CapableAgent[]> {
   const capable: CapableAgent[] = [];
   for (const agent of agents) {
-    const parsed = parseProviderModel(agent.model);
-    if (parsed === null) continue;
-
     let metadata: ModelsDevMetadata | undefined;
     try {
-      metadata = await getModelsDevMetadata(parsed.model, parsed.provider);
+      metadata = await getModelsDevMetadata(agent.config.llmModel, agent.config.llmProvider);
     } catch {
       // An unreachable catalog should not make every agent look incapable, but there is nothing
       // better to say about this one than "unknown", which reads the same as "no".

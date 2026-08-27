@@ -13,9 +13,13 @@ import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { NodeFileSystem } from "@effect/platform-node";
 import { ReminderServiceImpl } from "@jazz/adapters/reminder-service";
+import { listOllamaModels, modelSupportsThinking } from "@jazz/bot-shared/ollama";
 import { reasoningSnippet, splitReasoning } from "@jazz/bot-shared/reasoning";
 import { createRunLog, type RunLog } from "@jazz/bot-shared/run-log";
+import { AVAILABLE_PROVIDERS } from "@jazz/core/constants/models";
 import type { ReminderRecord } from "@jazz/core/interfaces/reminder-service";
+import { getModelsDevMetadata } from "@jazz/core/utils/models-dev";
+import { parseProviderModel } from "@jazz/core/utils/provider-model";
 import { Effect } from "effect";
 import {
   type AccessConfig,
@@ -933,7 +937,8 @@ const HELP_TEXT = [
   "I'm your Jazz assistant. Mention me in a server (or just talk here in DMs) and I'll answer.",
   "",
   "Commands:",
-  "`/model` — pick which Ollama model I use (just for this conversation)",
+  "`/model` — pick an Ollama model, or `/model provider_model:provider/model` for any other " +
+    "provider Jazz supports (e.g. `anthropic/claude-sonnet-5`)",
   "`/persona` — pick my persona / style",
   "`/new` — start a fresh conversation (clears earlier context)",
   "`/incognito` — start a private conversation (nothing saved) until `/new`",
@@ -952,7 +957,18 @@ const SLASH_COMMANDS: readonly SlashCommand[] = [
   { name: "status", description: "Model, today's usage, uptime" },
   { name: "new", description: "Start a fresh conversation (clears earlier context)" },
   { name: "incognito", description: "Start a private conversation (nothing saved) until /new" },
-  { name: "model", description: "Pick which Ollama model I use (just for this conversation)" },
+  {
+    name: "model",
+    description: "Pick an Ollama model, or set provider/model, e.g. anthropic/claude-sonnet-5",
+    options: [
+      {
+        name: "provider_model",
+        description:
+          "provider/model, e.g. anthropic/claude-sonnet-5 (omit to pick an Ollama model)",
+        type: 3,
+      },
+    ],
+  },
   { name: "persona", description: "Pick my persona / style" },
   { name: "reminders", description: "List and cancel your reminders" },
   {
@@ -1006,35 +1022,6 @@ async function cancelReminderForChannel(
     service.cancel(agentIdForChannel(channelId), id).pipe(Effect.provide(NodeFileSystem.layer)),
   );
   return outcome.success;
-}
-
-async function listOllamaModels(config: BridgeConfig): Promise<string[]> {
-  try {
-    const response = await fetch(`${config.ollamaBaseUrl}/tags`);
-    const data = (await response.json()) as { models?: { name?: string }[] };
-    const names = (data.models ?? [])
-      .map((entry) => entry.name)
-      .filter((name): name is string => typeof name === "string");
-    return names.sort((left, right) => left.localeCompare(right));
-  } catch (error) {
-    console.error(`Failed to list Ollama models: ${String(error)}`);
-    return [];
-  }
-}
-
-async function modelSupportsThinking(config: BridgeConfig, model: string): Promise<boolean> {
-  try {
-    const response = await fetch(`${config.ollamaBaseUrl}/show`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ model, name: model }),
-    });
-    const data = (await response.json()) as { capabilities?: string[] };
-    return Array.isArray(data.capabilities) && data.capabilities.includes("thinking");
-  } catch (error) {
-    console.error(`Failed to probe model capabilities for ${model}: ${String(error)}`);
-    return false;
-  }
 }
 
 function listPersonasIn(directory: string): string[] {
@@ -1177,9 +1164,39 @@ async function handleCommand(
   }
 
   if (command === "model") {
-    const models = await listOllamaModels(config);
+    const requested = args.trim();
+    if (requested.length > 0) {
+      const parsed = parseProviderModel(requested);
+      if (parsed === null) {
+        return {
+          content:
+            `⚠️ Usage: \`/model provider/model\`, e.g. \`/model openai/gpt-5.2\`.\n` +
+            `Providers: ${AVAILABLE_PROVIDERS.join(", ")}`,
+        };
+      }
+      const metadata = await getModelsDevMetadata(parsed.model, parsed.provider);
+      agent.config.llmProvider = parsed.provider;
+      agent.config.llmModel = parsed.model;
+      if (metadata !== undefined) {
+        agent.config.reasoningEffort = metadata.isReasoningModel ? "medium" : "disable";
+      }
+      writeAgentFile(config.jazzHome, agent);
+      return {
+        content:
+          `✅ Model → ${parsed.provider}/${parsed.model}` +
+          (metadata !== undefined
+            ? `\nReasoning: ${agent.config.reasoningEffort}`
+            : "\n⚠️ Unknown model in the catalog — reasoning setting left unchanged."),
+      };
+    }
+
+    const models = await listOllamaModels(config.ollamaBaseUrl);
     if (models.length === 0) {
-      return { content: "⚠️ No models available from Ollama right now." };
+      return {
+        content:
+          "⚠️ No models available from Ollama right now. To use another provider, run " +
+          "`/model provider_model:provider/model`, e.g. `/model provider_model:openai/gpt-5.2`.",
+      };
     }
     const options = models.slice(0, 25).map((model) => ({
       label: model,
@@ -1187,7 +1204,8 @@ async function handleCommand(
       default: model === agent.config.llmModel,
     }));
     return {
-      content: "Pick a model:",
+      content:
+        "Pick an Ollama model, or use /model provider_model:provider/model for any other provider:",
       components: [actionRow([stringSelect("m", "Model", options)])],
     };
   }
@@ -1214,8 +1232,9 @@ async function applyModelChoice(
   model: string,
 ): Promise<string> {
   const agent = ensureChatAgent(config.jazzHome, channelId, config.baseAgentId);
-  const reasoning = (await modelSupportsThinking(config, model)) ? "medium" : "disable";
-  agent.model = `ollama/${model}`;
+  const reasoning = (await modelSupportsThinking(config.ollamaBaseUrl, model))
+    ? "medium"
+    : "disable";
   agent.config.llmModel = model;
   agent.config.llmProvider = "ollama";
   agent.config.reasoningEffort = reasoning;
@@ -1417,6 +1436,8 @@ async function dispatchSlash(
     args = `${when} ${text}`.trim();
   } else if (name === "tz") {
     args = slashOption(interaction, "zone") ?? "";
+  } else if (name === "model") {
+    args = slashOption(interaction, "provider_model") ?? "";
   }
 
   const needsDefer = name === "model" || name === "remind";

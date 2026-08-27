@@ -34,7 +34,6 @@ import { resumeRun } from "./resume";
 const AGENT: Agent = {
   id: "parker",
   name: "parker",
-  model: "openai/gpt-4",
   config: {
     persona: "default",
     llmProvider: "openai",

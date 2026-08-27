@@ -76,7 +76,6 @@ describe("AgentService", () => {
         config: { persona: "default", llmProvider: "openai", llmModel: "gpt-4" },
         createdAt: new Date(),
         updatedAt: new Date(),
-        model: "openai/gpt-4",
       };
 
       // @ts-expect-error - mocking

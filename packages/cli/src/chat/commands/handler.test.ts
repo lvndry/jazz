@@ -36,7 +36,6 @@ const testAgent: Agent = {
   id: TEST_AGENT_ID,
   name: "Test Agent",
   description: "Test agent for resume command tests",
-  model: "openai/gpt-4",
   config: {
     persona: "default",
     llmProvider: "openai",

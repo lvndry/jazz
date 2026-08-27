@@ -44,7 +44,7 @@ import {
   type PerceptionCapability,
 } from "@/core/utils/model-capabilities";
 import { getModelsDevProviderModels } from "@/core/utils/models-dev";
-import { parseProviderModel } from "@/core/utils/provider-model";
+import { agentModelString, parseProviderModel } from "@/core/utils/provider-model";
 import { defineTool, makeZodValidator, type ToolValidatorResult } from "./base-tool";
 import { AgentRunner } from "../agent-runner";
 
@@ -182,7 +182,6 @@ function buildCompanionAgent(
     id: `companion-${counter}-${Date.now()}`,
     name: `Model Companion (${capability})`,
     description: `Ephemeral ${describeCapability(capability)} companion delegated by ${parentAgent.name}`,
-    model: selectedId,
     config: {
       persona: "default",
       llmProvider: parsed.provider,
@@ -232,7 +231,7 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
 
       yield* logger.info("Running model companion", {
         parentAgentId: parentAgent.id,
-        companionModel: companionAgent.model,
+        companionModel: agentModelString(companionAgent.config),
         capability: args.capability,
         attachmentCount: attachments.length,
       });

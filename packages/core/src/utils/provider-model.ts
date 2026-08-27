@@ -54,6 +54,23 @@ export function parseProviderModel(
 }
 
 /**
+ * Combine a provider and model id into the canonical "provider/model" string.
+ */
+export function formatProviderModel(provider: string, model: string): `${string}/${string}` {
+  return `${provider}/${model}`;
+}
+
+/**
+ * The canonical "provider/model" string for an agent, derived from its config.
+ */
+export function agentModelString(config: {
+  readonly llmProvider: string;
+  readonly llmModel: string;
+}): `${string}/${string}` {
+  return formatProviderModel(config.llmProvider, config.llmModel);
+}
+
+/**
  * Format a provider identifier with its official brand casing.
  *
  * Unknown providers fall back to title-cased words separated by underscores.

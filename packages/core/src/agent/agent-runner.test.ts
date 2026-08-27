@@ -269,7 +269,6 @@ describe("AgentRunner", () => {
     id: "test-agent-1",
     name: "Test Agent",
     description: "A test agent for unit testing",
-    model: "openai/gpt-4",
     config: {
       persona: "default",
       llmProvider: "openai",

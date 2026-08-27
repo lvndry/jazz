@@ -2,7 +2,6 @@
   "id": "pr-assistant",
   "name": "pr-assistant",
   "description": "Pull request assistant agent for /jazz PR comments",
-  "model": "openai/gpt-5.4-mini",
   "config": {
     "persona": "coder",
     "llmProvider": "openai",

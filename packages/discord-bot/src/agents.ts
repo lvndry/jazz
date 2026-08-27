@@ -1,31 +1,26 @@
 /**
- * Per-channel agent files.
+ * Discord channel/thread → agent id mapping.
  *
  * Each Discord DM or thread gets its own Jazz agent JSON (cloned from a seeded
  * template on first contact) so `/model` and `/persona` changes stay scoped to
- * that conversation. `dataDir` is Jazz's home; agents live under `<dataDir>/agents`.
+ * that conversation. The agent file format and lifecycle are shared with the
+ * Telegram bridge via `@jazz/bot-shared/agent-file`; only the id scheme below
+ * is Discord-specific.
  */
 
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import {
+  type AgentConfig,
+  type AgentFile,
+  agentPath,
+  ensureScopedAgent,
+  hasAgentFile,
+  readAgentFile,
+  syncAgentDisplayName as syncScopedAgentDisplayName,
+  writeAgentFile,
+} from "@jazz/bot-shared/agent-file";
 
-export interface AgentConfig {
-  llmProvider: string;
-  llmModel: string;
-  reasoningEffort: string;
-  persona: string;
-  [key: string]: unknown;
-}
-
-export interface AgentFile {
-  id: string;
-  name: string;
-  model: string;
-  config: AgentConfig;
-  createdAt?: string;
-  updatedAt?: string;
-  [key: string]: unknown;
-}
+export type { AgentConfig, AgentFile };
+export { agentPath, readAgentFile, writeAgentFile };
 
 export function agentIdForChannel(channelId: string): string {
   return `dc_${channelId}`;
@@ -37,39 +32,16 @@ export function channelIdFromAgentId(agentId: string): string | null {
   return /^\d{17,20}$/.test(suffix) ? suffix : null;
 }
 
-export function agentPath(dataDir: string, agentId: string): string {
-  return join(dataDir, "agents", `${agentId}.json`);
-}
-
-export function readAgentFile(dataDir: string, agentId: string): AgentFile {
-  return JSON.parse(readFileSync(agentPath(dataDir, agentId), "utf8")) as AgentFile;
-}
-
-export function writeAgentFile(dataDir: string, agent: AgentFile): void {
-  agent.updatedAt = new Date().toISOString();
-  writeFileSync(agentPath(dataDir, agent.id), `${JSON.stringify(agent, null, 2)}\n`);
-}
-
 export function hasChatAgent(dataDir: string, channelId: string): boolean {
-  return existsSync(agentPath(dataDir, agentIdForChannel(channelId)));
+  return hasAgentFile(dataDir, agentIdForChannel(channelId));
 }
 
-/** Ensure a channel has its own agent, cloned from the seeded template on first use. */
 export function ensureChatAgent(
   dataDir: string,
   channelId: string,
   baseAgentId: string,
 ): AgentFile {
-  const agentId = agentIdForChannel(channelId);
-  const path = agentPath(dataDir, agentId);
-  if (existsSync(path)) {
-    return readAgentFile(dataDir, agentId);
-  }
-  mkdirSync(join(dataDir, "agents"), { recursive: true });
-  const template = readAgentFile(dataDir, baseAgentId);
-  template.id = agentId;
-  writeAgentFile(dataDir, template);
-  return template;
+  return ensureScopedAgent(dataDir, agentIdForChannel(channelId), baseAgentId);
 }
 
 /**
@@ -82,19 +54,10 @@ export function syncAgentDisplayName(
   baseAgentId: string,
   displayName: string,
 ): void {
-  const directory = join(dataDir, "agents");
-  if (!existsSync(directory)) return;
-  for (const entry of readdirSync(directory)) {
-    if (!entry.endsWith(".json")) continue;
-    const agentId = entry.slice(0, -".json".length);
-    if (agentId !== baseAgentId && channelIdFromAgentId(agentId) === null) continue;
-    try {
-      const agent = readAgentFile(dataDir, agentId);
-      if (agent.name === displayName) continue;
-      agent.name = displayName;
-      writeAgentFile(dataDir, agent);
-    } catch (error) {
-      console.error(`Could not rename agent ${agentId}: ${String(error)}`);
-    }
-  }
+  syncScopedAgentDisplayName(
+    dataDir,
+    baseAgentId,
+    displayName,
+    (agentId) => channelIdFromAgentId(agentId) !== null,
+  );
 }

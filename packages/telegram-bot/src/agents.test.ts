@@ -22,7 +22,7 @@ describe("syncAgentDisplayName", () => {
     mkdirSync(join(dataDir, "agents"), { recursive: true });
     writeFileSync(
       join(dataDir, "agents", `${agentId}.json`),
-      JSON.stringify({ id: agentId, name, model: "ollama/test", config: {} }),
+      JSON.stringify({ id: agentId, name, config: {} }),
     );
   }
 

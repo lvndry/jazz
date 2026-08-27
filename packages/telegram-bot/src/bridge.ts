@@ -20,9 +20,13 @@ import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { NodeFileSystem } from "@effect/platform-node";
 import { ReminderServiceImpl } from "@jazz/adapters/reminder-service";
+import { listOllamaModels, modelSupportsThinking } from "@jazz/bot-shared/ollama";
 import { reasoningSnippet, splitReasoning } from "@jazz/bot-shared/reasoning";
 import { createRunLog, type RunLog } from "@jazz/bot-shared/run-log";
+import { AVAILABLE_PROVIDERS } from "@jazz/core/constants/models";
 import type { ReminderRecord } from "@jazz/core/interfaces/reminder-service";
+import { getModelsDevMetadata } from "@jazz/core/utils/models-dev";
+import { parseProviderModel } from "@jazz/core/utils/provider-model";
 import { extractCommandApprovalKey } from "@jazz/core/utils/shell";
 import { Effect } from "effect";
 import tzlookup from "tz-lookup";
@@ -373,38 +377,6 @@ async function handleLocation(
     "Tell me briefly where this is (neighborhood and a nearby landmark), then ask what I need — " +
     "directions to a place, the nearest something, etc. Use web search for anything nearby or for routing.";
   await handleMessage(config, chatId, prompt);
-}
-
-// --- Ollama model discovery -----------------------------------------------
-
-async function listOllamaModels(config: BridgeConfig): Promise<string[]> {
-  try {
-    const response = await fetch(`${config.ollamaBaseUrl}/tags`);
-    const data = (await response.json()) as { models?: { name?: string }[] };
-    const names = (data.models ?? [])
-      .map((entry) => entry.name)
-      .filter((name): name is string => typeof name === "string");
-    return names.sort((left, right) => left.localeCompare(right));
-  } catch (error) {
-    console.error(`Failed to list Ollama models: ${String(error)}`);
-    return [];
-  }
-}
-
-/** True if the model advertises a "thinking" capability (so reasoning is safe to enable). */
-async function modelSupportsThinking(config: BridgeConfig, model: string): Promise<boolean> {
-  try {
-    const response = await fetch(`${config.ollamaBaseUrl}/show`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ model, name: model }),
-    });
-    const data = (await response.json()) as { capabilities?: string[] };
-    return Array.isArray(data.capabilities) && data.capabilities.includes("thinking");
-  } catch (error) {
-    console.error(`Failed to probe model capabilities for ${model}: ${String(error)}`);
-    return false;
-  }
 }
 
 // --- Persona discovery ----------------------------------------------------
@@ -1305,7 +1277,10 @@ async function upgradeToDynamicCtas(
  * letters/digits/underscores only (no slash, no arguments).
  */
 const BOT_COMMANDS: { command: string; description: string }[] = [
-  { command: "model", description: "Pick which Ollama model I use (just for you)" },
+  {
+    command: "model",
+    description: "Pick an Ollama model, or set provider/model, e.g. anthropic/claude-sonnet-5",
+  },
   { command: "persona", description: "Pick my persona / style" },
   { command: "new", description: "Start a fresh conversation (clears earlier context)" },
   { command: "incognito", description: "Start a private conversation (nothing saved) until /new" },
@@ -1320,7 +1295,8 @@ const HELP_TEXT = [
   "I'm your Jazz assistant. Just send a message and I'll answer.",
   "",
   "Commands:",
-  "/model — pick which Ollama model I use (just for you)",
+  "/model — pick an Ollama model, or /model provider/model for any other provider Jazz supports " +
+    "(e.g. /model anthropic/claude-sonnet-5)",
   "/persona — pick my persona / style",
   "/new — start a fresh conversation (clears earlier context)",
   "/incognito — start a private conversation (nothing saved to history or memory) until /new",
@@ -1524,14 +1500,49 @@ async function handleCommand(
   }
 
   if (command === "model") {
-    const models = await listOllamaModels(config);
+    const requested = args.trim();
+    if (requested.length > 0) {
+      const parsed = parseProviderModel(requested);
+      if (parsed === null) {
+        await sendReply(
+          config,
+          chatId,
+          `⚠️ Usage: <code>/model provider/model</code>, e.g. <code>/model openai/gpt-5.2</code>.\n` +
+            `Providers: ${AVAILABLE_PROVIDERS.join(", ")}`,
+        );
+        return;
+      }
+      const metadata = await getModelsDevMetadata(parsed.model, parsed.provider);
+      agent.config.llmProvider = parsed.provider;
+      agent.config.llmModel = parsed.model;
+      if (metadata !== undefined) {
+        agent.config.reasoningEffort = metadata.isReasoningModel ? "medium" : "disable";
+      }
+      writeAgentFile(config.jazzHome, agent);
+      await sendReply(
+        config,
+        chatId,
+        `✅ Model → ${parsed.provider}/${parsed.model}` +
+          (metadata !== undefined
+            ? `\nReasoning: ${agent.config.reasoningEffort}`
+            : "\n⚠️ Unknown model in the catalog — reasoning setting left unchanged."),
+      );
+      return;
+    }
+
+    const models = await listOllamaModels(config.ollamaBaseUrl);
     if (models.length === 0) {
-      await sendReply(config, chatId, "⚠️ No models available from Ollama right now.");
+      await sendReply(
+        config,
+        chatId,
+        "⚠️ No models available from Ollama right now. To use another provider, send " +
+          "<code>/model provider/model</code>, e.g. <code>/model openai/gpt-5.2</code>.",
+      );
       return;
     }
     await callTelegram(config, "sendMessage", {
       chat_id: chatId,
-      text: "Pick a model:",
+      text: "Pick an Ollama model, or send /model provider/model for any other provider:",
       reply_markup: { inline_keyboard: keyboardFrom(models, agent.config.llmModel, "m") },
     });
     return;
@@ -1741,7 +1752,7 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
   let confirmation: string;
 
   if (kind === "m") {
-    const models = await listOllamaModels(config);
+    const models = await listOllamaModels(config.ollamaBaseUrl);
     const model = Number.isInteger(index) ? models[index] : undefined;
     if (model === undefined) {
       await callTelegram(config, "answerCallbackQuery", {
@@ -1750,8 +1761,9 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
       });
       return;
     }
-    const reasoning = (await modelSupportsThinking(config, model)) ? "medium" : "disable";
-    agent.model = `ollama/${model}`;
+    const reasoning = (await modelSupportsThinking(config.ollamaBaseUrl, model))
+      ? "medium"
+      : "disable";
     agent.config.llmModel = model;
     agent.config.llmProvider = "ollama";
     agent.config.reasoningEffort = reasoning;

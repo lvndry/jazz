@@ -56,7 +56,6 @@ const SUMMARIZER_INPUT_BUDGET_RATIO = 0.6;
 function buildSummarizerAgent(
   parentAgent: Agent,
   summarizerModelConfig: SummarizerModelConfig,
-  summarizerModel: `${string}/${string}`,
 ): Agent {
   const sameModel =
     summarizerModelConfig.provider === parentAgent.config.llmProvider &&
@@ -72,7 +71,6 @@ function buildSummarizerAgent(
     id: "summarizer",
     name: "Summarizer",
     description: "Background context compressor",
-    model: summarizerModel,
     config: {
       ...(sameModel ? parentAgent.config : configWithoutWindowPins),
       llmProvider: summarizerModelConfig.provider,
@@ -521,9 +519,7 @@ export const Summarizer = {
       const recordedState = formatWorkState(yield* readWorkState(agent.id, conversationId));
 
       // Define the specialized summarizer agent once, on the fly, with the selected model.
-      const summarizerModel =
-        `${summarizerModelConfig.provider}/${summarizerModelConfig.model}` as `${string}/${string}`;
-      const summarizer = buildSummarizerAgent(agent, summarizerModelConfig, summarizerModel);
+      const summarizer = buildSummarizerAgent(agent, summarizerModelConfig);
 
       // The transcript can be most of the *parent's* window, which says nothing about
       // what the summarizer's own model can hold. Fold it in chunks when it does not
