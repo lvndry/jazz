@@ -75,7 +75,9 @@ cp .env.example .env     # set TELEGRAM_BOT_TOKEN + TELEGRAM_ALLOWED_CHAT_IDS + 
 docker compose up -d --build
 ```
 
-That's a working agent in your DMs. Full setup, configuration table, and security notes:
+That's a working agent in your DMs. For the account-creation steps (bot token, chat id),
+see [Creating a Telegram or Discord bot](../guide/chat-bots.md); for the full
+configuration table and security notes, see
 [`packages/telegram-bot/README.md`](../../packages/telegram-bot/README.md).
 
 What the Telegram bridge demonstrates — worth reading before you write your own:
@@ -125,8 +127,11 @@ cp .env.example .env     # set DISCORD_BOT_TOKEN + an allowlist + a model key
 docker compose up -d --build
 ```
 
-DM the bot, or `@mention` it in an allowlisted channel. Full setup (intents, invite URL,
-mention-gating): [`packages/discord-bot/README.md`](../../packages/discord-bot/README.md).
+DM the bot, or `@mention` it in an allowlisted channel. For the account-creation steps
+(application, intents, invite URL), see
+[Creating a Telegram or Discord bot](../guide/chat-bots.md); for the full configuration
+table and mention-gating details, see
+[`packages/discord-bot/README.md`](../../packages/discord-bot/README.md).
 
 Same `jazz run` contract as Telegram. What Discord adds on top:
 
