@@ -53,8 +53,11 @@ export interface ChatMessage {
    * "task" is a user message holding a task specification (e.g. a workflow's prompt)
    * rather than conversational history — pinned so compaction never summarizes it away,
    * the same way the system message at index 0 is pinned.
+   * "continuation" is the synthetic turn-taking nudge compaction re-inserts after every
+   * cycle — discarded (not pinned) on the next split, since the rebuild always appends a
+   * fresh one; keeping an old instance around too would duplicate it.
    */
-  kind?: "summary" | "task";
+  kind?: "summary" | "task" | "continuation";
   /**
    * For role === "assistant": include tool calls emitted by the model so that
    * subsequent tool messages are valid according to the OpenAI API.

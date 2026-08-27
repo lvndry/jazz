@@ -32,6 +32,7 @@ const MAX_RENDERED_ARGUMENT_CHARS = 200;
 export const COMPACTION_CONTINUATION_MESSAGE: ChatMessage = {
   role: "user",
   content: "Continue the task using the summary above as context.",
+  kind: "continuation",
 };
 
 /**
@@ -256,11 +257,14 @@ export const Summarizer = {
 
     // Everything eligible to be either summarized or kept verbatim as "recent" — i.e.
     // everything except the system message, the prior summary, and the pinned messages
-    // above, none of which are ever candidates for either bucket.
+    // above, none of which are ever candidates for either bucket. A leftover
+    // "continuation" nudge from an earlier cycle is dropped outright here rather than
+    // summarized or kept: the rebuild below always appends a fresh one, so carrying an
+    // old instance through either bucket would duplicate it.
     const pinnedSet = new Set<ChatMessage>(pinnedMessages);
     const middleMessages = currentMessages
       .slice(1)
-      .filter((msg) => msg !== priorSummary && !pinnedSet.has(msg));
+      .filter((msg) => msg !== priorSummary && !pinnedSet.has(msg) && msg.kind !== "continuation");
 
     // Reserve 20% of max tokens for recent context
     // This ensures we keep recent context while preventing it from eating the entire window

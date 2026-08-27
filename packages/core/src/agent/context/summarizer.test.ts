@@ -640,6 +640,11 @@ describe("Summarizer", () => {
       );
       expect(pinnedAfterSecond).toBeDefined();
       expect(secondPass.length).toBeLessThan(secondRoundMessages.length);
+
+      // The rebuild always appends a fresh continuation nudge; an old instance carried
+      // over from the first cycle must not survive alongside it as a duplicate.
+      const continuationMessages = secondPass.filter((message) => message.kind === "continuation");
+      expect(continuationMessages.length).toBe(1);
     });
   });
 });
