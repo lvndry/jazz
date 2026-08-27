@@ -35,10 +35,10 @@
 
 import { memo, useEffect, useState, type ReactNode } from "react";
 import { highlightCodeLine } from "./syntax-spans";
+import type { TodoSnapshotItem } from "../activity-state";
 import { getGlyphs, laneFrame, type GlyphSet } from "../glyphs";
 import { MOTION, THEME } from "../theme";
 import { fitTerminalSegments, terminalSegmentsWidth } from "./terminal-cells";
-import type { TodoSnapshotItem } from "../activity-state";
 import {
   LIVE_ZONE_MAX_ROWS,
   type LiveModel,
@@ -220,10 +220,10 @@ function waitingRow(
  *
  * The agent's plan earns a panel, not a single "step N of M" row: the items
  * themselves are the most useful thing on screen while they are being worked.
- * At most `TODO_WINDOW_ROWS` items show at once, anchored on the first item
- * that isn't done yet — a completed item drops out of the window and the next
- * pending one slides in to take its place, so the band always shows what's
- * running plus what's coming rather than a static slice of the plan. A
+ * At most `TODO_WINDOW_ROWS` items show at once, anchored just before the
+ * first item that isn't done yet — so the item that most recently completed
+ * stays visible with its checkmark for one more update before it scrolls out
+ * and the next pending one slides in, rather than a static slice of the plan. A
  * `+N more` line carries what still doesn't fit rather than silently dropping
  * it. The count rides the header so progress is legible at a glance even
  * while items are scrolled out of view.
@@ -280,9 +280,11 @@ function todoPanelRows(
   const itemSlots = Math.max(0, Math.min(TODO_WINDOW_ROWS, maxRows - 1));
   if (itemSlots === 0) return [header];
 
-  // Slide the window to the first item still in play; everything before it
-  // is done and has already scrolled out of view.
-  const anchor = todos.findIndex((todo) => todo.status !== "completed");
+  // Slide the window to the first item still in play, but hold back one slot
+  // so the item that just finished stays on screen long enough to show its
+  // checkmark instead of vanishing the instant it completes.
+  const firstIncomplete = todos.findIndex((todo) => todo.status !== "completed");
+  const anchor = firstIncomplete < 0 ? -1 : Math.max(0, firstIncomplete - 1);
   const start = anchor < 0 ? Math.max(0, todos.length - itemSlots) : anchor;
 
   const overflow = todos.length - start - itemSlots;

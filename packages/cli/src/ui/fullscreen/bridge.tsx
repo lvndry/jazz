@@ -1068,6 +1068,11 @@ export function FullscreenBridge(): React.ReactNode {
   const runStartedAt = useRef<number | null>(null);
   const lastTodoListRef = useRef<readonly TodoSnapshotItem[]>([]);
   const previousRunActiveRef = useRef(false);
+  const previousConversationIdRef = useRef(currentConversation?.conversationId);
+  if (currentConversation?.conversationId !== previousConversationIdRef.current) {
+    lastTodoListRef.current = [];
+    previousConversationIdRef.current = currentConversation?.conversationId;
+  }
 
   // `useKeyboard` registers its callback once, so a closure over state would keep
   // reading the values from the first render — where `prompt` is null, and a null
