@@ -16,7 +16,7 @@ Discord  ◀──(Gateway websocket)──▶  bridge  ──jazz run --json─
 
 - 🤖 **Any Jazz agent over Discord** — a full tool-using agent, not an echo bot.
 - 🔌 **Bring your own model** — OpenAI `gpt-5.4` out of the box, or any provider Jazz supports (including local Ollama).
-- 🎛️ **Per-conversation `/model` and `/persona`** — `/model` picks from a select menu of the current provider's models, or `/model provider_model:openai/gpt-5.2` switches to any other provider Jazz supports outright; each DM or thread keeps its own choice.
+- 🎛️ **Per-conversation `/model` and `/persona`** — `/model` picks from a select menu of the current provider's models, or `/model openai/gpt-5.2` (sent as a normal message) switches to any other provider Jazz supports outright; each DM or thread keeps its own choice.
 - 🧵 **Thread binding in servers** — `@mention` in a channel starts a thread; follow-ups in that thread don't need another mention.
 - 🤫 **Mention-gating** — in servers the bot ignores chatter unless mentioned, replied-to, or already in the thread. DMs always respond.
 - 📡 **Live progress** — a status message updates in real time with thinking, tool calls, sub-agents (🤖), and tools awaiting approval (⛔); it closes with a `✅ Done · tools · tokens · $cost` summary, and the answer lands as a new message.
@@ -124,7 +124,7 @@ allowlisted, or you didn’t @mention it (`DISCORD_REQUIRE_MENTION=1` by default
 | Command                         | What it does                                                                                                                                                                          |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | _(DM, or @mention in a server)_ | Answered by your agent                                                                                                                                                                |
-| `/model`                        | Select menu of the current provider's models; `/model provider_model:provider/model` (e.g. `anthropic/claude-sonnet-5`) switches this conversation to a different provider outright |
+| `/model`                        | Select menu of the current provider's models; send `/model provider/model` (e.g. `anthropic/claude-sonnet-5`) as a normal message to switch this conversation to a different provider outright |
 | `/persona`                      | Select menu of available personas                                                                                                                                                     |
 | `/new`                          | Start a fresh conversation — clears earlier context; keeps your model/persona                                                                                                         |
 | `/incognito`                    | Private conversation (nothing saved to history or memory) until `/new`                                                                                                                |
@@ -168,8 +168,8 @@ the `discord` template on first contact), so `/model` and `/persona` change only
 _that_ conversation. `JAZZ_DISCORD_PROVIDER` / `JAZZ_DISCORD_MODEL` /
 `JAZZ_REASONING` set the defaults new conversations start from. Bare `/model`
 lists whatever the conversation's current provider offers. To let people
-switch to a **different** provider — `/model provider_model:anthropic/claude-sonnet-5`,
-for example — set that provider's API key as an env var on the bot (see
+switch to a **different** provider — send `/model anthropic/claude-sonnet-5` as a normal
+message (not the slash-command menu, which can't take a free-form value), for example — set that provider's API key as an env var on the bot (see
 `.env.example` for the full list, e.g. `ANTHROPIC_API_KEY`) and restart the
 container; `JAZZ_DISCORD_PROVIDER`/`JAZZ_DISCORD_MODEL` don't need to change —
 they only set what a brand-new conversation starts on.

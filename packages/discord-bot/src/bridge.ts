@@ -956,7 +956,7 @@ const HELP_TEXT = [
   "I'm your Jazz assistant. Mention me in a server (or just talk here in DMs) and I'll answer.",
   "",
   "Commands:",
-  "`/model` — pick an Ollama model, or `/model provider_model:provider/model` for any other " +
+  "`/model` — pick a model for the current provider, or `/model provider/model` for any other " +
     "provider Jazz supports (e.g. `anthropic/claude-sonnet-5`)",
   "`/persona` — pick my persona / style",
   "`/new` — start a fresh conversation (clears earlier context)",
@@ -978,15 +978,7 @@ const SLASH_COMMANDS: readonly SlashCommand[] = [
   { name: "incognito", description: "Start a private conversation (nothing saved) until /new" },
   {
     name: "model",
-    description: "Pick an Ollama model, or set provider/model, e.g. anthropic/claude-sonnet-5",
-    options: [
-      {
-        name: "provider_model",
-        description:
-          "provider/model, e.g. anthropic/claude-sonnet-5 (omit to pick an Ollama model)",
-        type: 3,
-      },
-    ],
+    description: "Pick a model for the current provider (send /model provider/model to switch)",
   },
   { name: "persona", description: "Pick my persona / style" },
   { name: "reminders", description: "List and cancel your reminders" },
@@ -1196,7 +1188,7 @@ async function handleCommand(
       return {
         content:
           `⚠️ Unknown provider \`${provider}\` on this conversation's agent. ` +
-          "Set one with `/model provider_model:provider/model`.",
+          "Set one with `/model provider/model`.",
       };
     }
     const models = await listModelsForProvider(provider as ProviderName);
@@ -1204,8 +1196,7 @@ async function handleCommand(
       return {
         content:
           `⚠️ No models available for \`${provider}\` right now — check its API key is set. ` +
-          "Switch provider directly with `/model provider_model:provider/model`, " +
-          "e.g. `/model provider_model:openai/gpt-5.2`.",
+          "Switch provider directly with `/model provider/model`, e.g. `/model openai/gpt-5.2`.",
       };
     }
     const options = models.slice(0, 25).map((model) => ({
@@ -1214,7 +1205,7 @@ async function handleCommand(
       default: model.id === agent.config.llmModel,
     }));
     return {
-      content: `Pick a ${provider} model, or use /model provider_model:provider/model to switch provider:`,
+      content: `Pick a ${provider} model, or use /model provider/model to switch provider:`,
       components: [actionRow([stringSelect("m", "Model", options)])],
     };
   }
@@ -1445,8 +1436,6 @@ async function dispatchSlash(
     args = `${when} ${text}`.trim();
   } else if (name === "tz") {
     args = slashOption(interaction, "zone") ?? "";
-  } else if (name === "model") {
-    args = slashOption(interaction, "provider_model") ?? "";
   }
 
   const needsDefer = name === "model" || name === "remind";

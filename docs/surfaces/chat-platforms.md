@@ -83,6 +83,7 @@ What the Telegram bridge demonstrates — worth reading before you write your ow
 | Feature             | How it works                                                                                                                                                                   |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **Per-user agents** | Each chat gets `tg_<chat_id>.json`, cloned from a template on first contact. `/model` and `/persona` change only that user's experience.                                       |
+| **Any-provider `/model`** | Bare `/model` lists the current provider's models; `/model provider/model` (e.g. `/model anthropic/claude-sonnet-5`) switches to any provider Jazz supports — set that provider's API key as an env var on the bot first (see `.env.example`).                                       |
 | **Per-chat memory** | `--conversation <chat_id>`. The bridge itself is stateless.                                                                                                                    |
 | **Live progress**   | `--events` NDJSON on stderr drives a status bubble that updates with thinking, tool calls, and sub-agents, then closes with a `✅ Done · 7 tools · 12k tokens · $0.03` summary. |
 | **Cancellation**    | A ⏹ button kills the child process mid-run.                                                                                                                                    |
@@ -135,6 +136,7 @@ Same `jazz run` contract as Telegram. What Discord adds on top:
 | **Thread binding** | An `@mention` in a channel starts a thread; `--conversation` is the thread id so the rest of the room is not the chat. |
 | **3-second ack**   | Slash commands and buttons are acknowledged immediately, then the agent run continues asynchronously.                  |
 | **Allowlists**     | Users, channels, and/or guilds. At least one is required.                                                              |
+| **Any-provider `/model`** | Bare `/model` shows a select menu of the current provider's models; send `/model provider/model` (e.g. `/model anthropic/claude-sonnet-5`) as a normal message — not the slash-command menu, which can't take a free-form value — to switch provider outright. Set that provider's API key as an env var on the bot first (see `.env.example`). |
 
 ---
 
