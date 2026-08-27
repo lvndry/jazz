@@ -2,11 +2,11 @@
   "id": "release-notes",
   "name": "release-notes",
   "description": "Release notes generator agent",
-  "model": "openrouter/owl-alpha",
+  "model": "openai/gpt-5.4-mini",
   "config": {
     "persona": "coder",
-    "llmProvider": "openrouter",
-    "llmModel": "openrouter/owl-alpha",
+    "llmProvider": "openai",
+    "llmModel": "gpt-5.4-mini",
     "reasoningEffort": "medium",
     "tools": [
       "context_info",
