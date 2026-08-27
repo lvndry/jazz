@@ -16,7 +16,7 @@ Telegram  ◀──(getUpdates long-poll)──▶  bridge  ──jazz run --jso
 
 - 🤖 **Any Jazz agent over Telegram** — a full tool-using agent, not an echo bot.
 - 🔌 **Bring your own model** — OpenAI `gpt-5.4` out of the box, or any provider Jazz supports (including local Ollama, no keys/cost).
-- 🎛️ **Per-person `/model` and `/persona`** — each user picks their own via inline keyboards; choices persist.
+- 🎛️ **Per-person `/model` and `/persona`** — `/model` picks from an inline keyboard of local Ollama models, or send `/model openai/gpt-5.2` (or any provider Jazz supports) directly; each user keeps their own choice.
 - ♻️ **Auto reasoning** — switching to an Ollama model reads its advertised capabilities and enables/disables thinking so non-thinking models don't error.
 - 📡 **Live progress** — a status bubble updates in real time with the agent's thinking, tool calls, sub-agents (🤖), and tools awaiting approval (⛔); it closes with a `✅ Done · tools · tokens · $cost` summary, and the answer lands as a new message (so it notifies).
 - ⏰ **Reminders** — `/remind 30m …` or plain language ("remind me in 2 hours …"), scheduled by the agent itself via a native tool, resolved in your own timezone (`/tz`, or auto-set from a shared location) and delivered even across restarts.
@@ -68,7 +68,7 @@ Message your bot: it shows a "typing…" indicator, then the agent's reply.
 | Command                 | What it does                                                                                                                                                                                                                 |
 | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | _(any message)_         | Answered by your agent                                                                                                                                                                                                       |
-| `/model`                | Inline keyboard of models pulled in Ollama — pick one (switches you to that local model)                                                                                                                                     |
+| `/model`                | Inline keyboard of models pulled in Ollama, or `/model provider/model` (e.g. `anthropic/claude-sonnet-5`) for any other provider Jazz supports — switches you to it                                                          |
 | `/persona`              | Inline keyboard of available personas                                                                                                                                                                                        |
 | `/new` (`/reset`)       | Start a fresh conversation — clears earlier context; keeps your model/persona                                                                                                                                                |
 | `/remind <when> <text>` | Schedule a reminder DM. `<when>` = `30m`, `1h30m`, `90s`, `2d`, `18:00`, `tomorrow 09:00`, `tue 20:00`, or `2026-08-25 20:00`. Routed through a normal agent turn, which calls the `add_reminder` tool.                      |
@@ -118,8 +118,10 @@ bridge was down fires on next start, marked `(delayed)`). Relative durations
 Each Telegram user gets an independent agent (`tg_<chat_id>.json`, cloned from the
 `telegram` template on first contact), so `/model` and `/persona` change only _your_
 experience. `JAZZ_TELEGRAM_PROVIDER` / `JAZZ_TELEGRAM_MODEL` / `JAZZ_REASONING` set
-the defaults new chats start from. (`/model` lists Ollama models — handy when you
-run Ollama; cloud users typically just keep the default.)
+the defaults new chats start from. Bare `/model` lists Ollama models — handy when you
+run Ollama; anyone else can switch provider directly with `/model provider/model`,
+e.g. `/model anthropic/claude-sonnet-5` (needs that provider's API key set in the
+bot's environment).
 
 **Mail & calendar.** The image ships [Himalaya](https://github.com/pimalaya/himalaya)
 (email), [khal](https://github.com/pimutils/khal) + [vdirsyncer](https://github.com/pimutils/vdirsyncer)
@@ -264,7 +266,9 @@ Full walkthrough, including the connection-race recovery in more detail, is in t
 
 > **Model ↔ reasoning:** reasoning-capable models (`gpt-5.4`, qwen3, …) work with
 > `medium`/`high`; models without it (mistral-small, gemma, …) error unless
-> reasoning is `disable`. `/model` sets this automatically for Ollama models.
+> reasoning is `disable`. `/model` sets this automatically — from Ollama's own
+> reported capabilities for a local model, or from the models.dev catalog when
+> you switch to another provider by name.
 
 ## How it works
 

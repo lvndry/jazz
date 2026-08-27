@@ -16,7 +16,7 @@ Discord  ◀──(Gateway websocket)──▶  bridge  ──jazz run --json─
 
 - 🤖 **Any Jazz agent over Discord** — a full tool-using agent, not an echo bot.
 - 🔌 **Bring your own model** — OpenAI `gpt-5.4` out of the box, or any provider Jazz supports (including local Ollama).
-- 🎛️ **Per-conversation `/model` and `/persona`** — each DM or thread picks its own via select menus; choices persist.
+- 🎛️ **Per-conversation `/model` and `/persona`** — `/model` picks from a select menu of local Ollama models, or set `/model provider_model:openai/gpt-5.2` (or any provider Jazz supports) directly; each DM or thread keeps its own choice.
 - 🧵 **Thread binding in servers** — `@mention` in a channel starts a thread; follow-ups in that thread don't need another mention.
 - 🤫 **Mention-gating** — in servers the bot ignores chatter unless mentioned, replied-to, or already in the thread. DMs always respond.
 - 📡 **Live progress** — a status message updates in real time with thinking, tool calls, sub-agents (🤖), and tools awaiting approval (⛔); it closes with a `✅ Done · tools · tokens · $cost` summary, and the answer lands as a new message.
@@ -124,7 +124,7 @@ allowlisted, or you didn’t @mention it (`DISCORD_REQUIRE_MENTION=1` by default
 | Command                         | What it does                                                                                                                                                                          |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | _(DM, or @mention in a server)_ | Answered by your agent                                                                                                                                                                |
-| `/model`                        | Select menu of models pulled in Ollama — pick one (switches this conversation to that local model)                                                                                    |
+| `/model`                        | Select menu of models pulled in Ollama, or `/model provider_model:provider/model` (e.g. `anthropic/claude-sonnet-5`) for any other provider Jazz supports — switches this conversation |
 | `/persona`                      | Select menu of available personas                                                                                                                                                     |
 | `/new`                          | Start a fresh conversation — clears earlier context; keeps your model/persona                                                                                                         |
 | `/incognito`                    | Private conversation (nothing saved to history or memory) until `/new`                                                                                                                |
@@ -166,7 +166,11 @@ itself. A sweep delivers due reminders every 20s, so they survive restarts
 Each DM or thread gets an independent agent (`dc_<channel_id>.json`, cloned from
 the `discord` template on first contact), so `/model` and `/persona` change only
 _that_ conversation. `JAZZ_DISCORD_PROVIDER` / `JAZZ_DISCORD_MODEL` /
-`JAZZ_REASONING` set the defaults new conversations start from.
+`JAZZ_REASONING` set the defaults new conversations start from. Bare `/model`
+lists Ollama models — handy when you run Ollama; anyone else can switch
+provider directly with `/model provider_model:provider/model`, e.g.
+`/model provider_model:anthropic/claude-sonnet-5` (needs that provider's API
+key set in the bot's environment).
 
 ## Configuration
 
@@ -194,7 +198,9 @@ _that_ conversation. `JAZZ_DISCORD_PROVIDER` / `JAZZ_DISCORD_MODEL` /
 
 > **Model ↔ reasoning:** reasoning-capable models (`gpt-5.4`, qwen3, …) work with
 > `medium`/`high`; models without it (mistral-small, gemma, …) error unless
-> reasoning is `disable`. `/model` sets this automatically for Ollama models.
+> reasoning is `disable`. `/model` sets this automatically — from Ollama's own
+> reported capabilities for a local model, or from the models.dev catalog when
+> you switch to another provider by name.
 
 ## How it works
 
