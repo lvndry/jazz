@@ -70,12 +70,14 @@ cover those. See [Headless](./headless.md) for the contract in full.
 ## Telegram (shipped)
 
 ```bash
-cd integrations/telegram-bot
+cd packages/telegram-bot/src
 cp .env.example .env     # set TELEGRAM_BOT_TOKEN + TELEGRAM_ALLOWED_CHAT_IDS + a model key
 docker compose up -d --build
 ```
 
-That's a working agent in your DMs. Full setup, configuration table, and security notes:
+That's a working agent in your DMs. For the account-creation steps (bot token, chat id),
+see [Creating a Telegram or Discord bot](../guide/chat-bots.md); for the full
+configuration table and security notes, see
 [`packages/telegram-bot/README.md`](../../packages/telegram-bot/README.md).
 
 What the Telegram bridge demonstrates — worth reading before you write your own:
@@ -83,6 +85,7 @@ What the Telegram bridge demonstrates — worth reading before you write your ow
 | Feature             | How it works                                                                                                                                                                   |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **Per-user agents** | Each chat gets `tg_<chat_id>.json`, cloned from a template on first contact. `/model` and `/persona` change only that user's experience.                                       |
+| **Any-provider `/model`** | Bare `/model` lists the current provider's models; `/model provider/model` (e.g. `/model anthropic/claude-sonnet-5`) switches to any provider Jazz supports — set that provider's API key as an env var on the bot first (see `.env.example`).                                       |
 | **Per-chat memory** | `--conversation <chat_id>`. The bridge itself is stateless.                                                                                                                    |
 | **Live progress**   | `--events` NDJSON on stderr drives a status bubble that updates with thinking, tool calls, and sub-agents, then closes with a `✅ Done · 7 tools · 12k tokens · $0.03` summary. |
 | **Cancellation**    | A ⏹ button kills the child process mid-run.                                                                                                                                    |
@@ -119,13 +122,16 @@ sequenceDiagram
 ## Discord (shipped)
 
 ```bash
-cd integrations/discord-bot
+cd packages/discord-bot/src
 cp .env.example .env     # set DISCORD_BOT_TOKEN + an allowlist + a model key
 docker compose up -d --build
 ```
 
-DM the bot, or `@mention` it in an allowlisted channel. Full setup (intents, invite URL,
-mention-gating): [`packages/discord-bot/README.md`](../../packages/discord-bot/README.md).
+DM the bot, or `@mention` it in an allowlisted channel. For the account-creation steps
+(application, intents, invite URL), see
+[Creating a Telegram or Discord bot](../guide/chat-bots.md); for the full configuration
+table and mention-gating details, see
+[`packages/discord-bot/README.md`](../../packages/discord-bot/README.md).
 
 Same `jazz run` contract as Telegram. What Discord adds on top:
 
@@ -135,6 +141,7 @@ Same `jazz run` contract as Telegram. What Discord adds on top:
 | **Thread binding** | An `@mention` in a channel starts a thread; `--conversation` is the thread id so the rest of the room is not the chat. |
 | **3-second ack**   | Slash commands and buttons are acknowledged immediately, then the agent run continues asynchronously.                  |
 | **Allowlists**     | Users, channels, and/or guilds. At least one is required.                                                              |
+| **Any-provider `/model`** | Bare `/model` shows a select menu of the current provider's models; send `/model provider/model` (e.g. `/model anthropic/claude-sonnet-5`) as a normal message — not the slash-command menu, which can't take a free-form value — to switch provider outright. Set that provider's API key as an env var on the bot first (see `.env.example`). |
 
 ---
 
@@ -176,10 +183,10 @@ about a deploy.
 Each bridge ships a `notify.sh` next to it that takes one argument:
 
 ```sh
-~/jazz/integrations/telegram-bot/notify.sh "backup finished, 41 GB, no errors"
-~/jazz/integrations/telegram-bot/notify.sh "$(df -h / | tail -1)"
-~/jazz/integrations/telegram-bot/notify.sh "training run 7 done — val loss 0.312"
-~/jazz/integrations/discord-bot/notify.sh "nightly update rolled back, needs a look"
+~/jazz/packages/telegram-bot/src/notify.sh "backup finished, 41 GB, no errors"
+~/jazz/packages/telegram-bot/src/notify.sh "$(df -h / | tail -1)"
+~/jazz/packages/telegram-bot/src/notify.sh "training run 7 done — val loss 0.312"
+~/jazz/packages/discord-bot/src/notify.sh "nightly update rolled back, needs a look"
 ```
 
 It reads the same `.env` the bridge runs on and posts to the first allowed chat
@@ -215,7 +222,7 @@ Useful from a machine that has no checkout, or when the script itself is what is
 broken. The shape matters more than the URL:
 
 ```sh
-ENV=~/jazz/integrations/telegram-bot/.env
+ENV=~/jazz/packages/telegram-bot/src/.env
 token=$(sed -n 's/^TELEGRAM_BOT_TOKEN=//p' "$ENV" | tail -1)
 chat=$(sed -n 's/^TELEGRAM_ALLOWED_CHAT_IDS=//p' "$ENV" | tail -1 | cut -d, -f1)
 

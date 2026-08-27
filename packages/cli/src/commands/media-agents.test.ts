@@ -31,12 +31,12 @@ function metadata(overrides: Partial<ModelsDevMetadata> = {}): ModelsDevMetadata
   };
 }
 
-function agent(name: string, model: Agent["model"]): Agent {
+function agent(name: string, model: `${string}/${string}`): Agent {
+  const [llmProvider, llmModel] = model.split("/") as [Agent["config"]["llmProvider"], string];
   return {
     id: name,
     name,
-    model,
-    config: { persona: "default", llmProvider: "openai", llmModel: model },
+    config: { persona: "default", llmProvider, llmModel },
     createdAt: new Date(0),
     updatedAt: new Date(0),
   };
@@ -89,7 +89,10 @@ describe("findAgentsWithCapability", () => {
     // An unknown model reads the same as "cannot", which is the safe direction: claiming an
     // agent can generate when it cannot sends the user down a dead end.
     expect(
-      await findAgentsWithCapability([agent("weird", "not-a-model-id" as Agent["model"])], "image"),
+      await findAgentsWithCapability(
+        [agent("weird", "not-a-model-id" as `${string}/${string}`)],
+        "image",
+      ),
     ).toEqual([]);
     expect(
       await findAgentsWithCapability([agent("x", "openai/never-heard-of-it")], "image"),

@@ -29,7 +29,6 @@ import { runWorkflowCommand } from "./workflow";
 const mockAgent: Agent = {
   id: "agent-1",
   name: "ci-reviewer",
-  model: "openai/gpt-4o-mini",
   config: {
     persona: "default",
     llmProvider: "openai",

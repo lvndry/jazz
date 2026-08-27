@@ -1,4 +1,4 @@
-import { formatProviderDisplayName } from "@jazz/core/utils/provider-model";
+import { agentModelString, formatProviderDisplayName } from "@jazz/core/utils/provider-model";
 import { Box, Text, useStdout } from "ink";
 import React from "react";
 import { THEME } from "./theme";
@@ -7,7 +7,6 @@ interface AgentDetailsItem {
   readonly id: string;
   readonly name: string;
   readonly description?: string | undefined;
-  readonly model?: string | undefined;
   readonly createdAt: Date;
   readonly updatedAt: Date;
   readonly config: {
@@ -42,9 +41,7 @@ export function AgentDetailsCard(props: { readonly agent: AgentDetailsItem }): R
   const inner = Math.max(40, width - 2);
 
   const agent = props.agent;
-  const model = agent.model?.trim().length
-    ? agent.model
-    : `${agent.config.llmProvider}/${agent.config.llmModel}`;
+  const model = agentModelString(agent.config);
   const tools = agent.config.tools ?? [];
 
   return (

@@ -315,7 +315,9 @@ jobs:
             let modelLabel = '';
             try {
               const agent = JSON.parse(fs.readFileSync('.github/jazz/agents/ci-reviewer.json', 'utf8'));
-              if (agent.model) modelLabel = `\n\n*Model: ${agent.model}*`;
+              if (agent.config?.llmProvider && agent.config?.llmModel) {
+                modelLabel = `\n\n*Model: ${agent.config.llmProvider}/${agent.config.llmModel}*`;
+              }
             } catch (_) {}
 
             if (jazzExitCode !== 0) {

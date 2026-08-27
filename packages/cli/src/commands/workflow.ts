@@ -8,6 +8,7 @@ import type { Agent } from "@jazz/core/types/agent";
 import type { StreamEvent } from "@jazz/core/types/streaming";
 import { generateConversationId } from "@jazz/core/utils/conversation-id";
 import { describeCronSchedule } from "@jazz/core/utils/cron";
+import { agentModelString } from "@jazz/core/utils/provider-model";
 import {
   getCatchUpCandidates,
   runCatchUpForWorkflows,
@@ -311,7 +312,9 @@ export function runWorkflowCommand(
 
     if (agentResult._tag === "Right") {
       agent = agentResult.right;
-      yield* say(() => terminal.info(`Using agent: ${agent.name} (${agent.model})`));
+      yield* say(() =>
+        terminal.info(`Using agent: ${agent.name} (${agentModelString(agent.config)})`),
+      );
     } else {
       // In non-interactive mode (--auto-approve or --json), fail immediately if agent not found
       if (isNonInteractive) {
@@ -361,7 +364,7 @@ export function runWorkflowCommand(
       }
 
       agent = selectedAgent;
-      yield* terminal.info(`Using agent: ${agent.name} (${agent.model})`);
+      yield* terminal.info(`Using agent: ${agent.name} (${agentModelString(agent.config)})`);
     }
 
     // Determine auto-approve policy

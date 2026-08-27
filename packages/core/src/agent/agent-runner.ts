@@ -40,7 +40,6 @@ import type { AutoApprovePolicy, ToolExecutionContext } from "@/core/types/tools
 import { generateConversationId } from "@/core/utils/conversation-id";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import { resolveOllamaAttachmentSupport } from "@/core/utils/ollama-attachment-support";
-import { parseProviderModel } from "@/core/utils/provider-model";
 import { shouldEnableStreaming } from "@/core/utils/stream-detector";
 import type { ConversationMessages, StreamingConfig } from "../types";
 import { type Agent } from "../types";
@@ -86,11 +85,8 @@ function resolveCanGenerateMedia(
   agent: AgentRunnerOptions["agent"],
 ): Effect.Effect<boolean, never> {
   return Effect.gen(function* () {
-    const parsed = parseProviderModel(agent.model);
-    if (parsed === null) return false;
-
     const metadata = yield* Effect.tryPromise({
-      try: () => getModelsDevMetadata(parsed.model, parsed.provider),
+      try: () => getModelsDevMetadata(agent.config.llmModel, agent.config.llmProvider),
       catch: (error) => error,
     }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
     if (metadata === undefined) return false;
@@ -103,11 +99,8 @@ function resolveSupportedAttachmentKinds(
   agent: AgentRunnerOptions["agent"],
 ): Effect.Effect<readonly AttachmentKind[], never, LLMService> {
   return Effect.gen(function* () {
-    const parsed = parseProviderModel(agent.model);
-    if (parsed === null) return [];
-
     const metadata = yield* Effect.tryPromise({
-      try: () => getModelsDevMetadata(parsed.model, parsed.provider),
+      try: () => getModelsDevMetadata(agent.config.llmModel, agent.config.llmProvider),
       catch: (error) => error,
     }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
 
@@ -115,11 +108,11 @@ function resolveSupportedAttachmentKinds(
     // catalog usually knows nothing about — most local tags are absent from models.dev
     // entirely. Without this, a local multimodal model reads as text-only and jazz refuses to
     // send it an image it can read perfectly well.
-    if (parsed.provider === "ollama") {
+    if (agent.config.llmProvider === "ollama") {
       const llmService = yield* LLMServiceTag;
       const baseUrl = llmService.resolveLocalProviderBaseUrl("ollama", undefined);
       const extras = yield* llmService
-        .fetchOllamaModelDetails(baseUrl, parsed.model)
+        .fetchOllamaModelDetails(baseUrl, agent.config.llmModel)
         .pipe(Effect.catchAll(() => Effect.succeed<OllamaShowExtras>({})));
 
       // Today this only ever yields "image" — the provider cannot transport anything else — but
@@ -399,9 +392,7 @@ function initializeAgentRun(
     // Whether this model can produce media itself. Drives one line of prompt guidance so a
     // text-only agent can point the user at one that can, instead of dead-ending.
     const canGenerateMedia = yield* resolveCanGenerateMedia(agent);
-    const attachmentsAreLocal = isLocalServerProvider(
-      parseProviderModel(agent.model)?.provider ?? "",
-    );
+    const attachmentsAreLocal = isLocalServerProvider(agent.config.llmProvider);
 
     // Build messages — reuses the PersonaService resolved earlier so custom
     // personas can be looked up by name when assembling the system prompt.

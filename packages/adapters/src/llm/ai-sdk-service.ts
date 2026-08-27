@@ -94,12 +94,7 @@ import { z } from "zod";
 import { LLM_PROVIDER_ENV_VARS } from "@/adapters/secrets/registry";
 import { resolveAttachments, type ResolvedAttachments } from "./attachment-resolver";
 import { saveModelGeneratedFiles } from "./generated-files";
-import {
-  createModelFetcher,
-  fetchModelsDevModels,
-  fetchOllamaModelDetails,
-  type ModelFetcherService,
-} from "./model-fetcher";
+import { fetchOllamaModelDetails, listModelsForProvider } from "./model-fetcher";
 import {
   PROVIDER_MODELS,
   resolveLocalProviderBaseUrl,
@@ -1135,7 +1130,6 @@ function schemaCharCount(toolDef: {
 class AISDKService implements LLMService {
   private config: AISDKConfig;
   private readonly providerModels = PROVIDER_MODELS;
-  private readonly modelFetcher: ModelFetcherService;
   private readonly configService: AgentConfigService;
   private lastSeenConfigRevision = -1;
   // Model instance cache: key = "provider:modelId"
@@ -1149,7 +1143,6 @@ class AISDKService implements LLMService {
   ) {
     this.config = config;
     this.configService = configService;
-    this.modelFetcher = createModelFetcher();
   }
 
   private isProviderName(name: string): name is ProviderName {
@@ -1184,47 +1177,16 @@ class AISDKService implements LLMService {
       return Effect.succeed(cached);
     }
 
-    const modelSource = this.providerModels[providerName];
-
-    if (modelSource.type === "models-dev") {
-      return Effect.tryPromise({
-        try: async () => {
-          const resolved = await fetchModelsDevModels(modelSource.catalogId ?? providerName);
-          this.modelInfoCache.set(providerName, resolved);
-          return resolved;
-        },
-        catch: (error) =>
-          new LLMConfigurationError({
-            provider: providerName,
-            message: `Failed to list models from models.dev: ${error instanceof Error ? error.message : String(error)}`,
-          }),
-      });
-    }
-
-    const providerConfig = this.config.llmConfig?.[providerName];
-    const baseUrl =
-      providerName === "ollama" || providerName === "llamacpp"
-        ? resolveLocalProviderBaseUrl(providerName, this.config.llmConfig)
-        : modelSource.defaultBaseUrl;
-
-    if (!baseUrl) {
-      void this.logger.warn(
-        `[LLM Warning] Provider '${providerName}' requires dynamic model fetching but no defaultBaseUrl is defined. Skipping provider.`,
-      );
-      return Effect.succeed([]);
-    }
-
-    const apiKey = providerConfig?.api_key;
-
-    return this.modelFetcher
-      .fetchModels(providerName, baseUrl, modelSource.endpointPath, apiKey)
-      .pipe(
-        Effect.tap((models) =>
-          Effect.sync(() => {
-            this.modelInfoCache.set(providerName, models);
-          }),
-        ),
-      );
+    return listModelsForProvider(providerName, {
+      apiKey: this.config.llmConfig?.[providerName]?.api_key,
+      llmConfig: this.config.llmConfig,
+    }).pipe(
+      Effect.tap((models) =>
+        Effect.sync(() => {
+          this.modelInfoCache.set(providerName, models);
+        }),
+      ),
+    );
   }
 
   private async resolveModelInfo(

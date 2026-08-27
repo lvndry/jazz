@@ -647,7 +647,6 @@ describe("ToolExecutor.executeToolCall approval events", () => {
           parentAgent: {
             id: "agent-1",
             name: "test",
-            model: "openai/gpt-4o-mini",
             config: { persona: "default", llmProvider: "openai", llmModel: "gpt-4o-mini" },
             createdAt: new Date(),
             updatedAt: new Date(),

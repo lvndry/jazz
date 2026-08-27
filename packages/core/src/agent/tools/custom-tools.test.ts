@@ -49,7 +49,6 @@ function makeAgent(
   return {
     id: "agent-1",
     name: "Test Agent",
-    model: "openai/gpt-4",
     config: {
       persona: "default",
       llmProvider: "openai",
@@ -514,7 +513,6 @@ describe("custom tools surfaced through AgentRunner.run toolCalls", () => {
     const agent: Agent = {
       id: "agent-with-custom-tool",
       name: "Custom Tool Agent",
-      model: "openai/gpt-4",
       config: {
         persona: "default",
         llmProvider: "openai",
@@ -642,7 +640,6 @@ describe("custom tools surfaced through AgentRunner.run toolCalls", () => {
     const agent: Agent = {
       id: "agent-with-two-tool-iterations",
       name: "Custom Tool Agent",
-      model: "openai/gpt-4",
       config: {
         persona: "default",
         llmProvider: "openai",
@@ -752,7 +749,6 @@ describe("custom tools surfaced through AgentRunner.run toolCalls", () => {
     const agent: Agent = {
       id: "agent-with-custom-tool-two-turns",
       name: "Custom Tool Agent",
-      model: "openai/gpt-4",
       config: {
         persona: "default",
         llmProvider: "openai",
@@ -871,7 +867,6 @@ describe("custom tools surfaced through AgentRunner.run toolCalls", () => {
     const firstAgent: Agent = {
       id: "agent-original-definition",
       name: "Custom Tool Agent",
-      model: "openai/gpt-4",
       config: {
         persona: "default",
         llmProvider: "openai",
@@ -1147,7 +1142,6 @@ describe("registerCustomToolsForAgent: command-handler execution", () => {
       const agentBWithEmptyAllowlist: Agent = {
         id: "agent-b",
         name: "Agent B",
-        model: "openai/gpt-4",
         config: {
           persona: "default",
           llmProvider: "openai",

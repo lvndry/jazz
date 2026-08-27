@@ -136,8 +136,10 @@ across two network packets is stitched correctly rather than half-rendered.
 
 **Reasoning effort** (`low` / `medium` / `high` / `disable`) is normalized per provider.
 Models without reasoning support error if you ask for it — which is why `--reasoning disable`
-exists and why the Telegram bridge sets it automatically when you switch to a non-reasoning
-local model.
+exists and why the Discord/Telegram bridges' `/model` command sets it automatically from
+whichever source knows that model's capabilities (a local Ollama's own reporting, the
+models.dev catalog, or the provider's own model-listing endpoint), for any provider — not
+just local models.
 
 ---
 

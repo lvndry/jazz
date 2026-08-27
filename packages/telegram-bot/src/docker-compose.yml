@@ -1,8 +1,8 @@
 services:
   jazz-telegram:
     build:
-      context: ../..
-      dockerfile: integrations/telegram-bot/Dockerfile
+      context: ../../..
+      dockerfile: packages/telegram-bot/src/Dockerfile
     image: jazz-telegram-bridge:latest
     container_name: jazz-telegram
     restart: always

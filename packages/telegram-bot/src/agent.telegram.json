@@ -2,7 +2,6 @@
   "id": "telegram",
   "name": "Jazz",
   "description": "Everyday assistant reachable from Telegram.",
-  "model": "__JAZZ_PROVIDER__/__JAZZ_MODEL__",
   "config": {
     "agentType": "default",
     "llmProvider": "__JAZZ_PROVIDER__",

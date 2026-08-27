@@ -10,7 +10,7 @@ import { JazzStateServiceTag, type JazzStateService } from "@jazz/core/interface
 import { ink, TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
 import type { Agent } from "@jazz/core/types/agent";
 import { CLIError, StorageError, StorageNotFoundError } from "@jazz/core/types/errors";
-import { formatProviderDisplayName } from "@jazz/core/utils/provider-model";
+import { agentModelString, formatProviderDisplayName } from "@jazz/core/utils/provider-model";
 import chalk from "chalk";
 import { Effect } from "effect";
 import React from "react";
@@ -181,7 +181,7 @@ function listAgentsWithCapability(
         // Naming the tool gap matters: most media models cannot call tools at all, so an agent
         // that draws may be unable to read a file or search the web.
         const toolNote = supportsTools ? "" : "  (this model has no tools — generation only)";
-        yield* terminal.log(`  ${agent.name}  ${agent.model}${toolNote}`);
+        yield* terminal.log(`  ${agent.name}  ${agentModelString(agent.config)}${toolNote}`);
       }
       yield* terminal.log(`\nStart one with: jazz agent chat <name>`);
       return;
@@ -189,7 +189,7 @@ function listAgentsWithCapability(
 
     yield* terminal.log(`None of your agents can generate ${capability}.\n`);
 
-    const providers = [...new Set(agents.map((agent) => agent.model.split("/")[0] ?? ""))].filter(
+    const providers = [...new Set(agents.map((agent) => agent.config.llmProvider))].filter(
       (provider) => provider.length > 0,
     );
     const suggestions = yield* Effect.tryPromise({
@@ -371,7 +371,6 @@ export function getAgentCommand(
               id: agent.id,
               name: agent.name,
               description: agent.description,
-              model: agent.model,
               createdAt: agent.createdAt,
               updatedAt: agent.updatedAt,
               config: {
@@ -397,7 +396,6 @@ function formatAgentDetailsBlock(agent: {
   readonly id: string;
   readonly name: string;
   readonly description?: string | undefined;
-  readonly model?: string | undefined;
   readonly createdAt: Date;
   readonly updatedAt: Date;
   readonly config: {
@@ -417,9 +415,7 @@ function formatAgentDetailsBlock(agent: {
   const sep = `${g.boxML}${g.boxH.repeat(innerWidth)}${g.boxMR}`;
   const v = chalk.dim(g.boxV);
 
-  const model = agent.model?.trim().length
-    ? agent.model
-    : `${agent.config.llmProvider}/${agent.config.llmModel}`;
+  const model = agentModelString(agent.config);
   const tools = agent.config.tools ?? [];
 
   const lines: string[] = [];

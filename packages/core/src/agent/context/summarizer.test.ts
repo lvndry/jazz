@@ -27,7 +27,6 @@ function createMockAgent(overrides: Partial<Agent> = {}): Agent {
     id: "test-agent",
     name: "Test Agent",
     description: "A test agent",
-    model: "openai/gpt-4",
     config,
     createdAt: new Date(),
     updatedAt: new Date(),

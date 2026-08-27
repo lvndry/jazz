@@ -80,7 +80,6 @@ export class AgentServiceImpl implements AgentService {
           id,
           name,
           ...(description !== undefined && { description }),
-          model: `${agentConfig.llmProvider}/${agentConfig.llmModel}`,
           config: agentConfig,
           createdAt: now,
           updatedAt: now,
@@ -157,7 +156,6 @@ export class AgentServiceImpl implements AgentService {
           id: existingAgent.id, // Ensure ID cannot be changed
           createdAt: existingAgent.createdAt, // Ensure createdAt cannot be changed
           updatedAt: new Date(),
-          model: `${updatedConfig.llmProvider}/${updatedConfig.llmModel}`,
           config: updatedConfig,
         };
 

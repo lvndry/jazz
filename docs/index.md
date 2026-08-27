@@ -29,6 +29,7 @@ chat. Any model, including local ones. These docs are organized by what you're t
 
 - [Quick Start](./guide/quick-start.md) — install, configure a provider, first answer
 - [Creating Agents](./guide/creating-agents.md) — build an agent for a job
+- [Creating a Telegram or Discord bot](./guide/chat-bots.md) — bot token to a working agent in your chats
 - [Airgapped & Self-Hosted](./guide/airgapped.md) — fully offline with Ollama or llama.cpp
 - [Observability](./guide/observability.md) — telemetry to your own OpenTelemetry collector or Langfuse
 

@@ -36,7 +36,6 @@ Agents are one JSON file each under `~/.jazz/agents/<id>.json`:
 {
   "id": "1MeNdd1bmkf498bzCoTGKL",
   "name": "reviewer",
-  "model": "anthropic/claude-sonnet-4-5",
   "config": {
     "persona": "coder",
     "llmProvider": "anthropic",
@@ -46,9 +45,6 @@ Agents are one JSON file each under `~/.jazz/agents/<id>.json`:
   }
 }
 ```
-
-Note that `model` is the combined `provider/model` string while `llmProvider` and `llmModel`
-hold it split — the separator is a **slash**, not a colon.
 
 Useful optional fields:
 

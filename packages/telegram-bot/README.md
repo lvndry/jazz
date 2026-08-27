@@ -16,8 +16,8 @@ Telegram  ◀──(getUpdates long-poll)──▶  bridge  ──jazz run --jso
 
 - 🤖 **Any Jazz agent over Telegram** — a full tool-using agent, not an echo bot.
 - 🔌 **Bring your own model** — OpenAI `gpt-5.4` out of the box, or any provider Jazz supports (including local Ollama, no keys/cost).
-- 🎛️ **Per-person `/model` and `/persona`** — each user picks their own via inline keyboards; choices persist.
-- ♻️ **Auto reasoning** — switching to an Ollama model reads its advertised capabilities and enables/disables thinking so non-thinking models don't error.
+- 🎛️ **Per-person `/model` and `/persona`** — `/model` picks from an inline keyboard of the current provider's models, or `/model openai/gpt-5.2` switches to any other provider Jazz supports outright; each user keeps their own choice.
+- ♻️ **Auto reasoning** — switching model reads its advertised capabilities and enables/disables thinking so non-thinking models don't error.
 - 📡 **Live progress** — a status bubble updates in real time with the agent's thinking, tool calls, sub-agents (🤖), and tools awaiting approval (⛔); it closes with a `✅ Done · tools · tokens · $cost` summary, and the answer lands as a new message (so it notifies).
 - ⏰ **Reminders** — `/remind 30m …` or plain language ("remind me in 2 hours …"), scheduled by the agent itself via a native tool, resolved in your own timezone (`/tz`, or auto-set from a shared location) and delivered even across restarts.
 - 📍 **Location aware** — share a pin to get oriented, find nearby places, and set your timezone automatically.
@@ -43,7 +43,7 @@ Telegram  ◀──(getUpdates long-poll)──▶  bridge  ──jazz run --jso
 name and a username ending in `bot`, copy the token. Get your numeric chat id from
 [@userinfobot](https://t.me/userinfobot).
 
-**2. Configure.** From this directory (`integrations/telegram-bot/` in the Jazz repo):
+**2. Configure.** From this directory (`packages/telegram-bot/src/` in the Jazz repo):
 
 ```sh
 cp .env.example .env
@@ -68,7 +68,7 @@ Message your bot: it shows a "typing…" indicator, then the agent's reply.
 | Command                 | What it does                                                                                                                                                                                                                 |
 | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | _(any message)_         | Answered by your agent                                                                                                                                                                                                       |
-| `/model`                | Inline keyboard of models pulled in Ollama — pick one (switches you to that local model)                                                                                                                                     |
+| `/model`                | Inline keyboard of the current provider's models; `/model provider/model` (e.g. `anthropic/claude-sonnet-5`) switches you to a different provider outright                                                          |
 | `/persona`              | Inline keyboard of available personas                                                                                                                                                                                        |
 | `/new` (`/reset`)       | Start a fresh conversation — clears earlier context; keeps your model/persona                                                                                                                                                |
 | `/remind <when> <text>` | Schedule a reminder DM. `<when>` = `30m`, `1h30m`, `90s`, `2d`, `18:00`, `tomorrow 09:00`, `tue 20:00`, or `2026-08-25 20:00`. Routed through a normal agent turn, which calls the `add_reminder` tool.                      |
@@ -118,8 +118,12 @@ bridge was down fires on next start, marked `(delayed)`). Relative durations
 Each Telegram user gets an independent agent (`tg_<chat_id>.json`, cloned from the
 `telegram` template on first contact), so `/model` and `/persona` change only _your_
 experience. `JAZZ_TELEGRAM_PROVIDER` / `JAZZ_TELEGRAM_MODEL` / `JAZZ_REASONING` set
-the defaults new chats start from. (`/model` lists Ollama models — handy when you
-run Ollama; cloud users typically just keep the default.)
+the defaults new chats start from. Bare `/model` lists whatever your current
+provider offers. To let people switch to a **different** provider —
+`/model anthropic/claude-sonnet-5`, for example — set that provider's API key
+as an env var on the bot (see `.env.example` for the full list, e.g.
+`ANTHROPIC_API_KEY`) and restart the container; `JAZZ_TELEGRAM_PROVIDER`/`MODEL`
+don't need to change — they only set what a brand-new chat starts on.
 
 **Mail & calendar.** The image ships [Himalaya](https://github.com/pimalaya/himalaya)
 (email), [khal](https://github.com/pimutils/khal) + [vdirsyncer](https://github.com/pimutils/vdirsyncer)
@@ -249,11 +253,11 @@ Full walkthrough, including the connection-race recovery in more detail, is in t
 | `TELEGRAM_ALLOWED_CHAT_IDS`          | —                                       | **Required.** Comma-separated chat ids allowed to use the bot.                                                                                                                                                                                                          |
 | `JAZZ_TELEGRAM_PROVIDER`             | `openai`                                | LLM provider — `openai`, `openrouter`, `anthropic`, `groq`, `mistral`, `deepseek`, `xai`, `ollama`, …                                                                                                                                                                   |
 | `JAZZ_TELEGRAM_MODEL`                | `gpt-5.4`                               | Default model id for the provider.                                                                                                                                                                                                                                      |
-| `OPENAI_API_KEY` (or provider's key) | —                                       | API key for the chosen provider (`OPENROUTER_API_KEY`, `ANTHROPIC_API_KEY`, …). Not needed for `ollama`.                                                                                                                                                                |
+| `OPENAI_API_KEY` (+ others)          | —                                       | API key for the default provider. Set any other provider's key too (`ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, …, see `.env.example` for the full list) to let `/model` switch to it. Not needed for local `ollama`/`llamacpp`.                                       |
 | `BRAVE_API_KEY`                      | —                                       | If set, `web_search` uses Brave (configured as the provider in `config.json`).                                                                                                                                                                                          |
 | `JAZZ_OLLAMA_KEEP_ALIVE`             | —                                       | How long a local Ollama keeps the model loaded (`keep_alive`): `-1` pins it indefinitely, or a duration like `30m`. Unset uses Ollama's 5-minute default, so the first message after a quiet spell pays a full cold model load with no progress shown while it happens. |
 | `JAZZ_REASONING`                     | `medium`                                | `disable`\|`low`\|`medium`\|`high`.                                                                                                                                                                                                                                     |
-| `OLLAMA_BASE_URL`                    | `http://host.docker.internal:11434/api` | Ollama endpoint (only for `provider=ollama` / `/model`).                                                                                                                                                                                                                |
+| `OLLAMA_BASE_URL`                    | `http://host.docker.internal:11434/api` | Ollama endpoint, used whenever a conversation's provider is `ollama` (default or via `/model`).                                                                                                                                                                                                                |
 | `JAZZ_APPROVAL_POLICY`               | `low-risk`                              | Auto-approve tools up to: `read-only`\|`low-risk`\|`high-risk`.                                                                                                                                                                                                         |
 | `JAZZ_AUTO_APPROVE_TOOLS`            | —                                       | Comma-separated tool names to auto-approve regardless of policy (e.g. `execute_command`) — narrower than raising the whole tier. Tools needing approval that aren't in this list are sent to the chat as an accept/reject prompt instead of being declined.             |
 | `JAZZ_RUN_TIMEOUT_MS`                | `300000`                                | Per-message agent timeout.                                                                                                                                                                                                                                              |
@@ -264,7 +268,9 @@ Full walkthrough, including the connection-race recovery in more detail, is in t
 
 > **Model ↔ reasoning:** reasoning-capable models (`gpt-5.4`, qwen3, …) work with
 > `medium`/`high`; models without it (mistral-small, gemma, …) error unless
-> reasoning is `disable`. `/model` sets this automatically for Ollama models.
+> reasoning is `disable`. `/model` sets this automatically, from whichever
+> source knows that model's capabilities: a local Ollama's own reporting, the
+> models.dev catalog, or the provider's own model-listing endpoint.
 
 ## How it works
 
@@ -295,7 +301,7 @@ update on its own. To update manually:
 
 ```sh
 cd <repo> && git pull origin main
-cd integrations/telegram-bot && docker compose -p jazz-telegram up -d --build
+cd packages/telegram-bot/src && docker compose -p jazz-telegram up -d --build
 ```
 
 **Nightly auto-update:** `auto-update.sh` fast-forwards to the latest `origin/main`,
@@ -303,7 +309,7 @@ rebuilds only if it changed, and rolls back if the new build fails to build or
 isn't healthy. Install it (as the deploy user):
 
 ```sh
-(crontab -l 2>/dev/null; echo "30 4 * * * $HOME/jazz/integrations/telegram-bot/auto-update.sh >> $HOME/jazz-autoupdate.log 2>&1") | crontab -
+(crontab -l 2>/dev/null; echo "30 4 * * * $HOME/jazz/packages/telegram-bot/src/auto-update.sh >> $HOME/jazz-autoupdate.log 2>&1") | crontab -
 ```
 
 **Sending yourself a message:** `notify.sh` posts one message to the first allowed

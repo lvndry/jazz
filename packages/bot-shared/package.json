@@ -9,5 +9,9 @@
       "./src/*.ts",
       "./src/*/index.ts"
     ]
+  },
+  "dependencies": {
+    "@jazz/adapters": "workspace:*",
+    "@jazz/core": "workspace:*"
   }
 }

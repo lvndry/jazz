@@ -5,7 +5,7 @@ JAZZ_HOME="${JAZZ_HOME:-/data}"
 JAZZ_DISCORD_PROVIDER="${JAZZ_DISCORD_PROVIDER:-openai}"
 JAZZ_DISCORD_MODEL="${JAZZ_DISCORD_MODEL:-gpt-5.4}"
 JAZZ_REASONING="${JAZZ_REASONING:-medium}"
-AGENT_TEMPLATE="/app/integrations/discord-bot/agent.discord.json"
+AGENT_TEMPLATE="/app/packages/discord-bot/src/agent.discord.json"
 
 mkdir -p "${JAZZ_HOME}/agents"
 
@@ -14,7 +14,7 @@ mkdir -p "${JAZZ_HOME}/agents"
 # wholesale discarded their settings on every restart.
 # The bridge asks for reasoning and text events, and jazz selects the streaming path
 # for those on its own — nothing here needs to force it.
-bun /app/integrations/shared/write-bridge-config.ts "${JAZZ_HOME}/config.json"
+bun /app/packages/bot-shared/src/write-bridge-config.ts "${JAZZ_HOME}/config.json"
 
 sed -e "s#__JAZZ_PROVIDER__#${JAZZ_DISCORD_PROVIDER}#g" \
     -e "s#__JAZZ_MODEL__#${JAZZ_DISCORD_MODEL}#g" \
@@ -22,4 +22,4 @@ sed -e "s#__JAZZ_PROVIDER__#${JAZZ_DISCORD_PROVIDER}#g" \
     "${AGENT_TEMPLATE}" > "${JAZZ_HOME}/agents/discord.json"
 echo "Seeded agent 'discord' (model=${JAZZ_DISCORD_PROVIDER}/${JAZZ_DISCORD_MODEL}, reasoning=${JAZZ_REASONING}) into ${JAZZ_HOME}/agents"
 
-exec bun /app/integrations/discord-bot/bridge.ts
+exec bun /app/packages/discord-bot/src/bridge.ts

@@ -9,13 +9,32 @@
  * Runs on Bun. All configuration is via environment variables (see .env.example).
  */
 
-import { existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { NodeFileSystem } from "@effect/platform-node";
 import { ReminderServiceImpl } from "@jazz/adapters/reminder-service";
+import { listPersonaNames } from "@jazz/bot-shared/personas";
+import { listModelsForProvider } from "@jazz/bot-shared/provider-models";
 import { reasoningSnippet, splitReasoning } from "@jazz/bot-shared/reasoning";
 import { createRunLog, type RunLog } from "@jazz/bot-shared/run-log";
+import {
+  conversationKey,
+  isIncognito,
+  setIncognito,
+  startNewConversation,
+} from "@jazz/bot-shared/session-store";
+import {
+  formatWhen,
+  hasChatTz,
+  isValidTimeZone,
+  setTzForChat,
+  tzForChat,
+} from "@jazz/bot-shared/timezone-store";
+import { dailyCostCapBlockReason, recordUsage, todayUsage } from "@jazz/bot-shared/usage-store";
+import { AVAILABLE_PROVIDERS, type ProviderName } from "@jazz/core/constants/models";
 import type { ReminderRecord } from "@jazz/core/interfaces/reminder-service";
+import { getModelsDevMetadata } from "@jazz/core/utils/models-dev";
+import { parseProviderModel } from "@jazz/core/utils/provider-model";
 import { Effect } from "effect";
 import {
   type AccessConfig,
@@ -80,9 +99,11 @@ import {
   threadNameFromPrompt,
 } from "./discord-md";
 import { startReminderSweep } from "./reminders";
-import { conversationKey, isIncognito, setIncognito, startNewConversation } from "./sessions";
-import { formatWhen, hasChatTz, isValidTimeZone, setTzForChat, tzForChat } from "./timezone";
-import { dailyCostCapBlockReason, recordUsage, todayUsage } from "./usage";
+
+const TZ_FILE = "dc-tz.json";
+const USAGE_FILE = "dc-usage.json";
+const EPOCHS_FILE = "dc-sessions.json";
+const INCOGNITO_FILE = "dc-incognito.json";
 
 // The text the progress message is created with. The reporter starts from it so
 // its first render is not sent as an edit to identical content.
@@ -125,7 +146,6 @@ interface BridgeConfig extends AccessConfig {
   readonly runTimeoutMs: number;
   readonly jazzBinary: string;
   readonly jazzHome: string;
-  readonly ollamaBaseUrl: string;
   readonly builtinPersonasDir: string;
   readonly port: number;
   readonly dailyCostCapUsd: number;
@@ -223,7 +243,6 @@ function loadConfig(): BridgeConfig {
     runTimeoutMs: Number.parseInt(process.env["JAZZ_RUN_TIMEOUT_MS"]?.trim() || "300000", 10),
     jazzBinary: process.env["JAZZ_BIN"]?.trim() || "jazz",
     jazzHome: process.env["JAZZ_HOME"]?.trim() || "/data",
-    ollamaBaseUrl: process.env["OLLAMA_BASE_URL"]?.trim() || "http://localhost:11434/api",
     builtinPersonasDir: process.env["JAZZ_BUILTIN_PERSONAS_DIR"]?.trim() || "/opt/jazz/personas",
     port: Number.parseInt(process.env["PORT"]?.trim() || "8080", 10),
     dailyCostCapUsd: Number.parseFloat(process.env["JAZZ_DAILY_COST_CAP_USD"]?.trim() || "0") || 0,
@@ -517,7 +536,7 @@ async function runJazz(
   onEvent: (event: JazzEvent) => void,
   runToken: string,
 ): Promise<JazzEnvelope> {
-  const incognito = isIncognito(config.jazzHome, channelId);
+  const incognito = isIncognito(config.jazzHome, INCOGNITO_FILE, channelId);
   const priorIncognitoMessages = incognito ? incognitoHistory.get(channelId) : undefined;
   const child = Bun.spawn(
     [
@@ -536,7 +555,7 @@ async function runJazz(
         ? ["--auto-approve-tools", config.autoApproveTools.join(",")]
         : []),
       "--timezone",
-      tzForChat(config.jazzHome, channelId),
+      tzForChat(config.jazzHome, TZ_FILE, channelId),
       ...(incognito
         ? [
             "--ephemeral",
@@ -544,7 +563,7 @@ async function runJazz(
               ? ["--history-json", JSON.stringify(priorIncognitoMessages)]
               : []),
           ]
-        : ["--conversation", conversationKey(config.jazzHome, channelId)]),
+        : ["--conversation", conversationKey(config.jazzHome, EPOCHS_FILE, channelId)]),
       "--timeout",
       String(config.runTimeoutMs),
       prompt,
@@ -640,7 +659,7 @@ async function handleMessage(
 ): Promise<void> {
   ensureChatAgent(config.jazzHome, channelId, config.baseAgentId);
 
-  const usage = todayUsage(config.jazzHome);
+  const usage = todayUsage(config.jazzHome, USAGE_FILE);
   const capBlockReason = dailyCostCapBlockReason(usage, config.dailyCostCapUsd);
   if (capBlockReason === "unpriced") {
     await sendReply(
@@ -677,7 +696,10 @@ async function handleMessage(
 
   // Opened before the run so a crash or timeout still leaves a record: the
   // conversation transcript is only written once a run completes.
-  const runLog = createRunLog(config.jazzHome, conversationKey(config.jazzHome, channelId));
+  const runLog = createRunLog(
+    config.jazzHome,
+    conversationKey(config.jazzHome, EPOCHS_FILE, channelId),
+  );
   let runLogged = false;
   const reporter =
     messageId !== undefined
@@ -716,6 +738,7 @@ async function handleMessage(
       const costKnown = envelope.costKnown !== false;
       recordUsage(
         config.jazzHome,
+        USAGE_FILE,
         envelope.costUSD,
         envelope.tokenUsage?.totalTokens ?? 0,
         costKnown,
@@ -933,7 +956,8 @@ const HELP_TEXT = [
   "I'm your Jazz assistant. Mention me in a server (or just talk here in DMs) and I'll answer.",
   "",
   "Commands:",
-  "`/model` — pick which Ollama model I use (just for this conversation)",
+  "`/model` — pick a model for the current provider, or `/model provider/model` for any other " +
+    "provider Jazz supports (e.g. `anthropic/claude-sonnet-5`)",
   "`/persona` — pick my persona / style",
   "`/new` — start a fresh conversation (clears earlier context)",
   "`/incognito` — start a private conversation (nothing saved) until `/new`",
@@ -952,7 +976,10 @@ const SLASH_COMMANDS: readonly SlashCommand[] = [
   { name: "status", description: "Model, today's usage, uptime" },
   { name: "new", description: "Start a fresh conversation (clears earlier context)" },
   { name: "incognito", description: "Start a private conversation (nothing saved) until /new" },
-  { name: "model", description: "Pick which Ollama model I use (just for this conversation)" },
+  {
+    name: "model",
+    description: "Pick a model for the current provider (send /model provider/model to switch)",
+  },
   { name: "persona", description: "Pick my persona / style" },
   { name: "reminders", description: "List and cancel your reminders" },
   {
@@ -1008,57 +1035,8 @@ async function cancelReminderForChannel(
   return outcome.success;
 }
 
-async function listOllamaModels(config: BridgeConfig): Promise<string[]> {
-  try {
-    const response = await fetch(`${config.ollamaBaseUrl}/tags`);
-    const data = (await response.json()) as { models?: { name?: string }[] };
-    const names = (data.models ?? [])
-      .map((entry) => entry.name)
-      .filter((name): name is string => typeof name === "string");
-    return names.sort((left, right) => left.localeCompare(right));
-  } catch (error) {
-    console.error(`Failed to list Ollama models: ${String(error)}`);
-    return [];
-  }
-}
-
-async function modelSupportsThinking(config: BridgeConfig, model: string): Promise<boolean> {
-  try {
-    const response = await fetch(`${config.ollamaBaseUrl}/show`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ model, name: model }),
-    });
-    const data = (await response.json()) as { capabilities?: string[] };
-    return Array.isArray(data.capabilities) && data.capabilities.includes("thinking");
-  } catch (error) {
-    console.error(`Failed to probe model capabilities for ${model}: ${String(error)}`);
-    return false;
-  }
-}
-
-function listPersonasIn(directory: string): string[] {
-  if (!existsSync(directory)) return [];
-  try {
-    return readdirSync(directory, { withFileTypes: true })
-      .filter(
-        (entry) => entry.isDirectory() && existsSync(join(directory, entry.name, "persona.md")),
-      )
-      .map((entry) => entry.name);
-  } catch {
-    return [];
-  }
-}
-
-function listPersonas(config: BridgeConfig): string[] {
-  const found = new Set<string>([
-    ...listPersonasIn(config.builtinPersonasDir),
-    ...listPersonasIn(join(config.jazzHome, "personas")),
-  ]);
-  found.delete("summarizer");
-  const names = [...found];
-  if (names.length === 0) return ["default", "coder", "researcher"];
-  return names.sort((left, right) => left.localeCompare(right));
+function listPersonas(config: BridgeConfig): Promise<string[]> {
+  return listPersonaNames(config.jazzHome, config.builtinPersonasDir);
 }
 
 interface CommandResult {
@@ -1090,8 +1068,10 @@ async function handleCommand(
   if (command === "tz" || command === "timezone") {
     const requested = args.trim();
     if (requested.length === 0) {
-      const current = tzForChat(config.jazzHome, channelId);
-      const suffix = hasChatTz(config.jazzHome, channelId) ? "" : " (default — not set by you yet)";
+      const current = tzForChat(config.jazzHome, TZ_FILE, channelId);
+      const suffix = hasChatTz(config.jazzHome, TZ_FILE, channelId)
+        ? ""
+        : " (default — not set by you yet)";
       return {
         content:
           `🌍 Your timezone: \`${current}\`${suffix}\n` +
@@ -1106,7 +1086,7 @@ async function handleCommand(
           "`Europe/Paris`, `America/New_York`, or `Asia/Tokyo`.",
       };
     }
-    setTzForChat(config.jazzHome, channelId, requested);
+    setTzForChat(config.jazzHome, TZ_FILE, channelId, requested);
     return {
       content:
         `✅ Timezone set to \`${requested}\`. Local time now: ${formatWhen(Date.now(), requested)}.\n` +
@@ -1121,7 +1101,7 @@ async function handleCommand(
     if (mine.length === 0) {
       return { content: "No reminders set. Use `/remind when:<when> text:<text>`." };
     }
-    const tz = tzForChat(config.jazzHome, channelId);
+    const tz = tzForChat(config.jazzHome, TZ_FILE, channelId);
     const rows = mine
       .slice(0, 25)
       .map((reminder) =>
@@ -1137,12 +1117,12 @@ async function handleCommand(
   }
 
   if (command === "new" || command === "reset") {
-    const wasIncognito = isIncognito(config.jazzHome, channelId);
+    const wasIncognito = isIncognito(config.jazzHome, INCOGNITO_FILE, channelId);
     if (wasIncognito) {
-      setIncognito(config.jazzHome, channelId, false);
+      setIncognito(config.jazzHome, INCOGNITO_FILE, channelId, false);
       incognitoHistory.delete(channelId);
     }
-    startNewConversation(config.jazzHome, channelId);
+    startNewConversation(config.jazzHome, EPOCHS_FILE, channelId);
     return {
       content: wasIncognito
         ? "🆕 Incognito conversation ended and discarded. Back to normal — your model and persona stay the same."
@@ -1151,7 +1131,7 @@ async function handleCommand(
   }
 
   if (command === "incognito") {
-    setIncognito(config.jazzHome, channelId, true);
+    setIncognito(config.jazzHome, INCOGNITO_FILE, channelId, true);
     incognitoHistory.delete(channelId);
     return {
       content:
@@ -1160,15 +1140,15 @@ async function handleCommand(
   }
 
   if (command === "status") {
-    const day = todayUsage(config.jazzHome);
+    const day = todayUsage(config.jazzHome, USAGE_FILE);
     const cap = config.dailyCostCapUsd;
     const lines = [
       "📊 **Status**",
-      ...(isIncognito(config.jazzHome, channelId)
+      ...(isIncognito(config.jazzHome, INCOGNITO_FILE, channelId)
         ? ["🕶️ Incognito — nothing being saved right now"]
         : []),
       `Model: \`${agent.config.llmProvider}/${agent.config.llmModel}\` (reasoning: ${agent.config.reasoningEffort})`,
-      `Timezone: \`${tzForChat(config.jazzHome, channelId)}\`${hasChatTz(config.jazzHome, channelId) ? "" : " (default)"}`,
+      `Timezone: \`${tzForChat(config.jazzHome, TZ_FILE, channelId)}\`${hasChatTz(config.jazzHome, TZ_FILE, channelId) ? "" : " (default)"}`,
       `Today: ${day.runs} runs · ${formatTokenCount(day.tokens)} tok · $${day.costUSD.toFixed(4)}${(day.unpricedRuns ?? 0) > 0 ? ` · ${day.unpricedRuns} unpriced` : ""}`,
       `Daily cap: ${cap > 0 ? `$${cap.toFixed(2)}` : "none"}`,
       `Uptime: ${formatUptime(Date.now() - BRIDGE_STARTED_AT)}`,
@@ -1177,23 +1157,61 @@ async function handleCommand(
   }
 
   if (command === "model") {
-    const models = await listOllamaModels(config);
+    const requested = args.trim();
+    if (requested.length > 0) {
+      const parsed = parseProviderModel(requested);
+      if (parsed === null) {
+        return {
+          content:
+            `⚠️ Usage: \`/model provider/model\`, e.g. \`/model openai/gpt-5.2\`.\n` +
+            `Providers: ${AVAILABLE_PROVIDERS.join(", ")}`,
+        };
+      }
+      const metadata = await getModelsDevMetadata(parsed.model, parsed.provider);
+      agent.config.llmProvider = parsed.provider;
+      agent.config.llmModel = parsed.model;
+      if (metadata !== undefined) {
+        agent.config.reasoningEffort = metadata.isReasoningModel ? "medium" : "disable";
+      }
+      writeAgentFile(config.jazzHome, agent);
+      return {
+        content:
+          `✅ Model → ${parsed.provider}/${parsed.model}` +
+          (metadata !== undefined
+            ? `\nReasoning: ${agent.config.reasoningEffort}`
+            : "\n⚠️ Unknown model in the catalog — reasoning setting left unchanged."),
+      };
+    }
+
+    const provider = agent.config.llmProvider;
+    if (!(AVAILABLE_PROVIDERS as readonly string[]).includes(provider)) {
+      return {
+        content:
+          `⚠️ Unknown provider \`${provider}\` on this conversation's agent. ` +
+          "Set one with `/model provider/model`.",
+      };
+    }
+    const models = await listModelsForProvider(provider as ProviderName);
     if (models.length === 0) {
-      return { content: "⚠️ No models available from Ollama right now." };
+      return {
+        content:
+          `⚠️ No models available for \`${provider}\` right now — check its API key is set. ` +
+          "Switch provider directly with `/model provider/model`, e.g. `/model openai/gpt-5.2`.",
+      };
     }
     const options = models.slice(0, 25).map((model) => ({
-      label: model,
-      value: model,
-      default: model === agent.config.llmModel,
+      label: model.id,
+      value: model.id,
+      default: model.id === agent.config.llmModel,
     }));
     return {
-      content: "Pick a model:",
+      content: `Pick a ${provider} model, or use /model provider/model to switch provider:`,
       components: [actionRow([stringSelect("m", "Model", options)])],
     };
   }
 
   if (command === "persona") {
-    const personas = listPersonas(config);
+    const personas = await listPersonas(config);
     const options = personas.slice(0, 25).map((persona) => ({
       label: persona,
       value: persona,
@@ -1214,10 +1232,11 @@ async function applyModelChoice(
   model: string,
 ): Promise<string> {
   const agent = ensureChatAgent(config.jazzHome, channelId, config.baseAgentId);
-  const reasoning = (await modelSupportsThinking(config, model)) ? "medium" : "disable";
-  agent.model = `ollama/${model}`;
+  const models = await listModelsForProvider(agent.config.llmProvider as ProviderName);
+  const reasoning = models.find((entry) => entry.id === model)?.isReasoningModel
+    ? "medium"
+    : "disable";
   agent.config.llmModel = model;
-  agent.config.llmProvider = "ollama";
   agent.config.reasoningEffort = reasoning;
   writeAgentFile(config.jazzHome, agent);
   return `✅ Model → ${model}\nReasoning: ${reasoning}`;

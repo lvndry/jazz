@@ -148,7 +148,6 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
             id: `subagent-${++subagentCounter}-${Date.now()}`,
             name: subagentLabel,
             description: `Ephemeral sub-agent spawned for: ${args.task.substring(0, 100)}`,
-            model: parentAgent.model,
             config: {
               ...parentAgent.config,
               persona: args.persona ?? "default",

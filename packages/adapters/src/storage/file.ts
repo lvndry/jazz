@@ -138,8 +138,7 @@ export class FileStorageService implements StorageService {
           );
         }
 
-        const rawData = migration.record as Omit<Agent, "createdAt" | "updatedAt" | "model"> & {
-          readonly model?: string;
+        const rawData = migration.record as Omit<Agent, "createdAt" | "updatedAt"> & {
           readonly createdAt?: string;
           readonly updatedAt?: string;
         };
@@ -178,7 +177,6 @@ export class FileStorageService implements StorageService {
 
         const agent: Agent = {
           ...rawData,
-          model: `${configWithNormalizedTools.llmProvider}/${configWithNormalizedTools.llmModel}`,
           config: configWithNormalizedTools,
           createdAt,
           updatedAt,

@@ -61,9 +61,9 @@ RUN bun install --frozen-lockfile
 # walking up to the package.json named "jazz-ai", so the whole tree is copied.
 COPY . .
 
-RUN printf '#!/bin/sh\nexec bun /app/src/main.ts "$@"\n' > /usr/local/bin/jazz \
+RUN printf '#!/bin/sh\nexec bun /app/packages/runtime/src/entry.ts "$@"\n' > /usr/local/bin/jazz \
     && chmod +x /usr/local/bin/jazz \
-    && chmod +x /app/integrations/telegram-bot/entrypoint.sh
+    && chmod +x /app/packages/telegram-bot/src/entrypoint.sh
 
 ENV JAZZ_HOME=/data \
     JAZZ_BIN=jazz \
@@ -74,4 +74,4 @@ ENV JAZZ_HOME=/data \
     PORT=8080
 
 EXPOSE 8080
-ENTRYPOINT ["/app/integrations/telegram-bot/entrypoint.sh"]
+ENTRYPOINT ["/app/packages/telegram-bot/src/entrypoint.sh"]

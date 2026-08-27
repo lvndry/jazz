@@ -7,6 +7,7 @@ import { JazzStateServiceTag } from "@jazz/core/interfaces/jazz-state";
 import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
 import type { Agent } from "@jazz/core/types/index";
 import type { ChatMessage } from "@jazz/core/types/message";
+import { agentModelString } from "@jazz/core/utils/provider-model";
 import { Effect } from "effect";
 import { deleteAgentCommand } from "./agent-management";
 import { configWizardCommand } from "./config-wizard";
@@ -371,7 +372,7 @@ function startChatWithAgent(
     yield* terminal.clear();
     yield* terminal.heading(`Starting chat with: ${agent.name}`);
     yield* terminal.log(
-      `${agent.model} - Reasoning: ${agent.config.reasoningEffort ?? "disabled"}`,
+      `${agentModelString(agent.config)} - Reasoning: ${agent.config.reasoningEffort ?? "disabled"}`,
     );
     if (agent.description) {
       yield* terminal.log(`Description: ${agent.description}`);
@@ -431,7 +432,7 @@ function resumeConversation(agents: readonly Agent[], terminal: TerminalService)
     entries.sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
 
     const choices = entries.map((entry, idx) => ({
-      name: `${entry.title} · ${entry.agent.model}`,
+      name: `${entry.title} · ${agentModelString(entry.agent.config)}`,
       value: String(idx),
     }));
 

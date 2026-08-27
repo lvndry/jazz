@@ -276,7 +276,6 @@ describe("Shell Tools", () => {
       const parentAgent: Agent = {
         id: "test-agent",
         name: "test-agent",
-        model: "openai/gpt-4o",
         config: {
           persona: "default",
           llmProvider: "openai",

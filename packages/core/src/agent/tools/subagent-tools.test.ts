@@ -67,7 +67,6 @@ const parentAgent: Agent = {
   id: "parent-agent",
   name: "Parent",
   description: "",
-  model: "test-provider/test-model",
   config: { persona: "default" } as Agent["config"],
   createdAt: new Date(),
   updatedAt: new Date(),
