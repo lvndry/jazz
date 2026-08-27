@@ -270,6 +270,7 @@ export function runCatchUpForWorkflows(
         agent: agentResult.right,
         userInput: workflowContent.prompt,
         conversationId: runId,
+        pinInitialMessage: true,
         ...(workflow.maxIterations != null ? { maxIterations: workflow.maxIterations } : {}),
         ...(autoApprovePolicy !== undefined ? { autoApprovePolicy } : {}),
       }).pipe(

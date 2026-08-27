@@ -418,6 +418,7 @@ function initializeAgentRun(
         }),
         ...(triggeredSkillNames.length > 0 && { triggeredSkillNames }),
         ...(projectInstructions.length > 0 && { projectInstructions }),
+        ...(options.pinInitialMessage === true ? { pinInitialMessage: true } : {}),
       },
       resolvedPersonaService,
     );

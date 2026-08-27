@@ -135,6 +135,14 @@ export interface AgentPromptOptions {
    * explanatory note; they are already resolved, so no path scanning touches them.
    */
   readonly initialAttachments?: readonly MessageAttachment[];
+  /**
+   * True when `userInput` carries a literal task contract (exact output format, step
+   * ordering) rather than an ordinary conversational turn — e.g. a workflow's prompt.
+   * The initial user message it becomes is tagged `kind: "task"` so compaction pins
+   * it instead of summarizing it away, which an LLM-generated summary is not obliged
+   * to preserve verbatim.
+   */
+  readonly pinInitialMessage?: boolean;
 }
 
 /**
@@ -501,6 +509,7 @@ ${triggeredBlock}`;
                 ? `${effectiveUserContent}\n\n${ingested.notes.join("\n")}`
                 : effectiveUserContent,
             ...(attachments.length > 0 ? { attachments } : {}),
+            ...(options.pinInitialMessage === true ? { kind: "task" } : {}),
           });
         }
 

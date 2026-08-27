@@ -32,7 +32,15 @@ const MAX_RENDERED_ARGUMENT_CHARS = 200;
 export const COMPACTION_CONTINUATION_MESSAGE: ChatMessage = {
   role: "user",
   content: "Continue the task using the summary above as context.",
+  kind: "continuation",
 };
+
+/**
+ * Message `kind`s that must survive every compaction cycle verbatim — never summarized,
+ * never dropped. `"task"` is the only one today (a workflow's prompt); a future kind
+ * that needs the same guarantee joins this set rather than a new one-off field.
+ */
+const PINNED_KINDS = new Set<NonNullable<ChatMessage["kind"]>>(["task"]);
 
 /**
  * Keep arguments readable without letting one pasted payload dominate the transcript
@@ -220,6 +228,7 @@ export const Summarizer = {
   ): {
     systemMessage: ChatMessage;
     priorSummary: ChatMessage | undefined;
+    pinnedMessages: ChatMessage[];
     messagesToSummarize: ChatMessage[];
     sanitizedRecentMessages: ChatMessage[];
   } {
@@ -229,8 +238,33 @@ export const Summarizer = {
     // A summary from an earlier compaction is prior *state*, not raw history. Feeding
     // it back through the summarizer re-summarizes a summary, and the drift compounds
     // with every cycle. Pull it out here and hand it to the summarizer to merge into.
-    const priorSummary = currentMessages[1]?.kind === "summary" ? currentMessages[1] : undefined;
+    // Found by kind rather than a fixed index: a pinned message (below) can occupy that
+    // position instead, on a conversation that has one.
+    const priorSummary = currentMessages.slice(1).find((msg) => msg.kind === "summary");
+
+    // Kinds that must survive every compaction cycle verbatim rather than ever being
+    // folded into a summary — currently just a workflow's task message, which carries a
+    // literal contract (exact output format, step ordering) that an LLM-generated
+    // summary is not obliged to preserve. A list, not a single slot: more kinds can join
+    // PINNED_KINDS later without reshaping this function again. Found by kind, not
+    // position, so each one survives being rebuilt at a stable spot after every
+    // compaction cycle rather than needing to still be wherever it started out.
+    const pinnedMessages = currentMessages
+      .slice(1)
+      .filter((msg) => msg.kind !== undefined && PINNED_KINDS.has(msg.kind));
+
     const hint: ModelHint = modelHint ?? { provider: "", modelId: "" };
+
+    // Everything eligible to be either summarized or kept verbatim as "recent" — i.e.
+    // everything except the system message, the prior summary, and the pinned messages
+    // above, none of which are ever candidates for either bucket. A leftover
+    // "continuation" nudge from an earlier cycle is dropped outright here rather than
+    // summarized or kept: the rebuild below always appends a fresh one, so carrying an
+    // old instance through either bucket would duplicate it.
+    const pinnedSet = new Set<ChatMessage>(pinnedMessages);
+    const middleMessages = currentMessages
+      .slice(1)
+      .filter((msg) => msg !== priorSummary && !pinnedSet.has(msg) && msg.kind !== "continuation");
 
     // Reserve 20% of max tokens for recent context
     // This ensures we keep recent context while preventing it from eating the entire window
@@ -239,8 +273,8 @@ export const Summarizer = {
     let recentCount = 0;
 
     // Scan backwards to fill budget
-    for (let i = currentMessages.length - 1; i > 0; i--) {
-      const msg = currentMessages[i];
+    for (let i = middleMessages.length - 1; i >= 0; i--) {
+      const msg = middleMessages[i];
       if (!msg) continue;
       // Calculate tokens for this single message via the calibrated counter.
       const tokens = DEFAULT_TOKEN_COUNTER.countMessage(msg, hint);
@@ -255,14 +289,14 @@ export const Summarizer = {
       recentCount++;
     }
 
-    // Always keep at least the last message
-    recentCount = Math.max(1, recentCount);
+    // Always keep at least the last message, when there is one to keep.
+    recentCount = middleMessages.length > 0 ? Math.max(1, recentCount) : 0;
     // But don't exceed total messages available to separate
-    recentCount = Math.min(recentCount, currentMessages.length - 1);
+    recentCount = Math.min(recentCount, middleMessages.length);
 
-    const recentMessages = currentMessages.slice(-recentCount);
-    const summarizeFrom = priorSummary ? 2 : 1;
-    const messagesToSummarize = currentMessages.slice(summarizeFrom, -recentCount);
+    const recentMessages = recentCount > 0 ? middleMessages.slice(-recentCount) : [];
+    const messagesToSummarize =
+      recentCount > 0 ? middleMessages.slice(0, -recentCount) : middleMessages;
 
     // Sanitize recent messages to avoid orphaned tool call/result references.
     // The split may land in the middle of a tool call group, leaving:
@@ -305,7 +339,13 @@ export const Summarizer = {
       return acc;
     }, []);
 
-    return { systemMessage, priorSummary, messagesToSummarize, sanitizedRecentMessages };
+    return {
+      systemMessage,
+      priorSummary,
+      pinnedMessages,
+      messagesToSummarize,
+      sanitizedRecentMessages,
+    };
   },
 
   /**
@@ -399,8 +439,13 @@ export const Summarizer = {
         maxTokens,
       });
 
-      const { systemMessage, priorSummary, messagesToSummarize, sanitizedRecentMessages } =
-        Summarizer.splitMessages(currentMessages, maxTokens, hint);
+      const {
+        systemMessage,
+        priorSummary,
+        pinnedMessages,
+        messagesToSummarize,
+        sanitizedRecentMessages,
+      } = Summarizer.splitMessages(currentMessages, maxTokens, hint);
 
       if (messagesToSummarize.length === 0) {
         // Not enough to summarize, just return as-is
@@ -422,9 +467,13 @@ export const Summarizer = {
         priorSummary,
       );
 
-      // Rebuild: [system, summary, continuation, ...recent]
+      // Rebuild: [system, ...pinned, summary, continuation, ...recent]. Pinned messages
+      // are put back here at a stable spot so the next compaction cycle finds them again
+      // by kind and keeps pinning them — kept, never summarized, for the life of the
+      // conversation.
       const compactedMessages: ConversationMessages = [
         systemMessage,
+        ...pinnedMessages,
         summaryMessage,
         COMPACTION_CONTINUATION_MESSAGE,
         ...sanitizedRecentMessages,

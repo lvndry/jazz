@@ -353,7 +353,7 @@ ${args.task}`;
             }),
           }).tokens;
 
-          const { systemMessage, messagesToSummarize, sanitizedRecentMessages } =
+          const { systemMessage, pinnedMessages, messagesToSummarize, sanitizedRecentMessages } =
             Summarizer.splitMessages(
               [...conversationMessages] as unknown as ConversationMessages,
               contextWindowMaxTokens,
@@ -379,6 +379,7 @@ ${args.task}`;
 
           const compacted = [
             systemMessage,
+            ...pinnedMessages,
             summaryMessage,
             COMPACTION_CONTINUATION_MESSAGE,
             ...sanitizedRecentMessages,
