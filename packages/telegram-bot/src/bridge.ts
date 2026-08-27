@@ -21,10 +21,24 @@ import { join } from "node:path";
 import { NodeFileSystem } from "@effect/platform-node";
 import { createConfigLayer } from "@jazz/adapters/config";
 import { ReminderServiceImpl } from "@jazz/adapters/reminder-service";
-import { listOllamaModels, modelSupportsThinking } from "@jazz/bot-shared/ollama";
+import { listOllamaModels } from "@jazz/bot-shared/ollama";
 import { listPersonaNames } from "@jazz/bot-shared/personas";
 import { reasoningSnippet, splitReasoning } from "@jazz/bot-shared/reasoning";
 import { createRunLog, type RunLog } from "@jazz/bot-shared/run-log";
+import {
+  conversationKey,
+  isIncognito,
+  setIncognito,
+  startNewConversation,
+} from "@jazz/bot-shared/session-store";
+import {
+  formatWhen,
+  hasChatTz,
+  isValidTimeZone,
+  setTzForChat,
+  tzForChat,
+} from "@jazz/bot-shared/timezone-store";
+import { dailyCostCapBlockReason, recordUsage, todayUsage } from "@jazz/bot-shared/usage-store";
 import { AVAILABLE_PROVIDERS } from "@jazz/core/constants/models";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import type { ReminderRecord } from "@jazz/core/interfaces/reminder-service";
@@ -44,16 +58,17 @@ import {
 import { buildMediaPrompt, downloadTelegramFile, type TelegramFileRef } from "./media";
 import { withReplyContext } from "./quotes";
 import { startReminderSweep } from "./reminders";
-import { conversationKey, isIncognito, setIncognito, startNewConversation } from "./sessions";
 import {
   escapeHtml,
   expandableBlockquote,
   markdownToTelegramHtml,
   splitForTelegram,
 } from "./telegram-html";
-import { formatWhen, hasChatTz, isValidTimeZone, setTzForChat, tzForChat } from "./timezone";
-import { dailyCostCapBlockReason, recordUsage, todayUsage } from "./usage";
 
+const TZ_FILE = "tg-tz.json";
+const USAGE_FILE = "tg-usage.json";
+const EPOCHS_FILE = "tg-sessions.json";
+const INCOGNITO_FILE = "tg-incognito.json";
 const TELEGRAM_API_BASE = "https://api.telegram.org";
 const GETUPDATES_TIMEOUT_SECONDS = 30;
 const POLL_ERROR_BACKOFF_MS = 5_000;
@@ -352,7 +367,7 @@ async function maybeSetTzFromLocation(
     return; // outside the lookup's coverage — leave the zone as-is
   }
   if (!isValidTimeZone(detected)) return;
-  const previous = setTzForChat(config.jazzHome, chatId, detected);
+  const previous = setTzForChat(config.jazzHome, TZ_FILE, chatId, detected);
   if (previous === detected) return; // already on this zone — nothing to announce
   const hadZone = typeof previous === "string" && isValidTimeZone(previous);
   await sendReply(
@@ -797,7 +812,7 @@ async function runJazz(
   onEvent: (event: JazzEvent) => void,
   runToken: string,
 ): Promise<JazzEnvelope> {
-  const incognito = isIncognito(config.jazzHome, chatId);
+  const incognito = isIncognito(config.jazzHome, INCOGNITO_FILE, chatId);
   const priorIncognitoMessages = incognito ? incognitoHistory.get(chatId) : undefined;
   const child = Bun.spawn(
     [
@@ -816,7 +831,7 @@ async function runJazz(
         ? ["--auto-approve-tools", config.autoApproveTools.join(",")]
         : []),
       "--timezone",
-      tzForChat(config.jazzHome, chatId),
+      tzForChat(config.jazzHome, TZ_FILE, chatId),
       ...(incognito
         ? [
             "--ephemeral",
@@ -824,7 +839,7 @@ async function runJazz(
               ? ["--history-json", JSON.stringify(priorIncognitoMessages)]
               : []),
           ]
-        : ["--conversation", conversationKey(config.jazzHome, chatId)]),
+        : ["--conversation", conversationKey(config.jazzHome, EPOCHS_FILE, chatId)]),
       "--timeout",
       String(config.runTimeoutMs),
       prompt,
@@ -931,7 +946,7 @@ async function deliverWebApp(
 async function handleMessage(config: BridgeConfig, chatId: number, text: string): Promise<void> {
   ensureChatAgent(config.jazzHome, chatId, config.baseAgentId);
 
-  const usage = todayUsage(config.jazzHome);
+  const usage = todayUsage(config.jazzHome, USAGE_FILE);
   const capBlockReason = dailyCostCapBlockReason(usage, config.dailyCostCapUsd);
   if (capBlockReason === "unpriced") {
     await sendReply(
@@ -965,7 +980,10 @@ async function handleMessage(config: BridgeConfig, chatId: number, text: string)
   const messageId = sent?.result?.message_id;
   // Opened before the run so a crash or timeout still leaves a record: the
   // conversation transcript is only written once a run completes.
-  const runLog = createRunLog(config.jazzHome, conversationKey(config.jazzHome, chatId));
+  const runLog = createRunLog(
+    config.jazzHome,
+    conversationKey(config.jazzHome, EPOCHS_FILE, chatId),
+  );
   let runLogged = false;
   const reporter =
     typeof messageId === "number"
@@ -1004,6 +1022,7 @@ async function handleMessage(config: BridgeConfig, chatId: number, text: string)
       const costKnown = envelope.costKnown !== false;
       recordUsage(
         config.jazzHome,
+        USAGE_FILE,
         envelope.costUSD,
         envelope.tokenUsage?.totalTokens ?? 0,
         costKnown,
@@ -1353,8 +1372,10 @@ async function handleRemind(config: BridgeConfig, chatId: number, args: string):
 async function handleTz(config: BridgeConfig, chatId: number, args: string): Promise<void> {
   const requested = args.trim();
   if (requested.length === 0) {
-    const current = tzForChat(config.jazzHome, chatId);
-    const suffix = hasChatTz(config.jazzHome, chatId) ? "" : " (default — not set by you yet)";
+    const current = tzForChat(config.jazzHome, TZ_FILE, chatId);
+    const suffix = hasChatTz(config.jazzHome, TZ_FILE, chatId)
+      ? ""
+      : " (default — not set by you yet)";
     await sendReply(
       config,
       chatId,
@@ -1375,7 +1396,7 @@ async function handleTz(config: BridgeConfig, chatId: number, args: string): Pro
     );
     return;
   }
-  setTzForChat(config.jazzHome, chatId, requested);
+  setTzForChat(config.jazzHome, TZ_FILE, chatId, requested);
   await sendReply(
     config,
     chatId,
@@ -1414,7 +1435,7 @@ async function handleCommand(
       );
       return;
     }
-    const tz = tzForChat(config.jazzHome, chatId);
+    const tz = tzForChat(config.jazzHome, TZ_FILE, chatId);
     const rows = mine.map((reminder) => [
       {
         text: `❌ ${formatWhen(reminder.fireAt, tz)} — ${reminder.text.slice(0, 24)}`,
@@ -1430,12 +1451,12 @@ async function handleCommand(
   }
 
   if (command === "new" || command === "reset") {
-    const wasIncognito = isIncognito(config.jazzHome, chatId);
+    const wasIncognito = isIncognito(config.jazzHome, INCOGNITO_FILE, chatId);
     if (wasIncognito) {
-      setIncognito(config.jazzHome, chatId, false);
+      setIncognito(config.jazzHome, INCOGNITO_FILE, chatId, false);
       incognitoHistory.delete(chatId);
     }
-    startNewConversation(config.jazzHome, chatId);
+    startNewConversation(config.jazzHome, EPOCHS_FILE, chatId);
     await sendReply(
       config,
       chatId,
@@ -1447,7 +1468,7 @@ async function handleCommand(
   }
 
   if (command === "incognito") {
-    setIncognito(config.jazzHome, chatId, true);
+    setIncognito(config.jazzHome, INCOGNITO_FILE, chatId, true);
     incognitoHistory.delete(chatId);
     await sendReply(
       config,
@@ -1458,15 +1479,15 @@ async function handleCommand(
   }
 
   if (command === "status") {
-    const day = todayUsage(config.jazzHome);
+    const day = todayUsage(config.jazzHome, USAGE_FILE);
     const cap = config.dailyCostCapUsd;
     const lines = [
       "📊 <b>Status</b>",
-      ...(isIncognito(config.jazzHome, chatId)
+      ...(isIncognito(config.jazzHome, INCOGNITO_FILE, chatId)
         ? ["🕶️ Incognito — nothing being saved right now"]
         : []),
       `Model: <code>${escapeHtml(agent.config.llmProvider)}/${escapeHtml(agent.config.llmModel)}</code> (reasoning: ${escapeHtml(agent.config.reasoningEffort)})`,
-      `Timezone: <code>${escapeHtml(tzForChat(config.jazzHome, chatId))}</code>${hasChatTz(config.jazzHome, chatId) ? "" : " (default)"}`,
+      `Timezone: <code>${escapeHtml(tzForChat(config.jazzHome, TZ_FILE, chatId))}</code>${hasChatTz(config.jazzHome, TZ_FILE, chatId) ? "" : " (default)"}`,
       `Today: ${day.runs} runs · ${formatTokenCount(day.tokens)} tok · $${day.costUSD.toFixed(4)}${(day.unpricedRuns ?? 0) > 0 ? ` · ${day.unpricedRuns} unpriced` : ""}`,
       `Daily cap: ${cap > 0 ? `$${cap.toFixed(2)}` : "none"}`,
       `Uptime: ${formatUptime(Date.now() - BRIDGE_STARTED_AT)}`,
@@ -1519,7 +1540,13 @@ async function handleCommand(
     await callTelegram(config, "sendMessage", {
       chat_id: chatId,
       text: "Pick an Ollama model, or send /model provider/model for any other provider:",
-      reply_markup: { inline_keyboard: keyboardFrom(models, agent.config.llmModel, "m") },
+      reply_markup: {
+        inline_keyboard: keyboardFrom(
+          models.map((model) => model.id),
+          agent.config.llmModel,
+          "m",
+        ),
+      },
     });
     return;
   }
@@ -1729,22 +1756,20 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
 
   if (kind === "m") {
     const models = await listOllamaModels(config.ollamaBaseUrl);
-    const model = Number.isInteger(index) ? models[index] : undefined;
-    if (model === undefined) {
+    const choice = Number.isInteger(index) ? models[index] : undefined;
+    if (choice === undefined) {
       await callTelegram(config, "answerCallbackQuery", {
         callback_query_id: callback.id,
         text: "That list changed — run /model again.",
       });
       return;
     }
-    const reasoning = (await modelSupportsThinking(config.ollamaBaseUrl, model))
-      ? "medium"
-      : "disable";
-    agent.config.llmModel = model;
+    const reasoning = choice.isReasoningModel ? "medium" : "disable";
+    agent.config.llmModel = choice.id;
     agent.config.llmProvider = "ollama";
     agent.config.reasoningEffort = reasoning;
     writeAgentFile(config.jazzHome, agent);
-    confirmation = `✅ Model → ${model}\nReasoning: ${reasoning}`;
+    confirmation = `✅ Model → ${choice.id}\nReasoning: ${reasoning}`;
   } else if (kind === "p") {
     const personas = await listPersonas(config);
     const persona = Number.isInteger(index) ? personas[index] : undefined;
