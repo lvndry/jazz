@@ -431,9 +431,24 @@ updatedAt: "${now.toISOString()}"
       function* (this: PersonaServiceImpl) {
         const customDir = this.getCustomPersonasDir();
         const dirExists = yield* Effect.tryPromise({
-          try: () => fs.access(customDir).then(() => true),
-          catch: () => new Error("access failed"),
-        }).pipe(Effect.catchAll(() => Effect.succeed(false)));
+          try: async () => {
+            try {
+              await fs.access(customDir);
+              return true;
+            } catch (error) {
+              if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+                return false;
+              }
+              throw error;
+            }
+          },
+          catch: (error) =>
+            new StorageError({
+              operation: "read",
+              path: customDir,
+              reason: `Failed to check the custom personas directory: ${error instanceof Error ? error.message : String(error)}`,
+            }),
+        });
         if (!dirExists) return [];
 
         return yield* this.listPersonasFromDir(customDir, "custom", false);
