@@ -13,11 +13,8 @@ ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
 COPY package.json bun.lock bunfig.toml ./
 
-# A workspace monorepo: bun needs every packages/*/package.json on disk to
-# link @jazz/* symlinks in node_modules, so installing before the rest of the
-# source is copied would silently skip them (every @jazz/* import then fails
-# at runtime, not at build time). Copy everything first and pay for a full
-# install on every source change instead — this repo's install is ~2s.
+# Workspace packages must be on disk before install, or bun skips their
+# node_modules/@jazz/* symlinks.
 COPY . .
 RUN bun install --frozen-lockfile
 
