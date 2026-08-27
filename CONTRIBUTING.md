@@ -29,7 +29,7 @@ Read the READMEs:
 - `packages/core/README.md` - Core package patterns
 - `packages/adapters/README.md` - Adapter implementations
 - `packages/cli/README.md` - CLI commands
-- `docs/ARCHITECTURE.md` - System architecture
+- `docs/reference/architecture.md` - System architecture
 - `docs/FAQ.md` - Common patterns
 
 ## Key Best Practices

@@ -242,6 +242,6 @@ Uses Node.js `fs` with Effect-TS `@effect/platform` for:
 
 - **Core**: See `@jazz/core/README.md` for interface definitions
 - **CLI**: See `@jazz/cli/README.md` for how adapters are used
-- **Architecture**: See `docs/ARCHITECTURE.md` for system-wide architecture
+- **Architecture**: See `docs/reference/architecture.md` for system-wide architecture
 
 **Critical Rule**: Adapters import from `@jazz/core/`, never the other way around. Adapters implement core interfaces.

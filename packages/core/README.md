@@ -132,7 +132,7 @@ function myLogic(): Effect.Effect<Result, Error, LLMService | LoggerService> {
 
 - **`@jazz/adapters`**: see `packages/adapters/README.md` for interface implementations
 - **`@jazz/cli`**: see `packages/cli/README.md` for how commands use core
-- **Architecture**: see `docs/ARCHITECTURE.md` for system-wide architecture
+- **Architecture**: see `docs/reference/architecture.md` for system-wide architecture
 
 **Critical rule**: `@jazz/core` never imports from `@jazz/adapters`, `@jazz/cli`, or
 `@jazz/runtime`. All dependencies point inward, and `tsc -b` enforces it.
