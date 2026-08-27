@@ -63,13 +63,13 @@ codebase:
 
 | Command                      | Output                                         | Used by                                                     |
 | ----------------------------- | ----------------------------------------------- | ------------------------------------------------------------ |
-| `bun run build:binary`        | `binaries/jazz-<os>-<arch>` for this machine     | local testing                                                 |
+| `bun run build:binary`        | `deploy/binaries/jazz-<os>-<arch>` for this machine | local testing                                                 |
 | `bun run build:binaries`      | every published target                           | `.github/workflows/release-binaries.yml`                     |
-| `bun run stage-npm-packages`  | binaries copied into `npm/jazz-ai-<platform>/`   | the npm publish job in `.github/workflows/release-binaries.yml` |
+| `bun run stage-npm-packages`  | binaries copied into `deploy/npm/jazz-ai-<platform>/` | the npm publish job in `.github/workflows/release-binaries.yml` |
 
 Installing via `curl \| bash` gets the binary directly; `npm i -g jazz-ai` gets a thin wrapper
 package whose `postinstall` copies in the matching binary from one of the `jazz-ai-<platform>`
-optionalDependencies (see `npm/`). Both end up running the same compiled binary.
+optionalDependencies (see `deploy/npm/`). Both end up running the same compiled binary.
 
 The binary is self-contained, which changes two things a contributor can trip over:
 
@@ -86,22 +86,22 @@ The binary is self-contained, which changes two things a contributor can trip ov
 
 ### npm package layout
 
-`npm/` holds the packages actually published to npm — the repo root's `package.json` is
+`deploy/npm/` holds the packages actually published to npm — the repo root's `package.json` is
 `private` and never gets published itself.
 
-- `npm/jazz-ai/` — the `jazz-ai` package end users install. Ships `bin/jazz` (a guard script
-  that errors if `postinstall` didn't run), `postinstall.mjs` (copies in the real binary from
-  whichever platform package resolved), and `package.json` (`optionalDependencies` listing all
-  six platform packages).
-- `npm/jazz-ai-<platform>/` — one package per `os`/`cpu`/`libc` combination in
+- `deploy/npm/jazz-ai/` — the `jazz-ai` package end users install. Ships `bin/jazz` (a guard
+  script that errors if `postinstall` didn't run), `postinstall.mjs` (copies in the real binary
+  from whichever platform package resolved), and `package.json` (`optionalDependencies` listing
+  all six platform packages).
+- `deploy/npm/jazz-ai-<platform>/` — one package per `os`/`cpu`/`libc` combination in
   `COMPILE_TARGETS` (`scripts/build.ts`), e.g. `jazz-ai-darwin-arm64`. Each ships only
   `package.json` in git; its `bin/jazz` binary is generated, not committed.
 
-`bun run scripts/build.ts --npm-packages-from-dir <dir>` stamps every `npm/*/package.json`
+`bun run scripts/build.ts --npm-packages-from-dir <dir>` stamps every `deploy/npm/*/package.json`
 version to match the root manifest and copies in binaries from `<dir>`. The
 `publish-npm` job in `release-binaries.yml` runs this after `build`, using the same
 macOS-signed binaries that job already produced, then runs `npm publish` from each platform
-package directory before `npm/jazz-ai` — its `optionalDependencies` pin exact versions of
+package directory before `deploy/npm/jazz-ai` — its `optionalDependencies` pin exact versions of
 them, so publishing `jazz-ai` first would point at versions that don't exist yet.
 
 Publishing a brand-new platform package for the first time requires registering it as an npm

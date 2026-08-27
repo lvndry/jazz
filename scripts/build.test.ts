@@ -16,8 +16,8 @@ function readPackageJson(relativeDir: string): NpmPackageJson {
   return JSON.parse(fs.readFileSync(packageJsonPath, "utf8")) as NpmPackageJson;
 }
 
-const mainPackageJson = readPackageJson("npm/jazz-ai");
-const darwinArm64PackageJson = readPackageJson("npm/jazz-ai-darwin-arm64");
+const mainPackageJson = readPackageJson("deploy/npm/jazz-ai");
+const darwinArm64PackageJson = readPackageJson("deploy/npm/jazz-ai-darwin-arm64");
 
 describe("root package.json", () => {
   it("is private, so it can never be published by accident", () => {
@@ -25,14 +25,14 @@ describe("root package.json", () => {
   });
 });
 
-describe("npm/jazz-ai package shape", () => {
+describe("deploy/npm/jazz-ai package shape", () => {
   it("resolves the platform binary through optionalDependencies, not a bundled dist/", () => {
     expect(mainPackageJson.bin?.["jazz"]).toBe("./bin/jazz");
     expect(mainPackageJson.scripts?.["postinstall"]).toBe("node ./postinstall.mjs");
     expect(Object.keys(mainPackageJson.optionalDependencies ?? {}).length).toBeGreaterThan(0);
   });
 
-  it("declares an optionalDependency for every platform package in npm/", () => {
+  it("declares an optionalDependency for every platform package in deploy/npm/", () => {
     const platformPackages = Object.keys(mainPackageJson.optionalDependencies ?? {});
     expect(platformPackages).toContain("jazz-ai-darwin-arm64");
     expect(platformPackages).toContain("jazz-ai-linux-x64");
@@ -40,7 +40,7 @@ describe("npm/jazz-ai package shape", () => {
   });
 });
 
-describe("npm/jazz-ai-<platform> package shape", () => {
+describe("deploy/npm/jazz-ai-<platform> package shape", () => {
   it("restricts install to its one platform/arch pair", () => {
     expect(darwinArm64PackageJson.os).toEqual(["darwin"]);
     expect(darwinArm64PackageJson.cpu).toEqual(["arm64"]);

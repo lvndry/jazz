@@ -62,7 +62,7 @@ jobs:
       - name: Sign macOS binaries
         if: runner.os == 'macOS'
         run: |
-          for binary in binaries/*; do
+          for binary in deploy/binaries/*; do
             codesign --force --sign - "$binary"
             codesign --verify --verbose "$binary"
           done
@@ -70,18 +70,18 @@ jobs:
       - name: Smoke test the native binary
         if: matrix.name == 'darwin-arm64' || matrix.name == 'linux'
         run: |
-          native="binaries/jazz-$(uname -s | tr '[:upper:]' '[:lower:]')-$([ "$(uname -m)" = "x86_64" ] && echo x64 || echo arm64)"
+          native="deploy/binaries/jazz-$(uname -s | tr '[:upper:]' '[:lower:]')-$([ "$(uname -m)" = "x86_64" ] && echo x64 || echo arm64)"
           JAZZ_HOME="$(mktemp -d)" "$native" --version
           JAZZ_HOME="$(mktemp -d)" "$native" persona list | grep -q "built-in"
 
       - name: Compress binaries
-        run: gzip -9 binaries/*
+        run: gzip -9 deploy/binaries/*
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
           name: binaries-${{ matrix.name }}
-          path: binaries/*.gz
+          path: deploy/binaries/*.gz
           retention-days: 1
 
   publish:
@@ -147,27 +147,28 @@ jobs:
 
       - name: Unpack binaries
         run: |
-          mkdir -p binaries
-          cp artifacts/*.gz binaries/
-          gunzip binaries/*.gz
-          chmod +x binaries/*
+          mkdir -p deploy/binaries
+          cp artifacts/*.gz deploy/binaries/
+          gunzip deploy/binaries/*.gz
+          chmod +x deploy/binaries/*
 
       # Every jazz-ai-<platform> package gets its binary and version stamped
-      # here; npm/jazz-ai gets its version and optionalDependencies versions
-      # stamped, plus a copy of the repo's README/LICENSE. This reuses the
-      # macOS-signed binaries the build job already produced, rather than
-      # rebuilding — the ad-hoc signature only applies on the OS that made it.
+      # here; deploy/npm/jazz-ai gets its version and optionalDependencies
+      # versions stamped, plus a copy of the repo's README/LICENSE. This
+      # reuses the macOS-signed binaries the build job already produced,
+      # rather than rebuilding — the ad-hoc signature only applies on the OS
+      # that made it.
       - name: Stage npm packages
-        run: bun run scripts/build.ts --npm-packages-from-dir binaries
+        run: bun run scripts/build.ts --npm-packages-from-dir deploy/binaries
 
       # Must publish before jazz-ai, whose optionalDependencies pin this exact version.
       - name: Publish platform packages
         run: |
-          for dir in npm/jazz-ai-*/; do
+          for dir in deploy/npm/jazz-ai-*/; do
             echo "Publishing $(node -p "require('./${dir}package.json').name")..."
             (cd "$dir" && npm publish)
           done
 
       - name: Publish jazz-ai
-        working-directory: npm/jazz-ai
+        working-directory: deploy/npm/jazz-ai
         run: npm publish
