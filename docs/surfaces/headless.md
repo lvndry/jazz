@@ -275,7 +275,7 @@ input from strangers means a prompt injection can run shell commands on that hos
 
 ---
 
-## Securing a single-shot run
+## One-shot run in a sandbox
 
 CI, a review bot, any service that spins up one ephemeral container per job — these all want
 the same guarantee: the agent can do whatever the task needs, but nothing it writes should
