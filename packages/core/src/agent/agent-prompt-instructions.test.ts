@@ -104,15 +104,15 @@ describe("system prompt cache keys off the toolset", () => {
       userInput: "hello",
     };
 
-    const withQuestions = Effect.runSync(
-      builder.buildSystemPrompt("default", { ...base, toolNames: ["ask_user_question"] }, service),
+    const withMemory = Effect.runSync(
+      builder.buildSystemPrompt("default", { ...base, toolNames: ["view_memory"] }, service),
     );
-    const withoutQuestions = Effect.runSync(
+    const withoutMemory = Effect.runSync(
       builder.buildSystemPrompt("default", { ...base, toolNames: ["http_request"] }, service),
     );
 
-    expect(withQuestions).toContain("# Asking the user questions");
-    expect(withoutQuestions).not.toContain("# Asking the user questions");
+    expect(withMemory).toContain("# Memory");
+    expect(withoutMemory).not.toContain("# Memory");
   });
 });
 
