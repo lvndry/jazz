@@ -563,6 +563,34 @@ describe("Summarizer", () => {
       expect(result.length).toBe(3);
       expect(result[0]?.content).toBe("You are an assistant");
     });
+
+    it("keeps a user-role message after compacting a single-shot tool-call run", async () => {
+      const mockRunner = createMockRecursiveRunner("Summary of prior tool calls.");
+      const agent = createMockAgent();
+
+      const filler = "x ".repeat(200);
+      const messages: ConversationMessages = [
+        { role: "system", content: "You are an assistant" },
+        { role: "user", content: `Review this PR. ${filler}` },
+        ...Array.from({ length: 20 }, (_, index) => ({
+          role: "assistant" as const,
+          content: `Findings for file ${index}. ${filler}`,
+        })),
+      ];
+
+      const testEffect = Summarizer.compactIfNeeded(messages, agent, "conv-1", mockRunner, 500);
+
+      const result = await Effect.runPromise(
+        testEffect.pipe(Effect.provide(createTestLayer())) as Effect.Effect<
+          ConversationMessages,
+          Error,
+          never
+        >,
+      );
+
+      expect(result.length).toBeLessThan(messages.length);
+      expect(result.some((message) => message.role === "user")).toBe(true);
+    });
   });
 });
 
