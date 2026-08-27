@@ -236,7 +236,7 @@ jobs:
           bun-version: latest
 
       - name: Install Jazz
-        run: bun install -g jazz-ai
+        run: bun install -g jazz-ai --trust
 
       - name: Setup Jazz agent and workflow
         env:
@@ -293,6 +293,7 @@ jobs:
         env:
           PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
           PR_HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
+          RUN_URL: ${{ format('{0}/{1}/actions/runs/{2}', github.server_url, github.repository, github.run_id) }}
         uses: actions/github-script@v7
         with:
           script: |
@@ -300,6 +301,7 @@ jobs:
             const output = fs.readFileSync('/tmp/jazz-review.txt', 'utf8');
             const prNumber = parseInt(process.env.PR_NUMBER, 10);
             const headSha = process.env.PR_HEAD_SHA;
+            const runUrl = process.env.RUN_URL;
 
             // The run step captures jazz's exit code without failing the step
             // (the free tier throttles routinely; red CI on every throttle is
@@ -326,7 +328,7 @@ jobs:
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: prNumber,
-                body: `## Jazz Code Review\n\n⚠️ The review could not run (provider error or rate limit — see the job log). Re-run the workflow to retry.${modelLabel}`,
+                body: `## Jazz Code Review\n\n⚠️ The review could not run (provider error or rate limit). See the [workflow run](${runUrl}) for the job log. Re-run the workflow to retry.${modelLabel}`,
               });
               return;
             }
@@ -376,7 +378,7 @@ jobs:
             const summarySection = markdownSummary
               || (Array.isArray(comments) && comments.length > 0
                 ? `Found ${comments.length} issue(s). See inline comments below.`
-                : '⚠️ The review agent did not produce a parseable verdict (its output contained neither the summary block nor the comments block). Treat this PR as **not reviewed** — re-run the workflow or review manually.');
+                : `⚠️ The review agent did not produce a parseable verdict (its output contained neither the summary block nor the comments block). Treat this PR as **not reviewed** — see the [workflow run](${runUrl}) for the cause, then re-run the workflow or review manually.`);
             if (!reviewCompleted) {
               core.warning('jazz code review produced no parseable output; posted a not-reviewed notice instead of a verdict.');
             }
@@ -570,7 +572,7 @@ jobs:
           bun-version: latest
 
       - name: Install Jazz
-        run: bun install -g jazz-ai
+        run: bun install -g jazz-ai --trust
 
       - name: Setup Jazz agent and workflow
         env:

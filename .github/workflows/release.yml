@@ -85,7 +85,7 @@ jobs:
           bun-version: latest
 
       - name: Install Jazz
-        run: bun install -g jazz-ai
+        run: bun install -g jazz-ai --trust
 
       - name: Setup Jazz agent and workflow
         env:
