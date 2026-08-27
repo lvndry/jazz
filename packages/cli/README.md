@@ -315,4 +315,4 @@ Test full command flows with:
 
 - **Core**: See `@jazz/core/README.md` for agent execution logic
 - **Adapters**: See `@jazz/adapters/README.md` for adapter implementations
-- **Architecture**: See `docs/ARCHITECTURE.md` for system-wide architecture
+- **Architecture**: See `docs/reference/architecture.md` for system-wide architecture
