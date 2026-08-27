@@ -1,6 +1,6 @@
 {
   "name": "jazz-ai",
-  "version": "0.15.6",
+  "version": "0.15.7",
   "author": {
     "name": "lvndry",
     "email": "lvndry@proton.me",
@@ -145,5 +145,7 @@
     "clean": "rm -rf deploy/binaries deploy/npm/jazz-ai-*/bin .build .tsbuild .tsbuildinfo .tsbuildinfo.scripts packages/*/dist packages/*/.tsbuildinfo"
   },
   "type": "module",
-  "workspaces": ["packages/*"]
+  "workspaces": [
+    "packages/*"
+  ]
 }
