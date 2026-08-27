@@ -21,7 +21,11 @@ import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import { AgentRunner } from "../agent-runner";
 import { defineTool, makeZodValidator } from "./base-tool";
 import { resolveEffectiveContextWindow } from "../context/effective-context-window";
-import { Summarizer, type RecursiveRunner } from "../context/summarizer";
+import {
+  COMPACTION_CONTINUATION_MESSAGE,
+  Summarizer,
+  type RecursiveRunner,
+} from "../context/summarizer";
 
 // ─── Constants ───────────────────────────────────────────────────────
 
@@ -376,6 +380,7 @@ ${args.task}`;
           const compacted = [
             systemMessage,
             summaryMessage,
+            COMPACTION_CONTINUATION_MESSAGE,
             ...sanitizedRecentMessages,
           ] as ConversationMessages;
 

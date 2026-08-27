@@ -29,6 +29,11 @@ import { formatWorkState, readWorkState } from "./work-state";
 /** Longest tool-argument string kept verbatim in a summarizer transcript. */
 const MAX_RENDERED_ARGUMENT_CHARS = 200;
 
+export const COMPACTION_CONTINUATION_MESSAGE: ChatMessage = {
+  role: "user",
+  content: "Continue the task using the summary above as context.",
+};
+
 /**
  * Keep arguments readable without letting one pasted payload dominate the transcript
  * the summarizer has to read.
@@ -417,10 +422,11 @@ export const Summarizer = {
         priorSummary,
       );
 
-      // Rebuild: [system, summary, ...recent]
+      // Rebuild: [system, summary, continuation, ...recent]
       const compactedMessages: ConversationMessages = [
         systemMessage,
         summaryMessage,
+        COMPACTION_CONTINUATION_MESSAGE,
         ...sanitizedRecentMessages,
       ] as ConversationMessages;
 
