@@ -53,13 +53,18 @@ ENV XDG_CONFIG_HOME=/data/xdg-config \
     GNUPGHOME=/data/gnupg \
     PASSWORD_STORE_DIR=/data/password-store
 
-# Dependencies first so the install layer caches across source edits.
 COPY package.json bun.lock bunfig.toml ./
-RUN bun install --frozen-lockfile
 
 # Jazz runs from source under Bun; it locates built-in personas/skills by
 # walking up to the package.json named "jazz-ai", so the whole tree is copied.
+#
+# A workspace monorepo: bun needs every packages/*/package.json on disk to
+# link @jazz/* symlinks in node_modules, so installing before the rest of the
+# source is copied would silently skip them (every @jazz/* import then fails
+# at runtime, not at build time). Copy everything first and pay for a full
+# install on every source change instead — this repo's install is ~2s.
 COPY . .
+RUN bun install --frozen-lockfile
 
 RUN printf '#!/bin/sh\nexec bun /app/packages/runtime/src/entry.ts "$@"\n' > /usr/local/bin/jazz \
     && chmod +x /usr/local/bin/jazz \
