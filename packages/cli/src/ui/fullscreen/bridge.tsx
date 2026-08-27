@@ -1067,6 +1067,7 @@ export function FullscreenBridge(): React.ReactNode {
   const [reservedRows, setReservedRows] = useState(0);
   const runStartedAt = useRef<number | null>(null);
   const lastTodoListRef = useRef<readonly TodoSnapshotItem[]>([]);
+  const [todoExpiredTick, setTodoExpiredTick] = useState(0);
   const previousRunActiveRef = useRef(false);
   const previousConversationIdRef = useRef(currentConversation?.conversationId);
   if (currentConversation?.conversationId !== previousConversationIdRef.current) {
@@ -1201,11 +1202,15 @@ export function FullscreenBridge(): React.ReactNode {
   const tools = useMemo(() => liveToolsFrom(activity, Date.now()), [activity, elapsedMs]);
   const step = useMemo(() => stepFrom(activity), [activity]);
 
-  // The checklist is worth reading once the turn has finished, not just while
-  // manage_todos is the active tool — so its last known shape survives the
-  // phase moving on to streaming, complete, or idle. Only a new run gets to
-  // clear it: the rising edge below fires once, before this render computes
-  // `todoList`, so a stale checklist never flashes ahead of the new run's own.
+  // The checklist is worth reading for a beat once the turn has finished, not
+  // just while manage_todos is the active tool — so its last known shape
+  // survives the phase moving on to streaming, complete, or idle. It does not
+  // survive indefinitely, though: the expiry effect below drops it a moment
+  // after the run ends, so it doesn't bleed into the next message the user
+  // sends. A new run starting first clears it immediately instead of waiting
+  // out that timer — the rising edge below fires once, before this render
+  // computes `todoList`, so a stale checklist never flashes ahead of the new
+  // run's own.
   if (runActive && !previousRunActiveRef.current) {
     lastTodoListRef.current = [];
   }
@@ -1219,6 +1224,15 @@ export function FullscreenBridge(): React.ReactNode {
     lastTodoListRef.current = freshTodoList;
   }
   const todoList = freshTodoList ?? lastTodoListRef.current;
+
+  useEffect(() => {
+    if (runActive || lastTodoListRef.current.length === 0) return;
+    const timer = setTimeout(() => {
+      lastTodoListRef.current = [];
+      setTodoExpiredTick((tick) => tick + 1);
+    }, SETTLE_MS);
+    return () => clearTimeout(timer);
+  }, [runActive, todoExpiredTick]);
   const waitingNow = activity.phase === "awaiting" || activity.phase === "thinking";
   const neededRows = Math.min(
     LIVE_ZONE_MAX_ROWS,

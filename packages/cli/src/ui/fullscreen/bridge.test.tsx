@@ -258,6 +258,32 @@ describe("fullscreen bridge", () => {
     expect(text).toContain("Draft replies");
   });
 
+  it("drops the finished checklist a beat after the run ends, before the next message", async () => {
+    const rendered = await testRender(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
+    await rendered.renderOnce();
+
+    store.setActivity({
+      phase: "tool-execution",
+      agentName: "jazz",
+      tools: [{ toolCallId: "1", toolName: "manage_todos", startedAt: Date.now() }],
+      todoSnapshot: [{ content: "Draft replies", status: "completed" }],
+    });
+    await rendered.flush();
+    expect(rendered.captureCharFrame()).toContain("todo 1/1");
+
+    store.setActivity({ phase: "complete" });
+    await rendered.flush();
+    // Still visible right after the run ends — the user gets a moment to read it.
+    expect(rendered.captureCharFrame()).toContain("todo 1/1");
+
+    await new Promise((resolve) => setTimeout(resolve, 900));
+    await rendered.flush();
+    // Gone before the user's next message, not just once a new run starts.
+    expect(rendered.captureCharFrame()).not.toContain("todo 1/1");
+
+    rendered.renderer.destroy();
+  });
+
   it("shows the arguments a running tool was called with", async () => {
     const text = await frame(() => {
       store.setActivity({
