@@ -442,8 +442,9 @@ describe("live zone", () => {
     const midway = await bandHeight(live({ todoList: inFlight, reservedRows: 5 }), {
       width: WIDTH,
     });
-    // The finished leading item has scrolled out of the window entirely.
-    expect(midway.frame).not.toContain("one");
+    // The just-finished leading item stays visible for one more update so its
+    // checkmark is actually seen, rather than vanishing the instant it completes.
+    expect(midway.frame).toContain("one");
     expect(midway.frame).toContain("two");
 
     const advanced: TodoSnapshotItem[] = [
@@ -454,8 +455,9 @@ describe("live zone", () => {
     const later = await bandHeight(live({ todoList: advanced, reservedRows: 5 }), {
       width: WIDTH,
     });
+    // Once a second item completes, the older one finally scrolls out.
     expect(later.frame).not.toContain("one");
-    expect(later.frame).not.toContain("two");
+    expect(later.frame).toContain("two");
     expect(later.frame).toContain("three");
   });
 });
