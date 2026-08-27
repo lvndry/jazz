@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PersonaServiceTag } from "@jazz/core/interfaces/persona-service";
@@ -277,6 +277,33 @@ describe("PersonaService", () => {
       expect(names).toContain("coder");
       expect(names).toContain("researcher");
       expect(names).toContain("tutor");
+    });
+
+    it("should still list built-ins when the base directory is read-only", async () => {
+      const readonlyDir = mkdtempSync(join(tmpdir(), "jazz-persona-readonly-"));
+      const readonlyLayer = Layer.succeed(
+        PersonaServiceTag,
+        new PersonaServiceImpl({ baseDataPath: readonlyDir }),
+      );
+      const runReadonly = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+        Effect.runPromise(Effect.provide(effect, readonlyLayer) as Effect.Effect<A, E, never>);
+
+      try {
+        chmodSync(readonlyDir, 0o555);
+
+        const result = await runReadonly(
+          Effect.gen(function* () {
+            const service = yield* PersonaServiceTag;
+            return yield* service.listPersonas();
+          }),
+        );
+        const names = result.map((p) => p.name);
+        expect(names).toContain("default");
+        expect(names).toContain("coder");
+      } finally {
+        chmodSync(readonlyDir, 0o755);
+        rmSync(readonlyDir, { recursive: true, force: true });
+      }
     });
   });
 

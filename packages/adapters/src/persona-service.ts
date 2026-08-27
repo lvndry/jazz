@@ -429,16 +429,6 @@ updatedAt: "${now.toISOString()}"
   private listCustomPersonas(): Effect.Effect<readonly Persona[], StorageError> {
     return Effect.gen(
       function* (this: PersonaServiceImpl) {
-        yield* Effect.tryPromise({
-          try: () => this.ensurePersonasDir(),
-          catch: (error) =>
-            new StorageError({
-              operation: "mkdir",
-              path: this.getCustomPersonasDir(),
-              reason: `Failed to create personas directory: ${error instanceof Error ? error.message : String(error)}`,
-            }),
-        });
-
         const customDir = this.getCustomPersonasDir();
         const dirExists = yield* Effect.tryPromise({
           try: () => fs.access(customDir).then(() => true),
