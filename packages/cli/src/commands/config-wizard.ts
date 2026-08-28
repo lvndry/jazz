@@ -1,6 +1,6 @@
 /**
  * Interactive `jazz config` wizard — menu-driven editing of LLM providers, web
- * search providers, output display, logging, and notifications.
+ * search providers, output display, logging, scheduler mode, and notifications.
  */
 
 import { WEB_SEARCH_PROVIDERS } from "@jazz/core/agent/tools/web-search-tools";
@@ -8,7 +8,7 @@ import { AVAILABLE_PROVIDERS, type ProviderName } from "@jazz/core/constants/mod
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
 import { resolveDisplayConfig } from "@jazz/core/presentation/display-config";
-import type { LoggingConfig, WebSearchProviderName } from "@jazz/core/types/config";
+import type { LoggingConfig, SchedulerMode, WebSearchProviderName } from "@jazz/core/types/config";
 import type { ColorProfile, OutputMode } from "@jazz/core/types/output";
 import { formatProviderDisplayName } from "@jazz/core/utils/provider-model";
 import { sortProvidersForPicker } from "@jazz/core/utils/provider-picker";
@@ -20,7 +20,13 @@ import type { WizardMenuOption } from "../ui/WizardHome";
  * Menu actions for the config wizard
  */
 type ConfigMenuAction =
-  "llm-providers" | "web-search" | "output-display" | "logging" | "notifications" | "back";
+  | "llm-providers"
+  | "web-search"
+  | "output-display"
+  | "scheduler"
+  | "logging"
+  | "notifications"
+  | "back";
 
 /**
  * Main entry point for the configuration wizard
@@ -34,6 +40,7 @@ export function configWizardCommand() {
         { label: "LLM Providers (API Keys)", value: "llm-providers" },
         { label: "Web Search Providers", value: "web-search" },
         { label: "Output & Display", value: "output-display" },
+        { label: "Scheduler", value: "scheduler" },
         { label: "Logging", value: "logging" },
         { label: "Notifications", value: "notifications" },
         { label: "Back to Main Menu", value: "back" },
@@ -52,6 +59,10 @@ export function configWizardCommand() {
         }
         case "output-display": {
           yield* configureOutputDisplay();
+          break;
+        }
+        case "scheduler": {
+          yield* configureScheduler();
           break;
         }
         case "logging": {
@@ -354,6 +365,39 @@ function configureOutputDisplay() {
       }
 
       yield* terminal.log("");
+    }
+  });
+}
+
+function configureScheduler() {
+  return Effect.gen(function* () {
+    const terminal = yield* TerminalServiceTag;
+    const configService = yield* AgentConfigServiceTag;
+
+    while (true) {
+      const appConfig = yield* configService.appConfig;
+      const currentMode = appConfig.scheduler?.mode ?? "auto";
+
+      const selection = yield* terminal.select<string>("Scheduler settings:", {
+        choices: [
+          { name: `Auto${currentMode === "auto" ? " (current)" : ""}`, value: "auto" },
+          {
+            name: `In-process${currentMode === "in-process" ? " (current)" : ""}`,
+            value: "in-process",
+          },
+          { name: "Back", value: "back" },
+        ],
+      });
+
+      if (!selection || selection === "back") {
+        break;
+      }
+
+      const mode = selection as SchedulerMode;
+      yield* configService.set("scheduler.mode", mode);
+      yield* terminal.success(`Scheduler mode set to ${mode}.`);
+      yield* terminal.log("");
+      break;
     }
   });
 }

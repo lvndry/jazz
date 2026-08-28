@@ -1,14 +1,16 @@
 /**
- * `SchedulerService`: schedules workflows with the host OS scheduler (launchd
- * on macOS, cron on Linux), converting cron expressions to each backend's
- * native format.
+ * `SchedulerService`: schedules workflows either with the host OS scheduler
+ * (launchd on macOS, cron on Linux) or, when configured, with Jazz's
+ * in-process daemon ticker.
  */
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { Context, Effect, Layer } from "effect";
+import { Context, Effect, Layer, Option } from "effect";
 import * as plist from "plist";
 import type { WorkflowMetadata } from "./workflow-service";
+import { AgentConfigServiceTag } from "../interfaces/agent-config";
+import type { SchedulerMode } from "../types/config";
 import { isValidCronExpression } from "../utils/cron";
 import { getGlobalUserDataDirectory } from "../utils/paths";
 import { getJazzSchedulerInvocation } from "../utils/runtime";
@@ -799,9 +801,12 @@ class UnsupportedScheduler implements SchedulerService {
 
 /**
  * Create the appropriate scheduler implementation for the current platform.
+ *
+ * `mode === "in-process"` is an always-on-host mode selected by config or the
+ * `JAZZ_SCHEDULER` override; otherwise the platform scheduler stays the default.
  */
-function createScheduler(): SchedulerService {
-  if (process.env["JAZZ_SCHEDULER"] === "in-process") {
+function createScheduler(mode: SchedulerMode): SchedulerService {
+  if (mode === "in-process") {
     return new InProcessScheduler();
   }
 
@@ -819,4 +824,17 @@ function createScheduler(): SchedulerService {
 /**
  * Layer providing the SchedulerService.
  */
-export const SchedulerServiceLayer = Layer.succeed(SchedulerServiceTag, createScheduler());
+export const SchedulerServiceLayer = Layer.effect(
+  SchedulerServiceTag,
+  Effect.gen(function* () {
+    const configServiceOption = yield* Effect.serviceOption(AgentConfigServiceTag);
+    const appConfig = Option.isSome(configServiceOption)
+      ? yield* configServiceOption.value.appConfig
+      : undefined;
+    const mode =
+      process.env["JAZZ_SCHEDULER"] === "in-process" || appConfig?.scheduler?.mode === "in-process"
+        ? "in-process"
+        : "auto";
+    return createScheduler(mode);
+  }),
+);

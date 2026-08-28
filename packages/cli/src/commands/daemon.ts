@@ -21,6 +21,7 @@ import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
 import { resolveTriggerToken } from "@jazz/adapters/triggers/token";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
+import { SchedulerServiceTag } from "@jazz/core/workflows/scheduler-service";
 import { Effect, Runtime } from "effect";
 
 /** How often the daemon checks for due workflow schedules and wake triggers. */
@@ -46,7 +47,7 @@ export interface DaemonCommandOptions {
  */
 export function daemonCommand(options: DaemonCommandOptions) {
   return Effect.gen(function* () {
-    const token = process.env["JAZZ_DAEMON_TOKEN"];
+    const token = process.env["JAZZ_DAEMON_TOKEN"]; // kept for network auth only
     const daemonOptions = {
       port: options.port,
       host: options.host,
@@ -62,6 +63,8 @@ export function daemonCommand(options: DaemonCommandOptions) {
     }
 
     const logger = yield* LoggerServiceTag;
+    const scheduler = yield* SchedulerServiceTag;
+    const runInProcessWorkflows = scheduler.getSchedulerType() === "in-process";
 
     // The whole agent stack, captured once. Each request runs on this rather than on a
     // fresh runtime: `Effect.runPromise` inside the handler would start with an empty
@@ -121,7 +124,7 @@ export function daemonCommand(options: DaemonCommandOptions) {
         const parsed = raw !== undefined ? Number(raw) : Number.NaN;
         return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_TICK_INTERVAL_MS;
       })();
-      const runInProcessWorkflows = process.env["JAZZ_SCHEDULER"] === "in-process";
+
       let tickRunning = false;
       const ticker = setInterval(() => {
         if (tickRunning) return;
