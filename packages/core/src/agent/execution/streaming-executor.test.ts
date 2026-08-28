@@ -16,9 +16,9 @@ import { PeerLedgerServiceTag, PeerTokenServiceTag } from "../../interfaces/peer
 import { PresentationServiceTag } from "../../interfaces/presentation";
 import { ReminderServiceTag } from "../../interfaces/reminder-service";
 import { TerminalServiceTag } from "../../interfaces/terminal";
+import { ToolRegistryTag } from "../../interfaces/tool-registry";
 import { WakeTriggerServiceTag } from "../../interfaces/wake-trigger-service";
 import { WorkspaceServiceTag } from "../../interfaces/workspace-service";
-import { ToolRegistryTag } from "../../interfaces/tool-registry";
 import { SkillServiceTag } from "../../skills/skill-service";
 import type { RecursiveRunner } from "../context/summarizer";
 import type { AgentRunContext, AgentRunnerOptions, AgentResponse } from "../types";
