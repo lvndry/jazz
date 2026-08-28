@@ -1,13 +1,6 @@
 ---
 name: meeting-notes
 description: Summarize meetings and extract action items. Use when processing meeting transcripts, notes, or recordings to get summaries, decisions, and follow-ups.
-triggers:
-  - meeting notes
-  - meeting summary
-  - meeting transcript
-  - action items
-  - what did we decide
-  - follow up email
 ---
 
 # Meeting Notes

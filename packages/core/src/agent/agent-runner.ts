@@ -27,11 +27,7 @@ import {
   type ToolRequirements,
 } from "@/core/interfaces/tool-registry";
 import { resolveDisplayConfig } from "@/core/presentation/display-config";
-import {
-  matchSkillTriggers,
-  SkillServiceTag,
-  type SkillService,
-} from "@/core/skills/skill-service";
+import { SkillServiceTag, type SkillService } from "@/core/skills/skill-service";
 import type { AttachmentKind } from "@/core/types/attachment";
 import { LLMRateLimitError } from "@/core/types/errors";
 import type { ChatMessage } from "@/core/types/message";
@@ -357,12 +353,6 @@ function initializeAgentRun(
       availableTools[tool.function.name] = tool.function.description;
     }
 
-    // Pre-router: scan the user input for skill triggers. Skills whose
-    // `triggers` frontmatter list contains a substring of the input have
-    // their full description auto-injected into this turn's system prompt.
-    // Deterministic, zero LLM overhead, predictable for skill authors.
-    const triggeredSkillNames = matchSkillTriggers(userInput, relevantSkills);
-
     // AGENTS.md discovery. Uses the agent's tracked working directory when the
     // filesystem-context service is available (the agent can `cd` mid-session),
     // otherwise the process cwd. The summarizer compresses transcripts and has
@@ -416,7 +406,6 @@ function initializeAgentRun(
         ...(options.initialAttachments !== undefined && {
           initialAttachments: options.initialAttachments,
         }),
-        ...(triggeredSkillNames.length > 0 && { triggeredSkillNames }),
         ...(projectInstructions.length > 0 && { projectInstructions }),
         ...(options.pinInitialMessage === true ? { pinInitialMessage: true } : {}),
       },

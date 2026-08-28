@@ -84,22 +84,13 @@ export interface AgentPromptOptions {
   /**
    * All skills available to the agent. Rendered as a compact index
    * (one line per skill) in the system prompt — the full `description` is shown
-   * per skill, and the skill body is loaded JIT via `find_skills` or
-   * auto-injected when a trigger matches the user message.
+   * per skill, and the skill body is loaded JIT via `find_skills`.
    */
   readonly knownSkills?: readonly {
     readonly name: string;
     readonly description: string;
     readonly path: string;
-    readonly triggers?: readonly string[];
   }[];
-  /**
-   * Names of skills whose triggers matched the current user input. The full
-   * descriptions for these are inlined into the system prompt to bias the
-   * model toward loading them, even on small models that wouldn't think to
-   * call `find_skills` first. Subset of `knownSkills` by name.
-   */
-  readonly triggeredSkillNames?: readonly string[];
   /**
    * AGENTS.md files discovered for the working directory, outermost first.
    * Rendered verbatim into the system prompt so project conventions reach the
@@ -204,14 +195,9 @@ export class AgentPromptBuilder {
     hash.update(options.agentDescription);
     if (options.knownSkills && options.knownSkills.length > 0) {
       const skillFingerprints = options.knownSkills.map(
-        (s) => `${s.name}|${s.description}|${(s.triggers ?? []).join(",")}|${s.path}`,
+        (s) => `${s.name}|${s.description}|${s.path}`,
       );
       hash.update(JSON.stringify(skillFingerprints.sort()));
-    }
-    // Triggered-skill set varies per turn; mix it into the cache key so the
-    // injected detail block is rebuilt whenever the trigger match changes.
-    if (options.triggeredSkillNames && options.triggeredSkillNames.length > 0) {
-      hash.update(`triggered:${[...options.triggeredSkillNames].sort().join(",")}`);
     }
     // The full tool set shapes the prompt: tool-gated instruction blocks
     // (memory, task state, questions) and the per-tool notes both key off it.
@@ -358,33 +344,11 @@ export class AgentPromptBuilder {
             .map((s) => `- ${s.name}: ${getSkillIndexLineFromOption(s)}`)
             .join("\n");
 
-          // Triggered skills get their full description inlined so the model
-          // is biased toward loading them on this turn. Filtered to skills
-          // that are actually in `knownSkills`.
-          const triggeredSet = new Set(options.triggeredSkillNames ?? []);
-          const triggeredDetailXml = options.knownSkills
-            .filter((s) => triggeredSet.has(s.name))
-            .map(
-              (s) =>
-                `  <skill>\n    <name>${s.name}</name>\n    <description>${s.description}</description>\n  </skill>`,
-            )
-            .join("\n");
-
-          const triggeredBlock =
-            triggeredDetailXml.length > 0
-              ? `
-<likely_relevant_skills>
-${triggeredDetailXml}
-</likely_relevant_skills>
-`
-              : "";
-
           const skillsSection = `
 ${SKILLS_INSTRUCTIONS}
 <available_skills>
 ${indexLines}
-</available_skills>
-${triggeredBlock}`;
+</available_skills>`;
           systemPrompt = systemPrompt + skillsSection;
         }
 
