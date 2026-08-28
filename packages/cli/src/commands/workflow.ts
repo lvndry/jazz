@@ -28,7 +28,6 @@ import { Duration, Effect } from "effect";
 import { store } from "@/cli/ui/store";
 import { separatorLine } from "@/cli/utils/string-utils";
 import { formatOneShotError, formatOneShotResult, isRunCostKnown } from "./run/envelope";
-import type { PlatformFlag } from "./run/flags";
 
 /**
  * CLI commands for managing and running workflows.
@@ -166,8 +165,8 @@ export function showWorkflowCommand(workflowName: string) {
       yield* terminal.log(`Skills: ${workflow.metadata.skills.join(", ")}`);
     }
 
-    if (workflow.metadata.catchUpOnStartup !== undefined) {
-      yield* terminal.log(`Catch-up on startup: ${workflow.metadata.catchUpOnStartup}`);
+    if (workflow.metadata.catchUpOnRestart !== undefined) {
+      yield* terminal.log(`Catch-up on restart: ${workflow.metadata.catchUpOnRestart}`);
     }
 
     if (workflow.metadata.maxCatchUpAge !== undefined) {
@@ -196,8 +195,6 @@ export function runWorkflowCommand(
   options?: {
     autoApprove?: boolean;
     agent?: string;
-    /** Surface this run is replying on: cli | telegram | discord | github. */
-    platform?: PlatformFlag;
     maxIterations?: number;
     scheduled?: boolean;
     /** Emit a single JSON envelope on stdout (same shape as `jazz run --json`) and suppress terminal chatter. */
@@ -398,7 +395,6 @@ export function runWorkflowCommand(
       ...(resolvedMaxIterations != null ? { maxIterations: resolvedMaxIterations } : {}),
       ...(autoApprovePolicy !== undefined ? { autoApprovePolicy } : {}),
       ...(options?.stream !== undefined ? { stream: options.stream } : {}),
-      ...(options?.platform !== undefined ? { platform: options.platform } : {}),
     });
     const runResult = yield* (
       options?.timeoutMs != null
@@ -685,7 +681,7 @@ export function catchupWorkflowCommand() {
       yield* terminal.info("No workflows need catch-up right now.");
       yield* terminal.log("");
       yield* terminal.info(
-        "Workflows must be scheduled, have catchUpOnStartup: true, and have missed their last run within the max catch-up window.",
+        "Workflows must be scheduled, have catchUpOnRestart: true, and have missed their last run within the max catch-up window.",
       );
       return;
     }

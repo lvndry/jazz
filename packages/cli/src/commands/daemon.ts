@@ -121,16 +121,22 @@ export function daemonCommand(options: DaemonCommandOptions) {
         const parsed = raw !== undefined ? Number(raw) : Number.NaN;
         return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_TICK_INTERVAL_MS;
       })();
+      const runInProcessWorkflows = process.env["JAZZ_SCHEDULER"] === "in-process";
+      let tickRunning = false;
       const ticker = setInterval(() => {
+        if (tickRunning) return;
+        tickRunning = true;
         void run(
-          runDueTriggers().pipe(
+          runDueTriggers({ runWorkflows: runInProcessWorkflows }).pipe(
             Effect.catchAll((error) =>
               Effect.sync(() => {
                 process.stderr.write(`jazz daemon tick failed: ${String(error)}\n`);
               }),
             ),
           ) as Effect.Effect<void, unknown, DaemonRequirements>,
-        );
+        ).finally(() => {
+          tickRunning = false;
+        });
       }, tickIntervalMs);
 
       const stop = (): void => {

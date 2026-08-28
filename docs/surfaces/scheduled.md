@@ -6,6 +6,10 @@ description: "Schedule unattended Jazz runs with launchd or cron: workflow promp
 
 How to have Jazz do something every morning without you being there.
 
+For an always-on host without launchd or cron, set `JAZZ_SCHEDULER=in-process` and run
+`jazz daemon`. The daemon checks due schedules once per minute and runs each latest due slot
+once. This mode is opt-in; launchd and cron remain the defaults on supported platforms.
+
 A scheduled run is a [workflow](../concepts/workflows.md) handed to your OS scheduler.
 Jazz writes the launchd plist or crontab entry for you; from then on the run happens with
 no terminal, no TUI, and nobody to answer an approval prompt.

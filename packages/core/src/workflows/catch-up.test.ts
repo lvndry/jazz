@@ -8,7 +8,7 @@ function createWorkflow(overrides: Partial<WorkflowMetadata> = {}): WorkflowMeta
     description: "Daily market analysis",
     path: "/test",
     schedule: "0 6 * * *",
-    catchUpOnStartup: true,
+    catchUpOnRestart: true,
     ...overrides,
   };
 }
@@ -34,12 +34,20 @@ describe("decideCatchUp", () => {
   });
 
   it("should not run when catch-up disabled", () => {
-    const workflow = createWorkflow({ catchUpOnStartup: false });
+    const workflow = createWorkflow({ catchUpOnRestart: false });
     const now = new Date(2026, 1, 3, 8, 0, 0);
 
     const decision = decideCatchUp(workflow, undefined, now);
     expect(decision.shouldRun).toBe(false);
     expect(decision.reason).toBe("catch-up disabled");
+  });
+
+  it("allows the normal scheduler to run regardless of restart catch-up policy", () => {
+    const workflow = createWorkflow({ catchUpOnRestart: false });
+    const now = new Date(2026, 1, 3, 8, 0, 0);
+
+    const decision = decideCatchUp(workflow, undefined, now, undefined, true);
+    expect(decision.shouldRun).toBe(true);
   });
 
   it("should not run when missed run is too old", () => {

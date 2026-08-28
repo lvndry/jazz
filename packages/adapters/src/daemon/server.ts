@@ -251,9 +251,43 @@ export function makePeerHandler(
 
 /**
  * Cap on the raw HTTP request body accepted by a `POST /triggers/<name>` webhook call.
- * Text beyond this length is truncated before it reaches the prompt (see `makeTriggerHandler`).
+ * Oversized bodies are rejected while streaming, before they can consume unbounded memory.
  */
 const MAX_TRIGGER_PAYLOAD_LENGTH = 20_000;
+
+async function readTriggerPayload(request: Request): Promise<string | Response> {
+  const declaredLength = request.headers.get("content-length");
+  if (declaredLength !== null && Number(declaredLength) > MAX_TRIGGER_PAYLOAD_LENGTH) {
+    return json({ ok: false, error: "request body too large" }, 413);
+  }
+
+  if (request.body === null) return "";
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  try {
+    for (;;) {
+      const next = await reader.read();
+      if (next.done) break;
+      totalBytes += next.value.byteLength;
+      if (totalBytes > MAX_TRIGGER_PAYLOAD_LENGTH) {
+        await reader.cancel();
+        return json({ ok: false, error: "request body too large" }, 413);
+      }
+      chunks.push(next.value);
+    }
+  } catch {
+    return json({ ok: false, error: "could not read request body" }, 400);
+  }
+
+  const body = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(body);
+}
 
 /**
  * The webhook-facing handler, a third door alongside the operator's and the peer's.
@@ -275,7 +309,12 @@ export function makeTriggerHandler(
     if (request.method !== "POST" || rawName === undefined) {
       return json({ ok: false, error: "not found" }, 404);
     }
-    const triggerName = decodeURIComponent(rawName);
+    let triggerName: string;
+    try {
+      triggerName = decodeURIComponent(rawName);
+    } catch {
+      return json({ ok: false, error: "not found" }, 404);
+    }
 
     const trigger = triggers.find((candidate) => candidate.name === triggerName);
     if (trigger === undefined) {
@@ -293,16 +332,9 @@ export function makeTriggerHandler(
       return json({ ok: false, error: "unauthorized" }, 401);
     }
 
-    let body: string;
-    try {
-      body = await request.text();
-    } catch {
-      return json({ ok: false, error: "could not read request body" }, 400);
-    }
-    const truncated =
-      body.length > MAX_TRIGGER_PAYLOAD_LENGTH
-        ? `${body.slice(0, MAX_TRIGGER_PAYLOAD_LENGTH)}…(truncated)`
-        : body;
+    const body = await readTriggerPayload(request);
+    if (body instanceof Response) return body;
+    const truncated = body;
 
     return runEffect(fireTrigger(trigger, truncated));
   };

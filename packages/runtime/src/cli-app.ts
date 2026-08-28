@@ -1,6 +1,5 @@
 import {
   isApprovalPolicyFlag,
-  isPlatformFlag,
   isReasoningEffortFlag,
   parseEventCategories,
   resolveStreamOption,
@@ -109,10 +108,6 @@ function registerRunCommand(program: Command): void {
       "IANA timezone (e.g. Europe/Paris) used to resolve relative/clock times for this run, e.g. the add_reminder tool. Defaults to UTC.",
     )
     .option(
-      "--platform <platform>",
-      "Surface this run is replying on: cli | telegram | discord | github. Adds surface-appropriate guidance to the system prompt (e.g. that CLI-only commands aren't runnable in a chat). Defaults to cli.",
-    )
-    .option(
       "--timeout <ms>",
       "Abort the run after this many milliseconds",
       parsePositiveInt("--timeout"),
@@ -176,7 +171,6 @@ function registerRunCommand(program: Command): void {
           approvalPolicy?: string;
           autoApproveTools?: string;
           timezone?: string;
-          platform?: string;
           timeout?: number;
           maxIterations?: number;
           events?: string;
@@ -248,17 +242,6 @@ function registerRunCommand(program: Command): void {
           }
         }
 
-        if (options.platform !== undefined && !isPlatformFlag(options.platform)) {
-          const message = `Invalid --platform "${options.platform}". Expected cli, telegram, discord, or github.`;
-          if (json) {
-            process.stdout.write(`${JSON.stringify({ ok: false, error: message, costUSD: 0 })}\n`);
-          } else {
-            process.stderr.write(`${message}\n`);
-          }
-          process.exitCode = 1;
-          return;
-        }
-
         const companionFlags: Record<string, string | undefined> = {
           vision: options.withVision,
           audio: options.withAudio,
@@ -301,9 +284,6 @@ function registerRunCommand(program: Command): void {
                   ? { autoApprovedTools: autoApproveTools }
                   : {}),
                 ...(options.timezone !== undefined ? { timezone: options.timezone } : {}),
-                ...(options.platform !== undefined && isPlatformFlag(options.platform)
-                  ? { platform: options.platform }
-                  : {}),
                 ...(options.reasoning !== undefined && isReasoningEffortFlag(options.reasoning)
                   ? { reasoningEffort: options.reasoning }
                   : {}),
@@ -964,10 +944,6 @@ function registerWorkflowCommands(program: Command): void {
     .option("--auto-approve", "Auto-approve tool executions based on workflow policy")
     .option("--agent <agentId>", "Agent ID or name to use for this workflow run")
     .option(
-      "--platform <platform>",
-      "Surface this run is replying on: cli | telegram | discord | github. Adds surface-appropriate guidance to the system prompt. Defaults to cli.",
-    )
-    .option(
       "--max-iterations <n>",
       "Maximum agent reasoning iterations (overrides the workflow's own setting)",
       parsePositiveInt("--max-iterations"),
@@ -1000,7 +976,6 @@ function registerWorkflowCommands(program: Command): void {
         options: {
           autoApprove?: boolean;
           agent?: string;
-          platform?: string;
           maxIterations?: number;
           scheduled?: boolean;
           json?: boolean;
@@ -1014,17 +989,6 @@ function registerWorkflowCommands(program: Command): void {
         const json = options.json === true;
         const isWorkflowRunCommand =
           command.name() === "run" && command.parent?.name() === "workflow";
-
-        if (options.platform !== undefined && !isPlatformFlag(options.platform)) {
-          const message = `Invalid --platform "${options.platform}". Expected cli, telegram, discord, or github.`;
-          if (json) {
-            process.stdout.write(`${JSON.stringify({ ok: false, error: message, costUSD: 0 })}\n`);
-          } else {
-            process.stderr.write(`${message}\n`);
-          }
-          process.exitCode = 1;
-          return;
-        }
 
         // Only the one-shot presentation layer (json mode) can emit NDJSON
         // events; in interactive mode --events would be silently ignored.
@@ -1050,19 +1014,14 @@ function registerWorkflowCommands(program: Command): void {
           process.env["JAZZ_NO_TUI"] = "1";
         }
 
-        const { platform: rawPlatform, ...workflowOptions } = options;
-
         return runCliAction(
           () =>
             import("@jazz/cli/commands/workflow").then((mod) =>
               mod.runWorkflowCommand(name, {
-                ...workflowOptions,
+                ...options,
                 ...(options.timeout !== undefined ? { timeoutMs: options.timeout } : {}),
                 ...(eventCategories?.ok ? { eventTypes: eventCategories.types } : {}),
                 ...resolveStreamOption(options, eventCategories),
-                ...(rawPlatform !== undefined && isPlatformFlag(rawPlatform)
-                  ? { platform: rawPlatform }
-                  : {}),
               }),
             ),
           cliRuntimeOptions(program),

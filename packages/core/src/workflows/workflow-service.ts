@@ -31,8 +31,8 @@ export interface WorkflowMetadata {
   readonly autoApprove?: AutoApprovePolicy;
   /** Skills to load for this workflow */
   readonly skills?: readonly string[];
-  /** Run missed workflows when Jazz starts */
-  readonly catchUpOnStartup?: boolean;
+  /** Whether a missed slot may be replayed after the daemon restarts. */
+  readonly catchUpOnRestart?: boolean;
   /** Max age (seconds) for catch-up runs */
   readonly maxCatchUpAge?: number;
   /** Maximum agent iterations per run. Unset, the run falls back to config `maxIterations`, then `DEFAULT_MAX_ITERATIONS` */
@@ -107,8 +107,8 @@ function parseWorkflowFrontmatter(
     ...(typeof data["schedule"] === "string" && { schedule: data["schedule"] }),
     ...(autoApprove !== undefined && { autoApprove }),
     ...(skills && skills.length > 0 && { skills }),
-    ...(typeof data["catchUpOnStartup"] === "boolean" && {
-      catchUpOnStartup: data["catchUpOnStartup"],
+    ...(typeof data["catchUpOnRestart"] === "boolean" && {
+      catchUpOnRestart: data["catchUpOnRestart"],
     }),
     ...(typeof data["maxCatchUpAge"] === "number" && { maxCatchUpAge: data["maxCatchUpAge"] }),
     ...(typeof data["maxIterations"] === "number" && { maxIterations: data["maxIterations"] }),

@@ -838,8 +838,6 @@ async function runJazz(
         : []),
       "--timezone",
       tzForChat(config.jazzHome, TZ_FILE, chatId),
-      "--platform",
-      "telegram",
       ...(incognito
         ? [
             "--ephemeral",
@@ -1174,18 +1172,7 @@ async function jazzJson(
   extraArgs: string[],
 ): Promise<JazzEnvelope> {
   const child = Bun.spawn(
-    [
-      config.jazzBinary,
-      "run",
-      "--no-tui",
-      "--json",
-      "--agent",
-      agentId,
-      "--platform",
-      "telegram",
-      ...extraArgs,
-      prompt,
-    ],
+    [config.jazzBinary, "run", "--no-tui", "--json", "--agent", agentId, ...extraArgs, prompt],
     { stdout: "pipe", stderr: "pipe", env: { ...process.env } },
   );
   const timeout = setTimeout(() => child.kill(), 90_000);

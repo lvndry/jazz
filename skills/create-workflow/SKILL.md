@@ -55,7 +55,7 @@ name: workflow-name
 description: Brief one-line summary
 schedule: "0 8 * * *"
 autoApprove: read-only
-catchUpOnStartup: true
+catchUpOnRestart: true
 maxCatchUpAge: 43200
 agent: default
 skills:
@@ -77,7 +77,7 @@ skills:
 | `agent`            |          | Agent to use (optional, will prompt if omitted) | `research-agent`                                      |
 | `autoApprove`      |          | Auto-approval policy                            | `read-only`, `low-risk`, `high-risk`, `true`, `false` |
 | `skills`           |          | Skills to load                                  | `["email", "calendar"]`                               |
-| `catchUpOnStartup` |          | Run missed workflows on startup                 | `true`                                                |
+| `catchUpOnRestart` |          | Replay a recent missed run after daemon restart | `true`                                                |
 | `maxCatchUpAge`    |          | Max age (seconds) for catch-up runs             | `43200` (12 hours)                                    |
 
 ## Cron Schedule Guide

@@ -15,7 +15,7 @@ describe("WorkflowService", () => {
         schedule: "0 * * * *",
         autoApprove: true,
         skills: ["skill1", "skill2"],
-        catchUpOnStartup: true,
+        catchUpOnRestart: true,
         maxCatchUpAge: 3600,
         maxIterations: 100,
       };
@@ -26,7 +26,7 @@ describe("WorkflowService", () => {
       expect(testWorkflow.schedule).toBe("0 * * * *");
       expect(testWorkflow.autoApprove).toBe(true);
       expect(testWorkflow.skills).toEqual(["skill1", "skill2"]);
-      expect(testWorkflow.catchUpOnStartup).toBe(true);
+      expect(testWorkflow.catchUpOnRestart).toBe(true);
       expect(testWorkflow.maxCatchUpAge).toBe(3600);
       expect(testWorkflow.maxIterations).toBe(100);
     });

@@ -114,24 +114,6 @@ describe("system prompt cache keys off the toolset", () => {
     expect(withMemory).toContain("# Memory");
     expect(withoutMemory).not.toContain("# Memory");
   });
-
-  test("same persona with different platform yields different prompts", () => {
-    const builder = new AgentPromptBuilder();
-    const service = personaServiceReturning("You are {agentName}.");
-    const base: AgentPromptOptions = {
-      agentName: "Test",
-      agentDescription: "a test agent.",
-      userInput: "hello",
-    };
-
-    const cli = Effect.runSync(builder.buildSystemPrompt("default", base, service));
-    const discord = Effect.runSync(
-      builder.buildSystemPrompt("default", { ...base, platform: "discord" }, service),
-    );
-
-    expect(cli).not.toContain("You are replying inside Discord chat");
-    expect(discord).toContain("You are replying inside Discord chat");
-  });
 });
 
 describe("media generation guidance", () => {
@@ -155,37 +137,5 @@ describe("media generation guidance", () => {
 
   test("the summarizer never gets it — no user to advise", () => {
     expect(build("summarizer", { canGenerateMedia: false })).not.toContain("jazz agent list");
-  });
-
-  test("chat/CI platforms get the CLI-free redirect instead", () => {
-    const prompt = build("default", { canGenerateMedia: false, platform: "telegram" });
-    expect(prompt).not.toContain("tell the user to run");
-    expect(prompt).toContain("ask from a CLI session");
-  });
-});
-
-describe("platform guidance injection", () => {
-  test("no platform line for cli or unset", () => {
-    expect(build("default")).not.toContain("You are replying inside");
-    expect(build("default", { platform: "cli" })).not.toContain("You are replying inside");
-  });
-
-  test("telegram and discord get chat-surface guidance", () => {
-    expect(build("default", { platform: "telegram" })).toContain(
-      "You are replying inside Telegram chat",
-    );
-    expect(build("default", { platform: "discord" })).toContain(
-      "You are replying inside Discord chat",
-    );
-  });
-
-  test("github gets PR-comment framing, not chat framing", () => {
-    const prompt = build("default", { platform: "github" });
-    expect(prompt).toContain("posting a single review comment on a GitHub pull request");
-    expect(prompt).not.toContain("You are replying inside");
-  });
-
-  test("the summarizer never gets platform guidance", () => {
-    expect(build("summarizer", { platform: "telegram" })).not.toContain("Telegram chat");
   });
 });

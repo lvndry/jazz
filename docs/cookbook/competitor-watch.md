@@ -21,7 +21,7 @@ name: competitor-watch
 description: Weekly competitor changelog/blog digest, written to Obsidian.
 schedule: "0 9 * * 1"
 autoApprove: low-risk
-catchUpOnStartup: true
+catchUpOnRestart: true
 maxCatchUpAge: 604800
 maxIterations: 80
 skills:

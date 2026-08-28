@@ -21,7 +21,7 @@ name: pr-watchdog
 description: Daily scan of open PRs — flag stale ones, draft a digest.
 schedule: "0 9 * * 1-5"
 autoApprove: read-only
-catchUpOnStartup: true
+catchUpOnRestart: true
 maxCatchUpAge: 86400
 maxIterations: 40
 ---

@@ -24,7 +24,7 @@ agent: my-dev-agent
 autoApprove: read-only
 skills:
   - github-action
-catchUpOnStartup: true
+catchUpOnRestart: true
 maxCatchUpAge: 7200
 maxIterations: 40
 ---
@@ -38,7 +38,7 @@ maxIterations: 40
 | `schedule`         | cron string | —        | When to run. Required only if you intend to `jazz workflow schedule` it           |
 | `autoApprove`      | see below   | —        | Autonomy tier for unattended runs                                                 |
 | `skills`           | string[]    | —        | Skills to make available to the agent for this workflow                           |
-| `catchUpOnStartup` | boolean     | —        | Whether a missed run should be offered on next launch                             |
+| `catchUpOnRestart` | boolean     | —        | Whether a recent missed run may be replayed after daemon restart                  |
 | `maxCatchUpAge`    | seconds     | —        | Past this age a missed run is skipped. Default 86400 (24 h)                       |
 | `maxIterations`    | number      | —        | Iteration cap for this workflow. Default 100. Overridable with `--max-iterations`  |
 

@@ -66,7 +66,7 @@ jazz workflow history email-cleanup
 | `agent`            |          | Agent id/name (defaults to user selection)      |
 | `autoApprove`      |          | Autonomy tier for unattended runs               |
 | `skills`           |          | Skills to make available                        |
-| `catchUpOnStartup` |          | Offer a missed run on next launch               |
+| `catchUpOnRestart` |          | Replay a recent missed run after daemon restart |
 | `maxCatchUpAge`    |          | Max age in seconds for catch-up (default 86400) |
 | `maxIterations`    |          | Iteration cap (default 100)                      |
 
@@ -180,7 +180,7 @@ Scheduled workflows use the **system scheduler** (launchd on macOS, cron on Linu
 
 **Jazz's catch-up feature** addresses this: you can run missed workflows when you're back at your computer.
 
-- **Interactive catch-up**: If any workflow has `catchUpOnStartup: true` and missed its scheduled time (within `maxCatchUpAge`), the next time you run any `jazz` command (e.g. `jazz chat` or `jazz workflow list`), Jazz will notify you and ask if you'd like to catch them up. If you say yes, you can select which workflows to run (multi-select), and they'll run in the background while you continue with your original command.
+- **Restart catch-up**: If any workflow has `catchUpOnRestart: true` and missed its scheduled time (within `maxCatchUpAge`), the daemon may replay its latest missed slot after restarting.
 - **Manual catch-up**: Run `jazz workflow catchup` to see all workflows that need catch-up, choose which to run, and run them.
 
 For more detail (including why this happens and other options), see [Scheduling](./scheduling.md).
@@ -212,7 +212,7 @@ You can also run catch-up manually anytime:
 jazz workflow catchup
 ```
 
-Shows workflows that are scheduled, have `catchUpOnStartup: true`, and missed their last run within the max catch-up window. You can select which ones to run (multi-select with Space, confirm with Enter).
+Shows workflows that are scheduled, have `catchUpOnRestart: true`, and missed their last run within the max catch-up window. You can select which ones to run.
 
 ### View History
 
@@ -301,7 +301,7 @@ name: market-analysis
 description: Daily stock market and crypto analysis
 schedule: "0 6 * * *"
 autoApprove: true
-catchUpOnStartup: true
+catchUpOnRestart: true
 maxCatchUpAge: 43200
 skills:
   - deep-research
@@ -337,7 +337,7 @@ If your computer is closed, asleep, or off when a workflow is scheduled:
 
 - ❌ The workflow will NOT run at that time
 - ✅ It WILL run at the next scheduled time (if computer is awake)
-- ✅ You can enable catch-up on startup (see below)
+- ✅ You can enable catch-up on restart (see below)
 
 **Solutions:**
 
@@ -352,7 +352,7 @@ Enable catch-up to prompt for missed workflows when Jazz starts:
 
 ```yaml
 ---
-catchUpOnStartup: true
+catchUpOnRestart: true
 maxCatchUpAge: 43200 # seconds (12 hours)
 ---
 ```

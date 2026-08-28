@@ -67,6 +67,13 @@ describe("environment block injection", () => {
     expect(result.match(/Environment:/g)?.length).toBe(1);
   });
 
+  test("supports individual environment placeholders without duplicating the environment block", () => {
+    const result = build("custom", "Today is {currentDate}; user is {username}.");
+    expect(result).not.toContain("{currentDate}");
+    expect(result).not.toContain("{username}");
+    expect(result.match(/Environment:/g)).toBeNull();
+  });
+
   test("agent name and description are always substituted", () => {
     const result = build("default", "You are {agentName}, {agentDescription} Go.");
     expect(result).toContain("You are Test, a test agent.");

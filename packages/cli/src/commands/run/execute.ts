@@ -30,7 +30,7 @@ import {
   type OneShotOutputOptions,
   type OneShotWebApp,
 } from "./envelope";
-import type { ApprovalPolicyFlag, PlatformFlag, ReasoningEffort } from "./flags";
+import type { ApprovalPolicyFlag, ReasoningEffort } from "./flags";
 
 /**
  * One-shot, non-interactive agent invocation — designed to be driven from
@@ -114,8 +114,6 @@ export interface RunAgentOnceOptions {
    * for this run (e.g. the add_reminder tool). Defaults to UTC when unset.
    */
   readonly timezone?: string | undefined;
-  /** Surface this run is replying on: cli | telegram | discord | github. Defaults to cli. */
-  readonly platform?: PlatformFlag | undefined;
   readonly reasoningEffort?: ReasoningEffort | undefined;
   /**
    * Per-run companion bindings overriding the agent's own `config.companions`.
@@ -369,7 +367,6 @@ export function runAgentOnceCommand(
         ? { autoApprovedTools: options.autoApprovedTools }
         : {}),
       ...(options.timezone !== undefined ? { timezone: options.timezone } : {}),
-      ...(options.platform !== undefined ? { platform: options.platform } : {}),
       ...(options.maxIterations != null ? { maxIterations: options.maxIterations } : {}),
       ...(options.stream !== undefined ? { stream: options.stream } : {}),
       ...(interactiveInput.interactive ? {} : { withholdInteractiveTools: true }),

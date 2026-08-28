@@ -21,7 +21,7 @@ name: codebase-tech-debt-radar
 description: Weekly FIXME/TODO/HACK trend report across selected repos.
 schedule: "0 18 * * 5"
 autoApprove: read-only
-catchUpOnStartup: false
+catchUpOnRestart: false
 maxIterations: 50
 ---
 

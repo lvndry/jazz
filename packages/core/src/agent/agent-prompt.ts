@@ -15,9 +15,7 @@ import {
   COMPLETION_INSTRUCTIONS,
   ENVIRONMENT_TEMPLATE,
   MEDIA_GENERATION_UNAVAILABLE,
-  MEDIA_GENERATION_UNAVAILABLE_CHAT,
   MEMORY_INSTRUCTIONS,
-  PLATFORM_GUIDANCE,
   SKILLS_INSTRUCTIONS,
   TASK_STATE_INSTRUCTIONS,
   TOOL_SELECTION_INSTRUCTIONS,
@@ -131,9 +129,7 @@ export interface AgentPromptOptions {
    * own value because the model's actual behavior must change per surface — whether it can
    * suggest a shell command, whether anyone will reply this turn, whether it's posting a
    * standalone comment. If the terminal itself ever needs to change what the model says,
-   * that belongs in {tty}/{shell} on `ENVIRONMENT_TEMPLATE`, not another `platform` value.
    */
-  readonly platform?: "cli" | "telegram" | "discord" | "github";
   /**
    * Attachments placed directly by the caller (model-companion delegation), merged onto
    * this run's first user message. Kinds the model cannot ingest are dropped with an
@@ -229,7 +225,6 @@ export class AgentPromptBuilder {
       }
     }
     hash.update(`canGenerateMedia:${options.canGenerateMedia ?? true}`);
-    hash.update(`platform:${options.platform ?? "cli"}`);
     // Invalidate daily since prompts include current date
     hash.update(new Date().toDateString());
     return hash.digest("hex");
@@ -332,28 +327,28 @@ export class AgentPromptBuilder {
 
         if (personaName !== "summarizer") {
           const envBlock = fillEnvironment(ENVIRONMENT_TEMPLATE);
-          systemPrompt = systemPrompt.includes("{environment}")
-            ? systemPrompt.replace("{environment}", envBlock)
-            : `${systemPrompt}\n${envBlock}`;
+          const usesIndividualEnvironmentFields = [
+            "{currentDate}",
+            "{osInfo}",
+            "{hardware}",
+            "{shell}",
+            "{homeDirectory}",
+            "{hostname}",
+            "{username}",
+            "{tty}",
+          ].some((placeholder) => systemPrompt.includes(placeholder));
+          systemPrompt = fillEnvironment(systemPrompt);
+          if (systemPrompt.includes("{environment}")) {
+            systemPrompt = systemPrompt.replace("{environment}", envBlock);
+          } else if (!usesIndividualEnvironmentFields) {
+            systemPrompt = `${systemPrompt}\n${envBlock}`;
+          }
         }
 
         // Only for models that cannot generate media, and never for the summarizer, which has no
         // user to advise.
         if (personaName !== "summarizer" && options.canGenerateMedia === false) {
-          systemPrompt = `${systemPrompt}\n${
-            options.platform !== undefined && options.platform !== "cli"
-              ? MEDIA_GENERATION_UNAVAILABLE_CHAT
-              : MEDIA_GENERATION_UNAVAILABLE
-          }`;
-        }
-
-        // Never for the summarizer, which has no user-facing reply of its own.
-        if (
-          personaName !== "summarizer" &&
-          options.platform !== undefined &&
-          options.platform !== "cli"
-        ) {
-          systemPrompt = `${systemPrompt}\n${PLATFORM_GUIDANCE[options.platform]}`;
+          systemPrompt = `${systemPrompt}\n${MEDIA_GENERATION_UNAVAILABLE}`;
         }
 
         // Every acting persona gets the completion contract. The summarizer is

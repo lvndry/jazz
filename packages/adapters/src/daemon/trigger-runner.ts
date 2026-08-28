@@ -14,7 +14,7 @@ import { AgentRunner } from "@jazz/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
-import { runWorkflowCatchUp } from "@jazz/core/workflows/catch-up";
+import { runInProcessScheduledWorkflows } from "@jazz/core/workflows/catch-up";
 import { Effect } from "effect";
 import { sweepDueWakeTriggers } from "@/adapters/wake-trigger-service";
 import {
@@ -100,9 +100,11 @@ function fireWakeTrigger(
  * Failures in either half are logged and swallowed — a single bad trigger or a transient
  * catch-up error must never stop the ticker from running on the next interval.
  */
-export function runDueTriggers() {
+export function runDueTriggers(options: { readonly runWorkflows?: boolean } = {}) {
   return Effect.gen(function* () {
-    yield* runWorkflowCatchUp();
+    if (options.runWorkflows === true) {
+      yield* runInProcessScheduledWorkflows();
+    }
 
     const due = yield* sweepDueWakeTriggers(wakeTriggerDirectory(), Date.now()).pipe(
       Effect.catchAll(() => Effect.succeed([])),
