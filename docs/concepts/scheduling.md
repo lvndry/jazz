@@ -13,10 +13,12 @@ Jazz uses your operating system's built-in scheduler:
 
 ## ⚠️ Important: Computer Must Be Awake at Schedule Time
 
-On an always-on host, use `JAZZ_SCHEDULER=in-process jazz daemon` to let Jazz own the ticker
-instead of installing an OS scheduler. Normal in-process scheduling is independent of
-`catchUpOnRestart`; that setting only controls replay of a recent slot missed while the daemon
-was stopped.
+On an always-on host, set `scheduler.mode: "in-process"` (`jazz config set scheduler.mode
+in-process`, or **Scheduler** in `jazz config`) and run `jazz daemon` to let Jazz own the ticker
+instead of installing an OS scheduler. The `JAZZ_SCHEDULER=in-process` environment variable does
+the same thing for a single run without changing saved config. Normal in-process scheduling is
+independent of `catchUpOnRestart`; that setting only controls replay of a recent slot missed
+while the daemon was stopped. See [Configuration → `scheduler`](../reference/configuration.md#scheduler).
 
 If your computer is **closed, asleep, or powered off** when a workflow is scheduled to run:
 
