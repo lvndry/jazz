@@ -5,6 +5,7 @@
 import { FileSystem } from "@effect/platform";
 import { Context, Effect } from "effect";
 import type z from "zod";
+import type { WorkspaceService } from "@/core/interfaces/workspace-service";
 import type { SkillService } from "@/core/skills/skill-service";
 import type { CustomToolDefinition } from "@/core/types/agent";
 import type { ToolNotFoundError } from "@/core/types/errors";
@@ -83,6 +84,7 @@ export type ToolRequirements =
   | SkillService
   | PresentationService
   | MemoryService
+  | WorkspaceService
   | ReminderService
   | WakeTriggerService
   | PeerLedgerService

@@ -10,10 +10,10 @@ import * as path from "node:path";
 import { FileSystem } from "@effect/platform";
 import {
   MAX_MEMORY_FILE_BYTES,
-  MAX_MEMORY_FILES_PER_AGENT,
+  MAX_MEMORY_FILES_PER_SCOPE,
   MAX_MEMORY_PATH_DEPTH,
   MAX_MEMORY_PATH_SEGMENT_LENGTH,
-  MAX_MEMORY_TOTAL_BYTES_PER_AGENT,
+  MAX_MEMORY_TOTAL_BYTES_PER_SCOPE,
   MEMORY_VIEW_MAX_LINES,
   MEMORY_VIEW_TRUNCATE_CHARS,
 } from "@jazz/core/constants/memory";
@@ -325,17 +325,17 @@ export class MemoryServiceImpl implements MemoryService {
               }
 
               const stats = yield* walkMemoryTree(fs, root);
-              if (stats.fileCount + 1 > MAX_MEMORY_FILES_PER_AGENT) {
+              if (stats.fileCount + 1 > MAX_MEMORY_FILES_PER_SCOPE) {
                 return yield* Effect.fail(
                   new MemoryGuardrailViolation(
-                    `Creating this file would exceed the maximum of ${MAX_MEMORY_FILES_PER_AGENT} files in memory.`,
+                    `Creating this file would exceed the maximum of ${MAX_MEMORY_FILES_PER_SCOPE} files in memory.`,
                   ),
                 );
               }
-              if (stats.totalBytes + fileTextBytes > MAX_MEMORY_TOTAL_BYTES_PER_AGENT) {
+              if (stats.totalBytes + fileTextBytes > MAX_MEMORY_TOTAL_BYTES_PER_SCOPE) {
                 return yield* Effect.fail(
                   new MemoryGuardrailViolation(
-                    `Creating this file would exceed the total memory budget of ${MAX_MEMORY_TOTAL_BYTES_PER_AGENT} bytes.`,
+                    `Creating this file would exceed the total memory budget of ${MAX_MEMORY_TOTAL_BYTES_PER_SCOPE} bytes.`,
                   ),
                 );
               }
@@ -378,7 +378,9 @@ export class MemoryServiceImpl implements MemoryService {
               const content = yield* fs
                 .readFileString(target)
                 .pipe(
-                  Effect.catchAll((e) => Effect.fail(e instanceof Error ? e : new Error(String(e)))),
+                  Effect.catchAll((e) =>
+                    Effect.fail(e instanceof Error ? e : new Error(String(e))),
+                  ),
                 );
 
               const occurrenceLines = findAllOccurrenceLineNumbers(content, oldStr);
@@ -447,7 +449,9 @@ export class MemoryServiceImpl implements MemoryService {
               const content = yield* fs
                 .readFileString(target)
                 .pipe(
-                  Effect.catchAll((e) => Effect.fail(e instanceof Error ? e : new Error(String(e)))),
+                  Effect.catchAll((e) =>
+                    Effect.fail(e instanceof Error ? e : new Error(String(e))),
+                  ),
                 );
               const lines = content.split("\n");
 
@@ -521,7 +525,9 @@ export class MemoryServiceImpl implements MemoryService {
               yield* fs
                 .remove(target, { recursive: true })
                 .pipe(
-                  Effect.catchAll((e) => Effect.fail(e instanceof Error ? e : new Error(String(e)))),
+                  Effect.catchAll((e) =>
+                    Effect.fail(e instanceof Error ? e : new Error(String(e))),
+                  ),
                 );
 
               return {
@@ -589,12 +595,16 @@ export class MemoryServiceImpl implements MemoryService {
               yield* fs
                 .makeDirectory(path.dirname(destination), { recursive: true })
                 .pipe(
-                  Effect.catchAll((e) => Effect.fail(e instanceof Error ? e : new Error(String(e)))),
+                  Effect.catchAll((e) =>
+                    Effect.fail(e instanceof Error ? e : new Error(String(e))),
+                  ),
                 );
               yield* fs
                 .rename(source, destination)
                 .pipe(
-                  Effect.catchAll((e) => Effect.fail(e instanceof Error ? e : new Error(String(e)))),
+                  Effect.catchAll((e) =>
+                    Effect.fail(e instanceof Error ? e : new Error(String(e))),
+                  ),
                 );
 
               return {

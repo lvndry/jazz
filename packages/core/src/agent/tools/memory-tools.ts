@@ -58,8 +58,9 @@ const viewMemoryParameters = z
       .string()
       .default("")
       .describe(
-        'Path relative to this agent\'s memory root (e.g. "notes.txt" or "people/alex.md"). ' +
-          'Empty string or "/" views the root directory.',
+        'Path starting with a scope name (e.g. "personal/notes.txt" or "github-project-a/status.md"). ' +
+          'Empty string or "/" lists the scopes you can access, each as a directory — use that to discover ' +
+          "them instead of guessing.",
       ),
     view_range: z
       .tuple([z.number().int(), z.number().int()])
@@ -78,7 +79,8 @@ export function createViewMemoryTool(): Tool<MemoryToolDeps> {
     disclosure: "private",
     description:
       "Call this first, before you answer, at the start of every conversation — even a casual one. " +
-      "No path lists everything you've stored; a path reads one file. " +
+      'No path lists the memory scopes you can access (e.g. "personal", "github-project-a"); ' +
+      'a path like "personal/notes.md" reads one file within a scope. ' +
       "An empty or missing directory just means nothing has been saved yet — that is a normal answer, not an error.",
     parameters: viewMemoryParameters,
     riskLevel: "read-only",
@@ -87,7 +89,8 @@ export function createViewMemoryTool(): Tool<MemoryToolDeps> {
     handler: (args, context) =>
       Effect.gen(function* () {
         const memoryService = yield* MemoryServiceTag;
-        const outcome = yield* memoryService.view(context.agentId, args.path, args.view_range);
+        const scopes = context.memoryScopes ?? [context.agentId];
+        const outcome = yield* memoryService.view(scopes, args.path, args.view_range);
 
         if (outcome.kind === "not_found" || outcome.kind === "too_large") {
           return {
@@ -131,14 +134,20 @@ const manageMemoryParameters = z.discriminatedUnion("command", [
   z
     .object({
       command: z.literal("create"),
-      path: z.string().min(1).describe("Memory file path relative to the memory directory."),
+      path: z
+        .string()
+        .min(1)
+        .describe('Memory file path, starting with a scope name (e.g. "personal/notes.md").'),
       file_text: z.string().describe("Full file contents. Errors if the path already exists."),
     })
     .strict(),
   z
     .object({
       command: z.literal("str_replace"),
-      path: z.string().min(1).describe("Memory file path relative to the memory directory."),
+      path: z
+        .string()
+        .min(1)
+        .describe('Memory file path, starting with a scope name (e.g. "personal/notes.md").'),
       old_str: z.string().min(1).describe("Exact unique snippet to replace."),
       new_str: z.string().optional().describe("Replacement text. Omit to delete the snippet."),
     })
@@ -146,7 +155,10 @@ const manageMemoryParameters = z.discriminatedUnion("command", [
   z
     .object({
       command: z.literal("insert"),
-      path: z.string().min(1).describe("Memory file path relative to the memory directory."),
+      path: z
+        .string()
+        .min(1)
+        .describe('Memory file path, starting with a scope name (e.g. "personal/notes.md").'),
       insert_line: z
         .number()
         .int()
@@ -160,14 +172,27 @@ const manageMemoryParameters = z.discriminatedUnion("command", [
   z
     .object({
       command: z.literal("delete"),
-      path: z.string().min(1).describe("Memory file path to delete."),
+      path: z
+        .string()
+        .min(1)
+        .describe(
+          'Memory file path to delete, starting with a scope name (e.g. "personal/old.md").',
+        ),
     })
     .strict(),
   z
     .object({
       command: z.literal("rename"),
-      old_path: z.string().min(1).describe("Current path, relative to the memory directory."),
-      new_path: z.string().min(1).describe("New path, relative to the memory directory."),
+      old_path: z
+        .string()
+        .min(1)
+        .describe('Current path, starting with a scope name (e.g. "personal/notes.md").'),
+      new_path: z
+        .string()
+        .min(1)
+        .describe(
+          "New path. Must start with the same scope name as old_path — moving a file between scopes isn't supported.",
+        ),
     })
     .strict(),
 ]);
@@ -179,13 +204,14 @@ export function createManageMemoryTool(): Tool<MemoryToolDeps> {
     name: "manage_memory",
     disclosure: "private",
     description:
-      "Save facts about this person that will still matter later — preferences, location, age, how they like to work. Write as soon as you learn it. " +
-      "Update an existing file instead of creating a new one for the same topic — call view_memory first. One file per person or project, not a running log. " +
+      "Save facts that will still matter later — preferences, location, age, how they like to work, project-specific notes. Write as soon as you learn it. " +
+      'Every path starts with a scope name (e.g. "personal/preferences.md", "github-project-a/status.md") — call view_memory with no path to see which scopes you can access. ' +
+      "Update an existing file instead of creating a new one for the same topic — call view_memory first. One file per topic within a scope, not a running log. " +
       "Rewrite anything that is no longer true. Never write small talk, this-task details, or secrets (account numbers, passwords, health data). " +
       "Commands: create(path, file_text) makes a new file, errors if it already exists; " +
       "str_replace(path, old_str, new_str) replaces one exact, unique snippet — omit new_str to delete it; " +
       "insert(path, insert_line, insert_text) inserts text after a 0-based line (0 = start of file); " +
-      "delete(path) removes a file; rename(old_path, new_path) moves/renames a file.",
+      "delete(path) removes a file; rename(old_path, new_path) renames a file within its scope.",
     parameters: manageMemoryParameters,
     riskLevel: "low-risk",
     hidden: false,
@@ -193,20 +219,20 @@ export function createManageMemoryTool(): Tool<MemoryToolDeps> {
     handler: (args, context) =>
       Effect.gen(function* () {
         const memoryService = yield* MemoryServiceTag;
-        const agentId = context.agentId;
+        const scopes = context.memoryScopes ?? [context.agentId];
 
         const outcome = yield* (() => {
           switch (args.command) {
             case "create":
-              return memoryService.create(agentId, args.path, args.file_text);
+              return memoryService.create(scopes, args.path, args.file_text);
             case "str_replace":
-              return memoryService.strReplace(agentId, args.path, args.old_str, args.new_str);
+              return memoryService.strReplace(scopes, args.path, args.old_str, args.new_str);
             case "insert":
-              return memoryService.insert(agentId, args.path, args.insert_line, args.insert_text);
+              return memoryService.insert(scopes, args.path, args.insert_line, args.insert_text);
             case "delete":
-              return memoryService.delete(agentId, args.path);
+              return memoryService.delete(scopes, args.path);
             case "rename":
-              return memoryService.rename(agentId, args.old_path, args.new_path);
+              return memoryService.rename(scopes, args.old_path, args.new_path);
           }
         })();
 

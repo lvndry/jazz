@@ -218,6 +218,13 @@ export class LLMRateLimitError extends Data.TaggedError("LLMRateLimitError")<{
   readonly provider: string;
   readonly message: string;
   readonly suggestion?: string;
+  /**
+   * Set when the 429 is an out-of-credits / quota-exhausted response rather than a
+   * too-many-requests throttle. No amount of backoff fixes this — it needs a billing action —
+   * so retrying burns the full schedule before surfacing an error the caller could have seen
+   * on the first attempt.
+   */
+  readonly permanent?: boolean;
 }> {}
 
 export class LLMConfigurationError extends Data.TaggedError("LLMConfigurationError")<{

@@ -80,7 +80,7 @@ describe("manage_memory tool", () => {
       tool.execute({ command: "create", path: "notes.txt", file_text: "hi" }, context),
     );
     expect(result.success).toBe(true);
-    expect(receivedArgs).toEqual(["agent-1", "notes.txt", "hi"]);
+    expect(receivedArgs).toEqual([["agent-1"], "notes.txt", "hi"]);
   });
 
   test("surfaces a failed mutation as a failed tool result", async () => {

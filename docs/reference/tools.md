@@ -19,11 +19,11 @@ and [Security](../../SECURITY.md) for the threat model.
 
 |                                                                         | Count  |
 | ----------------------------------------------------------------------- | ------ |
-| **Agent-facing tools**                                                  | **36** |
+| **Agent-facing tools**                                                  | **41** |
 | Hidden `execute_*` counterparts (the second half of each approval pair) | 8      |
-| Total registered                                                        | 42     |
-| `read-only`                                                             | 20     |
-| `low-risk`                                                              | 7      |
+| Total registered                                                        | 50     |
+| `read-only`                                                             | 22     |
+| `low-risk`                                                              | 11     |
 | `high-risk`                                                             | 7      |
 | `unknown`                                                               | 1      |
 
@@ -72,9 +72,9 @@ cannot be added without someone deciding.
 
 | Level      | Safe to tell                                                    | Tools                                                                                                                                                                                                                                                                                  |
 | ---------- | --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `public`   | safe to tell anyone                                             | `add_reminder`, `cp`, `mkdir`, `mv`, `rm`, `web_fetch`, `web_search`, `write_file`                                                                                                                                                                                                     |
-| `internal` | the shape of this machine — paths, names, what is installed     | `analyze_media`, `cd`, `context_info`, `create_pdf`, `create_web_app`, `find`, `get_time`, `ls`, `pdf_page_count`, `pwd`, `stat`                                                                                                                                                       |
-| `private`  | your own material — file contents, memory, schedule, transcript | `ask_file_picker`, `ask_user_question`, `cancel_reminder`, `edit_file`, `execute_command`, `grep`, `http_request`, `list_reminders`, `list_todos`, `manage_memory`, `manage_todos`, `read_file`, `read_pdf`, `spawn_subagent`, `summarize_context`, `update_work_state`, `view_memory` |
+| `public`   | safe to tell anyone                                             | `add_reminder`, `cp`, `mkdir`, `mv`, `rm`, `web_fetch`, `web_search`, `write_file`                                                                                                                                                                                                                                     |
+| `internal` | the shape of this machine — paths, names, what is installed     | `analyze_media`, `cancel_trigger`, `cd`, `context_info`, `create_pdf`, `create_web_app`, `find`, `get_time`, `list_triggers`, `ls`, `pdf_page_count`, `pwd`, `register_trigger`, `stat`                                                                                                                               |
+| `private`  | your own material — file contents, memory, schedule, transcript | `ask_file_picker`, `ask_user_question`, `cancel_reminder`, `edit_file`, `execute_command`, `grep`, `http_request`, `list_reminders`, `list_todos`, `manage_memory`, `manage_todos`, `manage_workspace`, `read_file`, `read_pdf`, `spawn_subagent`, `summarize_context`, `update_work_state`, `view_memory`, `view_workspace` |
 
 A tool spanning two levels takes the more sensitive one — `edit_file` writes, but its approval
 message carries a diff of your file, so it is `private`. `http_request` reaches private
@@ -160,6 +160,17 @@ Opt-in per agent (like File Management) rather than always-on — see [Memory](.
 
 `update_work_state` lives with the todo tools (always-on). It is scoped to one conversation and discarded when the task ends, unlike memory which persists across conversations — see [Context management](../internals/context-management.md).
 
+### Workspace
+
+Opt-in per agent (like Memory) rather than always-on. Deliberately separate from memory: memory
+is small, curated, one-file-per-topic notes; workspace is where large working drafts, research
+dumps, and intermediate artifacts live, referenced from memory rather than duplicated into it.
+
+| Tool               | Risk        | Approval pair | What it does                                                                                       |
+| ------------------- | ----------- | ------------- | --------------------------------------------------------------------------------------------------- |
+| `view_workspace`   | `read-only` | —             | View your durable scratch space: working drafts, research dumps, and intermediate artifacts too…  |
+| `manage_workspace` | `low-risk`  | —             | Save durable working drafts, research dumps, or intermediate artifacts too large or provisional…  |
+
 ### Reminders
 
 Opt-in per agent. Reminders persist on disk and fire later on the same surface that scheduled them — see [Reminders](../internals/reminders.md).
@@ -169,6 +180,18 @@ Opt-in per agent. Reminders persist on disk and fire later on the same surface t
 | `add_reminder`    | `low-risk`  | —             | Schedule a reminder from a duration (`30m`), clock time (`18:00`), `tomorrow HH:MM`, a weekday (`tue 20:00`), or an absolute `2026-08-25 20:00`. |
 | `list_reminders`  | `read-only` | —             | List this person's pending reminders, including their id, fire time, and text.                                                                   |
 | `cancel_reminder` | `low-risk`  | —             | Cancel a pending reminder by id (get the id from list_reminders first).                                                                          |
+
+### Wake Triggers
+
+Opt-in per agent. A trigger causes the agent to actually run again with a given prompt, resuming
+the exact conversation it was scheduled from — unlike a reminder, which just delivers a note to a
+person. See [Reminders](../internals/reminders.md) for how the two compare.
+
+| Tool                | Risk        | Approval pair | What it does                                                                                       |
+| -------------------- | ----------- | ------------- | ----------------------------------------------------------------------------------------------------- |
+| `register_trigger` | `low-risk`  | —             | Schedule yourself to wake up later and resume this exact conversation — use this when you need to… |
+| `list_triggers`     | `read-only` | —             | List this agent's pending self-scheduled wake triggers.                                            |
+| `cancel_trigger`    | `low-risk`  | —             | Cancel a pending wake trigger by id (get the id from list_triggers first).                          |
 
 ### Context
 

@@ -195,6 +195,14 @@ export function registerMemoryTools(): Effect.Effect<void, Error, ToolRegistry> 
   });
 }
 
+// NOTE (coordination, 2026-08-28): MemoryService.view/create/strReplace/insert/delete/rename
+// just changed their first parameter from `agentId: string` to `scopes: readonly string[]`
+// (memory is now partitioned into named scopes like "personal"/"github-project-a" rather than
+// one silo per agent). WorkspaceService was structurally identical to the old MemoryService
+// shape, which is why `Tool<WorkspaceToolDeps>` typechecked as `Tool<ToolRequirements>` below —
+// that coincidence just broke. If this file fails to typecheck with an error naming
+// WorkspaceService/MemoryService assignability, it's this change; see the memory-service PR/
+// session on this same checkout for context before adjusting WorkspaceService.
 export function registerWorkspaceTools(): Effect.Effect<void, Error, ToolRegistry> {
   return Effect.gen(function* () {
     const registry = yield* ToolRegistryTag;

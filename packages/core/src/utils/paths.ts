@@ -105,6 +105,15 @@ export function getWorkspaceDirectory(): string {
   return path.join(getJazzHomeDirectory(), "workspace");
 }
 
+/**
+ * Returns the directory holding the tool-misfire log: a JSONL record of failed
+ * tool calls (runtime errors, tool-not-found, schema mismatches) kept separate
+ * from ordinary logs so it can be mined later for recurring failure patterns.
+ */
+export function getMisfireLogDirectory(): string {
+  return path.join(getJazzHomeDirectory(), "misfires");
+}
+
 let embeddedAssetRoot: string | null | undefined;
 
 /**
