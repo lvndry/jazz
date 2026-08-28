@@ -227,3 +227,60 @@ describe("convertToLLMError - Ollama Cloud plan rejection", () => {
     expect(converted._tag).toBe("LLMAuthenticationError");
   });
 });
+
+describe("convertToLLMError - out-of-credits 429 vs plain rate limit", () => {
+  it("marks a 429 with error.code insufficient_quota as permanent and non-retryable", () => {
+    const converted = convertToLLMError(
+      new APICallError({
+        message: "You have no credits remaining.",
+        url: "https://api.openai.com/v1/chat/completions",
+        requestBodyValues: {},
+        statusCode: 429,
+        isRetryable: false,
+        data: { error: { message: "You have no credits remaining.", code: "insufficient_quota" } },
+      }),
+      "openai",
+    );
+    expect(converted).toBeInstanceOf(LLMRateLimitError);
+    expect((converted as LLMRateLimitError).permanent).toBe(true);
+    expect(isRetryableLLMError(converted)).toBe(false);
+  });
+
+  it("keeps a plain rate_limit_exceeded 429 retryable", () => {
+    const converted = convertToLLMError(
+      new APICallError({
+        message: "Rate limit reached, please try again later.",
+        url: "https://api.openai.com/v1/chat/completions",
+        requestBodyValues: {},
+        statusCode: 429,
+        isRetryable: true,
+        data: {
+          error: {
+            message: "Rate limit reached, please try again later.",
+            code: "rate_limit_exceeded",
+          },
+        },
+      }),
+      "openai",
+    );
+    expect(converted).toBeInstanceOf(LLMRateLimitError);
+    expect((converted as LLMRateLimitError).permanent).toBe(false);
+    expect(isRetryableLLMError(converted)).toBe(true);
+  });
+
+  it("does not guess from message text alone when there is no structured error code", () => {
+    const converted = convertToLLMError(
+      new APICallError({
+        message: "429 Too Many Requests: quota exceeded, please slow down",
+        url: "https://generativelanguage.googleapis.com/v1/models/gemini",
+        requestBodyValues: {},
+        statusCode: 429,
+        isRetryable: true,
+      }),
+      "gemini",
+    );
+    expect(converted).toBeInstanceOf(LLMRateLimitError);
+    expect((converted as LLMRateLimitError).permanent).toBe(false);
+    expect(isRetryableLLMError(converted)).toBe(true);
+  });
+});

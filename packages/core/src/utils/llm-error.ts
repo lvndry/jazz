@@ -274,21 +274,22 @@ export function isBillingOrPlanError(message: string): boolean {
  * A 429 that means "out of credits/quota" rather than "too many requests right now".
  *
  * Providers use the same HTTP status for both a throttle (retry with backoff) and an exhausted
- * balance (retrying is pointless until the account is topped up), and the two are only
- * distinguishable via the message text. Matches are deliberately narrow — an OpenAI error code
- * or explicit "no credits/balance" wording — because anything looser (e.g. a bare "billing"
- * or "quota" mention) risks misclassifying a genuine throttle as permanent and giving up on a
- * request that would have succeeded on retry.
+ * balance (retrying is pointless until the account is topped up). Message text alone can't
+ * reliably tell them apart, so this only trusts the structured error code providers put in the
+ * response body for exactly this case — OpenAI's (and OpenAI-compatible providers') `error.code:
+ * "insufficient_quota"`, distinct from their `"rate_limit_exceeded"` throttle code — via
+ * `APICallError.data`. Anthropic has no equivalent code for a 429 (its low-balance case is a
+ * 400, handled separately by `isBillingOrPlanError`), so this returns false there rather than
+ * guess from prose and risk giving up on a request that would have succeeded on retry.
  */
-export function isInsufficientBalanceError(message: string): boolean {
-  const lower = message.toLowerCase();
-  return (
-    lower.includes("insufficient_quota") ||
-    lower.includes("insufficient quota") ||
-    lower.includes("no credits remaining") ||
-    lower.includes("out of credits") ||
-    lower.includes("add credits to continue")
-  );
+export function isInsufficientBalanceError(error: unknown): boolean {
+  if (!APICallError.isInstance(error) || !error.data || typeof error.data !== "object") {
+    return false;
+  }
+  const data = error.data as { error?: { code?: unknown; type?: unknown } };
+  const code = data.error?.code;
+  const type = data.error?.type;
+  return code === "insufficient_quota" || type === "insufficient_quota";
 }
 
 function isProviderAuthFailure(statusCode: number | undefined, message: string): boolean {
@@ -379,7 +380,7 @@ export function convertToLLMError(error: unknown, providerName: ProviderName): L
     llmError = new LLMRateLimitError({
       provider: providerName,
       message: cleanMessage,
-      permanent: isInsufficientBalanceError(cleanMessage),
+      permanent: isInsufficientBalanceError(error),
     });
   } else if (httpStatus && httpStatus >= 400 && httpStatus < 500) {
     llmError = new LLMRequestError({
