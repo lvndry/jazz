@@ -22,30 +22,12 @@ const PERSONAS_DIR = join(dirname(fileURLToPath(import.meta.url)), "../../../../
 // Identity placeholders, substituted from the agent's own config.
 const IDENTITY_PLACEHOLDERS = ["{agentName}", "{agentDescription}"] as const;
 
-// Environment *field* placeholders (Date, OS, Hardware, ...). A persona may
-// hand-place these individually for full in-place control; the runtime fills
-// each from live system info. These are the actual facts — distinct from the
-// `{environment}` token below, which expands to the whole block at once.
-const ENVIRONMENT_FIELD_PLACEHOLDERS = [
-  "{currentDate}",
-  "{osInfo}",
-  "{hardware}",
-  "{shell}",
-  "{homeDirectory}",
-  "{hostname}",
-  "{username}",
-  "{tty}",
-] as const;
-
 // A single token that expands to the entire filled environment block in place.
-// It is a container, not a field, so it lives apart from the field list above.
+// It is the only environment anchor — the runtime fills it from live system
+// info, so personas never hand-place individual fields like {osInfo}.
 const ENVIRONMENT_TOKEN = "{environment}";
 
-const KNOWN_PLACEHOLDERS = new Set<string>([
-  ...IDENTITY_PLACEHOLDERS,
-  ...ENVIRONMENT_FIELD_PLACEHOLDERS,
-  ENVIRONMENT_TOKEN,
-]);
+const KNOWN_PLACEHOLDERS = new Set<string>([...IDENTITY_PLACEHOLDERS, ENVIRONMENT_TOKEN]);
 
 function countOccurrences(haystack: string, needle: string): number {
   let count = 0;

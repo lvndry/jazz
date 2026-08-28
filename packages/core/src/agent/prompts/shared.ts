@@ -12,9 +12,8 @@
  * Placement is controlled by the persona, not hardcoded: AgentPromptBuilder
  * fills this template and (a) injects it at an `{environment}` token if the
  * persona authors one — so grounding sits mid-prompt where its instruction lives,
- * not bolted on at the end — (b) fills individual `{currentDate}` etc.
- * placeholders in place if hand-placed, or (c) appends it at the end as a
- * fallback. The summarizer never receives it.
+ * not bolted on at the end — or (b) appends it at the end as a fallback for
+ * personas that don't author the token. The summarizer never receives it.
  */
 export const ENVIRONMENT_TEMPLATE =
   "Environment: Date: {currentDate} | OS: {osInfo} | Hardware: {hardware} | Shell: {shell} | Home: {homeDirectory} | Hostname: {hostname} | User: {username} | TTY: {tty}";
