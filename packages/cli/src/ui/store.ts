@@ -92,6 +92,7 @@ export interface ActiveAgentChoice {
   readonly id: string;
   readonly name: string;
   readonly model: string;
+  readonly persona: string;
   readonly description?: string;
   readonly lastUsed?: boolean;
 }

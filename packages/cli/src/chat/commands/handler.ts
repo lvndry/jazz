@@ -684,6 +684,7 @@ function handleAgentsCommand(
         yield* terminal.log(
           fmt.keyValue("Model", `${ag.config.llmProvider}/${ag.config.llmModel}`),
         );
+        yield* terminal.log(fmt.keyValue("Persona", ag.config.persona));
         if (ag.config.reasoningEffort) {
           yield* terminal.log(fmt.keyValue("Reasoning", ag.config.reasoningEffort));
         }
@@ -789,7 +790,7 @@ function handleSwitchCommand(
     // Show interactive prompt with history preservation note
     yield* terminal.info("History will be preserved after switching.");
     const choices = allAgents.map((ag) => ({
-      name: `${ag.name} - ${ag.config.llmProvider}/${ag.config.llmModel}${ag.id === currentAgent.id ? " (current)" : ""}`,
+      name: `${ag.name} - ${ag.config.llmProvider}/${ag.config.llmModel} · ${ag.config.persona}${ag.id === currentAgent.id ? " (current)" : ""}`,
       value: ag.id,
     }));
 
@@ -1035,6 +1036,7 @@ function handleModelCommand(
       yield* terminal.log(fmt.heading("Current Model"));
       yield* terminal.log(fmt.keyValueCompact("Provider", agent.config.llmProvider));
       yield* terminal.log(fmt.keyValueCompact("Model", agent.config.llmModel));
+      yield* terminal.log(fmt.keyValueCompact("Persona", agent.config.persona));
       yield* terminal.log(
         fmt.keyValueCompact("Reasoning", agent.config.reasoningEffort ?? "default"),
       );

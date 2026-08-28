@@ -43,11 +43,13 @@ const RIGHT_MARGIN = 2;
 
 const COLUMN_GAP = 2;
 
-/** Name and model stay readable at every width; both are clamped, not stretched. */
+/** Name, persona and model stay readable at every width; all are clamped, not stretched. */
 const NAME_MIN = 10;
 const NAME_MAX = 24;
 const MODEL_MIN = 8;
 const MODEL_MAX = 28;
+const PERSONA_MIN = 8;
+const PERSONA_MAX = 20;
 
 /**
  * Below this a description is noise rather than information, so the column goes
@@ -74,6 +76,7 @@ export interface AgentChoice {
   readonly name: string;
   /** The model as the reader would say it, without the provider prefix. */
   readonly model: string;
+  readonly persona: string;
   readonly description?: string;
   /** The agent this terminal talked to most recently. Caller sorts it first. */
   readonly lastUsed?: boolean;
@@ -116,6 +119,7 @@ function widest(values: readonly string[]): number {
 export interface AgentColumns {
   readonly name: number;
   readonly model: number;
+  readonly persona: number;
   /** Zero when the width cannot carry a description worth reading. */
   readonly description: number;
 }
@@ -124,8 +128,9 @@ export interface AgentColumns {
 export function agentColumns(agents: readonly AgentChoice[], content: number): AgentColumns {
   const name = clamp(widest(agents.map((agent) => agent.name)), NAME_MIN, NAME_MAX);
   const model = clamp(widest(agents.map((agent) => agent.model)), MODEL_MIN, MODEL_MAX);
-  const rest = content - name - model - COLUMN_GAP * 2;
-  return { name, model, description: rest >= DESCRIPTION_MIN ? rest : 0 };
+  const persona = clamp(widest(agents.map((agent) => agent.persona)), PERSONA_MIN, PERSONA_MAX);
+  const rest = content - name - model - persona - COLUMN_GAP * 3;
+  return { name, model, persona, description: rest >= DESCRIPTION_MIN ? rest : 0 };
 }
 
 /** Rows the list itself gets: everything the head and the keys row do not take. */
@@ -189,7 +194,7 @@ export function AgentPicker({
   const page = pageWidth(viewport);
   const measure = measureFor(page);
   const rows = listRowsFor(viewport);
-  const content = Math.max(NAME_MIN + MODEL_MIN + COLUMN_GAP * 2, measure.prose);
+  const content = Math.max(NAME_MIN + MODEL_MIN + PERSONA_MIN + COLUMN_GAP * 3, measure.prose);
   const columns = agentColumns(agents, content);
   const selected = clamp(selectedIndex, 0, Math.max(0, agents.length - 1));
   const start = windowStart(agents.length, selected, rows);
@@ -240,6 +245,7 @@ export function AgentPicker({
             const isSelected = index === selected;
             const name = clip(oneLine(agent.name), columns.name);
             const model = clip(oneLine(agent.model), columns.model);
+            const persona = clip(oneLine(agent.persona), columns.persona);
             const description =
               agent.description === undefined || agent.description === agent.name
                 ? ""
@@ -276,6 +282,18 @@ export function AgentPicker({
                     }}
                   >
                     {model}
+                  </text>
+                </box>
+                <box style={{ width: COLUMN_GAP, flexShrink: 0 }} />
+                <box style={{ width: columns.persona, flexShrink: 0 }}>
+                  <text
+                    style={{
+                      fg: isSelected ? THEME.secondary : THEME.muted,
+                      wrapMode: "none",
+                      truncate: true,
+                    }}
+                  >
+                    {persona}
                   </text>
                 </box>
                 {columns.description === 0 ? null : (
