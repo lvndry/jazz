@@ -4,7 +4,12 @@ import { z } from "zod";
 import type { FileSystemContextService } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import { defineTool, makeZodValidator } from "../base-tool";
-import { loadPdfParser, pdfExtensionError, resolveReadableFile } from "./read-common";
+import {
+  isPdfPasswordError,
+  loadPdfParser,
+  pdfExtensionError,
+  resolveReadableFile,
+} from "./read-common";
 import { normalizeStatSize } from "./utils";
 
 /**
@@ -24,6 +29,11 @@ export function createPdfPageCountTool(): Tool<FileSystem.FileSystem | FileSyste
         .string()
         .min(1)
         .describe("PDF to inspect. Absolute or relative to the session working directory."),
+      password: z
+        .string()
+        .min(1)
+        .optional()
+        .describe("Password to open the PDF if it is encrypted/password-protected."),
     })
     .strict();
 
@@ -33,7 +43,7 @@ export function createPdfPageCountTool(): Tool<FileSystem.FileSystem | FileSyste
     name: "pdf_page_count",
     disclosure: "internal",
     description:
-      "Return the page count and file size of a PDF without extracting its text. Call this before read_pdf on large files so you can request a page list instead of dumping hundreds of pages.",
+      "Return the page count and file size of a PDF without extracting its text. Call this before read_pdf on large files so you can request a page list instead of dumping hundreds of pages. If the PDF is encrypted, pass its password.",
     tags: ["filesystem", "pdf", "info"],
     parameters,
     validate: makeZodValidator(parameters),
@@ -54,7 +64,10 @@ export function createPdfPageCountTool(): Tool<FileSystem.FileSystem | FileSyste
 
           const stat = yield* fs.stat(filePathResult);
           const fileBuffer = yield* fs.readFile(filePathResult);
-          const pdfParser = new PDFParse({ data: fileBuffer });
+          const pdfParser = new PDFParse({
+            data: fileBuffer,
+            ...(args.password !== undefined ? { password: args.password } : {}),
+          });
 
           try {
             // Use getInfo() to extract metadata without processing all content
@@ -78,6 +91,15 @@ export function createPdfPageCountTool(): Tool<FileSystem.FileSystem | FileSyste
               },
             };
           } catch (parseError) {
+            if (isPdfPasswordError(parseError)) {
+              return {
+                success: false,
+                result: null,
+                error: args.password
+                  ? "Failed to extract PDF info: the password provided is incorrect."
+                  : "Failed to extract PDF info: this PDF is password-protected. Retry with the `password` argument.",
+              };
+            }
             return {
               success: false,
               result: null,
