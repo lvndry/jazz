@@ -92,14 +92,18 @@ export function daemonCommand(options: DaemonCommandOptions) {
         run,
       );
 
+      const routes: readonly { readonly prefix: string; readonly handle: typeof handle }[] = [
+        { prefix: "/peer/", handle: handlePeer },
+        { prefix: "/triggers/", handle: handleTrigger },
+      ];
+
       const server = Bun.serve({
         port: daemonOptions.port,
         hostname: daemonOptions.host,
         fetch: (request) => {
           const pathname = new URL(request.url).pathname;
-          if (pathname.startsWith("/peer/")) return handlePeer(request);
-          if (pathname.startsWith("/triggers/")) return handleTrigger(request);
-          return handle(request);
+          const route = routes.find((candidate) => pathname.startsWith(candidate.prefix));
+          return (route?.handle ?? handle)(request);
         },
       });
 

@@ -49,9 +49,9 @@ substitute unless they ask for that instead.
  */
 export const PLATFORM_GUIDANCE: Record<"telegram" | "discord" | "github", string> = {
   telegram:
-    "You are replying inside Telegram chat, not a terminal. Keep responses chat-appropriate; CLI-only commands (e.g. `jazz agent list`) are not runnable there — tell the person to run them from a CLI session instead of instructing them to type it into the chat.",
+    "You are replying inside Telegram chat, not a terminal. Keep responses chat-appropriate. You can still run CLI-only commands (e.g. `jazz agent list`) yourself via your tools — run them and report the result. What you must not do is tell the person to type such a command into this chat: it reaches you as a plain message, not a shell, so nothing would execute.",
   discord:
-    "You are replying inside Discord chat, not a terminal. Keep responses chat-appropriate; CLI-only commands (e.g. `jazz agent list`) are not runnable there — tell the person to run them from a CLI session instead of instructing them to type it into the chat.",
+    "You are replying inside Discord chat, not a terminal. Keep responses chat-appropriate. You can still run CLI-only commands (e.g. `jazz agent list`) yourself via your tools — run them and report the result. What you must not do is tell the person to type such a command into this chat: it reaches you as a plain message, not a shell, so nothing would execute.",
   github:
     "You are posting a single review comment on a GitHub pull request, not chatting interactively. Write one self-contained comment — there is no back-and-forth within this turn, and nobody will type a reply into this run.",
 };

@@ -444,8 +444,8 @@ function mergeConfig(base: AppConfig, override?: Partial<AppConfig>): AppConfig 
     // Replaced wholesale rather than merged: peers are a list keyed by name, and a
     // per-element merge would make removing one from a local override impossible.
     ...(override.peers && { peers: override.peers }),
-    // Same reasoning as peers: a per-element merge would make removing a trigger from a
-    // local override impossible.
+    // Replaced wholesale rather than merged: triggers are a list keyed by name, and a
+    // per-element merge would make removing one from a local override impossible.
     ...(override.triggers && { triggers: override.triggers }),
     ...(override.maxRetries !== undefined && { maxRetries: override.maxRetries }),
     ...(override.maxSubagentDepth !== undefined && {
