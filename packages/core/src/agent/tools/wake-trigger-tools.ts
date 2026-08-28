@@ -9,19 +9,21 @@ import { defineTool, makeZodValidator } from "./base-tool";
 
 type WakeTriggerToolDeps = WakeTriggerService | FileSystem.FileSystem;
 
-const WHEN_DESCRIPTION =
-  'When to wake, e.g. a relative duration ("30m", "2h", "1h30m", "90s", "1d"), a 24h clock ' +
-  'time ("18:00" — next occurrence of that time), "tomorrow HH:MM", a weekday and time ' +
-  '("tue 20:00" — next occurrence of that weekday), or an absolute date and time ' +
-  '("2026-08-25 20:00").';
-
 function formatFireAt(trigger: WakeTriggerRecord): string {
   return new Date(trigger.fireAt).toISOString();
 }
 
 const registerTriggerParameters = z
   .object({
-    when: z.string().min(1).describe(WHEN_DESCRIPTION),
+    when: z
+      .string()
+      .min(1)
+      .describe(
+        'When to wake, e.g. a relative duration ("30m", "2h", "1h30m", "90s", "1d"), a 24h clock ' +
+          'time ("18:00" — next occurrence of that time), "tomorrow HH:MM", a weekday and time ' +
+          '("tue 20:00" — next occurrence of that weekday), or an absolute date and time ' +
+          '("2026-08-25 20:00").',
+      ),
     prompt: z
       .string()
       .min(1)
