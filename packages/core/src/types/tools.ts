@@ -223,6 +223,13 @@ export interface ToolCategory {
 
 export interface ToolExecutionContext {
   readonly agentId: string;
+  /**
+   * Named memory scopes this run may read and write, from `AgentConfig.memoryScopes`.
+   * The first entry is the scope `view_memory`/`manage_memory` use when a path names
+   * no scope. Absent here means "not resolved by the caller" — the memory tools fall
+   * back to `[agentId]`, reproducing the legacy one-scope-per-agent behavior.
+   */
+  readonly memoryScopes?: readonly string[];
   readonly conversationId?: string;
   readonly model?: string;
   /**

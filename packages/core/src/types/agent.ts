@@ -97,6 +97,15 @@ export interface AgentConfig {
    * unattended session fails loudly instead of guessing.
    */
   readonly companions?: Partial<Record<PerceptionCapability, `${string}/${string}`>>;
+  /**
+   * Named memory scopes this agent may read and write (e.g. "personal",
+   * "finance", "github-project-a"). Scopes are independent of agent identity:
+   * several agents can share a scope, so a fact saved by one is visible to
+   * every agent configured with that scope, and a single agent can hold
+   * several scopes at once. Defaults to `[id]` when unset, which reproduces
+   * the legacy behavior of one private, agent-only memory store.
+   */
+  readonly memoryScopes?: readonly string[];
 }
 
 /**
