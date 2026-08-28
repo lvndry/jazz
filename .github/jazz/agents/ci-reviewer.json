@@ -16,8 +16,7 @@
       "ls",
       "read_file",
       "spawn_subagent",
-      "summarize_context",
-      "write_file"
+      "summarize_context"
     ]
   }
 }

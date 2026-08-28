@@ -38,7 +38,7 @@ The setup uses five files in your repo plus one model-provider secret:
 
 > The `release-notes` agent + WORKFLOW.md in `.github/jazz/` are not wired into `jazz.yml`; they are a manual utility and are intentionally absent from CI.
 
-**Required secret:** `OPENROUTER_API_KEY` *or* `OPENAI_API_KEY` — whichever matches the `llmProvider` in your agent configs. You only need the one your agents use.
+**Required secret:** a model-provider API key for the model chosen in step 1 (e.g. `OPENAI_API_KEY` if the user picked OpenAI). You must add it as a GitHub Actions secret — see step 5.
 
 ### Workflow Jobs
 
@@ -62,7 +62,17 @@ The Jazz agent **never receives `GITHUB_TOKEN`**. PR context (title, body, label
 
 ## Setup
 
-### 1. Create the driver workflow
+### 1. Ask which model/provider (do this first)
+
+Before writing any files, ask the user which model they want the agents to run on. Use `ask_user_question` (or a plain question) to confirm:
+
+- **Provider**: OpenAI, OpenRouter, or another provider Jazz supports
+- **Model**: e.g. `gpt-5.4-mini` (OpenAI) or whatever the provider exposes
+- **Secret name**: the API key that goes with it (`OPENAI_API_KEY`, `OPENROUTER_API_KEY`, etc.)
+
+Record the chosen `llmProvider` + `llmModel` and the secret name — every later step uses them. Don't assume a provider; the user may prefer OpenRouter or another. If they have no preference, suggest OpenAI `gpt-5.4-mini` as a sensible default but still confirm. The agent configs in this repo (step 3) are **examples to adapt**, not a verbatim copy.
+
+### 2. Create the driver workflow
 
 `.github/workflows/jazz.yml` — see the [full reference implementation](https://github.com/lvndry/jazz/blob/main/.github/workflows/jazz.yml).
 
@@ -139,11 +149,16 @@ Each `WORKFLOW.md` also carries YAML frontmatter (`autoApprove`, `agent`, `maxIt
 
 ### 4. Configure secrets
 
-Add to your GitHub repo or org secrets the key for the provider your agents use:
-- `OPENAI_API_KEY` — if `config.llmProvider` is `openai`
-- `OPENROUTER_API_KEY` — if `config.llmProvider` is `openrouter`
+You **must** add a model-provider API key as a GitHub Actions secret, or the workflow fails at the `Run code review` / `Run Jazz assistant` step (the agent has no key to call the model).
 
-`GITHUB_TOKEN` is provided automatically; you don't create it.
+1. In your repo: **Settings → Secrets and variables → Actions → New repository secret**.
+2. Add the key for the provider your agents actually use:
+   - `OPENAI_API_KEY` — the default (bundled agents set `config.llmProvider: openai`)
+   - `OPENROUTER_API_KEY` — if you switch the agents to OpenRouter
+   - any other provider's key — if you point `config.llmProvider` at it
+3. **Use any model/provider you like.** Edit `config.llmProvider` and `config.llmModel` in `.github/jazz/agents/*.json`, then add the corresponding key. The workflow reads whichever key is set; only one is required.
+
+`GITHUB_TOKEN` is provided automatically — you don't create it.
 
 ## The `/jazz` and `/jazz-review` Protocol
 

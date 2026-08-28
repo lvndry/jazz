@@ -3,7 +3,7 @@ name: pr-assistant
 description: Respond to /jazz PR comments with PR-aware assistance
 autoApprove: true
 agent: pr-assistant
-maxIterations: 100
+maxIterations: 50
 ---
 
 # Pull Request Assistant
