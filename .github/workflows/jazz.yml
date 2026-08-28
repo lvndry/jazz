@@ -19,6 +19,10 @@
 
 name: Jazz
 
+concurrency:
+  group: jazz-${{ github.workflow }}-${{ github.event.pull_request.number || github.event.issue.number || github.run_id }}
+  cancel-in-progress: false
+
 on:
   pull_request:
     types: [opened, ready_for_review]
@@ -64,6 +68,7 @@ jobs:
       head_sha: ${{ steps.resolve.outputs.head_sha }}
       pr_head_repo_full_name: ${{ steps.resolve.outputs.pr_head_repo_full_name }}
       request: ${{ steps.resolve.outputs.request }}
+      command: ${{ steps.resolve.outputs.command }}
     steps:
       - name: Resolve PR context
         id: resolve
@@ -158,11 +163,26 @@ jobs:
               request = 'Review this pull request and call out anything important.';
             }
 
+            // Which downstream job does this event target? Jobs match on this clean
+            // token rather than substring-searching the comment body (which wrongly
+            // catches "/jazz-review-foo").
+            let command = 'review';
+            if (context.eventName === 'issue_comment') {
+              const body = context.payload.comment?.body || '';
+              const isReview = /(^|\s)\/jazz-review([\s.,!?]|$)/.test(body);
+              command = isReview ? 'review' : (body.includes('/jazz') ? 'assist' : 'none');
+            } else if (context.eventName === 'workflow_dispatch') {
+              command = (context.payload.inputs.job === 'code-review') ? 'review' : 'assist';
+            } else if (context.eventName === 'pull_request') {
+              command = 'review';
+            }
+
             core.setOutput('pr_number', String(prNumber));
             core.setOutput('base_sha', baseSha);
             core.setOutput('head_sha', headSha);
             core.setOutput('pr_head_repo_full_name', prHeadRepoFullName);
             core.setOutput('request', request);
+            core.setOutput('command', command);
 
       - name: React with eyes on triggering comment
         if: |
@@ -214,10 +234,11 @@ jobs:
     permissions:
       contents: read
       pull-requests: write
+      issues: write
     if: |
       (github.event_name == 'pull_request' && github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository) ||
       (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'code-review' && needs.resolve.outputs.pr_head_repo_full_name == github.repository) ||
-      (github.event_name == 'issue_comment' && github.event.issue.pull_request != null && contains(github.event.comment.body, '/jazz-review') && (
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request != null && needs.resolve.outputs.command == 'review' && (
         github.event.comment.author_association == 'OWNER' ||
         github.event.comment.author_association == 'MEMBER' ||
         github.event.comment.author_association == 'COLLABORATOR'
@@ -237,6 +258,16 @@ jobs:
 
       - name: Install Jazz
         run: bun install -g jazz-ai --trust
+
+      - name: Verify provider API key is set
+        env:
+          HAS_OPENAI: ${{ secrets.OPENAI_API_KEY != '' }}
+          HAS_OPENROUTER: ${{ secrets.OPENROUTER_API_KEY != '' }}
+        run: |
+          if [ "$HAS_OPENAI" != "true" ] && [ "$HAS_OPENROUTER" != "true" ]; then
+            echo "::error::No model provider API key found. Add OPENAI_API_KEY or OPENROUTER_API_KEY as a GitHub Actions secret (Settings → Secrets and variables → Actions)."
+            exit 1
+          fi
 
       - name: Setup Jazz agent and workflow
         env:
@@ -429,13 +460,13 @@ jobs:
               );
 
               // Build a map of valid diff lines per file (both LEFT and RIGHT sides)
-              // by parsing the unified diff hunk headers from the patch field
-              const diffLines = new Map(); // Map<path, { left: Set<number>, right: Set<number> }>
-              for (const file of prFiles) {
-                if (!file.patch) continue;
+              // by parsing the unified diff hunk headers. GitHub omits `patch` for
+              // very large files, so when any file lacks a patch we also fetch the
+              // full PR diff and parse the missing file's hunk block from it.
+              const parseHunks = (text) => {
                 const left = new Set();
                 const right = new Set();
-                const lines = file.patch.split('\n');
+                const lines = text.split('\n');
                 let oldLine = 0;
                 let newLine = 0;
                 for (const line of lines) {
@@ -445,7 +476,6 @@ jobs:
                     newLine = parseInt(hunkMatch[2], 10);
                     continue;
                   }
-                  // Skip diff metadata lines that are not actual file content
                   if (line.startsWith('\\ ')) continue;
                   if (line.startsWith('-')) {
                     left.add(oldLine);
@@ -454,14 +484,48 @@ jobs:
                     right.add(newLine);
                     newLine++;
                   } else {
-                    // Context line — valid on both sides
                     left.add(oldLine);
                     right.add(newLine);
                     oldLine++;
                     newLine++;
                   }
                 }
-                diffLines.set(file.filename, { left, right });
+                return { left, right };
+              };
+
+              let fullDiff = null;
+              if (prFiles.some((f) => !f.patch)) {
+                try {
+                  const diffRes = await github.rest.pulls.get({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    pull_number: prNumber,
+                    mediaType: { format: 'diff' },
+                  });
+                  fullDiff = diffRes.data;
+                } catch (e) {
+                  core.warning(`Could not fetch full PR diff for large-file validation: ${e.message}`);
+                }
+              }
+
+              const diffFileBlocks = new Map();
+              if (fullDiff) {
+                for (const part of fullDiff.split(/^diff --git /m)) {
+                  if (!part.trim()) continue;
+                  const nameMatch = part.match(/^a\/(.*?) b\//);
+                  const fname = nameMatch ? nameMatch[1].trim() : '';
+                  if (fname) diffFileBlocks.set(fname, part);
+                }
+              }
+
+              const diffLines = new Map(); // Map<path, { left: Set<number>, right: Set<number> }>
+              for (const file of prFiles) {
+                if (file.patch) {
+                  diffLines.set(file.filename, parseHunks(file.patch));
+                } else if (diffFileBlocks.has(file.filename)) {
+                  diffLines.set(file.filename, parseHunks(diffFileBlocks.get(file.filename)));
+                }
+                // else: no hunk data available — such comments fall back to general comments
               }
 
               // Check whether a comment's line (and start_line if present) is resolvable in the diff
@@ -538,11 +602,10 @@ jobs:
 
   # On-demand PR assistant — triggered by a /jazz comment or manual workflow dispatch.
   assistant:
-    # Depends on code-review too (not just resolve) so the two jazz jobs don't
-    # burst the same provider account concurrently. code-review no longer
-    # hard-fails on provider errors/rate limits, but `always()` guards against
-    # it being skipped or cancelled for any other reason.
-    needs: [resolve, code-review]
+    # Depends only on resolve. The `concurrency` group above serializes runs on
+    # the same PR, so a `/jazz` question no longer waits for a full code review
+    # and the two jazz jobs don't burst the same provider account concurrently.
+    needs: [resolve]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -551,8 +614,7 @@ jobs:
     if: |
       always() && (
       (github.event_name == 'workflow_dispatch' && github.event.inputs.job == 'assistant' && needs.resolve.outputs.pr_head_repo_full_name == github.repository) ||
-      (github.event_name == 'issue_comment' && github.event.issue.pull_request != null && contains(github.event.comment.body, '/jazz') &&
-        !contains(github.event.comment.body, '/jazz-review') && (
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request != null && needs.resolve.outputs.command == 'assist' && (
         github.event.comment.author_association == 'OWNER' ||
         github.event.comment.author_association == 'MEMBER' ||
         github.event.comment.author_association == 'COLLABORATOR'
@@ -573,6 +635,16 @@ jobs:
 
       - name: Install Jazz
         run: bun install -g jazz-ai --trust
+
+      - name: Verify provider API key is set
+        env:
+          HAS_OPENAI: ${{ secrets.OPENAI_API_KEY != '' }}
+          HAS_OPENROUTER: ${{ secrets.OPENROUTER_API_KEY != '' }}
+        run: |
+          if [ "$HAS_OPENAI" != "true" ] && [ "$HAS_OPENROUTER" != "true" ]; then
+            echo "::error::No model provider API key found. Add OPENAI_API_KEY or OPENROUTER_API_KEY as a GitHub Actions secret (Settings → Secrets and variables → Actions)."
+            exit 1
+          fi
 
       - name: Setup Jazz agent and workflow
         env:

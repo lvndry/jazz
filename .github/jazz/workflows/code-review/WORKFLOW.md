@@ -3,7 +3,7 @@ name: code-review
 description: Adversarial multi-agent review board for pull request changes
 autoApprove: true
 agent: ci-reviewer
-maxIterations: 100
+maxIterations: 50
 ---
 
 # Adversarial Pull Request Review Board

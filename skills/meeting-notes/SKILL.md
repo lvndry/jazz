@@ -5,69 +5,103 @@ description: Summarize meetings and extract action items. Use when processing me
 
 # Meeting Notes
 
-Summarize meetings and extract decisions, action items, and follow-ups from transcripts or notes.
+Turn a meeting transcript, pasted notes, or rough draft into a clean summary with explicit decisions, owners, and follow-ups. The goal is one artifact a busy reader can act on in 30 seconds.
 
 ## When to Use
 
-- User has meeting notes or a transcript and wants a summary
+- User has meeting notes, a transcript, or a recording and wants a summary
 - User wants action items or follow-ups extracted
-- User asks "what did we decide?" or "what are the next steps?" from notes
+- User asks "what did we decide?" or "what are the next steps?"
+- User wants a follow-up email drafted to attendees
+
+## Input Handling
+
+Accept input in any of these forms:
+
+- **Pasted text** — transcript, bullet notes, or a rough draft in the conversation
+- **File path** — if the user gives a path or filename, read it with `read_file` first; don't ask them to paste a long file
+- **Multiple fragments** — several messages or files mean one meeting; merge them into a single summary, don't summarize each separately
+
+If something material is missing (which meeting? which date?), ask one targeted question rather than guessing. Don't block on minor unknowns like exact attendee spelling — mark them `TBD`.
 
 ## Workflow
 
-1. **Ingest**: Transcript, bullet notes, or rough draft
-2. **Summarize**: 3–5 sentence overview of what was discussed and decided
-3. **Extract decisions**: What was agreed or decided (with owner if clear)
-4. **Extract action items**: Who does what by when (if stated or inferable)
-5. **Format**: Clean summary + decisions + action items + optional follow-up email
+1. **Ingest** the source (read the file if a path was given).
+2. **Summarize** in 3–5 sentences: what was discussed, what was decided, the meeting's tone.
+3. **Extract decisions** — explicit agreements and choices made, with owner/context if stated.
+4. **Extract action items** — concrete tasks; capture owner and due date when present, else `TBD`.
+5. **Surface open questions, risks, and next-meeting needs** so nothing important is buried.
+6. **Format** the artifact (below) and present it.
+7. **Save** it if the user wants it kept (see Saving).
 
 ## Output Format
 
 ```markdown
+---
+title: [Topic]
+date: [YYYY-MM-DD or TBD]
+attendees: [Name, Name, … or TBD]
+source: [pasted | path/to/file]
+tags: [meeting, <project>]
+---
+
 # Meeting Summary: [Topic or title]
-**Date**: [if known]  
-**Attendees**: [if known]
 
 ## Summary
 [3–5 sentences: what was discussed, main outcomes, tone of meeting]
 
 ## Decisions
-- [Decision 1]. [Owner/context if known.]
+- [Decision 1]. [Owner / context if known.]
 - [Decision 2]
 
 ## Action Items
-| Owner  | Action | Due              |
-| ------ | ------ | ---------------- |
-| [Name] | [What] | [When if stated] |
-| ...    | ...    | ...              |
+| Owner  | Action | Due              | Status |
+| ------ | ------ | ---------------- | ------ |
+| [Name] | [What] | [When if stated] | TBD    |
+| …      | …      | …                | …      |
+
+## Open Questions
+- [Question or topic to revisit]
+- [Blocked item or dependency]
+
+## Risks & Concerns
+- [Risk or objection someone raised, briefly]
 
 ## Follow-up
-- [Topic or question to revisit]
-- [Blocked item or open question]
-
-## Raw notes / transcript
-[Optional: link or truncated copy if user wants it preserved]
+- [Next meeting / check-in if scheduled]
+- [Item to carry into the next conversation]
 ```
+
+`Status: TBD` stays until the owner tracks it elsewhere — this skill extracts, it doesn't track.
 
 ## What to Extract
 
-**Decisions**: Explicit agreements, choices made, “we will do X.”
-**Action items**: Concrete tasks with owner; add “(owner TBD)” if unclear.
-**Follow-up**: Topics to revisit, open questions, blocked items.
-**Risks or concerns**: If someone raised a risk or objection, note it briefly.
-
-Do not invent owners or due dates; use “?” or “TBD” when missing.
+- **Decisions**: explicit agreements, choices made, "we will do X." Distinguish a decision from an opinion or a proposal still under discussion.
+- **Action items**: concrete tasks with an owner. When the owner or date isn't stated, write `TBD` — never invent one.
+- **Open questions**: unresolved threads, dependencies on other teams, things explicitly deferred.
+- **Risks / concerns**: objections, blockers, or caveats anyone raised.
+- **Follow-up**: next check-in, recomputed deadlines, or items to carry forward.
 
 ## Tone and Style
 
-- Neutral and factual
-- Past tense for what happened (“The team agreed…”)
-- Present/future for actions (“Alice will send the doc by Friday”)
-- No editorializing; stick to what was said or clearly implied
+- Neutral and factual; no editorializing.
+- Past tense for what happened ("The team agreed…").
+- Present/future for actions ("Alice will send the doc by Friday").
+- Bullets and tables over prose walls.
+- Stick to what was said or clearly implied.
+
+## Saving
+
+If the user wants the notes kept:
+
+- Default path: `meeting-notes/YYYY-MM-DD-<slug>.md` in the current workspace (create the directory if missing).
+- If the user names a location or an existing file, write there instead — overwriting an existing notes file is fine for an update; don't duplicate.
+- Use `write_file` to persist, then confirm the path.
+- If the user only wants it in chat, skip saving — don't force a file.
 
 ## Follow-up Email (optional)
 
-If user wants a short follow-up email:
+Generate only when the user asks for "follow-up email" or "send to attendees":
 
 ```markdown
 **Subject**: Follow-up: [Meeting topic]
@@ -88,16 +122,16 @@ Thanks,
 [User]
 ```
 
-Generate only if user asks for “follow-up email” or “send summary to attendees.”
-
 ## Short vs Long Input
 
-- **Short notes**: Brief summary + bullets for decisions and actions.
-- **Long transcript**: Summary first, then decisions, then actions, then “Key quotes” or “Context” if useful. Do not repeat the whole transcript.
+- **Short notes**: brief summary + bullets for decisions and actions.
+- **Long transcript**: summary first, then decisions, then actions, then Open Questions / Risks if useful. Never paste the whole transcript back — extract.
 
 ## Anti-Patterns
 
-- ❌ Making up owners or due dates not in the source
-- ❌ Treating opinions as decisions
-- ❌ Huge wall of prose; use bullets and tables
+- ❌ Inventing owners, due dates, or decisions not in the source
+- ❌ Treating opinions or open proposals as decisions
+- ❌ A wall of prose where bullets/tables would do
 - ❌ Omitting clear action items or decisions
+- ❌ Re-summarizing each fragment when given several — merge into one meeting
+- ❌ Refusing to save when asked, or saving without being asked

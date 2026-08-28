@@ -83,7 +83,8 @@ function buildSummarizerAgent(
   return {
     id: "summarizer",
     name: "Summarizer",
-    description: "Background context compressor",
+    description:
+      "an internal agent that compresses a transcript into a summary another agent can resume from.",
     config: {
       ...(sameModel ? parentAgent.config : configWithoutWindowPins),
       llmProvider: summarizerModelConfig.provider,

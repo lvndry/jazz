@@ -417,10 +417,16 @@ async function sendReply(
   config: BridgeConfig,
   chatId: number,
   text: string,
-  options: { markup?: Record<string, unknown>; markdown?: boolean } = {},
+  options: {
+    markup?: Record<string, unknown>;
+    markdown?: boolean;
+    replyTo?: number | undefined;
+  } = {},
 ): Promise<number | undefined> {
   const chunks = splitForTelegram(text);
   let lastMessageId: number | undefined;
+  const replyParameters =
+    options.replyTo !== undefined ? { message_id: options.replyTo } : undefined;
   for (const [index, chunk] of chunks.entries()) {
     const markup =
       options.markup !== undefined && index === chunks.length - 1 ? options.markup : undefined;
@@ -430,6 +436,7 @@ async function sendReply(
       parse_mode: "HTML",
       link_preview_options: { is_disabled: true },
       ...(markup ? { reply_markup: markup } : {}),
+      ...(replyParameters ? { reply_parameters: replyParameters } : {}),
     });
     if (isOkResponse(rendered)) {
       lastMessageId = messageIdOf(rendered) ?? lastMessageId;
@@ -439,6 +446,7 @@ async function sendReply(
         chat_id: chatId,
         text: chunk,
         ...(markup ? { reply_markup: markup } : {}),
+        ...(replyParameters ? { reply_parameters: replyParameters } : {}),
       });
       lastMessageId = messageIdOf(plain) ?? lastMessageId;
     }
@@ -943,7 +951,12 @@ async function deliverWebApp(
   });
 }
 
-async function handleMessage(config: BridgeConfig, chatId: number, text: string): Promise<void> {
+async function handleMessage(
+  config: BridgeConfig,
+  chatId: number,
+  text: string,
+  replyToMessageId?: number,
+): Promise<void> {
   ensureChatAgent(config.jazzHome, chatId, config.baseAgentId);
 
   const usage = todayUsage(config.jazzHome, USAGE_FILE);
@@ -953,6 +966,7 @@ async function handleMessage(config: BridgeConfig, chatId: number, text: string)
       config,
       chatId,
       "⚠️ Daily cost cap paused: pricing was unavailable for an earlier run today, so spend cannot be verified. Try again tomorrow, disable the cap, or select a priced model.",
+      { replyTo: replyToMessageId },
     );
     return;
   }
@@ -962,6 +976,7 @@ async function handleMessage(config: BridgeConfig, chatId: number, text: string)
       config,
       chatId,
       `⚠️ Daily cost cap ($${config.dailyCostCapUsd.toFixed(2)}) reached. Try again tomorrow, or raise JAZZ_DAILY_COST_CAP_USD.`,
+      { replyTo: replyToMessageId },
     );
     return;
   }
@@ -970,12 +985,18 @@ async function handleMessage(config: BridgeConfig, chatId: number, text: string)
 
   const runToken = newRunToken();
   // A live-updated progress bubble with a ⏹ Cancel button. The final answer is
-  // sent as a *new* message so it pushes a notification (edits don't).
+  // sent as a *new* message so it pushes a notification (edits don't). When
+  // this run was kicked off by a follow-up/suggestion tap, the bubble (and,
+  // below, the final answer) reply to the message that carried the button so
+  // the thread stays visibly anchored to what it's a follow-up to.
   const sent = (await callTelegram(config, "sendMessage", {
     chat_id: chatId,
     text: PROGRESS_INITIAL_TEXT,
     parse_mode: "HTML",
     reply_markup: cancelKeyboard(runToken),
+    ...(replyToMessageId !== undefined
+      ? { reply_parameters: { message_id: replyToMessageId } }
+      : {}),
   })) as { result?: { message_id?: number } } | undefined;
   const messageId = sent?.result?.message_id;
   // Opened before the run so a crash or timeout still leaves a record: the
@@ -1046,6 +1067,7 @@ async function handleMessage(config: BridgeConfig, chatId: number, text: string)
       const answerMessageId = await sendReply(config, chatId, envelope.answer, {
         markdown: true,
         markup: followupKeyboard(),
+        replyTo: replyToMessageId,
       });
       if (config.dynamicCta && answerMessageId !== undefined) {
         void upgradeToDynamicCtas(config, chatId, answerMessageId, text, envelope.answer);
@@ -1058,7 +1080,9 @@ async function handleMessage(config: BridgeConfig, chatId: number, text: string)
       }
     } else {
       await reporter?.finish("⚠️ <b>Failed</b>");
-      await sendReply(config, chatId, `⚠️ ${escapeHtml(envelope.error)}`);
+      await sendReply(config, chatId, `⚠️ ${escapeHtml(envelope.error)}`, {
+        replyTo: replyToMessageId,
+      });
     }
   } finally {
     // A throw anywhere above would otherwise leave the log with no outcome line,
@@ -1084,26 +1108,31 @@ async function handleMessage(config: BridgeConfig, chatId: number, text: string)
   }
 }
 
-const FOLLOWUP_OPTIONS: Record<string, { label: string; prompt: string }> = {
-  deeper: {
-    label: "🔍 Go deeper",
-    prompt:
-      "Go deeper on your previous answer: add more detail, concrete specifics, and any important nuances or caveats.",
-  },
-  shorter: {
-    label: "✂️ Shorter",
-    prompt:
-      "Give a much shorter version of your previous answer — 2-3 sentences, just the essentials.",
-  },
-  simpler: {
-    label: "🧑‍🏫 Explain simpler",
-    prompt:
-      "Explain your previous answer in simpler terms, as if to someone with no background in the topic — avoid jargon and use plain language.",
-  },
-  example: {
-    label: "💡 Example",
-    prompt: "Give a concrete, real-world example that illustrates your previous answer.",
-  },
+const GO_DEEPER_OPTION: Suggestion = {
+  label: "🔍 Go deeper",
+  prompt:
+    "Go deeper on your previous answer: add more detail, concrete specifics, and any important nuances or caveats.",
+};
+const SHORTER_OPTION: Suggestion = {
+  label: "✂️ Shorter",
+  prompt:
+    "Give a much shorter version of your previous answer — 2-3 sentences, just the essentials.",
+};
+const SIMPLER_OPTION: Suggestion = {
+  label: "🧑‍🏫 Explain simpler",
+  prompt:
+    "Explain your previous answer in simpler terms, as if to someone with no background in the topic — avoid jargon and use plain language.",
+};
+const EXAMPLE_OPTION: Suggestion = {
+  label: "💡 Example",
+  prompt: "Give a concrete, real-world example that illustrates your previous answer.",
+};
+
+const FOLLOWUP_OPTIONS: Record<string, Suggestion> = {
+  deeper: GO_DEEPER_OPTION,
+  shorter: SHORTER_OPTION,
+  simpler: SIMPLER_OPTION,
+  example: EXAMPLE_OPTION,
 };
 
 // --- Dynamic contextual CTAs ----------------------------------------------
@@ -1196,7 +1225,24 @@ function ensureSuggestAgent(config: BridgeConfig): void {
   writeAgentFile(config.jazzHome, template);
 }
 
-/** Ask the model for 2-4 contextual next-step CTAs based on the exchange. */
+/**
+ * If the model's suggestions dropped the mandatory "Go deeper" option, or came
+ * back short (parse failures, a sparse reply), pad with the static fallbacks
+ * so callers always get exactly 3 with "Go deeper" first — the fallback is
+ * only ever a safety net for a misbehaving model, not the normal path.
+ */
+function ensureThreeWithGoDeeper(items: Suggestion[]): Suggestion[] {
+  const hasGoDeeper = items.some((item) => /deeper/i.test(item.label));
+  let result = hasGoDeeper ? items : [GO_DEEPER_OPTION, ...items];
+  const fallbackPool = [SHORTER_OPTION, SIMPLER_OPTION, EXAMPLE_OPTION];
+  for (const fallback of fallbackPool) {
+    if (result.length >= 3) break;
+    result = [...result, fallback];
+  }
+  return result.slice(0, 3);
+}
+
+/** Ask the model for exactly 3 contextual next-step CTAs based on the exchange. */
 async function generateSuggestions(
   config: BridgeConfig,
   question: string,
@@ -1205,11 +1251,12 @@ async function generateSuggestions(
   ensureSuggestAgent(config);
   const metaPrompt =
     `Conversation:\nUser: ${question.slice(0, 500)}\nAssistant: ${answer.slice(0, 1200)}\n\n` +
-    "Propose 2-4 useful next actions the user might tap. Reply with ONLY a JSON array — no prose, " +
-    "no code fences:\n" +
+    "Propose EXACTLY 3 useful next actions the user might tap. Reply with ONLY a JSON array — no " +
+    "prose, no code fences:\n" +
     '[{"label":"short button text, <=24 chars, may start with an emoji","prompt":"the message to ' +
     'send if tapped, written first-person as the user"}]\n' +
-    'Make them specific to THIS exchange. Include one "🔍 Go deeper" style option.';
+    'Make them specific to THIS exchange. The first entry must always be a "🔍 Go deeper" style ' +
+    "option that asks for more detail, specifics, and nuance on the same answer.";
   const envelope = await jazzJson(config, SUGGEST_AGENT_ID, metaPrompt, [
     "--reasoning",
     "disable",
@@ -1243,9 +1290,9 @@ async function generateSuggestions(
           });
         }
       }
-      if (items.length >= 4) break;
+      if (items.length >= 3) break;
     }
-    return items;
+    return ensureThreeWithGoDeeper(items);
   } catch {
     return [];
   }
@@ -1623,8 +1670,8 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
       message_id: messageId,
       reply_markup: { inline_keyboard: [] },
     });
-    await sendReply(config, chatId, escapeHtml(item.label));
-    void handleMessage(config, chatId, item.prompt).catch((error) =>
+    await sendReply(config, chatId, escapeHtml(item.label), { replyTo: messageId });
+    void handleMessage(config, chatId, item.prompt, messageId).catch((error) =>
       console.error(`Suggestion follow-up failed for chat ${chatId}: ${String(error)}`),
     );
     return;
@@ -1751,8 +1798,8 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
       message_id: messageId,
       reply_markup: { inline_keyboard: [] },
     });
-    await sendReply(config, chatId, option.label);
-    void handleMessage(config, chatId, option.prompt).catch((error) =>
+    await sendReply(config, chatId, option.label, { replyTo: messageId });
+    void handleMessage(config, chatId, option.prompt, messageId).catch((error) =>
       console.error(`Follow-up failed for chat ${chatId}: ${String(error)}`),
     );
     return;
