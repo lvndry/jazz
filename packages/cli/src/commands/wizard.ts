@@ -73,17 +73,17 @@ export function wizardCommand() {
       // Build menu options dynamically
       const menuOptions: WizardMenuOption[] = [];
 
-      if (hasConversationHistory) {
-        menuOptions.push({
-          label: "Resume conversation",
-          value: "resume-conversation",
-        });
-      }
-
       if (agents.length > 0) {
         menuOptions.push({
           label: "New conversation",
           value: "new-conversation",
+        });
+      }
+
+      if (hasConversationHistory) {
+        menuOptions.push({
+          label: "Resume conversation",
+          value: "resume-conversation",
         });
       }
 
