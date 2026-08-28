@@ -334,15 +334,6 @@ export class AgentPromptBuilder {
           .replace("{agentName}", options.agentName)
           .replace("{agentDescription}", options.agentDescription);
 
-        // Machine grounding. The canonical block (shared.ts ENVIRONMENT_TEMPLATE,
-        // a single source of truth) is placed by one of two rules:
-        // - A persona that drops an `{environment}` token gets the filled block
-        //   injected exactly there — mid-prompt, where its grounding instruction
-        //   lives, instead of bolted on at the end.
-        // - Otherwise it is appended at the end, so custom personas still get
-        //   grounding for free.
-        // The summarizer is a pure transcript-compression role with no tools;
-        // machine facts are noise for it, so it never gets the block.
         if (personaName !== "summarizer") {
           const envBlock = fillEnvironment(ENVIRONMENT_TEMPLATE);
           systemPrompt = systemPrompt.includes("{environment}")

@@ -4,17 +4,9 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "bun:test";
 
 /**
- * Persona files are substituted with String.replace (NOT replaceAll), so each
- * placeholder may appear at most once per file — a second occurrence ships to
- * the model as a literal "{placeholder}" token. This test locks that contract
- * so persona edits can't silently break substitution.
- *
- * The environment facts block is injected by the runtime from a single canonical
- * template (shared.ts ENVIRONMENT_TEMPLATE). A persona drops an `{environment}`
- * token to control where the block sits mid-prompt; it may also hand-place the
- * individual {currentDate}, {osInfo}, ... placeholders for full in-place control.
- * All are optional in a persona file. This "at most once" rule keeps substitution
- * working. See agent-prompt-environment.test.ts for the injection behavior itself.
+ * Persona files are substituted with String.replace (not replaceAll), so each
+ * placeholder may appear at most once — a second occurrence ships to the model
+ * as a literal token. This test locks that contract.
  */
 
 const PERSONAS_DIR = join(dirname(fileURLToPath(import.meta.url)), "../../../../personas");
