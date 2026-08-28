@@ -165,8 +165,8 @@ export function showWorkflowCommand(workflowName: string) {
       yield* terminal.log(`Skills: ${workflow.metadata.skills.join(", ")}`);
     }
 
-    if (workflow.metadata.catchUpOnStartup !== undefined) {
-      yield* terminal.log(`Catch-up on startup: ${workflow.metadata.catchUpOnStartup}`);
+    if (workflow.metadata.catchUpOnRestart !== undefined) {
+      yield* terminal.log(`Catch-up on restart: ${workflow.metadata.catchUpOnRestart}`);
     }
 
     if (workflow.metadata.maxCatchUpAge !== undefined) {
@@ -681,7 +681,7 @@ export function catchupWorkflowCommand() {
       yield* terminal.info("No workflows need catch-up right now.");
       yield* terminal.log("");
       yield* terminal.info(
-        "Workflows must be scheduled, have catchUpOnStartup: true, and have missed their last run within the max catch-up window.",
+        "Workflows must be scheduled, have catchUpOnRestart: true, and have missed their last run within the max catch-up window.",
       );
       return;
     }

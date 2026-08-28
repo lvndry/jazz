@@ -78,12 +78,13 @@ export function decideCatchUp(
   lastRunAt: Date | undefined,
   now: Date,
   lastRunStatus?: WorkflowRunRecord["status"],
+  ignoreCatchUpSetting = false,
 ): CatchUpDecision {
   if (!workflow.schedule) {
     return { shouldRun: false, reason: "missing schedule" };
   }
 
-  if (workflow.catchUpOnStartup !== true) {
+  if (!ignoreCatchUpSetting && workflow.catchUpOnRestart !== true) {
     return { shouldRun: false, reason: "catch-up disabled" };
   }
 
@@ -175,6 +176,8 @@ interface RunCatchUpOptions {
    * are written, which would cause the catch-up prompt to reappear.
    */
   readonly recordsPreCreated?: boolean;
+  /** Allow the in-process scheduler to run workflows that opt out of startup catch-up. */
+  readonly ignoreCatchUpSetting?: boolean;
 }
 
 /**
@@ -217,7 +220,13 @@ export function runCatchUpForWorkflows(
 
       if (!options.recordsPreCreated && lastRunMap) {
         const snapshot = lastRunMap.get(entry.workflowName);
-        const decision = decideCatchUp(workflow, snapshot?.lastRunAt, now, snapshot?.lastRunStatus);
+        const decision = decideCatchUp(
+          workflow,
+          snapshot?.lastRunAt,
+          now,
+          snapshot?.lastRunStatus,
+          options.ignoreCatchUpSetting === true,
+        );
 
         if (!decision.shouldRun) {
           yield* logger.debug("Catch-up skipped: no longer needed", {
@@ -305,5 +314,43 @@ export function runWorkflowCatchUp() {
       .listScheduled()
       .pipe(Effect.catchAll(() => Effect.succeed([])));
     yield* runCatchUpForWorkflows(scheduled);
+  }).pipe(Effect.catchAll(() => Effect.void));
+}
+
+/**
+ * Run the most recent due slot for every scheduled workflow from the daemon's in-process ticker.
+ * Unlike restart catch-up, this is the scheduler itself, so `catchUpOnRestart` must not disable
+ * it. Run history prevents the same slot from firing again on the next tick.
+ */
+export function runInProcessScheduledWorkflows() {
+  return Effect.gen(function* () {
+    const scheduler = yield* SchedulerServiceTag;
+    const workflowService = yield* WorkflowServiceTag;
+    const scheduled = yield* scheduler
+      .listScheduled()
+      .pipe(Effect.catchAll(() => Effect.succeed([])));
+    const history = yield* loadRunHistory().pipe(Effect.catchAll(() => Effect.succeed([])));
+    const lastRunMap = getLastRunSnapshot(history);
+    const now = new Date();
+    const due: ScheduledWorkflow[] = [];
+
+    for (const entry of scheduled) {
+      const workflow = yield* workflowService
+        .getWorkflow(entry.workflowName)
+        .pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+      if (!workflow) continue;
+
+      const snapshot = lastRunMap.get(entry.workflowName);
+      const decision = decideCatchUp(
+        workflow,
+        snapshot?.lastRunAt,
+        now,
+        snapshot?.lastRunStatus,
+        true,
+      );
+      if (decision.shouldRun) due.push(entry);
+    }
+
+    yield* runCatchUpForWorkflows(due, { ignoreCatchUpSetting: true });
   }).pipe(Effect.catchAll(() => Effect.void));
 }

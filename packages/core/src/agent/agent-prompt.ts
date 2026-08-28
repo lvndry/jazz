@@ -118,6 +118,19 @@ export interface AgentPromptOptions {
    */
   readonly canGenerateMedia?: boolean;
   /**
+   * Surface this run is replying on. When set to a chat/CI surface (not "cli"), the prompt
+   * gains a line telling the model it isn't in a terminal, so it doesn't suggest CLI-only
+   * commands or frame a reply as if there were an interactive shell behind it.
+   *
+   * "cli" names a capability class, not a terminal emulator: Warp/Ghostty/iTerm/Terminal.app
+   * all give the model the same thing (a human at a real shell who can run any command
+   * suggested and reply interactively), so there is no guidance text that would ever differ
+   * between them and no reason to enumerate them here. telegram/discord/github each get their
+   * own value because the model's actual behavior must change per surface — whether it can
+   * suggest a shell command, whether anyone will reply this turn, whether it's posting a
+   * standalone comment. If the terminal itself ever needs to change what the model says,
+   */
+  /**
    * Attachments placed directly by the caller (model-companion delegation), merged onto
    * this run's first user message. Kinds the model cannot ingest are dropped with an
    * explanatory note; they are already resolved, so no path scanning touches them.
@@ -314,9 +327,22 @@ export class AgentPromptBuilder {
 
         if (personaName !== "summarizer") {
           const envBlock = fillEnvironment(ENVIRONMENT_TEMPLATE);
-          systemPrompt = systemPrompt.includes("{environment}")
-            ? systemPrompt.replace("{environment}", envBlock)
-            : `${systemPrompt}\n${envBlock}`;
+          const usesIndividualEnvironmentFields = [
+            "{currentDate}",
+            "{osInfo}",
+            "{hardware}",
+            "{shell}",
+            "{homeDirectory}",
+            "{hostname}",
+            "{username}",
+            "{tty}",
+          ].some((placeholder) => systemPrompt.includes(placeholder));
+          systemPrompt = fillEnvironment(systemPrompt);
+          if (systemPrompt.includes("{environment}")) {
+            systemPrompt = systemPrompt.replace("{environment}", envBlock);
+          } else if (!usesIndividualEnvironmentFields) {
+            systemPrompt = `${systemPrompt}\n${envBlock}`;
+          }
         }
 
         // Only for models that cannot generate media, and never for the summarizer, which has no

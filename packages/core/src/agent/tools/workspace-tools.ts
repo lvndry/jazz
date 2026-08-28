@@ -1,19 +1,22 @@
 /**
- * `view_memory` and `manage_memory`: read and edit an agent's persistent memory
- * files, presented with the line-numbered, view-a-range ergonomics of the
- * filesystem tools rather than raw content blobs.
+ * `view_workspace` and `manage_workspace`: read and edit an agent's durable
+ * scratch space, presented with the same line-numbered, view-a-range
+ * ergonomics as the memory tools. Unlike memory (small, curated notes),
+ * workspace is where large working drafts, research dumps, and intermediate
+ * artifacts live — reference a workspace path from a memory entry once the
+ * work is done, rather than duplicating it there.
  */
 
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { z } from "zod";
-import type { MemoryService, MemoryViewOutcome } from "@/core/interfaces/memory-service";
-import { MemoryServiceTag } from "@/core/interfaces/memory-service";
 import type { Tool } from "@/core/interfaces/tool-registry";
+import type { WorkspaceService, WorkspaceViewOutcome } from "@/core/interfaces/workspace-service";
+import { WorkspaceServiceTag } from "@/core/interfaces/workspace-service";
 import type { ToolExecutionResult } from "@/core/types/tools";
 import { defineTool, makeZodValidator } from "./base-tool";
 
-type MemoryToolDeps = MemoryService | FileSystem.FileSystem;
+type WorkspaceToolDeps = WorkspaceService | FileSystem.FileSystem;
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes}B`;
@@ -26,7 +29,7 @@ function joinDisplayPath(base: string, name: string): string {
 }
 
 function formatDirectoryOutcome(
-  outcome: Extract<MemoryViewOutcome, { kind: "directory" }>,
+  outcome: Extract<WorkspaceViewOutcome, { kind: "directory" }>,
 ): string {
   const header = `Here're the files and directories up to 2 levels deep in ${outcome.path}, excluding hidden items:`;
   if (outcome.entries.length === 0) {
@@ -40,7 +43,7 @@ function formatDirectoryOutcome(
   return [header, ...lines].join("\n");
 }
 
-function formatFileOutcome(outcome: Extract<MemoryViewOutcome, { kind: "file" }>): string {
+function formatFileOutcome(outcome: Extract<WorkspaceViewOutcome, { kind: "file" }>): string {
   const lines = outcome.content.length > 0 ? outcome.content.split("\n") : [""];
   const numbered = lines.map((line, index) => {
     const lineNumber = outcome.startLine + index;
@@ -52,15 +55,14 @@ function formatFileOutcome(outcome: Extract<MemoryViewOutcome, { kind: "file" }>
   return `Here's the content of ${outcome.path} with line numbers:\n${numbered.join("\n")}${truncationNote}`;
 }
 
-const viewMemoryParameters = z
+const viewWorkspaceParameters = z
   .object({
     path: z
       .string()
       .default("")
       .describe(
-        'Path starting with a scope name (e.g. "personal/notes.txt" or "github-project-a/status.md"). ' +
-          'Empty string or "/" lists the scopes you can access, each as a directory — use that to discover ' +
-          "them instead of guessing.",
+        'Path relative to this agent\'s workspace root (e.g. "research/notes.md" or ' +
+          '"drafts/report.md"). Empty string or "/" views the root directory.',
       ),
     view_range: z
       .tuple([z.number().int(), z.number().int()])
@@ -71,26 +73,25 @@ const viewMemoryParameters = z
   })
   .strict();
 
-type ViewMemoryArgs = z.infer<typeof viewMemoryParameters>;
+type ViewWorkspaceArgs = z.infer<typeof viewWorkspaceParameters>;
 
-export function createViewMemoryTool(): Tool<MemoryToolDeps> {
-  return defineTool<MemoryToolDeps, ViewMemoryArgs>({
-    name: "view_memory",
+export function createViewWorkspaceTool(): Tool<WorkspaceToolDeps> {
+  return defineTool<WorkspaceToolDeps, ViewWorkspaceArgs>({
+    name: "view_workspace",
     disclosure: "private",
     description:
-      "Call this first, before you answer, at the start of every conversation — even a casual one. " +
-      'No path lists the memory scopes you can access (e.g. "personal", "github-project-a"); ' +
-      'a path like "personal/notes.md" reads one file within a scope. ' +
-      "An empty or missing directory just means nothing has been saved yet — that is a normal answer, not an error.",
-    parameters: viewMemoryParameters,
+      "View your durable scratch space: working drafts, research dumps, and intermediate " +
+      "artifacts too large or too provisional for memory. No path lists everything you've " +
+      "saved; a path reads one file. An empty or missing directory just means nothing has " +
+      "been saved yet — that is a normal answer, not an error.",
+    parameters: viewWorkspaceParameters,
     riskLevel: "read-only",
     hidden: false,
-    validate: makeZodValidator(viewMemoryParameters),
+    validate: makeZodValidator(viewWorkspaceParameters),
     handler: (args, context) =>
       Effect.gen(function* () {
-        const memoryService = yield* MemoryServiceTag;
-        const scopes = context.memoryScopes ?? [context.agentId];
-        const outcome = yield* memoryService.view(scopes, args.path, args.view_range);
+        const workspaceService = yield* WorkspaceServiceTag;
+        const outcome = yield* workspaceService.view(context.agentId, args.path, args.view_range);
 
         if (outcome.kind === "not_found" || outcome.kind === "too_large") {
           return {
@@ -120,34 +121,28 @@ export function createViewMemoryTool(): Tool<MemoryToolDeps> {
       ),
     createSummary: (result) => {
       if (!result.success) return undefined;
-      const data = result.result as { outcome: MemoryViewOutcome };
+      const data = result.result as { outcome: WorkspaceViewOutcome };
       if (data.outcome.kind === "directory")
-        return `Listed memory (${data.outcome.entries.length} item(s))`;
+        return `Listed workspace (${data.outcome.entries.length} item(s))`;
       if (data.outcome.kind === "file")
-        return `Read memory file (${data.outcome.totalLines} line(s))`;
+        return `Read workspace file (${data.outcome.totalLines} line(s))`;
       return undefined;
     },
   });
 }
 
-const manageMemoryParameters = z.discriminatedUnion("command", [
+const manageWorkspaceParameters = z.discriminatedUnion("command", [
   z
     .object({
       command: z.literal("create"),
-      path: z
-        .string()
-        .min(1)
-        .describe('Memory file path, starting with a scope name (e.g. "personal/notes.md").'),
+      path: z.string().min(1).describe("Workspace file path relative to the workspace directory."),
       file_text: z.string().describe("Full file contents. Errors if the path already exists."),
     })
     .strict(),
   z
     .object({
       command: z.literal("str_replace"),
-      path: z
-        .string()
-        .min(1)
-        .describe('Memory file path, starting with a scope name (e.g. "personal/notes.md").'),
+      path: z.string().min(1).describe("Workspace file path relative to the workspace directory."),
       old_str: z.string().min(1).describe("Exact unique snippet to replace."),
       new_str: z.string().optional().describe("Replacement text. Omit to delete the snippet."),
     })
@@ -155,16 +150,13 @@ const manageMemoryParameters = z.discriminatedUnion("command", [
   z
     .object({
       command: z.literal("insert"),
-      path: z
-        .string()
-        .min(1)
-        .describe('Memory file path, starting with a scope name (e.g. "personal/notes.md").'),
+      path: z.string().min(1).describe("Workspace file path relative to the workspace directory."),
       insert_line: z
         .number()
         .int()
         .nonnegative()
         .describe(
-          "0-based line index to insert after (0 = beginning of the file). Note that view_memory view_range is 1-based.",
+          "0-based line index to insert after (0 = beginning of the file). Note that view_workspace view_range is 1-based.",
         ),
       insert_text: z.string().describe("Text to insert."),
     })
@@ -172,67 +164,56 @@ const manageMemoryParameters = z.discriminatedUnion("command", [
   z
     .object({
       command: z.literal("delete"),
-      path: z
-        .string()
-        .min(1)
-        .describe(
-          'Memory file path to delete, starting with a scope name (e.g. "personal/old.md").',
-        ),
+      path: z.string().min(1).describe("Workspace file path to delete."),
     })
     .strict(),
   z
     .object({
       command: z.literal("rename"),
-      old_path: z
-        .string()
-        .min(1)
-        .describe('Current path, starting with a scope name (e.g. "personal/notes.md").'),
-      new_path: z
-        .string()
-        .min(1)
-        .describe(
-          "New path. Must start with the same scope name as old_path — moving a file between scopes isn't supported.",
-        ),
+      old_path: z.string().min(1).describe("Current path, relative to the workspace directory."),
+      new_path: z.string().min(1).describe("New path, relative to the workspace directory."),
     })
     .strict(),
 ]);
 
-type ManageMemoryArgs = z.infer<typeof manageMemoryParameters>;
+type ManageWorkspaceArgs = z.infer<typeof manageWorkspaceParameters>;
 
-export function createManageMemoryTool(): Tool<MemoryToolDeps> {
-  return defineTool<MemoryToolDeps, ManageMemoryArgs>({
-    name: "manage_memory",
+export function createManageWorkspaceTool(): Tool<WorkspaceToolDeps> {
+  return defineTool<WorkspaceToolDeps, ManageWorkspaceArgs>({
+    name: "manage_workspace",
     disclosure: "private",
     description:
-      "Save facts that will still matter later — preferences, location, age, how they like to work, project-specific notes. Write as soon as you learn it. " +
-      'Every path starts with a scope name (e.g. "personal/preferences.md", "github-project-a/status.md") — call view_memory with no path to see which scopes you can access. ' +
-      "Update an existing file instead of creating a new one for the same topic — call view_memory first. One file per topic within a scope, not a running log. " +
-      "Rewrite anything that is no longer true. Never write small talk, this-task details, or secrets (account numbers, passwords, health data). " +
-      "Commands: create(path, file_text) makes a new file, errors if it already exists; " +
-      "str_replace(path, old_str, new_str) replaces one exact, unique snippet — omit new_str to delete it; " +
-      "insert(path, insert_line, insert_text) inserts text after a 0-based line (0 = start of file); " +
-      "delete(path) removes a file; rename(old_path, new_path) renames a file within its scope.",
-    parameters: manageMemoryParameters,
+      "Save durable working drafts, research dumps, or intermediate artifacts that are too " +
+      "large or too provisional for memory — full research results, scraped data, long " +
+      "in-progress documents. Once work is done, reference the workspace path from a memory " +
+      'entry (e.g. "full research at workspace/research/topic.md") instead of duplicating ' +
+      "the content into memory. Never write secrets (account numbers, passwords, health data).",
+    parameters: manageWorkspaceParameters,
     riskLevel: "low-risk",
     hidden: false,
-    validate: makeZodValidator(manageMemoryParameters),
+    validate: makeZodValidator(manageWorkspaceParameters),
     handler: (args, context) =>
       Effect.gen(function* () {
-        const memoryService = yield* MemoryServiceTag;
-        const scopes = context.memoryScopes ?? [context.agentId];
+        const workspaceService = yield* WorkspaceServiceTag;
+        const agentId = context.agentId;
 
         const outcome = yield* (() => {
           switch (args.command) {
             case "create":
-              return memoryService.create(scopes, args.path, args.file_text);
+              return workspaceService.create(agentId, args.path, args.file_text);
             case "str_replace":
-              return memoryService.strReplace(scopes, args.path, args.old_str, args.new_str);
+              return workspaceService.strReplace(agentId, args.path, args.old_str, args.new_str);
             case "insert":
-              return memoryService.insert(scopes, args.path, args.insert_line, args.insert_text);
+              return workspaceService.insert(
+                agentId,
+                args.path,
+                args.insert_line,
+                args.insert_text,
+              );
             case "delete":
-              return memoryService.delete(scopes, args.path);
+              return workspaceService.delete(agentId, args.path);
             case "rename":
-              return memoryService.rename(scopes, args.old_path, args.new_path);
+              return workspaceService.rename(agentId, args.old_path, args.new_path);
           }
         })();
 

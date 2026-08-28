@@ -1,4 +1,5 @@
 import { Cause, Chunk, Effect, Layer, Option } from "effect";
+import { recordMisfire } from "@/core/agent/tools/misfire-log";
 import {
   logToolExecutionApproval,
   logToolExecutionError,
@@ -283,6 +284,7 @@ class DefaultToolRegistry implements ToolRegistry {
         }
 
         yield* logToolExecutionError(name, durationMs, errorMessage);
+        yield* recordMisfire(name, "runtime_error", errorMessage, durationMs, args);
 
         result = {
           success: false,
@@ -313,6 +315,7 @@ class DefaultToolRegistry implements ToolRegistry {
         } else {
           const errorMessage = result.error || "Tool returned success=false";
           yield* logToolExecutionError(name, durationMs, errorMessage);
+          yield* recordMisfire(name, "runtime_error", errorMessage, durationMs, args);
         }
       }
 
@@ -322,6 +325,7 @@ class DefaultToolRegistry implements ToolRegistry {
         return Effect.gen(function* () {
           const errorMessage = error instanceof Error ? error.message : String(error);
           yield* logToolExecutionError(name, 0, errorMessage);
+          yield* recordMisfire(name, "tool_not_found", errorMessage, 0, args);
           return {
             success: false,
             result: null,

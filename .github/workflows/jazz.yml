@@ -170,7 +170,8 @@ jobs:
             if (context.eventName === 'issue_comment') {
               const body = context.payload.comment?.body || '';
               const isReview = /(^|\s)\/jazz-review([\s.,!?]|$)/.test(body);
-              command = isReview ? 'review' : (body.includes('/jazz') ? 'assist' : 'none');
+              const isAssist = /(^|\s)\/jazz(?=[\s.,!?]|$)/.test(body);
+              command = isReview ? 'review' : (isAssist ? 'assist' : 'none');
             } else if (context.eventName === 'workflow_dispatch') {
               command = (context.payload.inputs.job === 'code-review') ? 'review' : 'assist';
             } else if (context.eventName === 'pull_request') {

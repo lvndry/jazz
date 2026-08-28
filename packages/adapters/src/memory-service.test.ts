@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
-import { MAX_MEMORY_FILE_BYTES, MAX_MEMORY_FILES_PER_AGENT } from "@jazz/core/constants/memory";
+import { MAX_MEMORY_FILE_BYTES, MAX_MEMORY_FILES_PER_SCOPE } from "@jazz/core/constants/memory";
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { Effect } from "effect";
 import { MemoryServiceImpl } from "./memory-service";
@@ -30,10 +30,21 @@ function makeService(): MemoryServiceImpl {
   return new MemoryServiceImpl({ baseMemoryDirectory: tmpDir });
 }
 
+const scopes = ["agent-1"];
+
 describe("view", () => {
-  test("returns an empty directory listing for a fresh agent", async () => {
+  test("lists the accessible scopes at the root path", async () => {
     const service = makeService();
-    const outcome = await runEffect(service.view("agent-1", ""));
+    const outcome = await runEffect(service.view(scopes, ""));
+    expect(outcome.kind).toBe("directory");
+    if (outcome.kind === "directory") {
+      expect(outcome.entries).toEqual([{ name: "agent-1/", kind: "directory", sizeBytes: 0 }]);
+    }
+  });
+
+  test("returns an empty directory listing for a fresh scope", async () => {
+    const service = makeService();
+    const outcome = await runEffect(service.view(scopes, "agent-1"));
     expect(outcome.kind).toBe("directory");
     if (outcome.kind === "directory") {
       expect(outcome.entries).toEqual([]);
@@ -42,8 +53,8 @@ describe("view", () => {
 
   test("lists a file after create", async () => {
     const service = makeService();
-    await runEffect(service.create("agent-1", "notes.txt", "hello"));
-    const outcome = await runEffect(service.view("agent-1", ""));
+    await runEffect(service.create(scopes, "agent-1/notes.txt", "hello"));
+    const outcome = await runEffect(service.view(scopes, "agent-1"));
     expect(outcome.kind).toBe("directory");
     if (outcome.kind === "directory") {
       expect(outcome.entries.map((e) => e.name)).toEqual(["notes.txt"]);
@@ -52,8 +63,8 @@ describe("view", () => {
 
   test("reads file content with line numbers via view_range", async () => {
     const service = makeService();
-    await runEffect(service.create("agent-1", "notes.txt", "line1\nline2\nline3"));
-    const outcome = await runEffect(service.view("agent-1", "notes.txt", [2, 3]));
+    await runEffect(service.create(scopes, "agent-1/notes.txt", "line1\nline2\nline3"));
+    const outcome = await runEffect(service.view(scopes, "agent-1/notes.txt", [2, 3]));
     expect(outcome.kind).toBe("file");
     if (outcome.kind === "file") {
       expect(outcome.content).toBe("line2\nline3");
@@ -64,7 +75,13 @@ describe("view", () => {
 
   test("returns not_found for a missing path", async () => {
     const service = makeService();
-    const outcome = await runEffect(service.view("agent-1", "missing.txt"));
+    const outcome = await runEffect(service.view(scopes, "agent-1/missing.txt"));
+    expect(outcome.kind).toBe("not_found");
+  });
+
+  test("returns not_found for a scope outside the accessible set", async () => {
+    const service = makeService();
+    const outcome = await runEffect(service.view(scopes, "other-scope/notes.txt"));
     expect(outcome.kind).toBe("not_found");
   });
 });
@@ -72,18 +89,22 @@ describe("view", () => {
 describe("create", () => {
   test("creates a file and its parent directories", async () => {
     const service = makeService();
-    const outcome = await runEffect(service.create("agent-1", "people/alex.md", "likes coffee"));
+    const outcome = await runEffect(
+      service.create(scopes, "agent-1/people/alex.md", "likes coffee"),
+    );
     expect(outcome.success).toBe(true);
-    const view = await runEffect(service.view("agent-1", "people/alex.md"));
+    const view = await runEffect(service.view(scopes, "agent-1/people/alex.md"));
     expect(view.kind).toBe("file");
     if (view.kind === "file") {
       expect(view.content).toBe("likes coffee");
     }
   });
 
-  test("treats leading slash as memory-relative and reports the backing path", async () => {
+  test("treats a leading slash as relative to the scope root and reports the backing path", async () => {
     const service = makeService();
-    const outcome = await runEffect(service.create("agent-1", "/people/alex.md", "likes coffee"));
+    const outcome = await runEffect(
+      service.create(scopes, "/agent-1/people/alex.md", "likes coffee"),
+    );
     const expectedPath = path.join(
       fs.realpathSync(path.join(tmpDir, "agent-1")),
       "people",
@@ -92,7 +113,7 @@ describe("create", () => {
     expect(outcome.success).toBe(true);
     expect(outcome.message).toContain(expectedPath);
 
-    const view = await runEffect(service.view("agent-1", "/people/alex.md"));
+    const view = await runEffect(service.view(scopes, "/agent-1/people/alex.md"));
     expect(view.kind).toBe("file");
     if (view.kind === "file") {
       expect(view.path).toBe(expectedPath);
@@ -102,11 +123,11 @@ describe("create", () => {
 
   test("errors instead of overwriting an existing file", async () => {
     const service = makeService();
-    await runEffect(service.create("agent-1", "notes.txt", "first"));
-    const outcome = await runEffect(service.create("agent-1", "notes.txt", "second"));
+    await runEffect(service.create(scopes, "agent-1/notes.txt", "first"));
+    const outcome = await runEffect(service.create(scopes, "agent-1/notes.txt", "second"));
     expect(outcome.success).toBe(false);
     expect(outcome.message).toContain("already exists");
-    const view = await runEffect(service.view("agent-1", "notes.txt"));
+    const view = await runEffect(service.view(scopes, "agent-1/notes.txt"));
     expect(view.kind).toBe("file");
     if (view.kind === "file") {
       expect(view.content).toBe("first");
@@ -116,50 +137,68 @@ describe("create", () => {
   test("rejects a file exceeding the per-file byte cap", async () => {
     const service = makeService();
     const tooBig = "x".repeat(MAX_MEMORY_FILE_BYTES + 1);
-    const result = await runEither(service.create("agent-1", "big.txt", tooBig));
+    const result = await runEither(service.create(scopes, "agent-1/big.txt", tooBig));
     expect(result._tag).toBe("Left");
   });
 
-  test("rejects once the per-agent file count cap is exceeded", async () => {
+  test("rejects once the per-scope file count cap is exceeded", async () => {
     const service = makeService();
-    for (let i = 0; i < MAX_MEMORY_FILES_PER_AGENT; i++) {
-      await runEffect(service.create("agent-1", `file-${i}.txt`, "x"));
+    for (let i = 0; i < MAX_MEMORY_FILES_PER_SCOPE; i++) {
+      await runEffect(service.create(scopes, `agent-1/file-${i}.txt`, "x"));
     }
-    const result = await runEither(service.create("agent-1", "one-too-many.txt", "x"));
+    const result = await runEither(service.create(scopes, "agent-1/one-too-many.txt", "x"));
     expect(result._tag).toBe("Left");
   }, 30_000);
+
+  test("fails when the path names no scope", async () => {
+    const service = makeService();
+    const outcome = await runEffect(service.create(scopes, "notes.txt", "x"));
+    expect(outcome.success).toBe(false);
+    expect(outcome.message).toContain("Accessible scopes");
+  });
+
+  test("fails when the path names a scope outside the accessible set", async () => {
+    const service = makeService();
+    const outcome = await runEffect(service.create(scopes, "other-scope/notes.txt", "x"));
+    expect(outcome.success).toBe(false);
+    expect(outcome.message).toContain("Unknown memory scope");
+  });
 });
 
 describe("str_replace", () => {
   test("replaces a unique match", async () => {
     const service = makeService();
-    await runEffect(service.create("agent-1", "notes.txt", "hello world"));
-    const outcome = await runEffect(service.strReplace("agent-1", "notes.txt", "world", "there"));
+    await runEffect(service.create(scopes, "agent-1/notes.txt", "hello world"));
+    const outcome = await runEffect(
+      service.strReplace(scopes, "agent-1/notes.txt", "world", "there"),
+    );
     expect(outcome.success).toBe(true);
-    const view = await runEffect(service.view("agent-1", "notes.txt"));
+    const view = await runEffect(service.view(scopes, "agent-1/notes.txt"));
     if (view.kind === "file") expect(view.content).toBe("hello there");
   });
 
   test("deletes in place when new_str is omitted", async () => {
     const service = makeService();
-    await runEffect(service.create("agent-1", "notes.txt", "hello world"));
-    await runEffect(service.strReplace("agent-1", "notes.txt", " world", undefined));
-    const view = await runEffect(service.view("agent-1", "notes.txt"));
+    await runEffect(service.create(scopes, "agent-1/notes.txt", "hello world"));
+    await runEffect(service.strReplace(scopes, "agent-1/notes.txt", " world", undefined));
+    const view = await runEffect(service.view(scopes, "agent-1/notes.txt"));
     if (view.kind === "file") expect(view.content).toBe("hello");
   });
 
   test("fails with no match", async () => {
     const service = makeService();
-    await runEffect(service.create("agent-1", "notes.txt", "hello world"));
-    const outcome = await runEffect(service.strReplace("agent-1", "notes.txt", "goodbye", "hi"));
+    await runEffect(service.create(scopes, "agent-1/notes.txt", "hello world"));
+    const outcome = await runEffect(
+      service.strReplace(scopes, "agent-1/notes.txt", "goodbye", "hi"),
+    );
     expect(outcome.success).toBe(false);
     expect(outcome.message).toContain("did not appear verbatim");
   });
 
   test("fails with multiple matches and reports line numbers", async () => {
     const service = makeService();
-    await runEffect(service.create("agent-1", "notes.txt", "dup\nother\ndup"));
-    const outcome = await runEffect(service.strReplace("agent-1", "notes.txt", "dup", "x"));
+    await runEffect(service.create(scopes, "agent-1/notes.txt", "dup\nother\ndup"));
+    const outcome = await runEffect(service.strReplace(scopes, "agent-1/notes.txt", "dup", "x"));
     expect(outcome.success).toBe(false);
     expect(outcome.message).toContain("lines: 1, 3");
   });
@@ -168,16 +207,16 @@ describe("str_replace", () => {
 describe("insert", () => {
   test("inserts text at the given line", async () => {
     const service = makeService();
-    await runEffect(service.create("agent-1", "notes.txt", "a\nb"));
-    await runEffect(service.insert("agent-1", "notes.txt", 1, "inserted"));
-    const view = await runEffect(service.view("agent-1", "notes.txt"));
+    await runEffect(service.create(scopes, "agent-1/notes.txt", "a\nb"));
+    await runEffect(service.insert(scopes, "agent-1/notes.txt", 1, "inserted"));
+    const view = await runEffect(service.view(scopes, "agent-1/notes.txt"));
     if (view.kind === "file") expect(view.content).toBe("a\ninserted\nb");
   });
 
   test("rejects an out-of-range insert_line", async () => {
     const service = makeService();
-    await runEffect(service.create("agent-1", "notes.txt", "a\nb"));
-    const outcome = await runEffect(service.insert("agent-1", "notes.txt", 99, "x"));
+    await runEffect(service.create(scopes, "agent-1/notes.txt", "a\nb"));
+    const outcome = await runEffect(service.insert(scopes, "agent-1/notes.txt", 99, "x"));
     expect(outcome.success).toBe(false);
     expect(outcome.message).toContain("Invalid `insert_line`");
   });
@@ -186,22 +225,22 @@ describe("insert", () => {
 describe("delete", () => {
   test("deletes an existing file", async () => {
     const service = makeService();
-    await runEffect(service.create("agent-1", "notes.txt", "x"));
-    const outcome = await runEffect(service.delete("agent-1", "notes.txt"));
+    await runEffect(service.create(scopes, "agent-1/notes.txt", "x"));
+    const outcome = await runEffect(service.delete(scopes, "agent-1/notes.txt"));
     expect(outcome.success).toBe(true);
-    const view = await runEffect(service.view("agent-1", "notes.txt"));
+    const view = await runEffect(service.view(scopes, "agent-1/notes.txt"));
     expect(view.kind).toBe("not_found");
   });
 
   test("fails for a missing path", async () => {
     const service = makeService();
-    const outcome = await runEffect(service.delete("agent-1", "missing.txt"));
+    const outcome = await runEffect(service.delete(scopes, "agent-1/missing.txt"));
     expect(outcome.success).toBe(false);
   });
 
-  test("refuses to delete the memory root", async () => {
+  test("refuses to delete a scope's memory root", async () => {
     const service = makeService();
-    const outcome = await runEffect(service.delete("agent-1", ""));
+    const outcome = await runEffect(service.delete(scopes, "agent-1"));
     expect(outcome.success).toBe(false);
     expect(outcome.message).toContain("cannot delete");
   });
@@ -210,64 +249,73 @@ describe("delete", () => {
 describe("rename", () => {
   test("renames an existing file", async () => {
     const service = makeService();
-    await runEffect(service.create("agent-1", "old.txt", "x"));
-    const outcome = await runEffect(service.rename("agent-1", "old.txt", "new.txt"));
+    await runEffect(service.create(scopes, "agent-1/old.txt", "x"));
+    const outcome = await runEffect(service.rename(scopes, "agent-1/old.txt", "agent-1/new.txt"));
     expect(outcome.success).toBe(true);
-    expect((await runEffect(service.view("agent-1", "old.txt"))).kind).toBe("not_found");
-    expect((await runEffect(service.view("agent-1", "new.txt"))).kind).toBe("file");
+    expect((await runEffect(service.view(scopes, "agent-1/old.txt"))).kind).toBe("not_found");
+    expect((await runEffect(service.view(scopes, "agent-1/new.txt"))).kind).toBe("file");
   });
 
   test("fails when the destination already exists", async () => {
     const service = makeService();
-    await runEffect(service.create("agent-1", "a.txt", "a"));
-    await runEffect(service.create("agent-1", "b.txt", "b"));
-    const outcome = await runEffect(service.rename("agent-1", "a.txt", "b.txt"));
+    await runEffect(service.create(scopes, "agent-1/a.txt", "a"));
+    await runEffect(service.create(scopes, "agent-1/b.txt", "b"));
+    const outcome = await runEffect(service.rename(scopes, "agent-1/a.txt", "agent-1/b.txt"));
     expect(outcome.success).toBe(false);
     expect(outcome.message).toContain("already exists");
+  });
+
+  test("fails renaming across scopes", async () => {
+    const multiScopes = ["agent-1", "agent-2"];
+    const service = makeService();
+    await runEffect(service.create(multiScopes, "agent-1/a.txt", "a"));
+    const outcome = await runEffect(service.rename(multiScopes, "agent-1/a.txt", "agent-2/a.txt"));
+    expect(outcome.success).toBe(false);
+    expect(outcome.message).toContain("across memory scopes");
   });
 });
 
 describe("path safety", () => {
   test("rejects .. traversal", async () => {
     const service = makeService();
-    const result = await runEither(service.create("agent-1", "../escape.txt", "x"));
+    const result = await runEither(service.create(scopes, "agent-1/../escape.txt", "x"));
     expect(result._tag).toBe("Left");
   });
 
   test("rejects a null byte", async () => {
     const service = makeService();
-    const result = await runEither(service.create("agent-1", "notes\0.txt", "x"));
+    const result = await runEither(service.create(scopes, "agent-1/notes\0.txt", "x"));
     expect(result._tag).toBe("Left");
   });
 
   test("rejects paths deeper than the max depth", async () => {
     const service = makeService();
-    const result = await runEither(service.create("agent-1", "a/b/c/d/e.txt", "x"));
+    const result = await runEither(service.create(scopes, "agent-1/a/b/c/d/e.txt", "x"));
     expect(result._tag).toBe("Left");
   });
 
   test("rejects a path segment longer than the max length", async () => {
     const service = makeService();
-    const result = await runEither(service.create("agent-1", `${"x".repeat(200)}.txt`, "x"));
+    const result = await runEither(service.create(scopes, `agent-1/${"x".repeat(200)}.txt`, "x"));
     expect(result._tag).toBe("Left");
   });
 
-  test("rejects an invalid agent id", async () => {
+  test("rejects an invalid scope name", async () => {
     const service = makeService();
-    const result = await runEither(service.view("../not-an-agent", "notes.txt"));
+    const result = await runEither(service.view([".."], ".."));
     expect(result._tag).toBe("Left");
   });
 
   test("rejects reading through a symlink that escapes the memory root", async () => {
     const service = makeService();
-    const agentRoot = path.join(tmpDir, "agent-1");
-    fs.mkdirSync(agentRoot, { recursive: true });
+    const scopeRoot = path.join(tmpDir, "agent-1");
+    fs.mkdirSync(scopeRoot, { recursive: true });
     const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), "jazz-memory-outside-"));
     fs.writeFileSync(path.join(outsideDir, "secret.txt"), "top secret");
-    fs.symlinkSync(outsideDir, path.join(agentRoot, "link"));
+    fs.symlinkSync(outsideDir, path.join(scopeRoot, "link"));
 
     try {
-      const result = await runEither(service.view("agent-1", "link/secret.txt"));
+      const result = await runEither(service.view(scopes, "agent-1/link/secret.txt"));
       expect(result._tag).toBe("Left");
     } finally {
       fs.rmSync(outsideDir, { recursive: true, force: true });

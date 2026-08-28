@@ -433,6 +433,7 @@ function initializeAgentRun(
 
     const toolContext: ToolExecutionContext = {
       agentId: agent.id,
+      memoryScopes: agent.config.memoryScopes ?? [agent.id],
       conversationId: actualConversationId,
       model,
       ...(getAutoApprovePolicy !== undefined ? { getAutoApprovePolicy } : {}),

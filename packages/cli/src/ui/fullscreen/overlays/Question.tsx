@@ -25,13 +25,13 @@
 
 import type { BorderCharacters } from "@opentui/core";
 import type { ReactNode } from "react";
+import { centeredOffset } from "./centered";
+import { CaretValue, HintRow, type Hint } from "./TextPrompt";
 import { getGlyphs, type GlyphSet } from "../../glyphs";
 import { PICKER_WINDOW_SIZE, pickerWindowStart } from "../../picker-window";
 import { THEME } from "../../theme";
 import { clipTerminalCells, terminalCellWidth, wrapTerminalCells } from "../terminal-cells";
-import { centeredOffset } from "./centered";
 import type { Viewport } from "../types";
-import { CaretValue, HintRow, type Hint } from "./TextPrompt";
 
 /** Windowed width, and the floor below which windowing stops making sense. */
 const MAX_WIDTH = 96;

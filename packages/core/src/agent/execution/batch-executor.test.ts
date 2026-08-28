@@ -17,6 +17,8 @@ import { PresentationServiceTag } from "../../interfaces/presentation";
 import { ReminderServiceTag } from "../../interfaces/reminder-service";
 import { TerminalServiceTag } from "../../interfaces/terminal";
 import { ToolRegistryTag } from "../../interfaces/tool-registry";
+import { WakeTriggerServiceTag } from "../../interfaces/wake-trigger-service";
+import { WorkspaceServiceTag } from "../../interfaces/workspace-service";
 import type { ChatCompletionResponse } from "../../types/chat";
 import type { StreamEvent } from "../../types/streaming";
 import type { RecursiveRunner } from "../context/summarizer";
@@ -154,6 +156,8 @@ function buildLayer(presentationService: OneShotPresentationService) {
     Layer.succeed(FileSystemContextServiceTag, {} as any),
     Layer.succeed(SkillServiceTag, mockSkillService),
     Layer.succeed(MemoryServiceTag, {} as any),
+    Layer.succeed(WorkspaceServiceTag, {} as any),
+    Layer.succeed(WakeTriggerServiceTag, {} as any),
     Layer.succeed(ReminderServiceTag, {} as any),
     Layer.succeed(PeerLedgerServiceTag, {} as any),
     Layer.succeed(PeerTokenServiceTag, {} as any),

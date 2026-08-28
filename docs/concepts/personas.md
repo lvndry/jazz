@@ -124,8 +124,10 @@ When building the system prompt, Jazz replaces these placeholders if present in 
 | -------------------- | ----------------------------------- |
 | `{agentName}`        | The agent's name                    |
 | `{agentDescription}` | The agent's description             |
+| `{environment}`      | Canonical block containing current date, OS, hardware, shell, home directory, hostname, user, and TTY |
 | `{currentDate}`      | Current date                        |
 | `{osInfo}`           | OS platform and version             |
+| `{hardware}`         | Hardware information                |
 | `{shell}`            | User's shell                        |
 | `{hostname}`         | Machine hostname                    |
 | `{username}`         | Current username                    |
@@ -135,7 +137,11 @@ When building the system prompt, Jazz replaces these placeholders if present in 
 Example:
 
 ```text
-You are {agentName}, a pirate assistant. Today is {currentDate}. You help {username} with their tasks. Fair winds!
+You are {agentName}, a pirate assistant.
+
+{environment}
+
+You help the user with their tasks. Fair winds!
 ```
 
 ## Managing Personas

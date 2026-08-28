@@ -270,6 +270,28 @@ export function isBillingOrPlanError(message: string): boolean {
   );
 }
 
+/**
+ * A 429 that means "out of credits/quota" rather than "too many requests right now".
+ *
+ * Providers use the same HTTP status for both a throttle (retry with backoff) and an exhausted
+ * balance (retrying is pointless until the account is topped up). Message text alone can't
+ * reliably tell them apart, so this only trusts the structured error code providers put in the
+ * response body for exactly this case — OpenAI's (and OpenAI-compatible providers') `error.code:
+ * "insufficient_quota"`, distinct from their `"rate_limit_exceeded"` throttle code — via
+ * `APICallError.data`. Anthropic has no equivalent code for a 429 (its low-balance case is a
+ * 400, handled separately by `isBillingOrPlanError`), so this returns false there rather than
+ * guess from prose and risk giving up on a request that would have succeeded on retry.
+ */
+export function isInsufficientBalanceError(error: unknown): boolean {
+  if (!APICallError.isInstance(error) || !error.data || typeof error.data !== "object") {
+    return false;
+  }
+  const data = error.data as { error?: { code?: unknown; type?: unknown } };
+  const code = data.error?.code;
+  const type = data.error?.type;
+  return code === "insufficient_quota" || type === "insufficient_quota";
+}
+
 function isProviderAuthFailure(statusCode: number | undefined, message: string): boolean {
   if (statusCode === 401) return true;
   if (statusCode !== 403) return false;
@@ -355,7 +377,11 @@ export function convertToLLMError(error: unknown, providerName: ProviderName): L
       permanent: true,
     });
   } else if (httpStatus === 429) {
-    llmError = new LLMRateLimitError({ provider: providerName, message: cleanMessage });
+    llmError = new LLMRateLimitError({
+      provider: providerName,
+      message: cleanMessage,
+      permanent: isInsufficientBalanceError(error),
+    });
   } else if (httpStatus && httpStatus >= 400 && httpStatus < 500) {
     llmError = new LLMRequestError({
       provider: providerName,
@@ -398,16 +424,17 @@ Or update it in the interactive wizard: jazz wizard -> Update configuration`;
  * Determine whether an LLM error is transient and therefore safe to retry.
  *
  * Retryable errors include:
- * - Rate-limit responses (HTTP 429)
+ * - Rate-limit responses (HTTP 429), unless the account is simply out of credits/quota
  * - Connection / network errors (no HTTP status — the request never reached the server)
  * - Server-side errors (HTTP 5xx)
  *
  * Non-retryable errors include:
  * - Authentication failures (HTTP 401 / 403)
  * - Client request errors (HTTP 4xx other than 429)
+ * - Out-of-credits / quota-exhausted 429s (backoff cannot fix a billing problem)
  */
 export function isRetryableLLMError(error: unknown): boolean {
-  if (error instanceof LLMRateLimitError) return true;
+  if (error instanceof LLMRateLimitError) return error.permanent !== true;
   if (error instanceof LLMRequestError) {
     // Rejected locally: the same request will be rejected the same way next time.
     if (error.permanent === true) return false;

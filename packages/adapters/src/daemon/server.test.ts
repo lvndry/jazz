@@ -3,7 +3,7 @@ import { RunStoreTag } from "@jazz/core/interfaces/run-store";
 import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
 import { InMemoryRunStore } from "@/adapters/storage/run-store";
-import { makeHandler, refuseReason, type DaemonRequirements } from "./server";
+import { makeHandler, makeTriggerHandler, refuseReason, type DaemonRequirements } from "./server";
 
 const LOOPBACK = { port: 0, host: "127.0.0.1" };
 
@@ -134,5 +134,34 @@ describe("the daemon's routes", () => {
     const handle = makeHandler(LOOPBACK, runnerFor(store));
 
     expect((await handle(request("GET", "/nope"))).status).toBe(404);
+  });
+
+  it("rejects an oversized trigger body while it is being read", async () => {
+    const handle = makeTriggerHandler(
+      [{ name: "hook", agentId: "default", promptTemplate: "Process {{payload}}" }],
+      async () => "trigger-secret",
+      async () => {
+        throw new Error("runEffect should not be called");
+      },
+    );
+
+    const response = await handle(
+      request("POST", "/triggers/hook", {
+        headers: { authorization: "Bearer trigger-secret" },
+        body: "x".repeat(20_001),
+      }),
+    );
+    expect(response.status).toBe(413);
+  });
+
+  it("returns 404 for malformed trigger URL encoding", async () => {
+    const handle = makeTriggerHandler(
+      [],
+      async () => undefined,
+      async () => {
+        throw new Error("runEffect should not be called");
+      },
+    );
+    expect((await handle(request("POST", "/triggers/%E0%A4%A"))).status).toBe(404);
   });
 });

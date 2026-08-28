@@ -91,6 +91,29 @@ export function getMemoryDirectory(): string {
   return path.join(getJazzHomeDirectory(), "memory");
 }
 
+/**
+ * Returns the directory for per-agent durable scratch space.
+ *
+ * Deliberately separate from the memory directory: memory is small, curated
+ * notes; this is where large working drafts, research dumps, and
+ * intermediate artifacts live, referenced from memory rather than duplicated
+ * into it. Also separate from `getWorkStateDirectory`, which is per-task
+ * compaction bookkeeping discarded when a conversation ends — workspace
+ * content is durable across conversations, like memory.
+ */
+export function getWorkspaceDirectory(): string {
+  return path.join(getJazzHomeDirectory(), "workspace");
+}
+
+/**
+ * Returns the directory holding the tool-misfire log: a JSONL record of failed
+ * tool calls (runtime errors, tool-not-found, schema mismatches) kept separate
+ * from ordinary logs so it can be mined later for recurring failure patterns.
+ */
+export function getMisfireLogDirectory(): string {
+  return path.join(getJazzHomeDirectory(), "misfires");
+}
+
 let embeddedAssetRoot: string | null | undefined;
 
 /**

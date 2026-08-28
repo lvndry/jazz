@@ -21,7 +21,7 @@ name: inbox-triage
 description: Morning triage — summarize what matters, archive newsletters and noise.
 schedule: "0 8 * * 1-5"
 autoApprove: low-risk
-catchUpOnStartup: true
+catchUpOnRestart: true
 maxCatchUpAge: 86400
 maxIterations: 60
 skills:

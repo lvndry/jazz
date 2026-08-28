@@ -21,7 +21,7 @@ name: research-digest
 description: Weekly digest on a chosen topic — papers, posts, releases.
 schedule: "0 8 * * 0"
 autoApprove: read-only
-catchUpOnStartup: true
+catchUpOnRestart: true
 maxCatchUpAge: 604800
 maxIterations: 60
 skills:

@@ -223,6 +223,8 @@ export interface ToolCategory {
 
 export interface ToolExecutionContext {
   readonly agentId: string;
+  /** Memory scopes available to this run. */
+  readonly memoryScopes?: readonly string[];
   readonly conversationId?: string;
   readonly model?: string;
   /**

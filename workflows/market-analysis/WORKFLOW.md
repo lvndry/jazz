@@ -3,7 +3,7 @@ name: market-analysis
 description: Daily comprehensive stock market and crypto analysis with investment insights
 schedule: "0 6 * * *"
 autoApprove: true
-catchUpOnStartup: true
+catchUpOnRestart: true
 maxCatchUpAge: 43200
 skills:
   - deep-research

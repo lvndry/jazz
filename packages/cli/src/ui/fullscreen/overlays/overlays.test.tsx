@@ -15,9 +15,6 @@ import { TextAttributes, type CapturedFrame, type CapturedSpan } from "@opentui/
 import { testRender } from "@opentui/react/test-utils";
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import type { ReactNode } from "react";
-import { getGlyphs } from "../../glyphs";
-import { THEME } from "../../theme";
-import type { ApprovalOverlay, SearchOverlay, Viewport } from "../types";
 import {
   approvalBodyRows,
   approvalFieldNeedsExpand,
@@ -26,6 +23,9 @@ import {
   wrapProse,
 } from "./Approval";
 import { Search } from "./Search";
+import { getGlyphs } from "../../glyphs";
+import { THEME } from "../../theme";
+import type { ApprovalOverlay, SearchOverlay, Viewport } from "../types";
 
 const WIDE: Viewport = { width: 120, height: 34 };
 const NARROW: Viewport = { width: 70, height: 18 };

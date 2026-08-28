@@ -97,6 +97,8 @@ export interface AgentConfig {
    * unattended session fails loudly instead of guessing.
    */
   readonly companions?: Partial<Record<PerceptionCapability, `${string}/${string}`>>;
+  /** Memory scopes this agent can access. */
+  readonly memoryScopes?: readonly string[];
 }
 
 /**

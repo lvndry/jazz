@@ -5,6 +5,7 @@
 import { FileSystem } from "@effect/platform";
 import { Context, Effect } from "effect";
 import type z from "zod";
+import type { WorkspaceService } from "@/core/interfaces/workspace-service";
 import type { SkillService } from "@/core/skills/skill-service";
 import type { CustomToolDefinition } from "@/core/types/agent";
 import type { ToolNotFoundError } from "@/core/types/errors";
@@ -24,6 +25,7 @@ import type { PeerLedgerService, PeerTokenService } from "./peers";
 import type { PresentationService } from "./presentation";
 import type { ReminderService } from "./reminder-service";
 import type { TerminalService } from "./terminal";
+import type { WakeTriggerService } from "./wake-trigger-service";
 
 /**
  * Risk level for tool execution.
@@ -82,7 +84,9 @@ export type ToolRequirements =
   | SkillService
   | PresentationService
   | MemoryService
+  | WorkspaceService
   | ReminderService
+  | WakeTriggerService
   | PeerLedgerService
   | PeerTokenService;
 

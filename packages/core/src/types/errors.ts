@@ -218,6 +218,8 @@ export class LLMRateLimitError extends Data.TaggedError("LLMRateLimitError")<{
   readonly provider: string;
   readonly message: string;
   readonly suggestion?: string;
+  /** Whether this 429 is a permanent quota error that should not be retried. */
+  readonly permanent?: boolean;
 }> {}
 
 export class LLMConfigurationError extends Data.TaggedError("LLMConfigurationError")<{

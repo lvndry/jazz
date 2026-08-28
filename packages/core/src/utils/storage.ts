@@ -39,6 +39,24 @@ export function resolveStorageDirectory(storage: StorageConfig): string {
 }
 
 /**
+ * Require a storage key (agent id, memory scope name, etc.) to satisfy Jazz's
+ * storage-safe format: 1–64 ASCII letters, digits, underscores, and hyphens,
+ * since these values become file and lock names. `label` names the kind of
+ * key in the error message (e.g. "agent id", "memory scope"). The caller
+ * supplies its domain error class so the returned Effect retains a useful
+ * typed error channel.
+ */
+export function requireValidStorageKey<E extends Error>(
+  key: string,
+  label: string,
+  ErrorConstructor: AgentIdErrorConstructor<E>,
+): Effect.Effect<void, E> {
+  return AGENT_ID_PATTERN.test(key)
+    ? Effect.void
+    : Effect.fail(new ErrorConstructor(`Invalid ${label}: "${key}".`));
+}
+
+/**
  * Require an agent identifier to satisfy Jazz's storage-safe format.
  *
  * Agent IDs become file and lock names, so only 1–64 ASCII letters, digits,
@@ -49,9 +67,7 @@ export function requireValidAgentId<E extends Error>(
   agentId: string,
   ErrorConstructor: AgentIdErrorConstructor<E>,
 ): Effect.Effect<void, E> {
-  return AGENT_ID_PATTERN.test(agentId)
-    ? Effect.void
-    : Effect.fail(new ErrorConstructor(`Invalid agent id: "${agentId}".`));
+  return requireValidStorageKey(agentId, "agent id", ErrorConstructor);
 }
 
 /**
