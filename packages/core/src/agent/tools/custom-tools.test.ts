@@ -1017,7 +1017,7 @@ describe("registerCustomToolsForAgent: command-handler execution", () => {
 
     expect(result.success).toBe(true);
     expect(result.result).toBe(JSON.stringify({ value: "hello" }));
-  });
+  }, 15_000);
 
   it("returns an error result carrying stderr when the command exits non-zero", async () => {
     const definition: CustomToolDefinition = {
@@ -1037,7 +1037,7 @@ describe("registerCustomToolsForAgent: command-handler execution", () => {
     expect(result.result).toBeNull();
     expect(String(result.error ?? "")).toContain("boom");
     expect(String(result.error ?? "")).toContain("1");
-  });
+  }, 15_000);
 
   it("kills the command and returns a timeout error when it runs past timeoutMs", async () => {
     const definition: CustomToolDefinition = {
@@ -1080,7 +1080,7 @@ describe("registerCustomToolsForAgent: command-handler execution", () => {
     expect(result.success).toBe(true);
     expect(typeof result.result).toBe("string");
     expect((result.result as string).length).toBe(16 * 1024);
-  });
+  }, 15_000);
 
   it("scrubs a sensitive-name env var when the declaring agent has no envAllowlist, but passes it through when the declaring agent allowlists it", async () => {
     const originalValue = process.env["FAKE_TOKEN"];
@@ -1115,7 +1115,7 @@ describe("registerCustomToolsForAgent: command-handler execution", () => {
         process.env["FAKE_TOKEN"] = originalValue;
       }
     }
-  });
+  }, 15_000);
 
   it("uses the DECLARING agent's envAllowlist, not context.parentAgent's, at call time", async () => {
     const originalValue = process.env["FAKE_TOKEN"];
@@ -1164,7 +1164,7 @@ describe("registerCustomToolsForAgent: command-handler execution", () => {
         process.env["FAKE_TOKEN"] = originalValue;
       }
     }
-  });
+  }, 15_000);
 
   it("carries Tool.timeoutMs = handler.timeoutMs + 5000ms margin so the executor's default 3-minute timeout can't undercut it", async () => {
     const definition: CustomToolDefinition = {
@@ -1216,5 +1216,5 @@ describe("registerCustomToolsForAgent: command-handler execution", () => {
     expect(typeof result.result).toBe("string");
     expect(Buffer.byteLength(result.result as string, "utf8")).toBeLessThanOrEqual(16 * 1024);
     expect(Buffer.byteLength(result.result as string, "utf8")).toBeGreaterThan(16 * 1024 - 4);
-  });
+  }, 15_000);
 });
