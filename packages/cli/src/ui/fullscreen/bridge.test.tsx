@@ -672,8 +672,8 @@ describe("fullscreen bridge", () => {
         title: "delete an agent",
         action: "delete",
         agents: [
-          { id: "a1", name: "Basil", model: "claude-sonnet-4", lastUsed: true },
-          { id: "a2", name: "Cass", model: "gpt-5" },
+          { id: "a1", name: "Basil", model: "claude-sonnet-4", persona: "default", lastUsed: true },
+          { id: "a2", name: "Cass", model: "gpt-5", persona: "default" },
         ],
       });
     });
@@ -693,7 +693,7 @@ describe("fullscreen bridge", () => {
         kind: "agents",
         title: "pick an agent",
         action: "start",
-        agents: [{ id: "a1", name: "Basil", model: "claude-sonnet-4" }],
+        agents: [{ id: "a1", name: "Basil", model: "claude-sonnet-4", persona: "default" }],
       },
       (result) => selected.push(result.kind === "exit" ? "EXIT" : result.value),
     );
@@ -715,8 +715,8 @@ describe("fullscreen bridge", () => {
         title: "pick an agent",
         action: "start",
         agents: [
-          { id: "a1", name: "Basil", model: "claude-sonnet-4" },
-          { id: "a2", name: "Cass", model: "gpt-5" },
+          { id: "a1", name: "Basil", model: "claude-sonnet-4", persona: "default" },
+          { id: "a2", name: "Cass", model: "gpt-5", persona: "default" },
         ],
       },
       (result) => selected.push(result.kind === "exit" ? "EXIT" : result.value),
@@ -739,8 +739,8 @@ describe("fullscreen bridge", () => {
         action: "back",
         browse: true,
         agents: [
-          { id: "a1", name: "doitall", model: "claude-sonnet-4" },
-          { id: "a2", name: "qwen-coder", model: "qwen2.5-coder" },
+          { id: "a1", name: "doitall", model: "claude-sonnet-4", persona: "default" },
+          { id: "a2", name: "qwen-coder", model: "qwen2.5-coder", persona: "default" },
         ],
       });
     });
@@ -764,8 +764,8 @@ describe("fullscreen bridge", () => {
         action: "back",
         browse: true,
         agents: [
-          { id: "a1", name: "doitall", model: "claude-sonnet-4" },
-          { id: "a2", name: "qwen-coder", model: "qwen2.5-coder" },
+          { id: "a1", name: "doitall", model: "claude-sonnet-4", persona: "default" },
+          { id: "a2", name: "qwen-coder", model: "qwen2.5-coder", persona: "default" },
         ],
       },
       (result) => selected.push(result.kind === "exit" ? "EXIT" : result.value),
@@ -784,7 +784,7 @@ describe("fullscreen bridge", () => {
         title: "agents",
         action: "back",
         browse: true,
-        agents: [{ id: "a1", name: "doitall", model: "claude-sonnet-4" }],
+        agents: [{ id: "a1", name: "doitall", model: "claude-sonnet-4", persona: "default" }],
       },
       (result) => selected.push(result.kind === "exit" ? "EXIT" : result.value),
     );

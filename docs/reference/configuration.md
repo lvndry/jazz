@@ -131,6 +131,35 @@ Terminal display of reasoning, tools, and formatting. The interactive TUI reads 
 
 Set `collapseReasoning` to `false` to leave the full reasoning visible after it finishes. Ctrl+R is then unused — there is nothing collapsed to expand. Change it with `jazz config set output.collapseReasoning false`, or from **Output & Display** in `jazz config`.
 
+### `scheduler`
+
+Which scheduler runs workflows: your OS scheduler (launchd on macOS, cron on Linux), or Jazz's
+own in-process ticker inside `jazz daemon`. Defaults to `"auto"`, which uses the OS scheduler.
+
+```json
+{
+  "scheduler": {
+    "mode": "in-process"
+  }
+}
+```
+
+| Value          | Effect                                                                 |
+| -------------- | ----------------------------------------------------------------------- |
+| `"auto"`       | Default. `jazz workflow schedule` installs a launchd/cron entry         |
+| `"in-process"` | `jazz daemon` polls due schedules itself once per minute; no OS entries |
+
+Set it from **Scheduler** in `jazz config`, or directly:
+
+```bash
+jazz config set scheduler.mode in-process
+```
+
+`in-process` only matters for a host you leave running — `jazz daemon` must itself be running for
+its ticker to fire. The `JAZZ_SCHEDULER=in-process` environment variable still works and overrides
+this setting, which is useful for a one-off run without touching the saved config. See
+[Scheduled runs](../surfaces/scheduled.md) for how each mode installs and fires.
+
 ## Project Overrides: `./.jazz/config.json`
 
 Use for project-specific settings such as MCP enable/disable flags or logging level. Do not put agent storage paths here — agents always load from `~/.jazz`.

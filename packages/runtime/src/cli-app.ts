@@ -712,7 +712,7 @@ function registerUpdateCommand(program: Command): void {
  * forked and wrote a pidfile would be a third mechanism competing with both.
  */
 function registerDaemonCommand(program: Command): void {
-  program
+  const daemonCommand = program
     .command("daemon")
     .description(
       "Serve runs over HTTP so a parked run can be answered later, and from somewhere else",
@@ -720,7 +720,7 @@ function registerDaemonCommand(program: Command): void {
     .option("--port <n>", "Port to listen on", parsePositiveInt("--port"), 4747)
     .option(
       "--host <address>",
-      "Interface to bind. Anything other than loopback requires $JAZZ_DAEMON_TOKEN.",
+      "Interface to bind. Anything other than loopback requires a daemon token (env or keyring).",
       "127.0.0.1",
     )
     .option(
@@ -739,6 +739,28 @@ function registerDaemonCommand(program: Command): void {
           ),
         cliRuntimeOptions(program),
         { session: true },
+      ),
+    );
+
+  daemonCommand
+    .command("set-token")
+    .description(
+      "Generate and store a daemon bearer token in the OS keyring, or store $JAZZ_DAEMON_TOKEN if set",
+    )
+    .action(() =>
+      runCliAction(
+        () => import("@jazz/cli/commands/daemon").then((mod) => mod.setDaemonTokenCommand()),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  daemonCommand
+    .command("forget-token")
+    .description("Remove the daemon's stored token")
+    .action(() =>
+      runCliAction(
+        () => import("@jazz/cli/commands/daemon").then((mod) => mod.forgetDaemonTokenCommand()),
+        cliRuntimeOptions(program),
       ),
     );
 }

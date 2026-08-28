@@ -153,16 +153,27 @@ Serves runs over HTTP: start one, poll it, approve or reject what a parked one i
 began it. Runs in the foreground; supervision (restart on crash, start on boot) is the host's
 job, not the daemon's.
 
-| Flag                      | Purpose                                                                             |
-| ------------------------- | ----------------------------------------------------------------------------------- |
-| `--port <n>`              | Port to listen on. Default `4747`                                                   |
-| `--host <address>`        | Interface to bind. Default `127.0.0.1`. Anything else requires `$JAZZ_DAEMON_TOKEN` |
-| `--serve-peers <agentId>` | Also answer questions from configured peers, using this agent. Off unless given     |
+| Flag                      | Purpose                                                                         |
+| ------------------------- | ------------------------------------------------------------------------------- |
+| `--port <n>`              | Port to listen on. Default `4747`                                               |
+| `--host <address>`        | Interface to bind. Default `127.0.0.1`. Anything else requires a daemon token   |
+| `--serve-peers <agentId>` | Also answer questions from configured peers, using this agent. Off unless given |
 
-`$JAZZ_DAEMON_TOKEN` authenticates the operator routes (`/runs`, `/health`); it is read from
-the environment, never a flag, so it never lands in `ps` output or shell history. `/peer/ask`
-(when `--serve-peers` is given) uses a separate, per-peer credential instead — see
-[`jazz peers`](#jazz-peers).
+A bearer token authenticates the operator routes (`/runs`, `/health`) whenever `--host` is
+anything but loopback; loopback needs none. The first time this daemon binds a non-loopback
+host with no token already set, Jazz generates one and stores it in the OS keyring, printing
+it once so it can be copied to a client — the daemon works from the first run, with no setup
+command required. `/peer/ask` (when `--serve-peers` is given) uses a separate, per-peer
+credential instead — see [`jazz peers`](#jazz-peers).
+
+| Command                    | Purpose                                                                                                                                 |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `jazz daemon set-token`    | Generate (or store `$JAZZ_DAEMON_TOKEN` if set) a token before the daemon's first run — useful when a client needs the value in advance |
+| `jazz daemon forget-token` | Remove the stored token                                                                                                                 |
+
+Set `$JAZZ_DAEMON_TOKEN` yourself instead of letting Jazz generate one when the value needs to
+be known ahead of time — a container with no persistent keyring across restarts, or a client
+config that must be written before the daemon has ever started.
 
 See [Setting up peers](../guide/peers-setup.md) for a full walkthrough, and
 [Peers](../concepts/peers.md) for the tier model this exists to serve.

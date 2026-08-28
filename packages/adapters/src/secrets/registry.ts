@@ -72,6 +72,12 @@ const OTLP_HEADER_PATH = /^telemetry\.otlp\.headers\.[^.]+$/;
 /** The header operators actually set; listed so the keyring is checked for it on load. */
 export const OTLP_AUTHORIZATION_PATH = "telemetry.otlp.headers.authorization";
 
+/** The config path holding the daemon's own bearer token. */
+export const DAEMON_TOKEN_PATH = "daemon.token";
+
+/** Environment variable that overrides the daemon token stored in the keyring. */
+export const DAEMON_TOKEN_ENV_VAR = "JAZZ_DAEMON_TOKEN";
+
 /** A peer's bearer token, e.g. `peers.sam.token`. */
 const PEER_TOKEN_PATH = /^peers\.[^.]+\.token$/;
 
@@ -114,6 +120,7 @@ export function peerTokenEnvVar(peerName: string): string {
 export const SECRET_PATHS: readonly string[] = [
   ...Object.keys(SECRET_ENV_VARS),
   OTLP_AUTHORIZATION_PATH,
+  DAEMON_TOKEN_PATH,
 ];
 
 /**
@@ -124,6 +131,9 @@ export const SECRET_PATHS: readonly string[] = [
  */
 export function isSecretPath(path: string): boolean {
   if (path in SECRET_ENV_VARS) return true;
+  // The daemon's own bearer token authenticates operator HTTP calls the same way a peer or
+  // trigger token authenticates theirs — it belongs in the keyring, not in plaintext config.
+  if (path === DAEMON_TOKEN_PATH) return true;
   // A peer's bearer token authenticates this machine to somebody else's agent. It belongs
   // in the keyring for the same reason an API key does, and the config file names the peer
   // without ever holding its credential.
@@ -140,6 +150,7 @@ export function isSecretPath(path: string): boolean {
 
 /** Environment variable that supplies a secret path, if one is defined. */
 export function envVarForSecretPath(path: string): string | undefined {
+  if (path === DAEMON_TOKEN_PATH) return DAEMON_TOKEN_ENV_VAR;
   // Peer names are user-defined, so their variables are derived rather than enumerated.
   const peer = /^peers\.([^.]+)\.token$/.exec(path);
   if (peer?.[1] !== undefined) return peerTokenEnvVar(peer[1]);

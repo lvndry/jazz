@@ -12,11 +12,11 @@ You need three things, in order: something worth asking, someone willing to answ
 shared secret only the two of you know. Everything else is which network sits between you,
 and that's the actual difference between the three setups below:
 
-| | Where the daemon binds | Encryption | Needs a domain? |
-| --- | --- | --- | --- |
-| [One machine](#one-machine-two-agents) | loopback | none needed | no |
-| [A tailnet](#over-a-tailnet) | the tailnet interface | Tailscale's WireGuard | no |
-| [The internet](#over-the-internet) | loopback, behind a proxy | TLS at the proxy | yes |
+|                                        | Where the daemon binds   | Encryption            | Needs a domain? |
+| -------------------------------------- | ------------------------ | --------------------- | --------------- |
+| [One machine](#one-machine-two-agents) | loopback                 | none needed           | no              |
+| [A tailnet](#over-a-tailnet)           | the tailnet interface    | Tailscale's WireGuard | no              |
+| [The internet](#over-the-internet)     | loopback, behind a proxy | TLS at the proxy      | yes             |
 
 Pick the one that matches your actual situation — they don't build on each other.
 
@@ -41,7 +41,7 @@ Edit `$BOB/config.json` and add Alice as a peer:
 
 ```jsonc
 {
-  "peers": [{ "name": "alice", "url": "http://127.0.0.1:4748/peer/ask", "may": "about-me" }]
+  "peers": [{ "name": "alice", "url": "http://127.0.0.1:4748/peer/ask", "may": "about-me" }],
 }
 ```
 
@@ -61,7 +61,7 @@ JAZZ_HOME=$BOB   JAZZ_PEER_TOKEN=$TOKEN jazz peers set-token alice
 JAZZ_HOME=$ALICE JAZZ_PEER_TOKEN=$TOKEN jazz peers set-token bob
 ```
 
-Yes, both sides store it under the *other's* name — Bob's copy answers "is this really
+Yes, both sides store it under the _other's_ name — Bob's copy answers "is this really
 Alice?", Alice's copy answers "here's what I present as Alice." This is the same on all three
 setups; the walkthroughs below won't repeat it.
 
@@ -158,7 +158,9 @@ In Bob's `~/.jazz/config.json`:
 
 ```jsonc
 {
-  "peers": [{ "name": "alice", "url": "http://<alice's-tailnet-ip>:4747/peer/ask", "may": "about-me" }]
+  "peers": [
+    { "name": "alice", "url": "http://<alice's-tailnet-ip>:4747/peer/ask", "may": "about-me" },
+  ],
 }
 ```
 
@@ -173,14 +175,17 @@ JAZZ_PEER_TOKEN=<shared-secret> jazz peers set-token bob     # on Alice's machin
 ### 4. Bob serves on the tailnet interface — not `0.0.0.0`
 
 ```bash
-JAZZ_DAEMON_TOKEN=$(openssl rand -hex 24) jazz daemon --serve-peers bob --host 100.101.102.103
+jazz daemon --serve-peers bob --host 100.101.102.103
 ```
 
 Bind the specific tailnet address, not `0.0.0.0`. If this machine also has a public interface
 (a cloud VM with a tailnet sidecar, say), `0.0.0.0` would listen on that too — binding the
 `100.x` address keeps the daemon reachable only from the tailnet, which is the whole reason to
-use one. `$JAZZ_DAEMON_TOKEN` is still required, because the bind-safety check has no way to
-know *which* non-loopback interface is safe — it treats all of them the same, on purpose.
+use one. A bearer token is still required to reach the operator routes, because the
+bind-safety check has no way to know _which_ non-loopback interface is safe — it treats all of
+them the same, on purpose. The first run generates one and stores it in the OS keyring,
+printing it once; set `JAZZ_DAEMON_TOKEN=$(openssl rand -hex 24)` yourself instead if this is a
+container with no persistent keyring, or you need the value before the daemon's first run.
 
 ### 5. Ask, from Alice's machine
 
@@ -241,7 +246,11 @@ TLS is what Caddy just set up in step 2.
 ### 4. Bob configures Alice's tier, and the token, exactly as before
 
 ```jsonc
-{ "peers": [{ "name": "alice", "url": "https://alice-agent.example.com/peer/ask", "may": "about-me" }] }
+{
+  "peers": [
+    { "name": "alice", "url": "https://alice-agent.example.com/peer/ask", "may": "about-me" },
+  ],
+}
 ```
 
 ```bash
@@ -270,7 +279,7 @@ jazz peers log
   answering side. Re-run `peers set-token` on both ends with the exact same value.
 - **403, `"not accepting questions"`** — the peer exists in config but has no `may`, which
   defaults to `none`. Add a tier.
-- **403, some other reason, with a ledger entry** — the question was refused *by the agent*,
+- **403, some other reason, with a ledger entry** — the question was refused _by the agent_,
   not the connection. Read the reason in `jazz peers log`; it's usually the tier working as
   designed.
 - **`ask_peer` doesn't show up in the toolset** — no peer is configured on that side yet, or

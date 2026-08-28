@@ -7,6 +7,12 @@ import type { OutputConfig } from "./output";
 import type { PeerConfig } from "./peer";
 import type { TriggerConfig } from "./trigger";
 
+export type SchedulerMode = "auto" | "in-process";
+
+export interface SchedulerConfig {
+  readonly mode?: SchedulerMode;
+}
+
 export interface AppConfig {
   readonly storage: StorageConfig;
   readonly logging: LoggingConfig;
@@ -32,6 +38,15 @@ export interface AppConfig {
    * Defaults to 1GB (`DEFAULT_MAX_WORKSPACE_TOTAL_BYTES_PER_AGENT`).
    */
   readonly workspaceMaxTotalBytesPerAgent?: number;
+  /**
+   * Scheduler selection for unattended workflow execution.
+   *
+   * Leave unset (or "auto") to use the platform scheduler: launchd on macOS,
+   * cron on Linux. Set to "in-process" to let `jazz daemon` own the ticker on
+   * an always-on host.
+   */
+  readonly scheduler?: SchedulerConfig;
+
   /**
    * Other people's agents this machine will talk to.
    *
