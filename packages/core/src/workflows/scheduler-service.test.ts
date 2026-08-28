@@ -1,11 +1,12 @@
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it } from "bun:test";
 import { Effect } from "effect";
 import { getJazzHomeDirectory } from "@/core/utils/paths";
 import {
   getLaunchdPath,
+  InProcessScheduler,
   SchedulerServiceLayer,
   SchedulerServiceTag,
   type ScheduledWorkflow,
@@ -223,6 +224,59 @@ describe("SchedulerService", () => {
       const dirs = result.split(":");
       const unique = new Set(dirs);
       expect(dirs.length).toBe(unique.size);
+    });
+  });
+
+  describe("InProcessScheduler", () => {
+    const testWorkflowName = "in-process-scheduler-regression-test";
+    const workflow: WorkflowMetadata = {
+      name: testWorkflowName,
+      description: "In-process scheduler regression test",
+      path: "/tmp",
+      schedule: "0 8 * * *",
+    };
+
+    afterEach(async () => {
+      const scheduler = new InProcessScheduler();
+      await Effect.runPromise(scheduler.unschedule(testWorkflowName));
+    });
+
+    it("reports its scheduler type as in-process", () => {
+      expect(new InProcessScheduler().getSchedulerType()).toBe("in-process");
+    });
+
+    it("writes only the metadata file — no OS artifact required to succeed", async () => {
+      const scheduler = new InProcessScheduler();
+      await Effect.runPromise(scheduler.schedule(workflow, "test-agent-id"));
+
+      const isScheduled = await Effect.runPromise(scheduler.isScheduled(testWorkflowName));
+      expect(isScheduled).toBe(true);
+
+      const listed = await Effect.runPromise(scheduler.listScheduled());
+      const entry = listed.find((s) => s.workflowName === testWorkflowName);
+      expect(entry?.agent).toBe("test-agent-id");
+      expect(entry?.schedule).toBe("0 8 * * *");
+    });
+
+    it("rejects an invalid cron expression without touching disk", async () => {
+      const scheduler = new InProcessScheduler();
+      const invalidWorkflow: WorkflowMetadata = { ...workflow, schedule: "not a cron" };
+      const result = await Effect.runPromise(
+        scheduler.schedule(invalidWorkflow, "test-agent-id").pipe(Effect.either),
+      );
+      expect(result._tag).toBe("Left");
+
+      const isScheduled = await Effect.runPromise(scheduler.isScheduled(testWorkflowName));
+      expect(isScheduled).toBe(false);
+    });
+
+    it("unschedule removes the metadata file", async () => {
+      const scheduler = new InProcessScheduler();
+      await Effect.runPromise(scheduler.schedule(workflow, "test-agent-id"));
+      await Effect.runPromise(scheduler.unschedule(testWorkflowName));
+
+      const isScheduled = await Effect.runPromise(scheduler.isScheduled(testWorkflowName));
+      expect(isScheduled).toBe(false);
     });
   });
 

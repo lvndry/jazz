@@ -37,15 +37,23 @@ import {
   SUBAGENT_CATEGORY,
   TODO_CATEGORY,
   USER_INTERACTION_CATEGORY,
+  WAKE_TRIGGER_CATEGORY,
   WEB_APP_CATEGORY,
   WEB_FETCH_CATEGORY,
   WEB_SEARCH_CATEGORY,
+  WORKSPACE_CATEGORY,
 } from "./tool-categories";
 import { userInteractionTools } from "./user-interaction-tools";
+import {
+  createCancelTriggerTool,
+  createListTriggersTool,
+  createRegisterTriggerTool,
+} from "./wake-trigger-tools";
 import { createWebAppTool } from "./web-app-tools";
 import { createWebFetchTool } from "./web-fetch-tools";
 import { createWebSearchTool } from "./web-search-tools";
 import { createUpdateWorkStateTool } from "./work-state-tools";
+import { createManageWorkspaceTool, createViewWorkspaceTool } from "./workspace-tools";
 
 /**
  * Register every globally-available builtin tool.
@@ -62,7 +70,9 @@ export function registerAllTools(): Effect.Effect<void, Error, ToolRegistry> {
     yield* registerHttpTools();
     yield* registerTodoTools();
     yield* registerMemoryTools();
+    yield* registerWorkspaceTools();
     yield* registerReminderTools();
+    yield* registerWakeTriggerTools();
     yield* registerContextTools();
     yield* registerSubagentTools();
     yield* registerPerceptionTools();
@@ -185,6 +195,16 @@ export function registerMemoryTools(): Effect.Effect<void, Error, ToolRegistry> 
   });
 }
 
+export function registerWorkspaceTools(): Effect.Effect<void, Error, ToolRegistry> {
+  return Effect.gen(function* () {
+    const registry = yield* ToolRegistryTag;
+    const registerTool = registry.registerForCategory(WORKSPACE_CATEGORY);
+
+    yield* registerTool(createViewWorkspaceTool());
+    yield* registerTool(createManageWorkspaceTool());
+  });
+}
+
 /**
  * Registers `ask_peer`, when peers are configured and at least one is not suspended.
  *
@@ -213,6 +233,17 @@ export function registerReminderTools(): Effect.Effect<void, Error, ToolRegistry
     yield* registerTool(createAddReminderTool());
     yield* registerTool(createListRemindersTool());
     yield* registerTool(createCancelReminderTool());
+  });
+}
+
+export function registerWakeTriggerTools(): Effect.Effect<void, Error, ToolRegistry> {
+  return Effect.gen(function* () {
+    const registry = yield* ToolRegistryTag;
+    const registerTool = registry.registerForCategory(WAKE_TRIGGER_CATEGORY);
+
+    yield* registerTool(createRegisterTriggerTool());
+    yield* registerTool(createListTriggersTool());
+    yield* registerTool(createCancelTriggerTool());
   });
 }
 

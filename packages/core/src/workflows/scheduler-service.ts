@@ -70,7 +70,7 @@ export interface SchedulerService {
   /**
    * Get the scheduler type being used (launchd, cron, etc.)
    */
-  readonly getSchedulerType: () => "launchd" | "cron" | "unsupported";
+  readonly getSchedulerType: () => "launchd" | "cron" | "in-process" | "unsupported";
 }
 
 export const SchedulerServiceTag = Context.GenericTag<SchedulerService>("SchedulerService");
@@ -689,10 +689,86 @@ class CronScheduler implements SchedulerService {
 }
 
 /**
+ * In-process scheduler: writes only the metadata file, no OS artifact.
+ *
+ * `schedule()`/`unschedule()` do nothing `launchctl`/`crontab` would otherwise need to exist
+ * for — they just record intent to `~/.jazz/schedules/*.json`. Actually running a due
+ * workflow is the daemon's job (`jazz daemon`'s catch-up ticker), not this class's. That
+ * split matters: a container with no cron/launchd binary can still register a schedule, and
+ * "in process" only differs from the other two implementations in who does the waking.
+ *
+ * Opt-in via `JAZZ_SCHEDULER=in-process`, never the platform default: a schedule written this
+ * way is inert unless something is running the ticker, and defaulting to it would silently
+ * stop workflows firing for anyone not running `jazz daemon`.
+ */
+export class InProcessScheduler implements SchedulerService {
+  getSchedulerType(): "launchd" | "cron" | "in-process" | "unsupported" {
+    return "in-process";
+  }
+
+  private getMetadataPath(workflowName: string): string {
+    return path.join(getSchedulesDirectory(), `${workflowName}.json`);
+  }
+
+  schedule(
+    workflow: WorkflowMetadata,
+    agentId: string,
+    _options?: ScheduleOptions,
+  ): Effect.Effect<void, Error> {
+    const metadataPath = this.getMetadataPath(workflow.name);
+    return Effect.gen(function* () {
+      if (!workflow.schedule || typeof workflow.schedule !== "string") {
+        return yield* Effect.fail(new Error(`Workflow ${workflow.name} has no schedule defined`));
+      }
+
+      const schedule = String(workflow.schedule).trim();
+      if (!isValidCronExpression(schedule)) {
+        return yield* Effect.fail(
+          new Error(`Workflow ${workflow.name} has invalid cron expression: ${schedule}`),
+        );
+      }
+
+      yield* Effect.tryPromise({
+        try: () => fs.mkdir(getSchedulesDirectory(), { recursive: true }),
+        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+      });
+
+      const metadata: ScheduledWorkflow = {
+        workflowName: workflow.name,
+        schedule,
+        agent: agentId,
+        enabled: true,
+        scheduledAt: new Date().toISOString(),
+      };
+      yield* Effect.tryPromise({
+        try: () => fs.writeFile(metadataPath, JSON.stringify(metadata, null, 2)),
+        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+      });
+    });
+  }
+
+  unschedule(workflowName: string): Effect.Effect<void, Error> {
+    const metadataPath = this.getMetadataPath(workflowName);
+    return Effect.tryPromise({
+      try: () => fs.unlink(metadataPath),
+      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+    }).pipe(Effect.catchAll(() => Effect.void));
+  }
+
+  listScheduled(): Effect.Effect<readonly ScheduledWorkflow[], Error> {
+    return listScheduledFromMetadataFiles();
+  }
+
+  isScheduled(workflowName: string): Effect.Effect<boolean, Error> {
+    return isScheduledByMetadata(workflowName);
+  }
+}
+
+/**
  * Unsupported platform scheduler (no-op).
  */
 class UnsupportedScheduler implements SchedulerService {
-  getSchedulerType(): "launchd" | "cron" | "unsupported" {
+  getSchedulerType(): "launchd" | "cron" | "in-process" | "unsupported" {
     return "unsupported";
   }
 
@@ -725,6 +801,10 @@ class UnsupportedScheduler implements SchedulerService {
  * Create the appropriate scheduler implementation for the current platform.
  */
 function createScheduler(): SchedulerService {
+  if (process.env["JAZZ_SCHEDULER"] === "in-process") {
+    return new InProcessScheduler();
+  }
+
   const platform = process.platform;
 
   if (platform === "darwin") {

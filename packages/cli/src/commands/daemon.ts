@@ -11,14 +11,20 @@ import {
   DEFAULT_DAEMON_PORT,
   makeHandler,
   makePeerHandler,
+  makeTriggerHandler,
   refuseReason,
   type DaemonRequirements,
 } from "@jazz/adapters/daemon/server";
+import { runDueTriggers } from "@jazz/adapters/daemon/trigger-runner";
 import { resolvePeerToken } from "@jazz/adapters/peers/token";
 import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
+import { resolveTriggerToken } from "@jazz/adapters/triggers/token";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { Effect, Runtime } from "effect";
+
+/** How often the daemon checks for due workflow schedules and wake triggers. */
+const DEFAULT_TICK_INTERVAL_MS = 60_000;
 
 export interface DaemonCommandOptions {
   readonly port: number;
@@ -67,6 +73,7 @@ export function daemonCommand(options: DaemonCommandOptions) {
     const configService = yield* AgentConfigServiceTag;
     const appConfig = yield* configService.appConfig;
     const peers = appConfig.peers ?? [];
+    const triggers = appConfig.triggers ?? [];
 
     yield* Effect.async<void, never>((resume) => {
       const run = <A>(effect: Effect.Effect<A, unknown, DaemonRequirements>): Promise<A> =>
@@ -79,14 +86,21 @@ export function daemonCommand(options: DaemonCommandOptions) {
         (peerName) => Effect.runPromise(resolvePeerToken(peerName)),
         run,
       );
+      const handleTrigger = makeTriggerHandler(
+        triggers,
+        (triggerName) => Effect.runPromise(resolveTriggerToken(triggerName)),
+        run,
+      );
 
       const server = Bun.serve({
         port: daemonOptions.port,
         hostname: daemonOptions.host,
-        fetch: (request) =>
-          new URL(request.url).pathname.startsWith("/peer/")
-            ? handlePeer(request)
-            : handle(request),
+        fetch: (request) => {
+          const pathname = new URL(request.url).pathname;
+          if (pathname.startsWith("/peer/")) return handlePeer(request);
+          if (pathname.startsWith("/triggers/")) return handleTrigger(request);
+          return handle(request);
+        },
       });
 
       process.stderr.write(
@@ -94,9 +108,31 @@ export function daemonCommand(options: DaemonCommandOptions) {
           `${token === undefined ? " (no token: loopback only)" : ""}\n`,
       );
 
+      // In-process alternative to depending on launchd/crontab existing on the host: every
+      // tick, run whatever workflow catch-up is due and fire any self-registered wake
+      // triggers. A tick that throws is logged and swallowed — one bad tick must never stop
+      // the next one from firing.
+      const tickIntervalMs = (() => {
+        const raw = process.env["JAZZ_DAEMON_TICK_MS"];
+        const parsed = raw !== undefined ? Number(raw) : Number.NaN;
+        return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_TICK_INTERVAL_MS;
+      })();
+      const ticker = setInterval(() => {
+        void run(
+          runDueTriggers().pipe(
+            Effect.catchAll((error) =>
+              Effect.sync(() => {
+                process.stderr.write(`jazz daemon tick failed: ${String(error)}\n`);
+              }),
+            ),
+          ) as Effect.Effect<void, unknown, DaemonRequirements>,
+        );
+      }, tickIntervalMs);
+
       const stop = (): void => {
         // Not awaited: the process is going away, and blocking the signal handler on a
         // drain that may never finish is how a daemon becomes unkillable.
+        clearInterval(ticker);
         void server.stop(true);
         resume(Effect.void);
       };
@@ -104,6 +140,7 @@ export function daemonCommand(options: DaemonCommandOptions) {
       process.once("SIGTERM", stop);
 
       return Effect.sync(() => {
+        clearInterval(ticker);
         void server.stop(true);
       });
     });

@@ -24,6 +24,7 @@ import type { PeerLedgerService, PeerTokenService } from "./peers";
 import type { PresentationService } from "./presentation";
 import type { ReminderService } from "./reminder-service";
 import type { TerminalService } from "./terminal";
+import type { WakeTriggerService } from "./wake-trigger-service";
 
 /**
  * Risk level for tool execution.
@@ -83,6 +84,7 @@ export type ToolRequirements =
   | PresentationService
   | MemoryService
   | ReminderService
+  | WakeTriggerService
   | PeerLedgerService
   | PeerTokenService;
 

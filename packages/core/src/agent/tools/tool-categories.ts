@@ -21,8 +21,13 @@ export const PERCEPTION_CATEGORY: ToolCategory = {
 };
 export const TODO_CATEGORY: ToolCategory = { id: "todo", displayName: "Todo" };
 export const MEMORY_CATEGORY: ToolCategory = { id: "memory", displayName: "Memory" };
+export const WORKSPACE_CATEGORY: ToolCategory = { id: "workspace", displayName: "Workspace" };
 export const PEERS_CATEGORY: ToolCategory = { id: "peers", displayName: "Peers" };
 export const REMINDER_CATEGORY: ToolCategory = { id: "reminders", displayName: "Reminders" };
+export const WAKE_TRIGGER_CATEGORY: ToolCategory = {
+  id: "wake_triggers",
+  displayName: "Wake Triggers",
+};
 export const USER_INTERACTION_CATEGORY: ToolCategory = {
   id: "user_interaction",
   displayName: "User Interaction",
@@ -41,7 +46,9 @@ export const ALL_CATEGORIES: readonly ToolCategory[] = [
   SKILLS_CATEGORY,
   TODO_CATEGORY,
   MEMORY_CATEGORY,
+  WORKSPACE_CATEGORY,
   REMINDER_CATEGORY,
+  WAKE_TRIGGER_CATEGORY,
   CONTEXT_CATEGORY,
   SUBAGENT_CATEGORY,
   PERCEPTION_CATEGORY,

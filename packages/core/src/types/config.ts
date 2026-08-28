@@ -5,6 +5,7 @@
 import type { MCPServerConfig } from "@/core/interfaces/mcp-server";
 import type { OutputConfig } from "./output";
 import type { PeerConfig } from "./peer";
+import type { TriggerConfig } from "./trigger";
 
 export interface AppConfig {
   readonly storage: StorageConfig;
@@ -27,6 +28,11 @@ export interface AppConfig {
   readonly maxSubagentIterations?: number;
   readonly context?: ContextConfig;
   /**
+   * Per-agent total size cap for the workspace scratch directory, in bytes.
+   * Defaults to 1GB (`DEFAULT_MAX_WORKSPACE_TOTAL_BYTES_PER_AGENT`).
+   */
+  readonly workspaceMaxTotalBytesPerAgent?: number;
+  /**
    * Other people's agents this machine will talk to.
    *
    * Explicit and never discovered: no request from an unlisted origin is served, whatever
@@ -34,6 +40,12 @@ export interface AppConfig {
    * never be the thing that creates one.
    */
   readonly peers?: readonly PeerConfig[];
+  /**
+   * Webhook doors onto specific agents. Unlike a peer, a trigger runs a fixed prompt template
+   * rather than answering an open-ended question — a narrower surface, authenticated the same
+   * way (a bearer token in the keyring, never in this file).
+   */
+  readonly triggers?: readonly TriggerConfig[];
 }
 
 export interface ContextConfig {
