@@ -440,18 +440,69 @@ export type ShellCommandOutput = {
   readonly exitCode: number;
 };
 
+type InteractiveShellKind = "zsh" | "bash";
+
+function interactiveShellKind(shellPath: string): InteractiveShellKind | undefined {
+  const name = shellPath.split("/").pop();
+  if (name === "zsh") return "zsh";
+  if (name === "bash") return "bash";
+  return undefined;
+}
+
+/**
+ * `<shell> -l -c <script> jazz <cwd>` for a shell whose rc file (aliases,
+ * functions) the operator wants loaded — without ever setting the shell's own
+ * interactive flag. `-i` would make an rc framework's guarded, interactive-only
+ * setup (line editor, prompt theme) run too, and that assumes a real TTY;
+ * spawned without one it throws (e.g. oh-my-zsh's `can't change option: zle`)
+ * and the noise lands in the command's own stderr. Sourcing the rc file
+ * explicitly, with a plain login shell, gets the aliases without that.
+ * `bash` additionally needs `shopt -s expand_aliases`: bash disables alias
+ * expansion in non-interactive shells even once the rc file defining them has
+ * been sourced. Mirrors opencode's `packages/core/src/shell.ts`.
+ */
+function interactiveShellArgs(
+  kind: InteractiveShellKind,
+  command: string,
+  cwd: string,
+): readonly string[] {
+  const evalCommand = `eval ${JSON.stringify(command)}`;
+  let script: string;
+  if (kind === "zsh") {
+    script = `[[ -f ~/.zshenv ]] && source ~/.zshenv >/dev/null 2>&1 || true
+[[ -f "\${ZDOTDIR:-$HOME}/.zshrc" ]] && source "\${ZDOTDIR:-$HOME}/.zshrc" >/dev/null 2>&1 || true
+cd -- "$1"
+${evalCommand}`;
+  } else {
+    script = `shopt -s expand_aliases
+[[ -f ~/.bashrc ]] && source ~/.bashrc >/dev/null 2>&1 || true
+cd -- "$1"
+${evalCommand}`;
+  }
+  return ["-l", "-c", script, "jazz", cwd];
+}
+
 /**
  * Spawn `sh -c command` in a way that Effect can interrupt. `Effect.promise`
  * is uninterruptible, so a double-Esc during a long `sleep` (or any other
  * hanging command) used to leave the child running and the UI stuck on
  * "still running after 30s". Returning an interrupt finalizer from
  * `Effect.async` SIGKILLs the child when the tool fiber is interrupted.
+ *
+ * `interactive` loads the operator's own shell rc file (aliases, functions)
+ * for zsh/bash — see {@link interactiveShellArgs}. Any other `$SHELL` falls
+ * back to plain `sh -c`, since there's no equivalently tested rc-loading
+ * incantation for it here. Only the operator-typed `!` escape may set this —
+ * the model-invoked `execute_command` tool must keep running plain `sh`, or
+ * dotfile content would silently reshape what an autonomous tool call
+ * executes.
  */
 export function runShellCommand(input: {
   readonly command: string;
   readonly workingDir: string;
   readonly timeoutMs: number;
   readonly env: NodeJS.ProcessEnv;
+  readonly interactive?: boolean;
 }): Effect.Effect<ShellCommandOutput, Error> {
   return Effect.async((resume) => {
     let settled = false;
@@ -469,7 +520,13 @@ export function runShellCommand(input: {
     };
 
     try {
-      child = spawn("sh", ["-c", input.command], {
+      const shellPath = input.env["SHELL"] ?? "/bin/sh";
+      const kind = input.interactive ? interactiveShellKind(shellPath) : undefined;
+      const shellBinary = kind ? shellPath : "sh";
+      const shellArgs = kind
+        ? interactiveShellArgs(kind, input.command, input.workingDir)
+        : ["-c", input.command];
+      child = spawn(shellBinary, shellArgs, {
         cwd: input.workingDir,
         stdio: ["ignore", "pipe", "pipe"],
         timeout: input.timeoutMs,
