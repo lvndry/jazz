@@ -30,7 +30,10 @@ function runEither<A>(eff: Effect.Effect<A, unknown, FileSystem.FileSystem>) {
 }
 
 function makeService(maxTotalBytesPerAgent?: number): WorkspaceServiceImpl {
-  return new WorkspaceServiceImpl({ baseWorkspaceDirectory: tmpDir, maxTotalBytesPerAgent });
+  return new WorkspaceServiceImpl({
+    baseWorkspaceDirectory: tmpDir,
+    ...(maxTotalBytesPerAgent !== undefined ? { maxTotalBytesPerAgent } : {}),
+  });
 }
 
 describe("view", () => {
