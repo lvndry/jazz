@@ -15,6 +15,17 @@ export const ENVIRONMENT_TEMPLATE =
   "Environment: Date: {currentDate} | OS: {osInfo} | Hardware: {hardware} | Shell: {shell} | Home: {homeDirectory} | Hostname: {hostname} | User: {username} | TTY: {tty}";
 
 /**
+ * Interactive-vs-headless framing, appended once for every acting persona instead of each
+ * persona file hand-copying its own version of this paragraph (default, coder, and researcher
+ * all carried a near-identical copy before this was extracted). The TTY field in
+ * `ENVIRONMENT_TEMPLATE` above is the single source of truth for which mode the current turn is
+ * actually in; this just tells the model where to look and what each value means.
+ */
+export const EXECUTION_MODE_INSTRUCTIONS = `
+You run both ways: sometimes a person is watching and can answer a question, and sometimes you run headless with no one to ask. Check TTY in the Environment line: "yes" means someone can answer right now, "no" means you're on your own for this turn. Behave accordingly.
+`;
+
+/**
  * Added only for models that cannot generate media themselves.
  *
  * Jazz has no image-generation tool — producing media is a capability of the model an agent runs

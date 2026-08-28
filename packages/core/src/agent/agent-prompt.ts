@@ -14,6 +14,7 @@ import { renderProjectInstructions, type ProjectInstructionFile } from "./projec
 import {
   COMPLETION_INSTRUCTIONS,
   ENVIRONMENT_TEMPLATE,
+  EXECUTION_MODE_INSTRUCTIONS,
   MEDIA_GENERATION_UNAVAILABLE,
   MEMORY_INSTRUCTIONS,
   SKILLS_INSTRUCTIONS,
@@ -345,6 +346,13 @@ export class AgentPromptBuilder {
           systemPrompt = fillEnvironment(systemPrompt);
         } else if (personaName !== "summarizer") {
           systemPrompt = `${systemPrompt}\n${fillEnvironment(ENVIRONMENT_TEMPLATE)}`;
+        }
+
+        // Every acting persona is told how to read the TTY field it just received, instead of
+        // each persona file hand-copying its own version of this paragraph. The summarizer has
+        // no user to run interactively or headlessly for, so it never gets this either.
+        if (personaName !== "summarizer") {
+          systemPrompt = `${systemPrompt}\n${EXECUTION_MODE_INSTRUCTIONS}`;
         }
 
         // Only for models that cannot generate media, and never for the summarizer, which has no

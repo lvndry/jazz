@@ -62,6 +62,19 @@ describe("completion instructions injection", () => {
   });
 });
 
+describe("execution mode instructions injection", () => {
+  test("acting personas are told how to read the TTY field", () => {
+    const result = build("default");
+    expect(result).toContain("You run both ways");
+    expect(result).toContain("Check TTY in the Environment line");
+  });
+
+  test("summarizer never receives execution mode instructions", () => {
+    const result = build("summarizer");
+    expect(result).not.toContain("You run both ways");
+  });
+});
+
 describe("tool guidance injection", () => {
   test("no tool blocks when the agent has no tools", () => {
     const result = build("default");
