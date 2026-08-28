@@ -13,7 +13,7 @@ triggers:
   - install jazz github action
 ---
 
-# GitHub Action
+# Create Jazz GitHub Action
 
 Turn Jazz into a GitHub Actions-powered PR reviewer and on-demand assistant. When someone opens a PR or comments `/jazz`, a Jazz agent reviews the diff and posts inline comments or answers questions.
 
