@@ -68,10 +68,12 @@ Record the chosen `llmProvider` + `llmModel` and the secret name — every later
 
 The key design:
 - **`resolve` job** uses `actions/github-script@v7` to extract PR context from `pull_request`, `issue_comment`, `push`, or `workflow_dispatch` events, and reacts with 👀 on triggering comments
-- **`code-review` job** checks out PR head, installs `jazz-ai`, copies agent config + workflow file into `$HOME/.jazz/agents/` and `workflows/code-review/` with placeholder substitution, snapshots PR context, runs `jazz --output raw workflow run code-review --auto-approve --agent ci-reviewer`, then posts results
+- **`code-review` job** checks out PR head, installs `jazz-ai` (`bun install -g jazz-ai --trust`), copies agent config + workflow file into `$HOME/.jazz/agents/` and `workflows/code-review/` with placeholder substitution, snapshots PR context, runs `jazz --output raw workflow run code-review --auto-approve --agent ci-reviewer`, then posts results
 - **`assistant` job** same structure, runs `jazz --output raw workflow run pr-assistant --auto-approve --agent pr-assistant`, posts a PR comment
 
 `--output raw` is required: it disables the interactive TUI so the agent's fenced output reaches the log parser intact.
+
+`--trust` is required on the install step: `bun install -g` runs with lifecycle scripts (postinstall) blocked by default, and `jazz-ai`'s postinstall is what actually installs the `jazz` binary. Without `--trust`, the install "succeeds" but no binary lands, and every later `jazz` invocation in the workflow fails with `jazz: command not found`. CI runners are ephemeral, so there's no persistent trust state to set up (unlike `bun pm trust` on a dev machine) — pass `--trust` on every run.
 
 ### 2. Create agent configs
 
