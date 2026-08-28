@@ -197,7 +197,11 @@ export function handleSpecialCommand(
  * This is intentionally outside the model tool loop: the operator authored the
  * command and its output is then handed to the model as context. It still uses
  * the shell tool's denylist, sanitized environment, cwd resolution, timeout,
- * and output cap so the two shell entry points share the same host boundary.
+ * and output cap so the two shell entry points share the same host boundary —
+ * except it runs `interactive: true`, loading the operator's own shell rc file
+ * (aliases, functions), since the operator typed this command themselves and
+ * expects it to behave like their own terminal. The model-invoked
+ * `execute_command` tool must never set this.
  */
 function handleShellCommand(
   command: string,
@@ -233,6 +237,7 @@ function handleShellCommand(
       workingDir: workingDirectory,
       timeoutMs: 900_000,
       env: createSanitizedEnv({}, context.agent.config.envAllowlist ?? []),
+      interactive: true,
     }).pipe(
       Effect.catchAll((error) =>
         Effect.succeed({
