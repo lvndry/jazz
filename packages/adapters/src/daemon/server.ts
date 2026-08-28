@@ -67,7 +67,7 @@ export interface DaemonOptions {
   readonly peerAgent?: string | undefined;
 }
 
-function isLoopback(host: string): boolean {
+export function isLoopback(host: string): boolean {
   return host === "127.0.0.1" || host === "::1" || host === "localhost";
 }
 
