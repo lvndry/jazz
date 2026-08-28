@@ -18,11 +18,11 @@ import { TextAttributes, type CapturedFrame, type CapturedSpan } from "@opentui/
 import { testRender } from "@opentui/react/test-utils";
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import type { ReactNode } from "react";
+import { AgentPicker, agentColumns, listRowsFor, type AgentChoice } from "./AgentPicker";
+import { Home, homeRows, type HomeModel } from "./Home";
 import { getGlyphs } from "../../glyphs";
 import { THEME } from "../../theme";
 import type { Viewport } from "../types";
-import { AgentPicker, agentColumns, listRowsFor, type AgentChoice } from "./AgentPicker";
-import { Home, homeRows, type HomeModel } from "./Home";
 
 const WIDE: Viewport = { width: 100, height: 28 };
 const NARROW: Viewport = { width: 60, height: 20 };
