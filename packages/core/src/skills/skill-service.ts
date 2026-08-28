@@ -21,13 +21,6 @@ export interface SkillMetadata {
   readonly path: string;
   readonly source: "builtin" | "global" | "agents" | "local";
   /**
-   * Optional one-line summary (≤ ~80 chars).
-   * Rendered in the system-prompt skill index; the full `description` is only
-   * loaded JIT via `find_skills` or when a trigger matches. When absent,
-   * `getSkillIndexLine()` truncates `description` as a fallback.
-   */
-  readonly tagline?: string;
-  /**
    * Optional list of keyword triggers. If any trigger appears in the user's
    * message (case-insensitive substring match), the skill's full description
    * is auto-injected into the system prompt for that turn.
@@ -38,19 +31,13 @@ export interface SkillMetadata {
 /**
  * Render the per-skill line shown in the system-prompt index.
  *
- * Prefers `tagline` (author-provided, curated). Falls back to the first
- * sentence or first 80 chars of `description` so legacy skills still work.
+ * Returns the full `description`; the model reads it to decide which skill to
+ * load, and the skill body is fetched JIT via `find_skills` or auto-injected
+ * when a trigger matches the user input.
  */
 export function getSkillIndexLine(metadata: SkillMetadata): string {
-  if (metadata.tagline && metadata.tagline.trim().length > 0) {
-    return metadata.tagline.trim();
-  }
   const desc = metadata.description.trim();
-  if (desc.length === 0) return metadata.name;
-  // Take first sentence if it's short enough; otherwise truncate.
-  const firstSentenceMatch = desc.match(/^[^.!?]{1,80}[.!?]/);
-  if (firstSentenceMatch) return firstSentenceMatch[0];
-  return desc.length > 80 ? desc.slice(0, 77) + "..." : desc;
+  return desc.length > 0 ? desc : metadata.name;
 }
 
 /**
@@ -60,7 +47,6 @@ export function getSkillIndexLine(metadata: SkillMetadata): string {
  * - exact name match → +100
  * - name substring match → +20
  * - trigger word-boundary match → +10
- * - tagline word-boundary match → +5
  * - description word-boundary match → +2
  *
  * Ties broken alphabetically by name. Returns at most `limit` results
@@ -84,7 +70,6 @@ export function scoreSkillsForQuery(
     if (skill.triggers && skill.triggers.some((t) => matchesTriggerWord(t.toLowerCase(), q))) {
       score += 10;
     }
-    if (skill.tagline && matchesTriggerWord(skill.tagline.toLowerCase(), q)) score += 5;
     if (matchesTriggerWord(skill.description.toLowerCase(), q)) score += 2;
 
     if (score > 0) scored.push({ skill, score });
@@ -208,7 +193,6 @@ function parseSkillFrontmatter(
     return null;
   }
 
-  const tagline = typeof data["tagline"] === "string" ? data["tagline"].trim() : "";
   const rawTriggers = data["triggers"];
   const triggers = Array.isArray(rawTriggers)
     ? rawTriggers.filter((t): t is string => typeof t === "string" && t.trim().length > 0)
@@ -219,7 +203,6 @@ function parseSkillFrontmatter(
     description,
     path: skillPath,
     source,
-    ...(tagline.length > 0 && { tagline }),
     ...(triggers.length > 0 && { triggers }),
   };
 }

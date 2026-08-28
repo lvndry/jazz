@@ -1,7 +1,6 @@
 ---
 name: install-jazz-github-action
 description: Set up Jazz as a GitHub Action for automated PR code review and on-demand /jazz PR assistance. Use when the user asks to add Jazz to CI, create a GitHub Action workflow, set up PR review automation, enable /jazz commands on PRs, or integrate Jazz with GitHub. Triggers on "github action", "github actions", "ci", "pr review", "pr assistant", "jazz in ci", "/jazz", "install jazz github action".
-tagline: Run Jazz agents as a GitHub Action — automated PR review and on-demand /jazz PR assistant.
 triggers:
   - github action
   - github actions

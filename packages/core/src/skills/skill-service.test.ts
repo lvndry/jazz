@@ -14,19 +14,7 @@ const skill = (overrides: Partial<SkillMetadata> & Pick<SkillMetadata, "name">):
 });
 
 describe("getSkillIndexLine", () => {
-  it("uses tagline when present", () => {
-    expect(
-      getSkillIndexLine(
-        skill({
-          name: "email",
-          tagline: "inbox triage and reply drafting",
-          description: "A long, multi-paragraph description that we don't want in the index.",
-        }),
-      ),
-    ).toBe("inbox triage and reply drafting");
-  });
-
-  it("falls back to first sentence of description when no tagline", () => {
+  it("returns the full description", () => {
     expect(
       getSkillIndexLine(
         skill({
@@ -34,30 +22,17 @@ describe("getSkillIndexLine", () => {
           description: "Triage and reply to inbox messages. Detailed instructions follow.",
         }),
       ),
-    ).toBe("Triage and reply to inbox messages.");
+    ).toBe("Triage and reply to inbox messages. Detailed instructions follow.");
   });
 
-  it("truncates description with ellipsis when no sentence boundary fits", () => {
-    expect(
-      getSkillIndexLine(
-        skill({
-          name: "email",
-          description: "a".repeat(200),
-        }),
-      ),
-    ).toBe("a".repeat(77) + "...");
+  it("returns the full description even when long", () => {
+    expect(getSkillIndexLine(skill({ name: "email", description: "a".repeat(200) }))).toBe(
+      "a".repeat(200),
+    );
   });
 
   it("returns name when description is empty", () => {
     expect(getSkillIndexLine(skill({ name: "lonely" }))).toBe("lonely");
-  });
-
-  it("ignores empty/whitespace tagline", () => {
-    expect(
-      getSkillIndexLine(
-        skill({ name: "x", tagline: "   ", description: "Real description here." }),
-      ),
-    ).toBe("Real description here.");
   });
 });
 
@@ -117,19 +92,16 @@ describe("scoreSkillsForQuery", () => {
   const skills = [
     skill({
       name: "email",
-      tagline: "inbox triage and reply drafting",
       description: "Process inbox messages, summarize threads, draft replies.",
       triggers: ["inbox", "gmail"],
     }),
     skill({
       name: "code-review",
-      tagline: "review pull requests and flag risks",
       description: "Inspect diffs, identify bugs, suggest improvements.",
       triggers: ["pr", "review"],
     }),
     skill({
       name: "deep-research",
-      tagline: "multi-source investigation",
       description: "Conduct thorough research with citations and synthesis.",
       triggers: ["research", "investigate"],
     }),
@@ -149,8 +121,8 @@ describe("scoreSkillsForQuery", () => {
     expect(result.find((s) => s.name === "code-review")).toBeDefined();
   });
 
-  it("matches by tagline", () => {
-    const result = scoreSkillsForQuery("triage", skills);
+  it("matches by description", () => {
+    const result = scoreSkillsForQuery("summarize", skills);
     expect(result[0]?.name).toBe("email");
   });
 

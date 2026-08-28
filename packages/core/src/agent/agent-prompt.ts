@@ -83,16 +83,14 @@ export interface AgentPromptOptions {
   readonly availableTools?: Record<string, string>;
   /**
    * All skills available to the agent. Rendered as a compact index
-   * (one line per skill) in the system prompt — full descriptions are loaded
-   * JIT via `find_skills` or auto-injected when a trigger matches the user
-   * message. Each entry can optionally provide a curated `tagline`; if absent
-   * the system falls back to a truncated description.
+   * (one line per skill) in the system prompt — the full `description` is shown
+   * per skill, and the skill body is loaded JIT via `find_skills` or
+   * auto-injected when a trigger matches the user message.
    */
   readonly knownSkills?: readonly {
     readonly name: string;
     readonly description: string;
     readonly path: string;
-    readonly tagline?: string;
     readonly triggers?: readonly string[];
   }[];
   /**
@@ -149,20 +147,15 @@ export interface AgentPromptOptions {
  *
  * Mirrors `getSkillIndexLine` in skill-service but operates on the inline
  * `knownSkills` shape used by the prompt builder (no `source` required).
- * Prefers `tagline`; otherwise truncates `description` to one sentence or
- * 80 chars so legacy skills without a tagline still render compactly.
+ * Returns the full `description`.
  */
 function getSkillIndexLineFromOption(s: {
   readonly name: string;
   readonly description: string;
-  readonly tagline?: string;
 }): string {
-  if (s.tagline && s.tagline.trim().length > 0) return s.tagline.trim();
   const desc = s.description.trim();
   if (desc.length === 0) return s.name;
-  const firstSentence = desc.match(/^[^.!?]{1,80}[.!?]/);
-  if (firstSentence) return firstSentence[0];
-  return desc.length > 80 ? desc.slice(0, 77) + "..." : desc;
+  return desc;
 }
 
 export class AgentPromptBuilder {
@@ -211,8 +204,7 @@ export class AgentPromptBuilder {
     hash.update(options.agentDescription);
     if (options.knownSkills && options.knownSkills.length > 0) {
       const skillFingerprints = options.knownSkills.map(
-        (s) =>
-          `${s.name}|${s.description}|${s.tagline ?? ""}|${(s.triggers ?? []).join(",")}|${s.path}`,
+        (s) => `${s.name}|${s.description}|${(s.triggers ?? []).join(",")}|${s.path}`,
       );
       hash.update(JSON.stringify(skillFingerprints.sort()));
     }
