@@ -413,6 +413,7 @@ function initializeAgentRun(
         supportedAttachmentKinds,
         attachmentsAreLocal,
         canGenerateMedia,
+        ...(options.platform !== undefined ? { platform: options.platform } : {}),
         ...(options.initialAttachments !== undefined && {
           initialAttachments: options.initialAttachments,
         }),
@@ -444,6 +445,7 @@ function initializeAgentRun(
 
     const toolContext: ToolExecutionContext = {
       agentId: agent.id,
+      memoryScopes: agent.config.memoryScopes ?? [agent.id],
       conversationId: actualConversationId,
       model,
       ...(getAutoApprovePolicy !== undefined ? { getAutoApprovePolicy } : {}),

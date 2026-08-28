@@ -285,7 +285,7 @@ jobs:
           JAZZ_DISABLE_CATCH_UP: "1"
         run: |
           set -uo pipefail
-          jazz --output raw workflow run code-review --auto-approve --agent ci-reviewer | tee /tmp/jazz-review.txt
+          jazz --output raw workflow run code-review --auto-approve --agent ci-reviewer --platform github | tee /tmp/jazz-review.txt
           echo "${PIPESTATUS[0]}" > /tmp/jazz-review-exit
 
       - name: Post review comments
@@ -635,7 +635,7 @@ jobs:
           JAZZ_DISABLE_CATCH_UP: "1"
         run: |
           set -euo pipefail
-          jazz --output raw workflow run pr-assistant --auto-approve --agent pr-assistant \
+          jazz --output raw workflow run pr-assistant --auto-approve --agent pr-assistant --platform github \
             2>&1 | tee /tmp/jazz-pr-assistant.txt
 
       - name: Post PR comment

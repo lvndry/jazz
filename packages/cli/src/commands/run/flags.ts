@@ -22,6 +22,13 @@ export function isReasoningEffortFlag(value: string): value is ReasoningEffort {
   return (VALID_REASONING_EFFORTS as readonly string[]).includes(value);
 }
 
+const VALID_PLATFORMS = ["cli", "telegram", "discord", "github"] as const;
+export type PlatformFlag = (typeof VALID_PLATFORMS)[number];
+
+export function isPlatformFlag(value: string): value is PlatformFlag {
+  return (VALID_PLATFORMS as readonly string[]).includes(value);
+}
+
 const EVENT_CATEGORY_TYPES = {
   tools: ["tools_detected", "tool_call", "tool_execution_start", "tool_execution_complete"],
   reasoning: ["thinking_start", "thinking_chunk", "thinking_complete"],

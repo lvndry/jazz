@@ -170,6 +170,11 @@ export interface AgentRunnerOptions {
    */
   readonly timezone?: string;
   /**
+   * Surface this run is replying on — copied into the system prompt so the model knows
+   * whether it's in a terminal, a chat app, or posting a PR comment. Defaults to "cli".
+   */
+  readonly platform?: "cli" | "telegram" | "discord" | "github";
+  /**
    * When true, withhold the `manage_memory` tool for this run so nothing gets
    * written to the agent's long-term memory. Unrelated to `ephemeralRegionId`
    * above (that one is a streaming-UI concept) — this is the "no persistence"

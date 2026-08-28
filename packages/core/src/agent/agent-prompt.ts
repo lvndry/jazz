@@ -15,7 +15,9 @@ import {
   COMPLETION_INSTRUCTIONS,
   ENVIRONMENT_TEMPLATE,
   MEDIA_GENERATION_UNAVAILABLE,
+  MEDIA_GENERATION_UNAVAILABLE_CHAT,
   MEMORY_INSTRUCTIONS,
+  PLATFORM_GUIDANCE,
   SKILLS_INSTRUCTIONS,
   TASK_STATE_INSTRUCTIONS,
   TOOL_SELECTION_INSTRUCTIONS,
@@ -129,6 +131,21 @@ export interface AgentPromptOptions {
    */
   readonly canGenerateMedia?: boolean;
   /**
+   * Surface this run is replying on. When set to a chat/CI surface (not "cli"), the prompt
+   * gains a line telling the model it isn't in a terminal, so it doesn't suggest CLI-only
+   * commands or frame a reply as if there were an interactive shell behind it.
+   *
+   * "cli" names a capability class, not a terminal emulator: Warp/Ghostty/iTerm/Terminal.app
+   * all give the model the same thing (a human at a real shell who can run any command
+   * suggested and reply interactively), so there is no guidance text that would ever differ
+   * between them and no reason to enumerate them here. telegram/discord/github each get their
+   * own value because the model's actual behavior must change per surface — whether it can
+   * suggest a shell command, whether anyone will reply this turn, whether it's posting a
+   * standalone comment. If the terminal itself ever needs to change what the model says,
+   * that belongs in {tty}/{shell} on `ENVIRONMENT_TEMPLATE`, not another `platform` value.
+   */
+  readonly platform?: "cli" | "telegram" | "discord" | "github";
+  /**
    * Attachments placed directly by the caller (model-companion delegation), merged onto
    * this run's first user message. Kinds the model cannot ingest are dropped with an
    * explanatory note; they are already resolved, so no path scanning touches them.
@@ -234,6 +251,7 @@ export class AgentPromptBuilder {
       }
     }
     hash.update(`canGenerateMedia:${options.canGenerateMedia ?? true}`);
+    hash.update(`platform:${options.platform ?? "cli"}`);
     // Invalidate daily since prompts include current date
     hash.update(new Date().toDateString());
     return hash.digest("hex");
@@ -350,7 +368,20 @@ export class AgentPromptBuilder {
         // Only for models that cannot generate media, and never for the summarizer, which has no
         // user to advise.
         if (personaName !== "summarizer" && options.canGenerateMedia === false) {
-          systemPrompt = `${systemPrompt}\n${MEDIA_GENERATION_UNAVAILABLE}`;
+          systemPrompt = `${systemPrompt}\n${
+            options.platform !== undefined && options.platform !== "cli"
+              ? MEDIA_GENERATION_UNAVAILABLE_CHAT
+              : MEDIA_GENERATION_UNAVAILABLE
+          }`;
+        }
+
+        // Never for the summarizer, which has no user-facing reply of its own.
+        if (
+          personaName !== "summarizer" &&
+          options.platform !== undefined &&
+          options.platform !== "cli"
+        ) {
+          systemPrompt = `${systemPrompt}\n${PLATFORM_GUIDANCE[options.platform]}`;
         }
 
         // Every acting persona gets the completion contract. The summarizer is

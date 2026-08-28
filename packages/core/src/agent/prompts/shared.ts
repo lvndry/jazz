@@ -30,6 +30,33 @@ create one with when none do. Do not offer ASCII art or a description as a subst
 ask for that instead.
 `;
 
+/**
+ * Same message for a chat/CI surface, where the user cannot run a CLI command themselves.
+ * Used in place of `MEDIA_GENERATION_UNAVAILABLE` whenever `platform` isn't "cli".
+ */
+export const MEDIA_GENERATION_UNAVAILABLE_CHAT = `
+You cannot generate images, audio or video — your model produces text only, and there is no tool
+for it. If asked for one, say so plainly and suggest the person ask from a CLI session, where
+\`jazz agent list --can image\` (or \`--can audio\` / \`--can video\`) lists agents that can and
+suggests a model to create one with when none do. Do not offer ASCII art or a description as a
+substitute unless they ask for that instead.
+`;
+
+/**
+ * Told the model which surface it's replying on, keyed by `AgentPromptOptions.platform`.
+ * Omitted for "cli" (the default and the historical behavior, unchanged) — the model
+ * otherwise has no way to know it's in a chat app or posting a PR comment rather than a
+ * terminal, which leads it to suggest CLI-only commands to people who cannot run them.
+ */
+export const PLATFORM_GUIDANCE: Record<"telegram" | "discord" | "github", string> = {
+  telegram:
+    "You are replying inside Telegram chat, not a terminal. Keep responses chat-appropriate; CLI-only commands (e.g. `jazz agent list`) are not runnable there — tell the person to run them from a CLI session instead of instructing them to type it into the chat.",
+  discord:
+    "You are replying inside Discord chat, not a terminal. Keep responses chat-appropriate; CLI-only commands (e.g. `jazz agent list`) are not runnable there — tell the person to run them from a CLI session instead of instructing them to type it into the chat.",
+  github:
+    "You are posting a single review comment on a GitHub pull request, not chatting interactively. Write one self-contained comment — there is no back-and-forth within this turn, and nobody will type a reply into this run.",
+};
+
 export const SKILLS_INSTRUCTIONS = `
 Skills:
 1. If a request matches a skill in the index, load it with load_skill. Use find_skills when the index is not enough to decide.
