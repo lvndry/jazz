@@ -89,14 +89,45 @@ const AGENTS: readonly AgentChoice[] = [
     id: "a1",
     name: "Basil",
     model: "claude-sonnet-4",
+    persona: "assistant",
     description: "keeps the calendar honest",
     lastUsed: true,
   },
-  { id: "a2", name: "Cass", model: "gpt-5", description: "research and long reads" },
-  { id: "a3", name: "Dot", model: "gemma3:12b", description: "offline, runs on this laptop" },
-  { id: "a4", name: "Fern", model: "claude-opus-4", description: "writes the hard emails" },
-  { id: "a5", name: "Gus", model: "gpt-5-mini", description: "quick lookups" },
-  { id: "a6", name: "Hal", model: "claude-haiku-4", description: "inbox triage" },
+  {
+    id: "a2",
+    name: "Cass",
+    model: "gpt-5",
+    persona: "researcher",
+    description: "research and long reads",
+  },
+  {
+    id: "a3",
+    name: "Dot",
+    model: "gemma3:12b",
+    persona: "assistant",
+    description: "offline, runs on this laptop",
+  },
+  {
+    id: "a4",
+    name: "Fern",
+    model: "claude-opus-4",
+    persona: "writer",
+    description: "writes the hard emails",
+  },
+  {
+    id: "a5",
+    name: "Gus",
+    model: "gpt-5-mini",
+    persona: "assistant",
+    description: "quick lookups",
+  },
+  {
+    id: "a6",
+    name: "Hal",
+    model: "claude-haiku-4",
+    persona: "assistant",
+    description: "inbox triage",
+  },
 ];
 
 function manyAgents(count: number): readonly AgentChoice[] {
@@ -104,6 +135,7 @@ function manyAgents(count: number): readonly AgentChoice[] {
     id: `id-${String(index)}`,
     name: `agent-${String(index).padStart(2, "0")}`,
     model: "claude-sonnet-4",
+    persona: "assistant",
     description: `the number ${String(index)} agent`,
   }));
 }

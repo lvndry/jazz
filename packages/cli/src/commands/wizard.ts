@@ -294,6 +294,7 @@ function agentChoicesFor(
     id: agent.id,
     name: agent.name,
     model: agent.config.llmModel,
+    persona: agent.config.persona,
     ...(agent.description !== undefined && agent.description !== agent.name
       ? { description: agent.description }
       : {}),

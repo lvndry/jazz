@@ -13,7 +13,7 @@ export type ResolvedReadableFile =
   | { readonly kind: "file"; readonly path: string }
   | { readonly kind: "failure"; readonly result: ToolExecutionResult };
 
-type PdfParseConstructor = new (options: { data: Uint8Array }) => {
+type PdfParseConstructor = new (options: { data: Uint8Array; password?: string }) => {
   getInfo: () => Promise<unknown>;
   getText: (...args: readonly unknown[]) => Promise<unknown>;
   getTable: (...args: readonly unknown[]) => Promise<unknown>;
@@ -87,6 +87,12 @@ export function pdfExtensionError(filePath: string, hint: string): ToolExecution
     result: null,
     error: `File is not a PDF: ${filePath}. ${hint}`,
   };
+}
+
+/** True if a pdf.js/pdf-parse error indicates the PDF is encrypted and needs (or rejected) a password. */
+export function isPdfPasswordError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /password/i.test(message) || /encrypted/i.test(message);
 }
 
 export function loadPdfParser(failurePrefix: string): Effect.Effect<LoadedPdfParser, never> {

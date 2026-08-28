@@ -4,7 +4,12 @@ import { z } from "zod";
 import type { FileSystemContextService } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import { defineTool, makeZodValidator } from "../base-tool";
-import { loadPdfParser, pdfExtensionError, resolveReadableFile } from "./read-common";
+import {
+  isPdfPasswordError,
+  loadPdfParser,
+  pdfExtensionError,
+  resolveReadableFile,
+} from "./read-common";
 
 /**
  * Read PDF file contents tool
@@ -73,6 +78,11 @@ export function createReadPdfTool(): Tool<FileSystem.FileSystem | FileSystemCont
         .positive()
         .optional()
         .describe("Maximum number of characters to return. Default 512000. Truncated if exceeded."),
+      password: z
+        .string()
+        .min(1)
+        .optional()
+        .describe("Password to open the PDF if it is encrypted/password-protected."),
     })
     .strict();
 
@@ -82,7 +92,7 @@ export function createReadPdfTool(): Tool<FileSystem.FileSystem | FileSystemCont
     name: "read_pdf",
     disclosure: "private",
     description:
-      "Extract text and tables from a PDF. Do not use read_file on PDFs. Use pdf_page_count first for large files, then read 10–20 pages at a time via pages (a list of 1-based numbers such as [1, 2, 3], not a range string). No OCR or images.",
+      "Extract text and tables from a PDF. Do not use read_file on PDFs. Use pdf_page_count first for large files, then read 10–20 pages at a time via pages (a list of 1-based numbers such as [1, 2, 3], not a range string). If the PDF is encrypted, pass its password. No OCR or images.",
     tags: ["filesystem", "read", "pdf"],
     parameters,
     validate: makeZodValidator(parameters),
@@ -102,7 +112,10 @@ export function createReadPdfTool(): Tool<FileSystem.FileSystem | FileSystemCont
           const PDFParse = loaded.PDFParse;
 
           const fileBuffer = yield* fs.readFile(filePathResult);
-          const pdfParser = new PDFParse({ data: fileBuffer });
+          const pdfParser = new PDFParse({
+            data: fileBuffer,
+            ...(args.password !== undefined ? { password: args.password } : {}),
+          });
 
           try {
             const parseParams = args.pages ? { partial: args.pages } : undefined;
@@ -170,6 +183,15 @@ export function createReadPdfTool(): Tool<FileSystem.FileSystem | FileSystemCont
               },
             };
           } catch (parseError) {
+            if (isPdfPasswordError(parseError)) {
+              return {
+                success: false,
+                result: null,
+                error: args.password
+                  ? "PDF parsing failed: the password provided is incorrect."
+                  : "PDF parsing failed: this PDF is password-protected. Retry with the `password` argument.",
+              };
+            }
             return {
               success: false,
               result: null,
