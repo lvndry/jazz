@@ -467,16 +467,18 @@ function interactiveShellArgs(
   cwd: string,
 ): readonly string[] {
   const evalCommand = `eval ${JSON.stringify(command)}`;
-  const script =
-    kind === "zsh"
-      ? `[[ -f ~/.zshenv ]] && source ~/.zshenv >/dev/null 2>&1 || true
+  let script: string;
+  if (kind === "zsh") {
+    script = `[[ -f ~/.zshenv ]] && source ~/.zshenv >/dev/null 2>&1 || true
 [[ -f "\${ZDOTDIR:-$HOME}/.zshrc" ]] && source "\${ZDOTDIR:-$HOME}/.zshrc" >/dev/null 2>&1 || true
 cd -- "$1"
-${evalCommand}`
-      : `shopt -s expand_aliases
+${evalCommand}`;
+  } else {
+    script = `shopt -s expand_aliases
 [[ -f ~/.bashrc ]] && source ~/.bashrc >/dev/null 2>&1 || true
 cd -- "$1"
 ${evalCommand}`;
+  }
   return ["-l", "-c", script, "jazz", cwd];
 }
 
