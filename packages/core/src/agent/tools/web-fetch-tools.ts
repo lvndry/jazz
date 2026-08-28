@@ -1,3 +1,4 @@
+import { Defuddle } from "defuddle/node";
 import { Effect } from "effect";
 import { z } from "zod";
 import { WEB_FETCH_USER_AGENT } from "@/core/constants/agent";
@@ -38,6 +39,14 @@ const webFetchSchema = z
       .describe(
         `Maximum number of characters to return. Default ${DEFAULT_MAX_CONTENT_LENGTH}, hard cap 200000.`,
       ),
+    offset: z
+      .number()
+      .int()
+      .min(0)
+      .optional()
+      .describe(
+        "Character offset into the extracted content to start returning from. Use this to page through content longer than max_length — the result reports total_length and truncated so you know whether to fetch again with a higher offset.",
+      ),
   })
   .strict();
 
@@ -48,8 +57,8 @@ export function createWebFetchTool(): ReturnType<typeof defineTool<LoggerService
     name: "web_fetch",
     disclosure: "public",
     description:
-      "Fetch a URL with HTTP GET and return its title and body as plain text. HTML has tags stripped (not markdown, not reader mode). JavaScript is not run. PDFs and images are not supported. Allowed types: HTML, plain text, JSON, XML. " +
-      "Default 50000 characters (max 200000); the full body is still downloaded first. Redirects are followed. For APIs, custom headers, POST, or binary, use http_request. To find URLs, use web_search.",
+      "Fetch a URL with HTTP GET and return its title and main content as markdown. HTML is passed through reader-mode extraction (via Defuddle) to strip navigation, ads, and other boilerplate — JavaScript is not run. PDFs and images are not supported. Allowed types: HTML, plain text, JSON, XML. " +
+      "Default 50000 characters (max 200000) per call; the full body is still downloaded and extracted first. If the result is truncated (see `truncated` and `total_length` in the response), call again with `offset` set to page through the rest. Redirects are followed. For APIs, custom headers, POST, or binary, use http_request. To find URLs, use web_search.",
     tags: ["web", "fetch"],
     parameters: webFetchSchema,
     validate: makeZodValidator(webFetchSchema),
@@ -117,30 +126,68 @@ export function createWebFetchTool(): ReturnType<typeof defineTool<LoggerService
 
         const isHtml = contentType.includes("text/html");
         let title = "";
-        let content: string;
+        let fullContent: string;
 
         if (isHtml) {
-          title = body.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]?.trim() ?? "";
-          content = body
-            .replace(/<script\b[^<]*(?:(?!<\/script\b[^>]*>)<[^<]*)*<\/script\b[^>]*>/gi, " ")
-            .replace(/<style\b[^<]*(?:(?!<\/style\b[^>]*>)<[^<]*)*<\/style\b[^>]*>/gi, " ")
-            .replace(/<[^>]+>/g, " ")
-            .replace(/\s+/g, " ")
-            .trim()
-            .slice(0, maxLength);
+          const extracted = yield* Effect.tryPromise({
+            try: () => Defuddle(body, args.url, { markdown: true }),
+            catch: (error) =>
+              new Error(
+                `Failed to extract content: ${error instanceof Error ? error.message : String(error)}`,
+              ),
+          }).pipe(Effect.either);
+
+          if (extracted._tag === "Right") {
+            title = extracted.right.title?.trim() ?? "";
+            fullContent = extracted.right.content.trim();
+          } else {
+            yield* logger.debug(
+              `[Web Fetch] Defuddle extraction failed for ${args.url}: ${extracted.left.message}`,
+            );
+            title = body.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1]?.trim() ?? "";
+            fullContent = body
+              .replace(/<script\b[^<]*(?:(?!<\/script\b[^>]*>)<[^<]*)*<\/script\b[^>]*>/gi, " ")
+              .replace(/<style\b[^<]*(?:(?!<\/style\b[^>]*>)<[^<]*)*<\/style\b[^>]*>/gi, " ")
+              .replace(/<[^>]+>/g, " ")
+              .replace(/\s+/g, " ")
+              .trim();
+          }
         } else {
-          content = body.slice(0, maxLength);
+          fullContent = body;
         }
+
+        const offset = args.offset ?? 0;
+        const totalLength = fullContent.length;
+        const content = fullContent.slice(offset, offset + maxLength);
+        const truncated = offset + content.length < totalLength;
 
         return {
           success: true,
-          result: { url: args.url, title, content },
+          result: {
+            url: args.url,
+            title,
+            content,
+            offset,
+            total_length: totalLength,
+            truncated,
+            ...(truncated ? { next_offset: offset + content.length } : {}),
+          },
         } satisfies ToolExecutionResult;
       }),
     createSummary: (result: ToolExecutionResult) => {
       if (!result.success || !result.result) return undefined;
-      const res = result.result as { url: string; title: string; content: string };
-      return `Fetched ${res.url}${res.title ? ` — "${res.title}"` : ""} (${res.content.length} chars)`;
+      const res = result.result as {
+        url: string;
+        title: string;
+        content: string;
+        total_length: number;
+        truncated: boolean;
+      };
+      const range =
+        res.total_length > res.content.length
+          ? ` (${res.content.length} of ${res.total_length} chars${res.truncated ? ", truncated" : ""})`
+          : ` (${res.content.length} chars)`;
+      return `Fetched ${res.url}${res.title ? ` — "${res.title}"` : ""}${range}`;
     },
   });
 }
