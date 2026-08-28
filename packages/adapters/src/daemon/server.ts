@@ -249,7 +249,10 @@ export function makePeerHandler(
   };
 }
 
-/** Payload text beyond this length is truncated before it reaches the prompt. */
+/**
+ * Cap on the raw HTTP request body accepted by a `POST /triggers/<name>` webhook call.
+ * Text beyond this length is truncated before it reaches the prompt (see `makeTriggerHandler`).
+ */
 const MAX_TRIGGER_PAYLOAD_LENGTH = 20_000;
 
 /**
