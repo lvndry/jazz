@@ -65,6 +65,17 @@ describe("environment block injection", () => {
     expect(result).not.toContain("Hardware:");
   });
 
+  test("injects the block in place at the {environment} token, before later content, no duplicate", () => {
+    const authored = "You are {agentName}.\n\n# Environment\n\n{environment}\n\nDo the work.";
+    const result = build("custom", authored);
+    expect(result).toContain("Environment: Date:");
+    expect(result).not.toContain("{environment}");
+    expect(result).not.toContain("{currentDate}");
+    // Block sits in place, ahead of the trailing instruction — not appended at the end.
+    expect(result.indexOf("Environment: Date:")).toBeLessThan(result.indexOf("Do the work."));
+    expect(result.match(/Environment:/g)?.length).toBe(1);
+  });
+
   test("agent name and description are always substituted", () => {
     const result = build("default", "You are {agentName}, {agentDescription} Go.");
     expect(result).toContain("You are Test, a test agent.");

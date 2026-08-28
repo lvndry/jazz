@@ -6,10 +6,15 @@
 
 /**
  * Canonical environment facts block, the single source of truth for the machine
- * grounding appended to every persona system prompt at build time. Kept here so
- * persona authors never hand-copy it (that drifted field lists across personas)
- * and so a new field is added in exactly one place. Rendered by filling the
- * placeholders with live values in AgentPromptBuilder.buildSystemPrompt.
+ * grounding injected into persona system prompts at build time. Kept here so a
+ * new field is added in exactly one place.
+ *
+ * Placement is controlled by the persona, not hardcoded: AgentPromptBuilder
+ * fills this template and (a) injects it at an `{environment}` token if the
+ * persona authors one — so grounding sits mid-prompt where its instruction lives,
+ * not bolted on at the end — (b) fills individual `{currentDate}` etc.
+ * placeholders in place if hand-placed, or (c) appends it at the end as a
+ * fallback. The summarizer never receives it.
  */
 export const ENVIRONMENT_TEMPLATE =
   "Environment: Date: {currentDate} | OS: {osInfo} | Hardware: {hardware} | Shell: {shell} | Home: {homeDirectory} | Hostname: {hostname} | User: {username} | TTY: {tty}";

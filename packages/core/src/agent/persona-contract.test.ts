@@ -9,18 +9,24 @@ import { describe, expect, test } from "bun:test";
  * the model as a literal "{placeholder}" token. This test locks that contract
  * so persona edits can't silently break substitution.
  *
- * The environment facts block ({currentDate}, {osInfo}, ...) is now appended by
- * the runtime from a single canonical template, so those placeholders are
- * optional in a persona file. A persona may still hand-place them to control
- * where the block sits; if it does, this "at most once" rule keeps that working.
- * See agent-prompt-environment.test.ts for the injection behavior itself.
+ * The environment facts block is injected by the runtime from a single canonical
+ * template (shared.ts ENVIRONMENT_TEMPLATE). A persona drops an `{environment}`
+ * token to control where the block sits mid-prompt; it may also hand-place the
+ * individual {currentDate}, {osInfo}, ... placeholders for full in-place control.
+ * All are optional in a persona file. This "at most once" rule keeps substitution
+ * working. See agent-prompt-environment.test.ts for the injection behavior itself.
  */
 
 const PERSONAS_DIR = join(dirname(fileURLToPath(import.meta.url)), "../../../../personas");
 
-const PLACEHOLDERS = [
-  "{agentName}",
-  "{agentDescription}",
+// Identity placeholders, substituted from the agent's own config.
+const IDENTITY_PLACEHOLDERS = ["{agentName}", "{agentDescription}"] as const;
+
+// Environment *field* placeholders (Date, OS, Hardware, ...). A persona may
+// hand-place these individually for full in-place control; the runtime fills
+// each from live system info. These are the actual facts — distinct from the
+// `{environment}` token below, which expands to the whole block at once.
+const ENVIRONMENT_FIELD_PLACEHOLDERS = [
   "{currentDate}",
   "{osInfo}",
   "{hardware}",
@@ -30,6 +36,16 @@ const PLACEHOLDERS = [
   "{username}",
   "{tty}",
 ] as const;
+
+// A single token that expands to the entire filled environment block in place.
+// It is a container, not a field, so it lives apart from the field list above.
+const ENVIRONMENT_TOKEN = "{environment}";
+
+const KNOWN_PLACEHOLDERS = new Set<string>([
+  ...IDENTITY_PLACEHOLDERS,
+  ...ENVIRONMENT_FIELD_PLACEHOLDERS,
+  ENVIRONMENT_TOKEN,
+]);
 
 function countOccurrences(haystack: string, needle: string): number {
   let count = 0;
@@ -55,7 +71,7 @@ describe("persona placeholder contract", () => {
     const content = readFileSync(path, "utf-8");
 
     test(`${persona}: each placeholder appears at most once`, () => {
-      for (const placeholder of PLACEHOLDERS) {
+      for (const placeholder of KNOWN_PLACEHOLDERS) {
         const occurrences = countOccurrences(content, placeholder);
         expect(
           occurrences,
@@ -65,7 +81,7 @@ describe("persona placeholder contract", () => {
     });
 
     test(`${persona}: no unknown placeholder-like tokens`, () => {
-      const known = new Set<string>(PLACEHOLDERS);
+      const known = KNOWN_PLACEHOLDERS;
       const candidates = content.match(/\{[a-zA-Z]+\}/g) ?? [];
       for (const candidate of candidates) {
         expect(known.has(candidate), `unknown placeholder ${candidate} in ${persona}`).toBe(true);
