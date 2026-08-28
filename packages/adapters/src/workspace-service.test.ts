@@ -118,12 +118,17 @@ describe("create", () => {
 
   test("rejects once the per-agent file count cap is exceeded", async () => {
     const service = makeService();
+    // Seed directly on disk rather than through `create`, which locks and
+    // walks the whole tree on every call — doing that MAX_WORKSPACE_FILES_PER_AGENT
+    // times is O(n^2) and times out well before reaching the cap.
+    const agentRoot = path.join(tmpDir, "agent-1");
+    fs.mkdirSync(agentRoot, { recursive: true });
     for (let i = 0; i < MAX_WORKSPACE_FILES_PER_AGENT; i++) {
-      await runEffect(service.create("agent-1", `file-${i}.txt`, "x"));
+      fs.writeFileSync(path.join(agentRoot, `file-${i}.txt`), "x");
     }
     const result = await runEither(service.create("agent-1", "one-too-many.txt", "x"));
     expect(result._tag).toBe("Left");
-  }, 60_000);
+  }, 15_000);
 });
 
 describe("str_replace", () => {
