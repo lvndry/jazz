@@ -11,248 +11,151 @@ skills:
 
 # Daily Market Analysis
 
-Perform comprehensive market analysis covering major indices, individual stocks, and cryptocurrencies. Provide actionable insights for investment decisions.
+Comprehensive daily analysis across global equities, crypto, and macro — with the discipline to look past the day's tape to the policy and structural forces that move capital over quarters. **Cover the world, not just the US, and favor durable second-order effects over headline ticks.**
 
 ## Analysis Scope
 
 ### 1. Major Indices & ETFs
-- **S&P 500 (SPY)**: Overall market health, sector performance
-- **NASDAQ (QQQ)**: Tech sector trends
-- **Dow Jones (DIA)**: Industrial strength
-- **Russell 2000 (IWM)**: Small-cap performance
-- **VIX**: Market volatility and fear index
-- **Sector ETFs**: XLF (financials), XLE (energy), XLK (tech), XLV (healthcare)
+**US:**
+- S&P 500 (SPY), NASDAQ (QQQ), Dow Jones (DIA), Russell 2000 (IWM)
+- VIX; sector ETFs: XLF, XLE, XLK, XLV
+
+**Global:**
+- Europe: STOXX 600, DAX, CAC 40, FTSE 100
+- Asia-Pacific: Nikkei 225, Hang Seng, CSI 300, KOSPI, ASX 200, Nifty 50 / Sensex
+- Americas ex-US: Ibovespa, TSX
+- EM basket: MSCI Emerging Markets (EEM)
+- Cross-assets: DXY, US 10Y, gold, Brent/WTI, copper
 
 ### 2. Individual Stocks
-- **Tech Giants**: AAPL, MSFT, GOOGL, AMZN, META, NVDA
-- **EV & Innovation**: TSLA, RIVN, LCID
-- **AI Leaders**: NVDA, AMD, PLTR, C3.AI
-- **Others**: Add any stocks you're tracking or considering
+- US: AAPL, MSFT, GOOGL, AMZN, META, NVDA; TSLA, RIVN, LCID; AMD, PLTR, C3.AI
+- International: ASML, TSM, SAP, Tencent, Nestlé, LVMH, Toyota, Samsung, Reliance
+- For any theme (AI, energy, defense, semis, luxury), pull the global leaders — not only US tickers
 
 ### 3. Cryptocurrencies
-- **Bitcoin (BTC)**: Price action, on-chain metrics, dominance
-- **Ethereum (ETH)**: Network activity, gas fees, DeFi trends
-- **Market Sentiment**: Fear & Greed Index, institutional flows
+- Bitcoin (BTC): price, dominance, Fear & Greed, on-chain flows
+- Ethereum (ETH): network activity, gas, DeFi trends
 
-### 4. Economic Indicators
-- Recent economic data releases (GDP, inflation, employment)
-- Fed policy signals and interest rate expectations
-- Global macro events (geopolitics, central bank moves)
+### 4. Economic Indicators (global)
+- Data across regions: US, Eurozone, UK, China, Japan, India, Brazil
+- Central banks beyond the Fed: ECB, BOE, BOJ, PBOC, RBI, BCB, EM policy
+- FX/rates: DXY, US 10Y, bund spreads, EM carry
+
+### 5. Policy, Politics & Long-Term Structurals
+
+The differentiator. Trace each major development — a law passed, a central-bank path, an election, a CEO announcement, or a deal (e.g. a gold miner being acquired) — to its **second-order, multi-quarter consequences**, not the intraday reaction.
+
+- **What changed**: the specific event and why it matters
+- **Who is structurally helped/hurt**: sectors, asset classes, geographies, business models — and the mechanism (margins, capex, rates, demand, supply chains)
+- **Horizon**: when it bites (next print vs 1–4+ quarters) and whether it's priced in
+- **Thesis impact**: how it upgrades/downgrades or rotates the 12-month view
+- **Decisions it forces**: the durable choices it pushes — add/trim exposure, open a watchlist item, rotate capital, revisit a thesis. State them as decisions, not observations.
+- **Regime vs headline**: a durable shift (policy regime, fiscal path, geopolitical realignment, industry consolidation) vs a one-off print. A single data point is not a trend.
+- **Sources**: primary/long-form (central-bank statements, legislation, filings, deep analysis) over wire snippets and social takes
 
 ## Research Sources
 
-Use these sources for comprehensive analysis:
-- **Real-time data**: Yahoo Finance, Google Finance, TradingView
-- **News**: Bloomberg, Reuters, CNBC, Financial Times, WSJ
-- **Sentiment**: Twitter/X (FinTwit), Reddit (r/wallstreetbets, r/stocks)
-- **Analysis**: Seeking Alpha, Benzinga, MarketWatch
-- **Crypto**: CoinGecko, CoinMarketCap, Glassnode, LookIntoBitcoin
-- **Technical**: TradingView charts, volume analysis
-- **On-chain**: Blockchain explorers, whale tracking
+- Real-time: Yahoo Finance, Google Finance, TradingView
+- News: Bloomberg, Reuters, CNBC, FT, WSJ
+- Sentiment: X/FinTwit, Reddit (r/stocks, r/wallstreetbets)
+- Analysis: Seeking Alpha, Benzinga, MarketWatch
+- Crypto: CoinGecko, CoinMarketCap, Glassnode
+- Policy/primary: central-bank statements, legislation & regulatory filings, budget documents
+- International: regional outlets (Nikkei, Handelsblatt, Caixin, Economic Times, Valor) — not the US wire alone
 
 ## Analysis Framework
 
-For each asset, provide:
+For each asset:
 
-1. **Price Action** (Last 24h, 1 week, 1 month)
-   - Current price, % change
-   - Key support/resistance levels
-   - Volume analysis (above/below average?)
-
-2. **Technical Indicators**
-   - Trend: Uptrend, downtrend, or consolidation
-   - RSI: Overbought (>70), oversold (<30), or neutral
-   - Moving averages: Above/below 50-day and 200-day MA
-   - MACD: Bullish or bearish crossover
-
-3. **News & Catalysts**
-   - Recent earnings, product launches, regulatory news
-   - Market-moving events in last 24h
-   - Upcoming catalysts (earnings dates, product events)
-
-4. **Sentiment Analysis**
-   - Social media sentiment (bullish/bearish/neutral)
-   - Institutional activity (insider buying/selling, analyst upgrades)
-   - Options flow (unusual call/put activity)
-
-5. **Investment Thesis**
-   - **Bull Case**: What could drive price higher
-   - **Bear Case**: Risks and potential downsides
-   - **Verdict**: BUY / HOLD / SELL / WAIT with confidence level
+1. **Price Action** (24h / 1w / 1m): price, % change, support/resistance, volume vs average
+2. **Technical**: trend, RSI, 50/200MA, MACD
+3. **News & Catalysts**: earnings, regulation, upcoming catalysts
+4. **Sentiment**: social, institutional flow, options flow
+5. **Investment Thesis**: bull/bear case, BUY/HOLD/SELL/WAIT with confidence
+6. **Policy & Political Impact**: for each major event, what changed, who wins/loses, horizon, thesis impact, and the decision it forces. Name regime-shift vs one-off before it moves a call.
 
 ## Output Format
 
-Save analysis to: `$HOME/market-analysis/YYYY/MM/DD.md`
-
-Structure the report as follows:
+Save to `$HOME/market-analysis/YYYY/MM/DD.md`:
 
 ```markdown
 # Market Analysis - [Date]
-
-**Generated**: [ISO timestamp]
-**Market Status**: [Open/Closed, Pre-market if 6 AM]
-
----
+**Generated**: [ISO timestamp] | **Market Status**: [Open/Closed, Pre-market if 6 AM]
 
 ## 📊 Executive Summary
+[2-3 sentences: bias and key drivers]
+**Quick Take:** ✅ Buy: […] 🔶 Hold: […] ⚠️ Avoid: […]
 
-[2-3 sentence market overview: bullish/bearish/mixed, key drivers today]
+## 🏛️ Major Indices (US)
+[S&P/NASDAQ/Dow/Russell + VIX; sector best/worst]
 
-**Quick Take:**
-- ✅ **Buy Opportunities**: [List 1-3 with brief reason]
-- 🔶 **Hold**: [List if applicable]
-- ⚠️ **Avoid/Sell**: [List if applicable]
-
----
-
-## 🏛️ Major Indices
-
-### S&P 500 (SPY)
-- **Price**: $XXX.XX (±X.XX%)
-- **Trend**: [Uptrend/Downtrend/Consolidation]
-- **Analysis**: [2-3 sentences]
-
-[Repeat for NASDAQ, Dow, Russell 2000, VIX]
-
-**Sector Performance**:
-- Best: [Sector name] +X.X%
-- Worst: [Sector name] -X.X%
-
----
+## 🌍 Global Markets
+- Europe: [move + driver]
+- Asia-Pacific: [move + driver]
+- Americas ex-US: [move + driver]
+- EM & cross-assets: [EEM, DXY, 10Y, gold, oil, copper — what's repricing]
+- Global flow note: [capital rotation; what a non-US event means for US positioning]
 
 ## 💼 Individual Stocks
-
-### Apple (AAPL)
-- **Current**: $XXX.XX (±X.XX%)
-- **Technical**: RSI XX | 50MA: $XXX | 200MA: $XXX
-- **News**: [Key developments if any]
-- **Sentiment**: [Bullish/Bearish/Neutral] - [Why?]
-- **Verdict**: **[BUY/HOLD/SELL]** - [One sentence reasoning]
-
-[Repeat for TSLA, NVDA, MSFT, etc.]
-
----
+[Per name: price, technical, news, sentiment, verdict]
 
 ## ₿ Cryptocurrencies
-
-### Bitcoin (BTC)
-- **Price**: $XX,XXX (±X.X%)
-- **Market Cap Dominance**: XX.X%
-- **Fear & Greed Index**: XX (Extreme Fear/Fear/Neutral/Greed/Extreme Greed)
-- **On-Chain**: [Notable metrics: exchange flows, whale activity]
-- **Technical**: [Trend, key levels]
-- **Verdict**: **[BUY/HOLD/SELL]** - [Reasoning]
-
-### Ethereum (ETH)
-[Same structure as Bitcoin]
-
----
+[Per coin: price, dominance, on-chain, verdict]
 
 ## 📈 Technical Market Overview
-
-- **Market Breadth**: [How many stocks up vs down]
-- **Volume**: [Above/below average, what it means]
-- **Volatility**: VIX at XX (High/Low/Normal)
-- **Put/Call Ratio**: [Bearish/Bullish sentiment]
-
----
+[Breadth, volume, VIX, put/call]
 
 ## 📰 Key News & Events
-
-1. **[Headline]**: [Brief summary and impact]
-2. **[Headline]**: [Brief summary and impact]
-[List top 3-5 market-moving news]
-
----
+[Top 3-5, with impact]
 
 ## 🔮 Today's Outlook
+[Direction, levels, events today]
 
-**Market Direction**: [Expected up/down/sideways]
-
-**Key Levels to Watch**:
-- S&P 500: Support at $XXX, Resistance at $XXX
-- NASDAQ: [Levels]
-
-**Events Today**:
-- [Economic data releases, earnings reports, Fed speakers]
-
----
+## 🏛️ Policy & Long-Term Impact
+For each major event:
+- What changed: [event]
+- Second-order effects: [who's helped/hurt, 1–4+ quarters]
+- Thesis impact: [12-month re-weight]
+- Decisions it forces: [add/trim/rotate/watch, revisit thesis]
+- Regime vs headline: [durable or one-off]
 
 ## 💡 Investment Recommendations
-
-### 🟢 Top Buy Ideas
-1. **[Ticker]**: [Why now is a good entry, catalyst, risk/reward]
-2. **[Ticker]**: [Same]
-3. **[Ticker]**: [Same]
-
-### 🟡 Watch List (Wait for Better Entry)
-- **[Ticker]**: [What needs to happen for it to be a buy]
-
-### 🔴 Avoid / Consider Selling
-- **[Ticker]**: [Why it's risky or overvalued]
-
----
+🟢 Top Buy / 🟡 Watch / 🔴 Avoid — with catalyst and risk/reward
 
 ## ⚠️ Risk Factors
+[2-3: policy, geopolitics, earnings]
 
-- [List 2-3 key risks to watch: Fed policy, geopolitics, earnings season]
-
----
-
-## 📌 Action Items
-
-- [ ] [Specific actions: "Set price alert for AAPL at $XXX"]
-- [ ] [More actions as relevant]
-
----
-
-**Disclaimer**: This analysis is for informational purposes only and should not be construed as financial advice. Always do your own research and consult with a qualified financial advisor before making investment decisions. Past performance does not guarantee future results.
-
-**Data Sources**: [List sources used]
-**Analysis Time**: ~[X] minutes of research
+**Disclaimer**: Informational only, not financial advice.
+**Data Sources**: […] | **Analysis Time**: ~[X] min
 ```
 
 ## Research Quality Standards
 
-- **Accuracy**: Verify all prices and data from multiple sources
-- **Timeliness**: Focus on last 24h developments, don't rehash old news
-- **Depth**: Go beyond surface-level - explain WHY moves are happening
-- **Actionable**: Provide specific price targets and entry/exit points when possible
-- **Balanced**: Present both bull and bear cases fairly
+- Verify prices across sources; explain *why* moves happen
+- Actionable targets when possible; balanced bull/bear
+- Separate durable regime change from intraday noise
 
 ## Special Instructions
 
-1. **Pre-Market Focus**: Since this runs at 6 AM, include pre-market movements if markets are open
-2. **Weekend Handling**: On weekends, analyze Friday's close and preview Monday
-3. **Crypto 24/7**: Crypto markets never close, always provide latest
-4. **Breaking News**: Flag any overnight news that could gap markets at open
-5. **Confidence Levels**: Use "High Confidence / Medium / Low" for buy/sell calls
-6. **Risk/Reward**: Always mention risk/reward ratio (e.g., "2:1 R/R")
+1. Pre-market focus at 6 AM; weekends analyze Friday + preview Monday
+2. Crypto 24/7; flag overnight gaps
+3. Confidence levels on calls; always state risk/reward
+4. **Long-term lens**: before any call, name the policy/political shift that changes the 12-month thesis — not today's print
+5. **Global**: cover non-US indices, central banks, and companies; capital rotates across regions
 
 ## What NOT to Do
 
-- ❌ Don't just list prices without context
-- ❌ Don't make predictions without supporting evidence
-- ❌ Don't ignore risk factors
-- ❌ Don't recommend penny stocks or meme stocks without huge disclaimers
-- ❌ Don't be overly bullish or bearish - stay objective
+- ❌ Prices without context, or predictions without evidence
+- ❌ Penny/meme stocks without disclaimers; overly bullish/bearish
+- ❌ Anchor on headline tickers — read the structural shift first
+- ❌ US-only framing — this is a world market report
 
-## Advanced Analysis (When Relevant)
+## Advanced Analysis (when relevant)
 
-Include when applicable:
-- **Correlation Analysis**: How assets move together (SPY vs BTC, etc.)
-- **Seasonality**: "Historically, [asset] tends to [trend] in [month]"
-- **Institutional Flows**: Notable ETF inflows/outflows, 13F filings
-- **Global Context**: How Asian and European markets performed
-- **Futures**: How S&P, Dow, NASDAQ futures are trading pre-market
+Correlation, seasonality, institutional flows, global context, futures, and policy second-order mapping (event → sectors/names helped/hurt → horizon).
 
 ## Error Handling
 
-If unable to fetch data for specific assets:
-- Note the limitation in the report
-- Use last available data with timestamp
-- Adjust confidence level accordingly
+If data is missing: note it, use last known with timestamp, lower confidence.
 
----
-
-**Goal**: Provide a comprehensive, actionable market analysis that empowers informed investment decisions while maintaining objectivity and acknowledging risks.
+**Goal**: actionable, objective analysis that looks past the tape to the global, structural forces that compound over quarters.

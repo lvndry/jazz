@@ -83,25 +83,14 @@ export interface AgentPromptOptions {
   readonly availableTools?: Record<string, string>;
   /**
    * All skills available to the agent. Rendered as a compact index
-   * (one line per skill) in the system prompt — full descriptions are loaded
-   * JIT via `find_skills` or auto-injected when a trigger matches the user
-   * message. Each entry can optionally provide a curated `tagline`; if absent
-   * the system falls back to a truncated description.
+   * (one line per skill) in the system prompt — the full `description` is shown
+   * per skill, and the skill body is loaded JIT via `find_skills`.
    */
   readonly knownSkills?: readonly {
     readonly name: string;
     readonly description: string;
     readonly path: string;
-    readonly tagline?: string;
-    readonly triggers?: readonly string[];
   }[];
-  /**
-   * Names of skills whose triggers matched the current user input. The full
-   * descriptions for these are inlined into the system prompt to bias the
-   * model toward loading them, even on small models that wouldn't think to
-   * call `find_skills` first. Subset of `knownSkills` by name.
-   */
-  readonly triggeredSkillNames?: readonly string[];
   /**
    * AGENTS.md files discovered for the working directory, outermost first.
    * Rendered verbatim into the system prompt so project conventions reach the
@@ -149,20 +138,15 @@ export interface AgentPromptOptions {
  *
  * Mirrors `getSkillIndexLine` in skill-service but operates on the inline
  * `knownSkills` shape used by the prompt builder (no `source` required).
- * Prefers `tagline`; otherwise truncates `description` to one sentence or
- * 80 chars so legacy skills without a tagline still render compactly.
+ * Returns the full `description`.
  */
 function getSkillIndexLineFromOption(s: {
   readonly name: string;
   readonly description: string;
-  readonly tagline?: string;
 }): string {
-  if (s.tagline && s.tagline.trim().length > 0) return s.tagline.trim();
   const desc = s.description.trim();
   if (desc.length === 0) return s.name;
-  const firstSentence = desc.match(/^[^.!?]{1,80}[.!?]/);
-  if (firstSentence) return firstSentence[0];
-  return desc.length > 80 ? desc.slice(0, 77) + "..." : desc;
+  return desc;
 }
 
 export class AgentPromptBuilder {
@@ -211,15 +195,9 @@ export class AgentPromptBuilder {
     hash.update(options.agentDescription);
     if (options.knownSkills && options.knownSkills.length > 0) {
       const skillFingerprints = options.knownSkills.map(
-        (s) =>
-          `${s.name}|${s.description}|${s.tagline ?? ""}|${(s.triggers ?? []).join(",")}|${s.path}`,
+        (s) => `${s.name}|${s.description}|${s.path}`,
       );
       hash.update(JSON.stringify(skillFingerprints.sort()));
-    }
-    // Triggered-skill set varies per turn; mix it into the cache key so the
-    // injected detail block is rebuilt whenever the trigger match changes.
-    if (options.triggeredSkillNames && options.triggeredSkillNames.length > 0) {
-      hash.update(`triggered:${[...options.triggeredSkillNames].sort().join(",")}`);
     }
     // The full tool set shapes the prompt: tool-gated instruction blocks
     // (memory, task state, questions) and the per-tool notes both key off it.
@@ -334,17 +312,11 @@ export class AgentPromptBuilder {
           .replace("{agentName}", options.agentName)
           .replace("{agentDescription}", options.agentDescription);
 
-        // Machine grounding. Two modes:
-        // - A persona that hand-places {currentDate} keeps full control over
-        //   where the facts sit; substitute in place and add nothing.
-        // - Otherwise append the one canonical block, so custom personas get
-        //   grounding for free and the field list has a single source of truth.
-        // The summarizer is a pure transcript-compression role with no tools;
-        // machine facts are noise for it, so it never gets the block.
-        if (systemPrompt.includes("{currentDate}")) {
-          systemPrompt = fillEnvironment(systemPrompt);
-        } else if (personaName !== "summarizer") {
-          systemPrompt = `${systemPrompt}\n${fillEnvironment(ENVIRONMENT_TEMPLATE)}`;
+        if (personaName !== "summarizer") {
+          const envBlock = fillEnvironment(ENVIRONMENT_TEMPLATE);
+          systemPrompt = systemPrompt.includes("{environment}")
+            ? systemPrompt.replace("{environment}", envBlock)
+            : `${systemPrompt}\n${envBlock}`;
         }
 
         // Only for models that cannot generate media, and never for the summarizer, which has no
@@ -372,33 +344,11 @@ export class AgentPromptBuilder {
             .map((s) => `- ${s.name}: ${getSkillIndexLineFromOption(s)}`)
             .join("\n");
 
-          // Triggered skills get their full description inlined so the model
-          // is biased toward loading them on this turn. Filtered to skills
-          // that are actually in `knownSkills`.
-          const triggeredSet = new Set(options.triggeredSkillNames ?? []);
-          const triggeredDetailXml = options.knownSkills
-            .filter((s) => triggeredSet.has(s.name))
-            .map(
-              (s) =>
-                `  <skill>\n    <name>${s.name}</name>\n    <description>${s.description}</description>\n  </skill>`,
-            )
-            .join("\n");
-
-          const triggeredBlock =
-            triggeredDetailXml.length > 0
-              ? `
-<likely_relevant_skills>
-${triggeredDetailXml}
-</likely_relevant_skills>
-`
-              : "";
-
           const skillsSection = `
 ${SKILLS_INSTRUCTIONS}
 <available_skills>
 ${indexLines}
-</available_skills>
-${triggeredBlock}`;
+</available_skills>`;
           systemPrompt = systemPrompt + skillsSection;
         }
 

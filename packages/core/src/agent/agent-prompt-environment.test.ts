@@ -7,9 +7,8 @@ import { AgentPromptBuilder, type AgentPromptOptions } from "./agent-prompt";
 /**
  * The environment facts block is injected by the runtime, not authored into each
  * persona file. These tests lock that behavior: grounding personas get the
- * canonical block appended with live values, a persona that hand-places
- * {currentDate} keeps in-place control with no duplicate block, and the
- * summarizer never receives machine facts.
+ * canonical block either injected in place at an `{environment}` token or appended
+ * at the end, and the summarizer never receives machine facts.
  */
 
 function personaServiceReturning(systemPrompt: string): PersonaService {
@@ -51,18 +50,21 @@ describe("environment block injection", () => {
     expect(result).not.toContain("{tty}");
   });
 
-  test("substitutes in place and adds no second block when persona hand-places the block", () => {
-    const authored = "You are {agentName}.\n\n# Environment\n\n- Date: {currentDate}\n";
-    const result = build("custom", authored);
-    expect(result).not.toContain("{currentDate}");
-    // Exactly one Environment heading — the hand-placed one, not a duplicate.
-    expect(result.match(/# Environment/g)?.length).toBe(1);
-  });
-
   test("summarizer never receives the environment block", () => {
     const result = build("summarizer", "You are {agentName}, {agentDescription} Summarize.");
     expect(result).not.toContain("Environment:");
     expect(result).not.toContain("Hardware:");
+  });
+
+  test("injects the block in place at the {environment} token, before later content, no duplicate", () => {
+    const authored = "You are {agentName}.\n\n# Environment\n\n{environment}\n\nDo the work.";
+    const result = build("custom", authored);
+    expect(result).toContain("Environment: Date:");
+    expect(result).not.toContain("{environment}");
+    expect(result).not.toContain("{currentDate}");
+    // Block sits in place, ahead of the trailing instruction — not appended at the end.
+    expect(result.indexOf("Environment: Date:")).toBeLessThan(result.indexOf("Do the work."));
+    expect(result.match(/Environment:/g)?.length).toBe(1);
   });
 
   test("agent name and description are always substituted", () => {

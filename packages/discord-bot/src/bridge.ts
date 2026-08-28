@@ -656,8 +656,12 @@ async function handleMessage(
   channelId: string,
   text: string,
   progressMessageId?: string,
+  replyToMessageId?: string,
 ): Promise<void> {
   ensureChatAgent(config.jazzHome, channelId, config.baseAgentId);
+
+  const replyReference =
+    replyToMessageId !== undefined ? { message_reference: { message_id: replyToMessageId } } : {};
 
   const usage = todayUsage(config.jazzHome, USAGE_FILE);
   const capBlockReason = dailyCostCapBlockReason(usage, config.dailyCostCapUsd);
@@ -666,6 +670,7 @@ async function handleMessage(
       config,
       channelId,
       "⚠️ Daily cost cap paused: pricing was unavailable for an earlier run today, so spend cannot be verified. Try again tomorrow, disable the cap, or select a priced model.",
+      replyReference,
     );
     return;
   }
@@ -675,6 +680,7 @@ async function handleMessage(
       config,
       channelId,
       `⚠️ Daily cost cap ($${config.dailyCostCapUsd.toFixed(2)}) reached. Try again tomorrow, or raise JAZZ_DAILY_COST_CAP_USD.`,
+      replyReference,
     );
     return;
   }
@@ -684,8 +690,13 @@ async function handleMessage(
   const runToken = newRunToken();
   let messageId = progressMessageId;
   if (messageId === undefined) {
+    // When this run was kicked off by a follow-up/suggestion tap, the
+    // progress bubble (and, below, the final answer) reply to the message
+    // that carried the button so the thread stays visibly anchored to what
+    // it's a follow-up to.
     const sent = await sendMessage(config.botToken, channelId, PROGRESS_INITIAL_TEXT, {
       components: cancelComponents(runToken),
+      ...replyReference,
     });
     messageId = sent?.id;
   } else {
@@ -757,6 +768,7 @@ async function handleMessage(
       );
       const answerMessageId = await sendReply(config, channelId, envelope.answer, {
         components: followupComponents(),
+        ...replyReference,
       });
       if (config.dynamicCta && answerMessageId !== undefined) {
         void upgradeToDynamicCtas(config, channelId, answerMessageId, text, envelope.answer);
@@ -769,7 +781,7 @@ async function handleMessage(
       }
     } else {
       await reporter?.finish("⚠️ **Failed**");
-      await sendReply(config, channelId, `⚠️ ${envelope.error}`);
+      await sendReply(config, channelId, `⚠️ ${envelope.error}`, replyReference);
     }
   } finally {
     // A throw anywhere above would otherwise leave the log with no outcome line,
@@ -789,31 +801,53 @@ async function handleMessage(
   }
 }
 
-const FOLLOWUP_OPTIONS: Record<string, { label: string; prompt: string }> = {
-  deeper: {
-    label: "🔍 Go deeper",
-    prompt:
-      "Go deeper on your previous answer: add more detail, concrete specifics, and any important nuances or caveats.",
-  },
-  shorter: {
-    label: "✂️ Shorter",
-    prompt:
-      "Give a much shorter version of your previous answer — 2-3 sentences, just the essentials.",
-  },
-  simpler: {
-    label: "🧑‍🏫 Explain simpler",
-    prompt:
-      "Explain your previous answer in simpler terms, as if to someone with no background in the topic — avoid jargon and use plain language.",
-  },
-  example: {
-    label: "💡 Example",
-    prompt: "Give a concrete, real-world example that illustrates your previous answer.",
-  },
-};
-
 interface Suggestion {
   label: string;
   prompt: string;
+}
+
+const GO_DEEPER_OPTION: Suggestion = {
+  label: "🔍 Go deeper",
+  prompt:
+    "Go deeper on your previous answer: add more detail, concrete specifics, and any important nuances or caveats.",
+};
+const SHORTER_OPTION: Suggestion = {
+  label: "✂️ Shorter",
+  prompt:
+    "Give a much shorter version of your previous answer — 2-3 sentences, just the essentials.",
+};
+const SIMPLER_OPTION: Suggestion = {
+  label: "🧑‍🏫 Explain simpler",
+  prompt:
+    "Explain your previous answer in simpler terms, as if to someone with no background in the topic — avoid jargon and use plain language.",
+};
+const EXAMPLE_OPTION: Suggestion = {
+  label: "💡 Example",
+  prompt: "Give a concrete, real-world example that illustrates your previous answer.",
+};
+
+const FOLLOWUP_OPTIONS: Record<string, Suggestion> = {
+  deeper: GO_DEEPER_OPTION,
+  shorter: SHORTER_OPTION,
+  simpler: SIMPLER_OPTION,
+  example: EXAMPLE_OPTION,
+};
+
+/**
+ * If the model's suggestions dropped the mandatory "Go deeper" option, or came
+ * back short (parse failures, a sparse reply), pad with the static fallbacks
+ * so callers always get exactly 3 with "Go deeper" first — the fallback is
+ * only ever a safety net for a misbehaving model, not the normal path.
+ */
+function ensureThreeWithGoDeeper(items: Suggestion[]): Suggestion[] {
+  const hasGoDeeper = items.some((item) => /deeper/i.test(item.label));
+  let result = hasGoDeeper ? items : [GO_DEEPER_OPTION, ...items];
+  const fallbackPool = [SHORTER_OPTION, SIMPLER_OPTION, EXAMPLE_OPTION];
+  for (const fallback of fallbackPool) {
+    if (result.length >= 3) break;
+    result = [...result, fallback];
+  }
+  return result.slice(0, 3);
 }
 
 const SUGGESTION_STORE_MAX = 500;
@@ -886,11 +920,12 @@ async function generateSuggestions(
   ensureSuggestAgent(config);
   const metaPrompt =
     `Conversation:\nUser: ${question.slice(0, 500)}\nAssistant: ${answer.slice(0, 1200)}\n\n` +
-    "Propose 2-4 useful next actions the user might tap. Reply with ONLY a JSON array — no prose, " +
-    "no code fences:\n" +
+    "Propose EXACTLY 3 useful next actions the user might tap. Reply with ONLY a JSON array — no " +
+    "prose, no code fences:\n" +
     '[{"label":"short button text, <=24 chars, may start with an emoji","prompt":"the message to ' +
     'send if tapped, written first-person as the user"}]\n' +
-    'Make them specific to THIS exchange. Include one "🔍 Go deeper" style option.';
+    'Make them specific to THIS exchange. The first entry must always be a "🔍 Go deeper" style ' +
+    "option that asks for more detail, specifics, and nuance on the same answer.";
   const envelope = await jazzJson(config, SUGGEST_AGENT_ID, metaPrompt, [
     "--reasoning",
     "disable",
@@ -924,9 +959,9 @@ async function generateSuggestions(
           });
         }
       }
-      if (items.length >= 4) break;
+      if (items.length >= 3) break;
     }
-    return items;
+    return ensureThreeWithGoDeeper(items);
   } catch {
     return [];
   }
@@ -1519,8 +1554,10 @@ async function dispatchComponent(
     // rather than a plain line that reads as the bot talking to itself.
     const requesterId = interactionUserId(interaction);
     const echo = requesterId === undefined ? item.label : `<@${requesterId}> · ${item.label}`;
-    await sendReply(config, channelId, `-# ${echo}`);
-    void handleMessage(config, channelId, item.prompt).catch((error) =>
+    await sendReply(config, channelId, `-# ${echo}`, {
+      message_reference: { message_id: messageId },
+    });
+    void handleMessage(config, channelId, item.prompt, undefined, messageId).catch((error) =>
       console.error(`Suggestion follow-up failed for ${channelId}: ${String(error)}`),
     );
     return;
@@ -1593,8 +1630,10 @@ async function dispatchComponent(
       type: CALLBACK_UPDATE_MESSAGE,
       data: { components: [] },
     });
-    await sendReply(config, channelId, option.label);
-    void handleMessage(config, channelId, option.prompt).catch((error) =>
+    await sendReply(config, channelId, option.label, {
+      message_reference: { message_id: messageId },
+    });
+    void handleMessage(config, channelId, option.prompt, undefined, messageId).catch((error) =>
       console.error(`Follow-up failed for ${channelId}: ${String(error)}`),
     );
     return;

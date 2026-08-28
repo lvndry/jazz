@@ -5,11 +5,10 @@
  */
 
 /**
- * Canonical environment facts block, the single source of truth for the machine
- * grounding appended to every persona system prompt at build time. Kept here so
- * persona authors never hand-copy it (that drifted field lists across personas)
- * and so a new field is added in exactly one place. Rendered by filling the
- * placeholders with live values in AgentPromptBuilder.buildSystemPrompt.
+ * Canonical machine-grounding block, the single source of truth for the facts
+ * the builder injects into persona prompts (Date, OS, Hardware, Shell, Home,
+ * Hostname, User, TTY). A new field is added in exactly one place; the builder
+ * fills the placeholders from live system info.
  */
 export const ENVIRONMENT_TEMPLATE =
   "Environment: Date: {currentDate} | OS: {osInfo} | Hardware: {hardware} | Shell: {shell} | Home: {homeDirectory} | Hostname: {hostname} | User: {username} | TTY: {tty}";
