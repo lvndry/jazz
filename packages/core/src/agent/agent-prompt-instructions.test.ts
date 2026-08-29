@@ -94,6 +94,22 @@ describe("skills playbook instructions", () => {
   });
 });
 
+describe("deferred tools index", () => {
+  test("no deferred-tools block when there are none", () => {
+    const result = build("default");
+    expect(result).not.toContain("<deferred_tools>");
+  });
+
+  test("deferred tools render as a name/summary index, not a schema", () => {
+    const result = build("default", {
+      deferredTools: [{ name: "linear_create_issue", summary: "Create a Linear issue." }],
+    });
+    expect(result).toContain("<deferred_tools>");
+    expect(result).toContain("- linear_create_issue: Create a Linear issue.");
+    expect(result).toContain("Call search_tools before using one");
+  });
+});
+
 describe("system prompt cache keys off the toolset", () => {
   test("same persona with different tools yields different prompts", () => {
     const builder = new AgentPromptBuilder();

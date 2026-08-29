@@ -18,6 +18,7 @@ import {
   MEMORY_INSTRUCTIONS,
   SKILLS_INSTRUCTIONS,
   TASK_STATE_INSTRUCTIONS,
+  TOOL_SEARCH_INSTRUCTIONS,
   TOOL_SELECTION_INSTRUCTIONS,
 } from "./prompts/shared";
 import { collectUserInputAttachments } from "./user-input-attachments";
@@ -91,6 +92,12 @@ export interface AgentPromptOptions {
     readonly description: string;
     readonly path: string;
   }[];
+  /**
+   * `deferred`-tier tools (see `ToolCategory.loadTier`) available to this run but not sent as
+   * full schemas — rendered as a compact index so the model knows they exist and can fetch one
+   * via `search_tools`, without paying every schema's token cost every turn.
+   */
+  readonly deferredTools?: readonly { readonly name: string; readonly summary: string }[];
   /**
    * AGENTS.md files discovered for the working directory, outermost first.
    * Rendered verbatim into the system prompt so project conventions reach the
@@ -216,6 +223,10 @@ export class AgentPromptBuilder {
     // (memory, task state, questions) and the per-tool notes both key off it.
     if (options.toolNames && options.toolNames.length > 0) {
       hash.update(`tools:${[...options.toolNames].sort().join(",")}`);
+    }
+    if (options.deferredTools && options.deferredTools.length > 0) {
+      const deferredFingerprints = options.deferredTools.map((t) => `${t.name}|${t.summary}`);
+      hash.update(`deferredTools:${JSON.stringify(deferredFingerprints.sort())}`);
     }
     // Content, not just paths: editing an AGENTS.md must take effect on the
     // next turn rather than waiting for a process restart.
@@ -376,6 +387,18 @@ ${SKILLS_INSTRUCTIONS}
 ${indexLines}
 </available_skills>`;
           systemPrompt = systemPrompt + skillsSection;
+        }
+
+        if (options.deferredTools && options.deferredTools.length > 0) {
+          const indexLines = options.deferredTools
+            .map((t) => `- ${t.name}: ${t.summary}`)
+            .join("\n");
+
+          systemPrompt = `${systemPrompt}
+${TOOL_SEARCH_INSTRUCTIONS}
+<deferred_tools>
+${indexLines}
+</deferred_tools>`;
         }
 
         if (options.toolNames?.includes("view_memory")) {

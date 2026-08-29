@@ -79,6 +79,26 @@ const BUILTIN_TOOLS_BY_CATEGORY: Record<string, string[]> = {
   context: ["context_info", "get_time"],
 };
 
+const MOCK_TOOL_DEFINITIONS = [
+  { function: { name: "tool1", description: "Tool 1 description", parameters: {} } },
+  { function: { name: "tool2", description: "Tool 2 description", parameters: {} } },
+  { function: { name: "manage_memory", description: "Manage long-term memory", parameters: {} } },
+  {
+    function: {
+      name: "ask_user_question",
+      description: "Ask the human a blocking question",
+      parameters: {},
+    },
+  },
+  {
+    function: {
+      name: "ask_file_picker",
+      description: "Show an interactive file picker",
+      parameters: {},
+    },
+  },
+];
+
 const mockToolRegistry = {
   registerTool: mock(() => Effect.succeed(undefined)),
   registerForCategory: mock(() => mock(() => Effect.succeed(undefined))),
@@ -112,44 +132,15 @@ const mockToolRegistry = {
       function: { name, description: `Description for ${name}` },
     }),
   ),
-  getToolDefinitions: mock(() =>
-    Effect.succeed([
-      {
-        function: {
-          name: "tool1",
-          description: "Tool 1 description",
-          parameters: {},
-        },
-      },
-      {
-        function: {
-          name: "tool2",
-          description: "Tool 2 description",
-          parameters: {},
-        },
-      },
-      {
-        function: {
-          name: "manage_memory",
-          description: "Manage long-term memory",
-          parameters: {},
-        },
-      },
-      {
-        function: {
-          name: "ask_user_question",
-          description: "Ask the human a blocking question",
-          parameters: {},
-        },
-      },
-      {
-        function: {
-          name: "ask_file_picker",
-          description: "Show an interactive file picker",
-          parameters: {},
-        },
-      },
-    ]),
+  getToolDefinitions: mock(() => Effect.succeed(MOCK_TOOL_DEFINITIONS)),
+  getToolDefinitionsFor: mock((names: readonly string[]) =>
+    Effect.succeed(MOCK_TOOL_DEFINITIONS.filter((d) => names.includes(d.function.name))),
+  ),
+  getToolSummaries: mock(() => Effect.succeed([])),
+  // No categories are registered on this mock, so every name is treated as eager — matching
+  // the real registry's behavior for uncategorized names.
+  partitionByTier: mock((names: readonly string[]) =>
+    Effect.succeed({ eager: names, deferred: [] }),
   ),
 } as unknown as ToolRegistry;
 

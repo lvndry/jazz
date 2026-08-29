@@ -76,6 +76,10 @@ export const TOOL_SELECTION_INSTRUCTIONS = `
 # Tool usage
 
 1. If a skill matches the task, load it and execute its playbook.
-2. Prefer the most specific tool available; reach for a general shell command only when no dedicated tool covers the task.
+2. Prefer the most specific tool available; reach for a general shell command only when no dedicated tool covers the task — this includes tools listed under deferred_tools below, not just ones already in your schema.
 3. Call independent operations (searches, reads, status checks) in parallel in a single response. Sequence calls only when one result feeds the next.
+`;
+
+export const TOOL_SEARCH_INSTRUCTIONS = `
+Deferred tools: names and one-line summaries only, not full schemas. Call search_tools before using one — it becomes directly callable afterward. Do not replicate one with execute_command instead.
 `;
