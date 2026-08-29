@@ -477,6 +477,128 @@ describe("ToolExecutor.executeToolCalls", () => {
       ),
     ).toBe(true);
   });
+
+  it("detaches an in-flight tool call when the background signal fires, instead of killing it", async () => {
+    const mockToolRegistry = {
+      getTool: () =>
+        Effect.succeed({
+          name: "background_tool",
+          timeoutMs: 60_000,
+          longRunning: false,
+          approvalExecuteToolName: undefined,
+        }),
+      executeTool: () =>
+        Effect.sleep("80 millis").pipe(
+          Effect.as({ success: true, result: { data: "real result" } }),
+        ),
+    } as unknown as ToolRegistry;
+
+    const emittedEvents: StreamEvent[] = [];
+    const recordingRenderer: StreamingRenderer = {
+      handleEvent: (event) =>
+        Effect.sync(() => {
+          emittedEvents.push(event);
+        }),
+      setInterruptHandler: () => Effect.void,
+      reset: () => Effect.void,
+      flush: () => Effect.void,
+    };
+
+    const testLayer = Layer.mergeAll(
+      Layer.succeed(LoggerServiceTag, mockLogger),
+      Layer.succeed(PresentationServiceTag, mockPresentationService),
+      Layer.succeed(ToolRegistryTag, mockToolRegistry),
+      Layer.succeed(AgentConfigServiceTag, mockAgentConfigService),
+      Layer.succeed(FileSystem.FileSystem, emptyFs),
+      Layer.succeed(TerminalServiceTag, emptyTerminal),
+      Layer.succeed(FileSystemContextServiceTag, emptyFsContext),
+      Layer.succeed(SkillServiceTag, mockSkillService),
+      Layer.succeed(LLMServiceTag, emptyLlm),
+      Layer.succeed(MCPServerManagerTag, emptyMcp),
+      Layer.succeed(MemoryServiceTag, emptyMemory),
+      Layer.succeed(WorkspaceServiceTag, {} as any),
+      Layer.succeed(WakeTriggerServiceTag, {} as any),
+      Layer.succeed(ReminderServiceTag, emptyReminders),
+      Layer.succeed(PeerLedgerServiceTag, {} as any),
+      Layer.succeed(PeerTokenServiceTag, {} as any),
+    );
+
+    const toolCalls: ToolCall[] = [
+      {
+        id: "call_bg",
+        type: "function",
+        function: { name: "background_tool", arguments: "{}" },
+      },
+    ];
+
+    const program = Effect.gen(function* () {
+      const backgroundDeferred = yield* Deferred.make<void>();
+      const completions: string[] = [];
+
+      const fiber = yield* Effect.fork(
+        ToolExecutor.executeToolCalls(
+          toolCalls,
+          { agentId: "agent-1", conversationId: "sess-1" },
+          { showReasoning: false, showToolExecution: true, mode: "hybrid" as const },
+          recordingRenderer,
+          makeRunMetrics(),
+          "agent-1",
+          "conv-123",
+          "test-agent",
+          undefined,
+          Deferred.await(backgroundDeferred),
+          (summary: string) => {
+            completions.push(summary);
+          },
+        ),
+      );
+
+      // Fire the background signal while `background_tool` is still mid-sleep.
+      yield* Effect.sleep("10 millis");
+      yield* Deferred.succeed(backgroundDeferred, undefined);
+
+      const immediateResults = yield* Fiber.join(fiber);
+
+      // Give the detached fiber time to actually finish and report back.
+      yield* Effect.sleep("150 millis");
+
+      return { immediateResults, completions };
+    });
+
+    const { immediateResults, completions } = await Effect.runPromise(
+      program.pipe(Effect.provide(testLayer)) as Effect.Effect<
+        {
+          immediateResults: readonly {
+            toolCallId: string;
+            result: unknown;
+            success: boolean;
+            name: string;
+          }[];
+          completions: readonly string[];
+        },
+        unknown,
+        never
+      >,
+    );
+
+    // The turn continues immediately with a placeholder, not the real (not-yet-ready) result.
+    expect(immediateResults).toHaveLength(1);
+    expect(immediateResults[0]?.success).toBe(true);
+    expect(immediateResults[0]?.result).toMatchObject({ backgrounded: true });
+
+    // The tool itself was never interrupted — the detached fiber ran to completion and
+    // reported its real result back through onDetachedToolComplete.
+    expect(completions).toHaveLength(1);
+    expect(completions[0]).toContain("real result");
+    expect(
+      emittedEvents.some(
+        (event) =>
+          event.type === "tool_execution_complete" &&
+          event.toolCallId === "call_bg" &&
+          event.success === true,
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("ToolExecutor.executeToolCall approval events", () => {

@@ -257,6 +257,17 @@ export interface CompletionStrategy {
   getInterruptSignal?(): Effect.Effect<void, never> | undefined;
 
   /**
+   * Optional background signal (Ctrl+B) used to detach the in-flight tool batch instead
+   * of interrupting it: the batch's fibers keep running (forked as daemon fibers so they
+   * outlive this tool phase), and each returns a "running in the background" placeholder
+   * result immediately so the loop continues. Unlike `getInterruptSignal`, firing this
+   * does not abort the run, and it must be re-triggerable across many tool batches within
+   * one run — implementations should not reuse a single one-shot `Deferred` the way
+   * `getInterruptSignal` does.
+   */
+  getBackgroundSignal?(): Effect.Effect<void, never> | undefined;
+
+  /**
    * Whether to show reasoning indicators for this strategy.
    */
   shouldShowReasoning: boolean;
@@ -503,6 +514,8 @@ function handleToolPhase(
       actualConversationId,
       agent.name,
       strategy.getInterruptSignal?.(),
+      strategy.getBackgroundSignal?.(),
+      options.onDetachedToolComplete,
     ).pipe(
       // The executor knows what the run is waiting for; only here are the messages that
       // let it start again. Everything else about the failure is left alone.

@@ -163,6 +163,15 @@ export interface AgentRunnerOptions {
    */
   readonly checkQueuedMessage?: () => string | undefined;
   /**
+   * Callback invoked when a tool call the user detached with Ctrl+B (see
+   * `getBackgroundSignal` on `CompletionStrategy`) finishes running. Receives a
+   * human-readable summary of the outcome. The default CLI wiring appends it to the
+   * same queue `checkQueuedMessage` drains, so it surfaces at the next tool-phase
+   * boundary if this run is still going, or at the start of the next turn otherwise —
+   * whichever comes first. Not called for internal (sub-agent) runs.
+   */
+  readonly onDetachedToolComplete?: (summary: string) => void;
+  /**
    * IANA timezone (e.g. "Europe/Paris") for this run, copied into the tool
    * execution context so tools like add_reminder can resolve "now" in the
    * caller's local time without asking the model to supply a timezone string.

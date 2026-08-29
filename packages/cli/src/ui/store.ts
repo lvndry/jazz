@@ -164,6 +164,8 @@ export interface SessionSnapshot {
   readonly isYolo: boolean;
   readonly connectors: ReadonlyMap<string, ConnectorStatus>;
   readonly interruptHandler: (() => void) | null;
+  /** Ctrl+B: detach the in-flight tool call into the background instead of killing it. */
+  readonly backgroundHandler: (() => void) | null;
   readonly approvalRequest: PendingApproval | null;
   readonly activeMenu: ActiveMenu | null;
   readonly modeToast: string | null;
@@ -195,6 +197,7 @@ const INITIAL_SESSION: SessionSnapshot = {
   isYolo: false,
   connectors: EMPTY_CONNECTORS,
   interruptHandler: null,
+  backgroundHandler: null,
   approvalRequest: null,
   activeMenu: null,
   modeToast: null,
@@ -280,6 +283,7 @@ export class UIStore {
   private ephemeralRegions: Map<EphemeralRegionId, EphemeralRegion> = new Map();
   private ephemeralIdCounter = 0;
   private interruptHandlerStack: Array<() => void> = [];
+  private backgroundHandlerStack: Array<() => void> = [];
   private promptContinuation: ((result: PromptResult) => void) | null = null;
   private rendererFallbackHandler: (() => void) | null = null;
 
@@ -420,6 +424,16 @@ export class UIStore {
     }
     const top = this.interruptHandlerStack[this.interruptHandlerStack.length - 1] ?? null;
     patchSlice(this.session, { interruptHandler: top });
+  };
+
+  setBackgroundHandler = (handler: (() => void) | null): void => {
+    if (handler === null) {
+      this.backgroundHandlerStack.pop();
+    } else {
+      this.backgroundHandlerStack.push(handler);
+    }
+    const top = this.backgroundHandlerStack[this.backgroundHandlerStack.length - 1] ?? null;
+    patchSlice(this.session, { backgroundHandler: top });
   };
 
   appendToQueue = (text: string): void => {
