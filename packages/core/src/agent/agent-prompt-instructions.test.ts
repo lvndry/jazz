@@ -106,7 +106,8 @@ describe("deferred tools index", () => {
     });
     expect(result).toContain("<deferred_tools>");
     expect(result).toContain("- linear_create_issue: Create a Linear issue.");
-    expect(result).toContain("Call search_tools before using one");
+    expect(result).toContain("Calling one of these names directly will fail");
+    expect(result).toContain("Call search_tools with a short phrase");
   });
 });
 

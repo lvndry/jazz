@@ -76,10 +76,20 @@ export const TOOL_SELECTION_INSTRUCTIONS = `
 # Tool usage
 
 1. If a skill matches the task, load it and execute its playbook.
-2. Prefer the most specific tool available; reach for a general shell command only when no dedicated tool covers the task — this includes tools listed under deferred_tools below, not just ones already in your schema.
+2. Prefer the most specific tool available. Reach for a general shell command only when nothing else covers the task — check the deferred_tools list below too, not just the tools already in your schema; a real tool may exist there under a name you have not unlocked yet.
 3. Call independent operations (searches, reads, status checks) in parallel in a single response. Sequence calls only when one result feeds the next.
 `;
 
 export const TOOL_SEARCH_INSTRUCTIONS = `
-Deferred tools: names and one-line summaries only, not full schemas. Call search_tools before using one — it becomes directly callable afterward. Do not replicate one with execute_command instead.
+# Deferred tools
+
+Two kinds of tools exist in this conversation:
+- The tools in your schema above: you can call them directly, right now.
+- The tools listed in <deferred_tools> below: real, available tools you do NOT have full definitions for yet — only their name and a one-line summary, to save space. Calling one of these names directly will fail; it is not in your schema.
+
+To use a deferred tool:
+1. Call search_tools with a short phrase describing the task (e.g. "create a linear issue").
+2. It returns the matching tool's real schema and makes it callable for the rest of this conversation — from then on, call it exactly like any other tool.
+
+Never fall back to execute_command (or any other workaround) to hand-roll what a deferred tool already does — the tool exists, it is just one search_tools call away.
 `;
