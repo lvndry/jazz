@@ -14,6 +14,7 @@ import type { FileSystemContextService } from "./fs";
 import type { JazzStateService } from "./jazz-state";
 import type { LLMService } from "./llm";
 import type { LoggerService } from "./logger";
+import type { PersonaService } from "./persona-service";
 import type { PresentationService } from "./presentation";
 import type { TerminalService } from "./terminal";
 import type { ToolRegistry, ToolRequirements } from "./tool-registry";
@@ -66,6 +67,7 @@ export interface ChatService {
     | ToolRequirements
     | SkillService
     | WorkflowService
+    | PersonaService
   >;
 }
 

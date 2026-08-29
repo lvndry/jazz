@@ -14,6 +14,7 @@ import {
 } from "@jazz/core/agent/context/work-journal";
 import { formatWorkState, readWorkState } from "@jazz/core/agent/context/work-state";
 import { matchForbiddenCommand, runShellCommand } from "@jazz/core/agent/tools/shell-tools";
+import { BUILTIN_TOOL_CATEGORIES } from "@jazz/core/agent/tools/tool-categories";
 import { WEB_SEARCH_PROVIDERS } from "@jazz/core/agent/tools/web-search-tools";
 import { normalizeToolConfig } from "@jazz/core/agent/utils/tool-config";
 import type { ProviderName } from "@jazz/core/constants/models";
@@ -32,6 +33,7 @@ import {
   isStdioConfig,
   type MCPServerManager,
 } from "@jazz/core/interfaces/mcp-server";
+import { PersonaServiceTag, type PersonaService } from "@jazz/core/interfaces/persona-service";
 import type { PresentationService } from "@jazz/core/interfaces/presentation";
 import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
 import {
@@ -51,7 +53,7 @@ import { getModelsDevMetadata } from "@jazz/core/utils/models-dev";
 import type { WorkflowMetadata } from "@jazz/core/workflows/workflow-service";
 import { WorkflowServiceTag, type WorkflowService } from "@jazz/core/workflows/workflow-service";
 import { groupWorkflows } from "@jazz/core/workflows/workflow-utils";
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import { getGlyphs } from "@/cli/ui/glyphs";
 import { getThemeVariant, setThemeVariant } from "@/cli/ui/theme";
 import * as fmt from "@/cli/utils/list-format";
@@ -82,6 +84,7 @@ export function handleSpecialCommand(
   | WorkflowService
   | MCPServerManager
   | FileSystem.FileSystem
+  | PersonaService
 > {
   const { agent, conversationId, conversationHistory } = context;
 
@@ -547,7 +550,11 @@ function handleHelpCommand(
 function handleToolsCommand(
   terminal: TerminalService,
   agent: CommandContext["agent"],
-): Effect.Effect<CommandResult, never, ToolRegistry | AgentConfigService | LLMService> {
+): Effect.Effect<
+  CommandResult,
+  never,
+  ToolRegistry | AgentConfigService | LLMService | PersonaService
+> {
   return Effect.gen(function* () {
     const toolRegistry = yield* ToolRegistryTag;
     const allToolsByCategory = yield* toolRegistry.listToolsByCategory();
@@ -555,7 +562,38 @@ function handleToolsCommand(
     const agentToolNames = normalizeToolConfig(agent.config.tools, {
       agentId: agent.id,
     });
-    const agentToolSet = new Set(agentToolNames);
+
+    // Mirrors initializeAgentRun's category resolution (agent-runner.ts) so this
+    // display reflects the tools the agent actually gets at runtime, not just
+    // what's explicitly stored in its config.
+    const personaServiceOption = yield* Effect.serviceOption(PersonaServiceTag);
+    const resolvedPersona = Option.isSome(personaServiceOption)
+      ? yield* personaServiceOption.value
+          .getPersonaByIdentifier(agent.config.persona)
+          .pipe(Effect.catchAll(() => Effect.succeed(null)))
+      : null;
+    const toolProfile = resolvedPersona?.toolProfile;
+
+    const requestedBuiltinCategoryIds: readonly string[] =
+      toolProfile?.categories !== undefined
+        ? toolProfile.categories
+        : agent.config.persona === "summarizer"
+          ? []
+          : BUILTIN_TOOL_CATEGORIES.map((c) => c.id);
+
+    const validBuiltinCategoryIds = new Set(BUILTIN_TOOL_CATEGORIES.map((c) => c.id));
+    const builtInToolNames = (yield* Effect.all(
+      requestedBuiltinCategoryIds
+        .filter((id) => validBuiltinCategoryIds.has(id))
+        .map((id) => toolRegistry.getToolsInCategory(id)),
+    )).flat();
+
+    let combinedToolNames = [...new Set([...agentToolNames, ...builtInToolNames])];
+    if (toolProfile?.deny && toolProfile.deny.length > 0) {
+      const denied = new Set(toolProfile.deny);
+      combinedToolNames = combinedToolNames.filter((name) => !denied.has(name));
+    }
+    const agentToolSet = new Set(combinedToolNames);
 
     const filteredToolsByCategory: Record<string, readonly string[]> = {};
     for (const [category, tools] of Object.entries(allToolsByCategory)) {

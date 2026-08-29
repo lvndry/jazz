@@ -24,6 +24,7 @@ import { JazzStateServiceTag, type JazzStateService } from "@jazz/core/interface
 import { type LLMService } from "@jazz/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@jazz/core/interfaces/logger";
 import { MCPServerManagerTag, type MCPServerManager } from "@jazz/core/interfaces/mcp-server";
+import { type PersonaService } from "@jazz/core/interfaces/persona-service";
 import { type PresentationService } from "@jazz/core/interfaces/presentation";
 import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
 import {
@@ -93,6 +94,7 @@ export class ChatServiceImpl implements ChatService {
     | ToolRequirements
     | SkillService
     | WorkflowService
+    | PersonaService
   > {
     return Effect.gen(function* () {
       const terminal = yield* TerminalServiceTag;
