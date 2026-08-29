@@ -100,11 +100,12 @@ in one important way:
   model with no catalog entry, say), `costUSD` stays undefined and the cap is skipped entirely
   rather than assumed to be zero or exceeded. `maxTokens` has no such gap — it needs no pricing
   metadata, so it still enforces where `maxCostUSD` cannot.
-- **`maxDurationMs` also nudges the agent before it stops it.** Ephemeral pressure messages —
-  never persisted to the conversation, same reasoning as the iteration-budget nudge — are injected
-  at 50%, 80%, and 90% of the budget elapsed, mirroring the context-window and iteration-budget
-  warnings. The 90% message asks the agent to wrap up immediately; by 100% the run is stopped
-  between iterations regardless of what it answers back.
+- **All three nudge the agent before they stop it.** Ephemeral pressure messages — never
+  persisted to the conversation, same reasoning as the iteration-budget nudge — are injected at
+  50%, 80%, and 90% of whichever budget is closest to being spent, mirroring the context-window
+  and iteration-budget warnings. The 90% message asks the agent to wrap up immediately; at 100%
+  the run is stopped between iterations regardless of what it answers back. `maxCostUSD`'s nudge
+  is skipped under the same unknown-pricing condition as its hard stop.
 
 A run stopped by one of these reports it on the `AgentResponse`: `costCapped`, `tokenCapped`, or
 `durationCapped`, each `true` only when that specific cap tripped. `jazz run --json` and

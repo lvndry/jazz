@@ -45,7 +45,7 @@ maxDurationMs: 1800000
 | `maxCatchUpAge`    | seconds     | —        | Past this age a missed run is skipped. Default 86400 (24 h)                       |
 | `maxIterations`    | number      | —        | Iteration cap for this workflow. Default 100. Overridable with `--max-iterations`  |
 | `maxCostUSD`       | number      | —        | Spend cap in USD, checked between iterations. Unset = uncapped. Overridable with `--max-cost-usd` |
-| `maxTokens`        | number      | —        | Own-token cap, checked between iterations. Unset = uncapped. Overridable with `--max-tokens` |
+| `maxTokens`        | number      | —        | Cap on cumulative prompt + completion tokens for this run (not sub-agents), checked between iterations. Unset = uncapped. Overridable with `--max-tokens` |
 | `maxDurationMs`    | ms          | —        | Wall-clock budget with 50/80/90% agent pressure nudges. Unset = uncapped. Overridable with `--max-duration-ms` |
 
 `maxCostUSD`, `maxTokens`, and `maxDurationMs` are soft checkpoints, evaluated between

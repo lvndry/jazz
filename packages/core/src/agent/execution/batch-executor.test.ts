@@ -138,6 +138,9 @@ function makeRunContext(): AgentRunContext {
     knownSkills: [],
     maxRetries: 0,
     maxIterations: DEFAULT_MAX_ITERATIONS,
+    maxCostUSD: undefined,
+    maxTokens: undefined,
+    maxDurationMs: undefined,
   };
 }
 

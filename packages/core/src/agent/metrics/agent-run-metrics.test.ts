@@ -23,10 +23,11 @@ const MINIMAL_AGENT = {
   updatedAt: new Date(),
 };
 
-function createMetrics() {
+function createMetrics(overrides?: { provider?: string; model?: string }) {
   return createAgentRunMetrics({
     agent: MINIMAL_AGENT,
     conversationId: "conv-123",
+    ...overrides,
   });
 }
 
@@ -199,9 +200,7 @@ describe("computeRunCost", () => {
   });
 
   it("flags costIncomplete when tokens were spent but pricing is unavailable", () => {
-    const metrics = createMetrics();
-    metrics.provider = "openai";
-    metrics.model = "gpt-4";
+    const metrics = createMetrics({ provider: "openai", model: "gpt-4" });
     metrics.totalPromptTokens = 100;
     metrics.totalCompletionTokens = 100;
 
@@ -212,9 +211,7 @@ describe("computeRunCost", () => {
   });
 
   it("never flags costIncomplete for a zero-cost local model with no pricing", () => {
-    const metrics = createMetrics();
-    metrics.provider = "ollama";
-    metrics.model = "qwen3.6:27b";
+    const metrics = createMetrics({ provider: "ollama", model: "qwen3.6:27b" });
     metrics.totalPromptTokens = 100;
     metrics.totalCompletionTokens = 100;
 

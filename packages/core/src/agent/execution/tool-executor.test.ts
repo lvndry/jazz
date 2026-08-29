@@ -92,6 +92,7 @@ function makeRunMetrics(): ReturnType<typeof createAgentRunMetrics> {
     agentUpdatedAt: new Date(),
     conversationId: "conv-123",
     maxIterations: 10,
+    maxCostUSD: undefined,
     startedAt: new Date(),
     totalPromptTokens: 0,
     totalCompletionTokens: 0,

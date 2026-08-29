@@ -87,38 +87,84 @@ export function buildBudgetPressureMessage(
 }
 
 /**
- * Returns an ephemeral time-budget pressure message at 50%/80%/90% of `maxDurationMs`
- * elapsed. Returns null below 50%. Must NOT be pushed to currentMessages — ephemeral only,
+ * Shared 50%/80%/90% tiering for the maxCostUSD/maxTokens/maxDurationMs pressure nudges
+ * below. Returns null under 50%. Must NOT be pushed to currentMessages — ephemeral only,
  * same reasoning as `buildBudgetPressureMessage` above (a persisted warning wastes tokens
  * and gets summarized into the very compaction it warned about).
+ */
+function budgetPressureMessage(
+  pct: number,
+  label: string,
+  progress: string,
+): { role: "user"; content: string } | null {
+  const percent = Math.round(pct * 100);
+  if (pct >= 0.9) {
+    return {
+      role: "user",
+      content: `[${label} CRITICAL: ${progress} (${percent}%). Write your final output NOW. No further research or subagent spawning.]`,
+    };
+  }
+  if (pct >= 0.8) {
+    return {
+      role: "user",
+      content: `[${label} WARNING: ${progress} (${percent}%). Begin consolidating results. Stop spawning new research subagents. Move to consolidation and output phases.]`,
+    };
+  }
+  if (pct >= 0.5) {
+    return {
+      role: "user",
+      content: `[${label} NOTICE: ${progress} (${percent}%). You are past the halfway point of your ${label.toLowerCase()} budget — plan to wrap up well before it runs out.]`,
+    };
+  }
+  return null;
+}
+
+/**
+ * Returns an ephemeral time-budget pressure message at 50%/80%/90% of `maxDurationMs` elapsed.
  */
 export function buildTimeBudgetPressureMessage(
   elapsedMs: number,
   maxDurationMs: number,
 ): { role: "user"; content: string } | null {
   if (maxDurationMs <= 0) return null;
-  const pct = elapsedMs / maxDurationMs;
   const minutesUsed = Math.round(elapsedMs / 60_000);
   const minutesBudget = Math.round(maxDurationMs / 60_000);
-  if (pct >= 0.9) {
-    return {
-      role: "user",
-      content: `[TIME CRITICAL: ${minutesUsed}/${minutesBudget} minutes used (${Math.round(pct * 100)}%). Write your final output NOW. No further research or subagent spawning.]`,
-    };
-  }
-  if (pct >= 0.8) {
-    return {
-      role: "user",
-      content: `[TIME WARNING: ${minutesUsed}/${minutesBudget} minutes used (${Math.round(pct * 100)}%). Begin consolidating results. Stop spawning new research subagents. Move to consolidation and output phases.]`,
-    };
-  }
-  if (pct >= 0.5) {
-    return {
-      role: "user",
-      content: `[TIME NOTICE: ${minutesUsed}/${minutesBudget} minutes used (${Math.round(pct * 100)}%). You are past the halfway point of your time budget — plan to wrap up well before it runs out.]`,
-    };
-  }
-  return null;
+  return budgetPressureMessage(
+    elapsedMs / maxDurationMs,
+    "TIME",
+    `${minutesUsed}/${minutesBudget} minutes used`,
+  );
+}
+
+/**
+ * Returns an ephemeral token-budget pressure message at 50%/80%/90% of `maxTokens` used
+ * (own prompt + completion tokens accumulated so far).
+ */
+export function buildTokenBudgetPressureMessage(
+  totalTokens: number,
+  maxTokens: number,
+): { role: "user"; content: string } | null {
+  if (maxTokens <= 0) return null;
+  return budgetPressureMessage(
+    totalTokens / maxTokens,
+    "TOKEN",
+    `${totalTokens.toLocaleString()}/${maxTokens.toLocaleString()} tokens used`,
+  );
+}
+
+/**
+ * Returns an ephemeral cost-budget pressure message at 50%/80%/90% of `maxCostUSD` spent.
+ */
+export function buildCostBudgetPressureMessage(
+  costUSD: number,
+  maxCostUSD: number,
+): { role: "user"; content: string } | null {
+  if (maxCostUSD <= 0) return null;
+  return budgetPressureMessage(
+    costUSD / maxCostUSD,
+    "COST",
+    `$${costUSD.toFixed(4)}/$${maxCostUSD.toFixed(4)} spent`,
+  );
 }
 
 /** Share of the context budget past which the agent is told to stop gathering and write. */
@@ -212,8 +258,11 @@ interface LoopDeps {
   observer: AgentLoopObserver;
   logger: LoggerService;
   maxIterations: number;
-  /** Wall-clock budget in ms, for the ephemeral time-pressure nudge. Undefined = uncapped. */
+  /** Cost/token/duration ceilings and pricing, for the ephemeral pressure nudges. Undefined = uncapped. */
+  maxCostUSD: number | undefined;
+  maxTokens: number | undefined;
   maxDurationMs: number | undefined;
+  modelMetadata: UsageCostPricing | undefined;
   runRecursive: RecursiveRunner;
   /**
    * Attachment modalities this run's model accepts. Passed to tools so `read_file` on a
@@ -722,7 +771,10 @@ function runIteration(
     observer,
     logger,
     maxIterations,
+    maxCostUSD,
+    maxTokens,
     maxDurationMs,
+    modelMetadata,
     runRecursive,
   } = deps;
 
@@ -839,7 +891,31 @@ function runIteration(
       maxDurationMs !== undefined
         ? buildTimeBudgetPressureMessage(Date.now() - runMetrics.startedAt.getTime(), maxDurationMs)
         : null;
-    const pressureContent = [contextMsg?.content, budgetMsg?.content, timeBudgetMsg?.content]
+    const tokenBudgetMsg =
+      maxTokens !== undefined
+        ? buildTokenBudgetPressureMessage(
+            runMetrics.totalPromptTokens + runMetrics.totalCompletionTokens,
+            maxTokens,
+          )
+        : null;
+    // Reuses the same cost math as the hard-stop check in the outer loop (computeRunCost),
+    // so the nudge and the eventual cutoff never disagree about how much has been spent.
+    const costBudgetMsg =
+      maxCostUSD !== undefined
+        ? (() => {
+            const runCost = computeRunCost(runMetrics, modelMetadata);
+            return runCost.costUSD !== undefined
+              ? buildCostBudgetPressureMessage(runCost.costUSD, maxCostUSD)
+              : null;
+          })()
+        : null;
+    const pressureContent = [
+      contextMsg?.content,
+      budgetMsg?.content,
+      timeBudgetMsg?.content,
+      tokenBudgetMsg?.content,
+      costBudgetMsg?.content,
+    ]
       .filter(Boolean)
       .join("\n");
     const messagesForLLM = pressureContent
@@ -1169,7 +1245,10 @@ export function executeAgentLoop(
           observer,
           logger,
           maxIterations,
+          maxCostUSD,
+          maxTokens,
           maxDurationMs,
+          modelMetadata,
           runRecursive,
           supportedAttachmentKinds,
         };

@@ -146,6 +146,9 @@ describe("executeWithStreaming", () => {
       connectedMCPServers: [],
       knownSkills: [],
       maxIterations: DEFAULT_MAX_ITERATIONS,
+      maxCostUSD: undefined,
+      maxTokens: undefined,
+      maxDurationMs: undefined,
     };
 
     const displayConfig = {
@@ -353,6 +356,9 @@ describe("executeWithStreaming", () => {
       connectedMCPServers: [],
       knownSkills: [],
       maxIterations: DEFAULT_MAX_ITERATIONS,
+      maxCostUSD: undefined,
+      maxTokens: undefined,
+      maxDurationMs: undefined,
     };
 
     const displayConfig = {
@@ -469,6 +475,9 @@ describe("executeWithStreaming", () => {
       connectedMCPServers: [],
       knownSkills: [],
       maxIterations: DEFAULT_MAX_ITERATIONS,
+      maxCostUSD: undefined,
+      maxTokens: undefined,
+      maxDurationMs: undefined,
     };
 
     const mockLLMService: LLMService = {

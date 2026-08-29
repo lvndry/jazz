@@ -61,7 +61,7 @@ absent and stdin is not a TTY.
 | `--timeout <ms>`        | none         | Abort the run after this many milliseconds (hard external kill, no warning)                                                       |
 | `--max-iterations <n>`  | 80           | Cap reasoning iterations                                                                                                          |
 | `--max-cost-usd <$>`    | none         | Abort once cumulative spend (own + sub-agent) reaches this many dollars, checked between iterations                              |
-| `--max-tokens <n>`      | none         | Abort once cumulative own tokens reach this count, checked between iterations — needs no model pricing                          |
+| `--max-tokens <n>`      | none         | Abort once cumulative prompt + completion tokens (own run only, not sub-agents) reach this count, checked between iterations — needs no model pricing |
 | `--max-duration-ms <ms>`| none         | Abort once elapsed wall-clock time reaches this budget, with agent pressure nudges at 50/80/90%, checked between iterations       |
 | `--stream`              | auto         | Force streaming. Required for `--events` in non-TTY contexts, where streaming auto-disables                                       |
 | `--no-stream`           | —            | Disable streaming                                                                                                                 |
