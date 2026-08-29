@@ -25,3 +25,23 @@ export function parsePositiveInt(label: string) {
     return value;
   };
 }
+
+/**
+ * Build a Commander option parser that accepts only positive (fractional) numbers, for
+ * dollar-amount flags like --max-cost-usd where "20" or "0.20" both make sense but "20s"
+ * or a negative amount do not.
+ *
+ * @param label - The flag name used in the error message (e.g. "--max-cost-usd").
+ */
+export function parsePositiveFloat(label: string) {
+  return (raw: string): number => {
+    if (!/^\d+(\.\d+)?$/.test(raw)) {
+      throw new Error(`${label} must be a positive number (got "${raw}").`);
+    }
+    const value = Number.parseFloat(raw);
+    if (!(value > 0)) {
+      throw new Error(`${label} must be a positive number (got "${raw}").`);
+    }
+    return value;
+  };
+}

@@ -121,6 +121,33 @@ If it were stored, iteration 98 would carry eight escalating "FINISH NOW" messag
 one costing tokens and confusing the transcript that later gets summarized. This way the
 nudge steers the run without polluting its history.
 
+### Sibling guards — cost, tokens, and wall-clock time
+
+Three more budgets check in the same place, right after each iteration's tool phase
+finishes, and are configured via `maxCostUSD`, `maxTokens`, and `maxDurationMs` (see
+[Configuration reference](../reference/configuration.md#maxcostusd-maxtokens-and-maxdurationms)):
+
+- **`maxCostUSD`** re-prices the run's accumulated tokens (plus any sub-agent spend rolled up
+  via `childCostUSD`) against the model's models.dev pricing. Skipped entirely when pricing is
+  unknown — it never guess-aborts a run it cannot verify the spend of.
+- **`maxTokens`** just sums `totalPromptTokens + totalCompletionTokens`. No pricing lookup, so
+  it still enforces on a local/unpriced model where `maxCostUSD` cannot.
+- **`maxDurationMs`** compares wall-clock elapsed time (`Date.now() - runMetrics.startedAt`)
+  against the budget. Unlike the other two, it also gets an ephemeral pressure message inside
+  `runIteration` itself — `buildTimeBudgetPressureMessage` — at 50%, 80%, and 90% elapsed,
+  mirroring the iteration-budget nudge above.
+
+All three share the same timing as the iteration budget: checked *between* iterations, not a
+preemptive interrupt. A single expensive iteration — a costly tool call, or a sub-agent
+delegation that itself runs for a while — can push the total past the cap before the next
+check trips. A run stopped this way reports which cap fired on the response:
+`costCapped` / `tokenCapped` / `durationCapped`.
+
+This is deliberately different from `--timeout`, which lives outside the loop entirely — the
+CLI races the whole run against a deadline (`packages/core/src/utils/run-deadline.ts`) and
+kills it with no warning to the agent. `--timeout` is the hard outer safety net;
+`maxDurationMs` is the warned, graceful budget.
+
 ---
 
 ## Guard 2 — meltdown detection

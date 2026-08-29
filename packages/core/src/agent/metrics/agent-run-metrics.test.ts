@@ -5,6 +5,7 @@ import { LoggerServiceTag } from "@/core/interfaces/logger";
 import {
   beginIteration,
   completeIteration,
+  computeRunCost,
   createAgentRunMetrics,
   estimateTokens,
   finalizeAgentRun,
@@ -166,5 +167,90 @@ describe("classifier usage", () => {
     expect(logged?.["classifierCompletionTokens"]).toBe(2);
     expect(logged?.["classifierRequests"]).toBe(2);
     expect(logged?.["classifierDurationMs"]).toBe(21);
+  });
+});
+
+describe("computeRunCost", () => {
+  const pricing = { inputPricePerMillion: 1, outputPricePerMillion: 2 };
+
+  it("prices own tokens against the given rates", () => {
+    const metrics = createMetrics();
+    metrics.totalPromptTokens = 100_000;
+    metrics.totalCompletionTokens = 100_000;
+
+    const { costUSD, costIncomplete } = computeRunCost(metrics, pricing);
+
+    expect(costUSD).toBeCloseTo(0.1 + 0.2, 8);
+    expect(costIncomplete).toBe(false);
+  });
+
+  it("prices zero tokens as zero cost when pricing is known", () => {
+    const metrics = createMetrics();
+    const { costUSD, costIncomplete } = computeRunCost(metrics, pricing);
+    expect(costUSD).toBe(0);
+    expect(costIncomplete).toBe(false);
+  });
+
+  it("returns undefined cost when nothing was spent and no pricing is known", () => {
+    const metrics = createMetrics();
+    const { costUSD, costIncomplete } = computeRunCost(metrics, undefined);
+    expect(costUSD).toBeUndefined();
+    expect(costIncomplete).toBe(false);
+  });
+
+  it("flags costIncomplete when tokens were spent but pricing is unavailable", () => {
+    const metrics = createMetrics();
+    metrics.provider = "openai";
+    metrics.model = "gpt-4";
+    metrics.totalPromptTokens = 100;
+    metrics.totalCompletionTokens = 100;
+
+    const { costUSD, costIncomplete } = computeRunCost(metrics, undefined);
+
+    expect(costUSD).toBeUndefined();
+    expect(costIncomplete).toBe(true);
+  });
+
+  it("never flags costIncomplete for a zero-cost local model with no pricing", () => {
+    const metrics = createMetrics();
+    metrics.provider = "ollama";
+    metrics.model = "qwen3.6:27b";
+    metrics.totalPromptTokens = 100;
+    metrics.totalCompletionTokens = 100;
+
+    const { costUSD, costIncomplete } = computeRunCost(metrics, undefined);
+
+    expect(costUSD).toBeUndefined();
+    expect(costIncomplete).toBe(false);
+  });
+
+  it("rolls up sub-agent (child) cost even when the run's own cost is unpriced", () => {
+    const metrics = createMetrics();
+    metrics.childCostUSD = 0.05;
+
+    const { costUSD, costIncomplete } = computeRunCost(metrics, undefined);
+
+    expect(costUSD).toBe(0.05);
+    expect(costIncomplete).toBe(false);
+  });
+
+  it("flags costIncomplete when a sub-agent's spend was itself unpriced", () => {
+    const metrics = createMetrics();
+    metrics.childCostUnknown = true;
+
+    const { costIncomplete } = computeRunCost(metrics, pricing);
+
+    expect(costIncomplete).toBe(true);
+  });
+
+  it("adds own and child cost together", () => {
+    const metrics = createMetrics();
+    metrics.totalPromptTokens = 100_000;
+    metrics.totalCompletionTokens = 0;
+    metrics.childCostUSD = 0.05;
+
+    const { costUSD } = computeRunCost(metrics, pricing);
+
+    expect(costUSD).toBeCloseTo(0.1 + 0.05, 8);
   });
 });

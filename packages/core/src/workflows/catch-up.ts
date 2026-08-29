@@ -281,6 +281,9 @@ export function runCatchUpForWorkflows(
         conversationId: runId,
         pinInitialMessage: true,
         ...(workflow.maxIterations != null ? { maxIterations: workflow.maxIterations } : {}),
+        ...(workflow.maxCostUSD != null ? { maxCostUSD: workflow.maxCostUSD } : {}),
+        ...(workflow.maxTokens != null ? { maxTokens: workflow.maxTokens } : {}),
+        ...(workflow.maxDurationMs != null ? { maxDurationMs: workflow.maxDurationMs } : {}),
         ...(autoApprovePolicy !== undefined ? { autoApprovePolicy } : {}),
       }).pipe(
         Effect.tap(() =>

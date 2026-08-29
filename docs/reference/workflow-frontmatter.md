@@ -27,6 +27,9 @@ skills:
 catchUpOnRestart: true
 maxCatchUpAge: 7200
 maxIterations: 40
+maxCostUSD: 0.20
+maxTokens: 200000
+maxDurationMs: 1800000
 ---
 ```
 
@@ -41,6 +44,14 @@ maxIterations: 40
 | `catchUpOnRestart` | boolean     | —        | Whether a recent missed run may be replayed after daemon restart                  |
 | `maxCatchUpAge`    | seconds     | —        | Past this age a missed run is skipped. Default 86400 (24 h)                       |
 | `maxIterations`    | number      | —        | Iteration cap for this workflow. Default 100. Overridable with `--max-iterations`  |
+| `maxCostUSD`       | number      | —        | Spend cap in USD, checked between iterations. Unset = uncapped. Overridable with `--max-cost-usd` |
+| `maxTokens`        | number      | —        | Own-token cap, checked between iterations. Unset = uncapped. Overridable with `--max-tokens` |
+| `maxDurationMs`    | ms          | —        | Wall-clock budget with 50/80/90% agent pressure nudges. Unset = uncapped. Overridable with `--max-duration-ms` |
+
+`maxCostUSD`, `maxTokens`, and `maxDurationMs` are soft checkpoints, evaluated between
+iterations — not preemptive interrupts. See
+[Configuration → `maxCostUSD`, `maxTokens`, and `maxDurationMs`](./configuration.md#maxcostusd-maxtokens-and-maxdurationms)
+for the full enforcement model and how `maxDurationMs` differs from `--timeout`.
 
 There is **no** `autoApprovedCommands` field in frontmatter — that is a global config setting.
 See [the note below](#the-low-risk-trap).

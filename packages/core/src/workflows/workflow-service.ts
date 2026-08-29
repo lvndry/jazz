@@ -37,6 +37,12 @@ export interface WorkflowMetadata {
   readonly maxCatchUpAge?: number;
   /** Maximum agent iterations per run. Unset, the run falls back to config `maxIterations`, then `DEFAULT_MAX_ITERATIONS` */
   readonly maxIterations?: number;
+  /** Per-run spend ceiling in USD. Unset, the run falls back to config `maxCostUSD`; unset at both means uncapped. */
+  readonly maxCostUSD?: number;
+  /** Per-run token ceiling. Unset, the run falls back to config `maxTokens`; unset at both means uncapped. */
+  readonly maxTokens?: number;
+  /** Wall-clock spend budget in ms. Unset, the run falls back to config `maxDurationMs`; unset at both means uncapped. */
+  readonly maxDurationMs?: number;
 }
 
 /**
@@ -112,6 +118,9 @@ function parseWorkflowFrontmatter(
     }),
     ...(typeof data["maxCatchUpAge"] === "number" && { maxCatchUpAge: data["maxCatchUpAge"] }),
     ...(typeof data["maxIterations"] === "number" && { maxIterations: data["maxIterations"] }),
+    ...(typeof data["maxCostUSD"] === "number" && { maxCostUSD: data["maxCostUSD"] }),
+    ...(typeof data["maxTokens"] === "number" && { maxTokens: data["maxTokens"] }),
+    ...(typeof data["maxDurationMs"] === "number" && { maxDurationMs: data["maxDurationMs"] }),
   };
 }
 

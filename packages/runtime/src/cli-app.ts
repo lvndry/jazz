@@ -4,7 +4,7 @@ import {
   parseEventCategories,
   resolveStreamOption,
 } from "@jazz/cli/commands/run/flags";
-import { parsePositiveInt } from "@jazz/cli/utils/option-parsers";
+import { parsePositiveFloat, parsePositiveInt } from "@jazz/cli/utils/option-parsers";
 import { setCurrentCommandName } from "@jazz/core/utils/current-command";
 import { parseProviderModel } from "@jazz/core/utils/provider-model";
 import { Command } from "commander";
@@ -118,6 +118,21 @@ function registerRunCommand(program: Command): void {
       parsePositiveInt("--max-iterations"),
     )
     .option(
+      "--max-cost-usd <dollars>",
+      "Abort the run once cumulative spend (own + sub-agent) reaches this many dollars. Checked between iterations, not preemptively — see docs/reference/configuration.md.",
+      parsePositiveFloat("--max-cost-usd"),
+    )
+    .option(
+      "--max-tokens <n>",
+      "Abort the run once cumulative own tokens (prompt + completion) reach this count. Checked between iterations, same as --max-cost-usd but needs no model pricing.",
+      parsePositiveInt("--max-tokens"),
+    )
+    .option(
+      "--max-duration-ms <ms>",
+      "Abort the run once elapsed wall-clock time reaches this many milliseconds. The agent gets pressure nudges at 50/80/90% elapsed, then the run stops between iterations.",
+      parsePositiveInt("--max-duration-ms"),
+    )
+    .option(
       "--events <categories>",
       "Emit selected event categories as NDJSON to stderr during the run (comma-separated: tools,reasoning,text,usage,approval,subagent,all). stdout stays the clean payload.",
     )
@@ -173,6 +188,9 @@ function registerRunCommand(program: Command): void {
           timezone?: string;
           timeout?: number;
           maxIterations?: number;
+          maxCostUsd?: number;
+          maxTokens?: number;
+          maxDurationMs?: number;
           events?: string;
           reasoning?: string;
           conversation?: string;
@@ -290,6 +308,11 @@ function registerRunCommand(program: Command): void {
                 ...(options.timeout !== undefined ? { timeoutMs: options.timeout } : {}),
                 ...(options.maxIterations !== undefined
                   ? { maxIterations: options.maxIterations }
+                  : {}),
+                ...(options.maxCostUsd !== undefined ? { maxCostUSD: options.maxCostUsd } : {}),
+                ...(options.maxTokens !== undefined ? { maxTokens: options.maxTokens } : {}),
+                ...(options.maxDurationMs !== undefined
+                  ? { maxDurationMs: options.maxDurationMs }
                   : {}),
                 ...(eventCategories?.ok ? { eventTypes: eventCategories.types } : {}),
                 ...(options.conversation !== undefined
@@ -1026,6 +1049,21 @@ function registerWorkflowCommands(program: Command): void {
       parsePositiveInt("--max-iterations"),
     )
     .option(
+      "--max-cost-usd <dollars>",
+      "Spend ceiling in USD, checked between iterations (overrides the workflow's own setting)",
+      parsePositiveFloat("--max-cost-usd"),
+    )
+    .option(
+      "--max-tokens <n>",
+      "Token ceiling, checked between iterations (overrides the workflow's own setting)",
+      parsePositiveInt("--max-tokens"),
+    )
+    .option(
+      "--max-duration-ms <ms>",
+      "Wall-clock budget in ms with 50/80/90% pressure nudges to the agent, checked between iterations (overrides the workflow's own setting). Distinct from --timeout: that is a hard external kill with no warning.",
+      parsePositiveInt("--max-duration-ms"),
+    )
+    .option(
       "--scheduled",
       "Indicates this run was triggered by the system scheduler (launchd/cron)",
     )
@@ -1054,6 +1092,9 @@ function registerWorkflowCommands(program: Command): void {
           autoApprove?: boolean;
           agent?: string;
           maxIterations?: number;
+          maxCostUsd?: number;
+          maxTokens?: number;
+          maxDurationMs?: number;
           scheduled?: boolean;
           json?: boolean;
           timeout?: number;
@@ -1097,6 +1138,7 @@ function registerWorkflowCommands(program: Command): void {
               mod.runWorkflowCommand(name, {
                 ...options,
                 ...(options.timeout !== undefined ? { timeoutMs: options.timeout } : {}),
+                ...(options.maxCostUsd !== undefined ? { maxCostUSD: options.maxCostUsd } : {}),
                 ...(eventCategories?.ok ? { eventTypes: eventCategories.types } : {}),
                 ...resolveStreamOption(options, eventCategories),
               }),

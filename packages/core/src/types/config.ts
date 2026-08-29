@@ -32,6 +32,22 @@ export interface AppConfig {
   readonly maxIterations?: number;
   /** Iteration budget for a sub-agent run. Defaults to 30. */
   readonly maxSubagentIterations?: number;
+  /**
+   * Per-run spend ceiling in USD (own tokens plus any sub-agent spend), checked between
+   * iterations. Unset means uncapped — there is no default ceiling. `--max-cost-usd` wins.
+   */
+  readonly maxCostUSD?: number;
+  /**
+   * Per-run token ceiling (own prompt + completion tokens), checked between iterations.
+   * Unset means uncapped. `--max-tokens` wins. Unlike `maxCostUSD`, needs no pricing
+   * metadata, so it still enforces on an unpriced/local model.
+   */
+  readonly maxTokens?: number;
+  /**
+   * Wall-clock spend budget in ms, checked between iterations, with pressure nudges to the
+   * agent at 50/80/90% elapsed. Unset means uncapped. `--max-duration-ms` wins.
+   */
+  readonly maxDurationMs?: number;
   readonly context?: ContextConfig;
   /**
    * Per-agent total size cap for the workspace scratch directory, in bytes.
