@@ -5,9 +5,12 @@ import type { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { createFileSystemContextServiceLayer } from "@jazz/adapters/fs";
 import { saveConversation } from "@jazz/adapters/history/conversation-history-service";
+import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import { JazzStateServiceTag, type JazzStateService } from "@jazz/core/interfaces/jazz-state";
+import { type LLMService, LLMServiceTag } from "@jazz/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@jazz/core/interfaces/logger";
 import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
+import { ToolRegistryTag, type ToolRegistry } from "@jazz/core/interfaces/tool-registry";
 import type { Agent } from "@jazz/core/types/agent";
 import type { ChatMessage } from "@jazz/core/types/message";
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
@@ -310,6 +313,78 @@ describe("handleSpecialCommand /reasoning", () => {
     );
 
     expect(result.newAgent?.config.reasoningEffort).toBe("medium");
+  });
+});
+
+describe("handleSpecialCommand /tools", () => {
+  test("includes builtin categories not present in the agent's own config.tools", async () => {
+    const logged: string[] = [];
+    const mockTerminal: Partial<TerminalService> = {
+      log: mock((message: string) => {
+        logged.push(message);
+        return Effect.succeed(undefined);
+      }) as TerminalService["log"],
+      warn: mock(() => Effect.void),
+    };
+
+    // An agent whose config only ever selected file_management/http/shell_commands —
+    // no context/search_tools/todo/etc were ever explicitly picked.
+    const agentToolsByCategory: Record<string, readonly string[]> = {
+      "File Management": ["ls", "read_file"],
+      HTTP: ["http_request"],
+      "Shell Commands": ["execute_command"],
+      Context: ["context_info", "get_time"],
+      "Tool Search": ["search_tools"],
+    };
+
+    const mockToolRegistry: Partial<ToolRegistry> = {
+      listToolsByCategory: () => Effect.succeed(agentToolsByCategory),
+      getToolsInCategory: (categoryId: string) =>
+        Effect.succeed(
+          categoryId === "context"
+            ? ["context_info", "get_time"]
+            : categoryId === "search_tools"
+              ? ["search_tools"]
+              : [],
+        ),
+    };
+
+    const mockAgentConfigService: Partial<AgentConfigService> = {
+      appConfig: Effect.succeed({}) as AgentConfigService["appConfig"],
+    };
+    const mockLLMService: Partial<LLMService> = {
+      supportsNativeWebSearch: () => Effect.succeed(false),
+    };
+
+    const layers = Layer.mergeAll(
+      Layer.succeed(TerminalServiceTag, mockTerminal as unknown as TerminalService),
+      Layer.succeed(ToolRegistryTag, mockToolRegistry as unknown as ToolRegistry),
+      Layer.succeed(AgentConfigServiceTag, mockAgentConfigService as unknown as AgentConfigService),
+      Layer.succeed(LLMServiceTag, mockLLMService as unknown as LLMService),
+      // PersonaServiceTag deliberately not provided: Effect.serviceOption resolves to
+      // None, matching a persona/agent with no explicit toolProfile.
+    );
+
+    const context: CommandContext = {
+      agent: { ...testAgent, config: { ...testAgent.config, tools: ["http_request"] } },
+      conversationHistory: [],
+      conversationId: "test-session",
+      sessionUsage: { promptTokens: 0, completionTokens: 0 },
+      sessionStartedAt: new Date(),
+    };
+
+    await Effect.runPromise(
+      handleSpecialCommand({ type: "tools", args: [] }, context).pipe(
+        Effect.provide(layers),
+      ) as Effect.Effect<CommandResult, unknown, never>,
+    );
+
+    const output = logged.join("\n");
+    expect(output).toContain("http_request");
+    // Builtin categories, auto-injected at runtime, must show even though they were
+    // never in agent.config.tools.
+    expect(output).toContain("context_info");
+    expect(output).toContain("search_tools");
   });
 });
 

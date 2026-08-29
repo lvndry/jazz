@@ -55,12 +55,12 @@ export const TODO_CATEGORY: ToolCategory = { id: "todo", displayName: "Todo", lo
 export const MEMORY_CATEGORY: ToolCategory = {
   id: "memory",
   displayName: "Memory",
-  loadTier: "eager",
+  loadTier: "deferred",
 };
 export const WORKSPACE_CATEGORY: ToolCategory = {
   id: "workspace",
   displayName: "Workspace",
-  loadTier: "deferred",
+  loadTier: "eager",
 };
 export const PEERS_CATEGORY: ToolCategory = {
   id: "peers",
@@ -129,6 +129,8 @@ export const BUILTIN_TOOL_CATEGORIES: readonly ToolCategory[] = [
   CONTEXT_CATEGORY,
   SEARCH_TOOLS_CATEGORY,
   WEB_FETCH_CATEGORY,
+  JOB_QUEUE_CATEGORY,
+  WORKSPACE_CATEGORY,
 ] as const;
 
 /**
