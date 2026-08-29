@@ -784,7 +784,8 @@ function selectModel(
       const apiKey: string | undefined = llmConfig?.openrouter?.api_key;
       const headers: Record<string, string> = {
         "HTTP-Referer": "https://github.com/lvndry/jazz",
-        "X-Title": "Jazz CLI",
+        "X-Title": "Jazz",
+        "X-OpenRouter-Categories": "cli-agent,personal-agent",
       };
       const config: OpenRouterProviderSettings = {
         ...(apiKey ? { apiKey } : {}),
