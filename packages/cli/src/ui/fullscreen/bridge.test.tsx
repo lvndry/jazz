@@ -327,6 +327,40 @@ describe("fullscreen bridge", () => {
     rendered.renderer.destroy();
   });
 
+  it("clears a lingering checklist the instant the next run starts, without a stale flash", async () => {
+    // The checklist deliberately survives the run that produced it — through
+    // streaming, completion, and idle — so it's readable once the response
+    // lands. Only a *new* run is allowed to clear it, and it must do so before
+    // that render paints, or the old checklist would flash for a frame ahead
+    // of the new run's own.
+    const rendered = await testRender(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
+    await rendered.renderOnce();
+
+    store.setActivity({
+      phase: "tool-execution",
+      agentName: "jazz",
+      tools: [],
+      todoSnapshot: [
+        { content: "Inspect inbox", status: "completed" },
+        { content: "Rank urgent threads", status: "in_progress" },
+      ],
+    });
+    await rendered.flush();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await rendered.flush();
+    expect(rendered.captureCharFrame()).toContain("todo 1/2");
+
+    store.setActivity({ phase: "idle" });
+    await rendered.flush();
+    expect(rendered.captureCharFrame()).toContain("todo 1/2");
+
+    store.setChatBusy(true);
+    await rendered.flush();
+    expect(rendered.captureCharFrame()).not.toContain("todo 1/2");
+
+    rendered.renderer.destroy();
+  });
+
   it("shows the arguments a running tool was called with", async () => {
     const text = await frame(() => {
       store.setActivity({
