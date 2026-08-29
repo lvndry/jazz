@@ -216,9 +216,13 @@ export function isApprovalRequiredResult(result: unknown): result is ApprovalReq
   );
 }
 
+/** `eager`: schema sent every turn. `deferred`: only name/summary sent; schema fetched on demand via `search_tools`. */
+export type ToolLoadTier = "eager" | "deferred";
+
 export interface ToolCategory {
   readonly id: string;
   readonly displayName: string;
+  readonly loadTier: ToolLoadTier;
 }
 
 export interface ToolExecutionContext {
@@ -286,6 +290,10 @@ export interface ToolExecutionContext {
    * Used by summarize_context to actually update the executor's message array.
    */
   readonly compactConversation?: (compacted: readonly ChatMessage[]) => void;
+  /** Names of this run's `deferred`-tier tools `search_tools` may look up. */
+  readonly deferredToolNames?: readonly string[];
+  /** Called by `search_tools` to make fetched schemas callable for the rest of this run — mirrors `compactConversation`. */
+  readonly unlockDeferredTools?: (definitions: readonly ToolDefinition[]) => void;
   /**
    * Attach a media file (image/pdf/audio/video) to the current turn so the model actually
    * receives its contents on the next request.

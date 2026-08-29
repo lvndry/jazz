@@ -147,6 +147,7 @@ function runCustomToolCommand(
 export const CUSTOM_TOOLS_CATEGORY: ToolCategory = {
   id: "custom_tools",
   displayName: "Custom Tools",
+  loadTier: "eager",
 };
 
 /**

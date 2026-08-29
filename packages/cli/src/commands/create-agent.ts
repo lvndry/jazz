@@ -257,10 +257,7 @@ export function createAgentCommand(): Effect.Effect<
           }
 
           // Determine category for tools
-          const category = {
-            id: `mcp_${serverConfig.name.toLowerCase()}`,
-            displayName: `${toPascalCase(serverConfig.name)} (MCP)`,
-          };
+          const category = mcpToolCategory(serverConfig.name);
 
           // Register tools
           const registerTool = toolRegistry.registerForCategory(category);

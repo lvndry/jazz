@@ -20,6 +20,7 @@ import {
   createCancelReminderTool,
   createListRemindersTool,
 } from "./reminder-tools";
+import { createSearchToolsTool } from "./search-tools-tool";
 import { createShellCommandTools } from "./shell-tools";
 import { createSkillTools } from "./skill-tools";
 import { createSubagentTools } from "./subagent-tools";
@@ -32,6 +33,7 @@ import {
   PEERS_CATEGORY,
   PERCEPTION_CATEGORY,
   REMINDER_CATEGORY,
+  SEARCH_TOOLS_CATEGORY,
   SHELL_COMMANDS_CATEGORY,
   SKILLS_CATEGORY,
   SUBAGENT_CATEGORY,
@@ -74,6 +76,7 @@ export function registerAllTools(): Effect.Effect<void, Error, ToolRegistry> {
     yield* registerReminderTools();
     yield* registerWakeTriggerTools();
     yield* registerContextTools();
+    yield* registerSearchToolsTool();
     yield* registerSubagentTools();
     yield* registerPerceptionTools();
     yield* registerUserInteractionTools();
@@ -262,6 +265,15 @@ export function registerContextTools(): Effect.Effect<void, Error, ToolRegistry>
 
     yield* registerTool(createContextInfoTool());
     yield* registerTool(createGetTimeTool());
+  });
+}
+
+export function registerSearchToolsTool(): Effect.Effect<void, Error, ToolRegistry> {
+  return Effect.gen(function* () {
+    const registry = yield* ToolRegistryTag;
+    const registerTool = registry.registerForCategory(SEARCH_TOOLS_CATEGORY);
+
+    yield* registerTool(createSearchToolsTool());
   });
 }
 

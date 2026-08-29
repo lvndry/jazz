@@ -13,6 +13,7 @@ import {
   type Tool,
   type ToolRegistry,
   type ToolRequirements,
+  type ToolSummary,
 } from "@/core/interfaces/tool-registry";
 import { ToolNotFoundError } from "@/core/types/errors";
 import type {
@@ -21,6 +22,18 @@ import type {
   ToolExecutionContext,
   ToolExecutionResult,
 } from "@/core/types/tools";
+
+/** Max length of a summary derived from a tool's `description` when no explicit `summary` is set. */
+const SUMMARY_FALLBACK_MAX_LENGTH = 100;
+
+/** Fallback for `ToolSummary.summary`; cuts at a word boundary so it doesn't end mid-word. */
+function truncateForSummary(description: string): string {
+  const firstLine = description.split("\n")[0]?.trim() ?? "";
+  if (firstLine.length <= SUMMARY_FALLBACK_MAX_LENGTH) return firstLine;
+  const cut = firstLine.slice(0, SUMMARY_FALLBACK_MAX_LENGTH);
+  const lastSpace = cut.lastIndexOf(" ");
+  return `${lastSpace > 0 ? cut.slice(0, lastSpace) : cut}...`;
+}
 
 /**
  * Tool registry for managing agent tools
@@ -162,6 +175,74 @@ class DefaultToolRegistry implements ToolRegistry {
 
       this.cachedDefinitions = definitions;
       return definitions;
+    });
+  }
+
+  getToolDefinitionsFor(names: readonly string[]): Effect.Effect<readonly ToolDefinition[], never> {
+    return Effect.sync(() => {
+      const requested = new Set(names.map((name) => this.aliasMap.get(name) ?? name));
+      const definitions: ToolDefinition[] = [];
+
+      this.tools.forEach((tool) => {
+        if (tool.hidden || !requested.has(tool.name)) return;
+        definitions.push({
+          type: "function",
+          function: {
+            name: tool.name,
+            description: tool.description,
+            parameters: tool.parameters,
+            ...(tool.jsonSchema !== undefined ? { jsonSchema: tool.jsonSchema } : {}),
+          },
+        });
+      });
+
+      return definitions;
+    });
+  }
+
+  getToolSummaries(names: readonly string[]): Effect.Effect<readonly ToolSummary[], never> {
+    return Effect.sync(() => {
+      const requested = new Set(names.map((name) => this.aliasMap.get(name) ?? name));
+      const summaries: ToolSummary[] = [];
+
+      this.tools.forEach((tool) => {
+        if (tool.hidden || !requested.has(tool.name)) return;
+        const categoryId = this.toolCategories.get(tool.name);
+        const category = categoryId ? this.categories.get(categoryId) : undefined;
+        summaries.push({
+          name: tool.name,
+          categoryId: category?.id ?? "other",
+          categoryDisplayName: category?.displayName ?? "Other",
+          summary: tool.summary ?? truncateForSummary(tool.description),
+        });
+      });
+
+      return summaries;
+    });
+  }
+
+  partitionByTier(
+    names: readonly string[],
+  ): Effect.Effect<
+    { readonly eager: readonly string[]; readonly deferred: readonly string[] },
+    never
+  > {
+    return Effect.sync(() => {
+      const eager: string[] = [];
+      const deferred: string[] = [];
+
+      for (const name of names) {
+        const resolvedName = this.aliasMap.get(name) ?? name;
+        const categoryId = this.toolCategories.get(resolvedName);
+        const category = categoryId ? this.categories.get(categoryId) : undefined;
+        if (category?.loadTier === "deferred") {
+          deferred.push(name);
+        } else {
+          eager.push(name);
+        }
+      }
+
+      return { eager, deferred };
     });
   }
 

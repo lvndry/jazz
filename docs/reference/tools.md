@@ -19,10 +19,10 @@ and [Security](../../SECURITY.md) for the threat model.
 
 |                                                                         | Count  |
 | ----------------------------------------------------------------------- | ------ |
-| **Agent-facing tools**                                                  | **41** |
+| **Agent-facing tools**                                                  | **42** |
 | Hidden `execute_*` counterparts (the second half of each approval pair) | 8      |
-| Total registered                                                        | 50     |
-| `read-only`                                                             | 22     |
+| Total registered                                                        | 51     |
+| `read-only`                                                             | 23     |
 | `low-risk`                                                              | 11     |
 | `high-risk`                                                             | 7      |
 | `unknown`                                                               | 1      |
@@ -73,7 +73,7 @@ cannot be added without someone deciding.
 | Level      | Safe to tell                                                    | Tools                                                                                                                                                                                                                                                                                  |
 | ---------- | --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `public`   | safe to tell anyone                                             | `add_reminder`, `cp`, `mkdir`, `mv`, `rm`, `web_fetch`, `web_search`, `write_file`                                                                                                                                                                                                                                     |
-| `internal` | the shape of this machine — paths, names, what is installed     | `analyze_media`, `cancel_trigger`, `cd`, `context_info`, `create_pdf`, `create_web_app`, `find`, `get_time`, `list_triggers`, `ls`, `pdf_page_count`, `pwd`, `register_trigger`, `stat`                                                                                                                               |
+| `internal` | the shape of this machine — paths, names, what is installed     | `analyze_media`, `cancel_trigger`, `cd`, `context_info`, `create_pdf`, `create_web_app`, `find`, `get_time`, `list_triggers`, `ls`, `pdf_page_count`, `pwd`, `register_trigger`, `search_tools`, `stat`                                                                                                                               |
 | `private`  | your own material — file contents, memory, schedule, transcript | `ask_file_picker`, `ask_user_question`, `cancel_reminder`, `edit_file`, `execute_command`, `grep`, `http_request`, `list_reminders`, `list_todos`, `manage_memory`, `manage_todos`, `manage_workspace`, `read_file`, `read_pdf`, `spawn_subagent`, `summarize_context`, `update_work_state`, `view_memory`, `view_workspace` |
 
 A tool spanning two levels takes the more sensitive one — `edit_file` writes, but its approval
@@ -199,6 +199,12 @@ person. See [Reminders](../internals/reminders.md) for how the two compare.
 | -------------- | ----------- | ------------- | ------------------------------------------------------------------------------------------------------- |
 | `context_info` | `read-only` | —             | Get current context window token usage statistics.                                                      |
 | `get_time`     | `read-only` | —             | Get current date and time. Use for scheduling, relative times (yesterday, next Monday), and timestamps. |
+
+### Tool Search
+
+| Tool           | Risk        | Approval pair | What it does                                                                                       |
+| -------------- | ----------- | ------------- | --------------------------------------------------------------------------------------------------- |
+| `search_tools` | `read-only` | —             | Fetch full parameter schemas for deferred tools (MCP servers, background jobs, etc.) you can see by name in your tool list but haven't fetched yet. |
 
 ### Sub Agents
 

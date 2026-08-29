@@ -1,38 +1,92 @@
 import type { ToolCategory } from "@/core/types";
 import { toPascalCase } from "@/core/utils/string";
 
-export const HTTP_CATEGORY: ToolCategory = { id: "http", displayName: "HTTP" };
+export const HTTP_CATEGORY: ToolCategory = {
+  id: "http",
+  displayName: "HTTP",
+  loadTier: "eager",
+};
 export const FILE_MANAGEMENT_CATEGORY: ToolCategory = {
   id: "file_management",
   displayName: "File Management",
+  loadTier: "eager",
 };
 export const SHELL_COMMANDS_CATEGORY: ToolCategory = {
   id: "shell_commands",
   displayName: "Shell Commands",
+  loadTier: "eager",
 };
-export const WEB_SEARCH_CATEGORY: ToolCategory = { id: "search", displayName: "Web Search" };
-export const WEB_FETCH_CATEGORY: ToolCategory = { id: "web_fetch", displayName: "Web Fetch" };
-export const SKILLS_CATEGORY: ToolCategory = { id: "skills", displayName: "Skills" };
-export const CONTEXT_CATEGORY: ToolCategory = { id: "context", displayName: "Context" };
-export const SUBAGENT_CATEGORY: ToolCategory = { id: "subagent", displayName: "Sub Agents" };
+export const WEB_SEARCH_CATEGORY: ToolCategory = {
+  id: "search",
+  displayName: "Web Search",
+  loadTier: "eager",
+};
+export const WEB_FETCH_CATEGORY: ToolCategory = {
+  id: "web_fetch",
+  displayName: "Web Fetch",
+  loadTier: "eager",
+};
+export const SKILLS_CATEGORY: ToolCategory = {
+  id: "skills",
+  displayName: "Skills",
+  loadTier: "eager",
+};
+export const CONTEXT_CATEGORY: ToolCategory = {
+  id: "context",
+  displayName: "Context",
+  loadTier: "eager",
+};
+export const SEARCH_TOOLS_CATEGORY: ToolCategory = {
+  id: "search_tools",
+  displayName: "Tool Search",
+  loadTier: "eager",
+};
+export const SUBAGENT_CATEGORY: ToolCategory = {
+  id: "subagent",
+  displayName: "Sub Agents",
+  loadTier: "eager",
+};
 export const PERCEPTION_CATEGORY: ToolCategory = {
   id: "perception",
   displayName: "Perception Delegation",
+  loadTier: "eager",
 };
-export const TODO_CATEGORY: ToolCategory = { id: "todo", displayName: "Todo" };
-export const MEMORY_CATEGORY: ToolCategory = { id: "memory", displayName: "Memory" };
-export const WORKSPACE_CATEGORY: ToolCategory = { id: "workspace", displayName: "Workspace" };
-export const PEERS_CATEGORY: ToolCategory = { id: "peers", displayName: "Peers" };
-export const REMINDER_CATEGORY: ToolCategory = { id: "reminders", displayName: "Reminders" };
+export const TODO_CATEGORY: ToolCategory = { id: "todo", displayName: "Todo", loadTier: "eager" };
+export const MEMORY_CATEGORY: ToolCategory = {
+  id: "memory",
+  displayName: "Memory",
+  loadTier: "eager",
+};
+export const WORKSPACE_CATEGORY: ToolCategory = {
+  id: "workspace",
+  displayName: "Workspace",
+  loadTier: "deferred",
+};
+export const PEERS_CATEGORY: ToolCategory = {
+  id: "peers",
+  displayName: "Peers",
+  loadTier: "deferred",
+};
+export const REMINDER_CATEGORY: ToolCategory = {
+  id: "reminders",
+  displayName: "Reminders",
+  loadTier: "deferred",
+};
 export const WAKE_TRIGGER_CATEGORY: ToolCategory = {
   id: "wake_triggers",
   displayName: "Wake Triggers",
+  loadTier: "deferred",
 };
 export const USER_INTERACTION_CATEGORY: ToolCategory = {
   id: "user_interaction",
   displayName: "User Interaction",
+  loadTier: "eager",
 };
-export const WEB_APP_CATEGORY: ToolCategory = { id: "web_app", displayName: "Web App" };
+export const WEB_APP_CATEGORY: ToolCategory = {
+  id: "web_app",
+  displayName: "Web App",
+  loadTier: "deferred",
+};
 
 /**
  * All available builtin tool categories (excludes per-server MCP categories).
@@ -50,6 +104,7 @@ export const ALL_CATEGORIES: readonly ToolCategory[] = [
   REMINDER_CATEGORY,
   WAKE_TRIGGER_CATEGORY,
   CONTEXT_CATEGORY,
+  SEARCH_TOOLS_CATEGORY,
   SUBAGENT_CATEGORY,
   PERCEPTION_CATEGORY,
   USER_INTERACTION_CATEGORY,
@@ -66,17 +121,20 @@ export const BUILTIN_TOOL_CATEGORIES: readonly ToolCategory[] = [
   PERCEPTION_CATEGORY,
   USER_INTERACTION_CATEGORY,
   CONTEXT_CATEGORY,
+  SEARCH_TOOLS_CATEGORY,
   WEB_FETCH_CATEGORY,
 ] as const;
 
 /**
  * Category for tools discovered from one MCP server.
- * Id format: `mcp_<servername>` (lowercase).
+ * Id format: `mcp_<servername>` (lowercase). Always `deferred` — server tool counts are
+ * unbounded and user-configured.
  */
 export function mcpToolCategory(serverName: string): ToolCategory {
   return {
     id: `mcp_${serverName.toLowerCase()}`,
     displayName: `${toPascalCase(serverName)} (MCP)`,
+    loadTier: "deferred",
   };
 }
 
