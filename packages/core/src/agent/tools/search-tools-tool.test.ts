@@ -88,7 +88,7 @@ describe("search_tools", () => {
     expect(result.success).toBe(true);
     const matched = (result.result as { matchedToolNames: readonly string[] }).matchedToolNames;
     expect(matched).toContain("linear_create_issue");
-    expect(unlocked.map((d) => d.function.name)).toEqual(matched);
+    expect(unlocked.map((d) => d.function.name)).toEqual([...matched]);
   });
 
   it("returns no matches without calling unlockDeferredTools when nothing overlaps", async () => {

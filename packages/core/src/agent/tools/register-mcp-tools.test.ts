@@ -13,9 +13,9 @@ import { registerMCPToolsForAgent } from "./register-mcp-tools";
  * `enabled !== false` and a matching name) so the function returns before reaching the actual
  * connect/registration loop — these tests are about the resolution warning, not connecting.
  */
-function harness(configuredServers: readonly { name: string }[]) {
-  const warn = mock(() => Effect.void);
-  const debug = mock(() => Effect.void);
+function harness(configuredServers: readonly { name: string; enabled?: boolean }[]) {
+  const warn = mock((_message: string, _meta?: Record<string, unknown>) => Effect.void);
+  const debug = mock((_message: string, _meta?: Record<string, unknown>) => Effect.void);
 
   const loggerLayer = Layer.succeed(LoggerServiceTag, {
     debug,
@@ -49,7 +49,7 @@ describe("registerMCPToolsForAgent — server resolution warning", () => {
     );
 
     expect(warn).toHaveBeenCalledTimes(1);
-    const [message] = warn.mock.calls[0] as [string];
+    const message = warn.mock.calls[0]![0];
     expect(message).toContain("mcp_linear_create_issue");
     expect(message).toContain(".agents/mcp.json");
   });
@@ -83,7 +83,7 @@ describe("registerMCPToolsForAgent — server resolution warning", () => {
     );
 
     expect(warn).toHaveBeenCalledTimes(1);
-    const [message] = warn.mock.calls[0] as [string];
+    const message = warn.mock.calls[0]![0];
     expect(message).toContain("mcp_linear_create_issue");
     expect(message).not.toContain("mcp_notion_search");
   });
