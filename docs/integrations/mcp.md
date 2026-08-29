@@ -13,6 +13,11 @@ Jazz speaks [Model Context Protocol](https://modelcontextprotocol.io/). Add a se
 > first time one of its tools is actually invoked, so a broken or slow server never blocks
 > `jazz` from starting. See
 > [Design decisions](../internals/design-decisions.md#lazy-mcp-connection).
+>
+> **Schemas load lazily too.** Once connected, a server's tools appear in the agent's prompt
+> by name and one-line summary only — the model fetches a tool's full schema via `search_tools`
+> the first time it needs one. See
+> [Design decisions](../internals/design-decisions.md#deferred-tool-schemas).
 
 ---
 

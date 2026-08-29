@@ -42,6 +42,12 @@ An agent's config lists which tools it may use. **Omitting a tool is the stronge
 there is** — an agent without `execute_command` cannot run shell commands no matter what
 policy is set.
 
+MCP tools, along with a few other situational categories (background jobs, reminders, wake
+triggers, workspace, peers), are also **deferred**: the model sees their names and a one-line
+summary every turn, but not their full schema until it calls `search_tools`. Built-in tools
+like `read_file` and `execute_command` are always sent in full. See
+[Design decisions](../internals/design-decisions.md#deferred-tool-schemas).
+
 Built-in and custom tools are validated against their own schema before the handler runs. MCP
 tools are the exception: their schemas are translated from the server's JSON Schema, and that
 translation is lossy enough that enforcing it locally would reject calls the server accepts.

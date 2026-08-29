@@ -273,10 +273,12 @@ referenced it and provoke a provider error.
 
 ### What the budget counts
 
-Tokens are messages **plus per-request overhead** — tool schemas and provider scaffolding,
-which reach 10–30k once MCP servers are attached. Overhead is measured, not estimated:
-after each call, `promptTokens − estimatedMessageTokens` is the gap, smoothed per model.
-Counting messages alone meant an agent believed it was at 79% when it was at 102%.
+Tokens are messages **plus per-request overhead** — tool schemas and provider scaffolding.
+MCP server schemas no longer count toward this by default: they're a `deferred`-tier category
+(see [Design decisions](./design-decisions.md#deferred-tool-schemas)), so only the always-on
+tool set's schemas are in the request until `search_tools` fetches one. Overhead is measured,
+not estimated: after each call, `promptTokens − estimatedMessageTokens` is the gap, smoothed
+per model. Counting messages alone meant an agent believed it was at 79% when it was at 102%.
 
 ### Warn first, compact second
 
