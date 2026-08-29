@@ -590,6 +590,7 @@ export function createShellCommandTools(): ApprovalToolPair<ShellCommandDeps> {
     disclosure: "private",
     description:
       "Run a shell command. Do not use this when a dedicated tool exists: use ls to list files, find (also available as glob) to search names, grep to search contents, read_file to read a file (startLine: -N for the end), and mkdir to create directories. " +
+      "This also applies to tools you can only see by name in your tool list (MCP servers, background jobs, and similar) — call search_tools to fetch one's schema rather than replicating what it does with curl or a CLI. " +
       "Git has no dedicated tools — use this for status, diff, log, commit, push, rebase, stash, and the rest. " +
       "Risk is unknown until each command is classified: inspect-only and minor reversible commands may be auto-approved, mutating or ambiguous ones stay high-risk and need approval. " +
       "Commands are non-interactive: stdin is discarded, so do not run pagers, REPLs, or git rebase -i without a non-interactive editor. " +

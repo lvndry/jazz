@@ -26,7 +26,7 @@ import { MCPServerManagerTag } from "@jazz/core/interfaces/mcp-server";
 import { PersonaServiceTag, type PersonaService } from "@jazz/core/interfaces/persona-service";
 import { ink, TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
 import { ToolRegistryTag, type ToolRegistry } from "@jazz/core/interfaces/tool-registry";
-import type { Agent, AgentConfig, LLMProvider } from "@jazz/core/types";
+import type { Agent, AgentConfig, LLMProvider, ToolCategory } from "@jazz/core/types";
 import type { WebSearchProviderName } from "@jazz/core/types/config";
 import {
   AgentAlreadyExistsError,
@@ -345,9 +345,10 @@ export function editAgentCommand(
               );
 
               // Determine category for tools using the exact display name from the UI
-              const category = {
+              const category: ToolCategory = {
                 id: `mcp_${serverConfig.name.toLowerCase()}`,
                 displayName: categoryDisplayName,
+                loadTier: "deferred",
               };
 
               // Register tools

@@ -342,10 +342,16 @@ function initializeAgentRun(
     }
 
     const expandedToolNames = Array.from(expandedToolNameSet);
-    const allTools = yield* toolRegistry.getToolDefinitions();
-    const tools = Array.from(
-      allTools.filter((tool) => expandedToolNames.includes(tool.function.name)),
-    );
+
+    // Only `eager`-tier tools get full schemas in the request; `deferred`-tier ones (MCP
+    // servers, background jobs, etc.) are rendered as a name/summary index in the prompt
+    // instead, and their schemas are fetched on demand by `search_tools`. See
+    // docs/superpowers/plans/tool-search-design.md.
+    const { eager: eagerToolNames, deferred: deferredToolNames } =
+      yield* toolRegistry.partitionByTier(expandedToolNames);
+    const tools = Array.from(yield* toolRegistry.getToolDefinitionsFor(eagerToolNames));
+    const deferredToolSummaries =
+      deferredToolNames.length > 0 ? yield* toolRegistry.getToolSummaries(deferredToolNames) : [];
 
     // Build tool descriptions map
     const availableTools: Record<string, string> = {};
@@ -397,6 +403,7 @@ function initializeAgentRun(
         toolNames: expandedToolNames,
         availableTools,
         knownSkills: relevantSkills,
+        ...(deferredToolSummaries.length > 0 && { deferredTools: deferredToolSummaries }),
         ...(attachmentWorkingDirectory !== undefined && {
           workingDirectory: attachmentWorkingDirectory,
         }),
@@ -443,6 +450,20 @@ function initializeAgentRun(
       autoApprovedCommands,
       autoApprovedTools,
       parentToolNames: expandedToolNames,
+      ...(deferredToolNames.length > 0 ? { deferredToolNames } : {}),
+      // `tools` is a real mutable array (see AgentRunContext) reused by reference across every
+      // iteration of this run's loop, so pushing here makes a fetched schema callable on the
+      // very next LLM request. Dedup by name: a repeat search_tools call for the same tool must
+      // not send its schema twice.
+      unlockDeferredTools: (definitions) => {
+        const alreadyPresent = new Set(tools.map((t) => t.function.name));
+        for (const definition of definitions) {
+          if (!alreadyPresent.has(definition.function.name)) {
+            tools.push(definition);
+            alreadyPresent.add(definition.function.name);
+          }
+        }
+      },
       // A sub-agent never parks: resuming one would mean replaying a child context that no
       // longer exists, so nested runs keep declining and the parent reasons about it.
       parkWhenUnattended: options.parkWhenUnattended === true && options.internal !== true,

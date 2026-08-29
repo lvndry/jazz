@@ -122,6 +122,17 @@ function makeLayers(store: InMemoryRunStore) {
         { function: { name: "danger", description: "Does something gated", parameters: {} } },
       ]),
     ),
+    getToolDefinitionsFor: mock((names: readonly string[]) =>
+      Effect.succeed(
+        names.includes("danger")
+          ? [{ function: { name: "danger", description: "Does something gated", parameters: {} } }]
+          : [],
+      ),
+    ),
+    getToolSummaries: mock(() => Effect.succeed([])),
+    partitionByTier: mock((names: readonly string[]) =>
+      Effect.succeed({ eager: names, deferred: [] }),
+    ),
     executeTool: mock((name: string, args: Record<string, unknown>) => {
       if (name === "danger") {
         return Effect.succeed({

@@ -295,6 +295,25 @@ turns must follow a playbook that lives in transcript history, not in the system
 
 📄 [`skill-tools.ts`](../../packages/core/src/agent/tools/skill-tools.ts) · [Skills loading](./skills-loading.md)
 
+### Deferred tool schemas
+
+**Decision.** Tool categories declare a `loadTier`: `eager` (schema sent every turn — files,
+shell, todo, etc.) or `deferred` (name + one-line summary only — MCP servers, background jobs,
+reminders, wake triggers, workspace, peers). A `search_tools` tool fetches a deferred tool's
+full schema on demand; once fetched it stays callable for the rest of the run.
+
+**Alternatives rejected.** Sending every registered tool's full schema every turn, including
+every tool a connected MCP server advertises. Server tool counts are unbounded and
+user-configured, so this cost grows without bound as someone adds servers, most of whose tools
+never come up in a given conversation.
+
+**Cost accepted.** An extra `search_tools` round trip before a deferred tool's first use per
+run. Names/summaries must stay visible in the prompt regardless — hiding them entirely would
+push the model toward replicating a listed tool with `execute_command` instead of discovering
+it, which `execute_command`'s own description now warns against explicitly.
+
+📄 [`search-tools-tool.ts`](../../packages/core/src/agent/tools/search-tools-tool.ts) · [Tools reference](../reference/tools.md)
+
 ---
 
 ## Related

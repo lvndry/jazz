@@ -90,13 +90,25 @@ export type ToolRequirements =
   | WakeTriggerService
   | JobQueueService
   | PeerLedgerService
-  | PeerTokenService;
+  | PeerTokenService
+  // search_tools reads the registry itself to look up deferred-tool summaries/definitions.
+  | ToolRegistry;
+
+/** Name + one-liner for a `deferred`-tier tool, shown every turn so the model knows it exists before fetching its schema via `search_tools`. */
+export interface ToolSummary {
+  readonly name: string;
+  readonly categoryId: string;
+  readonly categoryDisplayName: string;
+  readonly summary: string;
+}
 
 export interface Tool<R = never> {
   /** Function name the model calls (`read_file`, `execute_command`). Must be unique in the registry. */
   readonly name: string;
   /** Model-facing summary of when to use the tool, what it returns, and when not to. */
   readonly description: string;
+  /** One-line summary for a `deferred`-tier tool; falls back to a truncated `description` if unset. Ignored for `eager` tools. */
+  readonly summary?: string;
   /** Optional labels for grouping (UI, docs). Not sent to the model. */
   readonly tags?: readonly string[];
   /** Alternative names the LLM may use to call this tool. Resolved transparently at execution time. */
@@ -260,6 +272,21 @@ export interface ToolRegistry {
    * @returns An Effect that resolves to an array of ToolDefinition objects.
    */
   readonly getToolDefinitions: () => Effect.Effect<readonly ToolDefinition[], never>;
+  /** Full tool definitions for exactly the given names (unknown names skipped) — used to fetch a `deferred`-tier schema on demand via `search_tools`. */
+  readonly getToolDefinitionsFor: (
+    names: readonly string[],
+  ) => Effect.Effect<readonly ToolDefinition[], never>;
+  /** Name/category/summary projections for the given tool names, regardless of `loadTier`. */
+  readonly getToolSummaries: (
+    names: readonly string[],
+  ) => Effect.Effect<readonly ToolSummary[], never>;
+  /** Splits names into `eager`/`deferred` by their category's `loadTier`; uncategorized or unknown names count as `eager`. */
+  readonly partitionByTier: (
+    names: readonly string[],
+  ) => Effect.Effect<
+    { readonly eager: readonly string[]; readonly deferred: readonly string[] },
+    never
+  >;
   /**
    * Lists tools organized by category.
    *

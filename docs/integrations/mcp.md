@@ -13,6 +13,11 @@ Jazz speaks [Model Context Protocol](https://modelcontextprotocol.io/). Add a se
 > first time one of its tools is actually invoked, so a broken or slow server never blocks
 > `jazz` from starting. See
 > [Design decisions](../internals/design-decisions.md#lazy-mcp-connection).
+>
+> **Schemas load lazily too.** Once connected, a server's tools appear in the agent's prompt
+> by name and one-line summary only — the model fetches a tool's full schema via `search_tools`
+> the first time it needs one. See
+> [Design decisions](../internals/design-decisions.md#deferred-tool-schemas).
 
 ---
 
@@ -28,14 +33,11 @@ MCP (Model Context Protocol) provides a standardized way for AI agents to:
 
 ## Configuration
 
-Jazz loads MCP servers from multiple locations (later sources override earlier ones):
-
-1. **Main config** — `~/.jazz/config.json` with optional `./.jazz/config.json` overrides (see [Configuration Reference](../reference/configuration.md))
-2. **`.agents/mcp.json`** — Project-level and user-level, following the [.agents convention](https://agentskills.io)
-
-Add MCP servers to any of these files under the `mcpServers` key:
+**A server's full definition — `command`, `args`, `env` — only ever lives in `.agents/mcp.json`.**
+`jazz mcp add` writes there for you; if you're editing by hand, that's the file to edit:
 
 ```json
+// ~/.agents/mcp.json (user-level) or ./.agents/mcp.json (project-level, in your repo root)
 {
   "mcpServers": {
     "serverName": {
@@ -49,10 +51,24 @@ Add MCP servers to any of these files under the `mcpServers` key:
 }
 ```
 
-**.agents/mcp.json** locations (merged in order, project overrides user):
+Both locations merge, following the [.agents convention](https://agentskills.io) — project
+overrides user on a name collision.
 
-- `~/.agents/mcp.json` — User-level (shared across projects)
-- `./.agents/mcp.json` — Project-level (in your repo root)
+`~/.jazz/config.json` (and its project-local `./.jazz/config.json` override) can *also* declare
+`mcpServers`, but only to toggle `enabled`/`trusted` on a server already defined above — a
+`command`/`args`/`env` written here is silently ignored, not merged in:
+
+```json
+// ~/.jazz/config.json
+{
+  "mcpServers": {
+    "serverName": { "enabled": false }
+  }
+}
+```
+
+If a tool you expect isn't showing up, check that the server itself is actually declared in
+`.agents/mcp.json`, not just referenced from `~/.jazz/config.json`.
 
 ### Configuration Options
 

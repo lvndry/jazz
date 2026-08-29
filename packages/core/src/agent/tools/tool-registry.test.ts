@@ -133,7 +133,7 @@ describe("ToolRegistry", () => {
   });
 
   it("should manage tool categories", async () => {
-    const category = { id: "cat1", displayName: "Category 1" };
+    const category = { id: "cat1", displayName: "Category 1", loadTier: "eager" as const };
     const tool: Tool<ToolRequirements> = {
       name: "cat-tool",
       description: "desc",
@@ -156,5 +156,88 @@ describe("ToolRegistry", () => {
     const result = await Effect.runPromise(program.pipe(Effect.provide(testLayer)));
     expect(result.byCat["Category 1"]).toContain("cat-tool");
     expect(result.cats[0]?.id).toBe("cat1");
+  });
+
+  describe("load-tier splitting", () => {
+    const eagerCategory = { id: "eager-cat", displayName: "Eager", loadTier: "eager" as const };
+    const deferredCategory = {
+      id: "deferred-cat",
+      displayName: "Deferred",
+      loadTier: "deferred" as const,
+    };
+
+    function makeTool(name: string, summary?: string): Tool<ToolRequirements> {
+      return {
+        name,
+        description: `Full description for ${name}. Extra detail that a summary would drop.`,
+        ...(summary !== undefined ? { summary } : {}),
+        parameters: z.object({}),
+        hidden: false,
+        riskLevel: "read-only",
+        disclosure: "internal",
+        execute: () => Effect.succeed({ success: true, result: "" }),
+        createSummary: undefined,
+      };
+    }
+
+    it("partitionByTier splits by category loadTier, defaulting uncategorized names to eager", async () => {
+      const program = Effect.gen(function* () {
+        const registry = yield* ToolRegistryTag;
+        yield* registry.registerTool(makeTool("eager-tool"), eagerCategory);
+        yield* registry.registerTool(makeTool("deferred-tool"), deferredCategory);
+        yield* registry.registerTool(makeTool("uncategorized-tool"));
+        return yield* registry.partitionByTier([
+          "eager-tool",
+          "deferred-tool",
+          "uncategorized-tool",
+        ]);
+      });
+
+      const result = await Effect.runPromise(program.pipe(Effect.provide(testLayer)));
+      expect(result.eager).toEqual(["eager-tool", "uncategorized-tool"]);
+      expect(result.deferred).toEqual(["deferred-tool"]);
+    });
+
+    it("getToolSummaries uses the explicit summary when set, else truncates the description", async () => {
+      const longDescription =
+        "A".repeat(90) + " and then some more words that push it past the fallback cutoff length";
+      const program = Effect.gen(function* () {
+        const registry = yield* ToolRegistryTag;
+        yield* registry.registerTool(
+          makeTool("with-summary", "Short explicit summary."),
+          deferredCategory,
+        );
+        yield* registry.registerTool(
+          { ...makeTool("no-summary"), description: longDescription },
+          deferredCategory,
+        );
+        return yield* registry.getToolSummaries(["with-summary", "no-summary"]);
+      });
+
+      const result = await Effect.runPromise(program.pipe(Effect.provide(testLayer)));
+      const withSummary = result.find((s) => s.name === "with-summary");
+      const noSummary = result.find((s) => s.name === "no-summary");
+
+      expect(withSummary?.summary).toBe("Short explicit summary.");
+      expect(withSummary?.categoryDisplayName).toBe("Deferred");
+      expect(noSummary?.summary.length).toBeLessThanOrEqual(103); // 100 + "..."
+      expect(noSummary?.summary.endsWith("...")).toBe(true);
+    });
+
+    it("getToolDefinitionsFor returns full schemas only for the requested, non-hidden names", async () => {
+      const program = Effect.gen(function* () {
+        const registry = yield* ToolRegistryTag;
+        yield* registry.registerTool(makeTool("wanted"), deferredCategory);
+        yield* registry.registerTool(makeTool("unwanted"), deferredCategory);
+        yield* registry.registerTool(
+          { ...makeTool("hidden-wanted"), hidden: true },
+          deferredCategory,
+        );
+        return yield* registry.getToolDefinitionsFor(["wanted", "hidden-wanted"]);
+      });
+
+      const result = await Effect.runPromise(program.pipe(Effect.provide(testLayer)));
+      expect(result.map((d) => d.function.name)).toEqual(["wanted"]);
+    });
   });
 });
