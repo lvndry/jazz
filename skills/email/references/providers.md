@@ -1,104 +1,116 @@
-# Email Provider Configuration
+# Email Provider Configuration (Himalaya v2.x)
 
 Detailed setup instructions for common email providers with Himalaya.
 
-Config file location: `~/.config/himalaya/config.toml`
+> **v2 config schema.** Himalaya v2 uses per-protocol tables, not the old `backend.*` /
+> `message.send.backend.*` keys. A v1 config loads with **zero backends** and every command fails
+> with `No backend matching \`auto\` is configured`. Use this shape:
+>
+> ```toml
+> [accounts.example]
+> email = "you@example.com"
+>
+> [accounts.example.imap]
+> server = "imap.example.com:993"
+> sasl.plain.username = "you@example.com"
+> sasl.plain.password.raw = "app-password"   # or .command / .keyring
+>
+> [accounts.example.smtp]
+> server = "smtp.example.com:465"
+> sasl.plain.username = "you@example.com"
+> sasl.plain.password.raw = "app-password"
+> ```
+>
+> Password sources for `sasl.plain.password`:
+> - `raw = "..."` — inline (testing only, never commit)
+> - `command = "pass show google/app-password"` — runs a command, uses stdout
+> - `keyring = "entry-name"` — OS keyring
+>
+> Config file location: `~/.config/himalaya/config.toml` (or `$XDG_CONFIG_HOME/himalaya/config.toml`).
+> Validate with `himalaya account check <name>`. There is **no `account configure`** in v2 — write
+> the TOML directly.
 
 ---
 
 ## Gmail
 
-### Option 1: App Password with pass (Recommended)
+### Option 1: App Password (Recommended)
 
 **Prerequisites:**
 
 1. Enable IMAP in Gmail settings
 2. Enable 2-Step Verification
 3. Create App Password: https://myaccount.google.com/apppasswords
-4. Store in pass: `pass insert google/app-password`
+4. Store in `pass`: `pass insert google/app-password`
 
 ```toml
 [accounts.gmail]
 email = "yourname@gmail.com"
 
-folder.aliases.inbox = "INBOX"
-folder.aliases.sent = "[Gmail]/Sent Mail"
-folder.aliases.drafts = "[Gmail]/Drafts"
-folder.aliases.trash = "[Gmail]/Trash"
+[accounts.gmail.imap]
+server = "imap.gmail.com:993"
+sasl.plain.username = "yourname@gmail.com"
+sasl.plain.password.command = "pass show google/app-password"
 
-backend.type = "imap"
-backend.host = "imap.gmail.com"
-backend.port = 993
-backend.login = "yourname@gmail.com"
-backend.auth.type = "password"
-backend.auth.cmd = "pass show google/app-password"
-
-message.send.backend.type = "smtp"
-message.send.backend.host = "smtp.gmail.com"
-message.send.backend.port = 465
-message.send.backend.login = "yourname@gmail.com"
-message.send.backend.auth.type = "password"
-message.send.backend.auth.cmd = "pass show google/app-password"
+[accounts.gmail.smtp]
+server = "smtp.gmail.com:465"
+sasl.plain.username = "yourname@gmail.com"
+sasl.plain.password.command = "pass show google/app-password"
 ```
 
 **Note**: This same app-specific password works for Google Calendar. Store once, use for both email and calendar skills.
 
-### Option 1b: App Password with keyring
+### Option 1b: App Password with macOS Keychain
 
 ```toml
-backend.auth.keyring = "gmail-password"
-message.send.backend.auth.keyring = "gmail-password"
+[accounts.gmail.imap]
+server = "imap.gmail.com:993"
+sasl.plain.username = "yourname@gmail.com"
+sasl.plain.password.command = "security find-generic-password -a 'gmail' -s 'himalaya-gmail-imap' -w"
+
+[accounts.gmail.smtp]
+server = "smtp.gmail.com:465"
+sasl.plain.username = "yourname@gmail.com"
+sasl.plain.password.command = "security find-generic-password -a 'gmail' -s 'himalaya-gmail-smtp' -w"
 ```
 
-Then run:
-
+Store the password once with:
 ```bash
-himalaya account configure gmail
-# Paste your App Password when prompted
+security add-generic-password -a 'gmail' -s 'himalaya-gmail-imap' -w 'APP_PASSWORD' -U
+security add-generic-password -a 'gmail' -s 'himalaya-gmail-smtp' -w 'APP_PASSWORD' -U
 ```
 
 ### Option 2: OAuth 2.0 (More Secure)
 
-Requires creating OAuth credentials in Google Cloud Console.
+Requires creating OAuth credentials in Google Cloud Console. v2 uses `sasl.oauth2.*` blocks.
 
 ```toml
 [accounts.gmail]
 email = "yourname@gmail.com"
 
-folder.aliases.inbox = "INBOX"
-folder.aliases.sent = "[Gmail]/Sent Mail"
-folder.aliases.drafts = "[Gmail]/Drafts"
-folder.aliases.trash = "[Gmail]/Trash"
+[accounts.gmail.imap]
+server = "imap.gmail.com:993"
+sasl.plain.username = "yourname@gmail.com"
+sasl.oauth2.client-id = "YOUR_CLIENT_ID"
+sasl.oauth2.client-secret.command = "pass show google/oauth2-client-secret"
+sasl.oauth2.access-token.command = "pass show google/oauth2-access-token"
+sasl.oauth2.refresh-token.command = "pass show google/oauth2-refresh-token"
+sasl.oauth2.auth-url = "https://accounts.google.com/o/oauth2/v2/auth"
+sasl.oauth2.token-url = "https://www.googleapis.com/oauth2/v3/token"
+sasl.oauth2.pkce = true
+sasl.oauth2.scope = "https://mail.google.com/"
 
-backend.type = "imap"
-backend.host = "imap.gmail.com"
-backend.port = 993
-backend.login = "yourname@gmail.com"
-backend.auth.type = "oauth2"
-backend.auth.method = "xoauth2"
-backend.auth.client-id = "YOUR_CLIENT_ID"
-backend.auth.client-secret.keyring = "gmail-oauth2-client-secret"
-backend.auth.access-token.keyring = "gmail-oauth2-access-token"
-backend.auth.refresh-token.keyring = "gmail-oauth2-refresh-token"
-backend.auth.auth-url = "https://accounts.google.com/o/oauth2/v2/auth"
-backend.auth.token-url = "https://www.googleapis.com/oauth2/v3/token"
-backend.auth.pkce = true
-backend.auth.scope = "https://mail.google.com/"
-
-message.send.backend.type = "smtp"
-message.send.backend.host = "smtp.gmail.com"
-message.send.backend.port = 465
-message.send.backend.login = "yourname@gmail.com"
-message.send.backend.auth.type = "oauth2"
-message.send.backend.auth.method = "xoauth2"
-message.send.backend.auth.client-id = "YOUR_CLIENT_ID"
-message.send.backend.auth.client-secret.keyring = "gmail-oauth2-client-secret"
-message.send.backend.auth.access-token.keyring = "gmail-oauth2-access-token"
-message.send.backend.auth.refresh-token.keyring = "gmail-oauth2-refresh-token"
-message.send.backend.auth.auth-url = "https://accounts.google.com/o/oauth2/v2/auth"
-message.send.backend.auth.token-url = "https://www.googleapis.com/oauth2/v3/token"
-message.send.backend.auth.pkce = true
-message.send.backend.auth.scope = "https://mail.google.com/"
+[accounts.gmail.smtp]
+server = "smtp.gmail.com:465"
+sasl.plain.username = "yourname@gmail.com"
+sasl.oauth2.client-id = "YOUR_CLIENT_ID"
+sasl.oauth2.client-secret.command = "pass show google/oauth2-client-secret"
+sasl.oauth2.access-token.command = "pass show google/oauth2-access-token"
+sasl.oauth2.refresh-token.command = "pass show google/oauth2-refresh-token"
+sasl.oauth2.auth-url = "https://accounts.google.com/o/oauth2/v2/auth"
+sasl.oauth2.token-url = "https://www.googleapis.com/oauth2/v3/token"
+sasl.oauth2.pkce = true
+sasl.oauth2.scope = "https://mail.google.com/"
 ```
 
 ---
@@ -113,20 +125,16 @@ Store in pass: `pass insert outlook/app-password`
 [accounts.outlook]
 email = "yourname@outlook.com"
 
-backend.type = "imap"
-backend.host = "outlook.office365.com"
-backend.port = 993
-backend.login = "yourname@outlook.com"
-backend.auth.type = "password"
-backend.auth.cmd = "pass show outlook/app-password"
+[accounts.outlook.imap]
+server = "outlook.office365.com:993"
+sasl.plain.username = "yourname@outlook.com"
+sasl.plain.password.command = "pass show outlook/app-password"
 
-message.send.backend.type = "smtp"
-message.send.backend.host = "smtp-mail.outlook.com"
-message.send.backend.port = 587
-message.send.backend.encryption.type = "start-tls"
-message.send.backend.login = "yourname@outlook.com"
-message.send.backend.auth.type = "password"
-message.send.backend.auth.cmd = "pass show outlook/app-password"
+[accounts.outlook.smtp]
+server = "smtp-mail.outlook.com:587"
+starttls = true
+sasl.plain.username = "yourname@outlook.com"
+sasl.plain.password.command = "pass show outlook/app-password"
 ```
 
 ### Option 2: OAuth 2.0
@@ -135,34 +143,30 @@ message.send.backend.auth.cmd = "pass show outlook/app-password"
 [accounts.outlook]
 email = "yourname@outlook.com"
 
-backend.type = "imap"
-backend.host = "outlook.office365.com"
-backend.port = 993
-backend.login = "yourname@outlook.com"
-backend.auth.type = "oauth2"
-backend.auth.client-id = "YOUR_CLIENT_ID"
-backend.auth.client-secret.keyring = "outlook-oauth2-client-secret"
-backend.auth.access-token.keyring = "outlook-oauth2-access-token"
-backend.auth.refresh-token.keyring = "outlook-oauth2-refresh-token"
-backend.auth.auth-url = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
-backend.auth.token-url = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
-backend.auth.pkce = true
-backend.auth.scopes = ["https://outlook.office.com/IMAP.AccessAsUser.All", "https://outlook.office.com/SMTP.Send"]
+[accounts.outlook.imap]
+server = "outlook.office365.com:993"
+sasl.plain.username = "yourname@outlook.com"
+sasl.oauth2.client-id = "YOUR_CLIENT_ID"
+sasl.oauth2.client-secret.command = "pass show outlook/oauth2-client-secret"
+sasl.oauth2.access-token.command = "pass show outlook/oauth2-access-token"
+sasl.oauth2.refresh-token.command = "pass show outlook/oauth2-refresh-token"
+sasl.oauth2.auth-url = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
+sasl.oauth2.token-url = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
+sasl.oauth2.pkce = true
+sasl.oauth2.scopes = ["https://outlook.office.com/IMAP.AccessAsUser.All", "https://outlook.office.com/SMTP.Send"]
 
-message.send.backend.type = "smtp"
-message.send.backend.host = "smtp.mail.outlook.com"
-message.send.backend.port = 587
-message.send.backend.starttls = true
-message.send.backend.login = "yourname@outlook.com"
-message.send.backend.auth.type = "oauth2"
-message.send.backend.auth.client-id = "YOUR_CLIENT_ID"
-message.send.backend.auth.client-secret.keyring = "outlook-oauth2-client-secret"
-message.send.backend.auth.access-token.keyring = "outlook-oauth2-access-token"
-message.send.backend.auth.refresh-token.keyring = "outlook-oauth2-refresh-token"
-message.send.backend.auth.auth-url = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
-message.send.backend.auth.token-url = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
-message.send.backend.auth.pkce = true
-message.send.backend.auth.scopes = ["https://outlook.office.com/IMAP.AccessAsUser.All", "https://outlook.office.com/SMTP.Send"]
+[accounts.outlook.smtp]
+server = "smtp-mail.outlook.com:587"
+starttls = true
+sasl.plain.username = "yourname@outlook.com"
+sasl.oauth2.client-id = "YOUR_CLIENT_ID"
+sasl.oauth2.client-secret.command = "pass show outlook/oauth2-client-secret"
+sasl.oauth2.access-token.command = "pass show outlook/oauth2-access-token"
+sasl.oauth2.refresh-token.command = "pass show outlook/oauth2-refresh-token"
+sasl.oauth2.auth-url = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
+sasl.oauth2.token-url = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
+sasl.oauth2.pkce = true
+sasl.oauth2.scopes = ["https://outlook.office.com/IMAP.AccessAsUser.All", "https://outlook.office.com/SMTP.Send"]
 ```
 
 ---
@@ -180,20 +184,16 @@ message.send.backend.auth.scopes = ["https://outlook.office.com/IMAP.AccessAsUse
 [accounts.icloud]
 email = "yourname@icloud.com"
 
-backend.type = "imap"
-backend.host = "imap.mail.me.com"
-backend.port = 993
-backend.login = "yourname"  # Username only, no @icloud.com!
-backend.auth.type = "password"
-backend.auth.cmd = "pass show icloud/app-password"
+[accounts.icloud.imap]
+server = "imap.mail.me.com:993"
+sasl.plain.username = "yourname"  # Username only, no @icloud.com!
+sasl.plain.password.command = "pass show icloud/app-password"
 
-message.send.backend.type = "smtp"
-message.send.backend.host = "smtp.mail.me.com"
-message.send.backend.port = 587
-message.send.backend.encryption.type = "start-tls"
-message.send.backend.login = "yourname@icloud.com"  # Full email for SMTP
-message.send.backend.auth.type = "password"
-message.send.backend.auth.cmd = "pass show icloud/app-password"
+[accounts.icloud.smtp]
+server = "smtp.mail.me.com:587"
+starttls = true
+sasl.plain.username = "yourname@icloud.com"  # Full email for SMTP
+sasl.plain.password.command = "pass show icloud/app-password"
 ```
 
 **Note**: This same app-specific password works for iCloud Calendar. Store once, use for both email and calendar skills.
@@ -211,34 +211,20 @@ message.send.backend.auth.cmd = "pass show icloud/app-password"
 [accounts.proton]
 email = "yourname@proton.me"
 
-backend.type = "imap"
-backend.host = "127.0.0.1"
-backend.port = 1143
-backend.encryption.type = "none"  # Bridge handles encryption
-backend.login = "yourname@proton.me"
-backend.auth.type = "password"
-backend.auth.keyring = "proton-bridge-password"
+[accounts.proton.imap]
+server = "127.0.0.1:1143"
+sasl.plain.username = "yourname@proton.me"
+sasl.plain.password.keyring = "proton-bridge-password"
 
-message.send.backend.type = "smtp"
-message.send.backend.host = "127.0.0.1"
-message.send.backend.port = 1025
-message.send.backend.encryption.type = "none"
-message.send.backend.login = "yourname@proton.me"
-message.send.backend.auth.type = "password"
-message.send.backend.auth.keyring = "proton-bridge-password"
+[accounts.proton.smtp]
+server = "127.0.0.1:1025"
+sasl.plain.username = "yourname@proton.me"
+sasl.plain.password.keyring = "proton-bridge-password"
 ```
 
-### With TLS (Alternative)
-
-Export certificate from Proton Bridge, then:
-
-```toml
-backend.encryption.type = "start-tls"
-backend.encryption.cert = "/path/to/proton-bridge-cert.pem"
-
-message.send.backend.encryption.type = "start-tls"
-message.send.backend.encryption.cert = "/path/to/proton-bridge-cert.pem"
-```
+Proton Bridge terminates TLS locally, so no `tls`/`starttls` block is needed. If you export the
+Bridge certificate and want to enforce it, add `tls.type = "start-tls"` plus a `tls.cert` pointing
+at the PEM under the `imap`/`smtp` tables.
 
 ---
 
@@ -253,19 +239,15 @@ message.send.backend.encryption.cert = "/path/to/proton-bridge-cert.pem"
 [accounts.fastmail]
 email = "yourname@fastmail.com"
 
-backend.type = "imap"
-backend.host = "imap.fastmail.com"
-backend.port = 993
-backend.login = "yourname@fastmail.com"
-backend.auth.type = "password"
-backend.auth.cmd = "pass show fastmail/app-password"
+[accounts.fastmail.imap]
+server = "imap.fastmail.com:993"
+sasl.plain.username = "yourname@fastmail.com"
+sasl.plain.password.command = "pass show fastmail/app-password"
 
-message.send.backend.type = "smtp"
-message.send.backend.host = "smtp.fastmail.com"
-message.send.backend.port = 465
-message.send.backend.login = "yourname@fastmail.com"
-message.send.backend.auth.type = "password"
-message.send.backend.auth.cmd = "pass show fastmail/app-password"
+[accounts.fastmail.smtp]
+server = "smtp.fastmail.com:465"
+sasl.plain.username = "yourname@fastmail.com"
+sasl.plain.password.command = "pass show fastmail/app-password"
 ```
 
 **Note**: Use "All" access when creating the app password to enable both email and calendar sync with the same credential.
@@ -282,19 +264,15 @@ message.send.backend.auth.cmd = "pass show fastmail/app-password"
 [accounts.yahoo]
 email = "yourname@yahoo.com"
 
-backend.type = "imap"
-backend.host = "imap.mail.yahoo.com"
-backend.port = 993
-backend.login = "yourname@yahoo.com"
-backend.auth.type = "password"
-backend.auth.keyring = "yahoo-password"
+[accounts.yahoo.imap]
+server = "imap.mail.yahoo.com:993"
+sasl.plain.username = "yourname@yahoo.com"
+sasl.plain.password.keyring = "yahoo-password"
 
-message.send.backend.type = "smtp"
-message.send.backend.host = "smtp.mail.yahoo.com"
-message.send.backend.port = 465
-message.send.backend.login = "yourname@yahoo.com"
-message.send.backend.auth.type = "password"
-message.send.backend.auth.keyring = "yahoo-password"
+[accounts.yahoo.smtp]
+server = "smtp.mail.yahoo.com:465"
+sasl.plain.username = "yourname@yahoo.com"
+sasl.plain.password.keyring = "yahoo-password"
 ```
 
 ---
@@ -307,19 +285,15 @@ For other providers, use this template:
 [accounts.custom]
 email = "yourname@example.com"
 
-backend.type = "imap"
-backend.host = "imap.example.com"
-backend.port = 993
-backend.login = "yourname@example.com"
-backend.auth.type = "password"
-backend.auth.keyring = "custom-password"
+[accounts.custom.imap]
+server = "imap.example.com:993"
+sasl.plain.username = "yourname@example.com"
+sasl.plain.password.keyring = "custom-password"
 
-message.send.backend.type = "smtp"
-message.send.backend.host = "smtp.example.com"
-message.send.backend.port = 465  # or 587 with start-tls
-message.send.backend.login = "yourname@example.com"
-message.send.backend.auth.type = "password"
-message.send.backend.auth.keyring = "custom-password"
+[accounts.custom.smtp]
+server = "smtp.example.com:465"  # or :587 with starttls = true
+sasl.plain.username = "yourname@example.com"
+sasl.plain.password.keyring = "custom-password"
 ```
 
 ---
@@ -331,8 +305,7 @@ message.send.backend.auth.keyring = "custom-password"
 Use `pass` (Password Store) with consistent naming for reusability across email and calendar skills. For multiple accounts of the same provider, use a hierarchical folder structure (e.g., `google/personal/app-password` and `google/work/app-password`). The `/` character explicitly creates a folder structure in `pass`.
 
 ```toml
-backend.auth.cmd = "pass show google/app-password"
-message.send.backend.auth.cmd = "pass show google/app-password"
+sasl.plain.password.command = "pass show google/app-password"
 ```
 
 **Consistent naming convention**:
@@ -365,17 +338,16 @@ pass insert fastmail/account_b/app-password
 ### Option 2: System Keyring
 
 ```toml
-backend.auth.keyring = "account-name"
+sasl.plain.password.keyring = "account-name"
 ```
 
-Run `himalaya account configure <name>` to store password securely.
-
-**Note**: Keyring storage is Himalaya-specific and won't be automatically shared with calendar tools.
+The agent stores the secret via `security add-generic-password` (macOS) or the platform keyring.
+Keyring storage is Himalaya-specific and won't be automatically shared with calendar tools.
 
 ### Option 3: Raw Password (NOT Recommended)
 
 ```toml
-backend.auth.raw = "your-password-here"
+sasl.plain.password.raw = "your-password-here"
 ```
 
 ⚠️ Only use for testing. Never commit to version control.
