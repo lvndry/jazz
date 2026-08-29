@@ -1,6 +1,13 @@
 import { terminalCellWidth } from "../terminal-cells";
 
 /**
+ * Only one overlay is ever open at a time, but painting order otherwise falls
+ * back to source position among siblings with equal zIndex. Pinning it this
+ * high keeps the overlay on top regardless of where it sits in App.tsx's tree.
+ */
+export const OVERLAY_Z_INDEX = 1000;
+
+/**
  * Horizontal centering for overlay option blocks, shared by every picker-style
  * overlay so the treatment cannot drift between them.
  *

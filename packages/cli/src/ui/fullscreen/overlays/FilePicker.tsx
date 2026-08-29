@@ -31,7 +31,7 @@ import {
   terminalCellWidth,
 } from "../terminal-cells";
 import type { Viewport } from "../types";
-import { centeredOffset } from "./centered";
+import { centeredOffset, OVERLAY_Z_INDEX } from "./centered";
 import { HintRow, type Hint } from "./TextPrompt";
 
 const MAX_WIDTH = 96;
@@ -201,6 +201,7 @@ export function FilePicker({ model, viewport }: FilePickerProps): ReactNode {
     <box
       style={{
         position: "absolute",
+        zIndex: OVERLAY_Z_INDEX,
         left,
         top,
         width,

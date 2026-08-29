@@ -25,7 +25,7 @@
 
 import type { BorderCharacters } from "@opentui/core";
 import type { ReactNode } from "react";
-import { centeredOffset } from "./centered";
+import { centeredOffset, OVERLAY_Z_INDEX } from "./centered";
 import { CaretValue, HintRow, type Hint } from "./TextPrompt";
 import { getGlyphs, type GlyphSet } from "../../glyphs";
 import { PICKER_WINDOW_SIZE, pickerWindowStart } from "../../picker-window";
@@ -351,6 +351,7 @@ export function Question({ model, viewport }: QuestionProps): ReactNode {
     <box
       style={{
         position: "absolute",
+        zIndex: OVERLAY_Z_INDEX,
         left,
         top,
         width,

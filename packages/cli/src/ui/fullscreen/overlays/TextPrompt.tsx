@@ -23,6 +23,7 @@
 
 import { TextAttributes, type BorderCharacters } from "@opentui/core";
 import type { ReactNode } from "react";
+import { OVERLAY_Z_INDEX } from "./centered";
 import { getGlyphs, type GlyphSet } from "../../glyphs";
 import { maskSecret, maskSecretCaret } from "../../mask-secret";
 import { THEME } from "../../theme";
@@ -278,6 +279,7 @@ export function HintRow({ hints, width, tally }: HintRowProps): ReactNode {
         height: HINT_ROWS,
         flexShrink: 0,
         flexDirection: "row",
+        backgroundColor: THEME.canvas,
         paddingLeft: HINT_PAD,
         paddingRight: HINT_PAD,
       }}
@@ -346,6 +348,7 @@ export function TextPrompt({ model, viewport }: TextPromptProps): ReactNode {
     <box
       style={{
         position: "absolute",
+        zIndex: OVERLAY_Z_INDEX,
         left,
         top,
         width,
