@@ -171,11 +171,27 @@ export function registerMCPToolsForAgent(
     // Match tool names to servers by prefix rather than by splitting the name:
     // both the server name and the tool name may contain underscores.
     const requiredServerNames = new Set<string>();
-    for (const server of allServers) {
-      const prefix = `mcp_${server.name.toLowerCase()}_`;
-      if (mcpToolNames.some((name) => name.startsWith(prefix))) {
-        requiredServerNames.add(server.name);
+    const unresolvedToolNames: string[] = [];
+    for (const toolName of mcpToolNames) {
+      const matchedServer = allServers.find((server) =>
+        toolName.startsWith(`mcp_${server.name.toLowerCase()}_`),
+      );
+      if (matchedServer) {
+        requiredServerNames.add(matchedServer.name);
+      } else {
+        unresolvedToolNames.push(toolName);
       }
+    }
+
+    // A typo, or a server declared in ~/.jazz/config.json instead of .agents/mcp.json (the
+    // former only toggles enabled/trusted on a server already defined in the latter — it
+    // cannot define one), both look identical from here: the tool silently never appears.
+    if (unresolvedToolNames.length > 0) {
+      yield* logger.warn(
+        `Agent references MCP tool(s) with no matching configured server, so they will not be ` +
+          `available: ${unresolvedToolNames.join(", ")}. Check that the server is declared in ` +
+          `.agents/mcp.json.`,
+      );
     }
 
     const serversToConnect = allServers.filter(
