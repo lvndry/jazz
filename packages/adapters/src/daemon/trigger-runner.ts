@@ -16,6 +16,7 @@ import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
 import { runInProcessScheduledWorkflows } from "@jazz/core/workflows/catch-up";
 import { Effect } from "effect";
+import { runDueJobs } from "@/adapters/daemon/job-worker";
 import { sweepDueWakeTriggers } from "@/adapters/wake-trigger-service";
 import {
   loadConversation,
@@ -95,9 +96,10 @@ function fireWakeTrigger(
 }
 
 /**
- * One tick: run any due workflow catch-up, then fire any due wake triggers.
+ * One tick: run any due workflow catch-up, fire any due wake triggers, then claim and run any
+ * due background job batches.
  *
- * Failures in either half are logged and swallowed — a single bad trigger or a transient
+ * Failures in any part are logged and swallowed — a single bad trigger, job, or transient
  * catch-up error must never stop the ticker from running on the next interval.
  */
 export function runDueTriggers(options: { readonly runWorkflows?: boolean } = {}) {
@@ -112,5 +114,7 @@ export function runDueTriggers(options: { readonly runWorkflows?: boolean } = {}
     for (const { agentId, trigger } of due) {
       yield* fireWakeTrigger(agentId, trigger);
     }
+
+    yield* runDueJobs().pipe(Effect.catchAll(() => Effect.void));
   });
 }

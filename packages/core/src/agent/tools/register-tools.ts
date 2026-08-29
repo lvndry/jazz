@@ -11,6 +11,7 @@ import { ToolRegistryTag } from "@/core/interfaces/tool-registry";
 import { createContextInfoTool, createGetTimeTool } from "./context-tools";
 import { fs } from "./fs";
 import { createHttpRequestTool } from "./http-tools";
+import { createJobQueueTools } from "./job-queue-tools";
 import { createManageMemoryTool, createViewMemoryTool } from "./memory-tools";
 import { createPdfTool } from "./pdf-tools";
 import { createAskPeerTool } from "./peer-tools";
@@ -28,6 +29,7 @@ import {
   CONTEXT_CATEGORY,
   FILE_MANAGEMENT_CATEGORY,
   HTTP_CATEGORY,
+  JOB_QUEUE_CATEGORY,
   MEMORY_CATEGORY,
   PEERS_CATEGORY,
   PERCEPTION_CATEGORY,
@@ -73,6 +75,7 @@ export function registerAllTools(): Effect.Effect<void, Error, ToolRegistry> {
     yield* registerWorkspaceTools();
     yield* registerReminderTools();
     yield* registerWakeTriggerTools();
+    yield* registerJobQueueTools();
     yield* registerContextTools();
     yield* registerSubagentTools();
     yield* registerPerceptionTools();
@@ -252,6 +255,19 @@ export function registerWakeTriggerTools(): Effect.Effect<void, Error, ToolRegis
     yield* registerTool(createRegisterTriggerTool());
     yield* registerTool(createListTriggersTool());
     yield* registerTool(createCancelTriggerTool());
+  });
+}
+
+export function registerJobQueueTools(): Effect.Effect<void, Error, ToolRegistry> {
+  return Effect.gen(function* () {
+    const registry = yield* ToolRegistryTag;
+    const registerTool = registry.registerForCategory(JOB_QUEUE_CATEGORY);
+
+    const { enqueueBatch, listJobs, cancelBatch } = createJobQueueTools();
+    yield* registerTool(enqueueBatch.approval);
+    yield* registerTool(enqueueBatch.execute);
+    yield* registerTool(listJobs);
+    yield* registerTool(cancelBatch);
   });
 }
 
