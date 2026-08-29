@@ -1,4 +1,4 @@
-import { Cause, Deferred, Duration, Effect, Exit, Fiber, Option, Ref, Stream } from "effect";
+import { Cause, Deferred, Duration, Effect, Exit, Fiber, Option, Queue, Ref, Stream } from "effect";
 import {
   makeUserVisibleLlmRetrySchedule,
   withLongRunningLlmNotice,
@@ -90,6 +90,18 @@ export function executeWithStreaming(
       Effect.runSync(Deferred.succeed(interruptDeferred, void 0));
     };
     yield* renderer.setInterruptHandler(onInterrupt);
+
+    // Ctrl+B ("background") signal: unlike interruptDeferred, a Deferred can only ever
+    // resolve once, but this run may go through many tool batches and each one needs its
+    // own chance to be backgrounded — so this is a queue of "detach whatever's running
+    // right now" requests, one per keypress, rather than a one-shot signal. Stale entries
+    // from a batch that already finished by the time the next one starts are drained away
+    // before each race so a leftover press never backgrounds the wrong batch.
+    const backgroundQueue = yield* Queue.unbounded<void>();
+    const onBackground = () => {
+      Effect.runSync(Queue.offer(backgroundQueue, void 0));
+    };
+    yield* renderer.setBackgroundHandler?.(onBackground) ?? Effect.void;
 
     // Ref to capture partial completion from stream events — hoisted to avoid per-iteration allocation
     const completionRef = yield* Ref.make<ChatCompletionResponse | undefined>(undefined);
@@ -375,6 +387,16 @@ export function executeWithStreaming(
       getInterruptSignal() {
         return Deferred.await(interruptDeferred);
       },
+
+      getBackgroundSignal() {
+        return Effect.gen(function* () {
+          // Discard any press that arrived while nothing was racing this queue (between
+          // batches, or held over from a batch that resolved on its own first) — only a
+          // press that lands while this specific race is live should count.
+          yield* Queue.takeAll(backgroundQueue);
+          yield* Queue.take(backgroundQueue);
+        });
+      },
     };
 
     const observer = makeDefaultObserver(presentationService);
@@ -388,6 +410,7 @@ export function executeWithStreaming(
     ).pipe(
       Effect.tapError(() => renderer.reset()),
       Effect.ensuring(renderer.setInterruptHandler(null)),
+      Effect.ensuring(renderer.setBackgroundHandler?.(null) ?? Effect.void),
     );
 
     return response;

@@ -77,6 +77,11 @@ export const WAKE_TRIGGER_CATEGORY: ToolCategory = {
   displayName: "Wake Triggers",
   loadTier: "deferred",
 };
+export const JOB_QUEUE_CATEGORY: ToolCategory = {
+  id: "job_queue",
+  displayName: "Background Jobs",
+  loadTier: "deferred",
+};
 export const USER_INTERACTION_CATEGORY: ToolCategory = {
   id: "user_interaction",
   displayName: "User Interaction",
@@ -103,6 +108,7 @@ export const ALL_CATEGORIES: readonly ToolCategory[] = [
   WORKSPACE_CATEGORY,
   REMINDER_CATEGORY,
   WAKE_TRIGGER_CATEGORY,
+  JOB_QUEUE_CATEGORY,
   CONTEXT_CATEGORY,
   SEARCH_TOOLS_CATEGORY,
   SUBAGENT_CATEGORY,

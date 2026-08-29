@@ -16,7 +16,24 @@ import { ReminderServiceTag } from "@jazz/core/interfaces/reminder-service";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
 import { requireValidAgentId, withLock, writeFileStringAtomic } from "@jazz/core/utils/storage";
 import { parseWhen } from "@jazz/core/utils/time";
+import {
+  createReminderOsScheduler,
+  type ReminderOsScheduler,
+} from "@jazz/core/wake-triggers/reminder-os-scheduler";
 import { Effect, Layer } from "effect";
+
+/**
+ * Telegram (`tg_...`) and Discord (`dc_...`) agents already sweep and deliver their own
+ * reminders in-process (see `packages/telegram-bot/src/reminders.ts`,
+ * `packages/discord-bot/src/reminders.ts`), running a private interval inside their own
+ * long-lived bot process. Installing an OS job for those too would double-deliver: once as the
+ * bot's own chat message, once as a spurious desktop notification on whatever host happens to
+ * run the bot container — usually headless, with no GUI session, and often a shared service
+ * account under which writing LaunchAgents would be unwanted or fail outright.
+ */
+function isBotHostedAgentId(agentId: string): boolean {
+  return agentId.startsWith("tg_") || agentId.startsWith("dc_");
+}
 
 /** Raised for guardrail violations — genuinely unexpected conditions, not tool-result-shaped errors. */
 export class ReminderGuardrailViolation extends Error {}
@@ -57,14 +74,24 @@ function readReminderFile(
 export interface ReminderServiceImplOptions {
   /** Override for tests; defaults to ~/.jazz/reminders (or $JAZZ_HOME/reminders). */
   readonly baseReminderDirectory?: string;
+  /** Override for tests; defaults to `createReminderOsScheduler()`. */
+  readonly osScheduler?: ReminderOsScheduler;
 }
 
 export class ReminderServiceImpl implements ReminderService {
   private readonly baseReminderDirectory: string;
+  private readonly osScheduler: ReminderOsScheduler | undefined;
 
   constructor(options?: ReminderServiceImplOptions) {
     this.baseReminderDirectory =
       options?.baseReminderDirectory ?? path.join(getJazzHomeDirectory(), "reminders");
+    this.osScheduler = options?.osScheduler;
+  }
+
+  private resolveOsScheduler(): Effect.Effect<ReminderOsScheduler> {
+    return this.osScheduler !== undefined
+      ? Effect.succeed(this.osScheduler)
+      : createReminderOsScheduler();
   }
 
   private withValidatedAgentLock<A, E, R>(
@@ -122,11 +149,26 @@ export class ReminderServiceImpl implements ReminderService {
             } satisfies AddReminderOutcome;
           }
 
+          const reminderId = newReminderId();
+
+          // OS scheduling is a best-effort reliability upgrade on top of the JSON record
+          // below, which stays the source of truth — a scheduling failure must never block
+          // registering the reminder, so any error here is swallowed. Skipped entirely for
+          // bot-hosted agents; see `isBotHostedAgentId`.
+          const scheduleResult: { readonly osSchedulerJobId?: string } = isBotHostedAgentId(agentId)
+            ? {}
+            : yield* (yield* this.resolveOsScheduler())
+                .scheduleFire(agentId, reminderId, fireAt)
+                .pipe(Effect.catchAll(() => Effect.succeed({})));
+
           const reminder: ReminderRecord = {
-            id: newReminderId(),
+            id: reminderId,
             fireAt,
             text,
             createdAt: now,
+            ...(scheduleResult.osSchedulerJobId !== undefined
+              ? { osSchedulerJobId: scheduleResult.osSchedulerJobId }
+              : {}),
           };
           yield* writeFileStringAtomic(
             fs,
@@ -158,18 +200,31 @@ export class ReminderServiceImpl implements ReminderService {
           const fs = yield* FileSystem.FileSystem;
           const filePath = reminderFilePath(this.baseReminderDirectory, agentId);
           const existing = yield* readReminderFile(fs, filePath);
-          const remaining = existing.filter((reminder) => reminder.id !== id);
+          const removedReminder = existing.find((reminder) => reminder.id === id);
 
-          if (remaining.length === existing.length) {
+          if (removedReminder === undefined) {
             return {
               success: false,
               message: `No reminder found with id "${id}".`,
             } satisfies CancelReminderOutcome;
           }
 
+          const remaining = existing.filter((reminder) => reminder.id !== id);
           yield* writeFileStringAtomic(fs, filePath, `${JSON.stringify(remaining, null, 2)}\n`, {
             tempPrefix: "reminders",
           });
+
+          // Never let a failed OS unschedule block removing the JSON record — the record is
+          // the source of truth, and a stray leftover `at`/launchd job is harmless (the CLI
+          // it invokes checks whether the reminder still exists before firing). Skipped
+          // entirely for bot-hosted agents, which never had a job installed to begin with.
+          if (!isBotHostedAgentId(agentId)) {
+            const osScheduler = yield* this.resolveOsScheduler();
+            yield* osScheduler
+              .cancelFire(agentId, id, removedReminder.osSchedulerJobId)
+              .pipe(Effect.catchAll(() => Effect.void));
+          }
+
           return { success: true, message: "Reminder cancelled." } satisfies CancelReminderOutcome;
         }.bind(this),
       ),

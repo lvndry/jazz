@@ -4,18 +4,30 @@ import * as path from "node:path";
 import type { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { MAX_REMINDERS_PER_AGENT, REMINDER_TEXT_MAX_LENGTH } from "@jazz/core/constants/reminders";
+import type { ReminderOsScheduler } from "@jazz/core/wake-triggers/reminder-os-scheduler";
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { Effect } from "effect";
 import { ReminderServiceImpl, sweepDueReminders } from "./reminder-service";
 
 let tmpDir: string;
+const originalSchedulerEnv = process.env["JAZZ_SCHEDULER"];
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "jazz-reminder-test-"));
+  // Tests that don't inject a fake `osScheduler` fall back to `createReminderOsScheduler()`,
+  // which would otherwise install real launchd plists / `at` jobs on the machine running the
+  // test suite. Forcing in-process mode keeps these tests hermetic; the `osScheduler
+  // integration` tests below inject an explicit fake and are unaffected by this env var.
+  process.env["JAZZ_SCHEDULER"] = "in-process";
 });
 
 afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
+  if (originalSchedulerEnv === undefined) {
+    delete process.env["JAZZ_SCHEDULER"];
+  } else {
+    process.env["JAZZ_SCHEDULER"] = originalSchedulerEnv;
+  }
 });
 
 function runEffect<A>(eff: Effect.Effect<A, unknown, FileSystem.FileSystem>) {
@@ -26,8 +38,45 @@ function runEither<A>(eff: Effect.Effect<A, unknown, FileSystem.FileSystem>) {
   return runEffect(eff.pipe(Effect.either));
 }
 
-function makeService(): ReminderServiceImpl {
-  return new ReminderServiceImpl({ baseReminderDirectory: tmpDir });
+function makeService(osScheduler?: ReminderOsScheduler): ReminderServiceImpl {
+  return new ReminderServiceImpl({
+    baseReminderDirectory: tmpDir,
+    ...(osScheduler !== undefined ? { osScheduler } : {}),
+  });
+}
+
+interface FakeOsSchedulerCall {
+  readonly method: "scheduleFire" | "cancelFire";
+  readonly agentId: string;
+  readonly reminderId: string;
+}
+
+function makeFakeOsScheduler(options?: {
+  failScheduleFire?: boolean;
+  failCancelFire?: boolean;
+  jobId?: string;
+}): { scheduler: ReminderOsScheduler; calls: FakeOsSchedulerCall[] } {
+  const calls: FakeOsSchedulerCall[] = [];
+  const scheduler: ReminderOsScheduler = {
+    getType: () => "in-process",
+    scheduleFire: (agentId, reminderId) => {
+      calls.push({ method: "scheduleFire", agentId, reminderId });
+      if (options?.failScheduleFire) {
+        return Effect.fail(new Error("scheduleFire boom"));
+      }
+      return Effect.succeed(
+        options?.jobId !== undefined ? { osSchedulerJobId: options.jobId } : {},
+      );
+    },
+    cancelFire: (agentId, reminderId) => {
+      calls.push({ method: "cancelFire", agentId, reminderId });
+      if (options?.failCancelFire) {
+        return Effect.fail(new Error("cancelFire boom"));
+      }
+      return Effect.void;
+    },
+  };
+  return { scheduler, calls };
 }
 
 describe("add", () => {
@@ -214,5 +263,94 @@ describe("add guards against fire times in the past", () => {
     if (!outcome.success) {
       expect(outcome.message).toContain("in the past");
     }
+  });
+});
+
+describe("osScheduler integration", () => {
+  test("add calls osScheduler.scheduleFire and persists the returned job id", async () => {
+    const { scheduler, calls } = makeFakeOsScheduler({ jobId: "42" });
+    const service = makeService(scheduler);
+
+    const outcome = await runEffect(service.add("agent-1", "30m", "scheduled reminder", "UTC"));
+    expect(outcome.success).toBe(true);
+    if (!outcome.success) return;
+
+    expect(outcome.reminder.osSchedulerJobId).toBe("42");
+    expect(calls).toEqual([
+      { method: "scheduleFire", agentId: "agent-1", reminderId: outcome.reminder.id },
+    ]);
+  });
+
+  test("add succeeds even when osScheduler.scheduleFire fails", async () => {
+    const { scheduler } = makeFakeOsScheduler({ failScheduleFire: true });
+    const service = makeService(scheduler);
+
+    const outcome = await runEffect(service.add("agent-1", "30m", "reminder", "UTC"));
+    expect(outcome.success).toBe(true);
+    if (outcome.success) {
+      expect(outcome.reminder.osSchedulerJobId).toBeUndefined();
+    }
+  });
+
+  test("cancel calls osScheduler.cancelFire with the persisted job id", async () => {
+    const { scheduler, calls } = makeFakeOsScheduler({ jobId: "7" });
+    const service = makeService(scheduler);
+
+    const added = await runEffect(service.add("agent-1", "30m", "reminder", "UTC"));
+    expect(added.success).toBe(true);
+    if (!added.success) return;
+
+    const outcome = await runEffect(service.cancel("agent-1", added.reminder.id));
+    expect(outcome.success).toBe(true);
+
+    const cancelCall = calls.find((call) => call.method === "cancelFire");
+    expect(cancelCall).toEqual({
+      method: "cancelFire",
+      agentId: "agent-1",
+      reminderId: added.reminder.id,
+    });
+  });
+
+  test("cancel still removes the record even when osScheduler.cancelFire fails", async () => {
+    const { scheduler } = makeFakeOsScheduler({ failCancelFire: true });
+    const service = makeService(scheduler);
+
+    const added = await runEffect(service.add("agent-1", "30m", "reminder", "UTC"));
+    expect(added.success).toBe(true);
+    if (!added.success) return;
+
+    const outcome = await runEffect(service.cancel("agent-1", added.reminder.id));
+    expect(outcome.success).toBe(true);
+
+    const list = await runEffect(service.list("agent-1"));
+    expect(list).toEqual([]);
+  });
+
+  test("never calls the os scheduler for a Telegram-hosted agent id", async () => {
+    const { scheduler, calls } = makeFakeOsScheduler({ jobId: "99" });
+    const service = makeService(scheduler);
+
+    const added = await runEffect(service.add("tg_12345", "30m", "chat reminder", "UTC"));
+    expect(added.success).toBe(true);
+    if (!added.success) return;
+    expect(added.reminder.osSchedulerJobId).toBeUndefined();
+
+    await runEffect(service.cancel("tg_12345", added.reminder.id));
+
+    expect(calls).toEqual([]);
+  });
+
+  test("never calls the os scheduler for a Discord-hosted agent id", async () => {
+    const { scheduler, calls } = makeFakeOsScheduler({ jobId: "99" });
+    const service = makeService(scheduler);
+
+    const added = await runEffect(service.add("dc_67890", "30m", "chat reminder", "UTC"));
+    expect(added.success).toBe(true);
+    if (!added.success) return;
+    expect(added.reminder.osSchedulerJobId).toBeUndefined();
+
+    await runEffect(service.cancel("dc_67890", added.reminder.id));
+
+    expect(calls).toEqual([]);
   });
 });

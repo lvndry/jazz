@@ -63,6 +63,7 @@ import {
 } from "./composer-edit";
 import { wrapCommandIndex } from "./Input";
 import {
+  isBackgroundChord,
   isComposerNewline,
   isCtrlLetter,
   isInterruptChord,
@@ -1112,6 +1113,8 @@ export function FullscreenBridge(): React.ReactNode {
 
   const interrupt = useRef(session.interruptHandler);
   interrupt.current = session.interruptHandler;
+  const background = useRef(session.backgroundHandler);
+  background.current = session.backgroundHandler;
   const quitArmed = useRef(false);
 
   useEffect(() => {
@@ -1423,6 +1426,16 @@ export function FullscreenBridge(): React.ReactNode {
         }
         process.kill(process.pid, "SIGINT");
         return true;
+      }
+
+      // Ctrl+B: detach whatever tool call is currently running into the background
+      // instead of killing it — a no-op (falls through) when nothing is running to
+      // detach, unlike Ctrl+C which always does something.
+      if (isBackgroundChord({ name, ctrl, shift, super: superKey, sequence })) {
+        if (background.current !== null) {
+          background.current();
+          return true;
+        }
       }
 
       // Ctrl+V reads the host clipboard. Cmd+V / Shift+Insert arrive as a

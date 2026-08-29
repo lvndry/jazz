@@ -356,6 +356,14 @@ export interface StreamingRenderer {
   readonly setInterruptHandler: (handler: (() => void) | null) => Effect.Effect<void, never>;
 
   /**
+   * Register or clear a "detach the in-flight tool call into the background" handler
+   * (Ctrl+B) for the active stream. Optional — only a UI that can offer that chord
+   * (the Ink renderer) implements it; other presentation modes simply have no way to
+   * trigger it, which is the correct behavior for them, not a missing feature.
+   */
+  readonly setBackgroundHandler?: (handler: (() => void) | null) => Effect.Effect<void, never>;
+
+  /**
    * Reset renderer state (call between conversations)
    */
   readonly reset: () => Effect.Effect<void, never>;

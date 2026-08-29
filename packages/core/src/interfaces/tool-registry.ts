@@ -17,6 +17,7 @@ import type {
 } from "../types";
 import type { AgentConfigService } from "./agent-config";
 import type { FileSystemContextService } from "./fs";
+import type { JobQueueService } from "./job-queue-service";
 import type { LLMService } from "./llm";
 import type { LoggerService } from "./logger";
 import type { MCPServerManager } from "./mcp-server";
@@ -87,6 +88,7 @@ export type ToolRequirements =
   | WorkspaceService
   | ReminderService
   | WakeTriggerService
+  | JobQueueService
   | PeerLedgerService
   | PeerTokenService
   // search_tools reads the registry itself to look up deferred-tool summaries/definitions.

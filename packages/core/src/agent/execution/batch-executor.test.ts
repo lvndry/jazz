@@ -7,6 +7,7 @@ import { executeWithoutStreaming } from "./batch-executor";
 import { DEFAULT_MAX_ITERATIONS } from "../../constants/agent";
 import { AgentConfigServiceTag } from "../../interfaces/agent-config";
 import { FileSystemContextServiceTag } from "../../interfaces/fs";
+import { JobQueueServiceTag } from "../../interfaces/job-queue-service";
 import type { LLMService } from "../../interfaces/llm";
 import { LLMServiceTag } from "../../interfaces/llm";
 import { LoggerServiceTag } from "../../interfaces/logger";
@@ -158,6 +159,7 @@ function buildLayer(presentationService: OneShotPresentationService) {
     Layer.succeed(MemoryServiceTag, {} as any),
     Layer.succeed(WorkspaceServiceTag, {} as any),
     Layer.succeed(WakeTriggerServiceTag, {} as any),
+    Layer.succeed(JobQueueServiceTag, {} as any),
     Layer.succeed(ReminderServiceTag, {} as any),
     Layer.succeed(PeerLedgerServiceTag, {} as any),
     Layer.succeed(PeerTokenServiceTag, {} as any),
