@@ -6,6 +6,7 @@ import type { AgentConfigService } from "../../interfaces/agent-config";
 import { AgentConfigServiceTag } from "../../interfaces/agent-config";
 import type { FileSystemContextService } from "../../interfaces/fs";
 import { FileSystemContextServiceTag } from "../../interfaces/fs";
+import { JobQueueServiceTag } from "../../interfaces/job-queue-service";
 import type { LLMService } from "../../interfaces/llm";
 import { LLMServiceTag } from "../../interfaces/llm";
 import type { LoggerService } from "../../interfaces/logger";
@@ -151,6 +152,7 @@ describe("ToolExecutor.executeTool", () => {
       Layer.succeed(MemoryServiceTag, emptyMemory),
       Layer.succeed(WorkspaceServiceTag, {} as any),
       Layer.succeed(WakeTriggerServiceTag, {} as any),
+      Layer.succeed(JobQueueServiceTag, {} as any),
       Layer.succeed(ReminderServiceTag, emptyReminders),
       Layer.succeed(PeerLedgerServiceTag, {} as any),
       Layer.succeed(PeerTokenServiceTag, {} as any),
@@ -191,6 +193,7 @@ describe("ToolExecutor.executeTool", () => {
       Layer.succeed(MemoryServiceTag, emptyMemory),
       Layer.succeed(WorkspaceServiceTag, {} as any),
       Layer.succeed(WakeTriggerServiceTag, {} as any),
+      Layer.succeed(JobQueueServiceTag, {} as any),
       Layer.succeed(ReminderServiceTag, emptyReminders),
       Layer.succeed(PeerLedgerServiceTag, {} as any),
       Layer.succeed(PeerTokenServiceTag, {} as any),
@@ -239,6 +242,7 @@ describe("ToolExecutor.executeToolCall", () => {
       Layer.succeed(MemoryServiceTag, emptyMemory),
       Layer.succeed(WorkspaceServiceTag, {} as any),
       Layer.succeed(WakeTriggerServiceTag, {} as any),
+      Layer.succeed(JobQueueServiceTag, {} as any),
       Layer.succeed(ReminderServiceTag, emptyReminders),
       Layer.succeed(PeerLedgerServiceTag, {} as any),
       Layer.succeed(PeerTokenServiceTag, {} as any),
@@ -283,6 +287,7 @@ describe("ToolExecutor.executeToolCall", () => {
       Layer.succeed(MemoryServiceTag, emptyMemory),
       Layer.succeed(WorkspaceServiceTag, {} as any),
       Layer.succeed(WakeTriggerServiceTag, {} as any),
+      Layer.succeed(JobQueueServiceTag, {} as any),
       Layer.succeed(ReminderServiceTag, emptyReminders),
       Layer.succeed(PeerLedgerServiceTag, {} as any),
       Layer.succeed(PeerTokenServiceTag, {} as any),
@@ -339,6 +344,7 @@ describe("ToolExecutor.executeToolCalls", () => {
       Layer.succeed(MemoryServiceTag, emptyMemory),
       Layer.succeed(WorkspaceServiceTag, {} as any),
       Layer.succeed(WakeTriggerServiceTag, {} as any),
+      Layer.succeed(JobQueueServiceTag, {} as any),
       Layer.succeed(ReminderServiceTag, emptyReminders),
       Layer.succeed(PeerLedgerServiceTag, {} as any),
       Layer.succeed(PeerTokenServiceTag, {} as any),
@@ -416,6 +422,7 @@ describe("ToolExecutor.executeToolCalls", () => {
       Layer.succeed(MemoryServiceTag, emptyMemory),
       Layer.succeed(WorkspaceServiceTag, {} as any),
       Layer.succeed(WakeTriggerServiceTag, {} as any),
+      Layer.succeed(JobQueueServiceTag, {} as any),
       Layer.succeed(ReminderServiceTag, emptyReminders),
       Layer.succeed(PeerLedgerServiceTag, {} as any),
       Layer.succeed(PeerTokenServiceTag, {} as any),
@@ -518,6 +525,7 @@ describe("ToolExecutor.executeToolCalls", () => {
       Layer.succeed(MemoryServiceTag, emptyMemory),
       Layer.succeed(WorkspaceServiceTag, {} as any),
       Layer.succeed(WakeTriggerServiceTag, {} as any),
+      Layer.succeed(JobQueueServiceTag, {} as any),
       Layer.succeed(ReminderServiceTag, emptyReminders),
       Layer.succeed(PeerLedgerServiceTag, {} as any),
       Layer.succeed(PeerTokenServiceTag, {} as any),
@@ -661,6 +669,7 @@ describe("ToolExecutor.executeToolCall approval events", () => {
       Layer.succeed(MemoryServiceTag, emptyMemory),
       Layer.succeed(WorkspaceServiceTag, {} as any),
       Layer.succeed(WakeTriggerServiceTag, {} as any),
+      Layer.succeed(JobQueueServiceTag, {} as any),
       Layer.succeed(ReminderServiceTag, emptyReminders),
       Layer.succeed(PeerLedgerServiceTag, {} as any),
       Layer.succeed(PeerTokenServiceTag, {} as any),
@@ -767,6 +776,7 @@ describe("ToolExecutor.executeToolCall approval events", () => {
       Layer.succeed(MemoryServiceTag, emptyMemory),
       Layer.succeed(WorkspaceServiceTag, {} as any),
       Layer.succeed(WakeTriggerServiceTag, {} as any),
+      Layer.succeed(JobQueueServiceTag, {} as any),
       Layer.succeed(ReminderServiceTag, emptyReminders),
       Layer.succeed(PeerLedgerServiceTag, {} as any),
       Layer.succeed(PeerTokenServiceTag, {} as any),
@@ -879,6 +889,7 @@ describe("ToolExecutor picker-style approvals", () => {
       Layer.succeed(MemoryServiceTag, emptyMemory),
       Layer.succeed(WorkspaceServiceTag, {} as any),
       Layer.succeed(WakeTriggerServiceTag, {} as any),
+      Layer.succeed(JobQueueServiceTag, {} as any),
       Layer.succeed(ReminderServiceTag, emptyReminders),
       Layer.succeed(PeerLedgerServiceTag, {} as any),
       Layer.succeed(PeerTokenServiceTag, {} as any),
