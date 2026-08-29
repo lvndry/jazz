@@ -765,6 +765,61 @@ function registerDaemonCommand(program: Command): void {
     );
 }
 
+/**
+ * Register `jazz wake-trigger fire` — internal, invoked by the host scheduler (launchd/`at`)
+ * when a wake trigger's `fireAt` arrives, not meant for interactive use. Named `wake-trigger`
+ * rather than `trigger`/`triggers`, which already names the unrelated `/triggers/` HTTP
+ * webhook feature (`daemon.ts`, `appConfig.triggers`).
+ */
+function registerWakeTriggerCommand(program: Command): void {
+  const wakeTriggerCommand = program
+    .command("wake-trigger")
+    .description("Internal: commands invoked by the host scheduler for self-registered wake-ups");
+
+  wakeTriggerCommand
+    .command("fire")
+    .description(
+      "Internal: fire a specific wake trigger (invoked by the OS scheduler, not meant for interactive use)",
+    )
+    .requiredOption("--agent <agentId>", "Agent id the trigger belongs to")
+    .requiredOption("--id <id>", "Wake trigger id")
+    .action((options: { agent: string; id: string }) =>
+      runCliAction(
+        () =>
+          import("@jazz/cli/commands/wake-trigger").then((mod) =>
+            mod.fireWakeTriggerCommand(options),
+          ),
+        cliRuntimeOptions(program),
+      ),
+    );
+}
+
+/**
+ * Register `jazz reminder fire` — internal, invoked by the host scheduler (launchd/`at`) when a
+ * reminder's `fireAt` arrives, not meant for interactive use. Sibling of `wake-trigger fire`:
+ * both are one-shot OS-job firings, but this one sends a desktop notification instead of
+ * resuming a conversation.
+ */
+function registerReminderCommand(program: Command): void {
+  const reminderCommand = program
+    .command("reminder")
+    .description("Internal: commands invoked by the host scheduler for self-registered reminders");
+
+  reminderCommand
+    .command("fire")
+    .description(
+      "Internal: fire a specific reminder (invoked by the OS scheduler, not meant for interactive use)",
+    )
+    .requiredOption("--agent <agentId>", "Agent id the reminder belongs to")
+    .requiredOption("--id <id>", "Reminder id")
+    .action((options: { agent: string; id: string }) =>
+      runCliAction(
+        () => import("@jazz/cli/commands/reminder").then((mod) => mod.fireReminderCommand(options)),
+        cliRuntimeOptions(program),
+      ),
+    );
+}
+
 function registerPeersCommands(program: Command): void {
   const peersCommand = program
     .command("peers")
@@ -1154,6 +1209,8 @@ export function createCLIApp(): Command {
   registerMCPCommands(program);
   registerUpdateCommand(program);
   registerDaemonCommand(program);
+  registerWakeTriggerCommand(program);
+  registerReminderCommand(program);
   registerPeersCommands(program);
   registerRunsCommands(program);
   registerWorkflowCommands(program);

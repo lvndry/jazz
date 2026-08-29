@@ -175,6 +175,14 @@ dumps, and intermediate artifacts live, referenced from memory rather than dupli
 
 Opt-in per agent. Reminders persist on disk and fire later on the same surface that scheduled them — see [Reminders](../internals/reminders.md).
 
+For CLI-hosted agents, `add_reminder` installs the same real one-shot host-scheduler job
+(`launchd` on macOS, an `at` job on Linux) used for wake triggers, so a reminder fires even if
+`jazz daemon` isn't running; firing sends a native OS desktop notification instead of resuming a
+conversation — a reminder is "notify a person," never "resume the agent." `jazz daemon`'s
+in-process ticker remains a fallback for hosts with neither `launchd` nor `at`. Telegram and
+Discord reminders are unaffected by any of this: their bots already sweep and deliver reminders
+as chat messages from their own in-process interval, unchanged.
+
 | Tool              | Risk        | Approval pair | What it does                                                                                                                                     |
 | ----------------- | ----------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `add_reminder`    | `low-risk`  | —             | Schedule a reminder from a duration (`30m`), clock time (`18:00`), `tomorrow HH:MM`, a weekday (`tue 20:00`), or an absolute `2026-08-25 20:00`. |
@@ -186,6 +194,14 @@ Opt-in per agent. Reminders persist on disk and fire later on the same surface t
 Opt-in per agent. A trigger causes the agent to actually run again with a given prompt, resuming
 the exact conversation it was scheduled from — unlike a reminder, which just delivers a note to a
 person. See [Reminders](../internals/reminders.md) for how the two compare.
+
+`register_trigger` does not depend on `jazz daemon` running to actually fire. Registering a
+trigger installs a real one-shot job with the host's own scheduler — a `launchd` job on macOS, an
+`at` job on Linux — that fires the trigger by invoking `jazz` directly at the scheduled time, even
+if nothing else is running. `jazz daemon`'s in-process ticker remains a fallback for platforms or
+environments with neither `launchd` nor the `at` binary available (most containers, some CI), and
+scheduling with the host is always best-effort: if it fails for any reason, registration still
+succeeds and the ticker is the safety net.
 
 | Tool                | Risk        | Approval pair | What it does                                                                                       |
 | -------------------- | ----------- | ------------- | ----------------------------------------------------------------------------------------------------- |

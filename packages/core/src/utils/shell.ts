@@ -215,3 +215,63 @@ export function execCommandWithStdin(
     }
   });
 }
+
+/** Both output streams of a completed command, regardless of exit code. */
+export interface CommandOutput {
+  readonly exitCode: number;
+  readonly stdout: string;
+  readonly stderr: string;
+}
+
+/**
+ * Execute a shell command, writing to its stdin, and return both stdout and stderr
+ * regardless of exit code.
+ *
+ * `execCommandWithStdin` only ever surfaces stderr on failure — but `at` prints the job id
+ * ("job 3 at ...") to stderr on a *successful* run, so callers that need that output on the
+ * success path need this instead.
+ */
+export function execCommandWithStdinCapturingOutput(
+  command: string,
+  args: readonly string[],
+  stdin: string,
+  options?: ExecCommandOptions,
+): Effect.Effect<CommandOutput, Error> {
+  return Effect.async<CommandOutput, Error>((resume) => {
+    const child = spawn(command, args as string[], {
+      stdio: ["pipe", "pipe", "pipe"],
+      shell: false,
+      ...(options?.cwd && { cwd: options.cwd }),
+      ...(options?.env && { env: options.env }),
+      ...(options?.timeout && { timeout: options.timeout }),
+    });
+
+    let stdout = "";
+    let stderr = "";
+
+    if (child.stdout) {
+      child.stdout.on("data", (data: Buffer) => {
+        stdout += data.toString();
+      });
+    }
+
+    if (child.stderr) {
+      child.stderr.on("data", (data: Buffer) => {
+        stderr += data.toString();
+      });
+    }
+
+    child.on("close", (code) => {
+      resume(Effect.succeed({ exitCode: code ?? -1, stdout, stderr }));
+    });
+
+    child.on("error", (err) => {
+      resume(Effect.fail(err));
+    });
+
+    if (child.stdin) {
+      child.stdin.write(stdin);
+      child.stdin.end();
+    }
+  });
+}

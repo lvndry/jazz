@@ -12,6 +12,12 @@ export interface WakeTriggerRecord {
   /** Why the agent registered this, for a human reading `list_triggers` — not sent to the model. */
   readonly reason: string;
   readonly createdAt: number;
+  /**
+   * The host scheduler's own job id for this trigger, when one was created (`at` on Linux).
+   * Needed to `atrm` the job on cancel; not needed for launchd, whose plist path is derivable
+   * from agentId+id alone.
+   */
+  readonly osSchedulerJobId?: string;
 }
 
 export type AddWakeTriggerOutcome =

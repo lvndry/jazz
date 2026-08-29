@@ -23,6 +23,10 @@ import { WakeTriggerServiceTag } from "@jazz/core/interfaces/wake-trigger-servic
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
 import { requireValidAgentId, withLock, writeFileStringAtomic } from "@jazz/core/utils/storage";
 import { parseWhen } from "@jazz/core/utils/time";
+import {
+  createWakeTriggerOsScheduler,
+  type WakeTriggerOsScheduler,
+} from "@jazz/core/wake-triggers/wake-trigger-os-scheduler";
 import { Effect, Layer } from "effect";
 
 /** Raised for guardrail violations — genuinely unexpected conditions, not tool-result-shaped errors. */
@@ -64,14 +68,24 @@ function readWakeTriggerFile(
 export interface WakeTriggerServiceImplOptions {
   /** Override for tests; defaults to ~/.jazz/wake-triggers (or $JAZZ_HOME/wake-triggers). */
   readonly baseWakeTriggerDirectory?: string;
+  /** Override for tests; defaults to `createWakeTriggerOsScheduler()`. */
+  readonly osScheduler?: WakeTriggerOsScheduler;
 }
 
 export class WakeTriggerServiceImpl implements WakeTriggerService {
   private readonly baseWakeTriggerDirectory: string;
+  private readonly osScheduler: WakeTriggerOsScheduler | undefined;
 
   constructor(options?: WakeTriggerServiceImplOptions) {
     this.baseWakeTriggerDirectory =
       options?.baseWakeTriggerDirectory ?? path.join(getJazzHomeDirectory(), "wake-triggers");
+    this.osScheduler = options?.osScheduler;
+  }
+
+  private resolveOsScheduler(): Effect.Effect<WakeTriggerOsScheduler> {
+    return this.osScheduler !== undefined
+      ? Effect.succeed(this.osScheduler)
+      : createWakeTriggerOsScheduler();
   }
 
   private withValidatedAgentLock<A, E, R>(
@@ -143,13 +157,26 @@ export class WakeTriggerServiceImpl implements WakeTriggerService {
             } satisfies AddWakeTriggerOutcome;
           }
 
+          const triggerId = newWakeTriggerId();
+
+          // OS scheduling is a best-effort reliability upgrade on top of the JSON record
+          // below, which stays the source of truth — a scheduling failure must never block
+          // registering the trigger, so any error here is swallowed.
+          const osScheduler = yield* this.resolveOsScheduler();
+          const scheduleResult = yield* osScheduler
+            .scheduleFire(agentId, triggerId, fireAt)
+            .pipe(Effect.catchAll(() => Effect.succeed({ osSchedulerJobId: undefined })));
+
           const trigger: WakeTriggerRecord = {
-            id: newWakeTriggerId(),
+            id: triggerId,
             fireAt,
             conversationId,
             prompt,
             reason,
             createdAt: now,
+            ...(scheduleResult.osSchedulerJobId !== undefined
+              ? { osSchedulerJobId: scheduleResult.osSchedulerJobId }
+              : {}),
           };
           yield* writeFileStringAtomic(
             fs,
@@ -181,18 +208,28 @@ export class WakeTriggerServiceImpl implements WakeTriggerService {
           const fs = yield* FileSystem.FileSystem;
           const filePath = wakeTriggerFilePath(this.baseWakeTriggerDirectory, agentId);
           const existing = yield* readWakeTriggerFile(fs, filePath);
-          const remaining = existing.filter((trigger) => trigger.id !== id);
+          const removedTrigger = existing.find((trigger) => trigger.id === id);
 
-          if (remaining.length === existing.length) {
+          if (removedTrigger === undefined) {
             return {
               success: false,
               message: `No wake trigger found with id "${id}".`,
             } satisfies CancelWakeTriggerOutcome;
           }
 
+          const remaining = existing.filter((trigger) => trigger.id !== id);
           yield* writeFileStringAtomic(fs, filePath, `${JSON.stringify(remaining, null, 2)}\n`, {
             tempPrefix: "wake-triggers",
           });
+
+          // Never let a failed OS unschedule block removing the JSON record — the record is
+          // the source of truth, and a stray leftover `at`/launchd job is harmless (the CLI
+          // it invokes checks whether the trigger still exists before firing).
+          const osScheduler = yield* this.resolveOsScheduler();
+          yield* osScheduler
+            .cancelFire(agentId, id, removedTrigger.osSchedulerJobId)
+            .pipe(Effect.catchAll(() => Effect.void));
+
           return {
             success: true,
             message: "Wake trigger cancelled.",

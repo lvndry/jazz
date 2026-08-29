@@ -7,18 +7,30 @@ import {
   MAX_WAKE_TRIGGERS_PER_AGENT,
   WAKE_TRIGGER_PROMPT_MAX_LENGTH,
 } from "@jazz/core/constants/wake-triggers";
+import type { WakeTriggerOsScheduler } from "@jazz/core/wake-triggers/wake-trigger-os-scheduler";
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { Effect } from "effect";
 import { WakeTriggerServiceImpl, sweepDueWakeTriggers } from "./wake-trigger-service";
 
 let tmpDir: string;
+const originalSchedulerEnv = process.env["JAZZ_SCHEDULER"];
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "jazz-wake-trigger-test-"));
+  // Tests that don't inject a fake `osScheduler` fall back to `createWakeTriggerOsScheduler()`,
+  // which would otherwise install real launchd plists / `at` jobs on the machine running the
+  // test suite. Forcing in-process mode keeps these tests hermetic; the `osScheduler
+  // integration` tests below inject an explicit fake and are unaffected by this env var.
+  process.env["JAZZ_SCHEDULER"] = "in-process";
 });
 
 afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
+  if (originalSchedulerEnv === undefined) {
+    delete process.env["JAZZ_SCHEDULER"];
+  } else {
+    process.env["JAZZ_SCHEDULER"] = originalSchedulerEnv;
+  }
 });
 
 function runEffect<A>(eff: Effect.Effect<A, unknown, FileSystem.FileSystem>) {
@@ -29,8 +41,45 @@ function runEither<A>(eff: Effect.Effect<A, unknown, FileSystem.FileSystem>) {
   return runEffect(eff.pipe(Effect.either));
 }
 
-function makeService(): WakeTriggerServiceImpl {
-  return new WakeTriggerServiceImpl({ baseWakeTriggerDirectory: tmpDir });
+function makeService(osScheduler?: WakeTriggerOsScheduler): WakeTriggerServiceImpl {
+  return new WakeTriggerServiceImpl({
+    baseWakeTriggerDirectory: tmpDir,
+    ...(osScheduler !== undefined ? { osScheduler } : {}),
+  });
+}
+
+interface FakeOsSchedulerCall {
+  readonly method: "scheduleFire" | "cancelFire";
+  readonly agentId: string;
+  readonly triggerId: string;
+}
+
+function makeFakeOsScheduler(options?: {
+  failScheduleFire?: boolean;
+  failCancelFire?: boolean;
+  jobId?: string;
+}): { scheduler: WakeTriggerOsScheduler; calls: FakeOsSchedulerCall[] } {
+  const calls: FakeOsSchedulerCall[] = [];
+  const scheduler: WakeTriggerOsScheduler = {
+    getType: () => "in-process",
+    scheduleFire: (agentId, triggerId) => {
+      calls.push({ method: "scheduleFire", agentId, triggerId });
+      if (options?.failScheduleFire) {
+        return Effect.fail(new Error("scheduleFire boom"));
+      }
+      return Effect.succeed(
+        options?.jobId !== undefined ? { osSchedulerJobId: options.jobId } : {},
+      );
+    },
+    cancelFire: (agentId, triggerId) => {
+      calls.push({ method: "cancelFire", agentId, triggerId });
+      if (options?.failCancelFire) {
+        return Effect.fail(new Error("cancelFire boom"));
+      }
+      return Effect.void;
+    },
+  };
+  return { scheduler, calls };
 }
 
 describe("add", () => {
@@ -185,5 +234,74 @@ describe("sweepDueWakeTriggers", () => {
 
     const list = await runEffect(service.list("agent-1"));
     expect(list.length).toBe(1);
+  });
+});
+
+describe("osScheduler integration", () => {
+  test("add calls osScheduler.scheduleFire and persists the returned job id", async () => {
+    const { scheduler, calls } = makeFakeOsScheduler({ jobId: "42" });
+    const service = makeService(scheduler);
+
+    const outcome = await runEffect(
+      service.add("agent-1", "conv-1", "30m", "scheduled prompt", "reason", "UTC"),
+    );
+    expect(outcome.success).toBe(true);
+    if (!outcome.success) return;
+
+    expect(outcome.trigger.osSchedulerJobId).toBe("42");
+    expect(calls).toEqual([
+      { method: "scheduleFire", agentId: "agent-1", triggerId: outcome.trigger.id },
+    ]);
+  });
+
+  test("add succeeds even when osScheduler.scheduleFire fails", async () => {
+    const { scheduler } = makeFakeOsScheduler({ failScheduleFire: true });
+    const service = makeService(scheduler);
+
+    const outcome = await runEffect(
+      service.add("agent-1", "conv-1", "30m", "prompt", "reason", "UTC"),
+    );
+    expect(outcome.success).toBe(true);
+    if (outcome.success) {
+      expect(outcome.trigger.osSchedulerJobId).toBeUndefined();
+    }
+  });
+
+  test("cancel calls osScheduler.cancelFire with the persisted job id", async () => {
+    const { scheduler, calls } = makeFakeOsScheduler({ jobId: "7" });
+    const service = makeService(scheduler);
+
+    const added = await runEffect(
+      service.add("agent-1", "conv-1", "30m", "prompt", "reason", "UTC"),
+    );
+    expect(added.success).toBe(true);
+    if (!added.success) return;
+
+    const outcome = await runEffect(service.cancel("agent-1", added.trigger.id));
+    expect(outcome.success).toBe(true);
+
+    const cancelCall = calls.find((call) => call.method === "cancelFire");
+    expect(cancelCall).toEqual({
+      method: "cancelFire",
+      agentId: "agent-1",
+      triggerId: added.trigger.id,
+    });
+  });
+
+  test("cancel still removes the record even when osScheduler.cancelFire fails", async () => {
+    const { scheduler } = makeFakeOsScheduler({ failCancelFire: true });
+    const service = makeService(scheduler);
+
+    const added = await runEffect(
+      service.add("agent-1", "conv-1", "30m", "prompt", "reason", "UTC"),
+    );
+    expect(added.success).toBe(true);
+    if (!added.success) return;
+
+    const outcome = await runEffect(service.cancel("agent-1", added.trigger.id));
+    expect(outcome.success).toBe(true);
+
+    const list = await runEffect(service.list("agent-1"));
+    expect(list).toEqual([]);
   });
 });
