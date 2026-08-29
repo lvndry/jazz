@@ -100,7 +100,7 @@ const WAITING = ["comping behind you", "turning it over", "two horns out", "digg
 const FOOTER_ELAPSED_MS = 1000;
 const WAITING_ROTATE_MS = 4_000;
 
-/** How long the band holds its height after the last tool finishes. */
+/** How long the band holds its height after it has room to shrink. */
 const SETTLE_MS = 800;
 export const APPROVAL_ARM_MS = 250;
 
@@ -1229,12 +1229,12 @@ export function FullscreenBridge(): React.ReactNode {
   );
 
   useEffect(() => {
-    if (neededRows > 0) {
-      setReservedRows((current) => Math.max(current, neededRows));
+    if (neededRows > reservedRows) {
+      setReservedRows(neededRows);
       return;
     }
-    if (reservedRows === 0) return;
-    const timer = setTimeout(() => setReservedRows(0), SETTLE_MS);
+    if (neededRows === reservedRows) return;
+    const timer = setTimeout(() => setReservedRows(neededRows), SETTLE_MS);
     return () => clearTimeout(timer);
   }, [neededRows, reservedRows]);
 

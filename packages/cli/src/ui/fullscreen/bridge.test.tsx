@@ -258,6 +258,75 @@ describe("fullscreen bridge", () => {
     expect(text).toContain("Draft replies");
   });
 
+  it("shrinks the live band once tools finish instead of leaving it stuck at its peak height", async () => {
+    // The band's reservation is a settling high-water mark: it must not only
+    // reset to zero once everything is done, it must also settle down to a
+    // smaller-but-still-positive height once the todo panel is the only thing
+    // left claiming rows. Getting stuck at the peak leaves a block of empty,
+    // near-black rows above the checklist that never goes away on its own.
+    const rendered = await testRender(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
+    await rendered.renderOnce();
+
+    // Dense, gapless transcript filler: whatever sits directly above the live
+    // band should be this filler, not a stray blank row, so a leftover
+    // reservation shows up as an unmistakable blank gap instead of hiding
+    // behind naturally blank transcript padding.
+    store.printOutput({
+      type: "streamContent",
+      message: "A".repeat(2_000),
+      timestamp: new Date(),
+    });
+
+    const todoSnapshot = [
+      { content: "Inspect inbox", status: "completed" as const },
+      { content: "Rank urgent threads", status: "in_progress" as const },
+    ];
+
+    store.setActivity({
+      phase: "tool-execution",
+      agentName: "jazz",
+      tools: [
+        { toolCallId: "1", toolName: "gmail", startedAt: Date.now() },
+        { toolCallId: "2", toolName: "web", startedAt: Date.now() },
+        { toolCallId: "3", toolName: "calendar", startedAt: Date.now() },
+      ],
+      todoSnapshot,
+    });
+    await rendered.flush();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await rendered.flush();
+
+    // The tools finish; only the todo panel still needs room.
+    store.setActivity({
+      phase: "tool-execution",
+      agentName: "jazz",
+      tools: [],
+      todoSnapshot,
+    });
+    await rendered.flush();
+    await new Promise((resolve) => setTimeout(resolve, 900));
+    await rendered.flush();
+
+    const settledRows = rendered.captureCharFrame().split("\n");
+    const settledTodoIndex = settledRows.findIndex((row) => row.includes("todo"));
+    expect(settledTodoIndex).toBeGreaterThan(-1);
+
+    // The row directly above the checklist header belongs to the transcript
+    // filler once the band has settled down to just what the checklist needs.
+    // A stuck-too-tall reservation leaves that row as the band's own blank
+    // padding instead.
+    // Exactly one blank separator row sits between the transcript and the
+    // checklist by design. A stuck-too-tall reservation pads that gap with
+    // extra blank rows that never fill back in with transcript or content.
+    let blankRowsAboveTodo = 0;
+    for (let index = settledTodoIndex - 1; settledRows[index]?.trim() === ""; index -= 1) {
+      blankRowsAboveTodo += 1;
+    }
+    expect(blankRowsAboveTodo).toBe(1);
+
+    rendered.renderer.destroy();
+  });
+
   it("shows the arguments a running tool was called with", async () => {
     const text = await frame(() => {
       store.setActivity({
