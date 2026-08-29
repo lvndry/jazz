@@ -31,6 +31,7 @@ import { getGlyphs, type GlyphSet } from "../../glyphs";
 import { THEME } from "../../theme";
 import { clipTerminalCells, sliceTerminalCells, terminalCellWidth } from "../terminal-cells";
 import type { ApprovalOverlay, Viewport } from "../types";
+import { OVERLAY_Z_INDEX } from "./centered";
 
 /** Windowed width, and the floor below which windowing stops making sense. */
 const MAX_WIDTH = 96;
@@ -263,6 +264,7 @@ export function Approval({ model, viewport }: ApprovalProps): ReactNode {
     <box
       style={{
         position: "absolute",
+        zIndex: OVERLAY_Z_INDEX,
         left,
         top,
         width,
@@ -319,6 +321,7 @@ export function Approval({ model, viewport }: ApprovalProps): ReactNode {
           height: CONTROL_ROWS,
           flexShrink: 0,
           flexDirection: "row",
+          backgroundColor: THEME.canvas,
           paddingLeft: CARD_PAD + 1,
           paddingRight: CARD_PAD + 1,
         }}

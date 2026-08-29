@@ -26,6 +26,7 @@ import {
   terminalGraphemes,
 } from "../terminal-cells";
 import type { SearchHit, SearchOverlay, Viewport } from "../types";
+import { OVERLAY_Z_INDEX } from "./centered";
 
 const MAX_WIDTH = 96;
 const MIN_WINDOWED_HEIGHT = 20;
@@ -170,6 +171,7 @@ export function Search({ model, viewport }: SearchProps): ReactNode {
     <box
       style={{
         position: "absolute",
+        zIndex: OVERLAY_Z_INDEX,
         left,
         top,
         width,
@@ -284,6 +286,7 @@ export function Search({ model, viewport }: SearchProps): ReactNode {
           height: HINT_ROWS,
           flexShrink: 0,
           flexDirection: "row",
+          backgroundColor: THEME.canvas,
           paddingLeft: CARD_PAD + 1,
           paddingRight: CARD_PAD + 1,
         }}
