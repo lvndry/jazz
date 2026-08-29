@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import {
   hintsFor,
   INTERRUPT_WINDOW_MS,
+  isBackgroundChord,
   isComposerNewline,
   isCopyChord,
   isCtrlLetter,
@@ -240,6 +241,15 @@ describe("normalizeKey", () => {
     expect(isInterruptChord(normalizeKey("\x1b[27;6;99~"))).toBe(false);
     expect(isInterruptChord(normalizeKey("\x1b[99;5u"))).toBe(true);
     expect(isCopyChord(normalizeKey("\x1b[99;5u"))).toBe(false);
+  });
+
+  it("recognizes Ctrl+B as the background chord, and only plain Ctrl+B", () => {
+    expect(isBackgroundChord({ name: "b", ctrl: true, shift: false, super: false })).toBe(true);
+    expect(isBackgroundChord({ name: "b", ctrl: true, shift: true, super: false })).toBe(false);
+    expect(isBackgroundChord({ name: "b", ctrl: false, shift: false, super: true })).toBe(false);
+    expect(isBackgroundChord({ name: "b", ctrl: true, shift: false, super: true })).toBe(false);
+    expect(isBackgroundChord(normalizeKey("\x02"))).toBe(true);
+    expect(isBackgroundChord({ name: "c", ctrl: true, shift: false, super: false })).toBe(false);
   });
 
   it("treats Ctrl/Cmd+Z as undo and the shifted form as redo", () => {

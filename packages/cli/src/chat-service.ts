@@ -495,6 +495,13 @@ export class ChatServiceImpl implements ChatService {
               Effect.runSync(terminal.user(queued));
               return queued;
             },
+            // A Ctrl+B-detached tool call reports back here, possibly long after this
+            // run has ended. Queuing it through the same path as text typed mid-run
+            // means it surfaces automatically — at the next tool-phase boundary if this
+            // run is still going, or as the opening line of the next turn otherwise.
+            onDetachedToolComplete: (summary: string) => {
+              store.appendToQueue(`[Background task finished]\n${summary}`);
+            },
           };
 
           // Run the agent with proper error handling

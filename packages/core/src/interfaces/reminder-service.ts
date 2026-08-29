@@ -7,6 +7,13 @@ export interface ReminderRecord {
   readonly fireAt: number;
   readonly text: string;
   readonly createdAt: number;
+  /**
+   * The host scheduler's own job id for this reminder, when one was created (`at` on Linux).
+   * Needed to `atrm` the job on cancel; not needed for launchd, whose plist path is derivable
+   * from agentId+id alone. Left undefined for tg_/dc_-prefixed agents, which never get an OS
+   * job — see `reminder-service.ts`.
+   */
+  readonly osSchedulerJobId?: string;
 }
 
 export type AddReminderOutcome =

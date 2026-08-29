@@ -19,13 +19,13 @@ and [Security](../../SECURITY.md) for the threat model.
 
 |                                                                         | Count  |
 | ----------------------------------------------------------------------- | ------ |
-| **Agent-facing tools**                                                  | **41** |
-| Hidden `execute_*` counterparts (the second half of each approval pair) | 8      |
-| Total registered                                                        | 50     |
-| `read-only`                                                             | 22     |
-| `low-risk`                                                              | 11     |
+| **Agent-facing tools**                                                  | **44** |
+| Hidden `execute_*` counterparts (the second half of each approval pair) | 9      |
+| Total registered                                                        | 54     |
+| `read-only`                                                             | 23     |
+| `low-risk`                                                              | 12     |
 | `high-risk`                                                             | 7      |
-| `unknown`                                                               | 1      |
+| `unknown`                                                               | 2      |
 
 Plus, registered per agent rather than globally:
 
@@ -39,7 +39,7 @@ Plus, registered per agent rather than globally:
 
 ## How approval pairs work
 
-Seven tools are **gated**: calling them does not act. They return a description of the
+Eight tools are **gated**: calling them does not act. They return a description of the
 intended action (including a preview diff for edits), and only after approval — from a human
 or from `--approval-policy` — does Jazz invoke the hidden `execute_*` counterpart.
 
@@ -73,8 +73,8 @@ cannot be added without someone deciding.
 | Level      | Safe to tell                                                    | Tools                                                                                                                                                                                                                                                                                  |
 | ---------- | --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `public`   | safe to tell anyone                                             | `add_reminder`, `cp`, `mkdir`, `mv`, `rm`, `web_fetch`, `web_search`, `write_file`                                                                                                                                                                                                                                     |
-| `internal` | the shape of this machine — paths, names, what is installed     | `analyze_media`, `cancel_trigger`, `cd`, `context_info`, `create_pdf`, `create_web_app`, `find`, `get_time`, `list_triggers`, `ls`, `pdf_page_count`, `pwd`, `register_trigger`, `stat`                                                                                                                               |
-| `private`  | your own material — file contents, memory, schedule, transcript | `ask_file_picker`, `ask_user_question`, `cancel_reminder`, `edit_file`, `execute_command`, `grep`, `http_request`, `list_reminders`, `list_todos`, `manage_memory`, `manage_todos`, `manage_workspace`, `read_file`, `read_pdf`, `spawn_subagent`, `summarize_context`, `update_work_state`, `view_memory`, `view_workspace` |
+| `internal` | the shape of this machine — paths, names, what is installed     | `analyze_media`, `cancel_batch`, `cancel_trigger`, `cd`, `context_info`, `create_pdf`, `create_web_app`, `find`, `get_time`, `list_jobs`, `list_triggers`, `ls`, `pdf_page_count`, `pwd`, `register_trigger`, `stat`                                                                                                                               |
+| `private`  | your own material — file contents, memory, schedule, transcript | `ask_file_picker`, `ask_user_question`, `cancel_reminder`, `edit_file`, `enqueue_batch`, `execute_command`, `grep`, `http_request`, `list_reminders`, `list_todos`, `manage_memory`, `manage_todos`, `manage_workspace`, `read_file`, `read_pdf`, `spawn_subagent`, `summarize_context`, `update_work_state`, `view_memory`, `view_workspace` |
 
 A tool spanning two levels takes the more sensitive one — `edit_file` writes, but its approval
 message carries a diff of your file, so it is `private`. `http_request` reaches private
@@ -175,6 +175,14 @@ dumps, and intermediate artifacts live, referenced from memory rather than dupli
 
 Opt-in per agent. Reminders persist on disk and fire later on the same surface that scheduled them — see [Reminders](../internals/reminders.md).
 
+For CLI-hosted agents, `add_reminder` installs the same real one-shot host-scheduler job
+(`launchd` on macOS, an `at` job on Linux) used for wake triggers, so a reminder fires even if
+`jazz daemon` isn't running; firing sends a native OS desktop notification instead of resuming a
+conversation — a reminder is "notify a person," never "resume the agent." `jazz daemon`'s
+in-process ticker remains a fallback for hosts with neither `launchd` nor `at`. Telegram and
+Discord reminders are unaffected by any of this: their bots already sweep and deliver reminders
+as chat messages from their own in-process interval, unchanged.
+
 | Tool              | Risk        | Approval pair | What it does                                                                                                                                     |
 | ----------------- | ----------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `add_reminder`    | `low-risk`  | —             | Schedule a reminder from a duration (`30m`), clock time (`18:00`), `tomorrow HH:MM`, a weekday (`tue 20:00`), or an absolute `2026-08-25 20:00`. |
@@ -187,11 +195,32 @@ Opt-in per agent. A trigger causes the agent to actually run again with a given 
 the exact conversation it was scheduled from — unlike a reminder, which just delivers a note to a
 person. See [Reminders](../internals/reminders.md) for how the two compare.
 
+`register_trigger` does not depend on `jazz daemon` running to actually fire. Registering a
+trigger installs a real one-shot job with the host's own scheduler — a `launchd` job on macOS, an
+`at` job on Linux — that fires the trigger by invoking `jazz` directly at the scheduled time, even
+if nothing else is running. `jazz daemon`'s in-process ticker remains a fallback for platforms or
+environments with neither `launchd` nor the `at` binary available (most containers, some CI), and
+scheduling with the host is always best-effort: if it fails for any reason, registration still
+succeeds and the ticker is the safety net.
+
 | Tool                | Risk        | Approval pair | What it does                                                                                       |
 | -------------------- | ----------- | ------------- | ----------------------------------------------------------------------------------------------------- |
 | `register_trigger` | `low-risk`  | —             | Schedule yourself to wake up later and resume this exact conversation — use this when you need to… |
 | `list_triggers`     | `read-only` | —             | List this agent's pending self-scheduled wake triggers.                                            |
 | `cancel_trigger`    | `low-risk`  | —             | Cancel a pending wake trigger by id (get the id from list_triggers first).                          |
+
+### Background Jobs
+
+Opt-in per agent. Runs several independent shell commands in the background with a concurrency
+cap and per-job retry/backoff, without blocking the agent's turn. Completion (fan-in) resumes the
+conversation the same way a wake trigger fires, once every job in the batch reaches a final
+state.
+
+| Tool            | Risk        | Approval pair            | What it does                                                                                                   |
+| --------------- | ----------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| `enqueue_batch` | `unknown`   | `execute_enqueue_batch`  | Run several independent shell commands in the background with a concurrency cap and per-job retry/backoff. |
+| `list_jobs`     | `read-only` | —                        | List this agent's background job batches and every job's status.                                              |
+| `cancel_batch`  | `low-risk`  | —                        | Cancel a job batch's pending jobs by id (jobs already running finish naturally).                               |
 
 ### Context
 

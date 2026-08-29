@@ -408,6 +408,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
       store.finalizeStream();
       store.setActivity({ phase: "idle" });
       store.setInterruptHandler(null);
+      store.setBackgroundHandler(null);
     });
   }
 
@@ -427,12 +428,19 @@ export class InkStreamingRenderer implements StreamingRenderer {
       store.finalizeStream();
       store.setActivity({ phase: "idle" });
       store.setInterruptHandler(null);
+      store.setBackgroundHandler(null);
     });
   }
 
   setInterruptHandler(handler: (() => void) | null): Effect.Effect<void, never> {
     return Effect.sync(() => {
       store.setInterruptHandler(handler);
+    });
+  }
+
+  setBackgroundHandler(handler: (() => void) | null): Effect.Effect<void, never> {
+    return Effect.sync(() => {
+      store.setBackgroundHandler(handler);
     });
   }
 

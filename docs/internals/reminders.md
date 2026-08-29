@@ -10,7 +10,9 @@ Source:
 [`services/reminder-service.ts`](../../packages/adapters/src/reminder-service.ts) ·
 [`interfaces/reminder-service.ts`](../../packages/core/src/interfaces/reminder-service.ts) ·
 [`tools/reminder-tools.ts`](../../packages/core/src/agent/tools/reminder-tools.ts) ·
-[`utils/time.ts`](../../packages/core/src/utils/time.ts)
+[`utils/time.ts`](../../packages/core/src/utils/time.ts) ·
+[`wake-triggers/reminder-os-scheduler.ts`](../../packages/core/src/wake-triggers/reminder-os-scheduler.ts) ·
+[`utils/desktop-notify.ts`](../../packages/core/src/utils/desktop-notify.ts)
 
 ---
 
@@ -34,7 +36,20 @@ execution context timezone when the surface supplies one, otherwise UTC.
 ~/.jazz/reminders/<agentId>.lock/    directory-mutex around read-modify-write
 ```
 
-A periodic sweep delivers due reminders to the surface that is currently running the agent.
+Delivery depends on which surface owns the agent:
+
+- **Telegram and Discord**: each bot bridge runs its own 20-second `setInterval` sweep
+  (`packages/telegram-bot/src/reminders.ts`, `packages/discord-bot/src/reminders.ts`) and
+  delivers due reminders as a chat message, unchanged by anything below.
+- **CLI-hosted agents** (`agentId` not prefixed `tg_`/`dc_`): `add_reminder` also installs a
+  real one-shot host-scheduler job — the same mechanism `register_trigger` uses for wake
+  triggers — so the reminder fires even without `jazz daemon` running. Firing invokes
+  `jazz reminder fire --agent <agentId> --id <id>`, which sends a native OS desktop
+  notification (`utils/desktop-notify.ts`) rather than resuming a conversation. `jazz daemon`'s
+  in-process ticker (`adapters/daemon/trigger-runner.ts`) remains a fallback sweep for hosts
+  with neither `launchd` nor `at`, and always skips `tg_`/`dc_` agent ids to avoid delivering
+  the same reminder twice.
+
 Late delivery is preferred to dropping a reminder if the process was down at fire time.
 
 ## Guardrails

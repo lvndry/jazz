@@ -10,6 +10,7 @@ import { createAgentServiceLayer } from "@jazz/adapters/agent-service";
 import { createConfigLayer } from "@jazz/adapters/config";
 import { createFileSystemContextServiceLayer } from "@jazz/adapters/fs";
 import { createJazzStateServiceLayer } from "@jazz/adapters/jazz-state";
+import { createJobQueueServiceLayer } from "@jazz/adapters/job-queue-service";
 import { createAISDKServiceLayer } from "@jazz/adapters/llm/ai-sdk-service";
 import { createLoggerLayer, setLogFormat, setLogLevel } from "@jazz/adapters/logger";
 import { createMCPServerManagerLayer } from "@jazz/adapters/mcp/mcp-server-manager";
@@ -210,6 +211,7 @@ export function createAppLayer(
   const workspaceServiceLayer = createWorkspaceServiceLayer().pipe(Layer.provide(configLayer));
   const reminderServiceLayer = createReminderServiceLayer();
   const wakeTriggerServiceLayer = createWakeTriggerServiceLayer();
+  const jobQueueServiceLayer = createJobQueueServiceLayer();
   const peerLedgerServiceLayer = createPeerLedgerServiceLayer();
   const peerTokenServiceLayer = createPeerTokenServiceLayer();
 
@@ -252,6 +254,7 @@ export function createAppLayer(
     workspaceServiceLayer,
     reminderServiceLayer,
     wakeTriggerServiceLayer,
+    jobQueueServiceLayer,
     peerLedgerServiceLayer,
     peerTokenServiceLayer,
     chatLayer,

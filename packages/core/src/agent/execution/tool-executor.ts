@@ -3,7 +3,7 @@
  * classification, approval gating, concurrency limits, timeouts, and interruption.
  */
 
-import { Effect, Either, Exit, Fiber, Option } from "effect";
+import { Cause, Effect, Either, Exit, Fiber, Option } from "effect";
 import { RunParkRequested } from "@/core/agent/run/park-signal";
 import { classifyCommandRisk, shouldClassifyExecuteCommand } from "@/core/agent/tools/command-risk";
 import { MAX_CONCURRENT_TOOLS, TOOL_TIMEOUT_MS } from "@/core/constants/agent";
@@ -617,6 +617,8 @@ export class ToolExecutor {
     conversationId: string,
     agentName: string,
     interruptSignal?: Effect.Effect<void, never>,
+    backgroundSignal?: Effect.Effect<void, never>,
+    onDetachedToolComplete?: (summary: string) => void,
   ): Effect.Effect<
     Array<{ toolCallId: string; result: unknown; name: string; success: boolean }>,
     Error,
@@ -702,10 +704,16 @@ export class ToolExecutor {
       // resuming replays the batch — which would repeat that sibling's effects.
       const parkable = context.parkWhenUnattended === true && toolCalls.length === 1;
 
-      // Limit concurrency to prevent resource exhaustion when many tools are requested
+      // Limit concurrency to prevent resource exhaustion when many tools are requested.
+      // Forked as daemon fibers (not structured children of this generator) so a
+      // detached-into-the-background call survives past this function returning — a
+      // plain `Effect.fork` child gets auto-interrupted the moment its parent scope
+      // closes, which is exactly what "detach" must not do. `Fiber.interrupt`,
+      // `Fiber.join`, and `Fiber.poll` all work the same on a daemon fiber, so this
+      // changes nothing about the existing interrupt/normal-completion paths.
       const toolFibers = yield* Effect.all(
         toolCalls.map((toolCall) =>
-          Effect.fork(
+          Effect.forkDaemon(
             ToolExecutor.executeToolCall(
               toolCall,
               context,
@@ -727,16 +735,31 @@ export class ToolExecutor {
         { concurrency: "unbounded" },
       );
 
-      if (!interruptSignal) {
+      // Both signals are optional and mutually exclusive per race: whichever fires first
+      // (if either does) decides how this batch resolves. Racing them against each other
+      // first, rather than nesting two `Effect.race` calls against `awaitResults`, keeps
+      // the outcome type to one flat union instead of an awkward `let`-reassigned one.
+      const interruptOrBackground = interruptSignal?.pipe(
+        Effect.as({ type: "interrupt" as const }),
+      );
+      const backgroundOrInterrupt = backgroundSignal?.pipe(
+        Effect.as({ type: "background" as const }),
+      );
+      const signalEffect =
+        interruptOrBackground && backgroundOrInterrupt
+          ? Effect.race(interruptOrBackground, backgroundOrInterrupt)
+          : (interruptOrBackground ?? backgroundOrInterrupt);
+
+      if (!signalEffect) {
         return yield* awaitResults;
       }
 
-      const resultsOrInterrupt = yield* Effect.race(
+      const resultsOrSignal = yield* Effect.race(
         awaitResults.pipe(Effect.map((results) => ({ type: "results" as const, results }))),
-        interruptSignal.pipe(Effect.as({ type: "interrupt" as const })),
+        signalEffect,
       );
 
-      if (resultsOrInterrupt.type === "interrupt") {
+      if (resultsOrSignal.type === "interrupt") {
         // Settle the UI before waiting on fiber interrupt: execute_command used
         // to wrap spawn in Effect.promise, which is uninterruptible, so this
         // wait could block until the child exited — leaving the 30s "still
@@ -770,9 +793,103 @@ export class ToolExecutor {
         );
       }
 
-      return resultsOrInterrupt.results;
+      if (resultsOrSignal.type === "background") {
+        return yield* detachInFlightToolCalls(
+          toolFibers,
+          toolCalls,
+          renderer,
+          displayConfig,
+          onDetachedToolComplete,
+        );
+      }
+
+      return resultsOrSignal.results;
     });
   }
+}
+
+type ToolCallOutcome = { toolCallId: string; result: unknown; success: boolean; name: string };
+
+/**
+ * Detach every tool call still in flight so it keeps running to completion as a daemon
+ * fiber (outliving this tool phase, and this turn) instead of being interrupted, and
+ * return a "running in the background" placeholder for each right away so the loop can
+ * continue. A call that already finished naturally in the small window before this fired
+ * is reported with its real result instead of a placeholder.
+ *
+ * `onDetachedToolComplete` fires later, once, per detached call, with a plain-text
+ * summary — there is no live turn to splice a proper tool-result message into by then,
+ * so the caller's job is just to get that summary in front of the model somehow (the CLI
+ * wiring queues it the same way a message typed mid-run is queued).
+ */
+function detachInFlightToolCalls(
+  toolFibers: ReadonlyArray<Fiber.RuntimeFiber<ToolCallOutcome, Error>>,
+  toolCalls: readonly ToolCall[],
+  renderer: StreamingRenderer | null,
+  displayConfig: DisplayConfig,
+  onDetachedToolComplete: ((summary: string) => void) | undefined,
+): Effect.Effect<ToolCallOutcome[], never> {
+  return Effect.gen(function* () {
+    const outcomes: ToolCallOutcome[] = [];
+
+    for (let index = 0; index < toolFibers.length; index++) {
+      const fiber = toolFibers[index];
+      const toolCall = toolCalls[index];
+      if (fiber === undefined || toolCall === undefined) continue;
+      const name = toolCall.type === "function" ? toolCall.function.name : "unknown";
+
+      const poll = yield* Fiber.poll(fiber);
+      if (Option.isSome(poll) && Exit.isSuccess(poll.value)) {
+        // Already finished naturally in the gap between the signal firing and this
+        // running — its real result, not a placeholder.
+        outcomes.push(poll.value.value);
+        continue;
+      }
+
+      outcomes.push({
+        toolCallId: toolCall.id,
+        result: {
+          backgrounded: true,
+          message: "Running in the background — you'll be told when it finishes.",
+        },
+        success: true,
+        name,
+      });
+
+      if (renderer && displayConfig.showToolExecution) {
+        yield* renderer.handleEvent({
+          type: "tool_execution_complete",
+          toolCallId: toolCall.id,
+          result: "Running in the background",
+          durationMs: 0,
+          success: true,
+          summary: "→ backgrounded",
+        });
+      }
+
+      yield* Effect.forkDaemon(
+        Fiber.await(fiber).pipe(
+          Effect.flatMap((exit) =>
+            Effect.sync(() => {
+              const summary = Exit.isSuccess(exit)
+                ? summarizeDetachedOutcome(exit.value)
+                : `Background task \`${name}\` failed to finish: ${Cause.pretty(exit.cause)}`;
+              onDetachedToolComplete?.(summary);
+            }),
+          ),
+        ),
+      );
+    }
+
+    return outcomes;
+  });
+}
+
+/** Plain-text summary of a detached tool call's real outcome, for `onDetachedToolComplete`. */
+function summarizeDetachedOutcome(outcome: ToolCallOutcome): string {
+  const body = typeof outcome.result === "string" ? outcome.result : JSON.stringify(outcome.result);
+  const truncated = body.length > 800 ? `${body.slice(0, 800)}…` : body;
+  return `Background task \`${outcome.name}\` ${outcome.success ? "finished" : "failed"}: ${truncated}`;
 }
 
 /**

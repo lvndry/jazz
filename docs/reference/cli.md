@@ -178,6 +178,10 @@ config that must be written before the daemon has ever started.
 See [Setting up peers](../guide/peers-setup.md) for a full walkthrough, and
 [Peers](../concepts/peers.md) for the tier model this exists to serve.
 
+`jazz wake-trigger fire --agent <agentId> --id <id>` is internal plumbing, not something you run
+by hand: it's what `register_trigger` schedules with `launchd`/`at` to fire a wake trigger without
+`jazz daemon` running. See [Wake Triggers](./tools.md#wake-triggers).
+
 ---
 
 ## `jazz peers`

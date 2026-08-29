@@ -267,6 +267,18 @@ export function isInterruptChord(
   return isCtrlLetter(key, "c");
 }
 
+/**
+ * Ctrl+B: detach the in-flight tool call into the background instead of killing it.
+ * Unambiguous and immediate like Ctrl+C — unlike Esc, it carries no other meaning at
+ * any point in the app, so it needs no double-tap ladder.
+ */
+export function isBackgroundChord(
+  key: Pick<NormalizedKey, "name" | "ctrl" | "shift" | "super"> & { readonly sequence?: string },
+): boolean {
+  if (key.super || key.shift) return false;
+  return isCtrlLetter(key, "b");
+}
+
 export function isUndoChord(
   key: Pick<NormalizedKey, "name" | "ctrl" | "shift" | "super">,
 ): boolean {
