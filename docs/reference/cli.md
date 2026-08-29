@@ -58,10 +58,17 @@ absent and stdin is not a TTY.
 | `--approval-policy <p>` | none         | `read-only` \| `low-risk` \| `high-risk`. Tools above the tier are **declined**                                                   |
 | `--events <categories>` | none         | NDJSON progress on stderr: `tools`, `reasoning`, `text`, `usage`, `approval`, `subagent`, `all` (comma-separated)                 |
 | `--reasoning <effort>`  | agent config | `low` \| `medium` \| `high` \| `disable`                                                                                          |
-| `--timeout <ms>`        | none         | Abort the run after this many milliseconds                                                                                        |
+| `--timeout <ms>`        | none         | Abort the run after this many milliseconds (hard external kill, no warning)                                                       |
 | `--max-iterations <n>`  | 80           | Cap reasoning iterations                                                                                                          |
+| `--max-cost-usd <$>`    | none         | Abort once cumulative spend (own + sub-agent) reaches this many dollars, checked between iterations                              |
+| `--max-tokens <n>`      | none         | Abort once cumulative prompt + completion tokens (own run only, not sub-agents) reach this count, checked between iterations — needs no model pricing |
+| `--max-duration-ms <ms>`| none         | Abort once elapsed wall-clock time reaches this budget, with agent pressure nudges at 50/80/90%, checked between iterations       |
 | `--stream`              | auto         | Force streaming. Required for `--events` in non-TTY contexts, where streaming auto-disables                                       |
 | `--no-stream`           | —            | Disable streaming                                                                                                                 |
+
+`--max-cost-usd`, `--max-tokens`, and `--max-duration-ms` are soft checkpoints, not preemptive
+interrupts — see [Configuration → `maxCostUSD`, `maxTokens`, and `maxDurationMs`](./configuration.md#maxcostusd-maxtokens-and-maxdurationms)
+for the enforcement model and how they differ from `--timeout`.
 
 **Exit codes:** `0` on success, `1` on failure. In plain mode stdout is empty on failure and
 the message goes to stderr; in `--json` mode stdout always carries exactly one object.
@@ -106,8 +113,11 @@ Full contract, examples, and a complete bridge implementation:
 | `--auto-approve`        | Apply the workflow's own `autoApprove:` policy instead of prompting      |
 | `--agent <agentId>`     | Override the agent for this run                                          |
 | `--max-iterations <n>`  | Override the workflow's iteration cap                                    |
+| `--max-cost-usd <$>`    | Override the workflow's spend cap                                        |
+| `--max-tokens <n>`      | Override the workflow's token cap                                        |
+| `--max-duration-ms <ms>`| Override the workflow's wall-clock budget (50/80/90% agent pressure nudges) |
 | `--json`                | One JSON envelope on stdout; all chatter suppressed                      |
-| `--timeout <ms>`        | Abort after this many milliseconds                                       |
+| `--timeout <ms>`        | Abort after this many milliseconds (hard external kill, no warning)      |
 | `--events <categories>` | NDJSON progress on stderr. **Requires `--json`** — otherwise it errors   |
 | `--scheduled`           | Marks the run as scheduler-triggered (set automatically by launchd/cron) |
 

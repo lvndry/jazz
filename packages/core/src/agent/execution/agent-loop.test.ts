@@ -11,7 +11,10 @@ import type { DisplayConfig } from "@/core/types/output";
 import { clearModelsDevCache } from "@/core/utils/models-dev";
 import {
   buildBudgetPressureMessage,
+  buildCostBudgetPressureMessage,
   buildPostCompactionMessage,
+  buildTimeBudgetPressureMessage,
+  buildTokenBudgetPressureMessage,
   detectMeltdown,
   executeAgentLoop,
   type CompletionStrategy,
@@ -135,6 +138,12 @@ function recordingObserver() {
     onInterrupted: (name: string) => Effect.sync(() => void calls.push(`interrupted:${name}`)),
     onIterationLimit: (name: string, max: number) =>
       Effect.sync(() => void calls.push(`limit:${name}:${max}`)),
+    onCostCapReached: (name: string, maxCostUSD: number, costUSD: number) =>
+      Effect.sync(() => void calls.push(`cost-cap:${name}:${maxCostUSD}:${costUSD}`)),
+    onTokenCapReached: (name: string, maxTokens: number, totalTokens: number) =>
+      Effect.sync(() => void calls.push(`token-cap:${name}:${maxTokens}:${totalTokens}`)),
+    onDurationCapReached: (name: string, maxDurationMs: number, elapsedMs: number) =>
+      Effect.sync(() => void calls.push(`duration-cap:${name}:${maxDurationMs}:${elapsedMs}`)),
     onEmptyResponse: (name: string) => Effect.sync(() => void calls.push(`empty:${name}`)),
     onContextWindowUnknown: (name: string) =>
       Effect.sync(() => void calls.push(`context-window-unknown:${name}`)),
@@ -178,6 +187,9 @@ function makeRunContext(overrides?: Partial<AgentRunContext>): AgentRunContext {
       toolsUsed: new Set(),
       totalPromptTokens: 0,
       totalCompletionTokens: 0,
+      totalCacheReadTokens: 0,
+      childCostUSD: 0,
+      childCostUnknown: false,
       iterationSummaries: [],
       errors: [],
       metrics: {
@@ -205,6 +217,9 @@ function makeRunContext(overrides?: Partial<AgentRunContext>): AgentRunContext {
     connectedMCPServers: [],
     knownSkills: [],
     maxIterations: DEFAULT_MAX_ITERATIONS,
+    maxCostUSD: undefined,
+    maxTokens: undefined,
+    maxDurationMs: undefined,
     ...overrides,
   };
 }
@@ -1095,6 +1110,101 @@ describe("buildBudgetPressureMessage", () => {
   });
 });
 
+describe("buildTimeBudgetPressureMessage", () => {
+  const thirtyMinutes = 30 * 60_000;
+
+  it("returns null below 50% elapsed", () => {
+    expect(buildTimeBudgetPressureMessage(0, thirtyMinutes)).toBeNull();
+    expect(buildTimeBudgetPressureMessage(14 * 60_000, thirtyMinutes)).toBeNull();
+  });
+
+  it("returns a notice at 50% elapsed", () => {
+    const msg = buildTimeBudgetPressureMessage(15 * 60_000, thirtyMinutes);
+    expect(msg?.content).toContain("TIME NOTICE");
+    expect(msg?.content).toContain("halfway");
+  });
+
+  it("returns a warning at 80% elapsed", () => {
+    const msg = buildTimeBudgetPressureMessage(24 * 60_000, thirtyMinutes);
+    expect(msg?.content).toContain("TIME WARNING");
+    expect(msg?.content).toContain("consolidat");
+  });
+
+  it("returns critical at 90% elapsed", () => {
+    const msg = buildTimeBudgetPressureMessage(27 * 60_000, thirtyMinutes);
+    expect(msg?.content).toContain("TIME CRITICAL");
+    expect(msg?.content).toContain("NOW");
+  });
+
+  it("returns null for a non-positive budget", () => {
+    expect(buildTimeBudgetPressureMessage(1000, 0)).toBeNull();
+  });
+});
+
+describe("buildTokenBudgetPressureMessage", () => {
+  const maxTokens = 100_000;
+
+  it("returns null below 50% used", () => {
+    expect(buildTokenBudgetPressureMessage(0, maxTokens)).toBeNull();
+    expect(buildTokenBudgetPressureMessage(49_000, maxTokens)).toBeNull();
+  });
+
+  it("returns a notice at 50% used", () => {
+    const msg = buildTokenBudgetPressureMessage(50_000, maxTokens);
+    expect(msg?.content).toContain("TOKEN NOTICE");
+    expect(msg?.content).toContain("halfway");
+    expect(msg?.content).toContain("50,000/100,000 tokens used");
+  });
+
+  it("returns a warning at 80% used", () => {
+    const msg = buildTokenBudgetPressureMessage(80_000, maxTokens);
+    expect(msg?.content).toContain("TOKEN WARNING");
+    expect(msg?.content).toContain("consolidat");
+  });
+
+  it("returns critical at 90% used", () => {
+    const msg = buildTokenBudgetPressureMessage(90_000, maxTokens);
+    expect(msg?.content).toContain("TOKEN CRITICAL");
+    expect(msg?.content).toContain("NOW");
+  });
+
+  it("returns null for a non-positive budget", () => {
+    expect(buildTokenBudgetPressureMessage(1000, 0)).toBeNull();
+  });
+});
+
+describe("buildCostBudgetPressureMessage", () => {
+  const maxCostUSD = 1;
+
+  it("returns null below 50% spent", () => {
+    expect(buildCostBudgetPressureMessage(0, maxCostUSD)).toBeNull();
+    expect(buildCostBudgetPressureMessage(0.49, maxCostUSD)).toBeNull();
+  });
+
+  it("returns a notice at 50% spent", () => {
+    const msg = buildCostBudgetPressureMessage(0.5, maxCostUSD);
+    expect(msg?.content).toContain("COST NOTICE");
+    expect(msg?.content).toContain("halfway");
+    expect(msg?.content).toContain("$0.5000/$1.0000 spent");
+  });
+
+  it("returns a warning at 80% spent", () => {
+    const msg = buildCostBudgetPressureMessage(0.8, maxCostUSD);
+    expect(msg?.content).toContain("COST WARNING");
+    expect(msg?.content).toContain("consolidat");
+  });
+
+  it("returns critical at 90% spent", () => {
+    const msg = buildCostBudgetPressureMessage(0.9, maxCostUSD);
+    expect(msg?.content).toContain("COST CRITICAL");
+    expect(msg?.content).toContain("NOW");
+  });
+
+  it("returns null for a non-positive budget", () => {
+    expect(buildCostBudgetPressureMessage(0.01, 0)).toBeNull();
+  });
+});
+
 function tc(name: string, args: Record<string, unknown> = {}): TrackedToolCall {
   return { name, arguments: JSON.stringify(args) };
 }
@@ -1376,5 +1486,317 @@ describe("executeAgentLoop context window accounting", () => {
     );
 
     expect(calls).toContain("context-window-unknown:local-agent");
+  });
+});
+
+describe("executeAgentLoop cost and token caps", () => {
+  // Each iteration calls one tool; the mocked executor drives cost through the same
+  // recordChildCost path a real sub-agent tool uses. This deliberately avoids the real
+  // models-dev pricing lookup (a process-wide in-memory cache — see models-dev.ts — that
+  // a concurrently-running test file could otherwise repopulate mid-test) so the cap
+  // arithmetic is exercised without any dependency on shared global state or network.
+  type ExecuteToolCallsArgs = Parameters<typeof ToolExecutor.executeToolCalls>;
+  type ExecuteToolCallsToolCalls = ExecuteToolCallsArgs[0];
+  type ExecuteToolCallsContext = ExecuteToolCallsArgs[1];
+
+  function toolLoopStrategy(usage: { promptTokens: number; completionTokens: number }): {
+    strategy: CompletionStrategy;
+    calls: () => number;
+  } {
+    let call = 0;
+    const strategy: CompletionStrategy = {
+      shouldShowReasoning: false,
+      getCompletion: () => {
+        call++;
+        return Effect.succeed({
+          completion: {
+            id: `c${call}`,
+            model: "gpt-4",
+            content: "",
+            usage: { ...usage, totalTokens: usage.promptTokens + usage.completionTokens },
+            toolCalls: [
+              {
+                id: `call_${call}`,
+                type: "function" as const,
+                function: { name: "test_tool", arguments: "{}" },
+              },
+            ],
+          },
+          interrupted: false,
+        });
+      },
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+    return { strategy, calls: () => call };
+  }
+
+  function mockToolExecutor(
+    handler: (
+      toolCalls: ExecuteToolCallsToolCalls,
+      context: ExecuteToolCallsContext,
+    ) => ReturnType<typeof ToolExecutor.executeToolCalls>,
+  ): typeof ToolExecutor.executeToolCalls {
+    return mock(handler) as unknown as typeof ToolExecutor.executeToolCalls;
+  }
+
+  function succeedWithToolResults(toolCalls: ExecuteToolCallsToolCalls) {
+    return Effect.succeed(
+      toolCalls.map((tc) => ({
+        toolCallId: tc.id,
+        name: "test_tool",
+        result: "output",
+        success: true,
+      })),
+    );
+  }
+
+  function mockToolExecutorRecordingChildCost(costPerCall: number) {
+    return mockToolExecutor((toolCalls, context) => {
+      context.recordChildCost?.(costPerCall);
+      return succeedWithToolResults(toolCalls);
+    });
+  }
+
+  it("stops early and reports costCapped once cumulative spend crosses maxCostUSD", async () => {
+    const originalExecute = ToolExecutor.executeToolCalls;
+    ToolExecutor.executeToolCalls = mockToolExecutorRecordingChildCost(0.2);
+
+    const { strategy, calls } = toolLoopStrategy({ promptTokens: 10, completionTokens: 10 });
+
+    const result = await Effect.runPromise(
+      executeAgentLoop(
+        makeOptions({ maxIterations: 10 }),
+        makeRunContext({ maxIterations: 10, maxCostUSD: 0.15 }),
+        displayConfig,
+        strategy,
+        defaultObserver,
+        runRecursive,
+      ).pipe(Effect.provide(TestLayer)),
+    );
+
+    ToolExecutor.executeToolCalls = originalExecute;
+
+    expect(calls()).toBe(1);
+    expect(result.costCapped).toBe(true);
+    expect(result.costUSD).toBeGreaterThanOrEqual(0.15);
+  });
+
+  it("runs normally when cumulative spend stays under maxCostUSD", async () => {
+    const originalExecute = ToolExecutor.executeToolCalls;
+    ToolExecutor.executeToolCalls = mockToolExecutorRecordingChildCost(0.01);
+
+    const strategy: CompletionStrategy = {
+      shouldShowReasoning: false,
+      getCompletion: () =>
+        Effect.succeed({
+          completion: {
+            id: "c1",
+            model: "gpt-4",
+            content: "done",
+            usage: { promptTokens: 10, completionTokens: 10, totalTokens: 20 },
+          },
+          interrupted: false,
+        }),
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+
+    const result = await Effect.runPromise(
+      executeAgentLoop(
+        makeOptions(),
+        makeRunContext({ maxCostUSD: 1 }),
+        displayConfig,
+        strategy,
+        defaultObserver,
+        runRecursive,
+      ).pipe(Effect.provide(TestLayer)),
+    );
+
+    ToolExecutor.executeToolCalls = originalExecute;
+
+    expect(result.content).toBe("done");
+    expect(result.costCapped).toBeUndefined();
+  });
+
+  it("never caps a run whose spend is unknown even with maxCostUSD set", async () => {
+    const originalExecute = ToolExecutor.executeToolCalls;
+    // No usage tokens and no recorded child cost: computeRunCost never resolves a costUSD
+    // (own tokens are zero, childCostUSD stays zero) — the cap must never guess-abort a
+    // run it cannot verify the spend of.
+    ToolExecutor.executeToolCalls = mockToolExecutor((toolCalls) =>
+      succeedWithToolResults(toolCalls),
+    );
+
+    const { strategy, calls } = toolLoopStrategy({ promptTokens: 0, completionTokens: 0 });
+
+    const result = await Effect.runPromise(
+      executeAgentLoop(
+        makeOptions({ maxIterations: 3 }),
+        makeRunContext({ maxIterations: 3, maxCostUSD: 0.0001 }),
+        displayConfig,
+        strategy,
+        defaultObserver,
+        runRecursive,
+      ).pipe(Effect.provide(TestLayer)),
+    );
+
+    ToolExecutor.executeToolCalls = originalExecute;
+
+    expect(calls()).toBe(3);
+    expect(result.costCapped).toBeUndefined();
+  });
+
+  it("stops early and reports tokenCapped once cumulative tokens cross maxTokens", async () => {
+    const originalExecute = ToolExecutor.executeToolCalls;
+    ToolExecutor.executeToolCalls = mockToolExecutor((toolCalls) =>
+      succeedWithToolResults(toolCalls),
+    );
+
+    const { strategy, calls } = toolLoopStrategy({ promptTokens: 100, completionTokens: 100 });
+
+    const result = await Effect.runPromise(
+      executeAgentLoop(
+        makeOptions({ maxIterations: 10 }),
+        makeRunContext({ maxIterations: 10, maxTokens: 150 }),
+        displayConfig,
+        strategy,
+        defaultObserver,
+        runRecursive,
+      ).pipe(Effect.provide(TestLayer)),
+    );
+
+    ToolExecutor.executeToolCalls = originalExecute;
+
+    expect(calls()).toBe(1);
+    expect(result.tokenCapped).toBe(true);
+  });
+
+  it("stops early and reports durationCapped once elapsed time crosses maxDurationMs", async () => {
+    const originalExecute = ToolExecutor.executeToolCalls;
+    ToolExecutor.executeToolCalls = mockToolExecutor((toolCalls) =>
+      succeedWithToolResults(toolCalls),
+    );
+
+    // maxDurationMs: 0 means the budget is already exhausted from the first check —
+    // elapsed time is never negative — so this trips deterministically on iteration 1
+    // without needing a sleep, fake timers, or relying on timer-resolution granularity.
+    const { strategy, calls } = toolLoopStrategy({ promptTokens: 10, completionTokens: 10 });
+
+    const result = await Effect.runPromise(
+      executeAgentLoop(
+        makeOptions({ maxIterations: 10 }),
+        makeRunContext({ maxIterations: 10, maxDurationMs: 0 }),
+        displayConfig,
+        strategy,
+        defaultObserver,
+        runRecursive,
+      ).pipe(Effect.provide(TestLayer)),
+    );
+
+    ToolExecutor.executeToolCalls = originalExecute;
+
+    expect(calls()).toBe(1);
+    expect(result.durationCapped).toBe(true);
+  });
+
+  it("runs normally when elapsed time stays under maxDurationMs", async () => {
+    const originalExecute = ToolExecutor.executeToolCalls;
+    ToolExecutor.executeToolCalls = mockToolExecutor((toolCalls) =>
+      succeedWithToolResults(toolCalls),
+    );
+
+    const strategy: CompletionStrategy = {
+      shouldShowReasoning: false,
+      getCompletion: () =>
+        Effect.succeed({
+          completion: {
+            id: "c1",
+            model: "gpt-4",
+            content: "done",
+            usage: { promptTokens: 10, completionTokens: 10, totalTokens: 20 },
+          },
+          interrupted: false,
+        }),
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+
+    const result = await Effect.runPromise(
+      executeAgentLoop(
+        makeOptions(),
+        makeRunContext({ maxDurationMs: 30 * 60_000 }),
+        displayConfig,
+        strategy,
+        defaultObserver,
+        runRecursive,
+      ).pipe(Effect.provide(TestLayer)),
+    );
+
+    ToolExecutor.executeToolCalls = originalExecute;
+
+    expect(result.content).toBe("done");
+    expect(result.durationCapped).toBeUndefined();
+  });
+
+  it("warns the model with a token-budget pressure message once past 50% of maxTokens", async () => {
+    const originalExecute = ToolExecutor.executeToolCalls;
+    ToolExecutor.executeToolCalls = mockToolExecutor((toolCalls) =>
+      succeedWithToolResults(toolCalls),
+    );
+
+    const seenMessages: ConversationMessages[] = [];
+    let call = 0;
+    const strategy: CompletionStrategy = {
+      shouldShowReasoning: false,
+      getCompletion: (messages) => {
+        call++;
+        seenMessages.push(messages);
+        return Effect.succeed({
+          completion: {
+            id: `c${call}`,
+            model: "gpt-4",
+            content: "",
+            usage: { promptTokens: 30, completionTokens: 30, totalTokens: 60 },
+            toolCalls: [
+              {
+                id: `call_${call}`,
+                type: "function" as const,
+                function: { name: "test_tool", arguments: "{}" },
+              },
+            ],
+          },
+          interrupted: false,
+        });
+      },
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+
+    // maxTokens: 100 also stops the run once iteration 2's 120 accumulated tokens cross
+    // it — irrelevant to this test, which only inspects what iterations 1 and 2 were sent.
+    await Effect.runPromise(
+      executeAgentLoop(
+        makeOptions({ maxIterations: 10 }),
+        makeRunContext({ maxIterations: 10, maxTokens: 100 }),
+        displayConfig,
+        strategy,
+        defaultObserver,
+        runRecursive,
+      ).pipe(Effect.provide(TestLayer)),
+    );
+
+    ToolExecutor.executeToolCalls = originalExecute;
+
+    // Iteration 1 sends 0 tokens used so far (no pressure yet); by iteration 2, 60/100
+    // tokens are accumulated (60% — past the 50% notice threshold).
+    const firstIterationMessages = seenMessages[0] ?? [];
+    const secondIterationMessages = seenMessages[1] ?? [];
+    expect(firstIterationMessages.some((m) => m.content?.includes("TOKEN NOTICE"))).toBe(false);
+    expect(secondIterationMessages.some((m) => m.content?.includes("TOKEN NOTICE"))).toBe(true);
   });
 });

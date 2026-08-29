@@ -68,6 +68,57 @@ misunderstood the brief rather than found more to do.
 An explicit `--max-iterations` on the command line, or a workflow's own `maxIterations`, still
 wins over `maxIterations` here. Both values are floored at 1.
 
+### `maxCostUSD`, `maxTokens`, and `maxDurationMs`
+
+Three more per-run budgets, alongside `maxIterations`: a dollar ceiling, a token ceiling, and a
+wall-clock ceiling. Unlike `maxIterations` none of them has a default — leave a key unset and that
+dimension is uncapped.
+
+```json
+{
+  "maxCostUSD": 0.2,
+  "maxTokens": 200000,
+  "maxDurationMs": 1800000
+}
+```
+
+| Key             | Unit         | Checks                                         |
+| --------------- | ------------ | ----------------------------------------------- |
+| `maxCostUSD`    | US dollars   | Own tokens priced via models.dev, plus any sub-agent spend rolled up through `childCostUSD`. |
+| `maxTokens`     | token count  | Own prompt + completion tokens. Sub-agent tokens are not rolled up (cost is; tokens are not). |
+| `maxDurationMs` | milliseconds | Wall-clock time since the run started.          |
+
+All three share the same enforcement model, distinct from `maxIterations`/`maxSubagentIterations`
+in one important way:
+
+- **Checked between iterations, not preemptively.** Each is evaluated once after an iteration's
+  LLM call and tool phase both finish, the same timing as the iteration-budget check. A single
+  expensive iteration — one that calls an expensive tool, or delegates to a sub-agent that itself
+  runs for a while — can push the total past the cap before the next check trips. None of them
+  interrupt an in-flight LLM call or tool execution.
+- **`maxCostUSD` never guess-aborts an unpriced run.** If the model's pricing is unknown (a local
+  model with no catalog entry, say), `costUSD` stays undefined and the cap is skipped entirely
+  rather than assumed to be zero or exceeded. `maxTokens` has no such gap — it needs no pricing
+  metadata, so it still enforces where `maxCostUSD` cannot.
+- **All three nudge the agent before they stop it.** Ephemeral pressure messages — never
+  persisted to the conversation, same reasoning as the iteration-budget nudge — are injected at
+  50%, 80%, and 90% of whichever budget is closest to being spent, mirroring the context-window
+  and iteration-budget warnings. The 90% message asks the agent to wrap up immediately; at 100%
+  the run is stopped between iterations regardless of what it answers back. `maxCostUSD`'s nudge
+  is skipped under the same unknown-pricing condition as its hard stop.
+
+A run stopped by one of these reports it on the `AgentResponse`: `costCapped`, `tokenCapped`, or
+`durationCapped`, each `true` only when that specific cap tripped. `jazz run --json` and
+`jazz workflow run --json` surface the same fields in their envelope.
+
+An explicit `--max-cost-usd`, `--max-tokens`, or `--max-duration-ms` on the command line, or a
+workflow's own frontmatter key, still wins over the config value here.
+
+Distinct from `--timeout` (`jazz run --timeout <ms>` / `jazz workflow run --timeout <ms>`), which
+is an *external* hard kill — a race against the whole run with no pressure warning — rather than a
+soft, in-loop checkpoint. Use `--timeout` as the outer safety net and `maxDurationMs` for the
+warned, graceful budget.
+
 ### `maxSubagentDepth`
 
 How many levels of sub-agent may nest below a top-level run. Defaults to **3**.

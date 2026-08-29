@@ -70,6 +70,30 @@ export interface AgentRunnerOptions {
    */
   readonly maxIterations?: number;
   /**
+   * Per-run spend ceiling in USD (own tokens plus any sub-agent spend). Checked between
+   * iterations, not preemptively mid-call — a run can overshoot by at most one iteration's
+   * cost before stopping. Skipped entirely when cost is unknown (e.g. an unpriced local
+   * model), so it never guess-aborts a run it cannot verify the spend of.
+   * If not specified, falls back to `maxCostUSD` in app config; unset at both means uncapped.
+   */
+  readonly maxCostUSD?: number;
+  /**
+   * Per-run token ceiling (own prompt + completion tokens; sub-agent token spend is not
+   * rolled up, unlike cost). Checked between iterations, same soft-checkpoint timing as
+   * `maxCostUSD`. Needs no pricing metadata, so it still enforces on an unpriced/local model
+   * where a cost cap cannot fire.
+   * If not specified, falls back to `maxTokens` in app config; unset at both means uncapped.
+   */
+  readonly maxTokens?: number;
+  /**
+   * Wall-clock spend budget in ms. The agent gets ephemeral pressure nudges at 50/80/90%
+   * elapsed (mirroring the iteration and context budget nudges), then the run is stopped
+   * between iterations once elapsed time reaches the budget — same soft-checkpoint timing
+   * as `maxCostUSD`/`maxTokens`, not a preemptive interrupt mid-call.
+   * If not specified, falls back to `maxDurationMs` in app config; unset at both means uncapped.
+   */
+  readonly maxDurationMs?: number;
+  /**
    * Full conversation history to date, including prior assistant, user, and tool messages.
    * Use this to preserve context across turns (e.g., approval flows, multi-step tasks).
    */
@@ -284,6 +308,24 @@ export interface AgentResponse {
    * spend. Cost-capped callers must treat such runs as unpriced.
    */
   readonly costIncomplete?: boolean;
+  /**
+   * True when the run was stopped early because cumulative spend reached the configured
+   * `maxCostUSD` cap. The answer is whatever the run had produced at that point — a partial
+   * result, same as hitting the iteration limit.
+   */
+  readonly costCapped?: boolean;
+  /**
+   * True when the run was stopped early because cumulative own tokens reached the
+   * configured `maxTokens` ceiling. The answer is whatever the run had produced at that
+   * point — a partial result, same as hitting the iteration limit or the cost cap.
+   */
+  readonly tokenCapped?: boolean;
+  /**
+   * True when the run was stopped early because elapsed wall-clock time reached the
+   * configured `maxDurationMs` budget. The answer is whatever the run had produced at
+   * that point — a partial result, same as hitting any other cap.
+   */
+  readonly durationCapped?: boolean;
 }
 
 /**
@@ -313,6 +355,12 @@ export interface AgentRunContext {
   readonly maxRetries?: number;
   /** Iteration budget, already resolved from the call site, config, and default. */
   readonly maxIterations: number;
+  /** Spend ceiling in USD, already resolved from the call site and config. Undefined = uncapped. */
+  readonly maxCostUSD: number | undefined;
+  /** Token ceiling, already resolved from the call site and config. Undefined = uncapped. */
+  readonly maxTokens: number | undefined;
+  /** Wall-clock budget in ms, already resolved from the call site and config. Undefined = uncapped. */
+  readonly maxDurationMs: number | undefined;
   readonly knownSkills: readonly {
     readonly name: string;
     readonly description: string;

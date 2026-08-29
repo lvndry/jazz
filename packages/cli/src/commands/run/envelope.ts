@@ -47,6 +47,12 @@ export interface OneShotSuccess {
   readonly costUSD: number;
   /** Whether costUSD is based on pricing metadata rather than an unknown-price fallback. */
   readonly costKnown: boolean;
+  /** True when the run stopped early because it hit a configured --max-cost-usd cap. */
+  readonly costCapped?: boolean;
+  /** True when the run stopped early because it hit a configured --max-tokens cap. */
+  readonly tokenCapped?: boolean;
+  /** True when the run stopped early because it hit a configured --max-duration-ms budget. */
+  readonly durationCapped?: boolean;
   readonly tokenUsage: OneShotTokenUsage;
   readonly toolCalls: readonly OneShotToolCall[];
   readonly webApp?: OneShotWebApp;
@@ -116,6 +122,9 @@ export function formatOneShotResult(result: OneShotSuccess, options: OneShotOutp
     answer: result.answer,
     costUSD: result.costUSD,
     costKnown: result.costKnown,
+    ...(result.costCapped ? { costCapped: true } : {}),
+    ...(result.tokenCapped ? { tokenCapped: true } : {}),
+    ...(result.durationCapped ? { durationCapped: true } : {}),
     tokenUsage: result.tokenUsage,
     toolCalls: result.toolCalls,
     ...(result.webApp ? { webApp: result.webApp } : {}),

@@ -6,7 +6,7 @@
 
 import { Cause, Effect, Fiber, Option, Ref } from "effect";
 import { isRunParkRequested, withTranscript } from "@/core/agent/run/park-signal";
-import { isLocalServerProvider, isZeroCostLocalModel } from "@/core/constants/local-providers";
+import { isLocalServerProvider } from "@/core/constants/local-providers";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import type { LLMService } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
@@ -27,7 +27,7 @@ import type { StreamEvent } from "@/core/types/streaming";
 import { conversationLogGroup } from "@/core/utils/log-group";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import { formatToolResultForContext } from "@/core/utils/tool-result-formatter";
-import { computeUsageCostUSD, type UsageCostPricing } from "@/core/utils/usage-cost";
+import type { UsageCostPricing } from "@/core/utils/usage-cost";
 import type { AgentLoopObserver } from "./agent-loop-observer";
 import { ToolExecutor } from "./tool-executor";
 import { logContextRung } from "../context/context-telemetry";
@@ -50,6 +50,7 @@ import {
   beginIteration,
   calibrateTokenCounter,
   completeIteration,
+  computeRunCost,
   emitAgentRunFailed,
   emitLLMUsage,
   estimateTokens,
@@ -83,6 +84,87 @@ export function buildBudgetPressureMessage(
     };
   }
   return null;
+}
+
+/**
+ * Shared 50%/80%/90% tiering for the maxCostUSD/maxTokens/maxDurationMs pressure nudges
+ * below. Returns null under 50%. Must NOT be pushed to currentMessages — ephemeral only,
+ * same reasoning as `buildBudgetPressureMessage` above (a persisted warning wastes tokens
+ * and gets summarized into the very compaction it warned about).
+ */
+function budgetPressureMessage(
+  pct: number,
+  label: string,
+  progress: string,
+): { role: "user"; content: string } | null {
+  const percent = Math.round(pct * 100);
+  if (pct >= 0.9) {
+    return {
+      role: "user",
+      content: `[${label} CRITICAL: ${progress} (${percent}%). Write your final output NOW. No further research or subagent spawning.]`,
+    };
+  }
+  if (pct >= 0.8) {
+    return {
+      role: "user",
+      content: `[${label} WARNING: ${progress} (${percent}%). Begin consolidating results. Stop spawning new research subagents. Move to consolidation and output phases.]`,
+    };
+  }
+  if (pct >= 0.5) {
+    return {
+      role: "user",
+      content: `[${label} NOTICE: ${progress} (${percent}%). You are past the halfway point of your ${label.toLowerCase()} budget — plan to wrap up well before it runs out.]`,
+    };
+  }
+  return null;
+}
+
+/**
+ * Returns an ephemeral time-budget pressure message at 50%/80%/90% of `maxDurationMs` elapsed.
+ */
+export function buildTimeBudgetPressureMessage(
+  elapsedMs: number,
+  maxDurationMs: number,
+): { role: "user"; content: string } | null {
+  if (maxDurationMs <= 0) return null;
+  const minutesUsed = Math.round(elapsedMs / 60_000);
+  const minutesBudget = Math.round(maxDurationMs / 60_000);
+  return budgetPressureMessage(
+    elapsedMs / maxDurationMs,
+    "TIME",
+    `${minutesUsed}/${minutesBudget} minutes used`,
+  );
+}
+
+/**
+ * Returns an ephemeral token-budget pressure message at 50%/80%/90% of `maxTokens` used
+ * (own prompt + completion tokens accumulated so far).
+ */
+export function buildTokenBudgetPressureMessage(
+  totalTokens: number,
+  maxTokens: number,
+): { role: "user"; content: string } | null {
+  if (maxTokens <= 0) return null;
+  return budgetPressureMessage(
+    totalTokens / maxTokens,
+    "TOKEN",
+    `${totalTokens.toLocaleString()}/${maxTokens.toLocaleString()} tokens used`,
+  );
+}
+
+/**
+ * Returns an ephemeral cost-budget pressure message at 50%/80%/90% of `maxCostUSD` spent.
+ */
+export function buildCostBudgetPressureMessage(
+  costUSD: number,
+  maxCostUSD: number,
+): { role: "user"; content: string } | null {
+  if (maxCostUSD <= 0) return null;
+  return budgetPressureMessage(
+    costUSD / maxCostUSD,
+    "COST",
+    `$${costUSD.toFixed(4)}/$${maxCostUSD.toFixed(4)} spent`,
+  );
 }
 
 /** Share of the context budget past which the agent is told to stop gathering and write. */
@@ -176,6 +258,11 @@ interface LoopDeps {
   observer: AgentLoopObserver;
   logger: LoggerService;
   maxIterations: number;
+  /** Cost/token/duration ceilings and pricing, for the ephemeral pressure nudges. Undefined = uncapped. */
+  maxCostUSD: number | undefined;
+  maxTokens: number | undefined;
+  maxDurationMs: number | undefined;
+  modelMetadata: UsageCostPricing | undefined;
   runRecursive: RecursiveRunner;
   /**
    * Attachment modalities this run's model accepts. Passed to tools so `read_file` on a
@@ -281,6 +368,9 @@ interface FinalizeInput {
   iterationsUsed: number;
   finished: boolean;
   interrupted: boolean;
+  costCapped: boolean;
+  tokenCapped: boolean;
+  durationCapped: boolean;
 }
 
 /**
@@ -297,12 +387,25 @@ function finalizeRun(
   finalizeFiberRef: Ref.Ref<Option.Option<Fiber.RuntimeFiber<void, Error>>>,
 ): Effect.Effect<AgentResponse, never, LoggerService> {
   return Effect.gen(function* () {
-    const { response, currentMessages, runMetrics, modelMetadata, finished, interrupted } = input;
+    const {
+      response,
+      currentMessages,
+      runMetrics,
+      modelMetadata,
+      finished,
+      interrupted,
+      costCapped,
+      tokenCapped,
+      durationCapped,
+    } = input;
+    const capped = costCapped || tokenCapped || durationCapped;
     let iterationsUsed = input.iterationsUsed;
 
     if (!finished) {
-      iterationsUsed = maxIterations;
-      yield* observer.onIterationLimit(agentName, maxIterations);
+      iterationsUsed = capped ? input.iterationsUsed : maxIterations;
+      if (!capped) {
+        yield* observer.onIterationLimit(agentName, maxIterations);
+      }
     } else if (
       !response.content?.trim() &&
       !response.reasoning?.trim() &&
@@ -312,11 +415,18 @@ function finalizeRun(
       yield* observer.onEmptyResponse(agentName);
     }
 
-    yield* logger.debug("Finalizing agent run", { interrupted, finished });
+    yield* logger.debug("Finalizing agent run", {
+      interrupted,
+      finished,
+      costCapped,
+      tokenCapped,
+      durationCapped,
+    });
 
     const finalizeFiber = yield* finalizeAgentRun(runMetrics, {
       iterationsUsed,
       finished,
+      costCapped: capped,
     }).pipe(
       Effect.catchAll((error) =>
         logger.warn("Failed to write agent token usage log", { error: error.message }),
@@ -325,29 +435,10 @@ function finalizeRun(
     );
     yield* Ref.set(finalizeFiberRef, Option.some(finalizeFiber));
 
-    const ownCostUSD =
-      computeUsageCostUSD(
-        {
-          promptTokens: runMetrics.totalPromptTokens,
-          completionTokens: runMetrics.totalCompletionTokens,
-          cacheReadTokens: runMetrics.totalCacheReadTokens,
-        },
-        modelMetadata,
-      ) ?? undefined;
-    // Report the run's own cost plus any sub-agent cost. Emit a figure whenever
-    // either side is known — a run with unpriced parent tokens but priced
-    // sub-agents should still surface the sub-agent spend.
-    const costUSD =
-      ownCostUSD !== undefined || runMetrics.childCostUSD > 0
-        ? parseFloat(((ownCostUSD ?? 0) + runMetrics.childCostUSD).toFixed(8))
-        : undefined;
     // A partial figure must never pass for a complete one: cost-capped callers
-    // (bridge daily caps) treat costIncomplete as unpriced spend and pause.
-    const ownCostUnknown =
-      ownCostUSD === undefined &&
-      runMetrics.totalPromptTokens + runMetrics.totalCompletionTokens > 0 &&
-      !isZeroCostLocalModel(runMetrics.provider ?? "", runMetrics.model ?? "");
-    const costIncomplete = ownCostUnknown || runMetrics.childCostUnknown;
+    // (bridge daily caps, the per-run maxCostUSD guard) treat costIncomplete as
+    // unpriced spend and refuse to enforce a cap they cannot verify.
+    const { costUSD, costIncomplete } = computeRunCost(runMetrics, modelMetadata);
 
     return {
       ...response,
@@ -361,6 +452,9 @@ function finalizeRun(
       },
       ...(costUSD !== undefined ? { costUSD } : {}),
       ...(costIncomplete ? { costIncomplete: true } : {}),
+      ...(costCapped ? { costCapped: true } : {}),
+      ...(tokenCapped ? { tokenCapped: true } : {}),
+      ...(durationCapped ? { durationCapped: true } : {}),
     };
   });
 }
@@ -677,6 +771,10 @@ function runIteration(
     observer,
     logger,
     maxIterations,
+    maxCostUSD,
+    maxTokens,
+    maxDurationMs,
+    modelMetadata,
     runRecursive,
   } = deps;
 
@@ -789,7 +887,37 @@ function runIteration(
           runContextWindowManager.thresholdRatios,
         );
     const budgetMsg = buildBudgetPressureMessage(iterationIndex + 1, maxIterations);
-    const pressureContent = [contextMsg?.content, budgetMsg?.content].filter(Boolean).join("\n");
+    const timeBudgetMsg =
+      maxDurationMs !== undefined
+        ? buildTimeBudgetPressureMessage(Date.now() - runMetrics.startedAt.getTime(), maxDurationMs)
+        : null;
+    const tokenBudgetMsg =
+      maxTokens !== undefined
+        ? buildTokenBudgetPressureMessage(
+            runMetrics.totalPromptTokens + runMetrics.totalCompletionTokens,
+            maxTokens,
+          )
+        : null;
+    // Reuses the same cost math as the hard-stop check in the outer loop (computeRunCost),
+    // so the nudge and the eventual cutoff never disagree about how much has been spent.
+    const costBudgetMsg =
+      maxCostUSD !== undefined
+        ? (() => {
+            const runCost = computeRunCost(runMetrics, modelMetadata);
+            return runCost.costUSD !== undefined
+              ? buildCostBudgetPressureMessage(runCost.costUSD, maxCostUSD)
+              : null;
+          })()
+        : null;
+    const pressureContent = [
+      contextMsg?.content,
+      budgetMsg?.content,
+      timeBudgetMsg?.content,
+      tokenBudgetMsg?.content,
+      costBudgetMsg?.content,
+    ]
+      .filter(Boolean)
+      .join("\n");
     const messagesForLLM = pressureContent
       ? ([
           ...state.currentMessages,
@@ -1012,6 +1140,9 @@ export function executeAgentLoop(
           provider,
           model,
           maxIterations,
+          maxCostUSD,
+          maxTokens,
+          maxDurationMs,
         } = runContext;
 
         const configService = yield* AgentConfigServiceTag;
@@ -1084,6 +1215,9 @@ export function executeAgentLoop(
         };
         let finished = false;
         let interrupted = false;
+        let costCapped = false;
+        let tokenCapped = false;
+        let durationCapped = false;
 
         // models.dev reports input modalities; absence means text-only. Unlike tool support —
         // which defaults to available so an unknown model is not needlessly crippled — an
@@ -1111,6 +1245,10 @@ export function executeAgentLoop(
           observer,
           logger,
           maxIterations,
+          maxCostUSD,
+          maxTokens,
+          maxDurationMs,
+          modelMetadata,
           runRecursive,
           supportedAttachmentKinds,
         };
@@ -1150,6 +1288,47 @@ export function executeAgentLoop(
           } finally {
             yield* Effect.sync(() => completeIteration(runMetrics));
           }
+
+          // Soft checkpoint, not a preemptive interrupt: checked once between
+          // iterations, same timing as the iteration budget above. A single
+          // expensive iteration (including a whole sub-agent delegation) can push
+          // the total past maxCostUSD before this trips — see docs/internals/agent-loop.md.
+          // Never guess-abort on unpriced usage (a local model, say): costUSD is
+          // only defined once spend is actually known.
+          if (maxCostUSD !== undefined) {
+            const runCost = computeRunCost(runMetrics, modelMetadata);
+            if (runCost.costUSD !== undefined && runCost.costUSD >= maxCostUSD) {
+              costCapped = true;
+              state.iterationsUsed = i + 1;
+              yield* observer.onCostCapReached(agent.name, maxCostUSD, runCost.costUSD);
+              break;
+            }
+          }
+
+          // Same soft-checkpoint timing as maxCostUSD, but needs no pricing lookup —
+          // this still enforces on an unpriced/local model where the cost cap cannot fire.
+          if (maxTokens !== undefined) {
+            const totalTokens = runMetrics.totalPromptTokens + runMetrics.totalCompletionTokens;
+            if (totalTokens >= maxTokens) {
+              tokenCapped = true;
+              state.iterationsUsed = i + 1;
+              yield* observer.onTokenCapReached(agent.name, maxTokens, totalTokens);
+              break;
+            }
+          }
+
+          // Same soft-checkpoint timing as maxCostUSD/maxTokens. The 50/80/90% pressure
+          // nudges are injected per-iteration inside runIteration (see buildTimeBudgetPressureMessage);
+          // this is the hard stop once the budget is actually exhausted.
+          if (maxDurationMs !== undefined) {
+            const elapsedMs = Date.now() - runMetrics.startedAt.getTime();
+            if (elapsedMs >= maxDurationMs) {
+              durationCapped = true;
+              state.iterationsUsed = i + 1;
+              yield* observer.onDurationCapReached(agent.name, maxDurationMs, elapsedMs);
+              break;
+            }
+          }
         }
 
         return yield* finalizeRun(
@@ -1161,6 +1340,9 @@ export function executeAgentLoop(
             iterationsUsed: state.iterationsUsed,
             finished,
             interrupted,
+            costCapped,
+            tokenCapped,
+            durationCapped,
           },
           observer,
           logger,

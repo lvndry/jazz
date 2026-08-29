@@ -166,6 +166,15 @@ function resolveProjectInstructions(
 }
 
 /**
+ * Resolve a `maxCostUSD`/`maxTokens`-style cap: unlike `maxIterations`, neither has a
+ * default ceiling, so an unset or non-positive value means uncapped rather than falling
+ * back to a constant.
+ */
+function resolvePositiveCap(value: number | undefined): number | undefined {
+  return value !== undefined && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+/**
  * Initialize common agent run context (tools, messages, metrics)
  */
 function initializeAgentRun(
@@ -213,6 +222,13 @@ function initializeAgentRun(
       1,
       Math.floor(options.maxIterations ?? appConfig.maxIterations ?? DEFAULT_MAX_ITERATIONS),
     );
+    // No default ceiling for either — unset at both the call site and app config means
+    // uncapped, unlike maxIterations which always falls back to DEFAULT_MAX_ITERATIONS.
+    const resolvedMaxCostUSD = resolvePositiveCap(options.maxCostUSD ?? appConfig.maxCostUSD);
+    const resolvedMaxTokens = resolvePositiveCap(options.maxTokens ?? appConfig.maxTokens);
+    const resolvedMaxDurationMs = resolvePositiveCap(
+      options.maxDurationMs ?? appConfig.maxDurationMs,
+    );
 
     const runMetrics = createAgentRunMetrics({
       agent,
@@ -221,6 +237,7 @@ function initializeAgentRun(
       model,
       reasoningEffort: agent.config.reasoningEffort ?? "disable",
       maxIterations: resolvedMaxIterations,
+      maxCostUSD: resolvedMaxCostUSD,
     });
 
     yield* emitAgentRunStarted(runMetrics);
@@ -510,6 +527,9 @@ function initializeAgentRun(
       connectedMCPServers,
       maxRetries: Math.max(0, Math.floor(appConfig.maxRetries ?? DEFAULT_MAX_LLM_RETRIES)),
       maxIterations: resolvedMaxIterations,
+      maxCostUSD: resolvedMaxCostUSD,
+      maxTokens: resolvedMaxTokens,
+      maxDurationMs: resolvedMaxDurationMs,
       knownSkills: relevantSkills,
     };
   });

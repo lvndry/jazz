@@ -40,6 +40,26 @@ describe("makeDefaultObserver", () => {
     expect(calls[2]).toBe("warning:Agent:model returned an empty response");
   });
 
+  it("maps onCostCapReached to presentWarning with spend and limit", async () => {
+    const { service, calls } = recordingPresentation();
+    await Effect.runPromise(makeDefaultObserver(service).onCostCapReached("Agent", 0.2, 0.2134));
+    expect(calls[0]).toContain("cost cap reached ($0.2134 spent, limit $0.2000)");
+  });
+
+  it("maps onTokenCapReached to presentWarning with token count and limit", async () => {
+    const { service, calls } = recordingPresentation();
+    await Effect.runPromise(makeDefaultObserver(service).onTokenCapReached("Agent", 50000, 51234));
+    expect(calls[0]).toContain("token cap reached (51,234 tokens, limit 50,000)");
+  });
+
+  it("maps onDurationCapReached to presentWarning with elapsed and budget minutes", async () => {
+    const { service, calls } = recordingPresentation();
+    await Effect.runPromise(
+      makeDefaultObserver(service).onDurationCapReached("Agent", 30 * 60_000, 31 * 60_000),
+    );
+    expect(calls[0]).toContain("time budget reached (31 min elapsed, limit 30 min)");
+  });
+
   it("warns with the percentage and budget on context pressure", async () => {
     const { service, calls } = recordingPresentation();
     await Effect.runPromise(makeDefaultObserver(service).onContextPressure("Agent", 72, 128000));

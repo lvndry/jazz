@@ -196,6 +196,12 @@ export function runWorkflowCommand(
     autoApprove?: boolean;
     agent?: string;
     maxIterations?: number;
+    /** Spend ceiling in USD, checked between iterations. Overrides the workflow's own setting. */
+    maxCostUSD?: number;
+    /** Token ceiling, checked between iterations. Overrides the workflow's own setting. */
+    maxTokens?: number;
+    /** Wall-clock budget in ms, checked between iterations. Overrides the workflow's own setting. */
+    maxDurationMs?: number;
     scheduled?: boolean;
     /** Emit a single JSON envelope on stdout (same shape as `jazz run --json`) and suppress terminal chatter. */
     json?: boolean;
@@ -384,15 +390,22 @@ export function runWorkflowCommand(
       autoApprove: autoApprovePolicy,
     });
 
-    // Run the agent with the workflow prompt. Iteration cap precedence:
-    // CLI --max-iterations flag > workflow metadata > default (omitted here).
+    // Run the agent with the workflow prompt. Cap precedence for maxIterations,
+    // maxCostUSD, maxTokens, and maxDurationMs alike: CLI flag > workflow metadata >
+    // default (omitted here).
     const resolvedMaxIterations = options?.maxIterations ?? workflow.metadata.maxIterations;
+    const resolvedMaxCostUSD = options?.maxCostUSD ?? workflow.metadata.maxCostUSD;
+    const resolvedMaxTokens = options?.maxTokens ?? workflow.metadata.maxTokens;
+    const resolvedMaxDurationMs = options?.maxDurationMs ?? workflow.metadata.maxDurationMs;
     const runEffect = AgentRunner.run({
       agent,
       userInput: workflow.prompt,
       conversationId: generateConversationId(`workflow-${workflowName}`),
       pinInitialMessage: true,
       ...(resolvedMaxIterations != null ? { maxIterations: resolvedMaxIterations } : {}),
+      ...(resolvedMaxCostUSD != null ? { maxCostUSD: resolvedMaxCostUSD } : {}),
+      ...(resolvedMaxTokens != null ? { maxTokens: resolvedMaxTokens } : {}),
+      ...(resolvedMaxDurationMs != null ? { maxDurationMs: resolvedMaxDurationMs } : {}),
       ...(autoApprovePolicy !== undefined ? { autoApprovePolicy } : {}),
       ...(options?.stream !== undefined ? { stream: options.stream } : {}),
     });
@@ -452,6 +465,9 @@ export function runWorkflowCommand(
                 agent.config.llmModel,
                 runResult.costIncomplete === true,
               ),
+              ...(runResult.costCapped === true ? { costCapped: true } : {}),
+              ...(runResult.tokenCapped === true ? { tokenCapped: true } : {}),
+              ...(runResult.durationCapped === true ? { durationCapped: true } : {}),
               tokenUsage: {
                 promptTokens,
                 completionTokens,
@@ -838,10 +854,16 @@ export function workflowHistoryCommand(workflowName?: string) {
 function runCostFields(result: {
   costUSD?: number;
   usage?: { promptTokens: number; completionTokens: number };
+  costCapped?: boolean;
+  tokenCapped?: boolean;
+  durationCapped?: boolean;
 }) {
   return {
     ...(result.costUSD !== undefined ? { costUSD: result.costUSD } : {}),
     ...(result.usage !== undefined ? { tokenUsage: result.usage } : {}),
+    ...(result.costCapped === true ? { costCapped: true } : {}),
+    ...(result.tokenCapped === true ? { tokenCapped: true } : {}),
+    ...(result.durationCapped === true ? { durationCapped: true } : {}),
   };
 }
 

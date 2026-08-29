@@ -5,12 +5,14 @@
 
 import { randomUUID } from "node:crypto";
 import { Effect } from "effect";
+import { isZeroCostLocalModel } from "@/core/constants/local-providers";
 import type { LoggerService } from "@/core/interfaces/logger";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
 import type { ClassifierUsage, TelemetryService, TokenUsage } from "@/core/interfaces/telemetry";
 import { type Agent } from "@/core/types";
 import type { ChatMessage } from "@/core/types/message";
 import { emitTelemetry } from "@/core/utils/telemetry-emit";
+import { computeUsageCostUSD, type UsageCostPricing } from "@/core/utils/usage-cost";
 import { DEFAULT_TOKEN_COUNTER } from "../context/token-counter";
 
 export interface AgentRunMetricsContext {
@@ -21,6 +23,8 @@ export interface AgentRunMetricsContext {
   readonly model?: string;
   readonly reasoningEffort?: "disable" | "low" | "medium" | "high";
   readonly maxIterations?: number | undefined;
+  /** Per-run spend ceiling in USD, for telemetry parity with `maxIterations`. Unset = uncapped. */
+  readonly maxCostUSD?: number | undefined;
 }
 
 interface AgentRunIterationSummary {
@@ -47,6 +51,7 @@ export interface AgentRunMetrics {
   readonly model?: string;
   readonly reasoningEffort?: "disable" | "low" | "medium" | "high";
   readonly maxIterations: number | undefined;
+  readonly maxCostUSD: number | undefined;
   readonly startedAt: Date;
   totalPromptTokens: number;
   totalCompletionTokens: number;
@@ -82,8 +87,16 @@ export interface AgentRunMetrics {
 }
 
 export function createAgentRunMetrics(context: AgentRunMetricsContext): AgentRunMetrics {
-  const { agent, conversationId, userId, provider, model, reasoningEffort, maxIterations } =
-    context;
+  const {
+    agent,
+    conversationId,
+    userId,
+    provider,
+    model,
+    reasoningEffort,
+    maxIterations,
+    maxCostUSD,
+  } = context;
 
   return {
     runId: randomUUID(),
@@ -97,6 +110,7 @@ export function createAgentRunMetrics(context: AgentRunMetricsContext): AgentRun
     ...(model ? { model } : {}),
     ...(reasoningEffort ? { reasoningEffort } : {}),
     maxIterations,
+    maxCostUSD,
     startedAt: new Date(),
     totalPromptTokens: 0,
     totalCompletionTokens: 0,
@@ -146,6 +160,62 @@ export function recordLLMUsage(
   if (usage.cacheWriteTokens != null) {
     metrics.totalCacheWriteTokens += usage.cacheWriteTokens;
   }
+}
+
+export interface RunCost {
+  /** Own-run cost plus any sub-agent cost. Undefined only when nothing is priced yet. */
+  readonly costUSD: number | undefined;
+  /**
+   * True when some token spend in this run — the run's own turns or any sub-agent's —
+   * lacked pricing metadata, so `costUSD` understates real spend. Cost-capped callers
+   * must treat such runs as unpriced rather than let a cap silently under-enforce.
+   */
+  readonly costIncomplete: boolean;
+}
+
+/**
+ * Price a run's accumulated usage, folding in any sub-agent spend recorded via
+ * `childCostUSD`/`childCostUnknown`. Shared by run finalization (the reported
+ * `AgentResponse.costUSD`) and the live cost-cap check in the agent loop, so the two
+ * never compute cost differently.
+ */
+export function computeRunCost(
+  metrics: Pick<
+    AgentRunMetrics,
+    | "totalPromptTokens"
+    | "totalCompletionTokens"
+    | "totalCacheReadTokens"
+    | "childCostUSD"
+    | "childCostUnknown"
+    | "provider"
+    | "model"
+  >,
+  pricing: UsageCostPricing | undefined,
+): RunCost {
+  const ownCostUSD =
+    computeUsageCostUSD(
+      {
+        promptTokens: metrics.totalPromptTokens,
+        completionTokens: metrics.totalCompletionTokens,
+        cacheReadTokens: metrics.totalCacheReadTokens,
+      },
+      pricing,
+    ) ?? undefined;
+
+  // Report the run's own cost plus any sub-agent cost. Emit a figure whenever either
+  // side is known — a run with unpriced parent tokens but priced sub-agents should
+  // still surface the sub-agent spend.
+  const costUSD =
+    ownCostUSD !== undefined || metrics.childCostUSD > 0
+      ? parseFloat(((ownCostUSD ?? 0) + metrics.childCostUSD).toFixed(8))
+      : undefined;
+
+  const ownCostUnknown =
+    ownCostUSD === undefined &&
+    metrics.totalPromptTokens + metrics.totalCompletionTokens > 0 &&
+    !isZeroCostLocalModel(metrics.provider ?? "", metrics.model ?? "");
+
+  return { costUSD, costIncomplete: ownCostUnknown || metrics.childCostUnknown };
 }
 
 /**
@@ -290,6 +360,7 @@ export function finalizeAgentRun(
   details: {
     readonly iterationsUsed: number;
     readonly finished: boolean;
+    readonly costCapped?: boolean;
   },
 ): Effect.Effect<void, Error, LoggerService> {
   const endedAt = new Date();
@@ -339,7 +410,9 @@ export function finalizeAgentRun(
       }),
       iterations: details.iterationsUsed,
       maxIterations: metrics.maxIterations,
+      ...(metrics.maxCostUSD !== undefined && { maxCostUSD: metrics.maxCostUSD }),
       finished: details.finished,
+      ...(details.costCapped === true && { costCapped: true }),
       startedAt: metrics.startedAt,
       endedAt,
       durationMs,
@@ -391,7 +464,9 @@ interface TokenUsageLogPayload {
   readonly cacheWriteTokens?: number;
   readonly iterations: number;
   readonly maxIterations: number | undefined;
+  readonly maxCostUSD?: number;
   readonly finished: boolean;
+  readonly costCapped?: boolean;
   readonly startedAt: Date;
   readonly endedAt: Date;
   readonly durationMs: number;
@@ -443,7 +518,9 @@ function writeTokenUsageLog(
       reasoningEffort: payload.reasoningEffort ?? "disable",
       iterations: payload.iterations,
       maxIterations: payload.maxIterations,
+      ...(payload.maxCostUSD !== undefined && { maxCostUSD: payload.maxCostUSD }),
       finished: payload.finished,
+      ...(payload.costCapped === true && { costCapped: true }),
       retryCount: payload.retryCount,
       ...(payload.lastError ? { lastError: payload.lastError } : {}),
       promptTokens: payload.promptTokens,

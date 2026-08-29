@@ -123,6 +123,9 @@ export interface RunAgentOnceOptions {
   readonly companions?: Partial<Record<PerceptionCapability, `${string}/${string}`>> | undefined;
   readonly timeoutMs?: number | undefined;
   readonly maxIterations?: number | undefined;
+  readonly maxCostUSD?: number | undefined;
+  readonly maxTokens?: number | undefined;
+  readonly maxDurationMs?: number | undefined;
   readonly eventTypes?: ReadonlySet<StreamEvent["type"]> | undefined;
   /**
    * Force streaming on/off. Streaming auto-disables for non-TTY stdout, which
@@ -368,6 +371,9 @@ export function runAgentOnceCommand(
         : {}),
       ...(options.timezone !== undefined ? { timezone: options.timezone } : {}),
       ...(options.maxIterations != null ? { maxIterations: options.maxIterations } : {}),
+      ...(options.maxCostUSD != null ? { maxCostUSD: options.maxCostUSD } : {}),
+      ...(options.maxTokens != null ? { maxTokens: options.maxTokens } : {}),
+      ...(options.maxDurationMs != null ? { maxDurationMs: options.maxDurationMs } : {}),
       ...(options.stream !== undefined ? { stream: options.stream } : {}),
       ...(interactiveInput.interactive ? {} : { withholdInteractiveTools: true }),
       ...(ephemeral ? { disablePersistence: true } : {}),
@@ -420,6 +426,9 @@ export function runAgentOnceCommand(
             agentForRun.config.llmModel,
             runResult.costIncomplete === true,
           ),
+          ...(runResult.costCapped === true ? { costCapped: true } : {}),
+          ...(runResult.tokenCapped === true ? { tokenCapped: true } : {}),
+          ...(runResult.durationCapped === true ? { durationCapped: true } : {}),
           tokenUsage: {
             promptTokens,
             completionTokens,
