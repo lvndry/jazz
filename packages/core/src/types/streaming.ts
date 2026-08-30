@@ -142,7 +142,22 @@ export type StreamEvent =
    * and the event reaches the stream through the *parent's* renderer, which would
    * otherwise attribute it to the parent.
    */
-  | { type: "subagent_complete"; agentName?: string; durationMs?: number };
+  | { type: "subagent_complete"; agentName?: string; durationMs?: number }
+  /** Structured result status emitted when spawn_subagent was called with resultSchema. */
+  | {
+      type: "subagent_result";
+      subagentId: string;
+      agentName?: string;
+      durationMs: number;
+      costUSD?: number;
+      costKnown: boolean;
+      structuredResult: {
+        requested: true;
+        valid: boolean;
+        resultName?: string;
+        errorCount?: number;
+      };
+    };
 
 export interface StreamingResult {
   readonly stream: Stream.Stream<StreamEvent, LLMError>;

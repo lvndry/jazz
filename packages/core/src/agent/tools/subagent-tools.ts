@@ -65,9 +65,140 @@ const spawnSubagentSchema = z.object({
       "Reasoning effort for this sub-agent. Omit to inherit the parent's effort. " +
         "Raise it for hard analysis tasks (deep review, root-cause hunting); lower it for mechanical ones.",
     ),
+  resultSchema: z
+    .record(z.string(), z.unknown())
+    .optional()
+    .describe(
+      "Experimental JSON Schema for a structured child result. When supplied, the child must return a JSON envelope with a text summary and a result that validates against this schema.",
+    ),
+  resultName: z
+    .string()
+    .min(1)
+    .max(120)
+    .optional()
+    .describe(
+      "Optional human-readable label for the structured result, used in prompts and validation errors.",
+    ),
 });
 
 type SpawnSubagentArgs = z.infer<typeof spawnSubagentSchema>;
+
+type StructuredSubagentResult = {
+  readonly summary: string;
+  readonly structuredResult: unknown;
+  readonly child: {
+    readonly id: string;
+    readonly durationMs: number;
+    readonly costUSD?: number;
+    readonly costKnown: boolean;
+  };
+};
+
+type StructuredResultValidation =
+  | { readonly ok: true; readonly value: StructuredSubagentResult }
+  | { readonly ok: false; readonly errors: readonly string[] };
+
+const MAX_RESULT_SCHEMA_BYTES = 32 * 1024;
+const MAX_STRUCTURED_RESULT_BYTES = 128 * 1024;
+
+function describeJsonSchemaError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function validateResultSchema(resultSchema: Record<string, unknown>): readonly string[] {
+  const errors: string[] = [];
+  const serialized = JSON.stringify(resultSchema);
+  if (serialized.length > MAX_RESULT_SCHEMA_BYTES) {
+    errors.push(`resultSchema must be at most ${MAX_RESULT_SCHEMA_BYTES} bytes`);
+  }
+  if (resultSchema["type"] !== "object") {
+    errors.push('resultSchema must declare a root type of "object"');
+  }
+  if ("$ref" in resultSchema) {
+    errors.push("resultSchema must not use a root $ref");
+  }
+  try {
+    z.fromJSONSchema(resultSchema);
+  } catch (error) {
+    errors.push(`resultSchema is not supported: ${describeJsonSchemaError(error)}`);
+  }
+  return errors;
+}
+
+function structuredCompletionInstructions(
+  resultSchema: Record<string, unknown>,
+  resultName: string | undefined,
+): string {
+  const label = resultName ?? "structured result";
+  return `\n\nSTRUCTURED COMPLETION REQUIRED\nReturn ONLY one valid JSON object, with no markdown fence or surrounding prose:\n{\n  "summary": "A concise plain-text summary for the parent",\n  "result": <${label} matching this JSON Schema>\n}\n\nThe result must validate against this JSON Schema:\n${JSON.stringify(resultSchema)}\n`;
+}
+
+function validateStructuredResult(
+  content: string,
+  resultSchema: Record<string, unknown>,
+  child: StructuredSubagentResult["child"],
+): StructuredResultValidation {
+  if (Buffer.byteLength(content, "utf8") > MAX_STRUCTURED_RESULT_BYTES) {
+    return {
+      ok: false,
+      errors: [`Structured child output must be at most ${MAX_STRUCTURED_RESULT_BYTES} bytes`],
+    };
+  }
+
+  let envelope: unknown;
+  try {
+    envelope = JSON.parse(content);
+  } catch {
+    return {
+      ok: false,
+      errors: ["Child did not return a valid JSON structured-result envelope"],
+    };
+  }
+
+  const parsedEnvelope = z
+    .object({ summary: z.string().min(1), result: z.unknown() })
+    .strict()
+    .safeParse(envelope);
+  if (!parsedEnvelope.success) {
+    return {
+      ok: false,
+      errors: parsedEnvelope.error.issues.map((issue) => {
+        const path = issue.path.join(".");
+        return path.length > 0 ? `${path}: ${issue.message}` : issue.message;
+      }),
+    };
+  }
+
+  let resultValidator: z.ZodType;
+  try {
+    resultValidator = z.fromJSONSchema(resultSchema);
+  } catch (error) {
+    return {
+      ok: false,
+      errors: [`resultSchema is not supported: ${describeJsonSchemaError(error)}`],
+    };
+  }
+
+  const parsedResult = resultValidator.safeParse(parsedEnvelope.data.result);
+  if (!parsedResult.success) {
+    return {
+      ok: false,
+      errors: parsedResult.error.issues.map((issue) => {
+        const path = issue.path.join("result.");
+        return path.length > 0 ? `${path}: ${issue.message}` : issue.message;
+      }),
+    };
+  }
+
+  return {
+    ok: true,
+    value: {
+      summary: parsedEnvelope.data.summary,
+      structuredResult: parsedResult.data,
+      child,
+    },
+  };
+}
 
 // ─── Summarize Tool ──────────────────────────────────────────────────
 
@@ -95,7 +226,8 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
         "The child cannot see this conversation, so put every fact, path, constraint, and the exact output shape in task. Only the child's final answer comes back. " +
         "Use this when the work would flood this context, when two or more independent investigations can run in parallel in one turn, or when you need a specialist (coder for code and git, researcher for read-only investigation). " +
         "Do not use this when a few greps or reads would finish the work, when the child would need to remember this conversation, when the work must mutate the same files in order, or when you are already under context pressure. " +
-        "The child inherits at most your tools, the same model, a 30-minute timeout, and 30 iterations. Nesting deeper than 3 is refused. Label parallel children with name.",
+        "The child inherits at most your tools, the same model, a 30-minute timeout, and 30 iterations. Nesting deeper than 3 is refused. Label parallel children with name. " +
+        "When resultSchema is supplied, Jazz validates the child's final JSON envelope and returns its summary plus structured result.",
       parameters: spawnSubagentSchema,
       hidden: false,
       riskLevel: "low-risk",
@@ -132,6 +264,17 @@ export function createSubagentTools(): Tool<ToolRequirements>[] {
                 `Sub-agent nesting limit reached (depth ${currentDepth} of ${maxDepth}). ` +
                 `Do this task yourself instead of delegating it further.`,
             };
+          }
+
+          if (args.resultSchema) {
+            const schemaErrors = validateResultSchema(args.resultSchema);
+            if (schemaErrors.length > 0) {
+              return {
+                success: false,
+                result: null,
+                error: `Invalid resultSchema: ${schemaErrors.join("; ")}`,
+              };
+            }
           }
 
           yield* logger.info("Spawning sub-agent", {
@@ -175,7 +318,7 @@ Rules:
 - Your response will be returned directly to the parent agent
 
 TASK:
-${args.task}`;
+${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSchema, args.resultName) : ""}`;
 
           if (context.emitEvent) {
             yield* context.emitEvent({
@@ -275,6 +418,68 @@ ${args.task}`;
           });
 
           const fullResult = result?.trim() || "No output";
+
+          if (args.resultSchema) {
+            const structured = validateStructuredResult(fullResult, args.resultSchema, {
+              id: subAgent.id,
+              durationMs,
+              ...(response.costUSD !== undefined ? { costUSD: response.costUSD } : {}),
+              costKnown: !childCostUnknown,
+            });
+            if (!structured.ok) {
+              yield* logger.warn("Sub-agent structured result failed validation", {
+                parentAgentId: parentAgent.id,
+                subagentId: subAgent.id,
+                errorCount: structured.errors.length,
+              });
+              if (context.emitEvent) {
+                yield* context.emitEvent({
+                  type: "subagent_result",
+                  subagentId: subAgent.id,
+                  agentName: subagentLabel,
+                  durationMs,
+                  ...(response.costUSD !== undefined ? { costUSD: response.costUSD } : {}),
+                  costKnown: !childCostUnknown,
+                  structuredResult: {
+                    requested: true,
+                    valid: false,
+                    ...(args.resultName ? { resultName: args.resultName } : {}),
+                    errorCount: structured.errors.length,
+                  },
+                });
+              }
+              return {
+                success: false,
+                result: { rawSummary: fullResult, validationErrors: structured.errors },
+                error: `Sub-agent structured result failed validation: ${structured.errors.join("; ")}`,
+              };
+            }
+
+            if (context.emitEvent) {
+              yield* context.emitEvent({
+                type: "subagent_result",
+                subagentId: subAgent.id,
+                agentName: subagentLabel,
+                durationMs,
+                ...(response.costUSD !== undefined ? { costUSD: response.costUSD } : {}),
+                costKnown: !childCostUnknown,
+                structuredResult: {
+                  requested: true,
+                  valid: true,
+                  ...(args.resultName ? { resultName: args.resultName } : {}),
+                },
+              });
+            }
+
+            yield* logger.info("Sub-agent returned a validated structured result", {
+              parentAgentId: parentAgent.id,
+              subagentId: subAgent.id,
+              durationMs,
+            });
+            yield* presentation.writeOutput(`     ${structured.value.summary}`, subagentLabel);
+            return { success: true, result: structured.value };
+          }
+
           const maxLines = 10;
           const previewLines = fullResult.split("\n").slice(-maxLines).join("\n");
           const indentedLines = previewLines.split("\n").map((line) => `     ${line}`);

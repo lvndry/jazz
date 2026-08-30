@@ -60,6 +60,7 @@ describe("parseEventCategories", () => {
       "command_risk_classified",
       "subagent_start",
       "subagent_complete",
+      "subagent_result",
     ];
     expect([...result.types].sort()).toEqual(expected.sort());
   });
