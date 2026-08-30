@@ -81,7 +81,7 @@ function failure(error: string): ToolExecutionResult {
 }
 
 async function postQuestion(
-  peer: PeerConfig,
+  url: string,
   token: string | undefined,
   question: string,
 ): Promise<{ ok: true; answer: string } | { ok: false; reason: string }> {
@@ -90,7 +90,7 @@ async function postQuestion(
     controller.abort();
   }, PEER_TIMEOUT_MS);
   try {
-    const response = await fetch(peer.url, {
+    const response = await fetch(url, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -159,7 +159,12 @@ function quote(peerName: string, answer: string): string {
 export function createAskPeerTool(
   peers: readonly PeerConfig[],
 ): Tool<AgentConfigService | LoggerService | PeerLedgerService | PeerTokenService> | undefined {
-  const askable = peers.filter((peer) => (peer.may ?? "none") !== "none");
+  // Whether a peer can be *asked* depends on `url` — whether this machine knows where their
+  // agent answers — not on `may`, which is the opposite direction: what *they* are allowed to
+  // learn when *they* ask *this* machine. A peer added only so it may ask you (the common
+  // shape a one-way invite produces on the granting side) has a `may` and no `url`, and is
+  // correctly absent from this list; it is unaskable, not merely unauthorized.
+  const askable = peers.filter((peer) => peer.url !== undefined && peer.url.length > 0);
   if (askable.length === 0) return undefined;
 
   const names = askable.map((peer) => peer.name).join(", ");
@@ -194,8 +199,9 @@ export function createAskPeerTool(
         if (peer === undefined) {
           return failure(`No peer named "${args.peer}". Configured peers: ${names}.`);
         }
-        if ((peer.may ?? "none") === "none") {
-          return failure(`Peer "${peer.name}" is suspended and is not being contacted.`);
+        const url = peer.url;
+        if (url === undefined || url.length === 0) {
+          return failure(`Peer "${peer.name}" has no known endpoint and cannot be asked.`);
         }
 
         const peerToken = yield* PeerTokenServiceTag;
@@ -203,7 +209,7 @@ export function createAskPeerTool(
 
         yield* logger.info("Asking a peer", { peer: peer.name });
 
-        const outcome = yield* Effect.promise(() => postQuestion(peer, token, args.question));
+        const outcome = yield* Effect.promise(() => postQuestion(url, token, args.question));
 
         if (!outcome.ok) {
           yield* ledger(peer.name, args.question, "failed", { reason: outcome.reason });
