@@ -326,12 +326,32 @@ export function acceptInviteCommand(options: AcceptInviteCommandOptions) {
     }
 
     const previewResponse = yield* Effect.tryPromise({
-      try: (): Promise<unknown> =>
-        fetch(`${parsed.origin}/peer-invites/${parsed.id}`).then((r) => r.json()),
+      try: (): Promise<{ readonly status: number; readonly body: unknown }> =>
+        fetch(`${parsed.origin}/peer-invites/${parsed.id}`).then(async (response) => ({
+          status: response.status,
+          body: (await response.json()) as unknown,
+        })),
       catch: (error) => error,
     }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
 
-    const preview = parsePreview(previewResponse);
+    const previewError =
+      previewResponse !== undefined &&
+      typeof previewResponse.body === "object" &&
+      previewResponse.body !== null &&
+      typeof (previewResponse.body as Record<string, unknown>)["error"] === "string"
+        ? (previewResponse.body as Record<string, unknown>)["error"]
+        : undefined;
+    if (previewResponse?.status === 404 && previewError === "not accepting peer invitations") {
+      return yield* Effect.fail(
+        new CLIError({
+          command: "peers invite accept",
+          message: "the inviter's daemon is running, but it is not serving peers",
+          suggestion: "Ask the inviter to restart it with `jazz daemon --serve-peers <agent>`.",
+        }),
+      );
+    }
+
+    const preview = parsePreview(previewResponse?.body);
     if (preview === undefined) {
       return yield* Effect.fail(
         new CLIError({
