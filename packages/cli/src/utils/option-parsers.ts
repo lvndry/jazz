@@ -2,6 +2,8 @@
  * Commander.js option parsers shared across CLI command definitions.
  */
 
+import { parseDurationMs as parseDuration } from "@jazz/core/utils/time";
+
 /**
  * Build a Commander option parser that accepts only positive integers.
  *
@@ -46,35 +48,17 @@ export function parsePositiveFloat(label: string) {
   };
 }
 
-function durationUnitMs(unit: "s" | "m" | "h" | "d"): number {
-  switch (unit) {
-    case "s":
-      return 1_000;
-    case "m":
-      return 60_000;
-    case "h":
-      return 3_600_000;
-    case "d":
-      return 86_400_000;
-  }
-}
-
 /**
- * Build a Commander option parser for a short human duration like `24h`, `30m`, `10d` — the
- * shape `--expires` takes. Only single-unit durations are accepted (no `1h30m`): an invite's
- * lifetime is not a value anyone needs sub-unit precision on, and rejecting the compound form
- * keeps the error message simple when someone fat-fingers it.
+ * Build a Commander option parser for a short human duration like `24h`, `30m`, `1h30m` — the
+ * shape `--expires` takes. Delegates to the same duration parser `parseWhen` (reminders) uses,
+ * so this is deliberately not re-implementing unit parsing here.
  */
 export function parseDurationMs(label: string) {
   return (raw: string): number => {
-    const match = /^(\d+)(s|m|h|d)$/.exec(raw.trim());
-    if (match?.[1] === undefined || match[2] === undefined) {
+    const ms = parseDuration(raw);
+    if (ms === null) {
       throw new Error(`${label} must look like "30m", "24h", or "7d" (got "${raw}").`);
     }
-    const amount = Number.parseInt(match[1], 10);
-    if (amount <= 0) {
-      throw new Error(`${label} must be a positive duration (got "${raw}").`);
-    }
-    return amount * durationUnitMs(match[2] as "s" | "m" | "h" | "d");
+    return ms;
   };
 }
