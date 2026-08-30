@@ -35,7 +35,7 @@ INVITE_FILE=/shared/invite.json
 case "$ROLE" in
   bob)
     echo "== bob: provisioning agent =="
-    bun run scripts/provision-agent.ts bob
+    bun run scripts/peers/provision-agent.ts bob
 
     echo "== bob: starting daemon (0.0.0.0 inside this container's own network namespace" \
       "only — nothing outside this compose project can reach it) =="
@@ -70,7 +70,7 @@ case "$ROLE" in
 
   alice)
     echo "== alice: provisioning agent =="
-    bun run scripts/provision-agent.ts alice ask_peer
+    bun run scripts/peers/provision-agent.ts alice ask_peer
 
     echo "== alice: waiting for bob's invite (through caddy, not directly — alice has no" \
       "route to bob's network at all) =="

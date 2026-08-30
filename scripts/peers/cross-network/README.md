@@ -1,7 +1,7 @@
 # Cross-network peer-invite demo
 
 Two jazz agents that can only reach each other through a reverse proxy — the same "over the
-internet" topology [docs/guide/peers-setup.md](../../docs/guide/peers-setup.md) documents,
+internet" topology [docs/guide/peers-setup.md](../../../docs/guide/peers-setup.md) documents,
 simulated entirely on localhost with Docker, no real domain or external tunnel needed.
 
 ```
@@ -33,7 +33,7 @@ gets persisted rather than hitting the "no keyring available" refusal a bare con
 ## Running it
 
 ```bash
-cd scripts/cross-network
+cd scripts/peers/cross-network
 OPENROUTER_API_KEY=... docker compose up --build
 ```
 

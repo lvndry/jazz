@@ -9,7 +9,7 @@
  * live-reload fix `makePeerHandler` needed once invites could write config mid-process.
  *
  * What this does not (and cannot deterministically) prove: that Bob's agent produces a
- * correct English answer, which needs a real LLM. See `scripts/two-agents-localhost.sh` for
+ * correct English answer, which needs a real LLM. See `scripts/peers/two-agents-localhost.sh` for
  * the same scenario run with real agents end to end.
  */
 

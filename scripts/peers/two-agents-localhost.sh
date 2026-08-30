@@ -11,11 +11,11 @@
 #
 # `jazz agent create` is an Ink TUI wizard with no CLI flags — true of the product today,
 # independent of this feature (docs/guide/creating-agents.md: "if you want to script agent
-# creation, write the JSON file directly"). `scripts/provision-agent.ts` does exactly that, so
-# this script never has to pause for a human.
+# creation, write the JSON file directly"). `scripts/peers/provision-agent.ts` does exactly
+# that, so this script never has to pause for a human.
 #
 # Usage:
-#   ./scripts/two-agents-localhost.sh
+#   ./scripts/peers/two-agents-localhost.sh
 #
 # Uses OpenRouter's free-tier `qwen3-next-80b-a3b-instruct:free` model for both agents. Needs
 # an OpenRouter key to actually answer — `OPENROUTER_API_KEY` if set, otherwise whatever
@@ -28,7 +28,7 @@
 
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
 
 ALICE_HOME="$(mktemp -d -t jazz-alice-XXXXXX)"
@@ -80,9 +80,9 @@ jazz() {
 
 echo "== Step 1: create the two agents, non-interactively =="
 echo "Alice's home: $ALICE_HOME"
-JAZZ_HOME="$ALICE_HOME" bun run "$ROOT_DIR/scripts/provision-agent.ts" alice ask_peer
+JAZZ_HOME="$ALICE_HOME" bun run "$ROOT_DIR/scripts/peers/provision-agent.ts" alice ask_peer
 echo "Bob's home:   $BOB_HOME"
-JAZZ_HOME="$BOB_HOME" bun run "$ROOT_DIR/scripts/provision-agent.ts" bob
+JAZZ_HOME="$BOB_HOME" bun run "$ROOT_DIR/scripts/peers/provision-agent.ts" bob
 
 echo
 echo "== Step 2: bob starts serving on port $BOB_PORT (grants nothing yet) =="

@@ -272,7 +272,9 @@ All covered in `packages/adapters/src/peers/invites.test.ts` and
 - `packages/adapters/src/daemon/peer-invite-flow.test.ts` — the full HTTP round trip through
   real handler factories, stopping at the authorization boundary (no real LLM)
 - `packages/core/src/agent/tools/peer-tools.test.ts` — updated for the askability-filter fix
-- `scripts/two-agents-localhost.sh` — the same scenario with a real agent stack, run by hand
+- `scripts/peers/two-agents-localhost.sh` — the same scenario with a real agent stack, run by hand
+- `scripts/peers/cross-network/` — the same scenario across two Docker networks with no route
+  between them, bridged only by a reverse proxy, exercising `--public-url` for real
 
 ---
 
@@ -299,7 +301,7 @@ All covered in `packages/adapters/src/peers/invites.test.ts` and
 
 ### Manual / real-agent verification
 
-- `scripts/two-agents-localhost.sh` — the same scenario with two real agents and a real LLM,
+- `scripts/peers/two-agents-localhost.sh` — the same scenario with two real agents and a real LLM,
   since a model's actual answer is not something a deterministic CI run should depend on
 
 ---
