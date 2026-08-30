@@ -959,6 +959,12 @@ function registerPeerInviteCommands(peersCommand: Command, program: Command): vo
       "--as <name>",
       "What to call yourself to the invitee. Defaults to this machine's hostname.",
     )
+    .option(
+      "--public-url <base>",
+      "Overrides --host/--port for the printed link, e.g. https://bob-agent.example.com — " +
+        "needed when the daemon binds loopback behind a reverse proxy, so the invite points " +
+        "at what a redeemer can actually reach rather than the daemon's own bind address.",
+    )
     .option("--qr", "Also print the link as a terminal QR code")
     .option("--json", "Emit a single JSON envelope { ok, id, url, expiresAt }")
     .action(
@@ -969,6 +975,7 @@ function registerPeerInviteCommands(peersCommand: Command, program: Command): vo
           expires: number;
           host: string;
           port: number;
+          publicUrl?: string;
           as?: string;
           qr?: boolean;
           json?: boolean;
@@ -991,6 +998,7 @@ function registerPeerInviteCommands(peersCommand: Command, program: Command): vo
                 json: options.json === true,
                 qr: options.qr === true,
                 ...(options.as !== undefined ? { as: options.as } : {}),
+                ...(options.publicUrl !== undefined ? { publicUrl: options.publicUrl } : {}),
               });
             }),
           cliRuntimeOptions(program),

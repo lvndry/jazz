@@ -76,6 +76,14 @@ export interface CreateInviteCommandOptions {
   readonly ttlMs: number;
   readonly host: string;
   readonly port: number;
+  /**
+   * Overrides the constructed `http://host:port` origin for both the embedded ask URL and the
+   * invite link itself. Needed whenever the daemon's bind address isn't what a redeemer can
+   * actually reach — the reverse-proxy topology in docs/guide/peers-setup.md's "over the
+   * internet" section is exactly this: the daemon stays on loopback, but the invite has to
+   * point at the public domain the proxy fronts.
+   */
+  readonly publicUrl?: string;
   readonly as?: string;
   readonly json: boolean;
   readonly qr: boolean;
@@ -83,7 +91,9 @@ export interface CreateInviteCommandOptions {
 
 export function createInviteCommand(options: CreateInviteCommandOptions) {
   return Effect.gen(function* () {
-    const inviterAskUrl = `http://${options.host}:${String(options.port)}/peer/ask`;
+    const origin =
+      options.publicUrl?.replace(/\/+$/, "") ?? `http://${options.host}:${String(options.port)}`;
+    const inviterAskUrl = `${origin}/peer/ask`;
     const created = yield* createInvite({
       inviteeName: options.inviteeName,
       inviterDisplayName: options.as ?? os.hostname(),
@@ -92,7 +102,7 @@ export function createInviteCommand(options: CreateInviteCommandOptions) {
       ttlMs: options.ttlMs,
     });
 
-    const url = `http://${options.host}:${String(options.port)}/peer-invites/${created.record.id}#${created.secret}`;
+    const url = `${origin}/peer-invites/${created.record.id}#${created.secret}`;
 
     if (options.json) {
       process.stdout.write(
@@ -101,7 +111,16 @@ export function createInviteCommand(options: CreateInviteCommandOptions) {
       return;
     }
 
-    const warning = plaintextWarning(options.host);
+    let originUrl: URL | undefined;
+    try {
+      originUrl = new URL(origin);
+    } catch {
+      originUrl = undefined;
+    }
+    const warning =
+      originUrl !== undefined && originUrl.protocol === "https:"
+        ? undefined
+        : plaintextWarning(originUrl?.hostname ?? options.host);
     if (warning !== undefined) process.stderr.write(warning);
 
     process.stdout.write(
