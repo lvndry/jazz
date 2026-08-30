@@ -1,0 +1,79 @@
+name: jazz-cross-network-demo
+
+# Simulates two jazz agents on genuinely separate networks, exercising the "over the
+# internet" topology from docs/guide/peers-setup.md end to end: alice and bob sit on two
+# Docker networks with no route between them at all, and can only reach each other through
+# caddy, which is attached to both. This is what --public-url (packages/cli/src/commands/
+# peer-invites.ts) exists for: bob's daemon binds loopback-equivalent inside its own
+# container, and the invite link has to point at caddy's address instead.
+#
+# What this does NOT simulate: real TLS. That needs a real public domain to get a certificate
+# for, which a local demo has no way to provide — caddy here proxies plain HTTP. The network
+# isolation and reverse-proxy shape are real; the encryption is not.
+#
+# Usage:
+#   cd scripts/cross-network
+#   OPENROUTER_API_KEY=... docker compose up --build
+#   docker compose down -v   # tear down, including the named volumes (fresh agents next run)
+
+services:
+  bob:
+    build:
+      context: ../..
+      dockerfile: scripts/cross-network/Dockerfile
+    working_dir: /app
+    volumes:
+      - ../..:/app
+      - bob_node_modules:/app/node_modules
+      - shared:/shared
+      - bob_data:/data
+    environment:
+      JAZZ_HOME: /data
+      # Any non-loopback bind requires a daemon token (packages/adapters/src/daemon/
+      # server.ts's refuseReason) — a throwaway value, since it only gates the operator
+      # routes (/runs, /health), never /peer/ask or /peer-invites/*.
+      JAZZ_DAEMON_TOKEN: demo-daemon-token-not-a-real-secret
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:?set OPENROUTER_API_KEY to run this demo}
+      ROLE: bob
+    networks: [bob-net]
+    command: ["sh", "scripts/cross-network/entrypoint.sh"]
+
+  caddy:
+    image: caddy:2-alpine
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    ports:
+      - "8080:80" # optional: lets you curl it from the host out of curiosity
+    networks: [alice-net, bob-net]
+    depends_on: [bob]
+
+  alice:
+    build:
+      context: ../..
+      dockerfile: scripts/cross-network/Dockerfile
+    working_dir: /app
+    volumes:
+      - ../..:/app
+      - alice_node_modules:/app/node_modules
+      - shared:/shared
+      - alice_data:/data
+    environment:
+      JAZZ_HOME: /data
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:?set OPENROUTER_API_KEY to run this demo}
+      ROLE: alice
+    networks: [alice-net]
+    depends_on: [caddy]
+    command: ["sh", "scripts/cross-network/entrypoint.sh"]
+
+networks:
+  # No shared network between these two — alice and bob can only meet at caddy, which joins
+  # both. This is the actual "different networks" part of the simulation.
+  alice-net: {}
+  bob-net: {}
+
+volumes:
+  bob_node_modules: {}
+  alice_node_modules: {}
+  bob_data: {}
+  alice_data: {}
+  shared: {} # where bob drops the invite link (as JSON) for alice to pick up
