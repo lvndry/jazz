@@ -1,10 +1,16 @@
+import * as path from "node:path";
 import {
   isApprovalPolicyFlag,
   isReasoningEffortFlag,
   parseEventCategories,
   resolveStreamOption,
 } from "@jazz/cli/commands/run/flags";
-import { parsePositiveFloat, parsePositiveInt } from "@jazz/cli/utils/option-parsers";
+import {
+  parseDurationMs,
+  parsePositiveFloat,
+  parsePositiveInt,
+} from "@jazz/cli/utils/option-parsers";
+import { isPeerTier, PEER_TIERS } from "@jazz/core/types/peer";
 import { setCurrentCommandName } from "@jazz/core/utils/current-command";
 import { parseProviderModel } from "@jazz/core/utils/provider-model";
 import { Command } from "commander";
@@ -21,6 +27,7 @@ interface CliOptions {
   verbose?: boolean;
   debug?: boolean;
   config?: string;
+  dataDir?: string;
   output?: string;
   tui?: boolean;
 }
@@ -909,6 +916,133 @@ function registerPeersCommands(program: Command): void {
         cliRuntimeOptions(program),
       ),
     );
+
+  registerPeerInviteCommands(peersCommand, program);
+}
+
+/**
+ * `jazz peers invite ...` — bootstrapping a peer relationship without a shared secret typed
+ * by a human. Nested under `peersCommand` rather than a sibling top-level command: an invite
+ * is not a new kind of thing, it is the setup path for the peers this group already manages.
+ */
+function registerPeerInviteCommands(peersCommand: Command, program: Command): void {
+  const inviteCommand = peersCommand
+    .command("invite")
+    .description("Create and accept bootstrap links so two agents can become peers");
+
+  inviteCommand
+    .command("create <name>")
+    .description(
+      "Create a one-time invite link that grants <name> a tier once they accept it. " +
+        "<name> is your own bookkeeping — the name you'll call them under afterward.",
+    )
+    .requiredOption(
+      "--may <tier>",
+      `What the invitee may learn once they accept: ${PEER_TIERS.join(", ")}`,
+    )
+    .option(
+      "--expires <duration>",
+      "How long the link stays redeemable, e.g. 30m, 24h, 7d",
+      parseDurationMs("--expires"),
+      24 * 60 * 60 * 1000,
+    )
+    .option(
+      "--host <address>",
+      "Interface your daemon answers on — must match how you're running (or will run) `jazz daemon`",
+      "127.0.0.1",
+    )
+    // 4747 mirrors `jazz daemon`'s own default (`DEFAULT_DAEMON_PORT`) — kept as a literal
+    // here rather than a static import, matching this file's lazy-import convention for
+    // command modules.
+    .option("--port <n>", "Port your daemon answers on", parsePositiveInt("--port"), 4747)
+    .option(
+      "--as <name>",
+      "What to call yourself to the invitee. Defaults to this machine's hostname.",
+    )
+    .option("--qr", "Also print the link as a terminal QR code")
+    .option("--json", "Emit a single JSON envelope { ok, id, url, expiresAt }")
+    .action(
+      (
+        name: string,
+        options: {
+          may: string;
+          expires: number;
+          host: string;
+          port: number;
+          as?: string;
+          qr?: boolean;
+          json?: boolean;
+        },
+      ) =>
+        runCliAction(
+          () =>
+            import("@jazz/cli/commands/peer-invites").then((mod) => {
+              if (!isPeerTier(options.may)) {
+                throw new Error(
+                  `--may must be one of: ${PEER_TIERS.join(", ")} (got "${options.may}")`,
+                );
+              }
+              return mod.createInviteCommand({
+                inviteeName: name,
+                may: options.may,
+                ttlMs: options.expires,
+                host: options.host,
+                port: options.port,
+                json: options.json === true,
+                qr: options.qr === true,
+                ...(options.as !== undefined ? { as: options.as } : {}),
+              });
+            }),
+          cliRuntimeOptions(program),
+        ),
+    );
+
+  inviteCommand
+    .command("accept <url>")
+    .description("Accept an invite link and become a peer of whoever sent it")
+    .option("--as <name>", "What to call them locally. Defaults to the name they invited you as.")
+    .option("--yes", "Skip the confirmation prompt")
+    .option("--json", "Emit a single JSON envelope { ok, name }")
+    .action((url: string, options: { as?: string; yes?: boolean; json?: boolean }) =>
+      runCliAction(
+        () =>
+          import("@jazz/cli/commands/peer-invites").then((mod) =>
+            mod.acceptInviteCommand({
+              url,
+              yes: options.yes === true,
+              json: options.json === true,
+              ...(options.as !== undefined ? { as: options.as } : {}),
+            }),
+          ),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  inviteCommand
+    .command("list")
+    .alias("ls")
+    .description("Invites created on this machine")
+    .option("--json", "Emit a single JSON envelope { ok, invites }")
+    .action((options: { json?: boolean }) =>
+      runCliAction(
+        () =>
+          import("@jazz/cli/commands/peer-invites").then((mod) =>
+            mod.listInvitesCommand({ json: options.json === true }),
+          ),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  inviteCommand
+    .command("revoke <id>")
+    .description("Invalidate an invite before anyone redeems it")
+    .action((id: string) =>
+      runCliAction(
+        () =>
+          import("@jazz/cli/commands/peer-invites").then((mod) => mod.revokeInviteCommand({ id })),
+        cliRuntimeOptions(program),
+      ),
+    );
 }
 
 function registerRunsCommands(program: Command): void {
@@ -1227,6 +1361,12 @@ export function createCLIApp(): Command {
     .option("-v, --verbose", "Enable verbose logging")
     .option("--debug", "Enable debug level logging")
     .option("--config <path>", "Path to configuration file")
+    .option(
+      "--data-dir <path>",
+      "Directory holding this invocation's config, data, and keyring entries " +
+        "(overrides $JAZZ_HOME; defaults to ~/.jazz). Lets one host run several " +
+        "independent agents by flag instead of by exporting JAZZ_HOME first.",
+    )
     .option("--no-tui", "Disable TUI; use plain terminal output (for CI, scripts, small terminals)")
     .option(
       "--output <mode>",
@@ -1240,6 +1380,9 @@ export function createCLIApp(): Command {
     }
     if (opts["output"]) {
       process.env["JAZZ_OUTPUT_MODE"] = opts["output"] as string;
+    }
+    if (opts["dataDir"]) {
+      process.env["JAZZ_HOME"] = path.resolve(opts["dataDir"] as string);
     }
     setCurrentCommandName(commandPath(actionCommand));
   });

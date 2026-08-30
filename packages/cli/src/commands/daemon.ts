@@ -13,6 +13,7 @@ import {
   isLoopback,
   makeHandler,
   makePeerHandler,
+  makePeerInviteHandler,
   makeTriggerHandler,
   refuseReason,
   type DaemonRequirements,
@@ -94,21 +95,33 @@ export function daemonCommand(options: DaemonCommandOptions) {
     const runtime = yield* Effect.runtime<DaemonRequirements>();
 
     const configService = yield* AgentConfigServiceTag;
-    const appConfig = yield* configService.appConfig;
-    const peers = appConfig.peers ?? [];
-    const triggers = appConfig.triggers ?? [];
+    const triggers = (yield* configService.appConfig).triggers ?? [];
 
     yield* Effect.async<void, never>((resume) => {
       const run = <A>(effect: Effect.Effect<A, unknown, DaemonRequirements>): Promise<A> =>
         Runtime.runPromise(runtime)(effect as Effect.Effect<A, never, DaemonRequirements>);
 
+      // Read live rather than once at startup — an invite accepted while this process is
+      // running must be usable immediately, without a restart. See `makePeerHandler`'s own
+      // comment for why a snapshot taken here would silently undo the point of accepting a
+      // peer over HTTP in the first place.
+      const resolvePeers = () =>
+        run(
+          Effect.gen(function* () {
+            const service = yield* AgentConfigServiceTag;
+            const appConfig = yield* service.appConfig;
+            return appConfig.peers ?? [];
+          }),
+        );
+
       const handle = makeHandler(daemonOptions, run);
       const handlePeer = makePeerHandler(
         daemonOptions,
-        peers,
+        resolvePeers,
         (peerName) => Effect.runPromise(resolvePeerToken(peerName)),
         run,
       );
+      const handlePeerInvite = makePeerInviteHandler(run);
       const handleTrigger = makeTriggerHandler(
         triggers,
         (triggerName) => Effect.runPromise(resolveTriggerToken(triggerName)),
@@ -117,6 +130,7 @@ export function daemonCommand(options: DaemonCommandOptions) {
 
       const routes: readonly { readonly prefix: string; readonly handle: typeof handle }[] = [
         { prefix: "/peer/", handle: handlePeer },
+        { prefix: "/peer-invites/", handle: handlePeerInvite },
         { prefix: "/triggers/", handle: handleTrigger },
       ];
 

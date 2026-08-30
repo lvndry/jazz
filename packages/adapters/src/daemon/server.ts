@@ -22,14 +22,21 @@ import { AgentRunner } from "@jazz/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
 import { isRunParkRequested } from "@jazz/core/agent/run/park-signal";
 import { resumeRun } from "@jazz/core/agent/run/resume";
+import type { AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import type { AgentService } from "@jazz/core/interfaces/agent-service";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { RunStoreTag } from "@jazz/core/interfaces/run-store";
 import type { ToolRegistry, ToolRequirements } from "@jazz/core/interfaces/tool-registry";
 import type { PeerConfig } from "@jazz/core/types/peer";
+import { inviteStatus } from "@jazz/core/types/peer-invite";
 import type { TriggerConfig } from "@jazz/core/types/trigger";
 import { generateConversationId } from "@jazz/core/utils/conversation-id";
 import { Effect } from "effect";
+import {
+  acceptInviteOnInviterSide,
+  getInvite,
+  type KeyringDependency,
+} from "@/adapters/peers/invites";
 import { servePeerRequest } from "@/adapters/peers/serve";
 
 export const DEFAULT_DAEMON_PORT = 4747;
@@ -41,7 +48,8 @@ export const DEFAULT_DAEMON_PORT = 4747;
  * stack `jazz run` composes, plus the run store, which is what makes a parked run
  * answerable by somebody who was not there when it parked.
  */
-export type DaemonRequirements = AgentService | RunStoreTag | ToolRegistry | ToolRequirements;
+export type DaemonRequirements =
+  AgentService | AgentConfigService | RunStoreTag | ToolRegistry | ToolRequirements;
 
 /** Kept in step with `jazz runs`: terminal records are readable for a week. */
 const TERMINAL_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
@@ -202,7 +210,7 @@ export function makeHandler(
  */
 export function makePeerHandler(
   options: DaemonOptions,
-  peers: readonly PeerConfig[],
+  resolvePeers: () => Promise<readonly PeerConfig[]>,
   resolveToken: (peerName: string) => Promise<string | undefined>,
   runEffect: <A>(effect: Effect.Effect<A, unknown, DaemonRequirements>) => Promise<A>,
 ): (request: Request) => Promise<Response> {
@@ -219,6 +227,12 @@ export function makePeerHandler(
     if (presented.length === 0) {
       return json({ ok: false, error: "unauthorized" }, 401);
     }
+
+    // Read fresh on every request rather than once at startup: an invite accepted five
+    // minutes into this process's life must be usable without restarting it, or the whole
+    // point of accepting one over HTTP — no manual config edit, no restart — is undone by a
+    // daemon that only ever sees the peer list it booted with.
+    const peers = await resolvePeers();
 
     // Which peer is this? Resolved by matching the presented token against each configured
     // peer's own, so a token identifies its holder rather than merely admitting them.
@@ -247,6 +261,99 @@ export function makePeerHandler(
 
     return runEffect(answerPeer(caller, options.peerAgent, question));
   };
+}
+
+/**
+ * The invite-facing handler, a fourth door alongside the operator's, a peer's, and a
+ * trigger's — but the narrowest one: it authenticates with a one-time redeem secret rather
+ * than a standing bearer token, and the only thing it can ever do is turn one specific,
+ * still-valid invite into exactly one peer grant.
+ *
+ * Only two routes exist here, deliberately. `create`, `list`, and `revoke` are not network
+ * operations at all — the inviter already has a shell on the machine whose config and invite
+ * store they are changing, so those are plain CLI commands reading and writing local files
+ * directly (`jazz peers invite create/list/revoke`), the same way `jazz peers log` reads the
+ * ledger without going through the daemon. Only a *redeemer*, who by construction is not on
+ * this machine, ever needs to reach this over HTTP.
+ */
+export function makePeerInviteHandler(
+  runEffect: <A>(effect: Effect.Effect<A, unknown, DaemonRequirements>) => Promise<A>,
+  keyring?: KeyringDependency,
+): (request: Request) => Promise<Response> {
+  return async function handleInvite(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+
+    const previewMatch = /^\/peer-invites\/([^/]+)$/.exec(url.pathname);
+    if (request.method === "GET" && previewMatch?.[1] !== undefined) {
+      const invite = await runEffect(getInvite(previewMatch[1]));
+      if (invite === undefined) {
+        return json({ ok: false, error: "no such invite" }, 404);
+      }
+      // Enough to render a confirmation prompt, not enough to be useful without the secret:
+      // no secret, no hash, and the redeemer's chosen name (if already used) is not exposed.
+      return json({
+        ok: true,
+        inviterDisplayName: invite.inviterDisplayName,
+        inviterAskUrl: invite.inviterAskUrl,
+        proposedTier: invite.proposedTier,
+        expiresAt: invite.expiresAt,
+        status: inviteStatus(invite, new Date()),
+      });
+    }
+
+    const acceptMatch = /^\/peer-invites\/([^/]+)\/accept$/.exec(url.pathname);
+    if (request.method === "POST" && acceptMatch?.[1] !== undefined) {
+      let body: { secret?: unknown; as?: unknown };
+      try {
+        body = (await request.json()) as { secret?: unknown; as?: unknown };
+      } catch {
+        return json({ ok: false, error: "body must be JSON" }, 400);
+      }
+      const secret = typeof body.secret === "string" ? body.secret : "";
+      const as = typeof body.as === "string" ? body.as.trim() : "";
+      if (secret.length === 0 || as.length === 0) {
+        return json({ ok: false, error: "secret and as are required" }, 400);
+      }
+
+      return runEffect(acceptInvite(acceptMatch[1], secret, as, keyring));
+    }
+
+    return json({ ok: false, error: "not found" }, 404);
+  };
+}
+
+function acceptInvite(
+  id: string,
+  secret: string,
+  redeemedAs: string,
+  keyring: KeyringDependency | undefined,
+) {
+  return acceptInviteOnInviterSide({ id, secret, redeemedAs }, keyring).pipe(
+    Effect.map((outcome) => {
+      switch (outcome.kind) {
+        case "ok":
+          return json({ ok: true, inviterAskUrl: outcome.inviterAskUrl, token: outcome.token });
+        case "not-found":
+          return json({ ok: false, error: "no such invite" }, 404);
+        case "revoked":
+          return json({ ok: false, error: "this invite was revoked" }, 410);
+        case "already-redeemed":
+          return json({ ok: false, error: "this invite has already been used" }, 410);
+        case "expired":
+          return json(
+            { ok: false, error: "this invite has expired", expiresAt: outcome.expiresAt },
+            410,
+          );
+        case "bad-secret":
+          return json({ ok: false, error: "could not verify this invite's secret" }, 401);
+        case "no-keyring":
+          return json(
+            { ok: false, error: "no OS keyring is available to store the resulting token" },
+            500,
+          );
+      }
+    }),
+  ) as Effect.Effect<Response, unknown, AgentConfigService>;
 }
 
 /**

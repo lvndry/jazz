@@ -54,7 +54,8 @@ export function listPeersCommand(options: { readonly json: boolean }) {
       return;
     }
     for (const peer of peers) {
-      process.stdout.write(`${peer.name}  ${peer.url}  may learn: ${describeTier(peer.may)}\n`);
+      const url = peer.url ?? "(cannot be asked — no endpoint)";
+      process.stdout.write(`${peer.name}  ${url}  may learn: ${describeTier(peer.may)}\n`);
     }
   }).pipe(
     Effect.catchAll((error) =>
@@ -151,4 +152,4 @@ export function peerLogCommand(options: {
   });
 }
 
-export { KEYRING_SERVICE_NAME, PEER_TIERS, isPeerTier };
+export { KEYRING_SERVICE_NAME, PEER_TIERS, isPeerTier, describeTier };
