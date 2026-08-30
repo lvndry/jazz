@@ -20,6 +20,15 @@ and that's the actual difference between the three setups below:
 
 Pick the one that matches your actual situation — they don't build on each other.
 
+Each walkthrough below shows the manual version of "agree on a token" — generate one with
+`openssl`, run `jazz peers set-token` twice, edit config by hand. If you'd rather skip straight
+to the shortcut, [Peer invites](../concepts/peer-invites.md) replaces all of that with one link:
+whoever is going to *answer* runs `jazz peers invite create <name> --may <tier>`, sends the
+printed link, and the other side runs `jazz peers invite accept <link>`. No `openssl`, no
+`set-token`, no config file to edit — see that page's own worked example for exactly this
+"one machine, two agents" case. The rest of this guide still applies for everything the
+invite doesn't touch: which network to bind, the tool step, the ledger.
+
 ---
 
 ## One machine, two agents

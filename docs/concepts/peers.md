@@ -183,6 +183,7 @@ Grant `ask-me-anything` to nobody you would not hand an unlocked laptop.
 ## Related
 
 - [Setting up peers](../guide/peers-setup.md) — a hands-on walkthrough, one machine first
+- [Peer invites](./peer-invites.md) — becoming peers by sending a link, instead of a shared secret typed by hand
 - [Tools](./tools.md#what-each-tool-reveals) — the disclosure levels tiers are built on
 - [Lexicon](./lexicon.md) — peer, tier, ledger, run
 - [Security](../../SECURITY.md) — the threat model this sits inside
