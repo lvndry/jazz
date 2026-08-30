@@ -59,6 +59,7 @@ function fakeKeyring() {
 /** Alice's config, mutable exactly the way `AgentConfigService.set` mutates the real one. */
 function fakeConfigLayer() {
   let peers: readonly PeerConfig[] = [];
+  let revision = 0;
   const service: AgentConfigService = {
     get: () => Effect.dieMessage("not implemented"),
     getOrElse: <A>(_key: string, fallback: A) => Effect.succeed(fallback),
@@ -67,8 +68,9 @@ function fakeConfigLayer() {
     set: <A>(key: string, value: A) =>
       Effect.sync(() => {
         if (key === "peers") peers = value as unknown as readonly PeerConfig[];
+        revision += 1;
       }),
-    revision: Effect.succeed(0),
+    revision: Effect.sync(() => revision),
     appConfig: Effect.sync((): AppConfig => ({ ...({} as AppConfig), peers })),
   };
   return { layer: Layer.succeed(AgentConfigServiceTag, service) };
@@ -124,7 +126,7 @@ describe("two jazz agents on localhost, invited rather than hand-configured", ()
           return appConfig.peers ?? [];
         }),
       );
-    const handleInvite = makePeerInviteHandler(run, keyring.dependency);
+    const handleInvite = makePeerInviteHandler(run, keyring.dependency, "alice");
     const handlePeer = makePeerHandler(
       { port: 4747, host: "127.0.0.1", peerAgent: "alice" },
       resolvePeers,
@@ -229,7 +231,7 @@ describe("two jazz agents on localhost, invited rather than hand-configured", ()
     );
     const { layer } = fakeConfigLayer();
     const run = runnerFor(Layer.merge(layer, fakeAgentServiceLayer()));
-    const handleInvite = makePeerInviteHandler(run, fakeKeyring().dependency);
+    const handleInvite = makePeerInviteHandler(run, fakeKeyring().dependency, "alice");
 
     const response = await handleInvite(
       new Request(`http://127.0.0.1:4747/peer-invites/${created.record.id}/accept`, {

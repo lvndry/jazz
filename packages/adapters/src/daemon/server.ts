@@ -279,9 +279,13 @@ export function makePeerHandler(
 export function makePeerInviteHandler(
   runEffect: <A>(effect: Effect.Effect<A, unknown, DaemonRequirements>) => Promise<A>,
   keyring?: KeyringDependency,
+  peerAgent?: string,
 ): (request: Request) => Promise<Response> {
   return async function handleInvite(request: Request): Promise<Response> {
     const url = new URL(request.url);
+    if (peerAgent === undefined) {
+      return json({ ok: false, error: "not accepting peer invitations" }, 404);
+    }
 
     const previewMatch = /^\/peer-invites\/([^/]+)$/.exec(url.pathname);
     if (request.method === "GET" && previewMatch?.[1] !== undefined) {
@@ -303,9 +307,11 @@ export function makePeerInviteHandler(
 
     const acceptMatch = /^\/peer-invites\/([^/]+)\/accept$/.exec(url.pathname);
     if (request.method === "POST" && acceptMatch?.[1] !== undefined) {
+      const raw = await readTriggerPayload(request);
+      if (raw instanceof Response) return raw;
       let body: { secret?: unknown; as?: unknown };
       try {
-        body = (await request.json()) as { secret?: unknown; as?: unknown };
+        body = JSON.parse(raw) as { secret?: unknown; as?: unknown };
       } catch {
         return json({ ok: false, error: "body must be JSON" }, 400);
       }

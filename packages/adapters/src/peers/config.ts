@@ -28,9 +28,10 @@ export interface PeerConfigPatch {
  * becomes `{ name: "bob", url, may }` — exactly what two one-way invites, run in opposite
  * directions for the same peer, are supposed to compose into.
  */
-export function upsertPeer(patch: PeerConfigPatch): Effect.Effect<void, never, AgentConfigService> {
+export function upsertPeer(patch: PeerConfigPatch): Effect.Effect<void, Error, AgentConfigService> {
   return Effect.gen(function* () {
     const configService = yield* AgentConfigServiceTag;
+    const revision = yield* configService.revision;
     const appConfig = yield* configService.appConfig;
     const existing = appConfig.peers ?? [];
 
@@ -54,5 +55,8 @@ export function upsertPeer(patch: PeerConfigPatch): Effect.Effect<void, never, A
         ? [...existing, merged]
         : existing.map((peer, i) => (i === index ? merged : peer));
     yield* configService.set("peers", next);
+    if ((yield* configService.revision) === revision) {
+      return yield* Effect.fail(new Error("could not persist peer configuration"));
+    }
   });
 }

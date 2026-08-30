@@ -121,7 +121,7 @@ export function daemonCommand(options: DaemonCommandOptions) {
         (peerName) => Effect.runPromise(resolvePeerToken(peerName)),
         run,
       );
-      const handlePeerInvite = makePeerInviteHandler(run);
+      const handlePeerInvite = makePeerInviteHandler(run, undefined, daemonOptions.peerAgent);
       const handleTrigger = makeTriggerHandler(
         triggers,
         (triggerName) => Effect.runPromise(resolveTriggerToken(triggerName)),

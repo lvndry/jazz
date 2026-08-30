@@ -30,11 +30,11 @@ export interface RedeemInviteInput {
  * `acceptInviteOnInviterSide` in `@jazz/adapters/peers/invites`.
  */
 export interface PeerInviteService {
-  readonly create: (input: CreateInviteInput) => Effect.Effect<CreatedInvite, never>;
+  readonly create: (input: CreateInviteInput) => Effect.Effect<CreatedInvite, Error>;
   readonly get: (id: string) => Effect.Effect<PeerInviteRecord | undefined, never>;
   readonly list: () => Effect.Effect<readonly PeerInviteRecord[], never>;
   /** True when an invite existed and was not already redeemed or revoked. */
-  readonly revoke: (id: string) => Effect.Effect<boolean, never>;
+  readonly revoke: (id: string) => Effect.Effect<boolean, Error>;
   /**
    * Verify and, if valid, atomically mark an invite as redeemed.
    *
@@ -45,7 +45,7 @@ export interface PeerInviteService {
   readonly redeem: (
     input: RedeemInviteInput,
     redeemedAs: string,
-  ) => Effect.Effect<RedeemInviteOutcome, never>;
+  ) => Effect.Effect<RedeemInviteOutcome, Error>;
 }
 
 export const PeerInviteServiceTag = Context.GenericTag<PeerInviteService>("PeerInviteService");

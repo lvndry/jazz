@@ -207,7 +207,8 @@ A concrete flow for "Bob is on my LAN and I want him to be able to ask my agent 
 4. Alice runs `jazz peers invite accept <link>`, which fetches a preview from Bob's daemon
    (unauthenticated, but useless without the secret) and shows her who's inviting her, at
    what endpoint, and what tier.
-5. Alice confirms.
+5. Alice confirms. On a public plain-HTTP link, Jazz warns her again immediately before it
+   sends the redeem secret and receives the peer token.
 6. Alice's CLI redeems the invite over HTTP; Bob's daemon verifies the secret, mints a token,
    writes his own config entry for "alice", and returns the token and his ask URL.
 7. Alice's CLI writes her own config entry for "bob" and stores the token.

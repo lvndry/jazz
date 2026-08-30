@@ -88,22 +88,22 @@ async function readInviteFile(id: string): Promise<PeerInviteRecord | undefined>
 }
 
 async function writeInviteFile(record: PeerInviteRecord): Promise<void> {
-  try {
-    await nodeFs.mkdir(getInvitesDirectory(), { recursive: true });
-    const destination = pathFor(record.id);
-    // Same truncated-write guard as `FileRunStore`: a reader mid-write must see either the
-    // old record or the new one, never a half-written file it silently treats as absent.
-    const temporary = `${destination}.${process.pid}.tmp`;
-    await nodeFs.writeFile(temporary, JSON.stringify(record, null, 2), "utf-8");
-    await nodeFs.rename(temporary, destination);
-  } catch {
-    // Matches every other peer-state write in the product (the ledger, run records): losing
-    // this write must not fail the request that produced it.
-  }
+  await nodeFs.mkdir(getInvitesDirectory(), { recursive: true });
+  const destination = pathFor(record.id);
+  // Same truncated-write guard as `FileRunStore`: a reader mid-write must see either the
+  // old record or the new one, never a half-written file it silently treats as absent.
+  const temporary = `${destination}.${process.pid}.tmp`;
+  await nodeFs.writeFile(temporary, JSON.stringify(record, null, 2), "utf-8");
+  await nodeFs.rename(temporary, destination);
 }
 
-function writeInvite(record: PeerInviteRecord): Effect.Effect<void, never> {
-  return Effect.promise(() => writeInviteFile(record));
+function persistenceError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error));
+}
+
+/** Invite state is authorization state: unlike the peer ledger, a failed write must fail closed. */
+function writeInvite(record: PeerInviteRecord): Effect.Effect<void, Error> {
+  return Effect.tryPromise({ try: () => writeInviteFile(record), catch: persistenceError });
 }
 
 export function getInvite(id: string): Effect.Effect<PeerInviteRecord | undefined, never> {
@@ -128,7 +128,7 @@ export function listInvites(): Effect.Effect<readonly PeerInviteRecord[], never>
   }).pipe(Effect.catchAll(() => Effect.succeed([] as readonly PeerInviteRecord[])));
 }
 
-export function createInvite(input: CreateInviteInput): Effect.Effect<CreatedInvite, never> {
+export function createInvite(input: CreateInviteInput): Effect.Effect<CreatedInvite, Error> {
   return Effect.sync(() => {
     const id = randomBytes(16).toString("hex");
     const secret = randomBytes(24).toString("hex");
@@ -147,13 +147,23 @@ export function createInvite(input: CreateInviteInput): Effect.Effect<CreatedInv
   }).pipe(Effect.tap(({ record }) => writeInvite(record)));
 }
 
-export function revokeInvite(id: string): Effect.Effect<boolean, never> {
-  return Effect.gen(function* () {
-    const existing = yield* getInvite(id);
-    if (existing === undefined) return false;
-    if (existing.revokedAt !== undefined || existing.redeemedAt !== undefined) return false;
-    yield* writeInvite({ ...existing, revokedAt: new Date().toISOString() });
-    return true;
+export function revokeInvite(id: string): Effect.Effect<boolean, Error> {
+  if (!isInviteId(id)) return Effect.succeed(false);
+  return Effect.tryPromise({
+    try: () =>
+      withRedeemLock(id, async () => {
+        const existing = await readInviteFile(id);
+        if (
+          existing === undefined ||
+          existing.revokedAt !== undefined ||
+          existing.redeemedAt !== undefined
+        ) {
+          return false;
+        }
+        await writeInviteFile({ ...existing, revokedAt: new Date().toISOString() });
+        return true;
+      }),
+    catch: persistenceError,
   });
 }
 
@@ -182,37 +192,39 @@ function withRedeemLock<A>(id: string, run: () => Promise<A>): Promise<A> {
 export function redeemInvite(
   input: RedeemInviteInput,
   redeemedAs: string,
-): Effect.Effect<RedeemInviteOutcome, never> {
+): Effect.Effect<RedeemInviteOutcome, Error> {
   if (!isInviteId(input.id)) {
     return Effect.succeed({ kind: "not-found" });
   }
-  return Effect.promise(() =>
-    withRedeemLock(input.id, async () => {
-      const record = await readInviteFile(input.id);
-      if (record === undefined) return { kind: "not-found" } satisfies RedeemInviteOutcome;
+  return Effect.tryPromise({
+    try: () =>
+      withRedeemLock(input.id, async () => {
+        const record = await readInviteFile(input.id);
+        if (record === undefined) return { kind: "not-found" } satisfies RedeemInviteOutcome;
 
-      const status = inviteStatus(record, new Date());
-      if (status === "revoked") return { kind: "revoked" } satisfies RedeemInviteOutcome;
-      if (status === "redeemed") {
-        return { kind: "already-redeemed" } satisfies RedeemInviteOutcome;
-      }
-      if (status === "expired") {
-        return { kind: "expired", expiresAt: record.expiresAt } satisfies RedeemInviteOutcome;
-      }
+        const status = inviteStatus(record, new Date());
+        if (status === "revoked") return { kind: "revoked" } satisfies RedeemInviteOutcome;
+        if (status === "redeemed") {
+          return { kind: "already-redeemed" } satisfies RedeemInviteOutcome;
+        }
+        if (status === "expired") {
+          return { kind: "expired", expiresAt: record.expiresAt } satisfies RedeemInviteOutcome;
+        }
 
-      if (!hashesMatch(record.secretHash, sha256Hex(input.secret))) {
-        return { kind: "bad-secret" } satisfies RedeemInviteOutcome;
-      }
+        if (!hashesMatch(record.secretHash, sha256Hex(input.secret))) {
+          return { kind: "bad-secret" } satisfies RedeemInviteOutcome;
+        }
 
-      const redeemed: PeerInviteRecord = {
-        ...record,
-        redeemedAt: new Date().toISOString(),
-        redeemedAs,
-      };
-      await writeInviteFile(redeemed);
-      return { kind: "ok", record: redeemed } satisfies RedeemInviteOutcome;
-    }),
-  );
+        const redeemed: PeerInviteRecord = {
+          ...record,
+          redeemedAt: new Date().toISOString(),
+          redeemedAs,
+        };
+        await writeInviteFile(redeemed);
+        return { kind: "ok", record: redeemed } satisfies RedeemInviteOutcome;
+      }),
+    catch: persistenceError,
+  });
 }
 
 export function createPeerInviteServiceLayer(): Layer.Layer<PeerInviteService> {
@@ -274,28 +286,40 @@ const REAL_KEYRING: KeyringDependency = {
 export function acceptInviteOnInviterSide(
   input: RedeemInviteInput & { readonly redeemedAs: string },
   keyring: KeyringDependency = REAL_KEYRING,
-): Effect.Effect<AcceptInviteOutcome, never, AgentConfigService> {
+): Effect.Effect<AcceptInviteOutcome, Error, AgentConfigService> {
   return Effect.gen(function* () {
     const backend = yield* keyring.detectBackend();
     if (backend === "none") return { kind: "no-keyring" } as const;
 
-    const outcome = yield* redeemInvite(input, input.redeemedAs);
-    if (outcome.kind !== "ok") return outcome;
+    // Do a non-consuming check before touching the standing credential. The locked redemption
+    // below remains authoritative; this only prevents a bad secret from overwriting a token.
+    const candidate = yield* getInvite(input.id);
+    if (
+      candidate === undefined ||
+      inviteStatus(candidate, new Date()) !== "active" ||
+      !hashesMatch(candidate.secretHash, sha256Hex(input.secret))
+    ) {
+      const outcome = yield* redeemInvite(input, input.redeemedAs);
+      // The pre-check can only reject a record that cannot become active again. Keep the
+      // public outcome narrow even if an external state change somehow violates that rule.
+      return outcome.kind === "ok" ? ({ kind: "already-redeemed" } as const) : outcome;
+    }
+
+    // Store before consuming the invite. If persisting `redeemedAt` fails, no peer entry is
+    // granted and a retry simply replaces this unused token with a freshly minted one.
+    const token = randomBytes(24).toString("hex");
+    const stored = yield* keyring.storeToken(backend, peerTokenPath(candidate.inviteeName), token);
+    if (!stored) return { kind: "no-keyring" } as const;
 
     // `outcome.record.inviteeName` — the name *this* side (the inviter) chose at creation
     // time — is the key for this side's own upsert and token storage. `input.redeemedAs` is
     // what the *redeemer* chose to call the inviter, sent along purely for the audit record;
     // using it here would file the redeemer under whatever name they happened to pick for
     // someone else, rather than the name the inviter actually chose for them.
-    const localName = outcome.record.inviteeName;
-    const token = randomBytes(24).toString("hex");
-    yield* upsertPeer({ name: localName, may: outcome.record.proposedTier });
+    yield* upsertPeer({ name: candidate.inviteeName, may: candidate.proposedTier });
 
-    // The invite is already spent at this point: a keyring write failing here (as opposed to
-    // the backend being altogether absent, caught above) is the same narrow residual risk
-    // `setPeerTokenCommand`/`setDaemonTokenCommand` already accept elsewhere in the product.
-    const stored = yield* keyring.storeToken(backend, peerTokenPath(localName), token);
-    if (!stored) return { kind: "no-keyring" } as const;
+    const outcome = yield* redeemInvite(input, input.redeemedAs);
+    if (outcome.kind !== "ok") return outcome;
 
     return { kind: "ok", inviterAskUrl: outcome.record.inviterAskUrl, token };
   });

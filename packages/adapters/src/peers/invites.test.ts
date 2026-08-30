@@ -173,6 +173,7 @@ describe("listInvites", () => {
 /** A minimal fake config service, upsert-testable the same way `peer-tools.test.ts` fakes one. */
 function fakeConfigLayer(initialPeers: readonly PeerConfig[] = []) {
   let peers = initialPeers;
+  let revision = 0;
   const service: AgentConfigService = {
     get: () => Effect.dieMessage("not implemented"),
     getOrElse: <A>(_key: string, fallback: A) => Effect.succeed(fallback),
@@ -181,8 +182,9 @@ function fakeConfigLayer(initialPeers: readonly PeerConfig[] = []) {
     set: <A>(key: string, value: A) =>
       Effect.sync(() => {
         if (key === "peers") peers = value as unknown as readonly PeerConfig[];
+        revision += 1;
       }),
-    revision: Effect.succeed(0),
+    revision: Effect.sync(() => revision),
     appConfig: Effect.sync((): AppConfig => ({ ...({} as AppConfig), peers })),
   };
   return { layer: Layer.succeed(AgentConfigServiceTag, service), currentPeers: () => peers };
@@ -258,5 +260,25 @@ describe("acceptInviteOnInviterSide", () => {
 
     const fetched = await run(getInvite(created.record.id));
     expect(fetched?.redeemedAt).toBeUndefined();
+  });
+
+  it("refuses to consume the invite when the keyring rejects its write", async () => {
+    const created = await run(createInvite(CREATE_INPUT));
+    const { layer, currentPeers } = fakeConfigLayer();
+    const failingKeyring: KeyringDependency = {
+      detectBackend: () => Effect.succeed("macos"),
+      storeToken: () => Effect.succeed(false),
+    };
+
+    const outcome = await Effect.runPromise(
+      acceptInviteOnInviterSide(
+        { id: created.record.id, secret: created.secret, redeemedAs: "bob" },
+        failingKeyring,
+      ).pipe(Effect.provide(layer)),
+    );
+
+    expect(outcome.kind).toEqual("no-keyring");
+    expect(currentPeers()).toEqual([]);
+    expect((await run(getInvite(created.record.id)))?.redeemedAt).toBeUndefined();
   });
 });

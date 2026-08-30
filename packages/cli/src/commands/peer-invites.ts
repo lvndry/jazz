@@ -43,10 +43,15 @@ function renderQrCode(text: string): Promise<string> {
  */
 function isEncryptedOrUnreachableNetwork(host: string): boolean {
   if (host === "127.0.0.1" || host === "::1" || host === "localhost") return true;
-  if (/^10\./.test(host)) return true;
-  if (/^192\.168\./.test(host)) return true;
-  if (/^172\.(1[6-9]|2\d|3[01])\./.test(host)) return true;
-  if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(host)) return true;
+  const octets = host.split(".");
+  const ipv4 =
+    octets.length === 4 && octets.every((octet) => /^\d{1,3}$/.test(octet) && Number(octet) <= 255)
+      ? octets.map(Number)
+      : undefined;
+  if (ipv4?.[0] === 10) return true;
+  if (ipv4?.[0] === 192 && ipv4[1] === 168) return true;
+  if (ipv4?.[0] === 172 && ipv4[1] !== undefined && ipv4[1] >= 16 && ipv4[1] <= 31) return true;
+  if (ipv4?.[0] === 100 && ipv4[1] !== undefined && ipv4[1] >= 64 && ipv4[1] <= 127) return true;
   if (host.endsWith(".ts.net")) return true;
   return false;
 }
@@ -91,8 +96,37 @@ export interface CreateInviteCommandOptions {
 
 export function createInviteCommand(options: CreateInviteCommandOptions) {
   return Effect.gen(function* () {
-    const origin =
-      options.publicUrl?.replace(/\/+$/, "") ?? `http://${options.host}:${String(options.port)}`;
+    let origin = `http://${options.host}:${String(options.port)}`;
+    if (options.publicUrl !== undefined) {
+      let publicUrl: URL;
+      try {
+        publicUrl = new URL(options.publicUrl);
+      } catch {
+        return yield* Effect.fail(
+          new CLIError({
+            command: "peers invite create",
+            message: "--public-url must be an absolute HTTP(S) URL",
+          }),
+        );
+      }
+      if (
+        (publicUrl.protocol !== "http:" && publicUrl.protocol !== "https:") ||
+        publicUrl.pathname !== "/" ||
+        publicUrl.search !== "" ||
+        publicUrl.hash !== "" ||
+        publicUrl.username !== "" ||
+        publicUrl.password !== ""
+      ) {
+        return yield* Effect.fail(
+          new CLIError({
+            command: "peers invite create",
+            message:
+              "--public-url must be an HTTP(S) origin without a path, query, fragment, or credentials",
+          }),
+        );
+      }
+      origin = publicUrl.origin;
+    }
     const inviterAskUrl = `${origin}/peer/ask`;
     const created = yield* createInvite({
       inviteeName: options.inviteeName,
@@ -314,6 +348,21 @@ export function acceptInviteCommand(options: AcceptInviteCommandOptions) {
     }
 
     const localName = options.as ?? preview.inviterDisplayName;
+    const parsedUrl = new URL(parsed.origin);
+    const warning =
+      parsedUrl.protocol === "https:" ? undefined : plaintextWarning(parsedUrl.hostname);
+    if (warning !== undefined) process.stderr.write(warning);
+
+    const backend = yield* detectKeyringBackend();
+    if (backend === "none") {
+      return yield* Effect.fail(
+        new CLIError({
+          command: "peers invite accept",
+          message: "no OS keyring is available to store the resulting peer token",
+          suggestion: "Enable a keyring before accepting, so this single-use link is not spent.",
+        }),
+      );
+    }
 
     if (!options.json) {
       process.stdout.write(
@@ -341,6 +390,10 @@ export function acceptInviteCommand(options: AcceptInviteCommandOptions) {
         return;
       }
     }
+
+    // Persist this side before consuming the single-use remote credential. If the local
+    // config cannot be written, the user can fix storage and retry the same link.
+    yield* upsertPeer({ name: localName, url: preview.inviterAskUrl });
 
     const acceptResponse = yield* Effect.tryPromise({
       try: (): Promise<{ readonly status: number; readonly body: unknown }> =>
@@ -370,19 +423,15 @@ export function acceptInviteCommand(options: AcceptInviteCommandOptions) {
       return;
     }
 
-    yield* upsertPeer({ name: localName, url: preview.inviterAskUrl });
-
-    const backend = yield* detectKeyringBackend();
-    if (backend === "none") {
+    const stored = yield* keyringSet(backend, peerTokenPath(localName), body.token);
+    if (!stored) {
       process.stderr.write(
-        "Added the peer, but no OS keyring is available to store the token in — the peer " +
-          "was granted, but you will not be able to ask them until the token is stored. " +
-          "Set JAZZ_DISABLE_KEYRING=0 or run on a host with a keyring.\n",
+        "The invite was accepted, but Jazz could not store the token. Finish setup manually:\n" +
+          `  JAZZ_PEER_TOKEN=${body.token} jazz peers set-token ${localName}\n`,
       );
       process.exitCode = 1;
       return;
     }
-    yield* keyringSet(backend, peerTokenPath(localName), body.token);
 
     if (options.json) {
       process.stdout.write(`${JSON.stringify({ ok: true, name: localName })}\n`);
