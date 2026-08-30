@@ -3,7 +3,13 @@ import { RunStoreTag } from "@jazz/core/interfaces/run-store";
 import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
 import { InMemoryRunStore } from "@/adapters/storage/run-store";
-import { makeHandler, makeTriggerHandler, refuseReason, type DaemonRequirements } from "./server";
+import {
+  makeHandler,
+  makePeerInviteHandler,
+  makeTriggerHandler,
+  refuseReason,
+  type DaemonRequirements,
+} from "./server";
 
 const LOOPBACK = { port: 0, host: "127.0.0.1" };
 
@@ -45,6 +51,31 @@ describe("refusing an unsafe bind", () => {
 });
 
 describe("the daemon's routes", () => {
+  it("does not expose invite redemption unless the daemon is serving peers", async () => {
+    const handle = makePeerInviteHandler(async () => {
+      throw new Error("the disabled route must not run an effect");
+    });
+
+    const response = await handle(request("GET", "/peer-invites/00000000000000000000000000000000"));
+    expect(response.status).toBe(404);
+  });
+
+  it("caps unauthenticated invite redemption bodies before parsing JSON", async () => {
+    const handle = makePeerInviteHandler(
+      async () => {
+        throw new Error("an oversized body must not run an effect");
+      },
+      undefined,
+      "alice",
+    );
+    const response = await handle(
+      request("POST", "/peer-invites/00000000000000000000000000000000/accept", {
+        body: "x".repeat(20_001),
+      }),
+    );
+    expect(response.status).toBe(413);
+  });
+
   it("answers health without a credential, so a supervisor need not hold one", async () => {
     const store = new InMemoryRunStore();
     const handle = makeHandler({ ...LOOPBACK, token: "s3cret" }, runnerFor(store));
