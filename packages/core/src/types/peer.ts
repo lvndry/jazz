@@ -35,8 +35,17 @@ export function isPeerTier(value: string): value is PeerTier {
 export interface PeerConfig {
   /** Local name, used in commands and in the ledger. Unique. */
   readonly name: string;
-  /** Where the peer's agent answers. Its token lives in the keyring, never here. */
-  readonly url: string;
+  /**
+   * Where the peer's agent answers, if this machine can ask them at all. Its token lives in
+   * the keyring, never here.
+   *
+   * Optional because `url` and `may` are two independent capabilities — "I can ask them" and
+   * "they can ask me" — that happen to share one config record. A peer added only so it can
+   * ask *you* (the common case a one-way invite produces) has a `may` and no `url`; a peer
+   * you can ask but who has not reciprocally granted you anything has a `url` and no `may`.
+   * Both set is a fully mutual relationship. Neither set is a name with nothing behind it.
+   */
+  readonly url?: string;
   /**
    * What this peer may learn. Absent means {@link PeerTier} `none`: a peer that was added
    * but never granted anything answers nothing, rather than defaulting to something.

@@ -102,6 +102,7 @@ Details and conventions: [Code map](./code-map.md).
 | [Sub-agents](./subagents.md) | Context isolation, personas, cost roll-up, when the model reaches for one |
 | [Memory](./memory.md) | Per-agent file-backed memory, path-safety choke point, locking, why it's opt-in |
 | [Reminders](./reminders.md) | Per-agent scheduled reminders, timezone-aware `when` specs, disk persistence |
+| [Peer invites](./peer-invites.md) | Bootstrapping a peer relationship without a shared secret typed by a human: invite records, redemption, the config-upsert semantics |
 | [Skills loading](./skills-loading.md) | Progressive disclosure: `find_skills` → `load_skill` → `load_skill_section` |
 | [Providers & models](./providers-and-models.md) | The AI SDK port, model catalog, reasoning normalization, retries, cost |
 | [Evals](./evals.md) | Measuring whether a harness change helped: Pass^k, A/B, grounding checks, judge calibration |

@@ -105,6 +105,25 @@ const DURATION_UNIT_MS: Record<string, number> = {
 };
 
 /**
+ * Parse a pure relative duration ("30m", "2h", "1h30m", "90s", "1d") into milliseconds, or
+ * null if the whole string isn't consumed by duration terms. Compound forms are summed, so
+ * "1h30m" and "90m" parse to the same value.
+ *
+ * Deliberately separate from `parseWhen`: a duration has no notion of "now" or a timezone, so
+ * callers that only ever mean a duration (an invite's `--expires`, say) should not go through
+ * a parser that also accepts absolute dates and weekday-relative times.
+ */
+export function parseDurationMs(spec: string): number | null {
+  const trimmed = spec.trim().toLowerCase();
+  let totalMs = 0;
+  for (const match of trimmed.matchAll(/(\d+)\s*([smhd])/g)) {
+    totalMs += Number(match[1]) * (DURATION_UNIT_MS[match[2] ?? ""] ?? 0);
+  }
+  const leftover = trimmed.replace(/(\d+)\s*([smhd])/g, "").trim();
+  return totalMs > 0 && leftover === "" ? totalMs : null;
+}
+
+/**
  * Parse a "when" spec into an absolute epoch-ms, or null if unparseable.
  * Supports relative durations (30m, 2h, 1h30m, 90s, 1d), a 24h clock time
  * (HH:MM → next occurrence), "tomorrow HH:MM", a weekday and time
@@ -177,12 +196,8 @@ export function parseWhen(spec: string, now: number, tz: string): number | null 
     return fireAt;
   }
 
-  let totalMs = 0;
-  for (const match of trimmed.matchAll(/(\d+)\s*([smhd])/g)) {
-    totalMs += Number(match[1]) * (DURATION_UNIT_MS[match[2] ?? ""] ?? 0);
-  }
-  const leftover = trimmed.replace(/(\d+)\s*([smhd])/g, "").trim();
-  if (totalMs > 0 && leftover === "") return now + totalMs;
+  const duration = parseDurationMs(trimmed);
+  if (duration !== null) return now + duration;
 
   return null;
 }

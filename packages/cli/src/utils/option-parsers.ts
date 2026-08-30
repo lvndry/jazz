@@ -2,6 +2,8 @@
  * Commander.js option parsers shared across CLI command definitions.
  */
 
+import { parseDurationMs as parseDuration } from "@jazz/core/utils/time";
+
 /**
  * Build a Commander option parser that accepts only positive integers.
  *
@@ -43,5 +45,20 @@ export function parsePositiveFloat(label: string) {
       throw new Error(`${label} must be a positive number (got "${raw}").`);
     }
     return value;
+  };
+}
+
+/**
+ * Build a Commander option parser for a short human duration like `24h`, `30m`, `1h30m` — the
+ * shape `--expires` takes. Delegates to the same duration parser `parseWhen` (reminders) uses,
+ * so this is deliberately not re-implementing unit parsing here.
+ */
+export function parseDurationMs(label: string) {
+  return (raw: string): number => {
+    const ms = parseDuration(raw);
+    if (ms === null) {
+      throw new Error(`${label} must look like "30m", "24h", or "7d" (got "${raw}").`);
+    }
+    return ms;
   };
 }

@@ -20,6 +20,7 @@ Available on every command.
 | `-v, --verbose`   | Verbose logging                                                                                                    |
 | `--debug`         | Debug-level logging                                                                                                |
 | `--config <path>` | Use a specific config file (also `JAZZ_CONFIG_PATH`)                                                               |
+| `--data-dir <path>` | Directory holding this invocation's config, data, and keyring entries (overrides `$JAZZ_HOME`; defaults to `~/.jazz`). Lets one host run several independent agents by flag |
 | `--no-tui`        | Disable the Ink TUI; plain terminal output. For CI, scripts, small terminals. Same as `JAZZ_NO_TUI=1`              |
 | `--output <mode>` | `rendered` \| `hybrid` (default) \| `raw` (no formatting) \| `quiet` (suppress output). Same as `JAZZ_OUTPUT_MODE` |
 | `--version`       | Print the version                                                                                                  |
@@ -205,9 +206,18 @@ Other people's agents this machine talks to, and what has been said to or by the
 | `jazz peers forget-token <name>` | Remove a peer's stored token                                                             |
 | `jazz peers log`                 | Everything said to and by a peer, newest first. `--peer <name>`, `--limit <n>`, `--json` |
 
-Peers themselves are added by editing `~/.jazz/config.json` directly, not through a command —
-the tier is the decision worth making carefully, and someone choosing it should be looking at
-the file. See [Setting up peers](../guide/peers-setup.md).
+Peers can be added by [invite](../concepts/peer-invites.md) — `jazz peers invite create/accept`
+— or by editing `~/.jazz/config.json` directly. See [Setting up peers](../guide/peers-setup.md)
+for both paths.
+
+### `jazz peers invite`
+
+| Command                              | Purpose                                                                                                          |
+| ------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `jazz peers invite create <name>`    | Create a one-time invite link granting `<name>` a tier once accepted. `--may <tier>` (required), `--expires <duration>`, `--host`/`--port` or `--public-url` (reverse-proxy setups), `--as <name>`, `--qr`, `--json` |
+| `jazz peers invite accept <url>`     | Accept an invite link. `--as <name>`, `--yes` (skip confirmation), `--json`                                       |
+| `jazz peers invite list`             | Invites created on this machine. `--json`                                                                         |
+| `jazz peers invite revoke <id>`      | Invalidate an invite before it's redeemed                                                                         |
 
 ---
 

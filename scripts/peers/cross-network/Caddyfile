@@ -1,0 +1,8 @@
+{
+	auto_https off
+}
+
+:80 {
+	reverse_proxy /peer/ask bob:4747
+	reverse_proxy /peer-invites/* bob:4747
+}

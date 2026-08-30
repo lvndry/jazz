@@ -16,6 +16,10 @@
   "dependencies": {
     "@jazz/adapters": "workspace:*",
     "@jazz/core": "workspace:*",
-    "ignore": "^7.0.6"
+    "ignore": "^7.0.6",
+    "qrcode-terminal": "^0.12.0"
+  },
+  "devDependencies": {
+    "@types/qrcode-terminal": "^0.12.2"
   }
 }

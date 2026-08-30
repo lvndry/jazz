@@ -95,8 +95,12 @@ describe("ask_peer", () => {
     expect(createAskPeerTool([])).toBeUndefined();
   });
 
-  it("is absent when every peer is suspended", () => {
-    expect(createAskPeerTool(peers({ may: "none" }))).toBeUndefined();
+  it("is present even for a peer suspended from asking *me* — `may` gates the inbound direction only", () => {
+    expect(createAskPeerTool(peers({ may: "none" }))).toBeDefined();
+  });
+
+  it("is absent when no peer has a known endpoint — the shape a one-way invite grants on the side that only serves, never asks", () => {
+    expect(createAskPeerTool([{ name: "sam", may: "about-me" }])).toBeUndefined();
   });
 
   it("sends only the question, and nothing about the conversation around it", async () => {
