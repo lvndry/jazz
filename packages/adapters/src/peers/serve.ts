@@ -1,27 +1,33 @@
 /**
  * @fileoverview Answering a question from somebody else's agent.
  *
- * This is where the tiers stop being a data model and start refusing things. Three
+ * This is where two independent axes stop being data and start refusing things. Three
  * properties are load-bearing, and each exists because of a specific way this could go
  * wrong.
  *
- * **The toolset is intersected down to the tier, not merely checked against it.** A tier is
- * enforced by the peer's run never being handed a tool it may not use, so there is nothing
- * for a persuasive question to talk its way into. This reuses `toolAllowlist`, which already
- * does exactly this for sub-agents.
+ * **Capability is not a per-peer grant.** What a persona can *do* is fixed by whoever
+ * configured it (`PersonaToolProfile`), the same for every peer who reaches it — a peer
+ * asking a persona to delete a file gets refused because the tool was never wired in, not
+ * because of a permission check. Alice finding out what Bob's agent can do is a discovery
+ * problem, not an authorization one.
+ *
+ * **Disclosure is the one per-peer axis.** A tier is enforced by intersecting the toolset
+ * down to its disclosure ceiling for every `read-only` tool, so there is nothing for a
+ * persuasive question to talk its way into. This reuses `toolAllowlist`, which already does
+ * exactly this for sub-agents.
+ *
+ * **A tool riskier than read-only needs an explicit per-peer grant, or it does not exist for
+ * this peer at all.** Disclosure says nothing about risk, so a persona capable of real
+ * actions must not silently hand every peer that reaches it the same power — but the fix is
+ * absence, not a parked, revisitable state. `peer.allow` names exactly what this peer may
+ * invoke beyond read-only; anything else is left out of `toolAllowlist` entirely, so the
+ * model is never offered it and never tries. Quieter and stronger than a queue: an operator
+ * who wants to grant more edits the config, once, deliberately.
  *
  * **The peer gets its own conversation.** If peer traffic joined the operator's transcript,
- * a stranger's agent would be writing into the context their agent uses to answer them —
- * a prompt-injection channel straight into the assistant, with the injected text arriving
+ * a stranger's agent would be writing into the context their agent uses to answer them — a
+ * prompt-injection channel straight into the assistant, with the injected text arriving
  * pre-trusted because it is "history".
- *
- * **A question beyond the tier is refused by absence, not by judgement.** There is no
- * approval path here and cannot be one: every gated tool is `high-risk`, the tier filter
- * keeps only `read-only`, so nothing a peer can reach ever asks for approval. The design
- * sketch imagined an out-of-tier question parking and reaching the operator on Telegram;
- * with actions off the table entirely that state is unreachable, and pretending otherwise
- * would describe a safety net that does not exist. What actually happens is quieter and
- * stronger: the agent is never handed the tool, so it answers that it cannot.
  */
 
 import { AgentRunner } from "@jazz/core/agent/agent-runner";
@@ -34,10 +40,10 @@ import { Effect } from "effect";
 import { record as recordLedger } from "./ledger";
 
 /**
- * What each tier may learn, as a set of disclosure levels.
+ * What each tier admits among `read-only` tools, as a ceiling on disclosure.
  *
- * Read as a ceiling: `about-me` admits `public` and `internal` but not `private`. There is no
- * entry that admits an action — see `PEER_TIER_MAX_RISK`. That is a line, not an omission.
+ * Read-only only: a tool riskier than that is never gated by disclosure, only by whether it
+ * appears in `peer.allow` — see the file-level comment.
  */
 const TIER_ALLOWS: Readonly<Record<PeerTier, readonly ToolDisclosure[]>> = {
   none: [],
@@ -45,6 +51,39 @@ const TIER_ALLOWS: Readonly<Record<PeerTier, readonly ToolDisclosure[]>> = {
   "about-me": ["public", "internal"],
   "ask-me-anything": ["public", "internal", "private"],
 };
+
+/**
+ * Tools this tier's peer may reach at all.
+ *
+ * `allow` names tools riskier than read-only this specific peer already has standing
+ * permission to invoke — included here because capability is otherwise silent about them
+ * (disclosure has nothing to say about a tool that can act but reveals nothing) and because
+ * an unlisted one must be absent, not merely unapproved: it is never offered to the model,
+ * so there is nothing to talk its way into.
+ */
+export function allowedToolsForPeer(
+  tier: PeerTier,
+  allow: readonly string[],
+  tools: readonly {
+    readonly name: string;
+    readonly riskLevel: string;
+    readonly disclosure: ToolDisclosure;
+  }[],
+): readonly string[] {
+  // A suspended peer gets nothing, full stop — a standing `allow` grant from before is not a
+  // second relationship that survives revocation to `none`.
+  if (tier === "none") return [];
+
+  const permitted = TIER_ALLOWS[tier];
+  const allowSet = new Set(allow);
+  return tools
+    .filter((tool) =>
+      tool.riskLevel === "read-only"
+        ? permitted.includes(tool.disclosure)
+        : allowSet.has(tool.name),
+    )
+    .map((tool) => tool.name);
+}
 
 /**
  * The prompt a peer's question is answered under.
@@ -60,9 +99,9 @@ function peerPersonaPreamble(peerName: string): string {
     `someone who is not your operator. You are not talking to your operator now.`,
     ``,
     `Your tools are your permission. Whoever owns this machine has already decided what`,
-    `${peerName} may learn and has given you exactly the tools that allow it, so use them`,
-    `freely to answer. Do not second-guess whether the question is too personal: that was`,
-    `settled before it reached you. If the tools you have cannot answer it, say only that`,
+    `${peerName} may learn and do, and has given you exactly the tools that allow it, so use`,
+    `them freely to answer. Do not second-guess whether the question is too personal: that`,
+    `was settled before it reached you. If the tools you have cannot answer it, say only that`,
     `you cannot.`,
     ``,
     `Answer only what was asked, as briefly as it can be answered. Volunteer nothing beyond`,
@@ -87,45 +126,15 @@ export type ServePeerOutcome =
   | { readonly kind: "refused"; readonly reason: string };
 
 /**
- * Tools a peer may never reach, whatever their tier says.
- *
- * These solicit from the operator rather than reporting to the caller. They are `read-only`
- * and would otherwise pass the filter, which would let a stranger's agent make an assistant
- * interrupt its owner with a prompt — a nuisance channel at best, and at worst a way to put
- * a stranger's words in front of somebody as though their own agent were asking.
- */
-const NEVER_FOR_PEERS: ReadonlySet<string> = new Set(["ask_user_question", "ask_file_picker"]);
-
-/** Tools this tier permits: read-only, within the disclosure ceiling, and not soliciting. */
-export function allowedToolsForTier(
-  tier: PeerTier,
-  tools: readonly {
-    readonly name: string;
-    readonly riskLevel: string;
-    readonly disclosure: ToolDisclosure;
-  }[],
-): readonly string[] {
-  const permitted = TIER_ALLOWS[tier];
-  return (
-    tools
-      // No tier permits an action. Filtering on risk as well as disclosure means a tool that
-      // is somehow classified `public` but can still write is excluded anyway.
-      .filter((tool) => tool.riskLevel === "read-only")
-      .filter((tool) => permitted.includes(tool.disclosure))
-      .filter((tool) => !NEVER_FOR_PEERS.has(tool.name))
-      .map((tool) => tool.name)
-  );
-}
-
-/**
- * Answer one question from a peer, under its tier.
+ * Answer one question from a peer, under its tier and escalation grant.
  *
  * Every path through this ends in a ledger entry, including the refusals. A decline is as
- * worth reading back as an answer: it is the record of what somebody tried to learn.
+ * worth reading back as an answer: it is the record of what somebody tried to learn or do.
  */
 export function servePeerRequest(request: ServePeerRequest) {
   return Effect.gen(function* () {
     const tier = request.peer.may ?? "none";
+    const allow = request.peer.allow ?? [];
     const at = new Date().toISOString();
 
     const ledger = (
@@ -156,7 +165,7 @@ export function servePeerRequest(request: ServePeerRequest) {
       described.push({ name, riskLevel: tool.riskLevel, disclosure: tool.disclosure });
     }
 
-    const toolAllowlist = allowedToolsForTier(tier, described);
+    const toolAllowlist = allowedToolsForPeer(tier, allow, described);
 
     // Its own conversation, always: peer traffic must never join the operator's transcript,
     // or a stranger's question becomes part of the context their agent answers them from.
@@ -167,6 +176,10 @@ export function servePeerRequest(request: ServePeerRequest) {
       userInput: `${peerPersonaPreamble(request.peer.name)}\n\nThe question:\n${request.question}`,
       conversationId,
       toolAllowlist,
+      // Already vetted by appearing in `toolAllowlist` at all — a granted tool runs without
+      // stopping to ask anyone, since there is nobody attending this run to ask.
+      autoApprovedTools: allow,
+      withholdInteractiveTools: true,
       disablePersistence: true,
     }).pipe(Effect.either);
 

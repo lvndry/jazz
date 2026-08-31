@@ -960,6 +960,10 @@ function registerPeerInviteCommands(peersCommand: Command, program: Command): vo
       "What to call yourself to the invitee. Defaults to this machine's hostname.",
     )
     .option(
+      "--persona <name>",
+      "Which persona answers this invitee once accepted. Defaults to your daemon's --serve-peers agent as-is.",
+    )
+    .option(
       "--public-url <base>",
       "Overrides --host/--port for the printed link, e.g. https://bob-agent.example.com — " +
         "needed when the daemon binds loopback behind a reverse proxy, so the invite points " +
@@ -977,6 +981,7 @@ function registerPeerInviteCommands(peersCommand: Command, program: Command): vo
           port: number;
           publicUrl?: string;
           as?: string;
+          persona?: string;
           qr?: boolean;
           json?: boolean;
         },
@@ -998,6 +1003,7 @@ function registerPeerInviteCommands(peersCommand: Command, program: Command): vo
                 json: options.json === true,
                 qr: options.qr === true,
                 ...(options.as !== undefined ? { as: options.as } : {}),
+                ...(options.persona !== undefined ? { persona: options.persona } : {}),
                 ...(options.publicUrl !== undefined ? { publicUrl: options.publicUrl } : {}),
               });
             }),

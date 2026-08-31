@@ -49,16 +49,33 @@ export interface PeerConfig {
   /**
    * What this peer may learn. Absent means {@link PeerTier} `none`: a peer that was added
    * but never granted anything answers nothing, rather than defaulting to something.
+   *
+   * This is disclosure only — what an answer reveals. It says nothing about what the
+   * answering agent can *do*; that is {@link PersonaToolProfile}, fixed on whichever persona
+   * answers this peer, the same for every peer who reaches it. See `allow` for the one place
+   * those two axes meet.
    */
   readonly may?: PeerTier;
+  /**
+   * Which persona/agent answers this peer. Absent falls back to the daemon's default
+   * `--serve-peers` agent, so existing configs keep working unchanged.
+   *
+   * This is how two peers can get genuinely different treatment from the same operator
+   * without a second config surface: point a peer at a persona built for that relationship
+   * (a work contact gets a narrower persona than a partner) instead of inventing per-peer
+   * scope strings.
+   */
+  readonly persona?: string;
+  /**
+   * Tool names this specific peer may invoke beyond read-only risk.
+   *
+   * Capability (what the persona *can* do) is never a per-peer grant — but a persona is
+   * allowed to be capable of real actions, and when one is, not every peer who reaches it
+   * should inherit those actions just because disclosure was opened up. A tool riskier than
+   * read-only stays gated by this explicit allowlist regardless of `may`: absent or empty
+   * means read-only only, and a tool not listed here is never offered to this peer's agent
+   * at all — refused by absence, the same as any other capability it doesn't have. Widening
+   * it is a deliberate config edit, not something a question can negotiate its way into.
+   */
+  readonly allow?: readonly string[];
 }
-
-/**
- * No tier permits a peer to cause anything.
- *
- * Not a gap to be filled later — a line. A remote agent that could write a file, run a
- * command or send a message would put the blast radius of somebody else's compromised
- * assistant on this machine, and "their agent books the restaurant" is not worth that.
- * Where an action is genuinely wanted, it goes through a human, never through a tier.
- */
-export const PEER_TIER_MAX_RISK = "read-only" as const;

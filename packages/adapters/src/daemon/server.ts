@@ -499,7 +499,15 @@ function fireTrigger(trigger: TriggerConfig, payload: string) {
 
 function answerPeer(peer: PeerConfig, agentIdentifier: string, question: string) {
   return Effect.gen(function* () {
-    const agent = yield* getAgentByIdentifier(agentIdentifier);
+    const base = yield* getAgentByIdentifier(agentIdentifier);
+    // A peer's `persona` swaps only the persona on the daemon's peer-serving agent, not the
+    // whole agent — capability lives on the persona (`PersonaToolProfile`), so this is
+    // enough to give one peer a narrower or differently-wired identity than another while
+    // both share the same model/provider config.
+    const agent =
+      peer.persona !== undefined
+        ? { ...base, config: { ...base.config, persona: peer.persona } }
+        : base;
     const outcome = yield* servePeerRequest({ peer, agent, question });
 
     switch (outcome.kind) {

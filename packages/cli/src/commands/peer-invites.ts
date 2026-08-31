@@ -90,6 +90,8 @@ export interface CreateInviteCommandOptions {
    */
   readonly publicUrl?: string;
   readonly as?: string;
+  /** Which persona answers this invitee once accepted. Absent keeps the daemon's default. */
+  readonly persona?: string;
   readonly json: boolean;
   readonly qr: boolean;
 }
@@ -133,6 +135,7 @@ export function createInviteCommand(options: CreateInviteCommandOptions) {
       inviterDisplayName: options.as ?? os.hostname(),
       inviterAskUrl,
       proposedTier: options.may,
+      ...(options.persona !== undefined ? { proposedPersona: options.persona } : {}),
       ttlMs: options.ttlMs,
     });
 

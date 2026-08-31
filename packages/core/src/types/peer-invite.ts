@@ -36,6 +36,8 @@ export interface PeerInviteRecord {
   readonly inviterAskUrl: string;
   /** What the redeemer will be allowed to learn, once accepted. */
   readonly proposedTier: PeerTier;
+  /** Which persona will answer this redeemer, once accepted. Absent keeps the daemon default. */
+  readonly proposedPersona?: string;
   readonly createdAt: string;
   readonly expiresAt: string;
   /** sha256(secret), hex-encoded. The secret itself is never persisted. */

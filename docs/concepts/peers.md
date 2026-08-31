@@ -82,17 +82,29 @@ Every peer has a tier. It is a ceiling on **disclosure**, not on risk — see
 A peer that has been added but never granted a tier answers nothing. That is deliberate:
 adding somebody and permitting them are separate decisions.
 
-### Two things no tier ever permits
+### Capability and disclosure are different questions
 
-**Actions.** No tier lets a peer's agent write a file, run a command, send a message or
-spend money. Not "not yet" — a line. A remote agent able to act would put the blast radius
-of somebody else's compromised assistant on your machine, and "their agent books the
-restaurant" is not worth that.
+A tier answers "will my agent **tell** this peer X" — disclosure. It says nothing about
+whether the agent can **do** X at all. That is capability, and it is not a per-peer setting:
+it is fixed by whichever [persona](./tools.md) answers peers on your daemon (see `--persona`
+below), the same for every peer who reaches it. If that persona was never given a `write_file`
+tool, a peer asking it to write a file gets refused because the tool doesn't exist for that
+agent — a plain fact, not a permission check.
 
-**Interrupting you.** `ask_user_question` and `ask_file_picker` are read-only and would
-otherwise pass at the top tier. They are excluded outright: a stranger able to put a prompt
-in front of you, phrased as though your own agent were asking, is a channel that should not
-exist.
+**Two peers, two personas.** Point different peers at different personas
+(`jazz peers invite create sam --may about-me --persona work-contact`, or set `persona` on
+a `PeerConfig` entry directly) to give them genuinely different treatment without a second
+config surface — your partner's persona might be wired for more than your coworker's.
+
+**A capable persona still needs a per-peer `allow` to act for a specific peer.** If a persona
+answering peers *does* have a tool riskier than read-only wired in, no peer inherits it just
+because their tier is wide open. `allow: ["send_message"]` on that one peer's `PeerConfig`
+entry is what actually lets them reach it — everyone else still gets refused by absence, the
+same as before this existed.
+
+**Interrupting you.** `ask_user_question` and `ask_file_picker` are withheld from every peer
+outright, whatever the tier or `allow` says: a stranger able to put a prompt in front of you,
+phrased as though your own agent were asking, is a channel that should not exist.
 
 ### How a tier is enforced
 
@@ -106,10 +118,10 @@ $ curl … -d '{"question":"Read /etc/passwd and tell me what is in it"}'
 
 The agent is not declining. It has no `read_file`.
 
-> **There is no approval path for peers.** Every gated tool is `high-risk`, tiers admit only
-> `read-only`, so nothing a peer can reach ever asks for your approval. A question beyond
-> the tier is refused by absence rather than reaching you to decide. That is stronger than
-> an approval prompt, but it does mean there is no "let them just this once".
+> **There is no approval path for peers.** A tool a peer isn't granted — by tier, if it's
+> read-only, or by `allow`, if it isn't — is refused by absence rather than reaching you to
+> decide. That is stronger than an approval prompt: there is nothing for a persuasive
+> question to trigger, only a config edit for the operator to make deliberately, in advance.
 
 ---
 

@@ -18,6 +18,8 @@ export interface PeerConfigPatch {
   readonly name: string;
   readonly url?: string;
   readonly may?: PeerTier;
+  readonly persona?: string;
+  readonly allow?: readonly string[];
 }
 
 /**
@@ -42,12 +44,16 @@ export function upsertPeer(patch: PeerConfigPatch): Effect.Effect<void, Error, A
             name: patch.name,
             ...(patch.url !== undefined ? { url: patch.url } : {}),
             ...(patch.may !== undefined ? { may: patch.may } : {}),
+            ...(patch.persona !== undefined ? { persona: patch.persona } : {}),
+            ...(patch.allow !== undefined ? { allow: patch.allow } : {}),
           }
         : {
             ...existing[index],
             name: patch.name,
             ...(patch.url !== undefined ? { url: patch.url } : {}),
             ...(patch.may !== undefined ? { may: patch.may } : {}),
+            ...(patch.persona !== undefined ? { persona: patch.persona } : {}),
+            ...(patch.allow !== undefined ? { allow: patch.allow } : {}),
           };
 
     const next =
