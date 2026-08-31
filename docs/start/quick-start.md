@@ -71,6 +71,6 @@ jazz update
 ## Next steps
 
 - **[Creating agents](./creating-agents.md)** — configure one for a specific job
-- **[Surfaces](../surfaces/index.md)** — run the same agent headless, on a schedule, in CI, or in a chat thread
-- **[Cookbook](../cookbook/index.md)** — copy-pasteable recipes
-- **[Examples](../examples/index.md)** — end-to-end walkthroughs
+- **[Use cases](../use-cases/index.md)** — run the same agent headless, on a schedule, in CI, or in a chat thread
+- **[Playbooks](../playbooks/index.md)** — copy-pasteable recipes
+- **[Concepts](../concepts/index.md)** — learn the vocabulary behind Jazz

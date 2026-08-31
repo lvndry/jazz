@@ -76,7 +76,7 @@ docker compose up -d --build
 ```
 
 That's a working agent in your DMs. For the account-creation steps (bot token, chat id),
-see [Creating a Telegram or Discord bot](../guide/chat-bots.md); for the full
+see [Creating a Telegram or Discord bot](../start/chat-bots.md); for the full
 configuration table and security notes, see
 [`packages/telegram-bot/README.md`](../../packages/telegram-bot/README.md).
 
@@ -129,7 +129,7 @@ docker compose up -d --build
 
 DM the bot, or `@mention` it in an allowlisted channel. For the account-creation steps
 (application, intents, invite URL), see
-[Creating a Telegram or Discord bot](../guide/chat-bots.md); for the full configuration
+[Creating a Telegram or Discord bot](../start/chat-bots.md); for the full configuration
 table and mention-gating details, see
 [`packages/discord-bot/README.md`](../../packages/discord-bot/README.md).
 
@@ -287,4 +287,4 @@ Full model: [Security](../../SECURITY.md).
 - [Headless](./headless.md) — the contract every bridge uses
 - [`packages/telegram-bot/`](../../packages/telegram-bot/) — Telegram reference implementation
 - [`packages/discord-bot/`](../../packages/discord-bot/) — Discord reference implementation
-- [Airgapped & self-hosted](../guide/airgapped.md) — running a bridge with no cloud provider
+- [Airgapped & self-hosted](../start/airgapped.md) — running a bridge with no cloud provider

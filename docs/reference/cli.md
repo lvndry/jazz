@@ -75,7 +75,7 @@ for the enforcement model and how they differ from `--timeout`.
 the message goes to stderr; in `--json` mode stdout always carries exactly one object.
 
 Full contract, examples, and a complete bridge implementation:
-[Surfaces → Headless](../surfaces/headless.md).
+[Surfaces → Headless](../use-cases/headless.md).
 
 ---
 
@@ -186,8 +186,8 @@ Set `$JAZZ_DAEMON_TOKEN` yourself instead of letting Jazz generate one when the 
 be known ahead of time — a container with no persistent keyring across restarts, or a client
 config that must be written before the daemon has ever started.
 
-See [Setting up peers](../guide/peers-setup.md) for a full walkthrough, and
-[Peers](../concepts/peers.md) for the tier model this exists to serve.
+See [Setting up peers](../start/peers-setup.md) for a full walkthrough, and
+[Agent-to-agent](../concepts/agent-to-agent.md) for the tier model this exists to serve.
 
 `jazz wake-trigger fire --agent <agentId> --id <id>` is internal plumbing, not something you run
 by hand: it's what `register_trigger` schedules with `launchd`/`at` to fire a wake trigger without
@@ -206,8 +206,8 @@ Other people's agents this machine talks to, and what has been said to or by the
 | `jazz peers forget-token <name>` | Remove a peer's stored token                                                             |
 | `jazz peers log`                 | Everything said to and by a peer, newest first. `--peer <name>`, `--limit <n>`, `--json` |
 
-Peers can be added by [invite](../concepts/peer-invites.md) — `jazz peers invite create/accept`
-— or by editing `~/.jazz/config.json` directly. See [Setting up peers](../guide/peers-setup.md)
+Peers can be added by [invite](../start/peers-setup.md) — `jazz peers invite create/accept`
+— or by editing `~/.jazz/config.json` directly. See [Setting up peers](../start/peers-setup.md)
 for both paths.
 
 ### `jazz peers invite`
@@ -312,7 +312,7 @@ suggest the next step. `!` is an interactive terminal feature and is not interpr
 
 ## Related
 
-- [Surfaces → Headless](../surfaces/headless.md) — the `jazz run` contract in depth
+- [Surfaces → Headless](../use-cases/headless.md) — the `jazz run` contract in depth
 - [Configuration](./configuration.md) — config file and environment variables
 - [Tools](./tools.md) — every tool and its risk tier
 - [Workflow frontmatter](./workflow-frontmatter.md) — the `WORKFLOW.md` fields

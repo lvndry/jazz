@@ -208,7 +208,7 @@ possible; the shell denylist is the backstop for known-destructive patterns, not
 Each classifier call is recorded as `llm_usage` with `purpose: "classifier"` (tokens in/out
 and wall-clock latency) and rolled into `classifierUsage` on `agent_run_completed`. Those
 numbers stay beside the agent-loop `usage` — they are not mixed into it — so a run shows how
-much was approval gating versus the conversation. See [Observability](../guide/observability.md).
+much was approval gating versus the conversation. See [Observability](../start/observability.md).
 
 Implementation: [`command-risk.ts`](../../packages/core/src/agent/tools/command-risk.ts).
 
@@ -234,7 +234,7 @@ approved: "git status"
 
 The strongest control isn't a policy at all: **an agent whose toolset omits
 `execute_command` cannot run shell commands regardless of tier.** Trim the toolset in the
-agent config when the blast radius matters — see [Chat platforms](../surfaces/chat-platforms.md#security-for-chat-surfaces).
+agent config when the blast radius matters — see [Chat platforms](../use-cases/chat-platforms.md#security-for-chat-surfaces).
 
 ---
 
@@ -359,6 +359,6 @@ Current tool list: [Tools reference](../reference/tools.md).
 ## Related
 
 - [Agent loop](./agent-loop.md) — where the tool phase sits
-- [Headless](../surfaces/headless.md) — setting the policy for unattended runs
+- [Headless](../use-cases/headless.md) — setting the policy for unattended runs
 - [Security](../../SECURITY.md) — the threat model and hardening guidance
 - [Design decisions](./design-decisions.md#risk-tiers-instead-of-a-tool-allowlist) — why tiers, why two phases

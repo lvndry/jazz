@@ -95,7 +95,7 @@ Consequences worth knowing:
 - **Local models need no catalog.** Model lists, context windows, and tool-calling support are read straight from the local server. An airgapped install works with an empty cache.
 - **The 80% compaction threshold tracks the real window.** A 1M-context model gets a 1M-based threshold, not a guess.
 - **A brand-new model may be missing.** You get the provider's own metadata or a 128k default, and pricing display may be blank. Nothing breaks.
-- **`JAZZ_MODELS_DEV_URL`** points at an internal mirror for airgapped networks that still want metadata. See [Airgapped](../guide/airgapped.md).
+- **`JAZZ_MODELS_DEV_URL`** points at an internal mirror for airgapped networks that still want metadata. See [Airgapped](../start/airgapped.md).
 
 ---
 
@@ -180,7 +180,7 @@ Per-run records land in `~/.jazz/telemetry/` as local JSON. Nothing is transmitt
 Command-risk classifier tokens are stored separately (`classifierUsage` on the run,
 `purpose: "classifier"` on each `llm_usage`) because that call uses the cheap harness
 model, not the agent's, and mixing the two would hide both numbers. See
-[Observability](../guide/observability.md).
+[Observability](../start/observability.md).
 
 ---
 
@@ -202,6 +202,6 @@ highest-value version of this, and it's one field.
 ## Related
 
 - [Integrations: providers](../integrations/index.md#llm-providers) — API keys and setup
-- [Airgapped & self-hosted](../guide/airgapped.md) — local-only operation
+- [Airgapped & self-hosted](../start/airgapped.md) — local-only operation
 - [Context management](./context-management.md) — what the context window is used for
 - [Design decisions](./design-decisions.md#not-locking-you-in) — the trade-offs

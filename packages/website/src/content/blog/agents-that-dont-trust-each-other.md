@@ -158,5 +158,5 @@ jazz --data-dir $BOB   peers log   # what Bob was asked, and what he said
 jazz --data-dir $ALICE peers log   # what Alice asked, and what came back
 ```
 
-The [peers guide](/docs/guide/peers-setup) covers the same walkthrough over a tailnet and
+The [peer setup guide](/docs/start/peers-setup) covers the same walkthrough over a tailnet and
 over the public internet, once you're ready for a second machine.

@@ -39,7 +39,7 @@ Jazz is free regardless — the provider is the only thing that can cost anythin
 
 **Fully private, no cloud:** `ollama` with a tool-capable model pulled locally. Nothing
 leaves your machine, and there is no per-token cost. See
-[Airgapped & Self-Hosted](../guide/airgapped.md).
+[Airgapped & Self-Hosted](../start/airgapped.md).
 
 ```bash
 jazz            # → Update configuration → pick a provider, paste a key
@@ -56,4 +56,4 @@ Keys can also go straight into `~/.jazz/config.json` — see
 - [Internals → Providers & models](../internals/providers-and-models.md) — how the provider port, model catalog, and reasoning normalization work
 - [Configuration](../reference/configuration.md) — config file locations, environment variables, `customTools`
 - [Tools reference](../reference/tools.md) — which tools each integration adds
-- [Airgapped & Self-Hosted](../guide/airgapped.md) — running with no outbound network
+- [Airgapped & Self-Hosted](../start/airgapped.md) — running with no outbound network

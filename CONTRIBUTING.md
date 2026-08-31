@@ -1,6 +1,6 @@
 # Contributing to Jazz
 
-Thank you for your interest in contributing to Jazz! Please read the [Quick Start](docs/guide/quick-start.md) guide, and the [Code map](docs/internals/code-map.md) for how the codebase is organized.
+Thank you for your interest in contributing to Jazz! Please read the [Quick Start](docs/start/quick-start.md) guide, and the [Code map](docs/internals/code-map.md) for how the codebase is organized.
 
 ## Workspace
 
@@ -24,7 +24,7 @@ Dependencies flow inward only.
 
 Read the READMEs:
 
-- `docs/guide/quick-start.md` - Install and first run
+- `docs/start/quick-start.md` - Install and first run
 - `docs/internals/code-map.md` - Code organization and conventions
 - `packages/core/README.md` - Core package patterns
 - `packages/adapters/README.md` - Adapter implementations
