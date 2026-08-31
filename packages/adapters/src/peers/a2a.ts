@@ -19,6 +19,7 @@
  * shipped with the first time around.
  */
 
+import { resolveAgentToolNames } from "@jazz/core/agent/tools/agent-tool-resolution";
 import { ToolRegistryTag } from "@jazz/core/interfaces/tool-registry";
 import type { ToolDisclosure } from "@jazz/core/interfaces/tool-registry";
 import type { Agent } from "@jazz/core/types";
@@ -76,7 +77,9 @@ export function buildPublicAgentCard(agentName: string): AgentCard {
         name: "Answer a question",
         description:
           "Answers a plain-text question, subject to the caller's configured trust tier " +
-          "and tool grant. Capability is fixed per relationship, not negotiable per request.",
+          "and tool grant. Capability is fixed by the operator's own agent configuration, " +
+          "the same for every peer — not negotiable per request, and not something a " +
+          "relationship's tier or grant can ever widen.",
         tags: ["read-only", "trust-scoped"],
       },
     ],
@@ -193,10 +196,19 @@ export function handleA2ARpc(agentName: string, peer: PeerConfig, agent: Agent, 
     }
 
     if (request.method === "a2a.GetExtendedAgentCard") {
+      // Scoped to what `agent` (the actual identity answering this peer) can really reach —
+      // not the global registry, which lists every tool registered for every agent on this
+      // machine. Advertising from the wrong source is how a card ends up promising a tool
+      // this agent was never even given.
       const registry = yield* ToolRegistryTag;
-      const names = yield* registry.listTools();
+      const allToolNames = yield* registry.listAllTools();
+      // Same defensive filter `initializeAgentRun` applies: a custom tool an agent still
+      // names in config can outlive its own MCP server or registration.
+      const reachableNames = (yield* resolveAgentToolNames(agent)).filter((name) =>
+        allToolNames.includes(name),
+      );
       const described: { name: string; riskLevel: string; disclosure: ToolDisclosure }[] = [];
-      for (const name of names) {
+      for (const name of reachableNames) {
         const tool = yield* registry.getTool(name);
         described.push({ name, riskLevel: tool.riskLevel, disclosure: tool.disclosure });
       }
