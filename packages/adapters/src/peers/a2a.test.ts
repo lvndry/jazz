@@ -26,13 +26,13 @@ describe("the public agent card", () => {
 
 describe("the extended agent card", () => {
   it("reflects exactly what this peer's tier admits", () => {
-    const peer: PeerConfig = { name: "sam", may: "public" };
+    const peer: PeerConfig = { name: "sam", disclosure: "public" };
     const card = buildExtendedAgentCard("my-agent", peer, TOOLS);
     expect(card.skills[0]?.tags).toEqual(["web_search"]);
   });
 
   it("adds a granted riskier tool without needing a wider tier", () => {
-    const peer: PeerConfig = { name: "sam", may: "public", allow: ["send_message"] };
+    const peer: PeerConfig = { name: "sam", disclosure: "public", allow: ["send_message"] };
     const card = buildExtendedAgentCard("my-agent", peer, TOOLS);
     expect(card.skills[0]?.tags).toContain("send_message");
     expect(card.skills[0]?.tags).toContain("web_search");

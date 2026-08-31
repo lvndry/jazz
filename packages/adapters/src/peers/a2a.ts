@@ -100,7 +100,7 @@ export function buildExtendedAgentCard(
     readonly disclosure: ToolDisclosure;
   }[],
 ): AgentCard {
-  const tier = peer.may ?? "none";
+  const tier = peer.disclosure ?? "none";
   const allow = peer.allow ?? [];
   const reachable = allowedToolsForPeer(tier, allow, tools);
   const base = buildPublicAgentCard(agentName);
