@@ -16,14 +16,25 @@
  * out to `sudo` is a trust boundary nobody asked it to cross; a human typing their own sudo
  * password at their own prompt is the same escalation, done honestly.
  *
+ * **A system-level unit still must never run as root.** Installing it via `sudo` is how the
+ * *file gets written*; it is not license for the *daemon* to run as root, read `/root/.jazz`,
+ * and execute the operator's agent tools with root privileges. The unit runs `User=`/
+ * `UserName` the invoking human (`$SUDO_USER`), with `JAZZ_HOME` pointed at *their* config —
+ * same trust level as that person running it themselves, nothing gained by installing it.
+ *
  * The token never goes inside the unit/plist itself — those are otherwise-world-readable by
- * default. It lives in its own `chmod 600` file instead, sourced at process start.
+ * default. It lives in its own `chmod 600` file instead, sourced at process start — which
+ * means it is validated to a safe character set before ever being written: a token containing
+ * a newline or shell metacharacter would either break systemd's `EnvironmentFile` line format
+ * or, worse, get executed by the shell that sources it on launchd. Refusing a malformed token
+ * is the fix; escaping around one that shouldn't exist is not.
  */
 
 import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 import * as nodeFs from "node:fs/promises";
 import * as path from "node:path";
+import { getJazzSchedulerInvocation } from "@jazz/core/utils/runtime";
 import { execCommand } from "@jazz/core/utils/shell";
 import { escapeShellArg, getLaunchdPath } from "@jazz/core/workflows/scheduler-service";
 import { Effect } from "effect";
@@ -63,12 +74,70 @@ export function serviceAlreadyInstalled(initSystem: InitSystem): boolean {
   return unitPath !== undefined && existsSync(unitPath);
 }
 
+export interface InvokingUser {
+  readonly username: string;
+  readonly home: string;
+}
+
+/**
+ * POSIX portable username charset (`useradd(8)`'s own rule) — safe to place unquoted after a
+ * shell tilde, where quoting would disable tilde-expansion entirely rather than escape it.
+ */
+const SAFE_USERNAME = /^[a-zA-Z0-9._-]+$/;
+
+/**
+ * Who actually asked for this, so the service can run as them rather than as root. `sudo`
+ * always sets `$SUDO_USER` to the real login name — refusing when it is absent (logged in as
+ * root directly, with no human account behind it) is deliberate: there is no non-root
+ * identity to preserve, and running the daemon as root anyway is exactly the outcome this
+ * whole check exists to prevent.
+ */
+export function resolveInvokingUser(): Effect.Effect<InvokingUser, ServiceInstallError> {
+  return Effect.gen(function* () {
+    const username = process.env["SUDO_USER"];
+    if (username === undefined || username.trim().length === 0) {
+      return yield* Effect.fail(
+        new ServiceInstallError(
+          "Could not tell which account this should run as (no $SUDO_USER). Run this via " +
+            "`sudo` from your own account, not while already logged in as root — the service " +
+            "must run as a real user, never root, or it runs your agent's tools with root " +
+            "privileges and reads /root/.jazz instead of your own config.",
+        ),
+      );
+    }
+    if (!SAFE_USERNAME.test(username)) {
+      return yield* Effect.fail(
+        new ServiceInstallError(
+          `$SUDO_USER ("${username}") contains unexpected characters — refusing.`,
+        ),
+      );
+    }
+    // Portable home-directory lookup (`getent`/`dscl` differ by platform; tilde expansion via
+    // a login shell does not) — safe unquoted only because the charset above was just checked.
+    const home = (yield* execCommand("sh", ["-c", `eval echo ~${username}`]).pipe(
+      Effect.mapError(
+        (error) =>
+          new ServiceInstallError(
+            `Could not resolve ${username}'s home directory: ${error.message}`,
+          ),
+      ),
+    )).trim();
+    if (home.length === 0 || home === `~${username}`) {
+      return yield* Effect.fail(
+        new ServiceInstallError(`Could not resolve a home directory for "${username}".`),
+      );
+    }
+    return { username, home };
+  });
+}
+
 export interface ServiceInstallOptions {
   readonly agentId: string;
   readonly host: string;
   readonly port: number;
   readonly token: string;
   readonly invocation: readonly string[];
+  readonly user: InvokingUser;
 }
 
 export function buildSystemdUnit(options: ServiceInstallOptions): string {
@@ -92,6 +161,8 @@ export function buildSystemdUnit(options: ServiceInstallOptions): string {
     "",
     "[Service]",
     "Type=simple",
+    `User=${options.user.username}`,
+    `Environment=JAZZ_HOME=${path.join(options.user.home, ".jazz")}`,
     `EnvironmentFile=${DAEMON_ENV_FILE_PATH}`,
     `ExecStart=${execStart}`,
     "Restart=on-failure",
@@ -116,7 +187,7 @@ export function buildLaunchdPlist(options: ServiceInstallOptions): string {
   // launchd has no `EnvironmentFile=` equivalent, so the token file is sourced by a small shell
   // wrapper before exec'ing the real command — the same "wrap in bash -c" idiom
   // `generateLaunchdPlist` already uses elsewhere in this codebase, just sourcing a secret
-  // instead of printing a log header.
+  // instead of printing a log header. It runs as `UserName` below, same as the shell it wraps.
   const commandString = programArgs.map(escapeShellArg).join(" ");
   const wrappedArgs = [
     "/bin/bash",
@@ -126,10 +197,14 @@ export function buildLaunchdPlist(options: ServiceInstallOptions): string {
 
   return plist.build({
     Label: LAUNCHD_LABEL,
+    UserName: options.user.username,
     ProgramArguments: wrappedArgs,
     RunAtLoad: true,
     KeepAlive: true,
-    EnvironmentVariables: { PATH: getLaunchdPath() },
+    EnvironmentVariables: {
+      PATH: getLaunchdPath(),
+      JAZZ_HOME: path.join(options.user.home, ".jazz"),
+    },
   });
 }
 
@@ -141,23 +216,52 @@ export function isRoot(): boolean {
   return process.getuid?.() === 0;
 }
 
-/** The exact command to re-run with `sudo`, reconstructed from what was actually typed. */
-export function reRunWithSudoCommand(): string {
-  return `sudo ${process.argv.slice(1).map(escapeShellArg).join(" ")}`;
+/**
+ * The exact command to re-run with `sudo`. `process.argv.slice(1)` drops only the running
+ * binary itself — for jazz's actual distributed form (a single compiled executable) `argv[0]`
+ * *is* that binary, not an interpreter to discard, so it has to be re-added from `invocation`
+ * (the same resolution `getJazzSchedulerInvocation` already does) or the printed command is
+ * missing `jazz` entirely.
+ */
+export function reRunWithSudoCommand(invocation: readonly string[]): string {
+  return `sudo ${[...invocation, ...process.argv.slice(1)].map(escapeShellArg).join(" ")}`;
 }
 
 export class ServiceInstallError extends Error {}
 
 function requireRoot(): Effect.Effect<void, ServiceInstallError> {
   if (isRoot()) return Effect.void;
-  return Effect.fail(
-    new ServiceInstallError(
-      `Installing a system service needs root. Run this again as:\n\n  ${reRunWithSudoCommand()}\n`,
-    ),
-  );
+  return Effect.gen(function* () {
+    const invocation = yield* getJazzSchedulerInvocation();
+    return yield* Effect.fail(
+      new ServiceInstallError(
+        `Installing a system service needs root. Run this again as:\n\n  ${reRunWithSudoCommand(invocation)}\n`,
+      ),
+    );
+  });
+}
+
+/**
+ * A generated token is always `randomBytes(...).toString("hex")` — always safe. This only
+ * ever rejects a pre-existing, externally-supplied token (`$JAZZ_DAEMON_TOKEN`, or whatever
+ * the keyring happened to hold) that could otherwise break systemd's one-line-per-variable
+ * `EnvironmentFile` format, or — sourced by the launchd wrapper's shell — execute as a command.
+ * Refusing is the fix; there is no safe way to escape a token into either format.
+ */
+export function isSafeToken(token: string): boolean {
+  return /^[A-Za-z0-9_.-]+$/.test(token);
 }
 
 function writeEnvFile(token: string): Effect.Effect<void, ServiceInstallError> {
+  if (!isSafeToken(token)) {
+    return Effect.fail(
+      new ServiceInstallError(
+        "This token contains characters unsafe for a service env file (only letters, digits, " +
+          "'_.-' are allowed). Generate a fresh one instead of reusing this value: " +
+          "`jazz daemon forget-token` then try again.",
+      ),
+    );
+  }
   return Effect.tryPromise({
     try: async () => {
       await nodeFs.mkdir(path.dirname(DAEMON_ENV_FILE_PATH), { recursive: true, mode: 0o755 });
@@ -181,47 +285,57 @@ export interface InstalledService {
 /**
  * Write the unit/plist and env file, then reload and enable+start it for real — not a
  * dry-run that prints a script and leaves the rest to the operator. Idempotent: re-running
- * this regenerates and restarts rather than failing on "already exists".
+ * this regenerates and restarts rather than failing on "already exists" — `systemctl enable`
+ * alone does not restart an already-running unit, so a changed `--host`/`--port`/token would
+ * otherwise silently not take effect; the explicit `restart` after is what makes this true.
  */
 export function installService(
-  options: ServiceInstallOptions,
+  options: Omit<ServiceInstallOptions, "user">,
 ): Effect.Effect<InstalledService, ServiceInstallError> {
   return Effect.gen(function* () {
     yield* requireRoot();
+    const user = yield* resolveInvokingUser();
+    const fullOptions: ServiceInstallOptions = { ...options, user };
 
     const initSystem = detectInitSystem();
     if (initSystem === "unsupported") {
       return yield* Effect.fail(
         new ServiceInstallError(
           "No supported init system detected (systemd on Linux, launchd on macOS). " +
-            "See docs/guide/peers-setup.md for a manual unit you can adapt.",
+            "See docs/start/peers-setup.md for a manual unit you can adapt.",
         ),
       );
     }
 
-    yield* writeEnvFile(options.token);
+    yield* writeEnvFile(fullOptions.token);
 
     if (initSystem === "systemd") {
       yield* Effect.tryPromise({
-        try: () => nodeFs.writeFile(SYSTEMD_UNIT_PATH, buildSystemdUnit(options), "utf-8"),
+        try: () => nodeFs.writeFile(SYSTEMD_UNIT_PATH, buildSystemdUnit(fullOptions), "utf-8"),
         catch: (error) =>
           new ServiceInstallError(`Could not write ${SYSTEMD_UNIT_PATH}: ${String(error)}`),
       });
       yield* execCommand("systemctl", ["daemon-reload"]).pipe(
         Effect.mapError((error) => new ServiceInstallError(error.message)),
       );
-      yield* execCommand("systemctl", ["enable", "--now", "jazz-daemon"]).pipe(
+      yield* execCommand("systemctl", ["enable", "jazz-daemon"]).pipe(
+        Effect.mapError((error) => new ServiceInstallError(error.message)),
+      );
+      // `enable` alone does not restart an already-running unit — `restart` both starts it
+      // fresh and picks up a changed ExecStart/env file on a re-install.
+      yield* execCommand("systemctl", ["restart", "jazz-daemon"]).pipe(
         Effect.mapError((error) => new ServiceInstallError(error.message)),
       );
       return { initSystem, unitPath: SYSTEMD_UNIT_PATH };
     }
 
     yield* Effect.tryPromise({
-      try: () => nodeFs.writeFile(LAUNCHD_PLIST_PATH, buildLaunchdPlist(options), "utf-8"),
+      try: () => nodeFs.writeFile(LAUNCHD_PLIST_PATH, buildLaunchdPlist(fullOptions), "utf-8"),
       catch: (error) =>
         new ServiceInstallError(`Could not write ${LAUNCHD_PLIST_PATH}: ${String(error)}`),
     });
-    // Unload first, ignoring failure — a re-install has nothing loaded yet the first time.
+    // Unload first, ignoring failure — a re-install has nothing loaded yet the first time,
+    // and load-while-already-loaded is where launchd would otherwise silently no-op.
     yield* execCommand("launchctl", ["unload", LAUNCHD_PLIST_PATH]).pipe(
       Effect.catchAll(() => Effect.void),
     );
