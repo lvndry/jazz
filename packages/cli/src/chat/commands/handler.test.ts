@@ -460,6 +460,7 @@ describe("handleSpecialCommand /peers", () => {
         peers: [
           { name: "bob", url: "http://100.101.102.103:4747/peer/ask", disclosure: "internal" },
           { name: "alice", disclosure: "public" },
+          { name: "carol", url: "http://100.101.102.104:4747/peer/ask" },
         ],
       }) as unknown as AgentConfigService["appConfig"],
     };
@@ -487,7 +488,10 @@ describe("handleSpecialCommand /peers", () => {
     expect(output).toContain("bob");
     expect(output).toContain("http://100.101.102.103:4747/peer/ask");
     expect(output).toContain("alice");
-    expect(output).toContain("no — not granted");
+    // alice has no url — no Endpoint row at all, not a placeholder.
+    expect(output).not.toContain("no — not granted");
+    // carol has no disclosure — no "They may learn" row for her (or anyone after her).
+    expect(output.slice(output.indexOf("carol"))).not.toContain("They may learn");
   });
 
   test("tells you how to add one when none are configured", async () => {

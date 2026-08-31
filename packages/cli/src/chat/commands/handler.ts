@@ -767,10 +767,12 @@ function handlePeersCommand(
     } else {
       for (const peer of peers) {
         yield* terminal.log(fmt.labeledItem(peer.name));
-        yield* terminal.log(
-          fmt.keyValue("Can ask them", peer.url !== undefined ? peer.url : "no — not granted"),
-        );
-        yield* terminal.log(fmt.keyValue("They may learn", describeTier(peer.disclosure)));
+        if (peer.url !== undefined) {
+          yield* terminal.log(fmt.keyValue("Endpoint", peer.url));
+        }
+        if (peer.disclosure !== undefined) {
+          yield* terminal.log(fmt.keyValue("They may learn", describeTier(peer.disclosure)));
+        }
         if (peer.persona !== undefined) {
           yield* terminal.log(fmt.keyValue("Answers as", peer.persona));
         }

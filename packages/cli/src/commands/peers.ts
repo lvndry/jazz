@@ -59,15 +59,14 @@ export function listPeersCommand(options: { readonly json: boolean }) {
       return;
     }
     for (const peer of peers) {
-      const url = peer.url ?? "(cannot be asked — no endpoint)";
-      const persona = peer.persona !== undefined ? `  persona: ${peer.persona}` : "";
-      const allow =
-        peer.allow !== undefined && peer.allow.length > 0
-          ? `  allow: ${peer.allow.join(", ")}`
-          : "";
-      process.stdout.write(
-        `${peer.name}  ${url}  may learn: ${describeTier(peer.disclosure)}${persona}${allow}\n`,
-      );
+      const parts = [peer.name];
+      if (peer.url !== undefined) parts.push(`endpoint: ${peer.url}`);
+      if (peer.disclosure !== undefined) parts.push(`may learn: ${describeTier(peer.disclosure)}`);
+      if (peer.persona !== undefined) parts.push(`persona: ${peer.persona}`);
+      if (peer.allow !== undefined && peer.allow.length > 0) {
+        parts.push(`allow: ${peer.allow.join(", ")}`);
+      }
+      process.stdout.write(`${parts.join("  ")}\n`);
     }
   }).pipe(
     Effect.catchAll((error) =>
