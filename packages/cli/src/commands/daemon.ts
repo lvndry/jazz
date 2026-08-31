@@ -19,7 +19,11 @@ import {
   refuseReason,
   type DaemonRequirements,
 } from "@jazz/adapters/daemon/server";
-import { resolveDaemonToken, resolveOrProvisionDaemonToken } from "@jazz/adapters/daemon/token";
+import {
+  explainDaemonTokenProvisionFailure,
+  resolveDaemonToken,
+  resolveOrProvisionDaemonToken,
+} from "@jazz/adapters/daemon/token";
 import { runDueTriggers } from "@jazz/adapters/daemon/trigger-runner";
 import { resolvePeerToken } from "@jazz/adapters/peers/token";
 import { detectKeyringBackend, keyringDelete, keyringSet } from "@jazz/adapters/secrets/keyring";
@@ -59,10 +63,28 @@ export interface DaemonCommandOptions {
  */
 export function daemonCommand(options: DaemonCommandOptions) {
   return Effect.gen(function* () {
-    const provisioned = isLoopback(options.host)
-      ? { token: yield* resolveDaemonToken(), generated: false }
-      : yield* resolveOrProvisionDaemonToken();
-    const token = provisioned?.token;
+    let token: string | undefined;
+    if (isLoopback(options.host)) {
+      token = yield* resolveDaemonToken();
+    } else {
+      const provisioned = yield* resolveOrProvisionDaemonToken();
+      if (!provisioned.ok) {
+        // A precise, OS-aware explanation instead of `refuseReason`'s generic "no token" —
+        // provisioning already knows exactly why it failed, so say that instead of making
+        // the operator rediscover it themselves.
+        process.stderr.write(`${explainDaemonTokenProvisionFailure(provisioned)}\n`);
+        process.exitCode = 1;
+        return;
+      }
+      token = provisioned.token;
+      if (provisioned.generated) {
+        process.stderr.write(
+          `Generated a daemon token and stored it in the OS keyring: ${provisioned.token}\n` +
+            `Use it as a bearer token from any client reaching this daemon over the network.\n`,
+        );
+      }
+    }
+
     const daemonOptions = {
       port: options.port,
       host: options.host,
@@ -75,13 +97,6 @@ export function daemonCommand(options: DaemonCommandOptions) {
       process.stderr.write(`${refusal}\n`);
       process.exitCode = 1;
       return;
-    }
-
-    if (provisioned?.generated === true) {
-      process.stderr.write(
-        `Generated a daemon token and stored it in the OS keyring: ${provisioned.token}\n` +
-          `Use it as a bearer token from any client reaching this daemon over the network.\n`,
-      );
     }
 
     const logger = yield* LoggerServiceTag;
