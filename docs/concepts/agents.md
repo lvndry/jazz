@@ -139,7 +139,7 @@ as the same agent under a chosen persona, and never holds more tools than its pa
 `~/.jazz/history/`, LRU-bounded to 100 conversations per agent. In the terminal you switch
 between them with `/switch`; headless callers pass `--conversation <id>` and get the same thread
 back across invocations — which is what gives a chat bridge memory without storing anything
-itself. See [Headless](../surfaces/headless.md#memory-without-a-database).
+itself. See [Headless](../use-cases/headless.md#memory-without-a-database).
 
 Transcripts are plaintext JSON. Treat that directory as sensitive.
 
@@ -147,7 +147,7 @@ Transcripts are plaintext JSON. Treat that directory as sensitive.
 
 ## Related
 
-- [Creating agents](../guide/creating-agents.md) — the practical walkthrough
+- [Creating agents](../start/creating-agents.md) — the practical walkthrough
 - [Personas](./personas.md) · [Skills](./skills.md) · [Tools](./tools.md)
 - [Agent loop](../internals/agent-loop.md) — what happens during a run
 - [Configuration](../reference/configuration.md) — every agent config field

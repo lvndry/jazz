@@ -5,7 +5,7 @@ description: "Implementation plan for peer invites: how Jazz should add invite U
 # Peer invites — implementation plan
 
 This is the implementation plan for the peer-invite bootstrap flow described in
-[Concepts: Peer invites](../concepts/peer-invites.md).
+[Setting up peers](../start/peers-setup.md).
 
 The goal is to make peer setup feel like an invitation instead of a manual
 key exchange, while keeping the current trust model intact.
@@ -105,7 +105,7 @@ and a one-way invite naturally produces an entry with only one of those set. Mak
 required would have forced a `""`-shaped placeholder on the granting side of every invite.
 Fixing this surfaced a real, pre-existing bug: `ask_peer`'s "is this peer askable" filter was
 checking `disclosure` instead of `url` — meaning a peer with `url` but no `disclosure` (exactly what a
-one-way invite produces on the *asking* side, and what `docs/guide/peers-setup.md`'s own
+one-way invite produces on the *asking* side, and what `docs/start/peers-setup.md`'s own
 manual walkthrough describes) was silently un-askable. Fixed alongside this feature since the
 feature would otherwise ship broken by inheriting it.
 
@@ -260,9 +260,9 @@ All covered in `packages/adapters/src/peers/invites.test.ts` and
 
 ### Docs
 
-- `docs/concepts/peer-invites.md`, `docs/internals/peer-invites.md` (this file) — corrected
+- `docs/start/peers-setup.md`, `docs/internals/peer-invites.md` (this file) — corrected
   against the implementation
-- `docs/guide/peers-setup.md` — invite-based path added alongside the manual one
+- `docs/start/peers-setup.md` — invite-based path added alongside the manual one
 - `docs/concepts/index.md`, `docs/internals/index.md` — linked
 
 ### Tests

@@ -318,7 +318,7 @@ jazz workflow history market-analysis
 - [Workflow System Overview](./workflows.md)
 - [Creating Workflows](./workflows.md#quick-start)
 - [Troubleshooting Workflows](./workflows.md#troubleshooting)
-- [Airgapped & Self-Hosted](../guide/airgapped.md)
+- [Airgapped & Self-Hosted](../start/airgapped.md)
 
 ---
 
