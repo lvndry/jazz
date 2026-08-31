@@ -19,6 +19,7 @@ import {
 } from "@jazz/adapters/peers/invites";
 import { detectKeyringBackend, keyringSet } from "@jazz/adapters/secrets/keyring";
 import { peerTokenPath } from "@jazz/adapters/secrets/registry";
+import { PersonaServiceTag } from "@jazz/core/interfaces/persona-service";
 import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
 import { getErrorMessage } from "@jazz/core/presentation/error-handler";
 import { CLIError } from "@jazz/core/types/errors";
@@ -129,6 +130,26 @@ export function createInviteCommand(options: CreateInviteCommandOptions) {
       }
       origin = publicUrl.origin;
     }
+
+    // Fail fast on a persona typo now, at the one point a human is actively watching —
+    // otherwise it surfaces only when a peer actually asks a question, as an opaque refusal
+    // this operator has to go dig out of `jazz peers log` to explain.
+    if (options.persona !== undefined) {
+      const personaService = yield* PersonaServiceTag;
+      const resolved = yield* personaService
+        .getPersonaByIdentifier(options.persona)
+        .pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+      if (resolved === undefined) {
+        return yield* Effect.fail(
+          new CLIError({
+            command: "peers invite create",
+            message: `No persona named "${options.persona}" exists.`,
+            suggestion: "Run `jazz persona list` to see what's available, or create it first.",
+          }),
+        );
+      }
+    }
+
     const inviterAskUrl = `${origin}/peer/ask`;
     const created = yield* createInvite({
       inviteeName: options.inviteeName,

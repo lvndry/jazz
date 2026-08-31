@@ -176,9 +176,14 @@ export function servePeerRequest(request: ServePeerRequest) {
       userInput: `${peerPersonaPreamble(request.peer.name)}\n\nThe question:\n${request.question}`,
       conversationId,
       toolAllowlist,
-      // Already vetted by appearing in `toolAllowlist` at all — a granted tool runs without
-      // stopping to ask anyone, since there is nobody attending this run to ask.
-      autoApprovedTools: allow,
+      // `toolAllowlist` is the authorization boundary, already vetted above — nothing
+      // outside it is ever reachable. `autoApprovedTools` is the wrong lever for this: it is
+      // a session-scoped, interactively-originated escape hatch (mutated when a human picks
+      // "always approve"), not a place to re-express an authorization decision that was
+      // already made. A blanket policy is the honest statement of what's actually true here
+      // — everything offered to this run was already decided to be reachable, so there is
+      // nothing left to ask permission for, and nobody attending this run to ask anyway.
+      autoApprovePolicy: true,
       withholdInteractiveTools: true,
       disablePersistence: true,
     }).pipe(Effect.either);
