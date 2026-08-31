@@ -82,8 +82,9 @@ export function explainDaemonTokenProvisionFailure(
 
   if (failure.reason === "keyring-write-failed") {
     return (
-      `A keyring is available but writing the daemon token to it failed — it may be locked ` +
-      `or read-only. Simplest fix, works regardless of the keyring:\n\n${setItYourself}`
+      `${setItYourself}\n\n` +
+      `(A keyring is available but writing the daemon token to it failed — it may be locked ` +
+      `or read-only, which is why this is the fix regardless.)`
     );
   }
 
@@ -91,23 +92,22 @@ export function explainDaemonTokenProvisionFailure(
     switch (platform) {
       case "darwin":
         return (
-          `No OS keyring is available — unusual on macOS, since Keychain access ("security") ` +
-          `is normally there by default. This can happen with no login keychain unlocked ` +
-          `(a sandboxed or CI environment, say).`
+          `unusual on macOS, since Keychain access ("security") is normally there by default. ` +
+          `This can happen with no login keychain unlocked (a sandboxed or CI environment, say).`
         );
       case "linux":
         return (
-          `No OS keyring is available — normal for a headless server. The Linux path ` +
-          `("secret-tool") needs a running D-Bus session and a keyring daemon (gnome-keyring ` +
-          `or similar), and a server with no desktop login never starts either. Running one ` +
-          `just for this isn't worth it either: gnome-keyring normally unlocks itself via PAM ` +
-          `at login, which a headless server never triggers, so you'd end up scripting a manual ` +
-          `unlock — more operational overhead than the fix below, not less.`
+          `normal for a headless server. The Linux path ("secret-tool") needs a running D-Bus ` +
+          `session and a keyring daemon (gnome-keyring or similar), and a server with no ` +
+          `desktop login never starts either. Running one just for this isn't worth it either: ` +
+          `gnome-keyring normally unlocks itself via PAM at login, which a headless server ` +
+          `never triggers, so you'd end up scripting a manual unlock — more operational ` +
+          `overhead than the fix above, not less.`
         );
       default:
-        return `No keyring backend exists for this platform yet.`;
+        return `no keyring backend exists for this platform yet.`;
     }
   })();
 
-  return `${why} Set it yourself:\n\n${setItYourself}`;
+  return `${setItYourself}\n\n(No OS keyring is available — ${why})`;
 }
