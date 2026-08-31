@@ -183,26 +183,23 @@ token yourself instead of chasing a keyring:
 export JAZZ_DAEMON_TOKEN=$(openssl rand -hex 24)
 ```
 
-and persist that value the way you'd persist any other server secret — a systemd
-`Environment=` line, an `.env` file whatever supervises the process reads, or a secrets
-manager if the host already has one. This is the normal path for a server, not a fallback:
-the keyring exists for a workstation where a human is already logged in, not the other way
-around.
-
-**Running the command above by hand only lasts until you Ctrl+C or close the session** —
-`jazz daemon` forks nothing and writes no pidfile on purpose (supervision is the host's job).
-To make it a real persistent service instead, run it as root:
+then install the daemon as a persistent system service. `-E` passes the exported token through
+`sudo`; the installer writes it to a root-readable service environment file, enables the unit,
+and starts it:
 
 ```bash
-sudo jazz daemon --serve-peers bob --host 100.101.102.103
+sudo -E jazz daemon install --serve-peers bob --host 100.101.102.103 --yes
 ```
 
-and it offers to install itself as a systemd unit (or a launchd daemon on macOS) right there —
-confirm once and it writes the unit, enables it, and starts it via `systemctl`/`launchctl`, so
-it survives reboots and closed sessions. Running the plain command without `sudo` just gives
-you a one-line tip pointing at `jazz daemon install` instead of failing; nothing here ever
-invokes `sudo` on its own. Check on it afterward with `systemctl status jazz-daemon` (or
-`launchctl list | grep jazz` on macOS), and remove it again with `sudo jazz daemon uninstall`.
+This is the normal path for a server, not a fallback: the keyring exists for a workstation where
+a human is already logged in, not the other way around.
+
+**Running `jazz daemon --serve-peers bob --host 100.101.102.103` directly only lasts until you
+Ctrl+C or close the session** — it forks nothing and writes no pidfile on purpose. The install
+command above writes the unit, enables it, and starts it via `systemctl`/`launchctl`, so it
+survives reboots and closed sessions. Nothing here invokes `sudo` on its own. Check on it
+afterward with `systemctl status jazz-daemon` (or `launchctl list | grep jazz` on macOS), and
+remove it again with `sudo jazz daemon uninstall`.
 
 ### 3. Bob invites Alice
 

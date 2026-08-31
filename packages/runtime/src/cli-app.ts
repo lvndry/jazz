@@ -802,24 +802,37 @@ function registerDaemonCommand(program: Command): void {
     .description(
       "Install this as a persistent system service (systemd on Linux, launchd on macOS) so it survives reboots and closed sessions. Needs root.",
     )
-    .requiredOption("--serve-peers <agentId>", "Agent that answers peer questions")
-    .option("--host <address>", "Interface to bind", "127.0.0.1")
-    .option("--port <n>", "Port to listen on", parsePositiveInt("--port"), 4747)
     .option("--yes", "Skip the confirmation prompt")
-    .action((options: { servePeers: string; host: string; port: number; yes?: boolean }) =>
-      runCliAction(
+    .action((options: { yes?: boolean }) => {
+      // `daemon` is both a runnable command and the parent of `install`. Commander assigns
+      // duplicate option names to the parent, so defining --serve-peers/--host/--port again
+      // here makes `daemon install --serve-peers …` fail its child's required-option check.
+      // Read the parent's options instead: Commander accepts them after `install`, which keeps
+      // the documented command shape while having one owner for each option.
+      const daemonOptions = daemonCommand.opts<{
+        readonly servePeers?: string | undefined;
+        readonly host: string;
+        readonly port: number;
+      }>();
+      if (daemonOptions.servePeers === undefined) {
+        process.stderr.write("error: required option '--serve-peers <agentId>' not specified\n");
+        process.exitCode = 1;
+        return;
+      }
+      const agentId = daemonOptions.servePeers;
+      return runCliAction(
         () =>
           import("@jazz/cli/commands/daemon").then((mod) =>
             mod.installDaemonServiceCommand({
-              agentId: options.servePeers,
-              host: options.host,
-              port: options.port,
+              agentId,
+              host: daemonOptions.host,
+              port: daemonOptions.port,
               yes: options.yes === true,
             }),
           ),
         cliRuntimeOptions(program),
-      ),
-    );
+      );
+    });
 
   daemonCommand
     .command("uninstall")
