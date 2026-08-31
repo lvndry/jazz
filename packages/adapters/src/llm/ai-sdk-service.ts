@@ -447,7 +447,69 @@ export function toCoreMessages(
     throw new Error(`Unsupported message role: ${String(role)}`);
   });
 
-  return result;
+  return applyConversationCacheBreakpoint(result, normalizedProviderName);
+}
+
+const PREFIX_CACHE_PROVIDERS = new Set(["anthropic", "ai_gateway", "openrouter"]);
+
+function cacheControlProviderOptions(provider: string): Record<string, unknown> {
+  if (provider === "openrouter") {
+    return { openrouter: { cacheControl: { type: "ephemeral" } } };
+  }
+  return { anthropic: { cacheControl: { type: "ephemeral" } } };
+}
+
+/**
+ * Cache the growing conversation prefix, not just the system prompt.
+ *
+ * Anthropic-style providers honour a breakpoint on the last content part:
+ * the next turn reuses everything up to that point at cache-read prices.
+ * Rewriting an earlier message (offload, compaction) is one cache miss,
+ * then the new prefix is stable again.
+ */
+export function applyConversationCacheBreakpoint(
+  messages: ModelMessage[],
+  providerName: string | undefined,
+): ModelMessage[] {
+  if (!providerName || !PREFIX_CACHE_PROVIDERS.has(providerName)) return messages;
+  if (messages.length < 2) return messages;
+
+  const lastIndex = messages.length - 1;
+  const last = messages[lastIndex];
+  if (!last || last.role === "system") return messages;
+
+  const cache = cacheControlProviderOptions(providerName);
+  const content = last.content;
+
+  if (typeof content === "string") {
+    const next = messages.slice();
+    next[lastIndex] = {
+      ...last,
+      content: [{ type: "text", text: content, providerOptions: cache }],
+    } as ModelMessage;
+    return next;
+  }
+
+  if (!Array.isArray(content) || content.length === 0) return messages;
+
+  const parts = content.slice();
+  const lastPart = parts[parts.length - 1];
+  if (lastPart === undefined || typeof lastPart !== "object") return messages;
+
+  const existing =
+    "providerOptions" in lastPart &&
+    lastPart.providerOptions &&
+    typeof lastPart.providerOptions === "object"
+      ? lastPart.providerOptions
+      : {};
+  parts[parts.length - 1] = {
+    ...lastPart,
+    providerOptions: { ...existing, ...cache },
+  } as (typeof parts)[number];
+
+  const next = messages.slice();
+  next[lastIndex] = { ...last, content: parts } as ModelMessage;
+  return next;
 }
 
 type ModelName = string;
@@ -895,19 +957,22 @@ export function buildProviderOptions(
   switch (normalizedProvider) {
     case "openai": {
       const reasoningEffort = options.reasoning_effort;
+      const openaiOptions: OpenAIResponsesProviderOptions = {
+        promptCacheKey: "conversation",
+      };
       if (reasoningEffort && reasoningEffort !== "disable") {
         return {
           openai: {
+            ...openaiOptions,
             reasoningEffort,
             reasoningSummary: "auto",
             systemMessageMode: "system",
-            promptCacheKey: "conversation",
             store: false,
             include: ["reasoning.encrypted_content"],
           } satisfies OpenAIResponsesProviderOptions,
         };
       }
-      break;
+      return { openai: openaiOptions };
     }
     case "anthropic": {
       const reasoningEffort = options.reasoning_effort;

@@ -76,7 +76,7 @@ const BUILTIN_TOOLS_BY_CATEGORY: Record<string, string[]> = {
   todo: ["manage_todos", "list_todos"],
   subagent: ["spawn_subagent", "summarize_context"],
   user_interaction: ["ask_user_question", "ask_file_picker"],
-  context: ["context_info", "get_time"],
+  context: ["context_info", "get_time", "retrieve_tool_result"],
 };
 
 const MOCK_TOOL_DEFINITIONS = [
@@ -118,6 +118,7 @@ const mockToolRegistry = {
       "manage_todos",
       "list_todos",
       "context_info",
+      "retrieve_tool_result",
     ]),
   ),
   getToolsInCategory: mock((categoryId: string) =>

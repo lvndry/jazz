@@ -106,7 +106,7 @@ inside has already parked, waiting for someone to approve a tool.
   memory/                     durable facts, across conversations
   history/
     conversations/<agent>/    one append-only log per conversation
-  work/<agent>/<conversation>/  work state and journal, discarded with the work
+  work/<agent>/<conversation>/  work state, journal, and offloaded tool results
   runs/                       one record per run, pruned once terminal
   runtime/
 ```

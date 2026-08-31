@@ -253,19 +253,31 @@ ceiling and go back to the model's own window.
 
 ### The ladder, cheapest rung first
 
-Four mechanisms now share one budget, escalating by cost:
+Four mechanisms share one budget, escalating by cost. Clearing no longer waits
+on a window-fill percentage: it runs **every iteration**.
 
-| Rung               | Fires at | Costs              | Effect                                                        |
-| ------------------ | -------- | ------------------ | ------------------------------------------------------------- |
-| Warn               | 70%      | nothing            | User *and* agent are told; the agent is nudged to consolidate |
-| Clear tool results | 65%      | nothing            | Old raw tool output replaced by a placeholder, structure kept |
-| Compact            | 80%      | one LLM call       | Older history summarized into the running summary             |
-| Trim               | 95%      | nothing, but lossy | Messages dropped unsummarized — the floor, not the path       |
+| Rung               | Fires at                         | Costs              | Effect                                                                                          |
+| ------------------ | -------------------------------- | ------------------ | ----------------------------------------------------------------------------------------------- |
+| Clear tool results | every iteration                  | nothing            | Live tool cycle stays verbatim. Older large results become a pointer (or a re-run stub).        |
+| Warn               | 70%                              | nothing            | User *and* agent are told; the agent is nudged to consolidate                                   |
+| Compact            | 80%                              | one LLM call       | Older history summarized into the running summary                                               |
+| Trim               | 95%                              | nothing, but lossy | Messages dropped unsummarized — the floor, not the path                                         |
 
-Clearing runs before compaction because it is free: a long run's tokens are mostly raw
-tool output, and most of it stops mattering once the model has read it. It fires **once per
-crossing**, not per turn, because rewriting the message prefix invalidates the provider's
-cache — the same reason the trim budget must not sit below the compaction threshold.
+Clearing is free, so it runs first, every turn. Each result is rewritten at most
+once (`cleared` sticks), so the prompt-cache prefix only jumps when a result
+actually ages out of the live cycle.
+
+Before stubbing, Jazz tries to write the original body under
+`~/.jazz/work/<agent>/<conversation>/tool-results/<tool_call_id>.txt`. The
+placeholder then names `retrieve_tool_result`. If the write fails — read-only
+CI images, locked-down containers, a Telegram host that can read but not write —
+the run continues and the placeholder says to re-run the original tool. Missing
+retrieves fail the same way. The conversation never depends on a writable disk.
+
+The live cycle is the last assistant message that still has `tool_calls`,
+through the end of the list: those results have not been shown to the model yet
+(or are the ones it is about to use). A later assistant message without tool
+calls means that cycle was already consumed, and the bodies can go.
 
 Tool results are cleared by replacing content and keeping the message, so the
 assistant/tool pairing survives. Deleting the message would orphan the `tool_calls` that

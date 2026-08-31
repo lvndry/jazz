@@ -1,12 +1,14 @@
 /**
- * Self-awareness tools exposed to the model: current date/time and context
- * window usage, for scheduling and deciding when to summarize.
+ * Self-awareness tools exposed to the model: current date/time, context
+ * window usage, and retrieval of tool output that was offloaded from context.
  */
 
 import { Effect } from "effect";
 import { z } from "zod";
+import { readOffloadedToolResult } from "@/core/agent/context/tool-result-offload";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionResult } from "@/core/types/tools";
+import { defineTool, makeZodValidator } from "./base-tool";
 
 const DAYS = [
   "Sunday",
@@ -98,4 +100,66 @@ export function createContextInfoTool(): Tool<never> {
       } satisfies ToolExecutionResult);
     },
   };
+}
+
+const retrieveToolResultParameters = z
+  .object({
+    tool_call_id: z
+      .string()
+      .min(1)
+      .describe("The tool_call_id from the offloaded placeholder you want to read back."),
+  })
+  .strict();
+
+type RetrieveToolResultArgs = z.infer<typeof retrieveToolResultParameters>;
+
+/**
+ * Read a tool body that was moved out of context onto disk.
+ *
+ * The original tool may no longer be in the transcript. This is the pointer
+ * the clearer leaves behind. Missing files (read-only hosts that never wrote,
+ * or a body below the size floor) return an error telling the model to re-run
+ * the original tool instead.
+ */
+export function createRetrieveToolResultTool(): Tool<never> {
+  return defineTool<never, RetrieveToolResultArgs>({
+    name: "retrieve_tool_result",
+    disclosure: "private",
+    description:
+      "Read the original output of a tool result that was offloaded from context. " +
+      "Pass the tool_call_id from the offloaded placeholder. If nothing is stored, " +
+      "re-run the original tool instead — the host may be read-only.",
+    parameters: retrieveToolResultParameters,
+    riskLevel: "read-only",
+    hidden: false,
+    validate: makeZodValidator(retrieveToolResultParameters),
+    handler: (args, context) =>
+      Effect.gen(function* () {
+        const conversationId = context.conversationId;
+        if (!conversationId) {
+          return {
+            success: false,
+            result: null,
+            error: "No conversation is active, so there is nothing to retrieve.",
+          } satisfies ToolExecutionResult;
+        }
+
+        const contents = yield* readOffloadedToolResult(
+          context.agentId,
+          conversationId,
+          args.tool_call_id,
+        );
+        if (contents === undefined) {
+          return {
+            success: false,
+            result: null,
+            error:
+              `No offloaded result for tool_call_id "${args.tool_call_id}". ` +
+              "Re-run the original tool if you still need that output.",
+          } satisfies ToolExecutionResult;
+        }
+
+        return { success: true, result: contents } satisfies ToolExecutionResult;
+      }),
+  });
 }
