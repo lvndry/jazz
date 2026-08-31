@@ -59,14 +59,16 @@ export function listPeersCommand(options: { readonly json: boolean }) {
       return;
     }
     for (const peer of peers) {
-      const parts = [peer.name];
-      if (peer.url !== undefined) parts.push(`endpoint: ${peer.url}`);
-      if (peer.disclosure !== undefined) parts.push(`may learn: ${describeTier(peer.disclosure)}`);
-      if (peer.persona !== undefined) parts.push(`persona: ${peer.persona}`);
-      if (peer.allow !== undefined && peer.allow.length > 0) {
-        parts.push(`allow: ${peer.allow.join(", ")}`);
-      }
-      process.stdout.write(`${parts.join("  ")}\n`);
+      const endpoint = peer.url ?? "(none — cannot be asked)";
+      const persona = peer.persona ?? "(agent's default persona)";
+      const allow =
+        peer.allow !== undefined && peer.allow.length > 0
+          ? peer.allow.join(", ")
+          : "(none — read-only only)";
+      process.stdout.write(
+        `${peer.name}  endpoint: ${endpoint}  may learn: ${describeTier(peer.disclosure)}  ` +
+          `persona: ${persona}  allow: ${allow}\n`,
+      );
     }
   }).pipe(
     Effect.catchAll((error) =>

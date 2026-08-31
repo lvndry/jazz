@@ -488,10 +488,10 @@ describe("handleSpecialCommand /peers", () => {
     expect(output).toContain("bob");
     expect(output).toContain("http://100.101.102.103:4747/peer/ask");
     expect(output).toContain("alice");
-    // alice has no url — no Endpoint row at all, not a placeholder.
-    expect(output).not.toContain("no — not granted");
-    // carol has no disclosure — no "They may learn" row for her (or anyone after her).
-    expect(output.slice(output.indexOf("carol"))).not.toContain("They may learn");
+    // alice has no url — shown as an explicit placeholder, not omitted.
+    expect(output).toContain("none — cannot be asked");
+    // carol has no disclosure — still shown, via describeTier's own "none" default.
+    expect(output.slice(output.indexOf("carol"))).toContain("They may learn");
   });
 
   test("tells you how to add one when none are configured", async () => {

@@ -767,18 +767,19 @@ function handlePeersCommand(
     } else {
       for (const peer of peers) {
         yield* terminal.log(fmt.labeledItem(peer.name));
-        if (peer.url !== undefined) {
-          yield* terminal.log(fmt.keyValue("Endpoint", peer.url));
-        }
-        if (peer.disclosure !== undefined) {
-          yield* terminal.log(fmt.keyValue("They may learn", describeTier(peer.disclosure)));
-        }
-        if (peer.persona !== undefined) {
-          yield* terminal.log(fmt.keyValue("Answers as", peer.persona));
-        }
-        if (peer.allow !== undefined && peer.allow.length > 0) {
-          yield* terminal.log(fmt.keyValue("Extra grants", peer.allow.join(", ")));
-        }
+        yield* terminal.log(fmt.keyValue("Endpoint", peer.url ?? "(none — cannot be asked)"));
+        yield* terminal.log(fmt.keyValue("They may learn", describeTier(peer.disclosure)));
+        yield* terminal.log(
+          fmt.keyValue("Answers as", peer.persona ?? "(agent's default persona)"),
+        );
+        yield* terminal.log(
+          fmt.keyValue(
+            "Extra grants",
+            peer.allow !== undefined && peer.allow.length > 0
+              ? peer.allow.join(", ")
+              : "(none — read-only only)",
+          ),
+        );
         yield* terminal.log(fmt.blank());
       }
 
