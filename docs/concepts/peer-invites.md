@@ -131,7 +131,7 @@ concept doc originally undersold what a one-way invite needs:
   his own config, and stores the shared token under that name in his keyring. This is what
   lets *him* ask *her*.
 - **The inviter's daemon** (Alice's, mid-request, the moment it verifies the redeem secret)
-  writes `{ name: <the name Alice chose for Bob>, may: <the proposed tier> }` into her own
+  writes `{ name: <the name Alice chose for Bob>, disclosure: <the proposed tier> }` into her own
   config, and stores the same token under that name in her keyring. This is what lets *her*
   daemon recognize and authorize *his* future questions — without it, her `/peer/ask` would
   401 him forever, invite or no invite.

@@ -336,7 +336,7 @@ jazz peers log
   not the connection. Read the reason in `jazz peers log`; it's usually the tier working as
   designed.
 - **`ask_peer` doesn't show up in the toolset** — no peer is configured on that side yet, or
-  every configured peer is at `may: "none"`. The tool is deliberately absent until there's
+  every configured peer is at `disclosure: "none"`. The tool is deliberately absent until there's
   somewhere for it to go.
 - **The daemon refuses to start** — read the message; it's almost always
   `--host` set to something other than loopback with no `$JAZZ_DAEMON_TOKEN`. That check
