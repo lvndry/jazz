@@ -189,6 +189,21 @@ manager if the host already has one. This is the normal path for a server, not a
 the keyring exists for a workstation where a human is already logged in, not the other way
 around.
 
+**Running the command above by hand only lasts until you Ctrl+C or close the session** —
+`jazz daemon` forks nothing and writes no pidfile on purpose (supervision is the host's job).
+To make it a real persistent service instead, run it as root:
+
+```bash
+sudo jazz daemon --serve-peers bob --host 100.101.102.103
+```
+
+and it offers to install itself as a systemd unit (or a launchd daemon on macOS) right there —
+confirm once and it writes the unit, enables it, and starts it via `systemctl`/`launchctl`, so
+it survives reboots and closed sessions. Running the plain command without `sudo` just gives
+you a one-line tip pointing at `jazz daemon install` instead of failing; nothing here ever
+invokes `sudo` on its own. Check on it afterward with `systemctl status jazz-daemon` (or
+`launchctl list | grep jazz` on macOS), and remove it again with `sudo jazz daemon uninstall`.
+
 ### 3. Bob invites Alice
 
 ```bash
