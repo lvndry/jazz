@@ -398,8 +398,8 @@ message from a bot, or a scoped decision a scheduled run is allowed to make on
 its own. It is the one component that has to render in three places, which is why
 its content is specified as facts about what will happen rather than as a layout.
 
-See [Surfaces](../surfaces/index.md) for where Jazz runs, and
-[Headless](../surfaces/headless.md) for the `jazz run` contract.
+See [Use cases](../use-cases/index.md) for where Jazz runs, and
+[Headless](../use-cases/headless.md) for the `jazz run` contract.
 
 ---
 

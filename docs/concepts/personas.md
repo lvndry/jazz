@@ -153,5 +153,5 @@ You help the user with their tasks. Fair winds!
 ## See Also
 
 - [Agents](./agents.md) – How agents are configured and used
-- [Creating Agents](../guide/creating-agents.md) – Step-by-step agent creation
+- [Creating Agents](../start/creating-agents.md) – Step-by-step agent creation
 - [CLI Reference](../reference/cli.md) – Command-line interface
