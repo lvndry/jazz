@@ -8,6 +8,10 @@ Jazz is a Bun workspace (`packages/*`), split along clean-architecture lines wit
 structurally enforced by TypeScript project references — `tsc -b` rejects a package importing
 from one it doesn't declare as a dependency, not just a documented convention.
 
+### Prerequisites
+
+- Bun 1.4.0 or newer
+
 | Package             | Purpose                                                          | Depends on                      |
 | -------------------- | ----------------------------------------------------------------- | --------------------------------- |
 | `packages/core`       | Business logic, interfaces, types (no I/O); publishable as `@jazz/core` | nothing else in the workspace     |

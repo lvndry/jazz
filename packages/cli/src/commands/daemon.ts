@@ -65,6 +65,27 @@ export interface DaemonCommandOptions {
 }
 
 /**
+ * Explain a failed non-loopback token provision and, when peer serving was requested, give
+ * the exact persistent-service command that stores the exported token safely for systemd or
+ * launchd. Token provisioning belongs to adapters; this command-specific next step belongs
+ * here, where the agent, host, and port are known.
+ */
+export function formatDaemonTokenProvisionFailure(
+  failure: Parameters<typeof explainDaemonTokenProvisionFailure>[0],
+  options: DaemonCommandOptions,
+): string {
+  const explanation = explainDaemonTokenProvisionFailure(failure);
+  if (options.peerAgent === undefined) return explanation;
+
+  return (
+    `${explanation}\n\n` +
+    `After exporting the token, install the persistent service:\n\n` +
+    `  sudo -E jazz daemon install --serve-peers ${options.peerAgent} ` +
+    `--host ${options.host} --port ${String(options.port)}`
+  );
+}
+
+/**
  * Serve until interrupted.
  *
  * The token comes from the environment or the OS keyring rather than a flag: a token in argv
@@ -86,7 +107,7 @@ export function daemonCommand(options: DaemonCommandOptions) {
         // A precise, OS-aware explanation instead of `refuseReason`'s generic "no token" —
         // provisioning already knows exactly why it failed, so say that instead of making
         // the operator rediscover it themselves.
-        process.stderr.write(`${explainDaemonTokenProvisionFailure(provisioned)}\n`);
+        process.stderr.write(`${formatDaemonTokenProvisionFailure(provisioned, options)}\n`);
         process.exitCode = 1;
         return;
       }
