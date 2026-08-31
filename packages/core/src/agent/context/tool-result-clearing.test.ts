@@ -37,7 +37,13 @@ describe("toolResultsProtectFromIndex", () => {
   it("protects the live tool cycle so the model still sees what it just asked for", () => {
     const messages = conversation(3);
     const protectFrom = toolResultsProtectFromIndex(messages);
-    const lastCall = messages.findLastIndex((message) => message.role === "assistant");
+    let lastCall = -1;
+    for (let index = messages.length - 1; index >= 0; index--) {
+      if (messages[index]?.role === "assistant") {
+        lastCall = index;
+        break;
+      }
+    }
     expect(protectFrom).toBe(lastCall);
   });
 
