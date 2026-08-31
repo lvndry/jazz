@@ -2,7 +2,7 @@
 description: "Production-ready Jazz workflow recipes you can fork today: inbox triage, PR watchdogs, research digests, competitor watches, and CI reviewers."
 ---
 
-# Jazz Workflow Cookbook
+# Jazz Playbooks
 
 Forkable, production-ready workflow recipes you can drop into your machine or CI runner. Each recipe is a complete `WORKFLOW.md` file plus the install steps.
 

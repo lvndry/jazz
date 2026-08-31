@@ -42,7 +42,7 @@ const recipes = [
   <div class="grid">
     {
       recipes.map((recipe) => (
-        <a class="recipe" href={`/docs/cookbook/${recipe.slug}`}>
+        <a class="recipe" href={`/docs/playbooks/${recipe.slug}`}>
           <div class="name">{recipe.name}</div>
           <div class="run mono">
             {recipe.run.map((line, index) => (
@@ -56,7 +56,7 @@ const recipes = [
       ))
     }
   </div>
-  <a class="more mono" href="/docs/cookbook">more in the cookbook →</a>
+  <a class="more mono" href="/docs/playbooks">more in the cookbook →</a>
 </section>
 
 <style>

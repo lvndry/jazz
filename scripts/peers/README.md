@@ -1,6 +1,6 @@
 # Peer-invite demos
 
-Two ways to see [peer invites](../../docs/concepts/peer-invites.md) actually work, end to end,
+Two ways to see [peer setup](../../docs/start/peers-setup.md) actually work, end to end,
 with real agents and a real model — the part
 [`packages/adapters/src/daemon/peer-invite-flow.test.ts`](../../packages/adapters/src/daemon/peer-invite-flow.test.ts)
 deliberately doesn't cover, since a model's actual answer isn't something a deterministic CI

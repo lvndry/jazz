@@ -2,7 +2,7 @@
 description: "Install Jazz, configure your first agent, and get it doing real work: quick start, agent creation, Telegram/Discord bots, airgapped deployment, and observability."
 ---
 
-# Guide
+# Start
 
 Get Jazz installed, configured, and doing real work.
 
@@ -13,6 +13,6 @@ Get Jazz installed, configured, and doing real work.
 - [Observability](./observability.md): Send run telemetry to your own OpenTelemetry collector or Langfuse.
 - [Setting up peers](./peers-setup.md): Let your agent ask a friend's, and theirs ask yours.
 
-Looking for finished things to copy? The [Cookbook](../cookbook/index.md) has
-scheduled workflows ready to install, and [Examples](../examples/index.md)
-walks through interactive sessions end to end.
+Looking for finished things to copy? The [Playbooks](../playbooks/index.md) have
+scheduled workflows ready to install, and [Use cases](../use-cases/index.md)
+walk through concrete sessions end to end.

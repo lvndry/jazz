@@ -7,7 +7,7 @@ description: "Step-by-step: create a Telegram bot or a Discord bot, wire it to a
 A hands-on walkthrough for going from nothing to a working Jazz agent in your Telegram DMs
 or a Discord server. Both bridges are shipped, Docker-based services — this page is the
 account-creation and configuration steps; see
-[Chat platforms](../surfaces/chat-platforms.md) for what they demonstrate architecturally,
+[Chat platforms](../use-cases/chat-platforms.md) for what they demonstrate architecturally,
 and each bridge's own README for the full command/environment-variable reference:
 [`packages/telegram-bot/README.md`](../../packages/telegram-bot/README.md),
 [`packages/discord-bot/README.md`](../../packages/discord-bot/README.md).

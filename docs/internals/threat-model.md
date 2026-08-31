@@ -72,7 +72,7 @@ Source: `packages/core/src/agent/tools/command-risk.ts`.
   secret. One caveat stated honestly: the bridge container always runs a minimal `/health`
   HTTP endpoint for container health checks. Source: `packages/telegram-bot/bridge.ts`.
 - `JAZZ_OFFLINE=1` stops every outbound request Jazz makes on its own behalf except model
-  inference itself. Source: [airgapped](../guide/airgapped.md).
+  inference itself. Source: [airgapped](../start/airgapped.md).
 
 ## Runaway protection
 

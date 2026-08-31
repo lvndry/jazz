@@ -104,7 +104,7 @@ anymore, and per-workflow `maxCatchUpAge` overrides that. A "good morning" brief
 4 PM is noise, not recovery.
 
 If the schedule genuinely can't be missed, run Jazz somewhere always-on. Same commands,
-different host: see [Airgapped & self-hosted](../guide/airgapped.md), and
+different host: see [Airgapped & self-hosted](../start/airgapped.md), and
 [Scheduling: behavior & limitations](../concepts/scheduling.md) for the full treatment
 including keep-awake options and always-on device setups.
 
@@ -133,5 +133,5 @@ minimal `PATH`.
 
 - [Workflows](../concepts/workflows.md) — the file format and frontmatter
 - [Scheduling: behavior & limitations](../concepts/scheduling.md) — sleep, catch-up, always-on hosts
-- [Cookbook](../cookbook/index.md) — seven scheduled recipes with install steps
+- [Playbooks](../playbooks/index.md) — scheduled recipes with install steps
 - [Headless](./headless.md) — for dynamic prompts instead of a fixed workflow file

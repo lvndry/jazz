@@ -13,9 +13,9 @@ chat. Any model, including local ones. These docs are organized by what you're t
 
 | I want to… | Go to |
 | --- | --- |
-| **Install it and see it work** | [Quick Start](./guide/quick-start.md) |
-| **Know where it can run** | [Where it runs](./surfaces/index.md) |
-| **Copy a finished thing** | [Cookbook](./cookbook/index.md) |
+| **Install it and see it work** | [Quick Start](./start/quick-start.md) |
+| **Know where it can run** | [Where it runs](./use-cases/index.md) |
+| **Copy a finished thing** | [Playbooks](./playbooks/index.md) |
 | **Understand a concept** | [Concepts](./concepts/index.md) |
 | **Look up a flag or tool** | [Reference](./reference/index.md) |
 | **See how it works inside** | [Internals](./internals/index.md) |
@@ -25,35 +25,34 @@ chat. Any model, including local ones. These docs are organized by what you're t
 
 ## Sections
 
-### [Guide](./guide/index.md) — get running
+### [Start](./start/index.md) — get running
 
-- [Quick Start](./guide/quick-start.md) — install, configure a provider, first answer
-- [Creating Agents](./guide/creating-agents.md) — build an agent for a job
-- [Creating a Telegram or Discord bot](./guide/chat-bots.md) — bot token to a working agent in your chats
-- [Airgapped & Self-Hosted](./guide/airgapped.md) — fully offline with Ollama or llama.cpp
-- [Observability](./guide/observability.md) — telemetry to your own OpenTelemetry collector or Langfuse
+- [Quick Start](./start/quick-start.md) — install, configure a provider, first answer
+- [Creating Agents](./start/creating-agents.md) — build an agent for a job
+- [Creating a Telegram or Discord bot](./start/chat-bots.md) — bot token to a working agent in your chats
+- [Airgapped & Self-Hosted](./start/airgapped.md) — fully offline with Ollama or llama.cpp
+- [Observability](./start/observability.md) — telemetry to your own OpenTelemetry collector or Langfuse
 
-### [Where it runs](./surfaces/index.md)
+### [Use cases](./use-cases/index.md) — concrete jobs Jazz is good at
 
-One agent, many front doors. Start with the [surface matrix](./surfaces/index.md).
+One agent, many front doors. Start with the matrix below.
 
-- [Headless](./surfaces/headless.md) — the `jazz run` contract: stdout/stderr, JSON envelope, per-chat memory, live events
-- [Chat platforms](./surfaces/chat-platforms.md) — Telegram and Discord (shipped), Slack / Google Chat (bring your own bridge)
-- [CI/CD](./surfaces/ci-cd.md) — PR review with inline comments, the `/jazz` assistant, release notes
-- [Scheduled](./surfaces/scheduled.md) — launchd / cron, catch-up, unattended safety
+- [Headless](./use-cases/headless.md) — the `jazz run` contract: stdout/stderr, JSON envelope, per-chat memory, live events
+- [Chat platforms](./use-cases/chat-platforms.md) — Telegram and Discord (shipped), Slack / Google Chat (bring your own bridge)
+- [CI/CD](./use-cases/ci-cd.md) — PR review with inline comments, the `/jazz` assistant, release notes
+- [Scheduled](./use-cases/scheduled.md) — launchd / cron, catch-up, unattended safety
 
 ### [Concepts](./concepts/index.md) — the building blocks
 
-- [Agents](./concepts/agents.md) · [Personas](./concepts/personas.md) · [Skills](./concepts/skills.md) · [Tools](./concepts/tools.md) · [Workflows](./concepts/workflows.md) · [Scheduling](./concepts/scheduling.md)
+- [Agents](./concepts/agents.md) · [Personas](./concepts/personas.md) · [Skills](./concepts/skills.md) · [Tools](./concepts/tools.md) · [Workflows](./concepts/workflows.md) · [Scheduling](./concepts/scheduling.md) · [Agent-to-agent](./concepts/agent-to-agent.md)
 
-### [Examples](./examples/index.md) — end-to-end walkthroughs
+### Walkthroughs
 
-Interactive sessions from ask to artifact: [deep research into Obsidian](./examples/deep-research.md), [git history surgery](./examples/git-squash.md), [security scans](./examples/security-scan.md), [and more](./examples/index.md).
+Concrete sessions from ask to artifact: [setting up peers](./start/peers-setup.md), [deep research into Obsidian](./use-cases/deep-research.md), [git history surgery](./use-cases/git-squash.md), [security scans](./use-cases/security-scan.md), and more.
 
-### [Cookbook](./cookbook/index.md) — copy-pasteable recipes
+### [Playbooks](./playbooks/index.md) — copy-pasteable recipes
 
-Seven production-ready workflows with install steps and risk tiers: inbox triage, PR
-watchdog, competitor watch, tech-debt radar, research digest, CI reviewer, release notes.
+Production-ready workflows with install steps and risk tiers: inbox triage, PR watchdog, competitor watch, tech-debt radar, research digest, CI reviewer, release notes.
 
 ### [Integrations](./integrations/index.md) — connect things
 
@@ -76,15 +75,11 @@ watchdog, competitor watch, tech-debt radar, research digest, CI reviewer, relea
 
 ### [Design](./design/index.md) — how the interface is built
 
-The terminal interface: the mark, the single-column layout, the six-hue palette, the
-activity indicators, and the approval card. Includes the two rules that decide every case
-not covered explicitly, and how the same design holds over SSH, in a cutting-edge terminal,
-and with no terminal at all.
+The terminal interface: the mark, the single-column layout, the six-hue palette, the activity indicators, and the approval card. Includes the two rules that decide every case not covered explicitly, and how the same design holds over SSH, in a cutting-edge terminal, and with no terminal at all.
 
 ### [Security](../SECURITY.md)
 
-The threat model, the approval tiers, hardening for unattended and chat-facing deployments,
-and how to report a vulnerability. Lives at the repository root.
+The threat model, the approval tiers, hardening for unattended and chat-facing deployments, and how to report a vulnerability. Lives at the repository root.
 
 ---
 

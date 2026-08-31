@@ -6,7 +6,7 @@ description: "Hands-on setup for peer links between two Jazz machines: approval 
 
 A hands-on walkthrough for letting your agent ask a friend's agent something, and letting
 theirs ask yours. For the policy this is built on — tiers, the ledger, what no tier ever
-permits — read [Peers](../concepts/peers.md) first; this page assumes you've seen it.
+permits — read [Agent-to-agent](../concepts/agent-to-agent.md) first; this page assumes you've seen it.
 
 You need three things, in order: something worth asking, someone willing to answer it, and a
 shared secret only the two of you know. Everything else is which network sits between you,
@@ -21,7 +21,7 @@ and that's the actual difference between the three setups below:
 Pick the one that matches your actual situation — they don't build on each other.
 
 Every walkthrough below gets the shared secret onto both machines with an
-[invite](../concepts/peer-invites.md): whichever side will *answer* creates a link, the other
+invite: whichever side will *answer* creates a link, the other
 side accepts it, and nobody types or pastes a token. Each section also shows the manual way —
 generate one with `openssl`, run `jazz peers set-token` on both sides, edit config by hand —
 as a fold-out, for when you'd rather not have acceptance write your config for you, or you're
@@ -57,7 +57,7 @@ own terminal.
 JAZZ_HOME=$BOB jazz peers invite create alice --port 4748 --disclosure internal --expires 1h
 ```
 
-`disclosure` is the tier — see the [tier table](../concepts/peers.md#tiers-what-a-peer-may-learn).
+`disclosure` is the tier — see the [tier table](../concepts/agent-to-agent.md#tiers-what-a-peer-may-learn).
 Start at `internal`, not `private`: you want to see a refusal happen before you see an
 answer. This prints a link; send it to Alice out of band (a chat message, not a commit).
 
@@ -348,9 +348,9 @@ jazz peers log
 
 ## Next steps
 
-- [Peer invites](../concepts/peer-invites.md) — how the invite flow works and why it's shaped
+- [Setting up peers](../start/peers-setup.md) — how the invite flow works and why it's shaped
   the way it is
-- [Peers](../concepts/peers.md) — the tier model, the ledger, and what this does not protect
+- [Agent-to-agent](../concepts/agent-to-agent.md) — the tier model, the ledger, and what this does not protect
   you from
 - [`jazz daemon`](../reference/cli.md#jazz-daemon) — the HTTP server peers runs on top of
 - [Tools](../concepts/tools.md) — what `public`/`internal`/`private` mean, and why tiers are
