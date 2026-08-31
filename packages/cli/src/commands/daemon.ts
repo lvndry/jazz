@@ -27,6 +27,7 @@ import {
 import {
   detectInitSystem,
   generateDaemonToken,
+  type InstalledService,
   installService,
   serviceAlreadyInstalled,
   uninstallService,
@@ -82,6 +83,29 @@ export function formatDaemonTokenProvisionFailure(
     `After exporting the token, install the persistent service:\n\n` +
     `  sudo -E jazz daemon install --serve-peers ${options.peerAgent} ` +
     `--host ${options.host} --port ${String(options.port)}`
+  );
+}
+
+/**
+ * The end state an install should leave an operator at: not just "the unit is enabled" but
+ * "reachable, and here is the exact next command" — the whole point of verifying `/health`
+ * inside `installService` is wasted if the message afterward still just points at
+ * `systemctl status` and leaves peer-inviting as an exercise for the operator.
+ */
+function formatServiceInstalledMessage(
+  installed: InstalledService,
+  options: { readonly host: string },
+): string {
+  const statusCommand =
+    installed.initSystem === "launchd"
+      ? "launchctl list | grep jazz"
+      : "systemctl status jazz-daemon";
+  return (
+    `Installed and started — the daemon answered its own health check, so it is actually ` +
+    `reachable at ${options.host}, not just enabled.\n` +
+    `Check on it anytime with '${statusCommand}'.\n\n` +
+    `Next, invite a peer:\n\n` +
+    `  jazz peers invite create <peer-name> --host ${options.host} --disclosure internal --expires 1h\n`
   );
 }
 
@@ -161,8 +185,7 @@ export function daemonCommand(options: DaemonCommandOptions) {
             );
             if (installed !== undefined) {
               yield* terminal.success(
-                `Installed and started. Check on it with 'systemctl status jazz-daemon'` +
-                  `${installed.initSystem === "launchd" ? " (or 'launchctl list | grep jazz' on macOS)" : ""}.`,
+                formatServiceInstalledMessage(installed, { host: options.host }),
               );
             }
             return;
@@ -400,10 +423,7 @@ export function installDaemonServiceCommand(options: {
     );
     if (installed === undefined) return;
 
-    yield* terminal.success(
-      `Installed and started. Check on it with 'systemctl status jazz-daemon'` +
-        `${installed.initSystem === "launchd" ? " (or 'launchctl list | grep jazz' on macOS)" : ""}.`,
-    );
+    yield* terminal.success(formatServiceInstalledMessage(installed, { host: options.host }));
   });
 }
 

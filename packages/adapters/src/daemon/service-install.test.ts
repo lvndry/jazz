@@ -9,6 +9,7 @@ import {
   reRunWithSudoCommand,
   resolveInvokingUser,
   type ServiceInstallOptions,
+  waitForDaemonHealthy,
 } from "./service-install";
 
 const OPTIONS: ServiceInstallOptions = {
@@ -116,6 +117,67 @@ describe("token safety", () => {
     expect(isSafeToken("token$(whoami)")).toBe(false);
     expect(isSafeToken("token with spaces")).toBe(false);
     expect(isSafeToken("")).toBe(false);
+  });
+});
+
+describe("waiting for the daemon to prove it is reachable", () => {
+  it("succeeds once something answers 200 on /health", async () => {
+    const server = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch: (request) => {
+        const url = new URL(request.url);
+        return url.pathname === "/health"
+          ? new Response(JSON.stringify({ ok: true }), { status: 200 })
+          : new Response("not found", { status: 404 });
+      },
+    });
+    try {
+      const result = await Effect.runPromise(
+        Effect.either(
+          waitForDaemonHealthy({ host: "127.0.0.1", port: server.port }, "systemd", 2_000),
+        ),
+      );
+      expect(result._tag).toBe("Right");
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  it("fails with a diagnostic command when nothing is listening — a crashed unit, not a slow one", async () => {
+    // An arbitrary unused port: nothing is bound here, simulating an ExecStart that crashed
+    // immediately after `systemctl restart` still reported success.
+    const unusedPort = 41287;
+    const result = await Effect.runPromise(
+      Effect.either(waitForDaemonHealthy({ host: "127.0.0.1", port: unusedPort }, "systemd", 500)),
+    );
+    expect(result._tag).toBe("Left");
+    if (result._tag === "Left") {
+      expect(result.left.message).toContain("journalctl -u jazz-daemon");
+    }
+  });
+
+  it("treats 0.0.0.0 as a bind address, probing loopback as the destination instead", async () => {
+    const server = Bun.serve({
+      port: 0,
+      hostname: "0.0.0.0",
+      fetch: (request) => {
+        const url = new URL(request.url);
+        return url.pathname === "/health"
+          ? new Response(JSON.stringify({ ok: true }), { status: 200 })
+          : new Response("not found", { status: 404 });
+      },
+    });
+    try {
+      const result = await Effect.runPromise(
+        Effect.either(
+          waitForDaemonHealthy({ host: "0.0.0.0", port: server.port }, "launchd", 2_000),
+        ),
+      );
+      expect(result._tag).toBe("Right");
+    } finally {
+      server.stop(true);
+    }
   });
 });
 

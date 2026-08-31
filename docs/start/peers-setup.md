@@ -162,44 +162,40 @@ tailscale ip -4
 MagicDNS gives the same machine a name too (`bob-machine.tailnet-name.ts.net`), if you'd
 rather not hardcode an IP that Tailscale could reassign.
 
-### 2. Bob serves on the tailnet interface — not `0.0.0.0`
+### 2. Bob installs the daemon as a persistent service on the tailnet interface
 
 ```bash
-jazz daemon --serve-peers bob --host 100.101.102.103
+sudo jazz daemon install --serve-peers bob --host 100.101.102.103 --yes
 ```
 
 Bind the specific tailnet address, not `0.0.0.0`. If this machine also has a public interface
 (a cloud VM with a tailnet sidecar, say), `0.0.0.0` would listen on that too — binding the
 `100.x` address keeps the daemon reachable only from the tailnet, which is the whole reason to
-use one. A bearer token is still required to reach the operator routes, because the
-bind-safety check has no way to know *which* non-loopback interface is safe — it treats all of
-them the same, on purpose. The first run generates one and stores it in the OS keyring,
-printing it once — but on a headless server there usually is no keyring (`secret-tool` needs a
-running D-Bus session and a keyring daemon, which nothing ever starts without a desktop
-login), so the daemon will refuse to start and explain exactly that. On a server, set the
-token yourself instead of chasing a keyring:
+use one.
 
-```bash
-export JAZZ_DAEMON_TOKEN=$(openssl rand -hex 24)
-```
+A bearer token is still required to reach the operator routes, because the bind-safety check
+has no way to know *which* non-loopback interface is safe — it treats all of them the same, on
+purpose. `daemon install` generates one itself and writes it straight to a root-owned,
+root-readable service environment file (`/etc/jazz/daemon.env`, `chmod 600`) — it never goes
+through the OS keyring and never needs to be exported first, so there's nothing to set up on a
+headless server with no keyring and no `sudo -E`. (Only running `jazz daemon` directly in the
+foreground on a non-loopback host, without installing it, still needs that token to come from
+somewhere — the keyring on a workstation, or `$JAZZ_DAEMON_TOKEN` yourself.)
 
-then install the daemon as a persistent system service. `-E` passes the exported token through
-`sudo`; the installer writes it to a root-readable service environment file, enables the unit,
-and starts it:
+This writes the unit, enables it, and starts it via `systemctl`/`launchctl`, so it survives
+reboots and closed sessions — and it doesn't report success until it's confirmed the daemon
+actually answers its own `/health` route, not just that the supervisor accepted the unit. On
+failure it prints the exact command to see why the process didn't come up
+(`journalctl -u jazz-daemon` on Linux). Nothing here invokes `sudo` on its own — you're the one
+running it. From a source checkout, use `sudo bun run cli -- daemon install …` instead; the
+installed service runs that checkout's Bun entry point directly.
 
-```bash
-sudo -E jazz daemon install --serve-peers bob --host 100.101.102.103 --yes
-```
+Check on it anytime with `systemctl status jazz-daemon` (or `launchctl list | grep jazz` on
+macOS), and remove it again with `sudo jazz daemon uninstall`.
 
-This is the normal path for a server, not a fallback: the keyring exists for a workstation where
-a human is already logged in, not the other way around.
-
-**Running `jazz daemon --serve-peers bob --host 100.101.102.103` directly only lasts until you
-Ctrl+C or close the session** — it forks nothing and writes no pidfile on purpose. The install
-command above writes the unit, enables it, and starts it via `systemctl`/`launchctl`, so it
-survives reboots and closed sessions. Nothing here invokes `sudo` on its own. Check on it
-afterward with `systemctl status jazz-daemon` (or `launchctl list | grep jazz` on macOS), and
-remove it again with `sudo jazz daemon uninstall`.
+If you'd rather test in a foreground session before committing to a persistent service, run
+`jazz daemon --serve-peers bob --host 100.101.102.103` first — it only lasts until you Ctrl+C or
+close the session, since it forks nothing and writes no pidfile on purpose.
 
 ### 3. Bob invites Alice
 
