@@ -2,7 +2,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { isOfflineMode, isRunningFromGlobalInstall, isRunningInDevelopmentMode } from "./runtime";
+import { Effect } from "effect";
+import {
+  getJazzSchedulerInvocation,
+  isOfflineMode,
+  isRunningFromGlobalInstall,
+  isRunningInDevelopmentMode,
+} from "./runtime";
 
 describe("isOfflineMode", () => {
   it("accepts only the documented enabled values", () => {
@@ -182,6 +188,20 @@ describe("Runtime detection", () => {
         process.argv[1] = testPath;
         expect(isRunningInDevelopmentMode()).toBe(!isRunningFromGlobalInstall());
       }
+    });
+  });
+
+  describe("getJazzSchedulerInvocation", () => {
+    it("preserves Bun and the absolute source entry point from a checkout", async () => {
+      const entryPoint = path.join(jazzProjectDirectory, "src", "main.ts");
+      fs.mkdirSync(path.dirname(entryPoint), { recursive: true });
+      fs.writeFileSync(entryPoint, "// test");
+      process.argv[1] = entryPoint;
+
+      expect(await Effect.runPromise(getJazzSchedulerInvocation())).toEqual([
+        process.execPath,
+        path.resolve(entryPoint),
+      ]);
     });
   });
 

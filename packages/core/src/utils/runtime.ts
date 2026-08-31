@@ -176,6 +176,20 @@ export function getJazzSchedulerInvocation(): Effect.Effect<readonly string[], n
       return [process.execPath];
     }
 
+    // A source checkout is already running the exact entry point a persistent service needs.
+    // Looking up `jazz` as root during `daemon install` is both unreliable (the invoking
+    // user's PATH is not root's) and wrong when it finds a different global installation.
+    // Keep Bun plus the absolute source entry point instead, so systemd can start precisely
+    // the checkout that installed the service.
+    const sourceEntryPoint = process.argv[1];
+    if (
+      sourceEntryPoint !== undefined &&
+      isWithinJazzSourceDirectory(sourceEntryPoint) &&
+      isRunningInDevelopmentMode()
+    ) {
+      return [process.execPath, path.resolve(sourceEntryPoint)];
+    }
+
     const fromShell = yield* findExecutablePathViaShell();
     if (fromShell) {
       return [fromShell];
