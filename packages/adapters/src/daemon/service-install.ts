@@ -37,7 +37,7 @@ import * as path from "node:path";
 import { getJazzSchedulerInvocation } from "@jazz/core/utils/runtime";
 import { execCommand } from "@jazz/core/utils/shell";
 import { escapeShellArg, getLaunchdPath } from "@jazz/core/workflows/scheduler-service";
-import { Effect } from "effect";
+import { Duration, Effect } from "effect";
 import * as plist from "plist";
 
 export type InitSystem = "systemd" | "launchd" | "unsupported";
@@ -282,12 +282,69 @@ export interface InstalledService {
   readonly unitPath: string;
 }
 
+const HEALTH_CHECK_TIMEOUT_MS = 8_000;
+const HEALTH_CHECK_POLL_INTERVAL_MS = 300;
+
+/**
+ * `systemctl restart`/`launchctl load` reporting success only means the supervisor accepted
+ * the unit — not that the process behind it is actually alive and serving. A unit whose
+ * `ExecStart` is wrong (a stale invocation, a bad `--host`) can "start" and then exit
+ * immediately, over and over, while every command up to here still returned 0. Polling the
+ * daemon's own unauthenticated `/health` route from the outside is the only check that means
+ * what an operator actually cares about: a client can reach this daemon right now.
+ */
+export function waitForDaemonHealthy(
+  options: Pick<ServiceInstallOptions, "host" | "port">,
+  initSystem: InitSystem,
+  timeoutMs = HEALTH_CHECK_TIMEOUT_MS,
+): Effect.Effect<void, ServiceInstallError> {
+  // The probe runs on the same machine the daemon just bound on. "0.0.0.0" is a valid bind
+  // address (all interfaces) but not always a valid *destination* to connect to — reach it via
+  // loopback instead, which a daemon bound to "all interfaces" always also answers on.
+  const probeHost = options.host === "0.0.0.0" ? "127.0.0.1" : options.host;
+  const healthUrl = `http://${probeHost}:${String(options.port)}/health`;
+  const deadline = Date.now() + timeoutMs;
+
+  const probe = (): Effect.Effect<boolean, never> =>
+    Effect.promise(() =>
+      fetch(healthUrl, { signal: AbortSignal.timeout(1_000) })
+        .then((response) => response.ok)
+        .catch(() => false),
+    );
+
+  return Effect.gen(function* () {
+    for (;;) {
+      if (yield* probe()) return;
+      if (Date.now() >= deadline) break;
+      yield* Effect.sleep(Duration.millis(HEALTH_CHECK_POLL_INTERVAL_MS));
+    }
+
+    const diagnosticCommand =
+      initSystem === "systemd"
+        ? "journalctl -u jazz-daemon -n 50 --no-pager"
+        : `log show --predicate 'process == "jazz"' --last 5m`;
+
+    return yield* Effect.fail(
+      new ServiceInstallError(
+        `Installed and started, but ${healthUrl} never answered within ` +
+          `${String(timeoutMs / 1000)}s — the service likely crashed right after starting. ` +
+          `Check why:\n\n  ${diagnosticCommand}\n`,
+      ),
+    );
+  });
+}
+
 /**
  * Write the unit/plist and env file, then reload and enable+start it for real — not a
  * dry-run that prints a script and leaves the rest to the operator. Idempotent: re-running
  * this regenerates and restarts rather than failing on "already exists" — `systemctl enable`
  * alone does not restart an already-running unit, so a changed `--host`/`--port`/token would
  * otherwise silently not take effect; the explicit `restart` after is what makes this true.
+ *
+ * Returns only once the daemon has proven it is actually reachable (see
+ * `waitForDaemonHealthy`) — a supervisor accepting the unit is not the same as the process
+ * behind it staying up, and the whole point of an automated install is to catch that gap
+ * instead of handing the operator a false "success".
  */
 export function installService(
   options: Omit<ServiceInstallOptions, "user">,
@@ -326,6 +383,7 @@ export function installService(
       yield* execCommand("systemctl", ["restart", "jazz-daemon"]).pipe(
         Effect.mapError((error) => new ServiceInstallError(error.message)),
       );
+      yield* waitForDaemonHealthy(fullOptions, initSystem);
       return { initSystem, unitPath: SYSTEMD_UNIT_PATH };
     }
 
@@ -342,6 +400,7 @@ export function installService(
     yield* execCommand("launchctl", ["load", LAUNCHD_PLIST_PATH]).pipe(
       Effect.mapError((error) => new ServiceInstallError(error.message)),
     );
+    yield* waitForDaemonHealthy(fullOptions, initSystem);
     return { initSystem, unitPath: LAUNCHD_PLIST_PATH };
   });
 }

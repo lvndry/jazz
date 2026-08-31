@@ -182,7 +182,7 @@ credential instead — see [`jazz peers`](#jazz-peers).
 | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
 | `jazz daemon set-token`    | Generate (or store `$JAZZ_DAEMON_TOKEN` if set) a token before the daemon's first run — useful when a client needs the value in advance |
 | `jazz daemon forget-token` | Remove the stored token                                                                                                                 |
-| `jazz daemon install`      | Install this as a persistent system service (systemd/launchd). Needs root; `--serve-peers <agentId>` (required), `--host`, `--port`, `--yes` |
+| `jazz daemon install`      | Install this as a persistent system service (systemd/launchd). Needs root; generates and stores its own token if none is set (no keyring or `$JAZZ_DAEMON_TOKEN` needed); doesn't report success until `/health` answers; `--serve-peers <agentId>` (required), `--host`, `--port`, `--yes` |
 | `jazz daemon uninstall`    | Remove the service installed by `install`. Needs root; `--yes`                                                                          |
 
 Set `$JAZZ_DAEMON_TOKEN` yourself instead of letting Jazz generate one when the value needs to
