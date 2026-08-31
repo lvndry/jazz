@@ -131,14 +131,14 @@ concept doc originally undersold what a one-way invite needs:
   his own config, and stores the shared token under that name in his keyring. This is what
   lets *him* ask *her*.
 - **The inviter's daemon** (Alice's, mid-request, the moment it verifies the redeem secret)
-  writes `{ name: <the name Alice chose for Bob>, may: <the proposed tier> }` into her own
+  writes `{ name: <the name Alice chose for Bob>, disclosure: <the proposed tier> }` into her own
   config, and stores the same token under that name in her keyring. This is what lets *her*
   daemon recognize and authorize *his* future questions — without it, her `/peer/ask` would
   401 him forever, invite or no invite.
 
 If a peer entry with that name already exists on either side (say, from an earlier invite run
 in the other direction), the write **merges** rather than replaces: a `url` from one invite and
-a `may` from another compose into one fully mutual relationship, instead of the second invite
+a `disclosure` from another compose into one fully mutual relationship, instead of the second invite
 clobbering the first.
 
 This machine's daemon does not need restarting for any of this to take effect — the peer list
@@ -199,7 +199,7 @@ network, rather than silently inheriting the risk.
 A concrete flow for "Bob is on my LAN and I want him to be able to ask my agent something":
 
 1. Bob is already serving: `jazz daemon --serve-peers bob --port 4748`.
-2. Bob runs `jazz peers invite create alice --port 4748 --may about-me --expires 1h`. This is
+2. Bob runs `jazz peers invite create alice --port 4748 --disclosure internal --expires 1h`. This is
    a local operation — it writes an invite record next to Bob's peer state and prints a link;
    Bob's own daemon doesn't need to already be running for this step, only by the time Alice
    redeems it. The daemon must have been started with `--serve-peers`: invite routes are not

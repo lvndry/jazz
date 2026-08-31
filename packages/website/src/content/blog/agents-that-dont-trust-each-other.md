@@ -24,10 +24,10 @@ that with a link. Bob creates one:
 
 ```bash
 jazz daemon --serve-peers bob
-jazz peers invite create alice --may about-me --expires 1h
+jazz peers invite create alice --disclosure internal --expires 1h
 ```
 
-`--may about-me` is the ceiling: the most Alice's agent will ever be allowed to learn from
+`--disclosure internal` is the ceiling: the most Alice's agent will ever be allowed to learn from
 Bob's, set by Bob, before Alice does anything.
 
 ```mermaid
@@ -61,8 +61,8 @@ sequenceDiagram
     participant Ba as Bob's agent
 
     Aa->>Bd: "what time is it on your machine?" + Alice's token
-    Bd->>Bd: token → this is alice → her tier is about-me
-    Bd->>Bd: about-me admits get_time and a few others, nothing more
+    Bd->>Bd: token → this is alice → her tier is internal
+    Bd->>Bd: internal admits get_time and a few others, nothing more
     Bd->>Ba: run, but only with that narrowed toolset
     Ba-->>Bd: the answer
     Bd-->>Aa: the answer
@@ -103,7 +103,7 @@ A peer behaving badly inside its tier can still map the shape of your machine on
 a time. The tier limits the damage; it doesn't remove the possibility. That's what the log is
 for. Whatever your agent tells a peer, that peer can repeat to anyone next — you have no say
 in that. And there's no way to know whether the person you trust actually asked, or their
-agent decided to on its own. Grant `ask-me-anything` to nobody you wouldn't hand your unlocked
+agent decided to on its own. Grant `private` to nobody you wouldn't hand your unlocked
 laptop.
 
 ## Try it — the whole thing, on one machine
@@ -130,10 +130,10 @@ jazz --data-dir $BOB daemon --serve-peers bob --port 4748
 Leave that running. In the other terminal, Bob invites Alice:
 
 ```bash
-jazz --data-dir $BOB peers invite create alice --port 4748 --may about-me --expires 1h
+jazz --data-dir $BOB peers invite create alice --port 4748 --disclosure internal --expires 1h
 ```
 
-Bob never touches his agent's own configuration for this. `--may about-me` does all the
+Bob never touches his agent's own configuration for this. `--disclosure internal` does all the
 work — his daemon computes a fresh, narrowed toolset for this one question, every time,
 regardless of what tools his agent is normally set up with.
 

@@ -54,11 +54,11 @@ own terminal.
 ### 2. Bob invites Alice
 
 ```bash
-JAZZ_HOME=$BOB jazz peers invite create alice --port 4748 --may about-me --expires 1h
+JAZZ_HOME=$BOB jazz peers invite create alice --port 4748 --disclosure internal --expires 1h
 ```
 
-`may` is the tier — see the [tier table](../concepts/peers.md#tiers-what-a-peer-may-learn).
-Start at `about-me`, not `ask-me-anything`: you want to see a refusal happen before you see an
+`disclosure` is the tier — see the [tier table](../concepts/peers.md#tiers-what-a-peer-may-learn).
+Start at `internal`, not `private`: you want to see a refusal happen before you see an
 answer. This prints a link; send it to Alice out of band (a chat message, not a commit).
 
 ### 3. Alice accepts
@@ -69,7 +69,7 @@ JAZZ_HOME=$ALICE jazz peers invite accept <the-link-bob-sent>
 
 Alice sees who invited her, at what endpoint, and what tier, confirms once, and both sides are
 done — her config now has Bob as a peer she can ask, and his has her as a peer who may learn
-`about-me`, with a token stored in each machine's keyring that neither of you had to generate.
+`internal`, with a token stored in each machine's keyring that neither of you had to generate.
 
 <details>
 <summary>Prefer to do it by hand?</summary>
@@ -80,7 +80,7 @@ Edit `$BOB/config.json` and add Alice as a peer:
 
 ```jsonc
 {
-  "peers": [{ "name": "alice", "url": "http://127.0.0.1:4748/peer/ask", "may": "about-me" }],
+  "peers": [{ "name": "alice", "url": "http://127.0.0.1:4748/peer/ask", "disclosure": "internal" }],
 }
 ```
 
@@ -96,7 +96,7 @@ JAZZ_HOME=$ALICE JAZZ_PEER_TOKEN=$TOKEN jazz peers set-token bob
 ```
 
 Then add the same peer to `$ALICE/config.json`, this time from her side (url pointing at Bob's
-daemon, no `may` needed — tiers only matter to whoever is answering):
+daemon, no `disclosure` needed — tiers only matter to whoever is answering):
 
 ```jsonc
 { "peers": [{ "name": "bob", "url": "http://127.0.0.1:4748/peer/ask" }] }
@@ -119,7 +119,7 @@ model can see is a tool it will try, so it stays absent otherwise.
 JAZZ_HOME=$ALICE jazz run --agent alice "ask bob's agent what time it is on his machine"
 ```
 
-`about-me` admits `get_time`, so this should come back with an answer, attributed and quoted.
+`internal` admits `get_time`, so this should come back with an answer, attributed and quoted.
 Now try something the tier doesn't cover:
 
 ```bash
@@ -180,7 +180,7 @@ container with no persistent keyring, or you need the value before the daemon's 
 ### 3. Bob invites Alice
 
 ```bash
-jazz peers invite create alice --host 100.101.102.103 --may about-me --expires 1h
+jazz peers invite create alice --host 100.101.102.103 --disclosure internal --expires 1h
 ```
 
 Plain `http://` in the printed link, deliberately — Tailscale's WireGuard tunnel already
@@ -208,7 +208,7 @@ In Bob's `~/.jazz/config.json`:
 ```jsonc
 {
   "peers": [
-    { "name": "alice", "url": "http://<alice's-tailnet-ip>:4747/peer/ask", "may": "about-me" },
+    { "name": "alice", "url": "http://<alice's-tailnet-ip>:4747/peer/ask", "disclosure": "internal" },
   ],
 }
 ```
@@ -274,7 +274,7 @@ redemption; nothing stops you from removing that line again afterward.
 ### 3. Bob invites Alice
 
 ```bash
-jazz peers invite create alice --public-url https://bob-agent.example.com --may about-me --expires 1h
+jazz peers invite create alice --public-url https://bob-agent.example.com --disclosure internal --expires 1h
 ```
 
 `--public-url` overrides what would otherwise be `http://127.0.0.1:4747` — the daemon's real
@@ -297,7 +297,7 @@ jazz peers invite accept <the-link-bob-sent>
 ```jsonc
 {
   "peers": [
-    { "name": "alice", "url": "https://alice-agent.example.com/peer/ask", "may": "about-me" },
+    { "name": "alice", "url": "https://alice-agent.example.com/peer/ask", "disclosure": "internal" },
   ],
 }
 ```
@@ -330,13 +330,13 @@ jazz peers log
   answering side. If you set it up by hand, re-run `peers set-token` on both ends with the
   exact same value; if you used an invite, the link may have been redeemed already — create a
   new one.
-- **403, `"not accepting questions"`** — the peer exists in config but has no `may`, which
-  defaults to `none`. Add a tier.
+- **403, `"not accepting questions"`** — the peer exists in config but has no `disclosure`,
+  which defaults to `none`. Add a tier.
 - **403, some other reason, with a ledger entry** — the question was refused *by the agent*,
   not the connection. Read the reason in `jazz peers log`; it's usually the tier working as
   designed.
 - **`ask_peer` doesn't show up in the toolset** — no peer is configured on that side yet, or
-  every configured peer is at `may: "none"`. The tool is deliberately absent until there's
+  every configured peer is at `disclosure: "none"`. The tool is deliberately absent until there's
   somewhere for it to go.
 - **The daemon refuses to start** — read the message; it's almost always
   `--host` set to something other than loopback with no `$JAZZ_DAEMON_TOKEN`. That check

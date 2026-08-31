@@ -937,7 +937,7 @@ function registerPeerInviteCommands(peersCommand: Command, program: Command): vo
         "<name> is your own bookkeeping — the name you'll call them under afterward.",
     )
     .requiredOption(
-      "--may <tier>",
+      "--disclosure <tier>",
       `What the invitee may learn once they accept: ${PEER_TIERS.join(", ")}`,
     )
     .option(
@@ -960,6 +960,10 @@ function registerPeerInviteCommands(peersCommand: Command, program: Command): vo
       "What to call yourself to the invitee. Defaults to this machine's hostname.",
     )
     .option(
+      "--persona <name>",
+      "Which persona answers this invitee once accepted. Defaults to your daemon's --serve-peers agent as-is.",
+    )
+    .option(
       "--public-url <base>",
       "Overrides --host/--port for the printed link, e.g. https://bob-agent.example.com — " +
         "needed when the daemon binds loopback behind a reverse proxy, so the invite points " +
@@ -971,12 +975,13 @@ function registerPeerInviteCommands(peersCommand: Command, program: Command): vo
       (
         name: string,
         options: {
-          may: string;
+          disclosure: string;
           expires: number;
           host: string;
           port: number;
           publicUrl?: string;
           as?: string;
+          persona?: string;
           qr?: boolean;
           json?: boolean;
         },
@@ -984,20 +989,21 @@ function registerPeerInviteCommands(peersCommand: Command, program: Command): vo
         runCliAction(
           () =>
             import("@jazz/cli/commands/peer-invites").then((mod) => {
-              if (!isPeerTier(options.may)) {
+              if (!isPeerTier(options.disclosure)) {
                 throw new Error(
-                  `--may must be one of: ${PEER_TIERS.join(", ")} (got "${options.may}")`,
+                  `--disclosure must be one of: ${PEER_TIERS.join(", ")} (got "${options.disclosure}")`,
                 );
               }
               return mod.createInviteCommand({
                 inviteeName: name,
-                may: options.may,
+                disclosure: options.disclosure,
                 ttlMs: options.expires,
                 host: options.host,
                 port: options.port,
                 json: options.json === true,
                 qr: options.qr === true,
                 ...(options.as !== undefined ? { as: options.as } : {}),
+                ...(options.persona !== undefined ? { persona: options.persona } : {}),
                 ...(options.publicUrl !== undefined ? { publicUrl: options.publicUrl } : {}),
               });
             }),

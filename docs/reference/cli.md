@@ -214,7 +214,7 @@ for both paths.
 
 | Command                              | Purpose                                                                                                          |
 | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `jazz peers invite create <name>`    | Create a one-time invite link granting `<name>` a tier once accepted. `--may <tier>` (required), `--expires <duration>`, `--host`/`--port` or `--public-url` (reverse-proxy setups), `--as <name>`, `--qr`, `--json` |
+| `jazz peers invite create <name>`    | Create a one-time invite link granting `<name>` a tier once accepted. `--disclosure <tier>` (required), `--persona <name>` (which persona answers them), `--expires <duration>`, `--host`/`--port` or `--public-url` (reverse-proxy setups), `--as <name>`, `--qr`, `--json` |
 | `jazz peers invite accept <url>`     | Accept an invite link. `--as <name>`, `--yes` (skip confirmation), `--json`                                       |
 | `jazz peers invite list`             | Invites created on this machine. `--json`                                                                         |
 | `jazz peers invite revoke <id>`      | Invalidate an invite before it's redeemed                                                                         |

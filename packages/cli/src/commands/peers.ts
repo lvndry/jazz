@@ -26,9 +26,9 @@ function describeTier(tier: PeerTier | undefined): string {
       return "nothing (suspended)";
     case "public":
       return "nothing about you";
-    case "about-me":
+    case "internal":
       return "the shape of your machine";
-    case "ask-me-anything":
+    case "private":
       return "anything readable";
   }
 }
@@ -55,7 +55,14 @@ export function listPeersCommand(options: { readonly json: boolean }) {
     }
     for (const peer of peers) {
       const url = peer.url ?? "(cannot be asked — no endpoint)";
-      process.stdout.write(`${peer.name}  ${url}  may learn: ${describeTier(peer.may)}\n`);
+      const persona = peer.persona !== undefined ? `  persona: ${peer.persona}` : "";
+      const allow =
+        peer.allow !== undefined && peer.allow.length > 0
+          ? `  allow: ${peer.allow.join(", ")}`
+          : "";
+      process.stdout.write(
+        `${peer.name}  ${url}  may learn: ${describeTier(peer.disclosure)}${persona}${allow}\n`,
+      );
     }
   }).pipe(
     Effect.catchAll((error) =>

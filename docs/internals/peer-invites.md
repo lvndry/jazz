@@ -100,11 +100,11 @@ The accepted invite produces the normal `PeerConfig` entry plus keyring token st
 permanent relationship type.
 
 One correction to the original sketch: `PeerConfig.url` had to become optional. A `PeerConfig`
-already conflates two independent capabilities (`url`: I can ask them; `may`: they can ask me),
+already conflates two independent capabilities (`url`: I can ask them; `disclosure`: they can ask me),
 and a one-way invite naturally produces an entry with only one of those set. Making `url`
 required would have forced a `""`-shaped placeholder on the granting side of every invite.
 Fixing this surfaced a real, pre-existing bug: `ask_peer`'s "is this peer askable" filter was
-checking `may` instead of `url` — meaning a peer with `url` but no `may` (exactly what a
+checking `disclosure` instead of `url` — meaning a peer with `url` but no `disclosure` (exactly what a
 one-way invite produces on the *asking* side, and what `docs/guide/peers-setup.md`'s own
 manual walkthrough describes) was silently un-askable. Fixed alongside this feature since the
 feature would otherwise ship broken by inheriting it.
@@ -119,7 +119,7 @@ twice" a correct way to get mutual communication.
 ## API / CLI shape
 
 ```bash
-jazz peers invite create <invitee-name> --may <tier> [--expires 24h] [--host 127.0.0.1] [--port 4747] [--as <your-display-name>] [--qr] [--json]
+jazz peers invite create <invitee-name> --disclosure <tier> [--expires 24h] [--host 127.0.0.1] [--port 4747] [--as <your-display-name>] [--qr] [--json]
 jazz peers invite accept <invite-url> [--as <local-name>] [--yes] [--json]
 jazz peers invite list [--json]
 jazz peers invite revoke <invite-id>
@@ -240,7 +240,7 @@ All covered in `packages/adapters/src/peers/invites.test.ts` and
 - `packages/core/src/types/peer-invite.ts` — new: `PeerInviteRecord`, `inviteStatus`, `isInviteId`
 - `packages/core/src/interfaces/peer-invites.ts` — new: `PeerInviteService`
 - `packages/core/src/agent/tools/peer-tools.ts` — `ask_peer`'s askability filter fixed to check
-  `url`, not `may` (see the data-model section above)
+  `url`, not `disclosure` (see the data-model section above)
 
 ### Peer adapters and storage
 

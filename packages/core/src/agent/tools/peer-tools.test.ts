@@ -54,7 +54,7 @@ function peerUrl(): string {
 }
 
 function peers(overrides: Partial<PeerConfig> = {}): readonly PeerConfig[] {
-  return [{ name: "sam", url: peerUrl(), may: "about-me", ...overrides }];
+  return [{ name: "sam", url: peerUrl(), disclosure: "internal", ...overrides }];
 }
 
 function layers(configured: readonly PeerConfig[]) {
@@ -95,12 +95,12 @@ describe("ask_peer", () => {
     expect(createAskPeerTool([])).toBeUndefined();
   });
 
-  it("is present even for a peer suspended from asking *me* — `may` gates the inbound direction only", () => {
-    expect(createAskPeerTool(peers({ may: "none" }))).toBeDefined();
+  it("is present even for a peer suspended from asking *me* — `disclosure` gates the inbound direction only", () => {
+    expect(createAskPeerTool(peers({ disclosure: "none" }))).toBeDefined();
   });
 
   it("is absent when no peer has a known endpoint — the shape a one-way invite grants on the side that only serves, never asks", () => {
-    expect(createAskPeerTool([{ name: "sam", may: "about-me" }])).toBeUndefined();
+    expect(createAskPeerTool([{ name: "sam", disclosure: "internal" }])).toBeUndefined();
   });
 
   it("sends only the question, and nothing about the conversation around it", async () => {

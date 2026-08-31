@@ -139,6 +139,7 @@ export function createInvite(input: CreateInviteInput): Effect.Effect<CreatedInv
       inviterDisplayName: input.inviterDisplayName,
       inviterAskUrl: input.inviterAskUrl,
       proposedTier: input.proposedTier,
+      ...(input.proposedPersona !== undefined ? { proposedPersona: input.proposedPersona } : {}),
       createdAt: now.toISOString(),
       expiresAt: new Date(now.getTime() + input.ttlMs).toISOString(),
       secretHash: sha256Hex(secret),
@@ -316,7 +317,11 @@ export function acceptInviteOnInviterSide(
     // what the *redeemer* chose to call the inviter, sent along purely for the audit record;
     // using it here would file the redeemer under whatever name they happened to pick for
     // someone else, rather than the name the inviter actually chose for them.
-    yield* upsertPeer({ name: candidate.inviteeName, may: candidate.proposedTier });
+    yield* upsertPeer({
+      name: candidate.inviteeName,
+      disclosure: candidate.proposedTier,
+      ...(candidate.proposedPersona !== undefined ? { persona: candidate.proposedPersona } : {}),
+    });
 
     const outcome = yield* redeemInvite(input, input.redeemedAs);
     if (outcome.kind !== "ok") return outcome;

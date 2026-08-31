@@ -7,6 +7,8 @@ export interface CreateInviteInput {
   readonly inviterDisplayName: string;
   readonly inviterAskUrl: string;
   readonly proposedTier: PeerTier;
+  /** Which persona answers this invitee once accepted. Absent keeps the daemon's default. */
+  readonly proposedPersona?: string;
   readonly ttlMs: number;
 }
 

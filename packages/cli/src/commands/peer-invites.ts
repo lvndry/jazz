@@ -19,6 +19,7 @@ import {
 } from "@jazz/adapters/peers/invites";
 import { detectKeyringBackend, keyringSet } from "@jazz/adapters/secrets/keyring";
 import { peerTokenPath } from "@jazz/adapters/secrets/registry";
+import { PersonaServiceTag } from "@jazz/core/interfaces/persona-service";
 import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
 import { getErrorMessage } from "@jazz/core/presentation/error-handler";
 import { CLIError } from "@jazz/core/types/errors";
@@ -77,7 +78,7 @@ function formatRelative(iso: string, now: Date): string {
 
 export interface CreateInviteCommandOptions {
   readonly inviteeName: string;
-  readonly may: PeerTier;
+  readonly disclosure: PeerTier;
   readonly ttlMs: number;
   readonly host: string;
   readonly port: number;
@@ -90,6 +91,8 @@ export interface CreateInviteCommandOptions {
    */
   readonly publicUrl?: string;
   readonly as?: string;
+  /** Which persona answers this invitee once accepted. Absent keeps the daemon's default. */
+  readonly persona?: string;
   readonly json: boolean;
   readonly qr: boolean;
 }
@@ -127,12 +130,33 @@ export function createInviteCommand(options: CreateInviteCommandOptions) {
       }
       origin = publicUrl.origin;
     }
+
+    // Fail fast on a persona typo now, at the one point a human is actively watching —
+    // otherwise it surfaces only when a peer actually asks a question, as an opaque refusal
+    // this operator has to go dig out of `jazz peers log` to explain.
+    if (options.persona !== undefined) {
+      const personaService = yield* PersonaServiceTag;
+      const resolved = yield* personaService
+        .getPersonaByIdentifier(options.persona)
+        .pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+      if (resolved === undefined) {
+        return yield* Effect.fail(
+          new CLIError({
+            command: "peers invite create",
+            message: `No persona named "${options.persona}" exists.`,
+            suggestion: "Run `jazz persona list` to see what's available, or create it first.",
+          }),
+        );
+      }
+    }
+
     const inviterAskUrl = `${origin}/peer/ask`;
     const created = yield* createInvite({
       inviteeName: options.inviteeName,
       inviterDisplayName: options.as ?? os.hostname(),
       inviterAskUrl,
-      proposedTier: options.may,
+      proposedTier: options.disclosure,
+      ...(options.persona !== undefined ? { proposedPersona: options.persona } : {}),
       ttlMs: options.ttlMs,
     });
 
@@ -158,8 +182,8 @@ export function createInviteCommand(options: CreateInviteCommandOptions) {
     if (warning !== undefined) process.stderr.write(warning);
 
     process.stdout.write(
-      `Created an invite for "${options.inviteeName}" — ${describeTier(options.may)} ` +
-        `(${options.may}), expiring ${formatRelative(created.record.expiresAt, new Date())}.\n\n` +
+      `Created an invite for "${options.inviteeName}" — ${describeTier(options.disclosure)} ` +
+        `(${options.disclosure}), expiring ${formatRelative(created.record.expiresAt, new Date())}.\n\n` +
         "Share this link (it embeds your endpoint and a one-time secret — send it somewhere " +
         "the recipient will actually see it, not a public channel):\n\n" +
         `  ${url}\n\n` +
