@@ -82,6 +82,14 @@ function runSpawn(
   presentation: PresentationService,
   context: Record<string, unknown> = {},
 ): Promise<unknown> {
+  return runSpawnArgs(presentation, { task: "do a thing", persona: "default" }, context);
+}
+
+function runSpawnArgs(
+  presentation: PresentationService,
+  args: Record<string, unknown>,
+  context: Record<string, unknown> = {},
+): Promise<unknown> {
   const tool = getSpawnTool();
   const testLayer = Layer.mergeAll(
     Layer.succeed(LoggerServiceTag, mockLogger),
@@ -89,13 +97,23 @@ function runSpawn(
   );
   return Effect.runPromise(
     (
-      tool.execute(
-        { task: "do a thing", persona: "default" },
-        { agentId: parentAgent.id, parentAgent, ...context },
-      ) as Effect.Effect<unknown, unknown, LoggerService | PresentationService>
+      tool.execute(args, { agentId: parentAgent.id, parentAgent, ...context }) as Effect.Effect<
+        unknown,
+        unknown,
+        LoggerService | PresentationService
+      >
     ).pipe(Effect.provide(testLayer)),
   );
 }
+
+const candidateResultSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["candidates"],
+  properties: {
+    candidates: { type: "array", items: { type: "string" } },
+  },
+} as const;
 
 describe("spawn_subagent auto-approve inheritance", () => {
   it("forwards the parent's auto-approve policy and allowlists to the sub-agent", async () => {
@@ -126,6 +144,117 @@ describe("spawn_subagent auto-approve inheritance", () => {
       expect(captured?.autoApprovedCommands).toEqual(["git status"]);
       expect(captured?.autoApprovedTools).toEqual(["read_file"]);
       expect(captured?.ephemeralRegionId).toBe("eph-test");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
+describe("spawn_subagent structured results", () => {
+  it("returns a validated result and child telemetry alongside the summary", async () => {
+    const spy = spyOn(AgentRunner, "runRecursive").mockImplementation(() => {
+      return Effect.succeed({
+        content: JSON.stringify({
+          summary: "Found two candidates.",
+          result: { candidates: ["first", "second"] },
+        }),
+        costUSD: 0.0125,
+        conversationId: "conv-test",
+        messages: [],
+      }) as ReturnType<typeof AgentRunner.runRecursive>;
+    });
+
+    try {
+      const { presentation } = createPresentationHarness();
+      const events: Array<Record<string, unknown>> = [];
+      const response = (await runSpawnArgs(
+        presentation,
+        {
+          task: "return candidates",
+          resultSchema: candidateResultSchema,
+          resultName: "research candidates",
+        },
+        {
+          emitEvent: (event: Record<string, unknown>) =>
+            Effect.sync(() => {
+              events.push(event);
+            }),
+        },
+      )) as {
+        success: boolean;
+        result: {
+          summary: string;
+          structuredResult: { candidates: string[] };
+          child: { costUSD?: number; costKnown: boolean };
+        };
+      };
+
+      expect(response.success).toBe(true);
+      expect(response.result.summary).toBe("Found two candidates.");
+      expect(response.result.structuredResult).toEqual({ candidates: ["first", "second"] });
+      expect(response.result.child.costUSD).toBe(0.0125);
+      expect(response.result.child.costKnown).toBe(true);
+      expect(events.find((event) => event["type"] === "subagent_result")).toMatchObject({
+        subagentId: expect.any(String),
+        durationMs: expect.any(Number),
+        costUSD: 0.0125,
+        costKnown: true,
+        structuredResult: { requested: true, valid: true, resultName: "research candidates" },
+      });
+      expect(spy.mock.calls[0]?.[0].userInput).toContain("STRUCTURED COMPLETION REQUIRED");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("returns validation errors and telemetry when the child result misses required data", async () => {
+    const spy = spyOn(AgentRunner, "runRecursive").mockImplementation(() => {
+      return Effect.succeed({
+        content: JSON.stringify({ summary: "Incomplete result.", result: {} }),
+        conversationId: "conv-test",
+        messages: [],
+      }) as ReturnType<typeof AgentRunner.runRecursive>;
+    });
+
+    try {
+      const { presentation } = createPresentationHarness();
+      const events: Array<Record<string, unknown>> = [];
+      const response = (await runSpawnArgs(
+        presentation,
+        { task: "return candidates", resultSchema: candidateResultSchema },
+        {
+          emitEvent: (event: Record<string, unknown>) =>
+            Effect.sync(() => {
+              events.push(event);
+            }),
+        },
+      )) as { success: boolean; error?: string; result: { validationErrors: string[] } };
+
+      expect(response.success).toBe(false);
+      expect(response.error).toContain("failed validation");
+      expect(response.result.validationErrors).toHaveLength(1);
+      expect(events.find((event) => event["type"] === "subagent_result")).toMatchObject({
+        structuredResult: { requested: true, valid: false, errorCount: 1 },
+        costKnown: false,
+      });
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("rejects an unsupported result schema before starting a child", async () => {
+    const spy = spyOn(AgentRunner, "runRecursive");
+
+    try {
+      const { presentation } = createPresentationHarness();
+      const response = (await runSpawnArgs(presentation, {
+        task: "return candidates",
+        resultSchema: { type: "array" },
+      })) as { success: boolean; error?: string };
+
+      expect(response.success).toBe(false);
+      expect(response.error).toContain("root type");
+      expect(spy).not.toHaveBeenCalled();
     } finally {
       spy.mockRestore();
     }

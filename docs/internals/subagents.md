@@ -47,9 +47,9 @@ flowchart TB
 ```ts
 spawn_subagent({
   task: "Research the current state of WASM GC proposals. Return a 5-bullet summary with source URLs.",
-  name: "WASM researcher",        // optional — label for the UI panel
-  persona: "researcher",           // "default" | "coder" | "researcher"
-})
+  name: "WASM researcher", // optional — label for the UI panel
+  persona: "researcher", // "default" | "coder" | "researcher"
+});
 ```
 
 | Field     | Purpose                                                                                                                                                         |
@@ -58,8 +58,54 @@ spawn_subagent({
 | `name`    | Short role label shown in the sub-agent panel, so parallel children are distinguishable.                                                                        |
 | `persona` | `coder` for code and git work, `researcher` for investigation, `default` for general.                                                                           |
 
+## Structured results (experimental)
+
+Most sub-agents return a concise text answer. For a parent that needs a dependable
+machine-readable handoff, pass a JSON Schema in `resultSchema`:
+
+```ts
+spawn_subagent({
+  name: "Release researcher",
+  task: "Find the three most relevant releases this week.",
+  resultName: "release candidates",
+  resultSchema: {
+    type: "object",
+    additionalProperties: false,
+    required: ["candidates"],
+    properties: {
+      candidates: { type: "array", items: { type: "string" } },
+    },
+  },
+});
+```
+
+Jazz tells the child to return exactly this envelope and validates `result` before
+giving it to the parent:
+
+```json
+{
+  "summary": "Found three releases worth reviewing.",
+  "result": { "candidates": ["…"] }
+}
+```
+
+On success, the parent receives the text `summary`, `structuredResult`, and child
+duration/cost metadata. An invalid envelope or result returns a tool error with
+validation details, so the parent can retry or change course rather than treating
+unstructured prose as data. `resultSchema` is opt-in; calls without it preserve
+the existing text-only return shape.
+
+The schema must be a local JSON Schema object. Jazz caps schema and result sizes,
+does not allow a root `$ref`, and validates it with its supported JSON Schema
+subset. Use a file or database for large durable research artifacts; structured
+results are for bounded handoffs, not a shared workspace.
+
+When streaming `--events subagent`, Jazz also emits `subagent_result` for a
+structured call. It records the child id, duration, known/unknown cost, and
+whether validation succeeded—never the result payload itself.
+
 A sub-agent always runs as the parent agent itself — same provider, same model, same config —
-varying only the persona. Delegating to a *different* saved agent, or running the child on a
+varying only the persona. Delegating to a _different_ saved agent, or running the child on a
 different model, is deliberately not offered.
 
 ---
@@ -188,7 +234,7 @@ that, a parent can spend its whole budget delegating and never write the answer 
 
 ## `summarize_context` — the other context tool
 
-Registered alongside `spawn_subagent`, `summarize_context` lets the agent compact its *own*
+Registered alongside `spawn_subagent`, `summarize_context` lets the agent compact its _own_
 history on purpose rather than waiting for the automatic 80% threshold. Useful when it knows
 it's about to go deep and would rather enter that phase with a clean window.
 

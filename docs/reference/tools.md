@@ -239,7 +239,7 @@ state.
 
 | Tool                | Risk        | Approval pair | What it does                                                                                                 |
 | ------------------- | ----------- | ------------- | ------------------------------------------------------------------------------------------------------------ |
-| `spawn_subagent`    | `low-risk`  | —             | Spawn a sub-agent with fresh context for a specific task. Personas: coder, researcher, default. Pass a shor… |
+| `spawn_subagent`    | `low-risk`  | —             | Spawn a sub-agent with fresh context for a specific task. Personas: coder, researcher, default. Optionally validate a bounded JSON handoff with `resultSchema`; see Sub-agents internals. |
 | `summarize_context` | `read-only` | —             | Compact conversation by summarizing older messages to free token budget. Always performs summarization when… |
 
 ### Perception Delegation
