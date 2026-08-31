@@ -66,15 +66,13 @@ export function resolveOrProvisionDaemonToken(): Effect.Effect<ProvisionDaemonTo
 }
 
 /**
- * A precise, OS-aware explanation for why provisioning failed, with the one fix that works
- * everywhere (set the token yourself) always given first — the keyring path is a workstation
- * convenience, not the primary mechanism, so it should never be presented as the only way
- * forward.
+ * A precise explanation for why provisioning failed, with the fix that works everywhere (set
+ * the token yourself) always given first.
+ *
+ * `"no-keyring"` no longer means a missing OS keyring — that now falls through to a file under
+ * `$JAZZ_HOME` (see `keyring.ts`) — it means `$JAZZ_DISABLE_KEYRING` was set deliberately.
  */
-export function explainDaemonTokenProvisionFailure(
-  failure: DaemonTokenProvisionFailure,
-  platform: NodeJS.Platform = process.platform,
-): string {
+export function explainDaemonTokenProvisionFailure(failure: DaemonTokenProvisionFailure): string {
   const setItYourself =
     `export ${DAEMON_TOKEN_ENV_VAR}=$(openssl rand -hex 24)\n` +
     `then persist that value yourself — a systemd \`Environment=\` line, your shell profile, ` +
@@ -83,31 +81,14 @@ export function explainDaemonTokenProvisionFailure(
   if (failure.reason === "keyring-write-failed") {
     return (
       `${setItYourself}\n\n` +
-      `(A keyring is available but writing the daemon token to it failed — it may be locked ` +
-      `or read-only, which is why this is the fix regardless.)`
+      `(Neither the OS keyring nor the \`$JAZZ_HOME/secrets.json\` fallback could be written ` +
+      `to — check that $JAZZ_HOME is actually writable, which is why this is the fix regardless.)`
     );
   }
 
-  const why = (() => {
-    switch (platform) {
-      case "darwin":
-        return (
-          `unusual on macOS, since Keychain access ("security") is normally there by default. ` +
-          `This can happen with no login keychain unlocked (a sandboxed or CI environment, say).`
-        );
-      case "linux":
-        return (
-          `normal for a headless server. The Linux path ("secret-tool") needs a running D-Bus ` +
-          `session and a keyring daemon (gnome-keyring or similar), and a server with no ` +
-          `desktop login never starts either. Running one just for this isn't worth it either: ` +
-          `gnome-keyring normally unlocks itself via PAM at login, which a headless server ` +
-          `never triggers, so you'd end up scripting a manual unlock — more operational ` +
-          `overhead than the fix above, not less.`
-        );
-      default:
-        return `no keyring backend exists for this platform yet.`;
-    }
-  })();
-
-  return `${setItYourself}\n\n(No OS keyring is available — ${why})`;
+  return (
+    `${setItYourself}\n\n` +
+    `($JAZZ_DISABLE_KEYRING is set, so Jazz won't generate and store a token on its own — ` +
+    `unset it if that wasn't intentional.)`
+  );
 }

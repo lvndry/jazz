@@ -173,10 +173,11 @@ instead of leaving that hand-written.
 
 A bearer token authenticates the operator routes (`/runs`, `/health`) whenever `--host` is
 anything but loopback; loopback needs none. The first time this daemon binds a non-loopback
-host with no token already set, Jazz generates one and stores it in the OS keyring, printing
-it once so it can be copied to a client — the daemon works from the first run, with no setup
-command required. `/peer/ask` (when `--serve-peers` is given) uses a separate, per-peer
-credential instead — see [`jazz peers`](#jazz-peers).
+host with no token already set, Jazz generates one and stores it — an OS keyring when one's
+reachable, otherwise a `chmod 600` file at `$JAZZ_HOME/secrets.json` (see
+[Setting up peers](../start/peers-setup.md)) — printing it once so it can be copied to a
+client. No setup command required. `/peer/ask` (when `--serve-peers` is given) uses a separate,
+per-peer credential instead — see [`jazz peers`](#jazz-peers).
 
 | Command                    | Purpose                                                                                                                                 |
 | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
@@ -186,8 +187,8 @@ credential instead — see [`jazz peers`](#jazz-peers).
 | `jazz daemon uninstall`    | Remove the service installed by `install`. Needs root; `--yes`                                                                          |
 
 Set `$JAZZ_DAEMON_TOKEN` yourself instead of letting Jazz generate one when the value needs to
-be known ahead of time — a container with no persistent keyring across restarts, or a client
-config that must be written before the daemon has ever started.
+be known ahead of time — a client config written before the daemon has ever run, or an
+ephemeral container whose `$JAZZ_HOME` doesn't survive to the next deploy.
 
 See [Setting up peers](../start/peers-setup.md) for a full walkthrough, and
 [Agent-to-agent](../concepts/agent-to-agent.md) for the tier model this exists to serve.

@@ -402,8 +402,10 @@ export function acceptInviteCommand(options: AcceptInviteCommandOptions) {
       return yield* Effect.fail(
         new CLIError({
           command: "peers invite accept",
-          message: "no OS keyring is available to store the resulting peer token",
-          suggestion: "Enable a keyring before accepting, so this single-use link is not spent.",
+          message:
+            "$JAZZ_DISABLE_KEYRING is set, so there is nowhere to store the resulting peer token",
+          suggestion:
+            "Unset $JAZZ_DISABLE_KEYRING before accepting, so this single-use link is not spent.",
         }),
       );
     }

@@ -240,10 +240,14 @@ export function createPeerInviteServiceLayer(): Layer.Layer<PeerInviteService> {
 
 export type AcceptInviteOutcome =
   | { readonly kind: "ok"; readonly inviterAskUrl: string; readonly token: string }
-  /** The invite is otherwise valid, but there is nowhere safe to store the token it would
-   * generate. Checked *before* consuming the invite, so a machine with no keyring does not
-   * burn a single-use link on a redemption it cannot actually complete. */
+  /** `$JAZZ_DISABLE_KEYRING` is set, so there is deliberately nowhere to store the token this
+   * would generate. Checked *before* consuming the invite, so an opted-out machine does not
+   * burn a single-use link on a redemption it cannot actually complete. Distinct from
+   * `"storage-write-failed"`: this one is a choice, that one is a broken write. */
   | { readonly kind: "no-keyring" }
+  /** A storage backend was available (OS keyring or the `$JAZZ_HOME/secrets.json` fallback)
+   * but writing to it failed anyway — a locked keyring, or `$JAZZ_HOME` itself unwritable. */
+  | { readonly kind: "storage-write-failed" }
   | Exclude<RedeemInviteOutcome, { kind: "ok" }>;
 
 /**
@@ -310,7 +314,7 @@ export function acceptInviteOnInviterSide(
     // granted and a retry simply replaces this unused token with a freshly minted one.
     const token = randomBytes(24).toString("hex");
     const stored = yield* keyring.storeToken(backend, peerTokenPath(candidate.inviteeName), token);
-    if (!stored) return { kind: "no-keyring" } as const;
+    if (!stored) return { kind: "storage-write-failed" } as const;
 
     // `outcome.record.inviteeName` — the name *this* side (the inviter) chose at creation
     // time — is the key for this side's own upsert and token storage. `input.redeemedAs` is

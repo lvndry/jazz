@@ -279,7 +279,7 @@ describe("acceptInviteOnInviterSide", () => {
       ).pipe(Effect.provide(layer)),
     );
 
-    expect(outcome.kind).toEqual("no-keyring");
+    expect(outcome.kind).toEqual("storage-write-failed");
     expect(currentPeers()).toEqual([]);
     expect((await run(getInvite(created.record.id)))?.redeemedAt).toBeUndefined();
   });
