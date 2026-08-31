@@ -562,6 +562,7 @@ export function reduceEvent(
     case "approval_resolved":
     case "subagent_start":
     case "subagent_complete":
+    case "subagent_result":
       return { activity: null, outputs };
 
     // ---- Error ----------------------------------------------------------
