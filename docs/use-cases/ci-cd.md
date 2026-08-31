@@ -161,6 +161,6 @@ Because the answer is on stdout and the noise is on stderr, this composes with `
 ## Related
 
 - [Headless](./headless.md) — the `jazz run` contract
-- [Cookbook: CI PR reviewer](../cookbook/ci-pr-reviewer.md) — the full workflow file
-- [Cookbook: release notes](../cookbook/release-notes-draft.md) — the release recipe
+- [Playbooks: CI PR reviewer](../playbooks/ci-pr-reviewer.md) — the full workflow file
+- [Playbooks: release notes](../playbooks/release-notes-draft.md) — the release recipe
 - [`.github/jazz/README.md`](../../.github/jazz/README.md) — setup guide

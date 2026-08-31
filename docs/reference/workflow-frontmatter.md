@@ -9,7 +9,7 @@ How to get the `WORKFLOW.md` YAML fields exactly right.
 Verified against
 [`packages/core/src/workflows/workflow-service.ts`](../../packages/core/src/workflows/workflow-service.ts).
 For what a workflow *is*, see [Workflows](../concepts/workflows.md); for ready-made ones, the
-[Cookbook](../cookbook/index.md).
+[Playbooks](../playbooks/index.md).
 
 ---
 
@@ -119,7 +119,7 @@ expands what it can into multiple entries and rejects what it can't with an expl
 rather than silently scheduling something else.
 
 Neither launchd nor cron fires a job whose slot passed while the machine was asleep — see
-[Scheduling](../concepts/scheduling.md) and [Surfaces → Scheduled](../surfaces/scheduled.md).
+[Scheduling](../concepts/scheduling.md) and [Surfaces → Scheduled](../use-cases/scheduled.md).
 
 ---
 
@@ -136,6 +136,6 @@ Discovered in this order; later overrides earlier on name collision:
 ## Related
 
 - [Workflows](../concepts/workflows.md) — the concept and the body of the file
-- [Cookbook](../cookbook/index.md) — seven complete recipes
-- [Surfaces → Scheduled](../surfaces/scheduled.md) — running them unattended
+- [Playbooks](../playbooks/index.md) — seven complete recipes
+- [Surfaces → Scheduled](../use-cases/scheduled.md) — running them unattended
 - [CLI Reference](./cli.md#jazz-workflow) — the commands

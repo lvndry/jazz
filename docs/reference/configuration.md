@@ -209,7 +209,7 @@ jazz config set scheduler.mode in-process
 `in-process` only matters for a host you leave running — `jazz daemon` must itself be running for
 its ticker to fire. The `JAZZ_SCHEDULER=in-process` environment variable still works and overrides
 this setting, which is useful for a one-off run without touching the saved config. See
-[Scheduled runs](../surfaces/scheduled.md) for how each mode installs and fires.
+[Scheduled runs](../use-cases/scheduled.md) for how each mode installs and fires.
 
 ## Project Overrides: `./.jazz/config.json`
 
@@ -231,7 +231,7 @@ Override settings or provide API keys via `.env` or the process environment.
 
 | Variable                     | Effect                                                                                                                                                                                |
 | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `JAZZ_OFFLINE`               | `1`/`true`: make no outbound request of Jazz's own — skips the update check *and* the models.dev catalog fetch. See [Airgapped](../guide/airgapped.md)                                |
+| `JAZZ_OFFLINE`               | `1`/`true`: make no outbound request of Jazz's own — skips the update check *and* the models.dev catalog fetch. See [Airgapped](../start/airgapped.md)                                |
 | `JAZZ_DISABLE_UPDATE_CHECK`  | `1`: skip only the npm version check                                                                                                                                                  |
 | `JAZZ_MODELS_DEV_URL`        | Point the model catalog at an internal mirror of `https://models.dev/api.json`                                                                                                        |
 | `HTTPS_PROXY` / `HTTP_PROXY` | Send every outbound request — provider APIs, web tools, remote MCP servers, the update check — through an HTTP proxy. Lowercase names work too, and `ALL_PROXY` covers both protocols |
@@ -286,7 +286,7 @@ Jazz records what each run did — agent runs, LLM requests and token usage (age
 command-risk classifier), retries, tool invocations, Jazz process RSS/heap/CPU, and CLI
 commands — as NDJSON under `~/.jazz/telemetry/events/YYYY-MM-DD.ndjson`,
 pruned after `retentionDays`. Set `telemetry.otlp` to also push those events to an
-OpenTelemetry collector. See [Observability](../guide/observability.md) for a working
+OpenTelemetry collector. See [Observability](../start/observability.md) for a working
 collector and Langfuse setup.
 
 ```json

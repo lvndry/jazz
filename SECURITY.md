@@ -96,7 +96,7 @@ a command genuinely needs one. Implementation:
 
 **Local-only data.** Credentials live in your config; telemetry is JSON on your disk and is
 never transmitted. `JAZZ_OFFLINE=1` stops Jazz initiating any outbound request of its own. See
-[Airgapped & self-hosted](docs/guide/airgapped.md).
+[Airgapped & self-hosted](docs/start/airgapped.md).
 
 **Audit trail.** Every tool invocation is logged under `~/.jazz/logs/`, with per-run token and
 cost records under `~/.jazz/telemetry/`.
@@ -143,7 +143,7 @@ A chat bridge, a public webhook, or a CI job reviewing fork PRs takes input from
 not you. At `high-risk`, a message — or a prompt injection inside a web page the agent fetched
 — can run arbitrary commands on that host. Use an allowlist of senders, keep the tier low, and
 trim the toolset. See
-[Chat platforms → security](docs/surfaces/chat-platforms.md#security-for-chat-surfaces).
+[Chat platforms → security](docs/use-cases/chat-platforms.md#security-for-chat-surfaces).
 
 ### Before approving, ask
 
@@ -206,5 +206,5 @@ covered by the keyring — treat them as sensitive in their own right.
 - [Tools & approval](docs/internals/tools-and-approval.md) — how gating and risk tiers are enforced
 - [Tools reference](docs/reference/tools.md) — every tool and its tier
 - [Configuration](docs/reference/configuration.md) — `envAllowlist`, `autoApprovedCommands`
-- [Airgapped & self-hosted](docs/guide/airgapped.md) — removing outbound network entirely
+- [Airgapped & self-hosted](docs/start/airgapped.md) — removing outbound network entirely
 - **Security questions:** [Discord](https://discord.gg/yBDbS2NZju) · [Discussions](https://github.com/lvndry/jazz/discussions)

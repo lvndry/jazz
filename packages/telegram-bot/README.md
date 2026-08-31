@@ -323,7 +323,7 @@ model, so it costs nothing and works even while the agent is busy or down:
 
 Anything on the host can use it — scripts, cron, a finished job, you at a shell.
 `auto-update.sh` uses it to report failures. See
-[Chat platforms — sending yourself a message](../../docs/surfaces/chat-platforms.md#sending-yourself-a-message).
+[Chat platforms — sending yourself a message](../../docs/use-cases/chat-platforms.md#sending-yourself-a-message).
 
 **Run logs:** every turn appends an NDJSON record of the jazz event stream to
 `<JAZZ_HOME>/logs/runs/<conversation>-<timestamp>.ndjson`, written as the run

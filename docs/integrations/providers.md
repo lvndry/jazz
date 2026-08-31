@@ -21,7 +21,7 @@ For how the provider abstraction works, see
 > **Free option:** [OpenRouter](https://openrouter.ai) with the
 > [`Free Models Router`](https://openrouter.ai/openrouter/free) needs no credit card.
 > **Private option:** `ollama` or `llamacpp` keep everything on your machine — see
-> [Airgapped & Self-Hosted](../guide/airgapped.md).
+> [Airgapped & Self-Hosted](../start/airgapped.md).
 
 ---
 
@@ -196,7 +196,7 @@ It is also what Jazz compacts against, since it is the window the server will ho
 
 **Keep-alive**: Set `keep_alive` (e.g. `"30m"`, or `"-1"` to keep the model resident indefinitely) to avoid model-reload latency between agent turns. When unset, Ollama's own default (5 minutes) applies.
 
-Running on a server without internet access? See the [Airgapped & Self-Hosted guide](../guide/airgapped.md) — set `JAZZ_OFFLINE=1` to disable all outbound requests Jazz makes on its own.
+Running on a server without internet access? See the [Airgapped & Self-Hosted guide](../start/airgapped.md) — set `JAZZ_OFFLINE=1` to disable all outbound requests Jazz makes on its own.
 
 ## llama.cpp
 

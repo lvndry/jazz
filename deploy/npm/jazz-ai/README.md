@@ -89,7 +89,7 @@ Slack, Google Chat, or your own app work the same way. See
 Start at [`docs/index.md`](docs/index.md).
 
 - [Quick start](docs/start/quick-start.md) and [creating agents](docs/start/creating-agents.md)
-- [Playbooks](docs/playbooks/index.md), ready-made workflows to copy
+- [Cookbook](docs/playbooks/index.md), ready-made workflows to copy
 - [Skills](docs/concepts/skills.md), [tools](docs/concepts/tools.md), and [workflows](docs/concepts/workflows.md)
 - [Safety and approvals](docs/internals/tools-and-approval.md)
 - [Headless runs](docs/use-cases/headless.md), the contract behind every surface

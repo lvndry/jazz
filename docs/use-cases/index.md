@@ -2,7 +2,7 @@
 description: "Where a Jazz agent can run: terminal REPL, headless scripts via jazz run, CI pipelines, OS schedulers, and chat platforms like Telegram and Discord."
 ---
 
-# Where it runs
+# Use cases
 
 This page helps you decide how Jazz fits into _your_ setup.
 
@@ -11,16 +11,15 @@ with a terminal REPL. The same agent — same tools, same config, same memory �
 headless in a script, unattended on a schedule, inside a CI job, and behind a chat
 webhook.
 
-This section is the map. Start with the matrix, then read the page for the surface you
-want.
+This section is the map. Start with the matrix, then read the page for the surface you want.
 
 ---
 
-## The surface matrix
+## The matrix
 
 | Surface                                                                              | Entry point                        | Human in the loop?             | Status                         |
 | ------------------------------------------------------------------------------------ | ---------------------------------- | ------------------------------ | ------------------------------ |
-| **[Terminal](../guide/quick-start.md)** — interactive TUI, streaming, slash commands | `jazz`                             | Yes, per tool call             | ✅ Shipped                     |
+| **[Terminal](../start/quick-start.md)** — interactive TUI, streaming, slash commands | `jazz`                             | Yes, per tool call             | ✅ Shipped                     |
 | **[Headless](./headless.md)** — one-shot, clean stdout, JSON envelope                | `jazz run`                         | Optional (`--approval-policy`) | ✅ Shipped                     |
 | **[Scheduled](./scheduled.md)** — launchd / cron, with catch-up for missed slots     | `jazz workflow schedule`           | No                             | ✅ Shipped                     |
 | **[CI/CD](./ci-cd.md)** — PR review with inline comments, `/jazz` PR assistant       | `jazz workflow run --auto-approve` | No                             | ✅ Shipped (used on this repo) |
@@ -150,4 +149,4 @@ how the run started:
 | [Chat platforms](./chat-platforms.md)            | How to put an agent in Telegram, Discord, Slack, or your own app                  |
 | [CI/CD](./ci-cd.md)                              | PR review, the `/jazz` assistant, release notes, generic CI                       |
 | [Scheduled](./scheduled.md)                      | launchd/cron, catch-up, logs, unattended safety                                   |
-| [Airgapped & self-hosted](../guide/airgapped.md) | Running the whole stack inside your own network                                   |
+| [Airgapped & self-hosted](../start/airgapped.md) | Running the whole stack inside your own network                                   |

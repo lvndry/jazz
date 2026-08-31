@@ -166,7 +166,7 @@ that only _mostly_ suppresses chatter — same problem, later.
 **Cost accepted.** Two streams to wire up in a bridge instead of one. That's the entire
 cost, and it's what makes every non-terminal surface possible.
 
-📄 [`execute.ts:30`](../../packages/cli/src/commands/run/execute.ts#L30) · [Headless](../surfaces/headless.md)
+📄 [`execute.ts:30`](../../packages/cli/src/commands/run/execute.ts#L30) · [Headless](../use-cases/headless.md)
 
 ### Risk tiers instead of a tool allowlist
 
@@ -250,7 +250,7 @@ deployment.
 provider-reported metadata and a 128k default. Ollama and llama.cpp need no catalog at all —
 model lists, context windows, and tool support are read from the local server.
 
-📄 [`models-dev.ts`](../../packages/core/src/utils/models-dev.ts) · [Airgapped](../guide/airgapped.md)
+📄 [`models-dev.ts`](../../packages/core/src/utils/models-dev.ts) · [Airgapped](../start/airgapped.md)
 
 ### Effect-TS for the entire runtime
 
