@@ -23,10 +23,21 @@ export function resolveDaemonToken(): Effect.Effect<string | undefined, never> {
 }
 
 export interface ProvisionedDaemonToken {
+  readonly ok: true;
   readonly token: string;
   /** True when this call generated the token rather than finding one already set. */
   readonly generated: boolean;
 }
+
+/**
+ * Why provisioning failed, so the caller can explain it precisely rather than just saying
+ * "no token" — the two causes point at genuinely different fixes.
+ */
+export type DaemonTokenProvisionFailure =
+  | { readonly ok: false; readonly reason: "no-keyring" }
+  | { readonly ok: false; readonly reason: "keyring-write-failed" };
+
+export type ProvisionDaemonTokenResult = ProvisionedDaemonToken | DaemonTokenProvisionFailure;
 
 /**
  * `resolveDaemonToken`, but generates and persists a token the first time none exists —
@@ -34,25 +45,69 @@ export interface ProvisionedDaemonToken {
  * `jazz daemon set-token` by hand first. Nobody else needs to independently know this token
  * (unlike a peer's), so Jazz inventing it costs nothing.
  *
- * Returns `undefined` only when there is nowhere safe to keep a generated token: no keyring,
- * and no `$JAZZ_DAEMON_TOKEN` already set. The caller decides what to do in that case; this
- * never writes a token to disk in plaintext.
+ * Fails only when there is nowhere safe to keep a generated token: no keyring, and no
+ * `$JAZZ_DAEMON_TOKEN` already set. The caller decides what to do in that case; this never
+ * writes a token to disk in plaintext.
  */
-export function resolveOrProvisionDaemonToken(): Effect.Effect<
-  ProvisionedDaemonToken | undefined,
-  never
-> {
+export function resolveOrProvisionDaemonToken(): Effect.Effect<ProvisionDaemonTokenResult, never> {
   return Effect.gen(function* () {
     const existing = yield* resolveDaemonToken();
-    if (existing !== undefined) return { token: existing, generated: false };
+    if (existing !== undefined) return { ok: true, token: existing, generated: false };
 
     const backend = yield* detectKeyringBackend();
-    if (backend === "none") return undefined;
+    if (backend === "none") return { ok: false, reason: "no-keyring" };
 
     const generatedToken = randomBytes(24).toString("hex");
     const stored = yield* keyringSet(backend, DAEMON_TOKEN_PATH, generatedToken);
-    if (!stored) return undefined;
+    if (!stored) return { ok: false, reason: "keyring-write-failed" };
 
-    return { token: generatedToken, generated: true };
+    return { ok: true, token: generatedToken, generated: true };
   });
+}
+
+/**
+ * A precise, OS-aware explanation for why provisioning failed, with the one fix that works
+ * everywhere (set the token yourself) always given first — the keyring path is a workstation
+ * convenience, not the primary mechanism, so it should never be presented as the only way
+ * forward.
+ */
+export function explainDaemonTokenProvisionFailure(
+  failure: DaemonTokenProvisionFailure,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  const setItYourself =
+    `export ${DAEMON_TOKEN_ENV_VAR}=$(openssl rand -hex 24)\n` +
+    `then persist that value yourself — a systemd \`Environment=\` line, your shell profile, ` +
+    `or a secrets manager — since nothing else will remember it across restarts.`;
+
+  if (failure.reason === "keyring-write-failed") {
+    return (
+      `A keyring is available but writing the daemon token to it failed — it may be locked ` +
+      `or read-only. Simplest fix, works regardless of the keyring:\n\n${setItYourself}`
+    );
+  }
+
+  const why = (() => {
+    switch (platform) {
+      case "darwin":
+        return (
+          `No OS keyring is available — unusual on macOS, since Keychain access ("security") ` +
+          `is normally there by default. This can happen with no login keychain unlocked ` +
+          `(a sandboxed or CI environment, say).`
+        );
+      case "linux":
+        return (
+          `No OS keyring is available — normal for a headless server. The Linux path ` +
+          `("secret-tool") needs a running D-Bus session and a keyring daemon (gnome-keyring ` +
+          `or similar), and a server with no desktop login never starts either. Running one ` +
+          `just for this isn't worth it either: gnome-keyring normally unlocks itself via PAM ` +
+          `at login, which a headless server never triggers, so you'd end up scripting a manual ` +
+          `unlock — more operational overhead than the fix below, not less.`
+        );
+      default:
+        return `No keyring backend exists for this platform yet.`;
+    }
+  })();
+
+  return `${why} Set it yourself:\n\n${setItYourself}`;
 }

@@ -174,8 +174,20 @@ Bind the specific tailnet address, not `0.0.0.0`. If this machine also has a pub
 use one. A bearer token is still required to reach the operator routes, because the
 bind-safety check has no way to know *which* non-loopback interface is safe — it treats all of
 them the same, on purpose. The first run generates one and stores it in the OS keyring,
-printing it once; set `JAZZ_DAEMON_TOKEN=$(openssl rand -hex 24)` yourself instead if this is a
-container with no persistent keyring, or you need the value before the daemon's first run.
+printing it once — but on a headless server there usually is no keyring (`secret-tool` needs a
+running D-Bus session and a keyring daemon, which nothing ever starts without a desktop
+login), so the daemon will refuse to start and explain exactly that. On a server, set the
+token yourself instead of chasing a keyring:
+
+```bash
+export JAZZ_DAEMON_TOKEN=$(openssl rand -hex 24)
+```
+
+and persist that value the way you'd persist any other server secret — a systemd
+`Environment=` line, an `.env` file whatever supervises the process reads, or a secrets
+manager if the host already has one. This is the normal path for a server, not a fallback:
+the keyring exists for a workstation where a human is already logged in, not the other way
+around.
 
 ### 3. Bob invites Alice
 
@@ -338,10 +350,12 @@ jazz peers log
 - **`ask_peer` doesn't show up in the toolset** — no peer is configured on that side yet, or
   every configured peer is at `disclosure: "none"`. The tool is deliberately absent until there's
   somewhere for it to go.
-- **The daemon refuses to start** — read the message; it's almost always
-  `--host` set to something other than loopback with no `$JAZZ_DAEMON_TOKEN`. That check
-  exists because a daemon on a reachable interface is an agent with filesystem access that
-  anyone reaching the port can drive.
+- **The daemon refuses to start** — read the message; it's almost always `--host` set to
+  something other than loopback with no token available. That check exists because a daemon
+  on a reachable interface is an agent with filesystem access that anyone reaching the port
+  can drive. The message explains specifically why (no keyring found, or one found but the
+  write to it failed) and gives the fix that works regardless — set `$JAZZ_DAEMON_TOKEN`
+  yourself and persist it the way you'd persist any other server secret.
 - **The invite link doesn't work** — check it hasn't expired or already been redeemed
   (`jazz peers invite list` on the inviter's machine), and that the inviter's daemon is
   actually running at the address embedded in the link.
