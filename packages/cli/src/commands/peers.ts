@@ -7,7 +7,12 @@
  */
 
 import { read as readLedger } from "@jazz/adapters/peers/ledger";
-import { detectKeyringBackend, keyringDelete, keyringSet } from "@jazz/adapters/secrets/keyring";
+import {
+  describeKeyringBackend,
+  detectKeyringBackend,
+  keyringDelete,
+  keyringSet,
+} from "@jazz/adapters/secrets/keyring";
 import { KEYRING_SERVICE_NAME, peerTokenPath } from "@jazz/adapters/secrets/registry";
 import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import { getErrorMessage } from "@jazz/core/presentation/error-handler";
@@ -97,7 +102,9 @@ export function setPeerTokenCommand(options: { readonly name: string; readonly e
     const backend = yield* detectKeyringBackend();
     if (backend === "none") {
       process.stderr.write(
-        "No OS keyring is available, and a peer token is not written to disk in plaintext.\n",
+        "$JAZZ_DISABLE_KEYRING is set, so Jazz won't store this token anywhere — unset it and " +
+          "run this again, or persist the token yourself (a systemd `Environment=` line, your " +
+          "shell profile).\n",
       );
       process.exitCode = 1;
       return;
@@ -105,11 +112,17 @@ export function setPeerTokenCommand(options: { readonly name: string; readonly e
 
     const stored = yield* keyringSet(backend, peerTokenPath(options.name), token);
     if (!stored) {
-      process.stderr.write(`Could not store the token for "${options.name}".\n`);
+      process.stderr.write(
+        `Could not store the token for "${options.name}" — neither the OS keyring nor the ` +
+          `$JAZZ_HOME/secrets.json fallback could be written to. Check that $JAZZ_HOME is ` +
+          `actually writable.\n`,
+      );
       process.exitCode = 1;
       return;
     }
-    process.stdout.write(`Stored a token for "${options.name}" in the ${backend} keyring.\n`);
+    process.stdout.write(
+      `Stored a token for "${options.name}" in ${describeKeyringBackend(backend)}.\n`,
+    );
   });
 }
 

@@ -27,6 +27,13 @@ generate one with `openssl`, run `jazz peers set-token` on both sides, edit conf
 as a fold-out, for when you'd rather not have acceptance write your config for you, or you're
 scripting setup somewhere a human won't be there to confirm a link.
 
+**Where the token lives:** an OS keyring when one's reachable (Keychain on macOS,
+`secret-tool`/libsecret on Linux), otherwise a `chmod 600` file at `$JAZZ_HOME/secrets.json`.
+Not in `config.json`. The file fallback needs no D-Bus session or keyring unlock, so it works
+the same on a workstation and a headless server — `jazz peers invite accept` and
+`jazz peers set-token` need no special-casing either way. `$JAZZ_DISABLE_KEYRING` turns off
+both if you'd rather manage tokens yourself.
+
 ---
 
 ## One machine, two agents
@@ -361,9 +368,9 @@ jazz peers log
 - **The daemon refuses to start** — read the message; it's almost always `--host` set to
   something other than loopback with no token available. That check exists because a daemon
   on a reachable interface is an agent with filesystem access that anyone reaching the port
-  can drive. The message explains specifically why (no keyring found, or one found but the
-  write to it failed) and gives the fix that works regardless — set `$JAZZ_DAEMON_TOKEN`
-  yourself and persist it the way you'd persist any other server secret.
+  can drive. Should be rare (see above) — it means `$JAZZ_DISABLE_KEYRING` is set or
+  `$JAZZ_HOME` isn't writable. Fix: set `$JAZZ_DAEMON_TOKEN` yourself and persist it the way
+  you'd persist any other server secret.
 - **The invite link doesn't work** — check it hasn't expired or already been redeemed
   (`jazz peers invite list` on the inviter's machine), and that the inviter's daemon is
   actually running at the address embedded in the link.

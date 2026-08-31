@@ -414,7 +414,15 @@ function acceptInvite(
           return json({ ok: false, error: "could not verify this invite's secret" }, 401);
         case "no-keyring":
           return json(
-            { ok: false, error: "no OS keyring is available to store the resulting token" },
+            {
+              ok: false,
+              error: "the inviter has $JAZZ_DISABLE_KEYRING set, so it cannot store your token",
+            },
+            500,
+          );
+        case "storage-write-failed":
+          return json(
+            { ok: false, error: "the inviter could not persist the resulting token" },
             500,
           );
       }

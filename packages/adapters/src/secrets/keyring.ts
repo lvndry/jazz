@@ -1,16 +1,40 @@
 import { spawn } from "node:child_process";
+import * as nodeFs from "node:fs/promises";
+import * as path from "node:path";
+import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
 import { Effect } from "effect";
 import { KEYRING_SERVICE_NAME } from "./registry";
 
 /**
- * OS keyring access via the platform's own CLI rather than a native module.
+ * Which secret store `keyringGet`/`keyringSet`/`keyringDelete` use.
  *
- * Jazz ships a slim install, and every native keyring binding drags prebuilt
- * binaries per platform behind it. `security` is always present on macOS and
- * `secret-tool` is the standard libsecret client on Linux, so shelling out
- * keeps the dependency footprint at zero.
+ * - `"macos"` — Keychain, via the `security` CLI.
+ * - `"libsecret"` — the Linux Secret Service, via the `secret-tool` CLI (gnome-keyring or
+ *   similar).
+ * - `"file"` — a `chmod 600` JSON file under `$JAZZ_HOME`, used when neither OS keyring is
+ *   reachable (typically a headless server with no D-Bus session).
+ * - `"none"` — nothing stored; reads return nothing, writes are refused. Only reachable via
+ *   the `$JAZZ_DISABLE_KEYRING` opt-out, since `"file"` covers every other case.
+ *
+ * `security`/`secret-tool` over a native keyring binding: jazz ships a slim install, and every
+ * native binding drags prebuilt binaries per platform behind it. Both CLIs already ship with
+ * their platform, so shelling out keeps the dependency footprint at zero.
  */
-export type KeyringBackend = "macos" | "libsecret" | "none";
+export type KeyringBackend = "macos" | "libsecret" | "file" | "none";
+
+/** Human-readable name for a backend, for success/status messages. */
+export function describeKeyringBackend(backend: KeyringBackend): string {
+  switch (backend) {
+    case "macos":
+      return "the macOS keychain";
+    case "libsecret":
+      return "the Linux keyring";
+    case "file":
+      return "$JAZZ_HOME/secrets.json";
+    case "none":
+      return "nowhere";
+  }
+}
 
 const PROBE_ACCOUNT = "__jazz_probe__";
 const COMMAND_TIMEOUT_MS = 5_000;
@@ -100,6 +124,9 @@ function keyringDisabledByEnv(): boolean {
  *
  * On Linux this probes an actual lookup: `secret-tool` is frequently installed
  * on machines with no session D-Bus (headless servers), where every call fails.
+ * Neither OS probe succeeding falls through to `"file"` rather than `"none"` — see the
+ * `KeyringBackend` doc comment for why that fallback is safe to take automatically instead
+ * of asking the operator to choose it.
  */
 export function detectKeyringBackend(): Effect.Effect<KeyringBackend, never> {
   return Effect.gen(function* () {
@@ -113,10 +140,8 @@ export function detectKeyringBackend(): Effect.Effect<KeyringBackend, never> {
         "-a",
         PROBE_ACCOUNT,
       ]);
-      return probe.unavailable ? ("none" as const) : ("macos" as const);
-    }
-
-    if (process.platform === "linux") {
+      if (!probe.unavailable) return "macos" as const;
+    } else if (process.platform === "linux") {
       const probe = yield* runCommand("secret-tool", [
         "lookup",
         "service",
@@ -124,13 +149,63 @@ export function detectKeyringBackend(): Effect.Effect<KeyringBackend, never> {
         "account",
         PROBE_ACCOUNT,
       ]);
-      if (probe.unavailable) return "none" as const;
       // A clean "not found" exits non-zero with no diagnostics; a broken or
       // absent secret service always explains itself on stderr.
-      return probe.stderr.trim() === "" ? ("libsecret" as const) : ("none" as const);
+      if (!probe.unavailable && probe.stderr.trim() === "") return "libsecret" as const;
     }
 
-    return "none" as const;
+    return "file" as const;
+  });
+}
+
+const SECRETS_FILE_MODE = 0o600;
+
+function secretsFilePath(): string {
+  return path.join(getJazzHomeDirectory(), "secrets.json");
+}
+
+/** Missing file, unreadable file, or corrupt JSON all read as "nothing stored yet". */
+function readSecretsFile(): Effect.Effect<Record<string, string>, never> {
+  return Effect.promise(async () => {
+    try {
+      const raw = await nodeFs.readFile(secretsFilePath(), "utf-8");
+      const parsed: unknown = JSON.parse(raw);
+      if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return parsed as Record<string, string>;
+      }
+      return {};
+    } catch {
+      return {};
+    }
+  });
+}
+
+/**
+ * Write via a sibling temp file and rename, so a crash mid-write can't leave `secrets.json`
+ * truncated or invalid. No cross-process lock: token writes are rare enough that a lost
+ * update from two concurrent writers is an accepted risk, not worth the complexity.
+ */
+function writeSecretsFile(secrets: Record<string, string>): Effect.Effect<boolean, never> {
+  return Effect.promise(async () => {
+    const filePath = secretsFilePath();
+    const tempPath = path.join(
+      path.dirname(filePath),
+      `.secrets-${Date.now()}-${Math.random().toString(36).slice(2)}.tmp`,
+    );
+    try {
+      await nodeFs.mkdir(path.dirname(filePath), { recursive: true, mode: 0o700 });
+      await nodeFs.writeFile(tempPath, `${JSON.stringify(secrets, null, 2)}\n`, {
+        mode: SECRETS_FILE_MODE,
+      });
+      await nodeFs.rename(tempPath, filePath);
+      // `rename` preserves the temp file's mode, but chmod again in case `secrets.json`
+      // already existed with a wider mode from before this fallback existed.
+      await nodeFs.chmod(filePath, SECRETS_FILE_MODE);
+      return true;
+    } catch {
+      await nodeFs.rm(tempPath, { force: true }).catch(() => undefined);
+      return false;
+    }
   });
 }
 
@@ -141,6 +216,10 @@ export function keyringGet(
 ): Effect.Effect<string | undefined, never> {
   return Effect.gen(function* () {
     if (backend === "none") return undefined;
+    if (backend === "file") {
+      const secrets = yield* readSecretsFile();
+      return secrets[account];
+    }
 
     const result =
       backend === "macos"
@@ -174,6 +253,10 @@ export function keyringSet(
 ): Effect.Effect<boolean, never> {
   return Effect.gen(function* () {
     if (backend === "none") return false;
+    if (backend === "file") {
+      const secrets = yield* readSecretsFile();
+      return yield* writeSecretsFile({ ...secrets, [account]: secret });
+    }
 
     if (backend === "macos") {
       // `security` has no stdin mode for writes, so the value is briefly visible
@@ -208,6 +291,13 @@ export function keyringDelete(
 ): Effect.Effect<void, never> {
   return Effect.gen(function* () {
     if (backend === "none") return;
+    if (backend === "file") {
+      const secrets = yield* readSecretsFile();
+      if (!(account in secrets)) return;
+      const { [account]: _removed, ...rest } = secrets;
+      yield* writeSecretsFile(rest);
+      return;
+    }
 
     if (backend === "macos") {
       yield* runCommand("security", [

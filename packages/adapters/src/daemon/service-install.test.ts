@@ -135,7 +135,7 @@ describe("waiting for the daemon to prove it is reachable", () => {
     try {
       const result = await Effect.runPromise(
         Effect.either(
-          waitForDaemonHealthy({ host: "127.0.0.1", port: server.port }, "systemd", 2_000),
+          waitForDaemonHealthy({ host: "127.0.0.1", port: server.port ?? 0 }, "systemd", 2_000),
         ),
       );
       expect(result._tag).toBe("Right");
@@ -171,7 +171,7 @@ describe("waiting for the daemon to prove it is reachable", () => {
     try {
       const result = await Effect.runPromise(
         Effect.either(
-          waitForDaemonHealthy({ host: "0.0.0.0", port: server.port }, "launchd", 2_000),
+          waitForDaemonHealthy({ host: "0.0.0.0", port: server.port ?? 0 }, "launchd", 2_000),
         ),
       );
       expect(result._tag).toBe("Right");
