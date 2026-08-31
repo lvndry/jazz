@@ -5,6 +5,11 @@
  * Telegram bridge ships as a container with an entrypoint, and scheduled workflows use
  * launchd. A daemon that forks and writes a pidfile would be a third mechanism competing
  * with both, and the first thing anyone deploying it would have to work around.
+ *
+ * `install`/`uninstall` do not change that — they don't add a jazz-owned supervision
+ * mechanism, they wire this same foreground command into whichever supervisor the host
+ * already has (systemd/launchd), which is exactly "the host's job" rather than a jazz pidfile
+ * competing with it. See `@jazz/adapters/daemon/service-install` for that half.
  */
 
 import { randomBytes } from "node:crypto";
@@ -20,6 +25,13 @@ import {
   type DaemonRequirements,
 } from "@jazz/adapters/daemon/server";
 import {
+  detectInitSystem,
+  generateDaemonToken,
+  installService,
+  serviceAlreadyInstalled,
+  uninstallService,
+} from "@jazz/adapters/daemon/service-install";
+import {
   explainDaemonTokenProvisionFailure,
   resolveDaemonToken,
   resolveOrProvisionDaemonToken,
@@ -32,6 +44,8 @@ import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
 import { resolveTriggerToken } from "@jazz/adapters/triggers/token";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
+import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
+import { getJazzSchedulerInvocation } from "@jazz/core/utils/runtime";
 import { SchedulerServiceTag } from "@jazz/core/workflows/scheduler-service";
 import { Effect, Runtime } from "effect";
 
@@ -82,6 +96,57 @@ export function daemonCommand(options: DaemonCommandOptions) {
           `Generated a daemon token and stored it in the OS keyring: ${provisioned.token}\n` +
             `Use it as a bearer token from any client reaching this daemon over the network.\n`,
         );
+      }
+    }
+
+    // Offer to make this persistent right where the operator would actually hit the need —
+    // not a separate subcommand they'd have to already know exists. Only when there's an
+    // agent to serve (install ties a unit to `--serve-peers`) and a token already resolved
+    // for it; a loopback dev/test run is never offered this, matching "widening the bind is
+    // a decision made twice" elsewhere in this file.
+    if (!isLoopback(options.host) && options.peerAgent !== undefined && token !== undefined) {
+      const initSystem = detectInitSystem();
+      const terminal = yield* TerminalServiceTag;
+      if (
+        initSystem !== "unsupported" &&
+        !serviceAlreadyInstalled(initSystem) &&
+        terminal.isInteractive
+      ) {
+        if (process.getuid?.() !== 0) {
+          yield* terminal.info(
+            `Tip: run \`sudo jazz daemon install --serve-peers ${options.peerAgent} ` +
+              `--host ${options.host}\` to make this a persistent service.`,
+          );
+        } else {
+          yield* terminal.warn(
+            "Not running as a persistent service yet — Ctrl+C or a closed session will kill it.",
+          );
+          const install = yield* terminal.confirm("Install it as a system service now?", false);
+          if (install) {
+            const invocation = yield* getJazzSchedulerInvocation();
+            const installed = yield* installService({
+              agentId: options.peerAgent,
+              host: options.host,
+              port: options.port,
+              token,
+              invocation,
+            }).pipe(
+              Effect.catchAll((error) =>
+                Effect.gen(function* () {
+                  yield* terminal.error(error.message);
+                  return undefined;
+                }),
+              ),
+            );
+            if (installed !== undefined) {
+              yield* terminal.success(
+                `Installed and started. Check on it with 'systemctl status jazz-daemon'` +
+                  `${installed.initSystem === "launchd" ? " (or 'launchctl list | grep jazz' on macOS)" : ""}.`,
+              );
+            }
+            return;
+          }
+        }
       }
     }
 
@@ -265,6 +330,86 @@ export function forgetDaemonTokenCommand() {
     const backend = yield* detectKeyringBackend();
     yield* keyringDelete(backend, DAEMON_TOKEN_PATH);
     process.stdout.write("Removed the stored daemon token.\n");
+  });
+}
+
+/**
+ * The explicit escape hatch for the ambient prompt inside `daemonCommand()` — scriptable
+ * (`--yes` skips the confirm, same convention `mcp.ts`'s trust command uses) and the way to
+ * reinstall after changing `--host`/`--port`/`--serve-peers` without going through it again.
+ */
+export function installDaemonServiceCommand(options: {
+  readonly agentId: string;
+  readonly host: string;
+  readonly port: number;
+  readonly yes?: boolean;
+}) {
+  return Effect.gen(function* () {
+    const terminal = yield* TerminalServiceTag;
+
+    if (options.yes !== true) {
+      yield* terminal.warn(
+        `This writes a system-level unit and enables+starts it via systemctl/launchctl.`,
+      );
+      const confirmed = yield* terminal.confirm("Continue?", false);
+      if (!confirmed) {
+        yield* terminal.info("Cancelled.");
+        return;
+      }
+    }
+
+    const existing = yield* resolveDaemonToken();
+    const token = existing ?? generateDaemonToken();
+    const invocation = yield* getJazzSchedulerInvocation();
+
+    const installed = yield* installService({
+      agentId: options.agentId,
+      host: options.host,
+      port: options.port,
+      token,
+      invocation,
+    }).pipe(
+      Effect.catchAll((error) =>
+        Effect.sync(() => {
+          process.stderr.write(`${error.message}\n`);
+          process.exitCode = 1;
+          return undefined;
+        }),
+      ),
+    );
+    if (installed === undefined) return;
+
+    yield* terminal.success(
+      `Installed and started. Check on it with 'systemctl status jazz-daemon'` +
+        `${installed.initSystem === "launchd" ? " (or 'launchctl list | grep jazz' on macOS)" : ""}.`,
+    );
+  });
+}
+
+export function uninstallDaemonServiceCommand(options: { readonly yes?: boolean }) {
+  return Effect.gen(function* () {
+    const terminal = yield* TerminalServiceTag;
+
+    if (options.yes !== true) {
+      yield* terminal.warn("This stops the service, disables it, and removes its unit/env file.");
+      const confirmed = yield* terminal.confirm("Continue?", false);
+      if (!confirmed) {
+        yield* terminal.info("Cancelled.");
+        return;
+      }
+    }
+
+    const failed = yield* uninstallService().pipe(
+      Effect.as(false),
+      Effect.catchAll((error) =>
+        Effect.sync(() => {
+          process.stderr.write(`${error.message}\n`);
+          process.exitCode = 1;
+          return true;
+        }),
+      ),
+    );
+    if (!failed) yield* terminal.success("Uninstalled.");
   });
 }
 

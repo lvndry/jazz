@@ -796,6 +796,44 @@ function registerDaemonCommand(program: Command): void {
         cliRuntimeOptions(program),
       ),
     );
+
+  daemonCommand
+    .command("install")
+    .description(
+      "Install this as a persistent system service (systemd on Linux, launchd on macOS) so it survives reboots and closed sessions. Needs root.",
+    )
+    .requiredOption("--serve-peers <agentId>", "Agent that answers peer questions")
+    .option("--host <address>", "Interface to bind", "127.0.0.1")
+    .option("--port <n>", "Port to listen on", parsePositiveInt("--port"), 4747)
+    .option("--yes", "Skip the confirmation prompt")
+    .action((options: { servePeers: string; host: string; port: number; yes?: boolean }) =>
+      runCliAction(
+        () =>
+          import("@jazz/cli/commands/daemon").then((mod) =>
+            mod.installDaemonServiceCommand({
+              agentId: options.servePeers,
+              host: options.host,
+              port: options.port,
+              yes: options.yes === true,
+            }),
+          ),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  daemonCommand
+    .command("uninstall")
+    .description("Remove the persistent system service installed by `daemon install`. Needs root.")
+    .option("--yes", "Skip the confirmation prompt")
+    .action((options: { yes?: boolean }) =>
+      runCliAction(
+        () =>
+          import("@jazz/cli/commands/daemon").then((mod) =>
+            mod.uninstallDaemonServiceCommand({ yes: options.yes === true }),
+          ),
+        cliRuntimeOptions(program),
+      ),
+    );
 }
 
 /**

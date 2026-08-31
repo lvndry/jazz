@@ -162,7 +162,8 @@ A run parks when it hits something needing your approval and nobody is there to 
 Serves runs over HTTP: start one, poll it, approve or reject what a parked one is waiting for
 — from a different terminal, a different process, or a different machine than the one that
 began it. Runs in the foreground; supervision (restart on crash, start on boot) is the host's
-job, not the daemon's.
+job, not the daemon's — `jazz daemon install` wires it into that supervisor (systemd/launchd)
+instead of leaving that hand-written.
 
 | Flag                      | Purpose                                                                         |
 | ------------------------- | ------------------------------------------------------------------------------- |
@@ -181,6 +182,8 @@ credential instead — see [`jazz peers`](#jazz-peers).
 | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
 | `jazz daemon set-token`    | Generate (or store `$JAZZ_DAEMON_TOKEN` if set) a token before the daemon's first run — useful when a client needs the value in advance |
 | `jazz daemon forget-token` | Remove the stored token                                                                                                                 |
+| `jazz daemon install`      | Install this as a persistent system service (systemd/launchd). Needs root; `--serve-peers <agentId>` (required), `--host`, `--port`, `--yes` |
+| `jazz daemon uninstall`    | Remove the service installed by `install`. Needs root; `--yes`                                                                          |
 
 Set `$JAZZ_DAEMON_TOKEN` yourself instead of letting Jazz generate one when the value needs to
 be known ahead of time — a container with no persistent keyring across restarts, or a client
