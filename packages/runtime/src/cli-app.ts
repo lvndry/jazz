@@ -758,6 +758,10 @@ function registerDaemonCommand(program: Command): void {
       "Also answer questions from configured peers, using this agent. Off unless given: a daemon for your own use should not quietly answer strangers.",
     )
     .action((options: { port: number; host: string; servePeers?: string }) =>
+      // No `{ session: true }` — that opts into the fullscreen alternate-screen TUI, meant
+      // for commands a human actively drives (agent create/edit, chat, persona edit). A
+      // daemon is long-running but headless: it logs plain lines to stderr and blocks,
+      // exactly like every other non-interactive command that leaves this option off.
       runCliAction(
         () =>
           import("@jazz/cli/commands/daemon").then((mod) =>
@@ -768,7 +772,6 @@ function registerDaemonCommand(program: Command): void {
             }),
           ),
         cliRuntimeOptions(program),
-        { session: true },
       ),
     );
 
