@@ -39,7 +39,12 @@ import {
 } from "@jazz/adapters/daemon/token";
 import { runDueTriggers } from "@jazz/adapters/daemon/trigger-runner";
 import { resolvePeerToken } from "@jazz/adapters/peers/token";
-import { detectKeyringBackend, keyringDelete, keyringSet } from "@jazz/adapters/secrets/keyring";
+import {
+  describeKeyringBackend,
+  detectKeyringBackend,
+  keyringDelete,
+  keyringSet,
+} from "@jazz/adapters/secrets/keyring";
 import { DAEMON_TOKEN_ENV_VAR, DAEMON_TOKEN_PATH } from "@jazz/adapters/secrets/registry";
 import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
 import { resolveTriggerToken } from "@jazz/adapters/triggers/token";
@@ -136,9 +141,10 @@ export function daemonCommand(options: DaemonCommandOptions) {
         return;
       }
       token = provisioned.token;
-      if (provisioned.generated) {
+      if (provisioned.generated && provisioned.backend !== undefined) {
         process.stderr.write(
-          `Generated a daemon token and stored it in the OS keyring: ${provisioned.token}\n` +
+          `Generated a daemon token and stored it in ${describeKeyringBackend(provisioned.backend)}: ` +
+            `${provisioned.token}\n` +
             `Use it as a bearer token from any client reaching this daemon over the network.\n`,
         );
       }
@@ -349,7 +355,9 @@ export function setDaemonTokenCommand() {
     const backend = yield* detectKeyringBackend();
     if (backend === "none") {
       process.stderr.write(
-        "No OS keyring is available, and the daemon token is not written to disk in plaintext.\n",
+        "$JAZZ_DISABLE_KEYRING is set, so Jazz won't store this token anywhere — unset it and " +
+          "run this again, or persist the token yourself (a systemd `Environment=` line, your " +
+          "shell profile).\n",
       );
       process.exitCode = 1;
       return;
@@ -357,14 +365,18 @@ export function setDaemonTokenCommand() {
 
     const stored = yield* keyringSet(backend, DAEMON_TOKEN_PATH, token);
     if (!stored) {
-      process.stderr.write("Could not store the daemon token.\n");
+      process.stderr.write(
+        "Could not store the daemon token — neither the OS keyring nor the " +
+          "$JAZZ_HOME/secrets.json fallback could be written to. Check that $JAZZ_HOME is " +
+          "actually writable.\n",
+      );
       process.exitCode = 1;
       return;
     }
     process.stdout.write(
       generated
-        ? `Generated and stored a daemon token in the ${backend} keyring.\n`
-        : `Stored the daemon token in the ${backend} keyring.\n`,
+        ? `Generated and stored a daemon token in ${describeKeyringBackend(backend)}.\n`
+        : `Stored the daemon token in ${describeKeyringBackend(backend)}.\n`,
     );
   });
 }

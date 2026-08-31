@@ -22,6 +22,20 @@ import { KEYRING_SERVICE_NAME } from "./registry";
  */
 export type KeyringBackend = "macos" | "libsecret" | "file" | "none";
 
+/** Human-readable name for a backend, for success/status messages. */
+export function describeKeyringBackend(backend: KeyringBackend): string {
+  switch (backend) {
+    case "macos":
+      return "the macOS keychain";
+    case "libsecret":
+      return "the Linux keyring";
+    case "file":
+      return "$JAZZ_HOME/secrets.json";
+    case "none":
+      return "nowhere";
+  }
+}
+
 const PROBE_ACCOUNT = "__jazz_probe__";
 const COMMAND_TIMEOUT_MS = 5_000;
 

@@ -7,7 +7,12 @@
  */
 
 import { read as readLedger } from "@jazz/adapters/peers/ledger";
-import { detectKeyringBackend, keyringDelete, keyringSet } from "@jazz/adapters/secrets/keyring";
+import {
+  describeKeyringBackend,
+  detectKeyringBackend,
+  keyringDelete,
+  keyringSet,
+} from "@jazz/adapters/secrets/keyring";
 import { KEYRING_SERVICE_NAME, peerTokenPath } from "@jazz/adapters/secrets/registry";
 import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import { getErrorMessage } from "@jazz/core/presentation/error-handler";
@@ -115,7 +120,9 @@ export function setPeerTokenCommand(options: { readonly name: string; readonly e
       process.exitCode = 1;
       return;
     }
-    process.stdout.write(`Stored a token for "${options.name}" in the ${backend} keyring.\n`);
+    process.stdout.write(
+      `Stored a token for "${options.name}" in ${describeKeyringBackend(backend)}.\n`,
+    );
   });
 }
 

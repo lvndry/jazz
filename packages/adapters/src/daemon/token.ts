@@ -9,7 +9,12 @@
 
 import { randomBytes } from "node:crypto";
 import { Effect } from "effect";
-import { detectKeyringBackend, keyringGet, keyringSet } from "@/adapters/secrets/keyring";
+import {
+  detectKeyringBackend,
+  type KeyringBackend,
+  keyringGet,
+  keyringSet,
+} from "@/adapters/secrets/keyring";
 import { DAEMON_TOKEN_ENV_VAR, DAEMON_TOKEN_PATH } from "@/adapters/secrets/registry";
 
 export function resolveDaemonToken(): Effect.Effect<string | undefined, never> {
@@ -27,6 +32,8 @@ export interface ProvisionedDaemonToken {
   readonly token: string;
   /** True when this call generated the token rather than finding one already set. */
   readonly generated: boolean;
+  /** Where a generated token was stored — absent when `generated` is false. */
+  readonly backend?: KeyringBackend;
 }
 
 /**
@@ -45,9 +52,8 @@ export type ProvisionDaemonTokenResult = ProvisionedDaemonToken | DaemonTokenPro
  * `jazz daemon set-token` by hand first. Nobody else needs to independently know this token
  * (unlike a peer's), so Jazz inventing it costs nothing.
  *
- * Fails only when there is nowhere safe to keep a generated token: no keyring, and no
- * `$JAZZ_DAEMON_TOKEN` already set. The caller decides what to do in that case; this never
- * writes a token to disk in plaintext.
+ * Fails only when there is nowhere to keep a generated token: `$JAZZ_DISABLE_KEYRING` is set
+ * and no `$JAZZ_DAEMON_TOKEN` was given, or the resolved backend refused the write.
  */
 export function resolveOrProvisionDaemonToken(): Effect.Effect<ProvisionDaemonTokenResult, never> {
   return Effect.gen(function* () {
@@ -61,7 +67,7 @@ export function resolveOrProvisionDaemonToken(): Effect.Effect<ProvisionDaemonTo
     const stored = yield* keyringSet(backend, DAEMON_TOKEN_PATH, generatedToken);
     if (!stored) return { ok: false, reason: "keyring-write-failed" };
 
-    return { ok: true, token: generatedToken, generated: true };
+    return { ok: true, token: generatedToken, generated: true, backend };
   });
 }
 
