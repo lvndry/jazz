@@ -11,13 +11,8 @@ import { KEYRING_SERVICE_NAME } from "./registry";
  * Jazz ships a slim install, and every native keyring binding drags prebuilt
  * binaries per platform behind it. `security` is always present on macOS and
  * `secret-tool` is the standard libsecret client on Linux, so shelling out
- * keeps the dependency footprint at zero.
- *
- * `"file"` is the fallback below both: a `chmod 600` JSON file under `$JAZZ_HOME`, used
- * whenever no OS keyring is reachable (typically a headless server with no D-Bus session).
- * Not a lower bar than jazz already accepts elsewhere — `service-install.ts` stores the
- * daemon's own token the same way, and `config.json` already holds API keys in plaintext at
- * the same permissions in the same directory.
+ * keeps the dependency footprint at zero. `"file"` is the fallback below both: a
+ * `chmod 600` JSON file under `$JAZZ_HOME`, used when neither is reachable.
  */
 export type KeyringBackend = "macos" | "libsecret" | "file" | "none";
 
