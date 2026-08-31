@@ -6,13 +6,19 @@ import { Effect } from "effect";
 import { KEYRING_SERVICE_NAME } from "./registry";
 
 /**
- * OS keyring access via the platform's own CLI rather than a native module.
+ * Which secret store `keyringGet`/`keyringSet`/`keyringDelete` use.
  *
- * Jazz ships a slim install, and every native keyring binding drags prebuilt
- * binaries per platform behind it. `security` is always present on macOS and
- * `secret-tool` is the standard libsecret client on Linux, so shelling out
- * keeps the dependency footprint at zero. `"file"` is the fallback below both: a
- * `chmod 600` JSON file under `$JAZZ_HOME`, used when neither is reachable.
+ * - `"macos"` — Keychain, via the `security` CLI.
+ * - `"libsecret"` — the Linux Secret Service, via the `secret-tool` CLI (gnome-keyring or
+ *   similar).
+ * - `"file"` — a `chmod 600` JSON file under `$JAZZ_HOME`, used when neither OS keyring is
+ *   reachable (typically a headless server with no D-Bus session).
+ * - `"none"` — nothing stored; reads return nothing, writes are refused. Only reachable via
+ *   the `$JAZZ_DISABLE_KEYRING` opt-out, since `"file"` covers every other case.
+ *
+ * `security`/`secret-tool` over a native keyring binding: jazz ships a slim install, and every
+ * native binding drags prebuilt binaries per platform behind it. Both CLIs already ship with
+ * their platform, so shelling out keeps the dependency footprint at zero.
  */
 export type KeyringBackend = "macos" | "libsecret" | "file" | "none";
 
