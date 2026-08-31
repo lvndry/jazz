@@ -69,7 +69,7 @@ const spawnSubagentSchema = z.object({
     .record(z.string(), z.unknown())
     .optional()
     .describe(
-      "Experimental JSON Schema for a structured child result. When supplied, the child must return a JSON envelope with a text summary and a result that validates against this schema.",
+      "JSON Schema for a structured child result. When supplied, the child must return a JSON envelope with a text summary and a result that validates against this schema.",
     ),
   resultName: z
     .string()
@@ -77,7 +77,7 @@ const spawnSubagentSchema = z.object({
     .max(120)
     .optional()
     .describe(
-      "Optional human-readable label for the structured result, used in prompts and validation errors.",
+      "Human-readable label for the structured result, used in prompts and validation errors.",
     ),
 });
 
