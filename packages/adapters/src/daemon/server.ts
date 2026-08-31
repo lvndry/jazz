@@ -32,6 +32,7 @@ import { inviteStatus } from "@jazz/core/types/peer-invite";
 import type { TriggerConfig } from "@jazz/core/types/trigger";
 import { generateConversationId } from "@jazz/core/utils/conversation-id";
 import { Effect } from "effect";
+import { buildPublicAgentCard, handleA2ARpc } from "@/adapters/peers/a2a";
 import {
   acceptInviteOnInviterSide,
   getInvite,
@@ -202,6 +203,31 @@ export function makeHandler(
 }
 
 /**
+ * Which configured peer presented this bearer token, if any.
+ *
+ * Read fresh on every request rather than once at startup: an invite accepted five minutes
+ * into this process's life must be usable without restarting it, or the whole point of
+ * accepting one over HTTP — no manual config edit, no restart — is undone by a daemon that
+ * only ever sees the peer list it booted with. Shared by every peer-facing door (`/peer/ask`
+ * and `/a2a`) so a token identifies its holder the same way regardless of which protocol
+ * they used to present it.
+ */
+async function resolveCallerPeer(
+  resolvePeers: () => Promise<readonly PeerConfig[]>,
+  resolveToken: (peerName: string) => Promise<string | undefined>,
+  presented: string,
+): Promise<PeerConfig | undefined> {
+  const peers = await resolvePeers();
+  for (const peer of peers) {
+    const expected = await resolveToken(peer.name);
+    if (expected !== undefined && expected.length > 0 && tokenMatches(expected, presented)) {
+      return peer;
+    }
+  }
+  return undefined;
+}
+
+/**
  * The peer-facing handler, separate from the operator's.
  *
  * A different door with a different credential. Everything on the operator's routes assumes
@@ -228,22 +254,7 @@ export function makePeerHandler(
       return json({ ok: false, error: "unauthorized" }, 401);
     }
 
-    // Read fresh on every request rather than once at startup: an invite accepted five
-    // minutes into this process's life must be usable without restarting it, or the whole
-    // point of accepting one over HTTP — no manual config edit, no restart — is undone by a
-    // daemon that only ever sees the peer list it booted with.
-    const peers = await resolvePeers();
-
-    // Which peer is this? Resolved by matching the presented token against each configured
-    // peer's own, so a token identifies its holder rather than merely admitting them.
-    let caller: PeerConfig | undefined;
-    for (const peer of peers) {
-      const expected = await resolveToken(peer.name);
-      if (expected !== undefined && expected.length > 0 && tokenMatches(expected, presented)) {
-        caller = peer;
-        break;
-      }
-    }
+    const caller = await resolveCallerPeer(resolvePeers, resolveToken, presented);
     if (caller === undefined) {
       return json({ ok: false, error: "unauthorized" }, 401);
     }
@@ -260,6 +271,55 @@ export function makePeerHandler(
     }
 
     return runEffect(answerPeer(caller, options.peerAgent, question));
+  };
+}
+
+/**
+ * A2A's own doors: an unauthenticated capability card, and an authenticated JSON-RPC
+ * endpoint. Not a second implementation of peer authorization — `answerA2A` resolves the
+ * same persona override and calls the same `servePeerRequest` `/peer/ask` does; this handler
+ * only exists to speak a different wire format to it.
+ */
+export function makeA2AHandler(
+  options: DaemonOptions,
+  resolvePeers: () => Promise<readonly PeerConfig[]>,
+  resolveToken: (peerName: string) => Promise<string | undefined>,
+  runEffect: <A>(effect: Effect.Effect<A, unknown, DaemonRequirements>) => Promise<A>,
+): (request: Request) => Promise<Response> {
+  return async function handleA2A(request: Request): Promise<Response> {
+    const url = new URL(request.url);
+
+    if (request.method === "GET" && url.pathname === "/.well-known/agent-card.json") {
+      if (options.peerAgent === undefined) {
+        return json({ ok: false, error: "not accepting peer questions" }, 404);
+      }
+      return json(buildPublicAgentCard(options.peerAgent));
+    }
+
+    if (request.method !== "POST" || url.pathname !== "/a2a") {
+      return json({ ok: false, error: "not found" }, 404);
+    }
+    if (options.peerAgent === undefined) {
+      return json({ ok: false, error: "not accepting peer questions" }, 404);
+    }
+
+    const presented = (request.headers.get("authorization") ?? "").replace(/^Bearer /, "");
+    if (presented.length === 0) {
+      return json({ ok: false, error: "unauthorized" }, 401);
+    }
+    const caller = await resolveCallerPeer(resolvePeers, resolveToken, presented);
+    if (caller === undefined) {
+      return json({ ok: false, error: "unauthorized" }, 401);
+    }
+
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return json({ ok: false, error: "body must be JSON" }, 400);
+    }
+
+    return runEffect(answerA2A(caller, options.peerAgent, body));
   };
 }
 
@@ -497,17 +557,25 @@ function fireTrigger(trigger: TriggerConfig, payload: string) {
   ) as Effect.Effect<Response, unknown, AgentService>;
 }
 
+/**
+ * A peer's `persona` swaps only the persona on the daemon's peer-serving agent, not the
+ * whole agent — capability lives on the persona (`PersonaToolProfile`), so this is enough to
+ * give one peer a narrower or differently-wired identity than another while both share the
+ * same model/provider config. Shared by every peer-facing door.
+ */
+function agentForPeer<T extends { readonly config: { readonly persona: string } }>(
+  base: T,
+  peer: PeerConfig,
+): T {
+  return peer.persona !== undefined
+    ? { ...base, config: { ...base.config, persona: peer.persona } }
+    : base;
+}
+
 function answerPeer(peer: PeerConfig, agentIdentifier: string, question: string) {
   return Effect.gen(function* () {
     const base = yield* getAgentByIdentifier(agentIdentifier);
-    // A peer's `persona` swaps only the persona on the daemon's peer-serving agent, not the
-    // whole agent — capability lives on the persona (`PersonaToolProfile`), so this is
-    // enough to give one peer a narrower or differently-wired identity than another while
-    // both share the same model/provider config.
-    const agent =
-      peer.persona !== undefined
-        ? { ...base, config: { ...base.config, persona: peer.persona } }
-        : base;
+    const agent = agentForPeer(base, peer);
     const outcome = yield* servePeerRequest({ peer, agent, question });
 
     switch (outcome.kind) {
@@ -520,6 +588,25 @@ function answerPeer(peer: PeerConfig, agentIdentifier: string, question: string)
     Effect.catchAll((error) =>
       Effect.succeed(
         json({ ok: false, error: error instanceof Error ? error.message : String(error) }, 500),
+      ),
+    ),
+  );
+}
+
+function answerA2A(peer: PeerConfig, agentIdentifier: string, body: unknown) {
+  return Effect.gen(function* () {
+    const base = yield* getAgentByIdentifier(agentIdentifier);
+    const agent = agentForPeer(base, peer);
+    const response = yield* handleA2ARpc(agentIdentifier, peer, agent, body);
+    return json(response);
+  }).pipe(
+    Effect.catchAll((error) =>
+      Effect.succeed(
+        json({
+          jsonrpc: "2.0",
+          id: null,
+          error: { code: -32603, message: error instanceof Error ? error.message : String(error) },
+        }),
       ),
     ),
   );

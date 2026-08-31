@@ -11,6 +11,7 @@ import { randomBytes } from "node:crypto";
 import {
   DEFAULT_DAEMON_PORT,
   isLoopback,
+  makeA2AHandler,
   makeHandler,
   makePeerHandler,
   makePeerInviteHandler,
@@ -127,11 +128,21 @@ export function daemonCommand(options: DaemonCommandOptions) {
         (triggerName) => Effect.runPromise(resolveTriggerToken(triggerName)),
         run,
       );
+      // A2A is a second door into the same peer-serving logic `handlePeer` already
+      // authenticates and answers through — see `makeA2AHandler`'s own comment.
+      const handleA2A = makeA2AHandler(
+        daemonOptions,
+        resolvePeers,
+        (peerName) => Effect.runPromise(resolvePeerToken(peerName)),
+        run,
+      );
 
       const routes: readonly { readonly prefix: string; readonly handle: typeof handle }[] = [
         { prefix: "/peer/", handle: handlePeer },
         { prefix: "/peer-invites/", handle: handlePeerInvite },
         { prefix: "/triggers/", handle: handleTrigger },
+        { prefix: "/a2a", handle: handleA2A },
+        { prefix: "/.well-known/", handle: handleA2A },
       ];
 
       const server = Bun.serve({
