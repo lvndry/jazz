@@ -57,11 +57,7 @@ own terminal.
 JAZZ_HOME=$BOB jazz peers invite create alice --port 4748 --disclosure internal --expires 1h
 ```
 
-<<<<<<< HEAD:docs/guide/peers-setup.md
-`disclosure` is the tier — see the [tier table](../concepts/peers.md#tiers-what-a-peer-may-learn).
-=======
 `disclosure` is the tier — see the [tier table](../concepts/agent-to-agent.md#tiers-what-a-peer-may-learn).
->>>>>>> 96f988f0 (docs(site): reorganize docs around use cases and playbooks):docs/start/peers-setup.md
 Start at `internal`, not `private`: you want to see a refusal happen before you see an
 answer. This prints a link; send it to Alice out of band (a chat message, not a commit).
 
