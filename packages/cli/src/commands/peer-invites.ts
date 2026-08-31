@@ -78,7 +78,7 @@ function formatRelative(iso: string, now: Date): string {
 
 export interface CreateInviteCommandOptions {
   readonly inviteeName: string;
-  readonly may: PeerTier;
+  readonly disclosure: PeerTier;
   readonly ttlMs: number;
   readonly host: string;
   readonly port: number;
@@ -155,7 +155,7 @@ export function createInviteCommand(options: CreateInviteCommandOptions) {
       inviteeName: options.inviteeName,
       inviterDisplayName: options.as ?? os.hostname(),
       inviterAskUrl,
-      proposedTier: options.may,
+      proposedTier: options.disclosure,
       ...(options.persona !== undefined ? { proposedPersona: options.persona } : {}),
       ttlMs: options.ttlMs,
     });
@@ -182,8 +182,8 @@ export function createInviteCommand(options: CreateInviteCommandOptions) {
     if (warning !== undefined) process.stderr.write(warning);
 
     process.stdout.write(
-      `Created an invite for "${options.inviteeName}" — ${describeTier(options.may)} ` +
-        `(${options.may}), expiring ${formatRelative(created.record.expiresAt, new Date())}.\n\n` +
+      `Created an invite for "${options.inviteeName}" — ${describeTier(options.disclosure)} ` +
+        `(${options.disclosure}), expiring ${formatRelative(created.record.expiresAt, new Date())}.\n\n` +
         "Share this link (it embeds your endpoint and a one-time secret — send it somewhere " +
         "the recipient will actually see it, not a public channel):\n\n" +
         `  ${url}\n\n` +

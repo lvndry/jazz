@@ -5,11 +5,12 @@
  * properties are load-bearing, and each exists because of a specific way this could go
  * wrong.
  *
- * **Capability is not a per-peer grant.** What a persona can *do* is fixed by whoever
- * configured it (`PersonaToolProfile`), the same for every peer who reaches it — a peer
- * asking a persona to delete a file gets refused because the tool was never wired in, not
- * because of a permission check. Alice finding out what Bob's agent can do is a discovery
- * problem, not an authorization one.
+ * **Capability is not a per-peer grant.** What an agent can *do* is fixed by whoever
+ * configured it — which tools its own config wires in — the same for every peer who reaches
+ * it, decided once by running `jazz daemon --serve-peers <agentId>`. A peer asking it to
+ * delete a file gets refused because the tool was never wired in, not because of a
+ * permission check. Alice finding out what Bob's agent can do is a discovery problem, not an
+ * authorization one. (Persona is not part of this: it's a mindset, not a tool boundary.)
  *
  * **Disclosure is the one per-peer axis.** A tier is enforced by intersecting the toolset
  * down to its disclosure ceiling for every `read-only` tool, so there is nothing for a
@@ -17,12 +18,12 @@
  * exactly this for sub-agents.
  *
  * **A tool riskier than read-only needs an explicit per-peer grant, or it does not exist for
- * this peer at all.** Disclosure says nothing about risk, so a persona capable of real
- * actions must not silently hand every peer that reaches it the same power — but the fix is
- * absence, not a parked, revisitable state. `peer.allow` names exactly what this peer may
- * invoke beyond read-only; anything else is left out of `toolAllowlist` entirely, so the
- * model is never offered it and never tries. Quieter and stronger than a queue: an operator
- * who wants to grant more edits the config, once, deliberately.
+ * this peer at all.** Disclosure says nothing about risk, so an agent capable of real actions
+ * must not silently hand every peer that reaches it the same power — but the fix is absence,
+ * not a parked, revisitable state. `peer.allow` names exactly what this peer may invoke
+ * beyond read-only; anything else is left out of `toolAllowlist` entirely, so the model is
+ * never offered it and never tries. Quieter and stronger than a queue: an operator who wants
+ * to grant more edits the config, once, deliberately.
  *
  * **The peer gets its own conversation.** If peer traffic joined the operator's transcript,
  * a stranger's agent would be writing into the context their agent uses to answer them — a
@@ -133,7 +134,7 @@ export type ServePeerOutcome =
  */
 export function servePeerRequest(request: ServePeerRequest) {
   return Effect.gen(function* () {
-    const tier = request.peer.may ?? "none";
+    const tier = request.peer.disclosure ?? "none";
     const allow = request.peer.allow ?? [];
     const at = new Date().toISOString();
 

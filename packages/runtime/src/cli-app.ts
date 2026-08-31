@@ -937,7 +937,7 @@ function registerPeerInviteCommands(peersCommand: Command, program: Command): vo
         "<name> is your own bookkeeping — the name you'll call them under afterward.",
     )
     .requiredOption(
-      "--may <tier>",
+      "--disclosure <tier>",
       `What the invitee may learn once they accept: ${PEER_TIERS.join(", ")}`,
     )
     .option(
@@ -975,7 +975,7 @@ function registerPeerInviteCommands(peersCommand: Command, program: Command): vo
       (
         name: string,
         options: {
-          may: string;
+          disclosure: string;
           expires: number;
           host: string;
           port: number;
@@ -989,14 +989,14 @@ function registerPeerInviteCommands(peersCommand: Command, program: Command): vo
         runCliAction(
           () =>
             import("@jazz/cli/commands/peer-invites").then((mod) => {
-              if (!isPeerTier(options.may)) {
+              if (!isPeerTier(options.disclosure)) {
                 throw new Error(
-                  `--may must be one of: ${PEER_TIERS.join(", ")} (got "${options.may}")`,
+                  `--disclosure must be one of: ${PEER_TIERS.join(", ")} (got "${options.disclosure}")`,
                 );
               }
               return mod.createInviteCommand({
                 inviteeName: name,
-                may: options.may,
+                disclosure: options.disclosure,
                 ttlMs: options.expires,
                 host: options.host,
                 port: options.port,

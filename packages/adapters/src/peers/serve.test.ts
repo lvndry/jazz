@@ -75,7 +75,7 @@ describe("what a tier permits among riskier-than-read-only tools", () => {
   });
 
   it("a suspended peer gets nothing, even with a standing grant", () => {
-    // `may: none` means no relationship at all — servePeerRequest refuses before this
+    // `disclosure: none` means no relationship at all — servePeerRequest refuses before this
     // function is ever consulted, but the function itself should not quietly admit a grant
     // for a peer with no tier.
     expect(allowed("none", ["write_file"])).toEqual([]);

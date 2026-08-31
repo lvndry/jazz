@@ -61,7 +61,7 @@ export function listPeersCommand(options: { readonly json: boolean }) {
           ? `  allow: ${peer.allow.join(", ")}`
           : "";
       process.stdout.write(
-        `${peer.name}  ${url}  may learn: ${describeTier(peer.may)}${persona}${allow}\n`,
+        `${peer.name}  ${url}  may learn: ${describeTier(peer.disclosure)}${persona}${allow}\n`,
       );
     }
   }).pipe(

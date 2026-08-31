@@ -17,7 +17,7 @@ about you, and that is what most of this page is about.
 
 ```bash
 # 1. Add the peer to ~/.jazz/config.json
-#    { "peers": [{ "name": "sam", "url": "https://sam.example/peer/ask", "may": "about-me" }] }
+#    { "peers": [{ "name": "sam", "url": "https://sam.example/peer/ask", "disclosure": "about-me" }] }
 
 # 2. Give it the shared token
 JAZZ_PEER_TOKEN=… jazz peers set-token sam
@@ -86,17 +86,19 @@ adding somebody and permitting them are separate decisions.
 
 A tier answers "will my agent **tell** this peer X" — disclosure. It says nothing about
 whether the agent can **do** X at all. That is capability, and it is not a per-peer setting:
-it is fixed by whichever [persona](./tools.md) answers peers on your daemon (see `--persona`
-below), the same for every peer who reaches it. If that persona was never given a `write_file`
-tool, a peer asking it to write a file gets refused because the tool doesn't exist for that
-agent — a plain fact, not a permission check.
+it is fixed once, by which agent an operator runs `jazz daemon --serve-peers <agentId>`
+with — its own tool configuration, the same for every peer who reaches it. If that agent was
+never given a `write_file` tool, a peer asking it to write a file gets refused because the
+tool doesn't exist for that agent — a plain fact, not a permission check.
 
-**Two peers, two personas.** Point different peers at different personas
-(`jazz peers invite create sam --may about-me --persona work-contact`, or set `persona` on
-a `PeerConfig` entry directly) to give them genuinely different treatment without a second
-config surface — your partner's persona might be wired for more than your coworker's.
+Persona has nothing to do with this. A persona is a mindset — a system prompt, a tone —
+applied to whichever agent answers peers. Point different peers at different personas
+(`jazz peers invite create sam --disclosure about-me --persona work-contact`, or set `persona`
+on a `PeerConfig` entry directly) to give them a different *voice*, not a different reach:
+your partner's peer entry might sound warmer than your coworker's, but both talk to the exact
+same capability underneath.
 
-**A capable persona still needs a per-peer `allow` to act for a specific peer.** If a persona
+**A capable agent still needs a per-peer `allow` to act for a specific peer.** If the agent
 answering peers *does* have a tool riskier than read-only wired in, no peer inherits it just
 because their tier is wide open. `allow: ["send_message"]` on that one peer's `PeerConfig`
 entry is what actually lets them reach it — everyone else still gets refused by absence, the

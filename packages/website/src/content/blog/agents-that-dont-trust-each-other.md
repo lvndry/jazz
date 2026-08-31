@@ -24,10 +24,10 @@ that with a link. Bob creates one:
 
 ```bash
 jazz daemon --serve-peers bob
-jazz peers invite create alice --may about-me --expires 1h
+jazz peers invite create alice --disclosure about-me --expires 1h
 ```
 
-`--may about-me` is the ceiling: the most Alice's agent will ever be allowed to learn from
+`--disclosure about-me` is the ceiling: the most Alice's agent will ever be allowed to learn from
 Bob's, set by Bob, before Alice does anything.
 
 ```mermaid
@@ -130,10 +130,10 @@ jazz --data-dir $BOB daemon --serve-peers bob --port 4748
 Leave that running. In the other terminal, Bob invites Alice:
 
 ```bash
-jazz --data-dir $BOB peers invite create alice --port 4748 --may about-me --expires 1h
+jazz --data-dir $BOB peers invite create alice --port 4748 --disclosure about-me --expires 1h
 ```
 
-Bob never touches his agent's own configuration for this. `--may about-me` does all the
+Bob never touches his agent's own configuration for this. `--disclosure about-me` does all the
 work — his daemon computes a fresh, narrowed toolset for this one question, every time,
 regardless of what tools his agent is normally set up with.
 

@@ -138,7 +138,7 @@ concept doc originally undersold what a one-way invite needs:
 
 If a peer entry with that name already exists on either side (say, from an earlier invite run
 in the other direction), the write **merges** rather than replaces: a `url` from one invite and
-a `may` from another compose into one fully mutual relationship, instead of the second invite
+a `disclosure` from another compose into one fully mutual relationship, instead of the second invite
 clobbering the first.
 
 This machine's daemon does not need restarting for any of this to take effect — the peer list
@@ -199,7 +199,7 @@ network, rather than silently inheriting the risk.
 A concrete flow for "Bob is on my LAN and I want him to be able to ask my agent something":
 
 1. Bob is already serving: `jazz daemon --serve-peers bob --port 4748`.
-2. Bob runs `jazz peers invite create alice --port 4748 --may about-me --expires 1h`. This is
+2. Bob runs `jazz peers invite create alice --port 4748 --disclosure about-me --expires 1h`. This is
    a local operation — it writes an invite record next to Bob's peer state and prints a link;
    Bob's own daemon doesn't need to already be running for this step, only by the time Alice
    redeems it. The daemon must have been started with `--serve-peers`: invite routes are not

@@ -319,7 +319,7 @@ export function acceptInviteOnInviterSide(
     // someone else, rather than the name the inviter actually chose for them.
     yield* upsertPeer({
       name: candidate.inviteeName,
-      may: candidate.proposedTier,
+      disclosure: candidate.proposedTier,
       ...(candidate.proposedPersona !== undefined ? { persona: candidate.proposedPersona } : {}),
     });
 
