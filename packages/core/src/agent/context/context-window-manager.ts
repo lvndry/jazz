@@ -6,8 +6,9 @@ import { DEFAULT_TOKEN_COUNTER, type ModelHint, type TokenCounter } from "./toke
 
 /**
  * The compaction ladder's thresholds and `ContextWindowManager`, which decides
- * whether a conversation needs clearing, compaction, or trimming before the next
- * LLM call and carries out that decision.
+ * whether a conversation needs compaction or trimming before the next LLM call
+ * and carries out that decision. Tool-result clearing runs every iteration in
+ * the agent loop and does not use a window-fill gate.
  */
 
 /**
@@ -15,14 +16,6 @@ import { DEFAULT_TOKEN_COUNTER, type ModelHint, type TokenCounter } from "./toke
  * while there is still room to act on it.
  */
 export const CONTEXT_WARN_THRESHOLD_RATIO = 0.7;
-
-/**
- * Fraction of the context budget at which stale tool output is cleared.
- *
- * Below the compaction threshold: clearing is free, so it gets first attempt at
- * reclaiming space before an LLM call is spent summarizing.
- */
-export const CONTEXT_CLEAR_THRESHOLD_RATIO = 0.65;
 
 /** Fraction of the context budget at which history is compacted automatically. */
 export const CONTEXT_COMPACT_THRESHOLD_RATIO = 0.8;
@@ -56,9 +49,6 @@ export interface ContextWindowConfig {
 
   /** Fraction of the budget that triggers compaction. Default {@link CONTEXT_COMPACT_THRESHOLD_RATIO}. */
   readonly compactThresholdRatio?: number;
-
-  /** Fraction of the budget that triggers tool-result clearing. Default {@link CONTEXT_CLEAR_THRESHOLD_RATIO}. */
-  readonly clearThresholdRatio?: number;
 
   /**
    * Number of recent turns to always keep intact (never trim).
@@ -303,17 +293,6 @@ export class ContextWindowManager {
   get warnThresholdTokens(): number {
     const ratio = this.config.warnThresholdRatio ?? CONTEXT_WARN_THRESHOLD_RATIO;
     return Math.floor(this.contextBudgetTokens * ratio);
-  }
-
-  /** Token count above which stale tool results are cleared. */
-  get clearThresholdTokens(): number {
-    const ratio = this.config.clearThresholdRatio ?? CONTEXT_CLEAR_THRESHOLD_RATIO;
-    return Math.floor(this.contextBudgetTokens * ratio);
-  }
-
-  /** True once the conversation passes the tool-result clearing threshold. */
-  shouldClearToolResults(messages: ChatMessage[]): boolean {
-    return this.totalRequestTokens(messages) > this.clearThresholdTokens;
   }
 
   /** Token count above which history is compacted. */

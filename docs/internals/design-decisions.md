@@ -26,6 +26,8 @@ mindmap
     ("Staying honest about cost")
       ("Two-tier token counting")
       ("Tool results reformatted")
+      ("Tool results offloaded")
+      ("Conversation prefix cached")
       ("Sub-agent cost roll-up")
     ("Running anywhere")
       ("stdout = payload")
@@ -136,6 +138,42 @@ must say so in its own formatter.
 
 📄 [`tool-result-formatter.ts`](../../packages/core/src/utils/tool-result-formatter.ts)
 
+### Offload old tool results, don't wait for 65%
+
+**Decision.** Every iteration, persist large tool bodies to the conversation's work
+directory, then replace every cycle except the live one with a pointer to
+`retrieve_tool_result`. A failed write (read-only CI, container, Telegram host)
+does not fail the run: the placeholder tells the model to re-run the original
+tool. No window-fill gate.
+
+**Alternatives rejected.** Waiting until 65% of the window, once per crossing —
+a 200k model carried ~130k of already-read grep/file output on every round trip.
+Clearing every turn without persist — the model cannot get the bytes back.
+Requiring a writable disk — Jazz runs in CI, Docker, and chat bridges that can
+read but not write.
+
+**Cost accepted.** One cache miss per aged-out result (the prefix rewrites once,
+then sticks). Retrieve is an extra round trip when the model still needs an old
+body. Hosts that cannot write pay the same stub they had before, minus the wait.
+
+📄 [`tool-result-offload.ts`](../../packages/core/src/agent/context/tool-result-offload.ts) · [`tool-result-clearing.ts`](../../packages/core/src/agent/context/tool-result-clearing.ts)
+
+### Cache the conversation prefix, not just the system prompt
+
+**Decision.** Anthropic-style providers get a cache breakpoint on the last
+content part of the request as well as the system message. OpenAI requests
+always carry `promptCacheKey: "conversation"`, including when reasoning is off.
+
+**Alternatives rejected.** Caching only the system prompt — the dominant tokens
+in a long run are history, and they were re-billed at full input price every
+turn. Rewriting the prefix every iteration to shrink it — that busts the cache
+and makes every remaining token expensive.
+
+**Cost accepted.** A compaction or offload that rewrites an earlier message is
+one cache miss. That is cheaper than never hitting the cache at all.
+
+📄 [`ai-sdk-service.ts`](../../packages/adapters/src/llm/ai-sdk-service.ts)
+
 ### Sub-agent cost rolls up into the parent
 
 **Decision.** A parent run reports its own cost plus all child cost, and emits a figure
@@ -166,7 +204,7 @@ that only _mostly_ suppresses chatter — same problem, later.
 **Cost accepted.** Two streams to wire up in a bridge instead of one. That's the entire
 cost, and it's what makes every non-terminal surface possible.
 
-📄 [`execute.ts:30`](../../packages/cli/src/commands/run/execute.ts#L30) · [Headless](../surfaces/headless.md)
+📄 [`execute.ts:30`](../../packages/cli/src/commands/run/execute.ts#L30) · [Headless](../use-cases/headless.md)
 
 ### Risk tiers instead of a tool allowlist
 
@@ -250,7 +288,7 @@ deployment.
 provider-reported metadata and a 128k default. Ollama and llama.cpp need no catalog at all —
 model lists, context windows, and tool support are read from the local server.
 
-📄 [`models-dev.ts`](../../packages/core/src/utils/models-dev.ts) · [Airgapped](../guide/airgapped.md)
+📄 [`models-dev.ts`](../../packages/core/src/utils/models-dev.ts) · [Airgapped](../start/airgapped.md)
 
 ### Effect-TS for the entire runtime
 

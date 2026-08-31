@@ -8,7 +8,11 @@ import { Effect, Layer } from "effect";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import type { ToolRegistry } from "@/core/interfaces/tool-registry";
 import { ToolRegistryTag } from "@/core/interfaces/tool-registry";
-import { createContextInfoTool, createGetTimeTool } from "./context-tools";
+import {
+  createContextInfoTool,
+  createGetTimeTool,
+  createRetrieveToolResultTool,
+} from "./context-tools";
 import { fs } from "./fs";
 import { createHttpRequestTool } from "./http-tools";
 import { createJobQueueTools } from "./job-queue-tools";
@@ -281,6 +285,7 @@ export function registerContextTools(): Effect.Effect<void, Error, ToolRegistry>
 
     yield* registerTool(createContextInfoTool());
     yield* registerTool(createGetTimeTool());
+    yield* registerTool(createRetrieveToolResultTool());
   });
 }
 

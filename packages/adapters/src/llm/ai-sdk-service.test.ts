@@ -27,6 +27,7 @@ import {
   makeOllamaAuthorizedFetch,
   makeOllamaKeepAliveFetch,
   toCoreMessages,
+  applyConversationCacheBreakpoint,
 } from "./ai-sdk-service";
 import { PROVIDER_MODELS } from "./models";
 
@@ -1195,8 +1196,10 @@ describe("buildProviderOptions - openai reasoning round-trip", () => {
     });
   });
 
-  it("returns no openai options when reasoning is disabled", () => {
-    expect(buildProviderOptions("openai", openaiOptions("disable"))).toBeUndefined();
+  it("still sets a conversation cache key when reasoning is disabled", () => {
+    expect(buildProviderOptions("openai", openaiOptions("disable"))).toEqual({
+      openai: { promptCacheKey: "conversation" },
+    });
   });
 });
 
@@ -1288,5 +1291,36 @@ describe("toCoreMessages - reasoning replay", () => {
 
     const assistantContent = result[1]?.content as Array<{ type: string }>;
     expect(assistantContent.every((part) => part.type !== "reasoning")).toBe(true);
+  });
+});
+
+describe("toCoreMessages - conversation prefix cache", () => {
+  it("puts a cache breakpoint on the last content part for Anthropic", () => {
+    const result = toCoreMessages(
+      [
+        { role: "system", content: "sys" },
+        { role: "user", content: "hello" },
+        { role: "assistant", content: "hi" },
+      ],
+      "anthropic",
+    );
+
+    expect(
+      (result[0] as { providerOptions?: { anthropic?: { cacheControl?: { type: string } } } })
+        .providerOptions?.anthropic?.cacheControl,
+    ).toEqual({ type: "ephemeral" });
+
+    const last = result[result.length - 1];
+    const parts = last?.content as Array<{
+      providerOptions?: { anthropic?: { cacheControl?: { type: string } } };
+    }>;
+    expect(parts[parts.length - 1]?.providerOptions?.anthropic?.cacheControl).toEqual({
+      type: "ephemeral",
+    });
+  });
+
+  it("does not add a conversation breakpoint for providers without explicit cache control", () => {
+    const converted = applyConversationCacheBreakpoint([{ role: "user", content: "hi" }], "ollama");
+    expect(converted[0]).toEqual({ role: "user", content: "hi" });
   });
 });

@@ -38,14 +38,14 @@ import {
   CONTEXT_WARN_THRESHOLD_RATIO,
   ContextWindowManager,
   DEFAULT_CONTEXT_WINDOW_MANAGER,
-  protectedZoneStartIndex,
 } from "../context/context-window-manager";
 import {
   describeContextWindowShortfall,
   resolveEffectiveContextWindow,
 } from "../context/effective-context-window";
 import { Summarizer, type RecursiveRunner } from "../context/summarizer";
-import { clearToolResults } from "../context/tool-result-clearing";
+import { clearToolResults, toolResultsProtectFromIndex } from "../context/tool-result-clearing";
+import { persistLargeToolResults } from "../context/tool-result-offload";
 import {
   beginIteration,
   calibrateTokenCounter,
@@ -239,7 +239,6 @@ interface LoopState {
   recentToolCalls: TrackedToolCall[];
   iterationsUsed: number;
   contextPressureWarned: boolean;
-  toolResultsCleared: boolean;
 }
 
 interface LoopDeps {
@@ -783,24 +782,25 @@ function runIteration(
       yield* observer.onThinking(agent.name, iterationIndex === 0);
     }
 
-    // Cheapest rung first: drop stale raw tool output before spending an LLM call on
-    // summarizing. Gated on `toolResultsCleared` so it runs once per crossing —
-    // rewriting the prefix every turn would reintroduce the cache churn that the
-    // trim-budget fix removed.
-    if (
-      !state.toolResultsCleared &&
-      runContextWindowManager.shouldClearToolResults(state.currentMessages)
-    ) {
+    // Cheapest rung first: persist large tool bodies, then stub every cycle
+    // except the live one. Runs every iteration — each result is rewritten at
+    // most once (`cleared` sticks), so the prompt-cache prefix only jumps when
+    // a result actually ages out. A failed write (read-only CI, container)
+    // still stubs; the placeholder then says to re-run the original tool.
+    {
       const before = runContextWindowManager.totalRequestTokens(state.currentMessages);
+      const modelHint = { provider, modelId: model };
+      const retrievableIds = yield* persistLargeToolResults(state.currentMessages, {
+        agentId: agent.id,
+        conversationId: actualConversationId,
+        modelHint,
+      });
       const cleared = clearToolResults(state.currentMessages, {
-        protectedFromIndex: protectedZoneStartIndex(
-          state.currentMessages,
-          DEFAULT_CONTEXT_WINDOW_MANAGER.getConfig().protectedRecentTurns ?? 2,
-        ),
-        modelHint: { provider, modelId: model },
+        protectedFromIndex: toolResultsProtectFromIndex(state.currentMessages),
+        modelHint,
+        retrievableIds,
       });
       if (cleared.clearedCount > 0) {
-        state.toolResultsCleared = true;
         state.currentMessages = [
           state.currentMessages[0],
           ...cleared.messages.slice(1),
@@ -1211,7 +1211,6 @@ export function executeAgentLoop(
           recentToolCalls: [],
           iterationsUsed: 0,
           contextPressureWarned: false,
-          toolResultsCleared: false,
         };
         let finished = false;
         let interrupted = false;

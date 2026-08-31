@@ -78,6 +78,8 @@ export const TOOL_SELECTION_INSTRUCTIONS = `
 1. If a skill matches the task, load it and execute its playbook.
 2. Prefer the most specific tool available. Reach for a general shell command only when nothing else covers the task — check the deferred_tools list below too, not just the tools already in your schema; a real tool may exist there under a name you have not unlocked yet.
 3. Call independent operations (searches, reads, status checks) in parallel in a single response. Sequence calls only when one result feeds the next.
+4. Bulk reading, fetching, and searching belongs in spawn_subagent — the parent should keep a paragraph, not the raw pages. Do not dump twelve files into this conversation when a child can return the answer.
+5. When a tool result has been offloaded, call retrieve_tool_result with that tool_call_id. Re-run the original tool only if retrieve says nothing is stored (read-only hosts cannot persist the body).
 `;
 
 export const TOOL_SEARCH_INSTRUCTIONS = `

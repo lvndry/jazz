@@ -90,6 +90,7 @@ Jazz ships with a set of skills that cover common workflows. The exact list can 
 - **digest** — Summarize and digest content from configured sources.
 - **meeting-notes** — Turn transcripts or notes into structured meeting notes.
 - **journal** — Journaling and reflection workflows.
+- **caveman** — Terse output mode (`/caveman`). Shrinks what the agent *says*; Jazz already offloads what it *re-reads*.
 - **obsidian** — Obsidian-specific structure, canvas, and markdown.
 - **budget** / **investment-analysis** — Budgeting and investment analysis with references.
 - **startup-brainstorm** — Ideation and founder-style frameworks.
