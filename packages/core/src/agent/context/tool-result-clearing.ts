@@ -15,7 +15,15 @@ import { DEFAULT_TOKEN_COUNTER, type ModelHint, type TokenCounter } from "./toke
  * assistant/tool pairing remains valid.
  */
 
-/** Results smaller than this stay inline: clearing them costs structure for no gain. */
+/**
+ * Smallest tool result that gets offloaded to disk and stubbed. Below this,
+ * keeping it inline is cheaper than the one-time cost of a clear: a cache-miss
+ * prefix rewrite plus one disk write (or a clean skip on read-only hosts).
+ *
+ * 256 tokens ≈ 850 chars on Claude / ~1k on GPT — about a 20-line file. The
+ * bar is low because the body is persisted and `retrieve_tool_result` brings it
+ * back, so a small stub is cheap to undo.
+ */
 export const MIN_CLEARABLE_RESULT_TOKENS = 256;
 
 export interface ClearToolResultsOptions {
