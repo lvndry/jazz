@@ -13,6 +13,7 @@ export interface ChatCommandInfo {
 
 export const CHAT_COMMANDS: readonly ChatCommandInfo[] = [
   { name: "agents", description: "List all available agents" },
+  { name: "peers", description: "List configured peers and what each may learn or do" },
   { name: "clear", description: "Clear the screen" },
   { name: "compact", description: "Summarize background history to save tokens" },
   { name: "config", description: "Show or modify agent configuration" },

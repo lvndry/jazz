@@ -34,6 +34,12 @@ describe("parseSpecialCommand", () => {
       expect(result.args).toEqual([]);
     });
 
+    it("should parse /peers command", () => {
+      const result = parseSpecialCommand("/peers");
+      expect(result.type).toBe("peers");
+      expect(result.args).toEqual([]);
+    });
+
     it("should parse /fork command", () => {
       const result = parseSpecialCommand("/fork");
       expect(result.type).toBe("fork");

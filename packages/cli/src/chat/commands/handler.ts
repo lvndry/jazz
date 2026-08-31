@@ -54,6 +54,7 @@ import type { WorkflowMetadata } from "@jazz/core/workflows/workflow-service";
 import { WorkflowServiceTag, type WorkflowService } from "@jazz/core/workflows/workflow-service";
 import { groupWorkflows } from "@jazz/core/workflows/workflow-utils";
 import { Effect, Option } from "effect";
+import { describeTier } from "@/cli/commands/peers";
 import { getGlyphs } from "@/cli/ui/glyphs";
 import { getThemeVariant, setThemeVariant } from "@/cli/ui/theme";
 import * as fmt from "@/cli/utils/list-format";
@@ -106,6 +107,9 @@ export function handleSpecialCommand(
 
       case "agents":
         return yield* handleAgentsCommand(terminal, agent, context.lastUsedAgentId ?? null);
+
+      case "peers":
+        return yield* handlePeersCommand(terminal);
 
       case "switch":
         return yield* handleSwitchCommand(
@@ -736,6 +740,48 @@ function handleAgentsCommand(
 
       yield* terminal.log(
         fmt.footer(`Total: ${allAgents.length} agent${allAgents.length === 1 ? "" : "s"}`),
+      );
+    }
+
+    yield* terminal.log(fmt.blank());
+    return { shouldContinue: true };
+  });
+}
+
+/**
+ * Handle /peers command - list who this agent's daemon can ask or answer
+ */
+function handlePeersCommand(
+  terminal: TerminalService,
+): Effect.Effect<CommandResult, StorageError | StorageNotFoundError | Error, AgentConfigService> {
+  return Effect.gen(function* () {
+    const configService = yield* AgentConfigServiceTag;
+    const appConfig = yield* configService.appConfig;
+    const peers = appConfig.peers ?? [];
+
+    yield* terminal.log(fmt.heading("Peers"));
+
+    if (peers.length === 0) {
+      yield* terminal.warn("No peers configured.");
+      yield* terminal.info("Add one with an invite: jazz peers invite create/accept");
+    } else {
+      for (const peer of peers) {
+        yield* terminal.log(fmt.labeledItem(peer.name));
+        yield* terminal.log(
+          fmt.keyValue("Can ask them", peer.url !== undefined ? peer.url : "no — not granted"),
+        );
+        yield* terminal.log(fmt.keyValue("They may learn", describeTier(peer.disclosure)));
+        if (peer.persona !== undefined) {
+          yield* terminal.log(fmt.keyValue("Answers as", peer.persona));
+        }
+        if (peer.allow !== undefined && peer.allow.length > 0) {
+          yield* terminal.log(fmt.keyValue("Extra grants", peer.allow.join(", ")));
+        }
+        yield* terminal.log(fmt.blank());
+      }
+
+      yield* terminal.log(
+        fmt.footer(`Total: ${peers.length} peer${peers.length === 1 ? "" : "s"}`),
       );
     }
 

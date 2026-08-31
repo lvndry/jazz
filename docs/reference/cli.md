@@ -276,6 +276,7 @@ Available inside an interactive session. Type `/help` for the current list.
 | `/context`   | Context window usage and the biggest consumers        |
 | `/compact`   | Force context compaction now                          |
 | `/switch`    | Switch agent                                          |
+| `/peers`     | List configured peers and what each may learn or do   |
 | `/new`       | Start a fresh conversation                            |
 
 **Keys:** double-Escape interrupts generation or a running tool. Shift+Tab cycles the

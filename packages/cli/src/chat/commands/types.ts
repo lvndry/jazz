@@ -16,6 +16,7 @@ export type CommandType =
   | "clear"
   | "tools"
   | "agents"
+  | "peers"
   | "switch"
   | "compact"
   | "copy"

@@ -37,6 +37,8 @@ export function parseSpecialCommand(input: string): SpecialCommand {
       return { type: "tools", args };
     case "agents":
       return { type: "agents", args };
+    case "peers":
+      return { type: "peers", args };
     case "switch":
       return { type: "switch", args };
     case "compact":

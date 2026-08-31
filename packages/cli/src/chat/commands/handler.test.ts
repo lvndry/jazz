@@ -442,3 +442,88 @@ describe("handleSpecialCommand /agents", () => {
     expect(result.newAgent?.id).toBe("other-agent-id");
   });
 });
+
+describe("handleSpecialCommand /peers", () => {
+  test("lists configured peers with what they may learn and whether they can be asked", async () => {
+    const logged: string[] = [];
+    const mockTerminal: Partial<TerminalService> = {
+      log: mock((message: string) => {
+        logged.push(message);
+        return Effect.succeed(undefined);
+      }) as TerminalService["log"],
+      warn: mock(() => Effect.void),
+      info: mock(() => Effect.void),
+    };
+
+    const mockAgentConfigService: Partial<AgentConfigService> = {
+      appConfig: Effect.succeed({
+        peers: [
+          { name: "bob", url: "http://100.101.102.103:4747/peer/ask", disclosure: "internal" },
+          { name: "alice", disclosure: "public" },
+        ],
+      }) as unknown as AgentConfigService["appConfig"],
+    };
+
+    const layers = Layer.mergeAll(
+      Layer.succeed(TerminalServiceTag, mockTerminal as unknown as TerminalService),
+      Layer.succeed(AgentConfigServiceTag, mockAgentConfigService as unknown as AgentConfigService),
+    );
+
+    const context: CommandContext = {
+      agent: testAgent,
+      conversationHistory: [],
+      conversationId: "test-session",
+      sessionUsage: { promptTokens: 0, completionTokens: 0 },
+      sessionStartedAt: new Date(),
+    };
+
+    await Effect.runPromise(
+      handleSpecialCommand({ type: "peers", args: [] }, context).pipe(
+        Effect.provide(layers),
+      ) as Effect.Effect<CommandResult, unknown, never>,
+    );
+
+    const output = logged.join("\n");
+    expect(output).toContain("bob");
+    expect(output).toContain("http://100.101.102.103:4747/peer/ask");
+    expect(output).toContain("alice");
+    expect(output).toContain("no — not granted");
+  });
+
+  test("tells you how to add one when none are configured", async () => {
+    const infoMessages: string[] = [];
+    const mockTerminal: Partial<TerminalService> = {
+      log: mock(() => Effect.succeed(undefined)),
+      warn: mock(() => Effect.void),
+      info: mock((message: string) => {
+        infoMessages.push(message);
+        return Effect.void;
+      }) as TerminalService["info"],
+    };
+
+    const mockAgentConfigService: Partial<AgentConfigService> = {
+      appConfig: Effect.succeed({}) as AgentConfigService["appConfig"],
+    };
+
+    const layers = Layer.mergeAll(
+      Layer.succeed(TerminalServiceTag, mockTerminal as unknown as TerminalService),
+      Layer.succeed(AgentConfigServiceTag, mockAgentConfigService as unknown as AgentConfigService),
+    );
+
+    const context: CommandContext = {
+      agent: testAgent,
+      conversationHistory: [],
+      conversationId: "test-session",
+      sessionUsage: { promptTokens: 0, completionTokens: 0 },
+      sessionStartedAt: new Date(),
+    };
+
+    await Effect.runPromise(
+      handleSpecialCommand({ type: "peers", args: [] }, context).pipe(
+        Effect.provide(layers),
+      ) as Effect.Effect<CommandResult, unknown, never>,
+    );
+
+    expect(infoMessages.join("\n")).toContain("jazz peers invite");
+  });
+});
