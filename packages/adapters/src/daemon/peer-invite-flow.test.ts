@@ -101,13 +101,13 @@ const ALICE_ASK_URL = "http://127.0.0.1:4747/peer/ask";
 
 describe("two jazz agents on localhost, invited rather than hand-configured", () => {
   it("lets alice's already-running daemon authorize bob the moment he accepts — no restart", async () => {
-    // --- Alice: `jazz peers invite create bob --disclosure about-me` ---
+    // --- Alice: `jazz peers invite create bob --disclosure internal` ---
     const created = await Effect.runPromise(
       createInvite({
         inviteeName: "bob",
         inviterDisplayName: "alice",
         inviterAskUrl: ALICE_ASK_URL,
-        proposedTier: "about-me",
+        proposedTier: "internal",
         ttlMs: 60_000,
       }),
     );
@@ -225,7 +225,7 @@ describe("two jazz agents on localhost, invited rather than hand-configured", ()
         inviteeName: "bob",
         inviterDisplayName: "alice",
         inviterAskUrl: ALICE_ASK_URL,
-        proposedTier: "about-me",
+        proposedTier: "internal",
         ttlMs: 60_000,
       }),
     );

@@ -58,7 +58,7 @@ const CREATE_INPUT = {
   inviteeName: "bob",
   inviterDisplayName: "alice",
   inviterAskUrl: "http://127.0.0.1:4747/peer/ask",
-  proposedTier: "about-me",
+  proposedTier: "internal",
   ttlMs: 60_000,
 } as const;
 
@@ -207,7 +207,7 @@ describe("acceptInviteOnInviterSide", () => {
     expect(outcome.inviterAskUrl).toEqual(CREATE_INPUT.inviterAskUrl);
     expect(outcome.token).toMatch(/^[0-9a-f]{48}$/);
 
-    expect(currentPeers()).toEqual([{ name: "bob", disclosure: "about-me" }]);
+    expect(currentPeers()).toEqual([{ name: "bob", disclosure: "internal" }]);
     expect(keyring.get(peerTokenPath("bob"))).toEqual(outcome.token);
   });
 
@@ -227,7 +227,7 @@ describe("acceptInviteOnInviterSide", () => {
     );
 
     if (outcome.kind !== "ok") throw new Error(`expected ok, got ${outcome.kind}`);
-    expect(currentPeers()).toEqual([{ name: "alice", disclosure: "about-me" }]);
+    expect(currentPeers()).toEqual([{ name: "alice", disclosure: "internal" }]);
   });
 
   it("merges into an existing peer entry rather than clobbering it — the two-one-way-invites-make-a-mutual-relationship case", async () => {
@@ -244,7 +244,7 @@ describe("acceptInviteOnInviterSide", () => {
     );
 
     expect(currentPeers()).toEqual([
-      { name: "bob", url: "http://bob/peer/ask", disclosure: "about-me" },
+      { name: "bob", url: "http://bob/peer/ask", disclosure: "internal" },
     ]);
   });
 

@@ -32,19 +32,19 @@ describe("what a tier permits among read-only tools", () => {
     expect(allowed("public")).toEqual(["web_search"]);
   });
 
-  it("adds the shape of the machine at about-me, but not its contents", () => {
-    expect(allowed("about-me")).toEqual(["get_time", "ls", "web_search"]);
-    expect(allowed("about-me")).not.toContain("read_file");
-    expect(allowed("about-me")).not.toContain("view_memory");
+  it("adds the shape of the machine at internal, but not its contents", () => {
+    expect(allowed("internal")).toEqual(["get_time", "ls", "web_search"]);
+    expect(allowed("internal")).not.toContain("read_file");
+    expect(allowed("internal")).not.toContain("view_memory");
   });
 
-  it("adds the operator's own material only at ask-me-anything", () => {
-    expect(allowed("ask-me-anything")).toContain("read_file");
-    expect(allowed("ask-me-anything")).toContain("view_memory");
+  it("adds the operator's own material only at private", () => {
+    expect(allowed("private")).toContain("read_file");
+    expect(allowed("private")).toContain("view_memory");
   });
 
   it("is monotonic — a higher tier never permits less among read-only tools", () => {
-    const order: readonly PeerTier[] = ["none", "public", "about-me", "ask-me-anything"];
+    const order: readonly PeerTier[] = ["none", "public", "internal", "private"];
     for (let index = 1; index < order.length; index++) {
       const narrower = new Set(allowed(order[index - 1]!));
       for (const tool of narrower) {
@@ -57,7 +57,7 @@ describe("what a tier permits among read-only tools", () => {
 describe("what a tier permits among riskier-than-read-only tools", () => {
   it("never permits an action absent an explicit grant, whatever the tier", () => {
     const actions = ["write_file", "execute_command", "manage_memory"];
-    for (const tier of ["none", "public", "about-me", "ask-me-anything"] as const) {
+    for (const tier of ["none", "public", "internal", "private"] as const) {
       for (const action of actions) {
         expect(allowed(tier)).not.toContain(action);
       }
@@ -71,7 +71,7 @@ describe("what a tier permits among riskier-than-read-only tools", () => {
   });
 
   it("still withholds an ungranted action at the top tier", () => {
-    expect(allowed("ask-me-anything", ["write_file"])).not.toContain("execute_command");
+    expect(allowed("private", ["write_file"])).not.toContain("execute_command");
   });
 
   it("a suspended peer gets nothing, even with a standing grant", () => {

@@ -7,7 +7,7 @@ function record(overrides: Partial<PeerInviteRecord> = {}): PeerInviteRecord {
     inviteeName: "bob",
     inviterDisplayName: "alice",
     inviterAskUrl: "http://127.0.0.1:4747/peer/ask",
-    proposedTier: "about-me",
+    proposedTier: "internal",
     createdAt: "2026-08-30T00:00:00.000Z",
     expiresAt: "2026-08-31T00:00:00.000Z",
     secretHash: "deadbeef",

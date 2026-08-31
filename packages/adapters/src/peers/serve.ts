@@ -49,8 +49,8 @@ import { record as recordLedger } from "./ledger";
 const TIER_ALLOWS: Readonly<Record<PeerTier, readonly ToolDisclosure[]>> = {
   none: [],
   public: ["public"],
-  "about-me": ["public", "internal"],
-  "ask-me-anything": ["public", "internal", "private"],
+  internal: ["public", "internal"],
+  private: ["public", "internal", "private"],
 };
 
 /**

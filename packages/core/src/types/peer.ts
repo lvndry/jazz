@@ -15,18 +15,24 @@
  * separate from `riskLevel`, and why tiers here are expressed in those terms.
  */
 
-/** How much a peer's agent may learn, expressed in {@link ToolDisclosure} terms. */
+/**
+ * How much a peer's agent may learn — literally the {@link ToolDisclosure} levels a tool's
+ * own answer can carry, plus `none` for a peer granted nothing at all. Not a separate,
+ * friendlier vocabulary: the tier a peer holds directly names the disclosure ceiling it
+ * admits, so nothing here can be misread as describing risk or permission to act (see
+ * `PeerConfig.allow` for that entirely separate axis).
+ */
 export type PeerTier =
   /** Configured but answering nothing. The default, and what revoking a peer sets. */
   | "none"
-  /** Only `none`-disclosure answers: nothing about the operator or their machine. */
+  /** Only `public`-disclosure answers: nothing about the operator or their machine. */
   | "public"
-  /** Adds `context`: paths, names, what is installed. Not file contents. */
-  | "about-me"
-  /** Adds `personal`, but still read-only. The most a peer can ever be given. */
-  | "ask-me-anything";
+  /** Adds `internal`: paths, names, what is installed. Not file contents. */
+  | "internal"
+  /** Adds `private`, but still read-only. The most a peer can ever be given. */
+  | "private";
 
-export const PEER_TIERS: readonly PeerTier[] = ["none", "public", "about-me", "ask-me-anything"];
+export const PEER_TIERS: readonly PeerTier[] = ["none", "public", "internal", "private"];
 
 export function isPeerTier(value: string): value is PeerTier {
   return (PEER_TIERS as readonly string[]).includes(value);

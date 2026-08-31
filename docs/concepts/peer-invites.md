@@ -199,7 +199,7 @@ network, rather than silently inheriting the risk.
 A concrete flow for "Bob is on my LAN and I want him to be able to ask my agent something":
 
 1. Bob is already serving: `jazz daemon --serve-peers bob --port 4748`.
-2. Bob runs `jazz peers invite create alice --port 4748 --disclosure about-me --expires 1h`. This is
+2. Bob runs `jazz peers invite create alice --port 4748 --disclosure internal --expires 1h`. This is
    a local operation — it writes an invite record next to Bob's peer state and prints a link;
    Bob's own daemon doesn't need to already be running for this step, only by the time Alice
    redeems it. The daemon must have been started with `--serve-peers`: invite routes are not

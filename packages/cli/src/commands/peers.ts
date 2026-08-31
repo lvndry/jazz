@@ -26,9 +26,9 @@ function describeTier(tier: PeerTier | undefined): string {
       return "nothing (suspended)";
     case "public":
       return "nothing about you";
-    case "about-me":
+    case "internal":
       return "the shape of your machine";
-    case "ask-me-anything":
+    case "private":
       return "anything readable";
   }
 }
