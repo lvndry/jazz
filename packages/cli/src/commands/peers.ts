@@ -59,14 +59,15 @@ export function listPeersCommand(options: { readonly json: boolean }) {
       return;
     }
     for (const peer of peers) {
-      const url = peer.url ?? "(cannot be asked — no endpoint)";
-      const persona = peer.persona !== undefined ? `  persona: ${peer.persona}` : "";
+      const endpoint = peer.url ?? "(none — cannot be asked)";
+      const persona = peer.persona ?? "(agent's default persona)";
       const allow =
         peer.allow !== undefined && peer.allow.length > 0
-          ? `  allow: ${peer.allow.join(", ")}`
-          : "";
+          ? peer.allow.join(", ")
+          : "(none — read-only only)";
       process.stdout.write(
-        `${peer.name}  ${url}  may learn: ${describeTier(peer.disclosure)}${persona}${allow}\n`,
+        `${peer.name}  endpoint: ${endpoint}  may learn: ${describeTier(peer.disclosure)}  ` +
+          `persona: ${persona}  allow: ${allow}\n`,
       );
     }
   }).pipe(

@@ -460,6 +460,7 @@ describe("handleSpecialCommand /peers", () => {
         peers: [
           { name: "bob", url: "http://100.101.102.103:4747/peer/ask", disclosure: "internal" },
           { name: "alice", disclosure: "public" },
+          { name: "carol", url: "http://100.101.102.104:4747/peer/ask" },
         ],
       }) as unknown as AgentConfigService["appConfig"],
     };
@@ -487,7 +488,10 @@ describe("handleSpecialCommand /peers", () => {
     expect(output).toContain("bob");
     expect(output).toContain("http://100.101.102.103:4747/peer/ask");
     expect(output).toContain("alice");
-    expect(output).toContain("no — not granted");
+    // alice has no url — shown as an explicit placeholder, not omitted.
+    expect(output).toContain("none — cannot be asked");
+    // carol has no disclosure — still shown, via describeTier's own "none" default.
+    expect(output.slice(output.indexOf("carol"))).toContain("They may learn");
   });
 
   test("tells you how to add one when none are configured", async () => {
