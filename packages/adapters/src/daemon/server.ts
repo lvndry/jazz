@@ -380,7 +380,7 @@ export function makePeerInviteHandler(
 
     const acceptMatch = /^\/peer-invites\/([^/]+)\/accept$/.exec(url.pathname);
     if (request.method === "POST" && acceptMatch?.[1] !== undefined) {
-      const raw = await readWebhookPayload(request);
+      const raw = await readBody(request, MAX_ANONYMOUS_PAYLOAD_LENGTH);
       if (raw instanceof Response) return raw;
       let body: { secret?: unknown; as?: unknown };
       try {
@@ -445,13 +445,27 @@ function acceptInvite(
 
 /**
  * Cap on the raw HTTP request body accepted by a `POST /webhooks/<name>` call.
- * Oversized bodies are rejected while streaming, before they can consume unbounded memory.
+ *
+ * Oversized bodies are rejected while streaming, before they can consume unbounded memory —
+ * the point of the cap is that a caller cannot make the daemon buffer without bound, not
+ * that payloads are expected to be small. At 20 KB it sat under a routine GitHub push event
+ * and under a relayed conversation, so it rejected the traffic the door exists to receive.
+ * A megabyte covers those with room to spare and still bounds what one request can buffer.
  */
-const MAX_WEBHOOK_PAYLOAD_LENGTH = 20_000;
+const MAX_WEBHOOK_PAYLOAD_LENGTH = 1_048_576;
 
-async function readWebhookPayload(request: Request): Promise<string | Response> {
+/**
+ * Cap on an unauthenticated body.
+ *
+ * Redeeming a peer invite is the one route that answers before knowing who is calling, so it
+ * keeps the tight bound: the body is a secret and a handle, and nothing legitimate comes
+ * close. It is deliberately not the webhook cap, which a bearer token already gates.
+ */
+const MAX_ANONYMOUS_PAYLOAD_LENGTH = 20_000;
+
+async function readBody(request: Request, limit: number): Promise<string | Response> {
   const declaredLength = request.headers.get("content-length");
-  if (declaredLength !== null && Number(declaredLength) > MAX_WEBHOOK_PAYLOAD_LENGTH) {
+  if (declaredLength !== null && Number(declaredLength) > limit) {
     return json({ ok: false, error: "request body too large" }, 413);
   }
 
@@ -464,7 +478,7 @@ async function readWebhookPayload(request: Request): Promise<string | Response> 
       const next = await reader.read();
       if (next.done) break;
       totalBytes += next.value.byteLength;
-      if (totalBytes > MAX_WEBHOOK_PAYLOAD_LENGTH) {
+      if (totalBytes > limit) {
         await reader.cancel();
         return json({ ok: false, error: "request body too large" }, 413);
       }
@@ -535,7 +549,7 @@ export function makeWebhookHandler(
       return json({ ok: false, error: "unauthorized" }, 401);
     }
 
-    const body = await readWebhookPayload(request);
+    const body = await readBody(request, MAX_WEBHOOK_PAYLOAD_LENGTH);
     if (body instanceof Response) return body;
     const truncated = body;
 

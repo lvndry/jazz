@@ -183,10 +183,31 @@ describe("the daemon's routes", () => {
     const response = await handle(
       request("POST", "/webhooks/hook", {
         headers: { authorization: "Bearer webhook-secret" },
-        body: "x".repeat(20_001),
+        body: "x".repeat(1_048_577),
       }),
     );
     expect(response.status).toBe(413);
+  });
+
+  it("accepts a body the size of an ordinary webhook payload", async () => {
+    // The old cap sat under a routine GitHub push event, so the door refused traffic it
+    // exists to receive. Reaching the runner at all is the assertion.
+    const handle = makeWebhookHandler(
+      async () => [{ name: "hook", agentId: "default", promptTemplate: "Process {{payload}}" }],
+      async () => "webhook-secret",
+      async () => {
+        throw new Error("reached the runner");
+      },
+    );
+
+    await expect(
+      handle(
+        request("POST", "/webhooks/hook", {
+          headers: { authorization: "Bearer webhook-secret" },
+          body: "x".repeat(512_000),
+        }),
+      ),
+    ).rejects.toThrow("reached the runner");
   });
 
   it("returns 404 for malformed webhook URL encoding", async () => {
