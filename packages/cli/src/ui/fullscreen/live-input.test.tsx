@@ -690,4 +690,30 @@ describe("input", () => {
       .join("");
     expect(selected).toBe("world");
   });
+
+  it("carries a whole word onto the next composer row instead of splitting it", () => {
+    // width 14, GUTTER_CELLS 4 -> 10 columns of content
+    const rows = inputRows({ ...base, value: "abc helloworld" }, { width: 14, height: HEIGHT });
+    const lineText = (row: (typeof rows)[number]): string =>
+      row.segments
+        .slice(2)
+        .map((segment) => segment.text)
+        .join("");
+    expect(lineText(rows[0] as (typeof rows)[number])).toBe("abc ");
+    expect(lineText(rows[1] as (typeof rows)[number])).toBe("helloworld");
+  });
+
+  it("places the caret on the row a wrapped word actually lands on", () => {
+    // caret sits inside "helloworld", which only wraps to row 2 as a whole word
+    const rows = inputRows(
+      { ...base, value: "abc helloworld", caret: 8 },
+      { width: 14, height: HEIGHT },
+    );
+    const caretRow = rows.findIndex((row) =>
+      row.segments.some((segment) => segment.bg === THEME.prompt),
+    );
+    expect(caretRow).toBe(1);
+    const caretRowText = rows[caretRow]?.segments.map((segment) => segment.text).join("") ?? "";
+    expect(caretRowText).toContain("helloworld");
+  });
 });

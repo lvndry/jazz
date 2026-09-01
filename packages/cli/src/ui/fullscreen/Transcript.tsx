@@ -722,14 +722,15 @@ function tableRows(
 
 const BLANK_CELL: Segment = { text: " ", fg: THEME.border };
 
-function railCell(color: string, glyphs: GlyphSet, deep = false): Segment {
-  return { text: deep ? glyphs.railDeep : glyphs.rail, fg: color };
+// Blank, not the rail glyph — copy-pasting a reply must not drag a bar along.
+function railCell(color: string): Segment {
+  return { text: " ", fg: color };
 }
 
-function blankRow(key: string, contentWidth: number, glyphs: GlyphSet): RenderRow {
+function blankRow(key: string, contentWidth: number): RenderRow {
   return {
     key,
-    gutter: [railCell(THEME.border, glyphs), BLANK_CELL],
+    gutter: [railCell(THEME.border), BLANK_CELL],
     content: [],
     contentWidth,
     meta: [],
@@ -870,7 +871,7 @@ function userRows(
   geometry: Geometry,
   glyphs: GlyphSet,
 ): RenderRow[] {
-  const rail = railCell(THEME.border, glyphs);
+  const rail = railCell(THEME.border);
   const meta: readonly Segment[] =
     block.at !== undefined && geometry.metadata > 0 ? [{ text: block.at, fg: THEME.muted }] : [];
   // What you typed is an echo; the agent's answer is the bright thing on screen.
@@ -897,7 +898,7 @@ function agentRows(
 ): RenderRow[] {
   // Colour is state, not speaker: the rail is accent only while tokens land.
   const railColor = block.streaming === true ? THEME.agent : THEME.border;
-  const rail = railCell(railColor, glyphs);
+  const rail = railCell(railColor);
   const marker: Segment = {
     text: glyphs.diamond,
     fg: block.streaming === true ? THEME.agent : THEME.secondary,
@@ -987,7 +988,7 @@ function reasoningRows(
   geometry: Geometry,
   glyphs: GlyphSet,
 ): RenderRow[] {
-  const rail = railCell(THEME.border, glyphs, true);
+  const rail = railCell(THEME.border);
   const meta: readonly Segment[] =
     block.durationMs !== undefined && geometry.metadata > 0
       ? [{ text: formatDuration(block.durationMs), fg: THEME.muted }]
@@ -1106,7 +1107,7 @@ function receiptRows(
   geometry: Geometry,
   glyphs: GlyphSet,
 ): RenderRow[] {
-  const rail = railCell(THEME.border, glyphs);
+  const rail = railCell(THEME.border);
   const rows: RenderRow[] = [];
   let packed: Segment[] = [];
   let packedKey = "";
@@ -1202,10 +1203,7 @@ function noticeRows(
     if (line === undefined) continue;
     rows.push({
       key: `${block.id}:${String(index)}`,
-      gutter: [
-        index === 0 ? { text: glyph, fg: tone } : railCell(THEME.border, glyphs),
-        BLANK_CELL,
-      ],
+      gutter: [index === 0 ? { text: glyph, fg: tone } : railCell(THEME.border), BLANK_CELL],
       content: line,
       contentWidth: geometry.prose,
       meta: [],
@@ -1224,7 +1222,7 @@ function dividerRows(
   return [
     {
       key: `${block.id}:0`,
-      gutter: [railCell(THEME.border, glyphs), BLANK_CELL],
+      gutter: [railCell(THEME.border), BLANK_CELL],
       content: [
         { text: label, fg: THEME.muted },
         { text: rule, fg: THEME.border },
@@ -1251,7 +1249,7 @@ function laneRows(
 ): RenderRow[] {
   const live = block.state === "running";
   const railColor = live ? THEME.accentDim : THEME.border;
-  const rail = railCell(railColor, glyphs, true);
+  const rail = railCell(railColor);
   // Holds the gutter at two cells so every block's content starts in the same
   // column, whether or not it is delegated.
   const tag: Segment = { text: " ", fg: THEME.border };
@@ -1350,7 +1348,7 @@ export function transcriptRows(blocks: readonly Block[], viewport: Viewport): Re
     const block = blocks[index];
     if (block === undefined) break;
     if (needsBreathingRow(block, blocks[index - 1])) {
-      rows.push(blankRow(`gap:${block.id}`, geometry.prose, glyphs));
+      rows.push(blankRow(`gap:${block.id}`, geometry.prose));
     }
 
     if (block.kind === "tool") {

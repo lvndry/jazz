@@ -565,8 +565,7 @@ describe("reasoning is subordinate by geometry", () => {
     expect(widest).toBeLessThan(measureFor(WIDE.width).prose);
     for (const row of rows) {
       for (const segment of row.content) expect(segment.bold).not.toBe(true);
-      // The deep rail, not a new hue, is what says "one level down".
-      expect(row.gutter[0]?.text).toBe(getGlyphs().railDeep);
+      expect(row.gutter[0]?.text).toBe(" ");
     }
 
     const { spans } = await render(transcript(expanded, WIDE), WIDE);
@@ -633,7 +632,12 @@ describe("colour is state, not speaker", () => {
     expect(colorOf(spans, "gmail")).toBe(THEME.muted.toUpperCase());
     // The user's own marker is the one speaker-coloured cell; the rail is not.
     expect(colorOf(spans, getGlyphs().promptCursor)).toBe(THEME.primary.toUpperCase());
-    expect(colorOf(spans, getGlyphs().rail)).toBe(THEME.border.toUpperCase());
+
+    const rows = transcriptRows(SESSION, WIDE);
+    const continuation = rows.find(
+      (row) => row.key.startsWith("a1:") && row.gutter[0]?.text === " ",
+    );
+    expect(continuation?.gutter[0]?.fg).toBe(THEME.border);
   });
 
   it("puts the accent on a streaming rail and takes it away once settled", async () => {
