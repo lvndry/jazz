@@ -39,11 +39,19 @@ curl -X POST http://localhost:4747/webhooks/deploys \
   -d '{"status":"green","sha":"a1b2c3"}'
 ```
 
-The response carries the agent's answer:
+The response carries the agent's answer, and what the run cost:
 
 ```json
-{ "ok": true, "answer": "Deploy a1b2c3 went green. Nothing needs your attention." }
+{
+  "ok": true,
+  "answer": "Deploy a1b2c3 went green. Nothing needs your attention.",
+  "costUSD": 0.0034
+}
 ```
+
+`costUSD` is present when the model has pricing metadata. A `"costIncomplete": true` alongside
+it means some spend in the run was unpriced — a local model, usually — so the figure is a
+floor rather than the total. A caller enforcing a spend ceiling should treat it as such.
 
 ---
 

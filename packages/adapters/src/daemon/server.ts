@@ -657,7 +657,16 @@ function fireWebhook(webhook: WebhookConfig, payload: string, threadKey?: string
       );
     }
 
-    return json({ ok: true, answer: response.content });
+    // Cost travels with the answer so the caller can budget on spend rather than on request
+    // count. `costIncomplete` is reported alongside rather than folded in: a run whose model
+    // had no pricing metadata understates its spend, and a caller enforcing a ceiling needs
+    // to know the number is a floor rather than treat it as the truth.
+    return json({
+      ok: true,
+      answer: response.content,
+      ...(response.costUSD !== undefined ? { costUSD: response.costUSD } : {}),
+      ...(response.costIncomplete === true ? { costIncomplete: true } : {}),
+    });
   }).pipe(
     Effect.catchAll((error) =>
       Effect.gen(function* () {
