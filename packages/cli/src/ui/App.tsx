@@ -191,8 +191,11 @@ function ActiveMenuView({ menu }: { readonly menu: ActiveMenu }): React.ReactEle
 
 export function App(): React.ReactElement {
   const { activeMenu: menu, interruptHandler, modeToast } = useSessionSlice();
+  const { prompt } = usePromptSlice();
   const interruptHandlerRef = useRef(interruptHandler);
   interruptHandlerRef.current = interruptHandler;
+  const promptRef = useRef(prompt);
+  promptRef.current = prompt;
   const modeToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -212,11 +215,45 @@ export function App(): React.ReactElement {
     };
   }, [modeToast]);
 
-  // Handle Ctrl+C — bridge from Ink raw mode to process SIGINT
+  // Handle Ctrl+C — bridge from Ink raw mode to process SIGINT.
   // With exitOnCtrlC: false, Ink forwards Ctrl+C to useInput instead of
-  // swallowing it. We raise a real SIGINT so the handler in app-layer.ts fires.
+  // swallowing it. The first press only warns; the second press (within the
+  // window) either resumes a chat conversation the same way typing /exit
+  // would — back to the wizard's main menu, no process exit — or, anywhere
+  // else, raises a real SIGINT so the handler in app-layer.ts fires.
+  const quitArmedRef = useRef(false);
+  const quitArmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const CTRL_C_CONFIRM_WINDOW_MS = 1500;
+
   useInput((input, key) => {
-    if (input === "c" && key.ctrl) {
+    if (input !== "c" || !key.ctrl) return;
+
+    if (quitArmedRef.current === false) {
+      quitArmedRef.current = true;
+      const inChat = promptRef.current?.type === "chat";
+      store.printOutput({
+        type: "warn",
+        message: inChat
+          ? "Press Ctrl+C again to leave this conversation and return to the main menu."
+          : "Press Ctrl+C again to exit.",
+        timestamp: new Date(),
+      });
+      quitArmTimerRef.current = setTimeout(() => {
+        quitArmedRef.current = false;
+        quitArmTimerRef.current = null;
+      }, CTRL_C_CONFIRM_WINDOW_MS);
+      return;
+    }
+
+    quitArmedRef.current = false;
+    if (quitArmTimerRef.current) {
+      clearTimeout(quitArmTimerRef.current);
+      quitArmTimerRef.current = null;
+    }
+    const active = promptRef.current;
+    if (active?.type === "chat") {
+      active.resolve("/exit");
+    } else {
       process.kill(process.pid, "SIGINT");
     }
   });

@@ -119,12 +119,10 @@ export function wizardCommand() {
         }
 
         case "new-conversation": {
-          const selectedAgent = yield* selectAgent(
-            agents,
-            lastUsedAgentId,
-            "pick an agent",
-            "start",
-          );
+          const selectedAgent =
+            agents.length === 1
+              ? agents[0]
+              : yield* selectAgent(agents, lastUsedAgentId, "pick an agent", "start");
           if (selectedAgent) {
             yield* startChatWithAgent(selectedAgent);
             yield* terminal.clear();

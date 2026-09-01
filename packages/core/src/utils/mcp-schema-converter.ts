@@ -185,6 +185,12 @@ function isArrayType(type: string | readonly string[] | undefined): boolean {
 /**
  * Unwrap MCP SDK's nested `{ jsonSchema: { ... } }` envelope so callers can
  * advertise the server's original schema to the model.
+ *
+ * JSON Schema treats a top-level `type` as optional when `properties` alone
+ * makes the object-ness clear, and some MCP servers omit it on that basis.
+ * A tool's input schema is always a JSON object regardless, so `type: "object"`
+ * is filled in when absent — providers like Anthropic require `input_schema.type`
+ * on every tool and reject a schema that leaves it out.
  */
 export function unwrapMCPJsonSchema(mcpSchema: unknown): Record<string, unknown> | undefined {
   if (typeof mcpSchema !== "object" || mcpSchema === null) {
@@ -199,7 +205,7 @@ export function unwrapMCPJsonSchema(mcpSchema: unknown): Record<string, unknown>
   ) {
     return unwrapMCPJsonSchema(nestedJsonSchema);
   }
-  return schemaObj;
+  return schemaObj["type"] === undefined ? { ...schemaObj, type: "object" } : schemaObj;
 }
 
 /**

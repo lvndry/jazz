@@ -188,7 +188,7 @@ model, not the agent's, and mixing the two would hide both numbers. See
 
 | Where                | How                                                             |
 | -------------------- | --------------------------------------------------------------- |
-| Mid-conversation     | `/model`                                                        |
+| Mid-conversation     | `/switch` (or `/models`) to an agent configured with the model  |
 | Per agent            | the agent's `llmProvider` / `llmModel` fields                   |
 | For compaction only  | the agent's `summarizerModel` — run a cheap model for summaries |
 | For one headless run | `--reasoning` (effort); model comes from the agent config       |

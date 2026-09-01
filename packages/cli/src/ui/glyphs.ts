@@ -275,9 +275,12 @@ const UNICODE: GlyphSet = {
   laneBurst: ["▖", "▚", "▘"],
   laneRest: "░",
 
+  // Distinguished by shape rather than shade: adjacent density steps like
+  // ░/▒ read as near-identical gray at a glance. A solid fill, a sparse
+  // dot, and a diagonal checker stay distinct even without color.
   gridFilled: "█",
-  gridEmpty: "░",
-  gridReserved: "▒",
+  gridEmpty: "·",
+  gridReserved: "▚",
 
   todoPending: "○",
   todoActive: "◐",

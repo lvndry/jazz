@@ -127,6 +127,26 @@ export function statusDisconnected(name: string): string {
   return `${INDENT}${CHALK_THEME.secondary(getGlyphs().pending)} ${CHALK_THEME.white(name)}`;
 }
 
+/**
+ * Format a status dot for something that needs attention (e.g. an MCP server
+ * that requires authentication before it can connect).
+ *
+ * Example: `   ╵ my-server`
+ */
+export function statusWarn(name: string): string {
+  return `${INDENT}${CHALK_THEME.warning(getGlyphs().warn)} ${CHALK_THEME.white(name)}`;
+}
+
+/**
+ * Format a status dot for something explicitly turned off, as distinct from
+ * something merely disconnected — it will not be reached for at all.
+ *
+ * Example: `   ╹ my-server`
+ */
+export function statusDisabled(name: string): string {
+  return `${INDENT}${CHALK_THEME.muted(getGlyphs().laneEnd)} ${CHALK_THEME.muted(name)}`;
+}
+
 // ── Footer / totals ──────────────────────────────────────────────────
 
 /**
