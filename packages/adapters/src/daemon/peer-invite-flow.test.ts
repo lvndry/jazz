@@ -71,6 +71,7 @@ function fakeConfigLayer() {
         revision += 1;
       }),
     revision: Effect.sync(() => revision),
+    secretStorageUnavailable: () => false,
     appConfig: Effect.sync((): AppConfig => ({ ...({} as AppConfig), peers })),
   };
   return { layer: Layer.succeed(AgentConfigServiceTag, service) };
