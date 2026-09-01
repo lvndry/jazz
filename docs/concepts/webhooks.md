@@ -47,6 +47,12 @@ The response carries the agent's answer:
 
 ---
 
+## Adding one while the daemon is running
+
+Both the webhook list and its token are resolved per request, so a webhook added to
+`config.json` is live on the next call — no restart, and no window where the token works but
+the endpoint does not.
+
 ## Configuring one
 
 | Field | Required | What it does |

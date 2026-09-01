@@ -51,6 +51,7 @@ import { resolveWebhookToken } from "@jazz/adapters/webhooks/token";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
+import type { AppConfig } from "@jazz/core/types/config";
 import { getJazzSchedulerInvocation } from "@jazz/core/utils/runtime";
 import { SchedulerServiceTag } from "@jazz/core/workflows/scheduler-service";
 import { Effect, Runtime } from "effect";
@@ -225,25 +226,28 @@ export function daemonCommand(options: DaemonCommandOptions) {
     // and never exercise the real layer.
     const runtime = yield* Effect.runtime<DaemonRequirements>();
 
-    const configService = yield* AgentConfigServiceTag;
-    const webhooks = (yield* configService.appConfig).webhooks ?? [];
-
     yield* Effect.async<void, never>((resume) => {
       const run = <A>(effect: Effect.Effect<A, unknown, DaemonRequirements>): Promise<A> =>
         Runtime.runPromise(runtime)(effect as Effect.Effect<A, never, DaemonRequirements>);
 
-      // Read live rather than once at startup — an invite accepted while this process is
-      // running must be usable immediately, without a restart. See `makePeerHandler`'s own
-      // comment for why a snapshot taken here would silently undo the point of accepting a
-      // peer over HTTP in the first place.
-      const resolvePeers = () =>
+      /**
+       * Read live rather than once at startup.
+       *
+       * A peer added by accepting an invite, or a webhook added by an external tool, must be
+       * usable immediately — a snapshot taken here would silently undo the point of
+       * accepting a peer over HTTP in the first place, and would make adding a webhook mean
+       * "add a webhook and remember to bounce the daemon".
+       */
+      const readLive = <T>(select: (appConfig: AppConfig) => readonly T[]) =>
         run(
           Effect.gen(function* () {
             const service = yield* AgentConfigServiceTag;
-            const appConfig = yield* service.appConfig;
-            return appConfig.peers ?? [];
+            return select(yield* service.appConfig);
           }),
         );
+
+      const resolvePeers = () => readLive((appConfig) => appConfig.peers ?? []);
+      const resolveWebhooks = () => readLive((appConfig) => appConfig.webhooks ?? []);
 
       const handle = makeHandler(daemonOptions, run);
       const handlePeer = makePeerHandler(
@@ -254,7 +258,7 @@ export function daemonCommand(options: DaemonCommandOptions) {
       );
       const handlePeerInvite = makePeerInviteHandler(run, undefined, daemonOptions.peerAgent);
       const handleWebhook = makeWebhookHandler(
-        webhooks,
+        resolveWebhooks,
         (webhookName) => Effect.runPromise(resolveWebhookToken(webhookName)),
         run,
       );

@@ -495,8 +495,16 @@ async function readWebhookPayload(request: Request): Promise<string | Response> 
  * public surface before the rename: it is written into GitHub webhook settings and other
  * people's automations, none of which jazz can reach in to update.
  */
+/**
+ * @param readWebhooks Consulted per request rather than captured once.
+ *
+ * A webhook added while the daemon is running used to stay invisible until a restart, while
+ * its token resolved immediately — an asymmetry with no reason behind it, and one that turns
+ * "add a webhook" into "add a webhook and remember to bounce the daemon". Reading the list
+ * per request costs a config lookup on a path that is already about to run a model.
+ */
 export function makeWebhookHandler(
-  webhooks: readonly WebhookConfig[],
+  readWebhooks: () => Promise<readonly WebhookConfig[]>,
   resolveToken: (webhookName: string) => Promise<string | undefined>,
   runEffect: <A>(effect: Effect.Effect<A, unknown, DaemonRequirements>) => Promise<A>,
 ): (request: Request) => Promise<Response> {
@@ -514,7 +522,7 @@ export function makeWebhookHandler(
       return json({ ok: false, error: "not found" }, 404);
     }
 
-    const webhook = webhooks.find((candidate) => candidate.name === webhookName);
+    const webhook = (await readWebhooks()).find((candidate) => candidate.name === webhookName);
     if (webhook === undefined) {
       return json({ ok: false, error: "not found" }, 404);
     }

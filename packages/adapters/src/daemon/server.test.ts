@@ -173,7 +173,7 @@ describe("the daemon's routes", () => {
 
   it("rejects an oversized webhook body while it is being read", async () => {
     const handle = makeWebhookHandler(
-      [{ name: "hook", agentId: "default", promptTemplate: "Process {{payload}}" }],
+      async () => [{ name: "hook", agentId: "default", promptTemplate: "Process {{payload}}" }],
       async () => "webhook-secret",
       async () => {
         throw new Error("runEffect should not be called");
@@ -191,7 +191,7 @@ describe("the daemon's routes", () => {
 
   it("returns 404 for malformed webhook URL encoding", async () => {
     const handle = makeWebhookHandler(
-      [],
+      async () => [],
       async () => undefined,
       async () => {
         throw new Error("runEffect should not be called");
@@ -200,9 +200,41 @@ describe("the daemon's routes", () => {
     expect((await handle(request("POST", "/webhooks/%E0%A4%A"))).status).toBe(404);
   });
 
+  it("sees a webhook added after the daemon started, without a restart", async () => {
+    // The list is read per request, not captured once. A snapshot here would mean adding a
+    // webhook silently did nothing until somebody bounced the process.
+    const webhooks: { name: string; agentId: string; promptTemplate: string }[] = [];
+    const handle = makeWebhookHandler(
+      async () => webhooks,
+      async () => "webhook-secret",
+      async () => {
+        throw new Error("runEffect should not be called");
+      },
+    );
+
+    const before = await handle(
+      request("POST", "/webhooks/late", {
+        headers: { authorization: "Bearer webhook-secret" },
+        body: "hello",
+      }),
+    );
+    expect(before.status).toBe(404);
+
+    webhooks.push({ name: "late", agentId: "default", promptTemplate: "Process {{payload}}" });
+
+    // Now found, so authorization runs — the 401 here is the token check, not the lookup.
+    const after = await handle(
+      request("POST", "/webhooks/late", {
+        headers: { authorization: "Bearer wrong" },
+        body: "hello",
+      }),
+    );
+    expect(after.status).toBe(401);
+  });
+
   it("refuses a thread key on a webhook that is not threaded", async () => {
     const handle = makeWebhookHandler(
-      [{ name: "hook", agentId: "default", promptTemplate: "Process {{payload}}" }],
+      async () => [{ name: "hook", agentId: "default", promptTemplate: "Process {{payload}}" }],
       async () => "webhook-secret",
       async () => {
         throw new Error("runEffect should not be called");
@@ -221,7 +253,7 @@ describe("the daemon's routes", () => {
 
   it("refuses a thread key longer than the cap", async () => {
     const handle = makeWebhookHandler(
-      [
+      async () => [
         {
           name: "hook",
           agentId: "default",
@@ -247,7 +279,7 @@ describe("the daemon's routes", () => {
 
   it("still routes the pre-rename /triggers/<name> URL to the same webhook", async () => {
     const handle = makeWebhookHandler(
-      [{ name: "hook", agentId: "default", promptTemplate: "Process {{payload}}" }],
+      async () => [{ name: "hook", agentId: "default", promptTemplate: "Process {{payload}}" }],
       async () => "webhook-secret",
       async () => {
         throw new Error("runEffect should not be called");
