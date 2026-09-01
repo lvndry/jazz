@@ -205,6 +205,15 @@ export interface LlamaCppProviderConfig {
   readonly base_url?: string;
 }
 
+export interface AnthropicProviderConfig {
+  readonly api_key?: string;
+  /**
+   * Required alongside an identity-linked API key (one tied to a Console user
+   * rather than a workspace); Anthropic's API otherwise rejects the request.
+   */
+  readonly workspace_id?: string;
+}
+
 export interface LLMConfig {
   /**
    * How long a provider stream may stay silent before jazz abandons it as dead,
@@ -215,7 +224,7 @@ export interface LLMConfig {
   readonly streamIdleTimeoutMs?: number;
   readonly ai_gateway?: LLMProviderConfig;
   readonly alibaba?: LLMProviderConfig;
-  readonly anthropic?: LLMProviderConfig;
+  readonly anthropic?: AnthropicProviderConfig;
   readonly cerebras?: LLMProviderConfig;
   readonly deepseek?: LLMProviderConfig;
   readonly fireworks?: LLMProviderConfig;

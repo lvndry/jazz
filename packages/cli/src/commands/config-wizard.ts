@@ -145,6 +145,18 @@ function configureLLMProviders() {
         yield* terminal.info("No changes made.");
       }
 
+      if (provider === "anthropic") {
+        const currentWorkspaceId = config.llm?.anthropic?.workspace_id;
+        const workspaceId = yield* terminal.ask(
+          `Anthropic workspace ID (only needed with an identity-linked API key; leave empty to ${currentWorkspaceId ? "keep current" : "skip"}):`,
+          { simple: true, ...(currentWorkspaceId ? { defaultValue: currentWorkspaceId } : {}) },
+        );
+        if (workspaceId?.trim()) {
+          yield* configService.set("llm.anthropic.workspace_id", workspaceId.trim());
+          yield* terminal.success("Anthropic workspace ID updated.");
+        }
+      }
+
       yield* terminal.log(""); // Spacing
     }
   });

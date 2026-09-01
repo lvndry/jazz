@@ -22,6 +22,7 @@ import { Cause, Effect, Exit, Layer, Stream } from "effect";
 import { AgentConfigServiceImpl } from "../config";
 import { createLoggerLayer } from "../logger";
 import {
+  buildProviderCacheFingerprint,
   buildProviderOptions,
   createAISDKServiceLayer,
   makeOllamaAuthorizedFetch,
@@ -1155,6 +1156,42 @@ describe("makeOllamaKeepAliveFetch", () => {
     } finally {
       restore();
     }
+  });
+});
+
+describe("buildProviderCacheFingerprint - anthropic", () => {
+  const originalWorkspaceEnv = process.env["ANTHROPIC_WORKSPACE_ID"];
+
+  afterAll(() => {
+    if (originalWorkspaceEnv === undefined) {
+      delete process.env["ANTHROPIC_WORKSPACE_ID"];
+    } else {
+      process.env["ANTHROPIC_WORKSPACE_ID"] = originalWorkspaceEnv;
+    }
+  });
+
+  it("changes when the configured workspace ID changes", () => {
+    delete process.env["ANTHROPIC_WORKSPACE_ID"];
+    const withoutWorkspace = buildProviderCacheFingerprint("anthropic", {
+      anthropic: { api_key: "sk-ant-test" },
+    });
+    const withWorkspace = buildProviderCacheFingerprint("anthropic", {
+      anthropic: { api_key: "sk-ant-test", workspace_id: "wrkspc_1" },
+    });
+
+    expect(withoutWorkspace).not.toBe(withWorkspace);
+  });
+
+  it("falls back to ANTHROPIC_WORKSPACE_ID when config omits it", () => {
+    process.env["ANTHROPIC_WORKSPACE_ID"] = "wrkspc_env";
+    const fromEnv = buildProviderCacheFingerprint("anthropic", {
+      anthropic: { api_key: "sk-ant-test" },
+    });
+    const explicit = buildProviderCacheFingerprint("anthropic", {
+      anthropic: { api_key: "sk-ant-test", workspace_id: "wrkspc_env" },
+    });
+
+    expect(fromEnv).toBe(explicit);
   });
 });
 

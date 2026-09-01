@@ -278,6 +278,7 @@ CA, point Node at that CA with `NODE_EXTRA_CA_CERTS=/path/to/ca.pem`.
 | ------------------------------ | ---------------------------------------------------------------------------------------- |
 | `OPENAI_API_KEY`               | OpenAI                                                                                   |
 | `ANTHROPIC_API_KEY`            | Anthropic                                                                                |
+| `ANTHROPIC_WORKSPACE_ID`       | Only needed with an identity-linked Anthropic API key (see below)                        |
 | `GOOGLE_GENERATIVE_AI_API_KEY` | Google Gemini                                                                            |
 | `OPENROUTER_API_KEY`           | OpenRouter                                                                               |
 | `OLLAMA_BASE_URL`              | Ollama endpoint (default `http://localhost:11434/api`; `/api` is appended automatically) |
@@ -285,6 +286,13 @@ CA, point Node at that CA with `NODE_EXTRA_CA_CERTS=/path/to/ca.pem`.
 
 Other providers follow the same `<PROVIDER>_API_KEY` convention — see
 [Integrations → Providers](../integrations/providers.md).
+
+Anthropic has two kinds of API keys: a workspace-scoped key (the common case) needs
+nothing extra, but an **identity-linked** key — one tied to a Console user identity
+rather than a single workspace, typically issued by an organization — needs a
+workspace ID on every request. If a request fails with `anthropic-workspace-id is
+required`, set `ANTHROPIC_WORKSPACE_ID` or `llm.anthropic.workspace_id` in
+`config.json` (`jazz config` prompts for it right after the API key).
 
 ### Output and terminal
 

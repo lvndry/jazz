@@ -759,7 +759,15 @@ function selectModel(
     }
     case "anthropic": {
       const apiKey = resolveApiKey("anthropic");
-      model = apiKey ? createAnthropic({ apiKey })(modelId) : anthropic(modelId);
+      const workspaceId =
+        llmConfig?.anthropic?.workspace_id ?? process.env["ANTHROPIC_WORKSPACE_ID"];
+      model =
+        apiKey || workspaceId
+          ? createAnthropic({
+              ...(apiKey ? { apiKey } : {}),
+              ...(workspaceId ? { headers: { "anthropic-workspace-id": workspaceId } } : {}),
+            })(modelId)
+          : anthropic(modelId);
       break;
     }
     case "gemini": {
@@ -928,7 +936,10 @@ export function makeOllamaKeepAliveFetch(keepAlive: string): typeof globalThis.f
   }) as typeof globalThis.fetch;
 }
 
-function buildProviderCacheFingerprint(providerName: ProviderName, llmConfig?: LLMConfig): string {
+export function buildProviderCacheFingerprint(
+  providerName: ProviderName,
+  llmConfig?: LLMConfig,
+): string {
   if (!llmConfig) return "";
 
   switch (providerName) {
@@ -939,6 +950,11 @@ function buildProviderCacheFingerprint(providerName: ProviderName, llmConfig?: L
     case "llamacpp": {
       const cfg = llmConfig.llamacpp;
       return `${cfg?.api_key ?? ""}|${cfg?.base_url ?? ""}`;
+    }
+    case "anthropic": {
+      const cfg = llmConfig.anthropic;
+      const workspaceId = cfg?.workspace_id ?? process.env["ANTHROPIC_WORKSPACE_ID"] ?? "";
+      return `${cfg?.api_key ?? ""}|${workspaceId}`;
     }
     default: {
       const apiKey = llmConfig[providerName]?.api_key;
