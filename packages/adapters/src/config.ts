@@ -104,6 +104,11 @@ export class AgentConfigServiceImpl implements AgentConfigService {
   private keyringBackend: KeyringBackend;
   private secretOrigins: Map<string, SecretOrigin>;
   private fileSecrets: Map<string, string>;
+  /**
+   * Secrets that could not be stored anywhere: no keyring, and no structural home in the
+   * config file. Tracked so a command can report the failure instead of claiming success.
+   */
+  private readonly unstorableSecrets = new Set<string>();
 
   constructor(
     initialConfig: AppConfig,
@@ -204,12 +209,30 @@ export class AgentConfigServiceImpl implements AgentConfigService {
     return Effect.succeed(true);
   }
 
+  secretStorageUnavailable(key: string): boolean {
+    return this.unstorableSecrets.has(key);
+  }
+
   set<A>(key: string, value: A): Effect.Effect<void, never> {
     return Effect.gen(
       function* (this: AgentConfigServiceImpl) {
         const handled = yield* this.setMcpOverride(key, value);
         if (!handled) {
-          deepSet(this.currentConfig, key, value);
+          if (isSecretPath(key) && !structuralHomeFor(this.currentConfig, key)) {
+            // A per-entry token — `webhooks.<name>.token`, `peers.<name>.token` — has no
+            // structural home: its root names a list, so writing a dotted path there would
+            // replace the list with an object and lose every entry. These are resolved from
+            // the keyring or the environment and never read back out of `AppConfig`, so the
+            // keyring write below is the whole of storing them.
+            yield* Effect.void;
+          } else if (isSecretPath(key) && isBlankSecret(value)) {
+            // Clearing a secret. Assigning `undefined` would leave the parent objects behind
+            // as an empty husk once JSON.stringify drops the leaf, which is how a config ends
+            // up with `"webhooks": { "mira": {} }` where a list belongs.
+            deepDelete(this.currentConfig as unknown as Record<string, unknown>, key);
+          } else {
+            deepSet(this.currentConfig, key, value);
+          }
         }
 
         if (isSecretPath(key)) {
@@ -261,10 +284,16 @@ export class AgentConfigServiceImpl implements AgentConfigService {
           return;
         }
 
-        // No usable keyring: the value stays in the config file, which
-        // writePrivateFile keeps at mode 0600.
+        // No usable keyring: the value stays in the config file, which writePrivateFile keeps
+        // at mode 0600. A per-entry token has no structural home there — its root names a
+        // list — so it is dropped rather than written somewhere JSON.stringify will discard
+        // it. `secretStorageUnavailable` is how the caller learns to say so.
         this.secretOrigins.delete(key);
-        this.fileSecrets.set(key, value);
+        if (structuralHomeFor(this.currentConfig, key)) {
+          this.fileSecrets.set(key, value);
+        } else {
+          this.unstorableSecrets.add(key);
+        }
       }.bind(this),
     );
   }
@@ -1070,6 +1099,24 @@ function deepGet(obj: object, path: string): unknown {
  * the removal emptied — so dropping `llm.openai.api_key` does not leave an
  * orphaned `llm.openai: {}` behind in the written config.
  */
+/** A secret being cleared, matching what `storeSecret` treats as blank. */
+function isBlankSecret(value: unknown): boolean {
+  return typeof value !== "string" || value.trim() === "";
+}
+
+/**
+ * Whether a dotted path can be written into the config object at all.
+ *
+ * False when the first segment names a list. `AppConfig.webhooks` and `AppConfig.peers` are
+ * arrays, so `deepSet` on `webhooks.mira.token` would silently swap the array for an object
+ * and take every configured entry with it.
+ */
+function structuralHomeFor(config: AppConfig, path: string): boolean {
+  const root = path.split(".").filter(Boolean)[0];
+  if (root === undefined) return false;
+  return !Array.isArray((config as unknown as Record<string, unknown>)[root]);
+}
+
 function deepDelete(obj: Record<string, unknown>, path: string): void {
   const parts = path.split(".").filter(Boolean);
   if (parts.length === 0) return;
@@ -1093,7 +1140,15 @@ function deepDelete(obj: Record<string, unknown>, path: string): void {
 }
 
 /** Sets a value at a dotted path on any object. */
-function deepSet(obj: object, path: string, value: unknown): void {
+/**
+ * Write a dotted path, refusing to descend into a list.
+ *
+ * `typeof [] === "object"`, so walking into an array attaches a named property to it — and
+ * `JSON.stringify` drops named properties on arrays, so the value is written, reported as
+ * saved, and then silently discarded on the next persist. Returns whether the write landed
+ * so a caller can tell the difference between stored and quietly lost.
+ */
+function deepSet(obj: object, path: string, value: unknown): boolean {
   const parts = path.split(".").filter(Boolean);
   let cur: Record<string, unknown> = obj as Record<string, unknown>;
   for (let i = 0; i < parts.length; i++) {
@@ -1102,10 +1157,12 @@ function deepSet(obj: object, path: string, value: unknown): void {
       cur[key] = value;
     } else {
       const next = cur[key];
+      if (Array.isArray(next)) return false;
       if (!next || typeof next !== "object") {
         cur[key] = {};
       }
       cur = cur[key] as Record<string, unknown>;
     }
   }
+  return true;
 }

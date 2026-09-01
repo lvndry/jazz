@@ -511,6 +511,37 @@ function registerConfigCommands(program: Command): void {
     );
 }
 
+/**
+ * Register `jazz webhook token|forget-token` — minting a webhook's bearer token instead of
+ * asking somebody to invent one, the way `jazz daemon set-token` already does for the daemon.
+ */
+function registerWebhookCommands(program: Command): void {
+  const webhookCommand = program
+    .command("webhook")
+    .description("Manage webhook credentials (see `jazz config` for the webhooks themselves)");
+
+  webhookCommand
+    .command("token <name>")
+    .description("Generate and store a bearer token for a webhook, printing it once")
+    .action((name: string) =>
+      runCliAction(
+        () => import("@jazz/cli/commands/webhook").then((mod) => mod.setWebhookTokenCommand(name)),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  webhookCommand
+    .command("forget-token <name>")
+    .description("Remove a webhook's stored token")
+    .action((name: string) =>
+      runCliAction(
+        () =>
+          import("@jazz/cli/commands/webhook").then((mod) => mod.forgetWebhookTokenCommand(name)),
+        cliRuntimeOptions(program),
+      ),
+    );
+}
+
 /** Accumulate a repeatable Commander option into an array. */
 function collect(value: string, previous: string[]): string[] {
   return [...previous, value];
@@ -1461,6 +1492,7 @@ export function createCLIApp(): Command {
   registerAgentCommands(program);
   registerPersonaCommands(program);
   registerConfigCommands(program);
+  registerWebhookCommands(program);
   registerMCPCommands(program);
   registerUpdateCommand(program);
   registerDaemonCommand(program);

@@ -16,6 +16,11 @@ export interface AgentConfigService {
   readonly revision: Effect.Effect<number, never>;
   /** Gets the complete application configuration. */
   readonly appConfig: Effect.Effect<AppConfig, never>;
+  /**
+   * Whether the last `set` of this secret had nowhere to go — no keyring, and no structural
+   * home in the config file. Lets a command report that instead of claiming success.
+   */
+  readonly secretStorageUnavailable: (key: string) => boolean;
 }
 
 export const AgentConfigServiceTag = Context.GenericTag<AgentConfigService>("AgentConfigService");
