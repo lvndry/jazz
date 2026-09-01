@@ -10,12 +10,18 @@
  * the logs — and then the read path hydrated every log anyway, so it bought nothing while
  * adding a second source of truth that could disagree with the first. Reading an entire
  * history is single-digit milliseconds; the directory is the index.
+ *
+ * Saving still needs a per-agent lock around append+list+evict: unlocked, two concurrent
+ * saves could each list before the other's append lands, miscounting the retention limit.
  */
 
+import * as path from "node:path";
 import { FileSystem } from "@effect/platform";
 import { MAX_CONVERSATION_HISTORY_PER_AGENT } from "@jazz/core/constants/agent";
+import { withLock } from "@jazz/core/utils/storage";
 import { Effect } from "effect";
 import {
+  agentConversationLockPath,
   deleteConversationLog,
   listConversationLogs,
   readConversationLog,
@@ -32,6 +38,18 @@ export interface AgentConversationHistory {
   readonly conversations: ConversationSummary[];
 }
 
+/** Creates the lock's parent directory: `withLock`'s mkdir is non-recursive. */
+function ensureLockDirectory(lockPath: string): Effect.Effect<void, Error, FileSystem.FileSystem> {
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    yield* fs
+      .makeDirectory(path.dirname(lockPath), { recursive: true })
+      .pipe(
+        Effect.mapError((error) => (error instanceof Error ? error : new Error(String(error)))),
+      );
+  });
+}
+
 /**
  * Saves a conversation, then trims the agent back to its retention limit.
  *
@@ -42,23 +60,31 @@ export function saveConversation(
   conversation: Conversation,
   dir?: string,
 ): Effect.Effect<void, Error, FileSystem.FileSystem> {
+  const lockPath = agentConversationLockPath(conversation.agentId, dir);
   return Effect.gen(function* () {
-    yield* recordConversationTranscript(
-      {
-        agentId: conversation.agentId,
-        conversationId: conversation.conversationId,
-        title: conversation.title,
-        startedAt: conversation.startedAt,
-        endedAt: conversation.endedAt,
-        messages: conversation.messages,
-      },
-      dir,
-    );
+    yield* ensureLockDirectory(lockPath);
 
-    const logs = yield* listConversationLogs(conversation.agentId, dir);
-    for (const stale of logs.slice(MAX_CONVERSATION_HISTORY_PER_AGENT)) {
-      yield* deleteConversationLog(stale.agentId, stale.conversationId, dir);
-    }
+    yield* withLock(
+      lockPath,
+      Effect.gen(function* () {
+        yield* recordConversationTranscript(
+          {
+            agentId: conversation.agentId,
+            conversationId: conversation.conversationId,
+            title: conversation.title,
+            startedAt: conversation.startedAt,
+            endedAt: conversation.endedAt,
+            messages: conversation.messages,
+          },
+          dir,
+        );
+
+        const logs = yield* listConversationLogs(conversation.agentId, dir);
+        for (const stale of logs.slice(MAX_CONVERSATION_HISTORY_PER_AGENT)) {
+          yield* deleteConversationLog(stale.agentId, stale.conversationId, dir);
+        }
+      }),
+    );
   });
 }
 

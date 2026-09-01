@@ -13,23 +13,25 @@ import {
   loadHistory,
   type Conversation,
 } from "./conversation-history-service";
-import { conversationLogPath, resetConversationLogAppendCache } from "./conversation-log";
+import { conversationLogPath } from "./conversation-log";
 import { search } from "./conversation-search";
 
 let tmpDir: string;
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "jazz-history-test-"));
-  resetConversationLogAppendCache();
 });
 
 afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
-  resetConversationLogAppendCache();
 });
 
 function runEffect<A>(eff: Effect.Effect<A, unknown, FileSystem.FileSystem>) {
   return Effect.runPromise(eff.pipe(Effect.provide(NodeFileSystem.layer)));
+}
+
+function runEffectExit<A>(eff: Effect.Effect<A, unknown, FileSystem.FileSystem>) {
+  return Effect.runPromiseExit(eff.pipe(Effect.provide(NodeFileSystem.layer)));
 }
 
 function makeConversation(overrides: Partial<Conversation> = {}): Conversation {
@@ -91,6 +93,92 @@ describe("saveConversation", () => {
 
     expect((await runEffect(loadHistory("agent-1", tmpDir))).conversations).toHaveLength(1);
     expect((await runEffect(loadHistory("agent-2", tmpDir))).conversations).toHaveLength(1);
+  });
+});
+
+describe("saveConversation under concurrency", () => {
+  test("concurrent saves past the retention limit still evict down to the limit", async () => {
+    const conversationIds = Array.from(
+      { length: MAX_CONVERSATION_HISTORY_PER_AGENT + 10 },
+      (_, index) => `conv-${String(index)}`,
+    );
+
+    await runEffect(
+      Effect.all(
+        conversationIds.map((conversationId) =>
+          saveConversation(makeConversation({ conversationId }), tmpDir),
+        ),
+        { concurrency: 8 },
+      ),
+    );
+
+    const history = await runEffect(loadHistory("agent-1", tmpDir));
+    // Without the per-agent lock, concurrent append+list+evict transactions could each
+    // list the directory before the others' writes landed, undercount how many
+    // conversations exist, and leave more than the retention limit on disk.
+    expect(history.conversations).toHaveLength(MAX_CONVERSATION_HISTORY_PER_AGENT);
+  });
+
+  test("concurrent writes to the same conversation never corrupt the log", async () => {
+    const agentId = "agent-racer";
+    const conversationId = "conv-racer";
+    // Each candidate is a superset of the shorter ones, mimicking isolated callers that
+    // resumed the same conversation and each observed a different amount of history.
+    const candidates: ChatMessage[][] = Array.from({ length: 6 }, (_, index) =>
+      Array.from(
+        { length: index + 1 },
+        (_unused, turn) => ({ role: "user", content: `turn ${String(turn)}` }) as ChatMessage,
+      ),
+    );
+
+    await runEffect(
+      Effect.all(
+        candidates.map((messages) =>
+          saveConversation(makeConversation({ agentId, conversationId, messages }), tmpDir),
+        ),
+        { concurrency: 6 },
+      ),
+    );
+
+    // Whichever candidate's transaction the lock let land last, the log must read back as
+    // exactly that transcript — never a byte-level interleave of two writers' output.
+    const loaded = await runEffect(loadConversation(agentId, conversationId, tmpDir));
+    expect(loaded).not.toBeNull();
+    const finalContents = loaded?.messages.map((message) => message.content) ?? [];
+    const matchesOneCandidate = candidates.some(
+      (candidate) =>
+        candidate.length === finalContents.length &&
+        candidate.every((message, index) => message.content === finalContents[index]),
+    );
+    expect(matchesOneCandidate).toBe(true);
+
+    const rawLines = fs
+      .readFileSync(conversationLogPath(agentId, conversationId, tmpDir), "utf-8")
+      .split("\n")
+      .filter((line) => line.trim().length > 0);
+    for (const line of rawLines) {
+      expect(() => JSON.parse(line)).not.toThrow();
+    }
+  });
+
+  test("a failed save releases its lock instead of blocking the next one", async () => {
+    const brokenAgentId = "agent-broken";
+    const brokenConversationsDir = path.join(tmpDir, "conversations", brokenAgentId);
+    fs.mkdirSync(path.dirname(brokenConversationsDir), { recursive: true });
+    // A file sits where the per-agent conversations directory needs to be created, so the
+    // save fails partway through while still holding the lock.
+    fs.writeFileSync(brokenConversationsDir, "not a directory");
+
+    const failure = await runEffectExit(
+      saveConversation(makeConversation({ agentId: brokenAgentId }), tmpDir),
+    );
+    expect(failure._tag).toBe("Failure");
+
+    fs.rmSync(brokenConversationsDir);
+    await runEffect(saveConversation(makeConversation({ agentId: brokenAgentId }), tmpDir));
+
+    const history = await runEffect(loadHistory(brokenAgentId, tmpDir));
+    expect(history.conversations).toHaveLength(1);
   });
 });
 

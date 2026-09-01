@@ -58,6 +58,7 @@ import {
 import { buildMediaPrompt, downloadTelegramFile, type TelegramFileRef } from "./media";
 import { withReplyContext } from "./quotes";
 import { startReminderSweep } from "./reminders";
+import { dispatchTelegramRequest, isRenderingRejection } from "./telegram-dispatch";
 import {
   escapeHtml,
   expandableBlockquote,
@@ -265,17 +266,20 @@ async function callTelegram(
   config: BridgeConfig,
   method: string,
   payload: Record<string, unknown>,
+  options: { bestEffort?: boolean } = {},
 ): Promise<unknown> {
-  const response = await fetch(`${TELEGRAM_API_BASE}/bot${config.botToken}/${method}`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(payload),
+  const chatId = typeof payload["chat_id"] === "number" ? payload["chat_id"] : undefined;
+  return dispatchTelegramRequest({
+    method,
+    chatId,
+    bestEffort: options.bestEffort ?? false,
+    send: () =>
+      fetch(`${TELEGRAM_API_BASE}/bot${config.botToken}/${method}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      }),
   });
-  const body = (await response.json().catch(() => undefined)) as { ok?: boolean } | undefined;
-  if (!response.ok || body?.ok !== true) {
-    console.error(`Telegram ${method} failed: ${response.status} ${JSON.stringify(body)}`);
-  }
-  return body;
 }
 
 /** Upload a local image file as a Telegram photo message (multipart, not JSON). */
@@ -290,15 +294,15 @@ async function sendPhotoFile(
   form.append("photo", Bun.file(filePath), "chart.png");
   if (caption) form.append("caption", caption);
 
-  const response = await fetch(`${TELEGRAM_API_BASE}/bot${config.botToken}/sendPhoto`, {
-    method: "POST",
-    body: form,
+  return dispatchTelegramRequest({
+    method: "sendPhoto",
+    chatId,
+    send: () =>
+      fetch(`${TELEGRAM_API_BASE}/bot${config.botToken}/sendPhoto`, {
+        method: "POST",
+        body: form,
+      }),
   });
-  const body = (await response.json().catch(() => undefined)) as { ok?: boolean } | undefined;
-  if (!response.ok || body?.ok !== true) {
-    console.error(`Telegram sendPhoto failed: ${response.status} ${JSON.stringify(body)}`);
-  }
-  return body;
 }
 
 function isOkResponse(response: unknown): boolean {
@@ -412,6 +416,10 @@ function messageIdOf(response: unknown): number | undefined {
  * (command replies, confirmations); set `markdown: true` for content authored
  * in Markdown (the agent's answer), which is converted per chunk. Any
  * dynamic/untrusted text interpolated into HTML must be escaped by the caller.
+ *
+ * Falls back to plain text only when Telegram rejects the rendered HTML itself
+ * (malformed entities, too long, …) — never for a rate limit or a network failure,
+ * where a second send could duplicate a message Telegram already received.
  */
 async function sendReply(
   config: BridgeConfig,
@@ -440,8 +448,7 @@ async function sendReply(
     });
     if (isOkResponse(rendered)) {
       lastMessageId = messageIdOf(rendered) ?? lastMessageId;
-    } else {
-      // Rendering was rejected (malformed entities, too long, …) — send raw text.
+    } else if (isRenderingRejection(rendered)) {
       const plain = await callTelegram(config, "sendMessage", {
         chat_id: chatId,
         text: chunk,
@@ -631,14 +638,19 @@ function createProgressReporter(
     lastText = text;
     lastEditAt = Date.now();
     try {
-      await callTelegram(config, "editMessageText", {
-        chat_id: chatId,
-        message_id: messageId,
-        text,
-        parse_mode: "HTML",
-        link_preview_options: { is_disabled: true },
-        reply_markup: markup,
-      });
+      await callTelegram(
+        config,
+        "editMessageText",
+        {
+          chat_id: chatId,
+          message_id: messageId,
+          text,
+          parse_mode: "HTML",
+          link_preview_options: { is_disabled: true },
+          reply_markup: markup,
+        },
+        { bestEffort: true },
+      );
     } finally {
       editing = false;
     }
@@ -693,6 +705,9 @@ function createProgressReporter(
  * answer keeps its follow-up buttons and its own splitting, and sent through
  * callTelegram rather than sendReply so the answer splitter can never cut one
  * of these in the middle of a blockquote tag.
+ *
+ * Falls back to plain text only when Telegram rejects `expandable` itself (older Bot
+ * API versions) — never for a rate limit, where retrying already covers it.
  */
 async function sendReasoningLog(
   config: BridgeConfig,
@@ -711,9 +726,7 @@ async function sendReasoningLog(
       parse_mode: "HTML",
       link_preview_options: { is_disabled: true },
     });
-    if (!isOkResponse(rendered)) {
-      // Older Bot API versions reject `expandable`; the thinking still matters
-      // more than the affordance, so fall back to plain text.
+    if (isRenderingRejection(rendered)) {
       await callTelegram(config, "sendMessage", {
         chat_id: chatId,
         text: `💭 Reasoning${counter}\n${part}`,
@@ -979,7 +992,12 @@ async function handleMessage(
     return;
   }
 
-  await callTelegram(config, "sendChatAction", { chat_id: chatId, action: "typing" });
+  await callTelegram(
+    config,
+    "sendChatAction",
+    { chat_id: chatId, action: "typing" },
+    { bestEffort: true },
+  );
 
   const runToken = newRunToken();
   // A live-updated progress bubble with a ⏹ Cancel button. The final answer is

@@ -36,6 +36,16 @@ const mockFS = {
   writeFile: mock(() => Effect.void),
 } as unknown as FileSystem;
 
+const AGENT: Agent = {
+  id: "a1",
+  name: "Agent 1",
+  config: { persona: "default", llmProvider: "openai", llmModel: "gpt-4" },
+  createdAt: new Date(),
+  updatedAt: new Date(),
+};
+
+const TEMP_PATH_PATTERN = /^\/tmp\/jazz\/agents\/\.agent-\d+-[a-z0-9]+\.tmp$/;
+
 describe("FileStorageService", () => {
   const service = new FileStorageService("/tmp/jazz", mockFS);
 
@@ -53,9 +63,71 @@ describe("FileStorageService", () => {
 
     expect(mockFS.makeDirectory).toHaveBeenCalledWith("/tmp/jazz/agents", { recursive: true });
     expect(mockFS.writeFileString).toHaveBeenCalledWith(
-      "/tmp/jazz/agents/a1.json",
+      expect.stringMatching(TEMP_PATH_PATTERN),
       expect.stringContaining('"name": "Agent 1"'),
     );
+    expect(mockFS.rename).toHaveBeenCalledWith(
+      expect.stringMatching(TEMP_PATH_PATTERN),
+      "/tmp/jazz/agents/a1.json",
+    );
+  });
+
+  describe("atomic write failure paths", () => {
+    function agentServiceWithMock(overrides: Partial<typeof mockFS>) {
+      const fs = {
+        ...mockFS,
+        makeDirectory: mock(() => Effect.void),
+        writeFileString: mock(() => Effect.void),
+        rename: mock(() => Effect.void),
+        remove: mock(() => Effect.void),
+        ...overrides,
+      } as unknown as FileSystem;
+      return { fs, service: new FileStorageService("/tmp/jazz", fs) };
+    }
+
+    it("leaves the target file untouched when the temp write fails", async () => {
+      const { fs, service: svc } = agentServiceWithMock({
+        writeFileString: mock(() => Effect.fail(new Error("disk full"))),
+      });
+
+      const result = await Effect.runPromiseExit(svc.saveAgent(AGENT));
+
+      expect(result._tag).toBe("Failure");
+      expect(fs.rename).not.toHaveBeenCalled();
+    });
+
+    it("cleans up the temporary file when rename fails", async () => {
+      const { fs, service: svc } = agentServiceWithMock({
+        rename: mock(() => Effect.fail(new Error("cross-device link"))),
+      });
+
+      const result = await Effect.runPromiseExit(svc.saveAgent(AGENT));
+
+      expect(result._tag).toBe("Failure");
+      expect(fs.remove).toHaveBeenCalledWith(expect.stringMatching(TEMP_PATH_PATTERN));
+    });
+
+    it("produces a complete, readable file on a successful write", async () => {
+      let writtenTempPath: string | undefined;
+      let writtenContent: string | undefined;
+      const { service: svc } = agentServiceWithMock({
+        writeFileString: mock((path: string, content: string) => {
+          writtenTempPath = path;
+          writtenContent = content;
+          return Effect.void;
+        }),
+        rename: mock((from: string, to: string) => {
+          expect(from).toBe(writtenTempPath);
+          expect(to).toBe("/tmp/jazz/agents/a1.json");
+          return Effect.void;
+        }),
+      });
+
+      await Effect.runPromise(svc.saveAgent(AGENT));
+
+      expect(writtenContent).toBeDefined();
+      expect(JSON.parse(writtenContent ?? "")).toMatchObject({ id: "a1", name: "Agent 1" });
+    });
   });
 
   it("should list agents from directory", async () => {
