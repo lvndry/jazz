@@ -113,6 +113,7 @@ const APPROVAL: ApprovalOverlay = {
 const SEARCH: SearchOverlay = {
   kind: "search",
   query: "basel",
+  caret: 5,
   scope: "all",
   hits: [
     {

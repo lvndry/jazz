@@ -98,6 +98,8 @@ export interface QuestionModel {
   readonly customCaret?: number;
   /** Incremental filter shown on a row under the question. */
   readonly filter?: string;
+  /** Caret offset into `filter`, in characters. */
+  readonly filterCaret?: number;
   /** When set, typing filters the list and an empty match is not a custom row. */
   readonly filterable?: boolean;
 }
@@ -389,19 +391,12 @@ export function Question({ model, viewport }: QuestionProps): ReactNode {
             <text style={{ fg: THEME.primary, width: GUTTER, flexShrink: 0 }}>
               {`${glyphs.promptCursor} `}
             </text>
-            <text
-              style={{
-                fg: (model.filter ?? "").length > 0 ? THEME.selected : THEME.muted,
-                flexShrink: 0,
-              }}
-            >
-              {clip(
-                oneLine(
-                  (model.filter ?? "").length > 0 ? (model.filter ?? "") : FILTER_PLACEHOLDER,
-                ),
-                Math.max(4, inner - GUTTER),
-              )}
-            </text>
+            <CaretValue
+              value={oneLine(model.filter ?? "")}
+              caret={model.filterCaret ?? displayWidth(model.filter ?? "")}
+              width={Math.max(4, inner - GUTTER)}
+              placeholder={FILTER_PLACEHOLDER}
+            />
           </box>
         ) : null}
 
