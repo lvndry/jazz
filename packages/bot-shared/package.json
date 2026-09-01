@@ -2,7 +2,7 @@
   "name": "@jazz/bot-shared",
   "version": "0.15.6",
   "private": true,
-  "description": "Shared helpers for the Discord and Telegram bot bridges \u2014 reasoning-snippet formatting, run logging.",
+  "description": "Shared helpers for the Discord and Telegram bot bridges: reasoning-snippet formatting, run logging.",
   "type": "module",
   "exports": {
     "./*": [
