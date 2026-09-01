@@ -6,6 +6,7 @@ import {
   resolveFilePickerPath,
   scanFilePickerEntries,
 } from "../file-picker-files";
+import { useTextInput } from "../hooks/use-input-service";
 import { THEME } from "../theme";
 
 interface FilePickerProps {
@@ -27,12 +28,29 @@ export function FilePicker({
   onSelect,
   onCancel,
 }: FilePickerProps): React.ReactElement {
-  const [query, setQuery] = useState("");
   const [cursorIndex, setCursorIndex] = useState(0);
   const [windowStart, setWindowStart] = useState(0);
   const [files, setFiles] = useState<FilePickerEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const pageSize = 10;
+
+  const {
+    value: query,
+    cursor: queryCursor,
+    setValue: setQuery,
+  } = useTextInput({
+    id: "file-picker-query",
+    isActive: true,
+    onSubmit: () => {
+      void submit();
+    },
+  });
+
+  // The text-input store is keyed by id and persists across mounts, so a
+  // freshly opened file picker must clear out whatever a previous one left.
+  useEffect(() => {
+    setQuery("", 0);
+  }, []);
 
   // Scan for files matching the query asynchronously
   useEffect(() => {
@@ -124,7 +142,7 @@ export function FilePicker({
     setSubmitError("No file selected");
   }
 
-  useInput((input, key) => {
+  useInput((_input, key) => {
     // Handle escape for cancellation
     if (key.escape) {
       onCancel?.();
@@ -142,12 +160,6 @@ export function FilePicker({
       return;
     }
 
-    // Selection
-    if (key.return) {
-      void submit();
-      return;
-    }
-
     // Tab for autocomplete to common prefix
     if (key.tab && files.length > 0) {
       const selected = files[cursorIndex];
@@ -158,17 +170,6 @@ export function FilePicker({
       }
       return;
     }
-
-    // Backspace handling
-    if (key.backspace || key.delete) {
-      setQuery((prev) => prev.slice(0, -1));
-      return;
-    }
-
-    // Text input - only printable characters
-    if (input && !key.ctrl && !key.meta) {
-      setQuery((prev) => prev + input);
-    }
   });
 
   return (
@@ -176,8 +177,11 @@ export function FilePicker({
       {/* Search input */}
       <Box>
         <Text color={THEME.muted}>Path: </Text>
-        <Text color={THEME.primary}>{query}</Text>
-        <Text color={THEME.muted}>│</Text>
+        <Text color={THEME.primary}>
+          {query.slice(0, queryCursor)}
+          <Text inverse>{queryCursor < query.length ? query[queryCursor] : " "}</Text>
+          {queryCursor < query.length ? query.slice(queryCursor + 1) : ""}
+        </Text>
       </Box>
 
       {/* Base path info */}

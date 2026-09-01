@@ -1,6 +1,7 @@
 import { Box, Text, useInput } from "ink";
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo } from "react";
 import { getGlyphs } from "../glyphs";
+import { useTextInput } from "../hooks/use-input-service";
 import { PICKER_WINDOW_SIZE, pickerWindowStart } from "../picker-window";
 import {
   originalValueFromPicker,
@@ -50,9 +51,30 @@ export function SearchSelect<T = unknown>({
   });
 
   const { view, state, dispatch } = picker;
-  const query = state.query;
 
-  useInput((input, key) => {
+  const {
+    value: query,
+    cursor: queryCursor,
+    setValue: setQueryValue,
+  } = useTextInput({
+    id: "search-select-query",
+    isActive: true,
+    onSubmit: () => dispatch({ kind: "submit" }),
+  });
+
+  // The text-input store is keyed by id and persists across mounts, so a
+  // freshly opened search picker must clear out whatever a previous one left.
+  useEffect(() => {
+    setQueryValue("", 0);
+  }, []);
+
+  useEffect(() => {
+    if (query !== state.query) {
+      dispatch({ kind: "setQuery", query });
+    }
+  }, [query, state.query, dispatch]);
+
+  useInput((_input, key) => {
     if (key.escape) {
       onCancel?.();
       return;
@@ -64,17 +86,6 @@ export function SearchSelect<T = unknown>({
     if (key.downArrow) {
       dispatch({ kind: "move", delta: 1 });
       return;
-    }
-    if (key.return) {
-      dispatch({ kind: "submit" });
-      return;
-    }
-    if (key.backspace || key.delete) {
-      dispatch({ kind: "setQuery", query: query.slice(0, -1) });
-      return;
-    }
-    if (input && !key.ctrl && !key.meta) {
-      dispatch({ kind: "setQuery", query: query + input });
     }
   });
 
@@ -97,10 +108,11 @@ export function SearchSelect<T = unknown>({
             {placeholder.slice(1)}
           </Text>
         ) : (
-          <>
-            <Text color={THEME.primary}>{query}</Text>
-            <Text inverse> </Text>
-          </>
+          <Text color={THEME.primary}>
+            {query.slice(0, queryCursor)}
+            <Text inverse>{queryCursor < query.length ? query[queryCursor] : " "}</Text>
+            {queryCursor < query.length ? query.slice(queryCursor + 1) : ""}
+          </Text>
         )}
       </Box>
 
