@@ -5,6 +5,7 @@
  */
 
 import { FileSystem } from "@effect/platform";
+import { applyConfigMigrations, PROVIDER_RENAME_MIGRATION } from "@jazz/core/config/migrations";
 import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import type { MCPServerConfig } from "@jazz/core/interfaces/mcp-server";
 import { ConfigurationError, ConfigurationNotFoundError } from "@jazz/core/types/errors";
@@ -22,11 +23,7 @@ import {
   getJazzHomeDirectory,
   getLocalJazzDirectory,
 } from "@jazz/core/utils/paths";
-import {
-  migrateConfigProviderName,
-  migrateKeyringProviderName,
-} from "@jazz/core/utils/provider-migration";
-import { migrateTriggersToWebhooks } from "@jazz/core/utils/webhook-migration";
+import { migrateKeyringProviderName } from "@jazz/core/utils/provider-migration";
 import { Effect, Layer, Option } from "effect";
 import {
   detectKeyringBackend,
@@ -737,8 +734,7 @@ function readOptionalConfigFile(
     const config = parsed.value;
     if (typeof config !== "object" || config === null) return undefined;
 
-    const renamedProvider = migrateConfigProviderName(config);
-    migrateTriggersToWebhooks(config);
+    const renamedProvider = applyConfigMigrations(config).includes(PROVIDER_RENAME_MIGRATION);
     return { config, renamedProvider };
   });
 }
@@ -820,8 +816,7 @@ function loadConfigFile(
         );
       }
 
-      const renamedProvider = migrateConfigProviderName(config);
-      migrateTriggersToWebhooks(config);
+      const renamedProvider = applyConfigMigrations(config).includes(PROVIDER_RENAME_MIGRATION);
 
       const localConfigPath = `${getLocalJazzDirectory()}/config.json`;
       const localRead = yield* readOptionalConfigFile(fs, localConfigPath);

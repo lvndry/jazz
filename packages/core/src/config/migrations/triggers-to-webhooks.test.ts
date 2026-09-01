@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { migrateTriggersToWebhooks } from "./webhook-migration";
+import { migrateTriggersToWebhooks } from "./triggers-to-webhooks";
 
 const legacyEntry = { name: "mira", agentId: "default", promptTemplate: "Handle {{payload}}" };
 

@@ -1,13 +1,14 @@
 {
   "name": "@jazz/core",
   "version": "0.15.6",
-  "description": "Jazz's agent runtime — a framework-agnostic, ports-and-adapters core: the agent loop, tool execution, context management, and the service interfaces adapters implement.",
+  "description": "Jazz's agent runtime \u2014 a framework-agnostic, ports-and-adapters core: the agent loop, tool execution, context management, and the service interfaces adapters implement.",
   "license": "MIT",
   "type": "module",
   "exports": {
     "./types": "./src/types/index.ts",
     "./agent/execution": "./src/agent/execution/index.ts",
     "./agent/tools/fs": "./src/agent/tools/fs/index.ts",
+    "./config/migrations": "./src/config/migrations/index.ts",
     "./*": [
       "./src/*.ts",
       "./src/*/index.ts"
