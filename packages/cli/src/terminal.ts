@@ -62,6 +62,7 @@ function printUserMessage(message: string): void {
   store.printOutput({
     type: "user",
     message: wrapped,
+    meta: { plainText: message }, // unwrapped source for non-Ink renderers
     timestamp: new Date(),
   });
 }
@@ -303,6 +304,7 @@ export class InkTerminalService implements TerminalService {
             store.printOutput({
               type: "user",
               message: wrapToWidth(rawMessage, getTerminalWidth() - USER_ECHO_WIDTH_OFFSET),
+              meta: { plainText: `${message} ${displayValue}` },
               timestamp: new Date(),
             });
           }

@@ -79,6 +79,7 @@ function echoUserTurn(text: string): void {
   store.printOutput({
     type: "user",
     message: wrapToWidth(text, getTerminalWidth() - USER_ECHO_WIDTH_OFFSET),
+    meta: { plainText: text }, // unwrapped source for non-Ink renderers
     timestamp: new Date(),
   });
 }
