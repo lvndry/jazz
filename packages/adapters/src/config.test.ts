@@ -226,29 +226,6 @@ describe("createConfigLayer", () => {
     expect(JSON.parse(written).logging).toEqual({ level: "info" });
   });
 
-  it("loads a config written with the pre-rename triggers key as webhooks", async () => {
-    const globalPath = path.join(getJazzHomeDirectory(), "config.json");
-    const fileContents = new Map<string, string>([
-      [
-        globalPath,
-        JSON.stringify({
-          triggers: [{ name: "mira", agentId: "default", promptTemplate: "Handle {{payload}}" }],
-        }),
-      ],
-    ]);
-
-    const layer = createConfigLayer().pipe(
-      Layer.provide(Layer.succeed(FileSystem.FileSystem, createTestFileSystem(fileContents))),
-    );
-    const program = Effect.gen(function* () {
-      const config = yield* AgentConfigServiceTag;
-      return yield* config.appConfig;
-    }).pipe(Effect.provide(layer));
-
-    const appConfig = await Effect.runPromise(program);
-    expect(appConfig.webhooks?.map((webhook) => webhook.name)).toEqual(["mira"]);
-  });
-
   it("leaves a repurposed google block alone", async () => {
     const globalPath = path.join(getJazzHomeDirectory(), "config.json");
     const fileContents = new Map<string, string>([

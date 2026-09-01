@@ -5,7 +5,6 @@
  */
 
 import { FileSystem } from "@effect/platform";
-import { applyConfigMigrations, PROVIDER_RENAME_MIGRATION } from "@jazz/core/config/migrations";
 import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import type { MCPServerConfig } from "@jazz/core/interfaces/mcp-server";
 import { ConfigurationError, ConfigurationNotFoundError } from "@jazz/core/types/errors";
@@ -23,7 +22,10 @@ import {
   getJazzHomeDirectory,
   getLocalJazzDirectory,
 } from "@jazz/core/utils/paths";
-import { migrateKeyringProviderName } from "@jazz/core/utils/provider-migration";
+import {
+  migrateConfigProviderName,
+  migrateKeyringProviderName,
+} from "@jazz/core/utils/provider-migration";
 import { Effect, Layer, Option } from "effect";
 import {
   detectKeyringBackend,
@@ -210,22 +212,21 @@ export class AgentConfigServiceImpl implements AgentConfigService {
     return this.unstorableSecrets.has(key);
   }
 
+  /**
+   * Write one config value, routing secrets away from the structural config.
+   *
+   * A secret whose root names a list has no structural home at all, and clearing one is a
+   * delete rather than an assignment: `undefined` leaves the parent objects behind as an
+   * empty husk once JSON.stringify drops the leaf.
+   */
   set<A>(key: string, value: A): Effect.Effect<void, never> {
     return Effect.gen(
       function* (this: AgentConfigServiceImpl) {
         const handled = yield* this.setMcpOverride(key, value);
         if (!handled) {
           if (isSecretPath(key) && !structuralHomeFor(this.currentConfig, key)) {
-            // A per-entry token — `webhooks.<name>.token`, `peers.<name>.token` — has no
-            // structural home: its root names a list, so writing a dotted path there would
-            // replace the list with an object and lose every entry. These are resolved from
-            // the keyring or the environment and never read back out of `AppConfig`, so the
-            // keyring write below is the whole of storing them.
             yield* Effect.void;
           } else if (isSecretPath(key) && isBlankSecret(value)) {
-            // Clearing a secret. Assigning `undefined` would leave the parent objects behind
-            // as an empty husk once JSON.stringify drops the leaf, which is how a config ends
-            // up with `"webhooks": { "mira": {} }` where a list belongs.
             deepDelete(this.currentConfig as unknown as Record<string, unknown>, key);
           } else {
             deepSet(this.currentConfig, key, value);
@@ -262,6 +263,10 @@ export class AgentConfigServiceImpl implements AgentConfigService {
    * Route a secret to the keyring when one is usable, recording where it now
    * lives so it is excluded from the config file on persist. Falls through to
    * file storage (mode 0600) when there is no keyring.
+   *
+   * A secret with no structural home cannot use that fallback — JSON.stringify would discard
+   * it — so it is left unstored and reported through `secretStorageUnavailable` rather than
+   * silently lost.
    */
   private storeSecret(key: string, value: unknown): Effect.Effect<void, never> {
     return Effect.gen(
@@ -281,10 +286,6 @@ export class AgentConfigServiceImpl implements AgentConfigService {
           return;
         }
 
-        // No usable keyring: the value stays in the config file, which writePrivateFile keeps
-        // at mode 0600. A per-entry token has no structural home there — its root names a
-        // list — so it is dropped rather than written somewhere JSON.stringify will discard
-        // it. `secretStorageUnavailable` is how the caller learns to say so.
         this.secretOrigins.delete(key);
         if (structuralHomeFor(this.currentConfig, key)) {
           this.fileSecrets.set(key, value);
@@ -734,7 +735,7 @@ function readOptionalConfigFile(
     const config = parsed.value;
     if (typeof config !== "object" || config === null) return undefined;
 
-    const renamedProvider = applyConfigMigrations(config).includes(PROVIDER_RENAME_MIGRATION);
+    const renamedProvider = migrateConfigProviderName(config);
     return { config, renamedProvider };
   });
 }
@@ -816,7 +817,7 @@ function loadConfigFile(
         );
       }
 
-      const renamedProvider = applyConfigMigrations(config).includes(PROVIDER_RENAME_MIGRATION);
+      const renamedProvider = migrateConfigProviderName(config);
 
       const localConfigPath = `${getLocalJazzDirectory()}/config.json`;
       const localRead = yield* readOptionalConfigFile(fs, localConfigPath);

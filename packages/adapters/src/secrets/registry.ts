@@ -86,24 +86,12 @@ export function peerTokenPath(peerName: string): string {
   return `peers.${peerName}.token`;
 }
 
-/**
- * A webhook's bearer token, e.g. `webhooks.github-deploy.token`.
- *
- * Both spellings match. `triggers.<name>.token` is where the token was stored before the
- * feature was renamed, and a keyring entry written under it is reachable by no other name —
- * not recognising it as a secret would let that path be written back to config.json in
- * plaintext.
- */
-const WEBHOOK_TOKEN_PATH = /^(webhooks|triggers)\.[^.]+\.token$/;
+/** A webhook's bearer token, e.g. `webhooks.github-deploy.token`. */
+const WEBHOOK_TOKEN_PATH = /^webhooks\.[^.]+\.token$/;
 
 /** The config path holding one webhook's token. */
 export function webhookTokenPath(webhookName: string): string {
   return `webhooks.${webhookName}.token`;
-}
-
-/** The pre-rename config path for a webhook's token, still read as a fallback. */
-export function legacyTriggerTokenPath(webhookName: string): string {
-  return `triggers.${webhookName}.token`;
 }
 
 /**
@@ -114,11 +102,6 @@ export function legacyTriggerTokenPath(webhookName: string): string {
  */
 export function webhookTokenEnvVar(webhookName: string): string {
   return `JAZZ_WEBHOOK_TOKEN_${secretEnvVarSuffix(webhookName)}`;
-}
-
-/** The pre-rename environment variable for a webhook's token, still read as a fallback. */
-export function legacyTriggerTokenEnvVar(webhookName: string): string {
-  return `JAZZ_TRIGGER_TOKEN_${secretEnvVarSuffix(webhookName)}`;
 }
 
 function secretEnvVarSuffix(name: string): string {
@@ -178,7 +161,5 @@ export function envVarForSecretPath(path: string): string | undefined {
   if (peer?.[1] !== undefined) return peerTokenEnvVar(peer[1]);
   const webhook = /^webhooks\.([^.]+)\.token$/.exec(path);
   if (webhook?.[1] !== undefined) return webhookTokenEnvVar(webhook[1]);
-  const legacyWebhook = /^triggers\.([^.]+)\.token$/.exec(path);
-  if (legacyWebhook?.[1] !== undefined) return legacyTriggerTokenEnvVar(legacyWebhook[1]);
   return SECRET_ENV_VARS[path];
 }

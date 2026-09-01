@@ -4,7 +4,6 @@ import {
   SECRET_PATHS,
   envVarForSecretPath,
   isSecretPath,
-  legacyTriggerTokenEnvVar,
   webhookTokenEnvVar,
   webhookTokenPath,
 } from "./registry";
@@ -64,18 +63,15 @@ describe("secret registry", () => {
     expect(envVarForSecretPath("telemetry.otlp.headers.authorization")).toBeUndefined();
   });
 
-  it("treats a webhook token as a secret under both its current and pre-rename path", () => {
+  it("treats a webhook token as a secret", () => {
     expect(isSecretPath(webhookTokenPath("mira"))).toBe(true);
-    expect(isSecretPath("triggers.mira.token")).toBe(true);
   });
 
   it("maps each webhook token path to the environment variable that overrides it", () => {
     expect(envVarForSecretPath(webhookTokenPath("mira"))).toBe("JAZZ_WEBHOOK_TOKEN_MIRA");
-    expect(envVarForSecretPath("triggers.mira.token")).toBe("JAZZ_TRIGGER_TOKEN_MIRA");
   });
 
-  it("derives both webhook token variables from the same normalized name", () => {
+  it("normalizes a webhook name into its environment variable", () => {
     expect(webhookTokenEnvVar("deploy-bot")).toBe("JAZZ_WEBHOOK_TOKEN_DEPLOY_BOT");
-    expect(legacyTriggerTokenEnvVar("deploy-bot")).toBe("JAZZ_TRIGGER_TOKEN_DEPLOY_BOT");
   });
 });

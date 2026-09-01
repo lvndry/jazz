@@ -8,7 +8,6 @@
     "./types": "./src/types/index.ts",
     "./agent/execution": "./src/agent/execution/index.ts",
     "./agent/tools/fs": "./src/agent/tools/fs/index.ts",
-    "./config/migrations": "./src/config/migrations/index.ts",
     "./*": [
       "./src/*.ts",
       "./src/*/index.ts"

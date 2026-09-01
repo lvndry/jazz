@@ -241,10 +241,7 @@ Tokens never live in this file. Store one in the keyring with
 `jazz config set webhooks.<name>.token`, or supply `JAZZ_WEBHOOK_TOKEN_<NAME>` in the
 environment. A threaded webhook takes its thread key from the `X-Jazz-Thread` request header.
 
-This section was called `triggers` before the rename, and that key is still read — as are
-`triggers.<name>.token`, `JAZZ_TRIGGER_TOKEN_<NAME>` and `POST /triggers/<name>`. Nothing on
-an existing install needs changing. See [Webhooks](../concepts/webhooks.md) for the full
-behaviour.
+See [Webhooks](../concepts/webhooks.md) for the full behaviour.
 
 ## Project Overrides: `./.jazz/config.json`
 

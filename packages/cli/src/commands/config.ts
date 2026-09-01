@@ -167,9 +167,7 @@ export function setConfigCommand(
         cancellable: true,
         ...(secret ? { secret: true, placeholder: "Paste the value... (Esc to cancel)" } : {}),
       });
-      // A cancelled or piped-empty prompt used to reach `set` as `undefined`, which stored
-      // the literal string "undefined" and, for a dotted path, left an empty husk behind in
-      // config.json. Nothing is a valid answer here, so nothing is written.
+      // Nothing is a valid answer: `set(undefined)` stored the literal string.
       if (answer === undefined || answer.trim() === "") {
         yield* terminal.info("Cancelled — configuration unchanged.");
         return;
@@ -199,8 +197,6 @@ export function setConfigCommand(
       );
     }
 
-    // A secret is never echoed back: `jazz config set` is exactly the command somebody runs
-    // while screen-sharing or pasting a terminal log into an issue.
     const settingSecret = isSecretPath(targetKey);
     yield* configService.set(targetKey, value);
     if (settingSecret && configService.secretStorageUnavailable(targetKey)) {

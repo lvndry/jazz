@@ -491,9 +491,6 @@ async function readWebhookPayload(request: Request): Promise<string | Response> 
  * an open-ended question, so there is no tier to enforce beyond "this token names this
  * webhook."
  *
- * `/triggers/<name>` is served alongside `/webhooks/<name>` because the URL was the feature's
- * public surface before the rename: it is written into GitHub webhook settings and other
- * people's automations, none of which jazz can reach in to update.
  */
 /**
  * @param readWebhooks Consulted per request rather than captured once.
@@ -510,7 +507,7 @@ export function makeWebhookHandler(
 ): (request: Request) => Promise<Response> {
   return async function handleWebhook(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    const match = /^\/(?:webhooks|triggers)\/([^/]+)$/.exec(url.pathname);
+    const match = /^\/webhooks\/([^/]+)$/.exec(url.pathname);
     const rawName = match?.[1];
     if (request.method !== "POST" || rawName === undefined) {
       return json({ ok: false, error: "not found" }, 404);
@@ -546,9 +543,8 @@ export function makeWebhookHandler(
     if (threadKey.length > MAX_WEBHOOK_THREAD_KEY_LENGTH) {
       return json({ ok: false, error: "thread key too long" }, 400);
     }
-    // Refused rather than ignored. A caller sending a thread key believes its turns are
-    // accumulating somewhere; silently dropping it hands them an amnesiac agent and no clue
-    // why, which is a far worse failure than being told the webhook is not threaded.
+    // Refused rather than ignored: a caller sending a thread key believes its turns are
+    // accumulating somewhere.
     if (threadKey.length > 0 && webhook.conversation !== "threaded") {
       return json(
         {
@@ -571,7 +567,8 @@ export function makeWebhookHandler(
  * accreting into one incoherent transcript.
  *
  * `threaded` derives a stable id, so the same thread key always resumes the same
- * conversation. The key is interpolated raw on purpose — every writer that turns a
+ * conversation. A keyless fire still resumes, sharing one thread — minting a random id would
+ * silently make the webhook ephemeral again, the opposite of what its config asked for. The key is interpolated raw on purpose — every writer that turns a
  * conversation id into a path runs it through `storageSafeSegment` first, and duplicating
  * that sanitization here would only create a second rule to keep in step with the first.
  *
@@ -586,9 +583,6 @@ export function webhookConversationId(
   if (webhook.conversation !== "threaded") {
     return generateConversationId(`trigger-${webhook.name}`);
   }
-  // A threaded webhook fired without a key still resumes — every keyless fire simply shares
-  // one thread. Minting a random id here would silently make the webhook ephemeral again,
-  // which is the opposite of what its config asked for.
   return threadKey === undefined
     ? `trigger-${webhook.name}`
     : `trigger-${webhook.name}-${threadKey}`;
@@ -601,6 +595,10 @@ export function webhookConversationId(
  * A threaded fire additionally loads the conversation before the run and saves it after,
  * mirroring `fireWakeTrigger` — `AgentRunner.run` never loads history on its own, so a
  * caller that does not do this gets an agent with no memory of its own previous turn.
+ *
+ * The response reports `costUSD` so a caller can budget on spend rather than request count,
+ * with `costIncomplete` alongside rather than folded in: an unpriced run understates its
+ * spend, and a caller enforcing a ceiling needs to know the figure is a floor.
  */
 function fireWebhook(webhook: WebhookConfig, payload: string, threadKey?: string) {
   return Effect.gen(function* () {
@@ -657,10 +655,6 @@ function fireWebhook(webhook: WebhookConfig, payload: string, threadKey?: string
       );
     }
 
-    // Cost travels with the answer so the caller can budget on spend rather than on request
-    // count. `costIncomplete` is reported alongside rather than folded in: a run whose model
-    // had no pricing metadata understates its spend, and a caller enforcing a ceiling needs
-    // to know the number is a floor rather than treat it as the truth.
     return json({
       ok: true,
       answer: response.content,

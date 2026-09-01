@@ -276,21 +276,6 @@ describe("the daemon's routes", () => {
     expect(response.status).toBe(400);
     expect(await response.text()).toContain("too long");
   });
-
-  it("still routes the pre-rename /triggers/<name> URL to the same webhook", async () => {
-    const handle = makeWebhookHandler(
-      async () => [{ name: "hook", agentId: "default", promptTemplate: "Process {{payload}}" }],
-      async () => "webhook-secret",
-      async () => {
-        throw new Error("runEffect should not be called");
-      },
-    );
-
-    // A 401 rather than a 404 is the assertion: the legacy path matched the route and found
-    // the webhook, and only the missing bearer token stopped it.
-    expect((await handle(request("POST", "/triggers/hook", { body: "hello" }))).status).toBe(401);
-    expect((await handle(request("POST", "/triggers/nope", { body: "hello" }))).status).toBe(404);
-  });
 });
 
 describe("which conversation a webhook fire belongs to", () => {

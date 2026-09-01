@@ -12,12 +12,6 @@ open-ended question. A webhook can only run the one prompt its config names — 
 body becomes data that prompt is built from, never an instruction the agent treats as coming
 from you.
 
-> **Renamed from "triggers".** This feature used to be called a trigger, which collided with
-> [wake triggers](./scheduling.md) — the alarm clocks an agent sets for itself. A webhook is
-> a door somebody else knocks on; a wake trigger is an alarm the agent sets. Every old
-> spelling still works, so nothing on an existing install needs changing. See
-> [What still works under the old name](#what-still-works-under-the-old-name).
-
 ---
 
 ## The short version
@@ -164,26 +158,6 @@ does not hang waiting. It parks and answers `202`:
 
 The parked run can then be answered later through `jazz runs`, by someone who was not there
 when it parked.
-
----
-
-## What still works under the old name
-
-Renaming a feature must not break a webhook URL somebody else has already written into their
-automation, or a token sitting in a keyring jazz never rewrites. Every pre-rename spelling is
-still served, indefinitely:
-
-| Old | New | Still works |
-| --- | --- | --- |
-| `"triggers": [...]` in `config.json` | `"webhooks": [...]` | yes — read as `webhooks` on load |
-| `jazz config set triggers.<name>.token` | `webhooks.<name>.token` | yes — checked after the new path |
-| `JAZZ_TRIGGER_TOKEN_<NAME>` | `JAZZ_WEBHOOK_TOKEN_<NAME>` | yes — checked after the new variable |
-| `POST /triggers/<name>` | `POST /webhooks/<name>` | yes — both routes served |
-
-Nothing is rewritten on disk, so a config file shared with a machine on an older jazz build
-keeps working there too. If both spellings are present, the new one wins. Conversations a
-threaded webhook already accumulated keep their existing ids, so no history is stranded by
-the rename.
 
 ---
 

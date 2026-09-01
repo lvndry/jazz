@@ -1,14 +1,9 @@
 /**
  * @fileoverview Minting a webhook's bearer token.
  *
- * Every other credential jazz uses is generated: the daemon token comes from
- * `randomBytes(24)`, a peer's comes out of the invite flow. A webhook's was the one you had
- * to invent yourself, through the generic `jazz config set`, which has no idea it is being
- * handed a secret. People asked to make up a secret produce `test`, and then it stays — so
- * the fix is to stop asking.
- *
- * Printed once, on purpose. It has to be readable exactly here because the caller on the
- * other end needs it, and `jazz config get` deliberately cannot read secrets back.
+ * Generates `randomBytes(24)`, stores it in the keyring, and prints it once — the single
+ * point at which it is readable, since the caller on the other end needs it and secrets are
+ * write-only through `jazz config`.
  */
 
 import { randomBytes } from "node:crypto";
@@ -22,7 +17,7 @@ import { webhookTokenEnvVar, webhookTokenPath } from "@jazz/adapters/secrets/reg
 import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
 import { Effect } from "effect";
 
-/** Matches the daemon token's strength — 192 bits, well past guessing. */
+/** Matches the daemon token: 192 bits. */
 const TOKEN_BYTES = 24;
 
 export function setWebhookTokenCommand(
@@ -58,8 +53,6 @@ export function setWebhookTokenCommand(
         ? `Generated a token for "${webhookName}" and stored it in ${describeKeyringBackend(backend)}.`
         : `Stored the token for "${webhookName}" in ${describeKeyringBackend(backend)}.`,
     );
-    // The only time it is ever shown. Whoever calls the webhook needs it, and it cannot be
-    // read back afterwards.
     yield* terminal.log(`\n  ${token}\n`);
     yield* terminal.info(`In a container, supply it as ${envVar} instead.`);
   });
