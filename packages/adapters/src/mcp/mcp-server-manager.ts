@@ -186,24 +186,14 @@ export class MCPServerManagerImpl implements MCPServerManager {
     const client = new Client(
       { name: "jazz", version: packageJson.version },
       {
-        // Roots is deliberately not declared: 2026-07-28 deprecates it
-        // (SEP-2577) and removes notifications/roots/list_changed, with the
-        // migration being to pass directories as tool parameters or server
-        // config instead.
-        //
-        // `elicitation` is advertised unconditionally even though a given
-        // surface may have no way to ask a person: the capability says Jazz
-        // speaks the request, and declining is a valid answer to it. On a
-        // 2026-era connection the SDK fulfils the same handler through the
-        // multi-round-trip `input_required` flow, so one handler serves both.
+        // Roots isn't declared: tools already take directories as parameters.
+        // `elicitation` is advertised even for surfaces with no one to ask —
+        // declining is a valid answer, and one handler covers every server.
         capabilities: { elicitation: {} },
-        // Probe `server/discover` for the 2026-07-28 era and fall back to the
-        // 2025 handshake against older servers, at the cost of one round trip.
+        // Negotiates whichever protocol version the server speaks.
         versionNegotiation: { mode: "auto" },
-        // Era-transparent list-change handling: unsolicited notifications on
-        // 2025 connections, an auto-opened `subscriptions/listen` stream on
-        // 2026 ones. The SDK re-lists and hands back the new items, which is
-        // why nothing here re-fetches by hand.
+        // The SDK re-lists tools on its own and hands back the new items, so
+        // nothing here needs to re-fetch by hand.
         listChanged: {
           tools: {
             onChanged: (error, items) => {
