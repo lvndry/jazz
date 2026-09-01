@@ -957,13 +957,15 @@ function registerPeersCommands(program: Command): void {
     .option("--peer <name>", "Only entries for this peer")
     .option("--limit <n>", "How many entries to show", parsePositiveInt("--limit"), 50)
     .option("--json", "Emit a single JSON envelope { ok, entries }")
-    .action((options: { peer?: string; limit: number; json?: boolean }) =>
+    .option("-f, --follow", "Keep watching and print new entries as they land")
+    .action((options: { peer?: string; limit: number; json?: boolean; follow?: boolean }) =>
       runCliAction(
         () =>
           import("@jazz/cli/commands/peers").then((mod) =>
             mod.peerLogCommand({
               json: options.json === true,
               limit: options.limit,
+              follow: options.follow === true,
               ...(options.peer !== undefined ? { peer: options.peer } : {}),
             }),
           ),
