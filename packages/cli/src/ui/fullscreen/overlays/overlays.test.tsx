@@ -463,7 +463,7 @@ describe("search overlay", () => {
       WIDE,
     );
     const marked = allSpans(captureSpans()).filter(
-      (span) => (span.attributes & (TextAttributes.UNDERLINE | TextAttributes.INVERSE)) !== 0,
+      (span) => (span.attributes & TextAttributes.UNDERLINE) !== 0,
     );
 
     // One marked run per hit, and the marked run is the query text itself.

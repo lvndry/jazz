@@ -305,6 +305,8 @@ export interface SearchHit {
 export interface SearchOverlay {
   readonly kind: "search";
   readonly query: string;
+  /** Caret offset into `query`, in characters. */
+  readonly caret: number;
   readonly scope: "conversation" | "all";
   readonly hits: readonly SearchHit[];
   readonly selected: number;

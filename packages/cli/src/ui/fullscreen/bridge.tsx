@@ -67,7 +67,6 @@ import {
   isComposerNewline,
   isCtrlLetter,
   isInterruptChord,
-  isPrintableSequence,
   isRedoChord,
   isSelectAllChord,
   isUndoChord,
@@ -80,6 +79,7 @@ import type { TextPromptModel } from "./overlays/TextPrompt";
 import { AgentPicker } from "./screens/AgentPicker";
 import { Home } from "./screens/Home";
 import { pathFromFileArgsPreview, sourceLanguageFromPath } from "./syntax-spans";
+import { applyTextFieldKey, wordEndAfter, wordStartBefore } from "./text-field-edit";
 import {
   LIVE_ZONE_MAX_ROWS,
   type ApprovalOverlay,
@@ -127,10 +127,12 @@ interface PromptQuestionState {
   readonly checked: readonly number[];
   readonly custom: PromptEditorState;
   readonly filter: string;
+  readonly filterCaret: number;
 }
 
 interface PromptFileState {
   readonly filter: string;
+  readonly filterCaret: number;
   readonly selected: number;
   readonly entries: readonly FilePickerEntry[];
   readonly scanning: boolean;
@@ -149,9 +151,11 @@ const EMPTY_QUESTION: PromptQuestionState = {
   checked: [],
   custom: EMPTY_EDITOR,
   filter: "",
+  filterCaret: 0,
 };
 const EMPTY_FILE: PromptFileState = {
   filter: "",
+  filterCaret: 0,
   selected: 0,
   entries: [],
   scanning: false,
@@ -328,19 +332,6 @@ function initialPromptControls(prompt: PromptState | null): PromptControlsState 
   };
 }
 
-function editorCaretForKey(state: PromptEditorState, name: string): number {
-  switch (name) {
-    case "home":
-      return 0;
-    case "end":
-      return [...state.value].length;
-    case "left":
-      return Math.max(0, state.caret - 1);
-    default:
-      return Math.min([...state.value].length, state.caret + 1);
-  }
-}
-
 function selectedAnswerIndices(
   checked: readonly number[],
   selectedIndex: number | undefined,
@@ -431,6 +422,7 @@ function overlayFromPrompt(
         })),
         selected: file.selected,
         filter: file.filter,
+        filterCaret: file.filterCaret,
         scanning: file.scanning,
         ...(file.error === undefined ? {} : { error: file.error }),
       };
@@ -463,7 +455,9 @@ function overlayFromPrompt(
           indices,
         ),
         selected: question.selected,
-        ...(filterable ? { filterable: true, filter: question.filter } : {}),
+        ...(filterable
+          ? { filterable: true, filter: question.filter, filterCaret: question.filterCaret }
+          : {}),
         ...(prompt.type === "checkbox"
           ? { checked: question.checked.map((index) => `choice-${String(index)}`) }
           : {}),
@@ -499,24 +493,10 @@ function overlayFromPrompt(
  *
  * All four take and return a code-point offset, never a JS string index, so a
  * multi-byte character is a single step rather than a surrogate half.
+ *
+ * Word-boundary motion (`wordStartBefore`/`wordEndAfter`) lives in
+ * `text-field-edit.ts` now, shared with every single-line overlay field.
  */
-
-/** Start of the word before `at`: skip whitespace, then the run before it. */
-function wordStartBefore(characters: readonly string[], at: number): number {
-  let index = Math.max(0, Math.min(at, characters.length));
-  while (index > 0 && /\s/.test(characters[index - 1] as string)) index -= 1;
-  while (index > 0 && !/\s/.test(characters[index - 1] as string)) index -= 1;
-  return index;
-}
-
-/** End of the word after `at`: skip whitespace, then the run after it. */
-function wordEndAfter(characters: readonly string[], at: number): number {
-  const limit = characters.length;
-  let index = Math.max(0, Math.min(at, limit));
-  while (index < limit && /\s/.test(characters[index] as string)) index += 1;
-  while (index < limit && !/\s/.test(characters[index] as string)) index += 1;
-  return index;
-}
 
 /**
  * Start of the current logical line — just past the previous newline.
@@ -1056,6 +1036,7 @@ export function FullscreenBridge(): React.ReactNode {
   const currentConversation = session.currentConversation;
   const workingDirectory = session.workingDirectory;
   const [searchQuery, searchQueryRef, setSearchQuery] = useSynchronizedState<string | null>(null);
+  const [searchCaret, searchCaretRef, setSearchCaret] = useSynchronizedState(0);
   const [searchHits, searchHitsRef, setSearchHits] = useSynchronizedState<readonly SearchHit[]>([]);
   const [searchScope, , setSearchScope] = useSynchronizedState<"conversation" | "all">("all");
   const [searchIndex, searchIndexRef, setSearchIndex] = useSynchronizedState(0);
@@ -1363,7 +1344,9 @@ export function FullscreenBridge(): React.ReactNode {
 
       if (searchQueryRef.current !== null) {
         const flat = flattenPaste(pasted);
-        setSearchQuery((value) => (value === null ? null : value + flat));
+        const next = insertTextAt(searchQueryRef.current, searchCaretRef.current, flat);
+        setSearchQuery(next.value);
+        setSearchCaret(next.caret);
         return true;
       }
 
@@ -1371,11 +1354,10 @@ export function FullscreenBridge(): React.ReactNode {
       if (active !== null && active.type !== "chat") {
         if (active.type === "filepicker") {
           const flat = flattenPaste(pasted);
-          updatePromptFile((state) => ({
-            ...state,
-            filter: state.filter + flat,
-            selected: 0,
-          }));
+          updatePromptFile((state) => {
+            const next = insertTextAt(state.filter, state.filterCaret, flat);
+            return { ...state, filter: next.value, filterCaret: next.caret, selected: 0 };
+          });
           return true;
         }
         if (active.type === "text" || active.type === "password") {
@@ -1391,12 +1373,17 @@ export function FullscreenBridge(): React.ReactNode {
           const suggestions = promptSuggestions(active);
           const sourceChoices = choicesForQuestion(active, suggestions);
           updatePromptQuestion((state) => {
-            const filter = state.filter + flat;
+            const nextFilter = insertTextAt(state.filter, state.filterCaret, flat);
             const choices = choicesAtIndices(
               sourceChoices,
-              matchingChoiceIndices(sourceChoices, filter),
+              matchingChoiceIndices(sourceChoices, nextFilter.value),
             );
-            return { ...state, filter, selected: firstEnabledChoice(choices) };
+            return {
+              ...state,
+              filter: nextFilter.value,
+              filterCaret: nextFilter.caret,
+              selected: firstEnabledChoice(choices),
+            };
           });
           return true;
         }
@@ -1634,12 +1621,16 @@ export function FullscreenBridge(): React.ReactNode {
           setSearchIndex((index) => Math.max(0, index - 1));
           return true;
         }
-        if (name === "backspace") {
-          setSearchQuery((value) => (value === null ? null : [...value].slice(0, -1).join("")));
-          return true;
-        }
-        if (isPrintableSequence(sequence, ctrl, superKey)) {
-          setSearchQuery((value) => (value ?? "") + sequence);
+        const activeQuery = searchQueryRef.current;
+        if (activeQuery !== null) {
+          const nextField = applyTextFieldKey(
+            { value: activeQuery, caret: searchCaretRef.current },
+            { name, sequence, ctrl, meta, option, super: superKey },
+          );
+          if (nextField !== null) {
+            setSearchQuery(nextField.value);
+            setSearchCaret(nextField.caret);
+          }
         }
         return true;
       }
@@ -1679,17 +1670,29 @@ export function FullscreenBridge(): React.ReactNode {
           if (name === "tab") {
             const entry = fileState.entries[fileState.selected];
             if (entry !== undefined) {
-              updatePromptFile((state) => ({ ...state, filter: entry.name, selected: 0 }));
+              updatePromptFile((state) => ({
+                ...state,
+                filter: entry.name,
+                filterCaret: [...entry.name].length,
+                selected: 0,
+              }));
             }
             return true;
           }
-          if (name === "backspace") {
-            updatePromptFile((state) => ({
-              ...state,
-              filter: [...state.filter].slice(0, -1).join(""),
-              selected: 0,
-            }));
-            return true;
+          {
+            const nextFilterField = applyTextFieldKey(
+              { value: fileState.filter, caret: fileState.filterCaret },
+              { name, sequence, ctrl, meta, option, super: superKey },
+            );
+            if (nextFilterField !== null) {
+              updatePromptFile((state) => ({
+                ...state,
+                filter: nextFilterField.value,
+                filterCaret: nextFilterField.caret,
+                selected: 0,
+              }));
+              return true;
+            }
           }
           if (name === "return" || name === "enter") {
             const selected = fileState.entries[fileState.selected];
@@ -1715,13 +1718,6 @@ export function FullscreenBridge(): React.ReactNode {
             });
             return true;
           }
-          if (isPrintableSequence(sequence, ctrl, superKey)) {
-            updatePromptFile((state) => ({
-              ...state,
-              filter: state.filter + sequence,
-              selected: 0,
-            }));
-          }
           return true;
         }
 
@@ -1733,34 +1729,16 @@ export function FullscreenBridge(): React.ReactNode {
             else updatePromptEditor((state) => ({ ...state, error }));
             return true;
           }
-          if (name === "backspace") {
-            updatePromptEditor((state) => {
-              const characters = [...state.value];
-              const at = Math.max(0, Math.min(state.caret, characters.length));
-              if (at === 0) return state;
-              return {
-                value: [...characters.slice(0, at - 1), ...characters.slice(at)].join(""),
-                caret: at - 1,
-              };
-            });
-            return true;
-          }
-          if (name === "left" || name === "right" || name === "home" || name === "end") {
-            updatePromptEditor((state) => ({
-              value: state.value,
-              caret: editorCaretForKey(state, name),
-            }));
-            return true;
-          }
-          if (isPrintableSequence(sequence, ctrl, superKey)) {
-            updatePromptEditor((state) => {
-              const characters = [...state.value];
-              const at = Math.max(0, Math.min(state.caret, characters.length));
-              return {
-                value: [...characters.slice(0, at), sequence, ...characters.slice(at)].join(""),
-                caret: at + [...sequence].length,
-              };
-            });
+          {
+            const editorState = promptControlsRef.current.editor;
+            const nextField = applyTextFieldKey(
+              { value: editorState.value, caret: editorState.caret },
+              { name, sequence, ctrl, meta, option, super: superKey },
+            );
+            if (nextField !== null) {
+              updatePromptEditor(() => nextField);
+              return true;
+            }
           }
           return true;
         }
@@ -1787,16 +1765,26 @@ export function FullscreenBridge(): React.ReactNode {
           }));
           return true;
         }
-        if (promptIsFilterable(active) && name === "backspace") {
-          updatePromptQuestion((state) => {
-            const filter = [...state.filter].slice(0, -1).join("");
-            const choices = choicesAtIndices(
-              sourceChoices,
-              matchingChoiceIndices(sourceChoices, filter),
-            );
-            return { ...state, filter, selected: firstEnabledChoice(choices) };
-          });
-          return true;
+        if (promptIsFilterable(active)) {
+          const nextFilterField = applyTextFieldKey(
+            { value: questionState.filter, caret: questionState.filterCaret },
+            { name, sequence, ctrl, meta, option, super: superKey },
+          );
+          if (nextFilterField !== null) {
+            updatePromptQuestion((state) => {
+              const choices = choicesAtIndices(
+                sourceChoices,
+                matchingChoiceIndices(sourceChoices, nextFilterField.value),
+              );
+              return {
+                ...state,
+                filter: nextFilterField.value,
+                filterCaret: nextFilterField.caret,
+                selected: firstEnabledChoice(choices),
+              };
+            });
+            return true;
+          }
         }
 
         const selectedVisibleChoice = visibleChoices[questionState.selected];
@@ -1844,36 +1832,17 @@ export function FullscreenBridge(): React.ReactNode {
           return true;
         }
 
-        if (promptIsFilterable(active) && isPrintableSequence(sequence, ctrl, superKey)) {
-          updatePromptQuestion((state) => {
-            const filter = state.filter + sequence;
-            const choices = choicesAtIndices(
-              sourceChoices,
-              matchingChoiceIndices(sourceChoices, filter),
-            );
-            return { ...state, filter, selected: firstEnabledChoice(choices) };
-          });
-          return true;
-        }
         if (selectedCustom) {
-          if (name === "backspace") {
-            updatePromptQuestion((state) => ({
-              ...state,
-              custom: {
-                value: [...state.custom.value].slice(0, -1).join(""),
-                caret: Math.max(0, state.custom.caret - 1),
-              },
-            }));
-            return true;
-          }
-          if (isPrintableSequence(sequence, ctrl, superKey)) {
-            updatePromptQuestion((state) => ({
-              ...state,
-              custom: {
-                value: state.custom.value + sequence,
-                caret: state.custom.caret + [...sequence].length,
-              },
-            }));
+          const nextCustomField = applyTextFieldKey(questionState.custom, {
+            name,
+            sequence,
+            ctrl,
+            meta,
+            option,
+            super: superKey,
+          });
+          if (nextCustomField !== null) {
+            updatePromptQuestion((state) => ({ ...state, custom: nextCustomField }));
             return true;
           }
         }
@@ -1900,6 +1869,7 @@ export function FullscreenBridge(): React.ReactNode {
       }
       if (isCtrlLetter({ name, ctrl }, "f")) {
         setSearchQuery("");
+        setSearchCaret(0);
         return true;
       }
 
@@ -2206,6 +2176,7 @@ export function FullscreenBridge(): React.ReactNode {
       next = {
         kind: "search",
         query: searchQuery,
+        caret: searchCaret,
         scope: searchScope,
         // `current` means the hit is in this session; `selected` is the cursor.
         // Conflating them would show recency wrong on every row but one.
@@ -2221,6 +2192,7 @@ export function FullscreenBridge(): React.ReactNode {
     prompt,
     promptControls,
     searchQuery,
+    searchCaret,
     searchScope,
     searchHits,
     searchIndex,

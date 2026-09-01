@@ -27,6 +27,7 @@ import {
 } from "../terminal-cells";
 import type { SearchHit, SearchOverlay, Viewport } from "../types";
 import { OVERLAY_Z_INDEX } from "./centered";
+import { CaretValue } from "./TextPrompt";
 
 const MAX_WIDTH = 96;
 const MIN_WINDOWED_HEIGHT = 20;
@@ -194,7 +195,11 @@ export function Search({ model, viewport }: SearchProps): ReactNode {
       >
         <box style={{ height: 1, flexShrink: 0, flexDirection: "row" }}>
           <text style={{ fg: THEME.primary, flexShrink: 0 }}>{`${glyphs.promptCursor} `}</text>
-          <text style={{ fg: THEME.selected }}>{clip(oneLine(model.query), queryWidth)}</text>
+          <CaretValue
+            value={oneLine(model.query)}
+            caret={model.caret}
+            width={queryWidth}
+          />
           <box style={{ flexGrow: 1 }} />
           <text style={{ flexShrink: 0 }}>
             <span style={{ fg: THEME.muted }}>{"[ "}</span>

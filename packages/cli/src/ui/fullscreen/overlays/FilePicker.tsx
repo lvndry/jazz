@@ -32,7 +32,7 @@ import {
 } from "../terminal-cells";
 import type { Viewport } from "../types";
 import { centeredOffset, OVERLAY_Z_INDEX } from "./centered";
-import { HintRow, type Hint } from "./TextPrompt";
+import { CaretValue, HintRow, type Hint } from "./TextPrompt";
 
 const MAX_WIDTH = 96;
 const MIN_WINDOWED_HEIGHT = 20;
@@ -76,6 +76,8 @@ export interface FilePickerModel {
   readonly selected: number;
   /** What the user has typed to narrow the list. */
   readonly filter: string;
+  /** Caret offset into `filter`, in characters. */
+  readonly filterCaret: number;
   /** Set while the tree is still being walked. */
   readonly scanning?: boolean;
   /** A failed selection, in prose. */
@@ -237,9 +239,11 @@ export function FilePicker({ model, viewport }: FilePickerProps): ReactNode {
           <text style={{ fg: THEME.primary, width: MARKER_COLUMN, flexShrink: 0 }}>
             {`${glyphs.promptCursor} `}
           </text>
-          <text style={{ fg: THEME.selected, flexShrink: 0 }}>
-            {clipLeft(oneLine(model.filter), Math.max(4, inner - MARKER_COLUMN))}
-          </text>
+          <CaretValue
+            value={oneLine(model.filter)}
+            caret={model.filterCaret}
+            width={Math.max(4, inner - MARKER_COLUMN)}
+          />
         </box>
 
         <box style={{ height: 1, flexShrink: 0, flexDirection: "row" }}>
