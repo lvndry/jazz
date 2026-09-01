@@ -182,16 +182,106 @@ function isArrayType(type: string | readonly string[] | undefined): boolean {
   return false;
 }
 
+/** Read a branch's `properties` object, or an empty one if it has none. */
+function branchProperties(branch: Record<string, unknown>): Record<string, unknown> {
+  const properties = branch["properties"];
+  return typeof properties === "object" && properties !== null
+    ? (properties as Record<string, unknown>)
+    : {};
+}
+
+/** Read a branch's `required` array as a set of field names. */
+function branchRequired(branch: Record<string, unknown>): Set<string> {
+  const required = branch["required"];
+  return new Set(
+    Array.isArray(required) ? required.filter((key): key is string => typeof key === "string") : [],
+  );
+}
+
 /**
- * Ensure a JSON Schema object has a top-level `type`, defaulting to `"object"`.
+ * Merge two branches' schema for the same property key.
  *
- * A tool's input is always a JSON object, but some producers omit `type` when they
- * consider it implied by `properties` alone (some MCP servers), or have no single
- * `type` to state (a top-level union, which serializes as `oneOf` with none).
- * Providers like Anthropic require `input_schema.type` and reject a schema without it.
+ * A discriminant field (e.g. `command`) typically differs by `const` per branch —
+ * merging by last-branch-wins would silently drop every value but one, so those
+ * collapse into an `enum` of every value seen instead. Anything else keeps the
+ * first branch's schema for that key: a full structural merge isn't attempted, so
+ * that case accepts some precision loss rather than growing a general merger.
+ */
+function mergeBranchProperty(existing: unknown, incoming: unknown): unknown {
+  if (
+    typeof existing !== "object" ||
+    existing === null ||
+    typeof incoming !== "object" ||
+    incoming === null
+  ) {
+    return existing;
+  }
+  const existingObj = existing as Record<string, unknown>;
+  const incomingObj = incoming as Record<string, unknown>;
+
+  const existingValues: unknown[] | undefined = Array.isArray(existingObj["enum"])
+    ? (existingObj["enum"] as unknown[])
+    : "const" in existingObj
+      ? [existingObj["const"]]
+      : undefined;
+  const incomingValues: unknown[] | undefined = Array.isArray(incomingObj["enum"])
+    ? (incomingObj["enum"] as unknown[])
+    : "const" in incomingObj
+      ? [incomingObj["const"]]
+      : undefined;
+  if (existingValues === undefined || incomingValues === undefined) {
+    return existing;
+  }
+
+  const { const: _existingConst, enum: _existingEnum, ...rest } = existingObj;
+  return { ...rest, enum: [...new Set([...existingValues, ...incomingValues])] };
+}
+
+/**
+ * Flatten a top-level `oneOf`/`anyOf`/`allOf` into one object schema, and default a
+ * missing top-level `type` to `"object"`.
+ *
+ * A tool's input is always a JSON object. Some producers state it as a combinator
+ * instead — a Zod discriminated union serializes to `{ oneOf: [...] }`, for instance —
+ * and some omit `type` entirely when they consider it implied by `properties` alone
+ * (some MCP servers). Providers like Anthropic reject `input_schema` for either reason:
+ * a missing top-level `type`, or `oneOf`/`allOf`/`anyOf` used at the top level at all.
+ *
+ * Flattening loses the constraint that a field only appears with certain other
+ * fields (each combinator branch merges into one permissive object); a field stays
+ * `required` only when every branch requires it, since a field required by just one
+ * branch could be absent under another.
  */
 export function ensureObjectSchemaType(schema: Record<string, unknown>): Record<string, unknown> {
-  return schema["type"] === undefined ? { ...schema, type: "object" } : schema;
+  const branches = schema["oneOf"] ?? schema["anyOf"] ?? schema["allOf"];
+  if (!Array.isArray(branches) || branches.length === 0) {
+    return schema["type"] === undefined ? { ...schema, type: "object" } : schema;
+  }
+
+  const properties: Record<string, unknown> = {};
+  let requiredEverywhere: Set<string> | undefined;
+  for (const branch of branches) {
+    if (typeof branch !== "object" || branch === null) continue;
+    const branchObj = branch as Record<string, unknown>;
+    for (const [key, value] of Object.entries(branchProperties(branchObj))) {
+      properties[key] = key in properties ? mergeBranchProperty(properties[key], value) : value;
+    }
+    const required = branchRequired(branchObj);
+    requiredEverywhere =
+      requiredEverywhere === undefined
+        ? required
+        : new Set([...requiredEverywhere].filter((key) => required.has(key)));
+  }
+
+  const { oneOf: _oneOf, anyOf: _anyOf, allOf: _allOf, ...rest } = schema;
+  return {
+    ...rest,
+    type: "object",
+    properties,
+    ...(requiredEverywhere && requiredEverywhere.size > 0
+      ? { required: [...requiredEverywhere] }
+      : {}),
+  };
 }
 
 /**
