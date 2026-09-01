@@ -1,5 +1,12 @@
 import { describe, expect, it } from "bun:test";
-import { SECRET_ENV_VARS, SECRET_PATHS, envVarForSecretPath, isSecretPath } from "./registry";
+import {
+  SECRET_ENV_VARS,
+  SECRET_PATHS,
+  envVarForSecretPath,
+  isSecretPath,
+  webhookTokenEnvVar,
+  webhookTokenPath,
+} from "./registry";
 
 describe("secret registry", () => {
   it("treats known LLM, web search, and Google secret paths as secrets", () => {
@@ -54,5 +61,17 @@ describe("secret registry", () => {
 
   it("has no env var for OTLP headers, which OTEL_EXPORTER_OTLP_HEADERS supplies as a set", () => {
     expect(envVarForSecretPath("telemetry.otlp.headers.authorization")).toBeUndefined();
+  });
+
+  it("treats a webhook token as a secret", () => {
+    expect(isSecretPath(webhookTokenPath("mira"))).toBe(true);
+  });
+
+  it("maps each webhook token path to the environment variable that overrides it", () => {
+    expect(envVarForSecretPath(webhookTokenPath("mira"))).toBe("JAZZ_WEBHOOK_TOKEN_MIRA");
+  });
+
+  it("normalizes a webhook name into its environment variable", () => {
+    expect(webhookTokenEnvVar("deploy-bot")).toBe("JAZZ_WEBHOOK_TOKEN_DEPLOY_BOT");
   });
 });

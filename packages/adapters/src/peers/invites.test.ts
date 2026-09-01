@@ -185,6 +185,7 @@ function fakeConfigLayer(initialPeers: readonly PeerConfig[] = []) {
         revision += 1;
       }),
     revision: Effect.sync(() => revision),
+    secretStorageUnavailable: () => false,
     appConfig: Effect.sync((): AppConfig => ({ ...({} as AppConfig), peers })),
   };
   return { layer: Layer.succeed(AgentConfigServiceTag, service), currentPeers: () => peers };

@@ -1,7 +1,7 @@
 {
   "name": "@jazz/core",
   "version": "0.15.6",
-  "description": "Jazz's agent runtime — a framework-agnostic, ports-and-adapters core: the agent loop, tool execution, context management, and the service interfaces adapters implement.",
+  "description": "Jazz's agent runtime, a framework-agnostic ports-and-adapters core: the agent loop, tool execution, context management, and the service interfaces adapters implement.",
   "license": "MIT",
   "type": "module",
   "exports": {

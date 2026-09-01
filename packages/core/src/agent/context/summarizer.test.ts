@@ -61,6 +61,7 @@ const mockAgentConfigService: AgentConfigService = {
   has: () => Effect.succeed(false),
   set: () => Effect.void,
   revision: Effect.succeed(0),
+  secretStorageUnavailable: () => false,
 };
 
 // Mock LLMService (minimal implementation for model selection)

@@ -5,7 +5,7 @@
 import type { MCPServerConfig } from "@/core/interfaces/mcp-server";
 import type { OutputConfig } from "./output";
 import type { PeerConfig } from "./peer";
-import type { TriggerConfig } from "./trigger";
+import type { WebhookConfig } from "./webhook";
 
 export type SchedulerMode = "auto" | "in-process";
 
@@ -72,11 +72,14 @@ export interface AppConfig {
    */
   readonly peers?: readonly PeerConfig[];
   /**
-   * Webhook doors onto specific agents. Unlike a peer, a trigger runs a fixed prompt template
+   * Webhook doors onto specific agents. Unlike a peer, a webhook runs a fixed prompt template
    * rather than answering an open-ended question — a narrower surface, authenticated the same
    * way (a bearer token in the keyring, never in this file).
+   *
+   * Read from the legacy `triggers` key too, which is what this was called before "trigger"
+   * was freed up for wake triggers; see `migrateTriggersToWebhooks`.
    */
-  readonly triggers?: readonly TriggerConfig[];
+  readonly webhooks?: readonly WebhookConfig[];
 }
 
 export interface ContextConfig {
