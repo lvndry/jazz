@@ -19,10 +19,13 @@ import type { AppConfig, LLMConfig, StreamEvent } from "@jazz/core/types/index";
 import { APICallError } from "ai";
 import { afterAll, beforeEach, describe, expect, it, mock } from "bun:test";
 import { Cause, Effect, Exit, Layer, Stream } from "effect";
+import { z } from "zod";
 import { AgentConfigServiceImpl } from "../config";
 import { createLoggerLayer } from "../logger";
 import {
+  buildProviderCacheFingerprint,
   buildProviderOptions,
+  buildToolInputSchema,
   createAISDKServiceLayer,
   makeOllamaAuthorizedFetch,
   makeOllamaKeepAliveFetch,
@@ -1155,6 +1158,82 @@ describe("makeOllamaKeepAliveFetch", () => {
     } finally {
       restore();
     }
+  });
+});
+
+describe("buildProviderCacheFingerprint - anthropic", () => {
+  const originalWorkspaceEnv = process.env["ANTHROPIC_WORKSPACE_ID"];
+
+  afterAll(() => {
+    if (originalWorkspaceEnv === undefined) {
+      delete process.env["ANTHROPIC_WORKSPACE_ID"];
+    } else {
+      process.env["ANTHROPIC_WORKSPACE_ID"] = originalWorkspaceEnv;
+    }
+  });
+
+  it("changes when the configured workspace ID changes", () => {
+    delete process.env["ANTHROPIC_WORKSPACE_ID"];
+    const withoutWorkspace = buildProviderCacheFingerprint("anthropic", {
+      anthropic: { api_key: "sk-ant-test" },
+    });
+    const withWorkspace = buildProviderCacheFingerprint("anthropic", {
+      anthropic: { api_key: "sk-ant-test", workspace_id: "wrkspc_1" },
+    });
+
+    expect(withoutWorkspace).not.toBe(withWorkspace);
+  });
+
+  it("falls back to ANTHROPIC_WORKSPACE_ID when config omits it", () => {
+    process.env["ANTHROPIC_WORKSPACE_ID"] = "wrkspc_env";
+    const fromEnv = buildProviderCacheFingerprint("anthropic", {
+      anthropic: { api_key: "sk-ant-test" },
+    });
+    const explicit = buildProviderCacheFingerprint("anthropic", {
+      anthropic: { api_key: "sk-ant-test", workspace_id: "wrkspc_env" },
+    });
+
+    expect(fromEnv).toBe(explicit);
+  });
+});
+
+describe("buildToolInputSchema", () => {
+  function schemaOf(inputSchema: unknown): Record<string, unknown> {
+    return (inputSchema as { jsonSchema: Record<string, unknown> }).jsonSchema;
+  }
+
+  it("passes a raw MCP jsonSchema through unchanged", () => {
+    const raw = { type: "object", properties: { x: { type: "string" } } };
+    const inputSchema = buildToolInputSchema({
+      function: { parameters: z.object({}), jsonSchema: raw },
+    });
+
+    expect(schemaOf(inputSchema)).toEqual(raw);
+  });
+
+  it("leaves a plain object Zod schema for the AI SDK to convert itself", () => {
+    const parameters = z.object({ x: z.string() });
+    const inputSchema = buildToolInputSchema({ function: { parameters } });
+
+    expect(inputSchema).toBe(parameters);
+  });
+
+  it("converts and patches a top-level discriminated union, which otherwise has no top-level type", () => {
+    // Matches manage_memory/manage_workspace's shape: argument shape keyed by a
+    // "command" field, which serializes to `oneOf` with no top-level `type`.
+    const parameters = z.discriminatedUnion("command", [
+      z.object({ command: z.literal("read"), path: z.string() }),
+      z.object({ command: z.literal("write"), path: z.string(), content: z.string() }),
+    ]);
+
+    const rawConversion = z.toJSONSchema(parameters) as Record<string, unknown>;
+    expect(rawConversion["type"]).toBeUndefined();
+
+    const inputSchema = buildToolInputSchema({ function: { parameters } });
+    const schema = schemaOf(inputSchema);
+
+    expect(schema["type"]).toBe("object");
+    expect(schema["oneOf"]).toBeDefined();
   });
 });
 
