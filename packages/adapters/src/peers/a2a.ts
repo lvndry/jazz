@@ -236,7 +236,12 @@ export function handleA2ARpc(agentName: string, peer: PeerConfig, agent: Agent, 
           },
         };
       }
-      return { jsonrpc: "2.0", id: request.id, error: { code: -32001, message: outcome.reason } };
+      // `parked` (the answering agent wants to ask something back before committing) has no
+      // A2A task-lifecycle state to carry it — this door is deliberately staying that minimal,
+      // see the file header. It surfaces as an ordinary refusal, with the clarifying question
+      // as the message, same as any other reason this door declines to answer outright.
+      const message = outcome.kind === "parked" ? outcome.question : outcome.reason;
+      return { jsonrpc: "2.0", id: request.id, error: { code: -32001, message } };
     }
 
     return methodNotFound(request.id, request.method);

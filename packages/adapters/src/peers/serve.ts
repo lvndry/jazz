@@ -124,7 +124,25 @@ export interface ServePeerRequest {
 
 export type ServePeerOutcome =
   | { readonly kind: "answered"; readonly answer: string }
-  | { readonly kind: "refused"; readonly reason: string };
+  | { readonly kind: "refused"; readonly reason: string }
+  | { readonly kind: "parked"; readonly question: string };
+
+/**
+ * The clarifying question, if `request_clarification` was the tool that ended this run.
+ *
+ * `toolResults` keeps only the last call per tool name, which is exactly the semantics wanted
+ * here: if the model called it more than once in one turn, only the final question is the one
+ * that matters, since only the final one is what actually stopped the run from producing a
+ * normal answer.
+ */
+export function extractClarificationQuestion(
+  toolResults: Record<string, unknown> | undefined,
+): string | undefined {
+  const raw = toolResults?.["request_clarification"];
+  if (typeof raw !== "object" || raw === null) return undefined;
+  const question = (raw as Record<string, unknown>)["question"];
+  return typeof question === "string" && question.trim().length > 0 ? question.trim() : undefined;
+}
 
 /**
  * Answer one question from a peer, under its tier and escalation grant.
@@ -139,7 +157,7 @@ export function servePeerRequest(request: ServePeerRequest) {
     const at = new Date().toISOString();
 
     const ledger = (
-      outcome: "answered" | "refused",
+      outcome: "answered" | "refused" | "parked",
       extra?: { readonly answer?: string; readonly reason?: string },
     ) =>
       recordLedger({
@@ -190,6 +208,15 @@ export function servePeerRequest(request: ServePeerRequest) {
     }).pipe(Effect.either);
 
     if (response._tag === "Right") {
+      // A clarifying question, not a real answer: `request_clarification` short-circuits what
+      // would otherwise be a normal answer, so its presence takes priority over whatever text
+      // the model also produced this turn.
+      const clarification = extractClarificationQuestion(response.right.toolResults);
+      if (clarification !== undefined) {
+        yield* ledger("parked", { reason: clarification });
+        return { kind: "parked", question: clarification } satisfies ServePeerOutcome;
+      }
+
       yield* ledger("answered", { answer: response.right.content });
       return { kind: "answered", answer: response.right.content } satisfies ServePeerOutcome;
     }

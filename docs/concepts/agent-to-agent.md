@@ -102,7 +102,10 @@ same capability underneath.
 answering peers *does* have a tool riskier than read-only wired in, no peer inherits it just
 because their tier is wide open. `allow: ["send_message"]` on that one peer's `PeerConfig`
 entry is what actually lets them reach it — everyone else still gets refused by absence, the
-same as before this existed.
+same as before this existed. `allow: ["request_clarification"]` is the same mechanism granting
+something narrower: not an action on the machine, just permission to decline this peer's
+question and ask them something back before committing to an answer — see
+[Declining to answer yet](#declining-to-answer-yet).
 
 **Interrupting you.** `ask_user_question` and `ask_file_picker` are withheld from every peer
 outright, whatever the tier or `allow` says: a stranger able to put a prompt in front of you,
@@ -158,11 +161,40 @@ JAZZ_PEER_TOKEN_SAM=…      # peers.sam.token
 
 The name is the peer's, upper-cased, with anything outside `A–Z0–9` becoming `_`.
 
+### Declining to answer yet
+
+Not every question is answerable outright — sometimes what it needs is context, not a tool.
+`request_clarification` lets the answering agent decline for now and ask the peer one thing
+back, instead of guessing or refusing outright:
+
+```text
+$ curl … -d '{"question":"what is on the calendar tomorrow?"}'
+{"ok":false,"parked":true,"question":"why do you want to know?"}
+```
+
+This ends the answering agent's turn. Nothing else it produced that turn reaches the peer —
+only the clarifying question does. The peer sees this land as an ordinary `ask_peer` tool
+result (`{parked: true, clarification: "..."}` — quoted and attributed the same way any reply
+is), and it is entirely up to their agent whether and how to respond: there is no automatic
+loop that composes a reply from their live conversation and sends it back unsupervised. If
+they do want to answer, it is a fresh, explicit `ask_peer` call, composed with the same
+one-question-is-a-parameter discipline as the first one — and that can happen anywhere in the
+same turn, so a real back-and-forth is possible, it just never happens on autopilot.
+
+Riskier than read-only, so — like any tool that isn't — it stays behind an explicit
+`allow: ["request_clarification"]` grant regardless of tier. A peer without that grant never
+discovers that declining-and-asking is even an option; their agent just answers or refuses.
+
+On the wire, this is additive to jazz's own `/peer/ask` protocol only. The `/a2a` door stays
+exactly as minimal as before: a parked answer surfaces there as an ordinary refusal, with the
+clarifying question as the error message, not a new task-lifecycle state.
+
 ---
 
 ## The ledger
 
-Every exchange, both directions, verbatim — including what was refused.
+Every exchange, both directions, verbatim — including what was refused, and including what
+was parked pending clarification.
 
 ```text
 $ jazz peers log
@@ -174,6 +206,10 @@ $ jazz peers log
 The answer is shown, not just the outcome, because a question the tier defeated is still
 "answered" — the agent replied *I cannot*. Outcome alone could not tell a probe from an
 ordinary question, and telling those apart is the whole reason the record exists.
+
+Add `--follow` to keep watching and print new entries as they land, `--peer <name>` to narrow
+to one relationship — `jazz peers log --peer sam --follow` tails exactly one peer's exchanges,
+including any that are currently parked.
 
 ---
 
