@@ -994,6 +994,60 @@ describe("fullscreen bridge", () => {
     expect(afterBackspace).not.toContain("hey");
   });
 
+  it("Cmd+Backspace deletes to the start of the line, not just one character", async () => {
+    const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await testRender(
+      <FullscreenBridge />,
+      { width: WIDTH, height: HEIGHT },
+    );
+    await renderOnce();
+    store.setPrompt({ type: "chat", message: "", resolve: () => undefined });
+    await flush();
+
+    for (const key of ["h", "e", "y", " ", "t", "h", "e", "r", "e"]) {
+      await mockInput.pressKey(key);
+      await settleKeypress(flush);
+    }
+    const typed = captureCharFrame();
+
+    await mockInput.pressKey("BACKSPACE", { super: true });
+    await settleKeypress(flush);
+    const afterCmdBackspace = captureCharFrame();
+    renderer.destroy();
+    store.setPrompt(null);
+
+    expect(typed).toContain("hey there");
+    expect(afterCmdBackspace).not.toContain("hey there");
+    expect(afterCmdBackspace).not.toContain("hey");
+    expect(afterCmdBackspace).not.toContain("there");
+  });
+
+  it("Ctrl+U deletes to the start of the line", async () => {
+    const { renderer, renderOnce, flush, mockInput, captureCharFrame } = await testRender(
+      <FullscreenBridge />,
+      { width: WIDTH, height: HEIGHT },
+    );
+    await renderOnce();
+    store.setPrompt({ type: "chat", message: "", resolve: () => undefined });
+    await flush();
+
+    for (const key of ["h", "e", "y", " ", "t", "h", "e", "r", "e"]) {
+      await mockInput.pressKey(key);
+      await settleKeypress(flush);
+    }
+    const typed = captureCharFrame();
+
+    await mockInput.pressKey("u", { ctrl: true });
+    await settleKeypress(flush);
+    const afterCtrlU = captureCharFrame();
+    renderer.destroy();
+    store.setPrompt(null);
+
+    expect(typed).toContain("hey there");
+    expect(afterCtrlU).not.toContain("hey there");
+    expect(afterCtrlU).not.toContain("hey");
+    expect(afterCtrlU).not.toContain("there");
+  });
+
   it("pastes into the composer, including newlines, without submitting", async () => {
     let submitted: string | undefined;
     const rendered = await testRender(<FullscreenBridge />, { width: WIDTH, height: HEIGHT });
@@ -1900,7 +1954,7 @@ describe("fullscreen bridge", () => {
     }
   });
 
-  it("quits the TUI at idle on Ctrl+C from a control byte or the letter+flag shape", async () => {
+  it("warns on the first idle Ctrl+C and quits the TUI on the second when there is no chat to return to, from a control byte or the letter+flag shape", async () => {
     for (const key of ["\x03", { name: "c", ctrl: true }] as const) {
       const originalKill = process.kill;
       const signals: string[] = [];
@@ -1909,17 +1963,62 @@ describe("fullscreen bridge", () => {
         return true;
       }) as typeof process.kill;
 
-      const rendered = await liveComposer();
-      if (typeof key === "string") await rendered.mockInput.pressKey(key);
-      else await rendered.mockInput.pressKey(key.name, { ctrl: key.ctrl });
+      const rendered = await testRender(<FullscreenBridge />, {
+        width: WIDTH,
+        height: HEIGHT,
+        exitOnCtrlC: false,
+      });
+      await rendered.renderOnce();
+      const pressCtrlC = async (): Promise<void> => {
+        if (typeof key === "string") await rendered.mockInput.pressKey(key);
+        else await rendered.mockInput.pressKey(key.name, { ctrl: key.ctrl });
+      };
+
+      await pressCtrlC();
+      await settleKeypress(rendered.flush, 100);
+      expect(signals).toEqual([]);
+
+      await pressCtrlC();
       await settleKeypress(rendered.flush, 100);
 
       process.kill = originalKill;
       rendered.renderer.destroy();
-      store.setPrompt(null);
 
       expect(signals).toEqual(["SIGINT"]);
     }
+  });
+
+  it("returns to the main menu instead of quitting on the second idle Ctrl+C when a chat conversation is waiting for input", async () => {
+    const resolved: unknown[] = [];
+    const rendered = await testRender(<FullscreenBridge />, {
+      width: WIDTH,
+      height: HEIGHT,
+      exitOnCtrlC: false,
+    });
+    await rendered.renderOnce();
+    store.setPrompt({ type: "chat", message: "", resolve: (value) => resolved.push(value) });
+    await rendered.flush();
+
+    const originalKill = process.kill;
+    let killed = false;
+    process.kill = ((..._args: unknown[]) => {
+      killed = true;
+      return true;
+    }) as typeof process.kill;
+
+    await rendered.mockInput.pressKey("c", { ctrl: true });
+    await settleKeypress(rendered.flush, 100);
+    expect(resolved).toEqual([]);
+
+    await rendered.mockInput.pressKey("c", { ctrl: true });
+    await settleKeypress(rendered.flush, 100);
+
+    process.kill = originalKill;
+    rendered.renderer.destroy();
+    store.setPrompt(null);
+
+    expect(killed).toBe(false);
+    expect(resolved).toEqual(["/exit"]);
   });
 
   it("Ctrl+C reaches the handler even while a modal owns the keyboard", async () => {
@@ -1931,6 +2030,7 @@ describe("fullscreen bridge", () => {
     const { renderer, renderOnce, flush, mockInput } = await testRender(<FullscreenBridge />, {
       width: 100,
       height: 28,
+      exitOnCtrlC: false,
     });
     await renderOnce();
     store.setActiveMenu({
@@ -1945,6 +2045,10 @@ describe("fullscreen bridge", () => {
       killed = true;
       return true;
     }) as typeof process.kill;
+
+    await mockInput.pressKey("c", { ctrl: true });
+    await settleKeypress(flush, 100);
+    expect(killed).toBe(false);
 
     await mockInput.pressKey("c", { ctrl: true });
     await settleKeypress(flush, 100);

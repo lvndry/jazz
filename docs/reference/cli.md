@@ -270,7 +270,6 @@ Available inside an interactive session. Type `/help` for the current list.
 | `/tools`     | Show available tools                                  |
 | `/skills`    | Browse skills                                         |
 | `/workflows` | Browse workflows                                      |
-| `/model`     | Switch model mid-conversation                         |
 | `/mode`      | Change approval mode (also Shift+Tab)                 |
 | `/cost`      | Tokens and USD for this session, including sub-agents |
 | `/context`   | Context window usage and the biggest consumers        |

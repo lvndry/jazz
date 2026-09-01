@@ -6,23 +6,17 @@ import { NodeFileSystem } from "@effect/platform-node";
 import type { ChatMessage } from "@jazz/core/types/message";
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { Effect } from "effect";
-import {
-  conversationLogPath,
-  recordConversationTranscript,
-  resetConversationLogAppendCache,
-} from "./conversation-log";
+import { conversationLogPath, recordConversationTranscript } from "./conversation-log";
 import { formatRelativeWhen, search } from "./conversation-search";
 
 let tmpDir: string;
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "jazz-session-search-test-"));
-  resetConversationLogAppendCache();
 });
 
 afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
-  resetConversationLogAppendCache();
 });
 
 function runEffect<A>(eff: Effect.Effect<A, unknown, FileSystem.FileSystem>) {
@@ -168,7 +162,6 @@ describe("search", () => {
 
     fs.rmSync(tmpDir, { recursive: true, force: true });
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "jazz-session-search-test-"));
-    resetConversationLogAppendCache();
 
     await writeSession("conv-untitled", ["plan the Basel trip"]);
     const [untitled] = await search("basel", { scope: "all", dir: tmpDir });

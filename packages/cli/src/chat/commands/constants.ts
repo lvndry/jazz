@@ -30,18 +30,13 @@ export const CHAT_COMMANDS: readonly ChatCommandInfo[] = [
   { name: "help", description: "Show available commands and shortcuts", usage: "[command]" },
   {
     name: "mcp",
-    description: "Show MCP server status, or reconnect one",
+    description: "Manage MCP servers",
     usage: "[reconnect <server>]",
   },
   {
     name: "mode",
     description: "Switch between safe mode and yolo mode for tool approvals",
     usage: "[allow|disallow <cmd>]",
-  },
-  {
-    name: "model",
-    description: "Show or change model and reasoning effort",
-    usage: "[model | reasoning <level>]",
   },
   {
     name: "reasoning",
@@ -55,6 +50,11 @@ export const CHAT_COMMANDS: readonly ChatCommandInfo[] = [
   { name: "stats", description: "Show session statistics and usage summary" },
   {
     name: "switch",
+    description: "Switch to a different agent in the same conversation",
+    usage: "[agent]",
+  },
+  {
+    name: "models",
     description: "Switch to a different agent in the same conversation",
     usage: "[agent]",
   },

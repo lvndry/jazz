@@ -20,7 +20,6 @@ export type CommandType =
   | "switch"
   | "compact"
   | "copy"
-  | "model"
   | "reasoning"
   | "config"
   | "skills"

@@ -85,7 +85,7 @@ There's no single best answer, but a few reliable calls:
 - **A local model (`ollama`, `llamacpp`) for anything private.** No key, no per-token cost, no data leaving the machine. Needs a tool-capable model — see [Airgapped](./airgapped.md).
 - **`summarizerModel` cheap, main model expensive.** Compaction is summarization; it rarely needs your best model, and it runs on long tasks precisely when you're already spending.
 
-Switch mid-conversation with `/model` when a task turns out harder than expected.
+If a task turns out harder than expected, switch to an agent configured with a stronger model using `/switch` (or `/models`).
 
 ---
 

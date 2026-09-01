@@ -285,6 +285,27 @@ provider/model/persona. Data lives in the `jazz_data` volume (`JAZZ_HOME=/data`)
 agents in `/data/agents`, transcripts in `/data/history` (keyed by chat id,
 **plaintext JSON** — treat the volume as sensitive), logs in `/data/logs`.
 
+## Rate limits
+
+Every outgoing Telegram API call (`sendMessage`, `sendPhoto`, message edits, the typing
+indicator, …) goes through one dispatcher (`telegram-dispatch.ts`):
+
+- A confirmed 429 (an actual response from Telegram, not a dropped connection) is retried
+  using the server's `retry_after`, up to 3 attempts and 60 seconds of cumulative wait. A
+  network failure is never retried — the request's outcome at Telegram is unknown, and
+  retrying could send a duplicate message.
+- The cooldown from a 429 applies to every chat, not just the one that got limited,
+  since Telegram's rate limit is bot-wide.
+- Calls to the same chat are queued and land in the order they were issued, even while
+  one of them is mid-retry.
+- Live progress (the "Working…" bubble edits) and the typing indicator are best-effort:
+  they're dropped on a rate limit rather than retried, since a stale status update is
+  worse than a missing one. The actual answer is a separate `sendMessage` call and always
+  goes through the full retry path.
+- HTML answers fall back to plain text only when Telegram rejects the rendered HTML
+  itself (malformed entities, too long, …) — never for a rate limit, which the retry
+  already covers.
+
 ## Webhook mode
 
 Long-polling (default) needs no public endpoint. For a webhook, expose the bridge

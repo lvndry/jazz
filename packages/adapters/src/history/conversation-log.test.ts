@@ -14,19 +14,16 @@ import {
   parseConversationLogLine,
   readConversationLog,
   recordConversationTranscript,
-  resetConversationLogAppendCache,
 } from "./conversation-log";
 
 let tmpDir: string;
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "jazz-session-store-test-"));
-  resetConversationLogAppendCache();
 });
 
 afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
-  resetConversationLogAppendCache();
 });
 
 function runEffect<A>(eff: Effect.Effect<A, unknown, FileSystem.FileSystem>) {
@@ -112,11 +109,10 @@ describe("recordConversationTranscript", () => {
     expect(content.indexOf('"hello"')).toBeLessThan(content.indexOf('"and again"'));
   });
 
-  test("counts existing messages from disk when the process has no cache", async () => {
+  test("counts existing messages from disk on every append", async () => {
     const first = [userMessage("hi"), assistantMessage("hello")];
     await runEffect(recordConversationTranscript(record(first), tmpDir));
 
-    resetConversationLogAppendCache();
     await runEffect(
       recordConversationTranscript(record([...first, userMessage("resumed")]), tmpDir),
     );
@@ -156,7 +152,6 @@ describe("recordConversationTranscript", () => {
     const afterCrash = await runEffect(readConversationLog(AGENT_ID, CONVERSATION_ID, tmpDir));
     expect(afterCrash?.messages.map((message) => message.content)).toEqual(["hi", "hello"]);
 
-    resetConversationLogAppendCache();
     await runEffect(
       recordConversationTranscript(
         record([userMessage("hi"), assistantMessage("hello"), userMessage("after the crash")]),
@@ -259,10 +254,6 @@ describe("deleteConversationLog", () => {
     await runEffect(deleteConversationLog(AGENT_ID, CONVERSATION_ID, tmpDir));
   });
 
-  // Eviction deletes a log the process may still hold append state for. If the
-  // cache survived the delete, the next append would skip the header and the
-  // messages it thinks are already there, leaving a log that reads back as
-  // nothing at all.
   test("a session written again after deletion is readable", async () => {
     const messages = [userMessage("hi"), assistantMessage("hello")];
     await runEffect(recordConversationTranscript(record(messages), tmpDir));

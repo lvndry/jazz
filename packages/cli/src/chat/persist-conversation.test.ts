@@ -4,7 +4,6 @@ import * as path from "node:path";
 import type { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { loadConversation, loadHistory } from "@jazz/adapters/history/conversation-history-service";
-import { resetConversationLogAppendCache } from "@jazz/adapters/history/conversation-log";
 import type { ChatMessage } from "@jazz/core/types/message";
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { Effect } from "effect";
@@ -18,12 +17,10 @@ let tmpDir: string;
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "jazz-persist-conversation-test-"));
-  resetConversationLogAppendCache();
 });
 
 afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
-  resetConversationLogAppendCache();
 });
 
 function runEffect<A>(eff: Effect.Effect<A, unknown, FileSystem.FileSystem>) {
