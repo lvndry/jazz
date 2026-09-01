@@ -60,6 +60,7 @@ import {
   extractCleanErrorMessage,
   truncateRequestBodyValues,
 } from "@jazz/core/utils/llm-error";
+import { ensureObjectSchemaType } from "@jazz/core/utils/mcp-schema-converter";
 import { createDeferred } from "@jazz/core/utils/promise";
 import { formatProviderDisplayName } from "@jazz/core/utils/provider-model";
 import { sanitize } from "@jazz/core/utils/string";
@@ -759,7 +760,15 @@ function selectModel(
     }
     case "anthropic": {
       const apiKey = resolveApiKey("anthropic");
-      model = apiKey ? createAnthropic({ apiKey })(modelId) : anthropic(modelId);
+      const workspaceId =
+        llmConfig?.anthropic?.workspace_id ?? process.env["ANTHROPIC_WORKSPACE_ID"];
+      model =
+        apiKey || workspaceId
+          ? createAnthropic({
+              ...(apiKey ? { apiKey } : {}),
+              ...(workspaceId ? { headers: { "anthropic-workspace-id": workspaceId } } : {}),
+            })(modelId)
+          : anthropic(modelId);
       break;
     }
     case "gemini": {
@@ -928,7 +937,10 @@ export function makeOllamaKeepAliveFetch(keepAlive: string): typeof globalThis.f
   }) as typeof globalThis.fetch;
 }
 
-function buildProviderCacheFingerprint(providerName: ProviderName, llmConfig?: LLMConfig): string {
+export function buildProviderCacheFingerprint(
+  providerName: ProviderName,
+  llmConfig?: LLMConfig,
+): string {
   if (!llmConfig) return "";
 
   switch (providerName) {
@@ -939,6 +951,11 @@ function buildProviderCacheFingerprint(providerName: ProviderName, llmConfig?: L
     case "llamacpp": {
       const cfg = llmConfig.llamacpp;
       return `${cfg?.api_key ?? ""}|${cfg?.base_url ?? ""}`;
+    }
+    case "anthropic": {
+      const cfg = llmConfig.anthropic;
+      const workspaceId = cfg?.workspace_id ?? process.env["ANTHROPIC_WORKSPACE_ID"] ?? "";
+      return `${cfg?.api_key ?? ""}|${workspaceId}`;
     }
     default: {
       const apiKey = llmConfig[providerName]?.api_key;
@@ -1176,6 +1193,32 @@ export function buildProviderOptions(
   return undefined;
 }
 
+/**
+ * Build the AI SDK `inputSchema` for one tool.
+ *
+ * A raw MCP `jsonSchema` passes through unchanged. A Zod schema whose top level is a
+ * union (e.g. `z.discriminatedUnion`, used by tools like `manage_memory` whose
+ * argument shape depends on a `command` field) converts to `{ oneOf: [...] }` with no
+ * top-level `type`, which providers like Anthropic reject outright — every other Zod
+ * schema already converts safely through the AI SDK's own handling, so only this case
+ * needs a manual conversion patched with a `type`.
+ */
+export function buildToolInputSchema(toolDef: {
+  function: { parameters: z.ZodTypeAny; jsonSchema?: Readonly<Record<string, unknown>> };
+}) {
+  if (toolDef.function.jsonSchema !== undefined) {
+    return jsonSchema(toolDef.function.jsonSchema);
+  }
+  if (toolDef.function.parameters instanceof z.ZodUnion) {
+    return jsonSchema(
+      ensureObjectSchemaType(
+        z.toJSONSchema(toolDef.function.parameters) as Record<string, unknown>,
+      ),
+    );
+  }
+  return toolDef.function.parameters;
+}
+
 function schemaCharCount(toolDef: {
   function: { parameters: z.ZodTypeAny; jsonSchema?: Readonly<Record<string, unknown>> };
 }): number {
@@ -1333,13 +1376,9 @@ class AISDKService implements LLMService {
 
     // First, map all requested tools to the AI SDK format.
     for (const toolDef of requestedTools) {
-      const inputSchema =
-        toolDef.function.jsonSchema !== undefined
-          ? jsonSchema(toolDef.function.jsonSchema)
-          : toolDef.function.parameters;
       tools[toolDef.function.name] = tool({
         description: toolDef.function.description,
-        inputSchema,
+        inputSchema: buildToolInputSchema(toolDef),
       });
     }
 

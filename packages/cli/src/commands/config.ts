@@ -131,6 +131,16 @@ export function setConfigCommand(
         }
         yield* configService.set(`llm.${provider}.api_key`, apiKey);
 
+        if (provider === "anthropic") {
+          const workspaceId = yield* terminal.ask(
+            "Anthropic workspace ID (only needed with an identity-linked API key; leave empty to skip):",
+            { simple: true },
+          );
+          if (workspaceId?.trim()) {
+            yield* configService.set("llm.anthropic.workspace_id", workspaceId.trim());
+          }
+        }
+
         yield* terminal.success(`Configuration for ${provider} updated.`);
         return;
       }
