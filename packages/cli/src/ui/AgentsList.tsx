@@ -1,3 +1,4 @@
+import { agentModelString } from "@jazz/core/utils/provider-model";
 import { Box, Text } from "ink";
 import React from "react";
 import { formatToolsLine, getTerminalWidth, padRight } from "@/cli/utils/string-utils";
@@ -52,7 +53,7 @@ export function AgentsList(props: {
   const reasoningW = 9;
   const personaW = Math.max(8, Math.min(12, Math.floor(inner * 0.1)));
   const nameW = Math.max(12, Math.min(22, Math.floor(inner * 0.22)));
-  const modelW = Math.max(16, Math.min(30, Math.floor(inner * 0.26)));
+  const modelW = Math.max(16, Math.min(38, Math.floor(inner * 0.32)));
   const fixed = idxW + gap + nameW + gap + modelW + gap + personaW + gap + reasoningW;
   const descW = inner - fixed - gap;
   const showDescription = descW >= 12;
@@ -127,7 +128,7 @@ export function AgentsList(props: {
                 </Text>
                 {sp}
                 <Text color={THEME.agent}>
-                  {padRight(truncateEnd(agent.config.llmModel, modelW), modelW)}
+                  {padRight(truncateEnd(agentModelString(agent.config), modelW), modelW)}
                 </Text>
                 {sp}
                 <Text color={THEME.secondary}>

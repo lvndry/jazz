@@ -293,7 +293,7 @@ function agentChoicesFor(
   return agents.map((agent) => ({
     id: agent.id,
     name: agent.name,
-    model: agent.config.llmModel,
+    model: agentModelString(agent.config),
     persona: agent.config.persona,
     ...(agent.description !== undefined && agent.description !== agent.name
       ? { description: agent.description }
