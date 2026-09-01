@@ -211,6 +211,37 @@ its ticker to fire. The `JAZZ_SCHEDULER=in-process` environment variable still w
 this setting, which is useful for a one-off run without touching the saved config. See
 [Scheduled runs](../use-cases/scheduled.md) for how each mode installs and fires.
 
+### `triggers`
+
+Webhook doors onto specific agents. Each entry is served at `POST /triggers/<name>` by
+`jazz daemon` and runs one fixed prompt, with the request body quoted into it as data.
+
+```json
+{
+  "triggers": [
+    {
+      "name": "room",
+      "agentId": "default",
+      "conversation": "threaded",
+      "promptTemplate": "You are in a conversation. Reply to the latest message.\n\n{{payload}}"
+    }
+  ]
+}
+```
+
+| Field            | Required | Effect                                                                              |
+| ---------------- | -------- | ----------------------------------------------------------------------------------- |
+| `name`           | yes      | URL segment and token lookup key. Unique                                             |
+| `agentId`        | yes      | Which agent the trigger wakes                                                        |
+| `promptTemplate` | yes      | Prompt for the fire. `{{payload}}` is replaced with the quoted body                  |
+| `description`    | no       | Note for yourself; never sent to the model                                           |
+| `conversation`   | no       | `"ephemeral"` (default) starts fresh each fire; `"threaded"` resumes per thread key  |
+
+Tokens never live in this file. Store one in the keyring with
+`jazz config set triggers.<name>.token`, or supply `JAZZ_TRIGGER_TOKEN_<NAME>` in the
+environment. A threaded trigger takes its thread key from the `X-Jazz-Thread` request header.
+See [Webhook triggers](../concepts/webhook-triggers.md) for the full behaviour.
+
 ## Project Overrides: `./.jazz/config.json`
 
 Use for project-specific settings such as MCP enable/disable flags or logging level. Do not put agent storage paths here — agents always load from `~/.jazz`.

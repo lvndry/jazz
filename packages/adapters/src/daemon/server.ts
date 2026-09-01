@@ -18,6 +18,7 @@
  * can read the filesystem to a network is a decision somebody should have to make twice.
  */
 
+import { FileSystem } from "@effect/platform";
 import { AgentRunner } from "@jazz/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
 import { isRunParkRequested } from "@jazz/core/agent/run/park-signal";
@@ -30,6 +31,7 @@ import type { ToolRegistry, ToolRequirements } from "@jazz/core/interfaces/tool-
 import type { PeerConfig } from "@jazz/core/types/peer";
 import { inviteStatus } from "@jazz/core/types/peer-invite";
 import type { TriggerConfig } from "@jazz/core/types/trigger";
+import { MAX_TRIGGER_THREAD_KEY_LENGTH, TRIGGER_THREAD_HEADER } from "@jazz/core/types/trigger";
 import { generateConversationId } from "@jazz/core/utils/conversation-id";
 import { Effect } from "effect";
 import { buildPublicAgentCard, handleA2ARpc } from "@/adapters/peers/a2a";
@@ -39,6 +41,10 @@ import {
   type KeyringDependency,
 } from "@/adapters/peers/invites";
 import { servePeerRequest } from "@/adapters/peers/serve";
+import {
+  loadConversation,
+  saveConversation,
+} from "@jazz/adapters/history/conversation-history-service";
 
 export const DEFAULT_DAEMON_PORT = 4747;
 
@@ -50,7 +56,14 @@ export const DEFAULT_DAEMON_PORT = 4747;
  * answerable by somebody who was not there when it parked.
  */
 export type DaemonRequirements =
-  AgentService | AgentConfigService | RunStoreTag | ToolRegistry | ToolRequirements;
+  | AgentService
+  | AgentConfigService
+  | RunStoreTag
+  | ToolRegistry
+  | ToolRequirements
+  // A threaded trigger reads its conversation before the run and writes it after, so the
+  // filesystem is a genuine requirement of the handlers rather than an incidental one.
+  | FileSystem.FileSystem;
 
 /** Kept in step with `jazz runs`: terminal records are readable for a week. */
 const TERMINAL_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
@@ -517,15 +530,63 @@ export function makeTriggerHandler(
     if (body instanceof Response) return body;
     const truncated = body;
 
-    return runEffect(fireTrigger(trigger, truncated));
+    const threadKey = (request.headers.get(TRIGGER_THREAD_HEADER) ?? "").trim();
+    if (threadKey.length > MAX_TRIGGER_THREAD_KEY_LENGTH) {
+      return json({ ok: false, error: "thread key too long" }, 400);
+    }
+    // Refused rather than ignored. A caller sending a thread key believes its turns are
+    // accumulating somewhere; silently dropping it hands them an amnesiac agent and no clue
+    // why, which is a far worse failure than being told the trigger is not threaded.
+    if (threadKey.length > 0 && trigger.conversation !== "threaded") {
+      return json(
+        {
+          ok: false,
+          error: `trigger "${trigger.name}" is not threaded; set conversation: "threaded" to accept a thread key`,
+        },
+        400,
+      );
+    }
+
+    return runEffect(fireTrigger(trigger, truncated, threadKey.length > 0 ? threadKey : undefined));
   };
+}
+
+/**
+ * The conversation a fire belongs to.
+ *
+ * `ephemeral` mints a fresh id per fire, which is what every trigger did before threading
+ * existed: right for an isolated event, and it keeps a burst of unrelated webhooks from
+ * accreting into one incoherent transcript.
+ *
+ * `threaded` derives a stable id, so the same thread key always resumes the same
+ * conversation. The key is interpolated raw on purpose — every writer that turns a
+ * conversation id into a path runs it through `storageSafeSegment` first, and duplicating
+ * that sanitization here would only create a second rule to keep in step with the first.
+ */
+export function triggerConversationId(
+  trigger: TriggerConfig,
+  threadKey: string | undefined,
+): string {
+  if (trigger.conversation !== "threaded") {
+    return generateConversationId(`trigger-${trigger.name}`);
+  }
+  // A threaded trigger fired without a key still resumes — every keyless fire simply shares
+  // one thread. Minting a random id here would silently make the trigger ephemeral again,
+  // which is the opposite of what its config asked for.
+  return threadKey === undefined
+    ? `trigger-${trigger.name}`
+    : `trigger-${trigger.name}-${threadKey}`;
 }
 
 /**
  * The payload is quoted into the prompt as data, never merged as an instruction — the same
  * discipline a peer's reply and `web_fetch` output already get.
+ *
+ * A threaded fire additionally loads the conversation before the run and saves it after,
+ * mirroring `fireWakeTrigger` — `AgentRunner.run` never loads history on its own, so a
+ * caller that does not do this gets an agent with no memory of its own previous turn.
  */
-function fireTrigger(trigger: TriggerConfig, payload: string) {
+function fireTrigger(trigger: TriggerConfig, payload: string, threadKey?: string) {
   return Effect.gen(function* () {
     const agent = yield* getAgentByIdentifier(trigger.agentId);
     const quotedPayload =
@@ -535,12 +596,50 @@ function fireTrigger(trigger: TriggerConfig, payload: string) {
       ? trigger.promptTemplate.replace("{{payload}}", quotedPayload)
       : `${trigger.promptTemplate}\n\n${quotedPayload}`;
 
+    const threaded = trigger.conversation === "threaded";
+    const conversationId = triggerConversationId(trigger, threadKey);
+
+    // A history read that fails must not fail the fire: the run is still perfectly valid
+    // without its past, and refusing to answer a webhook because an old log is unreadable
+    // trades a degraded turn for no turn at all.
+    const priorRecord = threaded
+      ? yield* loadConversation(trigger.agentId, conversationId).pipe(
+          Effect.catchAll(() => Effect.succeed(null)),
+        )
+      : null;
+
     const response = yield* AgentRunner.run({
       agent,
       userInput: prompt,
-      conversationId: generateConversationId(`trigger-${trigger.name}`),
+      conversationId,
       parkWhenUnattended: true,
+      ...(priorRecord !== null ? { conversationHistory: priorRecord.messages } : {}),
     });
+
+    if (threaded) {
+      const now = new Date().toISOString();
+      yield* saveConversation({
+        agentId: trigger.agentId,
+        conversationId,
+        title: priorRecord?.title ?? `trigger: ${trigger.name}`,
+        startedAt: priorRecord?.startedAt ?? now,
+        endedAt: now,
+        messages: response.messages ?? priorRecord?.messages ?? [],
+      }).pipe(
+        Effect.catchAll((error) =>
+          Effect.gen(function* () {
+            const logger = yield* Effect.serviceOption(LoggerServiceTag);
+            if (logger._tag === "Some") {
+              yield* logger.value.warn("Trigger conversation save failed", {
+                trigger: trigger.name,
+                conversationId,
+                error: String(error),
+              });
+            }
+          }),
+        ),
+      );
+    }
 
     return json({ ok: true, answer: response.content });
   }).pipe(
@@ -562,7 +661,7 @@ function fireTrigger(trigger: TriggerConfig, payload: string) {
         );
       }),
     ),
-  ) as Effect.Effect<Response, unknown, AgentService>;
+  ) as Effect.Effect<Response, unknown, AgentService | FileSystem.FileSystem>;
 }
 
 /**

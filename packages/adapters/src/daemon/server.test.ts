@@ -1,5 +1,8 @@
+import path from "node:path";
 import { createRunRecord } from "@jazz/core/agent/run/run-record";
 import { RunStoreTag } from "@jazz/core/interfaces/run-store";
+import type { TriggerConfig } from "@jazz/core/types/trigger";
+import { getJazzHomeDirectory, getWorkStateDirectory } from "@jazz/core/utils/paths";
 import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
 import { InMemoryRunStore } from "@/adapters/storage/run-store";
@@ -8,6 +11,7 @@ import {
   makePeerInviteHandler,
   makeTriggerHandler,
   refuseReason,
+  triggerConversationId,
   type DaemonRequirements,
 } from "./server";
 
@@ -194,5 +198,106 @@ describe("the daemon's routes", () => {
       },
     );
     expect((await handle(request("POST", "/triggers/%E0%A4%A"))).status).toBe(404);
+  });
+
+  it("refuses a thread key on a trigger that is not threaded", async () => {
+    const handle = makeTriggerHandler(
+      [{ name: "hook", agentId: "default", promptTemplate: "Process {{payload}}" }],
+      async () => "trigger-secret",
+      async () => {
+        throw new Error("runEffect should not be called");
+      },
+    );
+
+    const response = await handle(
+      request("POST", "/triggers/hook", {
+        headers: { authorization: "Bearer trigger-secret", "x-jazz-thread": "room-7" },
+        body: "hello",
+      }),
+    );
+    expect(response.status).toBe(400);
+    expect(await response.text()).toContain("not threaded");
+  });
+
+  it("refuses a thread key longer than the cap", async () => {
+    const handle = makeTriggerHandler(
+      [
+        {
+          name: "hook",
+          agentId: "default",
+          promptTemplate: "Process {{payload}}",
+          conversation: "threaded",
+        },
+      ],
+      async () => "trigger-secret",
+      async () => {
+        throw new Error("runEffect should not be called");
+      },
+    );
+
+    const response = await handle(
+      request("POST", "/triggers/hook", {
+        headers: { authorization: "Bearer trigger-secret", "x-jazz-thread": "k".repeat(201) },
+        body: "hello",
+      }),
+    );
+    expect(response.status).toBe(400);
+    expect(await response.text()).toContain("too long");
+  });
+});
+
+describe("which conversation a trigger fire belongs to", () => {
+  const ephemeral: TriggerConfig = {
+    name: "hook",
+    agentId: "default",
+    promptTemplate: "Process {{payload}}",
+  };
+  const threaded: TriggerConfig = { ...ephemeral, conversation: "threaded" };
+
+  it("mints a fresh id per fire when the trigger is ephemeral", () => {
+    const first = triggerConversationId(ephemeral, undefined);
+    const second = triggerConversationId(ephemeral, undefined);
+
+    expect(first).toStartWith("trigger-hook-");
+    expect(second).not.toBe(first);
+  });
+
+  it("ignores nothing and still randomizes when an ephemeral trigger is given a key", () => {
+    // The handler refuses this combination before it gets here; this pins the fallback so a
+    // future caller that skips the handler cannot silently get a stable id it was denied.
+    expect(triggerConversationId(ephemeral, "room-7")).not.toBe(
+      triggerConversationId(ephemeral, "room-7"),
+    );
+  });
+
+  it("resumes the same conversation for one thread key", () => {
+    expect(triggerConversationId(threaded, "room-7")).toBe("trigger-hook-room-7");
+    expect(triggerConversationId(threaded, "room-7")).toBe(
+      triggerConversationId(threaded, "room-7"),
+    );
+  });
+
+  it("keeps separate thread keys in separate conversations", () => {
+    expect(triggerConversationId(threaded, "room-7")).not.toBe(
+      triggerConversationId(threaded, "room-8"),
+    );
+  });
+
+  it("shares one thread across keyless fires rather than falling back to ephemeral", () => {
+    expect(triggerConversationId(threaded, undefined)).toBe("trigger-hook");
+    expect(triggerConversationId(threaded, undefined)).toBe(
+      triggerConversationId(threaded, undefined),
+    );
+  });
+
+  it("keeps a traversal attempt in the thread key out of the path it resolves to", () => {
+    // The id itself carries the raw key — sanitization belongs to whoever builds a path from
+    // it, so that the rule lives in one place. What must hold is that the resolved path
+    // stays inside the work directory.
+    const escaping = triggerConversationId(threaded, "../../../../etc/pwned");
+    const resolved = path.resolve(getWorkStateDirectory("default", escaping));
+
+    expect(resolved).toStartWith(path.resolve(getJazzHomeDirectory(), "work") + path.sep);
+    expect(resolved).not.toContain("etc/pwned");
   });
 });

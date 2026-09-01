@@ -39,6 +39,7 @@ const PINNED_ORDER: Record<string, string[]> = {
     "concepts/tools",
     "concepts/workflows",
     "concepts/scheduling",
+    "concepts/webhook-triggers",
   ],
   reference: [
     "reference/cli",
