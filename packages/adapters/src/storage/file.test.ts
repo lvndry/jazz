@@ -73,7 +73,7 @@ describe("FileStorageService", () => {
   });
 
   describe("atomic write failure paths", () => {
-    function agentServiceWithMock(overrides: Partial<typeof mockFS>) {
+    function agentServiceWithMock(overrides: Record<string, unknown>) {
       const fs = {
         ...mockFS,
         makeDirectory: mock(() => Effect.void),
@@ -117,7 +117,7 @@ describe("FileStorageService", () => {
           return Effect.void;
         }),
         rename: mock((from: string, to: string) => {
-          expect(from).toBe(writtenTempPath);
+          expect(writtenTempPath).toBe(from);
           expect(to).toBe("/tmp/jazz/agents/a1.json");
           return Effect.void;
         }),
