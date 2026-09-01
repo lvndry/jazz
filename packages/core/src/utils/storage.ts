@@ -98,8 +98,11 @@ function toError(error: unknown): Error {
 /**
  * Acquire a directory mutex, reclaiming locks whose mtime exceeds the timeout.
  *
- * Staleness is based only on elapsed time, so FILE_LOCK_TIMEOUT_MS must exceed
- * the longest protected operation.
+ * Staleness is based only on elapsed time, so FILE_LOCK_TIMEOUT_MS must exceed the longest
+ * protected operation. The parent directory of `lockPath` must already exist, or every
+ * attempt fails the same way a held lock would and just retries until the budget is spent.
+ * Retry delay is jittered so several waiters don't poll in lockstep and keep losing the
+ * acquisition race to the same one.
  */
 function acquireLock(lockPath: string): Effect.Effect<void, Error, FileSystem.FileSystem> {
   return Effect.gen(function* () {
@@ -121,7 +124,8 @@ function acquireLock(lockPath: string): Effect.Effect<void, Error, FileSystem.Fi
         yield* fs.remove(lockPath, { recursive: true }).pipe(Effect.catchAll(() => Effect.void));
         continue;
       }
-      yield* Effect.sleep(FILE_LOCK_RETRY_DELAY_MS);
+      const jitter = Math.floor(Math.random() * FILE_LOCK_RETRY_DELAY_MS);
+      yield* Effect.sleep(FILE_LOCK_RETRY_DELAY_MS + jitter);
     }
     return yield* Effect.fail(new Error(`Failed to acquire lock at ${lockPath} after retries`));
   });

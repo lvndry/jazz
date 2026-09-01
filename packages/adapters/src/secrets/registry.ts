@@ -86,22 +86,26 @@ export function peerTokenPath(peerName: string): string {
   return `peers.${peerName}.token`;
 }
 
-/** A webhook trigger's bearer token, e.g. `triggers.github-deploy.token`. */
-const TRIGGER_TOKEN_PATH = /^triggers\.[^.]+\.token$/;
+/** A webhook's bearer token, e.g. `webhooks.github-deploy.token`. */
+const WEBHOOK_TOKEN_PATH = /^webhooks\.[^.]+\.token$/;
 
-/** The config path holding one trigger's token. */
-export function triggerTokenPath(triggerName: string): string {
-  return `triggers.${triggerName}.token`;
+/** The config path holding one webhook's token. */
+export function webhookTokenPath(webhookName: string): string {
+  return `webhooks.${webhookName}.token`;
 }
 
 /**
- * Environment variable supplying a trigger's token, for hosts with no keyring.
+ * Environment variable supplying a webhook's token, for hosts with no keyring.
  *
  * Same reasoning as `peerTokenEnvVar`: a container has no keyring, and this is exactly where
- * a daemon serving webhook triggers is likely to run.
+ * a daemon serving webhooks is likely to run.
  */
-export function triggerTokenEnvVar(triggerName: string): string {
-  return `JAZZ_TRIGGER_TOKEN_${triggerName.toUpperCase().replace(/[^A-Z0-9]/g, "_")}`;
+export function webhookTokenEnvVar(webhookName: string): string {
+  return `JAZZ_WEBHOOK_TOKEN_${secretEnvVarSuffix(webhookName)}`;
+}
+
+function secretEnvVarSuffix(name: string): string {
+  return name.toUpperCase().replace(/[^A-Z0-9]/g, "_");
 }
 
 /**
@@ -132,15 +136,16 @@ export const SECRET_PATHS: readonly string[] = [
 export function isSecretPath(path: string): boolean {
   if (path in SECRET_ENV_VARS) return true;
   // The daemon's own bearer token authenticates operator HTTP calls the same way a peer or
-  // trigger token authenticates theirs — it belongs in the keyring, not in plaintext config.
+  // webhook token authenticates theirs — it belongs in the keyring, not in plaintext config.
   if (path === DAEMON_TOKEN_PATH) return true;
   // A peer's bearer token authenticates this machine to somebody else's agent. It belongs
   // in the keyring for the same reason an API key does, and the config file names the peer
   // without ever holding its credential.
   if (PEER_TOKEN_PATH.test(path)) return true;
-  // A trigger's bearer token authenticates an inbound webhook caller; same reasoning as peer
-  // tokens, and it belongs in the keyring for the same reason.
-  if (TRIGGER_TOKEN_PATH.test(path)) return true;
+  // A webhook's bearer token authenticates an inbound caller. It belongs in the keyring for
+  // the same reason a peer token does: the config file names the webhook without ever
+  // holding its credential.
+  if (WEBHOOK_TOKEN_PATH.test(path)) return true;
   // Every OTLP header is treated as a secret, not just `authorization`: a
   // backend may name its credential header anything, and guessing wrong writes
   // it to disk in plaintext.
@@ -154,7 +159,7 @@ export function envVarForSecretPath(path: string): string | undefined {
   // Peer names are user-defined, so their variables are derived rather than enumerated.
   const peer = /^peers\.([^.]+)\.token$/.exec(path);
   if (peer?.[1] !== undefined) return peerTokenEnvVar(peer[1]);
-  const trigger = /^triggers\.([^.]+)\.token$/.exec(path);
-  if (trigger?.[1] !== undefined) return triggerTokenEnvVar(trigger[1]);
+  const webhook = /^webhooks\.([^.]+)\.token$/.exec(path);
+  if (webhook?.[1] !== undefined) return webhookTokenEnvVar(webhook[1]);
   return SECRET_ENV_VARS[path];
 }

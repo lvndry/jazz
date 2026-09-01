@@ -40,13 +40,12 @@ export function parseSpecialCommand(input: string): SpecialCommand {
     case "peers":
       return { type: "peers", args };
     case "switch":
+    case "models":
       return { type: "switch", args };
     case "compact":
       return { type: "compact", args };
     case "copy":
       return { type: "copy", args };
-    case "model":
-      return { type: "model", args };
     case "reasoning":
       return { type: "reasoning", args };
     case "config":

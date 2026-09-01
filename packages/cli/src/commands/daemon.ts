@@ -20,7 +20,7 @@ import {
   makeHandler,
   makePeerHandler,
   makePeerInviteHandler,
-  makeTriggerHandler,
+  makeWebhookHandler,
   refuseReason,
   type DaemonRequirements,
 } from "@jazz/adapters/daemon/server";
@@ -47,10 +47,11 @@ import {
 } from "@jazz/adapters/secrets/keyring";
 import { DAEMON_TOKEN_ENV_VAR, DAEMON_TOKEN_PATH } from "@jazz/adapters/secrets/registry";
 import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
-import { resolveTriggerToken } from "@jazz/adapters/triggers/token";
+import { resolveWebhookToken } from "@jazz/adapters/webhooks/token";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
+import type { AppConfig } from "@jazz/core/types/config";
 import { getJazzSchedulerInvocation } from "@jazz/core/utils/runtime";
 import { SchedulerServiceTag } from "@jazz/core/workflows/scheduler-service";
 import { Effect, Runtime } from "effect";
@@ -225,25 +226,28 @@ export function daemonCommand(options: DaemonCommandOptions) {
     // and never exercise the real layer.
     const runtime = yield* Effect.runtime<DaemonRequirements>();
 
-    const configService = yield* AgentConfigServiceTag;
-    const triggers = (yield* configService.appConfig).triggers ?? [];
-
     yield* Effect.async<void, never>((resume) => {
       const run = <A>(effect: Effect.Effect<A, unknown, DaemonRequirements>): Promise<A> =>
         Runtime.runPromise(runtime)(effect as Effect.Effect<A, never, DaemonRequirements>);
 
-      // Read live rather than once at startup — an invite accepted while this process is
-      // running must be usable immediately, without a restart. See `makePeerHandler`'s own
-      // comment for why a snapshot taken here would silently undo the point of accepting a
-      // peer over HTTP in the first place.
-      const resolvePeers = () =>
+      /**
+       * Read live rather than once at startup.
+       *
+       * A peer added by accepting an invite, or a webhook added by an external tool, must be
+       * usable immediately — a snapshot taken here would silently undo the point of
+       * accepting a peer over HTTP in the first place, and would make adding a webhook mean
+       * "add a webhook and remember to bounce the daemon".
+       */
+      const readLive = <T>(select: (appConfig: AppConfig) => readonly T[]) =>
         run(
           Effect.gen(function* () {
             const service = yield* AgentConfigServiceTag;
-            const appConfig = yield* service.appConfig;
-            return appConfig.peers ?? [];
+            return select(yield* service.appConfig);
           }),
         );
+
+      const resolvePeers = () => readLive((appConfig) => appConfig.peers ?? []);
+      const resolveWebhooks = () => readLive((appConfig) => appConfig.webhooks ?? []);
 
       const handle = makeHandler(daemonOptions, run);
       const handlePeer = makePeerHandler(
@@ -253,9 +257,9 @@ export function daemonCommand(options: DaemonCommandOptions) {
         run,
       );
       const handlePeerInvite = makePeerInviteHandler(run, undefined, daemonOptions.peerAgent);
-      const handleTrigger = makeTriggerHandler(
-        triggers,
-        (triggerName) => Effect.runPromise(resolveTriggerToken(triggerName)),
+      const handleWebhook = makeWebhookHandler(
+        resolveWebhooks,
+        (webhookName) => Effect.runPromise(resolveWebhookToken(webhookName)),
         run,
       );
       // A2A is a second door into the same peer-serving logic `handlePeer` already
@@ -270,7 +274,9 @@ export function daemonCommand(options: DaemonCommandOptions) {
       const routes: readonly { readonly prefix: string; readonly handle: typeof handle }[] = [
         { prefix: "/peer/", handle: handlePeer },
         { prefix: "/peer-invites/", handle: handlePeerInvite },
-        { prefix: "/triggers/", handle: handleTrigger },
+        { prefix: "/webhooks/", handle: handleWebhook },
+        // The pre-rename URL stays routed: it is written into other people's webhook
+        // settings, which jazz has no way to update.
         { prefix: "/a2a", handle: handleA2A },
         { prefix: "/.well-known/", handle: handleA2A },
       ];

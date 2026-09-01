@@ -14,4 +14,4 @@ Understand the building blocks of Jazz.
 - **[Scheduling](./scheduling.md)**: Automate workflows to run on a schedule.
 - **[Lexicon](./lexicon.md)**: What each of Jazz's words means, and which two are not the same thing.
 - **[Agent-to-agent](./agent-to-agent.md)**: Becoming peers by sending a link, instead of typing a shared secret onto two machines by hand.
-- **[Webhook triggers](./webhook-triggers.md)**: Letting any HTTP-capable system wake an agent with a fixed prompt, one-shot or threaded.
+- **[Webhooks](./webhooks.md)**: Letting any HTTP-capable system wake an agent with a fixed prompt, one-shot or threaded.

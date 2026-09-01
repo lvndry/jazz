@@ -103,6 +103,11 @@ export class AgentConfigServiceImpl implements AgentConfigService {
   private keyringBackend: KeyringBackend;
   private secretOrigins: Map<string, SecretOrigin>;
   private fileSecrets: Map<string, string>;
+  /**
+   * Secrets that could not be stored anywhere: no keyring, and no structural home in the
+   * config file. Tracked so a command can report the failure instead of claiming success.
+   */
+  private readonly unstorableSecrets = new Set<string>();
 
   constructor(
     initialConfig: AppConfig,
@@ -203,12 +208,29 @@ export class AgentConfigServiceImpl implements AgentConfigService {
     return Effect.succeed(true);
   }
 
+  secretStorageUnavailable(key: string): boolean {
+    return this.unstorableSecrets.has(key);
+  }
+
+  /**
+   * Write one config value, routing secrets away from the structural config.
+   *
+   * A secret whose root names a list has no structural home at all, and clearing one is a
+   * delete rather than an assignment: `undefined` leaves the parent objects behind as an
+   * empty husk once JSON.stringify drops the leaf.
+   */
   set<A>(key: string, value: A): Effect.Effect<void, never> {
     return Effect.gen(
       function* (this: AgentConfigServiceImpl) {
         const handled = yield* this.setMcpOverride(key, value);
         if (!handled) {
-          deepSet(this.currentConfig, key, value);
+          if (isSecretPath(key) && !structuralHomeFor(this.currentConfig, key)) {
+            yield* Effect.void;
+          } else if (isSecretPath(key) && isBlankSecret(value)) {
+            deepDelete(this.currentConfig as unknown as Record<string, unknown>, key);
+          } else {
+            deepSet(this.currentConfig, key, value);
+          }
         }
 
         if (isSecretPath(key)) {
@@ -241,6 +263,10 @@ export class AgentConfigServiceImpl implements AgentConfigService {
    * Route a secret to the keyring when one is usable, recording where it now
    * lives so it is excluded from the config file on persist. Falls through to
    * file storage (mode 0600) when there is no keyring.
+   *
+   * A secret with no structural home cannot use that fallback — JSON.stringify would discard
+   * it — so it is left unstored and reported through `secretStorageUnavailable` rather than
+   * silently lost.
    */
   private storeSecret(key: string, value: unknown): Effect.Effect<void, never> {
     return Effect.gen(
@@ -260,10 +286,12 @@ export class AgentConfigServiceImpl implements AgentConfigService {
           return;
         }
 
-        // No usable keyring: the value stays in the config file, which
-        // writePrivateFile keeps at mode 0600.
         this.secretOrigins.delete(key);
-        this.fileSecrets.set(key, value);
+        if (structuralHomeFor(this.currentConfig, key)) {
+          this.fileSecrets.set(key, value);
+        } else {
+          this.unstorableSecrets.add(key);
+        }
       }.bind(this),
     );
   }
@@ -444,9 +472,9 @@ function mergeConfig(base: AppConfig, override?: Partial<AppConfig>): AppConfig 
     // Replaced wholesale rather than merged: peers are a list keyed by name, and a
     // per-element merge would make removing one from a local override impossible.
     ...(override.peers && { peers: override.peers }),
-    // Replaced wholesale rather than merged: triggers are a list keyed by name, and a
+    // Replaced wholesale rather than merged: webhooks are a list keyed by name, and a
     // per-element merge would make removing one from a local override impossible.
-    ...(override.triggers && { triggers: override.triggers }),
+    ...(override.webhooks && { webhooks: override.webhooks }),
     ...(override.maxRetries !== undefined && { maxRetries: override.maxRetries }),
     ...(override.maxSubagentDepth !== undefined && {
       maxSubagentDepth: override.maxSubagentDepth,
@@ -1067,6 +1095,24 @@ function deepGet(obj: object, path: string): unknown {
  * the removal emptied — so dropping `llm.openai.api_key` does not leave an
  * orphaned `llm.openai: {}` behind in the written config.
  */
+/** A secret being cleared, matching what `storeSecret` treats as blank. */
+function isBlankSecret(value: unknown): boolean {
+  return typeof value !== "string" || value.trim() === "";
+}
+
+/**
+ * Whether a dotted path can be written into the config object at all.
+ *
+ * False when the first segment names a list. `AppConfig.webhooks` and `AppConfig.peers` are
+ * arrays, so `deepSet` on `webhooks.mira.token` would silently swap the array for an object
+ * and take every configured entry with it.
+ */
+function structuralHomeFor(config: AppConfig, path: string): boolean {
+  const root = path.split(".").filter(Boolean)[0];
+  if (root === undefined) return false;
+  return !Array.isArray((config as unknown as Record<string, unknown>)[root]);
+}
+
 function deepDelete(obj: Record<string, unknown>, path: string): void {
   const parts = path.split(".").filter(Boolean);
   if (parts.length === 0) return;
@@ -1090,7 +1136,15 @@ function deepDelete(obj: Record<string, unknown>, path: string): void {
 }
 
 /** Sets a value at a dotted path on any object. */
-function deepSet(obj: object, path: string, value: unknown): void {
+/**
+ * Write a dotted path, refusing to descend into a list.
+ *
+ * `typeof [] === "object"`, so walking into an array attaches a named property to it — and
+ * `JSON.stringify` drops named properties on arrays, so the value is written, reported as
+ * saved, and then silently discarded on the next persist. Returns whether the write landed
+ * so a caller can tell the difference between stored and quietly lost.
+ */
+function deepSet(obj: object, path: string, value: unknown): boolean {
   const parts = path.split(".").filter(Boolean);
   let cur: Record<string, unknown> = obj as Record<string, unknown>;
   for (let i = 0; i < parts.length; i++) {
@@ -1099,10 +1153,12 @@ function deepSet(obj: object, path: string, value: unknown): void {
       cur[key] = value;
     } else {
       const next = cur[key];
+      if (Array.isArray(next)) return false;
       if (!next || typeof next !== "object") {
         cur[key] = {};
       }
       cur = cur[key] as Record<string, unknown>;
     }
   }
+  return true;
 }

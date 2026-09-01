@@ -14,6 +14,7 @@ import {
 import type { Agent, AgentConfig } from "@jazz/core/types/index";
 import { parseJson } from "@jazz/core/utils/json";
 import { migrateAgentProviderName } from "@jazz/core/utils/provider-migration";
+import { writeFileStringAtomic } from "@jazz/core/utils/storage";
 import { Effect, Layer } from "effect";
 
 /** On-disk agent JSON may omit timestamps (e.g. repo templates); defaults apply at read time. */
@@ -191,7 +192,7 @@ export class FileStorageService implements StorageService {
     return Effect.gen(
       function* (this: FileStorageService) {
         const content = JSON.stringify(data, null, 2);
-        yield* this.fs.writeFileString(path, content).pipe(
+        yield* writeFileStringAtomic(this.fs, path, content, { tempPrefix: "agent" }).pipe(
           Effect.mapError(
             (error) =>
               new StorageError({

@@ -1,3 +1,4 @@
+import { envVarForSecretPath, isSecretPath } from "@jazz/adapters/secrets/registry";
 import { WEB_SEARCH_PROVIDERS } from "@jazz/core/agent/tools/web-search-tools";
 import { AVAILABLE_PROVIDERS, type ProviderName } from "@jazz/core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
@@ -170,10 +171,21 @@ export function setConfigCommand(
         return;
       }
 
-      const answer = yield* terminal.ask(`Enter value for ${targetKey}:`);
-      yield* terminal.info(`Setting config: ${targetKey} = ${answer}`);
+      const secret = isSecretPath(targetKey);
+      const answer = yield* terminal.ask(`Enter value for ${targetKey}:`, {
+        simple: true,
+        cancellable: true,
+        ...(secret ? { secret: true, placeholder: "Paste the value... (Esc to cancel)" } : {}),
+      });
+      // Nothing is a valid answer: `set(undefined)` stored the literal string.
+      if (answer === undefined || answer.trim() === "") {
+        yield* terminal.info("Cancelled — configuration unchanged.");
+        return;
+      }
       yield* configService.set(targetKey, answer);
-      yield* terminal.success(`Config set: ${targetKey} = ${answer}`);
+      yield* terminal.success(
+        secret ? `Config set: ${targetKey}` : `Config set: ${targetKey} = ${answer}`,
+      );
       return;
     }
 
@@ -195,8 +207,18 @@ export function setConfigCommand(
       );
     }
 
-    yield* terminal.info(`Setting config: ${targetKey} = ${value}`);
+    const settingSecret = isSecretPath(targetKey);
     yield* configService.set(targetKey, value);
-    yield* terminal.success(`Config set: ${targetKey} = ${value}`);
+    if (settingSecret && configService.secretStorageUnavailable(targetKey)) {
+      yield* terminal.error(
+        `Nowhere to store ${targetKey}: there is no usable keyring, and a per-entry token ` +
+          `cannot live in config.json. Supply it as ${envVarForSecretPath(targetKey) ?? "an environment variable"} ` +
+          `wherever the daemon runs.`,
+      );
+      return;
+    }
+    yield* terminal.success(
+      settingSecret ? `Config set: ${targetKey}` : `Config set: ${targetKey} = ${value}`,
+    );
   });
 }

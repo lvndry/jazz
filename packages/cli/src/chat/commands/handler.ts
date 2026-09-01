@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { FileSystem } from "@effect/platform";
 import { loadConversation, loadHistory } from "@jazz/adapters/history/conversation-history-service";
+import { authorizeServer, clearServerAuth, hasStoredAuth } from "@jazz/adapters/mcp/oauth";
 import { AgentRunner } from "@jazz/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
 import { sortAgents } from "@jazz/core/agent/agent-sort";
@@ -17,8 +18,6 @@ import { matchForbiddenCommand, runShellCommand } from "@jazz/core/agent/tools/s
 import { BUILTIN_TOOL_CATEGORIES } from "@jazz/core/agent/tools/tool-categories";
 import { WEB_SEARCH_PROVIDERS } from "@jazz/core/agent/tools/web-search-tools";
 import { normalizeToolConfig } from "@jazz/core/agent/utils/tool-config";
-import type { ProviderName } from "@jazz/core/constants/models";
-import { AVAILABLE_PROVIDERS } from "@jazz/core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import { AgentServiceTag, type AgentService } from "@jazz/core/interfaces/agent-service";
 import {
@@ -31,6 +30,7 @@ import {
   MCPServerManagerTag,
   isHttpConfig,
   isStdioConfig,
+  type MCPServerConfig,
   type MCPServerManager,
 } from "@jazz/core/interfaces/mcp-server";
 import { PersonaServiceTag, type PersonaService } from "@jazz/core/interfaces/persona-service";
@@ -124,9 +124,6 @@ export function handleSpecialCommand(
 
       case "copy":
         return yield* handleCopyCommand(terminal, conversationHistory);
-
-      case "model":
-        return yield* handleModelCommand(terminal, agent, command.args);
 
       case "reasoning":
         return yield* handleReasoningCommand(terminal, agent, command.args);
@@ -1113,117 +1110,6 @@ function handleCopyCommand(
 }
 
 /**
- * Handle /model command - Show or change model and reasoning effort
- */
-function handleModelCommand(
-  terminal: TerminalService,
-  agent: CommandContext["agent"],
-  args: string[],
-): Effect.Effect<CommandResult, StorageError | StorageNotFoundError | Error, AgentService> {
-  return Effect.gen(function* () {
-    const agentService = yield* AgentServiceTag;
-
-    // No args: show current model info
-    if (args.length === 0) {
-      yield* terminal.log(fmt.heading("Current Model"));
-      yield* terminal.log(fmt.keyValueCompact("Provider", agent.config.llmProvider));
-      yield* terminal.log(fmt.keyValueCompact("Model", agent.config.llmModel));
-      yield* terminal.log(fmt.keyValueCompact("Persona", agent.config.persona));
-      yield* terminal.log(
-        fmt.keyValueCompact("Reasoning", agent.config.reasoningEffort ?? "default"),
-      );
-      yield* terminal.log(fmt.blank());
-      return { shouldContinue: true };
-    }
-
-    // Handle "reasoning" subcommand
-    if (args[0] === "reasoning") {
-      const level = args[1];
-      const validLevels = ["low", "medium", "high", "disable"] as const;
-      if (!level || !validLevels.includes(level as (typeof validLevels)[number])) {
-        yield* terminal.error(`Invalid reasoning level. Use: ${validLevels.join(", ")}`);
-        yield* terminal.log("");
-        return { shouldContinue: true };
-      }
-
-      const updatedConfig = {
-        ...agent.config,
-        reasoningEffort: level as "low" | "medium" | "high" | "disable",
-      };
-      const newAgent = yield* agentService.updateAgent(agent.id, { config: updatedConfig });
-      yield* terminal.success(`Reasoning effort set to: ${level}`);
-
-      // Check if model supports tools and warn if not
-      const modelMeta = yield* Effect.promise(() =>
-        getModelsDevMetadata(newAgent.config.llmModel, newAgent.config.llmProvider),
-      );
-      if (
-        modelMeta &&
-        !modelMeta.supportsTools &&
-        newAgent.config.tools &&
-        newAgent.config.tools.length > 0
-      ) {
-        yield* terminal.log("");
-        yield* terminal.warn(
-          `⚠️  The current model (${newAgent.config.llmModel}) does not support tools. Your configured tools will not be available.`,
-        );
-      }
-
-      yield* terminal.log("");
-      return { shouldContinue: true, newAgent };
-    }
-
-    // Handle provider/model argument
-    const modelArg = args.join(" ");
-    const slashIndex = modelArg.indexOf("/");
-    if (slashIndex === -1) {
-      yield* terminal.error("Format: /model <provider>/<model>");
-      yield* terminal.info("Example: /model openai/gpt-4o");
-      yield* terminal.log("");
-      return { shouldContinue: true };
-    }
-
-    const providerName = modelArg.substring(0, slashIndex) as ProviderName;
-    const modelId = modelArg.substring(slashIndex + 1);
-
-    // Validate provider exists
-    if (!AVAILABLE_PROVIDERS.includes(providerName)) {
-      yield* terminal.error(`Unknown provider: ${providerName}`);
-      yield* terminal.info(`Available: ${AVAILABLE_PROVIDERS.join(", ")}`);
-      yield* terminal.log("");
-      return { shouldContinue: true };
-    }
-
-    const updatedConfig = {
-      ...agent.config,
-      llmProvider: providerName,
-      llmModel: modelId,
-    };
-    const newAgent = yield* agentService.updateAgent(agent.id, { config: updatedConfig });
-    yield* terminal.success(`Model switched to: ${providerName}/${modelId}`);
-
-    // Check if model supports tools and warn if not
-    const modelMeta = yield* Effect.promise(() =>
-      getModelsDevMetadata(newAgent.config.llmModel, newAgent.config.llmProvider),
-    );
-    if (
-      modelMeta &&
-      !modelMeta.supportsTools &&
-      newAgent.config.tools &&
-      newAgent.config.tools.length > 0
-    ) {
-      yield* terminal.log("");
-      yield* terminal.warn(
-        `⚠️  The current model (${newAgent.config.llmModel}) does not support tools. Your configured tools will not be available.`,
-      );
-    }
-
-    yield* terminal.log("");
-    return { shouldContinue: true, newAgent };
-  });
-}
-
-/**
  * Handle /reasoning command - Change reasoning effort for this session only.
  *
  * The level is applied to the live agent for the rest of the session but is
@@ -1897,6 +1783,303 @@ function handleStatsCommand(
  * unreachable for the rest of the session: the only fix was to quit, repair it,
  * and start the conversation over.
  */
+/**
+ * Runtime state of one configured MCP server, resolved without connecting.
+ *
+ * "needs-auth" is a heuristic, not a live check: an HTTP server with no static
+ * headers and no stored OAuth tokens will hit the interactive auth flow on its
+ * next connection attempt. It may turn out the server does not require auth at
+ * all — the label is a hint, not a guarantee, exactly like the "not connected"
+ * case, which covers both "never tried yet this session" and "last attempt
+ * failed" since Jazz does not track connection failures across turns.
+ */
+type McpStatusKind = "connected" | "disabled" | "needs-auth" | "idle";
+
+interface McpServerStatus {
+  readonly config: MCPServerConfig;
+  readonly kind: McpStatusKind;
+  /** Whether this is an HTTP server that authenticates via the stored-token OAuth flow. */
+  readonly usesOAuth: boolean;
+  readonly hasStoredAuth: boolean;
+}
+
+function resolveMcpServerStatus(
+  mcpManager: MCPServerManager,
+  config: MCPServerConfig,
+): Effect.Effect<McpServerStatus, never> {
+  return Effect.gen(function* () {
+    const enabled = config.enabled !== false;
+    const connected = enabled ? yield* mcpManager.isConnected(config.name) : false;
+    const usesOAuth = isHttpConfig(config) && !config.headers;
+    const storedAuth = usesOAuth ? yield* hasStoredAuth(config.name) : false;
+
+    const kind: McpStatusKind = !enabled
+      ? "disabled"
+      : connected
+        ? "connected"
+        : usesOAuth && !storedAuth
+          ? "needs-auth"
+          : "idle";
+
+    return { config, kind, usesOAuth, hasStoredAuth: storedAuth };
+  });
+}
+
+function mcpStatusLabel(kind: McpStatusKind): string {
+  switch (kind) {
+    case "connected":
+      return "connected";
+    case "disabled":
+      return "disabled";
+    case "needs-auth":
+      return "needs authentication";
+    case "idle":
+      return "not connected";
+  }
+}
+
+/** One status-line rendering of a server, for the non-interactive listing. */
+function mcpStatusLine(status: McpServerStatus): string {
+  const { config, kind } = status;
+  switch (kind) {
+    case "connected":
+      return fmt.statusConnected(config.name);
+    case "disabled":
+      return fmt.statusDisabled(config.name);
+    case "needs-auth":
+      return fmt.statusWarn(config.name);
+    case "idle":
+      return fmt.statusDisconnected(config.name);
+  }
+}
+
+/** Glyph for the same four states, for the interactive picker's plain-text choice labels. */
+function mcpStatusGlyph(kind: McpStatusKind): string {
+  const glyphs = getGlyphs();
+  switch (kind) {
+    case "connected":
+      return glyphs.active;
+    case "disabled":
+      return glyphs.laneEnd;
+    case "needs-auth":
+      return glyphs.warn;
+    case "idle":
+      return glyphs.pending;
+  }
+}
+
+function describeMcpTransport(config: MCPServerConfig): string {
+  if (isHttpConfig(config)) return `http · ${config.url}`;
+  return `stdio · ${config.command}${config.args?.length ? ` ${config.args.join(" ")}` : ""}`;
+}
+
+/**
+ * Actions available for one server's current state, in menu order.
+ *
+ * A disabled server offers only Enable — everything else (reconnecting,
+ * auth, trust) is moot until it is turned back on.
+ */
+function mcpServerActions(status: McpServerStatus): readonly { name: string; value: string }[] {
+  if (status.kind === "disabled") {
+    return [
+      { name: "Enable", value: "enable" },
+      { name: "Back", value: "back" },
+    ];
+  }
+
+  const actions: { name: string; value: string }[] = [];
+  if (status.kind === "connected") {
+    actions.push({ name: "Reconnect", value: "reconnect" });
+    actions.push({ name: "Disconnect", value: "disconnect" });
+  } else {
+    actions.push({ name: "Connect", value: "connect" });
+  }
+  if (status.kind === "needs-auth") {
+    actions.push({ name: "Authenticate", value: "authenticate" });
+  }
+  if (status.usesOAuth && status.hasStoredAuth) {
+    actions.push({ name: "Forget stored credentials", value: "logout" });
+  }
+  actions.push({
+    name: status.config.trusted === true ? "Untrust" : "Trust",
+    value: "toggle-trust",
+  });
+  actions.push({ name: "Disable", value: "disable" });
+  actions.push({ name: "Back", value: "back" });
+  return actions;
+}
+
+/**
+ * Run one action against a server and report the outcome. Returns after a
+ * single action — the caller loops back to a freshly resolved status so the
+ * action menu never goes stale.
+ */
+function runMcpServerAction(
+  terminal: TerminalService,
+  mcpManager: MCPServerManager,
+  configService: AgentConfigService,
+  status: McpServerStatus,
+  action: string,
+): Effect.Effect<void, never, LoggerService> {
+  const { config } = status;
+  return Effect.gen(function* () {
+    switch (action) {
+      case "enable": {
+        yield* configService.set(`mcpServers.${config.name}`, { enabled: true });
+        yield* terminal.success(`Enabled ${config.name}`);
+        return;
+      }
+      case "disable": {
+        yield* mcpManager.disconnectServer(config.name).pipe(Effect.catchAll(() => Effect.void));
+        yield* configService.set(`mcpServers.${config.name}`, { enabled: false });
+        yield* terminal.success(`Disabled ${config.name}`);
+        return;
+      }
+      case "connect": {
+        const result = yield* mcpManager.connectServer(config).pipe(Effect.either);
+        if (result._tag === "Left") {
+          yield* terminal.error(result.left.reason);
+          if (result.left.suggestion) yield* terminal.info(result.left.suggestion);
+          return;
+        }
+        yield* terminal.success(`Connected to ${config.name}`);
+        return;
+      }
+      case "reconnect": {
+        yield* mcpManager.disconnectServer(config.name).pipe(Effect.catchAll(() => Effect.void));
+        const result = yield* mcpManager.connectServer(config).pipe(Effect.either);
+        if (result._tag === "Left") {
+          yield* terminal.error(result.left.reason);
+          if (result.left.suggestion) yield* terminal.info(result.left.suggestion);
+          return;
+        }
+        yield* terminal.success(`Reconnected to ${config.name}`);
+        return;
+      }
+      case "disconnect": {
+        yield* mcpManager.disconnectServer(config.name).pipe(Effect.catchAll(() => Effect.void));
+        yield* terminal.success(`Disconnected ${config.name}`);
+        return;
+      }
+      case "authenticate": {
+        if (!isHttpConfig(config)) return;
+        yield* terminal.info(`Starting authorization for ${config.name}...`);
+        const result = yield* authorizeServer(config.name, config.url, (url) => {
+          process.stdout.write(`\nIf your browser did not open, visit:\n${url}\n\n`);
+        }).pipe(Effect.either);
+        if (result._tag === "Left") {
+          yield* terminal.error(`Authorization failed: ${result.left.message}`);
+          return;
+        }
+        yield* terminal.success(`Authorized ${config.name}.`);
+        return;
+      }
+      case "logout": {
+        yield* clearServerAuth(config.name);
+        yield* terminal.success(`Cleared stored credentials for ${config.name}.`);
+        return;
+      }
+      case "toggle-trust": {
+        const nextTrusted = config.trusted !== true;
+        yield* configService.set(`mcpServers.${config.name}`, { trusted: nextTrusted });
+        yield* terminal.success(`${nextTrusted ? "Trusted" : "Untrusted"} ${config.name}`);
+        return;
+      }
+    }
+  });
+}
+
+/**
+ * Detail view + action menu for one server. Prints its current state, then
+ * lets the user act on it. Returns to the caller on "Back" or Escape.
+ */
+function runMcpServerDetail(
+  terminal: TerminalService,
+  mcpManager: MCPServerManager,
+  configService: AgentConfigService,
+  status: McpServerStatus,
+): Effect.Effect<void, never, LoggerService> {
+  const { config } = status;
+  return Effect.gen(function* () {
+    yield* terminal.log(fmt.blank());
+    yield* terminal.log(fmt.heading(config.name));
+    yield* terminal.log(fmt.keyValue("Status", mcpStatusLabel(status.kind)));
+    yield* terminal.log(fmt.keyValue("Transport", config.transport ?? "stdio"));
+    yield* terminal.log(
+      fmt.keyValue("Trust", config.trusted === true ? "trusted" : "asks every call"),
+    );
+    if (isStdioConfig(config)) {
+      const cmd = `${config.command}${config.args?.length ? " " + config.args.join(" ") : ""}`;
+      yield* terminal.log(fmt.keyValue("Command", cmd));
+    } else if (isHttpConfig(config)) {
+      yield* terminal.log(fmt.keyValue("URL", config.url));
+    }
+    if (status.kind === "connected") {
+      const tools = yield* mcpManager.getServerTools(config.name).pipe(Effect.either);
+      if (tools._tag === "Right") {
+        yield* terminal.log(fmt.keyValue("Tools", String(tools.right.length)));
+      }
+    }
+    yield* terminal.log(fmt.blank());
+
+    const action = yield* terminal.select<string>(`${config.name} — choose an action`, {
+      choices: mcpServerActions(status),
+    });
+
+    if (!action || action === "back") return;
+
+    yield* runMcpServerAction(terminal, mcpManager, configService, status, action);
+    yield* terminal.log(fmt.blank());
+  });
+}
+
+/**
+ * Interactive `/mcp` overlay: pick a server to see its live status, then an
+ * action to run on it. Loops back to a freshly resolved list after every
+ * action so reconnects, auth, and enable/disable are visible immediately.
+ */
+function runMcpOverlay(
+  terminal: TerminalService,
+  mcpManager: MCPServerManager,
+  configService: AgentConfigService,
+): Effect.Effect<CommandResult, never, LoggerService | AgentConfigService> {
+  return Effect.gen(function* () {
+    while (true) {
+      const servers = yield* mcpManager.listServers();
+      if (servers.length === 0) {
+        yield* terminal.info("No MCP servers configured.");
+        yield* terminal.log(fmt.blank());
+        return { shouldContinue: true };
+      }
+
+      const statuses = yield* Effect.all(
+        servers.map((server) => resolveMcpServerStatus(mcpManager, server)),
+      );
+
+      const selectedName = yield* terminal.select<string>("MCP servers", {
+        choices: [
+          ...statuses.map((status) => ({
+            name: `${mcpStatusGlyph(status.kind)} ${status.config.name} — ${mcpStatusLabel(status.kind)}`,
+            value: status.config.name,
+            description: describeMcpTransport(status.config),
+          })),
+          { name: "Done", value: "__done" },
+        ],
+      });
+
+      if (!selectedName || selectedName === "__done") {
+        yield* terminal.log(fmt.blank());
+        return { shouldContinue: true };
+      }
+
+      const status = statuses.find((s) => s.config.name === selectedName);
+      if (!status) continue;
+
+      yield* runMcpServerDetail(terminal, mcpManager, configService, status);
+    }
+  });
+}
+
 function handleMcpCommand(
   terminal: TerminalService,
   args: readonly string[] = [],
@@ -1936,24 +2119,26 @@ function handleMcpCommand(
       return { shouldContinue: true };
     }
 
-    yield* terminal.log(fmt.heading("MCP Servers"));
-
     if (servers.length === 0) {
+      yield* terminal.log(fmt.heading("MCP Servers"));
       yield* terminal.info("No MCP servers configured.");
       yield* terminal.log(fmt.keyValueCompact("Config", "~/.agents/mcp.json"));
       yield* terminal.log(fmt.blank());
       return { shouldContinue: true };
     }
 
-    for (const server of servers) {
-      const connected = yield* mcpManager.isConnected(server.name);
-      const enabledStr = server.enabled === false ? "disabled" : "enabled";
-      const connectedStr = connected ? "connected" : "disconnected";
+    if (terminal.isInteractive && subcommand === undefined) {
+      const configService = yield* AgentConfigServiceTag;
+      return yield* runMcpOverlay(terminal, mcpManager, configService);
+    }
 
-      yield* terminal.log(
-        connected ? fmt.statusConnected(server.name) : fmt.statusDisconnected(server.name),
-      );
-      yield* terminal.log(fmt.keyValue("Status", `${enabledStr}, ${connectedStr}`));
+    yield* terminal.log(fmt.heading("MCP Servers"));
+
+    for (const server of servers) {
+      const status = yield* resolveMcpServerStatus(mcpManager, server);
+
+      yield* terminal.log(mcpStatusLine(status));
+      yield* terminal.log(fmt.keyValue("Status", mcpStatusLabel(status.kind)));
       yield* terminal.log(fmt.keyValue("Transport", server.transport ?? "stdio"));
       // Trust decides whether this server's tools can skip approval prompts, so
       // it belongs next to the connection state rather than buried in config.
@@ -1968,7 +2153,7 @@ function handleMcpCommand(
         yield* terminal.log(fmt.keyValue("URL", server.url));
       }
 
-      if (connected) {
+      if (status.kind === "connected") {
         const tools = yield* mcpManager.getServerTools(server.name).pipe(Effect.either);
         if (tools._tag === "Right") {
           yield* terminal.log(fmt.keyValue("Tools", String(tools.right.length)));

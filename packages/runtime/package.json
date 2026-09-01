@@ -2,7 +2,7 @@
   "name": "@jazz/runtime",
   "version": "0.15.6",
   "private": true,
-  "description": "Composition root \u2014 wires @jazz/core, @jazz/adapters, and @jazz/cli into the running Jazz CLI. Compiled into the standalone binary.",
+  "description": "Composition root, wiring @jazz/core, @jazz/adapters, and @jazz/cli into the running Jazz CLI. Compiled into the standalone binary.",
   "type": "module",
   "exports": {
     "./*": [

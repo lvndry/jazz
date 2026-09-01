@@ -303,6 +303,23 @@ describe("MCP Schema Converter", () => {
       });
     });
 
+    it("fills in a missing top-level type as object", () => {
+      const schema = {
+        properties: {
+          query: { type: "string", description: "Search query" },
+        },
+        required: ["query"],
+      };
+      const unwrapped = unwrapMCPJsonSchema(schema);
+      expect(unwrapped).toEqual({
+        type: "object",
+        properties: {
+          query: { type: "string", description: "Search query" },
+        },
+        required: ["query"],
+      });
+    });
+
     it("should handle nested object schemas", () => {
       const schema = {
         type: "object",

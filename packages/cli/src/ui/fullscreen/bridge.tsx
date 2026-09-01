@@ -103,6 +103,9 @@ const WAITING_ROTATE_MS = 4_000;
 
 /** How long the band holds its height after it has room to shrink. */
 const SETTLE_MS = 800;
+
+/** Window in which a second idle Ctrl+C confirms the first's warning. */
+const QUIT_CONFIRM_WINDOW_MS = 1500;
 export const APPROVAL_ARM_MS = 250;
 
 /** Discard keystrokes already sitting on stdin before the card can see them. */
@@ -1116,6 +1119,14 @@ export function FullscreenBridge(): React.ReactNode {
   const background = useRef(session.backgroundHandler);
   background.current = session.backgroundHandler;
   const quitArmed = useRef(false);
+  const quitArmTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const disarmQuit = useCallback(() => {
+    quitArmed.current = false;
+    if (quitArmTimer.current !== null) {
+      clearTimeout(quitArmTimer.current);
+      quitArmTimer.current = null;
+    }
+  }, []);
 
   useEffect(() => {
     updatePromptControls(initialPromptControls(prompt));
@@ -1133,12 +1144,12 @@ export function FullscreenBridge(): React.ReactNode {
   }, [menu, setMenuIndex]);
 
   useEffect(() => {
-    if (!busy) quitArmed.current = false;
-  }, [busy]);
+    if (!busy) disarmQuit();
+  }, [busy, disarmQuit]);
 
   useEffect(() => {
-    if (session.interruptHandler === null) quitArmed.current = false;
-  }, [session.interruptHandler]);
+    if (session.interruptHandler === null) disarmQuit();
+  }, [session.interruptHandler, disarmQuit]);
 
   useEffect(() => {
     if (approval === null) return;
@@ -1184,8 +1195,8 @@ export function FullscreenBridge(): React.ReactNode {
     activity.phase === "thinking";
   const runActive = busy || streaming.length > 0 || running;
   useEffect(() => {
-    if (!runActive) quitArmed.current = false;
-  }, [runActive]);
+    if (!runActive) disarmQuit();
+  }, [runActive, disarmQuit]);
   useEffect(() => {
     if (!runActive) {
       runStartedAt.current = null;
@@ -1314,6 +1325,19 @@ export function FullscreenBridge(): React.ReactNode {
     });
   }, [commitComposer]);
 
+  /**
+   * Deletes from the caret to the start of the current logical line, the way
+   * Cmd+Backspace does in every macOS text field and Ctrl+U does at a
+   * readline prompt.
+   */
+  const deleteLineBeforeCaret = useCallback(() => {
+    commitComposer((current) => {
+      const characters = [...current.text];
+      const at = Math.max(0, Math.min(current.caret, characters.length));
+      return deleteRange(current, lineStartBefore(characters, at), at);
+    });
+  }, [commitComposer]);
+
   const submit = useCallback(
     (text: string) => {
       const active = promptRef.current;
@@ -1417,14 +1441,41 @@ export function FullscreenBridge(): React.ReactNode {
       // in-flight work instead of the process dying mid-tool-call. That makes
       // handling it here mandatory: an alternate screen you cannot leave is the
       // worst failure this interface can have, so the first press cancels if
-      // there is anything to cancel and the second always quits.
+      // there is anything to cancel; otherwise it arms a warning and only the
+      // second press (within the window) acts — resuming a chat conversation
+      // rather than killing the whole process, since /exit already returns
+      // cleanly to the wizard's main menu.
       if (isInterruptChord({ name, ctrl, shift, super: superKey, sequence })) {
         if (interrupt.current !== null && quitArmed.current === false) {
           quitArmed.current = true;
           interrupt.current();
           return true;
         }
-        process.kill(process.pid, "SIGINT");
+
+        if (quitArmed.current === false) {
+          quitArmed.current = true;
+          const inChat = promptRef.current?.type === "chat";
+          store.printOutput({
+            type: "warn",
+            message: inChat
+              ? "Press Ctrl+C again to leave this conversation and return to the main menu."
+              : "Press Ctrl+C again to exit.",
+            timestamp: new Date(),
+          });
+          quitArmTimer.current = setTimeout(() => {
+            quitArmed.current = false;
+            quitArmTimer.current = null;
+          }, QUIT_CONFIRM_WINDOW_MS);
+          return true;
+        }
+
+        disarmQuit();
+        const active = promptRef.current;
+        if (active?.type === "chat") {
+          active.resolve("/exit");
+        } else {
+          process.kill(process.pid, "SIGINT");
+        }
         return true;
       }
 
@@ -2001,6 +2052,13 @@ export function FullscreenBridge(): React.ReactNode {
         }
       }
 
+      // Cmd+Backspace on macOS and the classic readline Ctrl+U both mean
+      // "delete to the start of the line" — checked before the word-delete
+      // binding below since Cmd is reported via `super`, not `meta`/`option`.
+      if ((name === "backspace" && superKey) || isCtrlLetter({ name, ctrl }, "u")) {
+        deleteLineBeforeCaret();
+        return true;
+      }
       // Option+Backspace on macOS and Ctrl+Backspace elsewhere both mean
       // "delete the previous word" — this keyboard library reports the first
       // as `meta`, not `option`, which is easy to miss without checking the
@@ -2091,9 +2149,11 @@ export function FullscreenBridge(): React.ReactNode {
       moveComposer,
       updateHistory,
       deleteWordBeforeCaret,
+      deleteLineBeforeCaret,
       updatePromptEditor,
       updatePromptQuestion,
       updatePromptFile,
+      disarmQuit,
     ],
   );
 

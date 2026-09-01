@@ -151,8 +151,8 @@ function getEmbeddedAssetRoot(): string | null {
  * it is discarded when that task is done.
  *
  * Both segments are sanitized because a conversation id is no longer always machine-minted:
- * a threaded webhook trigger derives one from a caller-supplied thread key, and a raw
- * `../../..` joined in here would be an arbitrary-path write from an authenticated caller.
+ * a threaded webhook derives one from a caller-supplied thread key, and a raw `../../..`
+ * joined in here would be an arbitrary-path write from an authenticated caller.
  */
 export function getWorkStateDirectory(agentId: string, conversationId: string): string {
   return path.join(

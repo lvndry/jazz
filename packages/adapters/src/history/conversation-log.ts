@@ -32,6 +32,8 @@ import { getHistoryDirectory } from "@jazz/core/utils/paths";
 import { storageSafeSegment } from "@jazz/core/utils/storage-id";
 import { Effect, Option } from "effect";
 
+const CONVERSATION_LOCKS_DIRECTORY_NAME = "conversation-locks";
+
 /**
  * Schema version stamped on every header.
  *
@@ -72,6 +74,15 @@ export function conversationLogPath(
   return path.join(
     agentConversationsDirectory(agentId, historyDirectory),
     `${storageSafeSegment(conversationId)}${CONVERSATION_LOG_EXTENSION}`,
+  );
+}
+
+/** Cross-process lock path for one agent's saves; kept out of `conversations/` so listing never sees it. */
+export function agentConversationLockPath(agentId: string, historyDirectory?: string): string {
+  return path.join(
+    historyDirectory ?? getHistoryDirectory(),
+    CONVERSATION_LOCKS_DIRECTORY_NAME,
+    `${storageSafeSegment(agentId)}.lock`,
   );
 }
 
@@ -391,10 +402,6 @@ export function deleteConversationLog(
     const fs = yield* FileSystem.FileSystem;
     const logPath = conversationLogPath(agentId, conversationId, historyDirectory);
     yield* fs.remove(logPath).pipe(Effect.catchAll(() => Effect.void));
-    // The append cache says "this file already holds N messages and a header". Leaving it
-    // behind a delete would make the next append skip both, writing a headerless log that
-    // reduces to nothing.
-    appendStates.delete(logPath);
   });
 }
 
@@ -403,20 +410,6 @@ interface AppendState {
   readonly lastMessageFingerprint: string;
   readonly title: string;
   readonly endedAt: string | null;
-}
-
-/**
- * What this process has already appended, keyed by log path.
- *
- * Without it, appending "only the new messages" would need a full read of the log on every
- * turn, which is the cost the append-only format exists to avoid. A miss (first turn after
- * a resume, or another process holding the conversation) costs exactly one read.
- */
-const appendStates = new Map<string, AppendState>();
-
-/** Drops the in-process append cache. Tests use it between temporary directories. */
-export function resetConversationLogAppendCache(): void {
-  appendStates.clear();
 }
 
 function messageFingerprint(message: ChatMessage): string {
@@ -501,10 +494,7 @@ export function recordConversationTranscript(
       .makeDirectory(path.dirname(logPath), { recursive: true })
       .pipe(Effect.mapError(toError));
 
-    const cached = appendStates.get(logPath);
-    const loaded = cached
-      ? { state: cached, needsLeadingNewline: false }
-      : yield* loadAppendState(fs, logPath);
+    const loaded = yield* loadAppendState(fs, logPath);
 
     let state = loaded.state;
     const chunks: string[] = [];
@@ -566,12 +556,5 @@ export function recordConversationTranscript(
         .writeFileString(logPath, chunks.join(""), { flag: "a" })
         .pipe(Effect.mapError(toError));
     }
-
-    appendStates.set(logPath, {
-      messageCount: messages.length,
-      lastMessageFingerprint: fingerprintAt(messages, messages.length - 1),
-      title: nextTitle,
-      endedAt: endedAtChanged ? input.endedAt : state.endedAt,
-    });
   });
 }

@@ -117,7 +117,7 @@ interface Connection {
  * `@modelcontextprotocol/sdk` rather than a wrapper, which is what makes tool
  * annotations, prompts, and list-changed notifications reachable.
  */
-class MCPServerManagerImpl implements MCPServerManager {
+export class MCPServerManagerImpl implements MCPServerManager {
   private connections: Map<string, Connection>;
   private toolsChangedHandlers: Set<ToolsChangedHandler>;
   private logger: LoggerService;
@@ -173,6 +173,63 @@ class MCPServerManagerImpl implements MCPServerManager {
   }
 
   /**
+   * Build a fresh MCP client wired up for one server, with request/notification
+   * handlers registered.
+   *
+   * Called once per connection attempt rather than once per `connectServer` call: a
+   * retried attempt gets its own client instance instead of reusing one whose internal
+   * state may have been left half-initialized by the attempt that just failed.
+   */
+  private buildClient(config: MCPServerConfig): Client {
+    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    const manager = this;
+    const client = new Client(
+      { name: "jazz", version: packageJson.version },
+      {
+        // Roots isn't declared: tools already take directories as parameters.
+        // `elicitation` is advertised even for surfaces with no one to ask —
+        // declining is a valid answer, and one handler covers every server.
+        capabilities: { elicitation: {} },
+        // Negotiates whichever protocol version the server speaks.
+        versionNegotiation: { mode: "auto" },
+        // The SDK re-lists tools on its own and hands back the new items, so
+        // nothing here needs to re-fetch by hand.
+        listChanged: {
+          tools: {
+            onChanged: (error, items) => {
+              if (error) {
+                void Effect.runPromise(
+                  manager.logger
+                    .warn(
+                      `Failed to refresh tools for ${config.name} after a list change: ${error.message}`,
+                    )
+                    .pipe(Effect.catchAllCause(() => Effect.void)),
+                );
+                return;
+              }
+              manager.handleToolsChanged(config.name, items);
+            },
+          },
+        },
+      },
+    );
+
+    // v2 registers handlers by method name rather than by schema.
+    client.setRequestHandler("elicitation/create", (request) =>
+      manager.handleElicitation(config.name, request.params),
+    );
+
+    return client;
+  }
+
+  /** Best-effort close of a client that will never become a stored connection. */
+  private closeQuietly(client: Client): Effect.Effect<void, never> {
+    return Effect.tryPromise({ try: () => client.close(), catch: () => undefined }).pipe(
+      Effect.catchAll(() => Effect.void),
+    );
+  }
+
+  /**
    * Fan a server's new tool list out to subscribers.
    *
    * `items` is null only when auto-refresh is disabled, which Jazz does not do;
@@ -221,66 +278,39 @@ class MCPServerManagerImpl implements MCPServerManager {
 
       yield* manager.logger.debug(`Connecting to MCP server: ${config.name}`);
 
-      const { transport, transportType } = manager.buildTransport(config);
+      /**
+       * One connection attempt: fresh transport and client, so a retry never reuses a
+       * failed attempt's half-initialized state. `closeQuietly` runs on any non-success
+       * exit — failure, timeout, or interruption — via `onExit`, which Effect guarantees
+       * to run even when the fiber is interrupted mid-await; a `tapErrorCause` here would
+       * not, since interrupting a suspended `Promise` with no cancellation hook bypasses
+       * the composed continuation entirely.
+       */
+      const attemptConnect: Effect.Effect<
+        { client: Client; transport: MCPTransport; transportType: MCPTransportType },
+        Error
+      > = Effect.gen(function* () {
+        const { transport, transportType } = manager.buildTransport(config);
+        const client = manager.buildClient(config);
 
-      const client = new Client(
-        { name: "jazz", version: packageJson.version },
-        {
-          // Roots is deliberately not declared: 2026-07-28 deprecates it
-          // (SEP-2577) and removes notifications/roots/list_changed, with the
-          // migration being to pass directories as tool parameters or server
-          // config instead.
-          //
-          // `elicitation` is advertised unconditionally even though a given
-          // surface may have no way to ask a person: the capability says Jazz
-          // speaks the request, and declining is a valid answer to it. On a
-          // 2026-era connection the SDK fulfils the same handler through the
-          // multi-round-trip `input_required` flow, so one handler serves both.
-          capabilities: { elicitation: {} },
-          // Probe `server/discover` for the 2026-07-28 era and fall back to the
-          // 2025 handshake against older servers, at the cost of one round trip.
-          versionNegotiation: { mode: "auto" },
-          // Era-transparent list-change handling: unsolicited notifications on
-          // 2025 connections, an auto-opened `subscriptions/listen` stream on
-          // 2026 ones. The SDK re-lists and hands back the new items, which is
-          // why nothing here re-fetches by hand.
-          listChanged: {
-            tools: {
-              onChanged: (error, items) => {
-                if (error) {
-                  void Effect.runPromise(
-                    manager.logger
-                      .warn(
-                        `Failed to refresh tools for ${config.name} after a list change: ${error.message}`,
-                      )
-                      .pipe(Effect.catchAllCause(() => Effect.void)),
-                  );
-                  return;
-                }
-                manager.handleToolsChanged(config.name, items);
-              },
-            },
-          },
-        },
-      );
+        yield* Effect.tryPromise({
+          try: () => client.connect(transport as Transport),
+          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+        }).pipe(
+          Effect.timeoutFail({
+            duration: `${CONNECT_TIMEOUT_MS} millis`,
+            onTimeout: () =>
+              new Error(`Server did not complete the MCP handshake within ${CONNECT_TIMEOUT_MS}ms`),
+          }),
+          Effect.onExit((exit) =>
+            exit._tag === "Failure" ? manager.closeQuietly(client) : Effect.void,
+          ),
+        );
 
-      // v2 registers handlers by method name rather than by schema.
-      client.setRequestHandler("elicitation/create", (request) =>
-        manager.handleElicitation(config.name, request.params),
-      );
+        return { client, transport, transportType };
+      });
 
-      const connectEffect = Effect.tryPromise({
-        try: () => client.connect(transport as Transport),
-        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
-      }).pipe(
-        Effect.timeoutFail({
-          duration: `${CONNECT_TIMEOUT_MS} millis`,
-          onTimeout: () =>
-            new Error(`Server did not complete the MCP handshake within ${CONNECT_TIMEOUT_MS}ms`),
-        }),
-      );
-
-      yield* retryWithBackoff(connectEffect, {
+      const { client, transport, transportType } = yield* retryWithBackoff(attemptConnect, {
         maxRetries: 3,
         initialDelayMs: 1000,
         maxDelayMs: 10_000,
@@ -918,6 +948,11 @@ class MCPServerManagerImpl implements MCPServerManager {
     });
   }
 
+  /**
+   * Connect (if needed), list tools, then release only the connection this call itself
+   * opened — leaving an already-connected server untouched — regardless of whether
+   * listing succeeds or fails.
+   */
   discoverTools(
     config: MCPServerConfig,
   ): Effect.Effect<
@@ -928,26 +963,23 @@ class MCPServerManagerImpl implements MCPServerManager {
     // eslint-disable-next-line @typescript-eslint/no-this-alias
     const manager = this;
     return Effect.gen(function* () {
-      // A server already in use stays connected: discovery is a read, and
-      // tearing down a live connection to satisfy it would break the caller.
       const wasConnected = manager.connections.has(config.name);
 
       yield* manager.connectServer(config);
-      const tools = yield* manager.getServerTools(config.name);
 
-      if (!wasConnected) {
-        yield* manager
-          .disconnectServer(config.name)
-          .pipe(
-            Effect.catchAll((error) =>
-              manager.logger.warn(
-                `Error disconnecting after tool discovery for ${config.name}: ${error.reason}`,
+      const releaseIfOpenedHere = wasConnected
+        ? Effect.void
+        : manager
+            .disconnectServer(config.name)
+            .pipe(
+              Effect.catchAll((error) =>
+                manager.logger.warn(
+                  `Error disconnecting after tool discovery for ${config.name}: ${error.reason}`,
+                ),
               ),
-            ),
-          );
-      }
+            );
 
-      return tools;
+      return yield* manager.getServerTools(config.name).pipe(Effect.ensuring(releaseIfOpenedHere));
     });
   }
 
