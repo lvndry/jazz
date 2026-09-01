@@ -320,6 +320,41 @@ describe("MCP Schema Converter", () => {
       });
     });
 
+    it("flattens a top-level oneOf, since Anthropic rejects the keyword itself at the top level", () => {
+      const schema = {
+        oneOf: [
+          {
+            type: "object",
+            properties: { command: { const: "read" }, path: { type: "string" } },
+            required: ["command", "path"],
+          },
+          {
+            type: "object",
+            properties: {
+              command: { const: "write" },
+              path: { type: "string" },
+              content: { type: "string" },
+            },
+            required: ["command", "path", "content"],
+          },
+        ],
+      };
+
+      const unwrapped = unwrapMCPJsonSchema(schema);
+
+      expect(unwrapped?.["oneOf"]).toBeUndefined();
+      expect(unwrapped?.["type"]).toBe("object");
+      expect(unwrapped?.["properties"]).toEqual({
+        // The discriminant's const values merge into an enum instead of the last
+        // branch silently winning — a model reading this still sees both commands.
+        command: { enum: ["read", "write"] },
+        path: { type: "string" },
+        content: { type: "string" },
+      });
+      // Only fields required in every branch stay required.
+      expect(unwrapped?.["required"]).toEqual(["command", "path"]);
+    });
+
     it("should handle nested object schemas", () => {
       const schema = {
         type: "object",

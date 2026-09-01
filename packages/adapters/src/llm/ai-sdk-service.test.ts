@@ -1218,9 +1218,10 @@ describe("buildToolInputSchema", () => {
     expect(inputSchema).toBe(parameters);
   });
 
-  it("converts and patches a top-level discriminated union, which otherwise has no top-level type", () => {
+  it("flattens a top-level discriminated union, which Anthropic rejects both for a missing type and for the oneOf keyword itself", () => {
     // Matches manage_memory/manage_workspace's shape: argument shape keyed by a
-    // "command" field, which serializes to `oneOf` with no top-level `type`.
+    // "command" field, which serializes to `oneOf` with no top-level `type` —
+    // and Anthropic separately rejects `oneOf` at the top level regardless.
     const parameters = z.discriminatedUnion("command", [
       z.object({ command: z.literal("read"), path: z.string() }),
       z.object({ command: z.literal("write"), path: z.string(), content: z.string() }),
@@ -1228,12 +1229,20 @@ describe("buildToolInputSchema", () => {
 
     const rawConversion = z.toJSONSchema(parameters) as Record<string, unknown>;
     expect(rawConversion["type"]).toBeUndefined();
+    expect(rawConversion["oneOf"]).toBeDefined();
 
     const inputSchema = buildToolInputSchema({ function: { parameters } });
     const schema = schemaOf(inputSchema);
 
     expect(schema["type"]).toBe("object");
-    expect(schema["oneOf"]).toBeDefined();
+    expect(schema["oneOf"]).toBeUndefined();
+    expect(schema["properties"]).toMatchObject({
+      path: { type: "string" },
+      content: { type: "string" },
+    });
+    // Required in only one branch, so it drops out rather than being required always.
+    expect((schema["required"] as string[] | undefined) ?? []).not.toContain("content");
+    expect((schema["required"] as string[] | undefined) ?? []).toContain("path");
   });
 });
 
