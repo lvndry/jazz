@@ -58,6 +58,7 @@ const APPROVAL: ApprovalOverlay = {
 const SEARCH: SearchOverlay = {
   kind: "search",
   query: "deploy",
+  caret: 6,
   scope: "all",
   hits: [
     {

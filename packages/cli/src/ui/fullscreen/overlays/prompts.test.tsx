@@ -117,6 +117,7 @@ const FILES: FilePickerModel = {
   ],
   selected: 1,
   filter: "src",
+  filterCaret: 3,
 };
 
 function rows(frame: string): string[] {
