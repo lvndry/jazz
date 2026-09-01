@@ -591,6 +591,11 @@ function answerPeer(peer: PeerConfig, agentIdentifier: string, question: string)
         return json({ ok: true, answer: outcome.answer });
       case "refused":
         return json({ ok: false, error: outcome.reason }, 403);
+      case "parked":
+        // Jazz's own wire format, additive: a caller that only understands `{ answer }` sees
+        // an unfamiliar shape and no `answer` field, which is a safe, honest failure — not a
+        // new state on the `/a2a` door, which stays exactly as minimal as it already is.
+        return json({ ok: false, parked: true, question: outcome.question }, 200);
     }
   }).pipe(
     Effect.catchAll((error) =>

@@ -18,7 +18,7 @@ import { createHttpRequestTool } from "./http-tools";
 import { createJobQueueTools } from "./job-queue-tools";
 import { createManageMemoryTool, createViewMemoryTool } from "./memory-tools";
 import { createPdfTool } from "./pdf-tools";
-import { createAskPeerTool } from "./peer-tools";
+import { createAskPeerTool, createRequestClarificationTool } from "./peer-tools";
 import { createPerceptionTools } from "./perception-tools";
 import {
   createAddReminderTool,
@@ -224,22 +224,30 @@ export function registerWorkspaceTools(): Effect.Effect<void, Error, ToolRegistr
 }
 
 /**
- * Registers `ask_peer`, when peers are configured and at least one is not suspended.
+ * Registers `ask_peer` and `request_clarification`, when any peer relationship exists at all.
  *
  * Config-dependent, so unlike the other groups this reads the config rather than being a
- * fixed list. An agent with no peers never sees the tool at all: a tool the model can see is
- * a tool it will try, and "you have no peers" is a worse answer than never offering.
+ * fixed list. An agent with no peers never sees either tool: a tool the model can see is a
+ * tool it will try, and "you have no peers" is a worse answer than never offering.
+ *
+ * `ask_peer` further requires an *askable* peer (one with a `url`) — a peer added only so it
+ * can ask *you* has no `url`, and offering a tool that can only ever fail is worse than not
+ * offering it. `request_clarification` has no such extra condition: it never contacts anyone
+ * itself, it only marks the current answer as withheld, so any configured peer relationship
+ * at all — askable or not — is reason enough to offer it.
  */
 export function registerPeerTools(): Effect.Effect<void, Error, ToolRegistry | AgentConfigService> {
   return Effect.gen(function* () {
     const configService = yield* AgentConfigServiceTag;
     const appConfig = yield* configService.appConfig;
-    const tool = createAskPeerTool(appConfig.peers ?? []);
-    if (tool === undefined) return;
-
+    const peers = appConfig.peers ?? [];
     const registry = yield* ToolRegistryTag;
     const registerTool = registry.registerForCategory(PEERS_CATEGORY);
-    yield* registerTool(tool);
+
+    const askPeerTool = createAskPeerTool(peers);
+    if (askPeerTool !== undefined) yield* registerTool(askPeerTool);
+
+    if (peers.length > 0) yield* registerTool(createRequestClarificationTool());
   });
 }
 

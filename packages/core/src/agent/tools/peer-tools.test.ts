@@ -14,7 +14,7 @@ import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types/too
 // legitimate here even though core production code may never import adapters: this is the one
 // sanctioned exception (see docs/internals/code-map.md), and it's what lets these tests assert
 // against real recorded ledger entries rather than a mock.
-import { createAskPeerTool } from "./peer-tools";
+import { createAskPeerTool, createRequestClarificationTool } from "./peer-tools";
 
 let jazzHome: string;
 let previousHome: string | undefined;
@@ -183,5 +183,68 @@ describe("ask_peer", () => {
     const result = await ask(peers(), { peer: "sam", question: "when?" });
 
     expect(result.success).toBe(false);
+  });
+
+  it("treats a parked reply as neither an answer nor a failure, and quotes the clarifying question", async () => {
+    reply = {
+      status: 200,
+      body: JSON.stringify({ parked: true, question: "why do you want to know?" }),
+    };
+    const result = await ask(peers(), { peer: "sam", question: "what's on the calendar?" });
+
+    expect(result.success).toBe(true);
+    const parkedResult = result.result as { parked: boolean; clarification: string };
+    expect(parkedResult.parked).toBe(true);
+    expect(parkedResult.clarification).toContain("why do you want to know?");
+    expect(parkedResult.clarification).toContain("sam's agent");
+    expect(parkedResult.clarification).toContain("Nothing happens automatically");
+  });
+
+  it("records a parked exchange as its own outcome, not answered or failed", async () => {
+    reply = {
+      status: 200,
+      body: JSON.stringify({ parked: true, question: "which calendar?" }),
+    };
+    await ask(peers(), { peer: "sam", question: "what's on the calendar?" });
+
+    const [entry] = await Effect.runPromise(readLedger());
+    expect(entry?.outcome).toBe("parked");
+    expect(entry?.reason).toBe("which calendar?");
+    expect(entry?.answer).toBeUndefined();
+  });
+
+  it("ignores a parked body missing a usable question and falls through to the answer field", async () => {
+    // A malformed `parked: true` with no question string is not enough to withhold an
+    // otherwise-present answer; treat the body as an ordinary answer instead of dropping it.
+    reply = {
+      status: 200,
+      body: JSON.stringify({ parked: true, answer: "answered anyway" }),
+    };
+    const result = await ask(peers(), { peer: "sam", question: "when?" });
+
+    expect((result.result as { answer: string }).answer).toContain("answered anyway");
+  });
+});
+
+describe("request_clarification", () => {
+  const context = { agentId: "agent-1" } as ToolExecutionContext;
+
+  it("is riskier than read-only, so it stays behind an explicit peer.allow grant", () => {
+    const tool = createRequestClarificationTool();
+    expect(tool.riskLevel).toBe("low-risk");
+  });
+
+  it("returns the question as-is, doing nothing else — servePeerRequest interprets it", async () => {
+    const tool = createRequestClarificationTool();
+    const result = await Effect.runPromise(
+      tool.execute({ question: "why do you want to know?" }, context) as Effect.Effect<
+        ToolExecutionResult,
+        never,
+        never
+      >,
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.result).toEqual({ question: "why do you want to know?" });
   });
 });

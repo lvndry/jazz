@@ -15,9 +15,10 @@ import {
 } from "@jazz/adapters/secrets/keyring";
 import { KEYRING_SERVICE_NAME, peerTokenPath } from "@jazz/adapters/secrets/registry";
 import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
+import type { LedgerEntry } from "@jazz/core/interfaces/peers";
 import { getErrorMessage } from "@jazz/core/presentation/error-handler";
 import { isPeerTier, PEER_TIERS, type PeerConfig, type PeerTier } from "@jazz/core/types/peer";
-import { Effect } from "effect";
+import { Duration, Effect } from "effect";
 
 /** Collapsed to one line so a multi-line answer cannot make the log unscannable. */
 function oneLine(text: string, max = 160): string {
@@ -137,10 +138,31 @@ export function forgetPeerTokenCommand(options: { readonly name: string }) {
   });
 }
 
+function printLedgerEntry(entry: LedgerEntry): void {
+  const arrow = entry.direction === "out" ? "->" : "<-";
+  const detail = entry.reason !== undefined ? ` (${entry.reason})` : "";
+  const tier = entry.tier !== undefined ? `  tier=${entry.tier}` : "";
+  process.stdout.write(
+    `${entry.at}  ${arrow} ${entry.peer}  ${entry.outcome}${detail}${tier}\n` +
+      `    asked: ${oneLine(entry.question)}\n` +
+      // The answer is shown, not just the outcome. A question the tier defeated is still
+      // "answered" — the agent replied "I cannot" — so outcome alone cannot tell a
+      // refused probe from a benign question, and telling those apart is the entire
+      // reason this record exists.
+      (entry.answer !== undefined ? `    said:  ${oneLine(entry.answer)}\n` : ""),
+  );
+}
+
+/** How often `--follow` checks the ledger file for entries newer than the last one shown. */
+const FOLLOW_POLL_INTERVAL = "2 seconds";
+
 export function peerLogCommand(options: {
   readonly json: boolean;
   readonly peer?: string;
   readonly limit: number;
+  readonly follow: boolean;
+  /** Overridable so a test isn't forced to wait out the real interval. */
+  readonly pollInterval?: Duration.DurationInput;
 }) {
   return Effect.gen(function* () {
     const entries = yield* readLedger({
@@ -150,25 +172,39 @@ export function peerLogCommand(options: {
 
     if (options.json) {
       process.stdout.write(`${JSON.stringify({ ok: true, entries })}\n`);
-      return;
-    }
-    if (entries.length === 0) {
+    } else if (entries.length === 0) {
       process.stdout.write("Nothing has been said to or by a peer.\n");
-      return;
+    } else {
+      for (const entry of entries) printLedgerEntry(entry);
     }
-    for (const entry of entries) {
-      const arrow = entry.direction === "out" ? "->" : "<-";
-      const detail = entry.reason !== undefined ? ` (${entry.reason})` : "";
-      const tier = entry.tier !== undefined ? `  tier=${entry.tier}` : "";
-      process.stdout.write(
-        `${entry.at}  ${arrow} ${entry.peer}  ${entry.outcome}${detail}${tier}\n` +
-          `    asked: ${oneLine(entry.question)}\n` +
-          // The answer is shown, not just the outcome. A question the tier defeated is still
-          // "answered" — the agent replied "I cannot" — so outcome alone cannot tell a
-          // refused probe from a benign question, and telling those apart is the entire
-          // reason this record exists.
-          (entry.answer !== undefined ? `    said:  ${oneLine(entry.answer)}\n` : ""),
-      );
+
+    if (!options.follow) return;
+
+    // `entries` is newest-first, so its head is the cursor: only entries stamped strictly
+    // later than this have not been shown yet.
+    let lastSeenAt = entries[0]?.at;
+    if (!options.json) {
+      process.stdout.write("\n(watching for new entries — ctrl+c to stop)\n");
+    }
+
+    while (true) {
+      yield* Effect.sleep(options.pollInterval ?? FOLLOW_POLL_INTERVAL);
+      const fresh = yield* readLedger({
+        limit: 200,
+        ...(options.peer !== undefined ? { peer: options.peer } : {}),
+      });
+      const cursor = lastSeenAt;
+      const newer = (cursor === undefined ? fresh : fresh.filter((entry) => entry.at > cursor))
+        .slice()
+        .reverse();
+      for (const entry of newer) {
+        if (options.json) {
+          process.stdout.write(`${JSON.stringify({ ok: true, entry })}\n`);
+        } else {
+          printLedgerEntry(entry);
+        }
+      }
+      if (fresh[0] !== undefined) lastSeenAt = fresh[0].at;
     }
   });
 }

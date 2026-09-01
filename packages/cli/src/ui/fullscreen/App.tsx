@@ -1,11 +1,17 @@
 /** @jsxImportSource @opentui/react */
 import {
+  read as readPeerLedger,
+  readLastSeenInboundAt,
+  recordLastSeenInboundAt,
+} from "@jazz/adapters/peers/ledger";
+import {
   useKeyboard,
   usePaste,
   useRenderer,
   useSelectionHandler,
   useTerminalDimensions,
 } from "@opentui/react";
+import { Effect } from "effect";
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getGlyphs } from "../glyphs";
 import { THEME } from "../theme";
@@ -38,6 +44,7 @@ import { FilePicker } from "./overlays/FilePicker";
 import { Question } from "./overlays/Question";
 import { Search } from "./overlays/Search";
 import { TextPrompt } from "./overlays/TextPrompt";
+import { computePeerNotice } from "./peer-notice";
 import { Transcript, type TranscriptHandle } from "./Transcript";
 import { allocateRegions, wheelScrollDelta } from "./transcript-window";
 import {
@@ -208,6 +215,8 @@ function AppView({ view, onAction, onKey, onPaste, overrideContent }: AppProps):
   const armedAt = useRef<number | undefined>(undefined);
   const [copyNotice, setCopyNotice] = useState<string | undefined>(undefined);
   const copyNoticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const [peerNotice, setPeerNotice] = useState<string | undefined>(undefined);
+  const peerNoticeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const glyphs = getGlyphs();
 
   // `useKeyboard` registers its callback once, so it captures the props and
@@ -275,6 +284,43 @@ function AppView({ view, onAction, onKey, onPaste, overrideContent }: AppProps):
   useEffect(() => {
     return () => {
       if (copyNoticeTimer.current !== undefined) clearTimeout(copyNoticeTimer.current);
+    };
+  }, []);
+
+  // Watches for a peer's agent reaching this one while the operator is sitting right here in
+  // a live conversation — the ledger already records it, but a record nobody sees until they
+  // happen to run `jazz peers log` is not a notification. Polls a small file rather than
+  // opening any new connection to the daemon, which may not even be this same process.
+  useEffect(() => {
+    let cancelled = false;
+
+    async function poll(): Promise<void> {
+      const [entries, lastSeenAt] = await Promise.all([
+        Effect.runPromise(readPeerLedger({ limit: 50 })),
+        Effect.runPromise(readLastSeenInboundAt()),
+      ]);
+      if (cancelled) return;
+
+      const { notice, newestInboundAt } = computePeerNotice(entries, lastSeenAt);
+      if (newestInboundAt !== undefined) {
+        await Effect.runPromise(recordLastSeenInboundAt(newestInboundAt));
+      }
+      if (cancelled || notice === undefined) return;
+
+      if (peerNoticeTimer.current !== undefined) clearTimeout(peerNoticeTimer.current);
+      setPeerNotice(notice);
+      peerNoticeTimer.current = setTimeout(() => {
+        setPeerNotice(undefined);
+        peerNoticeTimer.current = undefined;
+      }, 20_000);
+    }
+
+    void poll();
+    const interval = setInterval(() => void poll(), 15_000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      if (peerNoticeTimer.current !== undefined) clearTimeout(peerNoticeTimer.current);
     };
   }, []);
 
@@ -469,14 +515,16 @@ function AppView({ view, onAction, onKey, onPaste, overrideContent }: AppProps):
       view.input.queued.length,
     ],
   );
-  const footer = useMemo(
-    () => ({
+  const footer = useMemo(() => {
+    // copyNotice wins when both are live: it is the direct result of something the operator
+    // just did, and should not be preempted by a background poll landing at the same moment.
+    const notice = copyNotice ?? peerNotice;
+    return {
       ...view.footer,
       hints: footerHints,
-      ...(copyNotice === undefined ? {} : { notice: copyNotice }),
-    }),
-    [view.footer, footerHints, copyNotice],
-  );
+      ...(notice === undefined ? {} : { notice }),
+    };
+  }, [view.footer, footerHints, copyNotice, peerNotice]);
 
   if (overrideContent !== undefined) {
     return overrideContent;

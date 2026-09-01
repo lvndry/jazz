@@ -126,3 +126,43 @@ export function read(filter?: {
     Effect.catchAll(() => Effect.succeed([] as readonly LedgerEntry[])),
   );
 }
+
+const LAST_SEEN_FILENAME = "last-seen.json";
+
+function lastSeenPath(): string {
+  return path.join(getPeersDirectory(), LAST_SEEN_FILENAME);
+}
+
+/**
+ * The `at` of the newest inbound entry a live session has already surfaced a notification
+ * for, if any.
+ *
+ * A file of its own rather than a field on the ledger itself: "has the operator already been
+ * told about this" is state about notifying, not about what a peer said, and conflating the
+ * two would mean rewriting ledger lines just to mark them seen — the one file this module
+ * treats as append-only stays that way.
+ */
+export function readLastSeenInboundAt(): Effect.Effect<string | undefined, never> {
+  return Effect.tryPromise({
+    try: () => nodeFs.readFile(lastSeenPath(), "utf-8"),
+    catch: (error) => error,
+  }).pipe(
+    Effect.map((content) => {
+      const parsed: unknown = JSON.parse(content);
+      if (typeof parsed !== "object" || parsed === null) return undefined;
+      const at = (parsed as Record<string, unknown>)["at"];
+      return typeof at === "string" ? at : undefined;
+    }),
+    Effect.catchAll(() => Effect.succeed(undefined)),
+  );
+}
+
+export function recordLastSeenInboundAt(at: string): Effect.Effect<void, never> {
+  return Effect.tryPromise({
+    try: async () => {
+      await nodeFs.mkdir(getPeersDirectory(), { recursive: true });
+      await nodeFs.writeFile(lastSeenPath(), JSON.stringify({ at }), "utf-8");
+    },
+    catch: (error) => error,
+  }).pipe(Effect.catchAll(() => Effect.void));
+}

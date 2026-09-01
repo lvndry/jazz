@@ -1,7 +1,7 @@
 import type { ToolDisclosure } from "@jazz/core/interfaces/tool-registry";
 import type { PeerTier } from "@jazz/core/types/peer";
 import { describe, expect, it } from "bun:test";
-import { allowedToolsForPeer } from "./serve";
+import { allowedToolsForPeer, extractClarificationQuestion } from "./serve";
 
 /** A slice of the real registry: one tool per interesting combination. */
 const TOOLS: readonly {
@@ -79,5 +79,38 @@ describe("what a tier permits among riskier-than-read-only tools", () => {
     // function is ever consulted, but the function itself should not quietly admit a grant
     // for a peer with no tier.
     expect(allowed("none", ["write_file"])).toEqual([]);
+  });
+});
+
+describe("recognizing a parked answer from toolResults", () => {
+  it("finds nothing when request_clarification was never called", () => {
+    expect(extractClarificationQuestion(undefined)).toBeUndefined();
+    expect(extractClarificationQuestion({})).toBeUndefined();
+    expect(extractClarificationQuestion({ some_other_tool: { ok: true } })).toBeUndefined();
+  });
+
+  it("extracts the question when request_clarification was the tool that ended the run", () => {
+    expect(
+      extractClarificationQuestion({ request_clarification: { question: "why do you ask?" } }),
+    ).toBe("why do you ask?");
+  });
+
+  it("trims whitespace and rejects a blank question", () => {
+    expect(extractClarificationQuestion({ request_clarification: { question: "  why?  " } })).toBe(
+      "why?",
+    );
+    expect(
+      extractClarificationQuestion({ request_clarification: { question: "   " } }),
+    ).toBeUndefined();
+  });
+
+  it("is defensive about a malformed result shape", () => {
+    expect(
+      extractClarificationQuestion({ request_clarification: "not an object" }),
+    ).toBeUndefined();
+    expect(extractClarificationQuestion({ request_clarification: null })).toBeUndefined();
+    expect(
+      extractClarificationQuestion({ request_clarification: { question: 42 } }),
+    ).toBeUndefined();
   });
 });

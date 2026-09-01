@@ -86,6 +86,11 @@ export interface PeerConfig {
    * means read-only only, and a tool not listed here is never offered to this peer's agent
    * at all — refused by absence, the same as any other capability it doesn't have. Widening
    * it is a deliberate config edit, not something a question can negotiate its way into.
+   *
+   * `"request_clarification"` is the one entry here that grants nothing about the machine:
+   * it only lets the serving agent decline to answer this peer immediately and ask them
+   * something back first. Still gated the same way as any other non-read-only tool, since an
+   * unlisted peer should not even discover that declining-and-asking is an option.
    */
   readonly allow?: readonly string[];
 }
