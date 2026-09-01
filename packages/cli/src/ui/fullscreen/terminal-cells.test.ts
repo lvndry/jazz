@@ -36,6 +36,22 @@ describe("terminal cell measurement", () => {
     expect(wrapTerminalCells("A漢👨‍👩‍👧‍👦e\u0301Z", 3)).toEqual(["A漢", "👨‍👩‍👧‍👦e\u0301", "Z"]);
   });
 
+  it("carries a whole word onto the next line instead of splitting it", () => {
+    expect(wrapTerminalCells("abc helloworld", 10)).toEqual(["abc ", "helloworld"]);
+    expect(wrapTerminalCells("hello world", 8)).toEqual(["hello ", "world"]);
+  });
+
+  it("still breaks mid-word when a single word cannot fit any line", () => {
+    expect(wrapTerminalCells("supercalifragilistic", 8)).toEqual(["supercal", "ifragili", "stic"]);
+  });
+
+  it("keeps every character across wrapped lines, including the space", () => {
+    const text = "abc helloworld and more words";
+    for (let width = 1; width <= text.length; width += 1) {
+      expect(wrapTerminalCells(text, width).join("")).toBe(text);
+    }
+  });
+
   it("fits styled segments across segment boundaries", () => {
     const fitted = fitTerminalSegments(
       [

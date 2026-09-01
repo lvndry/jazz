@@ -88,16 +88,7 @@ export interface InputRow {
   readonly segments: readonly InputSegment[];
 }
 
-/**
- * Character wrapping, not word wrapping.
- *
- * A composer is not prose being typeset — it is a window onto a buffer, and it
- * has to show that buffer exactly. Word wrap eats the space at a break, so a
- * trailing space typed at the wrap boundary would vanish and the caret would
- * appear one cell to the left of where the next character will actually land.
- * Char wrap cannot lie about what has been typed. Explicit newlines are
- * paragraph breaks and survive.
- */
+// Per-paragraph wrap; see `wrapTerminalCells` for the wrap itself.
 export function wrapCells(value: string, columns: number): string[] {
   const width = Math.max(1, columns);
   const lines: string[] = [];
@@ -282,15 +273,21 @@ export function inputRows(
   }
   const lines = wrapped.map((line) => line.text);
 
-  const valueBeforeCaret = [...model.value].slice(0, caretAt).join("");
-  const linesBeforeCaret = empty ? [""] : wrapCells(valueBeforeCaret, contentWidth);
-  let caretLine = Math.max(0, linesBeforeCaret.length - 1);
-  let caretColumn = terminalCellWidth(linesBeforeCaret.at(-1) ?? "");
-  if (!empty && caretColumn >= contentWidth) {
-    caretLine += 1;
-    caretColumn = 0;
+  // Reuse `wrapped` rather than re-wrapping the text before the caret — a
+  // prefix alone can't know a word will later get carried to the next line.
+  let caretLine = 0;
+  for (let index = 0; index < wrapped.length; index += 1) {
+    const entry = wrapped[index];
+    if (entry === undefined || entry.start > caretAt) break;
+    caretLine = index;
   }
-  caretLine = Math.min(lines.length - 1, caretLine);
+  const caretLineEntry = wrapped[caretLine];
+  const caretColumn =
+    caretLineEntry === undefined
+      ? 0
+      : terminalCellWidth(
+          [...caretLineEntry.text].slice(0, caretAt - caretLineEntry.start).join(""),
+        );
 
   const queued = model.queued;
   const queuedCount = queued.length;

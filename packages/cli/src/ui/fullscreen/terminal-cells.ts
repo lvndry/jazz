@@ -97,21 +97,37 @@ export function fitTerminalSegments<Segment extends TextSegment>(
   return fitted;
 }
 
+// Word-aware wrap that never drops a character (spaces included), so a
+// caret tracked by counting into the joined output never drifts.
 export function wrapTerminalCells(text: string, maxCells: number): string[] {
   const width = Math.max(1, maxCells);
   const lines: string[] = [];
-  let line = "";
+  let line: string[] = [];
   let used = 0;
+  let breakIndex = -1;
+  let breakUsed = 0;
   for (const grapheme of terminalGraphemes(text)) {
     const graphemeWidth = terminalCellWidth(grapheme);
-    if (used > 0 && used + graphemeWidth > width) {
-      lines.push(line);
-      line = "";
-      used = 0;
+    while (used > 0 && used + graphemeWidth > width) {
+      if (breakIndex > 0) {
+        lines.push(line.slice(0, breakIndex).join(""));
+        line = line.slice(breakIndex);
+        used -= breakUsed;
+        breakIndex = -1;
+        breakUsed = 0;
+      } else {
+        lines.push(line.join(""));
+        line = [];
+        used = 0;
+      }
     }
-    line += grapheme;
+    line.push(grapheme);
     used += graphemeWidth;
+    if (/^\s$/.test(grapheme)) {
+      breakIndex = line.length;
+      breakUsed = used;
+    }
   }
-  if (line.length > 0) lines.push(line);
+  if (line.length > 0) lines.push(line.join(""));
   return lines.length > 0 ? lines : [""];
 }
