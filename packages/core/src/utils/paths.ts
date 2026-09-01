@@ -13,6 +13,7 @@ import {
   hasEmbeddedAssets,
   pruneStaleAssetDirectories,
 } from "@/core/assets/asset-extraction";
+import { storageSafeSegment } from "@/core/utils/storage-id";
 import packageJson from "../../../../package.json";
 
 function expandHomePath(inputPath: string): string {
@@ -148,9 +149,18 @@ function getEmbeddedAssetRoot(): string | null {
  * Deliberately separate from the memory directory. Memory is what stays true about a
  * person or project across conversations; this is where one task stands right now, and
  * it is discarded when that task is done.
+ *
+ * Both segments are sanitized because a conversation id is no longer always machine-minted:
+ * a threaded webhook trigger derives one from a caller-supplied thread key, and a raw
+ * `../../..` joined in here would be an arbitrary-path write from an authenticated caller.
  */
 export function getWorkStateDirectory(agentId: string, conversationId: string): string {
-  return path.join(getJazzHomeDirectory(), "work", agentId, conversationId);
+  return path.join(
+    getJazzHomeDirectory(),
+    "work",
+    storageSafeSegment(agentId),
+    storageSafeSegment(conversationId),
+  );
 }
 
 /**
