@@ -160,6 +160,14 @@ A 15-minute ceiling exists because slow reasoning models on a long prompt genuin
 minutes, and a tighter timeout would fail runs that were about to succeed. Rate-limit errors
 are typed (`LLMRateLimitError`) so they're distinguishable from real failures.
 
+## Large attachments
+
+Attachments over the inline request limit are uploaded to OpenAI or Gemini and then sent by
+provider reference. Jazz keeps up to 256 recently used references per process so a replayed
+conversation does not upload the same large file on every turn. The cache is LRU-bounded: an
+inactive attachment is evicted as newer uploads arrive, preventing long-lived chat bridges from
+retaining an unbounded number of references.
+
 ---
 
 ## Cost accounting

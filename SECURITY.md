@@ -99,7 +99,9 @@ never transmitted. `JAZZ_OFFLINE=1` stops Jazz initiating any outbound request o
 [Airgapped & self-hosted](docs/start/airgapped.md).
 
 **Audit trail.** Every tool invocation is logged under `~/.jazz/logs/`, with per-run token and
-cost records under `~/.jazz/telemetry/`.
+cost records under `~/.jazz/telemetry/`. Credential-bearing fields in tool arguments and
+structured metadata — including nested headers — are replaced with `<redacted>` before a log is
+written. Logs can still contain other sensitive user content, so protect the directory.
 
 ---
 
@@ -195,7 +197,8 @@ covered by the keyring — treat them as sensitive in their own right.
 ## If something goes wrong
 
 1. **Stop the run** — double-Escape interrupts generation and any running tool; otherwise exit the process.
-2. **Check what happened** — `~/.jazz/logs/` has every tool invocation with its arguments.
+2. **Check what happened** — `~/.jazz/logs/` has every tool invocation with its arguments;
+   credential-bearing fields are shown as `<redacted>`.
 3. **Recover** — `git reflog` finds the pre-mistake state, then `git reset --hard <commit>`. For files, restore from backup or your trash.
 4. **Report it** — if the cause was Jazz acting without approval rather than an approval you granted, that is [in scope](#scope).
 

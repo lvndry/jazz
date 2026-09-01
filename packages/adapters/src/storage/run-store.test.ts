@@ -319,4 +319,45 @@ describe("FileRunStore hardening", () => {
     expect(loaded?.runId).toBe(RUN_ID);
     await nodeFs.rm(directory, { recursive: true, force: true });
   });
+
+  it("never silently drops a completed transition to a concurrent prune's stale repark decision", async () => {
+    const directory = await nodeFs.mkdtemp(path.join(os.tmpdir(), "jazz-runs-"));
+    const store = new FileRunStore(directory);
+
+    const deadRecoveryState: RunState = {
+      kind: "working",
+      iteration: 3,
+      recovery: {
+        pending: parkedApproval,
+        snapshot: { messages: [], iteration: 3 },
+        expiresAt: "2026-08-23T13:00:00.000Z",
+        pid: 999_999,
+        host: hostname(),
+      },
+    };
+    await Effect.runPromise(store.save({ ...record(RUN_ID), state: deadRecoveryState }));
+
+    const [pruneResult, transitionOutcome] = await Promise.all([
+      Effect.runPromise(
+        store.prune({ now: new Date("2026-08-23T12:00:00.000Z"), maxTerminalAgeMs: 1_000_000 }),
+      ),
+      Effect.runPromise(store.transition(RUN_ID, { kind: "completed", content: "done" })).then(
+        () => "succeeded" as const,
+        () => "failed" as const,
+      ),
+    ]);
+
+    // Whichever operation reached the run's lock first, the loser must act on the winner's
+    // fresh state rather than the stale pre-race snapshot: a transition that reports success
+    // can never have its result clobbered by prune's repark decision.
+    const final = await Effect.runPromise(store.get(RUN_ID));
+    if (transitionOutcome === "succeeded") {
+      expect(final?.state.kind).toBe("completed");
+      expect(pruneResult.reparked).toBe(0);
+    } else {
+      expect(final?.state.kind).toBe("input-required");
+      expect(pruneResult.reparked).toBe(1);
+    }
+    await nodeFs.rm(directory, { recursive: true, force: true });
+  });
 });
