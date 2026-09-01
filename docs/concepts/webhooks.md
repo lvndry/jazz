@@ -76,7 +76,7 @@ export JAZZ_WEBHOOK_TOKEN_DEPLOYS="…"            # or the environment, for a c
 ```
 
 The token never lives in `config.json`. A request without a matching one gets a `401`, and
-a body over 20 KB is refused with a `413` while it is still being read.
+a body over 1 MB is refused with a `413` while it is still being read.
 
 ---
 
