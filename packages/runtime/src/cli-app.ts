@@ -852,8 +852,8 @@ function registerDaemonCommand(program: Command): void {
 /**
  * Register `jazz wake-trigger fire` — internal, invoked by the host scheduler (launchd/`at`)
  * when a wake trigger's `fireAt` arrives, not meant for interactive use. Named `wake-trigger`
- * rather than `trigger`/`triggers`, which already names the unrelated `/triggers/` HTTP
- * webhook feature (`daemon.ts`, `appConfig.triggers`).
+ * rather than `trigger`: the inbound HTTP feature that used to share the word is now called
+ * `webhook` (`daemon.ts`, `appConfig.webhooks`), leaving "trigger" to mean only this.
  */
 function registerWakeTriggerCommand(program: Command): void {
   const wakeTriggerCommand = program

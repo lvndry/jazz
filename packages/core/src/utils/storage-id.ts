@@ -3,8 +3,8 @@
  *
  * Every id Jazz stores under used to be machine-generated — `short.generate()`, or that with
  * a legible prefix — so joining one straight into a path was safe by construction. Threaded
- * webhook triggers break that assumption: the thread key comes from whoever calls the
- * webhook, and it lands in a conversation id, which becomes a directory name under
+ * webhooks break that assumption: the thread key comes from whoever calls the webhook, and
+ * it lands in a conversation id, which becomes a directory name under
  * `work/` and a filename under `history/conversations/`. An unsanitized `../../..` there is
  * an arbitrary-path write from an authenticated caller.
  *

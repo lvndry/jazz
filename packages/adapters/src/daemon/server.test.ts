@@ -1,7 +1,7 @@
 import path from "node:path";
 import { createRunRecord } from "@jazz/core/agent/run/run-record";
 import { RunStoreTag } from "@jazz/core/interfaces/run-store";
-import type { TriggerConfig } from "@jazz/core/types/trigger";
+import type { WebhookConfig } from "@jazz/core/types/webhook";
 import { getJazzHomeDirectory, getWorkStateDirectory } from "@jazz/core/utils/paths";
 import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
@@ -9,9 +9,9 @@ import { InMemoryRunStore } from "@/adapters/storage/run-store";
 import {
   makeHandler,
   makePeerInviteHandler,
-  makeTriggerHandler,
+  makeWebhookHandler,
   refuseReason,
-  triggerConversationId,
+  webhookConversationId,
   type DaemonRequirements,
 } from "./server";
 
@@ -171,47 +171,47 @@ describe("the daemon's routes", () => {
     expect((await handle(request("GET", "/nope"))).status).toBe(404);
   });
 
-  it("rejects an oversized trigger body while it is being read", async () => {
-    const handle = makeTriggerHandler(
+  it("rejects an oversized webhook body while it is being read", async () => {
+    const handle = makeWebhookHandler(
       [{ name: "hook", agentId: "default", promptTemplate: "Process {{payload}}" }],
-      async () => "trigger-secret",
+      async () => "webhook-secret",
       async () => {
         throw new Error("runEffect should not be called");
       },
     );
 
     const response = await handle(
-      request("POST", "/triggers/hook", {
-        headers: { authorization: "Bearer trigger-secret" },
+      request("POST", "/webhooks/hook", {
+        headers: { authorization: "Bearer webhook-secret" },
         body: "x".repeat(20_001),
       }),
     );
     expect(response.status).toBe(413);
   });
 
-  it("returns 404 for malformed trigger URL encoding", async () => {
-    const handle = makeTriggerHandler(
+  it("returns 404 for malformed webhook URL encoding", async () => {
+    const handle = makeWebhookHandler(
       [],
       async () => undefined,
       async () => {
         throw new Error("runEffect should not be called");
       },
     );
-    expect((await handle(request("POST", "/triggers/%E0%A4%A"))).status).toBe(404);
+    expect((await handle(request("POST", "/webhooks/%E0%A4%A"))).status).toBe(404);
   });
 
-  it("refuses a thread key on a trigger that is not threaded", async () => {
-    const handle = makeTriggerHandler(
+  it("refuses a thread key on a webhook that is not threaded", async () => {
+    const handle = makeWebhookHandler(
       [{ name: "hook", agentId: "default", promptTemplate: "Process {{payload}}" }],
-      async () => "trigger-secret",
+      async () => "webhook-secret",
       async () => {
         throw new Error("runEffect should not be called");
       },
     );
 
     const response = await handle(
-      request("POST", "/triggers/hook", {
-        headers: { authorization: "Bearer trigger-secret", "x-jazz-thread": "room-7" },
+      request("POST", "/webhooks/hook", {
+        headers: { authorization: "Bearer webhook-secret", "x-jazz-thread": "room-7" },
         body: "hello",
       }),
     );
@@ -220,7 +220,7 @@ describe("the daemon's routes", () => {
   });
 
   it("refuses a thread key longer than the cap", async () => {
-    const handle = makeTriggerHandler(
+    const handle = makeWebhookHandler(
       [
         {
           name: "hook",
@@ -229,64 +229,79 @@ describe("the daemon's routes", () => {
           conversation: "threaded",
         },
       ],
-      async () => "trigger-secret",
+      async () => "webhook-secret",
       async () => {
         throw new Error("runEffect should not be called");
       },
     );
 
     const response = await handle(
-      request("POST", "/triggers/hook", {
-        headers: { authorization: "Bearer trigger-secret", "x-jazz-thread": "k".repeat(201) },
+      request("POST", "/webhooks/hook", {
+        headers: { authorization: "Bearer webhook-secret", "x-jazz-thread": "k".repeat(201) },
         body: "hello",
       }),
     );
     expect(response.status).toBe(400);
     expect(await response.text()).toContain("too long");
   });
+
+  it("still routes the pre-rename /triggers/<name> URL to the same webhook", async () => {
+    const handle = makeWebhookHandler(
+      [{ name: "hook", agentId: "default", promptTemplate: "Process {{payload}}" }],
+      async () => "webhook-secret",
+      async () => {
+        throw new Error("runEffect should not be called");
+      },
+    );
+
+    // A 401 rather than a 404 is the assertion: the legacy path matched the route and found
+    // the webhook, and only the missing bearer token stopped it.
+    expect((await handle(request("POST", "/triggers/hook", { body: "hello" }))).status).toBe(401);
+    expect((await handle(request("POST", "/triggers/nope", { body: "hello" }))).status).toBe(404);
+  });
 });
 
-describe("which conversation a trigger fire belongs to", () => {
-  const ephemeral: TriggerConfig = {
+describe("which conversation a webhook fire belongs to", () => {
+  const ephemeral: WebhookConfig = {
     name: "hook",
     agentId: "default",
     promptTemplate: "Process {{payload}}",
   };
-  const threaded: TriggerConfig = { ...ephemeral, conversation: "threaded" };
+  const threaded: WebhookConfig = { ...ephemeral, conversation: "threaded" };
 
-  it("mints a fresh id per fire when the trigger is ephemeral", () => {
-    const first = triggerConversationId(ephemeral, undefined);
-    const second = triggerConversationId(ephemeral, undefined);
+  it("mints a fresh id per fire when the webhook is ephemeral", () => {
+    const first = webhookConversationId(ephemeral, undefined);
+    const second = webhookConversationId(ephemeral, undefined);
 
     expect(first).toStartWith("trigger-hook-");
     expect(second).not.toBe(first);
   });
 
-  it("ignores nothing and still randomizes when an ephemeral trigger is given a key", () => {
+  it("ignores nothing and still randomizes when an ephemeral webhook is given a key", () => {
     // The handler refuses this combination before it gets here; this pins the fallback so a
     // future caller that skips the handler cannot silently get a stable id it was denied.
-    expect(triggerConversationId(ephemeral, "room-7")).not.toBe(
-      triggerConversationId(ephemeral, "room-7"),
+    expect(webhookConversationId(ephemeral, "room-7")).not.toBe(
+      webhookConversationId(ephemeral, "room-7"),
     );
   });
 
   it("resumes the same conversation for one thread key", () => {
-    expect(triggerConversationId(threaded, "room-7")).toBe("trigger-hook-room-7");
-    expect(triggerConversationId(threaded, "room-7")).toBe(
-      triggerConversationId(threaded, "room-7"),
+    expect(webhookConversationId(threaded, "room-7")).toBe("trigger-hook-room-7");
+    expect(webhookConversationId(threaded, "room-7")).toBe(
+      webhookConversationId(threaded, "room-7"),
     );
   });
 
   it("keeps separate thread keys in separate conversations", () => {
-    expect(triggerConversationId(threaded, "room-7")).not.toBe(
-      triggerConversationId(threaded, "room-8"),
+    expect(webhookConversationId(threaded, "room-7")).not.toBe(
+      webhookConversationId(threaded, "room-8"),
     );
   });
 
   it("shares one thread across keyless fires rather than falling back to ephemeral", () => {
-    expect(triggerConversationId(threaded, undefined)).toBe("trigger-hook");
-    expect(triggerConversationId(threaded, undefined)).toBe(
-      triggerConversationId(threaded, undefined),
+    expect(webhookConversationId(threaded, undefined)).toBe("trigger-hook");
+    expect(webhookConversationId(threaded, undefined)).toBe(
+      webhookConversationId(threaded, undefined),
     );
   });
 
@@ -294,7 +309,7 @@ describe("which conversation a trigger fire belongs to", () => {
     // The id itself carries the raw key — sanitization belongs to whoever builds a path from
     // it, so that the rule lives in one place. What must hold is that the resolved path
     // stays inside the work directory.
-    const escaping = triggerConversationId(threaded, "../../../../etc/pwned");
+    const escaping = webhookConversationId(threaded, "../../../../etc/pwned");
     const resolved = path.resolve(getWorkStateDirectory("default", escaping));
 
     expect(resolved).toStartWith(path.resolve(getJazzHomeDirectory(), "work") + path.sep);

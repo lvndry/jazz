@@ -26,6 +26,7 @@ import {
   migrateConfigProviderName,
   migrateKeyringProviderName,
 } from "@jazz/core/utils/provider-migration";
+import { migrateTriggersToWebhooks } from "@jazz/core/utils/webhook-migration";
 import { Effect, Layer, Option } from "effect";
 import {
   detectKeyringBackend,
@@ -444,9 +445,9 @@ function mergeConfig(base: AppConfig, override?: Partial<AppConfig>): AppConfig 
     // Replaced wholesale rather than merged: peers are a list keyed by name, and a
     // per-element merge would make removing one from a local override impossible.
     ...(override.peers && { peers: override.peers }),
-    // Replaced wholesale rather than merged: triggers are a list keyed by name, and a
+    // Replaced wholesale rather than merged: webhooks are a list keyed by name, and a
     // per-element merge would make removing one from a local override impossible.
-    ...(override.triggers && { triggers: override.triggers }),
+    ...(override.webhooks && { webhooks: override.webhooks }),
     ...(override.maxRetries !== undefined && { maxRetries: override.maxRetries }),
     ...(override.maxSubagentDepth !== undefined && {
       maxSubagentDepth: override.maxSubagentDepth,
@@ -708,6 +709,7 @@ function readOptionalConfigFile(
     if (typeof config !== "object" || config === null) return undefined;
 
     const renamedProvider = migrateConfigProviderName(config);
+    migrateTriggersToWebhooks(config);
     return { config, renamedProvider };
   });
 }
@@ -790,6 +792,7 @@ function loadConfigFile(
       }
 
       const renamedProvider = migrateConfigProviderName(config);
+      migrateTriggersToWebhooks(config);
 
       const localConfigPath = `${getLocalJazzDirectory()}/config.json`;
       const localRead = yield* readOptionalConfigFile(fs, localConfigPath);

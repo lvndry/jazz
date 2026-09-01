@@ -20,7 +20,7 @@ import {
   makeHandler,
   makePeerHandler,
   makePeerInviteHandler,
-  makeTriggerHandler,
+  makeWebhookHandler,
   refuseReason,
   type DaemonRequirements,
 } from "@jazz/adapters/daemon/server";
@@ -47,7 +47,7 @@ import {
 } from "@jazz/adapters/secrets/keyring";
 import { DAEMON_TOKEN_ENV_VAR, DAEMON_TOKEN_PATH } from "@jazz/adapters/secrets/registry";
 import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
-import { resolveTriggerToken } from "@jazz/adapters/triggers/token";
+import { resolveWebhookToken } from "@jazz/adapters/webhooks/token";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
@@ -226,7 +226,7 @@ export function daemonCommand(options: DaemonCommandOptions) {
     const runtime = yield* Effect.runtime<DaemonRequirements>();
 
     const configService = yield* AgentConfigServiceTag;
-    const triggers = (yield* configService.appConfig).triggers ?? [];
+    const webhooks = (yield* configService.appConfig).webhooks ?? [];
 
     yield* Effect.async<void, never>((resume) => {
       const run = <A>(effect: Effect.Effect<A, unknown, DaemonRequirements>): Promise<A> =>
@@ -253,9 +253,9 @@ export function daemonCommand(options: DaemonCommandOptions) {
         run,
       );
       const handlePeerInvite = makePeerInviteHandler(run, undefined, daemonOptions.peerAgent);
-      const handleTrigger = makeTriggerHandler(
-        triggers,
-        (triggerName) => Effect.runPromise(resolveTriggerToken(triggerName)),
+      const handleWebhook = makeWebhookHandler(
+        webhooks,
+        (webhookName) => Effect.runPromise(resolveWebhookToken(webhookName)),
         run,
       );
       // A2A is a second door into the same peer-serving logic `handlePeer` already
@@ -270,7 +270,10 @@ export function daemonCommand(options: DaemonCommandOptions) {
       const routes: readonly { readonly prefix: string; readonly handle: typeof handle }[] = [
         { prefix: "/peer/", handle: handlePeer },
         { prefix: "/peer-invites/", handle: handlePeerInvite },
-        { prefix: "/triggers/", handle: handleTrigger },
+        { prefix: "/webhooks/", handle: handleWebhook },
+        // The pre-rename URL stays routed: it is written into other people's webhook
+        // settings, which jazz has no way to update.
+        { prefix: "/triggers/", handle: handleWebhook },
         { prefix: "/a2a", handle: handleA2A },
         { prefix: "/.well-known/", handle: handleA2A },
       ];
