@@ -26,6 +26,55 @@ const LOG_LEVEL_PRIORITY: Record<"debug" | "info" | "warn" | "error", number> = 
 };
 
 /**
+ * Metadata keys whose values are credentials and must never be persisted in a log.
+ *
+ * Tool arguments and structured metadata commonly carry HTTP headers or provider
+ * credentials. Match keys at every depth so a nested `headers.authorization` is
+ * protected just as a top-level `apiKey` is.
+ */
+const SENSITIVE_LOG_KEY_PATTERN =
+  /authorization|api[-_]?key|token|secret|password|credential|cookie|passphrase/i;
+
+/**
+ * Return a deep, non-mutating copy of log metadata with credential-bearing fields
+ * replaced. The logger is the final persistence boundary, so every structured log
+ * format must pass through this function before serialization.
+ */
+export function redactLogMetadata(
+  metadata: Readonly<Record<string, unknown>>,
+): Record<string, unknown> {
+  return redactLogValue(metadata, new WeakMap<object, unknown>()) as Record<string, unknown>;
+}
+
+function redactLogValue(value: unknown, seen: WeakMap<object, unknown>): unknown {
+  if (value === null || typeof value !== "object") return value;
+
+  const existing = seen.get(value);
+  if (existing !== undefined) return existing;
+
+  if (Array.isArray(value)) {
+    const redacted: unknown[] = [];
+    seen.set(value, redacted);
+    for (const item of value) {
+      redacted.push(redactLogValue(item, seen));
+    }
+    return redacted;
+  }
+
+  const prototype = Reflect.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) return value;
+
+  const redacted: Record<string, unknown> = {};
+  seen.set(value, redacted);
+  for (const [key, nestedValue] of Object.entries(value)) {
+    redacted[key] = SENSITIVE_LOG_KEY_PATTERN.test(key)
+      ? "<redacted>"
+      : redactLogValue(nestedValue, seen);
+  }
+  return redacted;
+}
+
+/**
  * Check if a log at the given level should be written based on the configured level
  */
 function shouldLog(level: "debug" | "info" | "warn" | "error"): boolean {
@@ -265,7 +314,7 @@ export function formatLogLineAsJson(
 
   if (meta && Object.keys(meta).length > 0) {
     // Spread meta fields at top level for easier querying
-    Object.assign(logEntry, meta);
+    Object.assign(logEntry, redactLogMetadata(meta));
   }
 
   return JSON.stringify(logEntry, jsonBigIntReplacer) + "\n";
@@ -281,7 +330,9 @@ export function formatLogLineAsPlain(
 ): string {
   const now = new Date();
   const metaText =
-    meta && Object.keys(meta).length > 0 ? " " + JSON.stringify(meta, jsonBigIntReplacer) : "";
+    meta && Object.keys(meta).length > 0
+      ? " " + JSON.stringify(redactLogMetadata(meta), jsonBigIntReplacer)
+      : "";
   return `${now.toLocaleDateString()} ${now.toLocaleTimeString()} [${level.toUpperCase()}] ${message}${metaText}\n`;
 }
 
@@ -381,20 +432,23 @@ function writeToolCallToSessionFile(
   const sanitizedId = conversationId.replace(/[^a-zA-Z0-9_-]/g, "_");
   const logFilePath = path.join(logsDir, `${sanitizedId}.log`);
 
+  logQueue.enqueue(logFilePath, formatToolCallLogLine(conversationId, toolName, args));
+}
+
+/** Format a redacted tool call as a session log entry in the selected format. */
+export function formatToolCallLogLine(
+  conversationId: string,
+  toolName: string,
+  args: Readonly<Record<string, unknown>>,
+): string {
+  const redactedArgs = redactLogMetadata(args);
   if (getLogFormat() === "json") {
-    const line = formatLogLineAsJson("info", `Tool Call: ${toolName}`, args, conversationId);
-    logQueue.enqueue(logFilePath, line);
-    return;
+    return formatLogLineAsJson("info", `Tool Call: ${toolName}`, redactedArgs, conversationId);
   }
 
   const timestamp = new Date().toISOString();
-
-  // Format arguments as JSON
-  const argsJson = JSON.stringify(args);
-  const content = `${toolName} ${argsJson}`;
-  const line = `[${timestamp}] [TOOL_CALL] ${content}\n`;
-
-  logQueue.enqueue(logFilePath, line);
+  const argsJson = JSON.stringify(redactedArgs, jsonBigIntReplacer);
+  return `[${timestamp}] [TOOL_CALL] ${toolName} ${argsJson}\n`;
 }
 
 /**

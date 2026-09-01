@@ -21,9 +21,10 @@
  * survivable because video and audio are Gemini-family capabilities to begin with — but it does
  * mean "attachment too large to inline" is a hard failure on Anthropic rather than a slow path.
  *
- * Uploads are cached for the life of the process. Without the cache, a conversation that
+ * Uploads are retained in a bounded LRU cache. Without the cache, a conversation that
  * references a video would re-upload it on every turn as history replays — slow, and billed
- * per upload on metered providers.
+ * per upload on metered providers. The bound prevents inactive conversations from growing a
+ * long-lived bot process indefinitely.
  */
 
 import { readFile, stat } from "node:fs/promises";
@@ -93,7 +94,48 @@ function uploadCacheKey(
   return `${providerName}:${attachment.path}:${attachment.byteSize}:${modifiedTimeMs}`;
 }
 
-const uploadCache = new Map<string, unknown>();
+/**
+ * Maximum provider references retained across active conversations in one process.
+ *
+ * References are small, opaque provider handles rather than attachment bytes. Still, this is
+ * a process-global cache used by long-lived chat bridges, so it needs a firm bound. 256 entries
+ * comfortably covers active replayed conversations while ensuring abandoned paths are released.
+ */
+export const ATTACHMENT_UPLOAD_CACHE_CAPACITY = 256;
+
+/**
+ * A minimal insertion-ordered LRU cache for provider upload references.
+ *
+ * `Map` preserves insertion order. Moving a hit to the end makes its first key the least
+ * recently used entry, which can be evicted without timers or background work.
+ */
+class AttachmentUploadCache {
+  private readonly entries = new Map<string, unknown>();
+
+  get(key: string): unknown {
+    const value = this.entries.get(key);
+    if (value === undefined) return undefined;
+
+    this.entries.delete(key);
+    this.entries.set(key, value);
+    return value;
+  }
+
+  set(key: string, value: unknown): void {
+    this.entries.delete(key);
+    this.entries.set(key, value);
+
+    if (this.entries.size <= ATTACHMENT_UPLOAD_CACHE_CAPACITY) return;
+    const leastRecentlyUsedKey = this.entries.keys().next().value;
+    if (leastRecentlyUsedKey !== undefined) this.entries.delete(leastRecentlyUsedKey);
+  }
+
+  clear(): void {
+    this.entries.clear();
+  }
+}
+
+const uploadCache = new AttachmentUploadCache();
 
 /** Test seam: drops cached references so the next resolve re-uploads. */
 export function clearAttachmentUploadCache(): void {

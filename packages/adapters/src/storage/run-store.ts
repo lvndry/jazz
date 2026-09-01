@@ -89,6 +89,71 @@ function recoveredState(record: RunRecord): RunState | undefined {
   };
 }
 
+const LOCK_STALE_MS = 30_000;
+const LOCK_RETRY_DELAY_MS = 25;
+const LOCK_MAX_WAIT_MS = 5_000;
+
+interface LockPayload {
+  readonly pid: number;
+  readonly host: string;
+  readonly acquiredAt: number;
+}
+
+async function readLockPayload(lockPath: string): Promise<LockPayload | undefined> {
+  try {
+    return JSON.parse(await nodeFs.readFile(lockPath, "utf-8")) as LockPayload;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Staleness is decided from the lock file's own mtime, not from parsing its content: a
+ * holder that just created the file has a real window, between the create and the payload
+ * write landing, where the file exists but reads as empty. Judging staleness by content
+ * would misread that window as an abandoned lock and let a second caller steal it out from
+ * under the first — the exact double-acquire this lock exists to prevent. An unparseable
+ * payload on a fresh file is "still being written", not "stale": say so, not stale.
+ */
+async function isLockStale(lockPath: string): Promise<boolean> {
+  const stats = await nodeFs.stat(lockPath).catch(() => undefined);
+  if (stats === undefined) return true;
+  if (Date.now() - stats.mtimeMs > LOCK_STALE_MS) return true;
+  const payload = await readLockPayload(lockPath);
+  if (payload === undefined) return false;
+  return ownerIsGone(payload);
+}
+
+/**
+ * Exclusive-create (`writeFile(path, content, { flag: "wx" })` fails with EEXIST if the
+ * lock file already exists) is what makes this safe across processes without a native
+ * flock binding. Creation and content land in one call rather than an `open` followed by a
+ * separate `writeFile`, so there is no `await` boundary between them for a concurrent
+ * stale-check to observe an empty file through. A lock is stale — its holder crashed
+ * mid-write — if the owning process is gone or it has sat past LOCK_STALE_MS; either way we
+ * reclaim it rather than wait out a dead holder.
+ */
+async function acquireRunLock(lockPath: string): Promise<() => Promise<void>> {
+  const deadline = Date.now() + LOCK_MAX_WAIT_MS;
+  for (;;) {
+    try {
+      const payload: LockPayload = { pid: process.pid, host: hostname(), acquiredAt: Date.now() };
+      await nodeFs.writeFile(lockPath, JSON.stringify(payload), { flag: "wx" });
+      return () => nodeFs.rm(lockPath, { force: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      if (await isLockStale(lockPath)) {
+        await nodeFs.rm(lockPath, { force: true }).catch(() => undefined);
+        continue;
+      }
+      if (Date.now() >= deadline) {
+        throw new Error(`Timed out waiting for the run lock at "${lockPath}".`, { cause: error });
+      }
+      await new Promise((resolve) => setTimeout(resolve, LOCK_RETRY_DELAY_MS));
+    }
+  }
+}
+
 const ABANDONED: RunState = {
   kind: "failed",
   cause: "abandoned",
@@ -224,19 +289,42 @@ export class FileRunStore implements RunStore {
     }).pipe(Effect.catchAll(() => Effect.succeed([] as readonly RunRecord[])));
   }
 
+  private lockPathFor(runId: RunId): string {
+    return `${this.pathFor(runId)}.lock`;
+  }
+
+  private async writeRecordFile(record: RunRecord): Promise<void> {
+    const destination = this.pathFor(record.runId);
+    // A reader polling mid-write would otherwise parse a truncated record as a
+    // missing one, which for a parked run reads as "your approval is gone".
+    const temporary = `${destination}.${process.pid}.tmp`;
+    await nodeFs.writeFile(temporary, JSON.stringify(record, null, 2), "utf-8");
+    await nodeFs.rename(temporary, destination);
+  }
+
+  /** Serializes read-modify-write on one run id across processes so a losing writer's update isn't silently dropped. */
+  private withRunLock<A, E>(runId: RunId, use: Effect.Effect<A, E>): Effect.Effect<A, E | Error> {
+    return Effect.acquireUseRelease(
+      Effect.tryPromise({
+        try: async () => {
+          await nodeFs.mkdir(this.directory, { recursive: true });
+          return acquireRunLock(this.lockPathFor(runId));
+        },
+        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+      }),
+      () => use,
+      (release) => Effect.promise(() => release()),
+    );
+  }
+
   save(record: RunRecord): Effect.Effect<void, never> {
-    return Effect.tryPromise({
-      try: async () => {
-        await nodeFs.mkdir(this.directory, { recursive: true });
-        const destination = this.pathFor(record.runId);
-        // A reader polling mid-write would otherwise parse a truncated record as a
-        // missing one, which for a parked run reads as "your approval is gone".
-        const temporary = `${destination}.${process.pid}.tmp`;
-        await nodeFs.writeFile(temporary, JSON.stringify(record, null, 2), "utf-8");
-        await nodeFs.rename(temporary, destination);
-      },
-      catch: (error) => error,
-    }).pipe(Effect.catchAll(() => Effect.void));
+    return this.withRunLock(
+      record.runId,
+      Effect.tryPromise({
+        try: () => this.writeRecordFile(record),
+        catch: (error) => error,
+      }),
+    ).pipe(Effect.catchAll(() => Effect.void));
   }
 
   get(runId: RunId): Effect.Effect<RunRecord | undefined, never> {
@@ -250,22 +338,77 @@ export class FileRunStore implements RunStore {
   }
 
   transition(runId: RunId, next: RunState): Effect.Effect<RunRecord, Error> {
-    return Effect.gen(this, function* () {
-      const existing = yield* this.get(runId);
-      if (existing === undefined) {
-        return yield* Effect.fail(new Error(`No run with id "${runId}".`));
-      }
-      const updated = yield* Effect.try({
-        try: () => withState(existing, next, this.clock()),
-        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
-      });
-      yield* this.save(updated);
-      return updated;
-    });
+    return this.withRunLock(
+      runId,
+      Effect.gen(this, function* () {
+        const existing = yield* this.get(runId);
+        if (existing === undefined) {
+          return yield* Effect.fail(new Error(`No run with id "${runId}".`));
+        }
+        const updated = yield* Effect.try({
+          try: () => withState(existing, next, this.clock()),
+          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+        });
+        yield* Effect.tryPromise({
+          try: () => this.writeRecordFile(updated),
+          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+        });
+        return updated;
+      }),
+    );
   }
 
   list(filter?: RunListFilter): Effect.Effect<readonly RunRecord[], never> {
     return this.readAll().pipe(Effect.map((records) => selectRecords(records, filter)));
+  }
+
+  /**
+   * `readAll()` only enumerates which run ids might need pruning; the decision itself is
+   * re-made here against a freshly locked read, so a run a live process just moved past
+   * (say, to `completed`) can't be reparked or abandoned from the stale snapshot.
+   */
+  private prunableRunOutcome(
+    runId: RunId,
+    now: Date,
+    maxTerminalAgeMs: number,
+  ): Effect.Effect<"abandoned" | "deleted" | "reparked" | "kept", Error> {
+    return this.withRunLock(
+      runId,
+      Effect.gen(this, function* () {
+        const current = yield* this.get(runId);
+        if (current === undefined) return "kept" as const;
+
+        const recovered = recoveredState(current);
+        if (recovered !== undefined) {
+          yield* Effect.tryPromise({
+            try: () => this.writeRecordFile(withState(current, recovered, now)),
+            catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+          });
+          return "reparked" as const;
+        }
+
+        if (isExpired(current, now)) {
+          yield* Effect.tryPromise({
+            try: () => this.writeRecordFile(withState(current, ABANDONED, now)),
+            catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+          });
+          return "abandoned" as const;
+        }
+
+        if (
+          isTerminal(current.state) &&
+          now.getTime() - new Date(current.updatedAt).getTime() > maxTerminalAgeMs
+        ) {
+          yield* Effect.tryPromise({
+            try: () => nodeFs.rm(this.pathFor(runId), { force: true }),
+            catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+          });
+          return "deleted" as const;
+        }
+
+        return "kept" as const;
+      }),
+    );
   }
 
   prune(options: {
@@ -281,27 +424,14 @@ export class FileRunStore implements RunStore {
       let deleted = 0;
       let reparked = 0;
       for (const record of records) {
-        const recovered = recoveredState(record);
-        if (recovered !== undefined) {
-          yield* this.save(withState(record, recovered, options.now));
-          reparked += 1;
-          continue;
-        }
-        if (isExpired(record, options.now)) {
-          yield* this.save(withState(record, ABANDONED, options.now));
-          abandoned += 1;
-          continue;
-        }
-        if (
-          isTerminal(record.state) &&
-          options.now.getTime() - new Date(record.updatedAt).getTime() > options.maxTerminalAgeMs
-        ) {
-          yield* Effect.tryPromise({
-            try: () => nodeFs.rm(this.pathFor(record.runId), { force: true }),
-            catch: (error) => error,
-          }).pipe(Effect.catchAll(() => Effect.void));
-          deleted += 1;
-        }
+        const outcome = yield* this.prunableRunOutcome(
+          record.runId,
+          options.now,
+          options.maxTerminalAgeMs,
+        ).pipe(Effect.catchAll(() => Effect.succeed("kept" as const)));
+        if (outcome === "reparked") reparked += 1;
+        else if (outcome === "abandoned") abandoned += 1;
+        else if (outcome === "deleted") deleted += 1;
       }
       return { abandoned, deleted, reparked };
     });
