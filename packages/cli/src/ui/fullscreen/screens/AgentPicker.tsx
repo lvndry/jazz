@@ -5,8 +5,8 @@
  *
  * `jazz` with no arguments lands on the home screen and comes straight here, so
  * this is the last screen before a session starts. What it shows is what tells
- * two agents apart at the moment of choosing: a name, the model behind it, and
- * a one-line description. The id, the provider and the creation date — the
+ * two agents apart at the moment of choosing: a name, the provider/model behind
+ * it, and a one-line description. The id and the creation date — two of the
  * three things the Ink table led with — are lookups, not decisions, so they are
  * not here.
  *
@@ -47,7 +47,7 @@ const COLUMN_GAP = 2;
 const NAME_MIN = 10;
 const NAME_MAX = 24;
 const MODEL_MIN = 8;
-const MODEL_MAX = 28;
+const MODEL_MAX = 36;
 const PERSONA_MIN = 8;
 const PERSONA_MAX = 20;
 
@@ -74,7 +74,7 @@ const DEFAULT_ACTION = "start";
 export interface AgentChoice {
   readonly id: string;
   readonly name: string;
-  /** The model as the reader would say it, without the provider prefix. */
+  /** The provider and model as the reader would say it, e.g. "anthropic/sonnet-4.5". */
   readonly model: string;
   readonly persona: string;
   readonly description?: string;

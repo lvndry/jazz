@@ -55,14 +55,14 @@ describe("showAgentList", () => {
     expect(menu.agents[0]).toMatchObject({
       id: "a1",
       name: "doitall",
-      model: "claude-sonnet-4",
+      model: "anthropic/claude-sonnet-4",
       description: "does everything",
       lastUsed: true,
     });
     expect(menu.agents[1]).toMatchObject({
       id: "a2",
       name: "qwen-coder",
-      model: "qwen2.5-coder",
+      model: "anthropic/qwen2.5-coder",
     });
 
     store.completePrompt({ kind: "exit" });
