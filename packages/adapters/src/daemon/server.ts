@@ -25,6 +25,7 @@ import { isRunParkRequested } from "@jazz/core/agent/run/park-signal";
 import { resumeRun, type ResumeRunOptions } from "@jazz/core/agent/run/resume";
 import type { PendingInput } from "@jazz/core/agent/run/run-state";
 import type { AgentConfigService } from "@jazz/core/interfaces/agent-config";
+import { AgentServiceTag } from "@jazz/core/interfaces/agent-service";
 import type { AgentService } from "@jazz/core/interfaces/agent-service";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { RunStoreTag } from "@jazz/core/interfaces/run-store";
@@ -217,6 +218,10 @@ export function makeHandler(
 
     if (request.method === "GET" && url.pathname === "/runs") {
       return runEffect(listRuns());
+    }
+
+    if (request.method === "GET" && url.pathname === "/agents") {
+      return runEffect(listAgents());
     }
 
     return json({ ok: false, error: "not found" }, 404);
@@ -881,6 +886,31 @@ function listRuns() {
     yield* store.prune({ now: new Date(), maxTerminalAgeMs: TERMINAL_RETENTION_MS });
     const runs = yield* store.list();
     return json({ ok: true, runs });
+  });
+}
+
+/**
+ * The agents this daemon can run, for a caller choosing between them.
+ *
+ * Fields are projected one by one rather than returning the stored agent, because
+ * `AgentConfig` carries `llmApiKeys` and a list endpoint is no place to hand those out.
+ */
+function listAgents() {
+  return Effect.gen(function* () {
+    const agentService = yield* AgentServiceTag;
+    const agents = yield* agentService.listAgents();
+    return json({
+      ok: true,
+      agents: agents.map((agent) => ({
+        id: agent.id,
+        name: agent.name,
+        ...(agent.description !== undefined ? { description: agent.description } : {}),
+        persona: agent.config.persona,
+        provider: agent.config.llmProvider,
+        model: agent.config.llmModel,
+        tools: agent.config.tools ?? [],
+      })),
+    });
   });
 }
 
