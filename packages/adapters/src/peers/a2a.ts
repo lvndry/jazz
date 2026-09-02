@@ -48,11 +48,16 @@ const SECURITY_SCHEME_ID = "peer-token";
 const SUPPORTED_PROTOCOL_VERSION = "1.0";
 
 /**
- * The version assumed when a caller sends no `A2A-Version` at all, which the protocol fixes
- * rather than leaving to each server to guess. It is not the version this door speaks, so a
- * caller who omits the header is refused the same as one who names an unsupported version.
+ * What a caller who sends no `A2A-Version` at all is taken to have said.
+ *
+ * Not this door's own version, and not a default to be widened to it. The protocol fixes the
+ * meaning of a missing header rather than leaving each server to guess, precisely so that a
+ * client too old to know the header exists cannot be mistaken for a current one. Reading
+ * silence as the version we happen to speak would answer exactly that client in a shape it
+ * cannot parse — the silent failure this door is built to avoid — so an unstated version is
+ * refused the same as an unsupported one, and the refusal names what to send instead.
  */
-const ASSUMED_PROTOCOL_VERSION = "0.3";
+const UNSTATED_VERSION_MEANS = "0.3";
 
 /** The only content this door takes in or gives back: one question, one answer, as text. */
 const TEXT_MODE = "text/plain";
@@ -232,7 +237,7 @@ export function parseA2ARequest(body: unknown): JsonRpcRequest | undefined {
  */
 export function normalizeProtocolVersion(header: string | undefined | null): string {
   const trimmed = (header ?? "").trim();
-  if (trimmed.length === 0) return ASSUMED_PROTOCOL_VERSION;
+  if (trimmed.length === 0) return UNSTATED_VERSION_MEANS;
   const parts = trimmed.split(".");
   return parts.length >= 2 ? `${parts[0]}.${parts[1]}` : trimmed;
 }
