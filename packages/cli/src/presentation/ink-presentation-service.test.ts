@@ -651,6 +651,53 @@ describe("InkStreamingRenderer", () => {
         Effect.runSync(renderer.reset());
       }
     });
+
+    test("routes the metrics outro into the sub-agent's ephemeral panel, not scrollback", async () => {
+      const ephemeralAppends: Array<{ id: string; text: string }> = [];
+      const originalAppend = store.appendEphemeral;
+      store.appendEphemeral = (id, text) => {
+        ephemeralAppends.push({ id, text });
+        return originalAppend(id, text);
+      };
+
+      const renderer = new InkStreamingRenderer(
+        "SubAgent",
+        true,
+        { showReasoning: true, showToolExecution: true, mode: "rendered", colorProfile: "full" },
+        { textBufferMs: 0 },
+        0,
+        { kind: "ephemeral", regionId: "eph-sub-2" },
+      );
+
+      try {
+        emitStreamStart(renderer);
+        const scrollbackBaseline = printOutputCalls.length;
+
+        Effect.runSync(
+          renderer.handleEvent({
+            type: "complete",
+            response: completeResponse("done"),
+            totalDurationMs: 100,
+            metrics: { firstTokenLatencyMs: 10, totalTokens: 42 },
+          }),
+        );
+        await new Promise((r) => setTimeout(r, 0));
+
+        const combined = ephemeralAppends
+          .filter((entry) => entry.id === "eph-sub-2")
+          .map((entry) => entry.text)
+          .join("");
+        expect(combined).toContain("42 tok");
+
+        const debugScrollbackEntries = printOutputCalls
+          .slice(scrollbackBaseline)
+          .filter((e) => e.type === "debug");
+        expect(debugScrollbackEntries).toHaveLength(0);
+      } finally {
+        store.appendEphemeral = originalAppend;
+        Effect.runSync(renderer.reset());
+      }
+    });
   });
 
   describe("complete phase", () => {

@@ -693,7 +693,9 @@ export class InkStreamingRenderer implements StreamingRenderer {
     }
 
     if (this.showMetrics && event.metrics) {
-      store.printOutput({ type: "log", message: "", timestamp: new Date() });
+      if (this.streamTarget.kind === "scrollback") {
+        store.printOutput({ type: "log", message: "", timestamp: new Date() });
+      }
       this.printOutro(event);
     }
 
@@ -840,13 +842,23 @@ export class InkStreamingRenderer implements StreamingRenderer {
       }
     }
 
-    if (parts.length > 0) {
-      store.printOutput({
-        type: "debug",
-        message: `${getGlyphs().success} ${parts.join(" · ")}`,
-        timestamp: new Date(),
+    if (parts.length === 0) return;
+
+    const line = `${getGlyphs().success} ${parts.join(" · ")}`;
+    if (this.streamTarget.kind === "ephemeral") {
+      this.bufferStreamDelta({
+        target: "ephemeral",
+        regionId: this.streamTarget.regionId,
+        delta: `\n${line}`,
       });
+      return;
     }
+
+    store.printOutput({
+      type: "debug",
+      message: line,
+      timestamp: new Date(),
+    });
   }
 
   /**
