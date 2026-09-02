@@ -1,6 +1,10 @@
+import { mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
+import { tmpdir } from "node:os";
 import path from "node:path";
+import { join } from "node:path";
 import { FileSystem } from "@effect/platform";
+import { NodeFileSystem } from "@effect/platform-node";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import { type AppConfig } from "@jazz/core/types/index";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
@@ -533,5 +537,55 @@ describe("createConfigLayer", () => {
     expect(result.endpoint).toBe("http://collector:4318");
     expect(result.captureContent).toBe(true);
     expect(result.retentionDays).toBe(7);
+  });
+});
+
+describe("noticing an edit made by another process", () => {
+  it("picks up a webhook added to the file after startup", async () => {
+    const home = await mkdtemp(join(tmpdir(), "jazz-reload-"));
+    const configPath = join(home, "config.json");
+    const write = (webhooks: { name: string; agentId: string; promptTemplate: string }[]) =>
+      writeFile(configPath, JSON.stringify({ webhooks }));
+
+    await write([{ name: "first", agentId: "a", promptTemplate: "x" }]);
+
+    const layer = createConfigLayer(false, configPath).pipe(Layer.provide(NodeFileSystem.layer));
+
+    const program = Effect.gen(function* () {
+      const service = yield* AgentConfigServiceTag;
+      const before = ((yield* service.appConfig).webhooks ?? []).length;
+
+      // Something else edits the file — a setup tool, or an operator with an editor. The
+      // mtime has one-second resolution on some filesystems, so move it on explicitly.
+      yield* Effect.promise(async () => {
+        await write([
+          { name: "first", agentId: "a", promptTemplate: "x" },
+          { name: "second", agentId: "b", promptTemplate: "y" },
+        ]);
+        const later = new Date(Date.now() + 2_000);
+        await utimes(configPath, later, later);
+      });
+
+      const stale = ((yield* service.appConfig).webhooks ?? []).length;
+      const changed = yield* service.reloadIfChanged();
+      const after = ((yield* service.appConfig).webhooks ?? []).length;
+      return { before, stale, changed, after };
+    });
+
+    const result = await Effect.runPromise(
+      Effect.provide(program, layer) as Effect.Effect<
+        { before: number; stale: number; changed: boolean; after: number },
+        never,
+        never
+      >,
+    );
+
+    expect(result.before).toBe(1);
+    // `appConfig` answers from memory, which is the whole reason a reload is needed.
+    expect(result.stale).toBe(1);
+    expect(result.changed).toBe(true);
+    expect(result.after).toBe(2);
+
+    await rm(home, { recursive: true, force: true });
   });
 });

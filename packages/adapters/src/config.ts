@@ -100,6 +100,8 @@ export class AgentConfigServiceImpl implements AgentConfigService {
   private configPath: string | undefined;
   private fs: FileSystem.FileSystem;
   private currentRevision: number;
+  /** When config.json was last read, so an external edit can be noticed. */
+  private loadedAt: number | undefined;
   private keyringBackend: KeyringBackend;
   private secretOrigins: Map<string, SecretOrigin>;
   private fileSecrets: Map<string, string>;
@@ -302,6 +304,49 @@ export class AgentConfigServiceImpl implements AgentConfigService {
 
   get appConfig(): Effect.Effect<AppConfig, never> {
     return Effect.succeed(this.currentConfig);
+  }
+
+  /**
+   * Re-read config.json when its mtime has moved, returning whether anything changed.
+   *
+   * `appConfig` answers from memory, so a caller that must see an edit made by another
+   * process asks for this first. Takes `webhooks` and `peers`; secrets stay in the keyring.
+   */
+  reloadIfChanged(): Effect.Effect<boolean, never> {
+    return Effect.gen(
+      function* (this: AgentConfigServiceImpl) {
+        const path = this.configPath;
+        if (path === undefined) return false;
+
+        const stat = yield* this.fs
+          .stat(path)
+          .pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+        const modified = stat?.mtime;
+        const at = Option.isOption(modified)
+          ? Option.getOrUndefined(modified)?.getTime()
+          : undefined;
+        if (at === undefined || at === this.loadedAt) return false;
+        this.loadedAt = at;
+
+        const content = yield* this.fs
+          .readFileString(path)
+          .pipe(Effect.catchAll(() => Effect.succeed("")));
+        const parsed = safeParseJson<Partial<AppConfig>>(content);
+        if (Option.isNone(parsed) || typeof parsed.value !== "object" || parsed.value === null) {
+          return false;
+        }
+
+        const fromFile = parsed.value;
+        migrateConfigProviderName(fromFile);
+        this.currentConfig = {
+          ...this.currentConfig,
+          ...(fromFile.webhooks !== undefined ? { webhooks: fromFile.webhooks } : {}),
+          ...(fromFile.peers !== undefined ? { peers: fromFile.peers } : {}),
+        };
+        this.currentRevision += 1;
+        return true;
+      }.bind(this),
+    ).pipe(Effect.catchAll(() => Effect.succeed(false)));
   }
 }
 

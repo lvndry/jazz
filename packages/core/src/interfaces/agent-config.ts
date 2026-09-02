@@ -21,6 +21,8 @@ export interface AgentConfigService {
    * home in the config file. Lets a command report that instead of claiming success.
    */
   readonly secretStorageUnavailable: (key: string) => boolean;
+  /** Re-read the config file when another process has changed it. */
+  readonly reloadIfChanged: () => Effect.Effect<boolean, never>;
 }
 
 export const AgentConfigServiceTag = Context.GenericTag<AgentConfigService>("AgentConfigService");
