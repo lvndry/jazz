@@ -17,6 +17,12 @@
  * lifecycle, no streaming, no push notifications, no OAuth2/OIDC/mTLS — none of that has a
  * caller yet, and bolting it on speculatively is exactly the scope creep this feature nearly
  * shipped with the first time around.
+ *
+ * Minimal, but not approximate. Everything this door does emit is the shape a stock A2A
+ * client parses: PascalCase JSON-RPC method names, a `SendMessageResponse` envelope around
+ * the reply, and an agent card carrying the fields a client reads before it will talk at
+ * all. A door that is A2A-shaped but not A2A-speaking is decorative, since interoperability
+ * with clients nobody here wrote is the entire reason to have it.
  */
 
 import { resolveAgentToolNames } from "@jazz/core/agent/tools/agent-tool-resolution";
@@ -26,9 +32,33 @@ import type { Agent } from "@jazz/core/types";
 import type { PeerConfig } from "@jazz/core/types/peer";
 import { Effect } from "effect";
 import { allowedToolsForPeer, servePeerRequest } from "./serve";
+import packageJson from "../../../../package.json";
 
 /** The one security scheme this server actually accepts: a peer's own bearer token. */
 const SECURITY_SCHEME_ID = "peer-token";
+
+/**
+ * The one protocol version this door speaks, as `Major.Minor`.
+ *
+ * A2A pins wire details to the version a caller asks for, so supporting several means
+ * carrying several serializations of the same message. This door carries one. A caller
+ * asking for anything else gets told so precisely, which is a better outcome than being
+ * answered in a shape it cannot parse.
+ */
+const SUPPORTED_PROTOCOL_VERSION = "1.0";
+
+/**
+ * The version assumed when a caller sends no `A2A-Version` at all, which the protocol fixes
+ * rather than leaving to each server to guess. It is not the version this door speaks, so a
+ * caller who omits the header is refused the same as one who names an unsupported version.
+ */
+const ASSUMED_PROTOCOL_VERSION = "0.3";
+
+/** The only content this door takes in or gives back: one question, one answer, as text. */
+const TEXT_MODE = "text/plain";
+
+/** JSON-RPC codes from A2A's own error range, distinct from the JSON-RPC 2.0 standard ones. */
+const VERSION_NOT_SUPPORTED = -32009;
 
 export interface AgentSkill {
   readonly id: string;
@@ -37,21 +67,32 @@ export interface AgentSkill {
   readonly tags: readonly string[];
 }
 
+/** One endpoint a client can reach this agent on, and what it speaks there. */
+export interface AgentInterface {
+  readonly url: string;
+  readonly protocolBinding: "JSONRPC";
+  readonly protocolVersion: string;
+}
+
 export interface AgentCard {
-  readonly id: string;
   readonly name: string;
   readonly description: string;
+  readonly version: string;
+  readonly supportedInterfaces: readonly AgentInterface[];
   readonly capabilities: {
     readonly streaming: boolean;
     readonly pushNotifications: boolean;
     readonly extendedAgentCard: boolean;
   };
-  readonly securitySchemes: readonly {
-    readonly id: string;
-    readonly type: "http";
-    readonly scheme: "bearer";
+  readonly securitySchemes: Record<
+    string,
+    { readonly httpAuthSecurityScheme: { readonly scheme: string; readonly description: string } }
+  >;
+  readonly securityRequirements: readonly {
+    readonly schemes: Record<string, { readonly list: readonly string[] }>;
   }[];
-  readonly security: readonly Record<string, readonly string[]>[];
+  readonly defaultInputModes: readonly string[];
+  readonly defaultOutputModes: readonly string[];
   readonly skills: readonly AgentSkill[];
 }
 
@@ -59,18 +100,41 @@ export interface AgentCard {
  * The unauthenticated card. Same for every caller, on purpose — this is the "what kind of
  * thing is this" advertisement, not a peer-specific capability list. See
  * `buildExtendedAgentCard` for the one that actually reflects a relationship.
+ *
+ * `endpointUrl` is where a client should send its JSON-RPC calls. The daemon derives it from
+ * the address the card was fetched on rather than from configuration, so a card served
+ * through a tunnel advertises the tunnel rather than a loopback address no peer can reach.
  */
-export function buildPublicAgentCard(agentName: string): AgentCard {
+export function buildPublicAgentCard(agentName: string, endpointUrl: string): AgentCard {
   return {
-    id: agentName,
     name: agentName,
     description:
       "A jazz agent. Answers questions from established peers, within a disclosure tier " +
       "and tool grant its operator configured for each one. Fetch the extended card after " +
       "authenticating to see what a specific relationship can actually reach.",
+    version: packageJson.version,
+    supportedInterfaces: [
+      {
+        url: endpointUrl,
+        protocolBinding: "JSONRPC",
+        protocolVersion: SUPPORTED_PROTOCOL_VERSION,
+      },
+    ],
     capabilities: { streaming: false, pushNotifications: false, extendedAgentCard: true },
-    securitySchemes: [{ id: SECURITY_SCHEME_ID, type: "http", scheme: "bearer" }],
-    security: [{ [SECURITY_SCHEME_ID]: [] }],
+    securitySchemes: {
+      [SECURITY_SCHEME_ID]: {
+        httpAuthSecurityScheme: {
+          scheme: "bearer",
+          description:
+            "The bearer token this agent's operator issued to one specific peer. It " +
+            "identifies which relationship is calling, which is what selects the tier and " +
+            "tool grant the answer is produced under.",
+        },
+      },
+    },
+    securityRequirements: [{ schemes: { [SECURITY_SCHEME_ID]: { list: [] } } }],
+    defaultInputModes: [TEXT_MODE],
+    defaultOutputModes: [TEXT_MODE],
     skills: [
       {
         id: "answer_question",
@@ -93,6 +157,7 @@ export function buildPublicAgentCard(agentName: string): AgentCard {
  */
 export function buildExtendedAgentCard(
   agentName: string,
+  endpointUrl: string,
   peer: PeerConfig,
   tools: readonly {
     readonly name: string;
@@ -103,7 +168,7 @@ export function buildExtendedAgentCard(
   const tier = peer.disclosure ?? "none";
   const allow = peer.allow ?? [];
   const reachable = allowedToolsForPeer(tier, allow, tools);
-  const base = buildPublicAgentCard(agentName);
+  const base = buildPublicAgentCard(agentName, endpointUrl);
   return {
     ...base,
     skills: [
@@ -133,7 +198,11 @@ interface JsonRpcSuccess {
 interface JsonRpcFailure {
   readonly jsonrpc: "2.0";
   readonly id: string | number | null;
-  readonly error: { readonly code: number; readonly message: string };
+  readonly error: {
+    readonly code: number;
+    readonly message: string;
+    readonly data?: readonly unknown[];
+  };
 }
 
 export type JsonRpcResponse = JsonRpcSuccess | JsonRpcFailure;
@@ -156,6 +225,40 @@ export function parseA2ARequest(body: unknown): JsonRpcRequest | undefined {
   return undefined;
 }
 
+/**
+ * Reduces an `A2A-Version` header to the `Major.Minor` pair that decides compatibility. A
+ * patch component carries no wire difference and is dropped rather than rejected, so a
+ * caller announcing `1.0.3` is treated as the `1.0` caller it is.
+ */
+export function normalizeProtocolVersion(header: string | undefined | null): string {
+  const trimmed = (header ?? "").trim();
+  if (trimmed.length === 0) return ASSUMED_PROTOCOL_VERSION;
+  const parts = trimmed.split(".");
+  return parts.length >= 2 ? `${parts[0]}.${parts[1]}` : trimmed;
+}
+
+function methodNotFound(id: string | number, method: string): JsonRpcFailure {
+  return { jsonrpc: "2.0", id, error: { code: -32601, message: `Method not found: ${method}` } };
+}
+
+function invalidParams(id: string | number, detail: string): JsonRpcFailure {
+  return { jsonrpc: "2.0", id, error: { code: -32602, message: `Invalid params: ${detail}` } };
+}
+
+function versionNotSupported(id: string | number, requested: string): JsonRpcFailure {
+  return {
+    jsonrpc: "2.0",
+    id,
+    error: {
+      code: VERSION_NOT_SUPPORTED,
+      message:
+        `A2A protocol version ${requested} is not supported. Send ` +
+        `A2A-Version: ${SUPPORTED_PROTOCOL_VERSION}.`,
+      data: [{ supportedVersions: [SUPPORTED_PROTOCOL_VERSION] }],
+    },
+  };
+}
+
 function extractQuestion(params: unknown): string | undefined {
   if (typeof params !== "object" || params === null) return undefined;
   const message = (params as Record<string, unknown>)["message"];
@@ -175,12 +278,35 @@ function extractQuestion(params: unknown): string | undefined {
   return question.length > 0 ? question : undefined;
 }
 
-function methodNotFound(id: string | number, method: string): JsonRpcFailure {
-  return { jsonrpc: "2.0", id, error: { code: -32601, message: `Method not found: ${method}` } };
-}
+/**
+ * Marks a reply as something other than a straight answer.
+ *
+ * A2A has one shape for "the agent said something" and no notion of an agent that declined,
+ * so refusing and answering would otherwise arrive identically and a caller could log a
+ * refusal as a reply. The distinction rides in message metadata, which the protocol leaves
+ * free-form for exactly this, under a key namespaced to jazz so it cannot collide with a
+ * field the protocol later defines.
+ */
+const OUTCOME_METADATA_KEY = "ai.jazz/outcome";
 
-function invalidParams(id: string | number, detail: string): JsonRpcFailure {
-  return { jsonrpc: "2.0", id, error: { code: -32602, message: `Invalid params: ${detail}` } };
+/** Wraps an agent's text in the `SendMessageResponse` envelope a client unwraps. */
+export function buildMessageResult(
+  id: string | number,
+  text: string,
+  outcome: "answered" | "refused" | "parked",
+): JsonRpcSuccess {
+  return {
+    jsonrpc: "2.0",
+    id,
+    result: {
+      message: {
+        messageId: crypto.randomUUID(),
+        role: "ROLE_AGENT",
+        parts: [{ text }],
+        ...(outcome === "answered" ? {} : { metadata: { [OUTCOME_METADATA_KEY]: outcome } }),
+      },
+    },
+  };
 }
 
 /**
@@ -188,14 +314,25 @@ function invalidParams(id: string | number, detail: string): JsonRpcFailure {
  * `servePeerRequest` `/peer/ask` already calls — this is a wire-format translation, not a
  * second implementation of the authorization decision.
  */
-export function handleA2ARpc(agentName: string, peer: PeerConfig, agent: Agent, raw: unknown) {
+export function handleA2ARpc(
+  agentName: string,
+  endpointUrl: string,
+  protocolVersion: string,
+  peer: PeerConfig,
+  agent: Agent,
+  raw: unknown,
+) {
   return Effect.gen(function* () {
     const request = parseA2ARequest(raw);
     if (request === undefined) {
       return { jsonrpc: "2.0", id: null, error: { code: -32600, message: "Invalid Request" } };
     }
 
-    if (request.method === "a2a.GetExtendedAgentCard") {
+    if (protocolVersion !== SUPPORTED_PROTOCOL_VERSION) {
+      return versionNotSupported(request.id, protocolVersion);
+    }
+
+    if (request.method === "GetExtendedAgentCard") {
       // Scoped to what `agent` (the actual identity answering this peer) can really reach —
       // not the global registry, which lists every tool registered for every agent on this
       // machine. Advertising from the wrong source is how a card ends up promising a tool
@@ -215,33 +352,31 @@ export function handleA2ARpc(agentName: string, peer: PeerConfig, agent: Agent, 
       return {
         jsonrpc: "2.0",
         id: request.id,
-        result: buildExtendedAgentCard(agentName, peer, described),
+        result: buildExtendedAgentCard(agentName, endpointUrl, peer, described),
       };
     }
 
-    if (request.method === "a2a.SendMessage") {
+    if (request.method === "SendMessage") {
       const question = extractQuestion(request.params);
       if (question === undefined) {
         return invalidParams(request.id, "params.message.parts must include non-empty text");
       }
       const outcome = yield* servePeerRequest({ peer, agent, question });
+      // Every outcome comes back as a message rather than a JSON-RPC error, including the
+      // ones that declined. A2A's error codes name protocol and task-lifecycle failures; an
+      // agent that considered a question and would not answer it is neither, and reporting
+      // it as one would tell a caller its request was malformed when it was understood
+      // perfectly and turned down. What separates them on the wire is the outcome metadata.
       if (outcome.kind === "answered") {
-        return {
-          jsonrpc: "2.0",
-          id: request.id,
-          result: {
-            messageId: `a2a-${Date.now().toString(36)}`,
-            role: "ROLE_AGENT",
-            parts: [{ text: outcome.answer }],
-          },
-        };
+        return buildMessageResult(request.id, outcome.answer, "answered");
       }
       // `parked` (the answering agent wants to ask something back before committing) has no
-      // A2A task-lifecycle state to carry it — this door is deliberately staying that minimal,
-      // see the file header. It surfaces as an ordinary refusal, with the clarifying question
-      // as the message, same as any other reason this door declines to answer outright.
-      const message = outcome.kind === "parked" ? outcome.question : outcome.reason;
-      return { jsonrpc: "2.0", id: request.id, error: { code: -32001, message } };
+      // A2A task-lifecycle state to carry it — this door is deliberately staying that
+      // minimal, see the file header. The clarifying question rides back as the message text,
+      // tagged so a caller can tell it apart from a flat refusal.
+      return outcome.kind === "parked"
+        ? buildMessageResult(request.id, outcome.question, "parked")
+        : buildMessageResult(request.id, outcome.reason, "refused");
     }
 
     return methodNotFound(request.id, request.method);

@@ -5,6 +5,7 @@
     "": {
       "name": "jazz-ai",
       "devDependencies": {
+        "@a2a-js/sdk": "^1.1.0",
         "@ai-sdk/alibaba": "^2.0.35",
         "@ai-sdk/anthropic": "^4.0.42",
         "@ai-sdk/cerebras": "^3.0.37",
@@ -191,6 +192,8 @@
     },
   },
   "packages": {
+    "@a2a-js/sdk": ["@a2a-js/sdk@1.1.0", "", { "dependencies": { "jose": "^6.2.3" }, "peerDependencies": { "@bufbuild/protobuf": "^2.10.2", "@grpc/grpc-js": "^1.11.0", "express": "^4.21.2 || ^5.1.0" }, "optionalPeers": ["@bufbuild/protobuf", "@grpc/grpc-js", "express"] }, "sha512-/Mhzw9C6VW7pFbY2Rq0pnrjT0Fy9PV0c46A7Gx1ppRlYq2u/6OV/bNRIoVBKChb8UZ8bE0WzzCc0pIr2CdmG+w=="],
+
     "@ai-sdk/alibaba": ["@ai-sdk/alibaba@2.0.35", "", { "dependencies": { "@ai-sdk/provider": "4.0.8", "@ai-sdk/provider-utils": "5.0.30" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-zWD1jkTmZbvg6fN6Hi2zQoND2GogGmNdn75tEsmsm7sPt6rL2JuYH+6l9WnDGCCy2r+gvSFXm+j4j7jNBCwrOQ=="],
 
     "@ai-sdk/anthropic": ["@ai-sdk/anthropic@4.0.42", "", { "dependencies": { "@ai-sdk/provider": "4.0.8", "@ai-sdk/provider-utils": "5.0.30" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-U3RJDo2/rWdH6SjSbA2Owd30ZawKwt4zFTqteTTn6Po0vEW1ec1KXf6s1nwNE3mxCqKrQWEavU21C46AfGYaeg=="],
