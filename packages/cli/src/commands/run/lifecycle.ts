@@ -121,8 +121,7 @@ export function showRunCommand(options: { readonly runId: string; readonly json:
  */
 export function answerRunCommand(options: {
   readonly runId: string;
-  /** Unused when `response` or `filePath` answers a question or file picker instead. */
-  readonly approved?: boolean;
+  readonly approved: boolean;
   readonly note?: string;
   readonly response?: string;
   readonly filePath?: string;
@@ -147,13 +146,12 @@ export function answerRunCommand(options: {
           }
         : {
             kind: "approval",
-            value:
-              options.approved === true
-                ? { approved: true }
-                : {
-                    approved: false,
-                    ...(options.note !== undefined ? { userMessage: options.note } : {}),
-                  },
+            value: options.approved
+              ? { approved: true }
+              : {
+                  approved: false,
+                  ...(options.note !== undefined ? { userMessage: options.note } : {}),
+                },
           };
   return resumeRun({
     runId: options.runId,

@@ -151,7 +151,6 @@ one, runs begun from somewhere else entirely.
 | `jazz runs show <runId>`    | Show one run, including what it's waiting for. `--json`                                                          |
 | `jazz runs approve <runId>` | Approve what a parked run is waiting for; blocks until it finishes                                               |
 | `jazz runs reject <runId>`  | Refuse what it's waiting for; `--note <text>` tells it why                                                       |
-| `jazz runs answer <runId>`  | Answer a question the run asked, in your own words: `--response <text>` (empty declines it)                     |
 
 A run parks when it hits something needing your approval and nobody is there to give it — see
 [Daemon](#jazz-daemon) for answering one from a different process than the one that started it.
