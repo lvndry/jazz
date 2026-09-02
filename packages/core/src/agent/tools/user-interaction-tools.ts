@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 import { z } from "zod";
+import { RunParkRequested } from "@/core/agent/run/park-signal";
 import {
   PresentationServiceTag,
   type FilePickerRequest,
@@ -66,7 +67,7 @@ export const userInteractionTools: Tool<ToolRequirements>[] = [
     hidden: false,
     riskLevel: "read-only",
     validate: makeZodValidator(askUserSchema),
-    handler: (args: AskUserArgs) =>
+    handler: (args: AskUserArgs, context) =>
       Effect.gen(function* () {
         const presentation = yield* PresentationServiceTag;
 
@@ -76,6 +77,32 @@ export const userInteractionTools: Tool<ToolRequirements>[] = [
           allowCustom: true,
           allowMultiple: args.allow_multiple === true,
         };
+
+        const prior =
+          context.toolCallId === undefined
+            ? undefined
+            : context.resolvedUserInputs?.get(context.toolCallId);
+        if (prior !== undefined) {
+          if (prior.kind === "declined") {
+            return {
+              success: false,
+              result:
+                "The human saw this question and declined to answer. Treat that as their decision, not as a gap to fill: do not pick an answer for them.",
+            };
+          }
+          return { success: true, result: `User responded: ${prior.response}` };
+        }
+
+        if (context.parkWhenUnattended === true && presentation.canPromptForApproval?.() !== true) {
+          if (context.toolCallId === undefined) {
+            return { success: false, result: "The human cannot be reached from this run." };
+          }
+          return yield* Effect.fail(
+            new RunParkRequested({
+              pending: { kind: "question", request, toolCallId: context.toolCallId },
+            }),
+          );
+        }
 
         const outcome = yield* presentation.requestUserInput(request);
 
@@ -114,7 +141,7 @@ export const userInteractionTools: Tool<ToolRequirements>[] = [
     hidden: false,
     riskLevel: "read-only",
     validate: makeZodValidator(filePickerSchema),
-    handler: (args: FilePickerArgs) =>
+    handler: (args: FilePickerArgs, context) =>
       Effect.gen(function* () {
         const presentation = yield* PresentationServiceTag;
 
@@ -124,6 +151,31 @@ export const userInteractionTools: Tool<ToolRequirements>[] = [
           extensions: args.extensions,
           includeDirectories: args.include_directories === true,
         };
+
+        const prior =
+          context.toolCallId === undefined
+            ? undefined
+            : context.resolvedFilePickers?.get(context.toolCallId);
+        if (prior !== undefined) {
+          return {
+            success: true,
+            result:
+              prior.kind === "selected"
+                ? `User selected: ${prior.path}`
+                : "User cancelled file selection",
+          };
+        }
+
+        if (context.parkWhenUnattended === true && presentation.canPromptForApproval?.() !== true) {
+          if (context.toolCallId === undefined) {
+            return { success: false, result: "The human cannot be reached from this run." };
+          }
+          return yield* Effect.fail(
+            new RunParkRequested({
+              pending: { kind: "file-picker", request, toolCallId: context.toolCallId },
+            }),
+          );
+        }
 
         const selectedPath = yield* presentation.requestFilePicker(request);
 

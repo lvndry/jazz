@@ -7,7 +7,7 @@
  */
 
 import { makeFileRunStoreLayer } from "@jazz/adapters/storage/run-store";
-import { resumeRun } from "@jazz/core/agent/run/resume";
+import { resumeRun, type ResumeRunOptions } from "@jazz/core/agent/run/resume";
 import type { RunRecord } from "@jazz/core/agent/run/run-record";
 import { isParked } from "@jazz/core/agent/run/run-state";
 import { RunStoreTag } from "@jazz/core/interfaces/run-store";
@@ -123,13 +123,39 @@ export function answerRunCommand(options: {
   readonly runId: string;
   readonly approved: boolean;
   readonly note?: string;
+  readonly response?: string;
+  readonly filePath?: string;
   readonly json: boolean;
 }) {
+  const outcome: ResumeRunOptions["outcome"] =
+    options.response !== undefined
+      ? {
+          kind: "question",
+          value:
+            options.response.length > 0
+              ? { kind: "answered", response: options.response }
+              : { kind: "declined" },
+        }
+      : options.filePath !== undefined
+        ? {
+            kind: "file-picker",
+            value:
+              options.filePath.length > 0
+                ? { kind: "selected", path: options.filePath }
+                : { kind: "cancelled" },
+          }
+        : {
+            kind: "approval",
+            value: options.approved
+              ? { approved: true }
+              : {
+                  approved: false,
+                  ...(options.note !== undefined ? { userMessage: options.note } : {}),
+                },
+          };
   return resumeRun({
     runId: options.runId,
-    outcome: options.approved
-      ? { approved: true }
-      : { approved: false, ...(options.note !== undefined ? { userMessage: options.note } : {}) },
+    outcome,
   }).pipe(
     Effect.tap((response) =>
       Effect.sync(() => {

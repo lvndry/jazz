@@ -156,6 +156,16 @@ export interface AgentRunnerOptions {
    * Approvals already answered, keyed by `toolCallId`. Set when resuming a parked run.
    */
   readonly resolvedApprovals?: ReadonlyMap<string, ApprovalOutcome>;
+  /** Answers supplied when resuming an ask_user_question parked in another process. */
+  readonly resolvedUserInputs?: ReadonlyMap<
+    string,
+    { readonly kind: "answered"; readonly response: string } | { readonly kind: "declined" }
+  >;
+  /** Selections supplied when resuming an ask_file_picker parked in another process. */
+  readonly resolvedFilePickers?: ReadonlyMap<
+    string,
+    { readonly kind: "selected"; readonly path: string } | { readonly kind: "cancelled" }
+  >;
   /**
    * This run is continuing a parked one. Its history already ends mid-turn, so no user
    * message is appended.

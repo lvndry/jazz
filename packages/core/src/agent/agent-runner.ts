@@ -487,6 +487,12 @@ function initializeAgentRun(
       ...(options.resolvedApprovals !== undefined
         ? { resolvedApprovals: options.resolvedApprovals }
         : {}),
+      ...(options.resolvedUserInputs !== undefined
+        ? { resolvedUserInputs: options.resolvedUserInputs }
+        : {}),
+      ...(options.resolvedFilePickers !== undefined
+        ? { resolvedFilePickers: options.resolvedFilePickers }
+        : {}),
       subagentDepth: options.subagentDepth ?? 0,
       maxSubagentDepth: Math.max(
         0,

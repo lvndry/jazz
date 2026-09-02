@@ -28,7 +28,18 @@ export class RunNotResumableError extends Error {
 
 export interface ResumeRunOptions {
   readonly runId: RunId;
-  readonly outcome: ApprovalOutcome;
+  readonly outcome:
+    | { readonly kind: "approval"; readonly value: ApprovalOutcome }
+    | {
+        readonly kind: "question";
+        readonly value:
+          { readonly kind: "answered"; readonly response: string } | { readonly kind: "declined" };
+      }
+    | {
+        readonly kind: "file-picker";
+        readonly value:
+          { readonly kind: "selected"; readonly path: string } | { readonly kind: "cancelled" };
+      };
   /** Approve tools of the same kind for the rest of the resumed run, as an interactive session would. */
   readonly autoApprovedTools?: readonly string[];
 }
@@ -50,9 +61,11 @@ export function resumeRun(options: ResumeRunOptions) {
         ),
       );
     }
-    if (record.state.pending.kind !== "tool-approval") {
+    const expectedOutcomeKind =
+      record.state.pending.kind === "tool-approval" ? "approval" : record.state.pending.kind;
+    if (expectedOutcomeKind !== options.outcome.kind) {
       return yield* Effect.fail(
-        new RunNotResumableError(options.runId, "it is waiting on an answer, not an approval"),
+        new RunNotResumableError(options.runId, "its pending input has a different kind"),
       );
     }
 
@@ -110,6 +123,20 @@ export function resumeRun(options: ResumeRunOptions) {
       );
     }
 
+    const resolved =
+      options.outcome.kind === "approval" && pending.kind === "tool-approval"
+        ? { resolvedApprovals: new Map([[pending.request.toolCallId, options.outcome.value]]) }
+        : options.outcome.kind === "question" && pending.kind === "question"
+          ? { resolvedUserInputs: new Map([[pending.toolCallId, options.outcome.value]]) }
+          : options.outcome.kind === "file-picker" && pending.kind === "file-picker"
+            ? { resolvedFilePickers: new Map([[pending.toolCallId, options.outcome.value]]) }
+            : undefined;
+    if (resolved === undefined) {
+      return yield* Effect.fail(
+        new RunNotResumableError(options.runId, "its pending input has a different kind"),
+      );
+    }
+
     const response: AgentResponse = yield* AgentRunner.run({
       agent,
       runId: options.runId,
@@ -118,7 +145,7 @@ export function resumeRun(options: ResumeRunOptions) {
       conversationId: record.conversationId,
       conversationHistory: [...snapshot.messages],
       pendingToolCalls,
-      resolvedApprovals: new Map([[pending.request.toolCallId, options.outcome]]),
+      ...resolved,
       parkWhenUnattended: true,
       ...(options.autoApprovedTools !== undefined
         ? { autoApprovedTools: options.autoApprovedTools }

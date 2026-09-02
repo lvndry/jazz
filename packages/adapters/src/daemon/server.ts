@@ -22,7 +22,8 @@ import { FileSystem } from "@effect/platform";
 import { AgentRunner } from "@jazz/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
 import { isRunParkRequested } from "@jazz/core/agent/run/park-signal";
-import { resumeRun } from "@jazz/core/agent/run/resume";
+import { resumeRun, type ResumeRunOptions } from "@jazz/core/agent/run/resume";
+import type { PendingInput } from "@jazz/core/agent/run/run-state";
 import type { AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import type { AgentService } from "@jazz/core/interfaces/agent-service";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
@@ -196,15 +197,22 @@ export function makeHandler(
 
     const answerMatch = /^\/runs\/([^/]+)\/answer$/.exec(url.pathname);
     if (request.method === "POST" && answerMatch?.[1] !== undefined) {
-      let body: { approved?: unknown; note?: unknown };
+      let body: { approved?: unknown; note?: unknown; response?: unknown; filePath?: unknown };
       try {
-        body = (await request.json()) as { approved?: unknown; note?: unknown };
+        body = (await request.json()) as {
+          approved?: unknown;
+          note?: unknown;
+          response?: unknown;
+          filePath?: unknown;
+        };
       } catch {
         return json({ ok: false, error: "body must be JSON" }, 400);
       }
       const approved = body.approved === true;
       const note = typeof body.note === "string" ? body.note : undefined;
-      return runEffect(answerRun(answerMatch[1], approved, note));
+      const response = typeof body.response === "string" ? body.response.trim() : undefined;
+      const filePath = typeof body.filePath === "string" ? body.filePath.trim() : undefined;
+      return runEffect(answerRun(answerMatch[1], approved, note, response, filePath));
     }
 
     if (request.method === "GET" && url.pathname === "/runs") {
@@ -713,7 +721,15 @@ function fireWebhook(webhook: WebhookConfig, payload: string, threadKey?: string
     Effect.catchAll((error) =>
       Effect.gen(function* () {
         if (isRunParkRequested(error) && error.runId !== undefined) {
-          return json({ ok: false, state: "input-required", runId: error.runId }, 202);
+          return json(
+            {
+              ok: false,
+              state: "input-required",
+              runId: error.runId,
+              pending: describePendingInput(error.pending),
+            },
+            202,
+          );
         }
         const logger = yield* Effect.serviceOption(LoggerServiceTag);
         if (logger._tag === "Some") {
@@ -826,18 +842,13 @@ function startRun(
     Effect.catchAll((error) =>
       Effect.gen(function* () {
         if (isRunParkRequested(error) && error.runId !== undefined) {
-          const request =
-            error.pending.kind === "tool-approval" ? error.pending.request : undefined;
           return json(
             {
               ok: false,
               state: "input-required",
               runId: error.runId,
               expiresAt: error.expiresAt,
-              pending: {
-                toolName: request?.toolName,
-                message: request?.message,
-              },
+              pending: describePendingInput(error.pending),
             },
             202,
           );
@@ -873,6 +884,36 @@ function listRuns() {
   });
 }
 
+/** What a remote client needs to render and answer a parked run, one shape per pending kind. */
+function describePendingInput(pending: PendingInput) {
+  switch (pending.kind) {
+    case "tool-approval":
+      return {
+        kind: pending.kind,
+        toolName: pending.request.toolName,
+        message: pending.request.message,
+      };
+    case "question":
+      return {
+        kind: pending.kind,
+        question: pending.request.question,
+        suggestions: pending.request.suggestions,
+        allowCustom: pending.request.allowCustom,
+        ...(pending.request.allowMultiple === true ? { allowMultiple: true } : {}),
+      };
+    case "file-picker":
+      return {
+        kind: pending.kind,
+        message: pending.request.message,
+        ...(pending.request.basePath !== undefined ? { basePath: pending.request.basePath } : {}),
+        ...(pending.request.extensions !== undefined
+          ? { extensions: pending.request.extensions }
+          : {}),
+        ...(pending.request.includeDirectories === true ? { includeDirectories: true } : {}),
+      };
+  }
+}
+
 /**
  * Answer a parked run and let it finish.
  *
@@ -880,13 +921,32 @@ function listRuns() {
  * and a claim carries the pid of whoever made it. A remote client claiming a run it cannot
  * be seen to abandon would leave it stranded in `working` if that client died.
  */
-function answerRun(runId: string, approved: boolean, note: string | undefined) {
-  return resumeRun({
-    runId,
-    outcome: approved
-      ? { approved: true }
-      : { approved: false, ...(note ? { userMessage: note } : {}) },
-  }).pipe(
+function answerRun(
+  runId: string,
+  approved: boolean,
+  note: string | undefined,
+  response: string | undefined,
+  filePath: string | undefined,
+) {
+  const outcome: ResumeRunOptions["outcome"] =
+    response !== undefined
+      ? {
+          kind: "question",
+          value: response.length > 0 ? { kind: "answered", response } : { kind: "declined" },
+        }
+      : filePath !== undefined
+        ? {
+            kind: "file-picker",
+            value:
+              filePath.length > 0 ? { kind: "selected", path: filePath } : { kind: "cancelled" },
+          }
+        : {
+            kind: "approval",
+            value: approved
+              ? { approved: true }
+              : { approved: false, ...(note ? { userMessage: note } : {}) },
+          };
+  return resumeRun({ runId, outcome }).pipe(
     Effect.map((response) => json({ ok: true, runId, answer: response.content })),
     Effect.catchAll((error) =>
       Effect.succeed(
