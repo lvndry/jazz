@@ -1210,6 +1210,30 @@ function registerRunsCommands(program: Command): void {
     );
 
   runsCommand
+    .command("answer <runId>")
+    .description(
+      "Answer a question a parked run asked you, in your own words (not a tool approval — use approve/reject for that)",
+    )
+    .requiredOption(
+      "--response <text>",
+      "Your answer to the question. An empty string tells the run you declined to answer.",
+    )
+    .option("--json", "Emit a single JSON envelope { ok, runId, answer }")
+    .action((runId: string, options: { response: string; json?: boolean }) =>
+      runCliAction(
+        () =>
+          import("@jazz/cli/commands/run/lifecycle").then((mod) =>
+            mod.answerRunCommand({
+              runId,
+              response: options.response,
+              json: options.json === true,
+            }),
+          ),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  runsCommand
     .command("reject <runId>")
     .description(
       "Refuse what a parked run is waiting for; it resumes and reasons about the refusal",

@@ -51,6 +51,7 @@ import { resolveWebhookToken } from "@jazz/adapters/webhooks/token";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
+import { OneShotPresentationServiceLayer } from "@jazz/core/presentation/oneshot-presentation-service";
 import type { AppConfig } from "@jazz/core/types/config";
 import { getJazzSchedulerInvocation } from "@jazz/core/utils/runtime";
 import { SchedulerServiceTag } from "@jazz/core/workflows/scheduler-service";
@@ -341,7 +342,16 @@ export function daemonCommand(options: DaemonCommandOptions) {
     });
 
     yield* logger.info("Daemon stopped");
-  }).pipe(Effect.provide(makeFileRunStoreLayer()));
+  }).pipe(
+    // Every run this process serves — a webhook fire, a due trigger, a resumed park — is
+    // unattended by construction: whoever launched `jazz daemon` is not sitting at whatever
+    // terminal or process is actually asking. Without this the runtime falls back to
+    // whichever presentation the CLI's own interactive session picked, which unconditionally
+    // reports it can prompt for approval — so a run that genuinely needs a human never parks,
+    // it just gets silently approved by the safe-mode policy instead.
+    Effect.provide(OneShotPresentationServiceLayer),
+    Effect.provide(makeFileRunStoreLayer()),
+  );
 }
 
 /**
