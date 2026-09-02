@@ -484,6 +484,7 @@ function initializeAgentRun(
       // A sub-agent never parks: resuming one would mean replaying a child context that no
       // longer exists, so nested runs keep declining and the parent reasons about it.
       parkWhenUnattended: options.parkWhenUnattended === true && options.internal !== true,
+      ...(options.onToolEvent !== undefined ? { onToolEvent: options.onToolEvent } : {}),
       ...(options.resolvedApprovals !== undefined
         ? { resolvedApprovals: options.resolvedApprovals }
         : {}),

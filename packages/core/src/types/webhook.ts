@@ -48,6 +48,32 @@ export type WebhookConversationMode = "ephemeral" | "threaded";
 export const WEBHOOK_THREAD_HEADER = "x-jazz-thread";
 
 /**
+ * Request header giving a URL to report progress to while the run is going.
+ *
+ * A webhook is one held-open request that answers when the run finishes, so a caller learns
+ * nothing in between — and a turn that reads a calendar and searches the web is minutes of
+ * unexplained silence. A caller that has somewhere to listen can say so here.
+ *
+ * Loopback only, and not negotiable: this makes the daemon issue requests to an address
+ * somebody else chose, which anywhere but the local machine is a way to make jazz knock on
+ * doors on their behalf.
+ */
+export const WEBHOOK_PROGRESS_HEADER = "x-jazz-progress-url";
+
+/** Whether a progress URL is one the daemon will agree to post to. */
+export function isLoopbackProgressUrl(raw: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+  const host = url.hostname.toLowerCase();
+  return host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]";
+}
+
+/**
  * Longest thread key accepted.
  *
  * `storageSafeSegment` would make any length safe as a path segment, so this is not a

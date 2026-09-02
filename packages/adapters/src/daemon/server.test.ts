@@ -4,6 +4,7 @@ import { AgentServiceTag } from "@jazz/core/interfaces/agent-service";
 import type { AgentService } from "@jazz/core/interfaces/agent-service";
 import { RunStoreTag } from "@jazz/core/interfaces/run-store";
 import type { Agent } from "@jazz/core/types/agent";
+import { isLoopbackProgressUrl } from "@jazz/core/types/webhook";
 import type { WebhookConfig } from "@jazz/core/types/webhook";
 import { getJazzHomeDirectory, getWorkStateDirectory } from "@jazz/core/utils/paths";
 import { describe, expect, it } from "bun:test";
@@ -519,5 +520,59 @@ describe("listing the agents a daemon can run", () => {
     const response = await handle(request("GET", "/agents"));
     expect(response.status).toBe(200);
     expect(((await response.json()) as { agents: unknown[] }).agents).toEqual([]);
+  });
+});
+
+describe("a webhook caller that wants to know what the run is doing", () => {
+  it("accepts a loopback progress url", () => {
+    for (const url of [
+      "http://127.0.0.1:7777/progress",
+      "http://localhost:7777/progress",
+      "https://localhost:8443/progress",
+      "http://[::1]:7777/progress",
+    ]) {
+      expect(isLoopbackProgressUrl(url), url).toBe(true);
+    }
+  });
+
+  it("refuses anywhere else, so a caller cannot make jazz knock on doors for them", () => {
+    for (const url of [
+      "http://example.com/progress",
+      "http://169.254.169.254/latest/meta-data",
+      "http://10.0.0.5/progress",
+      "file:///etc/passwd",
+      "not a url",
+      "",
+    ]) {
+      expect(isLoopbackProgressUrl(url), url).toBe(false);
+    }
+  });
+
+  it("tells a caller its progress url was rejected rather than ignoring it", async () => {
+    const webhook: WebhookConfig = {
+      name: "quartet",
+      agentId: "agt_1",
+      promptTemplate: "{{payload}}",
+    };
+    const handle = makeWebhookHandler(
+      async () => [webhook],
+      async () => "hook-token",
+      async () => {
+        throw new Error("a rejected progress url must not reach the runner");
+      },
+    );
+
+    const response = await handle(
+      request("POST", "/webhooks/quartet", {
+        body: "{}",
+        headers: {
+          authorization: "Bearer hook-token",
+          "x-jazz-progress-url": "http://example.com/steal",
+        },
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.text()).toContain("loopback");
   });
 });

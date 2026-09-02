@@ -189,6 +189,9 @@ export class ToolExecutor {
         // approval UI when multiple tools run in parallel (approval wrapper returns
         // immediately; the real "Executing tool" is emitted after user approval)
         const isApprovalTool = toolsRequiringApproval.has(name);
+        // Reported regardless of display config: a caller watching over HTTP is not a
+        // terminal that can be told to be quiet, and this is its only view of a long turn.
+        context.onToolEvent?.({ kind: "tool-started", toolName: name, toolCallId: toolCall.id });
         if (displayConfig.showToolExecution && !isApprovalTool) {
           // Build metadata for specific tools (e.g., web_search provider)
           const metadata = yield* resolveToolDisplayMetadata(name, context);
@@ -798,6 +801,11 @@ export class ToolExecutor {
           toolCallId: firstRequest.toolCallId,
           batchSize: toolCalls.length,
         });
+        context.onToolEvent?.({
+          kind: "approval-required",
+          toolName: firstRequest.toolName,
+          toolCallId: firstRequest.toolCallId,
+        });
         return new RunParkRequested({
           pending: { kind: "tool-approval", request: firstRequest },
         });
@@ -816,6 +824,8 @@ export class ToolExecutor {
       const toolFibers = yield* Effect.all(
         toolCalls.map((toolCall) =>
           Effect.forkDaemon(
+            // Tapped once here rather than at each of the several places a call can
+            // finish, so a new return path cannot quietly stop reporting.
             ToolExecutor.executeToolCall(
               toolCall,
               context,
@@ -825,6 +835,17 @@ export class ToolExecutor {
               agentId,
               conversationId,
               approvalSet,
+            ).pipe(
+              Effect.tap((outcome) =>
+                Effect.sync(() => {
+                  context.onToolEvent?.({
+                    kind: "tool-finished",
+                    toolName: outcome.name,
+                    toolCallId: outcome.toolCallId,
+                    ok: outcome.success,
+                  });
+                }),
+              ),
             ),
           ),
         ),
