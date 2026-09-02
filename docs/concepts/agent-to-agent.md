@@ -186,8 +186,53 @@ Riskier than read-only, so — like any tool that isn't — it stays behind an e
 discovers that declining-and-asking is even an option; their agent just answers or refuses.
 
 On the wire, this is additive to jazz's own `/peer/ask` protocol only. The `/a2a` door stays
-exactly as minimal as before: a parked answer surfaces there as an ordinary refusal, with the
-clarifying question as the error message, not a new task-lifecycle state.
+exactly as minimal as before: a parked answer arrives there as an ordinary message carrying
+the clarifying question, marked as parked rather than answered, not a new task-lifecycle
+state.
+
+### Answering over A2A
+
+`/peer/ask` is jazz's own shape. [A2A](https://a2a-protocol.org) is the open standard for the
+same conversation between agents that were never built to know about each other, and the same
+daemon serves it — so a peer running LangGraph, ADK, or anything else with an A2A client can
+ask your agent a question without either side writing code for the other.
+
+It is the same door, not a second one. Same token, same tier, same `allow`, same ledger; only
+the wire format differs.
+
+```bash
+# What kind of thing is this? No token needed.
+curl https://me.example/.well-known/agent-card.json
+
+# Ask it something.
+curl https://me.example/a2a \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "A2A-Version: 1.0" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"SendMessage",
+       "params":{"message":{"role":"ROLE_USER","parts":[{"text":"free Thursday?"}]}}}'
+```
+
+Two methods exist: `SendMessage`, and `GetExtendedAgentCard` for the authenticated card whose
+skills list what *your* relationship can actually reach. There is no streaming, no task
+lifecycle, and no push notification — the card says so, so a client knows before it asks.
+
+**Send `A2A-Version: 1.0`.** A caller that names another version, or none, is refused with
+`VersionNotSupportedError` naming the one this door speaks. Being told precisely beats being
+answered in a shape you cannot parse.
+
+A refusal comes back as a message, not a protocol error — the agent understood the question
+and would not answer it, which is not the same as the request being malformed. What separates
+the two is metadata on the reply:
+
+```json
+{ "message": { "role": "ROLE_AGENT",
+               "parts": [{ "text": "I cannot." }],
+               "metadata": { "ai.jazz/outcome": "refused" } } }
+```
+
+`refused` and `parked` are marked; a real answer carries no marker. A client that ignores
+metadata still sees the text, and still cannot mistake silence for consent — but one that
+reads it can tell a decline from a reply.
 
 ---
 

@@ -34,7 +34,7 @@ import type { WebhookConfig } from "@jazz/core/types/webhook";
 import { MAX_WEBHOOK_THREAD_KEY_LENGTH, WEBHOOK_THREAD_HEADER } from "@jazz/core/types/webhook";
 import { generateConversationId } from "@jazz/core/utils/conversation-id";
 import { Effect } from "effect";
-import { buildPublicAgentCard, handleA2ARpc } from "@/adapters/peers/a2a";
+import { buildPublicAgentCard, handleA2ARpc, normalizeProtocolVersion } from "@/adapters/peers/a2a";
 import {
   acceptInviteOnInviterSide,
   getInvite,
@@ -287,6 +287,32 @@ export function makePeerHandler(
   };
 }
 
+/** Where a caller announces which A2A protocol version it is speaking. */
+const A2A_VERSION_HEADER = "A2A-Version";
+
+/**
+ * The JSON-RPC endpoint to advertise in an agent card, derived from the address this very
+ * request arrived on rather than from configuration.
+ *
+ * The daemon is told a bind address, which is a different thing from the address peers reach
+ * it at: the documented way to be reachable at all is a tunnel or reverse proxy in front of
+ * a loopback bind, and a card advertising `127.0.0.1` there points every caller at their own
+ * machine. Proxy headers are trusted because the alternative is being reliably wrong, and
+ * the blast radius is small — this URL only ever appears in the response to the caller who
+ * set the header, so a caller who forges it misdirects nobody but itself.
+ */
+function a2aEndpointUrl(request: Request): string {
+  const url = new URL(request.url);
+  const forwardedProtocol = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
+  const forwardedHost = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim();
+  const protocol =
+    forwardedProtocol !== undefined && forwardedProtocol.length > 0
+      ? `${forwardedProtocol}:`
+      : url.protocol;
+  const host = forwardedHost !== undefined && forwardedHost.length > 0 ? forwardedHost : url.host;
+  return `${protocol}//${host}/a2a`;
+}
+
 /**
  * A2A's own doors: an unauthenticated capability card, and an authenticated JSON-RPC
  * endpoint. Not a second implementation of peer authorization — `answerA2A` resolves the
@@ -306,7 +332,7 @@ export function makeA2AHandler(
       if (options.peerAgent === undefined) {
         return json({ ok: false, error: "not accepting peer questions" }, 404);
       }
-      return json(buildPublicAgentCard(options.peerAgent));
+      return json(buildPublicAgentCard(options.peerAgent, a2aEndpointUrl(request)));
     }
 
     if (request.method !== "POST" || url.pathname !== "/a2a") {
@@ -332,7 +358,15 @@ export function makeA2AHandler(
       return json({ ok: false, error: "body must be JSON" }, 400);
     }
 
-    return runEffect(answerA2A(caller, options.peerAgent, body));
+    return runEffect(
+      answerA2A(
+        caller,
+        options.peerAgent,
+        a2aEndpointUrl(request),
+        normalizeProtocolVersion(request.headers.get(A2A_VERSION_HEADER)),
+        body,
+      ),
+    );
   };
 }
 
@@ -738,11 +772,24 @@ function answerPeer(peer: PeerConfig, agentIdentifier: string, question: string)
   );
 }
 
-function answerA2A(peer: PeerConfig, agentIdentifier: string, body: unknown) {
+function answerA2A(
+  peer: PeerConfig,
+  agentIdentifier: string,
+  endpointUrl: string,
+  protocolVersion: string,
+  body: unknown,
+) {
   return Effect.gen(function* () {
     const base = yield* getAgentByIdentifier(agentIdentifier);
     const agent = agentForPeer(base, peer);
-    const response = yield* handleA2ARpc(agentIdentifier, peer, agent, body);
+    const response = yield* handleA2ARpc(
+      agentIdentifier,
+      endpointUrl,
+      protocolVersion,
+      peer,
+      agent,
+      body,
+    );
     return json(response);
   }).pipe(
     Effect.catchAll((error) =>

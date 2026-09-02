@@ -11,6 +11,7 @@
     "url": "https://github.com/lvndry/jazz.git"
   },
   "devDependencies": {
+    "@a2a-js/sdk": "^1.1.0",
     "@ai-sdk/alibaba": "^2.0.35",
     "@ai-sdk/anthropic": "^4.0.42",
     "@ai-sdk/cerebras": "^3.0.37",

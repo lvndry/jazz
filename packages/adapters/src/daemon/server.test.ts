@@ -7,6 +7,7 @@ import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
 import { InMemoryRunStore } from "@/adapters/storage/run-store";
 import {
+  makeA2AHandler,
   makeHandler,
   makePeerInviteHandler,
   makeWebhookHandler,
@@ -296,6 +297,59 @@ describe("the daemon's routes", () => {
     );
     expect(response.status).toBe(400);
     expect(await response.text()).toContain("too long");
+  });
+});
+
+/**
+ * The card is the only thing a peer reads before it knows where to send anything, so the
+ * endpoint it names has to be an address that peer can actually reach. The daemon is told a
+ * bind address, which is a different question — the documented way to be reachable at all is
+ * a tunnel in front of a loopback bind.
+ */
+describe("the address an agent card tells a peer to call", () => {
+  const cardHandler = (peerAgent?: string) =>
+    makeA2AHandler(
+      { ...LOOPBACK, peerAgent },
+      async () => [],
+      async () => undefined,
+      async () => {
+        throw new Error("fetching a card must not run an effect");
+      },
+    );
+
+  async function advertisedUrl(headers: Record<string, string> = {}): Promise<string> {
+    const response = await cardHandler("alice")(
+      new Request("http://127.0.0.1:4321/.well-known/agent-card.json", { headers }),
+    );
+    const card = (await response.json()) as { supportedInterfaces: { url: string }[] };
+    return card.supportedInterfaces[0]!.url;
+  }
+
+  it("names the address the card was fetched on when nothing is in front of it", async () => {
+    expect(await advertisedUrl()).toBe("http://127.0.0.1:4321/a2a");
+  });
+
+  it("names the tunnel rather than a loopback address no peer could reach", async () => {
+    const url = await advertisedUrl({
+      "x-forwarded-proto": "https",
+      "x-forwarded-host": "me.example",
+    });
+    expect(url).toBe("https://me.example/a2a");
+  });
+
+  it("takes the first hop of a chain, which is the address the client used", async () => {
+    const url = await advertisedUrl({
+      "x-forwarded-proto": "https, http",
+      "x-forwarded-host": "me.example, inner.internal",
+    });
+    expect(url).toBe("https://me.example/a2a");
+  });
+
+  it("is not served at all by a daemon that is not answering peers", async () => {
+    const response = await cardHandler(undefined)(
+      new Request("http://127.0.0.1:4321/.well-known/agent-card.json"),
+    );
+    expect(response.status).toBe(404);
   });
 });
 
