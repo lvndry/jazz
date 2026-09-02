@@ -75,17 +75,25 @@ export interface ParkedRunSnapshot {
   readonly messages: readonly ChatMessage[];
   readonly iteration: number;
   /**
-   * Approvals a person has already given for this turn, by tool call id.
+   * Answers given for *this turn's* tool calls so far, by tool call id.
    *
-   * A turn can need more than one, and they arrive one at a time. Without carrying the
-   * earlier ones forward, resuming rebuilt its answers from the single outcome it was
-   * handed — so answering the first would stop on the second, and answering that would
-   * stop on the first again, forever.
+   * Scratch, not policy. It notes that call `x` was answered yes or no while the turn is
+   * mid-flight, and it is gone when the turn ends. It never widens what an agent may do,
+   * and it is nothing to do with "always approve this tool" — that is a standing permission
+   * somebody opts into deliberately, keyed by tool or command rather than by call, and
+   * deriving one from an ordinary yes would grant something nobody asked for.
+   *
+   * Needed because a turn can want several approvals and they arrive one at a time. The
+   * transcript cannot stand in for it: between two parks nothing has executed, so there are
+   * no tool results, and "answered but not yet run" is a state messages cannot express.
+   * Without carrying it, each resume rebuilt its answers from the single outcome it was
+   * handed — answering the first stopped on the second, and answering that stopped on the
+   * first again, round and round.
    *
    * A plain object rather than a `Map` because a run record is stored as JSON, and a `Map`
    * does not survive the round trip.
    */
-  readonly answeredApprovals?: Readonly<Record<string, ApprovalOutcome>>;
+  readonly pendingTurnAnswers?: Readonly<Record<string, ApprovalOutcome>>;
 }
 
 export type RunState =

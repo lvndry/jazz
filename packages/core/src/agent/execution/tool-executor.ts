@@ -795,10 +795,10 @@ export class ToolExecutor {
           toolName: firstRequest.toolName,
           toolCallId: firstRequest.toolCallId,
         });
-        const answeredApprovals = Object.fromEntries(context.resolvedApprovals ?? []);
+        const pendingTurnAnswers = Object.fromEntries(context.resolvedApprovals ?? []);
         return new RunParkRequested({
           pending: { kind: "tool-approval", request: firstRequest },
-          ...(Object.keys(answeredApprovals).length > 0 ? { answeredApprovals } : {}),
+          ...(Object.keys(pendingTurnAnswers).length > 0 ? { pendingTurnAnswers } : {}),
         });
       });
 
