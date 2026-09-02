@@ -53,7 +53,21 @@ const TOOL_CALL = {
 /** Set by the execute tool, so the test can prove the side effect happened exactly once. */
 let executions: string[] = [];
 
-function makeLayers(store: InMemoryRunStore) {
+/** A second gated call, so a batch of two approvals can be asked for. */
+const SECOND_TOOL_CALL = {
+  id: "call_park_2",
+  type: "function" as const,
+  function: { name: "danger", arguments: JSON.stringify({ target: "/tmp/y" }) },
+};
+
+/** An ungated call, to sit beside a gated one. Runs on sight, which is the whole hazard. */
+const SAFE_TOOL_CALL = {
+  id: "call_safe_1",
+  type: "function" as const,
+  function: { name: "harmless", arguments: JSON.stringify({}) },
+};
+
+function makeLayers(store: InMemoryRunStore, firstTurnCalls = [TOOL_CALL]) {
   // First completion asks for the gated tool; every later one answers in text. A resumed
   // run must therefore reach the *second* response, which it can only do once the parked
   // tool call has a result.
@@ -61,7 +75,7 @@ function makeLayers(store: InMemoryRunStore) {
   const completion = (): ChatCompletionResponse => {
     completions += 1;
     return completions === 1
-      ? { id: "c1", model: "gpt-4", content: "", toolCalls: [TOOL_CALL] }
+      ? { id: "c1", model: "gpt-4", content: "", toolCalls: firstTurnCalls }
       : { id: "c2", model: "gpt-4", content: "Done." };
   };
 
@@ -279,5 +293,78 @@ describe("park and resume, through the real loop", () => {
     expect(executions).toEqual([]);
     if (exit._tag === "Failure") return;
     expect(isRunParkRequested(exit.value)).toBe(false);
+  });
+});
+
+describe("a batch of gated calls, with nobody in the room to answer", () => {
+  it("parks on the gated one without letting its ungated sibling run", async () => {
+    // A batch used to be unparkable at all, for a real reason: resuming replays it, so a
+    // sibling that had already executed would run twice. Deciding before anything is forked
+    // removes that — nothing has run by the time the run parks, so the replay is clean.
+    executions = [];
+    const store = new InMemoryRunStore();
+    const layers = makeLayers(store, [SAFE_TOOL_CALL, TOOL_CALL]);
+
+    const exit = await Effect.runPromiseExit(
+      AgentRunner.run({
+        agent: AGENT,
+        userInput: "do one of each",
+        conversationId: "conv-batch",
+        stream: false,
+        parkWhenUnattended: true,
+      }).pipe(Effect.provide(layers)) as Effect.Effect<unknown, unknown>,
+    );
+
+    expect(exit._tag).toBe("Failure");
+    // The ungated tool did not run. Before this it would have, and then again on resume.
+    expect(executions).toEqual([]);
+
+    const parked = (await Effect.runPromise(store.list()))[0];
+    if (parked?.state.kind !== "input-required") throw new Error("expected a parked run");
+    if (parked.state.pending.kind !== "tool-approval") throw new Error("expected an approval");
+    expect(parked.state.pending.request.toolCallId).toBe(TOOL_CALL.id);
+
+    // Approving it finishes the batch, and each tool runs exactly once.
+    const resumeExit = await Effect.runPromiseExit(
+      resumeRun({
+        runId: parked.runId,
+        outcome: { kind: "approval", value: { approved: true } },
+      }).pipe(Effect.provide(layers)) as Effect.Effect<unknown, unknown>,
+    );
+    expect(resumeExit._tag).toBe("Success");
+    expect(executions.filter((name) => name === "danger_execute")).toHaveLength(1);
+    expect(executions.filter((name) => name === "harmless")).toHaveLength(1);
+  });
+
+  it("says so plainly when it needs more than one approval, and runs nothing", async () => {
+    // Two unanswered approvals in one batch cannot be parked yet: resume rebuilds its
+    // resolved answers from the single one it is handed, so answering the first would park
+    // on the second and answering that would park on the first again. Accumulating answers
+    // across resumes is the fix, and it changes the run record's shape.
+    //
+    // Until then this fails visibly. Before, the decision fell through to whatever
+    // presentation the process happened to have: one that declines refuses both silently,
+    // one that approves runs both without asking. Neither answer reached the caller, and
+    // for a webhook that caller is the only person there is.
+    executions = [];
+    const store = new InMemoryRunStore();
+
+    const exit = await Effect.runPromiseExit(
+      AgentRunner.run({
+        agent: AGENT,
+        userInput: "do both gated things",
+        conversationId: "conv-batch-2",
+        stream: false,
+        parkWhenUnattended: true,
+      }).pipe(Effect.provide(makeLayers(store, [TOOL_CALL, SECOND_TOOL_CALL]))) as Effect.Effect<
+        unknown,
+        unknown
+      >,
+    );
+
+    expect(exit._tag).toBe("Failure");
+    expect(executions).toEqual([]);
+    // And it is not parked, because nobody could answer it into a finished state.
+    expect(await Effect.runPromise(store.list())).toHaveLength(0);
   });
 });
