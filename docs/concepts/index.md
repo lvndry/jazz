@@ -12,6 +12,7 @@ Understand the building blocks of Jazz.
 - **[Tools](./tools.md)**: What agents can actually do, and what the risk tiers mean.
 - **[Workflows](./workflows.md)**: Multi-step procedures that can be automated.
 - **[Scheduling](./scheduling.md)**: Automate workflows to run on a schedule.
+- **[Daemon](./daemon.md)**: Serving runs, schedules, peers, and webhooks without a terminal attached.
 - **[Lexicon](./lexicon.md)**: What each of Jazz's words means, and which two are not the same thing.
 - **[Agent-to-agent](./agent-to-agent.md)**: Becoming peers by sending a link, instead of typing a shared secret onto two machines by hand.
 - **[Webhooks](./webhooks.md)**: Letting any HTTP-capable system wake an agent with a fixed prompt, one-shot or threaded.

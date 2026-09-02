@@ -167,3 +167,4 @@ when it parked.
   from someone else's agent, under disclosure tiers.
 - [Scheduling](./scheduling.md) — for work that runs on a clock rather than on an event, and
   home of the unrelated wake triggers.
+- [Daemon](./daemon.md) — what's actually serving `/webhooks/<name>`, and what else it does.
