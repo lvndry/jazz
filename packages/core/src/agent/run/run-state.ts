@@ -20,6 +20,7 @@
  * over.
  */
 
+import type { FilePickerRequest, UserInputRequest } from "@/core/interfaces/presentation";
 import type { GeneratedArtifact } from "@/core/types/artifact";
 import type { ChatMessage } from "@/core/types/message";
 import type { ApprovalRequest } from "@/core/types/tools";
@@ -52,7 +53,13 @@ export type PendingInput =
     }
   | {
       readonly kind: "question";
-      readonly prompt: string;
+      readonly request: UserInputRequest;
+      readonly toolCallId: string;
+    }
+  | {
+      readonly kind: "file-picker";
+      readonly request: FilePickerRequest;
+      readonly toolCallId: string;
     };
 
 /**

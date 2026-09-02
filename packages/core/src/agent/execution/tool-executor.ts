@@ -213,7 +213,12 @@ export class ToolExecutor {
         }
 
         // Execute tool — pass pre-fetched timeout to avoid redundant getTool lookup
-        let result = yield* ToolExecutor.executeTool(name, args, context, toolMeta?.timeoutMs);
+        let result = yield* ToolExecutor.executeTool(
+          name,
+          args,
+          { ...context, toolCallId: toolCall.id },
+          toolMeta?.timeoutMs,
+        );
         let toolDuration = Date.now() - toolStartTime;
         let finalToolName = name;
         let classifiedRisk: ToolRiskLevel | undefined;

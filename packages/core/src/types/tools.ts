@@ -262,6 +262,18 @@ export interface ToolExecutionContext {
    * yesterday, and the executor uses the stored outcome instead of asking again.
    */
   readonly resolvedApprovals?: ReadonlyMap<string, ApprovalOutcome>;
+  /** Answers supplied by a human after a run parked on ask_user_question. */
+  readonly resolvedUserInputs?: ReadonlyMap<
+    string,
+    { readonly kind: "answered"; readonly response: string } | { readonly kind: "declined" }
+  >;
+  /** Selections supplied by a human after a run parked on ask_file_picker. */
+  readonly resolvedFilePickers?: ReadonlyMap<
+    string,
+    { readonly kind: "selected"; readonly path: string } | { readonly kind: "cancelled" }
+  >;
+  /** The individual call currently executing. Set on a per-call context copy. */
+  readonly toolCallId?: string;
   /**
    * Whether an unanswerable approval should park the run instead of declining it.
    *
