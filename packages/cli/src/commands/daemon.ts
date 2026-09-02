@@ -242,6 +242,7 @@ export function daemonCommand(options: DaemonCommandOptions) {
         run(
           Effect.gen(function* () {
             const service = yield* AgentConfigServiceTag;
+            yield* service.reloadIfChanged();
             return select(yield* service.appConfig);
           }),
         );
