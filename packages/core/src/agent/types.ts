@@ -4,6 +4,7 @@ import type { GeneratedArtifact } from "@/core/types/artifact";
 import type { MessageAttachment } from "@/core/types/attachment";
 import type { ChatMessage, ConversationMessages } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
+import type { ToolProgressEvent } from "@/core/types/tools";
 import type {
   ApprovalOutcome,
   AutoApprovePolicy,
@@ -152,6 +153,8 @@ export interface AgentRunnerOptions {
    * process resumes from. Off by default, and never set for sub-agent runs.
    */
   readonly parkWhenUnattended?: boolean;
+  /** Told what the run is doing while it does it. See `ToolExecutionContext.onToolEvent`. */
+  readonly onToolEvent?: (event: ToolProgressEvent) => void;
   /**
    * Approvals already answered, keyed by `toolCallId`. Set when resuming a parked run.
    */

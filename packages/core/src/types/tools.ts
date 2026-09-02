@@ -38,6 +38,15 @@ export type AutoApprovePolicy = boolean | "read-only" | "low-risk" | "high-risk"
  * prompt is only a kindness where a prompt was the alternative. Callers that
  * cannot answer the question leave it out and get the conservative reading.
  */
+/** What a run reports about itself while it is still going. */
+export interface ToolProgressEvent {
+  readonly kind: "tool-started" | "tool-finished" | "approval-required";
+  readonly toolName: string;
+  readonly toolCallId?: string;
+  /** Set on "tool-finished": whether the call succeeded. */
+  readonly ok?: boolean;
+}
+
 export function shouldAutoApprove(
   riskLevel: ToolRiskLevel,
   policy: AutoApprovePolicy | undefined,
@@ -283,6 +292,19 @@ export interface ToolExecutionContext {
    * how the run was started, not of the tool, so the runner decides it once.
    */
   readonly parkWhenUnattended?: boolean;
+  /**
+   * Told, as it happens, what this run is doing.
+   *
+   * For a caller that is not in the room: a webhook holds one HTTP request open and returns
+   * a finished answer, so anything watching learns nothing until the run ends. A turn that
+   * reads a calendar and searches the web is minutes of unexplained silence to the person
+   * who asked for it.
+   *
+   * Deliberately fire-and-forget and deliberately not a service: it is per-run, the run
+   * must not fail because somebody stopped listening, and a slow consumer must not hold up
+   * a tool call.
+   */
+  readonly onToolEvent?: (event: ToolProgressEvent) => void;
   /** Iteration budget for a sub-agent spawned here — its own, not the parent's remainder. */
   readonly maxSubagentIterations?: number;
   /**

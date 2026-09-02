@@ -32,8 +32,18 @@ import { RunStoreTag } from "@jazz/core/interfaces/run-store";
 import type { ToolRegistry, ToolRequirements } from "@jazz/core/interfaces/tool-registry";
 import type { PeerConfig } from "@jazz/core/types/peer";
 import { inviteStatus } from "@jazz/core/types/peer-invite";
+import type { ToolProgressEvent } from "@jazz/core/types/tools";
 import type { WebhookConfig } from "@jazz/core/types/webhook";
-import { MAX_WEBHOOK_THREAD_KEY_LENGTH, WEBHOOK_THREAD_HEADER } from "@jazz/core/types/webhook";
+import {
+  isLoopbackProgressUrl,
+  MAX_WEBHOOK_THREAD_KEY_LENGTH,
+  parseProgressEvents,
+  TOOL_PROGRESS_KINDS,
+  WEBHOOK_PROGRESS_EVENTS_HEADER,
+  WEBHOOK_PROGRESS_HEADER,
+  WEBHOOK_THREAD_HEADER,
+  type ToolProgressKind,
+} from "@jazz/core/types/webhook";
 import { generateConversationId } from "@jazz/core/utils/conversation-id";
 import { Effect } from "effect";
 import { buildPublicAgentCard, handleA2ARpc, normalizeProtocolVersion } from "@/adapters/peers/a2a";
@@ -616,7 +626,36 @@ export function makeWebhookHandler(
       );
     }
 
-    return runEffect(fireWebhook(webhook, truncated, threadKey.length > 0 ? threadKey : undefined));
+    // A caller with somewhere to listen gets told what the run is doing. Refused outright
+    // rather than quietly ignored when it is not loopback, because a caller that believes
+    // it is subscribed would otherwise wait forever for events that never come.
+    const progressUrl = request.headers.get(WEBHOOK_PROGRESS_HEADER) ?? "";
+    if (progressUrl.length > 0 && !isLoopbackProgressUrl(progressUrl)) {
+      return json({ ok: false, error: `${WEBHOOK_PROGRESS_HEADER} must be a loopback URL` }, 400);
+    }
+
+    const wanted = parseProgressEvents(request.headers.get(WEBHOOK_PROGRESS_EVENTS_HEADER));
+    if ("unknownKind" in wanted) {
+      return json(
+        {
+          ok: false,
+          error:
+            `${WEBHOOK_PROGRESS_EVENTS_HEADER} names no such event "${wanted.unknownKind}" — ` +
+            `this jazz sends ${TOOL_PROGRESS_KINDS.join(", ")}`,
+        },
+        400,
+      );
+    }
+
+    return runEffect(
+      fireWebhook(
+        webhook,
+        truncated,
+        threadKey.length > 0 ? threadKey : undefined,
+        progressUrl.length > 0 ? progressUrl : undefined,
+        wanted.kinds,
+      ),
+    );
   };
 }
 
@@ -661,7 +700,33 @@ export function webhookConversationId(
  * with `costIncomplete` alongside rather than folded in: an unpriced run understates its
  * spend, and a caller enforcing a ceiling needs to know the figure is a floor.
  */
-function fireWebhook(webhook: WebhookConfig, payload: string, threadKey?: string) {
+/**
+ * Post one progress event, and never let it matter.
+ *
+ * Fire-and-forget on purpose: a caller that has stopped listening, or is slow, must not
+ * fail somebody's turn or hold a tool call open behind it.
+ */
+function reportProgress(
+  progressUrl: string,
+  wanted: ReadonlySet<ToolProgressKind>,
+  event: ToolProgressEvent,
+): void {
+  if (!wanted.has(event.kind)) return;
+  void fetch(progressUrl, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(event),
+    signal: AbortSignal.timeout(5_000),
+  }).catch(() => undefined);
+}
+
+function fireWebhook(
+  webhook: WebhookConfig,
+  payload: string,
+  threadKey?: string,
+  progressUrl?: string,
+  wantedProgress: ReadonlySet<ToolProgressKind> = new Set(TOOL_PROGRESS_KINDS),
+) {
   return Effect.gen(function* () {
     const agent = yield* getAgentByIdentifier(webhook.agentId);
     const quotedPayload =
@@ -688,6 +753,12 @@ function fireWebhook(webhook: WebhookConfig, payload: string, threadKey?: string
       userInput: prompt,
       conversationId,
       parkWhenUnattended: true,
+      ...(progressUrl !== undefined
+        ? {
+            onToolEvent: (event: ToolProgressEvent) =>
+              reportProgress(progressUrl, wantedProgress, event),
+          }
+        : {}),
       ...(priorRecord !== null ? { conversationHistory: priorRecord.messages } : {}),
     });
 

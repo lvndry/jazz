@@ -132,6 +132,92 @@ A few details worth knowing:
 
 ---
 
+## Watching a run while it happens
+
+A fire answers once, when the run is finished. For a turn that reads a calendar and searches
+the web that is minutes of silence, and a caller has no way to tell a slow run from a broken
+one.
+
+Give it somewhere to report to and it will say what it is doing:
+
+```bash
+curl -X POST http://localhost:4747/webhooks/room \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "X-Jazz-Progress-Url: http://127.0.0.1:7777/progress/abc123" \
+  -d 'what is in my calendar on Thursday?'
+```
+
+Every event is a `POST` of one JSON object to that URL.
+
+### The events
+
+| `kind` | Sent when | Also carries |
+|---|---|---|
+| `tool-started` | a tool call begins | — |
+| `tool-finished` | that call returns | `ok` |
+| `approval-required` | the run has stopped and needs a person | — |
+
+Every event carries `kind`, `toolName`, and `toolCallId`. The id is the model's own id for
+that call, so a turn asking for several tools at once gives you a distinct id per call and
+`tool-started` can be paired with its `tool-finished`.
+
+A tool beginning:
+
+```json
+{ "kind": "tool-started", "toolName": "read_file", "toolCallId": "call_zx1" }
+```
+
+The same call returning. `ok` is `false` whenever the call did not succeed — an error, a
+timeout, or an approval that was declined:
+
+```json
+{ "kind": "tool-finished", "toolName": "read_file", "toolCallId": "call_zx1", "ok": true }
+```
+
+And a run that has stopped for a person:
+
+```json
+{ "kind": "approval-required", "toolName": "execute_command", "toolCallId": "call_zx2" }
+```
+
+That last one is the useful one to act on. It means the fire is about to answer `202` with a
+`runId`, and the run stays parked until somebody answers it through
+[`POST /runs/:id/answer`](daemon.md). Nothing in the batch has run yet at that point.
+
+### Choosing which events
+
+Leave the header off and you get all of them, including kinds added in later versions —
+handing over a URL is already the act of subscribing. To narrow it, name the kinds you want,
+comma-separated:
+
+```bash
+  -H "X-Jazz-Progress-Events: tool-started,tool-finished,approval-required"
+```
+
+That example is the full list, so it is the same as sending no header at all. A caller that
+only wants to know when it is being asked something would send:
+
+```bash
+  -H "X-Jazz-Progress-Events: approval-required"
+```
+
+### Details worth knowing
+
+- **The URL must be on localhost.** Anywhere else is refused with a `400`. Posting to an
+  address the caller chose would let it use jazz to make requests on its behalf.
+- **An event kind jazz does not send is refused** with a `400` naming it, rather than
+  ignored. A caller that misspelled one would otherwise wait forever for something never
+  sent. The `400` lists the kinds this version does send.
+- **Reporting never affects the run.** A listener that is slow, gone, or returning errors
+  cannot fail a turn or hold up a tool call — events are posted and forgotten.
+- **There is no replay and no ordering guarantee.** An event posted while nothing was
+  listening is lost, and two tools running at once report as they go. The fire's own answer
+  is the thing to rely on; this is for watching, not for bookkeeping.
+- **Tools that need no approval are reported too.** These events say what the agent is
+  doing, not what it is asking permission for.
+
+---
+
 ## What a fire can and cannot do
 
 The agent runs with whatever tools its own configuration gives it — a webhook does not widen
