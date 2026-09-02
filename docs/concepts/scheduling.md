@@ -319,6 +319,7 @@ jazz workflow history market-analysis
 - [Creating Workflows](./workflows.md#quick-start)
 - [Troubleshooting Workflows](./workflows.md#troubleshooting)
 - [Airgapped & Self-Hosted](../start/airgapped.md)
+- [Daemon](./daemon.md) — what owns the `in-process` ticker, and everything else it serves
 
 ---
 

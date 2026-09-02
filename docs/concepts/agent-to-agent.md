@@ -279,6 +279,7 @@ Grant `private` to nobody you would not hand an unlocked laptop.
 
 - [Setting up peers](../start/peers-setup.md) — a hands-on walkthrough, one machine first
 - [Agent-to-agent](./agent-to-agent.md) — becoming peers by sending a link, instead of a shared secret typed by hand
+- [Daemon](./daemon.md) — what `--serve-peers` turns on, and what else the same process serves
 - [Tools](./tools.md#what-each-tool-reveals) — the disclosure levels tiers are built on
 - [Lexicon](./lexicon.md) — peer, tier, ledger, run
 - [Security](../../SECURITY.md) — the threat model this sits inside
