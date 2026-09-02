@@ -132,6 +132,56 @@ A few details worth knowing:
 
 ---
 
+## Watching a run while it happens
+
+A fire answers once, when the run is finished. For a turn that reads a calendar and searches
+the web that is minutes of silence, and a caller has no way to tell a slow run from a broken
+one.
+
+Give it somewhere to report to and it will say what it is doing:
+
+```bash
+curl -X POST http://localhost:4747/webhooks/room \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "X-Jazz-Progress-Url: http://127.0.0.1:7777/progress/abc123" \
+  -d 'what is in my calendar on Thursday?'
+```
+
+Each event is a `POST` of one JSON object:
+
+| field | |
+|---|---|
+| `kind` | `tool-started`, `tool-finished`, or `approval-required` |
+| `toolName` | the tool it concerns |
+| `toolCallId` | which call, when the model asked for several at once |
+| `ok` | on `tool-finished` only: whether the call succeeded |
+
+`approval-required` means the run has stopped and is waiting for a person — the fire is about
+to answer `202` with a `runId` you can answer through
+[`POST /runs/:id/answer`](daemon.md).
+
+To receive only some kinds, name them:
+
+```bash
+  -H "X-Jazz-Progress-Events: approval-required"
+```
+
+A few details worth knowing:
+
+- **The URL must be on localhost.** Anywhere else is refused with a `400`. Posting to an
+  address the caller chose would let it use jazz to make requests on its behalf.
+- **Leaving the events header off means all of them,** including kinds added in later
+  versions. Handing over a URL is already the act of subscribing.
+- **An event kind jazz does not send is refused** with a `400` naming it, rather than
+  ignored. A caller that misspelled one would otherwise wait forever for something never
+  sent.
+- **Reporting never affects the run.** A listener that is slow, gone, or returning errors
+  cannot fail a turn or hold up a tool call — events are posted and forgotten.
+- **There is no replay.** An event posted while nothing was listening is lost. The fire's
+  own answer is the thing to rely on; this is for watching, not for bookkeeping.
+
+---
+
 ## What a fire can and cannot do
 
 The agent runs with whatever tools its own configuration gives it — a webhook does not widen
