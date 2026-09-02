@@ -326,6 +326,10 @@ export type EphemeralRegionKind = "reasoning" | "subagent";
 export interface EphemeralRegionCollapse {
   readonly status: "completed" | "failed" | "interrupted";
   readonly durationMs: number;
+  /** Total spend for the run this region tracked, when pricing was available. */
+  readonly costUSD?: number;
+  /** Total prompt + completion tokens for the run this region tracked. */
+  readonly totalTokens?: number;
 }
 
 /**

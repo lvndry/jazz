@@ -88,10 +88,26 @@ function formatSubagentCollapseLine(label: string, outcome: EphemeralRegionColla
   const glyphs = getGlyphs();
   if (outcome.status === "completed") {
     const seconds = (outcome.durationMs / 1000).toFixed(1);
-    return chalk.dim(chalk.italic(`${glyphs.success} ${label} completed · ${seconds}s`));
+    const parts = [`${label} completed`, `${seconds}s`];
+    if (outcome.totalTokens !== undefined) parts.push(`${compactCount(outcome.totalTokens)} tok`);
+    if (outcome.costUSD !== undefined) parts.push(formatOutroCost(outcome.costUSD));
+    return chalk.dim(chalk.italic(`${glyphs.success} ${parts.join(" · ")}`));
   }
   const verb = outcome.status === "failed" ? "failed" : "interrupted";
   return chalk.dim(chalk.italic(`${glyphs.error} ${label} ${verb}`));
+}
+
+function compactCount(count: number): string {
+  if (count < 1000) return `${count}`;
+  if (count < 10_000) return `${(count / 1000).toFixed(1)}k`;
+  return `${Math.round(count / 1000)}k`;
+}
+
+function formatOutroCost(cost: number): string {
+  if (cost === 0) return "$0.00";
+  if (cost >= 0.01) return `$${cost.toFixed(2)}`;
+  if (cost >= 0.0001) return `$${cost.toFixed(4)}`;
+  return `<$0.0001`;
 }
 
 /**
@@ -764,18 +780,6 @@ export class InkStreamingRenderer implements StreamingRenderer {
    * late line is printed after the prompt has already returned.
    */
   private printOutro(event: Extract<StreamEvent, { type: "complete" }>): void {
-    const compactTokens = (count: number): string => {
-      if (count < 1000) return `${count}`;
-      if (count < 10_000) return `${(count / 1000).toFixed(1)}k`;
-      return `${Math.round(count / 1000)}k`;
-    };
-    const formatCost = (cost: number): string => {
-      if (cost === 0) return "$0.00";
-      if (cost >= 0.01) return `$${cost.toFixed(2)}`;
-      if (cost >= 0.0001) return `$${cost.toFixed(4)}`;
-      return `<$0.0001`;
-    };
-
     const parts: string[] = [];
     if (event.totalDurationMs > 0) {
       parts.push(`${(event.totalDurationMs / 1000).toFixed(1)}s`);
@@ -789,7 +793,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
           ? ` (${Math.round((cacheReadTokens / usage.promptTokens) * 100)}% cached)`
           : "";
       parts.push(
-        `${compactTokens(usage.promptTokens)} in${cachedShare} → ${compactTokens(usage.completionTokens)} out`,
+        `${compactCount(usage.promptTokens)} in${cachedShare} → ${compactCount(usage.completionTokens)} out`,
       );
       // Push the prompt-side count to the persistent footer so users have
       // visibility on context-window pressure between turns.
@@ -800,7 +804,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
         completionTokens: usage.completionTokens,
       });
     } else if (event.metrics?.totalTokens) {
-      parts.push(`${compactTokens(event.metrics.totalTokens)} tok`);
+      parts.push(`${compactCount(event.metrics.totalTokens)} tok`);
     }
 
     const provider = this.acc.currentProvider;
@@ -826,7 +830,7 @@ export class InkStreamingRenderer implements StreamingRenderer {
         const totalCost = computeCost(cachedMeta);
         if (totalCost !== null) {
           rollIntoFooter(totalCost);
-          parts.push(formatCost(totalCost));
+          parts.push(formatOutroCost(totalCost));
         }
       } else {
         // Cold cache: keep the footer accurate without printing a straggler

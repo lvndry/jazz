@@ -1486,3 +1486,57 @@ describe("InkPresentationService approval rejection", () => {
     expect(printed.filter((entry) => entry.type === "user")).toHaveLength(0);
   });
 });
+
+describe("InkPresentationService sub-agent collapse line", () => {
+  const printed: OutputEntry[] = [];
+  let originalPrintOutput: (typeof store)["printOutput"];
+
+  beforeEach(() => {
+    printed.length = 0;
+    originalPrintOutput = store.printOutput;
+    store.printOutput = (entry: OutputEntry) => {
+      printed.push(entry);
+      return originalPrintOutput(entry);
+    };
+  });
+
+  afterEach(() => {
+    store.printOutput = originalPrintOutput;
+  });
+
+  test("carries the sub-agent's total cost and tokens into the surviving summary line", async () => {
+    const service = new InkPresentationService(DEFAULT_DISPLAY_CONFIG, null);
+    const regionId = await Effect.runPromise(service.openEphemeralRegion("subagent", "Researcher"));
+
+    await Effect.runPromise(
+      service.collapseEphemeralRegion(regionId, "Researcher", {
+        status: "completed",
+        durationMs: 12_300,
+        costUSD: 0.0187,
+        totalTokens: 29_400,
+      }),
+    );
+
+    const summary = printed.find((entry) => entryText(entry).includes("Researcher completed"));
+    expect(summary).toBeDefined();
+    expect(entryText(summary!)).toContain("29k tok");
+    expect(entryText(summary!)).toContain("$0.02");
+  });
+
+  test("omits cost and tokens from the summary line when the run failed", async () => {
+    const service = new InkPresentationService(DEFAULT_DISPLAY_CONFIG, null);
+    const regionId = await Effect.runPromise(service.openEphemeralRegion("subagent", "Researcher"));
+
+    await Effect.runPromise(
+      service.collapseEphemeralRegion(regionId, "Researcher", {
+        status: "failed",
+        durationMs: 4_000,
+      }),
+    );
+
+    const summary = printed.find((entry) => entryText(entry).includes("Researcher failed"));
+    expect(summary).toBeDefined();
+    expect(entryText(summary!)).not.toContain("tok");
+    expect(entryText(summary!)).not.toContain("$");
+  });
+});

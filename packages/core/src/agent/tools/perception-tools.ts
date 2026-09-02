@@ -281,6 +281,10 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
       yield* presentation.collapseEphemeralRegion(regionId, label, {
         status: "completed",
         durationMs: Date.now() - startedAt,
+        ...(response.costUSD !== undefined ? { costUSD: response.costUSD } : {}),
+        ...(response.usage
+          ? { totalTokens: response.usage.promptTokens + response.usage.completionTokens }
+          : {}),
       });
       yield* logger.info("Model companion completed", {
         parentAgentId: parentAgent.id,
