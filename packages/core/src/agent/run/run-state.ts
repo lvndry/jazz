@@ -23,6 +23,7 @@
 import type { FilePickerRequest, UserInputRequest } from "@/core/interfaces/presentation";
 import type { GeneratedArtifact } from "@/core/types/artifact";
 import type { ChatMessage } from "@/core/types/message";
+import type { ApprovalOutcome } from "@/core/types/tools";
 import type { ApprovalRequest } from "@/core/types/tools";
 
 /**
@@ -73,6 +74,18 @@ export type PendingInput =
 export interface ParkedRunSnapshot {
   readonly messages: readonly ChatMessage[];
   readonly iteration: number;
+  /**
+   * Approvals a person has already given for this turn, by tool call id.
+   *
+   * A turn can need more than one, and they arrive one at a time. Without carrying the
+   * earlier ones forward, resuming rebuilt its answers from the single outcome it was
+   * handed — so answering the first would stop on the second, and answering that would
+   * stop on the first again, forever.
+   *
+   * A plain object rather than a `Map` because a run record is stored as JSON, and a `Map`
+   * does not survive the round trip.
+   */
+  readonly answeredApprovals?: Readonly<Record<string, ApprovalOutcome>>;
 }
 
 export type RunState =

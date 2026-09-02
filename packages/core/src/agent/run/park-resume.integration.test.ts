@@ -52,6 +52,14 @@ const TOOL_CALL = {
 
 /** Set by the execute tool, so the test can prove the side effect happened exactly once. */
 let executions: string[] = [];
+/**
+ * The `target` of each gated call that actually ran.
+ *
+ * `executions` records tool names, and two calls of the same gated tool are
+ * indistinguishable in it — which is no use for proving an answer landed on the call it was
+ * given for rather than its sibling.
+ */
+let executedTargets: string[] = [];
 
 /** A second gated call, so a batch of two approvals can be asked for. */
 const SECOND_TOOL_CALL = {
@@ -63,6 +71,13 @@ const SECOND_TOOL_CALL = {
 /** An ungated call, to sit beside a gated one. Runs on sight, which is the whole hazard. */
 const SAFE_TOOL_CALL = {
   id: "call_safe_1",
+  type: "function" as const,
+  function: { name: "harmless", arguments: JSON.stringify({}) },
+};
+
+/** A second ungated call, so gated ones can be asked about with others in between. */
+const SECOND_SAFE_TOOL_CALL = {
+  id: "call_safe_2",
   type: "function" as const,
   function: { name: "harmless", arguments: JSON.stringify({}) },
 };
@@ -160,6 +175,7 @@ function makeLayers(store: InMemoryRunStore, firstTurnCalls = [TOOL_CALL]) {
         });
       }
       executions.push(name);
+      if (typeof args["target"] === "string") executedTargets.push(args["target"]);
       return Effect.succeed({ success: true, result: "did the gated thing" });
     }),
   } as unknown as ToolRegistry;
@@ -336,35 +352,190 @@ describe("a batch of gated calls, with nobody in the room to answer", () => {
     expect(executions.filter((name) => name === "harmless")).toHaveLength(1);
   });
 
-  it("says so plainly when it needs more than one approval, and runs nothing", async () => {
-    // Two unanswered approvals in one batch cannot be parked yet: resume rebuilds its
-    // resolved answers from the single one it is handed, so answering the first would park
-    // on the second and answering that would park on the first again. Accumulating answers
-    // across resumes is the fix, and it changes the run record's shape.
-    //
-    // Until then this fails visibly. Before, the decision fell through to whatever
-    // presentation the process happened to have: one that declines refuses both silently,
-    // one that approves runs both without asking. Neither answer reached the caller, and
-    // for a webhook that caller is the only person there is.
+  it("asks for each approval in turn, and runs each tool exactly once", async () => {
+    // Two approvals in one turn used to be refused outright, because each resume rebuilt its
+    // answers from the one outcome it was handed: answering the first stopped on the second,
+    // and answering that stopped on the first again. A parked run now carries what has
+    // already been answered, so the rounds converge.
     executions = [];
     const store = new InMemoryRunStore();
+    const layers = makeLayers(store, [TOOL_CALL, SECOND_TOOL_CALL]);
 
-    const exit = await Effect.runPromiseExit(
+    await Effect.runPromiseExit(
       AgentRunner.run({
         agent: AGENT,
         userInput: "do both gated things",
         conversationId: "conv-batch-2",
         stream: false,
         parkWhenUnattended: true,
-      }).pipe(Effect.provide(makeLayers(store, [TOOL_CALL, SECOND_TOOL_CALL]))) as Effect.Effect<
-        unknown,
-        unknown
-      >,
+      }).pipe(Effect.provide(layers)) as Effect.Effect<unknown, unknown>,
     );
 
-    expect(exit._tag).toBe("Failure");
-    expect(executions).toEqual([]);
-    // And it is not parked, because nobody could answer it into a finished state.
+    const askedAbout: string[] = [];
+    for (let round = 0; round < 5; round += 1) {
+      const parked = (await Effect.runPromise(store.list()))[0];
+      if (parked === undefined) break;
+      if (parked.state.kind !== "input-required") throw new Error("expected a parked run");
+      if (parked.state.pending.kind !== "tool-approval") throw new Error("expected an approval");
+      askedAbout.push(parked.state.pending.request.toolCallId);
+      // Nothing may have run while approvals are still outstanding.
+      if (round === 0) expect(executions).toEqual([]);
+      await Effect.runPromiseExit(
+        resumeRun({
+          runId: parked.runId,
+          outcome: { kind: "approval", value: { approved: true } },
+        }).pipe(Effect.provide(layers)) as Effect.Effect<unknown, unknown>,
+      );
+    }
+
+    // Asked about each call once, in order, and never asked about the same one twice.
+    expect(askedAbout).toEqual([TOOL_CALL.id, SECOND_TOOL_CALL.id]);
+    expect(executions).toEqual(["danger_execute", "danger_execute"]);
+    expect(await Effect.runPromise(store.list())).toHaveLength(0);
+  });
+
+  it("remembers an answer across the park that follows it", async () => {
+    executions = [];
+    const store = new InMemoryRunStore();
+    const layers = makeLayers(store, [TOOL_CALL, SECOND_TOOL_CALL]);
+
+    await Effect.runPromiseExit(
+      AgentRunner.run({
+        agent: AGENT,
+        userInput: "do both gated things",
+        conversationId: "conv-batch-3",
+        stream: false,
+        parkWhenUnattended: true,
+      }).pipe(Effect.provide(layers)) as Effect.Effect<unknown, unknown>,
+    );
+
+    const first = (await Effect.runPromise(store.list()))[0];
+    if (first?.state.kind !== "input-required") throw new Error("expected a parked run");
+    // The first park has nothing to remember yet.
+    expect(first.state.snapshot.answeredApprovals).toBeUndefined();
+
+    await Effect.runPromiseExit(
+      resumeRun({
+        runId: first.runId,
+        outcome: { kind: "approval", value: { approved: true } },
+      }).pipe(Effect.provide(layers)) as Effect.Effect<unknown, unknown>,
+    );
+
+    const second = (await Effect.runPromise(store.list()))[0];
+    if (second?.state.kind !== "input-required") throw new Error("expected a second park");
+    // The second one is where it matters: without this the next resume forgets round one.
+    expect(Object.keys(second.state.snapshot.answeredApprovals ?? {})).toEqual([TOOL_CALL.id]);
+  });
+});
+
+describe("the order approvals are asked in, and who each answer belongs to", () => {
+  /** Answer each park in turn, recording which call was asked about. */
+  async function answerEach(
+    store: InMemoryRunStore,
+    layers: ReturnType<typeof makeLayers>,
+    decide: (toolCallId: string) => boolean,
+  ): Promise<string[]> {
+    const askedAbout: string[] = [];
+    for (let round = 0; round < 6; round += 1) {
+      const parked = (await Effect.runPromise(store.list()))[0];
+      if (parked === undefined) break;
+      if (parked.state.kind !== "input-required") throw new Error("expected a parked run");
+      if (parked.state.pending.kind !== "tool-approval") throw new Error("expected an approval");
+      const toolCallId = parked.state.pending.request.toolCallId;
+      askedAbout.push(toolCallId);
+      await Effect.runPromiseExit(
+        resumeRun({
+          runId: parked.runId,
+          outcome: { kind: "approval", value: { approved: decide(toolCallId) } },
+        }).pipe(Effect.provide(layers)) as Effect.Effect<unknown, unknown>,
+      );
+    }
+    return askedAbout;
+  }
+
+  async function fire(
+    layers: ReturnType<typeof makeLayers>,
+    conversationId: string,
+  ): Promise<void> {
+    await Effect.runPromiseExit(
+      AgentRunner.run({
+        agent: AGENT,
+        userInput: "do the things",
+        conversationId,
+        stream: false,
+        parkWhenUnattended: true,
+      }).pipe(Effect.provide(layers)) as Effect.Effect<unknown, unknown>,
+    );
+  }
+
+  it("asks in the order the model asked, with ungated calls in between", async () => {
+    executions = [];
+    executedTargets = [];
+    const store = new InMemoryRunStore();
+    const layers = makeLayers(store, [
+      SAFE_TOOL_CALL,
+      TOOL_CALL,
+      SECOND_SAFE_TOOL_CALL,
+      SECOND_TOOL_CALL,
+    ]);
+    await fire(layers, "conv-order-1");
+
+    const askedAbout = await answerEach(store, layers, () => true);
+
+    // The model's own order, not the order the scan happened to reach them in.
+    expect(askedAbout).toEqual([TOOL_CALL.id, SECOND_TOOL_CALL.id]);
+    expect(executedTargets).toEqual(["/tmp/x", "/tmp/y"]);
+  });
+
+  it("asks in that order even when the first is rejected", async () => {
+    executions = [];
+    executedTargets = [];
+    const store = new InMemoryRunStore();
+    const layers = makeLayers(store, [TOOL_CALL, SECOND_TOOL_CALL]);
+    await fire(layers, "conv-order-2");
+
+    const askedAbout = await answerEach(store, layers, (id) => id !== TOOL_CALL.id);
+
+    // A rejection is an answer, so it does not come round again.
+    expect(askedAbout).toEqual([TOOL_CALL.id, SECOND_TOOL_CALL.id]);
+  });
+
+  it("applies a rejection to the call it was given for, not its sibling", async () => {
+    executions = [];
+    executedTargets = [];
+    const store = new InMemoryRunStore();
+    const layers = makeLayers(store, [TOOL_CALL, SECOND_TOOL_CALL]);
+    await fire(layers, "conv-order-3");
+
+    await answerEach(store, layers, (id) => id !== TOOL_CALL.id);
+
+    // Both are calls of the same gated tool, so only the arguments tell them apart. The
+    // rejected one must not have run and the approved one must have.
+    expect(executedTargets).toEqual(["/tmp/y"]);
+  });
+
+  it("applies a rejection of the second call the same way round", async () => {
+    executions = [];
+    executedTargets = [];
+    const store = new InMemoryRunStore();
+    const layers = makeLayers(store, [TOOL_CALL, SECOND_TOOL_CALL]);
+    await fire(layers, "conv-order-4");
+
+    await answerEach(store, layers, (id) => id !== SECOND_TOOL_CALL.id);
+
+    expect(executedTargets).toEqual(["/tmp/x"]);
+  });
+
+  it("runs nothing at all when every call is rejected", async () => {
+    executions = [];
+    executedTargets = [];
+    const store = new InMemoryRunStore();
+    const layers = makeLayers(store, [TOOL_CALL, SECOND_TOOL_CALL]);
+    await fire(layers, "conv-order-5");
+
+    await answerEach(store, layers, () => false);
+
+    expect(executedTargets).toEqual([]);
     expect(await Effect.runPromise(store.list())).toHaveLength(0);
   });
 });

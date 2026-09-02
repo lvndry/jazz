@@ -780,34 +780,25 @@ export class ToolExecutor {
 
         if (needsAnswering.length === 0 || firstRequest === undefined) return undefined;
 
-        // More than one unanswered approval in one batch cannot be parked yet. Resume
-        // rebuilds `resolvedApprovals` from the single answer it was handed, so answering
-        // the first would park on the second, and answering that would park on the first
-        // again — a loop, which is worse than the decline this replaces. Accumulating
-        // answers across resumes is the fix and it changes the run record's shape.
-        if (needsAnswering.length > 1) {
-          yield* logger.warn("Refusing a batch that needs more than one approval", {
-            toolCalls: needsAnswering.map((toolCall) => toolCall.function.name),
-          });
-          return new Error(
-            `this turn asked to run ${String(needsAnswering.length)} tools needing approval at ` +
-              `once (${needsAnswering.map((toolCall) => toolCall.function.name).join(", ")}), ` +
-              "and only one can be approved per turn — nothing was run",
-          );
-        }
-
+        // One at a time, however many the turn needs. Each park carries the answers already
+        // given, so the next round sees them and stops on the next unanswered one rather
+        // than going round in a circle. Nothing has run at this point on any round, which
+        // is what makes replaying the batch on resume safe.
         yield* logger.info("Parking run: approval needed and nobody can answer in-process", {
           toolName: firstRequest.toolName,
           toolCallId: firstRequest.toolCallId,
           batchSize: toolCalls.length,
+          stillToAnswer: needsAnswering.length,
         });
         context.onToolEvent?.({
           kind: "approval-required",
           toolName: firstRequest.toolName,
           toolCallId: firstRequest.toolCallId,
         });
+        const answeredApprovals = Object.fromEntries(context.resolvedApprovals ?? []);
         return new RunParkRequested({
           pending: { kind: "tool-approval", request: firstRequest },
+          ...(Object.keys(answeredApprovals).length > 0 ? { answeredApprovals } : {}),
         });
       });
 
