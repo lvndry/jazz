@@ -651,6 +651,53 @@ describe("InkStreamingRenderer", () => {
         Effect.runSync(renderer.reset());
       }
     });
+
+    test("routes the metrics outro into the sub-agent's ephemeral panel, not scrollback", async () => {
+      const ephemeralAppends: Array<{ id: string; text: string }> = [];
+      const originalAppend = store.appendEphemeral;
+      store.appendEphemeral = (id, text) => {
+        ephemeralAppends.push({ id, text });
+        return originalAppend(id, text);
+      };
+
+      const renderer = new InkStreamingRenderer(
+        "SubAgent",
+        true,
+        { showReasoning: true, showToolExecution: true, mode: "rendered", colorProfile: "full" },
+        { textBufferMs: 0 },
+        0,
+        { kind: "ephemeral", regionId: "eph-sub-2" },
+      );
+
+      try {
+        emitStreamStart(renderer);
+        const scrollbackBaseline = printOutputCalls.length;
+
+        Effect.runSync(
+          renderer.handleEvent({
+            type: "complete",
+            response: completeResponse("done"),
+            totalDurationMs: 100,
+            metrics: { firstTokenLatencyMs: 10, totalTokens: 42 },
+          }),
+        );
+        await new Promise((r) => setTimeout(r, 0));
+
+        const combined = ephemeralAppends
+          .filter((entry) => entry.id === "eph-sub-2")
+          .map((entry) => entry.text)
+          .join("");
+        expect(combined).toContain("42 tok");
+
+        const debugScrollbackEntries = printOutputCalls
+          .slice(scrollbackBaseline)
+          .filter((e) => e.type === "debug");
+        expect(debugScrollbackEntries).toHaveLength(0);
+      } finally {
+        store.appendEphemeral = originalAppend;
+        Effect.runSync(renderer.reset());
+      }
+    });
   });
 
   describe("complete phase", () => {
@@ -1437,5 +1484,59 @@ describe("InkPresentationService approval rejection", () => {
     const outcome = await pending;
     expect(outcome).toEqual({ approved: false });
     expect(printed.filter((entry) => entry.type === "user")).toHaveLength(0);
+  });
+});
+
+describe("InkPresentationService sub-agent collapse line", () => {
+  const printed: OutputEntry[] = [];
+  let originalPrintOutput: (typeof store)["printOutput"];
+
+  beforeEach(() => {
+    printed.length = 0;
+    originalPrintOutput = store.printOutput;
+    store.printOutput = (entry: OutputEntry) => {
+      printed.push(entry);
+      return originalPrintOutput(entry);
+    };
+  });
+
+  afterEach(() => {
+    store.printOutput = originalPrintOutput;
+  });
+
+  test("carries the sub-agent's total cost and tokens into the surviving summary line", async () => {
+    const service = new InkPresentationService(DEFAULT_DISPLAY_CONFIG, null);
+    const regionId = await Effect.runPromise(service.openEphemeralRegion("subagent", "Researcher"));
+
+    await Effect.runPromise(
+      service.collapseEphemeralRegion(regionId, "Researcher", {
+        status: "completed",
+        durationMs: 12_300,
+        costUSD: 0.0187,
+        totalTokens: 29_400,
+      }),
+    );
+
+    const summary = printed.find((entry) => entryText(entry).includes("Researcher completed"));
+    expect(summary).toBeDefined();
+    expect(entryText(summary!)).toContain("29k tok");
+    expect(entryText(summary!)).toContain("$0.02");
+  });
+
+  test("omits cost and tokens from the summary line when the run failed", async () => {
+    const service = new InkPresentationService(DEFAULT_DISPLAY_CONFIG, null);
+    const regionId = await Effect.runPromise(service.openEphemeralRegion("subagent", "Researcher"));
+
+    await Effect.runPromise(
+      service.collapseEphemeralRegion(regionId, "Researcher", {
+        status: "failed",
+        durationMs: 4_000,
+      }),
+    );
+
+    const summary = printed.find((entry) => entryText(entry).includes("Researcher failed"));
+    expect(summary).toBeDefined();
+    expect(entryText(summary!)).not.toContain("tok");
+    expect(entryText(summary!)).not.toContain("$");
   });
 });

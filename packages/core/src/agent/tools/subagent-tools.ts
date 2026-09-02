@@ -415,6 +415,10 @@ ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSc
           yield* presentation.collapseEphemeralRegion(regionId, subagentLabel, {
             status: "completed",
             durationMs,
+            ...(response.costUSD !== undefined ? { costUSD: response.costUSD } : {}),
+            ...(response.usage
+              ? { totalTokens: response.usage.promptTokens + response.usage.completionTokens }
+              : {}),
           });
 
           const fullResult = result?.trim() || "No output";
