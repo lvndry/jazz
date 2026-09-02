@@ -123,11 +123,11 @@ export function resumeRun(options: ResumeRunOptions) {
       );
     }
 
-    // Every approval this turn has already collected, plus the one just given. Building the
-    // map from the new answer alone was the bug: a turn needing two approvals would stop on
-    // the first, then on the second, then on the first again, because each resume had
+    // Everything this turn has already been answered, plus the answer just given. Building
+    // the map from the new answer alone was the bug: a turn needing two approvals would stop
+    // on the first, then on the second, then on the first again, because each resume had
     // forgotten the round before it.
-    const alreadyAnswered = Object.entries(snapshot.answeredApprovals ?? {});
+    const alreadyAnswered = Object.entries(snapshot.pendingTurnAnswers ?? {});
     const resolved =
       options.outcome.kind === "approval" && pending.kind === "tool-approval"
         ? {

@@ -412,7 +412,7 @@ describe("a batch of gated calls, with nobody in the room to answer", () => {
     const first = (await Effect.runPromise(store.list()))[0];
     if (first?.state.kind !== "input-required") throw new Error("expected a parked run");
     // The first park has nothing to remember yet.
-    expect(first.state.snapshot.answeredApprovals).toBeUndefined();
+    expect(first.state.snapshot.pendingTurnAnswers).toBeUndefined();
 
     await Effect.runPromiseExit(
       resumeRun({
@@ -424,7 +424,7 @@ describe("a batch of gated calls, with nobody in the room to answer", () => {
     const second = (await Effect.runPromise(store.list()))[0];
     if (second?.state.kind !== "input-required") throw new Error("expected a second park");
     // The second one is where it matters: without this the next resume forgets round one.
-    expect(Object.keys(second.state.snapshot.answeredApprovals ?? {})).toEqual([TOOL_CALL.id]);
+    expect(Object.keys(second.state.snapshot.pendingTurnAnswers ?? {})).toEqual([TOOL_CALL.id]);
   });
 });
 
