@@ -91,6 +91,28 @@ Peers and webhooks don't use this token — each has its own, checked separately
 credential that can start and approve runs is a much bigger grant than one that can only
 ask a question or fire one fixed prompt.
 
+### Reaching it from another machine
+
+Bind an interface other than loopback and pass the token on every request:
+
+```bash
+# On the host
+jazz daemon --host 0.0.0.0
+# → Generated a daemon token and stored it in <keyring>: <token>
+
+# From another machine
+curl http://<host>:4747/runs \
+  -H "Authorization: Bearer <token>" \
+  -d '{"agent":"default","prompt":"summarize today'\''s deploys"}'
+```
+
+`0.0.0.0` binds every interface on the host, so reachability beyond that is whatever your
+firewall or router already allows — bind a specific interface's address instead if you mean
+one network and not "anywhere this host has a route." Either way, the token is the only thing
+standing between that interface and an agent with filesystem access, so treat exposing it like
+exposing any other unauthenticated-by-default service: scope who can reach the port, not just
+who holds the token.
+
 ---
 
 ## Running it persistently
