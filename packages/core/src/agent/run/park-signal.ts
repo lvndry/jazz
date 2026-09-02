@@ -15,10 +15,18 @@
 
 import { Data } from "effect";
 import type { ChatMessage } from "@/core/types/message";
+import type { ApprovalOutcome } from "@/core/types/tools";
 import type { PendingInput } from "./run-state";
 
 export class RunParkRequested extends Data.TaggedError("RunParkRequested")<{
   readonly pending: PendingInput;
+  /**
+   * Approvals already given for this turn, raised with the signal so they survive the park.
+   *
+   * Every reconstruction of this signal must carry it — see `withTranscript`, which builds
+   * a new one from a handful of fields and would otherwise drop this silently.
+   */
+  readonly answeredApprovals?: Readonly<Record<string, ApprovalOutcome>>;
   /** Attached by the agent loop on the way out; absent while the signal is still inside the executor. */
   readonly messages?: readonly ChatMessage[];
   readonly iteration?: number;
@@ -58,5 +66,12 @@ export function withTranscript(
   iteration: number,
 ): RunParkRequested {
   if (signal.messages !== undefined) return signal;
-  return new RunParkRequested({ pending: signal.pending, messages, iteration });
+  return new RunParkRequested({
+    pending: signal.pending,
+    ...(signal.answeredApprovals !== undefined
+      ? { answeredApprovals: signal.answeredApprovals }
+      : {}),
+    messages,
+    iteration,
+  });
 }

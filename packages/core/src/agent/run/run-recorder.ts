@@ -34,6 +34,9 @@ function parkedState(signal: RunParkRequested, expiresAt: string): RunState {
     snapshot: {
       messages: signal.messages ?? [],
       iteration: signal.iteration ?? 0,
+      ...(signal.answeredApprovals !== undefined
+        ? { answeredApprovals: signal.answeredApprovals }
+        : {}),
     },
     expiresAt,
   };
@@ -124,6 +127,9 @@ export function withRunRecording<E, R>(
             Effect.fail(
               new RunParkRequested({
                 pending: error.pending,
+                ...(error.answeredApprovals !== undefined
+                  ? { answeredApprovals: error.answeredApprovals }
+                  : {}),
                 ...(error.messages !== undefined ? { messages: error.messages } : {}),
                 ...(error.iteration !== undefined ? { iteration: error.iteration } : {}),
                 runId: input.runId,

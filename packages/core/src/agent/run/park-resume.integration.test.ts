@@ -336,35 +336,78 @@ describe("a batch of gated calls, with nobody in the room to answer", () => {
     expect(executions.filter((name) => name === "harmless")).toHaveLength(1);
   });
 
-  it("says so plainly when it needs more than one approval, and runs nothing", async () => {
-    // Two unanswered approvals in one batch cannot be parked yet: resume rebuilds its
-    // resolved answers from the single one it is handed, so answering the first would park
-    // on the second and answering that would park on the first again. Accumulating answers
-    // across resumes is the fix, and it changes the run record's shape.
-    //
-    // Until then this fails visibly. Before, the decision fell through to whatever
-    // presentation the process happened to have: one that declines refuses both silently,
-    // one that approves runs both without asking. Neither answer reached the caller, and
-    // for a webhook that caller is the only person there is.
+  it("asks for each approval in turn, and runs each tool exactly once", async () => {
+    // Two approvals in one turn used to be refused outright, because each resume rebuilt its
+    // answers from the one outcome it was handed: answering the first stopped on the second,
+    // and answering that stopped on the first again. A parked run now carries what has
+    // already been answered, so the rounds converge.
     executions = [];
     const store = new InMemoryRunStore();
+    const layers = makeLayers(store, [TOOL_CALL, SECOND_TOOL_CALL]);
 
-    const exit = await Effect.runPromiseExit(
+    await Effect.runPromiseExit(
       AgentRunner.run({
         agent: AGENT,
         userInput: "do both gated things",
         conversationId: "conv-batch-2",
         stream: false,
         parkWhenUnattended: true,
-      }).pipe(Effect.provide(makeLayers(store, [TOOL_CALL, SECOND_TOOL_CALL]))) as Effect.Effect<
-        unknown,
-        unknown
-      >,
+      }).pipe(Effect.provide(layers)) as Effect.Effect<unknown, unknown>,
     );
 
-    expect(exit._tag).toBe("Failure");
-    expect(executions).toEqual([]);
-    // And it is not parked, because nobody could answer it into a finished state.
+    const askedAbout: string[] = [];
+    for (let round = 0; round < 5; round += 1) {
+      const parked = (await Effect.runPromise(store.list()))[0];
+      if (parked === undefined) break;
+      if (parked.state.kind !== "input-required") throw new Error("expected a parked run");
+      if (parked.state.pending.kind !== "tool-approval") throw new Error("expected an approval");
+      askedAbout.push(parked.state.pending.request.toolCallId);
+      // Nothing may have run while approvals are still outstanding.
+      if (round === 0) expect(executions).toEqual([]);
+      await Effect.runPromiseExit(
+        resumeRun({
+          runId: parked.runId,
+          outcome: { kind: "approval", value: { approved: true } },
+        }).pipe(Effect.provide(layers)) as Effect.Effect<unknown, unknown>,
+      );
+    }
+
+    // Asked about each call once, in order, and never asked about the same one twice.
+    expect(askedAbout).toEqual([TOOL_CALL.id, SECOND_TOOL_CALL.id]);
+    expect(executions).toEqual(["danger_execute", "danger_execute"]);
     expect(await Effect.runPromise(store.list())).toHaveLength(0);
+  });
+
+  it("remembers an answer across the park that follows it", async () => {
+    executions = [];
+    const store = new InMemoryRunStore();
+    const layers = makeLayers(store, [TOOL_CALL, SECOND_TOOL_CALL]);
+
+    await Effect.runPromiseExit(
+      AgentRunner.run({
+        agent: AGENT,
+        userInput: "do both gated things",
+        conversationId: "conv-batch-3",
+        stream: false,
+        parkWhenUnattended: true,
+      }).pipe(Effect.provide(layers)) as Effect.Effect<unknown, unknown>,
+    );
+
+    const first = (await Effect.runPromise(store.list()))[0];
+    if (first?.state.kind !== "input-required") throw new Error("expected a parked run");
+    // The first park has nothing to remember yet.
+    expect(first.state.snapshot.answeredApprovals).toBeUndefined();
+
+    await Effect.runPromiseExit(
+      resumeRun({
+        runId: first.runId,
+        outcome: { kind: "approval", value: { approved: true } },
+      }).pipe(Effect.provide(layers)) as Effect.Effect<unknown, unknown>,
+    );
+
+    const second = (await Effect.runPromise(store.list()))[0];
+    if (second?.state.kind !== "input-required") throw new Error("expected a second park");
+    // The second one is where it matters: without this the next resume forgets round one.
+    expect(Object.keys(second.state.snapshot.answeredApprovals ?? {})).toEqual([TOOL_CALL.id]);
   });
 });

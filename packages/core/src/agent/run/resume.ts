@@ -123,9 +123,19 @@ export function resumeRun(options: ResumeRunOptions) {
       );
     }
 
+    // Every approval this turn has already collected, plus the one just given. Building the
+    // map from the new answer alone was the bug: a turn needing two approvals would stop on
+    // the first, then on the second, then on the first again, because each resume had
+    // forgotten the round before it.
+    const alreadyAnswered = Object.entries(snapshot.answeredApprovals ?? {});
     const resolved =
       options.outcome.kind === "approval" && pending.kind === "tool-approval"
-        ? { resolvedApprovals: new Map([[pending.request.toolCallId, options.outcome.value]]) }
+        ? {
+            resolvedApprovals: new Map([
+              ...alreadyAnswered,
+              [pending.request.toolCallId, options.outcome.value] as const,
+            ]),
+          }
         : options.outcome.kind === "question" && pending.kind === "question"
           ? { resolvedUserInputs: new Map([[pending.toolCallId, options.outcome.value]]) }
           : options.outcome.kind === "file-picker" && pending.kind === "file-picker"
