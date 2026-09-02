@@ -37,8 +37,12 @@ import type { WebhookConfig } from "@jazz/core/types/webhook";
 import {
   isLoopbackProgressUrl,
   MAX_WEBHOOK_THREAD_KEY_LENGTH,
+  parseProgressEvents,
+  TOOL_PROGRESS_KINDS,
+  WEBHOOK_PROGRESS_EVENTS_HEADER,
   WEBHOOK_PROGRESS_HEADER,
   WEBHOOK_THREAD_HEADER,
+  type ToolProgressKind,
 } from "@jazz/core/types/webhook";
 import { generateConversationId } from "@jazz/core/utils/conversation-id";
 import { Effect } from "effect";
@@ -630,12 +634,26 @@ export function makeWebhookHandler(
       return json({ ok: false, error: `${WEBHOOK_PROGRESS_HEADER} must be a loopback URL` }, 400);
     }
 
+    const wanted = parseProgressEvents(request.headers.get(WEBHOOK_PROGRESS_EVENTS_HEADER));
+    if ("unknownKind" in wanted) {
+      return json(
+        {
+          ok: false,
+          error:
+            `${WEBHOOK_PROGRESS_EVENTS_HEADER} names no such event "${wanted.unknownKind}" — ` +
+            `this jazz sends ${TOOL_PROGRESS_KINDS.join(", ")}`,
+        },
+        400,
+      );
+    }
+
     return runEffect(
       fireWebhook(
         webhook,
         truncated,
         threadKey.length > 0 ? threadKey : undefined,
         progressUrl.length > 0 ? progressUrl : undefined,
+        wanted.kinds,
       ),
     );
   };
@@ -688,7 +706,12 @@ export function webhookConversationId(
  * Fire-and-forget on purpose: a caller that has stopped listening, or is slow, must not
  * fail somebody's turn or hold a tool call open behind it.
  */
-function reportProgress(progressUrl: string, event: ToolProgressEvent): void {
+function reportProgress(
+  progressUrl: string,
+  wanted: ReadonlySet<ToolProgressKind>,
+  event: ToolProgressEvent,
+): void {
+  if (!wanted.has(event.kind)) return;
   void fetch(progressUrl, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -702,6 +725,7 @@ function fireWebhook(
   payload: string,
   threadKey?: string,
   progressUrl?: string,
+  wantedProgress: ReadonlySet<ToolProgressKind> = new Set(TOOL_PROGRESS_KINDS),
 ) {
   return Effect.gen(function* () {
     const agent = yield* getAgentByIdentifier(webhook.agentId);
@@ -730,7 +754,10 @@ function fireWebhook(
       conversationId,
       parkWhenUnattended: true,
       ...(progressUrl !== undefined
-        ? { onToolEvent: (event: ToolProgressEvent) => reportProgress(progressUrl, event) }
+        ? {
+            onToolEvent: (event: ToolProgressEvent) =>
+              reportProgress(progressUrl, wantedProgress, event),
+          }
         : {}),
       ...(priorRecord !== null ? { conversationHistory: priorRecord.messages } : {}),
     });

@@ -4,7 +4,7 @@ import { AgentServiceTag } from "@jazz/core/interfaces/agent-service";
 import type { AgentService } from "@jazz/core/interfaces/agent-service";
 import { RunStoreTag } from "@jazz/core/interfaces/run-store";
 import type { Agent } from "@jazz/core/types/agent";
-import { isLoopbackProgressUrl } from "@jazz/core/types/webhook";
+import { isLoopbackProgressUrl, parseProgressEvents } from "@jazz/core/types/webhook";
 import type { WebhookConfig } from "@jazz/core/types/webhook";
 import { getJazzHomeDirectory, getWorkStateDirectory } from "@jazz/core/utils/paths";
 import { describe, expect, it } from "bun:test";
@@ -574,5 +574,60 @@ describe("a webhook caller that wants to know what the run is doing", () => {
 
     expect(response.status).toBe(400);
     expect(await response.text()).toContain("loopback");
+  });
+});
+
+describe("choosing which progress events to receive", () => {
+  it("treats a missing or empty list as every kind", () => {
+    // Handing over a URL is already the act of subscribing; a caller that wants the lot
+    // should not have to enumerate it.
+    for (const raw of [null, "", "  ", ",,"]) {
+      const parsed = parseProgressEvents(raw);
+      if ("unknownKind" in parsed) throw new Error("expected kinds");
+      expect(parsed.kinds.size, JSON.stringify(raw)).toBe(3);
+    }
+  });
+
+  it("narrows to what was asked for", () => {
+    const parsed = parseProgressEvents("approval-required, tool-started");
+    if ("unknownKind" in parsed) throw new Error("expected kinds");
+
+    expect([...parsed.kinds].sort()).toEqual(["approval-required", "tool-started"]);
+    expect(parsed.kinds.has("tool-finished")).toBe(false);
+  });
+
+  it("names a kind it does not know rather than dropping it", () => {
+    // A caller that misspelled one would otherwise wait forever for events never sent.
+    const parsed = parseProgressEvents("tool-startd");
+    expect(parsed).toEqual({ unknownKind: "tool-startd" });
+  });
+
+  it("refuses the fire, so the caller finds out before the run goes ahead", async () => {
+    const webhook: WebhookConfig = {
+      name: "quartet",
+      agentId: "agt_1",
+      promptTemplate: "{{payload}}",
+    };
+    const handle = makeWebhookHandler(
+      async () => [webhook],
+      async () => "hook-token",
+      async () => {
+        throw new Error("a bad subscription must not reach the runner");
+      },
+    );
+
+    const response = await handle(
+      request("POST", "/webhooks/quartet", {
+        body: "{}",
+        headers: {
+          authorization: "Bearer hook-token",
+          "x-jazz-progress-url": "http://127.0.0.1:7777/p",
+          "x-jazz-progress-events": "tool-started,nonsense",
+        },
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.text()).toContain("nonsense");
   });
 });
