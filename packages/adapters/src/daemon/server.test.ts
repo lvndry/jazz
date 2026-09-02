@@ -317,7 +317,7 @@ describe("the address an agent card tells a peer to call", () => {
       },
     );
 
-  async function advertisedUrl(headers?: Record<string, string>): Promise<string> {
+  async function advertisedUrl(headers: Record<string, string> = {}): Promise<string> {
     const response = await cardHandler("alice")(
       new Request("http://127.0.0.1:4321/.well-known/agent-card.json", { headers }),
     );
