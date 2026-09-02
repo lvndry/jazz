@@ -1,6 +1,9 @@
 import path from "node:path";
 import { createRunRecord } from "@jazz/core/agent/run/run-record";
+import { AgentServiceTag } from "@jazz/core/interfaces/agent-service";
+import type { AgentService } from "@jazz/core/interfaces/agent-service";
 import { RunStoreTag } from "@jazz/core/interfaces/run-store";
+import type { Agent } from "@jazz/core/types/agent";
 import type { WebhookConfig } from "@jazz/core/types/webhook";
 import { getJazzHomeDirectory, getWorkStateDirectory } from "@jazz/core/utils/paths";
 import { describe, expect, it } from "bun:test";
@@ -33,6 +36,37 @@ function runnerFor(store: InMemoryRunStore) {
 
 function request(method: string, path: string, init?: RequestInit): Request {
   return new Request(`http://localhost${path}`, { method, ...init });
+}
+
+function agentFixture(overrides: Partial<Agent> = {}): Agent {
+  return {
+    id: "uGS8WAv4cGBiFH1wHB7r4E",
+    name: "sonnet",
+    description: "everyday assistant",
+    config: {
+      persona: "default",
+      llmProvider: "anthropic",
+      llmModel: "claude-sonnet-4-6",
+      tools: ["read_file", "http_request"],
+      llmApiKeys: { anthropic: "sk-must-not-leak" },
+    },
+    createdAt: new Date("2026-09-01T00:00:00Z"),
+    updatedAt: new Date("2026-09-01T00:00:00Z"),
+    ...overrides,
+  } as Agent;
+}
+
+/** Only `listAgents` is reachable from the route under test. */
+function runnerForAgents(agents: readonly Agent[]) {
+  const service = { listAgents: () => Effect.succeed(agents) } as unknown as AgentService;
+  return <A>(effect: Effect.Effect<A, unknown, DaemonRequirements>): Promise<A> =>
+    Effect.runPromise(
+      effect.pipe(Effect.provideService(AgentServiceTag, service)) as Effect.Effect<
+        A,
+        never,
+        never
+      >,
+    );
 }
 
 describe("refusing an unsafe bind", () => {
@@ -406,5 +440,84 @@ describe("which conversation a webhook fire belongs to", () => {
 
     expect(resolved).toStartWith(path.resolve(getJazzHomeDirectory(), "work") + path.sep);
     expect(resolved).not.toContain("etc/pwned");
+  });
+});
+
+describe("listing the agents a daemon can run", () => {
+  it("answers with the fields somebody choosing between them needs", async () => {
+    const handle = makeHandler(LOOPBACK, runnerForAgents([agentFixture()]));
+
+    const response = await handle(request("GET", "/agents"));
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      ok: boolean;
+      agents: {
+        id: string;
+        name: string;
+        description?: string;
+        persona: string;
+        provider: string;
+        model: string;
+        tools: string[];
+      }[];
+    };
+    expect(body.ok).toBe(true);
+    expect(body.agents).toHaveLength(1);
+    expect(body.agents[0]).toEqual({
+      id: "uGS8WAv4cGBiFH1wHB7r4E",
+      name: "sonnet",
+      description: "everyday assistant",
+      persona: "default",
+      provider: "anthropic",
+      model: "claude-sonnet-4-6",
+      tools: ["read_file", "http_request"],
+    });
+  });
+
+  it("never hands out an agent's api keys", async () => {
+    const handle = makeHandler(LOOPBACK, runnerForAgents([agentFixture()]));
+
+    const response = await handle(request("GET", "/agents"));
+    expect(await response.text()).not.toContain("sk-must-not-leak");
+  });
+
+  it("omits a description rather than sending an empty one", async () => {
+    // Built without the field rather than with it set to undefined, which
+    // exactOptionalPropertyTypes rightly refuses.
+    const { description: _unused, ...withoutDescription } = agentFixture();
+    const handle = makeHandler(LOOPBACK, runnerForAgents([withoutDescription]));
+
+    const response = await handle(request("GET", "/agents"));
+    const body = (await response.json()) as { agents: Record<string, unknown>[] };
+    expect(body.agents[0]).not.toHaveProperty("description");
+  });
+
+  it("reports an agent with no tools as having none, not as missing a field", async () => {
+    const bare = agentFixture({
+      config: { persona: "default", llmProvider: "openai", llmModel: "gpt-5.4-mini" },
+    } as Partial<Agent>);
+    const handle = makeHandler(LOOPBACK, runnerForAgents([bare]));
+
+    const response = await handle(request("GET", "/agents"));
+    const body = (await response.json()) as { agents: { tools: string[] }[] };
+    expect(body.agents[0]?.tools).toEqual([]);
+  });
+
+  it("needs the daemon token when one is configured, like every other route", async () => {
+    const handle = makeHandler({ ...LOOPBACK, token: "s3cret" }, runnerForAgents([agentFixture()]));
+
+    expect((await handle(request("GET", "/agents"))).status).toBe(401);
+    const authorized = await handle(
+      request("GET", "/agents", { headers: { authorization: "Bearer s3cret" } }),
+    );
+    expect(authorized.status).toBe(200);
+  });
+
+  it("answers an empty list rather than a 404 when there are no agents", async () => {
+    const handle = makeHandler(LOOPBACK, runnerForAgents([]));
+
+    const response = await handle(request("GET", "/agents"));
+    expect(response.status).toBe(200);
+    expect(((await response.json()) as { agents: unknown[] }).agents).toEqual([]);
   });
 });
