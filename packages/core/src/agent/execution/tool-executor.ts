@@ -705,9 +705,106 @@ export class ToolExecutor {
       yield* logger.info(`${agentName} is using tools: ${toolsList}`);
 
       const approvalSet = new Set(toolsRequiringApproval);
-      // Only a lone tool call can park. In a batch a sibling may already have executed, and
-      // resuming replays the batch — which would repeat that sibling's effects.
-      const parkable = context.parkWhenUnattended === true && toolCalls.length === 1;
+
+      /**
+       * Park the whole batch before any of it runs, if anything in it needs a person.
+       *
+       * Parking used to be allowed only for a lone tool call, because resuming replays the
+       * batch and a sibling that had already executed would run twice. The consequence was
+       * that a batch went to a presentation which cannot ask anybody — and quiet mode
+       * declines — so an agent that asked to run two commands at once had both silently
+       * refused, with the run reporting success. That is what a webhook caller saw as
+       * nothing happening and no approval to answer.
+       *
+       * The hazard is narrower than "a batch". An approval tool's own call has no side
+       * effect: it returns the request and the effect happens in the execute tool afterwards.
+       * So parking is safe as long as it happens before anything executes, which is what
+       * deciding here rather than inside each fiber buys. Every round either parks having
+       * run nothing, or has every approval in hand and runs the batch once.
+       */
+      const parkTheBatch = Effect.gen(function* () {
+        if (context.parkWhenUnattended !== true) return undefined;
+        if (presentationService.canPromptForApproval?.() === true) return undefined;
+
+        const needsAnswering: ToolCall[] = [];
+        let firstRequest: Parameters<typeof presentationService.requestApproval>[0] | undefined;
+        for (const toolCall of toolCalls) {
+          const name = toolCall.function.name;
+          if (!approvalSet.has(name)) continue;
+          if (context.resolvedApprovals?.get(toolCall.id) !== undefined) continue;
+
+          let args: Record<string, unknown> = {};
+          try {
+            const parsed: unknown = JSON.parse(toolCall.function.arguments);
+            if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+              args = parsed as Record<string, unknown>;
+            }
+          } catch {
+            // Unparseable arguments are the per-call path's error to report, not this one's.
+            continue;
+          }
+          // Side-effect free for an approval tool: this is the call that builds the request.
+          const probe = yield* ToolExecutor.executeTool(name, args, {
+            ...context,
+            toolCallId: toolCall.id,
+          }).pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+          if (probe === undefined || !isApprovalRequiredResult(probe.result)) continue;
+
+          const request = probe.result;
+          const toolInfo = yield* registry
+            .getTool(name)
+            .pipe(Effect.catchAll(() => Effect.succeed({ riskLevel: "high-risk" as const })));
+          const autoApproved =
+            shouldAutoApprove(toolInfo.riskLevel, context.getAutoApprovePolicy?.(), {
+              canPrompt: false,
+            }) ||
+            isToolNameAutoApproved(name, context.autoApprovedTools) ||
+            isCommandAutoApproved(name, request.executeArgs, context.autoApprovedCommands);
+          if (autoApproved) continue;
+
+          needsAnswering.push(toolCall);
+          if (needsAnswering.length === 1) {
+            firstRequest = {
+              toolCallId: toolCall.id,
+              toolName: name,
+              message: request.message,
+              executeToolName: request.executeToolName,
+              executeArgs: request.executeArgs,
+              isAutoApproved: () => false,
+            };
+          }
+        }
+
+        if (needsAnswering.length === 0 || firstRequest === undefined) return undefined;
+
+        // More than one unanswered approval in one batch cannot be parked yet. Resume
+        // rebuilds `resolvedApprovals` from the single answer it was handed, so answering
+        // the first would park on the second, and answering that would park on the first
+        // again — a loop, which is worse than the decline this replaces. Accumulating
+        // answers across resumes is the fix and it changes the run record's shape.
+        if (needsAnswering.length > 1) {
+          yield* logger.warn("Refusing a batch that needs more than one approval", {
+            toolCalls: needsAnswering.map((toolCall) => toolCall.function.name),
+          });
+          return new Error(
+            `this turn asked to run ${String(needsAnswering.length)} tools needing approval at ` +
+              `once (${needsAnswering.map((toolCall) => toolCall.function.name).join(", ")}), ` +
+              "and only one can be approved per turn — nothing was run",
+          );
+        }
+
+        yield* logger.info("Parking run: approval needed and nobody can answer in-process", {
+          toolName: firstRequest.toolName,
+          toolCallId: firstRequest.toolCallId,
+          batchSize: toolCalls.length,
+        });
+        return new RunParkRequested({
+          pending: { kind: "tool-approval", request: firstRequest },
+        });
+      });
+
+      const park = yield* parkTheBatch;
+      if (park !== undefined) return yield* Effect.fail(park);
 
       // Limit concurrency to prevent resource exhaustion when many tools are requested.
       // Forked as daemon fibers (not structured children of this generator) so a
@@ -728,7 +825,6 @@ export class ToolExecutor {
               agentId,
               conversationId,
               approvalSet,
-              parkable,
             ),
           ),
         ),
