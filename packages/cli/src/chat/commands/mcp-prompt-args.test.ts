@@ -17,6 +17,8 @@ const context: CommandContext = {
   conversationHistory: [],
   conversationId: "c",
   sessionUsage: { promptTokens: 0, completionTokens: 0 },
+  sessionTurnCount: 0,
+  sessionLimits: {},
   sessionStartedAt: new Date(),
 };
 

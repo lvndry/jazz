@@ -706,6 +706,7 @@ describe("fullscreen bridge", () => {
     await settleKeypress(rendered.flush, 100);
 
     expect(interrupted).toBe(1);
+    expect(store.getOutputSnapshot().entries.at(-1)?.message).toBe("Interrupting…");
     store.setInterruptHandler(null);
     store.setChatBusy(false);
     rendered.renderer.destroy();

@@ -113,6 +113,12 @@ describe("parseSpecialCommand", () => {
       expect(result.type).toBe("workflows");
       expect(result.args).toEqual(["create", "my-newsletter"]);
     });
+
+    it("should parse /limit usd 5", () => {
+      const result = parseSpecialCommand("/limit usd 5");
+      expect(result.type).toBe("limit");
+      expect(result.args).toEqual(["usd", "5"]);
+    });
   });
 
   describe("case insensitivity", () => {

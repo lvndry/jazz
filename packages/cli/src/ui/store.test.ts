@@ -312,20 +312,21 @@ describe("UIStore", () => {
   });
 
   describe("interrupt handler stack", () => {
-    test("nested setInterruptHandler restores outer handler when inner pops", () => {
+    test("nested handlers all receive an interrupt, and inner pop restores outer dispatch", () => {
       const s = new UIStore();
-      const seen: Array<(() => void) | null> = [];
-      s.subscribeSession(() => seen.push(s.getSessionSnapshot().interruptHandler));
-
-      const outer = (): void => {};
-      const inner = (): void => {};
+      const calls: string[] = [];
+      const outer = (): void => void calls.push("outer");
+      const inner = (): void => void calls.push("inner");
 
       s.setInterruptHandler(outer);
       s.setInterruptHandler(inner);
-      s.setInterruptHandler(null);
+      s.getSessionSnapshot().interruptHandler?.();
+      expect(calls).toEqual(["inner", "outer"]);
 
-      const top = seen[seen.length - 1];
-      expect(top).toBe(outer);
+      calls.length = 0;
+      s.setInterruptHandler(null);
+      s.getSessionSnapshot().interruptHandler?.();
+      expect(calls).toEqual(["outer"]);
     });
 
     test("popping below empty is a no-op (over-pop tolerated)", () => {
@@ -341,7 +342,7 @@ describe("UIStore", () => {
       s.setInterruptHandler(handler);
       unsubscribe();
 
-      expect(s.getSessionSnapshot().interruptHandler).toBe(handler);
+      expect(s.getSessionSnapshot().interruptHandler).not.toBeNull();
     });
   });
 

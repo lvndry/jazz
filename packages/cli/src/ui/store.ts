@@ -282,6 +282,10 @@ export class UIStore {
   private inputHistory: string[] = [];
   private ephemeralRegions: Map<EphemeralRegionId, EphemeralRegion> = new Map();
   private ephemeralIdCounter = 0;
+  // A run may synchronously spawn nested runs. Interrupting only the top-most
+  // callback leaves the parent waiting for (and potentially respawning) a child.
+  // Keep the stack for scoped cleanup, but dispatch an interrupt to every active
+  // run so Esc Esc always cancels the complete run tree.
   private interruptHandlerStack: Array<() => void> = [];
   private backgroundHandlerStack: Array<() => void> = [];
   private promptContinuation: ((result: PromptResult) => void) | null = null;
@@ -422,8 +426,20 @@ export class UIStore {
     } else {
       this.interruptHandlerStack.push(handler);
     }
-    const top = this.interruptHandlerStack[this.interruptHandlerStack.length - 1] ?? null;
-    patchSlice(this.session, { interruptHandler: top });
+    const handlers = this.interruptHandlerStack.slice();
+    const interrupt =
+      handlers.length === 0
+        ? null
+        : handlers.length === 1
+          ? handlers[0]!
+          : (): void => {
+              // Run newest first so the currently visible child is stopped
+              // immediately, then propagate to its parent and any ancestors.
+              for (let index = handlers.length - 1; index >= 0; index -= 1) {
+                handlers[index]?.();
+              }
+            };
+    patchSlice(this.session, { interruptHandler: interrupt });
   };
 
   setBackgroundHandler = (handler: (() => void) | null): void => {
