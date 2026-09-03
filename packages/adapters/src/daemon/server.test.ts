@@ -17,7 +17,7 @@ import { isLoopbackProgressUrl, parseProgressEvents } from "@jazz/core/types/web
 import type { WebhookConfig } from "@jazz/core/types/webhook";
 import { getJazzHomeDirectory, getWorkStateDirectory } from "@jazz/core/utils/paths";
 import { describe, expect, it } from "bun:test";
-import { Effect } from "effect";
+import { Context, Effect } from "effect";
 import { AgentServiceImpl } from "@/adapters/agent-service";
 import { InMemoryRunStore } from "@/adapters/storage/run-store";
 import {
@@ -65,6 +65,14 @@ function agentFixture(overrides: Partial<Agent> = {}): Agent {
     updatedAt: new Date("2026-09-01T00:00:00Z"),
     ...overrides,
   } as Agent;
+}
+
+/** Provides exactly the one service the route under test reaches for. */
+function runnerProviding<S>(tag: Context.Tag<S, S>, service: S) {
+  return <A>(effect: Effect.Effect<A, unknown, DaemonRequirements>): Promise<A> =>
+    Effect.runPromise(
+      effect.pipe(Effect.provideService(tag, service)) as Effect.Effect<A, never, never>,
+    );
 }
 
 /** Only `listAgents` is reachable from the route under test. */
@@ -830,8 +838,8 @@ describe("reading one agent over HTTP", () => {
     const body = (await response.json()) as {
       agent: { config: Record<string, unknown>; apiKeyProviders: string[] };
     };
-    expect(body.agent.config.tools).toEqual(["read_file", "http_request"]);
-    expect(body.agent.config.llmProvider).toBe("anthropic");
+    expect(body.agent.config["tools"]).toEqual(["read_file", "http_request"]);
+    expect(body.agent.config["llmProvider"]).toBe("anthropic");
   });
 
   it("says which providers have a per-agent key without handing the key out", async () => {
@@ -1037,15 +1045,7 @@ describe("the menus an agent editor is built from", () => {
       },
     ];
     const service = { listPersonas: () => Effect.succeed(personas) } as unknown as PersonaService;
-    const handle = makeHandler(LOOPBACK, (effect) =>
-      Effect.runPromise(
-        effect.pipe(Effect.provideService(PersonaServiceTag, service)) as Effect.Effect<
-          unknown,
-          never,
-          never
-        >,
-      ),
-    );
+    const handle = makeHandler(LOOPBACK, runnerProviding(PersonaServiceTag, service));
 
     const response = await handle(request("GET", "/personas"));
     expect(response.status).toBe(200);
@@ -1067,15 +1067,7 @@ describe("the menus an agent editor is built from", () => {
       listAllTools: () => Effect.succeed(["read_file", "web_search", "ask_user"]),
       listToolsByCategory: () => Effect.succeed({ filesystem: ["read_file"], web: ["web_search"] }),
     } as unknown as ToolRegistry;
-    const handle = makeHandler(LOOPBACK, (effect) =>
-      Effect.runPromise(
-        effect.pipe(Effect.provideService(ToolRegistryTag, registry)) as Effect.Effect<
-          unknown,
-          never,
-          never
-        >,
-      ),
-    );
+    const handle = makeHandler(LOOPBACK, runnerProviding(ToolRegistryTag, registry));
 
     const response = await handle(request("GET", "/tools"));
     expect(response.status).toBe(200);
