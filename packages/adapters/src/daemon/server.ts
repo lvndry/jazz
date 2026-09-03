@@ -47,6 +47,8 @@ import {
   StorageNotFoundError,
   ValidationError,
 } from "@jazz/core/types/errors";
+import { PERCEPTION_CAPABILITIES, isPerceptionCapability } from "@jazz/core/types/llm";
+import type { PerceptionCapability } from "@jazz/core/types/llm";
 import type { ModelInfo } from "@jazz/core/types/llm";
 import type { PeerConfig } from "@jazz/core/types/peer";
 import { inviteStatus } from "@jazz/core/types/peer-invite";
@@ -63,6 +65,7 @@ import {
   type ToolProgressKind,
 } from "@jazz/core/types/webhook";
 import { generateConversationId } from "@jazz/core/utils/conversation-id";
+import { filterCapableModels } from "@jazz/core/utils/model-capabilities";
 import { Effect } from "effect";
 import { Hono } from "hono";
 import { listModelsForProvider } from "@/adapters/llm/model-fetcher";
@@ -1209,6 +1212,9 @@ function listCatalog(): Response {
     providers: AVAILABLE_PROVIDERS,
     webSearchProviders: WEB_SEARCH_PROVIDERS,
     reasoningEfforts: REASONING_EFFORTS,
+    // The modalities an agent can bind a companion for. Served rather than left to each
+    // client to spell out, for the same reason as every other list here.
+    perceptionCapabilities: PERCEPTION_CAPABILITIES,
   });
 }
 
@@ -1242,7 +1248,7 @@ function projectModel(model: ModelInfo) {
   };
 }
 
-function listModels(provider: ProviderName) {
+function listModels(provider: ProviderName, capability?: PerceptionCapability) {
   return Effect.gen(function* () {
     const configService = yield* AgentConfigServiceTag;
     const appConfig = yield* configService.appConfig;
@@ -1255,7 +1261,12 @@ function listModels(provider: ProviderName) {
       llmConfig?.[provider]?.api_key ?? process.env[LLM_PROVIDER_ENV_VARS[provider] ?? ""];
 
     const models = yield* listModelsForProvider(provider, { apiKey, llmConfig });
-    return json({ ok: true, provider, models: models.map(projectModel) });
+    return json({
+      ok: true,
+      provider,
+      ...(capability !== undefined ? { capability } : {}),
+      models: capableFirst(models, capability).map(projectModel),
+    });
   }).pipe(
     Effect.timeout(MODEL_LISTING_TIMEOUT),
     Effect.catchAll((error) =>
@@ -1273,11 +1284,46 @@ function listModels(provider: ProviderName) {
   );
 }
 
+/**
+ * The models that accept `capability`, in jazz's own order, or all of them.
+ *
+ * Filtering and ordering both come from `filterCapableModels` rather than being redone here:
+ * "capable, best first" already means something specific in jazz — priced models before
+ * unpriced, then cheapest input, then id — and a client that re-sorted would quietly disagree
+ * with what the CLI's own picker recommends. The capable ids are mapped back to the full
+ * `ModelInfo` so one response shape serves both the plain list and a companion picker.
+ */
+function capableFirst(
+  models: readonly ModelInfo[],
+  capability: PerceptionCapability | undefined,
+): readonly ModelInfo[] {
+  if (capability === undefined) return models;
+  const byId = new Map(models.map((model) => [model.id, model]));
+  return filterCapableModels(models, capability)
+    .map((capable) => byId.get(capable.modelId))
+    .filter((model): model is ModelInfo => model !== undefined);
+}
+
 function modelsRoute(
   request: Request,
   runEffect: <A>(effect: Effect.Effect<A, unknown, DaemonRequirements>) => Promise<A>,
 ): Promise<Response> {
-  const provider = new URL(request.url).searchParams.get("provider") ?? "";
+  const parameters = new URL(request.url).searchParams;
+  const provider = parameters.get("provider") ?? "";
+  const requested = parameters.get("capability");
+  if (requested !== null && !isPerceptionCapability(requested)) {
+    return Promise.resolve(
+      json(
+        {
+          ok: false,
+          error: `Unknown capability ${JSON.stringify(requested)}`,
+          field: "capability",
+          suggestion: `Use one of: ${PERCEPTION_CAPABILITIES.join(", ")}.`,
+        },
+        400,
+      ),
+    );
+  }
   if (!isProviderName(provider)) {
     return Promise.resolve(
       json(
@@ -1291,7 +1337,7 @@ function modelsRoute(
       ),
     );
   }
-  return runEffect(listModels(provider));
+  return runEffect(requested === null ? listModels(provider) : listModels(provider, requested));
 }
 
 /**
