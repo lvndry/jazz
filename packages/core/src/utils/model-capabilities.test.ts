@@ -10,7 +10,6 @@ import {
   isCompanionRole,
   isMediaModality,
   modelSupportsRole,
-  normalizeCompanionRole,
 } from "./model-capabilities";
 
 function model(overrides: Partial<ModelInfo> & { id: string }): ModelInfo {
@@ -111,12 +110,13 @@ describe("role vocabulary", () => {
     expect(describeRole("generate:audio")).toBe("audio generation");
   });
 
-  it("reads pre-role companion keys as analysis bindings", () => {
-    expect(normalizeCompanionRole("vision")).toBe("analyze:image");
-    expect(normalizeCompanionRole("audio")).toBe("analyze:audio");
-    expect(normalizeCompanionRole("video")).toBe("analyze:video");
-    expect(normalizeCompanionRole("generate:image")).toBe("generate:image");
-    expect(normalizeCompanionRole("smell")).toBeUndefined();
+  it("recognises a role only under its canonical key", () => {
+    // The one form a binding can take. `perception-tools` looks a companion up by role
+    // directly, so a key in any other shape would be stored and then never found.
+    expect(isCompanionRole("analyze:image")).toBe(true);
+    expect(isCompanionRole("generate:image")).toBe(true);
+    expect(isCompanionRole("vision")).toBe(false);
+    expect(isCompanionRole("smell")).toBe(false);
   });
 });
 

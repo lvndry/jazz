@@ -625,12 +625,20 @@ describe("AgentService", () => {
       await expect(Effect.runPromise(program)).resolves.toBeUndefined();
     });
 
-    it("still accepts pre-role companion keys from stored configs", async () => {
+    it("refuses a companion key that is not a role", async () => {
+      // `vision` was the key before roles existed. Accepting it stored a binding that
+      // `perception-tools` — which looks a companion up by role directly — would never
+      // find, so the agent read as configured and behaved as unconfigured.
       const program = service.validateAgentConfig({
         ...baseConfig,
         companions: { vision: "anthropic/claude-sonnet-4-5" } as never,
       });
-      await expect(Effect.runPromise(program)).resolves.toBeUndefined();
+      const result = await Effect.runPromiseExit(program);
+      expect(result._tag).toBe("Failure");
+      if (result._tag === "Failure") {
+        // @ts-expect-error - accessing error
+        expect(result.cause.error).toBeInstanceOf(AgentConfigurationError);
+      }
     });
 
     it("accepts config with no companions", async () => {
