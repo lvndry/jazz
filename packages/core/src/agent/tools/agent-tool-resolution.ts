@@ -28,7 +28,29 @@ import { normalizeToolConfig } from "@/core/agent/utils/tool-config";
 import { PersonaServiceTag } from "@/core/interfaces/persona-service";
 import { ToolRegistryTag, type ToolRegistry } from "@/core/interfaces/tool-registry";
 import type { Agent } from "@/core/types";
+import type { PersonaToolProfile } from "@/core/types/persona";
 import { BUILTIN_TOOL_CATEGORIES } from "./tool-categories";
+
+/**
+ * Every tool withheld from this agent, from either scope that can withhold one.
+ *
+ * The set, not a filter over it. What the run path and the A2A card have to agree on is
+ * *where denials come from* — a caller that forgets `deniedTools` exists is the failure that
+ * matters, and one that writes `.filter` wrong is not a failure anyone has ever had. Adding
+ * a third source later fixes both callers at once; the subtraction itself stays visible at
+ * each call site rather than hidden behind a name.
+ *
+ * The two scopes differ only in reach: a persona's `deny` applies to every agent sharing
+ * that persona, an agent's `deniedTools` to that agent alone. Neither is meant to be
+ * undoable, so callers subtract this last — after `config.tools` and the built-in bundle,
+ * both of which only ever add.
+ */
+export function toolDenials(
+  agent: Agent,
+  toolProfile: PersonaToolProfile | undefined,
+): ReadonlySet<string> {
+  return new Set([...(toolProfile?.deny ?? []), ...(agent.config.deniedTools ?? [])]);
+}
 
 export function resolveAgentToolNames(
   agent: Agent,
@@ -62,11 +84,8 @@ export function resolveAgentToolNames(
         .map((id) => toolRegistry.getToolsInCategory(id)),
     )).flat();
 
-    let combinedToolNames = [...new Set([...agentToolNames, ...builtInToolNames])];
-    if (toolProfile?.deny && toolProfile.deny.length > 0) {
-      const denied = new Set(toolProfile.deny);
-      combinedToolNames = combinedToolNames.filter((name) => !denied.has(name));
-    }
-    return combinedToolNames;
+    const combinedToolNames = [...new Set([...agentToolNames, ...builtInToolNames])];
+    const denied = toolDenials(agent, toolProfile);
+    return combinedToolNames.filter((name) => !denied.has(name));
   });
 }

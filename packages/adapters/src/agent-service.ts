@@ -478,6 +478,32 @@ export class AgentServiceImpl implements AgentService {
         }
       }
 
+      if (config.deniedTools !== undefined && config.deniedTools !== null) {
+        if (!Array.isArray(config.deniedTools)) {
+          return yield* Effect.fail(
+            new AgentConfigurationError({
+              agentId: "unknown",
+              field: "config.deniedTools",
+              message: "deniedTools must be provided as an array of tool names",
+              suggestion: 'Supply an array of tool names, e.g. ["execute_command"].',
+            }),
+          );
+        }
+
+        for (const tool of config.deniedTools as readonly string[]) {
+          if (typeof tool !== "string" || tool.trim().length === 0) {
+            return yield* Effect.fail(
+              new AgentConfigurationError({
+                agentId: "unknown",
+                field: "config.deniedTools",
+                message: "Each deniedTools entry must be a non-empty string",
+                suggestion: "Remove blank entries so every denial names a tool.",
+              }),
+            );
+          }
+        }
+      }
+
       if (config.memoryScopes !== undefined && config.memoryScopes !== null) {
         if (!Array.isArray(config.memoryScopes)) {
           return yield* Effect.fail(
