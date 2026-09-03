@@ -237,23 +237,22 @@ describe("the daemon's routes", () => {
 
   it("accepts a body the size of an ordinary webhook payload", async () => {
     // The old cap sat under a routine GitHub push event, so the door refused traffic it
-    // exists to receive. Reaching the runner at all is the assertion.
+    // exists to receive. Reaching the runner at all is the assertion — signalled by what the
+    // runner returns rather than by throwing, so this says nothing about how the door treats
+    // an exception.
     const handle = makeWebhookHandler(
       async () => [{ name: "hook", agentId: "default", promptTemplate: "Process {{payload}}" }],
       async () => "webhook-secret",
-      async () => {
-        throw new Error("reached the runner");
-      },
+      async () => new Response("reached the runner", { status: 299 }) as never,
     );
 
-    await expect(
-      handle(
-        request("POST", "/webhooks/hook", {
-          headers: { authorization: "Bearer webhook-secret" },
-          body: "x".repeat(512_000),
-        }),
-      ),
-    ).rejects.toThrow("reached the runner");
+    const response = await handle(
+      request("POST", "/webhooks/hook", {
+        headers: { authorization: "Bearer webhook-secret" },
+        body: "x".repeat(512_000),
+      }),
+    );
+    expect(response.status).toBe(299);
   });
 
   it("returns 404 for malformed webhook URL encoding", async () => {
@@ -944,7 +943,7 @@ describe("deleting an agent over HTTP", () => {
   });
 });
 
-describe("the route table's auth boundary", () => {
+describe("the operator door's auth boundary", () => {
   it("answers a public route without a credential", async () => {
     const handle = makeHandler({ ...LOOPBACK, token: "s3cret" }, runnerForAgents([]));
 
@@ -971,8 +970,12 @@ describe("the route table's auth boundary", () => {
     expect((await handle(request("PUT", "/agents"))).status).toBe(404);
   });
 
-  it("treats an undecodable path segment as no match rather than failing", async () => {
-    const handle = makeHandler(LOOPBACK, runnerForAgents([]));
+  it("treats an undecodable path segment as an agent that does not exist", async () => {
+    // A malformed escape is not special-cased: it decodes to something, that something
+    // names no agent, and the answer is the same 404 any unknown name gets. What matters is
+    // that it does not fault.
+    const { run } = runnerForWritableAgents([agentFixture()]);
+    const handle = makeHandler(LOOPBACK, run);
 
     const response = await handle(request("GET", "/agents/%E0%A4%A"));
     expect(response.status).toBe(404);
@@ -1091,5 +1094,22 @@ describe("the menus an agent editor is built from", () => {
     for (const path of ["/catalog", "/models?provider=openai", "/personas", "/tools"]) {
       expect((await handle(request("GET", path))).status).toBe(401);
     }
+  });
+});
+
+describe("a handler that faults", () => {
+  it("answers a JSON 500 rather than letting the fault reach the socket", async () => {
+    // Worth pinning because it changed: a bare async handler let a throw propagate out to
+    // Bun.serve, and the door now catches it. The reply carries no detail — one of these
+    // doors answers callers holding no credential — and the fault goes to stderr.
+    const handle = makeHandler(LOOPBACK, () => {
+      throw new Error("boom");
+    });
+
+    const response = await handle(request("GET", "/agents"));
+    expect(response.status).toBe(500);
+    expect((await response.json()) as { error: string }).toMatchObject({
+      error: "internal error",
+    });
   });
 });

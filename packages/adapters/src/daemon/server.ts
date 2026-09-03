@@ -63,6 +63,7 @@ import {
 } from "@jazz/core/types/webhook";
 import { generateConversationId } from "@jazz/core/utils/conversation-id";
 import { Effect } from "effect";
+import { Hono } from "hono";
 import { listModelsForProvider } from "@/adapters/llm/model-fetcher";
 import { buildPublicAgentCard, handleA2ARpc, normalizeProtocolVersion } from "@/adapters/peers/a2a";
 import {
@@ -178,98 +179,24 @@ interface StartRunBody {
   readonly conversationId?: unknown;
 }
 
-/** Path segments captured by a route's `:name` placeholders, already percent-decoded. */
-type RouteParams = Readonly<Record<string, string>>;
-
 /**
- * One route on a door.
+ * A door, carrying the two answers every door owes a caller whatever its routes are.
  *
- * `auth` is stated per route rather than implied by where the route sits, which is the point
- * of the table: with an if-chain, whether a route was public depended on whether it appeared
- * above or below the token check, and adding one in the wrong place published it silently.
+ * The 500 is worth stating rather than inheriting. A bare async handler let a thrown error
+ * propagate to the socket; Hono catches it and answers instead. That is the better
+ * behaviour — an unhandled effect failure becomes a controlled reply rather than an opaque
+ * socket error — but it is a real change in where faults surface, so it is written down and
+ * the fault is put on stderr, where a daemon's operator is already looking. The reply itself
+ * carries no detail: one of these doors answers a caller who has presented no credential.
  */
-interface Route {
-  readonly method: string;
-  /** Pattern with `:name` standing for one path segment, e.g. `/agents/:identifier`. */
-  readonly path: string;
-  readonly auth: "token" | "public";
-  readonly handle: (request: Request, params: RouteParams) => Promise<Response>;
-}
-
-interface CompiledRoute extends Route {
-  readonly pattern: RegExp;
-  readonly names: readonly string[];
-}
-
-function compileRoute(route: Route): CompiledRoute {
-  const names: string[] = [];
-  // Literal segments are escaped before the placeholders are substituted, so a path
-  // containing a regex metacharacter matches itself rather than being read as a pattern.
-  // `:` is not a metacharacter, so the placeholders survive escaping intact.
-  const source = route.path
-    .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-    .replace(/:([A-Za-z][A-Za-z0-9]*)/g, (_match, name: string) => {
-      names.push(name);
-      return "([^/]+)";
-    });
-  return { ...route, pattern: new RegExp(`^${source}$`), names };
-}
-
-/**
- * The route a request addresses, or undefined when nothing matches.
- *
- * A path that matches but on the wrong method counts as no match, so an unknown method
- * answers the same way an unknown path does rather than leaking that the path exists.
- * An undecodable escape in a captured segment is also no match: it cannot name anything.
- */
-function matchRoute(
-  routes: readonly CompiledRoute[],
-  method: string,
-  pathname: string,
-): { readonly route: CompiledRoute; readonly params: RouteParams } | undefined {
-  for (const route of routes) {
-    if (route.method !== method) continue;
-    const found = route.pattern.exec(pathname);
-    if (found === null) continue;
-
-    const params: Record<string, string> = {};
-    try {
-      for (const [index, name] of route.names.entries()) {
-        params[name] = decodeURIComponent(found[index + 1] ?? "");
-      }
-    } catch {
-      return undefined;
-    }
-    return { route, params };
-  }
-  return undefined;
-}
-
-/**
- * Turn a route table into a handler.
- *
- * The order of the three checks is deliberate. A public route answers before the token is
- * looked at; everything else — *including a path that matches nothing* — sits behind it, so
- * an unauthenticated caller cannot map the door by telling 404s from 401s.
- */
-function dispatch(
-  routes: readonly CompiledRoute[],
-  options: DaemonOptions,
-): (request: Request) => Promise<Response> {
-  return async function handle(request: Request): Promise<Response> {
-    const matched = matchRoute(routes, request.method, new URL(request.url).pathname);
-
-    if (matched?.route.auth === "public") {
-      return matched.route.handle(request, matched.params);
-    }
-    if (!authorized(request, options.token)) {
-      return json({ ok: false, error: "unauthorized" }, 401);
-    }
-    if (matched === undefined) {
-      return json({ ok: false, error: "not found" }, 404);
-    }
-    return matched.route.handle(request, matched.params);
-  };
+function door(): Hono {
+  const app = new Hono();
+  app.notFound(() => json({ ok: false, error: "not found" }, 404));
+  app.onError((error) => {
+    process.stderr.write(`daemon handler failed: ${String(error)}\n`);
+    return json({ ok: false, error: "internal error" }, 500);
+  });
+  return app;
 }
 
 /**
@@ -277,6 +204,8 @@ function dispatch(
  *
  * Separated from the socket so it can be driven directly in a test without binding a port,
  * and so the runtime that supplies the agent stack is provided once by the caller.
+ * `app.fetch` is exactly that shape, which is why routing can be Hono's problem rather
+ * than this file's.
  */
 export function makeHandler(
   options: DaemonOptions,
@@ -290,89 +219,58 @@ export function makeHandler(
     return problem === undefined ? body : json({ ok: false, error: problem }, 400);
   };
 
-  const routes = [
-    // Health is unauthenticated on purpose: a supervisor should be able to see that the
-    // process is alive without holding a credential that can drive an agent.
-    {
-      method: "GET",
-      path: "/health",
-      auth: "public",
-      handle: () => Promise.resolve(json({ ok: true })),
-    },
+  const app = door();
 
-    {
-      method: "POST",
-      path: "/runs",
-      auth: "token",
-      handle: (request) => startRunRoute(request, runEffect),
-    },
-    { method: "GET", path: "/runs", auth: "token", handle: () => runEffect(listRuns()) },
-    {
-      method: "GET",
-      path: "/runs/:runId",
-      auth: "token",
-      handle: (_request, params) => runEffect(describeRun(params["runId"] ?? "")),
-    },
-    {
-      method: "POST",
-      path: "/runs/:runId/answer",
-      auth: "token",
-      handle: (request, params) => answerRunRoute(request, params["runId"] ?? "", runEffect),
-    },
+  // Health is unauthenticated on purpose: a supervisor should be able to see that the
+  // process is alive without holding a credential that can drive an agent. It is registered
+  // before the token middleware and answers without calling `next`, so the middleware below
+  // never runs for it.
+  app.get("/health", () => json({ ok: true }));
 
-    { method: "GET", path: "/agents", auth: "token", handle: () => runEffect(listAgents()) },
-    {
-      method: "POST",
-      path: "/agents",
-      auth: "token",
-      handle: async (request) => {
-        const body = await agentWriteBody(request);
-        return body instanceof Response ? body : runEffect(createAgent(body));
-      },
-    },
-    {
-      method: "GET",
-      path: "/agents/:identifier",
-      auth: "token",
-      handle: (_request, params) => runEffect(showAgent(params["identifier"] ?? "")),
-    },
-    {
-      method: "PATCH",
-      path: "/agents/:identifier",
-      auth: "token",
-      handle: async (request, params) => {
-        const body = await agentWriteBody(request);
-        return body instanceof Response
-          ? body
-          : runEffect(updateAgent(params["identifier"] ?? "", body));
-      },
-    },
-    {
-      method: "DELETE",
-      path: "/agents/:identifier",
-      auth: "token",
-      handle: (_request, params) => runEffect(deleteAgent(params["identifier"] ?? "")),
-    },
+  // Everything past this point is behind the token, *including a path that matches nothing*:
+  // the wildcard is reached before Hono's 404, so an unauthenticated caller cannot map the
+  // door by telling 404s from 401s.
+  app.use("*", async (context, next) => {
+    if (!authorized(context.req.raw, options.token)) {
+      return json({ ok: false, error: "unauthorized" }, 401);
+    }
+    await next();
+    return undefined;
+  });
 
-    // The catalogues behind an agent editor's menus. Served from the daemon rather than
-    // retyped by each client, so a picker cannot offer a value the agent service rejects.
-    {
-      method: "GET",
-      path: "/catalog",
-      auth: "token",
-      handle: () => Promise.resolve(listCatalog()),
-    },
-    {
-      method: "GET",
-      path: "/models",
-      auth: "token",
-      handle: (request) => modelsRoute(request, runEffect),
-    },
-    { method: "GET", path: "/personas", auth: "token", handle: () => runEffect(listPersonas()) },
-    { method: "GET", path: "/tools", auth: "token", handle: () => runEffect(listTools()) },
-  ] satisfies readonly Route[];
+  app.post("/runs", (context) => startRunRoute(context.req.raw, runEffect));
+  app.get("/runs", () => runEffect(listRuns()));
+  app.get("/runs/:runId", (context) => runEffect(describeRun(context.req.param("runId"))));
+  app.post("/runs/:runId/answer", (context) =>
+    answerRunRoute(context.req.raw, context.req.param("runId"), runEffect),
+  );
 
-  return dispatch(routes.map(compileRoute), options);
+  app.get("/agents", () => runEffect(listAgents()));
+  app.post("/agents", async (context) => {
+    const body = await agentWriteBody(context.req.raw);
+    return body instanceof Response ? body : runEffect(createAgent(body));
+  });
+  app.get("/agents/:identifier", (context) =>
+    runEffect(showAgent(context.req.param("identifier"))),
+  );
+  app.patch("/agents/:identifier", async (context) => {
+    const body = await agentWriteBody(context.req.raw);
+    return body instanceof Response
+      ? body
+      : runEffect(updateAgent(context.req.param("identifier"), body));
+  });
+  app.delete("/agents/:identifier", (context) =>
+    runEffect(deleteAgent(context.req.param("identifier"))),
+  );
+
+  // The catalogues behind an agent editor's menus. Served from the daemon rather than
+  // retyped by each client, so a picker cannot offer a value the agent service rejects.
+  app.get("/catalog", () => listCatalog());
+  app.get("/models", (context) => modelsRoute(context.req.raw, runEffect));
+  app.get("/personas", () => runEffect(listPersonas()));
+  app.get("/tools", () => runEffect(listTools()));
+
+  return (request) => Promise.resolve(app.fetch(request));
 }
 
 async function startRunRoute(
@@ -459,28 +357,19 @@ export function makePeerHandler(
   resolveToken: (peerName: string) => Promise<string | undefined>,
   runEffect: <A>(effect: Effect.Effect<A, unknown, DaemonRequirements>) => Promise<A>,
 ): (request: Request) => Promise<Response> {
-  return async function handlePeer(request: Request): Promise<Response> {
-    const url = new URL(request.url);
-    if (request.method !== "POST" || url.pathname !== "/peer/ask") {
-      return json({ ok: false, error: "not found" }, 404);
-    }
+  const app = door();
+
+  app.post("/peer/ask", async (context) => {
     if (options.peerAgent === undefined) {
       return json({ ok: false, error: "not accepting peer questions" }, 404);
     }
 
-    const presented = (request.headers.get("authorization") ?? "").replace(/^Bearer /, "");
-    if (presented.length === 0) {
-      return json({ ok: false, error: "unauthorized" }, 401);
-    }
-
-    const caller = await resolveCallerPeer(resolvePeers, resolveToken, presented);
-    if (caller === undefined) {
-      return json({ ok: false, error: "unauthorized" }, 401);
-    }
+    const caller = await callerPeerOrRefusal(context.req.raw, resolvePeers, resolveToken);
+    if (caller instanceof Response) return caller;
 
     let body: { question?: unknown };
     try {
-      body = (await request.json()) as { question?: unknown };
+      body = (await context.req.raw.json()) as { question?: unknown };
     } catch {
       return json({ ok: false, error: "body must be JSON" }, 400);
     }
@@ -490,7 +379,28 @@ export function makePeerHandler(
     }
 
     return runEffect(answerPeer(caller, options.peerAgent, question));
-  };
+  });
+
+  return (request) => Promise.resolve(app.fetch(request));
+}
+
+/**
+ * Which peer is calling, or the refusal to send back.
+ *
+ * Shared by `/peer/ask` and `/a2a` because they are one authorization rule wearing two wire
+ * formats, and two copies of it is two places for it to drift.
+ */
+async function callerPeerOrRefusal(
+  request: Request,
+  resolvePeers: () => Promise<readonly PeerConfig[]>,
+  resolveToken: (peerName: string) => Promise<string | undefined>,
+): Promise<PeerConfig | Response> {
+  const presented = (request.headers.get("authorization") ?? "").replace(/^Bearer /, "");
+  if (presented.length === 0) {
+    return json({ ok: false, error: "unauthorized" }, 401);
+  }
+  const caller = await resolveCallerPeer(resolvePeers, resolveToken, presented);
+  return caller ?? json({ ok: false, error: "unauthorized" }, 401);
 }
 
 /** Where a caller announces which A2A protocol version it is speaking. */
@@ -531,35 +441,28 @@ export function makeA2AHandler(
   resolveToken: (peerName: string) => Promise<string | undefined>,
   runEffect: <A>(effect: Effect.Effect<A, unknown, DaemonRequirements>) => Promise<A>,
 ): (request: Request) => Promise<Response> {
-  return async function handleA2A(request: Request): Promise<Response> {
-    const url = new URL(request.url);
+  const app = door();
 
-    if (request.method === "GET" && url.pathname === "/.well-known/agent-card.json") {
-      if (options.peerAgent === undefined) {
-        return json({ ok: false, error: "not accepting peer questions" }, 404);
-      }
-      return json(buildPublicAgentCard(options.peerAgent, a2aEndpointUrl(request)));
+  // The card is deliberately unauthenticated — it is the capability advertisement a stranger
+  // reads before they have any credential — so it sits above nothing and needs no token.
+  app.get("/.well-known/agent-card.json", (context) => {
+    if (options.peerAgent === undefined) {
+      return json({ ok: false, error: "not accepting peer questions" }, 404);
     }
+    return json(buildPublicAgentCard(options.peerAgent, a2aEndpointUrl(context.req.raw)));
+  });
 
-    if (request.method !== "POST" || url.pathname !== "/a2a") {
-      return json({ ok: false, error: "not found" }, 404);
-    }
+  app.post("/a2a", async (context) => {
     if (options.peerAgent === undefined) {
       return json({ ok: false, error: "not accepting peer questions" }, 404);
     }
 
-    const presented = (request.headers.get("authorization") ?? "").replace(/^Bearer /, "");
-    if (presented.length === 0) {
-      return json({ ok: false, error: "unauthorized" }, 401);
-    }
-    const caller = await resolveCallerPeer(resolvePeers, resolveToken, presented);
-    if (caller === undefined) {
-      return json({ ok: false, error: "unauthorized" }, 401);
-    }
+    const caller = await callerPeerOrRefusal(context.req.raw, resolvePeers, resolveToken);
+    if (caller instanceof Response) return caller;
 
     let body: unknown;
     try {
-      body = await request.json();
+      body = await context.req.raw.json();
     } catch {
       return json({ ok: false, error: "body must be JSON" }, 400);
     }
@@ -568,12 +471,14 @@ export function makeA2AHandler(
       answerA2A(
         caller,
         options.peerAgent,
-        a2aEndpointUrl(request),
-        normalizeProtocolVersion(request.headers.get(A2A_VERSION_HEADER)),
+        a2aEndpointUrl(context.req.raw),
+        normalizeProtocolVersion(context.req.raw.headers.get(A2A_VERSION_HEADER)),
         body,
       ),
     );
-  };
+  });
+
+  return (request) => Promise.resolve(app.fetch(request));
 }
 
 /**
@@ -594,51 +499,56 @@ export function makePeerInviteHandler(
   keyring?: KeyringDependency,
   peerAgent?: string,
 ): (request: Request) => Promise<Response> {
-  return async function handleInvite(request: Request): Promise<Response> {
-    const url = new URL(request.url);
+  const app = door();
+
+  // The whole door is shut when no peer agent is configured, checked before any route runs:
+  // serving strangers stays opt-in rather than depending on which path one of them guessed.
+  app.use("*", async (_context, next) => {
     if (peerAgent === undefined) {
       return json({ ok: false, error: "not accepting peer invitations" }, 404);
     }
+    await next();
+    return undefined;
+  });
 
-    const previewMatch = /^\/peer-invites\/([^/]+)$/.exec(url.pathname);
-    if (request.method === "GET" && previewMatch?.[1] !== undefined) {
-      const invite = await runEffect(getInvite(previewMatch[1]));
-      if (invite === undefined) {
-        return json({ ok: false, error: "no such invite" }, 404);
-      }
-      // Enough to render a confirmation prompt, not enough to be useful without the secret:
-      // no secret, no hash, and the redeemer's chosen name (if already used) is not exposed.
-      return json({
-        ok: true,
-        inviterDisplayName: invite.inviterDisplayName,
-        inviterAskUrl: invite.inviterAskUrl,
-        proposedTier: invite.proposedTier,
-        expiresAt: invite.expiresAt,
-        status: inviteStatus(invite, new Date()),
-      });
+  app.get("/peer-invites/:id", async (context) => {
+    const invite = await runEffect(getInvite(context.req.param("id")));
+    if (invite === undefined) {
+      return json({ ok: false, error: "no such invite" }, 404);
+    }
+    // Enough to render a confirmation prompt, not enough to be useful without the secret:
+    // no secret, no hash, and the redeemer's chosen name (if already used) is not exposed.
+    return json({
+      ok: true,
+      inviterDisplayName: invite.inviterDisplayName,
+      inviterAskUrl: invite.inviterAskUrl,
+      proposedTier: invite.proposedTier,
+      expiresAt: invite.expiresAt,
+      status: inviteStatus(invite, new Date()),
+    });
+  });
+
+  app.post("/peer-invites/:id/accept", async (context) => {
+    // Capped before parsing, because this is the one route that answers before knowing who
+    // is calling.
+    const raw = await readBody(context.req.raw, MAX_ANONYMOUS_PAYLOAD_LENGTH);
+    if (raw instanceof Response) return raw;
+    let body: { secret?: unknown; as?: unknown };
+    try {
+      body = JSON.parse(raw) as { secret?: unknown; as?: unknown };
+    } catch {
+      return json({ ok: false, error: "body must be JSON" }, 400);
+    }
+    const secret = typeof body.secret === "string" ? body.secret : "";
+    const as = typeof body.as === "string" ? body.as.trim() : "";
+    if (secret.length === 0 || as.length === 0) {
+      return json({ ok: false, error: "secret and as are required" }, 400);
     }
 
-    const acceptMatch = /^\/peer-invites\/([^/]+)\/accept$/.exec(url.pathname);
-    if (request.method === "POST" && acceptMatch?.[1] !== undefined) {
-      const raw = await readBody(request, MAX_ANONYMOUS_PAYLOAD_LENGTH);
-      if (raw instanceof Response) return raw;
-      let body: { secret?: unknown; as?: unknown };
-      try {
-        body = JSON.parse(raw) as { secret?: unknown; as?: unknown };
-      } catch {
-        return json({ ok: false, error: "body must be JSON" }, 400);
-      }
-      const secret = typeof body.secret === "string" ? body.secret : "";
-      const as = typeof body.as === "string" ? body.as.trim() : "";
-      if (secret.length === 0 || as.length === 0) {
-        return json({ ok: false, error: "secret and as are required" }, 400);
-      }
+    return runEffect(acceptInvite(context.req.param("id"), secret, as, keyring));
+  });
 
-      return runEffect(acceptInvite(acceptMatch[1], secret, as, keyring));
-    }
-
-    return json({ ok: false, error: "not found" }, 404);
-  };
+  return (request) => Promise.resolve(app.fetch(request));
 }
 
 function acceptInvite(
@@ -795,25 +705,20 @@ export function makeWebhookHandler(
   resolveToken: (webhookName: string) => Promise<string | undefined>,
   runEffect: <A>(effect: Effect.Effect<A, unknown, DaemonRequirements>) => Promise<A>,
 ): (request: Request) => Promise<Response> {
-  return async function handleWebhook(request: Request): Promise<Response> {
-    const url = new URL(request.url);
-    const match = /^\/webhooks\/([^/]+)$/.exec(url.pathname);
-    const rawName = match?.[1];
-    if (request.method !== "POST" || rawName === undefined) {
-      return json({ ok: false, error: "not found" }, 404);
-    }
-    let webhookName: string;
-    try {
-      webhookName = decodeURIComponent(rawName);
-    } catch {
-      return json({ ok: false, error: "not found" }, 404);
-    }
+  const app = door();
+
+  app.post("/webhooks/:name", async (context) => {
+    const request = context.req.raw;
+    const webhookName = context.req.param("name");
 
     const webhook = (await readWebhooks()).find((candidate) => candidate.name === webhookName);
     if (webhook === undefined) {
       return json({ ok: false, error: "not found" }, 404);
     }
 
+    // Per-webhook rather than one daemon token: each door carries its own credential, and
+    // both the list and the token are read per request so a webhook added a minute ago works
+    // without bouncing the daemon.
     const presented = (request.headers.get("authorization") ?? "").replace(/^Bearer /, "");
     const expected = await resolveToken(webhook.name);
     if (
@@ -875,7 +780,9 @@ export function makeWebhookHandler(
         wanted.kinds,
       ),
     );
-  };
+  });
+
+  return (request) => Promise.resolve(app.fetch(request));
 }
 
 /**
