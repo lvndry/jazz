@@ -24,13 +24,21 @@ import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
 import { isRunParkRequested } from "@jazz/core/agent/run/park-signal";
 import { resumeRun, type ResumeRunOptions } from "@jazz/core/agent/run/resume";
 import type { PendingInput } from "@jazz/core/agent/run/run-state";
+import { AVAILABLE_PROVIDERS, isProviderName } from "@jazz/core/constants/models";
+import type { ProviderName } from "@jazz/core/constants/models";
+import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import type { AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import { AgentServiceTag } from "@jazz/core/interfaces/agent-service";
 import type { AgentService } from "@jazz/core/interfaces/agent-service";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
+import { PersonaServiceTag } from "@jazz/core/interfaces/persona-service";
+import type { PersonaService } from "@jazz/core/interfaces/persona-service";
 import { RunStoreTag } from "@jazz/core/interfaces/run-store";
+import { ToolRegistryTag } from "@jazz/core/interfaces/tool-registry";
 import type { ToolRegistry, ToolRequirements } from "@jazz/core/interfaces/tool-registry";
+import { REASONING_EFFORTS } from "@jazz/core/types/agent";
 import type { Agent, AgentConfig } from "@jazz/core/types/agent";
+import { WEB_SEARCH_PROVIDERS } from "@jazz/core/types/config";
 import {
   AgentAlreadyExistsError,
   AgentConfigurationError,
@@ -38,6 +46,7 @@ import {
   StorageNotFoundError,
   ValidationError,
 } from "@jazz/core/types/errors";
+import type { ModelInfo } from "@jazz/core/types/llm";
 import type { PeerConfig } from "@jazz/core/types/peer";
 import { inviteStatus } from "@jazz/core/types/peer-invite";
 import type { ToolProgressEvent } from "@jazz/core/types/tools";
@@ -54,6 +63,7 @@ import {
 } from "@jazz/core/types/webhook";
 import { generateConversationId } from "@jazz/core/utils/conversation-id";
 import { Effect } from "effect";
+import { listModelsForProvider } from "@/adapters/llm/model-fetcher";
 import { buildPublicAgentCard, handleA2ARpc, normalizeProtocolVersion } from "@/adapters/peers/a2a";
 import {
   acceptInviteOnInviterSide,
@@ -61,6 +71,7 @@ import {
   type KeyringDependency,
 } from "@/adapters/peers/invites";
 import { servePeerRequest } from "@/adapters/peers/serve";
+import { LLM_PROVIDER_ENV_VARS } from "@/adapters/secrets/registry";
 import {
   loadConversation,
   saveConversation,
@@ -78,6 +89,7 @@ export const DEFAULT_DAEMON_PORT = 4747;
 export type DaemonRequirements =
   | AgentService
   | AgentConfigService
+  | PersonaService
   | RunStoreTag
   | ToolRegistry
   | ToolRequirements
@@ -166,6 +178,100 @@ interface StartRunBody {
   readonly conversationId?: unknown;
 }
 
+/** Path segments captured by a route's `:name` placeholders, already percent-decoded. */
+type RouteParams = Readonly<Record<string, string>>;
+
+/**
+ * One route on a door.
+ *
+ * `auth` is stated per route rather than implied by where the route sits, which is the point
+ * of the table: with an if-chain, whether a route was public depended on whether it appeared
+ * above or below the token check, and adding one in the wrong place published it silently.
+ */
+interface Route {
+  readonly method: string;
+  /** Pattern with `:name` standing for one path segment, e.g. `/agents/:identifier`. */
+  readonly path: string;
+  readonly auth: "token" | "public";
+  readonly handle: (request: Request, params: RouteParams) => Promise<Response>;
+}
+
+interface CompiledRoute extends Route {
+  readonly pattern: RegExp;
+  readonly names: readonly string[];
+}
+
+function compileRoute(route: Route): CompiledRoute {
+  const names: string[] = [];
+  // Literal segments are escaped before the placeholders are substituted, so a path
+  // containing a regex metacharacter matches itself rather than being read as a pattern.
+  // `:` is not a metacharacter, so the placeholders survive escaping intact.
+  const source = route.path
+    .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    .replace(/:([A-Za-z][A-Za-z0-9]*)/g, (_match, name: string) => {
+      names.push(name);
+      return "([^/]+)";
+    });
+  return { ...route, pattern: new RegExp(`^${source}$`), names };
+}
+
+/**
+ * The route a request addresses, or undefined when nothing matches.
+ *
+ * A path that matches but on the wrong method counts as no match, so an unknown method
+ * answers the same way an unknown path does rather than leaking that the path exists.
+ * An undecodable escape in a captured segment is also no match: it cannot name anything.
+ */
+function matchRoute(
+  routes: readonly CompiledRoute[],
+  method: string,
+  pathname: string,
+): { readonly route: CompiledRoute; readonly params: RouteParams } | undefined {
+  for (const route of routes) {
+    if (route.method !== method) continue;
+    const found = route.pattern.exec(pathname);
+    if (found === null) continue;
+
+    const params: Record<string, string> = {};
+    try {
+      for (const [index, name] of route.names.entries()) {
+        params[name] = decodeURIComponent(found[index + 1] ?? "");
+      }
+    } catch {
+      return undefined;
+    }
+    return { route, params };
+  }
+  return undefined;
+}
+
+/**
+ * Turn a route table into a handler.
+ *
+ * The order of the three checks is deliberate. A public route answers before the token is
+ * looked at; everything else — *including a path that matches nothing* — sits behind it, so
+ * an unauthenticated caller cannot map the door by telling 404s from 401s.
+ */
+function dispatch(
+  routes: readonly CompiledRoute[],
+  options: DaemonOptions,
+): (request: Request) => Promise<Response> {
+  return async function handle(request: Request): Promise<Response> {
+    const matched = matchRoute(routes, request.method, new URL(request.url).pathname);
+
+    if (matched?.route.auth === "public") {
+      return matched.route.handle(request, matched.params);
+    }
+    if (!authorized(request, options.token)) {
+      return json({ ok: false, error: "unauthorized" }, 401);
+    }
+    if (matched === undefined) {
+      return json({ ok: false, error: "not found" }, 404);
+    }
+    return matched.route.handle(request, matched.params);
+  };
+}
+
 /**
  * The daemon's request handler, as a plain function of a request.
  *
@@ -176,109 +282,143 @@ export function makeHandler(
   options: DaemonOptions,
   runEffect: <A>(effect: Effect.Effect<A, unknown, DaemonRequirements>) => Promise<A>,
 ): (request: Request) => Promise<Response> {
-  return async function handle(request: Request): Promise<Response> {
-    const url = new URL(request.url);
+  /** A write body, read and screened, or the response that says why it was not. */
+  const agentWriteBody = async (request: Request): Promise<AgentWriteBody | Response> => {
+    const body = await readJsonBody(request);
+    if (body instanceof Response) return body;
+    const problem = configBodyProblem(body.config);
+    return problem === undefined ? body : json({ ok: false, error: problem }, 400);
+  };
 
+  const routes = [
     // Health is unauthenticated on purpose: a supervisor should be able to see that the
     // process is alive without holding a credential that can drive an agent.
-    if (request.method === "GET" && url.pathname === "/health") {
-      return json({ ok: true });
-    }
+    {
+      method: "GET",
+      path: "/health",
+      auth: "public",
+      handle: () => Promise.resolve(json({ ok: true })),
+    },
 
-    if (!authorized(request, options.token)) {
-      return json({ ok: false, error: "unauthorized" }, 401);
-    }
+    {
+      method: "POST",
+      path: "/runs",
+      auth: "token",
+      handle: (request) => startRunRoute(request, runEffect),
+    },
+    { method: "GET", path: "/runs", auth: "token", handle: () => runEffect(listRuns()) },
+    {
+      method: "GET",
+      path: "/runs/:runId",
+      auth: "token",
+      handle: (_request, params) => runEffect(describeRun(params["runId"] ?? "")),
+    },
+    {
+      method: "POST",
+      path: "/runs/:runId/answer",
+      auth: "token",
+      handle: (request, params) => answerRunRoute(request, params["runId"] ?? "", runEffect),
+    },
 
-    if (request.method === "POST" && url.pathname === "/runs") {
-      let body: StartRunBody;
-      try {
-        body = (await request.json()) as StartRunBody;
-      } catch {
-        return json({ ok: false, error: "body must be JSON" }, 400);
-      }
-      const agentIdentifier = typeof body.agent === "string" ? body.agent : undefined;
-      const prompt = typeof body.prompt === "string" ? body.prompt : undefined;
-      if (agentIdentifier === undefined || prompt === undefined) {
-        return json({ ok: false, error: "agent and prompt are required" }, 400);
-      }
-      const conversationId =
-        typeof body.conversationId === "string" && body.conversationId.length > 0
-          ? body.conversationId
-          : generateConversationId("daemon");
+    { method: "GET", path: "/agents", auth: "token", handle: () => runEffect(listAgents()) },
+    {
+      method: "POST",
+      path: "/agents",
+      auth: "token",
+      handle: async (request) => {
+        const body = await agentWriteBody(request);
+        return body instanceof Response ? body : runEffect(createAgent(body));
+      },
+    },
+    {
+      method: "GET",
+      path: "/agents/:identifier",
+      auth: "token",
+      handle: (_request, params) => runEffect(showAgent(params["identifier"] ?? "")),
+    },
+    {
+      method: "PATCH",
+      path: "/agents/:identifier",
+      auth: "token",
+      handle: async (request, params) => {
+        const body = await agentWriteBody(request);
+        return body instanceof Response
+          ? body
+          : runEffect(updateAgent(params["identifier"] ?? "", body));
+      },
+    },
+    {
+      method: "DELETE",
+      path: "/agents/:identifier",
+      auth: "token",
+      handle: (_request, params) => runEffect(deleteAgent(params["identifier"] ?? "")),
+    },
 
-      return runEffect(startRun(agentIdentifier, prompt, conversationId));
-    }
+    // The catalogues behind an agent editor's menus. Served from the daemon rather than
+    // retyped by each client, so a picker cannot offer a value the agent service rejects.
+    {
+      method: "GET",
+      path: "/catalog",
+      auth: "token",
+      handle: () => Promise.resolve(listCatalog()),
+    },
+    {
+      method: "GET",
+      path: "/models",
+      auth: "token",
+      handle: (request) => modelsRoute(request, runEffect),
+    },
+    { method: "GET", path: "/personas", auth: "token", handle: () => runEffect(listPersonas()) },
+    { method: "GET", path: "/tools", auth: "token", handle: () => runEffect(listTools()) },
+  ] satisfies readonly Route[];
 
-    const runMatch = /^\/runs\/([^/]+)$/.exec(url.pathname);
-    if (request.method === "GET" && runMatch?.[1] !== undefined) {
-      return runEffect(describeRun(runMatch[1]));
-    }
+  return dispatch(routes.map(compileRoute), options);
+}
 
-    const answerMatch = /^\/runs\/([^/]+)\/answer$/.exec(url.pathname);
-    if (request.method === "POST" && answerMatch?.[1] !== undefined) {
-      let body: { approved?: unknown; note?: unknown; response?: unknown; filePath?: unknown };
-      try {
-        body = (await request.json()) as {
-          approved?: unknown;
-          note?: unknown;
-          response?: unknown;
-          filePath?: unknown;
-        };
-      } catch {
-        return json({ ok: false, error: "body must be JSON" }, 400);
-      }
-      const approved = body.approved === true;
-      const note = typeof body.note === "string" ? body.note : undefined;
-      const response = typeof body.response === "string" ? body.response.trim() : undefined;
-      const filePath = typeof body.filePath === "string" ? body.filePath.trim() : undefined;
-      return runEffect(answerRun(answerMatch[1], approved, note, response, filePath));
-    }
+async function startRunRoute(
+  request: Request,
+  runEffect: <A>(effect: Effect.Effect<A, unknown, DaemonRequirements>) => Promise<A>,
+): Promise<Response> {
+  let body: StartRunBody;
+  try {
+    body = (await request.json()) as StartRunBody;
+  } catch {
+    return json({ ok: false, error: "body must be JSON" }, 400);
+  }
+  const agentIdentifier = typeof body.agent === "string" ? body.agent : undefined;
+  const prompt = typeof body.prompt === "string" ? body.prompt : undefined;
+  if (agentIdentifier === undefined || prompt === undefined) {
+    return json({ ok: false, error: "agent and prompt are required" }, 400);
+  }
+  const conversationId =
+    typeof body.conversationId === "string" && body.conversationId.length > 0
+      ? body.conversationId
+      : generateConversationId("daemon");
 
-    if (request.method === "GET" && url.pathname === "/runs") {
-      return runEffect(listRuns());
-    }
+  return runEffect(startRun(agentIdentifier, prompt, conversationId));
+}
 
-    if (request.method === "GET" && url.pathname === "/agents") {
-      return runEffect(listAgents());
-    }
-
-    if (request.method === "POST" && url.pathname === "/agents") {
-      const body = await readJsonBody(request);
-      if (body instanceof Response) return body;
-      const problem = configBodyProblem(body.config);
-      if (problem !== undefined) return json({ ok: false, error: problem }, 400);
-      return runEffect(createAgent(body));
-    }
-
-    const agentMatch = /^\/agents\/([^/]+)$/.exec(url.pathname);
-    const agentIdentifier = agentMatch?.[1];
-    if (agentIdentifier !== undefined) {
-      let identifier: string;
-      try {
-        identifier = decodeURIComponent(agentIdentifier);
-      } catch {
-        return json({ ok: false, error: "not found" }, 404);
-      }
-
-      if (request.method === "GET") {
-        return runEffect(showAgent(identifier));
-      }
-
-      if (request.method === "PATCH") {
-        const body = await readJsonBody(request);
-        if (body instanceof Response) return body;
-        const problem = configBodyProblem(body.config);
-        if (problem !== undefined) return json({ ok: false, error: problem }, 400);
-        return runEffect(updateAgent(identifier, body));
-      }
-
-      if (request.method === "DELETE") {
-        return runEffect(deleteAgent(identifier));
-      }
-    }
-
-    return json({ ok: false, error: "not found" }, 404);
-  };
+async function answerRunRoute(
+  request: Request,
+  runId: string,
+  runEffect: <A>(effect: Effect.Effect<A, unknown, DaemonRequirements>) => Promise<A>,
+): Promise<Response> {
+  let body: { approved?: unknown; note?: unknown; response?: unknown; filePath?: unknown };
+  try {
+    body = (await request.json()) as {
+      approved?: unknown;
+      note?: unknown;
+      response?: unknown;
+      filePath?: unknown;
+    };
+  } catch {
+    return json({ ok: false, error: "body must be JSON" }, 400);
+  }
+  const approved = body.approved === true;
+  const note = typeof body.note === "string" ? body.note : undefined;
+  const response = typeof body.response === "string" ? body.response.trim() : undefined;
+  const filePath = typeof body.filePath === "string" ? body.filePath.trim() : undefined;
+  return runEffect(answerRun(runId, approved, note, response, filePath));
 }
 
 /**
@@ -1145,6 +1285,157 @@ function configBodyProblem(config: unknown): string | undefined {
     return "config.llmApiKeys cannot be set over HTTP — use `jazz agent edit` so the key goes to the keyring";
   }
   return undefined;
+}
+
+/**
+ * The fixed vocabularies an agent editor's menus are built from.
+ *
+ * One route because none of them can fail: these are the very arrays
+ * `validateAgentConfig` checks against, so a menu built from this response cannot offer a
+ * value the agent service would reject. The catalogues that do I/O get their own routes, so
+ * a persona directory that will not read cannot take the whole form down with it.
+ */
+function listCatalog(): Response {
+  return json({
+    ok: true,
+    providers: AVAILABLE_PROVIDERS,
+    webSearchProviders: WEB_SEARCH_PROVIDERS,
+    reasoningEfforts: REASONING_EFFORTS,
+  });
+}
+
+/**
+ * How long to wait for a provider's model list.
+ *
+ * Listing models is a live fetch — the models.dev catalogue or the provider's own endpoint —
+ * so it is the one catalogue route that can hang. A caller waiting on a form field needs an
+ * answer or a refusal quickly; ten seconds is long enough for a cold catalogue fetch and
+ * short enough that the field can fall back to a free-text input instead of spinning.
+ */
+const MODEL_LISTING_TIMEOUT = "10 seconds";
+
+/** What a model picker needs: how to name it, and which fields it makes meaningful. */
+function projectModel(model: ModelInfo) {
+  return {
+    id: model.id,
+    ...(model.displayName !== undefined ? { displayName: model.displayName } : {}),
+    supportsTools: model.supportsTools,
+    // Both gate a form field rather than describing the model for its own sake: a
+    // temperature input on a model that ignores temperature, or a reasoning-effort menu on a
+    // model with no reasoning, is a control that silently does nothing.
+    supportsTemperature: model.supportsTemperature !== false,
+    isReasoningModel: model.isReasoningModel === true,
+    ...(model.inputPricePerMillion !== undefined
+      ? { inputPricePerMillion: model.inputPricePerMillion }
+      : {}),
+    ...(model.outputPricePerMillion !== undefined
+      ? { outputPricePerMillion: model.outputPricePerMillion }
+      : {}),
+  };
+}
+
+function listModels(provider: ProviderName) {
+  return Effect.gen(function* () {
+    const configService = yield* AgentConfigServiceTag;
+    const appConfig = yield* configService.appConfig;
+    const llmConfig = appConfig.llm;
+
+    // Same precedence the LLM service itself uses: global config before environment. A
+    // key in the OS keyring is not consulted, because listing models is not worth
+    // unlocking a keyring for — providers that need a key and have none simply list none.
+    const apiKey =
+      llmConfig?.[provider]?.api_key ?? process.env[LLM_PROVIDER_ENV_VARS[provider] ?? ""];
+
+    const models = yield* listModelsForProvider(provider, { apiKey, llmConfig });
+    return json({ ok: true, provider, models: models.map(projectModel) });
+  }).pipe(
+    Effect.timeout(MODEL_LISTING_TIMEOUT),
+    Effect.catchAll((error) =>
+      Effect.succeed(
+        json(
+          {
+            ok: false,
+            error: `Could not list models for ${provider}: ${error instanceof Error ? error.message : String(error)}`,
+            suggestion: "Name the model directly — the catalogue is unavailable, not the model.",
+          },
+          502,
+        ),
+      ),
+    ),
+  );
+}
+
+function modelsRoute(
+  request: Request,
+  runEffect: <A>(effect: Effect.Effect<A, unknown, DaemonRequirements>) => Promise<A>,
+): Promise<Response> {
+  const provider = new URL(request.url).searchParams.get("provider") ?? "";
+  if (!isProviderName(provider)) {
+    return Promise.resolve(
+      json(
+        {
+          ok: false,
+          error: `Unknown provider ${JSON.stringify(provider)}`,
+          field: "provider",
+          suggestion: `Use one of: ${AVAILABLE_PROVIDERS.join(", ")}.`,
+        },
+        400,
+      ),
+    );
+  }
+  return runEffect(listModels(provider));
+}
+
+/**
+ * The personas an agent can be given, built-in and custom alike.
+ *
+ * `systemPrompt` is left out: it is the bulk of a persona and a picker only needs to say
+ * which one this is. Whoever wants the prompt itself is editing the persona, not choosing it.
+ */
+function listPersonas() {
+  return Effect.gen(function* () {
+    const personaService = yield* PersonaServiceTag;
+    const personas = yield* personaService.listPersonas();
+    return json({
+      ok: true,
+      personas: personas.map((persona) => ({
+        id: persona.id,
+        name: persona.name,
+        description: persona.description,
+        ...(persona.tone !== undefined ? { tone: persona.tone } : {}),
+        ...(persona.style !== undefined ? { style: persona.style } : {}),
+      })),
+    });
+  }).pipe(
+    Effect.catchAll((error) =>
+      Effect.succeed(
+        json(
+          {
+            ok: false,
+            error: `Could not list personas: ${error instanceof Error ? error.message : String(error)}`,
+          },
+          500,
+        ),
+      ),
+    ),
+  );
+}
+
+/**
+ * The tools an agent's config may name.
+ *
+ * Hidden tools are excluded — `listTools` rather than `listAllTools` — because this answers
+ * "what can somebody pick", and a hidden tool is one that stays callable without being
+ * offered. Categories come along so a picker can group rather than show one flat list of
+ * everything the daemon can do.
+ */
+function listTools() {
+  return Effect.gen(function* () {
+    const registry = yield* ToolRegistryTag;
+    const tools = yield* registry.listTools();
+    const categories = yield* registry.listToolsByCategory();
+    return json({ ok: true, tools, categories });
+  });
 }
 
 /**

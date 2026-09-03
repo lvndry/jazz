@@ -1,10 +1,17 @@
 import path from "node:path";
 import { createRunRecord } from "@jazz/core/agent/run/run-record";
+import { AVAILABLE_PROVIDERS } from "@jazz/core/constants/models";
 import { AgentServiceTag } from "@jazz/core/interfaces/agent-service";
 import type { AgentService } from "@jazz/core/interfaces/agent-service";
+import { PersonaServiceTag } from "@jazz/core/interfaces/persona-service";
+import type { PersonaService } from "@jazz/core/interfaces/persona-service";
 import { RunStoreTag } from "@jazz/core/interfaces/run-store";
 import type { StorageService } from "@jazz/core/interfaces/storage";
+import { ToolRegistryTag } from "@jazz/core/interfaces/tool-registry";
+import type { ToolRegistry } from "@jazz/core/interfaces/tool-registry";
+import { REASONING_EFFORTS } from "@jazz/core/types/agent";
 import type { Agent } from "@jazz/core/types/agent";
+import { WEB_SEARCH_PROVIDERS } from "@jazz/core/types/config";
 import { StorageNotFoundError } from "@jazz/core/types/errors";
 import { isLoopbackProgressUrl, parseProgressEvents } from "@jazz/core/types/webhook";
 import type { WebhookConfig } from "@jazz/core/types/webhook";
@@ -934,5 +941,155 @@ describe("deleting an agent over HTTP", () => {
     const handle = makeHandler(LOOPBACK, run);
 
     expect((await handle(request("DELETE", "/agents/ghost"))).status).toBe(404);
+  });
+});
+
+describe("the route table's auth boundary", () => {
+  it("answers a public route without a credential", async () => {
+    const handle = makeHandler({ ...LOOPBACK, token: "s3cret" }, runnerForAgents([]));
+
+    expect((await handle(request("GET", "/health"))).status).toBe(200);
+  });
+
+  it("hides whether an unknown path exists from a caller with no token", async () => {
+    // 401 rather than 404 on purpose: if unmatched paths answered 404 while real ones
+    // answered 401, anyone could map the door without holding the token.
+    const handle = makeHandler({ ...LOOPBACK, token: "s3cret" }, runnerForAgents([]));
+
+    expect((await handle(request("GET", "/nothing-here"))).status).toBe(401);
+  });
+
+  it("hides a real path addressed with the wrong method just the same", async () => {
+    const handle = makeHandler({ ...LOOPBACK, token: "s3cret" }, runnerForAgents([]));
+
+    expect((await handle(request("PUT", "/agents"))).status).toBe(401);
+  });
+
+  it("answers 404 for an unsupported method once the caller is authorized", async () => {
+    const handle = makeHandler(LOOPBACK, runnerForAgents([]));
+
+    expect((await handle(request("PUT", "/agents"))).status).toBe(404);
+  });
+
+  it("treats an undecodable path segment as no match rather than failing", async () => {
+    const handle = makeHandler(LOOPBACK, runnerForAgents([]));
+
+    const response = await handle(request("GET", "/agents/%E0%A4%A"));
+    expect(response.status).toBe(404);
+  });
+
+  it("does not let a path param swallow a segment separator", async () => {
+    // `:identifier` matches one segment, so this is a miss rather than an agent named
+    // "a/b" — otherwise a nested route added later would be shadowed by this one.
+    const handle = makeHandler(LOOPBACK, runnerForAgents([]));
+
+    expect((await handle(request("GET", "/agents/a/b"))).status).toBe(404);
+  });
+});
+
+describe("the menus an agent editor is built from", () => {
+  it("serves the same closed lists the validator enforces", async () => {
+    const handle = makeHandler(LOOPBACK, runnerForAgents([]));
+
+    const response = await handle(request("GET", "/catalog"));
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      providers: string[];
+      webSearchProviders: string[];
+      reasoningEfforts: string[];
+    };
+    // Compared against the arrays themselves, so a provider added to jazz without being
+    // served here — which would make the menu narrower than what is accepted — fails.
+    expect(body.providers).toEqual([...AVAILABLE_PROVIDERS]);
+    expect(body.webSearchProviders).toEqual([...WEB_SEARCH_PROVIDERS]);
+    expect(body.reasoningEfforts).toEqual([...REASONING_EFFORTS]);
+  });
+
+  it("refuses to list models for a provider that is not one", async () => {
+    const handle = makeHandler(LOOPBACK, runnerForAgents([]));
+
+    const response = await handle(request("GET", "/models?provider=gpt"));
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { field: string; suggestion: string };
+    expect(body.field).toBe("provider");
+    expect(body.suggestion).toContain("anthropic");
+  });
+
+  it("refuses a model listing with no provider at all", async () => {
+    const handle = makeHandler(LOOPBACK, runnerForAgents([]));
+
+    expect((await handle(request("GET", "/models"))).status).toBe(400);
+  });
+
+  it("lists the personas an agent can be given, without their prompts", async () => {
+    const personas = [
+      {
+        id: "builtin-default",
+        name: "default",
+        description: "the everyday one",
+        systemPrompt: "a long prompt nobody picking a persona needs",
+        tone: "neutral",
+        createdAt: new Date("2026-09-01T00:00:00Z"),
+        updatedAt: new Date("2026-09-01T00:00:00Z"),
+      },
+    ];
+    const service = { listPersonas: () => Effect.succeed(personas) } as unknown as PersonaService;
+    const handle = makeHandler(LOOPBACK, (effect) =>
+      Effect.runPromise(
+        effect.pipe(Effect.provideService(PersonaServiceTag, service)) as Effect.Effect<
+          unknown,
+          never,
+          never
+        >,
+      ),
+    );
+
+    const response = await handle(request("GET", "/personas"));
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { personas: Record<string, unknown>[] };
+    expect(body.personas[0]).toEqual({
+      id: "builtin-default",
+      name: "default",
+      description: "the everyday one",
+      tone: "neutral",
+    });
+    expect(body.personas[0]).not.toHaveProperty("systemPrompt");
+  });
+
+  it("lists pickable tools with their categories, and leaves hidden ones out", async () => {
+    const registry = {
+      // `listAllTools` is the one that includes hidden tools; using it here would offer a
+      // caller something deliberately not offered, so the route must not reach for it.
+      listTools: () => Effect.succeed(["read_file", "web_search"]),
+      listAllTools: () => Effect.succeed(["read_file", "web_search", "ask_user"]),
+      listToolsByCategory: () => Effect.succeed({ filesystem: ["read_file"], web: ["web_search"] }),
+    } as unknown as ToolRegistry;
+    const handle = makeHandler(LOOPBACK, (effect) =>
+      Effect.runPromise(
+        effect.pipe(Effect.provideService(ToolRegistryTag, registry)) as Effect.Effect<
+          unknown,
+          never,
+          never
+        >,
+      ),
+    );
+
+    const response = await handle(request("GET", "/tools"));
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      tools: string[];
+      categories: Record<string, string[]>;
+    };
+    expect(body.tools).toEqual(["read_file", "web_search"]);
+    expect(body.tools).not.toContain("ask_user");
+    expect(body.categories).toEqual({ filesystem: ["read_file"], web: ["web_search"] });
+  });
+
+  it("keeps the menus behind the daemon token", async () => {
+    const handle = makeHandler({ ...LOOPBACK, token: "s3cret" }, runnerForAgents([]));
+
+    for (const path of ["/catalog", "/models?provider=openai", "/personas", "/tools"]) {
+      expect((await handle(request("GET", path))).status).toBe(401);
+    }
   });
 });
