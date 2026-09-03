@@ -46,6 +46,10 @@ export const AVAILABLE_PROVIDERS = [
 
 export type ProviderName = (typeof AVAILABLE_PROVIDERS)[number];
 
+export function isProviderName(value: string): value is ProviderName {
+  return (AVAILABLE_PROVIDERS as readonly string[]).includes(value);
+}
+
 /**
  * OpenRouter meta-models that route to some other model rather than being one.
  *
