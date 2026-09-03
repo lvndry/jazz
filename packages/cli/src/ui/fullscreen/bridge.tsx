@@ -2129,7 +2129,15 @@ export function FullscreenBridge(): React.ReactNode {
 
   const onAction = useCallback(
     (action: KeyAction) => {
-      if (action.type === "interrupt") interrupt.current?.();
+      if (action.type === "interrupt") {
+        store.printOutput({
+          type: "warn",
+          message: "Interrupting…",
+          timestamp: new Date(),
+        });
+        store.collapseAllEphemeral();
+        interrupt.current?.();
+      }
       if (action.type === "flush-queue") {
         // Enqueue the current draft alongside anything already queued, then ask
         // the chat loop to drain the lot into the running conversation now.
@@ -2139,6 +2147,12 @@ export function FullscreenBridge(): React.ReactNode {
           commitComposer(EMPTY_COMPOSER);
         }
         store.requestFlushQueue();
+        store.printOutput({
+          type: "warn",
+          message: "Interrupting…",
+          timestamp: new Date(),
+        });
+        store.collapseAllEphemeral();
         interrupt.current?.();
         return;
       }
