@@ -28,27 +28,28 @@ import { normalizeToolConfig } from "@/core/agent/utils/tool-config";
 import { PersonaServiceTag } from "@/core/interfaces/persona-service";
 import { ToolRegistryTag, type ToolRegistry } from "@/core/interfaces/tool-registry";
 import type { Agent } from "@/core/types";
+import type { PersonaToolProfile } from "@/core/types/persona";
 import { BUILTIN_TOOL_CATEGORIES } from "./tool-categories";
 
 /**
- * Remove every tool the persona or the agent denies.
+ * Every tool withheld from this agent, from either scope that can withhold one.
  *
- * Shared by the run path and the A2A card because they resolve tool sets separately, and a
- * card advertising a tool the run withholds is worse than no card at all. Subtraction lives
- * here, in one function, so the two cannot drift.
+ * The set, not a filter over it. What the run path and the A2A card have to agree on is
+ * *where denials come from* — a caller that forgets `deniedTools` exists is the failure that
+ * matters, and one that writes `.filter` wrong is not a failure anyone has ever had. Adding
+ * a third source later fixes both callers at once; the subtraction itself stays visible at
+ * each call site rather than hidden behind a name.
  *
- * Applied after everything that *adds* — `config.tools` and the built-in bundle — since both
- * deny lists are meant to be final: nothing downstream should be able to put a denied tool
- * back. The two lists differ only in reach: a persona's applies to every agent sharing it,
- * an agent's to that agent alone.
+ * The two scopes differ only in reach: a persona's `deny` applies to every agent sharing
+ * that persona, an agent's `deniedTools` to that agent alone. Neither is meant to be
+ * undoable, so callers subtract this last — after `config.tools` and the built-in bundle,
+ * both of which only ever add.
  */
-export function withoutDeniedTools(
-  names: readonly string[],
-  personaDeny: readonly string[] | undefined,
-  agentDenied: readonly string[] | undefined,
-): readonly string[] {
-  const denied = new Set([...(personaDeny ?? []), ...(agentDenied ?? [])]);
-  return denied.size === 0 ? names : names.filter((name) => !denied.has(name));
+export function toolDenials(
+  agent: Agent,
+  toolProfile: PersonaToolProfile | undefined,
+): ReadonlySet<string> {
+  return new Set([...(toolProfile?.deny ?? []), ...(agent.config.deniedTools ?? [])]);
 }
 
 export function resolveAgentToolNames(
@@ -84,6 +85,7 @@ export function resolveAgentToolNames(
     )).flat();
 
     const combinedToolNames = [...new Set([...agentToolNames, ...builtInToolNames])];
-    return withoutDeniedTools(combinedToolNames, toolProfile?.deny, agent.config.deniedTools);
+    const denied = toolDenials(agent, toolProfile);
+    return combinedToolNames.filter((name) => !denied.has(name));
   });
 }
