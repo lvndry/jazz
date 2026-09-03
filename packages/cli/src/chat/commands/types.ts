@@ -35,6 +35,7 @@ export type CommandType =
   | "export"
   | "retry"
   | "shell"
+  | "limit"
   | "runSkill"
   | "runMcpPrompt"
   | "unknown";
@@ -73,12 +74,28 @@ export interface CommandResult {
   resendMessage?: string;
   /** Message to send to the agent after a user-side command has completed. */
   messageForAgent?: string;
+  /** New session-wide limits set by /limit (a full replacement, not a patch — an absent field means "no limit"). */
+  newSessionLimits?: SessionLimits;
 }
 
 /** Token usage accumulated for the current conversation (for /cost). */
 export interface SessionUsage {
   promptTokens: number;
   completionTokens: number;
+}
+
+/**
+ * Session-wide caps set by /limit. Checked against this conversation's
+ * accumulated usage (the same numbers /cost and /stats show) before every
+ * turn; an absent field means that metric is uncapped.
+ */
+export interface SessionLimits {
+  /** Max number of turns (user messages sent to the agent) for this conversation. */
+  maxTurns?: number;
+  /** Max cumulative estimated USD spend for this conversation. */
+  maxCostUSD?: number;
+  /** Max cumulative tokens (prompt + completion) for this conversation. */
+  maxTokens?: number;
 }
 
 /**
@@ -90,6 +107,10 @@ export interface CommandContext {
   conversationHistory: ChatMessage[];
   /** Accumulated input/output tokens for this session (reset on /new). */
   sessionUsage: SessionUsage;
+  /** Number of turns sent to the agent this conversation (reset on /new, for /limit). */
+  sessionTurnCount: number;
+  /** Session-wide turn/cost/token caps set by /limit (persists across /new). */
+  sessionLimits: SessionLimits;
   /** Timestamp when the chat session started (for /stats duration). */
   sessionStartedAt: Date;
   /** Current auto-approve policy (for /mode display). */

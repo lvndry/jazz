@@ -55,7 +55,12 @@ import { Effect, Layer } from "effect";
 import { hydrateTranscriptFromHistory } from "@/cli/ui/hydrate-transcript";
 import { store } from "@/cli/ui/store";
 import { handleSpecialCommand, parseSpecialCommand, setSkillCommands } from "./chat/commands";
-import type { CommandContext, CommandResult } from "./chat/commands/types";
+import {
+  confirmSessionLimitOverage,
+  estimateSessionCostUSD,
+  findExceededSessionLimits,
+} from "./chat/commands/session-limits";
+import type { CommandContext, CommandResult, SessionLimits } from "./chat/commands/types";
 import { persistConversationIfNeeded } from "./chat/persist-conversation";
 import {
   initializeSession,
@@ -153,6 +158,8 @@ export class ChatServiceImpl implements ChatService {
       }
       let loggedMessageCount = 0;
       let sessionUsage = { promptTokens: 0, completionTokens: 0 };
+      let sessionTurnCount = 0;
+      let sessionLimits: SessionLimits = {};
       let autoApprovePolicy: AutoApprovePolicy | undefined = undefined;
       let autoApprovedCommands: string[] = [];
       const autoApprovedTools: string[] = [];
@@ -328,6 +335,8 @@ export class ChatServiceImpl implements ChatService {
               conversationId,
               conversationHistory,
               sessionUsage,
+              sessionTurnCount,
+              sessionLimits,
               sessionStartedAt,
               lastUsedAgentId,
               ...(autoApprovePolicy !== undefined ? { autoApprovePolicy } : {}),
@@ -362,6 +371,7 @@ export class ChatServiceImpl implements ChatService {
               conversationTitle = null;
               startedAt = new Date().toISOString();
               sessionUsage = { promptTokens: 0, completionTokens: 0 };
+              sessionTurnCount = 0;
               // Initialize the new conversation
               const fileSystemContext = yield* FileSystemContextServiceTag;
               yield* initializeSession(agent, conversationId).pipe(
@@ -417,6 +427,9 @@ export class ChatServiceImpl implements ChatService {
               // Sync mode state with store for Shift+Tab toggle
               store.setModeIsYolo(autoApprovePolicy === true || autoApprovePolicy === "high-risk");
             }
+            if (commandResult.newSessionLimits !== undefined) {
+              sessionLimits = commandResult.newSessionLimits;
+            }
 
             if (commandResult.addAutoApprovedCommand) {
               if (!autoApprovedCommands.includes(commandResult.addAutoApprovedCommand)) {
@@ -452,6 +465,24 @@ export class ChatServiceImpl implements ChatService {
             }
           }
         }
+
+        if (Object.keys(sessionLimits).length > 0) {
+          const costUSD = yield* estimateSessionCostUSD(sessionUsage, agent);
+          const exceeded = findExceededSessionLimits(sessionLimits, {
+            turns: sessionTurnCount,
+            costUSD,
+            tokens: sessionUsage.promptTokens + sessionUsage.completionTokens,
+          });
+          if (exceeded.length > 0) {
+            const proceed = yield* confirmSessionLimitOverage(terminal, exceeded);
+            if (!proceed) {
+              yield* terminal.log("Turn cancelled. Use /limit to raise or clear the cap.");
+              yield* terminal.log("");
+              continue;
+            }
+          }
+        }
+        sessionTurnCount += 1;
 
         yield* Effect.gen(function* () {
           const fs = yield* FileSystem.FileSystem;

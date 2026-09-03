@@ -102,6 +102,8 @@ describe("handleSpecialCommand resume", () => {
       conversationHistory: [],
       conversationId: "test-session",
       sessionUsage: { promptTokens: 0, completionTokens: 0 },
+      sessionTurnCount: 0,
+      sessionLimits: {},
       sessionStartedAt: new Date(Date.now() - 1800_000),
     };
 
@@ -145,6 +147,8 @@ describe("handleSpecialCommand resume", () => {
       conversationHistory: [{ role: "user", content: "still on screen" }],
       conversationId: "test-session",
       sessionUsage: { promptTokens: 0, completionTokens: 0 },
+      sessionTurnCount: 0,
+      sessionLimits: {},
       sessionStartedAt: new Date(Date.now() - 1800_000),
     };
 
@@ -191,6 +195,8 @@ describe("handleSpecialCommand shell escape", () => {
           conversationHistory: [],
           conversationId: "test-session",
           sessionUsage: { promptTokens: 0, completionTokens: 0 },
+          sessionTurnCount: 0,
+          sessionLimits: {},
           sessionStartedAt: new Date(),
         },
       ).pipe(Effect.provide(layers)) as Effect.Effect<CommandResult, unknown, never>,
@@ -222,6 +228,8 @@ describe("handleSpecialCommand shell escape", () => {
           conversationHistory: [],
           conversationId: "test-session",
           sessionUsage: { promptTokens: 0, completionTokens: 0 },
+          sessionTurnCount: 0,
+          sessionLimits: {},
           sessionStartedAt: new Date(),
         },
       ).pipe(Effect.provide(layers)) as Effect.Effect<CommandResult, unknown, never>,
@@ -238,6 +246,8 @@ describe("handleSpecialCommand /reasoning", () => {
     conversationHistory: [],
     conversationId: "test-session",
     sessionUsage: { promptTokens: 0, completionTokens: 0 },
+    sessionTurnCount: 0,
+    sessionLimits: {},
     sessionStartedAt: new Date(),
   };
 
@@ -370,6 +380,8 @@ describe("handleSpecialCommand /tools", () => {
       conversationHistory: [],
       conversationId: "test-session",
       sessionUsage: { promptTokens: 0, completionTokens: 0 },
+      sessionTurnCount: 0,
+      sessionLimits: {},
       sessionStartedAt: new Date(),
     };
 
@@ -429,6 +441,8 @@ describe("handleSpecialCommand /agents", () => {
       conversationHistory: [],
       conversationId: "test-session",
       sessionUsage: { promptTokens: 0, completionTokens: 0 },
+      sessionTurnCount: 0,
+      sessionLimits: {},
       sessionStartedAt: new Date(),
       lastUsedAgentId: null,
     };
@@ -475,6 +489,8 @@ describe("handleSpecialCommand /peers", () => {
       conversationHistory: [],
       conversationId: "test-session",
       sessionUsage: { promptTokens: 0, completionTokens: 0 },
+      sessionTurnCount: 0,
+      sessionLimits: {},
       sessionStartedAt: new Date(),
     };
 
@@ -519,6 +535,8 @@ describe("handleSpecialCommand /peers", () => {
       conversationHistory: [],
       conversationId: "test-session",
       sessionUsage: { promptTokens: 0, completionTokens: 0 },
+      sessionTurnCount: 0,
+      sessionLimits: {},
       sessionStartedAt: new Date(),
     };
 

@@ -59,7 +59,15 @@ import { getGlyphs } from "@/cli/ui/glyphs";
 import { getThemeVariant, setThemeVariant } from "@/cli/ui/theme";
 import * as fmt from "@/cli/utils/list-format";
 import { CHAT_COMMANDS } from "./constants";
-import type { CommandContext, CommandResult, SpecialCommand } from "./types";
+import {
+  confirmSessionLimitOverage,
+  estimateSessionCostUSD,
+  findExceededSessionLimits,
+  formatSessionLimitMetric,
+  SESSION_LIMIT_FIELD,
+  type SessionLimitMetric,
+} from "./session-limits";
+import type { CommandContext, CommandResult, SessionLimits, SpecialCommand } from "./types";
 
 /**
  * Handle special commands from user input.
@@ -101,6 +109,9 @@ export function handleSpecialCommand(
 
       case "help":
         return yield* handleHelpCommand(terminal, command.args);
+
+      case "limit":
+        return yield* handleLimitCommand(terminal, agent, context, command.args);
 
       case "tools":
         return yield* handleToolsCommand(terminal, agent);
@@ -1177,6 +1188,173 @@ function handleReasoningCommand(
     yield* terminal.info(`Levels: ${validLevels.join(", ")}`);
     yield* terminal.log(fmt.blank());
     return { shouldContinue: true };
+  });
+}
+
+/**
+ * Handle /limit command - view or set a session-wide turn/cost/token cap.
+ *
+ * "Session-wide" means the limit stays in effect for the rest of this
+ * conversation (not just the current turn) and is checked before every turn
+ * against this conversation's accumulated usage — the same numbers /cost and
+ * /stats show. With no args in an interactive terminal this opens the picker
+ * (select the metric, then type a value); with no args elsewhere it prints
+ * current usage and limits. A limit that's already exceeded the moment it's
+ * set is reported immediately here — enforcement itself happens on the next
+ * turn attempt in the chat loop.
+ */
+function handleLimitCommand(
+  terminal: TerminalService,
+  agent: CommandContext["agent"],
+  context: CommandContext,
+  args: string[],
+): Effect.Effect<CommandResult, never, never> {
+  const metricAliases: Record<string, SessionLimitMetric> = {
+    turn: "turns",
+    turns: "turns",
+    usd: "usd",
+    cost: "usd",
+    dollar: "usd",
+    dollars: "usd",
+    token: "tokens",
+    tokens: "tokens",
+  };
+
+  const parseValue = (raw: string): number | null | "invalid" => {
+    const lower = raw.toLowerCase();
+    if (lower === "clear" || lower === "none" || lower === "off") return null;
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed) || parsed <= 0) return "invalid";
+    return parsed;
+  };
+
+  const currentUsage = Effect.gen(function* () {
+    const costUSD = yield* estimateSessionCostUSD(context.sessionUsage, agent);
+    return {
+      turns: context.sessionTurnCount,
+      costUSD,
+      tokens: context.sessionUsage.promptTokens + context.sessionUsage.completionTokens,
+    };
+  });
+
+  const applyLimit = (
+    metric: SessionLimitMetric,
+    value: number | null,
+  ): Effect.Effect<CommandResult, never, never> =>
+    Effect.gen(function* () {
+      const field = SESSION_LIMIT_FIELD[metric];
+      const nextLimits: SessionLimits = { ...context.sessionLimits };
+      if (value === null) {
+        delete nextLimits[field];
+        yield* terminal.success(`Cleared the session ${metric} limit.`);
+      } else {
+        nextLimits[field] = value;
+        yield* terminal.success(
+          `Session ${metric} limit set to ${formatSessionLimitMetric(metric, value)} (this session only).`,
+        );
+      }
+      yield* terminal.log(fmt.blank());
+
+      if (value !== null) {
+        const usage = yield* currentUsage;
+        const exceeded = findExceededSessionLimits(nextLimits, usage);
+        if (exceeded.length > 0) {
+          yield* confirmSessionLimitOverage(terminal, exceeded);
+          yield* terminal.log(fmt.blank());
+        }
+      }
+
+      return { shouldContinue: true, newSessionLimits: nextLimits };
+    });
+
+  return Effect.gen(function* () {
+    if (args.length === 1 && args[0]?.toLowerCase() === "clear") {
+      yield* terminal.success("Cleared all session limits.");
+      yield* terminal.log(fmt.blank());
+      return { shouldContinue: true, newSessionLimits: {} };
+    }
+
+    if (args.length > 0) {
+      const metric = metricAliases[(args[0] ?? "").toLowerCase()];
+      if (!metric) {
+        yield* terminal.error(`Unknown limit "${args[0]}". Use: turns, usd, tokens, or clear.`);
+        yield* terminal.log(fmt.blank());
+        return { shouldContinue: true };
+      }
+      const rawValue = args[1];
+      if (rawValue === undefined) {
+        yield* terminal.error(`Usage: /limit ${metric} <value>|clear`);
+        yield* terminal.log(fmt.blank());
+        return { shouldContinue: true };
+      }
+      const value = parseValue(rawValue);
+      if (value === "invalid") {
+        yield* terminal.error(
+          `Invalid value "${rawValue}" — expected a positive number or "clear".`,
+        );
+        yield* terminal.log(fmt.blank());
+        return { shouldContinue: true };
+      }
+      return yield* applyLimit(metric, value);
+    }
+
+    // No args: show current usage and limits.
+    const usage = yield* currentUsage;
+    yield* terminal.log(fmt.heading("Session Limits"));
+    for (const metric of ["turns", "usd", "tokens"] as const) {
+      const limitValue = context.sessionLimits[SESSION_LIMIT_FIELD[metric]];
+      const used =
+        metric === "turns" ? usage.turns : metric === "usd" ? usage.costUSD : usage.tokens;
+      yield* terminal.log(
+        fmt.keyValueCompact(
+          metric,
+          limitValue === undefined
+            ? `${formatSessionLimitMetric(metric, used)} used, no limit set`
+            : `${formatSessionLimitMetric(metric, used)} used / ${formatSessionLimitMetric(metric, limitValue)} limit`,
+        ),
+      );
+    }
+    yield* terminal.log(fmt.blank());
+
+    if (!terminal.isInteractive) {
+      yield* terminal.info('Set one with "/limit turns|usd|tokens <value>", or "/limit clear".');
+      yield* terminal.log(fmt.blank());
+      return { shouldContinue: true };
+    }
+
+    const selectedMetric = yield* terminal.select<SessionLimitMetric>("Set a session limit:", {
+      choices: (["turns", "usd", "tokens"] as const).map((metric) => ({
+        name: metric,
+        value: metric,
+      })),
+    });
+    if (!selectedMetric) {
+      yield* terminal.log(fmt.blank());
+      return { shouldContinue: true };
+    }
+
+    const currentValue = context.sessionLimits[SESSION_LIMIT_FIELD[selectedMetric]];
+    const rawValue = yield* terminal.ask(
+      `New ${selectedMetric} limit (number, or "clear" to remove it):`,
+      {
+        cancellable: true,
+        simple: true,
+        ...(currentValue !== undefined ? { defaultValue: String(currentValue) } : {}),
+        validate: (input) => {
+          const parsed = parseValue(input);
+          return parsed === "invalid" ? 'Enter a positive number, or "clear".' : true;
+        },
+      },
+    );
+    if (rawValue === undefined) {
+      yield* terminal.log(fmt.blank());
+      return { shouldContinue: true };
+    }
+    const value = parseValue(rawValue);
+    if (value === "invalid") {
+      return { shouldContinue: true };
+    }
+    return yield* applyLimit(selectedMetric, value);
   });
 }
 
