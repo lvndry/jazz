@@ -855,6 +855,53 @@ describe("reading one agent over HTTP", () => {
     });
   });
 
+  it("serves a companion written the old way under its role", async () => {
+    // A config from before roles existed keys bindings bare. Served as stored, an editor
+    // would show the role as unset and then write a second key meaning the same thing.
+    const legacy = agentFixture({
+      config: {
+        persona: "default",
+        llmProvider: "anthropic",
+        llmModel: "claude-sonnet-4-6",
+        companions: { vision: "anthropic/claude-haiku-4-5" },
+      },
+    } as Partial<Agent>);
+    const { run } = runnerForWritableAgents([legacy]);
+    const handle = makeHandler(LOOPBACK, run);
+
+    const response = await handle(request("GET", "/agents/uGS8WAv4cGBiFH1wHB7r4E"));
+    const body = (await response.json()) as { agent: { config: Record<string, unknown> } };
+    expect(body.agent.config["companions"]).toEqual({
+      "analyze:image": "anthropic/claude-haiku-4-5",
+    });
+  });
+
+  it("drops a companion key that names no role rather than echoing it back", async () => {
+    const nonsense = agentFixture({
+      config: {
+        persona: "default",
+        llmProvider: "anthropic",
+        llmModel: "claude-sonnet-4-6",
+        companions: { smell: "anthropic/claude-haiku-4-5" },
+      },
+    } as Partial<Agent>);
+    const { run } = runnerForWritableAgents([nonsense]);
+    const handle = makeHandler(LOOPBACK, run);
+
+    const response = await handle(request("GET", "/agents/uGS8WAv4cGBiFH1wHB7r4E"));
+    const body = (await response.json()) as { agent: { config: Record<string, unknown> } };
+    expect(body.agent.config["companions"]).toEqual({});
+  });
+
+  it("leaves an agent with no companions without the key", async () => {
+    const { run } = runnerForWritableAgents([agentFixture()]);
+    const handle = makeHandler(LOOPBACK, run);
+
+    const response = await handle(request("GET", "/agents/uGS8WAv4cGBiFH1wHB7r4E"));
+    const body = (await response.json()) as { agent: { config: Record<string, unknown> } };
+    expect(body.agent.config).not.toHaveProperty("companions");
+  });
+
   it("resolves an agent by name as well as by id", async () => {
     const { run } = runnerForWritableAgents([agentFixture()]);
     const handle = makeHandler(LOOPBACK, run);

@@ -47,7 +47,7 @@ import {
   StorageNotFoundError,
   ValidationError,
 } from "@jazz/core/types/errors";
-import { COMPANION_ROLES, isCompanionRole } from "@jazz/core/types/llm";
+import { COMPANION_ROLES, isCompanionRole, normalizeCompanionRole } from "@jazz/core/types/llm";
 import type { CompanionRole } from "@jazz/core/types/llm";
 import type { ModelInfo } from "@jazz/core/types/llm";
 import type { PeerConfig } from "@jazz/core/types/peer";
@@ -1091,6 +1091,27 @@ function listRuns() {
 }
 
 /**
+ * Companion bindings under their canonical role keys.
+ *
+ * A config written before roles existed keys bindings as bare `vision`/`audio`/`video`, and
+ * jazz resolves those at read time — but it serves the config as stored, so an editor would
+ * show that binding as unset, and saving a fresh one alongside it would leave two keys
+ * meaning the same role with one silently winning. Canonicalising here keeps the one
+ * legacy mapping in `normalizeCompanionRole` rather than copying it into every client.
+ *
+ * A key that means nothing at all is dropped: it cannot be edited under a role, and echoing
+ * it would invite a client to write it back.
+ */
+function canonicalCompanions(companions: Readonly<Record<string, string>>): Record<string, string> {
+  const canonical: Record<string, string> = {};
+  for (const [key, model] of Object.entries(companions)) {
+    const role = normalizeCompanionRole(key);
+    if (role !== undefined) canonical[role] = model;
+  }
+  return canonical;
+}
+
+/**
  * One agent, as much of it as somebody choosing between them needs.
  *
  * Fields are projected one by one rather than returning the stored agent, because
@@ -1122,7 +1143,11 @@ function projectAgentSummary(agent: Agent) {
  * a blank box that means either "unset" or "hidden".
  */
 function projectAgentDetail(agent: Agent) {
-  const { llmApiKeys, ...config } = agent.config;
+  const { llmApiKeys, companions, ...rest } = agent.config;
+  const config = {
+    ...rest,
+    ...(companions !== undefined ? { companions: canonicalCompanions(companions) } : {}),
+  };
   return {
     ...projectAgentSummary(agent),
     config,
