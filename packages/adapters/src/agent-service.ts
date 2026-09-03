@@ -19,7 +19,7 @@ import {
   ValidationError,
 } from "@jazz/core/types/errors";
 import { type Agent, type AgentConfig, type CustomToolDefinition } from "@jazz/core/types/index";
-import { COMPANION_ROLES, normalizeCompanionRole } from "@jazz/core/types/llm";
+import { COMPANION_ROLES, isCompanionRole } from "@jazz/core/types/llm";
 import { parseProviderModel } from "@jazz/core/utils/provider-model";
 import { Effect, Layer } from "effect";
 import shortuuid from "short-uuid";
@@ -257,7 +257,7 @@ export class AgentServiceImpl implements AgentService {
           );
         }
         for (const [key, companion] of Object.entries(companions as Record<string, unknown>)) {
-          if (normalizeCompanionRole(key) === undefined) {
+          if (!isCompanionRole(key)) {
             return yield* Effect.fail(
               new AgentConfigurationError({
                 agentId: "unknown",

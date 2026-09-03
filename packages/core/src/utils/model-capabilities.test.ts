@@ -10,7 +10,6 @@ import {
   isCompanionRole,
   isMediaModality,
   modelSupportsRole,
-  normalizeCompanionRole,
 } from "./model-capabilities";
 
 function model(overrides: Partial<ModelInfo> & { id: string }): ModelInfo {
@@ -109,14 +108,6 @@ describe("role vocabulary", () => {
   it("says what each role does in words", () => {
     expect(describeRole("analyze:image")).toBe("image understanding");
     expect(describeRole("generate:audio")).toBe("audio generation");
-  });
-
-  it("reads pre-role companion keys as analysis bindings", () => {
-    expect(normalizeCompanionRole("vision")).toBe("analyze:image");
-    expect(normalizeCompanionRole("audio")).toBe("analyze:audio");
-    expect(normalizeCompanionRole("video")).toBe("analyze:video");
-    expect(normalizeCompanionRole("generate:image")).toBe("generate:image");
-    expect(normalizeCompanionRole("smell")).toBeUndefined();
   });
 });
 

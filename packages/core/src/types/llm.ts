@@ -101,23 +101,6 @@ export function parseCompanionRole(role: CompanionRole): {
 }
 
 /**
- * Companion keys as written before roles existed: bare `"vision" | "audio" | "video"`,
- * all of them analysis. Kept so stored agent configs keep working.
- */
-const LEGACY_COMPANION_KEYS: Readonly<Record<string, CompanionRole>> = {
-  vision: "analyze:image",
-  image: "analyze:image",
-  audio: "analyze:audio",
-  video: "analyze:video",
-};
-
-/** The role a stored companion key means, or `undefined` when it means nothing. */
-export function normalizeCompanionRole(key: string): CompanionRole | undefined {
-  if (isCompanionRole(key)) return key;
-  return LEGACY_COMPANION_KEYS[key];
-}
-
-/**
  * Service contract for an LLM provider
  *
  * An LLM provider represents a configured connection to an LLM service (OpenAI,

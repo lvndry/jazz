@@ -625,14 +625,6 @@ describe("AgentService", () => {
       await expect(Effect.runPromise(program)).resolves.toBeUndefined();
     });
 
-    it("still accepts pre-role companion keys from stored configs", async () => {
-      const program = service.validateAgentConfig({
-        ...baseConfig,
-        companions: { vision: "anthropic/claude-sonnet-4-5" } as never,
-      });
-      await expect(Effect.runPromise(program)).resolves.toBeUndefined();
-    });
-
     it("accepts config with no companions", async () => {
       const program = service.validateAgentConfig(baseConfig);
       await expect(Effect.runPromise(program)).resolves.toBeUndefined();
