@@ -98,7 +98,7 @@ with the interactive one.
 ### Picker-style approvals
 
 Most gates are yes/no. Some decisions are "_which one_" — `analyze_media` asks which
-vision-capable model should do the looking. A proposal may carry `options` alongside its
+image-capable model should do the looking. A proposal may carry `options` alongside its
 message; surfaces then render a picker (same card, rows instead of Yes/No), and the chosen
 row's id returns on the outcome as `selectedOptionId`, merged into the execution tool's
 args under `_selectedOptionId` — a key the model never writes and cannot spoof.
@@ -108,10 +108,12 @@ Two properties are load-bearing:
 - **A request with options is never auto-approved**, under any policy including yolo.
   There is nothing to approve until somebody picked a row. The pre-bound path
   (`config.companions`) skips approval inside the tool itself instead — binding is the
-  consent.
+  consent. Bindings are keyed by companion role — `"<analyze|generate>:<image|audio|video>"` —
+  because reading a modality and producing it are different models: `analyze:image` and
+  `generate:image` bind independently on the same agent.
 - **Unattended runs fail loudly when nothing is bound.** Nobody to ask plus no standing
-  consent means a clear refusal naming what would fix it ("bind a vision companion"),
-  not a silent fallback to whichever model happens to be first.
+  consent means a clear refusal naming what would fix it ("bind an `analyze:image`
+  companion"), not a silent fallback to whichever model happens to be first.
 
 ---
 

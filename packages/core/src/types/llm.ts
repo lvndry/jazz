@@ -52,21 +52,69 @@ export interface ModelInfo {
 }
 
 /**
- * A modality an agent can delegate to a capable model companion (`analyze_media`).
+ * A media kind a model may accept or produce.
  *
- * Mirrors the attachment kinds such delegation can carry, minus `pdf`: every text
- * agent reads PDFs through `read_pdf`, so there is nothing to delegate.
+ * Mirrors the attachment kinds a companion delegation can carry, minus `pdf`: every
+ * text agent reads PDFs through `read_pdf`, so there is nothing to delegate.
  */
-export type PerceptionCapability = "vision" | "audio" | "video";
+export type MediaModality = "image" | "audio" | "video";
 
-export const PERCEPTION_CAPABILITIES: readonly PerceptionCapability[] = [
-  "vision",
-  "audio",
-  "video",
-];
+export const MEDIA_MODALITIES: readonly MediaModality[] = ["image", "audio", "video"];
 
-export function isPerceptionCapability(value: string): value is PerceptionCapability {
-  return (PERCEPTION_CAPABILITIES as readonly string[]).includes(value);
+export function isMediaModality(value: string): value is MediaModality {
+  return (MEDIA_MODALITIES as readonly string[]).includes(value);
+}
+
+/** What a companion does with a modality: read it, or make it. */
+export type MediaAction = "analyze" | "generate";
+
+export const MEDIA_ACTIONS: readonly MediaAction[] = ["analyze", "generate"];
+
+/**
+ * One job an agent can delegate to a model companion, as `"<action>:<modality>"`.
+ *
+ * Action and modality are separate axes because a model rarely does both: most vision
+ * models cannot emit an image, and most image models cannot read one. Keying companion
+ * bindings by the pair is what lets one agent bind `analyze:image` and `generate:image`
+ * to two different models.
+ */
+export type CompanionRole = `${MediaAction}:${MediaModality}`;
+
+export const COMPANION_ROLES: readonly CompanionRole[] = MEDIA_ACTIONS.flatMap((action) =>
+  MEDIA_MODALITIES.map((modality): CompanionRole => `${action}:${modality}`),
+);
+
+export function isCompanionRole(value: string): value is CompanionRole {
+  return (COMPANION_ROLES as readonly string[]).includes(value);
+}
+
+export function companionRole(action: MediaAction, modality: MediaModality): CompanionRole {
+  return `${action}:${modality}`;
+}
+
+export function parseCompanionRole(role: CompanionRole): {
+  readonly action: MediaAction;
+  readonly modality: MediaModality;
+} {
+  const [action, modality] = role.split(":") as [MediaAction, MediaModality];
+  return { action, modality };
+}
+
+/**
+ * Companion keys as written before roles existed: bare `"vision" | "audio" | "video"`,
+ * all of them analysis. Kept so stored agent configs keep working.
+ */
+const LEGACY_COMPANION_KEYS: Readonly<Record<string, CompanionRole>> = {
+  vision: "analyze:image",
+  image: "analyze:image",
+  audio: "analyze:audio",
+  video: "analyze:video",
+};
+
+/** The role a stored companion key means, or `undefined` when it means nothing. */
+export function normalizeCompanionRole(key: string): CompanionRole | undefined {
+  if (isCompanionRole(key)) return key;
+  return LEGACY_COMPANION_KEYS[key];
 }
 
 /**

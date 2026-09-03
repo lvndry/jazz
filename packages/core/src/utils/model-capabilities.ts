@@ -1,50 +1,74 @@
 /**
- * @fileoverview Perception capabilities: which models can see, hear, and watch.
+ * @fileoverview Media capabilities: which models can see, hear, watch, and make.
  *
  * An agent whose own model is text-only hits a wall the moment the work involves an
- * image, a recording, or a clip. Rather than dead-ending, it delegates perception to
- * a *model companion*: an ephemeral run on any available model that accepts that
- * modality, chosen by the human from a picker (or pre-bound as a standing companion
- * for unattended runs).
+ * image, a recording, or a clip. Rather than dead-ending, it delegates to a *model
+ * companion*: an ephemeral run on any available model that can do the job, chosen by
+ * the human from a picker (or pre-bound as a standing companion for unattended runs).
  *
  * This module is the shared vocabulary for that flow:
- * - {@link PerceptionCapability} — the three modalities worth delegating. PDF is
- *   deliberately absent: every text agent reads PDFs through `read_pdf`, so there is
- *   nothing to delegate.
+ * - {@link MediaModality} — the three media kinds worth delegating. PDF is deliberately
+ *   absent: every text agent reads PDFs through `read_pdf`, so there is nothing to
+ *   delegate.
+ * - {@link modelSupportsRole} — whether a model can do one `<action>:<modality>` job.
  * - {@link filterCapableModels} — narrows a provider's model list to candidates.
  * - {@link formatModelPriceLine} — the per-row price text pickers show, with the
  *   house convention of saying "unknown" rather than inventing $0.
  */
 
-import type { ModelInfo, PerceptionCapability } from "@/core/types/llm";
+import type { CompanionRole, ModelInfo } from "@/core/types/llm";
+import { parseCompanionRole } from "@/core/types/llm";
 
 export {
-  PERCEPTION_CAPABILITIES,
-  isPerceptionCapability,
-  type PerceptionCapability,
+  COMPANION_ROLES,
+  MEDIA_ACTIONS,
+  MEDIA_MODALITIES,
+  companionRole,
+  isCompanionRole,
+  isMediaModality,
+  normalizeCompanionRole,
+  parseCompanionRole,
+  type CompanionRole,
+  type MediaAction,
+  type MediaModality,
 } from "@/core/types/llm";
 
-/** The attachment kind this capability travels as on a message. */
-export function attachmentKindForCapability(
-  capability: PerceptionCapability,
-): "image" | "audio" | "video" {
-  if (capability === "vision") return "image";
-  if (capability === "audio") return "audio";
-  return "video";
+/** Human phrase for a role, used in prompts and picker copy. */
+export function describeRole(role: CompanionRole): string {
+  const { action, modality } = parseCompanionRole(role);
+  return action === "analyze" ? `${modality} understanding` : `${modality} generation`;
 }
 
-/** Human word for the capability, used in prompts and picker copy. */
-export function describeCapability(capability: PerceptionCapability): string {
-  if (capability === "vision") return "image understanding";
-  if (capability === "audio") return "audio understanding";
-  return "video understanding";
-}
+/**
+ * The six capability flags a catalog reports, as the shape every source shares.
+ *
+ * `ModelInfo` and `ModelsDevMetadata` both carry these names — the first optional, the
+ * second required — so one probe reads either without converting between them.
+ */
+export type ModalityFlags = Partial<
+  Pick<
+    ModelInfo,
+    | "ingestImage"
+    | "ingestAudio"
+    | "ingestVideo"
+    | "generatesImage"
+    | "generatesAudio"
+    | "generatesVideo"
+  >
+>;
 
-/** Whether this model itself accepts the modality, per catalog metadata. Absent means no. */
-export function modelHasCapability(model: ModelInfo, capability: PerceptionCapability): boolean {
-  if (capability === "vision") return model.ingestImage === true;
-  if (capability === "audio") return model.ingestAudio === true;
-  return model.ingestVideo === true;
+const ROLE_FLAGS: Readonly<Record<CompanionRole, keyof ModalityFlags>> = {
+  "analyze:image": "ingestImage",
+  "analyze:audio": "ingestAudio",
+  "analyze:video": "ingestVideo",
+  "generate:image": "generatesImage",
+  "generate:audio": "generatesAudio",
+  "generate:video": "generatesVideo",
+};
+
+/** Whether this model can do the role itself, per catalog metadata. Absent means no. */
+export function modelSupportsRole(model: ModalityFlags, role: CompanionRole): boolean {
+  return model[ROLE_FLAGS[role]] === true;
 }
 
 /** One delegatable model: what the picker shows and what the child run runs on. */
@@ -61,7 +85,7 @@ export interface CapableModel {
 }
 
 /**
- * The models in `models` that accept `capability`, best first.
+ * The models in `models` that can do `role`, best first.
  *
  * Unpriced models sort after priced ones at equal footing — not because they are
  * worse, but because when everything else is comparable the one whose cost you can
@@ -70,11 +94,11 @@ export interface CapableModel {
  */
 export function filterCapableModels(
   models: readonly ModelInfo[],
-  capability: PerceptionCapability,
+  role: CompanionRole,
 ): CapableModel[] {
   const capable: (CapableModel & { readonly priced: boolean })[] = [];
   for (const model of models) {
-    if (!modelHasCapability(model, capability)) continue;
+    if (!modelSupportsRole(model, role)) continue;
     const priced =
       model.inputPricePerMillion !== undefined || model.outputPricePerMillion !== undefined;
     capable.push({

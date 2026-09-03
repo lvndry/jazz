@@ -1,12 +1,16 @@
 import { describe, expect, it } from "bun:test";
 import type { ModelInfo } from "@/core/types/llm";
 import {
-  attachmentKindForCapability,
+  companionRole,
+  COMPANION_ROLES,
   describeModelCapabilities,
+  describeRole,
   filterCapableModels,
   formatModelPriceLine,
-  isPerceptionCapability,
-  modelHasCapability,
+  isCompanionRole,
+  isMediaModality,
+  modelSupportsRole,
+  normalizeCompanionRole,
 } from "./model-capabilities";
 
 function model(overrides: Partial<ModelInfo> & { id: string }): ModelInfo {
@@ -14,24 +18,24 @@ function model(overrides: Partial<ModelInfo> & { id: string }): ModelInfo {
 }
 
 describe("filterCapableModels", () => {
-  it("keeps only models whose ingest flags cover the capability", () => {
+  it("keeps only models whose flags cover the role", () => {
     const models = [
       model({ id: "vision-model", ingestImage: true }),
       model({ id: "text-only" }),
       model({ id: "audio-model", ingestAudio: true }),
     ];
 
-    const vision = filterCapableModels(models, "vision");
+    const vision = filterCapableModels(models, "analyze:image");
     expect(vision.map((m) => m.modelId)).toEqual(["vision-model"]);
 
-    const audio = filterCapableModels(models, "audio");
+    const audio = filterCapableModels(models, "analyze:audio");
     expect(audio.map((m) => m.modelId)).toEqual(["audio-model"]);
   });
 
   it("treats an absent flag as no", () => {
-    expect(modelHasCapability(model({ id: "x" }), "video")).toBe(false);
-    expect(modelHasCapability(model({ id: "x", ingestVideo: false }), "video")).toBe(false);
-    expect(modelHasCapability(model({ id: "x", ingestVideo: true }), "video")).toBe(true);
+    expect(modelSupportsRole(model({ id: "x" }), "analyze:video")).toBe(false);
+    expect(modelSupportsRole(model({ id: "x", ingestVideo: false }), "analyze:video")).toBe(false);
+    expect(modelSupportsRole(model({ id: "x", ingestVideo: true }), "analyze:video")).toBe(true);
   });
 
   it("sorts priced before unpriced, then by input price", () => {
@@ -46,7 +50,7 @@ describe("filterCapableModels", () => {
       model({ id: "cheap", ingestImage: true, inputPricePerMillion: 3, outputPricePerMillion: 15 }),
     ];
 
-    expect(filterCapableModels(models, "vision").map((m) => m.modelId)).toEqual([
+    expect(filterCapableModels(models, "analyze:image").map((m) => m.modelId)).toEqual([
       "cheap",
       "expensive",
       "unpriced-vision",
@@ -68,16 +72,51 @@ describe("formatModelPriceLine", () => {
   });
 });
 
-describe("capability vocabulary", () => {
-  it("maps capabilities to the attachment kinds delegation carries", () => {
-    expect(attachmentKindForCapability("vision")).toBe("image");
-    expect(attachmentKindForCapability("audio")).toBe("audio");
-    expect(attachmentKindForCapability("video")).toBe("video");
+describe("role vocabulary", () => {
+  it("reads the two flags of the same modality independently", () => {
+    const ingestOnly = model({ id: "eyes", ingestImage: true });
+    expect(modelSupportsRole(ingestOnly, "analyze:image")).toBe(true);
+    expect(modelSupportsRole(ingestOnly, "generate:image")).toBe(false);
+
+    const generateOnly = model({ id: "brush", generatesImage: true });
+    expect(modelSupportsRole(generateOnly, "analyze:image")).toBe(false);
+    expect(modelSupportsRole(generateOnly, "generate:image")).toBe(true);
   });
 
-  it("rejects non-capabilities like pdf", () => {
-    expect(isPerceptionCapability("pdf")).toBe(false);
-    expect(isPerceptionCapability("vision")).toBe(true);
+  it("covers every action-modality pair exactly once", () => {
+    expect(COMPANION_ROLES).toEqual([
+      "analyze:image",
+      "analyze:audio",
+      "analyze:video",
+      "generate:image",
+      "generate:audio",
+      "generate:video",
+    ]);
+    expect(new Set(COMPANION_ROLES).size).toBe(COMPANION_ROLES.length);
+  });
+
+  it("builds roles from their two axes", () => {
+    expect(companionRole("generate", "video")).toBe("generate:video");
+    expect(isCompanionRole("generate:video")).toBe(true);
+    expect(isCompanionRole("video")).toBe(false);
+  });
+
+  it("rejects non-modalities like pdf", () => {
+    expect(isMediaModality("pdf")).toBe(false);
+    expect(isMediaModality("image")).toBe(true);
+  });
+
+  it("says what each role does in words", () => {
+    expect(describeRole("analyze:image")).toBe("image understanding");
+    expect(describeRole("generate:audio")).toBe("audio generation");
+  });
+
+  it("reads pre-role companion keys as analysis bindings", () => {
+    expect(normalizeCompanionRole("vision")).toBe("analyze:image");
+    expect(normalizeCompanionRole("audio")).toBe("analyze:audio");
+    expect(normalizeCompanionRole("video")).toBe("analyze:video");
+    expect(normalizeCompanionRole("generate:image")).toBe("generate:image");
+    expect(normalizeCompanionRole("smell")).toBeUndefined();
   });
 });
 

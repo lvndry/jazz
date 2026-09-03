@@ -221,7 +221,7 @@ describe("analyze_media empty state", () => {
       proposal
         .execute(
           {
-            capability: "vision",
+            modality: "image",
             task: "what is this?",
             mediaPaths: [join(directory, "shot.png")],
           },
@@ -270,7 +270,7 @@ describe("analyze_media empty state", () => {
       proposal
         .execute(
           {
-            capability: "vision",
+            modality: "image",
             task: "t",
             mediaPaths: [join(directory, "shot.png")],
           },
@@ -287,7 +287,7 @@ describe("analyze_media empty state", () => {
 describe("analyze_media proposal", () => {
   it("fails loudly when a named media file does not resolve", async () => {
     const outcome = await runProposal(
-      { capability: "vision", task: "describe", mediaPaths: ["/definitely/not/here.png"] },
+      { modality: "image", task: "describe", mediaPaths: ["/definitely/not/here.png"] },
       makeContext(),
     );
     expect(outcome.success).toBe(false);
@@ -296,7 +296,7 @@ describe("analyze_media proposal", () => {
 
   it("refuses to delegate audio files to a vision companion", async () => {
     const outcome = await runProposal(
-      { capability: "vision", task: "describe", mediaPaths: ["anything.mp3"] },
+      { modality: "image", task: "describe", mediaPaths: ["anything.mp3"] },
       makeContext(),
     );
     expect(outcome.success).toBe(false);
@@ -306,7 +306,7 @@ describe("analyze_media proposal", () => {
   it("proposes picker-style approval listing only models that can actually see", async () => {
     const outcome = await runProposal(
       {
-        capability: "vision",
+        modality: "image",
         task: "what is in this image?",
         mediaPaths: [join(directory, "shot.png")],
       },

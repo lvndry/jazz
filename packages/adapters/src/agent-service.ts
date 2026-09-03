@@ -19,7 +19,7 @@ import {
   ValidationError,
 } from "@jazz/core/types/errors";
 import { type Agent, type AgentConfig, type CustomToolDefinition } from "@jazz/core/types/index";
-import { isPerceptionCapability } from "@jazz/core/types/llm";
+import { COMPANION_ROLES, normalizeCompanionRole } from "@jazz/core/types/llm";
 import { parseProviderModel } from "@jazz/core/utils/provider-model";
 import { Effect, Layer } from "effect";
 import shortuuid from "short-uuid";
@@ -250,22 +250,20 @@ export class AgentServiceImpl implements AgentService {
             new AgentConfigurationError({
               agentId: "unknown",
               field: "config.companions",
-              message: "companions must be an object keyed by perception capability",
+              message: "companions must be an object keyed by companion role",
               suggestion:
-                'Use { "vision": "provider/model", ... } with capabilities vision, audio, video.',
+                'Use { "analyze:image": "provider/model", ... } with roles of the form <analyze|generate>:<image|audio|video>.',
             }),
           );
         }
-        for (const [capability, companion] of Object.entries(
-          companions as Record<string, unknown>,
-        )) {
-          if (!isPerceptionCapability(capability)) {
+        for (const [key, companion] of Object.entries(companions as Record<string, unknown>)) {
+          if (normalizeCompanionRole(key) === undefined) {
             return yield* Effect.fail(
               new AgentConfigurationError({
                 agentId: "unknown",
-                field: `config.companions.${capability}`,
-                message: `Unknown companion capability "${capability}"`,
-                suggestion: "Use one of: vision, audio, video.",
+                field: `config.companions.${key}`,
+                message: `Unknown companion role "${key}"`,
+                suggestion: `Use one of: ${COMPANION_ROLES.join(", ")}.`,
               }),
             );
           }
@@ -273,8 +271,8 @@ export class AgentServiceImpl implements AgentService {
             return yield* Effect.fail(
               new AgentConfigurationError({
                 agentId: "unknown",
-                field: `config.companions.${capability}`,
-                message: `Invalid ${capability} companion ${JSON.stringify(companion)}`,
+                field: `config.companions.${key}`,
+                message: `Invalid ${key} companion ${JSON.stringify(companion)}`,
                 suggestion:
                   'Use "provider/model", e.g. "anthropic/claude-sonnet-4-5", or remove the entry to let interactive sessions ask you to pick.',
               }),
