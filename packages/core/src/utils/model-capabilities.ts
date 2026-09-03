@@ -26,7 +26,6 @@ export {
   companionRole,
   isCompanionRole,
   isMediaModality,
-  normalizeCompanionRole,
   parseCompanionRole,
   type CompanionRole,
   type MediaAction,
