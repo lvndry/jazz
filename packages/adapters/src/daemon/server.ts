@@ -24,6 +24,7 @@ import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
 import { isRunParkRequested } from "@jazz/core/agent/run/park-signal";
 import { resumeRun, type ResumeRunOptions } from "@jazz/core/agent/run/resume";
 import type { PendingInput } from "@jazz/core/agent/run/run-state";
+import { BUILTIN_TOOL_CATEGORIES } from "@jazz/core/agent/tools/tool-categories";
 import { AVAILABLE_PROVIDERS, isProviderName } from "@jazz/core/constants/models";
 import type { ProviderName } from "@jazz/core/constants/models";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
@@ -1341,7 +1342,18 @@ function listTools() {
     const registry = yield* ToolRegistryTag;
     const tools = yield* registry.listTools();
     const categories = yield* registry.listToolsByCategory();
-    return json({ ok: true, tools, categories });
+
+    // Which of these an agent gets without asking for them.
+    //
+    // Load-bearing for anything with a tool picker: `config.tools` only ever *adds*, so a
+    // checkbox next to a default tool would suggest a permission it does not control. A
+    // caller needs to know which rows are already on before it can honestly offer to turn
+    // one off — which is `deniedTools`, a different field.
+    const defaultTools = (yield* Effect.all(
+      BUILTIN_TOOL_CATEGORIES.map((category) => registry.getToolsInCategory(category.id)),
+    )).flat();
+
+    return json({ ok: true, tools, categories, defaultTools: [...new Set(defaultTools)] });
   });
 }
 

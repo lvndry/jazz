@@ -30,6 +30,27 @@ import { ToolRegistryTag, type ToolRegistry } from "@/core/interfaces/tool-regis
 import type { Agent } from "@/core/types";
 import { BUILTIN_TOOL_CATEGORIES } from "./tool-categories";
 
+/**
+ * Remove every tool the persona or the agent denies.
+ *
+ * Shared by the run path and the A2A card because they resolve tool sets separately, and a
+ * card advertising a tool the run withholds is worse than no card at all. Subtraction lives
+ * here, in one function, so the two cannot drift.
+ *
+ * Applied after everything that *adds* — `config.tools` and the built-in bundle — since both
+ * deny lists are meant to be final: nothing downstream should be able to put a denied tool
+ * back. The two lists differ only in reach: a persona's applies to every agent sharing it,
+ * an agent's to that agent alone.
+ */
+export function withoutDeniedTools(
+  names: readonly string[],
+  personaDeny: readonly string[] | undefined,
+  agentDenied: readonly string[] | undefined,
+): readonly string[] {
+  const denied = new Set([...(personaDeny ?? []), ...(agentDenied ?? [])]);
+  return denied.size === 0 ? names : names.filter((name) => !denied.has(name));
+}
+
 export function resolveAgentToolNames(
   agent: Agent,
 ): Effect.Effect<readonly string[], never, ToolRegistry> {
@@ -62,11 +83,7 @@ export function resolveAgentToolNames(
         .map((id) => toolRegistry.getToolsInCategory(id)),
     )).flat();
 
-    let combinedToolNames = [...new Set([...agentToolNames, ...builtInToolNames])];
-    if (toolProfile?.deny && toolProfile.deny.length > 0) {
-      const denied = new Set(toolProfile.deny);
-      combinedToolNames = combinedToolNames.filter((name) => !denied.has(name));
-    }
-    return combinedToolNames;
+    const combinedToolNames = [...new Set([...agentToolNames, ...builtInToolNames])];
+    return withoutDeniedTools(combinedToolNames, toolProfile?.deny, agent.config.deniedTools);
   });
 }

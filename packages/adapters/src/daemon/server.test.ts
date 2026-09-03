@@ -1066,6 +1066,10 @@ describe("the menus an agent editor is built from", () => {
       listTools: () => Effect.succeed(["read_file", "web_search"]),
       listAllTools: () => Effect.succeed(["read_file", "web_search", "ask_user"]),
       listToolsByCategory: () => Effect.succeed({ filesystem: ["read_file"], web: ["web_search"] }),
+      // Every built-in category reports the same tool, so `defaultTools` also has to
+      // dedupe. `web_search` is deliberately in no category here: it stands for a tool an
+      // agent only has because its own config asked for one.
+      getToolsInCategory: () => Effect.succeed(["read_file"]),
     } as unknown as ToolRegistry;
     const handle = makeHandler(LOOPBACK, runnerProviding(ToolRegistryTag, registry));
 
@@ -1074,10 +1078,15 @@ describe("the menus an agent editor is built from", () => {
     const body = (await response.json()) as {
       tools: string[];
       categories: Record<string, string[]>;
+      defaultTools: string[];
     };
     expect(body.tools).toEqual(["read_file", "web_search"]);
     expect(body.tools).not.toContain("ask_user");
     expect(body.categories).toEqual({ filesystem: ["read_file"], web: ["web_search"] });
+    // The distinction a tool picker depends on: `read_file` is on whether or not anyone
+    // asked, so offering a checkbox for it would imply control that `config.tools` does not
+    // have. `web_search` is the kind of row that is genuinely a choice.
+    expect(body.defaultTools).toEqual(["read_file"]);
   });
 
   it("keeps the menus behind the daemon token", async () => {

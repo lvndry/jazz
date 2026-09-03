@@ -759,6 +759,19 @@ describe("AgentService", () => {
       await expectRejected({ ...baseConfig, webSearchProvider: "google" });
     });
 
+    it("accepts denied tool names", async () => {
+      await expectAccepted({ ...baseConfig, deniedTools: ["execute_command", "write_file"] });
+    });
+
+    it("rejects a non-array deniedTools value", async () => {
+      // @ts-expect-error - must be an array
+      await expectRejected({ ...baseConfig, deniedTools: "execute_command" });
+    });
+
+    it("rejects a blank denied tool", async () => {
+      await expectRejected({ ...baseConfig, deniedTools: ["execute_command", " "] });
+    });
+
     it("accepts named memory scopes", async () => {
       await expectAccepted({ ...baseConfig, memoryScopes: ["work", "personal"] });
     });

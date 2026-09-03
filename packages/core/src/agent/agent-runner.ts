@@ -46,6 +46,7 @@ import { createAgentRunMetrics, emitAgentRunStarted } from "./metrics/agent-run-
 import { discoverProjectInstructions, type ProjectInstructionFile } from "./project-instructions";
 import { withRunRecording } from "./run/run-recorder";
 import { runSpendUSD } from "./run/run-spend";
+import { withoutDeniedTools } from "./tools/agent-tool-resolution";
 import { registerCustomToolsForAgent } from "./tools/custom-tools";
 import { registerMCPToolsForAgent } from "./tools/register-mcp-tools";
 import { registerPeerTools } from "./tools/register-tools";
@@ -303,10 +304,10 @@ function initializeAgentRun(
     // Combine agent tools with built-in tools, then apply persona deny list.
     let combinedToolNames = [...new Set([...agentToolNames, ...builtInToolNames])];
 
-    if (toolProfile?.deny && toolProfile.deny.length > 0) {
-      const denied = new Set(toolProfile.deny);
-      combinedToolNames = combinedToolNames.filter((name) => !denied.has(name));
-    }
+    // Both deny lists, in one shared subtraction with the A2A card path.
+    combinedToolNames = [
+      ...withoutDeniedTools(combinedToolNames, toolProfile?.deny, agent.config.deniedTools),
+    ];
 
     // Ephemeral runs (jazz run --ephemeral) withhold the memory-writing tool
     // outright, so the model is never even offered a way to persist anything.

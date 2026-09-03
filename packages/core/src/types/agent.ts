@@ -79,7 +79,25 @@ export interface AgentConfig {
    */
   readonly maxContextTokens?: number;
   readonly temperature?: number;
+  /**
+   * Extra tools this agent can call, **on top of** the built-in bundle.
+   *
+   * Additive, not an allowlist: the run set is this unioned with every built-in category the
+   * persona permits. Listing a built-in tool here therefore changes nothing, and leaving one
+   * out does not withhold it — {@link AgentConfig.deniedTools} is how a tool is taken away.
+   */
   readonly tools?: readonly string[];
+  /**
+   * Tools this agent must not be given, whatever else would have granted them.
+   *
+   * The counterpart to `tools`, which can only ever add. Subtracted last, after the persona's
+   * own deny list, so it cannot be undone by a persona or by the built-in bundle — and it is
+   * per agent, where a persona's `toolProfile.deny` applies to everyone sharing that persona.
+   *
+   * Unset means "deny nothing", so every agent that exists today keeps exactly the tools it
+   * has: taking one away is something somebody has to ask for.
+   */
+  readonly deniedTools?: readonly string[];
   readonly webSearchProvider?: WebSearchProviderName;
   /**
    * Env var names exempted from the `execute_command` shell env scrub, even
