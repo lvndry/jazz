@@ -245,8 +245,20 @@ export interface LLMConfig {
   readonly zhipuai?: LLMProviderConfig;
 }
 
-export type WebSearchProviderName =
-  "exa" | "parallel" | "tavily" | "brave" | "perplexity" | "linkup";
+export const WEB_SEARCH_PROVIDERS = [
+  "exa",
+  "parallel",
+  "tavily",
+  "brave",
+  "perplexity",
+  "linkup",
+] as const;
+
+export type WebSearchProviderName = (typeof WEB_SEARCH_PROVIDERS)[number];
+
+export function isWebSearchProviderName(value: string): value is WebSearchProviderName {
+  return (WEB_SEARCH_PROVIDERS as readonly string[]).includes(value);
+}
 
 export interface WebSearchProviderConfig {
   readonly api_key: string;

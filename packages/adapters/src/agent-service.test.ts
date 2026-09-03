@@ -646,6 +646,133 @@ describe("AgentService", () => {
     });
   });
 
+  describe("validateAgentConfig required fields", () => {
+    const baseConfig: AgentConfig = {
+      persona: "default",
+      llmProvider: "openai",
+      llmModel: "gpt-4",
+    };
+
+    const expectRejected = async (config: AgentConfig) => {
+      const result = await Effect.runPromiseExit(service.validateAgentConfig(config));
+      expect(result._tag).toBe("Failure");
+      if (result._tag === "Failure") {
+        // @ts-expect-error - accessing error
+        expect(result.cause.error).toBeInstanceOf(AgentConfigurationError);
+      }
+    };
+
+    it("accepts a well-formed config", async () => {
+      await expect(
+        Effect.runPromise(service.validateAgentConfig(baseConfig)),
+      ).resolves.toBeUndefined();
+    });
+
+    it("rejects a provider that is not in AVAILABLE_PROVIDERS", async () => {
+      // @ts-expect-error - unknown provider
+      await expectRejected({ ...baseConfig, llmProvider: "definitely-not-a-provider" });
+    });
+
+    it("rejects a provider that differs only in case", async () => {
+      // @ts-expect-error - wrong case
+      await expectRejected({ ...baseConfig, llmProvider: "OpenAI" });
+    });
+
+    it("rejects an empty model", async () => {
+      await expectRejected({ ...baseConfig, llmModel: "   " });
+    });
+
+    it("rejects a missing model", async () => {
+      // @ts-expect-error - absent required field
+      await expectRejected({ persona: "default", llmProvider: "openai" });
+    });
+
+    it("rejects an empty persona", async () => {
+      await expectRejected({ ...baseConfig, persona: "" });
+    });
+  });
+
+  describe("validateAgentConfig optional scalars", () => {
+    const baseConfig: AgentConfig = {
+      persona: "default",
+      llmProvider: "openai",
+      llmModel: "gpt-4",
+    };
+
+    const expectRejected = async (config: AgentConfig) => {
+      const result = await Effect.runPromiseExit(service.validateAgentConfig(config));
+      expect(result._tag).toBe("Failure");
+      if (result._tag === "Failure") {
+        // @ts-expect-error - accessing error
+        expect(result.cause.error).toBeInstanceOf(AgentConfigurationError);
+      }
+    };
+
+    const expectAccepted = async (config: AgentConfig) => {
+      await expect(Effect.runPromise(service.validateAgentConfig(config))).resolves.toBeUndefined();
+    };
+
+    it("accepts every reasoning effort level", async () => {
+      for (const effort of ["disable", "low", "medium", "high"] as const) {
+        await expectAccepted({ ...baseConfig, reasoningEffort: effort });
+      }
+    });
+
+    it("rejects an unknown reasoning effort", async () => {
+      // @ts-expect-error - unknown level
+      await expectRejected({ ...baseConfig, reasoningEffort: "maximum" });
+    });
+
+    it("accepts temperature at both ends of the range", async () => {
+      await expectAccepted({ ...baseConfig, temperature: 0 });
+      await expectAccepted({ ...baseConfig, temperature: 2 });
+    });
+
+    it("rejects temperature outside the range", async () => {
+      await expectRejected({ ...baseConfig, temperature: -0.1 });
+      await expectRejected({ ...baseConfig, temperature: 2.1 });
+    });
+
+    it("rejects a temperature that is not a finite number", async () => {
+      await expectRejected({ ...baseConfig, temperature: Number.NaN });
+      await expectRejected({ ...baseConfig, temperature: Number.POSITIVE_INFINITY });
+      // @ts-expect-error - numeric strings are not numbers
+      await expectRejected({ ...baseConfig, temperature: "0.7" });
+    });
+
+    it("accepts positive whole context sizes", async () => {
+      await expectAccepted({ ...baseConfig, numCtx: 8192, maxContextTokens: 32_000 });
+    });
+
+    it("rejects zero, negative, or fractional context sizes", async () => {
+      await expectRejected({ ...baseConfig, numCtx: 0 });
+      await expectRejected({ ...baseConfig, maxContextTokens: -1 });
+      await expectRejected({ ...baseConfig, numCtx: 1024.5 });
+    });
+
+    it("accepts a known web search provider", async () => {
+      await expectAccepted({ ...baseConfig, webSearchProvider: "exa" });
+    });
+
+    it("rejects an unknown web search provider", async () => {
+      // @ts-expect-error - unknown provider
+      await expectRejected({ ...baseConfig, webSearchProvider: "google" });
+    });
+
+    it("accepts named memory scopes", async () => {
+      await expectAccepted({ ...baseConfig, memoryScopes: ["work", "personal"] });
+    });
+
+    it("rejects a non-array memoryScopes value", async () => {
+      // @ts-expect-error - must be an array
+      await expectRejected({ ...baseConfig, memoryScopes: "work" });
+    });
+
+    it("rejects a blank memory scope", async () => {
+      await expectRejected({ ...baseConfig, memoryScopes: ["work", "  "] });
+    });
+  });
+
   describe("deleteAgent", () => {
     it("should delete an agent", async () => {
       // @ts-expect-error - mocking

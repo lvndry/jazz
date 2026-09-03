@@ -5,9 +5,12 @@
 
 import { validateCustomToolDefinitionShape } from "@jazz/core/agent/tools/custom-tool-validation";
 import { normalizeToolConfig } from "@jazz/core/agent/utils/tool-config";
+import { AVAILABLE_PROVIDERS, isProviderName } from "@jazz/core/constants/models";
 import { AgentServiceTag, type AgentService } from "@jazz/core/interfaces/agent-service";
 import { StorageServiceTag, type StorageService } from "@jazz/core/interfaces/storage";
 import { CommonSuggestions } from "@jazz/core/presentation/error-handler";
+import { isReasoningEffort, REASONING_EFFORTS } from "@jazz/core/types/agent";
+import { isWebSearchProviderName, WEB_SEARCH_PROVIDERS } from "@jazz/core/types/config";
 import {
   AgentAlreadyExistsError,
   AgentConfigurationError,
@@ -173,6 +176,43 @@ export class AgentServiceImpl implements AgentService {
 
   validateAgentConfig(config: AgentConfig): Effect.Effect<void, AgentConfigurationError> {
     return Effect.gen(function* (this: AgentServiceImpl) {
+      const persona: unknown = config.persona;
+      if (typeof persona !== "string" || persona.trim().length === 0) {
+        return yield* Effect.fail(
+          new AgentConfigurationError({
+            agentId: "unknown",
+            field: "config.persona",
+            message: `Invalid persona ${JSON.stringify(persona)}`,
+            suggestion:
+              'Use a built-in persona ("default", "coder", "researcher") or the name of a persona file in ~/.jazz/personas/.',
+          }),
+        );
+      }
+
+      const llmProvider: unknown = config.llmProvider;
+      if (typeof llmProvider !== "string" || !isProviderName(llmProvider)) {
+        return yield* Effect.fail(
+          new AgentConfigurationError({
+            agentId: "unknown",
+            field: "config.llmProvider",
+            message: `Unknown LLM provider ${JSON.stringify(llmProvider)}`,
+            suggestion: `Use one of: ${AVAILABLE_PROVIDERS.join(", ")}.`,
+          }),
+        );
+      }
+
+      const llmModel: unknown = config.llmModel;
+      if (typeof llmModel !== "string" || llmModel.trim().length === 0) {
+        return yield* Effect.fail(
+          new AgentConfigurationError({
+            agentId: "unknown",
+            field: "config.llmModel",
+            message: `Invalid LLM model ${JSON.stringify(llmModel)}`,
+            suggestion: `Name a model the provider serves, e.g. "gpt-4o" for openai.`,
+          }),
+        );
+      }
+
       if (config.llmApiKeys) {
         for (const [provider, apiKey] of Object.entries(config.llmApiKeys)) {
           if (typeof apiKey !== "string" || apiKey.trim().length === 0) {
@@ -365,6 +405,99 @@ export class AgentServiceImpl implements AgentService {
                 agentId: "unknown",
                 field: "config.tools",
                 message: "Each tool entry must be a non-empty string",
+              }),
+            );
+          }
+        }
+      }
+
+      const reasoningEffort: unknown = config.reasoningEffort;
+      if (reasoningEffort !== undefined && reasoningEffort !== null) {
+        if (typeof reasoningEffort !== "string" || !isReasoningEffort(reasoningEffort)) {
+          return yield* Effect.fail(
+            new AgentConfigurationError({
+              agentId: "unknown",
+              field: "config.reasoningEffort",
+              message: `Invalid reasoningEffort ${JSON.stringify(reasoningEffort)}`,
+              suggestion: `Use one of: ${REASONING_EFFORTS.join(", ")}.`,
+            }),
+          );
+        }
+      }
+
+      const temperature: unknown = config.temperature;
+      if (temperature !== undefined && temperature !== null) {
+        // The ceiling is the permissive superset across providers (OpenAI allows up to 2,
+        // Anthropic only 1). Per-model limits are enforced at call time via
+        // `supportsTemperature`, so validation only rejects what no provider would accept.
+        if (
+          typeof temperature !== "number" ||
+          !Number.isFinite(temperature) ||
+          temperature < 0 ||
+          temperature > 2
+        ) {
+          return yield* Effect.fail(
+            new AgentConfigurationError({
+              agentId: "unknown",
+              field: "config.temperature",
+              message: `Invalid temperature ${JSON.stringify(temperature)}`,
+              suggestion:
+                "Use a number between 0 and 2, or remove the field to use the provider default.",
+            }),
+          );
+        }
+      }
+
+      for (const field of ["numCtx", "maxContextTokens"] as const) {
+        const value: unknown = config[field];
+        if (value === undefined || value === null) continue;
+        if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
+          return yield* Effect.fail(
+            new AgentConfigurationError({
+              agentId: "unknown",
+              field: `config.${field}`,
+              message: `Invalid ${field} ${JSON.stringify(value)}`,
+              suggestion:
+                "Use a positive whole number of tokens, or remove the field to use the default.",
+            }),
+          );
+        }
+      }
+
+      const webSearchProvider: unknown = config.webSearchProvider;
+      if (webSearchProvider !== undefined && webSearchProvider !== null) {
+        if (typeof webSearchProvider !== "string" || !isWebSearchProviderName(webSearchProvider)) {
+          return yield* Effect.fail(
+            new AgentConfigurationError({
+              agentId: "unknown",
+              field: "config.webSearchProvider",
+              message: `Unknown web search provider ${JSON.stringify(webSearchProvider)}`,
+              suggestion: `Use one of: ${WEB_SEARCH_PROVIDERS.join(", ")}.`,
+            }),
+          );
+        }
+      }
+
+      if (config.memoryScopes !== undefined && config.memoryScopes !== null) {
+        if (!Array.isArray(config.memoryScopes)) {
+          return yield* Effect.fail(
+            new AgentConfigurationError({
+              agentId: "unknown",
+              field: "config.memoryScopes",
+              message: "memoryScopes must be provided as an array of scope names",
+              suggestion: 'Supply an array of non-empty scope names, e.g. ["work"].',
+            }),
+          );
+        }
+
+        for (const scope of config.memoryScopes as readonly string[]) {
+          if (typeof scope !== "string" || scope.trim().length === 0) {
+            return yield* Effect.fail(
+              new AgentConfigurationError({
+                agentId: "unknown",
+                field: "config.memoryScopes",
+                message: "Each memoryScopes entry must be a non-empty string",
+                suggestion: "Remove blank entries so every scope has a name.",
               }),
             );
           }

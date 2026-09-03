@@ -30,6 +30,14 @@ export interface Agent {
   readonly updatedAt: Date;
 }
 
+export const REASONING_EFFORTS = ["disable", "low", "medium", "high"] as const;
+
+export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
+
+export function isReasoningEffort(value: string): value is ReasoningEffort {
+  return (REASONING_EFFORTS as readonly string[]).includes(value);
+}
+
 /**
  * Agent configuration specifying LLM provider, model, and runtime behavior
  *
@@ -60,7 +68,7 @@ export interface AgentConfig {
   readonly summarizerModel?: string;
   /** Optional per-agent API key overrides by provider. Falls back to global config, then env vars. */
   readonly llmApiKeys?: Partial<Record<ProviderName, string>>;
-  readonly reasoningEffort?: "disable" | "low" | "medium" | "high";
+  readonly reasoningEffort?: ReasoningEffort;
   /** Ollama context window (`num_ctx`) in tokens, chosen at agent creation. */
   readonly numCtx?: number;
   /**
