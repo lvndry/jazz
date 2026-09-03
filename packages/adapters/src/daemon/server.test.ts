@@ -1,14 +1,24 @@
 import path from "node:path";
 import { createRunRecord } from "@jazz/core/agent/run/run-record";
+import { AVAILABLE_PROVIDERS } from "@jazz/core/constants/models";
 import { AgentServiceTag } from "@jazz/core/interfaces/agent-service";
 import type { AgentService } from "@jazz/core/interfaces/agent-service";
+import { PersonaServiceTag } from "@jazz/core/interfaces/persona-service";
+import type { PersonaService } from "@jazz/core/interfaces/persona-service";
 import { RunStoreTag } from "@jazz/core/interfaces/run-store";
+import type { StorageService } from "@jazz/core/interfaces/storage";
+import { ToolRegistryTag } from "@jazz/core/interfaces/tool-registry";
+import type { ToolRegistry } from "@jazz/core/interfaces/tool-registry";
+import { REASONING_EFFORTS } from "@jazz/core/types/agent";
 import type { Agent } from "@jazz/core/types/agent";
+import { WEB_SEARCH_PROVIDERS } from "@jazz/core/types/config";
+import { StorageNotFoundError } from "@jazz/core/types/errors";
 import { isLoopbackProgressUrl, parseProgressEvents } from "@jazz/core/types/webhook";
 import type { WebhookConfig } from "@jazz/core/types/webhook";
 import { getJazzHomeDirectory, getWorkStateDirectory } from "@jazz/core/utils/paths";
 import { describe, expect, it } from "bun:test";
-import { Effect } from "effect";
+import { Context, Effect } from "effect";
+import { AgentServiceImpl } from "@/adapters/agent-service";
 import { InMemoryRunStore } from "@/adapters/storage/run-store";
 import {
   makeA2AHandler,
@@ -55,6 +65,14 @@ function agentFixture(overrides: Partial<Agent> = {}): Agent {
     updatedAt: new Date("2026-09-01T00:00:00Z"),
     ...overrides,
   } as Agent;
+}
+
+/** Provides exactly the one service the route under test reaches for. */
+function runnerProviding<S>(tag: Context.Tag<S, S>, service: S) {
+  return <A>(effect: Effect.Effect<A, unknown, DaemonRequirements>): Promise<A> =>
+    Effect.runPromise(
+      effect.pipe(Effect.provideService(tag, service)) as Effect.Effect<A, never, never>,
+    );
 }
 
 /** Only `listAgents` is reachable from the route under test. */
@@ -227,23 +245,22 @@ describe("the daemon's routes", () => {
 
   it("accepts a body the size of an ordinary webhook payload", async () => {
     // The old cap sat under a routine GitHub push event, so the door refused traffic it
-    // exists to receive. Reaching the runner at all is the assertion.
+    // exists to receive. Reaching the runner at all is the assertion — signalled by what the
+    // runner returns rather than by throwing, so this says nothing about how the door treats
+    // an exception.
     const handle = makeWebhookHandler(
       async () => [{ name: "hook", agentId: "default", promptTemplate: "Process {{payload}}" }],
       async () => "webhook-secret",
-      async () => {
-        throw new Error("reached the runner");
-      },
+      async () => new Response("reached the runner", { status: 299 }) as never,
     );
 
-    await expect(
-      handle(
-        request("POST", "/webhooks/hook", {
-          headers: { authorization: "Bearer webhook-secret" },
-          body: "x".repeat(512_000),
-        }),
-      ),
-    ).rejects.toThrow("reached the runner");
+    const response = await handle(
+      request("POST", "/webhooks/hook", {
+        headers: { authorization: "Bearer webhook-secret" },
+        body: "x".repeat(512_000),
+      }),
+    );
+    expect(response.status).toBe(299);
   });
 
   it("returns 404 for malformed webhook URL encoding", async () => {
@@ -629,5 +646,462 @@ describe("choosing which progress events to receive", () => {
 
     expect(response.status).toBe(400);
     expect(await response.text()).toContain("nonsense");
+  });
+});
+
+/**
+ * A real `AgentServiceImpl` over a map, rather than a stubbed service.
+ *
+ * The write routes are thin on purpose — their whole job is to hand a body to the agent
+ * service and turn its refusals into status codes — so a stub that cannot refuse anything
+ * would test nothing. This exercises the validation the endpoints actually rely on.
+ */
+function runnerForWritableAgents(seed: readonly Agent[] = []) {
+  const agents = new Map(seed.map((agent) => [agent.id, agent]));
+  const storage = {
+    listAgents: () => Effect.succeed([...agents.values()]),
+    getAgent: (id: string) => {
+      const found = agents.get(id);
+      return found === undefined
+        ? Effect.fail(new StorageNotFoundError({ path: id }))
+        : Effect.succeed(found);
+    },
+    saveAgent: (agent: Agent) => {
+      agents.set(agent.id, agent);
+      return Effect.void;
+    },
+    deleteAgent: (id: string) => {
+      agents.delete(id);
+      return Effect.void;
+    },
+  } as unknown as StorageService;
+
+  const service = new AgentServiceImpl(storage);
+  const run = <A>(effect: Effect.Effect<A, unknown, DaemonRequirements>): Promise<A> =>
+    Effect.runPromise(
+      effect.pipe(Effect.provideService(AgentServiceTag, service)) as Effect.Effect<
+        A,
+        never,
+        never
+      >,
+    );
+  return { run, agents };
+}
+
+function jsonRequest(method: string, path: string, body: unknown): Request {
+  return new Request(`http://localhost${path}`, {
+    method,
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+describe("creating an agent over HTTP", () => {
+  it("creates one and answers with its full config", async () => {
+    const { run, agents } = runnerForWritableAgents();
+    const handle = makeHandler(LOOPBACK, run);
+
+    const response = await handle(
+      jsonRequest("POST", "/agents", {
+        name: "negotiator",
+        description: "rehearses a hard conversation",
+        config: { persona: "default", llmProvider: "anthropic", llmModel: "claude-sonnet-4-6" },
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    const body = (await response.json()) as {
+      ok: boolean;
+      agent: { name: string; provider: string; config: { llmModel: string } };
+    };
+    expect(body.ok).toBe(true);
+    expect(body.agent.name).toBe("negotiator");
+    expect(body.agent.provider).toBe("anthropic");
+    expect(body.agent.config.llmModel).toBe("claude-sonnet-4-6");
+    expect(agents.size).toBe(1);
+  });
+
+  it("names the offending field when the config is invalid, so a form can point at it", async () => {
+    const { run } = runnerForWritableAgents();
+    const handle = makeHandler(LOOPBACK, run);
+
+    const response = await handle(
+      jsonRequest("POST", "/agents", {
+        name: "broken",
+        config: { persona: "default", llmProvider: "gpt", llmModel: "gpt-4o" },
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { field: string; suggestion?: string };
+    expect(body.field).toBe("config.llmProvider");
+    expect(body.suggestion).toContain("anthropic");
+  });
+
+  it("refuses api keys rather than silently dropping them", async () => {
+    const { run, agents } = runnerForWritableAgents();
+    const handle = makeHandler(LOOPBACK, run);
+
+    const response = await handle(
+      jsonRequest("POST", "/agents", {
+        name: "leaky",
+        config: {
+          persona: "default",
+          llmProvider: "anthropic",
+          llmModel: "claude-sonnet-4-6",
+          llmApiKeys: { anthropic: "sk-should-not-be-stored" },
+        },
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.text()).toContain("keyring");
+    // The point of refusing over scrubbing: nothing was written, so the caller cannot
+    // believe a key was saved when it was not.
+    expect(agents.size).toBe(0);
+  });
+
+  it("reports a duplicate name as a conflict, not a validation error", async () => {
+    const { run } = runnerForWritableAgents([agentFixture()]);
+    const handle = makeHandler(LOOPBACK, run);
+
+    const response = await handle(
+      jsonRequest("POST", "/agents", {
+        name: "sonnet",
+        config: { persona: "default", llmProvider: "anthropic", llmModel: "claude-sonnet-4-6" },
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    expect((await response.json()) as { field: string }).toMatchObject({ field: "name" });
+  });
+
+  it("rejects a name the CLI would also reject", async () => {
+    const { run } = runnerForWritableAgents();
+    const handle = makeHandler(LOOPBACK, run);
+
+    const response = await handle(
+      jsonRequest("POST", "/agents", {
+        name: "not a valid name!",
+        config: { persona: "default", llmProvider: "anthropic", llmModel: "claude-sonnet-4-6" },
+      }),
+    );
+
+    expect(response.status).toBe(400);
+  });
+
+  it("rejects a body that is not a JSON object", async () => {
+    const { run } = runnerForWritableAgents();
+    const handle = makeHandler(LOOPBACK, run);
+
+    expect((await handle(jsonRequest("POST", "/agents", ["nope"]))).status).toBe(400);
+    expect(
+      (
+        await handle(
+          new Request("http://localhost/agents", { method: "POST", body: "not json at all" }),
+        )
+      ).status,
+    ).toBe(400);
+  });
+
+  it("rejects a body larger than the operator cap before buffering it", async () => {
+    const { run } = runnerForWritableAgents();
+    const handle = makeHandler(LOOPBACK, run);
+
+    const response = await handle(
+      new Request("http://localhost/agents", {
+        method: "POST",
+        headers: { "content-length": "999999" },
+        body: JSON.stringify({ name: "big" }),
+      }),
+    );
+
+    expect(response.status).toBe(413);
+  });
+
+  it("needs the daemon token, like every other route", async () => {
+    const { run } = runnerForWritableAgents();
+    const handle = makeHandler({ ...LOOPBACK, token: "s3cret" }, run);
+
+    const response = await handle(jsonRequest("POST", "/agents", { name: "nope" }));
+    expect(response.status).toBe(401);
+  });
+});
+
+describe("reading one agent over HTTP", () => {
+  it("answers with the whole config an editor needs", async () => {
+    const { run } = runnerForWritableAgents([agentFixture()]);
+    const handle = makeHandler(LOOPBACK, run);
+
+    const response = await handle(request("GET", "/agents/uGS8WAv4cGBiFH1wHB7r4E"));
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      agent: { config: Record<string, unknown>; apiKeyProviders: string[] };
+    };
+    expect(body.agent.config["tools"]).toEqual(["read_file", "http_request"]);
+    expect(body.agent.config["llmProvider"]).toBe("anthropic");
+  });
+
+  it("says which providers have a per-agent key without handing the key out", async () => {
+    const { run } = runnerForWritableAgents([agentFixture()]);
+    const handle = makeHandler(LOOPBACK, run);
+
+    const response = await handle(request("GET", "/agents/uGS8WAv4cGBiFH1wHB7r4E"));
+    const text = await response.text();
+    expect(text).not.toContain("sk-must-not-leak");
+    expect(JSON.parse(text) as { agent: { apiKeyProviders: string[] } }).toMatchObject({
+      agent: { apiKeyProviders: ["anthropic"] },
+    });
+  });
+
+  it("resolves an agent by name as well as by id", async () => {
+    const { run } = runnerForWritableAgents([agentFixture()]);
+    const handle = makeHandler(LOOPBACK, run);
+
+    const response = await handle(request("GET", "/agents/sonnet"));
+    expect(response.status).toBe(200);
+  });
+
+  it("answers 404 for an agent that does not exist", async () => {
+    const { run } = runnerForWritableAgents([agentFixture()]);
+    const handle = makeHandler(LOOPBACK, run);
+
+    expect((await handle(request("GET", "/agents/nobody"))).status).toBe(404);
+  });
+});
+
+describe("updating an agent over HTTP", () => {
+  it("merges the config rather than replacing it", async () => {
+    const { run } = runnerForWritableAgents([agentFixture()]);
+    const handle = makeHandler(LOOPBACK, run);
+
+    const response = await handle(
+      jsonRequest("PATCH", "/agents/uGS8WAv4cGBiFH1wHB7r4E", {
+        config: { llmModel: "claude-opus-4-6" },
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      agent: { model: string; config: { tools: string[]; persona: string } };
+    };
+    expect(body.agent.model).toBe("claude-opus-4-6");
+    // Untouched fields survive: this is what makes the route a PATCH.
+    expect(body.agent.config.tools).toEqual(["read_file", "http_request"]);
+    expect(body.agent.config.persona).toBe("default");
+  });
+
+  it("rejects an invalid value without writing anything", async () => {
+    const { run, agents } = runnerForWritableAgents([agentFixture()]);
+    const handle = makeHandler(LOOPBACK, run);
+
+    const response = await handle(
+      jsonRequest("PATCH", "/agents/uGS8WAv4cGBiFH1wHB7r4E", {
+        config: { temperature: 9 },
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect((await response.json()) as { field: string }).toMatchObject({
+      field: "config.temperature",
+    });
+    expect(agents.get("uGS8WAv4cGBiFH1wHB7r4E")?.config.temperature).toBeUndefined();
+  });
+
+  it("refuses api keys on update too", async () => {
+    const { run } = runnerForWritableAgents([agentFixture()]);
+    const handle = makeHandler(LOOPBACK, run);
+
+    const response = await handle(
+      jsonRequest("PATCH", "/agents/uGS8WAv4cGBiFH1wHB7r4E", {
+        config: { llmApiKeys: { anthropic: "sk-nope" } },
+      }),
+    );
+
+    expect(response.status).toBe(400);
+  });
+
+  it("answers 404 for an agent that does not exist", async () => {
+    const { run } = runnerForWritableAgents([]);
+    const handle = makeHandler(LOOPBACK, run);
+
+    const response = await handle(jsonRequest("PATCH", "/agents/ghost", { name: "renamed" }));
+    expect(response.status).toBe(404);
+  });
+});
+
+describe("deleting an agent over HTTP", () => {
+  it("removes it and reports the id it removed", async () => {
+    const { run, agents } = runnerForWritableAgents([agentFixture()]);
+    const handle = makeHandler(LOOPBACK, run);
+
+    const response = await handle(request("DELETE", "/agents/sonnet"));
+    expect(response.status).toBe(200);
+    expect((await response.json()) as { id: string }).toMatchObject({
+      id: "uGS8WAv4cGBiFH1wHB7r4E",
+    });
+    expect(agents.size).toBe(0);
+  });
+
+  it("answers 404 rather than pretending it deleted something", async () => {
+    const { run } = runnerForWritableAgents([]);
+    const handle = makeHandler(LOOPBACK, run);
+
+    expect((await handle(request("DELETE", "/agents/ghost"))).status).toBe(404);
+  });
+});
+
+describe("the operator door's auth boundary", () => {
+  it("answers a public route without a credential", async () => {
+    const handle = makeHandler({ ...LOOPBACK, token: "s3cret" }, runnerForAgents([]));
+
+    expect((await handle(request("GET", "/health"))).status).toBe(200);
+  });
+
+  it("hides whether an unknown path exists from a caller with no token", async () => {
+    // 401 rather than 404 on purpose: if unmatched paths answered 404 while real ones
+    // answered 401, anyone could map the door without holding the token.
+    const handle = makeHandler({ ...LOOPBACK, token: "s3cret" }, runnerForAgents([]));
+
+    expect((await handle(request("GET", "/nothing-here"))).status).toBe(401);
+  });
+
+  it("hides a real path addressed with the wrong method just the same", async () => {
+    const handle = makeHandler({ ...LOOPBACK, token: "s3cret" }, runnerForAgents([]));
+
+    expect((await handle(request("PUT", "/agents"))).status).toBe(401);
+  });
+
+  it("answers 404 for an unsupported method once the caller is authorized", async () => {
+    const handle = makeHandler(LOOPBACK, runnerForAgents([]));
+
+    expect((await handle(request("PUT", "/agents"))).status).toBe(404);
+  });
+
+  it("treats an undecodable path segment as an agent that does not exist", async () => {
+    // A malformed escape is not special-cased: it decodes to something, that something
+    // names no agent, and the answer is the same 404 any unknown name gets. What matters is
+    // that it does not fault.
+    const { run } = runnerForWritableAgents([agentFixture()]);
+    const handle = makeHandler(LOOPBACK, run);
+
+    const response = await handle(request("GET", "/agents/%E0%A4%A"));
+    expect(response.status).toBe(404);
+  });
+
+  it("does not let a path param swallow a segment separator", async () => {
+    // `:identifier` matches one segment, so this is a miss rather than an agent named
+    // "a/b" — otherwise a nested route added later would be shadowed by this one.
+    const handle = makeHandler(LOOPBACK, runnerForAgents([]));
+
+    expect((await handle(request("GET", "/agents/a/b"))).status).toBe(404);
+  });
+});
+
+describe("the menus an agent editor is built from", () => {
+  it("serves the same closed lists the validator enforces", async () => {
+    const handle = makeHandler(LOOPBACK, runnerForAgents([]));
+
+    const response = await handle(request("GET", "/catalog"));
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      providers: string[];
+      webSearchProviders: string[];
+      reasoningEfforts: string[];
+    };
+    // Compared against the arrays themselves, so a provider added to jazz without being
+    // served here — which would make the menu narrower than what is accepted — fails.
+    expect(body.providers).toEqual([...AVAILABLE_PROVIDERS]);
+    expect(body.webSearchProviders).toEqual([...WEB_SEARCH_PROVIDERS]);
+    expect(body.reasoningEfforts).toEqual([...REASONING_EFFORTS]);
+  });
+
+  it("refuses to list models for a provider that is not one", async () => {
+    const handle = makeHandler(LOOPBACK, runnerForAgents([]));
+
+    const response = await handle(request("GET", "/models?provider=gpt"));
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { field: string; suggestion: string };
+    expect(body.field).toBe("provider");
+    expect(body.suggestion).toContain("anthropic");
+  });
+
+  it("refuses a model listing with no provider at all", async () => {
+    const handle = makeHandler(LOOPBACK, runnerForAgents([]));
+
+    expect((await handle(request("GET", "/models"))).status).toBe(400);
+  });
+
+  it("lists the personas an agent can be given, without their prompts", async () => {
+    const personas = [
+      {
+        id: "builtin-default",
+        name: "default",
+        description: "the everyday one",
+        systemPrompt: "a long prompt nobody picking a persona needs",
+        tone: "neutral",
+        createdAt: new Date("2026-09-01T00:00:00Z"),
+        updatedAt: new Date("2026-09-01T00:00:00Z"),
+      },
+    ];
+    const service = { listPersonas: () => Effect.succeed(personas) } as unknown as PersonaService;
+    const handle = makeHandler(LOOPBACK, runnerProviding(PersonaServiceTag, service));
+
+    const response = await handle(request("GET", "/personas"));
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { personas: Record<string, unknown>[] };
+    expect(body.personas[0]).toEqual({
+      id: "builtin-default",
+      name: "default",
+      description: "the everyday one",
+      tone: "neutral",
+    });
+    expect(body.personas[0]).not.toHaveProperty("systemPrompt");
+  });
+
+  it("lists pickable tools with their categories, and leaves hidden ones out", async () => {
+    const registry = {
+      // `listAllTools` is the one that includes hidden tools; using it here would offer a
+      // caller something deliberately not offered, so the route must not reach for it.
+      listTools: () => Effect.succeed(["read_file", "web_search"]),
+      listAllTools: () => Effect.succeed(["read_file", "web_search", "ask_user"]),
+      listToolsByCategory: () => Effect.succeed({ filesystem: ["read_file"], web: ["web_search"] }),
+    } as unknown as ToolRegistry;
+    const handle = makeHandler(LOOPBACK, runnerProviding(ToolRegistryTag, registry));
+
+    const response = await handle(request("GET", "/tools"));
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      tools: string[];
+      categories: Record<string, string[]>;
+    };
+    expect(body.tools).toEqual(["read_file", "web_search"]);
+    expect(body.tools).not.toContain("ask_user");
+    expect(body.categories).toEqual({ filesystem: ["read_file"], web: ["web_search"] });
+  });
+
+  it("keeps the menus behind the daemon token", async () => {
+    const handle = makeHandler({ ...LOOPBACK, token: "s3cret" }, runnerForAgents([]));
+
+    for (const path of ["/catalog", "/models?provider=openai", "/personas", "/tools"]) {
+      expect((await handle(request("GET", path))).status).toBe(401);
+    }
+  });
+});
+
+describe("a handler that faults", () => {
+  it("answers a JSON 500 rather than letting the fault reach the socket", async () => {
+    // Worth pinning because it changed: a bare async handler let a throw propagate out to
+    // Bun.serve, and the door now catches it. The reply carries no detail — one of these
+    // doors answers callers holding no credential — and the fault goes to stderr.
+    const handle = makeHandler(LOOPBACK, () => {
+      throw new Error("boom");
+    });
+
+    const response = await handle(request("GET", "/agents"));
+    expect(response.status).toBe(500);
+    expect((await response.json()) as { error: string }).toMatchObject({
+      error: "internal error",
+    });
   });
 });
