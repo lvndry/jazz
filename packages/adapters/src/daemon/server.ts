@@ -30,6 +30,14 @@ import type { AgentService } from "@jazz/core/interfaces/agent-service";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { RunStoreTag } from "@jazz/core/interfaces/run-store";
 import type { ToolRegistry, ToolRequirements } from "@jazz/core/interfaces/tool-registry";
+import type { Agent, AgentConfig } from "@jazz/core/types/agent";
+import {
+  AgentAlreadyExistsError,
+  AgentConfigurationError,
+  AgentNotFoundError,
+  StorageNotFoundError,
+  ValidationError,
+} from "@jazz/core/types/errors";
 import type { PeerConfig } from "@jazz/core/types/peer";
 import { inviteStatus } from "@jazz/core/types/peer-invite";
 import type { ToolProgressEvent } from "@jazz/core/types/tools";
@@ -232,6 +240,41 @@ export function makeHandler(
 
     if (request.method === "GET" && url.pathname === "/agents") {
       return runEffect(listAgents());
+    }
+
+    if (request.method === "POST" && url.pathname === "/agents") {
+      const body = await readJsonBody(request);
+      if (body instanceof Response) return body;
+      const problem = configBodyProblem(body.config);
+      if (problem !== undefined) return json({ ok: false, error: problem }, 400);
+      return runEffect(createAgent(body));
+    }
+
+    const agentMatch = /^\/agents\/([^/]+)$/.exec(url.pathname);
+    const agentIdentifier = agentMatch?.[1];
+    if (agentIdentifier !== undefined) {
+      let identifier: string;
+      try {
+        identifier = decodeURIComponent(agentIdentifier);
+      } catch {
+        return json({ ok: false, error: "not found" }, 404);
+      }
+
+      if (request.method === "GET") {
+        return runEffect(showAgent(identifier));
+      }
+
+      if (request.method === "PATCH") {
+        const body = await readJsonBody(request);
+        if (body instanceof Response) return body;
+        const problem = configBodyProblem(body.config);
+        if (problem !== undefined) return json({ ok: false, error: problem }, 400);
+        return runEffect(updateAgent(identifier, body));
+      }
+
+      if (request.method === "DELETE") {
+        return runEffect(deleteAgent(identifier));
+      }
     }
 
     return json({ ok: false, error: "not found" }, 404);
@@ -519,6 +562,42 @@ const MAX_WEBHOOK_PAYLOAD_LENGTH = 1_048_576;
  * close. It is deliberately not the webhook cap, which a bearer token already gates.
  */
 const MAX_ANONYMOUS_PAYLOAD_LENGTH = 20_000;
+
+/**
+ * Cap on an operator body.
+ *
+ * The largest thing anyone legitimately sends here is an agent config, and the biggest part
+ * of one is `customTools`: 16 entries, each with a description and a JSON Schema. 64 KB
+ * leaves room for that without letting a token holder make the daemon buffer without bound.
+ */
+const MAX_OPERATOR_PAYLOAD_LENGTH = 64_000;
+
+/**
+ * What a create or update body may carry. Every field is `unknown`: the values are checked
+ * where they are used, and the agent service owns the rules for what a valid config is.
+ */
+interface AgentWriteBody {
+  readonly name?: unknown;
+  readonly description?: unknown;
+  readonly config?: unknown;
+}
+
+/** An operator body, parsed, or the response to send instead. */
+async function readJsonBody(request: Request): Promise<AgentWriteBody | Response> {
+  const raw = await readBody(request, MAX_OPERATOR_PAYLOAD_LENGTH);
+  if (raw instanceof Response) return raw;
+
+  let parsed: unknown;
+  try {
+    parsed = raw.length === 0 ? {} : JSON.parse(raw);
+  } catch {
+    return json({ ok: false, error: "body must be JSON" }, 400);
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return json({ ok: false, error: "body must be a JSON object" }, 400);
+  }
+  return parsed;
+}
 
 async function readBody(request: Request, limit: number): Promise<string | Response> {
   const declaredLength = request.headers.get("content-length");
@@ -961,28 +1040,170 @@ function listRuns() {
 }
 
 /**
- * The agents this daemon can run, for a caller choosing between them.
+ * One agent, as much of it as somebody choosing between them needs.
  *
  * Fields are projected one by one rather than returning the stored agent, because
  * `AgentConfig` carries `llmApiKeys` and a list endpoint is no place to hand those out.
+ */
+function projectAgentSummary(agent: Agent) {
+  return {
+    id: agent.id,
+    name: agent.name,
+    ...(agent.description !== undefined ? { description: agent.description } : {}),
+    persona: agent.config.persona,
+    provider: agent.config.llmProvider,
+    model: agent.config.llmModel,
+    tools: agent.config.tools ?? [],
+  };
+}
+
+/**
+ * One agent in full, for a caller that has to *edit* it rather than pick it.
+ *
+ * Kept separate from the summary because a list of agents is not the place to send every
+ * agent's custom tools and allowlists — an editor opens one at a time and asks for it here.
+ *
+ * `llmApiKeys` is destructured off rather than omitted field by field, so a secret-bearing
+ * field added to `AgentConfig` later cannot quietly start being served: the rest of the
+ * config passes through, and that one has to be put back deliberately to escape.
+ * `apiKeyProviders` names which providers have a per-agent override without revealing any
+ * of them, which is what an editor needs to show "key set" honestly rather than rendering
+ * a blank box that means either "unset" or "hidden".
+ */
+function projectAgentDetail(agent: Agent) {
+  const { llmApiKeys, ...config } = agent.config;
+  return {
+    ...projectAgentSummary(agent),
+    config,
+    apiKeyProviders: Object.keys(llmApiKeys ?? {}),
+    createdAt: agent.createdAt.toISOString(),
+    updatedAt: agent.updatedAt.toISOString(),
+  };
+}
+
+/**
+ * The status an agent-service failure deserves, and enough of it to fix the request.
+ *
+ * `AgentConfigurationError` carries the offending `field` and a `suggestion`, both of which
+ * are passed through: a caller with a form can put the message on the right input instead of
+ * showing a generic failure, which is the whole reason the error type carries them.
+ */
+function agentErrorResponse(error: unknown): Response {
+  if (error instanceof AgentConfigurationError) {
+    return json(
+      {
+        ok: false,
+        error: error.message,
+        field: error.field,
+        ...(error.suggestion !== undefined ? { suggestion: error.suggestion } : {}),
+      },
+      400,
+    );
+  }
+  if (error instanceof ValidationError) {
+    return json(
+      {
+        ok: false,
+        error: error.message,
+        field: error.field,
+        ...(error.suggestion !== undefined ? { suggestion: error.suggestion } : {}),
+      },
+      400,
+    );
+  }
+  if (error instanceof AgentAlreadyExistsError) {
+    return json(
+      {
+        ok: false,
+        error: `An agent called "${error.agentId}" already exists`,
+        field: "name",
+        ...(error.suggestion !== undefined ? { suggestion: error.suggestion } : {}),
+      },
+      409,
+    );
+  }
+  if (error instanceof StorageNotFoundError || error instanceof AgentNotFoundError) {
+    return json({ ok: false, error: "agent not found" }, 404);
+  }
+  return json({ ok: false, error: error instanceof Error ? error.message : String(error) }, 500);
+}
+
+/**
+ * Why a body cannot become an agent config, if it cannot.
+ *
+ * Only the things `validateAgentConfig` cannot see are checked here: that the config is an
+ * object at all, and that it does not carry `llmApiKeys`. Keys are refused rather than
+ * scrubbed — silently dropping one would look like it had been saved, and this door never
+ * hands them back, so a caller could not tell. They belong in the keyring, via the CLI.
+ */
+function configBodyProblem(config: unknown): string | undefined {
+  if (config === undefined) return undefined;
+  if (typeof config !== "object" || config === null || Array.isArray(config)) {
+    return "config must be a JSON object";
+  }
+  if ("llmApiKeys" in config) {
+    return "config.llmApiKeys cannot be set over HTTP — use `jazz agent edit` so the key goes to the keyring";
+  }
+  return undefined;
+}
+
+/**
+ * The agents this daemon can run, for a caller choosing between them.
  */
 function listAgents() {
   return Effect.gen(function* () {
     const agentService = yield* AgentServiceTag;
     const agents = yield* agentService.listAgents();
-    return json({
-      ok: true,
-      agents: agents.map((agent) => ({
-        id: agent.id,
-        name: agent.name,
-        ...(agent.description !== undefined ? { description: agent.description } : {}),
-        persona: agent.config.persona,
-        provider: agent.config.llmProvider,
-        model: agent.config.llmModel,
-        tools: agent.config.tools ?? [],
-      })),
-    });
+    return json({ ok: true, agents: agents.map(projectAgentSummary) });
   });
+}
+
+function showAgent(identifier: string) {
+  return Effect.gen(function* () {
+    const agent = yield* getAgentByIdentifier(identifier);
+    return json({ ok: true, agent: projectAgentDetail(agent) });
+  }).pipe(Effect.catchAll((error) => Effect.succeed(agentErrorResponse(error))));
+}
+
+function createAgent(body: AgentWriteBody) {
+  return Effect.gen(function* () {
+    const agentService = yield* AgentServiceTag;
+    const agent = yield* agentService.createAgent(
+      typeof body.name === "string" ? body.name : "",
+      typeof body.description === "string" ? body.description : undefined,
+      body.config ?? {},
+    );
+    return json({ ok: true, agent: projectAgentDetail(agent) }, 201);
+  }).pipe(Effect.catchAll((error) => Effect.succeed(agentErrorResponse(error))));
+}
+
+/**
+ * Merge a partial config into an agent's own.
+ *
+ * `updateAgent` merges shallowly, which is what makes this a PATCH: fields left out keep
+ * their stored value. The consequence worth knowing is that there is no way to *unset* an
+ * optional field through it — passing `null` sets it to null rather than removing it.
+ */
+function updateAgent(identifier: string, body: AgentWriteBody) {
+  return Effect.gen(function* () {
+    const agentService = yield* AgentServiceTag;
+    const existing = yield* getAgentByIdentifier(identifier);
+    const agent = yield* agentService.updateAgent(existing.id, {
+      ...(typeof body.name === "string" ? { name: body.name } : {}),
+      ...(typeof body.description === "string" ? { description: body.description } : {}),
+      ...(body.config !== undefined ? { config: body.config as AgentConfig } : {}),
+    });
+    return json({ ok: true, agent: projectAgentDetail(agent) });
+  }).pipe(Effect.catchAll((error) => Effect.succeed(agentErrorResponse(error))));
+}
+
+function deleteAgent(identifier: string) {
+  return Effect.gen(function* () {
+    const agentService = yield* AgentServiceTag;
+    const existing = yield* getAgentByIdentifier(identifier);
+    yield* agentService.deleteAgent(existing.id);
+    return json({ ok: true, id: existing.id });
+  }).pipe(Effect.catchAll((error) => Effect.succeed(agentErrorResponse(error))));
 }
 
 /** What a remote client needs to render and answer a parked run, one shape per pending kind. */
