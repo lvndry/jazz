@@ -703,6 +703,11 @@ export class InkStreamingRenderer implements StreamingRenderer {
     this.flushStreamBuffer();
     this.collapseReasoningRegion();
     store.finalizeStream();
+    // A complete event is the terminal boundary for the renderer, even when
+    // an execution path did not deliver a matching tool completion event.
+    // Clear the accumulator so a tool from this turn cannot reappear when the
+    // renderer is reused for the next turn.
+    this.acc.activeTools.clear();
 
     if (!this.hasStreamedText) {
       this.printFinalResponse(event);

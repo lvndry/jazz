@@ -592,6 +592,41 @@ describe("InkStreamingRenderer", () => {
       const last = setActivityCalls[setActivityCalls.length - 1];
       expect(last!.phase).toBe("idle");
     });
+
+    test("complete clears tools that have no matching completion event", async () => {
+      const renderer = createRenderer();
+      emitStreamStart(renderer);
+
+      Effect.runSync(
+        renderer.handleEvent({
+          type: "tool_execution_start",
+          toolName: "retrieve_tool_result",
+          toolCallId: "tc-stale",
+        }),
+      );
+      Effect.runSync(
+        renderer.handleEvent({
+          type: "complete",
+          response: completeResponse("done"),
+          totalDurationMs: 100,
+        }),
+      );
+
+      // A new turn must not inherit the previous turn's tool row.
+      emitStreamStart(renderer);
+      Effect.runSync(
+        renderer.handleEvent({
+          type: "tool_execution_start",
+          toolName: "http",
+          toolCallId: "tc-new",
+        }),
+      );
+      const latest = setActivityCalls.at(-1);
+      expect(latest?.phase).toBe("tool-execution");
+      if (latest?.phase === "tool-execution") {
+        expect(latest.tools.map((tool) => tool.toolCallId)).toEqual(["tc-new"]);
+      }
+    });
   });
 
   describe("sub-agent tool routing", () => {
