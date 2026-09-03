@@ -11,8 +11,7 @@ mock.module("@jazz/core/utils/models-dev", () => ({
     Promise.resolve(providerEntries.get(provider) ?? []),
 }));
 
-const { findAgentsWithCapability, isMediaCapability, suggestModelsForCapability } =
-  await import("./media-agents");
+const { findAgentsThatGenerate, suggestModelsForModality } = await import("./media-agents");
 
 function metadata(overrides: Partial<ModelsDevMetadata> = {}): ModelsDevMetadata {
   return {
@@ -42,21 +41,12 @@ function agent(name: string, model: `${string}/${string}`): Agent {
   };
 }
 
-describe("isMediaCapability", () => {
-  it("accepts the three media kinds and nothing else", () => {
-    expect(isMediaCapability("image")).toBe(true);
-    expect(isMediaCapability("audio")).toBe(true);
-    expect(isMediaCapability("video")).toBe(true);
-    expect(isMediaCapability("spreadsheet")).toBe(false);
-  });
-});
-
-describe("findAgentsWithCapability", () => {
+describe("findAgentsThatGenerate", () => {
   it("keeps only agents whose model produces that media", async () => {
     metadataByModel.set("gpt-image-1.5", metadata({ generatesImage: true }));
     metadataByModel.set("claude-sonnet-5", metadata());
 
-    const found = await findAgentsWithCapability(
+    const found = await findAgentsThatGenerate(
       [agent("artist", "openai/gpt-image-1.5"), agent("writer", "anthropic/claude-sonnet-5")],
       "image",
     );
@@ -70,7 +60,7 @@ describe("findAgentsWithCapability", () => {
     metadataByModel.set("draw-only", metadata({ generatesImage: true }));
     metadataByModel.set("draw-and-work", metadata({ generatesImage: true, supportsTools: true }));
 
-    const found = await findAgentsWithCapability(
+    const found = await findAgentsThatGenerate(
       [agent("a", "gemini/draw-only"), agent("b", "gemini/draw-and-work")],
       "image",
     );
@@ -81,26 +71,26 @@ describe("findAgentsWithCapability", () => {
 
   it("does not confuse one modality for another", async () => {
     metadataByModel.set("speaker", metadata({ generatesAudio: true }));
-    expect(await findAgentsWithCapability([agent("s", "gemini/speaker")], "image")).toEqual([]);
-    expect(await findAgentsWithCapability([agent("s", "gemini/speaker")], "audio")).toHaveLength(1);
+    expect(await findAgentsThatGenerate([agent("s", "gemini/speaker")], "image")).toEqual([]);
+    expect(await findAgentsThatGenerate([agent("s", "gemini/speaker")], "audio")).toHaveLength(1);
   });
 
   it("skips agents whose model id cannot be parsed or is unknown", async () => {
     // An unknown model reads the same as "cannot", which is the safe direction: claiming an
     // agent can generate when it cannot sends the user down a dead end.
     expect(
-      await findAgentsWithCapability(
+      await findAgentsThatGenerate(
         [agent("weird", "not-a-model-id" as `${string}/${string}`)],
         "image",
       ),
     ).toEqual([]);
-    expect(
-      await findAgentsWithCapability([agent("x", "openai/never-heard-of-it")], "image"),
-    ).toEqual([]);
+    expect(await findAgentsThatGenerate([agent("x", "openai/never-heard-of-it")], "image")).toEqual(
+      [],
+    );
   });
 });
 
-describe("suggestModelsForCapability", () => {
+describe("suggestModelsForModality", () => {
   function entry(id: string, meta: ModelsDevMetadata) {
     return {
       id,
@@ -118,7 +108,7 @@ describe("suggestModelsForCapability", () => {
       entry("with-tools", metadata({ generatesImage: true, supportsTools: true })),
     ]);
 
-    const suggestions = await suggestModelsForCapability("image", ["openai"]);
+    const suggestions = await suggestModelsForModality("image", ["openai"]);
     expect(suggestions[0]?.id).toBe("with-tools");
   });
 
@@ -128,7 +118,7 @@ describe("suggestModelsForCapability", () => {
       entry("google/gemini-3-pro-image", metadata({ generatesImage: true })),
     ]);
 
-    const ids = (await suggestModelsForCapability("image", ["openrouter"])).map((s) => s.id);
+    const ids = (await suggestModelsForModality("image", ["openrouter"])).map((s) => s.id);
     expect(ids).not.toContain("openrouter/auto");
     expect(ids).toContain("google/gemini-3-pro-image");
   });
@@ -145,11 +135,11 @@ describe("suggestModelsForCapability", () => {
       },
     ]);
 
-    expect(await suggestModelsForCapability("image", ["openai"])).toEqual([]);
+    expect(await suggestModelsForModality("image", ["openai"])).toEqual([]);
   });
 
   it("is empty when a provider has nothing for that capability", async () => {
     providerEntries.set("anthropic", [entry("claude", metadata())]);
-    expect(await suggestModelsForCapability("image", ["anthropic"])).toEqual([]);
+    expect(await suggestModelsForModality("image", ["anthropic"])).toEqual([]);
   });
 });

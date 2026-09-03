@@ -14,7 +14,7 @@ import {
   makeOneShotPresentationServiceLayer,
 } from "@jazz/core/presentation/oneshot-presentation-service";
 import { AgentNotFoundError } from "@jazz/core/types/errors";
-import type { PerceptionCapability } from "@jazz/core/types/llm";
+import type { CompanionRole } from "@jazz/core/types/llm";
 import type { ChatMessage } from "@jazz/core/types/message";
 import type { StreamEvent } from "@jazz/core/types/streaming";
 import type { AutoApprovePolicy } from "@jazz/core/types/tools";
@@ -120,7 +120,7 @@ export interface RunAgentOnceOptions {
    * A bound companion is what lets an unattended run delegate perception without
    * a human to pick the model.
    */
-  readonly companions?: Partial<Record<PerceptionCapability, `${string}/${string}`>> | undefined;
+  readonly companions?: Partial<Record<CompanionRole, `${string}/${string}`>> | undefined;
   readonly timeoutMs?: number | undefined;
   readonly maxIterations?: number | undefined;
   readonly maxCostUSD?: number | undefined;

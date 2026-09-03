@@ -10,6 +10,12 @@ import {
   parsePositiveFloat,
   parsePositiveInt,
 } from "@jazz/cli/utils/option-parsers";
+import {
+  companionRole,
+  isMediaModality,
+  MEDIA_MODALITIES,
+  type CompanionRole,
+} from "@jazz/core/types/llm";
 import { isPeerTier, PEER_TIERS } from "@jazz/core/types/peer";
 import { setCurrentCommandName } from "@jazz/core/utils/current-command";
 import { parseProviderModel } from "@jazz/core/utils/provider-model";
@@ -47,12 +53,6 @@ interface CliRunOptions {
 
 type AppLayerModule = typeof import("./app-layer");
 type CliCommandEffect = Parameters<AppLayerModule["runCliEffect"]>[0];
-
-const MEDIA_CAPABILITIES = ["image", "audio", "video"] as const;
-
-function isMediaCapability(value: string): value is (typeof MEDIA_CAPABILITIES)[number] {
-  return (MEDIA_CAPABILITIES as readonly string[]).includes(value);
-}
 
 function cliRuntimeOptions(program: Command): CliRuntimeOptions {
   const opts = program.opts<CliOptions>();
@@ -267,14 +267,32 @@ function registerRunCommand(program: Command): void {
           }
         }
 
-        const companionFlags: Record<string, string | undefined> = {
-          vision: options.withVision,
-          audio: options.withAudio,
-          video: options.withVideo,
-        };
-        for (const [capability, companion] of Object.entries(companionFlags)) {
+        // The `--with-*` flags name the modality only; every one of them binds the
+        // analysis side, since there is no generation delegation to bind yet.
+        const companionFlags: readonly {
+          readonly flag: string;
+          readonly role: CompanionRole;
+          readonly value: string | undefined;
+        }[] = [
+          {
+            flag: "--with-vision",
+            role: companionRole("analyze", "image"),
+            value: options.withVision,
+          },
+          {
+            flag: "--with-audio",
+            role: companionRole("analyze", "audio"),
+            value: options.withAudio,
+          },
+          {
+            flag: "--with-video",
+            role: companionRole("analyze", "video"),
+            value: options.withVideo,
+          },
+        ];
+        for (const { flag, value: companion } of companionFlags) {
           if (companion !== undefined && parseProviderModel(companion) === null) {
-            const message = `Invalid --with-${capability} "${companion}". Expected provider/model, e.g. anthropic/claude-sonnet-4-5.`;
+            const message = `Invalid ${flag} "${companion}". Expected provider/model, e.g. anthropic/claude-sonnet-4-5.`;
             if (json) {
               process.stdout.write(
                 `${JSON.stringify({ ok: false, error: message, costUSD: 0 })}\n`,
@@ -330,10 +348,12 @@ function registerRunCommand(program: Command): void {
                 ...(options.ephemeral === true ? { ephemeral: true } : {}),
                 ...(options.historyJson !== undefined ? { historyJson: options.historyJson } : {}),
                 ...(options.park === true ? { park: true } : {}),
-                ...(Object.values(companionFlags).some((value) => value !== undefined)
+                ...(companionFlags.some((entry) => entry.value !== undefined)
                   ? {
                       companions: Object.fromEntries(
-                        Object.entries(companionFlags).filter((entry) => entry[1] !== undefined),
+                        companionFlags
+                          .filter((entry) => entry.value !== undefined)
+                          .map((entry) => [entry.role, entry.value]),
                       ),
                     }
                   : {}),
@@ -362,9 +382,9 @@ function registerAgentCommands(program: Command): void {
     )
     .action((commandOptions: { can?: string }) => {
       const requested = commandOptions.can;
-      if (requested !== undefined && !isMediaCapability(requested)) {
+      if (requested !== undefined && !isMediaModality(requested)) {
         console.error(
-          `Unknown capability "${requested}". Use one of: ${MEDIA_CAPABILITIES.join(", ")}`,
+          `Unknown media kind "${requested}". Use one of: ${MEDIA_MODALITIES.join(", ")}`,
         );
         process.exitCode = 1;
         return;

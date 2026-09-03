@@ -13,7 +13,7 @@ import { REASONING_EFFORTS } from "@jazz/core/types/agent";
 import type { Agent } from "@jazz/core/types/agent";
 import { WEB_SEARCH_PROVIDERS } from "@jazz/core/types/config";
 import { StorageNotFoundError } from "@jazz/core/types/errors";
-import { PERCEPTION_CAPABILITIES } from "@jazz/core/types/llm";
+import { COMPANION_ROLES } from "@jazz/core/types/llm";
 import { isLoopbackProgressUrl, parseProgressEvents } from "@jazz/core/types/webhook";
 import type { WebhookConfig } from "@jazz/core/types/webhook";
 import { getJazzHomeDirectory, getWorkStateDirectory } from "@jazz/core/utils/paths";
@@ -1017,33 +1017,52 @@ describe("the menus an agent editor is built from", () => {
     expect(body.reasoningEfforts).toEqual([...REASONING_EFFORTS]);
   });
 
-  it("names the modalities a companion can be bound for", async () => {
+  it("names the roles a companion can be bound for", async () => {
     const handle = makeHandler(LOOPBACK, runnerForAgents([]));
 
     const response = await handle(request("GET", "/catalog"));
-    const body = (await response.json()) as { perceptionCapabilities: string[] };
-    // Compared against the array itself, so a modality added to jazz without being served
+    const body = (await response.json()) as { companionRoles: string[] };
+    // Compared against the array itself, so a role added to jazz without being served
     // here — which would leave a companion picker unable to offer it — fails.
-    expect(body.perceptionCapabilities).toEqual([...PERCEPTION_CAPABILITIES]);
+    expect(body.companionRoles).toEqual([...COMPANION_ROLES]);
   });
 
-  it("refuses a capability that is not one, naming the ones that are", async () => {
+  it("serves the two directions of one modality as separate roles", async () => {
+    // The whole point of the role key: a client binding an image companion has to be able
+    // to ask for the model that reads images separately from the one that draws them.
     const handle = makeHandler(LOOPBACK, runnerForAgents([]));
 
-    const response = await handle(request("GET", "/models?provider=openai&capability=smell"));
+    const response = await handle(request("GET", "/catalog"));
+    const body = (await response.json()) as { companionRoles: string[] };
+    expect(body.companionRoles).toContain("analyze:image");
+    expect(body.companionRoles).toContain("generate:image");
+  });
+
+  it("refuses a role that is not one, naming the ones that are", async () => {
+    const handle = makeHandler(LOOPBACK, runnerForAgents([]));
+
+    const response = await handle(request("GET", "/models?provider=openai&role=smell"));
     expect(response.status).toBe(400);
     const body = (await response.json()) as { field: string; suggestion: string };
-    expect(body.field).toBe("capability");
-    expect(body.suggestion).toContain("vision");
+    expect(body.field).toBe("role");
+    expect(body.suggestion).toContain("analyze:image");
   });
 
-  it("checks the capability before the provider, so both mistakes are reported", async () => {
-    // A request wrong in two ways should not report only whichever check happens to run
-    // first — the capability is the more specific mistake, so it is the one worth naming.
+  it("refuses a bare modality, which is no longer a role on its own", async () => {
     const handle = makeHandler(LOOPBACK, runnerForAgents([]));
 
-    const response = await handle(request("GET", "/models?provider=gpt&capability=smell"));
-    expect(((await response.json()) as { field: string }).field).toBe("capability");
+    const response = await handle(request("GET", "/models?provider=openai&role=image"));
+    expect(response.status).toBe(400);
+    expect(((await response.json()) as { field: string }).field).toBe("role");
+  });
+
+  it("checks the role before the provider, so both mistakes are reported", async () => {
+    // A request wrong in two ways should not report only whichever check happens to run
+    // first — the role is the more specific mistake, so it is the one worth naming.
+    const handle = makeHandler(LOOPBACK, runnerForAgents([]));
+
+    const response = await handle(request("GET", "/models?provider=gpt&role=smell"));
+    expect(((await response.json()) as { field: string }).field).toBe("role");
   });
 
   it("refuses to list models for a provider that is not one", async () => {

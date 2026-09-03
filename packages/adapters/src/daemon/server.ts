@@ -47,8 +47,8 @@ import {
   StorageNotFoundError,
   ValidationError,
 } from "@jazz/core/types/errors";
-import { PERCEPTION_CAPABILITIES, isPerceptionCapability } from "@jazz/core/types/llm";
-import type { PerceptionCapability } from "@jazz/core/types/llm";
+import { COMPANION_ROLES, isCompanionRole } from "@jazz/core/types/llm";
+import type { CompanionRole } from "@jazz/core/types/llm";
 import type { ModelInfo } from "@jazz/core/types/llm";
 import type { PeerConfig } from "@jazz/core/types/peer";
 import { inviteStatus } from "@jazz/core/types/peer-invite";
@@ -1212,9 +1212,11 @@ function listCatalog(): Response {
     providers: AVAILABLE_PROVIDERS,
     webSearchProviders: WEB_SEARCH_PROVIDERS,
     reasoningEfforts: REASONING_EFFORTS,
-    // The modalities an agent can bind a companion for. Served rather than left to each
-    // client to spell out, for the same reason as every other list here.
-    perceptionCapabilities: PERCEPTION_CAPABILITIES,
+    // The roles an agent can bind a companion for, each `"<action>:<modality>"`. Served
+    // rather than left to each client to spell out, for the same reason as every other
+    // list here. Action is part of the key because reading a modality and producing it
+    // are different models: `analyze:image` and `generate:image` bind independently.
+    companionRoles: COMPANION_ROLES,
   });
 }
 
@@ -1248,7 +1250,7 @@ function projectModel(model: ModelInfo) {
   };
 }
 
-function listModels(provider: ProviderName, capability?: PerceptionCapability) {
+function listModels(provider: ProviderName, role?: CompanionRole) {
   return Effect.gen(function* () {
     const configService = yield* AgentConfigServiceTag;
     const appConfig = yield* configService.appConfig;
@@ -1264,8 +1266,8 @@ function listModels(provider: ProviderName, capability?: PerceptionCapability) {
     return json({
       ok: true,
       provider,
-      ...(capability !== undefined ? { capability } : {}),
-      models: capableFirst(models, capability).map(projectModel),
+      ...(role !== undefined ? { role } : {}),
+      models: capableFirst(models, role).map(projectModel),
     });
   }).pipe(
     Effect.timeout(MODEL_LISTING_TIMEOUT),
@@ -1285,7 +1287,7 @@ function listModels(provider: ProviderName, capability?: PerceptionCapability) {
 }
 
 /**
- * The models that accept `capability`, in jazz's own order, or all of them.
+ * The models that can do `role`, in jazz's own order, or all of them.
  *
  * Filtering and ordering both come from `filterCapableModels` rather than being redone here:
  * "capable, best first" already means something specific in jazz — priced models before
@@ -1295,11 +1297,11 @@ function listModels(provider: ProviderName, capability?: PerceptionCapability) {
  */
 function capableFirst(
   models: readonly ModelInfo[],
-  capability: PerceptionCapability | undefined,
+  role: CompanionRole | undefined,
 ): readonly ModelInfo[] {
-  if (capability === undefined) return models;
+  if (role === undefined) return models;
   const byId = new Map(models.map((model) => [model.id, model]));
-  return filterCapableModels(models, capability)
+  return filterCapableModels(models, role)
     .map((capable) => byId.get(capable.modelId))
     .filter((model): model is ModelInfo => model !== undefined);
 }
@@ -1310,15 +1312,15 @@ function modelsRoute(
 ): Promise<Response> {
   const parameters = new URL(request.url).searchParams;
   const provider = parameters.get("provider") ?? "";
-  const requested = parameters.get("capability");
-  if (requested !== null && !isPerceptionCapability(requested)) {
+  const requested = parameters.get("role");
+  if (requested !== null && !isCompanionRole(requested)) {
     return Promise.resolve(
       json(
         {
           ok: false,
-          error: `Unknown capability ${JSON.stringify(requested)}`,
-          field: "capability",
-          suggestion: `Use one of: ${PERCEPTION_CAPABILITIES.join(", ")}.`,
+          error: `Unknown companion role ${JSON.stringify(requested)}`,
+          field: "role",
+          suggestion: `Use one of: ${COMPANION_ROLES.join(", ")}.`,
         },
         400,
       ),

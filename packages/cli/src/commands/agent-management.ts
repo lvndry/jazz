@@ -10,6 +10,7 @@ import { JazzStateServiceTag, type JazzStateService } from "@jazz/core/interface
 import { ink, TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
 import type { Agent } from "@jazz/core/types/agent";
 import { CLIError, StorageError, StorageNotFoundError } from "@jazz/core/types/errors";
+import type { MediaModality } from "@jazz/core/types/llm";
 import { agentModelString, formatProviderDisplayName } from "@jazz/core/utils/provider-model";
 import chalk from "chalk";
 import { Effect } from "effect";
@@ -22,11 +23,7 @@ import {
   truncateMiddle,
   wrapCommaList,
 } from "@/cli/utils/string-utils";
-import {
-  findAgentsWithCapability,
-  type MediaCapability,
-  suggestModelsForCapability,
-} from "./media-agents";
+import { findAgentsThatGenerate, suggestModelsForModality } from "./media-agents";
 import { AgentDetailsCard } from "../ui/AgentDetailsCard";
 import { AgentsList } from "../ui/AgentsList";
 
@@ -164,19 +161,19 @@ function formatAgentsListBlock(
  * Jazz cannot generate media on a model that does not do it — there is no tool to fall back on —
  * so "none of your agents can" has to come with the next step attached, or it is a dead end.
  */
-function listAgentsWithCapability(
+function listAgentsThatGenerate(
   agents: readonly Agent[],
-  capability: MediaCapability,
+  modality: MediaModality,
   terminal: TerminalService,
 ): Effect.Effect<void, never, never> {
   return Effect.gen(function* () {
     const capable = yield* Effect.tryPromise({
-      try: () => findAgentsWithCapability(agents, capability),
+      try: () => findAgentsThatGenerate(agents, modality),
       catch: (error) => error,
     }).pipe(Effect.catchAll(() => Effect.succeed([])));
 
     if (capable.length > 0) {
-      yield* terminal.log(`Agents that can generate ${capability}:\n`);
+      yield* terminal.log(`Agents that can generate ${modality}:\n`);
       for (const { agent, supportsTools } of capable) {
         // Naming the tool gap matters: most media models cannot call tools at all, so an agent
         // that draws may be unable to read a file or search the web.
@@ -187,19 +184,19 @@ function listAgentsWithCapability(
       return;
     }
 
-    yield* terminal.log(`None of your agents can generate ${capability}.\n`);
+    yield* terminal.log(`None of your agents can generate ${modality}.\n`);
 
     const providers = [...new Set(agents.map((agent) => agent.config.llmProvider))].filter(
       (provider) => provider.length > 0,
     );
     const suggestions = yield* Effect.tryPromise({
-      try: () => suggestModelsForCapability(capability, providers),
+      try: () => suggestModelsForModality(modality, providers),
       catch: (error) => error,
     }).pipe(Effect.catchAll(() => Effect.succeed([])));
 
     if (suggestions.length === 0) {
       yield* terminal.log(
-        `No model from your configured providers generates ${capability}. Gemini models are the ` +
+        `No model from your configured providers generates ${modality}. Gemini models are the ` +
           `most common source; add that provider with: jazz config set llm.gemini.api_key <key>`,
       );
       return;
@@ -226,7 +223,7 @@ function listAgentsWithCapability(
  *
  */
 export function listAgentsCommand(
-  options: { readonly can?: MediaCapability } = {},
+  options: { readonly can?: MediaModality } = {},
 ): Effect.Effect<
   void,
   StorageError,
@@ -243,7 +240,7 @@ export function listAgentsCommand(
     }
 
     if (options.can !== undefined) {
-      yield* listAgentsWithCapability(agentsUnsorted, options.can, terminal);
+      yield* listAgentsThatGenerate(agentsUnsorted, options.can, terminal);
       return;
     }
 

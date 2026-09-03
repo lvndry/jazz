@@ -12,7 +12,7 @@
  *   picker-style approval options (`ApprovalRequest.options`); the executor renders
  *   them like any approval card and never auto-approves them — there is nothing to
  *   approve until somebody picked a row.
- * - **A pre-bound companion, unattended.** `config.companions[capability]` names a
+ * - **A pre-bound companion, unattended.** `config.companions["analyze:<modality>"]` names a
  *   `"provider/model"` chosen ahead of time; binding it *is* the consent, so bound runs
  *   skip the prompt entirely — which is what makes cron and bridge runs work where no
  *   one can answer a picker.
@@ -36,12 +36,14 @@ import type { ToolExecutionContext } from "@/core/types/tools";
 import { generateConversationId } from "@/core/utils/conversation-id";
 import { resolveMediaAttachments } from "@/core/utils/media-attachments";
 import {
-  attachmentKindForCapability,
-  describeCapability,
+  companionRole,
+  describeRole,
   filterCapableModels,
   formatModelPriceLine,
+  modelSupportsRole,
   type CapableModel,
-  type PerceptionCapability,
+  type CompanionRole,
+  type MediaModality,
 } from "@/core/utils/model-capabilities";
 import { getModelsDevProviderModels } from "@/core/utils/models-dev";
 import { agentModelString, parseProviderModel } from "@/core/utils/provider-model";
@@ -61,10 +63,10 @@ const COMPANION_MAX_ITERATIONS = 4;
 export const SELECTED_OPTION_KEY = "_selectedOptionId";
 
 const analyzeMediaSchema = z.object({
-  capability: z
-    .enum(["vision", "audio", "video"])
+  modality: z
+    .enum(["image", "audio", "video"])
     .describe(
-      "Which modality to delegate: vision for images, audio for recordings, video for clips.",
+      "Which media kind to delegate: image for pictures, audio for recordings, video for clips.",
     ),
   task: z
     .string()
@@ -81,6 +83,15 @@ const analyzeMediaSchema = z.object({
 });
 
 type AnalyzeMediaArgs = z.infer<typeof analyzeMediaSchema>;
+
+/**
+ * The role these tools delegate. `analyze_media` only ever reads media, so the action
+ * half is fixed here rather than asked of the model — the modality is the only choice
+ * it has to make.
+ */
+function roleFor(modality: MediaModality): CompanionRole {
+  return companionRole("analyze", modality);
+}
 
 type ExecuteArgs = AnalyzeMediaArgs & { readonly [SELECTED_OPTION_KEY]?: string };
 
@@ -118,10 +129,7 @@ interface CandidateList {
   readonly missingKeyProviders: readonly string[];
 }
 
-function listCandidates(
-  capability: PerceptionCapability,
-): Effect.Effect<CandidateList, never, LLMService> {
-  const modality = attachmentKindForCapability(capability);
+function listCandidates(role: CompanionRole): Effect.Effect<CandidateList, never, LLMService> {
   return Effect.gen(function* () {
     const llmService = yield* LLMServiceTag;
     const providerItems = yield* llmService.listProviders();
@@ -131,13 +139,13 @@ function listCandidates(
 
     for (const item of providerItems) {
       if (!item.configured) {
-        const hasCapable = yield* Effect.promise(() => catalogHasCapability(item.name, modality));
+        const hasCapable = yield* Effect.promise(() => catalogHasRole(item.name, role));
         if (hasCapable) missingKeyProviders.push(item.name);
         continue;
       }
       const provider = yield* llmService.getProvider(item.name).pipe(Effect.option);
       if (Option.isNone(provider)) continue;
-      for (const model of filterCapableModels(provider.value.supportedModels, capability)) {
+      for (const model of filterCapableModels(provider.value.supportedModels, role)) {
         available.push({
           id: `${item.name}/${model.modelId}` as `${string}/${string}`,
           provider: item.name,
@@ -149,20 +157,15 @@ function listCandidates(
   });
 }
 
-/** Whether the catalog lists any conversational model with this input modality for a provider. */
-async function catalogHasCapability(
-  providerId: string,
-  modality: "image" | "audio" | "video",
-): Promise<boolean> {
+/** Whether the catalog lists any conversational model that can do this role for a provider. */
+async function catalogHasRole(providerId: string, role: CompanionRole): Promise<boolean> {
   try {
     const entries = await getModelsDevProviderModels(providerId);
     return entries.some((entry) => {
       if (entry.status === "deprecated") return false;
       if (!entry.inputModalities.includes("text")) return false;
       if (!entry.outputModalities.includes("text")) return false;
-      if (modality === "image") return entry.metadata.ingestImage;
-      if (modality === "audio") return entry.metadata.ingestAudio;
-      return entry.metadata.ingestVideo;
+      return modelSupportsRole(entry.metadata, role);
     });
   } catch {
     return false;
@@ -172,7 +175,7 @@ async function catalogHasCapability(
 function buildCompanionAgent(
   parentAgent: Agent,
   selectedId: `${string}/${string}`,
-  capability: PerceptionCapability,
+  role: CompanionRole,
   counter: number,
 ): Agent | null {
   const parsed = parseProviderModel(selectedId);
@@ -180,8 +183,8 @@ function buildCompanionAgent(
   const now = new Date();
   return {
     id: `companion-${counter}-${Date.now()}`,
-    name: `Model Companion (${capability})`,
-    description: `Ephemeral ${describeCapability(capability)} companion delegated by ${parentAgent.name}`,
+    name: `Model Companion (${role})`,
+    description: `Ephemeral ${describeRole(role)} companion delegated by ${parentAgent.name}`,
     config: {
       persona: "default",
       llmProvider: parsed.provider,
@@ -192,10 +195,10 @@ function buildCompanionAgent(
   };
 }
 
-function wrapTask(task: string, capability: PerceptionCapability): string {
+function wrapTask(task: string, role: CompanionRole): string {
   return `[MODEL COMPANION TASK]
 You are a perception specialist. A parent agent delegated media to you because its own model
-cannot perform ${describeCapability(capability)}. This is a ONE-SHOT task.
+cannot perform ${describeRole(role)}. This is a ONE-SHOT task.
 
 Rules:
 - Answer strictly from the attached media and the task below
@@ -232,13 +235,13 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
       yield* logger.info("Running model companion", {
         parentAgentId: parentAgent.id,
         companionModel: agentModelString(companionAgent.config),
-        capability: args.capability,
+        role: roleFor(args.modality),
         attachmentCount: attachments.length,
       });
 
       const response = yield* AgentRunner.runRecursive({
         agent: companionAgent,
-        userInput: wrapTask(args.task, args.capability),
+        userInput: wrapTask(args.task, roleFor(args.modality)),
         conversationId: generateConversationId("companion"),
         maxIterations: COMPANION_MAX_ITERATIONS,
         ephemeralRegionId: regionId,
@@ -322,9 +325,8 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
           };
         }
 
-        const expectedKind = attachmentKindForCapability(args.capability);
         const resolution = yield* Effect.tryPromise({
-          try: () => resolveMediaAttachments(args.mediaPaths, expectedKind),
+          try: () => resolveMediaAttachments(args.mediaPaths, args.modality),
           catch: (error) => new Error(String(error)),
         });
         if (resolution.errors.length > 0 || resolution.attachments.length === 0) {
@@ -340,19 +342,20 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
 
         // Standing consent: a pre-bound companion needs no picker. This is also the
         // only path an unattended run can take, which is why binding matters.
-        const boundCompanion = parentAgent.config.companions?.[args.capability];
+        const role = roleFor(args.modality);
+        const boundCompanion = parentAgent.config.companions?.[role];
         if (boundCompanion) {
           const companionAgent = buildCompanionAgent(
             parentAgent,
             boundCompanion,
-            args.capability,
+            role,
             ++companionCounter,
           );
           if (companionAgent === null) {
             return {
               success: false,
               result: null,
-              error: `Bound ${args.capability} companion "${boundCompanion}" is not a valid provider/model id.`,
+              error: `Bound ${role} companion "${boundCompanion}" is not a valid provider/model id.`,
             };
           }
           const content = yield* runCompanion(
@@ -365,7 +368,7 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
           return { success: true, result: content };
         }
 
-        let candidateList = yield* listCandidates(args.capability);
+        let candidateList = yield* listCandidates(role);
 
         if (candidateList.available.length === 0) {
           const canPrompt = presentation.canPromptForApproval?.() === true;
@@ -377,7 +380,7 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
             if (Option.isSome(terminalOption)) {
               const terminal = terminalOption.value;
               const wantsKey = yield* terminal.confirm(
-                `No ${args.capability}-capable model is reachable yet. Add an API key now?`,
+                `No model that can do ${describeRole(role)} is reachable yet. Add an API key now?`,
                 true,
               );
               if (wantsKey) {
@@ -399,7 +402,7 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
                     const configService = yield* AgentConfigServiceTag;
                     yield* configService.set(`llm.${provider}.api_key`, apiKey.trim());
                     yield* terminal.success("API key saved.");
-                    candidateList = yield* listCandidates(args.capability);
+                    candidateList = yield* listCandidates(role);
                   }
                 }
               }
@@ -411,13 +414,13 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
           const canPrompt = presentation.canPromptForApproval?.() === true;
           const keyHint =
             candidateList.missingKeyProviders.length > 0
-              ? ` No ${args.capability}-capable model is reachable yet: adding an API key for ${candidateList.missingKeyProviders.join(", ")} would fix this.`
-              : ` No provider in the catalog currently offers a conversational model with ${describeCapability(args.capability)}.`;
+              ? ` No model that can do ${describeRole(role)} is reachable yet: adding an API key for ${candidateList.missingKeyProviders.join(", ")} would fix this.`
+              : ` No provider in the catalog currently offers a conversational model with ${describeRole(role)}.`;
           const message = canPrompt
-            ? `Cannot delegate ${args.capability}.${keyHint}`
-            : `Cannot delegate ${args.capability}: nobody can pick a companion in this session.${keyHint} Bind one ahead of time with \`jazz agent edit\` (companions).`;
+            ? `Cannot delegate ${role}.${keyHint}`
+            : `Cannot delegate ${role}: nobody can pick a companion in this session.${keyHint} Bind one ahead of time with \`jazz agent edit\` (companions).`;
           yield* logger.info("analyze_media found no capable models", {
-            capability: args.capability,
+            role,
             missingKeyProviders: candidateList.missingKeyProviders,
           });
           return { success: false, result: null, error: message };
@@ -437,7 +440,7 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
           result: {
             approvalRequired: true,
             message:
-              `Delegate ${args.capability} analysis to a capable model.\n` +
+              `Delegate ${args.modality} analysis to a capable model.\n` +
               `Media: ${described}\nTask: ${args.task}`,
             executeToolName: "execute_analyze_media",
             executeArgs: args as unknown as Record<string, unknown>,
@@ -473,7 +476,7 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
         const companionAgent = buildCompanionAgent(
           parentAgent,
           selectedId as `${string}/${string}`,
-          args.capability,
+          roleFor(args.modality),
           ++companionCounter,
         );
         if (companionAgent === null) {
@@ -483,9 +486,8 @@ export function createPerceptionTools(): Tool<ToolRequirements>[] {
             error: `Picked companion "${selectedId}" is not a valid provider/model id.`,
           };
         }
-        const expectedKind = attachmentKindForCapability(args.capability);
         const resolution = yield* Effect.tryPromise({
-          try: () => resolveMediaAttachments(args.mediaPaths, expectedKind),
+          try: () => resolveMediaAttachments(args.mediaPaths, args.modality),
           catch: (error) => new Error(String(error)),
         });
         if (resolution.attachments.length === 0) {

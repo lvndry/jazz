@@ -12,6 +12,8 @@
 
 import { OPENROUTER_GATEWAY_MODELS } from "@jazz/core/constants/models";
 import type { Agent } from "@jazz/core/types/agent";
+import { companionRole, type MediaModality } from "@jazz/core/types/llm";
+import { modelSupportsRole } from "@jazz/core/utils/model-capabilities";
 import {
   getModelsDevMetadata,
   getModelsDevProviderModels,
@@ -19,23 +21,12 @@ import {
   type ModelsDevModelEntry,
 } from "@jazz/core/utils/models-dev";
 
-/** The media an agent can be asked to produce. */
-export type MediaCapability = "image" | "audio" | "video";
-
-export const MEDIA_CAPABILITIES: readonly MediaCapability[] = ["image", "audio", "video"];
-
-export function isMediaCapability(value: string): value is MediaCapability {
-  return (MEDIA_CAPABILITIES as readonly string[]).includes(value);
-}
-
-function metadataHasCapability(
+function metadataGenerates(
   metadata: ModelsDevMetadata | undefined,
-  capability: MediaCapability,
+  modality: MediaModality,
 ): boolean {
   if (metadata === undefined) return false;
-  if (capability === "image") return metadata.generatesImage;
-  if (capability === "audio") return metadata.generatesAudio;
-  return metadata.generatesVideo;
+  return modelSupportsRole(metadata, companionRole("generate", modality));
 }
 
 export interface CapableAgent {
@@ -45,16 +36,16 @@ export interface CapableAgent {
 }
 
 /**
- * The agents whose model produces `capability`.
+ * The agents whose model produces `modality`.
  *
  * `supportsTools` rides along because it is the difference between an agent that can draw *and*
  * work, and one that can only draw — most image models report `tool_call: false`, so an agent on
  * `gemini-3-pro-image` cannot read a file or search the web. Someone choosing between two image
  * agents needs to know that before they pick.
  */
-export async function findAgentsWithCapability(
+export async function findAgentsThatGenerate(
   agents: readonly Agent[],
-  capability: MediaCapability,
+  modality: MediaModality,
 ): Promise<CapableAgent[]> {
   const capable: CapableAgent[] = [];
   for (const agent of agents) {
@@ -66,7 +57,7 @@ export async function findAgentsWithCapability(
       // better to say about this one than "unknown", which reads the same as "no".
       continue;
     }
-    if (metadataHasCapability(metadata, capability)) {
+    if (metadataGenerates(metadata, modality)) {
       capable.push({ agent, supportsTools: metadata?.supportsTools === true });
     }
   }
@@ -74,13 +65,13 @@ export async function findAgentsWithCapability(
 }
 
 /**
- * Models that could back a new agent for this capability, best first.
+ * Models that could back a new agent for this modality, best first.
  *
  * Tool-capable models are ranked first because an agent that can only produce media is a much
  * narrower thing than one that can also do the work around it.
  */
-export async function suggestModelsForCapability(
-  capability: MediaCapability,
+export async function suggestModelsForModality(
+  modality: MediaModality,
   providers: readonly string[],
   limit = 4,
 ): Promise<{ id: string; provider: string; supportsTools: boolean }[]> {
@@ -98,7 +89,7 @@ export async function suggestModelsForCapability(
       // A router advertises what it might reach. Recommending it for image generation would send
       // someone to a model that may or may not be able to do the thing they asked for.
       if (OPENROUTER_GATEWAY_MODELS.has(entry.id)) continue;
-      if (!metadataHasCapability(entry.metadata, capability)) continue;
+      if (!metadataGenerates(entry.metadata, modality)) continue;
       // Only models jazz will let you select: it must hold a conversation.
       if (!entry.inputModalities.includes("text") || !entry.outputModalities.includes("text")) {
         continue;

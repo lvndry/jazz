@@ -606,7 +606,29 @@ describe("AgentService", () => {
     it("accepts a well-formed companions map", async () => {
       const program = service.validateAgentConfig({
         ...baseConfig,
-        companions: { vision: "anthropic/claude-sonnet-4-5", audio: "gemini/gemini-2.0-flash" },
+        companions: {
+          "analyze:image": "anthropic/claude-sonnet-4-5",
+          "analyze:audio": "gemini/gemini-2.0-flash",
+        },
+      });
+      await expect(Effect.runPromise(program)).resolves.toBeUndefined();
+    });
+
+    it("binds the two directions of one modality to different models", async () => {
+      const program = service.validateAgentConfig({
+        ...baseConfig,
+        companions: {
+          "analyze:image": "anthropic/claude-sonnet-4-5",
+          "generate:image": "gemini/gemini-3-pro-image",
+        },
+      });
+      await expect(Effect.runPromise(program)).resolves.toBeUndefined();
+    });
+
+    it("still accepts pre-role companion keys from stored configs", async () => {
+      const program = service.validateAgentConfig({
+        ...baseConfig,
+        companions: { vision: "anthropic/claude-sonnet-4-5" } as never,
       });
       await expect(Effect.runPromise(program)).resolves.toBeUndefined();
     });
@@ -616,7 +638,7 @@ describe("AgentService", () => {
       await expect(Effect.runPromise(program)).resolves.toBeUndefined();
     });
 
-    it("rejects an unknown capability key", async () => {
+    it("rejects an unknown role key", async () => {
       const program = service.validateAgentConfig({
         ...baseConfig,
         companions: { smell: "anthropic/claude-sonnet-4-5" } as never,
@@ -634,14 +656,14 @@ describe("AgentService", () => {
       const program = service.validateAgentConfig({
         ...baseConfig,
         // Deliberately malformed — this is what the test is asserting gets rejected.
-        companions: { vision: "just-a-model-name" as `${string}/${string}` },
+        companions: { "analyze:image": "just-a-model-name" as `${string}/${string}` },
       });
       const result = await Effect.runPromiseExit(program);
       expect(result._tag).toBe("Failure");
       if (result._tag === "Failure") {
         // @ts-expect-error - accessing error
         const error = result.cause.error as AgentConfigurationError;
-        expect(error.field).toBe("config.companions.vision");
+        expect(error.field).toBe("config.companions.analyze:image");
       }
     });
   });

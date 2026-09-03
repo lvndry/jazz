@@ -249,7 +249,7 @@ Always-on. Lets a text-only agent borrow eyes, ears, or a watch from a model tha
 
 | Tool                        | Risk        | Approval pair          | What it does                                                                                                 |
 | --------------------------- | ----------- | ---------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `analyze_media`             | `high-risk` | `execute_analyze_media` | Delegate image/audio/video analysis to a capable model companion and get the textual answer back. The person at the keyboard picks which model does the looking (picker-style approval, never auto-approved); an agent with a pre-bound `companions` entry for the modality routes there silently instead. |
+| `analyze_media`             | `high-risk` | `execute_analyze_media` | Delegate image/audio/video analysis to a capable model companion and get the textual answer back. The person at the keyboard picks which model does the looking (picker-style approval, never auto-approved); an agent with a pre-bound `companions` entry for the role (`analyze:image`, `analyze:audio`, `analyze:video`) routes there silently instead. |
 
 ### User Interaction
 
