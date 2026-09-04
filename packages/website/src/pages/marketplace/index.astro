@@ -1,0 +1,141 @@
+---
+import Marketplace from "../../layouts/Marketplace.astro";
+import { getMarketplaceEntries, personaPath } from "../../lib/marketplace";
+
+const entries = await getMarketplaceEntries();
+---
+
+<Marketplace
+  title="Persona marketplace — Jazz"
+  description="Browse and copy Jazz personas: reusable system prompts that change how an agent thinks, writes, and pushes back."
+>
+  <p class="eyebrow mono">▞ persona marketplace</p>
+  <h1>Prompts worth stealing.</h1>
+  <p class="lede">
+    A persona is a reusable system prompt — it sets how an agent thinks, writes, and pushes back,
+    independent of the model behind it. Copy one from here, or install it straight from your
+    terminal. Every entry lives in the Jazz repo and arrives through a pull request.
+  </p>
+
+  <div class="install">
+    <code class="mono">jazz persona browse</code>
+    <span class="hint">pick, preview the prompt, install</span>
+  </div>
+
+  <div class="grid">
+    {
+      entries.map((entry) => (
+        <a class="card" href={personaPath(entry.data.name)}>
+          <span class="name mono">{entry.data.name}</span>
+          <span class="desc">{entry.data.description}</span>
+          <span class="meta mono">
+            {[entry.data.tone, entry.data.style].filter(Boolean).join(" · ")}
+          </span>
+        </a>
+      ))
+    }
+  </div>
+
+  <section class="contribute">
+    <h2>Add yours</h2>
+    <p>
+      Drop a <code class="mono">persona.md</code> into <code class="mono">marketplace/personas/&lt;name&gt;/</code>
+      in the <a href="https://github.com/lvndry/jazz">Jazz repository</a> and open a pull request.
+      Same format as the personas Jazz ships with — frontmatter for the metadata, the body is the prompt.
+    </p>
+  </section>
+</Marketplace>
+
+<style>
+  .eyebrow {
+    font-size: 12px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--jz-primary);
+    margin-bottom: 14px;
+  }
+  h1 {
+    font-size: clamp(34px, 5vw, 52px);
+    color: var(--jz-selected);
+  }
+  .lede {
+    margin-top: 16px;
+    color: var(--jz-secondary);
+    max-width: 60ch;
+  }
+  .install {
+    margin-top: 28px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  .install code {
+    background: var(--jz-surface);
+    border: 1px solid var(--jz-border);
+    border-radius: 6px;
+    padding: 8px 12px;
+    color: var(--jz-selected);
+    font-size: 14px;
+  }
+  .install .hint {
+    color: var(--jz-muted);
+    font-size: 13px;
+  }
+  .grid {
+    margin-top: 3rem;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 16px;
+  }
+  .card {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 18px;
+    border: 1px solid var(--jz-border);
+    border-radius: 8px;
+    text-decoration: none;
+    background: var(--jz-surface);
+  }
+  .card:hover {
+    border-color: var(--jz-primary);
+  }
+  .name {
+    color: var(--jz-selected);
+    font-size: 15px;
+  }
+  .card:hover .name {
+    color: var(--jz-primary);
+  }
+  .desc {
+    color: var(--jz-secondary);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  .meta {
+    color: var(--jz-muted);
+    font-size: 12px;
+  }
+  .contribute {
+    margin-top: 4rem;
+    padding-top: 2rem;
+    border-top: 1px solid var(--jz-border);
+  }
+  .contribute h2 {
+    font-size: 20px;
+    color: var(--jz-selected);
+  }
+  .contribute p {
+    margin-top: 10px;
+    color: var(--jz-secondary);
+    max-width: 60ch;
+  }
+  .contribute a {
+    color: var(--jz-link);
+  }
+  code {
+    font-family: var(--font-mono);
+    font-size: 0.9em;
+  }
+</style>

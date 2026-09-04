@@ -1,0 +1,55 @@
+---
+import Base from "./Base.astro";
+
+interface Props {
+  title: string;
+  description: string;
+  image?: string | undefined;
+}
+
+const { title, description, image } = Astro.props;
+---
+
+<Base title={title} description={description} image={image}>
+  <header class="top">
+    <a class="brand mono" href="/">▞ jazz</a>
+    <a class="mono" href="/marketplace">personas</a>
+    <div class="grow"></div>
+    <a class="mono" href="/docs">docs</a>
+    <a class="mono" href="/blog">blog</a>
+    <a class="mono" href="https://github.com/lvndry/jazz">github</a>
+  </header>
+  <main>
+    <slot />
+  </main>
+</Base>
+
+<style>
+  .top {
+    display: flex;
+    align-items: center;
+    gap: 22px;
+    padding: 16px 4vw;
+    border-bottom: 1px solid var(--jz-border);
+    font-size: 13px;
+  }
+  .top a {
+    color: var(--jz-secondary);
+    text-decoration: none;
+  }
+  .top a:hover {
+    color: var(--jz-primary);
+  }
+  .top .brand {
+    color: var(--jz-primary);
+    font-size: 14px;
+  }
+  .grow {
+    flex: 1;
+  }
+  main {
+    max-width: 52rem;
+    margin: 0 auto;
+    padding: 3.5rem 20px 6rem;
+  }
+</style>
