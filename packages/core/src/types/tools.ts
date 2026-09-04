@@ -38,6 +38,15 @@ export type AutoApprovePolicy = boolean | "read-only" | "low-risk" | "high-risk"
  * prompt is only a kindness where a prompt was the alternative. Callers that
  * cannot answer the question leave it out and get the conservative reading.
  */
+/**
+ * Longest result summary a progress event carries.
+ *
+ * A progress event is a status line, not a transcript: the caller already gets the full
+ * answer when the run finishes, and a run that greps a repo would otherwise post megabytes
+ * to a listener that has room for one line.
+ */
+export const MAX_TOOL_PROGRESS_SUMMARY = 200;
+
 /** What a run reports about itself while it is still going. */
 export interface ToolProgressEvent {
   readonly kind: "tool-started" | "tool-finished" | "approval-required";
@@ -45,6 +54,43 @@ export interface ToolProgressEvent {
   readonly toolCallId?: string;
   /** Set on "tool-finished": whether the call succeeded. */
   readonly ok?: boolean;
+  /**
+   * Set on "tool-finished": the first line of what the call returned, clipped to
+   * `MAX_TOOL_PROGRESS_SUMMARY`.
+   *
+   * `ok` alone says a tool ran without saying what it found, which is the difference
+   * between "search_web finished" and "search_web — 8 results". Only ever sent to the
+   * loopback progress URL the caller supplied, so this does not widen where a tool result
+   * can travel: it stays on the machine that produced it.
+   */
+  readonly summary?: string;
+}
+
+/**
+ * One line of a tool result, for `ToolProgressEvent.summary`.
+ *
+ * Undefined rather than an empty string when there is nothing to say, so a listener can
+ * tell "returned nothing" from "did not report".
+ */
+export function summarizeToolResult(result: unknown): string | undefined {
+  const body = typeof result === "string" ? result : safeStringify(result);
+  if (body === undefined) return undefined;
+  const line = body.replaceAll(/\s+/gu, " ").trim();
+  if (line.length === 0) return undefined;
+  return line.length > MAX_TOOL_PROGRESS_SUMMARY
+    ? `${line.slice(0, MAX_TOOL_PROGRESS_SUMMARY - 1)}\u2026`
+    : line;
+}
+
+function safeStringify(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    // A result holding a cycle or a BigInt is still a finished tool call; the event should
+    // say so rather than throw inside a fire-and-forget status report.
+    return undefined;
+  }
 }
 
 export function shouldAutoApprove(

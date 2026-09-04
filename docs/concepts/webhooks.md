@@ -154,7 +154,7 @@ Every event is a `POST` of one JSON object to that URL.
 | `kind` | Sent when | Also carries |
 |---|---|---|
 | `tool-started` | a tool call begins | — |
-| `tool-finished` | that call returns | `ok` |
+| `tool-finished` | that call returns | `ok`, `summary` |
 | `approval-required` | the run has stopped and needs a person | — |
 
 Every event carries `kind`, `toolName`, and `toolCallId`. The id is the model's own id for
@@ -168,11 +168,23 @@ A tool beginning:
 ```
 
 The same call returning. `ok` is `false` whenever the call did not succeed — an error, a
-timeout, or an approval that was declined:
+timeout, or an approval that was declined. `summary` is what the call returned, folded onto
+one line and clipped to 200 characters, so a listener can show `read_file — 412 lines`
+rather than a bare "finished". It is absent when the call returned nothing:
 
 ```json
-{ "kind": "tool-finished", "toolName": "read_file", "toolCallId": "call_zx1", "ok": true }
+{
+  "kind": "tool-finished",
+  "toolName": "read_file",
+  "toolCallId": "call_zx1",
+  "ok": true,
+  "summary": "# Thursday - 09:00 standup - 14:00 review with @sam…"
+}
 ```
+
+The summary is a tool result, and it only ever goes to the loopback URL the caller supplied
+on this machine. A listener that relays progress somewhere else — another person's screen,
+a chat room — should relay `toolName` and leave `summary` where it was produced.
 
 And a run that has stopped for a person:
 
