@@ -179,6 +179,7 @@ export function listPersonasCommand(): Effect.Effect<
     }
 
     yield* terminal.info("Create a new persona: jazz persona create");
+    yield* terminal.info("Browse shared personas: jazz persona browse");
   });
 }
 
