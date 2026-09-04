@@ -18,6 +18,7 @@ import { createMemoryServiceLayer } from "@jazz/adapters/memory-service";
 import { NotificationServiceLayer } from "@jazz/adapters/notification";
 import { createPeerLedgerServiceLayer } from "@jazz/adapters/peers/ledger";
 import { createPeerTokenServiceLayer } from "@jazz/adapters/peers/token";
+import { createPersonaRegistryServiceLayer } from "@jazz/adapters/persona-registry-service";
 import { createPersonaServiceLayer } from "@jazz/adapters/persona-service";
 import { createReminderServiceLayer } from "@jazz/adapters/reminder-service";
 import { FileStorageService } from "@jazz/adapters/storage/file";
@@ -207,6 +208,7 @@ export function createAppLayer(
 
   const agentLayer = createAgentServiceLayer().pipe(Layer.provide(storageLayer));
   const personaLayer = createPersonaServiceLayer();
+  const personaRegistryLayer = createPersonaRegistryServiceLayer();
   const memoryServiceLayer = createMemoryServiceLayer();
   const workspaceServiceLayer = createWorkspaceServiceLayer().pipe(Layer.provide(configLayer));
   const reminderServiceLayer = createReminderServiceLayer();
@@ -250,6 +252,7 @@ export function createAppLayer(
     toolRegistrationLayer,
     agentLayer,
     personaLayer,
+    personaRegistryLayer,
     memoryServiceLayer,
     workspaceServiceLayer,
     reminderServiceLayer,
