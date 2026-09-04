@@ -1,0 +1,207 @@
+---
+import Marketplace from "../../layouts/Marketplace.astro";
+import { getMarketplaceEntries, rawPersonaPath, type MarketplaceEntry } from "../../lib/marketplace";
+
+export async function getStaticPaths() {
+  const entries = await getMarketplaceEntries();
+  return entries.map((entry) => ({
+    params: { name: entry.data.name },
+    props: { entry },
+  }));
+}
+
+interface Props {
+  entry: MarketplaceEntry;
+}
+
+const { entry } = Astro.props;
+const { name, description, tone, style, author, tags } = entry.data;
+const prompt = entry.body ?? "";
+const meta = [
+  tone ? `tone: ${tone}` : "",
+  style ? `style: ${style}` : "",
+  author ? `by ${author}` : "",
+].filter(Boolean);
+---
+
+<Marketplace title={`${name} — Jazz persona`} description={description}>
+  <a class="back mono" href="/marketplace">← all personas</a>
+  <h1 class="mono">{name}</h1>
+  <p class="lede">{description}</p>
+  {meta.length > 0 && <p class="meta mono">{meta.join("  ·  ")}</p>}
+  {
+    tags.length > 0 && (
+      <ul class="tags">
+        {tags.map((tag) => (
+          <li class="mono">{tag}</li>
+        ))}
+      </ul>
+    )
+  }
+
+  <div class="install">
+    <code class="mono">jazz persona install {name}</code>
+    <a class="mono raw" href={rawPersonaPath(name)}>raw persona.md</a>
+  </div>
+
+  <section class="prompt">
+    <div class="prompt-head">
+      <h2>System prompt</h2>
+      <button class="copy mono" type="button" data-copy>copy</button>
+    </div>
+    <p class="warn">
+      This text becomes the instructions of any agent you apply the persona to. Read it before you
+      install it.
+    </p>
+    <pre id="prompt-body">{prompt}</pre>
+  </section>
+</Marketplace>
+
+<script>
+  const button = document.querySelector<HTMLButtonElement>("[data-copy]");
+  const body = document.getElementById("prompt-body");
+
+  // The async clipboard API is denied outright in some embedded and locked-down
+  // browsers, so fall back to selecting the text and letting the browser copy it.
+  function copyBySelection(text: string): boolean {
+    const scratch = document.createElement("textarea");
+    scratch.value = text;
+    scratch.setAttribute("readonly", "");
+    scratch.style.position = "fixed";
+    scratch.style.opacity = "0";
+    document.body.appendChild(scratch);
+    scratch.select();
+    let copied = false;
+    try {
+      copied = document.execCommand("copy");
+    } catch {
+      copied = false;
+    }
+    scratch.remove();
+    return copied;
+  }
+
+  button?.addEventListener("click", async () => {
+    if (!body) return;
+    const text = body.textContent ?? "";
+    let copied = false;
+    try {
+      await navigator.clipboard.writeText(text);
+      copied = true;
+    } catch {
+      copied = copyBySelection(text);
+    }
+    button.textContent = copied ? "copied" : "copy failed";
+    setTimeout(() => {
+      button.textContent = "copy";
+    }, 2000);
+  });
+</script>
+
+<style>
+  .back {
+    color: var(--jz-muted);
+    font-size: 13px;
+    text-decoration: none;
+  }
+  .back:hover {
+    color: var(--jz-primary);
+  }
+  h1 {
+    margin-top: 18px;
+    font-size: clamp(28px, 4vw, 40px);
+    color: var(--jz-selected);
+  }
+  .lede {
+    margin-top: 12px;
+    color: var(--jz-secondary);
+    max-width: 62ch;
+  }
+  .meta {
+    margin-top: 10px;
+    color: var(--jz-muted);
+    font-size: 13px;
+  }
+  .tags {
+    margin-top: 12px;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding: 0;
+    list-style: none;
+  }
+  .tags li {
+    font-size: 12px;
+    color: var(--jz-muted);
+    border: 1px solid var(--jz-border);
+    border-radius: 999px;
+    padding: 3px 10px;
+  }
+  .install {
+    margin-top: 26px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+  }
+  .install code {
+    background: var(--jz-surface);
+    border: 1px solid var(--jz-border);
+    border-radius: 6px;
+    padding: 8px 12px;
+    color: var(--jz-selected);
+    font-size: 14px;
+  }
+  .raw {
+    color: var(--jz-link);
+    font-size: 13px;
+  }
+  .prompt {
+    margin-top: 3rem;
+    padding-top: 2rem;
+    border-top: 1px solid var(--jz-border);
+  }
+  .prompt-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+  }
+  .prompt-head h2 {
+    font-size: 20px;
+    color: var(--jz-selected);
+  }
+  .copy {
+    background: transparent;
+    border: 1px solid var(--jz-border);
+    border-radius: 6px;
+    color: var(--jz-secondary);
+    font-size: 12px;
+    padding: 6px 12px;
+    cursor: pointer;
+  }
+  .copy:hover {
+    border-color: var(--jz-primary);
+    color: var(--jz-primary);
+  }
+  .warn {
+    margin-top: 10px;
+    color: var(--jz-muted);
+    font-size: 13px;
+    max-width: 62ch;
+  }
+  pre {
+    margin-top: 16px;
+    background: var(--jz-surface);
+    border: 1px solid var(--jz-border);
+    border-radius: 6px;
+    padding: 18px;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 1.7;
+    color: var(--jz-info);
+  }
+</style>

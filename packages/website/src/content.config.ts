@@ -12,6 +12,17 @@ export const collections = {
       description: z.string().optional(),
     }),
   }),
+  marketplace: defineCollection({
+    loader: glob({ pattern: "**/persona.md", base: "../../marketplace/personas" }),
+    schema: z.object({
+      name: z.string(),
+      description: z.string(),
+      tone: z.string().optional(),
+      style: z.string().optional(),
+      author: z.string().optional(),
+      tags: z.array(z.string()).default([]),
+    }),
+  }),
   blog: defineCollection({
     loader: glob({ pattern: "**/*.md", base: "./src/content/blog" }),
     schema: z.object({

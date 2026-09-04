@@ -228,13 +228,21 @@ for both paths.
 
 ## `jazz persona`
 
-| Command                            | Purpose                               |
-| ---------------------------------- | ------------------------------------- |
-| `jazz persona list`                | List personas (built-in + custom)     |
-| `jazz persona create`              | Create a custom persona (interactive) |
-| `jazz persona show <identifier>`   | Show a persona by name or id          |
-| `jazz persona edit <identifier>`   | Edit a custom persona                 |
-| `jazz persona delete <identifier>` | Delete a custom persona               |
+| Command                            | Purpose                                                                                                                   |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `jazz persona list`                | List personas (built-in + custom)                                                                                         |
+| `jazz persona create`              | Create a custom persona (interactive)                                                                                     |
+| `jazz persona show <identifier>`   | Show a persona by name or id                                                                                              |
+| `jazz persona edit <identifier>`   | Edit a custom persona                                                                                                     |
+| `jazz persona delete <identifier>` | Delete a custom persona                                                                                                   |
+| `jazz persona browse`              | Browse the marketplace and install a persona (interactive). `--refresh`                                                   |
+| `jazz persona search`              | List every persona the marketplace offers. `--refresh`                                                                    |
+| `jazz persona install <name>`      | Install a marketplace persona. `--as <name>` (local name), `-y`/`--yes` (skip confirmation), `--refresh`                   |
+
+`install` prints the full system prompt and asks before writing it — a persona becomes an agent's
+instructions, so non-interactive runs must pass `--yes`. The catalog is cached under
+`<jazz home>/cache/persona-registry.json` and keeps working offline; `JAZZ_PERSONA_REGISTRY_URL`
+points Jazz at a self-hosted catalog.
 
 See [Personas](../concepts/personas.md).
 
