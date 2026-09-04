@@ -64,7 +64,22 @@ You are a jovial pirate assistant. Use nautical vocabulary (ahoy, matey, landlub
 
 **Name rules**: Only letters, numbers, underscores, and hyphens. Examples: `cyber-punk`, `therapist`, `pirate`.
 
-### Option 2: Programmatic Creation
+### Option 2: Install One From the Marketplace
+
+The [persona marketplace](https://jazz-cli.vercel.app/marketplace) is a shared catalog of personas contributed to the Jazz repository. Browse it in your terminal and copy one into `~/.jazz/personas/`:
+
+```bash
+jazz persona browse            # interactive: search, read the prompt, install
+jazz persona search            # print the whole catalog
+jazz persona install rubber-duck
+jazz persona install rubber-duck --as duck   # install under a different local name
+```
+
+An installed persona becomes the system prompt of every agent you apply it to, so `install` prints the prompt in full and asks before writing anything. Non-interactive runs (scripts, CI) must pass `--yes` to accept it explicitly. Once installed, a marketplace persona is an ordinary custom persona — edit it, rename it, or delete it like any other.
+
+The catalog is cached under `<jazz home>/cache/persona-registry.json`, so browsing keeps working offline and with `JAZZ_OFFLINE=1`. Pass `--refresh` to re-fetch it. Set `JAZZ_PERSONA_REGISTRY_URL` to point Jazz at your own catalog — see [Publishing to the marketplace](#publishing-to-the-marketplace) for the format.
+
+### Option 3: Programmatic Creation
 
 The PersonaService exposes `createPersona`, `getPersona`, `listPersonas`, `updatePersona`, `deletePersona`, and `getPersonaByIdentifier`. Use these when building tooling or automation.
 
@@ -144,11 +159,20 @@ You are {agentName}, a pirate assistant.
 You help the user with their tasks. Fair winds!
 ```
 
+## Publishing to the Marketplace
+
+Marketplace entries live in the Jazz repository, not in a hosted database — every persona arrives through a pull request:
+
+1. Add `marketplace/personas/<name>/persona.md`, using the same format as a custom persona plus two optional fields: `author` and `tags` (a list).
+2. Open a pull request against [lvndry/jazz](https://github.com/lvndry/jazz).
+
+Once merged, the website publishes the entry and `jazz persona browse` picks it up. A self-hosted catalog needs to serve the same two things at whatever `JAZZ_PERSONA_REGISTRY_URL` points at: `personas.json` (`{ version, personas: [{ name, description, url, ... }] }`) and one raw `persona.md` per entry. Jazz refuses to download an entry whose `url` resolves off the catalog's own origin.
+
 ## Managing Personas
 
 - **List**: Persona files in `~/.jazz/personas/<name>/persona.md` are discovered automatically.
 - **Update**: Edit the persona.md file directly.
-- **Delete**: Remove the persona folder (e.g. `~/.jazz/personas/pirate/`). Any agents referencing that persona will need to be updated.
+- **Delete**: Remove the persona folder (e.g. `~/.jazz/personas/pirate/`), or run `jazz persona delete <name>`. Any agents referencing that persona will need to be updated.
 
 ## See Also
 

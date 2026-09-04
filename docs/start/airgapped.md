@@ -48,6 +48,7 @@ With `JAZZ_OFFLINE=1` (or `true`), Jazz never initiates network requests on its 
 
 - **No update check** — the periodic npm registry version check is skipped (equivalent to `JAZZ_DISABLE_UPDATE_CHECK=1`).
 - **No models.dev fetch** — the model catalog (used for cloud-provider model lists and metadata enrichment like context windows and pricing) is not fetched. Jazz uses the on-disk snapshot at `~/.jazz/cache/models-dev.json` if one exists from a previous online run, and otherwise falls back to provider-reported metadata and defaults.
+- **No persona marketplace fetch** — `jazz persona browse` reads the snapshot at `~/.jazz/cache/persona-registry.json` from a previous online run, and errors if there is none. Point `JAZZ_PERSONA_REGISTRY_URL` at an internal catalog to browse and install inside the airgap.
 
 Inference traffic still goes to whatever provider each agent is configured with — in an airgapped deployment that should be a local provider (`ollama` or `llamacpp`).
 
@@ -70,9 +71,10 @@ If you want catalog metadata (e.g. pricing display for cloud models) inside the 
 
 | Variable | Effect |
 | --- | --- |
-| `JAZZ_OFFLINE` | `1`/`true`: skip update checks and the models.dev fetch entirely |
+| `JAZZ_OFFLINE` | `1`/`true`: skip update checks, the models.dev fetch, and the persona marketplace fetch entirely |
 | `OLLAMA_BASE_URL` | Ollama server URL (default `http://localhost:11434/api`; `/api` appended automatically) |
 | `LLAMACPP_BASE_URL` | llama.cpp server URL (default `http://localhost:8080/v1`) |
 | `JAZZ_MODELS_DEV_URL` | Internal mirror for the models.dev catalog |
+| `JAZZ_PERSONA_REGISTRY_URL` | Base URL of the persona marketplace catalog (default the public Jazz site) |
 | `JAZZ_DISABLE_UPDATE_CHECK` | `1`: skip only the update check |
 | `JAZZ_HOME` | Data directory (default `~/.jazz`) — holds the catalog snapshot, history, telemetry |
