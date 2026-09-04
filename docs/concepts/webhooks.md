@@ -154,7 +154,7 @@ Every event is a `POST` of one JSON object to that URL.
 | `kind` | Sent when | Also carries |
 |---|---|---|
 | `tool-started` | a tool call begins | — |
-| `tool-finished` | that call returns | `ok` |
+| `tool-finished` | that call returns | `ok`, `result` |
 | `approval-required` | the run has stopped and needs a person | — |
 
 Every event carries `kind`, `toolName`, and `toolCallId`. The id is the model's own id for
@@ -168,11 +168,29 @@ A tool beginning:
 ```
 
 The same call returning. `ok` is `false` whenever the call did not succeed — an error, a
-timeout, or an approval that was declined:
+timeout, or an approval that was declined. `result` is what the call returned, unformatted
+and uncut, so a listener can show `read_file — 412 lines` or the whole thing, as it likes:
 
 ```json
-{ "kind": "tool-finished", "toolName": "read_file", "toolCallId": "call_zx1", "ok": true }
+{
+  "kind": "tool-finished",
+  "toolName": "read_file",
+  "toolCallId": "call_zx1",
+  "ok": true,
+  "result": "# Thursday\n- 09:00 standup\n- 14:00 review with @sam"
+}
 ```
+
+How much of a result to show is the listener's decision, not the daemon's — a status line
+wants a clause and a log pane wants the lot, so jazz clips neither. The one exception is a
+transport ceiling of 8,000 characters, because a tool that returns an entire PDF should not
+push it through a fire-and-forget status `POST` on every call. A result over that line
+arrives cut, with `"resultTruncated": true` beside it, and the run's real answer still
+carries the whole thing.
+
+The result is a tool result, and it only ever goes to the loopback URL the caller supplied
+on this machine. A listener that relays progress somewhere else — another person's screen,
+a chat room — should relay `toolName` and leave `result` where it was produced.
 
 And a run that has stopped for a person:
 
