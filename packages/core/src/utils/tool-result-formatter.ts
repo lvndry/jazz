@@ -16,6 +16,8 @@
  *   - Skills (load_skill, load_skill_section) always pass through in full.
  */
 
+import { MAX_PROGRESS_RESULT_CHARS } from "@/core/types/tools";
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -410,4 +412,29 @@ export function formatToolResultForContext(toolName: string, result: unknown): s
   }
 
   return truncateResult(stripped, serialized, maxChars);
+}
+
+/**
+ * A tool result as text for a progress event, and whether it had to be cut.
+ *
+ * Distinct from `formatToolResultForContext`, which shapes a result for a model reading it
+ * as conversation. A listener on the progress URL is not a model: it wants what the call
+ * returned, unstripped and unreformatted, and decides for itself how much of it to show.
+ * The only thing done to it here is the transport ceiling — see `MAX_PROGRESS_RESULT_CHARS`.
+ *
+ * Undefined when there is nothing to report, so a listener can tell "returned nothing" from
+ * "did not say".
+ */
+export function toolResultForProgress(
+  result: unknown,
+): { readonly text: string; readonly truncated: boolean } | undefined {
+  const body = typeof result === "string" ? result : resultOrNothing(result);
+  if (body === undefined || body.length === 0) return undefined;
+  return body.length > MAX_PROGRESS_RESULT_CHARS
+    ? { text: body.slice(0, MAX_PROGRESS_RESULT_CHARS), truncated: true }
+    : { text: body, truncated: false };
+}
+
+function resultOrNothing(value: unknown): string | undefined {
+  return value === undefined || value === null ? undefined : safeStringify(value);
 }

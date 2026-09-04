@@ -1,11 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import {
-  MAX_TOOL_PROGRESS_SUMMARY,
-  shouldAutoApprove,
-  summarizeToolResult,
-  type AutoApprovePolicy,
-  type ToolRiskLevel,
-} from "./tools";
+import { shouldAutoApprove, type AutoApprovePolicy, type ToolRiskLevel } from "./tools";
 
 describe("shouldAutoApprove", () => {
   describe("no policy (undefined)", () => {
@@ -95,38 +89,5 @@ describe("shouldAutoApprove", () => {
         }
       }
     });
-  });
-});
-
-describe("summarizeToolResult", () => {
-  it("keeps a short string result as it is", () => {
-    expect(summarizeToolResult("8 results")).toBe("8 results");
-  });
-
-  it("folds a multi-line result onto one line", () => {
-    expect(summarizeToolResult("first\n  second\n\nthird")).toBe("first second third");
-  });
-
-  it("clips a long result to the cap, ellipsis included", () => {
-    const summary = summarizeToolResult("x".repeat(MAX_TOOL_PROGRESS_SUMMARY * 3));
-    expect(summary).toHaveLength(MAX_TOOL_PROGRESS_SUMMARY);
-    expect(summary?.endsWith("\u2026")).toBe(true);
-  });
-
-  it("renders a structured result as JSON", () => {
-    expect(summarizeToolResult({ matches: 3 })).toBe('{"matches":3}');
-  });
-
-  it("says nothing rather than something empty", () => {
-    expect(summarizeToolResult(undefined)).toBeUndefined();
-    expect(summarizeToolResult(null)).toBeUndefined();
-    expect(summarizeToolResult("   \n  ")).toBeUndefined();
-  });
-
-  it("survives a result that cannot be serialized", () => {
-    const cyclic: Record<string, unknown> = {};
-    cyclic["self"] = cyclic;
-    expect(summarizeToolResult(cyclic)).toBeUndefined();
-    expect(summarizeToolResult({ big: 1n })).toBeUndefined();
   });
 });

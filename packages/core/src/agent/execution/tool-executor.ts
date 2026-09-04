@@ -25,7 +25,6 @@ import type { DisplayConfig } from "@/core/types/output";
 import {
   isApprovalRequiredResult,
   shouldAutoApprove,
-  summarizeToolResult,
   type ToolCall,
   type ToolExecutionContext,
   type ToolExecutionResult,
@@ -33,6 +32,7 @@ import {
 } from "@/core/types/tools";
 import { extractCommandApprovalKey } from "@/core/utils/shell";
 import { formatToolArguments } from "@/core/utils/tool-formatter";
+import { toolResultForProgress } from "@/core/utils/tool-result-formatter";
 import {
   emitToolInvocation,
   recordToolError,
@@ -830,13 +830,18 @@ export class ToolExecutor {
             ).pipe(
               Effect.tap((outcome) =>
                 Effect.sync(() => {
-                  const summary = summarizeToolResult(outcome.result);
+                  const returned = toolResultForProgress(outcome.result);
                   context.onToolEvent?.({
                     kind: "tool-finished",
                     toolName: outcome.name,
                     toolCallId: outcome.toolCallId,
                     ok: outcome.success,
-                    ...(summary !== undefined ? { summary } : {}),
+                    ...(returned !== undefined
+                      ? {
+                          result: returned.text,
+                          ...(returned.truncated ? { resultTruncated: true } : {}),
+                        }
+                      : {}),
                   });
                 }),
               ),

@@ -39,13 +39,16 @@ export type AutoApprovePolicy = boolean | "read-only" | "low-risk" | "high-risk"
  * cannot answer the question leave it out and get the conservative reading.
  */
 /**
- * Longest result summary a progress event carries.
+ * Most of a tool result a progress event will carry.
  *
- * A progress event is a status line, not a transcript: the caller already gets the full
- * answer when the run finishes, and a run that greps a repo would otherwise post megabytes
- * to a listener that has room for one line.
+ * Not a formatting decision — how much of a result to *show* belongs to the listener, and
+ * everything under this ceiling arrives whole. This is the transport saying that a tool
+ * which returns an entire PDF should not push it through a fire-and-forget status POST on
+ * every call. A result over the line is cut here and flagged `resultTruncated`, so a
+ * listener that wants the rest knows to wait for the run's real answer rather than treating
+ * a clipped document as the whole one.
  */
-export const MAX_TOOL_PROGRESS_SUMMARY = 200;
+export const MAX_PROGRESS_RESULT_CHARS = 8_000;
 
 /** What a run reports about itself while it is still going. */
 export interface ToolProgressEvent {
@@ -55,42 +58,21 @@ export interface ToolProgressEvent {
   /** Set on "tool-finished": whether the call succeeded. */
   readonly ok?: boolean;
   /**
-   * Set on "tool-finished": the first line of what the call returned, clipped to
-   * `MAX_TOOL_PROGRESS_SUMMARY`.
+   * Set on "tool-finished": what the call returned.
    *
    * `ok` alone says a tool ran without saying what it found, which is the difference
-   * between "search_web finished" and "search_web — 8 results". Only ever sent to the
-   * loopback progress URL the caller supplied, so this does not widen where a tool result
-   * can travel: it stays on the machine that produced it.
+   * between "search_web finished" and "search_web — 8 results". Sent unformatted and
+   * uncut up to `MAX_PROGRESS_RESULT_CHARS`, because how much of a result to show is the
+   * listener's question, not the daemon's: a status line wants a clause, a log pane wants
+   * the lot, and a daemon that clipped to one of those would have destroyed the other's
+   * answer before it was asked.
+   *
+   * Only ever sent to the loopback progress URL the caller supplied, so this does not widen
+   * where a tool result can travel: it stays on the machine that produced it.
    */
-  readonly summary?: string;
-}
-
-/**
- * One line of a tool result, for `ToolProgressEvent.summary`.
- *
- * Undefined rather than an empty string when there is nothing to say, so a listener can
- * tell "returned nothing" from "did not report".
- */
-export function summarizeToolResult(result: unknown): string | undefined {
-  const body = typeof result === "string" ? result : safeStringify(result);
-  if (body === undefined) return undefined;
-  const line = body.replaceAll(/\s+/gu, " ").trim();
-  if (line.length === 0) return undefined;
-  return line.length > MAX_TOOL_PROGRESS_SUMMARY
-    ? `${line.slice(0, MAX_TOOL_PROGRESS_SUMMARY - 1)}\u2026`
-    : line;
-}
-
-function safeStringify(value: unknown): string | undefined {
-  if (value === undefined || value === null) return undefined;
-  try {
-    return JSON.stringify(value);
-  } catch {
-    // A result holding a cycle or a BigInt is still a finished tool call; the event should
-    // say so rather than throw inside a fire-and-forget status report.
-    return undefined;
-  }
+  readonly result?: string;
+  /** Set on "tool-finished" when `result` hit the ceiling and is not the whole thing. */
+  readonly resultTruncated?: boolean;
 }
 
 export function shouldAutoApprove(
