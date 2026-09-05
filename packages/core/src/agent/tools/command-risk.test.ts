@@ -33,8 +33,6 @@ describe("shouldClassifyExecuteCommand", () => {
   });
 
   it("classifies in safe mode whether or not anybody can be prompted", () => {
-    // An unclassified command stays `unknown`, which auto-approves nowhere, so an
-    // unattended run would park on `git status` without this.
     expect(shouldClassifyExecuteCommand("unknown", undefined, false)).toBe(true);
     expect(shouldClassifyExecuteCommand("unknown", false, false)).toBe(true);
   });

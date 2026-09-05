@@ -247,8 +247,7 @@ export class ToolExecutor {
             isToolNameAutoApproved(name, context.autoApprovedTools) ||
             isCommandAutoApproved(name, approvalResult.executeArgs, context.autoApprovedCommands);
 
-          // Decides prompt-or-park for the calls that do not auto-approve; it does not
-          // change which ones do.
+          // Decides prompt-or-park; it does not change which calls auto-approve.
           const canPrompt = presentationService.canPromptForApproval?.() === true;
 
           const commandArg = approvalResult.executeArgs["command"];
@@ -782,9 +781,7 @@ export class ToolExecutor {
             context.parentAgent &&
             command !== undefined
           ) {
-            // Nobody can be prompted on this path, so the command stands on its own —
-            // conversation context is only evidence when the person the approval protects
-            // is the one who wrote it.
+            // Nobody can be prompted here, so the command stands on its own.
             riskLevel = yield* classifyCommandRisk(
               command,
               context.parentAgent,

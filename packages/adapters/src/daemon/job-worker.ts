@@ -38,7 +38,6 @@ function tail(output: string): string {
   return `…(earlier output trimmed)…\n${output.slice(-JOB_OUTPUT_TAIL_CHARS)}`;
 }
 
-/** Quotes what a job printed: an exit code alone tells a polling agent nothing it can act on. */
 function formatJobLine(job: JobRecord): string {
   if (job.status === "cancelled") {
     return `- \`${job.command}\`: cancelled before it ran.`;
@@ -57,7 +56,7 @@ function formatJobLine(job: JobRecord): string {
   return `- \`${job.command}\`: failed after ${job.attempt} attempt(s)${why}`;
 }
 
-/** Exported for test: this string is the entire report a woken agent gets about its batch. */
+/** Exported for test: the entire report a woken agent gets about its batch. */
 export function summarizeBatch(batch: JobBatchRecord): string {
   const succeeded = batch.jobs.filter((job) => job.status === "succeeded").length;
   const lines = batch.jobs.map(formatJobLine);
@@ -68,7 +67,6 @@ export function summarizeBatch(batch: JobBatchRecord): string {
   );
 }
 
-/** A finished batch is one more reason to fire an unattended turn; the rest is shared. */
 function fireBatchResume(agentId: string, batch: JobBatchRecord) {
   return runUnattendedTurn({
     agentId,

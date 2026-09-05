@@ -57,7 +57,6 @@ function formatBatchSummary(batch: JobBatchRecord) {
       maxAttempts: job.maxAttempts,
       exitCode: job.result?.exitCode ?? null,
       lastError: job.lastError,
-      // What the job printed, without which this tool can only report that something ran.
       stdout: tailOutput(job.result?.stdout),
       stderr: tailOutput(job.result?.stderr),
     })),

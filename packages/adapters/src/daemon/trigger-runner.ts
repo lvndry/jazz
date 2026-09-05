@@ -38,7 +38,6 @@ function isBotHostedAgentId(agentId: string): boolean {
   return agentId.startsWith("tg_") || agentId.startsWith("dc_");
 }
 
-/** A due trigger is one more reason to fire an unattended turn; the rest is shared. */
 export function fireWakeTrigger(
   agentId: string,
   trigger: { id: string; conversationId: string; prompt: string },

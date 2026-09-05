@@ -23,20 +23,16 @@ import {
 export interface UnattendedTurn {
   readonly agentId: string;
   readonly conversationId: string;
-  /** The turn's user input — the summary or prompt that explains why the agent was woken. */
   readonly prompt: string;
-  /** Title for a conversation that does not have one yet. */
   readonly fallbackTitle: string;
-  /** What woke the agent, for log lines and the notification: `"job batch"`, `"wake trigger"`. */
+  /** Human-readable, for logs and the notification: `"job batch"`, `"wake trigger"`. */
   readonly source: string;
-  /** The batch or trigger id, carried into every log line so one can be traced. */
   readonly sourceId: string;
 }
 
 /**
- * Persist the transcript a turn ended on, whether it finished or parked. A parked run has
- * produced real messages up to the approval; dropping them leaves the next turn with no memory
- * of having been woken.
+ * A parked turn produced real messages up to the approval; dropping them leaves the next turn
+ * with no memory of having been woken.
  */
 function persist(
   turn: UnattendedTurn,
@@ -66,11 +62,8 @@ function persist(
 }
 
 /**
- * What a finished `AgentRunner.run` means, decided apart from the IO that acts on it.
- *
- * A park arrives as a *failure*, and telling it apart from a real one is the whole reason
- * this is its own function: reading `parked` as `failed` is what lost the transcript and
- * left a waiting run invisible.
+ * A park arrives as a *failure*. Telling it apart from a real one is why this is its own
+ * function: reading `parked` as `failed` is what lost the transcript and hid the waiting run.
  */
 export type TurnOutcome =
   | { readonly kind: "finished"; readonly messages: readonly ChatMessage[] }
