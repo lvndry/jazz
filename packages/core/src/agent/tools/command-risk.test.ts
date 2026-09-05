@@ -18,8 +18,8 @@ describe("shouldClassifyExecuteCommand", () => {
   it("runs for an unknown risk under the tiers a verdict could change", () => {
     expect(shouldClassifyExecuteCommand("unknown", "read-only", false)).toBe(true);
     expect(shouldClassifyExecuteCommand("unknown", "low-risk", false)).toBe(true);
-    expect(shouldClassifyExecuteCommand("unknown", false, false, true)).toBe(true);
-    expect(shouldClassifyExecuteCommand("unknown", undefined, false, true)).toBe(true);
+    expect(shouldClassifyExecuteCommand("unknown", false, false)).toBe(true);
+    expect(shouldClassifyExecuteCommand("unknown", undefined, false)).toBe(true);
   });
 
   it("skips the round-trip when the outcome is already decided", () => {
@@ -32,10 +32,11 @@ describe("shouldClassifyExecuteCommand", () => {
     expect(shouldClassifyExecuteCommand("unknown", "read-only", true)).toBe(false);
   });
 
-  it("does not classify in safe mode where there is no prompt to skip", () => {
-    expect(shouldClassifyExecuteCommand("unknown", undefined, false)).toBe(false);
-    expect(shouldClassifyExecuteCommand("unknown", false, false)).toBe(false);
-    expect(shouldClassifyExecuteCommand("unknown", undefined, false, false)).toBe(false);
+  it("classifies in safe mode whether or not anybody can be prompted", () => {
+    // An unclassified command stays `unknown`, which auto-approves nowhere, so an
+    // unattended run would park on `git status` without this.
+    expect(shouldClassifyExecuteCommand("unknown", undefined, false)).toBe(true);
+    expect(shouldClassifyExecuteCommand("unknown", false, false)).toBe(true);
   });
 });
 

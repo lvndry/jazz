@@ -3,6 +3,7 @@ import { Effect } from "effect";
 import { z } from "zod";
 import {
   JOB_COMMAND_MAX_LENGTH,
+  JOB_OUTPUT_TAIL_CHARS,
   JOB_REASON_MAX_LENGTH,
   MAX_CONCURRENCY_CAP,
   MAX_JOBS_PER_BATCH,
@@ -31,6 +32,13 @@ function summarizeJobStatuses(batch: JobBatchRecord): {
   return counts;
 }
 
+function tailOutput(output: string | undefined): string | null {
+  const trimmed = output?.trim();
+  if (!trimmed) return null;
+  if (trimmed.length <= JOB_OUTPUT_TAIL_CHARS) return trimmed;
+  return `…(earlier output trimmed)…\n${trimmed.slice(-JOB_OUTPUT_TAIL_CHARS)}`;
+}
+
 function formatBatchSummary(batch: JobBatchRecord) {
   const counts = summarizeJobStatuses(batch);
   return {
@@ -49,6 +57,9 @@ function formatBatchSummary(batch: JobBatchRecord) {
       maxAttempts: job.maxAttempts,
       exitCode: job.result?.exitCode ?? null,
       lastError: job.lastError,
+      // What the job printed, without which this tool can only report that something ran.
+      stdout: tailOutput(job.result?.stdout),
+      stderr: tailOutput(job.result?.stderr),
     })),
   };
 }
@@ -109,8 +120,9 @@ export function createJobQueueTools(): {
     description:
       "Run several independent shell commands in the background, with a concurrency cap and " +
       "per-job retry/backoff, without blocking your turn. Returns immediately with a batchId — " +
-      "you will be woken up with a summary once every job in the batch reaches a final state " +
-      "(succeeded or exhausted its retries). Do not poll in a loop; call list_jobs only if the " +
+      "you will be woken up once every job in the batch reaches a final state (succeeded or " +
+      "exhausted its retries), with each job's status and what it printed. Do not poll in a " +
+      "loop; call list_jobs only if the " +
       "user explicitly asks for a progress check. Use this instead of chaining execute_command " +
       "calls with sleeps when the work is independent (e.g. running the same check across " +
       "several repos, retrying a flaky command) — not for commands that depend on each other's " +

@@ -214,12 +214,17 @@ succeeds and the ticker is the safety net.
 Opt-in per agent. Runs several independent shell commands in the background with a concurrency
 cap and per-job retry/backoff, without blocking the agent's turn. Completion (fan-in) resumes the
 conversation the same way a wake trigger fires, once every job in the batch reaches a final
-state.
+state, and the agent is told each job's status **and what it printed** — a batch exists to find
+something out, so an exit code on its own would tell it nothing.
+
+If that resumed turn needs an approval nobody is there to give, the run parks instead of dying:
+you get a desktop notification naming it, and `jazz runs resume <id>` finishes it. See
+[tools and approval](../internals/tools-and-approval.md).
 
 | Tool            | Risk        | Approval pair            | What it does                                                                                                   |
 | --------------- | ----------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------- |
 | `enqueue_batch` | `unknown`   | `execute_enqueue_batch`  | Run several independent shell commands in the background with a concurrency cap and per-job retry/backoff. |
-| `list_jobs`     | `read-only` | —                        | List this agent's background job batches and every job's status.                                              |
+| `list_jobs`     | `read-only` | —                        | List this agent's background job batches, every job's status, and what each one printed.                     |
 | `cancel_batch`  | `low-risk`  | —                        | Cancel a job batch's pending jobs by id (jobs already running finish naturally).                               |
 
 ### Context

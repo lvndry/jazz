@@ -138,6 +138,8 @@ export class ToolExecutor {
     conversationId: string,
     toolsRequiringApproval: ReadonlySet<string>,
     parkable = false,
+    /** Command-risk verdicts the batch's pre-park pass already paid for, by tool call id. */
+    preclassifiedRisk?: ReadonlyMap<string, ToolRiskLevel>,
   ): Effect.Effect<
     { toolCallId: string; result: unknown; success: boolean; name: string },
     Error,
@@ -245,16 +247,19 @@ export class ToolExecutor {
             isToolNameAutoApproved(name, context.autoApprovedTools) ||
             isCommandAutoApproved(name, approvalResult.executeArgs, context.autoApprovedCommands);
 
-          // Whether this surface can actually put the decision in front of a
-          // person. Safe mode means "skip the prompts that are not worth
-          // asking"; where there is no prompt to skip it has to mean nothing.
+          // Decides prompt-or-park for the calls that do not auto-approve; it does not
+          // change which ones do.
           const canPrompt = presentationService.canPromptForApproval?.() === true;
 
           const commandArg = approvalResult.executeArgs["command"];
           const command = typeof commandArg === "string" ? commandArg : undefined;
 
-          if (
-            shouldClassifyExecuteCommand(riskLevel, autoApprovePolicy, allowlisted, canPrompt) &&
+          const alreadyClassified = preclassifiedRisk?.get(toolCall.id);
+          if (alreadyClassified !== undefined) {
+            classifiedRisk = alreadyClassified;
+            riskLevel = alreadyClassified;
+          } else if (
+            shouldClassifyExecuteCommand(riskLevel, autoApprovePolicy, allowlisted) &&
             context.parentAgent &&
             command !== undefined
           ) {
@@ -286,7 +291,7 @@ export class ToolExecutor {
           // Check if auto-approve policy allows this tool, per-tool session allowlist,
           // or per-command prefix allowlist matches
           const checkAutoApproved = () =>
-            shouldAutoApprove(riskLevel, getCurrentPolicy(), { canPrompt }) ||
+            shouldAutoApprove(riskLevel, getCurrentPolicy()) ||
             isToolNameAutoApproved(name, context.autoApprovedTools) ||
             isCommandAutoApproved(name, approvalResult.executeArgs, context.autoApprovedCommands);
 
@@ -725,7 +730,11 @@ export class ToolExecutor {
        * So parking is safe as long as it happens before anything executes, which is what
        * deciding here rather than inside each fiber buys. Every round either parks having
        * run nothing, or has every approval in hand and runs the batch once.
+       *
+       * Verdicts reached here are handed to the per-call path via `preclassifiedRisk`, which
+       * would otherwise classify the same command a second time inside its own fiber.
        */
+      const preclassifiedRisk = new Map<string, ToolRiskLevel>();
       const parkTheBatch = Effect.gen(function* () {
         if (context.parkWhenUnattended !== true) return undefined;
         if (presentationService.canPromptForApproval?.() === true) return undefined;
@@ -758,13 +767,34 @@ export class ToolExecutor {
           const toolInfo = yield* registry
             .getTool(name)
             .pipe(Effect.catchAll(() => Effect.succeed({ riskLevel: "high-risk" as const })));
-          const autoApproved =
-            shouldAutoApprove(toolInfo.riskLevel, context.getAutoApprovePolicy?.(), {
-              canPrompt: false,
-            }) ||
+          const policy = context.getAutoApprovePolicy?.();
+          const allowlisted =
             isToolNameAutoApproved(name, context.autoApprovedTools) ||
             isCommandAutoApproved(name, request.executeArgs, context.autoApprovedCommands);
-          if (autoApproved) continue;
+
+          // Without classifying, `execute_command` stays `unknown` and parks even `git
+          // status` — while the per-call path, which does classify, would let it through.
+          let riskLevel = toolInfo.riskLevel;
+          const commandArg = request.executeArgs["command"];
+          const command = typeof commandArg === "string" ? commandArg : undefined;
+          if (
+            shouldClassifyExecuteCommand(riskLevel, policy, allowlisted) &&
+            context.parentAgent &&
+            command !== undefined
+          ) {
+            // Nobody can be prompted on this path, so the command stands on its own —
+            // conversation context is only evidence when the person the approval protects
+            // is the one who wrote it.
+            riskLevel = yield* classifyCommandRisk(
+              command,
+              context.parentAgent,
+              undefined,
+              runMetrics,
+            );
+            preclassifiedRisk.set(toolCall.id, riskLevel);
+          }
+
+          if (shouldAutoApprove(riskLevel, policy) || allowlisted) continue;
 
           needsAnswering.push(toolCall);
           if (needsAnswering.length === 1) {
@@ -827,6 +857,8 @@ export class ToolExecutor {
               agentId,
               conversationId,
               approvalSet,
+              false,
+              preclassifiedRisk,
             ).pipe(
               Effect.tap((outcome) =>
                 Effect.sync(() => {

@@ -75,13 +75,16 @@ export interface ToolProgressEvent {
   readonly resultTruncated?: boolean;
 }
 
+/**
+ * Whether `riskLevel` clears `policy` without anybody being asked. Deliberately independent of
+ * whether a person is reachable: being unattended changes what happens to the calls that do not
+ * clear (they park instead of prompting), not which ones clear.
+ */
 export function shouldAutoApprove(
   riskLevel: ToolRiskLevel,
   policy: AutoApprovePolicy | undefined,
-  options: { readonly canPrompt?: boolean } = {},
 ): boolean {
   if (!policy) {
-    if (options.canPrompt !== true) return false;
     return riskLevel === "read-only" || riskLevel === "low-risk";
   }
 
