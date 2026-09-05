@@ -45,13 +45,21 @@ export function createRegisterTriggerTool(): Tool<WakeTriggerToolDeps> {
   return defineTool<WakeTriggerToolDeps, RegisterTriggerArgs>({
     name: "register_trigger",
     disclosure: "internal",
+    summary:
+      "Wake yourself up later to check back on something — monitor or watch a build, deploy, " +
+      "CI run, GitHub Action, log file or repo over minutes or hours, and keep looking until " +
+      "it is done.",
     description:
       "Schedule yourself to wake up later and resume this exact conversation — use this " +
       "when you need to check back on something ('check again in 20 minutes', 'come back " +
       "once the build should be done'), rather than stopping the task entirely. Unlike " +
       "add_reminder (which just delivers a note to a person), this causes you to actually " +
-      "run again with the prompt you specify. There is a cap on pending wake triggers per " +
-      "agent — use it for genuine follow-ups, not speculative polling.",
+      "run again with the prompt you specify.\n\n" +
+      "This is how you watch anything that outlasts a single background job: wake, look, and " +
+      "if it is still running register another trigger. Prefer it over enqueue_batch whenever " +
+      "the wait could exceed one job's cap, or is open-ended. Each cycle costs a model run, so " +
+      "space the checks to match how fast the thing actually changes, and stop once you have " +
+      "an answer — the cap is on triggers pending at once, not on how many times you may look.",
     parameters: registerTriggerParameters,
     riskLevel: "low-risk",
     hidden: false,

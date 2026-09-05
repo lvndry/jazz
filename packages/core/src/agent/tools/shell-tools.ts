@@ -434,6 +434,12 @@ type ShellCommandDeps = FileSystem.FileSystem | FileSystemContextService | Logge
  */
 export const EXECUTE_COMMAND_OUTPUT_CAP_BYTES = DEFAULT_SPAWN_OUTPUT_CAP_BYTES;
 
+/** What `timeout(1)` reports, and what a job killed at its cap reports here. */
+const TIMEOUT_EXIT_CODE = 124;
+
+/** The shell's base for "killed by a signal"; a signal death has no exit code of its own. */
+const SIGNAL_EXIT_CODE = 128;
+
 export type ShellCommandOutput = {
   readonly stdout: string;
   readonly stderr: string;
@@ -526,10 +532,12 @@ export function runShellCommand(input: {
       const shellArgs = kind
         ? interactiveShellArgs(kind, input.command, input.workingDir)
         : ["-c", input.command];
+      // No `timeout` option: it races the one below, and when Node's wins it kills with
+      // SIGTERM and reaches `close` with a null code — reported as exit 0, so a command that
+      // ran out of time came back looking like it succeeded.
       child = spawn(shellBinary, shellArgs, {
         cwd: input.workingDir,
         stdio: ["ignore", "pipe", "pipe"],
-        timeout: input.timeoutMs,
         env: input.env,
         detached: false,
         uid: process.getuid ? process.getuid() : undefined,
@@ -542,22 +550,39 @@ export function runShellCommand(input: {
 
     const snapshot = bindCappedStdio(child.stdout, child.stderr, EXECUTE_COMMAND_OUTPUT_CAP_BYTES);
 
+    // A killed command keeps whatever it printed first. Failing here without reading
+    // `snapshot()` threw that away, so a job that logged for fourteen minutes and then hit
+    // the cap reported nothing at all. 124 is the exit code `timeout(1)` uses.
     timeoutId = setTimeout(() => {
       child?.kill("SIGKILL");
-      finish(Effect.fail(new Error(`Command timed out after ${input.timeoutMs}ms`)));
+      const collected = snapshot();
+      const note = `Command timed out after ${input.timeoutMs}ms and was killed; any output above is what it printed first.`;
+      const stderr = formatCappedStream(
+        collected.stderr,
+        "stderr",
+        EXECUTE_COMMAND_OUTPUT_CAP_BYTES,
+      );
+      finish(
+        Effect.succeed({
+          stdout: formatCappedStream(collected.stdout, "stdout", EXECUTE_COMMAND_OUTPUT_CAP_BYTES),
+          stderr: stderr.length > 0 ? `${stderr}\n${note}` : note,
+          exitCode: TIMEOUT_EXIT_CODE,
+        }),
+      );
     }, input.timeoutMs);
 
     child.on("error", (error) => {
       finish(Effect.fail(error));
     });
 
-    child.on("close", (code) => {
+    child.on("close", (code, signal) => {
       const collected = snapshot();
       finish(
         Effect.succeed({
           stdout: formatCappedStream(collected.stdout, "stdout", EXECUTE_COMMAND_OUTPUT_CAP_BYTES),
           stderr: formatCappedStream(collected.stderr, "stderr", EXECUTE_COMMAND_OUTPUT_CAP_BYTES),
-          exitCode: code || 0,
+          // A signal death reports a null code, and calling that 0 reads as success.
+          exitCode: code ?? (signal !== null ? SIGNAL_EXIT_CODE : 0),
         }),
       );
     });

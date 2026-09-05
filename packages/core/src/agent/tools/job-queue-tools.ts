@@ -5,6 +5,7 @@ import {
   JOB_COMMAND_MAX_LENGTH,
   JOB_OUTPUT_TAIL_CHARS,
   JOB_REASON_MAX_LENGTH,
+  JOB_TIMEOUT_MINUTES,
   MAX_CONCURRENCY_CAP,
   MAX_JOBS_PER_BATCH,
   MAX_MAX_ATTEMPTS,
@@ -116,6 +117,11 @@ export function createJobQueueTools(): {
   const enqueueBatch = defineApprovalTool<JobQueueToolDeps, EnqueueBatchArgs>({
     name: "enqueue_batch",
     disclosure: "private",
+    summary:
+      "Run shell commands in the background and get woken with what they printed — monitor or " +
+      "watch a build, deploy, CI run or GitHub Action, poll a log file or a repo for changes, " +
+      "run the same check across several repos. Each job is capped at " +
+      `${JOB_TIMEOUT_MINUTES} minutes.`,
     description:
       "Run several independent shell commands in the background, with a concurrency cap and " +
       "per-job retry/backoff, without blocking your turn. Returns immediately with a batchId — " +
@@ -125,7 +131,13 @@ export function createJobQueueTools(): {
       "user explicitly asks for a progress check. Use this instead of chaining execute_command " +
       "calls with sleeps when the work is independent (e.g. running the same check across " +
       "several repos, retrying a flaky command) — not for commands that depend on each other's " +
-      "output.",
+      "output.\n\n" +
+      `Every job is killed at ${JOB_TIMEOUT_MINUTES} minutes and reports whatever it printed ` +
+      "up to that point, so a command that never exits on its own (`tail -f`, `watch`) burns " +
+      "the whole budget and tells you little. To follow something open-ended, either bound the " +
+      "command (`timeout 60 tail -f app.log`, or `gh run watch` on a run you expect to finish " +
+      "inside the cap) or use register_trigger to wake yourself later and look again — that is " +
+      "the tool for anything that could outlast a single batch.",
     parameters: enqueueBatchParameters,
     riskLevel: "unknown",
     validate: makeZodValidator(enqueueBatchParameters),
@@ -219,8 +231,12 @@ These commands will run unattended, without further approval, until every job fi
   const listJobs = defineTool<JobQueueToolDeps, z.infer<typeof listJobsParameters>>({
     name: "list_jobs",
     disclosure: "internal",
+    summary:
+      "Check on background jobs already started: each batch's progress, every job's status, and " +
+      "the output it printed.",
     description:
-      "List this agent's background job batches (active, or a specific one by id) and every job's status.",
+      "List this agent's background job batches (active, or a specific one by id), every job's " +
+      "status, and what each one printed.",
     parameters: listJobsParameters,
     riskLevel: "read-only",
     validate: makeZodValidator(listJobsParameters),
