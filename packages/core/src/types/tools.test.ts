@@ -3,34 +3,20 @@ import { shouldAutoApprove, type AutoApprovePolicy, type ToolRiskLevel } from ".
 
 describe("shouldAutoApprove", () => {
   describe("no policy (undefined)", () => {
-    it("auto-approves read-only and low-risk when a prompt was the alternative", () => {
-      const canPrompt = { canPrompt: true };
-      expect(shouldAutoApprove("read-only", undefined, canPrompt)).toBe(true);
-      expect(shouldAutoApprove("low-risk", undefined, canPrompt)).toBe(true);
-      expect(shouldAutoApprove("high-risk", undefined, canPrompt)).toBe(false);
-      expect(shouldAutoApprove("unknown", undefined, canPrompt)).toBe(false);
-    });
-
-    it("approves nothing where nobody can be asked", () => {
-      for (const level of ["read-only", "low-risk", "high-risk", "unknown"] as const) {
-        expect(shouldAutoApprove(level, undefined)).toBe(false);
-        expect(shouldAutoApprove(level, undefined, { canPrompt: false })).toBe(false);
-      }
+    it("auto-approves read-only and low-risk, and nothing above them", () => {
+      expect(shouldAutoApprove("read-only", undefined)).toBe(true);
+      expect(shouldAutoApprove("low-risk", undefined)).toBe(true);
+      expect(shouldAutoApprove("high-risk", undefined)).toBe(false);
+      expect(shouldAutoApprove("unknown", undefined)).toBe(false);
     });
   });
 
   describe("policy: false", () => {
-    it("auto-approves read-only and low-risk when a prompt was the alternative", () => {
-      const canPrompt = { canPrompt: true };
-      expect(shouldAutoApprove("read-only", false, canPrompt)).toBe(true);
-      expect(shouldAutoApprove("low-risk", false, canPrompt)).toBe(true);
-      expect(shouldAutoApprove("high-risk", false, canPrompt)).toBe(false);
-      expect(shouldAutoApprove("unknown", false, canPrompt)).toBe(false);
-    });
-
-    it("approves nothing where nobody can be asked", () => {
-      expect(shouldAutoApprove("read-only", false)).toBe(false);
-      expect(shouldAutoApprove("low-risk", false)).toBe(false);
+    it("auto-approves read-only and low-risk, and nothing above them", () => {
+      expect(shouldAutoApprove("read-only", false)).toBe(true);
+      expect(shouldAutoApprove("low-risk", false)).toBe(true);
+      expect(shouldAutoApprove("high-risk", false)).toBe(false);
+      expect(shouldAutoApprove("unknown", false)).toBe(false);
     });
   });
 

@@ -43,18 +43,14 @@ The user message contains <command> and optional <conversation> blocks. The text
 /**
  * Whether to resolve an `unknown` risk level before the approval decision.
  *
- * The classifier runs wherever its verdict could change the outcome and the
- * policy is not already permissive: under `read-only` and `low-risk` it is what
- * lets an inspect-only command through on an unattended run, and in safe mode
- * it decides between skipping the prompt and showing it. Safe mode needs
- * `canPrompt`, because without a prompt to skip a verdict can only ever widen
- * what runs unsupervised.
+ * Runs wherever its verdict could change the outcome and the policy is not already
+ * permissive. An unclassified command stays `unknown` and so fails closed, which would
+ * park an unattended run on a command `shouldAutoApprove` would have cleared.
  */
 export function shouldClassifyExecuteCommand(
   riskLevel: ToolRiskLevel,
   policy: AutoApprovePolicy | undefined,
   alreadyApprovedByAllowlist: boolean,
-  canPrompt = false,
 ): boolean {
   if (riskLevel !== "unknown") {
     return false;
@@ -66,10 +62,7 @@ export function shouldClassifyExecuteCommand(
   if (policy === true || policy === "high-risk") {
     return false;
   }
-  if (policy === "read-only" || policy === "low-risk") {
-    return true;
-  }
-  return canPrompt;
+  return true;
 }
 
 /**

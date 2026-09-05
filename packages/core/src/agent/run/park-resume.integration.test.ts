@@ -82,7 +82,11 @@ const SECOND_SAFE_TOOL_CALL = {
   function: { name: "harmless", arguments: JSON.stringify({}) },
 };
 
-function makeLayers(store: InMemoryRunStore, firstTurnCalls = [TOOL_CALL]) {
+function makeLayers(
+  store: InMemoryRunStore,
+  firstTurnCalls = [TOOL_CALL],
+  gatedRiskLevel: "high-risk" | "low-risk" | "read-only" = "high-risk",
+) {
   // First completion asks for the gated tool; every later one answers in text. A resumed
   // run must therefore reach the *second* response, which it can only do once the parked
   // tool call has a result.
@@ -127,7 +131,7 @@ function makeLayers(store: InMemoryRunStore, firstTurnCalls = [TOOL_CALL]) {
   const dangerTool = {
     name: "danger",
     description: "Does something gated",
-    riskLevel: "high-risk" as const,
+    riskLevel: gatedRiskLevel,
     approvalExecuteToolName: "danger_execute",
     hidden: false,
     longRunning: false,
@@ -309,6 +313,76 @@ describe("park and resume, through the real loop", () => {
     expect(executions).toEqual([]);
     if (exit._tag === "Failure") return;
     expect(isRunParkRequested(exit.value)).toBe(false);
+  });
+});
+
+describe("what an unattended run may do without being asked", () => {
+  /**
+   * The regression: with nobody reachable, `shouldAutoApprove` used to clear nothing at all,
+   * so a run woken by a finished job batch parked on its first `git status` and the work
+   * never happened. Being unattended decides prompt-or-park, not what needs approving.
+   */
+  it("runs a read-only gated tool rather than parking on it", async () => {
+    executions = [];
+    const store = new InMemoryRunStore();
+
+    const exit = await Effect.runPromiseExit(
+      AgentRunner.run({
+        agent: AGENT,
+        userInput: "look at the worktree",
+        conversationId: "conv-read-only",
+        stream: false,
+        parkWhenUnattended: true,
+      }).pipe(Effect.provide(makeLayers(store, [TOOL_CALL], "read-only"))) as Effect.Effect<
+        unknown,
+        unknown
+      >,
+    );
+
+    expect(exit._tag).toBe("Success");
+    expect(executions).toEqual(["danger_execute"]);
+    expect(await Effect.runPromise(store.list())).toHaveLength(0);
+  });
+
+  it("runs a whole batch of them, so the pre-park pass agrees with the per-call one", async () => {
+    executions = [];
+    executedTargets = [];
+    const store = new InMemoryRunStore();
+
+    const exit = await Effect.runPromiseExit(
+      AgentRunner.run({
+        agent: AGENT,
+        userInput: "look at the worktree twice",
+        conversationId: "conv-read-only-batch",
+        stream: false,
+        parkWhenUnattended: true,
+      }).pipe(
+        Effect.provide(makeLayers(store, [TOOL_CALL, SECOND_TOOL_CALL], "read-only")),
+      ) as Effect.Effect<unknown, unknown>,
+    );
+
+    expect(exit._tag).toBe("Success");
+    expect(executedTargets.sort()).toEqual(["/tmp/x", "/tmp/y"]);
+    expect(await Effect.runPromise(store.list())).toHaveLength(0);
+  });
+
+  it("still parks a high-risk one", async () => {
+    executions = [];
+    const store = new InMemoryRunStore();
+
+    const exit = await Effect.runPromiseExit(
+      AgentRunner.run({
+        agent: AGENT,
+        userInput: "do the gated thing",
+        conversationId: "conv-high-risk",
+        stream: false,
+        parkWhenUnattended: true,
+      }).pipe(Effect.provide(makeLayers(store))) as Effect.Effect<unknown, unknown>,
+    );
+
+    expect(exit._tag).toBe("Failure");
+    expect(executions).toEqual([]);
+    expect(await Effect.runPromise(store.list())).toHaveLength(1);
   });
 });
 

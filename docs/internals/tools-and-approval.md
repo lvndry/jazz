@@ -133,14 +133,14 @@ flowchart LR
 
     subgraph policies["--approval-policy"]
         direction TB
-        P0["<i>unset / false</i><br/>interactive: read-only + low-risk<br/>unattended: nothing"]
+        P0["<i>unset / false</i><br/>read-only + low-risk"]
         P1["read-only"]
         P2["low-risk"]
         P3["high-risk"]
     end
 
-    P0 -.->|"approves (interactive only)"| RO
-    P0 -.->|"approves (interactive only)"| LR
+    P0 -.->|approves| RO
+    P0 -.->|approves| LR
     P1 -.->|approves| RO
     P2 -.->|approves| RO
     P2 -.->|approves| LR
@@ -176,10 +176,9 @@ the verdict as it would to any declared level. So `--approval-policy read-only` 
 prompt for a listing but still asks about a push.
 
 The classifier is skipped when it cannot change anything: yolo approves either way, the
-command is already allowlisted, or the level was never `unknown`. It is also skipped in
-**safe mode** (policy unset or `false`) on any surface that cannot prompt — headless, cron,
-quiet. There the absent policy approves nothing at all, so a verdict could only widen what
-runs unsupervised, never save a keystroke.
+command is already allowlisted, or the level was never `unknown`. Everywhere else it runs,
+including on surfaces that cannot prompt — an unclassified command stays `unknown`, which
+approves nowhere, so skipping it there would park a run on `git status`.
 
 While it runs, the live zone shows `classifying` on that command (the round-trip can take a
 few seconds). The verdict then lands on the settled receipt — `read-only`, `low-risk`, or

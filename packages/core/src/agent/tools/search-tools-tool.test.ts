@@ -1,14 +1,26 @@
 import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
 import { z } from "zod";
+import { JOB_TIMEOUT_MINUTES } from "@/core/constants/job-queue";
 import { ToolRegistryTag, type Tool, type ToolRequirements } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionContext } from "@/core/types/tools";
+import { createJobQueueTools } from "./job-queue-tools";
 import {
   createSearchToolsTool,
   MAX_SEARCH_TOOLS_RESULTS,
   rankToolsByQuery,
 } from "./search-tools-tool";
 import { createToolRegistryLayer } from "./tool-registry";
+import { createRegisterTriggerTool } from "./wake-trigger-tools";
+
+/** The exact text `search_tools` indexes, read off the shipping tool rather than restated here. */
+function enqueueBatchSummary(): string {
+  return createJobQueueTools().enqueueBatch.approval.summary ?? "";
+}
+
+function registerTriggerSummary(): string {
+  return createRegisterTriggerTool().summary ?? "";
+}
 
 const deferredCategory = {
   id: "deferred-cat",
@@ -52,6 +64,42 @@ describe("rankToolsByQuery", () => {
   it("returns nothing for an empty query", () => {
     const candidates = [{ name: "linear_create_issue", summary: "Create a Linear issue." }];
     expect(rankToolsByQuery("   ", candidates)).toEqual([]);
+  });
+});
+
+/**
+ * `search_tools` matches literal tokens against name + summary, so a tool is only findable in
+ * the words a request would actually use. These queries all returned nothing until the
+ * background-job and wake-trigger summaries said "monitor", "watch", "poll" and "log" — leaving
+ * an agent asked to watch a CI run with no tool it could find and a `sleep` loop as the fallback.
+ */
+describe("finding a tool for an open-ended watch", () => {
+  const candidates = [
+    { name: "enqueue_batch", summary: enqueueBatchSummary() },
+    { name: "register_trigger", summary: registerTriggerSummary() },
+  ];
+
+  it.each([
+    "monitor a github action until it finishes",
+    "watch a log file for errors",
+    "poll a deploy until it is done",
+    "monitor a branch for changes",
+    "check back later on a long build",
+  ])("resolves %p to a tool that can do it", (query) => {
+    expect(rankToolsByQuery(query, candidates).length).toBeGreaterThan(0);
+  });
+
+  it("puts the self-rescheduling tool first for a wait that could outlast one job", () => {
+    for (const query of [
+      "monitor a github action until it finishes",
+      "poll a deploy until it is done",
+    ]) {
+      expect(rankToolsByQuery(query, candidates)[0]).toBe("register_trigger");
+    }
+  });
+
+  it("still tells the caller the per-job ceiling it has to plan around", () => {
+    expect(enqueueBatchSummary()).toContain(`${JOB_TIMEOUT_MINUTES} minutes`);
   });
 });
 

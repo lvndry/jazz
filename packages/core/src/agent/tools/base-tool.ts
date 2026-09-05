@@ -31,6 +31,13 @@ export interface BaseToolConfig<R, Args extends Record<string, unknown>> {
    */
   readonly description: string;
   /**
+   * One-line summary for a `deferred`-tier tool, falling back to a truncated `description`.
+   *
+   * This is the only text `search_tools` matches, and matching is literal token overlap, so it
+   * has to carry the words a request would use rather than the ones the implementation uses.
+   */
+  readonly summary?: string;
+  /**
    * Optional array of tags for categorizing and organizing tools.
    */
   readonly tags?: readonly string[];
@@ -108,6 +115,7 @@ export function defineTool<R, Args extends Record<string, unknown>>(
   return {
     name: config.name,
     description: config.description,
+    ...(config.summary !== undefined ? { summary: config.summary } : {}),
     tags: config.tags ?? [],
     ...(config.aliases ? { aliases: config.aliases } : {}),
     parameters: config.parameters,
@@ -171,6 +179,8 @@ export interface ApprovalToolConfig<R, Args extends Record<string, unknown>> {
   readonly name: string;
   /** Description of what the tool does (will be prefixed with approval marker) */
   readonly description: string;
+  /** One-line summary `search_tools` matches. See {@link BaseToolConfig.summary}. */
+  readonly summary?: string;
   /** Optional tags for categorization */
   readonly tags?: readonly string[];
   /** Zod schema for parameters */
@@ -255,6 +265,7 @@ export function defineApprovalTool<R, Args extends Record<string, unknown>>(
   const approvalTool = defineTool<R, Args>({
     name: config.name,
     description: config.description,
+    ...(config.summary !== undefined ? { summary: config.summary } : {}),
     ...(config.tags ? { tags: config.tags } : {}),
     parameters: config.parameters,
     riskLevel,
