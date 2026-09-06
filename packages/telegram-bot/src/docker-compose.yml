@@ -7,9 +7,47 @@ services:
     container_name: jazz-telegram
     restart: always
     env_file: .env
+    environment:
+      # The group allowed to read every chat's state. Defaults to the group
+      # owning JAZZ_DATA_PATH, which is what you want for a bind mount created
+      # as `chown root:<your group>`; set it explicitly for a named volume,
+      # which Docker creates as root:root.
+      JAZZ_BOT_OPERATOR_GID: "${JAZZ_BOT_OPERATOR_GID:-}"
+    # The supervisor stays root so it can hand each chat's agent run its own
+    # uid; everything a chat's agent touches runs stripped of that. These are
+    # the privileges that costs: SETUID/SETGID to make the switch, CHOWN to
+    # hand a chat the files the bridge writes for it, DAC_OVERRIDE so the
+    # bridge can still read across sandboxes to sweep reminders and serve web
+    # apps, KILL so the ⏹ Cancel button can stop a run owned by another uid.
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - FSETID
+      - KILL
+      - SETGID
+      - SETUID
+      - AUDIT_WRITE
+    security_opt:
+      # Dropping to a chat's uid is not affected by this; gaining privilege
+      # back through a setuid binary is, which is the point.
+      - no-new-privileges:true
     # No published port: polling is outbound-only and /health is checked
     # inside the container. Add a `ports:` mapping only for webhook mode.
     volumes:
+      # A Docker named volume lives under /var/lib/docker, which non-root host
+      # accounts cannot enter at all — so on a default setup only root (and
+      # whoever can sudo) reads any of this. For a bind mount on your own disk,
+      # set JAZZ_DATA_PATH and prepare it first:
+      #
+      #   sudo mkdir -p /srv/jazz-telegram/data
+      #   sudo chown root:$(id -gn) /srv/jazz-telegram/data
+      #   sudo chmod 2750 /srv/jazz-telegram/data
+      #
+      # and swap the line below for `- ${JAZZ_DATA_PATH}:/data`. Everything the
+      # container writes lands readable to that group and to nobody else.
       - jazz_data:/data
     # Reach the Ollama container's published port via the host gateway.
     extra_hosts:

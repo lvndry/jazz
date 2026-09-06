@@ -29,6 +29,16 @@ import {
   describeApprovalMode,
   setApprovalMode,
 } from "@jazz/bot-shared/approval-mode-store";
+import {
+  adoptIntoSandbox,
+  type ChatSandbox,
+  chatIsolationEnabled,
+  ensureChatSandbox,
+  listChatSandboxes,
+  SANDBOX_UMASK,
+  sandboxCommand,
+  sandboxEnv,
+} from "@jazz/bot-shared/chat-sandbox";
 import { listPersonaNames } from "@jazz/bot-shared/personas";
 import { listModelsForProvider } from "@jazz/bot-shared/provider-models";
 import { reasoningSnippet, splitReasoning } from "@jazz/bot-shared/reasoning";
@@ -61,7 +71,7 @@ import {
   ensureChatAgent,
   readAgentFile,
   syncAgentDisplayName,
-  writeAgentFile,
+  writeChatAgentFile,
 } from "./agents";
 import {
   buildMediaPrompt,
@@ -284,8 +294,29 @@ function loadConfig(): BridgeConfig {
   };
 }
 
-function webAppsDirectory(config: BridgeConfig): string {
-  return `${config.jazzHome}/webapps`;
+/**
+ * The chat's own sandbox, created on first contact.
+ *
+ * Cheap to call per message: after the first one everything it does is an
+ * existence check.
+ */
+function sandboxForChat(config: BridgeConfig, chatId: number): ChatSandbox {
+  return ensureChatSandbox(config.jazzHome, agentIdForChat(chatId));
+}
+
+/**
+ * Every file a `/webapps/<id>` request could be asking for.
+ *
+ * The URL carries only the app's id, and with one Jazz home per chat there is
+ * no chat to key that on, so each home is a candidate. The health server runs
+ * in the bridge process, which is the one identity allowed to read across
+ * sandboxes.
+ */
+function webAppCandidatePaths(config: BridgeConfig, id: string): string[] {
+  const homes = chatIsolationEnabled()
+    ? listChatSandboxes(config.jazzHome).map((sandbox) => sandbox.home)
+    : [config.jazzHome];
+  return homes.map((home) => `${home}/webapps/${id}.html`);
 }
 
 async function callTelegram(
@@ -582,8 +613,9 @@ function commandKeyFromApprovalMessage(
  * config.json, rather than a hand-rolled read/modify/write, so this stays
  * consistent with whatever else (secrets, mcpOverrides) that file holds.
  */
-async function addAutoApprovedCommand(jazzHome: string, commandKey: string): Promise<void> {
-  const configLayer = createConfigLayer(undefined, join(jazzHome, "config.json"));
+async function addAutoApprovedCommand(sandbox: ChatSandbox, commandKey: string): Promise<void> {
+  const configPath = join(sandbox.home, "config.json");
+  const configLayer = createConfigLayer(undefined, configPath);
   await Effect.runPromise(
     Effect.gen(function* () {
       const configService = yield* AgentConfigServiceTag;
@@ -592,6 +624,9 @@ async function addAutoApprovedCommand(jazzHome: string, commandKey: string): Pro
       yield* configService.set("autoApprovedCommands", [...current, commandKey]);
     }).pipe(Effect.provide(configLayer), Effect.provide(NodeFileSystem.layer)),
   );
+  // The bridge writes as root; without this the rewritten config comes back
+  // owned by root and the chat's own agent can no longer read its settings.
+  adoptIntoSandbox(sandbox, configPath);
 }
 
 function modeKeyboard(current: ApprovalMode): Record<string, unknown> {
@@ -949,8 +984,9 @@ async function runJazz(
 ): Promise<JazzEnvelope> {
   const incognito = isIncognito(config.jazzHome, INCOGNITO_FILE, chatId);
   const priorIncognitoMessages = incognito ? incognitoHistory.get(chatId) : undefined;
+  const sandbox = sandboxForChat(config, chatId);
   const child = Bun.spawn(
-    [
+    sandboxCommand(sandbox, [
       config.jazzBinary,
       "run",
       "--no-tui",
@@ -978,8 +1014,13 @@ async function runJazz(
       "--timeout",
       String(config.runTimeoutMs),
       prompt,
-    ],
-    { stdout: "pipe", stderr: "pipe", stdin: "pipe", env: { ...process.env } },
+    ]),
+    {
+      stdout: "pipe",
+      stderr: "pipe",
+      stdin: "pipe",
+      env: sandboxEnv(sandbox, process.env),
+    },
   );
   // Register so the ⏹ Cancel button can find and kill this process.
   activeRuns.set(runToken, { child, cancelled: false });
@@ -1084,7 +1125,7 @@ async function handleMessage(
   text: string,
   replyToMessageId?: number,
 ): Promise<void> {
-  ensureChatAgent(config.jazzHome, chatId, config.baseAgentId);
+  ensureChatAgent(config.jazzHome, sandboxForChat(config, chatId), chatId, config.baseAgentId);
 
   const usage = todayUsage(config.jazzHome, USAGE_FILE);
   const capBlockReason = dailyCostCapBlockReason(usage, config.dailyCostCapUsd);
@@ -1301,13 +1342,23 @@ function suggestionKeyboard(token: string, items: Suggestion[]): Record<string, 
 /** One-shot, stateless `jazz run --json` (no progress/events/history). */
 async function jazzJson(
   config: BridgeConfig,
+  sandbox: ChatSandbox,
   agentId: string,
   prompt: string,
   extraArgs: string[],
 ): Promise<JazzEnvelope> {
   const child = Bun.spawn(
-    [config.jazzBinary, "run", "--no-tui", "--json", "--agent", agentId, ...extraArgs, prompt],
-    { stdout: "pipe", stderr: "pipe", env: { ...process.env } },
+    sandboxCommand(sandbox, [
+      config.jazzBinary,
+      "run",
+      "--no-tui",
+      "--json",
+      "--agent",
+      agentId,
+      ...extraArgs,
+      prompt,
+    ]),
+    { stdout: "pipe", stderr: "pipe", env: sandboxEnv(sandbox, process.env) },
   );
   const timeout = setTimeout(() => child.kill(), 90_000);
   const [stdout] = await Promise.all([
@@ -1336,14 +1387,14 @@ const SUGGEST_AGENT_ID = "tg_suggest";
  * the tool schemas cuts the prompt from ~11k tokens to a few hundred, so the
  * button upgrade lands in a couple of seconds instead of ~20.
  */
-function ensureSuggestAgent(config: BridgeConfig): void {
-  if (existsSync(agentPath(config.jazzHome, SUGGEST_AGENT_ID))) return;
+function ensureSuggestAgent(config: BridgeConfig, sandbox: ChatSandbox): void {
+  if (existsSync(agentPath(sandbox.home, SUGGEST_AGENT_ID))) return;
   const template = readAgentFile(config.jazzHome, config.baseAgentId);
   template.id = SUGGEST_AGENT_ID;
   template.name = SUGGEST_AGENT_ID;
   template.config["tools"] = [];
   template.config.reasoningEffort = "disable";
-  writeAgentFile(config.jazzHome, template);
+  writeChatAgentFile(sandbox, template);
 }
 
 /**
@@ -1366,10 +1417,12 @@ function ensureThreeWithGoDeeper(items: Suggestion[]): Suggestion[] {
 /** Ask the model for exactly 3 contextual next-step CTAs based on the exchange. */
 async function generateSuggestions(
   config: BridgeConfig,
+  chatId: number,
   question: string,
   answer: string,
 ): Promise<Suggestion[]> {
-  ensureSuggestAgent(config);
+  const sandbox = sandboxForChat(config, chatId);
+  ensureSuggestAgent(config, sandbox);
   const metaPrompt =
     `Conversation:\nUser: ${question.slice(0, 500)}\nAssistant: ${answer.slice(0, 1200)}\n\n` +
     "Propose EXACTLY 3 useful next actions the user might tap. Reply with ONLY a JSON array — no " +
@@ -1378,7 +1431,7 @@ async function generateSuggestions(
     'send if tapped, written first-person as the user"}]\n' +
     'Make them specific to THIS exchange. The first entry must always be a "🔍 Go deeper" style ' +
     "option that asks for more detail, specifics, and nuance on the same answer.";
-  const envelope = await jazzJson(config, SUGGEST_AGENT_ID, metaPrompt, [
+  const envelope = await jazzJson(config, sandbox, SUGGEST_AGENT_ID, metaPrompt, [
     "--reasoning",
     "disable",
     "--max-iterations",
@@ -1428,7 +1481,7 @@ async function upgradeToDynamicCtas(
   answer: string,
 ): Promise<void> {
   try {
-    const items = await generateSuggestions(config, question, answer);
+    const items = await generateSuggestions(config, chatId, question, answer);
     console.log(`[cta] chat ${chatId}: ${items.length} contextual suggestion(s)`);
     if (items.length === 0) return; // keep the static fallback already attached
     const token = storeSuggestions(items);
@@ -1497,8 +1550,8 @@ function keyboardFrom(options: string[], current: string, prefix: string): Inlin
   ]);
 }
 
-function remindersFilePath(dataDir: string, chatId: number): string {
-  return join(dataDir, "reminders", `${agentIdForChat(chatId)}.json`);
+function remindersFilePath(home: string, chatId: number): string {
+  return join(home, "reminders", `${agentIdForChat(chatId)}.json`);
 }
 
 /**
@@ -1508,9 +1561,9 @@ function remindersFilePath(dataDir: string, chatId: number): string {
  * inline "cancel" buttons below, the same ReminderServiceImpl those tools use)
  * — never written here.
  */
-function readRemindersForDisplay(dataDir: string, chatId: number): ReminderRecord[] {
+function readRemindersForDisplay(home: string, chatId: number): ReminderRecord[] {
   try {
-    const path = remindersFilePath(dataDir, chatId);
+    const path = remindersFilePath(home, chatId);
     if (!existsSync(path)) return [];
     const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
     return Array.isArray(parsed) ? (parsed as ReminderRecord[]) : [];
@@ -1521,14 +1574,20 @@ function readRemindersForDisplay(dataDir: string, chatId: number): ReminderRecor
 
 /** Cancel via the same ReminderServiceImpl the cancel_reminder tool uses — the only reminder-cancelling code path. */
 async function cancelReminderForChat(
-  dataDir: string,
+  config: BridgeConfig,
   chatId: number,
   id: string,
 ): Promise<boolean> {
-  const service = new ReminderServiceImpl({ baseReminderDirectory: join(dataDir, "reminders") });
+  const sandbox = sandboxForChat(config, chatId);
+  const service = new ReminderServiceImpl({
+    baseReminderDirectory: join(sandbox.home, "reminders"),
+  });
   const outcome = await Effect.runPromise(
     service.cancel(agentIdForChat(chatId), id).pipe(Effect.provide(NodeFileSystem.layer)),
   );
+  // Cancelling rewrites the file as root; hand it back or the chat's own agent
+  // can no longer add or cancel reminders itself.
+  adoptIntoSandbox(sandbox, remindersFilePath(sandbox.home, chatId));
   return outcome.success;
 }
 
@@ -1592,7 +1651,8 @@ async function handleCommand(
   command: string,
   args: string,
 ): Promise<void> {
-  const agent = ensureChatAgent(config.jazzHome, chatId, config.baseAgentId);
+  const sandbox = sandboxForChat(config, chatId);
+  const agent = ensureChatAgent(config.jazzHome, sandbox, chatId, config.baseAgentId);
 
   if (command === "remind") {
     await handleRemind(config, chatId, args);
@@ -1605,7 +1665,7 @@ async function handleCommand(
   }
 
   if (command === "reminders") {
-    const mine = readRemindersForDisplay(config.jazzHome, chatId).sort(
+    const mine = readRemindersForDisplay(sandboxForChat(config, chatId).home, chatId).sort(
       (left, right) => left.fireAt - right.fireAt,
     );
     if (mine.length === 0) {
@@ -1697,7 +1757,7 @@ async function handleCommand(
       if (metadata !== undefined) {
         agent.config.reasoningEffort = metadata.isReasoningModel ? "medium" : "disable";
       }
-      writeAgentFile(config.jazzHome, agent);
+      writeChatAgentFile(sandbox, agent);
       await sendReply(
         config,
         chatId,
@@ -1911,7 +1971,10 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
     pendingApprovals.delete(toolCallId);
     await writeApprovalDecisions(run, [{ toolCallId, approved }]);
     if (always && pending.commandKey) {
-      await addAutoApprovedCommand(config.jazzHome, pending.commandKey).catch((error: unknown) =>
+      await addAutoApprovedCommand(
+        sandboxForChat(config, pending.chatId),
+        pending.commandKey,
+      ).catch((error: unknown) =>
         console.error(`Failed to persist auto-approved command: ${String(error)}`),
       );
     }
@@ -1986,7 +2049,7 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
   }
 
   if (kind === "r") {
-    const cancelled = await cancelReminderForChat(config.jazzHome, chatId, indexRaw ?? "");
+    const cancelled = await cancelReminderForChat(config, chatId, indexRaw ?? "");
     await callTelegram(config, "answerCallbackQuery", {
       callback_query_id: callback.id,
       text: cancelled ? "Reminder cancelled" : "Not found",
@@ -2017,7 +2080,8 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
   }
 
   const index = Number.parseInt(indexRaw ?? "", 10);
-  const agent = ensureChatAgent(config.jazzHome, chatId, config.baseAgentId);
+  const sandbox = sandboxForChat(config, chatId);
+  const agent = ensureChatAgent(config.jazzHome, sandbox, chatId, config.baseAgentId);
   let confirmation: string;
 
   if (kind === "m") {
@@ -2033,7 +2097,7 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
     const reasoning = choice.isReasoningModel ? "medium" : "disable";
     agent.config.llmModel = choice.id;
     agent.config.reasoningEffort = reasoning;
-    writeAgentFile(config.jazzHome, agent);
+    writeChatAgentFile(sandbox, agent);
     confirmation = `✅ Model → ${choice.id}\nReasoning: ${reasoning}`;
   } else if (kind === "p") {
     const personas = await listPersonas(config);
@@ -2046,7 +2110,7 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
       return;
     }
     agent.config.persona = persona;
-    writeAgentFile(config.jazzHome, agent);
+    writeChatAgentFile(sandbox, agent);
     confirmation = `✅ Persona → ${persona}`;
   } else {
     await callTelegram(config, "answerCallbackQuery", { callback_query_id: callback.id });
@@ -2096,13 +2160,15 @@ async function handleMedia(
   message: TelegramMessage,
   media: ExtractedMedia,
 ): Promise<void> {
+  const sandbox = sandboxForChat(config, chatId);
   const outcome = await downloadTelegramFile(
     config.botToken,
-    config.jazzHome,
+    sandbox.home,
     media.file,
     chatId,
     Date.now(),
   );
+  if (outcome.ok) adoptIntoSandbox(sandbox, outcome.path);
   if (!outcome.ok) {
     await sendReply(config, chatId, `⚠️ I couldn't fetch that file — ${outcome.reason}.`);
     return;
@@ -2203,11 +2269,13 @@ function startHealthServer(config: BridgeConfig): void {
         request.method === "GET" ? /^\/webapps\/([A-Za-z0-9_-]+)$/.exec(url.pathname) : null;
       if (webAppMatch) {
         const id = webAppMatch[1];
-        const file = Bun.file(`${webAppsDirectory(config)}/${id}.html`);
-        if (!(await file.exists())) {
-          return new Response("not found", { status: 404 });
+        for (const path of webAppCandidatePaths(config, id ?? "")) {
+          const file = Bun.file(path);
+          if (await file.exists()) {
+            return new Response(file, { headers: { "content-type": "text/html; charset=utf-8" } });
+          }
         }
-        return new Response(file, { headers: { "content-type": "text/html; charset=utf-8" } });
+        return new Response("not found", { status: 404 });
       }
 
       if (
@@ -2290,9 +2358,18 @@ async function fetchBotName(config: BridgeConfig): Promise<string | undefined> {
 
 async function start(): Promise<void> {
   const config = loadConfig();
+  // Everything this process and its agents write stays off-limits to anyone
+  // outside the operator group — the data directory is shared with whoever
+  // else is on the host.
+  process.umask(SANDBOX_UMASK);
   // Drop the cached CTA agent so it re-seeds from the current template (picks
   // up a changed default model on redeploy); ensureSuggestAgent recreates it.
-  rmSync(agentPath(config.jazzHome, SUGGEST_AGENT_ID), { force: true });
+  for (const home of [
+    config.jazzHome,
+    ...listChatSandboxes(config.jazzHome).map((sandbox) => sandbox.home),
+  ]) {
+    rmSync(agentPath(home, SUGGEST_AGENT_ID), { force: true });
+  }
   startHealthServer(config);
   startReminderSweep(config.jazzHome, (reminderChatId, html) =>
     sendReply(config, reminderChatId, html),
