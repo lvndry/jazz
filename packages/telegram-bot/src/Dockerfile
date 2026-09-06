@@ -14,8 +14,13 @@ WORKDIR /app
 # built-in afinfo for audio; Debian has no equivalent, so the bridge that
 # actually receives voice notes installs the real thing. Debian ships ffprobe
 # only as part of the ffmpeg package.
+#
+# util-linux and passwd are what per-chat isolation is built on: `setpriv`
+# drops each agent run to that chat's own uid, and `useradd`/`groupadd` mint
+# those uids the first time a chat is seen.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     chromium fonts-liberation ffmpeg curl jq khal vdirsyncer pass gnupg python3-pip \
+    util-linux passwd \
     && rm -rf /var/lib/apt/lists/*
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
@@ -47,7 +52,17 @@ RUN pip3 install --break-system-packages --ignore-installed --no-cache-dir "aios
 # lives on the container's writable layer and is lost on every rebuild or
 # recreate. Point their config/data/secrets at the same /data volume Jazz
 # already persists (JAZZ_HOME below) so `docker compose exec` setup survives.
-ENV XDG_CONFIG_HOME=/data/xdg-config \
+#
+# These are the supervisor's own paths. With per-chat isolation on, an agent
+# run is given the same variables pointing inside its chat's home instead, so
+# one person's mail account and GPG key are not readable by another's agent —
+# use `jazz-chat <chat id>` to run setup as the chat that should own them.
+# Compose can start this container as an arbitrary uid that has no /etc/passwd
+# entry, which leaves $HOME unset and sends anything resolving "~" to / — where
+# a non-root user cannot write. The data volume is the one directory that uid
+# is guaranteed to own.
+ENV HOME=/data \
+    XDG_CONFIG_HOME=/data/xdg-config \
     XDG_DATA_HOME=/data/xdg-data \
     XDG_STATE_HOME=/data/xdg-state \
     GNUPGHOME=/data/gnupg \
@@ -61,7 +76,8 @@ COPY . .
 RUN bun install --frozen-lockfile
 
 RUN printf '#!/bin/sh\nexec bun /app/packages/runtime/src/entry.ts "$@"\n' > /usr/local/bin/jazz \
-    && chmod +x /usr/local/bin/jazz \
+    && printf '#!/bin/sh\nexec bun /app/packages/telegram-bot/src/chat-shell.ts "$@"\n' > /usr/local/bin/jazz-chat \
+    && chmod +x /usr/local/bin/jazz /usr/local/bin/jazz-chat \
     && chmod +x /app/packages/telegram-bot/src/entrypoint.sh
 
 ENV JAZZ_HOME=/data \

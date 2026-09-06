@@ -111,7 +111,7 @@ order). Each `jazz run` is invoked with `--timezone <zone>`, so `18:00` means 6p
 where the sender is, across DST. Each chat's zone is stored in `tg-tz.json`.
 
 Reminders are stored per Telegram chat's agent, one JSON file per agent under
-`reminders/` in the Jazz home directory (`reminders/tg_<chat_id>.json`), written by
+`reminders/` in that chat's Jazz home (`reminders/tg_<chat_id>.json`), written by
 the `add_reminder`/`cancel_reminder` tools rather than the bridge itself. A sweep
 delivers due reminders every 20s, so they survive restarts (one due while the
 bridge was down fires on next start, marked `(delayed)`). Relative durations
@@ -143,8 +143,13 @@ these tools' setup wizards need a real terminal and neither the bot nor the
 skills will accept a password typed into Telegram chat. None of this is
 trivial, especially Google Calendar — follow it closely.
 
+A mail account belongs to one person, so set it up **inside that person's chat
+sandbox** rather than as root — `jazz-chat` opens a shell as the chat's own
+user, with `HOME`, the GPG keyring and the `pass` store already pointed at its
+home (see [Per-chat isolation](#per-chat-isolation)):
+
 ```sh
-docker compose exec jazz-telegram sh
+docker compose exec jazz-telegram jazz-chat <chat_id>
 ```
 
 _Email (any provider, via Himalaya):_
@@ -283,9 +288,12 @@ jazz run --no-tui --json --agent tg_<chat_id> --conversation <chat_id> "<text>"
 ```
 
 `--conversation` gives per-chat memory; the per-chat agent file supplies the
-provider/model/persona. Data lives in the `jazz_data` volume (`JAZZ_HOME=/data`):
-agents in `/data/agents`, transcripts in `/data/history` (keyed by chat id,
-**plaintext JSON** — treat the volume as sensitive), logs in `/data/logs`.
+provider/model/persona. Data lives in the `jazz_data` volume, one Jazz home per
+chat under `/data/chats/tg_<chat_id>/`: that chat's agent in `agents/`,
+transcripts in `history/` (**plaintext JSON** — treat the volume as sensitive),
+memory in `memory/`, reminders in `reminders/`. The bridge's own cross-chat
+stores (`tg-tz.json`, `tg-usage.json`, `tg-sessions.json`, …) and the seed
+`telegram` agent stay at the top of `/data`.
 
 ## Rate limits
 
@@ -370,6 +378,8 @@ commit. Check `~/jazz-autoupdate.log` for the run history.
 ## Security notes
 
 - Only `TELEGRAM_ALLOWED_CHAT_IDS` are answered; everyone else is ignored.
+- Each allowlisted chat's agent runs as **its own Unix user**, in its own Jazz
+  home — see [Per-chat isolation](#per-chat-isolation).
 - The agent ships with the **full toolset** — filesystem (incl. write/delete),
   `execute_command`, git (incl. push), HTTP, and web search — and runs
   **without a human in the loop**. `JAZZ_APPROVAL_POLICY` is the gate: at the
@@ -377,3 +387,95 @@ commit. Check `~/jazz-autoupdate.log` for the run history.
   auto-declined; raise it to `high-risk` only if you understand that a prompt
   (or prompt injection) could then run arbitrary commands on the host. Trim the
   toolset in `agent.telegram.json` if you want a smaller blast radius.
+
+## Per-chat isolation
+
+Allowlisting two people does not make them safe from each other. Everything an
+agent knows about you — the transcript of every conversation, its memory notes,
+your reminders, the API keys in `secrets.json`, the mail account and GPG key
+`himalaya` and `pass` were set up with — is on one disk, and a Jazz agent has
+`read_file` and `execute_command`. A filename prefix does not stop a tool call.
+So each chat gets a Unix user instead.
+
+**What the container does.** The bridge supervises as root; each `jazz run` is
+dropped with `setpriv` to a uid minted for that chat the first time it messages,
+and pointed at its own Jazz home:
+
+```text
+/data                           root:<operator>  2751   bridge stores; enterable, not listable
+/data/chats                     root:<operator>  2751   enterable, not listable
+/data/chats/tg_<chat_id>        <chat>:<operator> 2750   that chat's whole Jazz home
+/data/chats/tg_<chat_id>/…      <chat>:<operator> 0640   everything its agent writes
+```
+
+`JAZZ_HOME`, `HOME`, `XDG_*`, `GNUPGHOME` and `PASSWORD_STORE_DIR` all move
+inside that home, so mail, calendar and `pass` are per person too. Chat uids are
+deliberately **not** in the operator group, which is what makes the group bits
+one-way: the operator reads every chat, no chat reads another, and the setgid
+bit on each directory is what keeps the operator's access working as agents
+create new files. Personas stay shared and read-only; provider API keys still
+come from the environment, so every chat can still call the model.
+
+**Who can read what on the host.** The operator group is whatever group owns the
+data directory. A Docker named volume is `root:root` under `/var/lib/docker`,
+which no non-root account can enter — fine, but you need `sudo` to look at your
+own data. To read it as yourself, put it on a bind mount you own:
+
+```sh
+sudo mkdir -p /srv/jazz-telegram/data
+sudo chown root:$(id -gn) /srv/jazz-telegram/data
+sudo chmod 2750 /srv/jazz-telegram/data
+```
+
+then point the compose `volumes:` entry at it. Only your group reads anything
+under it. (Host root still can, as always — a container cannot defend against
+the machine it runs on. `userns-remap` on the Docker daemon is the next step if
+that matters, and it is a daemon-wide setting.)
+
+**Migrating an existing deployment.** A bot that has been running has one shared
+home with everyone's state in it. Move it in — the script prints its plan and
+changes nothing until `--apply`:
+
+```sh
+docker compose exec jazz-telegram bun /app/packages/telegram-bot/src/migrate-isolation.ts --operator <your_chat_id>
+```
+
+`--operator` is the chat that inherits what was never per-chat to begin with:
+`secrets.json`, the mail/calendar config, the GPG keyring and the `pass` store.
+Re-run with `--apply`, then `docker compose restart`.
+
+**Turning it off.** `JAZZ_BOT_CHAT_ISOLATION=0` puts every chat back in one
+shared home under one uid. Isolation also stays off automatically when the
+bridge is not root, since switching uid needs the privilege — the startup log
+says which mode it came up in.
+
+### If the allowlist is only you
+
+Then there is no second person to sandbox from, and the stronger setup is the
+simpler one: run the whole bridge as *your* user, with the data owned by you
+and nothing for anyone else.
+
+```sh
+# in .env
+JAZZ_BOT_RUN_AS=1000:1000        # your own `id -u`:`id -g`
+```
+
+Chown the volume to match before the first start, then `docker compose up -d`.
+The entrypoint sees it is not root, puts `/data` at `0700`, runs everything
+under a 077 umask, and says so on startup. Per-chat sandboxes are off, because
+switching uid needs a privilege an ordinary user does not have — and they would
+buy nothing with one person on the allowlist.
+
+### What none of this protects against
+
+Anyone with **root, `sudo`, or membership of the `docker` group** on the host
+reads all of it, whatever the uid and modes say: `sudo cat` gets the volume
+directly, and `docker exec … cat /data/secrets.json` does not care that the
+file is 0600 — the daemon runs as root. The docker group is root-equivalent by
+design.
+
+So on a machine other people administer, the boundary is the machine, not the
+container. If the transcripts, `secrets.json`, mail account and GPG key in
+there should be yours alone, run the bot on a host where you are the only
+admin, and treat anything already stored on a shared box as having been
+readable by every admin on it.
