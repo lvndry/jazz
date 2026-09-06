@@ -19,6 +19,9 @@ export interface QuotedMessage {
   readonly voice?: unknown;
   readonly audio?: unknown;
   readonly photo?: readonly unknown[];
+  readonly animation?: unknown;
+  readonly video?: unknown;
+  readonly video_note?: unknown;
   readonly document?: { readonly file_name?: string };
   readonly location?: unknown;
   readonly sticker?: { readonly emoji?: string };
@@ -57,6 +60,9 @@ function mediaLabel(quoted: QuotedMessage): string | undefined {
   if (quoted.voice !== undefined) return "a voice message";
   if (quoted.audio !== undefined) return "an audio file";
   if (quoted.photo !== undefined && quoted.photo.length > 0) return "a photo";
+  if (quoted.animation !== undefined) return "a GIF";
+  if (quoted.video !== undefined) return "a video";
+  if (quoted.video_note !== undefined) return "a video message";
   if (quoted.document !== undefined) {
     const fileName = quoted.document.file_name?.trim();
     return fileName !== undefined && fileName.length > 0 ? `the file ${fileName}` : "a file";

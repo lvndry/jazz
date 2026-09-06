@@ -89,6 +89,7 @@ What the Telegram bridge demonstrates — worth reading before you write your ow
 | **Per-chat memory** | `--conversation <chat_id>`. The bridge itself is stateless.                                                                                                                    |
 | **Live progress**   | `--events` NDJSON on stderr drives a status bubble that updates with thinking, tool calls, and sub-agents, then closes with a `✅ Done · 7 tools · 12k tokens · $0.03` summary. |
 | **Cancellation**    | A ⏹ button kills the child process mid-run.                                                                                                                                    |
+| **Approvals**       | Each tool needing a human gets its own accept/reject message. A parallel batch of tool calls grows **⚡ Approve all N** / **🚫 Reject all N** so the whole batch clears in one tap, and `/mode` opts a conversation out of prompting altogether (yolo runs at `high-risk`). Both bridges do this. |
 | **Reminders**       | `/remind 30m …`, persisted to disk so they survive restarts and fire late if the bridge was down.                                                                              |
 | **Spend cap**       | `JAZZ_DAILY_COST_CAP_USD` — known `costUSD` is accumulated per day; after an unpriced run, further requests pause until the next UTC day.                                      |
 | **Local-only mode** | Point `JAZZ_TELEGRAM_PROVIDER=ollama` at a local model: no keys, no cloud, no per-message cost.                                                                                |
@@ -274,6 +275,7 @@ flowchart LR
 
 - **Always use an allowlist.** Both bridges and Jazz have one; use both.
 - **Default to `low-risk`.** At `high-risk`, a message — or a prompt injection inside a web page the agent fetched — can run arbitrary commands on the host. That is the documented behavior of that tier, not a bug.
+- **Know what "yolo" costs.** Both bridges' `/mode yolo` is `high-risk` for that conversation, and it is sticky — it survives `/new` and bridge restarts until someone sets it back to safe. Anyone on the allowlist can set it for their own conversation.
 - **Trim the toolset.** An agent config that doesn't include `execute_command` cannot run shell commands regardless of policy. This is the strongest control available.
 - **Treat the history volume as sensitive.** Transcripts are plaintext JSON under `~/.jazz/history/`.
 - **Cap spend.** Use `costKnown` as well as `costUSD`. The bridges pause subsequent requests after an unpriced run; no dollar cap can guarantee the cost of that first unpriced request.

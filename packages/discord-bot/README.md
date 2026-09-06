@@ -19,6 +19,7 @@ Discord  ◀──(Gateway websocket)──▶  bridge  ──jazz run --json─
 - 🎛️ **Per-conversation `/model` and `/persona`** — `/model` picks from a select menu of the current provider's models, or `/model openai/gpt-5.2` (sent as a normal message) switches to any other provider Jazz supports outright; each DM or thread keeps its own choice.
 - 🧵 **Thread binding in servers** — `@mention` in a channel starts a thread; follow-ups in that thread don't need another mention.
 - 🤫 **Mention-gating** — in servers the bot ignores chatter unless mentioned, replied-to, or already in the thread. DMs always respond.
+- 🛡️ **Approvals you can get through fast** — a tool needing a human posts its own accept/reject message; when a model fires several tool calls at once, every outstanding prompt grows **⚡ Approve all N** / **🚫 Reject all N** so one click clears the batch. `/mode mode:yolo` turns approvals off for that conversation entirely; `/mode mode:safe` puts them back.
 - 📡 **Live progress** — a status message updates in real time with thinking, tool calls, sub-agents (🤖), and tools awaiting approval (⛔); it closes with a `✅ Done · tools · tokens · $cost` summary, and the answer lands as a new message.
 - ⏰ **Reminders** — `/remind` or plain language ("remind me in 2 hours …"), scheduled by the agent via a native tool, resolved in your timezone (`/tz`) and delivered even across restarts.
 - 💬 **Per-channel memory**, 🔒 **allowlist-gated**, 🐳 **one-command Docker deploy**.
@@ -126,13 +127,14 @@ allowlisted, or you didn’t @mention it (`DISCORD_REQUIRE_MENTION=1` by default
 | _(DM, or @mention in a server)_ | Answered by your agent                                                                                                                                                                |
 | `/model`                        | Select menu of the current provider's models; send `/model provider/model` (e.g. `anthropic/claude-sonnet-5`) as a normal message to switch this conversation to a different provider outright |
 | `/persona`                      | Select menu of available personas                                                                                                                                                     |
+| `/mode`                         | Show or set this conversation's approval mode. **Safe** (default) keeps `JAZZ_APPROVAL_POLICY`, so risky tools stop and ask. **Yolo** runs every tool without asking. Sticky per conversation — `/new` does not reset it. |
 | `/new`                          | Start a fresh conversation — clears earlier context; keeps your model/persona                                                                                                         |
 | `/incognito`                    | Private conversation (nothing saved to history or memory) until `/new`                                                                                                                |
 | `/remind`                       | Schedule a reminder. `when` = `30m`, `1h30m`, `18:00`, `tomorrow 09:00`, `tue 20:00`, or `2026-08-25 20:00`. Routed through a normal agent turn, which calls the `add_reminder` tool. |
 | _(natural language)_            | Just say it — "remind me to call the dentist in 2 hours". The agent calls `add_reminder` itself.                                                                                      |
 | `/reminders`                    | List your pending reminders (in your timezone); tap one to cancel                                                                                                                     |
 | `/tz`                           | Show or set your timezone (IANA name, e.g. `/tz zone:Europe/Paris`) so reminder times are local                                                                                       |
-| `/status`                       | Current model, your timezone, today's runs/tokens/cost, daily cap, uptime                                                                                                             |
+| `/status`                       | Current model, your timezone, approval mode, today's runs/tokens/cost, daily cap, uptime                                                                                              |
 | `/help`                         | Usage                                                                                                                                                                                 |
 
 While a message is processing, the progress message carries a **⏹ Cancel**
@@ -191,7 +193,7 @@ they only set what a brand-new conversation starts on.
 | `JAZZ_OLLAMA_KEEP_ALIVE`             | —                                       | How long a local Ollama keeps the model loaded (`keep_alive`): `-1` pins it indefinitely, or a duration like `30m`. Unset uses Ollama's 5-minute default, so the first message after a quiet spell pays a full cold model load with no progress shown while it happens. |
 | `JAZZ_REASONING`                     | `medium`                                | `disable`\|`low`\|`medium`\|`high`.                                                                                                                                                                                                                                     |
 | `OLLAMA_BASE_URL`                    | `http://host.docker.internal:11434/api` | Ollama endpoint, used whenever a conversation's provider is `ollama` (default or via `/model`).                                                                                                                                                                                                                |
-| `JAZZ_APPROVAL_POLICY`               | `low-risk`                              | Auto-approve tools up to: `read-only`\|`low-risk`\|`high-risk`.                                                                                                                                                                                                         |
+| `JAZZ_APPROVAL_POLICY`               | `low-risk`                              | Auto-approve tools up to: `read-only`\|`low-risk`\|`high-risk`. This is what "safe" means for the deployment; a conversation on `/mode mode:yolo` runs at `high-risk` instead.                                                                                            |
 | `JAZZ_AUTO_APPROVE_TOOLS`            | —                                       | Comma-separated tool names to auto-approve regardless of policy. Tools needing approval that aren't in this list are sent to the channel as an accept/reject prompt instead of being declined.                                                                          |
 | `JAZZ_RUN_TIMEOUT_MS`                | `300000`                                | Per-message agent timeout.                                                                                                                                                                                                                                              |
 | `JAZZ_DAILY_COST_CAP_USD`            | `0`                                     | Daily known-spend ceiling across all conversations; an unpriced run pauses later requests for the UTC day; `0` disables the cap.                                                                                                                                        |
@@ -283,6 +285,9 @@ Set `JAZZ_DEPLOY_BRANCH` to track something other than `main`.
   default `low-risk`, higher-risk actions (shell, delete, push, …) are
   auto-declined; raise it to `high-risk` only if you understand that a prompt
   (or prompt injection) could then run arbitrary commands on the host. Trim the
-  toolset in `agent.discord.json` if you want a smaller blast radius.
+  toolset in `agent.discord.json` if you want a smaller blast radius. Anyone on
+  the allowlist can also put their own conversation on `/mode mode:yolo`, which
+  is `high-risk` for that conversation and survives `/new` and restarts until
+  someone sends `/mode mode:safe`.
 - Agent replies are sent with `allowed_mentions.parse = []` so the model cannot
   ping `@everyone`, `@here`, or arbitrary users.
