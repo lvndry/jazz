@@ -448,3 +448,34 @@ Re-run with `--apply`, then `docker compose restart`.
 shared home under one uid. Isolation also stays off automatically when the
 bridge is not root, since switching uid needs the privilege — the startup log
 says which mode it came up in.
+
+### If the allowlist is only you
+
+Then there is no second person to sandbox from, and the stronger setup is the
+simpler one: run the whole bridge as *your* user, with the data owned by you
+and nothing for anyone else.
+
+```sh
+# in .env
+JAZZ_BOT_RUN_AS=1000:1000        # your own `id -u`:`id -g`
+```
+
+Chown the volume to match before the first start, then `docker compose up -d`.
+The entrypoint sees it is not root, puts `/data` at `0700`, runs everything
+under a 077 umask, and says so on startup. Per-chat sandboxes are off, because
+switching uid needs a privilege an ordinary user does not have — and they would
+buy nothing with one person on the allowlist.
+
+### What none of this protects against
+
+Anyone with **root, `sudo`, or membership of the `docker` group** on the host
+reads all of it, whatever the uid and modes say: `sudo cat` gets the volume
+directly, and `docker exec … cat /data/secrets.json` does not care that the
+file is 0600 — the daemon runs as root. The docker group is root-equivalent by
+design.
+
+So on a machine other people administer, the boundary is the machine, not the
+container. If the transcripts, `secrets.json`, mail account and GPG key in
+there should be yours alone, run the bot on a host where you are the only
+admin, and treat anything already stored on a shared box as having been
+readable by every admin on it.

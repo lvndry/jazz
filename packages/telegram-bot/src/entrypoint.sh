@@ -1,13 +1,24 @@
 #!/bin/sh
 set -eu
 
-# Nothing this container writes should be readable to anyone outside the group
-# that owns the data directory — the host mount is on a disk other accounts can
-# reach, and the bridge's own stores hold every chat's timezone, usage and
-# session state.
-umask 027
-
 JAZZ_HOME="${JAZZ_HOME:-/data}"
+
+# Two ways to run this, and they protect against different people.
+#
+#   As root, with per-chat sandboxes (the default): each chat's agent runs as
+#   its own uid under ${JAZZ_HOME}/chats, so one allowlisted person's agent
+#   cannot read another's. Everything is readable to the group owning the data
+#   directory — the operator — and to nobody else, which needs umask 027.
+#
+#   As an ordinary user (compose `user:`): one uid, one Jazz home, and the data
+#   readable to that user alone. There is nothing to sandbox from, because
+#   every chat already runs as the person who owns the deployment. Right when
+#   the allowlist is one person; umask 077, since no group needs in.
+if [ "$(id -u)" -ne 0 ] || [ "${JAZZ_BOT_CHAT_ISOLATION:-1}" = "0" ]; then
+  umask 077
+else
+  umask 027
+fi
 JAZZ_TELEGRAM_PROVIDER="${JAZZ_TELEGRAM_PROVIDER:-openai}"
 JAZZ_TELEGRAM_MODEL="${JAZZ_TELEGRAM_MODEL:-gpt-5.4}"
 # Reasoning effort. Keep it in sync with the model: reasoning-capable models
@@ -18,16 +29,24 @@ AGENT_TEMPLATE="/app/packages/telegram-bot/src/agent.telegram.json"
 
 mkdir -p "${JAZZ_HOME}/agents"
 
-# Per-chat sandboxes live at ${JAZZ_HOME}/chats/tg_<chat id>, each owned by its
-# own uid. Those uids are deliberately not in the operator group, so the two
-# directories on the way to a sandbox have to stay traversable — "enter a path
-# you already know" (o+x) without "list what is here" (o+r). What they hold is
-# still unreadable: the bridge's own files are 0640 and each sandbox is 2750.
-chmod 2751 "${JAZZ_HOME}"
-mkdir -p "${JAZZ_HOME}/chats" && chmod 2751 "${JAZZ_HOME}/chats"
-# Personas are the one thing every chat is meant to see the same copy of, and
-# only the operator installs them.
-mkdir -p "${JAZZ_HOME}/personas" && chmod 755 "${JAZZ_HOME}/personas"
+if [ "$(id -u)" -ne 0 ] || [ "${JAZZ_BOT_CHAT_ISOLATION:-1}" = "0" ]; then
+  # One uid owns the lot, so the simplest mode is also the strongest one
+  # available: nothing outside this user gets in at all.
+  chmod 700 "${JAZZ_HOME}"
+  mkdir -p "${JAZZ_HOME}/personas"
+else
+  # Per-chat sandboxes live at ${JAZZ_HOME}/chats/tg_<chat id>, each owned by
+  # its own uid. Those uids are deliberately not in the operator group, so the
+  # two directories on the way to a sandbox have to stay traversable — "enter a
+  # path you already know" (o+x) without "list what is here" (o+r). What they
+  # hold is still unreadable: the bridge's own files are 0640 and each sandbox
+  # is 2750.
+  chmod 2751 "${JAZZ_HOME}"
+  mkdir -p "${JAZZ_HOME}/chats" && chmod 2751 "${JAZZ_HOME}/chats"
+  # Personas are the one thing every chat is meant to see the same copy of, and
+  # only the operator installs them.
+  mkdir -p "${JAZZ_HOME}/personas" && chmod 755 "${JAZZ_HOME}/personas"
+fi
 
 # Directories for the email/calendar skills' XDG-relocated config, data, GPG
 # keyring, and pass store (see Dockerfile) — created up front so the first
@@ -53,7 +72,7 @@ sed -e "s#__JAZZ_PROVIDER__#${JAZZ_TELEGRAM_PROVIDER}#g" \
 echo "Seeded agent 'telegram' (model=${JAZZ_TELEGRAM_PROVIDER}/${JAZZ_TELEGRAM_MODEL}, reasoning=${JAZZ_REASONING}) into ${JAZZ_HOME}/agents"
 
 if [ "$(id -u)" -ne 0 ]; then
-  echo "Not running as root: per-chat sandboxes are off, so every chat shares one Jazz home and one uid." >&2
+  echo "Running as uid $(id -u): one Jazz home, ${JAZZ_HOME} is 0700, and only that user can read it. Per-chat sandboxes need root and are off." >&2
 elif [ "${JAZZ_BOT_CHAT_ISOLATION:-1}" = "0" ]; then
   echo "JAZZ_BOT_CHAT_ISOLATION=0: per-chat sandboxes are off, so every chat shares one Jazz home and one uid." >&2
 else

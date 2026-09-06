@@ -57,7 +57,12 @@ RUN pip3 install --break-system-packages --ignore-installed --no-cache-dir "aios
 # run is given the same variables pointing inside its chat's home instead, so
 # one person's mail account and GPG key are not readable by another's agent —
 # use `jazz-chat <chat id>` to run setup as the chat that should own them.
-ENV XDG_CONFIG_HOME=/data/xdg-config \
+# Compose can start this container as an arbitrary uid that has no /etc/passwd
+# entry, which leaves $HOME unset and sends anything resolving "~" to / — where
+# a non-root user cannot write. The data volume is the one directory that uid
+# is guaranteed to own.
+ENV HOME=/data \
+    XDG_CONFIG_HOME=/data/xdg-config \
     XDG_DATA_HOME=/data/xdg-data \
     XDG_STATE_HOME=/data/xdg-state \
     GNUPGHOME=/data/gnupg \
