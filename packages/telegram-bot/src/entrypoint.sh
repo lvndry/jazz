@@ -1,6 +1,12 @@
 #!/bin/sh
 set -eu
 
+# Nothing this container writes should be readable to anyone outside the group
+# that owns the data directory — the host mount is on a disk other accounts can
+# reach, and the bridge's own stores hold every chat's timezone, usage and
+# session state.
+umask 027
+
 JAZZ_HOME="${JAZZ_HOME:-/data}"
 JAZZ_TELEGRAM_PROVIDER="${JAZZ_TELEGRAM_PROVIDER:-openai}"
 JAZZ_TELEGRAM_MODEL="${JAZZ_TELEGRAM_MODEL:-gpt-5.4}"
@@ -11,6 +17,17 @@ JAZZ_REASONING="${JAZZ_REASONING:-medium}"
 AGENT_TEMPLATE="/app/packages/telegram-bot/src/agent.telegram.json"
 
 mkdir -p "${JAZZ_HOME}/agents"
+
+# Per-chat sandboxes live at ${JAZZ_HOME}/chats/tg_<chat id>, each owned by its
+# own uid. Those uids are deliberately not in the operator group, so the two
+# directories on the way to a sandbox have to stay traversable — "enter a path
+# you already know" (o+x) without "list what is here" (o+r). What they hold is
+# still unreadable: the bridge's own files are 0640 and each sandbox is 2750.
+chmod 2751 "${JAZZ_HOME}"
+mkdir -p "${JAZZ_HOME}/chats" && chmod 2751 "${JAZZ_HOME}/chats"
+# Personas are the one thing every chat is meant to see the same copy of, and
+# only the operator installs them.
+mkdir -p "${JAZZ_HOME}/personas" && chmod 755 "${JAZZ_HOME}/personas"
 
 # Directories for the email/calendar skills' XDG-relocated config, data, GPG
 # keyring, and pass store (see Dockerfile) — created up front so the first
@@ -34,5 +51,14 @@ sed -e "s#__JAZZ_PROVIDER__#${JAZZ_TELEGRAM_PROVIDER}#g" \
     -e "s#__JAZZ_REASONING__#${JAZZ_REASONING}#g" \
     "${AGENT_TEMPLATE}" > "${JAZZ_HOME}/agents/telegram.json"
 echo "Seeded agent 'telegram' (model=${JAZZ_TELEGRAM_PROVIDER}/${JAZZ_TELEGRAM_MODEL}, reasoning=${JAZZ_REASONING}) into ${JAZZ_HOME}/agents"
+
+if [ "$(id -u)" -ne 0 ]; then
+  echo "Not running as root: per-chat sandboxes are off, so every chat shares one Jazz home and one uid." >&2
+elif [ "${JAZZ_BOT_CHAT_ISOLATION:-1}" = "0" ]; then
+  echo "JAZZ_BOT_CHAT_ISOLATION=0: per-chat sandboxes are off, so every chat shares one Jazz home and one uid." >&2
+else
+  OPERATOR_GID="${JAZZ_BOT_OPERATOR_GID:-$(stat -c %g "${JAZZ_HOME}")}"
+  echo "Per-chat sandboxes on: each chat runs as its own uid under ${JAZZ_HOME}/chats, readable by group ${OPERATOR_GID} and nobody else." >&2
+fi
 
 exec bun /app/packages/telegram-bot/src/bridge.ts

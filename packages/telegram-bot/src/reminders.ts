@@ -10,6 +10,7 @@
 import { join } from "node:path";
 import { NodeFileSystem } from "@effect/platform-node";
 import { sweepDueReminders } from "@jazz/adapters/reminder-service";
+import { listChatSandboxes } from "@jazz/bot-shared/chat-sandbox";
 import { Effect } from "effect";
 import { escapeHtml } from "./telegram-html";
 
@@ -28,8 +29,16 @@ function chatIdFromAgentId(agentId: string): number | null {
   return Number.isFinite(chatId) ? chatId : null;
 }
 
-function remindersRootDir(dataDir: string): string {
-  return join(dataDir, "reminders");
+/**
+ * Every directory a reminder file could be in.
+ *
+ * With per-chat sandboxes each chat writes reminders inside its own Jazz home,
+ * so there is no single `reminders/` left to scan — but the sweep runs in the
+ * bridge process, which reads across all of them.
+ */
+function remindersRootDirs(dataDir: string): string[] {
+  const homes = listChatSandboxes(dataDir).map((sandbox) => sandbox.home);
+  return (homes.length > 0 ? homes : [dataDir]).map((home) => join(home, "reminders"));
 }
 
 async function fireDueReminders(dataDir: string, send: ReminderSender): Promise<void> {
@@ -38,14 +47,16 @@ async function fireDueReminders(dataDir: string, send: ReminderSender): Promise<
   try {
     const now = Date.now();
 
-    const fired = await Effect.runPromise(
-      sweepDueReminders(remindersRootDir(dataDir), now).pipe(Effect.provide(NodeFileSystem.layer)),
-    );
-    for (const { agentId, reminder } of fired) {
-      const chatId = chatIdFromAgentId(agentId);
-      if (chatId === null) continue;
-      const late = now - reminder.fireAt > 90_000 ? " (delayed)" : "";
-      await send(chatId, `⏰ <b>Reminder</b>${late}\n${escapeHtml(reminder.text)}`);
+    for (const root of remindersRootDirs(dataDir)) {
+      const fired = await Effect.runPromise(
+        sweepDueReminders(root, now).pipe(Effect.provide(NodeFileSystem.layer)),
+      );
+      for (const { agentId, reminder } of fired) {
+        const chatId = chatIdFromAgentId(agentId);
+        if (chatId === null) continue;
+        const late = now - reminder.fireAt > 90_000 ? " (delayed)" : "";
+        await send(chatId, `⏰ <b>Reminder</b>${late}\n${escapeHtml(reminder.text)}`);
+      }
     }
   } finally {
     reminderSweepRunning = false;

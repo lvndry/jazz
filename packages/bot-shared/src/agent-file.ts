@@ -55,14 +55,28 @@ export function ensureScopedAgent(
   agentId: string,
   baseAgentId: string,
 ): AgentFile {
-  const path = agentPath(dataDir, agentId);
+  return ensureScopedAgentFrom(dataDir, dataDir, agentId, baseAgentId);
+}
+
+/**
+ * Same, for bridges that keep each conversation's agent somewhere other than
+ * the directory holding the seed template — a per-conversation sandbox home,
+ * which the entrypoint never writes the template into.
+ */
+export function ensureScopedAgentFrom(
+  templateDir: string,
+  targetDir: string,
+  agentId: string,
+  baseAgentId: string,
+): AgentFile {
+  const path = agentPath(targetDir, agentId);
   if (existsSync(path)) {
-    return readAgentFile(dataDir, agentId);
+    return readAgentFile(targetDir, agentId);
   }
-  mkdirSync(join(dataDir, "agents"), { recursive: true });
-  const template = readAgentFile(dataDir, baseAgentId);
+  mkdirSync(join(targetDir, "agents"), { recursive: true });
+  const template = readAgentFile(templateDir, baseAgentId);
   template.id = agentId;
-  writeAgentFile(dataDir, template);
+  writeAgentFile(targetDir, template);
   return template;
 }
 
