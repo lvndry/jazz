@@ -31,6 +31,12 @@ if [ "$(id -u)" -ne 0 ] || [ "${JAZZ_BOT_CHAT_ISOLATION:-1}" = "0" ]; then
   # available: nothing outside this user gets in at all.
   chmod 700 "${JAZZ_HOME}"
   mkdir -p "${JAZZ_HOME}/personas"
+
+  # $JAZZ_HOME being 0700 already stops anyone else walking in, but files
+  # written before the switch still carry world-readable modes of their own.
+  # Strip them so the directory mode is not the only thing standing between
+  # another account and this data.
+  chmod -R go-rwx "${JAZZ_HOME}" 2>/dev/null || true
 else
   # Per-conversation sandboxes live at ${JAZZ_HOME}/chats/dc_<channel id>, each
   # owned by its own uid. Those uids are deliberately not in the operator group,
@@ -43,6 +49,17 @@ else
   # Personas are the one thing every conversation is meant to see the same copy
   # of, and only the operator installs them.
   mkdir -p "${JAZZ_HOME}/personas" && chmod 755 "${JAZZ_HOME}/personas"
+
+  # Anything already in the data directory predates isolation and kept whatever
+  # modes a 022 umask gave it. $JAZZ_HOME has to stay traversable for a
+  # conversation to reach its own sandbox, so those leftovers stay reachable
+  # too — a world-readable run log or history file from before the switch is
+  # still readable by every conversation. Personas are shared on purpose;
+  # everything else here belongs to the operator.
+  # `find` rather than a shell glob: caches land at $HOME/.bun and $HOME/.cache,
+  # and "*" does not match a leading dot.
+  find "${JAZZ_HOME}" -mindepth 1 -maxdepth 1 ! -name personas ! -name chats \
+    -exec chmod -R o-rwx {} + 2>/dev/null || true
 fi
 
 # Merge the bridge-managed keys into config.json, leaving anything the operator
