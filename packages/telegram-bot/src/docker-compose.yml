@@ -7,6 +7,18 @@ services:
     container_name: jazz-telegram
     restart: always
     env_file: .env
+    # Who the bridge runs as. Leave unset (root) to get per-chat sandboxes,
+    # which is what you want when more than one person is on the allowlist.
+    #
+    # Set JAZZ_BOT_RUN_AS to "<uid>:<gid>" — your own, from `id -u`:`id -g` —
+    # when the allowlist is just you: the whole data directory is then owned by
+    # you and 0700, so no other account on the host reads any of it through the
+    # filesystem. Chown the volume to match before the first start.
+    #
+    # Neither mode helps against someone with root, sudo or docker-group access
+    # on the host: all three can read the volume or exec into the container. On
+    # a shared machine that is the boundary that actually matters.
+    user: "${JAZZ_BOT_RUN_AS:-0:0}"
     environment:
       # The group allowed to read every chat's state. Defaults to the group
       # owning JAZZ_DATA_PATH, which is what you want for a bind mount created
