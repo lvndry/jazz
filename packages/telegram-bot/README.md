@@ -18,11 +18,12 @@ Telegram  ◀──(getUpdates long-poll)──▶  bridge  ──jazz run --jso
 - 🔌 **Bring your own model** — OpenAI `gpt-5.4` out of the box, or any provider Jazz supports (including local Ollama, no keys/cost).
 - 🎛️ **Per-person `/model` and `/persona`** — `/model` picks from an inline keyboard of the current provider's models, or `/model openai/gpt-5.2` switches to any other provider Jazz supports outright; each user keeps their own choice.
 - ♻️ **Auto reasoning** — switching model reads its advertised capabilities and enables/disables thinking so non-thinking models don't error.
+- 🛡️ **Approvals you can get through fast** — a tool needing a human sends its own accept/reject message; when a model fires several tool calls at once, every outstanding prompt grows **⚡ Approve all N** / **🚫 Reject all N** so one tap clears the batch. `/mode yolo` turns approvals off for that chat entirely; `/mode safe` puts them back.
 - 📡 **Live progress** — a status bubble updates in real time with the agent's thinking, tool calls, sub-agents (🤖), and tools awaiting approval (⛔); it closes with a `✅ Done · tools · tokens · $cost` summary, and the answer lands as a new message (so it notifies).
 - ⏰ **Reminders** — `/remind 30m …` or plain language ("remind me in 2 hours …"), scheduled by the agent itself via a native tool, resolved in your own timezone (`/tz`, or auto-set from a shared location) and delivered even across restarts.
 - 📍 **Location aware** — share a pin to get oriented, find nearby places, and set your timezone automatically.
 - 📊 **On-demand UI** — the agent can write a self-contained webpage (a chart, a form, a small interactive tool) via `create_web_app` and deliver it as either a chat image (no tap) or a tappable Telegram Web App button.
-- 🎙️ **Send voice notes, photos and files** — a voice message is listened to and acted on; a photo or PDF is read. Needs a model with that input modality (Gemini for audio, most models for images), and the bot says so plainly when the current model can't.
+- 🎙️ **Send voice notes, photos, video and files** — a voice message or round video message is listened to and acted on; a photo, sticker, GIF, video or PDF is read. Needs a model with that input modality (Gemini for audio and video, most models for images), and the bot says so plainly when the current model can't.
 - 💬 **Per-chat memory**, ✍️ **Markdown rendering** (with plain-text fallback), 🔒 **allowlist-gated**, 🐳 **one-command Docker deploy**.
 
 ## Requirements
@@ -32,9 +33,9 @@ Telegram  ◀──(getUpdates long-poll)──▶  bridge  ──jazz run --jso
 - A model backend — **either** an API key for a cloud provider (OpenAI by default)
   **or** a local [Ollama](https://ollama.com) with a tool-capable model pulled.
 - Outbound HTTPS to `api.telegram.org`.
-- For voice notes: a model that accepts audio input. In practice that means the
-  Gemini family — Anthropic has no audio models and OpenAI has one. Images and
-  PDFs work on almost anything. The image installs `ffmpeg` so Jazz can measure
+- For voice notes and video: a model that accepts audio or video input. In practice
+  that means the Gemini family — Anthropic has no audio models and OpenAI has one.
+  Images and PDFs work on almost anything, local Ollama vision models included. The image installs `ffmpeg` so Jazz can measure
   how long a clip is and budget context for it accurately.
 
 ## Quick start
@@ -70,12 +71,13 @@ Message your bot: it shows a "typing…" indicator, then the agent's reply.
 | _(any message)_         | Answered by your agent                                                                                                                                                                                                       |
 | `/model`                | Inline keyboard of the current provider's models; `/model provider/model` (e.g. `anthropic/claude-sonnet-5`) switches you to a different provider outright                                                          |
 | `/persona`              | Inline keyboard of available personas                                                                                                                                                                                        |
+| `/mode [safe\|yolo]`     | Show or set this chat's approval mode. **Safe** (default) keeps `JAZZ_APPROVAL_POLICY`, so risky tools stop and ask. **Yolo** runs every tool without asking. Sticky per chat — `/new` does not reset it.                     |
 | `/new` (`/reset`)       | Start a fresh conversation — clears earlier context; keeps your model/persona                                                                                                                                                |
 | `/remind <when> <text>` | Schedule a reminder DM. `<when>` = `30m`, `1h30m`, `90s`, `2d`, `18:00`, `tomorrow 09:00`, `tue 20:00`, or `2026-08-25 20:00`. Routed through a normal agent turn, which calls the `add_reminder` tool.                      |
 | _(natural language)_    | Just say it — "remind me to call the dentist in 2 hours". The agent calls `add_reminder` itself; it understands the same `<when>` formats as `/remind` (durations, clock times, `tomorrow HH:MM`, weekdays, absolute dates). |
 | `/reminders`            | List your pending reminders (in your timezone); tap one to cancel                                                                                                                                                            |
 | `/tz [zone]`            | Show or set your timezone (IANA name, e.g. `/tz Europe/Paris`) so reminder times are local                                                                                                                                   |
-| `/status`               | Current model, your timezone, today's runs/tokens/cost, daily cap, uptime                                                                                                                                                    |
+| `/status`               | Current model, your timezone, approval mode, today's runs/tokens/cost, daily cap, uptime                                                                                                                                     |
 | `/help`                 | Usage                                                                                                                                                                                                                        |
 
 While a message is processing, the progress bubble carries a **⏹ Cancel** button
@@ -258,7 +260,7 @@ Full walkthrough, including the connection-race recovery in more detail, is in t
 | `JAZZ_OLLAMA_KEEP_ALIVE`             | —                                       | How long a local Ollama keeps the model loaded (`keep_alive`): `-1` pins it indefinitely, or a duration like `30m`. Unset uses Ollama's 5-minute default, so the first message after a quiet spell pays a full cold model load with no progress shown while it happens. |
 | `JAZZ_REASONING`                     | `medium`                                | `disable`\|`low`\|`medium`\|`high`.                                                                                                                                                                                                                                     |
 | `OLLAMA_BASE_URL`                    | `http://host.docker.internal:11434/api` | Ollama endpoint, used whenever a conversation's provider is `ollama` (default or via `/model`).                                                                                                                                                                                                                |
-| `JAZZ_APPROVAL_POLICY`               | `low-risk`                              | Auto-approve tools up to: `read-only`\|`low-risk`\|`high-risk`.                                                                                                                                                                                                         |
+| `JAZZ_APPROVAL_POLICY`               | `low-risk`                              | Auto-approve tools up to: `read-only`\|`low-risk`\|`high-risk`. This is what "safe" means for the deployment; a chat on `/mode yolo` runs at `high-risk` instead.                                                                                                        |
 | `JAZZ_AUTO_APPROVE_TOOLS`            | —                                       | Comma-separated tool names to auto-approve regardless of policy (e.g. `execute_command`) — narrower than raising the whole tier. Tools needing approval that aren't in this list are sent to the chat as an accept/reject prompt instead of being declined.             |
 | `JAZZ_RUN_TIMEOUT_MS`                | `300000`                                | Per-message agent timeout.                                                                                                                                                                                                                                              |
 | `TELEGRAM_MODE`                      | `polling`                               | `polling` or `webhook`.                                                                                                                                                                                                                                                 |

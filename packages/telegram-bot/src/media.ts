@@ -1,5 +1,5 @@
 /**
- * Downloading Telegram media (voice notes, audio, photos, documents) to local files.
+ * Downloading Telegram media (voice notes, audio, photos, video, documents) to local files.
  *
  * The bridge talks to jazz by spawning `jazz run` with a prompt string, so there is no channel
  * for passing bytes. There does not need to be one: jazz ingests attachments by *path*, so a
@@ -43,6 +43,124 @@ export interface TelegramFileRef {
 }
 
 /**
+ * A sticker.
+ *
+ * Static stickers are WebP and video stickers are WebM, both of which a vision model can read.
+ * Animated ones are `.tgs` — gzipped Lottie JSON, which is not an image by the time it reaches
+ * disk — so `is_animated` is the flag that says "skip this one".
+ */
+export interface TelegramStickerRef extends TelegramFileRef {
+  readonly is_animated?: boolean;
+  readonly is_video?: boolean;
+  /** The emoji the sticker stands for, which is what a reply to it quotes. */
+  readonly emoji?: string;
+}
+
+/**
+ * The media-bearing fields of a Telegram message.
+ *
+ * Declared here rather than in the bridge so `extractMedia` can be tested without the bridge:
+ * the bridge's own `TelegramMessage` extends this with the text, chat and reply fields.
+ */
+export interface TelegramMediaFields {
+  /** A voice note, i.e. the record button. Always OGG/Opus, never has a filename. */
+  readonly voice?: TelegramFileRef;
+  /** An audio file sent as music, which Telegram treats separately from a voice note. */
+  readonly audio?: TelegramFileRef;
+  /**
+   * Photos arrive as an array of the same image at several resolutions, smallest first.
+   * The last entry is the largest Telegram kept.
+   */
+  readonly photo?: readonly TelegramFileRef[];
+  /** A GIF. Telegram stores these as soundless MP4. */
+  readonly animation?: TelegramFileRef;
+  /** A video sent from the camera or gallery. */
+  readonly video?: TelegramFileRef;
+  /** A round video message, i.e. holding the camera button. */
+  readonly video_note?: TelegramFileRef;
+  readonly sticker?: TelegramStickerRef;
+  /** Any file sent as a document, including images sent with "send as file". */
+  readonly document?: TelegramFileRef;
+}
+
+export interface ExtractedMedia {
+  readonly file: TelegramFileRef;
+  /** What to ask jazz when the user sent no caption. */
+  readonly fallbackInstruction: string;
+}
+
+/**
+ * Media on a message, plus what to ask jazz when the user sent no caption.
+ *
+ * Voice notes get an explicit transcribe-and-act instruction because a bare voice note with no
+ * caption is the single most common case, and the model needs to know it should act on what was
+ * said rather than just describe the audio. Round video messages are the same gesture with a
+ * camera, so they get the same treatment.
+ *
+ * Order is load-bearing in one place: `animation` is checked before `document`, because Telegram
+ * repeats a GIF in both fields and the document copy would be taken for an opaque file rather
+ * than the video it actually is.
+ */
+export function extractMedia(message: TelegramMediaFields): ExtractedMedia | undefined {
+  if (message.voice !== undefined) {
+    return {
+      file: message.voice,
+      fallbackInstruction:
+        "This is a voice message. Listen to it, then do what it asks — or answer it if it is a question.",
+    };
+  }
+  if (message.audio !== undefined) {
+    return {
+      file: message.audio,
+      fallbackInstruction: "Listen to this audio and tell me what is in it.",
+    };
+  }
+  if (message.photo !== undefined && message.photo.length > 0) {
+    // Largest available resolution: the smaller entries are thumbnails and would waste the
+    // request on an unreadable image.
+    const largest = message.photo[message.photo.length - 1];
+    if (largest !== undefined) {
+      return {
+        file: largest,
+        fallbackInstruction: "Look at this image and tell me what it shows.",
+      };
+    }
+  }
+  if (message.animation !== undefined) {
+    return {
+      file: message.animation,
+      fallbackInstruction: "This is a GIF. Watch it and tell me what happens in it.",
+    };
+  }
+  if (message.video !== undefined) {
+    return {
+      file: message.video,
+      fallbackInstruction: "Watch this video and tell me what is in it.",
+    };
+  }
+  if (message.video_note !== undefined) {
+    return {
+      file: message.video_note,
+      fallbackInstruction:
+        "This is a video message. Watch it, then do what it asks — or answer it if it is a question.",
+    };
+  }
+  if (message.sticker !== undefined && message.sticker.is_animated !== true) {
+    return {
+      file: message.sticker,
+      fallbackInstruction: "Look at this sticker and tell me what it shows.",
+    };
+  }
+  if (message.document !== undefined) {
+    return {
+      file: message.document,
+      fallbackInstruction: "Look at this file and tell me what is in it.",
+    };
+  }
+  return undefined;
+}
+
+/**
  * Extension for a downloaded file.
  *
  * Telegram's own `file_path` is the most reliable source — it reflects what the file actually
@@ -62,17 +180,30 @@ function extensionFor(telegramFilePath: string, mimeType: string | undefined): s
       return "mp3";
     case "audio/mp4":
     case "audio/m4a":
+    case "audio/x-m4a":
       return "m4a";
     case "audio/wav":
       return "wav";
+    case "audio/aac":
+      return "aac";
+    case "audio/flac":
+      return "flac";
     case "image/png":
       return "png";
+    case "image/jpeg":
+      return "jpg";
+    case "image/gif":
+      return "gif";
     case "image/webp":
       return "webp";
     case "application/pdf":
       return "pdf";
     case "video/mp4":
       return "mp4";
+    case "video/webm":
+      return "webm";
+    case "video/quicktime":
+      return "mov";
     default:
       return "bin";
   }

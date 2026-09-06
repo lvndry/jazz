@@ -13,6 +13,14 @@ import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { NodeFileSystem } from "@effect/platform-node";
 import { ReminderServiceImpl } from "@jazz/adapters/reminder-service";
+import {
+  APPROVAL_MODE_LABELS,
+  type ApprovalMode,
+  approvalModeFor,
+  approvalPolicyFor,
+  describeApprovalMode,
+  setApprovalMode,
+} from "@jazz/bot-shared/approval-mode-store";
 import { listPersonaNames } from "@jazz/bot-shared/personas";
 import { listModelsForProvider } from "@jazz/bot-shared/provider-models";
 import { reasoningSnippet, splitReasoning } from "@jazz/bot-shared/reasoning";
@@ -104,6 +112,7 @@ const TZ_FILE = "dc-tz.json";
 const USAGE_FILE = "dc-usage.json";
 const EPOCHS_FILE = "dc-sessions.json";
 const INCOGNITO_FILE = "dc-incognito.json";
+const MODE_FILE = "dc-mode.json";
 
 // The text the progress message is created with. The reporter starts from it so
 // its first render is not sent as an edit to identical content.
@@ -123,10 +132,21 @@ const activeRuns = new Map<
   string,
   { child: Bun.Subprocess<"pipe", "pipe", "pipe">; cancelled: boolean }
 >();
-const pendingApprovals = new Map<
-  string,
-  { toolCallId: string; channelId: string; messageId: string; runToken: string }
->();
+interface PendingApproval {
+  toolCallId: string;
+  channelId: string;
+  messageId: string;
+  runToken: string;
+  /**
+   * The outstanding-approval count this message's buttons currently show.
+   * Approval events arrive concurrently, so a message can be sent with a count
+   * that is already stale by the time it registers; comparing against this is
+   * what tells a refresh which messages genuinely need patching.
+   */
+  shownCount: number;
+}
+
+const pendingApprovals = new Map<string, PendingApproval>();
 const incognitoHistory = new Map<string, unknown[]>();
 
 interface ChannelMeta {
@@ -329,13 +349,97 @@ function cancelComponents(runToken: string): unknown[] {
   return [actionRow([button(`x:${runToken}`, "⏹ Cancel", BUTTON_DANGER)])];
 }
 
-function approvalComponents(token: string): unknown[] {
-  return [
+function approvalComponents(token: string, runToken: string, pendingCount: number): unknown[] {
+  const rows: unknown[] = [
     actionRow([
       button(`a:${token}:1`, "✅ Accept", BUTTON_SUCCESS),
       button(`a:${token}:0`, "❌ Reject", BUTTON_DANGER),
     ]),
   ];
+  // A parallel batch of tool calls asks for approval one message each; clicking
+  // through five of them is the common case, so offer a single click that
+  // clears the whole batch once there is more than one outstanding.
+  if (pendingCount > 1) {
+    rows.push(
+      actionRow([
+        button(`aa:${runToken}:1`, `⚡ Approve all ${pendingCount}`, BUTTON_SUCCESS),
+        button(`aa:${runToken}:0`, `🚫 Reject all ${pendingCount}`, BUTTON_DANGER),
+      ]),
+    );
+  }
+  return rows;
+}
+
+/**
+ * Answer the run's blocked approval prompts over its stdin pipe. Bun's FileSink
+ * buffers writes, so flush() pushes them through now rather than waiting for the
+ * buffer to fill — a batch decision must reach a parked run immediately.
+ */
+async function writeApprovalDecisions(
+  run: { child: Bun.Subprocess<"pipe", "pipe", "pipe"> },
+  decisions: readonly { toolCallId: string; approved: boolean }[],
+): Promise<void> {
+  try {
+    for (const { toolCallId, approved } of decisions) {
+      await run.child.stdin.write(
+        `${JSON.stringify({ type: "approval_decision", toolCallId, approved })}\n`,
+      );
+    }
+    await run.child.stdin.flush();
+  } catch (error) {
+    console.error(`Failed to write approval decision: ${String(error)}`);
+  }
+}
+
+function pendingApprovalsForRun(runToken: string): [string, PendingApproval][] {
+  return [...pendingApprovals].filter(([, pending]) => pending.runToken === runToken);
+}
+
+/**
+ * Rewrite the buttons on a run's outstanding approval messages so their
+ * "Approve all N" count matches reality. Called whenever the outstanding set
+ * changes: a new request arriving makes the count climb, and resolving one
+ * makes it fall — down to a single request, where the batch buttons disappear
+ * again.
+ */
+async function refreshApprovalComponents(config: BridgeConfig, runToken: string): Promise<void> {
+  const outstanding = pendingApprovalsForRun(runToken);
+  for (const [token, pending] of outstanding) {
+    if (pending.shownCount === outstanding.length) continue;
+    pending.shownCount = outstanding.length;
+    await patchMessage(config.botToken, pending.channelId, pending.messageId, {
+      components: approvalComponents(token, runToken, outstanding.length),
+    }).catch(() => undefined);
+  }
+}
+
+function modeComponents(current: ApprovalMode): unknown[] {
+  const modes: ApprovalMode[] = ["safe", "yolo"];
+  return [
+    actionRow(
+      modes.map((mode) =>
+        button(
+          `md:${mode}`,
+          `${mode === current ? "✅ " : ""}${APPROVAL_MODE_LABELS[mode]}`,
+          mode === "yolo" ? BUTTON_DANGER : BUTTON_SUCCESS,
+        ),
+      ),
+    ),
+  ];
+}
+
+function modeExplanation(mode: ApprovalMode, configuredPolicy: string): string {
+  return describeApprovalMode(mode, configuredPolicy, {
+    bold: (text) => `**${text}**`,
+    code: (text) => `\`${text}\``,
+  });
+}
+
+function modeConfirmation(mode: ApprovalMode, configuredPolicy: string): string {
+  return (
+    `✅ Mode → **${APPROVAL_MODE_LABELS[mode]}**\n${modeExplanation(mode, configuredPolicy)}` +
+    (mode === "yolo" ? "\nSend `/mode mode:safe` to turn approvals back on." : "")
+  );
 }
 
 function followupComponents(): unknown[] {
@@ -516,17 +620,22 @@ async function sendApprovalRequest(
     lines.push("```diff", diff, "```");
   }
 
+  // One more than what is already outstanding: this request is about to join
+  // them, and the buttons have to be built before the message is sent.
+  const shownCount = pendingApprovalsForRun(runToken).length + 1;
   const sent = await sendMessage(config.botToken, channelId, lines.join("\n"), {
-    components: approvalComponents(token),
+    components: approvalComponents(token, runToken, shownCount),
   });
-  if (sent !== undefined) {
-    pendingApprovals.set(token, {
-      toolCallId,
-      channelId,
-      messageId: sent.id,
-      runToken,
-    });
-  }
+  if (sent === undefined) return;
+
+  pendingApprovals.set(token, {
+    toolCallId,
+    channelId,
+    messageId: sent.id,
+    runToken,
+    shownCount,
+  });
+  await refreshApprovalComponents(config, runToken);
 }
 
 async function runJazz(
@@ -550,7 +659,7 @@ async function runJazz(
       "--agent",
       agentIdForChannel(channelId),
       "--approval-policy",
-      config.approvalPolicy,
+      approvalPolicyFor(config.jazzHome, MODE_FILE, channelId, config.approvalPolicy),
       ...(config.autoApproveTools.length > 0
         ? ["--auto-approve-tools", config.autoApproveTools.join(",")]
         : []),
@@ -994,6 +1103,7 @@ const HELP_TEXT = [
   "`/model` — pick a model for the current provider, or `/model provider/model` for any other " +
     "provider Jazz supports (e.g. `anthropic/claude-sonnet-5`)",
   "`/persona` — pick my persona / style",
+  "`/mode` — safe (I ask before risky tools) or yolo (I never ask), e.g. `/mode mode:yolo`",
   "`/new` — start a fresh conversation (clears earlier context)",
   "`/incognito` — start a private conversation (nothing saved) until `/new`",
   "`/remind <when> <text>` — e.g. `/remind when:30m text:take pizza out`",
@@ -1016,6 +1126,21 @@ const SLASH_COMMANDS: readonly SlashCommand[] = [
     description: "Pick a model for the current provider (send /model provider/model to switch)",
   },
   { name: "persona", description: "Pick my persona / style" },
+  {
+    name: "mode",
+    description: "Safe (ask before risky tools) or yolo (never ask)",
+    options: [
+      {
+        name: "mode",
+        description: "Leave empty to see the current mode and pick from buttons",
+        type: 3,
+        choices: [
+          { name: "safe", value: "safe" },
+          { name: "yolo", value: "yolo" },
+        ],
+      },
+    ],
+  },
   { name: "reminders", description: "List and cancel your reminders" },
   {
     name: "tz",
@@ -1184,6 +1309,7 @@ async function handleCommand(
         : []),
       `Model: \`${agent.config.llmProvider}/${agent.config.llmModel}\` (reasoning: ${agent.config.reasoningEffort})`,
       `Timezone: \`${tzForChat(config.jazzHome, TZ_FILE, channelId)}\`${hasChatTz(config.jazzHome, TZ_FILE, channelId) ? "" : " (default)"}`,
+      `Mode: ${APPROVAL_MODE_LABELS[approvalModeFor(config.jazzHome, MODE_FILE, channelId)]}`,
       `Today: ${day.runs} runs · ${formatTokenCount(day.tokens)} tok · $${day.costUSD.toFixed(4)}${(day.unpricedRuns ?? 0) > 0 ? ` · ${day.unpricedRuns} unpriced` : ""}`,
       `Daily cap: ${cap > 0 ? `$${cap.toFixed(2)}` : "none"}`,
       `Uptime: ${formatUptime(Date.now() - BRIDGE_STARTED_AT)}`,
@@ -1242,6 +1368,30 @@ async function handleCommand(
     return {
       content: `Pick a ${provider} model, or use /model provider/model to switch provider:`,
       components: [actionRow([stringSelect("m", "Model", options)])],
+    };
+  }
+
+  if (command === "mode") {
+    const requested = args.trim().toLowerCase();
+    if (requested.length > 0) {
+      if (requested !== "safe" && requested !== "yolo") {
+        return {
+          content:
+            "⚠️ Usage: `/mode safe` or `/mode yolo`, or send `/mode` on its own to pick from buttons.",
+        };
+      }
+      setApprovalMode(config.jazzHome, MODE_FILE, channelId, requested);
+      return { content: modeConfirmation(requested, config.approvalPolicy) };
+    }
+    const current = approvalModeFor(config.jazzHome, MODE_FILE, channelId);
+    return {
+      content: [
+        `Current mode: **${APPROVAL_MODE_LABELS[current]}**`,
+        "",
+        modeExplanation("safe", config.approvalPolicy),
+        modeExplanation("yolo", config.approvalPolicy),
+      ].join("\n"),
+      components: modeComponents(current),
     };
   }
 
@@ -1386,6 +1536,7 @@ async function dispatchMessage(
     "incognito",
     "model",
     "persona",
+    "mode",
     "remind",
     "reminders",
     "tz",
@@ -1471,6 +1622,8 @@ async function dispatchSlash(
     args = `${when} ${text}`.trim();
   } else if (name === "tz") {
     args = slashOption(interaction, "zone") ?? "";
+  } else if (name === "mode") {
+    args = slashOption(interaction, "mode") ?? "";
   }
 
   const needsDefer = name === "model" || name === "remind";
@@ -1600,20 +1753,64 @@ async function dispatchComponent(
       return;
     }
     pendingApprovals.delete(token);
-    try {
-      await run.child.stdin.write(
-        `${JSON.stringify({ type: "approval_decision", toolCallId: pending.toolCallId, approved })}\n`,
-      );
-      await run.child.stdin.flush();
-    } catch (error) {
-      console.error(`Failed to write approval decision: ${String(error)}`);
-    }
+    await writeApprovalDecisions(run, [{ toolCallId: pending.toolCallId, approved }]);
     await interactionCallback(interaction.id, interaction.token, {
       type: CALLBACK_UPDATE_MESSAGE,
       data: {
         content: approved ? "✅ Approved" : "❌ Rejected",
         components: [],
       },
+    });
+    // One fewer outstanding: the survivors' "Approve all N" counts are now
+    // stale, and the last one left should lose the batch buttons entirely.
+    await refreshApprovalComponents(config, pending.runToken);
+    return;
+  }
+
+  if (kind === "aa") {
+    const runToken = parts[1] ?? "";
+    const approved = parts[2] === "1";
+    const outstanding = pendingApprovalsForRun(runToken);
+    const run = activeRuns.get(runToken);
+    if (outstanding.length === 0 || !run) {
+      await interactionCallback(interaction.id, interaction.token, {
+        type: CALLBACK_CHANNEL_MESSAGE,
+        data: {
+          content: "Those approvals already expired or the run finished.",
+          flags: FLAG_EPHEMERAL,
+        },
+      });
+      return;
+    }
+    for (const [outstandingToken] of outstanding) pendingApprovals.delete(outstandingToken);
+    await writeApprovalDecisions(
+      run,
+      outstanding.map(([, pending]) => ({ toolCallId: pending.toolCallId, approved })),
+    );
+    const verdict = approved ? "✅ Approved" : "❌ Rejected";
+    // The clicked message is answered through the interaction; its siblings are
+    // separate messages, so they need their own patch to stop showing buttons
+    // that no longer resolve anything.
+    await interactionCallback(interaction.id, interaction.token, {
+      type: CALLBACK_UPDATE_MESSAGE,
+      data: { content: `${verdict} — ${outstanding.length} tool calls`, components: [] },
+    });
+    for (const [, pending] of outstanding) {
+      if (pending.messageId === messageId) continue;
+      await patchMessage(config.botToken, pending.channelId, pending.messageId, {
+        content: `${verdict} as part of a batch`,
+        components: [],
+      }).catch(() => undefined);
+    }
+    return;
+  }
+
+  if (kind === "md") {
+    const mode: ApprovalMode = parts[1] === "yolo" ? "yolo" : "safe";
+    setApprovalMode(config.jazzHome, MODE_FILE, channelId, mode);
+    await interactionCallback(interaction.id, interaction.token, {
+      type: CALLBACK_UPDATE_MESSAGE,
+      data: { content: modeConfirmation(mode, config.approvalPolicy), components: [] },
     });
     return;
   }

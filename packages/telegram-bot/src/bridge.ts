@@ -21,6 +21,14 @@ import { join } from "node:path";
 import { NodeFileSystem } from "@effect/platform-node";
 import { createConfigLayer } from "@jazz/adapters/config";
 import { ReminderServiceImpl } from "@jazz/adapters/reminder-service";
+import {
+  APPROVAL_MODE_LABELS,
+  type ApprovalMode,
+  approvalModeFor,
+  approvalPolicyFor,
+  describeApprovalMode,
+  setApprovalMode,
+} from "@jazz/bot-shared/approval-mode-store";
 import { listPersonaNames } from "@jazz/bot-shared/personas";
 import { listModelsForProvider } from "@jazz/bot-shared/provider-models";
 import { reasoningSnippet, splitReasoning } from "@jazz/bot-shared/reasoning";
@@ -55,7 +63,13 @@ import {
   syncAgentDisplayName,
   writeAgentFile,
 } from "./agents";
-import { buildMediaPrompt, downloadTelegramFile, type TelegramFileRef } from "./media";
+import {
+  buildMediaPrompt,
+  downloadTelegramFile,
+  type ExtractedMedia,
+  extractMedia,
+  type TelegramMediaFields,
+} from "./media";
 import { withReplyContext } from "./quotes";
 import { startReminderSweep } from "./reminders";
 import { dispatchTelegramRequest, isRenderingRejection } from "./telegram-dispatch";
@@ -70,6 +84,7 @@ const TZ_FILE = "tg-tz.json";
 const USAGE_FILE = "tg-usage.json";
 const EPOCHS_FILE = "tg-sessions.json";
 const INCOGNITO_FILE = "tg-incognito.json";
+const MODE_FILE = "tg-mode.json";
 const TELEGRAM_API_BASE = "https://api.telegram.org";
 const GETUPDATES_TIMEOUT_SECONDS = 30;
 const POLL_ERROR_BACKOFF_MS = 5_000;
@@ -112,10 +127,21 @@ const pendingUserInputs = new Map<
   { chatId: number; messageId: number; runToken: string; options: readonly string[] }
 >();
 
-const pendingApprovals = new Map<
-  string,
-  { chatId: number; messageId: number; runToken: string; commandKey?: string }
->();
+interface PendingApproval {
+  chatId: number;
+  messageId: number;
+  runToken: string;
+  commandKey?: string;
+  /**
+   * The outstanding-approval count this message's keyboard currently shows.
+   * Approval events arrive concurrently, so a message can be sent with a count
+   * that is already stale by the time it registers; comparing against this is
+   * what tells a refresh which keyboards genuinely need rewriting.
+   */
+  shownCount: number;
+}
+
+const pendingApprovals = new Map<string, PendingApproval>();
 // Transcript for chats currently in /incognito mode. Lives only in this
 // process's memory — never written to disk — so a bridge restart drops the
 // context rather than ever falling back to a persisted history file. Cleared
@@ -465,7 +491,12 @@ function cancelKeyboard(runToken: string): Record<string, unknown> {
   return { inline_keyboard: [[{ text: "⏹ Cancel", callback_data: `x:${runToken}` }]] };
 }
 
-function approvalKeyboard(toolCallId: string, commandKey?: string): Record<string, unknown> {
+function approvalKeyboard(
+  toolCallId: string,
+  runToken: string,
+  pendingCount: number,
+  commandKey?: string,
+): Record<string, unknown> {
   const rows = [
     [
       { text: "✅ Accept", callback_data: `a:${toolCallId}:1` },
@@ -475,7 +506,61 @@ function approvalKeyboard(toolCallId: string, commandKey?: string): Record<strin
   if (commandKey) {
     rows.push([{ text: `♾️ Always allow "${commandKey}"`, callback_data: `a:${toolCallId}:2` }]);
   }
+  // A parallel batch of tool calls asks for approval one message each; tapping
+  // through five of them is the common case, so offer a single tap that clears
+  // the whole batch once there is more than one outstanding.
+  if (pendingCount > 1) {
+    rows.push([
+      { text: `⚡ Approve all ${pendingCount}`, callback_data: `aa:${runToken}:1` },
+      { text: `🚫 Reject all ${pendingCount}`, callback_data: `aa:${runToken}:0` },
+    ]);
+  }
   return { inline_keyboard: rows };
+}
+
+/**
+ * Answer the run's blocked approval prompts over its stdin pipe. Bun's FileSink
+ * buffers writes, so flush() pushes them through now rather than waiting for the
+ * buffer to fill — a batch decision must reach a parked run immediately.
+ */
+async function writeApprovalDecisions(
+  run: { child: Bun.Subprocess<"pipe", "pipe", "pipe"> },
+  decisions: readonly { toolCallId: string; approved: boolean }[],
+): Promise<void> {
+  try {
+    for (const { toolCallId, approved } of decisions) {
+      await run.child.stdin.write(
+        `${JSON.stringify({ type: "approval_decision", toolCallId, approved })}\n`,
+      );
+    }
+    await run.child.stdin.flush();
+  } catch (error) {
+    console.error(`Failed to write approval decision: ${String(error)}`);
+  }
+}
+
+function pendingApprovalsForRun(runToken: string): [string, PendingApproval][] {
+  return [...pendingApprovals].filter(([, pending]) => pending.runToken === runToken);
+}
+
+/**
+ * Rewrite the keyboards of a run's outstanding approval messages so their
+ * "Approve all N" count matches reality. Called whenever the outstanding set
+ * changes: a new request arriving makes the count climb, and resolving one
+ * makes it fall — down to a single request, where the batch buttons disappear
+ * again.
+ */
+async function refreshApprovalKeyboards(config: BridgeConfig, runToken: string): Promise<void> {
+  const outstanding = pendingApprovalsForRun(runToken);
+  for (const [toolCallId, pending] of outstanding) {
+    if (pending.shownCount === outstanding.length) continue;
+    pending.shownCount = outstanding.length;
+    await callTelegram(config, "editMessageReplyMarkup", {
+      chat_id: pending.chatId,
+      message_id: pending.messageId,
+      reply_markup: approvalKeyboard(toolCallId, runToken, outstanding.length, pending.commandKey),
+    }).catch(() => undefined);
+  }
 }
 
 /** Extract the binary from an execute_command approval's "Command: ..." line, if present. */
@@ -506,6 +591,32 @@ async function addAutoApprovedCommand(jazzHome: string, commandKey: string): Pro
       if (current.includes(commandKey)) return;
       yield* configService.set("autoApprovedCommands", [...current, commandKey]);
     }).pipe(Effect.provide(configLayer), Effect.provide(NodeFileSystem.layer)),
+  );
+}
+
+function modeKeyboard(current: ApprovalMode): Record<string, unknown> {
+  const modes: ApprovalMode[] = ["safe", "yolo"];
+  return {
+    inline_keyboard: [
+      modes.map((mode) => ({
+        text: `${mode === current ? "✅ " : ""}${APPROVAL_MODE_LABELS[mode]}`,
+        callback_data: `md:${mode}`,
+      })),
+    ],
+  };
+}
+
+function modeExplanation(mode: ApprovalMode, configuredPolicy: string): string {
+  return describeApprovalMode(mode, configuredPolicy, {
+    bold: (text) => `<b>${escapeHtml(text)}</b>`,
+    code: (text) => `<code>${escapeHtml(text)}</code>`,
+  });
+}
+
+function modeConfirmation(mode: ApprovalMode, configuredPolicy: string): string {
+  return (
+    `✅ Mode → <b>${APPROVAL_MODE_LABELS[mode]}</b>\n${modeExplanation(mode, configuredPolicy)}` +
+    (mode === "yolo" ? "\nSend <code>/mode safe</code> to turn approvals back on." : "")
   );
 }
 
@@ -760,17 +871,22 @@ async function sendApprovalRequest(
     lines.push(`<pre>${escapeHtml(event.previewDiff)}</pre>`);
   }
 
+  // One more than what is already outstanding: this request is about to join
+  // them, and the keyboard has to be built before the message is sent.
+  const shownCount = pendingApprovalsForRun(runToken).length + 1;
   const messageId = await sendReply(config, chatId, lines.join("\n"), {
-    markup: approvalKeyboard(toolCallId, commandKey),
+    markup: approvalKeyboard(toolCallId, runToken, shownCount, commandKey),
   });
-  if (typeof messageId === "number") {
-    pendingApprovals.set(toolCallId, {
-      chatId,
-      messageId,
-      runToken,
-      ...(commandKey && { commandKey }),
-    });
-  }
+  if (typeof messageId !== "number") return;
+
+  pendingApprovals.set(toolCallId, {
+    chatId,
+    messageId,
+    runToken,
+    shownCount,
+    ...(commandKey && { commandKey }),
+  });
+  await refreshApprovalKeyboards(config, runToken);
 }
 
 /**
@@ -845,7 +961,7 @@ async function runJazz(
       "--agent",
       agentIdForChat(chatId),
       "--approval-policy",
-      config.approvalPolicy,
+      approvalPolicyFor(config.jazzHome, MODE_FILE, chatId, config.approvalPolicy),
       ...(config.autoApproveTools.length > 0
         ? ["--auto-approve-tools", config.autoApproveTools.join(",")]
         : []),
@@ -1340,6 +1456,7 @@ const BOT_COMMANDS: { command: string; description: string }[] = [
     description: "Pick an Ollama model, or set provider/model, e.g. anthropic/claude-sonnet-5",
   },
   { command: "persona", description: "Pick my persona / style" },
+  { command: "mode", description: "Safe (ask before risky tools) or yolo (never ask)" },
   { command: "new", description: "Start a fresh conversation (clears earlier context)" },
   { command: "incognito", description: "Start a private conversation (nothing saved) until /new" },
   { command: "remind", description: "Set a reminder, e.g. /remind 30m take pizza out" },
@@ -1356,6 +1473,7 @@ const HELP_TEXT = [
   "/model — pick an Ollama model, or /model provider/model for any other provider Jazz supports " +
     "(e.g. /model anthropic/claude-sonnet-5)",
   "/persona — pick my persona / style",
+  "/mode — safe (I ask before risky tools) or yolo (I never ask), e.g. /mode yolo",
   "/new — start a fresh conversation (clears earlier context)",
   "/incognito — start a private conversation (nothing saved to history or memory) until /new",
   "/remind <when> <text> — e.g. /remind 30m take pizza out",
@@ -1551,6 +1669,7 @@ async function handleCommand(
         : []),
       `Model: <code>${escapeHtml(agent.config.llmProvider)}/${escapeHtml(agent.config.llmModel)}</code> (reasoning: ${escapeHtml(agent.config.reasoningEffort)})`,
       `Timezone: <code>${escapeHtml(tzForChat(config.jazzHome, TZ_FILE, chatId))}</code>${hasChatTz(config.jazzHome, TZ_FILE, chatId) ? "" : " (default)"}`,
+      `Mode: ${APPROVAL_MODE_LABELS[approvalModeFor(config.jazzHome, MODE_FILE, chatId)]}`,
       `Today: ${day.runs} runs · ${formatTokenCount(day.tokens)} tok · $${day.costUSD.toFixed(4)}${(day.unpricedRuns ?? 0) > 0 ? ` · ${day.unpricedRuns} unpriced` : ""}`,
       `Daily cap: ${cap > 0 ? `$${cap.toFixed(2)}` : "none"}`,
       `Uptime: ${formatUptime(Date.now() - BRIDGE_STARTED_AT)}`,
@@ -1621,6 +1740,37 @@ async function handleCommand(
           "m",
         ),
       },
+    });
+    return;
+  }
+
+  if (command === "mode") {
+    const current = approvalModeFor(config.jazzHome, MODE_FILE, chatId);
+    const requested = args.trim().toLowerCase();
+    if (requested.length > 0) {
+      if (requested !== "safe" && requested !== "yolo") {
+        await sendReply(
+          config,
+          chatId,
+          "⚠️ Usage: <code>/mode safe</code> or <code>/mode yolo</code>, or send " +
+            "<code>/mode</code> on its own to pick from buttons.",
+        );
+        return;
+      }
+      setApprovalMode(config.jazzHome, MODE_FILE, chatId, requested);
+      await sendReply(config, chatId, modeConfirmation(requested, config.approvalPolicy));
+      return;
+    }
+    await callTelegram(config, "sendMessage", {
+      chat_id: chatId,
+      text: [
+        `Current mode: <b>${APPROVAL_MODE_LABELS[current]}</b>`,
+        "",
+        modeExplanation("safe", config.approvalPolicy),
+        modeExplanation("yolo", config.approvalPolicy),
+      ].join("\n"),
+      parse_mode: "HTML",
+      reply_markup: modeKeyboard(current),
     });
     return;
   }
@@ -1759,16 +1909,7 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
       return;
     }
     pendingApprovals.delete(toolCallId);
-    try {
-      // Bun's FileSink buffers writes; flush() pushes it through the pipe now
-      // rather than waiting for the buffer to fill on its own.
-      await run.child.stdin.write(
-        `${JSON.stringify({ type: "approval_decision", toolCallId, approved })}\n`,
-      );
-      await run.child.stdin.flush();
-    } catch (error) {
-      console.error(`Failed to write approval decision: ${String(error)}`);
-    }
+    await writeApprovalDecisions(run, [{ toolCallId, approved }]);
     if (always && pending.commandKey) {
       await addAutoApprovedCommand(config.jazzHome, pending.commandKey).catch((error: unknown) =>
         console.error(`Failed to persist auto-approved command: ${String(error)}`),
@@ -1787,6 +1928,40 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
       message_id: messageId,
       reply_markup: { inline_keyboard: [] },
     });
+    // One fewer outstanding: the survivors' "Approve all N" counts are now
+    // stale, and the last one left should lose the batch buttons entirely.
+    await refreshApprovalKeyboards(config, pending.runToken);
+    return;
+  }
+
+  if (kind === "aa") {
+    const runToken = parts[1] ?? "";
+    const approved = parts[2] === "1";
+    const outstanding = pendingApprovalsForRun(runToken);
+    const run = activeRuns.get(runToken);
+    if (outstanding.length === 0 || !run) {
+      await callTelegram(config, "answerCallbackQuery", {
+        callback_query_id: callback.id,
+        text: "Those approvals already expired or the run finished.",
+      });
+      return;
+    }
+    for (const [toolCallId] of outstanding) pendingApprovals.delete(toolCallId);
+    await writeApprovalDecisions(
+      run,
+      outstanding.map(([toolCallId]) => ({ toolCallId, approved })),
+    );
+    await callTelegram(config, "answerCallbackQuery", {
+      callback_query_id: callback.id,
+      text: `${approved ? "Approved" : "Rejected"} ${outstanding.length} tool calls`,
+    });
+    for (const [, pending] of outstanding) {
+      await callTelegram(config, "editMessageReplyMarkup", {
+        chat_id: pending.chatId,
+        message_id: pending.messageId,
+        reply_markup: { inline_keyboard: [] },
+      }).catch(() => undefined);
+    }
     return;
   }
 
@@ -1819,6 +1994,23 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
     await callTelegram(config, "editMessageReplyMarkup", {
       chat_id: chatId,
       message_id: messageId,
+      reply_markup: { inline_keyboard: [] },
+    });
+    return;
+  }
+
+  if (kind === "md") {
+    const mode = indexRaw === "yolo" ? "yolo" : "safe";
+    setApprovalMode(config.jazzHome, MODE_FILE, chatId, mode);
+    await callTelegram(config, "answerCallbackQuery", {
+      callback_query_id: callback.id,
+      text: `Mode → ${mode}`,
+    });
+    await callTelegram(config, "editMessageText", {
+      chat_id: chatId,
+      message_id: messageId,
+      text: modeConfirmation(mode, config.approvalPolicy),
+      parse_mode: "HTML",
       reply_markup: { inline_keyboard: [] },
     });
     return;
@@ -1875,7 +2067,7 @@ async function handleCallback(config: BridgeConfig, callback: CallbackQuery): Pr
 
 // --- Dispatch -------------------------------------------------------------
 
-interface TelegramMessage {
+interface TelegramMessage extends TelegramMediaFields {
   readonly chat?: { readonly id?: number };
   readonly from?: {
     readonly first_name?: string;
@@ -1890,60 +2082,6 @@ interface TelegramMessage {
   readonly location?: { readonly latitude?: number; readonly longitude?: number };
   /** Caption on a media message — the user's actual request, when they wrote one. */
   readonly caption?: string;
-  /** A voice note, i.e. the record button. Always OGG/Opus, never has a filename. */
-  readonly voice?: TelegramFileRef;
-  /** An audio file sent as music, which Telegram treats separately from a voice note. */
-  readonly audio?: TelegramFileRef;
-  /**
-   * Photos arrive as an array of the same image at several resolutions, smallest first.
-   * The last entry is the largest Telegram kept.
-   */
-  readonly photo?: readonly TelegramFileRef[];
-  /** Any file sent as a document, including images sent with "send as file". */
-  readonly document?: TelegramFileRef;
-}
-
-/**
- * Media on a message, plus what to ask jazz when the user sent no caption.
- *
- * Voice notes get an explicit transcribe-and-act instruction because a bare voice note with no
- * caption is the single most common case, and the model needs to know it should act on what was
- * said rather than just describe the audio.
- */
-function extractMedia(
-  message: TelegramMessage,
-): { file: TelegramFileRef; fallbackInstruction: string } | undefined {
-  if (message.voice !== undefined) {
-    return {
-      file: message.voice,
-      fallbackInstruction:
-        "This is a voice message. Listen to it, then do what it asks — or answer it if it is a question.",
-    };
-  }
-  if (message.audio !== undefined) {
-    return {
-      file: message.audio,
-      fallbackInstruction: "Listen to this audio and tell me what is in it.",
-    };
-  }
-  if (message.photo !== undefined && message.photo.length > 0) {
-    // Largest available resolution: the smaller entries are thumbnails and would waste the
-    // request on an unreadable image.
-    const largest = message.photo[message.photo.length - 1];
-    if (largest !== undefined) {
-      return {
-        file: largest,
-        fallbackInstruction: "Look at this image and tell me what it shows.",
-      };
-    }
-  }
-  if (message.document !== undefined) {
-    return {
-      file: message.document,
-      fallbackInstruction: "Look at this file and tell me what is in it.",
-    };
-  }
-  return undefined;
 }
 
 /**
@@ -1956,7 +2094,7 @@ async function handleMedia(
   config: BridgeConfig,
   chatId: number,
   message: TelegramMessage,
-  media: { file: TelegramFileRef; fallbackInstruction: string },
+  media: ExtractedMedia,
 ): Promise<void> {
   const outcome = await downloadTelegramFile(
     config.botToken,
@@ -2025,7 +2163,7 @@ function dispatchMessage(config: BridgeConfig, message: TelegramMessage | undefi
     }
   }
 
-  // Other message types (stickers, contacts, …) aren't handled yet.
+  // Other message types (contacts, polls, animated .tgs stickers, …) aren't handled yet.
   if (work === undefined) return;
 
   work.catch((error) => {

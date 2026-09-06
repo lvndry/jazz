@@ -390,6 +390,40 @@ describe("OneShotPresentationService requestApproval", () => {
     );
     expect(await pendingA).toEqual({ approved: true });
   });
+
+  it("resolves every approval in a batch delivered as one chunk", async () => {
+    // What a chat bridge's "Approve all" does: one write carrying a decision per
+    // outstanding toolCallId, so all of them have to come out of a single chunk.
+    const stdin = new PassThrough();
+    const service = new OneShotPresentationService(
+      DEFAULT_DISPLAY_CONFIG,
+      new Set<StreamEvent["type"]>(["approval_required"]),
+      stdin,
+    );
+
+    const toolCallIds = ["call_1", "call_2", "call_3"];
+    const pending = toolCallIds.map((toolCallId) =>
+      Effect.runPromise(
+        service.requestApproval(makeApprovalRequest({ toolCallId, toolName: "tool" })),
+      ),
+    );
+    await tick();
+
+    stdin.write(
+      toolCallIds
+        .map(
+          (toolCallId) =>
+            `${JSON.stringify({ type: "approval_decision", toolCallId, approved: true })}\n`,
+        )
+        .join(""),
+    );
+
+    expect(await Promise.all(pending)).toEqual([
+      { approved: true },
+      { approved: true },
+      { approved: true },
+    ]);
+  });
 });
 
 describe("OneShotPresentationService.requestUserInput", () => {

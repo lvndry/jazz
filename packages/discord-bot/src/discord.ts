@@ -350,6 +350,8 @@ export interface SlashCommand {
     readonly description: string;
     readonly type: number;
     readonly required?: boolean;
+    /** Fixed values Discord offers as a picklist, for options with a closed set. */
+    readonly choices?: readonly { readonly name: string; readonly value: string }[];
   }[];
 }
 
