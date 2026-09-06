@@ -1851,9 +1851,10 @@ async function dispatchComponent(
       outstanding.map(([, pending]) => ({ toolCallId: pending.toolCallId, approved })),
     );
     const verdict = approved ? "✅ Approved" : "❌ Rejected";
-    // The clicked message is answered through the interaction; its siblings are
-    // separate messages, so they need their own patch to stop showing buttons
-    // that no longer resolve anything.
+    // Only the clicked message can be answered through the interaction, and the
+    // batch verdict goes there. Its siblings keep the text describing the tool
+    // they were asking about — that is the record of what this click approved —
+    // and lose only their buttons, which no longer resolve anything.
     await interactionCallback(interaction.id, interaction.token, {
       type: CALLBACK_UPDATE_MESSAGE,
       data: { content: `${verdict} — ${outstanding.length} tool calls`, components: [] },
@@ -1861,7 +1862,6 @@ async function dispatchComponent(
     for (const [, pending] of outstanding) {
       if (pending.messageId === messageId) continue;
       await patchMessage(config.botToken, pending.channelId, pending.messageId, {
-        content: `${verdict} as part of a batch`,
         components: [],
       }).catch(() => undefined);
     }
