@@ -44,6 +44,8 @@ import {
   AgentAlreadyExistsError,
   AgentConfigurationError,
   AgentNotFoundError,
+  PersonaAlreadyExistsError,
+  PersonaNotFoundError,
   StorageNotFoundError,
   ValidationError,
 } from "@jazz/core/types/errors";
@@ -52,6 +54,7 @@ import type { CompanionRole } from "@jazz/core/types/llm";
 import type { ModelInfo } from "@jazz/core/types/llm";
 import type { PeerConfig } from "@jazz/core/types/peer";
 import { inviteStatus } from "@jazz/core/types/peer-invite";
+import type { Persona } from "@jazz/core/types/persona";
 import type { ToolProgressEvent } from "@jazz/core/types/tools";
 import type { WebhookConfig } from "@jazz/core/types/webhook";
 import {
@@ -272,6 +275,19 @@ export function makeHandler(
   app.get("/catalog", () => listCatalog());
   app.get("/models", (context) => modelsRoute(context.req.raw, runEffect));
   app.get("/personas", () => runEffect(listPersonas()));
+  app.post("/personas", async (context) => {
+    const body = await readJsonBody(context.req.raw);
+    return body instanceof Response ? body : runEffect(createPersona(body));
+  });
+  app.patch("/personas/:identifier", async (context) => {
+    const body = await readJsonBody(context.req.raw);
+    return body instanceof Response
+      ? body
+      : runEffect(updatePersona(context.req.param("identifier"), body));
+  });
+  app.delete("/personas/:identifier", (context) =>
+    runEffect(deletePersona(context.req.param("identifier"))),
+  );
   app.get("/tools", () => runEffect(listTools()));
 
   return (request) => Promise.resolve(app.fetch(request));
@@ -1348,6 +1364,145 @@ function modelsRoute(
  * `systemPrompt` is left out: it is the bulk of a persona and a picker only needs to say
  * which one this is. Whoever wants the prompt itself is editing the persona, not choosing it.
  */
+/**
+ * What a client is allowed to send when writing a persona.
+ *
+ * Separate from `AgentWriteBody` because the two share only a name: a persona is frontmatter
+ * and a prompt, with no `config` to screen.
+ */
+interface PersonaWriteBody {
+  readonly name?: unknown;
+  readonly description?: unknown;
+  readonly systemPrompt?: unknown;
+  readonly tone?: unknown;
+  readonly style?: unknown;
+}
+
+/** The persona shape every route here answers with, so a client parses one thing. */
+function projectPersona(persona: Persona) {
+  return {
+    id: persona.id,
+    name: persona.name,
+    description: persona.description,
+    systemPrompt: persona.systemPrompt,
+    ...(persona.tone !== undefined ? { tone: persona.tone } : {}),
+    ...(persona.style !== undefined ? { style: persona.style } : {}),
+  };
+}
+
+/**
+ * A persona failure, in terms a form can act on.
+ *
+ * `field` is the point of this: an editor that only has a sentence can show a banner, and one
+ * that knows which input was wrong can put the message where the mistake is. Mirrors
+ * `agentErrorResponse`, which does the same job for the other half of this door.
+ */
+function personaErrorResponse(error: unknown): Response {
+  if (error instanceof PersonaAlreadyExistsError) {
+    return json(
+      {
+        ok: false,
+        error: `A persona called "${error.personaName}" already exists`,
+        field: "name",
+        ...(error.suggestion !== undefined ? { suggestion: error.suggestion } : {}),
+      },
+      409,
+    );
+  }
+  if (error instanceof PersonaNotFoundError) {
+    return json(
+      {
+        ok: false,
+        error: `No persona called "${error.personaId}"`,
+        ...(error.suggestion !== undefined ? { suggestion: error.suggestion } : {}),
+      },
+      404,
+    );
+  }
+  if (error instanceof StorageNotFoundError) {
+    return json({ ok: false, error: "No such persona", suggestion: error.suggestion }, 404);
+  }
+  if (error instanceof ValidationError) {
+    return json(
+      {
+        ok: false,
+        error: error.message,
+        field: error.field,
+        ...(error.suggestion !== undefined ? { suggestion: error.suggestion } : {}),
+      },
+      400,
+    );
+  }
+  return json(
+    {
+      ok: false,
+      error: `Could not write the persona: ${error instanceof Error ? error.message : String(error)}`,
+    },
+    500,
+  );
+}
+
+function createPersona(body: PersonaWriteBody) {
+  return Effect.gen(function* () {
+    const personaService = yield* PersonaServiceTag;
+    const tone = typeof body.tone === "string" && body.tone.length > 0 ? body.tone : undefined;
+    const style = typeof body.style === "string" && body.style.length > 0 ? body.style : undefined;
+    // Not screened here beyond their types. The service owns what a valid persona is — a name
+    // that collides with a built-in, an empty prompt — and answers naming the field, so a
+    // second copy of those rules on this side could only drift from the first.
+    const persona = yield* personaService.createPersona({
+      name: typeof body.name === "string" ? body.name : "",
+      description: typeof body.description === "string" ? body.description : "",
+      systemPrompt: typeof body.systemPrompt === "string" ? body.systemPrompt : "",
+      ...(tone !== undefined ? { tone } : {}),
+      ...(style !== undefined ? { style } : {}),
+    });
+    return json({ ok: true, persona: projectPersona(persona) }, 201);
+  }).pipe(Effect.catchAll((error) => Effect.succeed(personaErrorResponse(error))));
+}
+
+/**
+ * Change a persona, by name or by id.
+ *
+ * Only the fields present are touched: a client that sends a new prompt is not also silently
+ * clearing the tone it did not mention.
+ */
+function updatePersona(identifier: string, body: PersonaWriteBody) {
+  return Effect.gen(function* () {
+    const personaService = yield* PersonaServiceTag;
+    const existing = yield* findPersona(personaService, identifier);
+    const persona = yield* personaService.updatePersona(existing.id, {
+      ...(typeof body.name === "string" ? { name: body.name } : {}),
+      ...(typeof body.description === "string" ? { description: body.description } : {}),
+      ...(typeof body.systemPrompt === "string" ? { systemPrompt: body.systemPrompt } : {}),
+      ...(typeof body.tone === "string" ? { tone: body.tone } : {}),
+      ...(typeof body.style === "string" ? { style: body.style } : {}),
+    });
+    return json({ ok: true, persona: projectPersona(persona) });
+  }).pipe(Effect.catchAll((error) => Effect.succeed(personaErrorResponse(error))));
+}
+
+function deletePersona(identifier: string) {
+  return Effect.gen(function* () {
+    const personaService = yield* PersonaServiceTag;
+    const existing = yield* findPersona(personaService, identifier);
+    yield* personaService.deletePersona(existing.id);
+    return json({ ok: true, id: existing.id });
+  }).pipe(Effect.catchAll((error) => Effect.succeed(personaErrorResponse(error))));
+}
+
+/**
+ * A persona by whichever of its two names the caller had.
+ *
+ * The CLI takes either, so the door does too — a client holding the name a person typed
+ * should not have to resolve it to an id first.
+ */
+function findPersona(personaService: PersonaService, identifier: string) {
+  return personaService
+    .getPersona(identifier)
+    .pipe(Effect.catchAll(() => personaService.getPersonaByName(identifier)));
+}
+
 function listPersonas() {
   return Effect.gen(function* () {
     const personaService = yield* PersonaServiceTag;
