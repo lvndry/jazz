@@ -215,10 +215,12 @@ jazz run --no-tui --json --agent dc_<channel_id> --conversation <channel_id> "<t
 ```
 
 `--conversation` gives per-channel memory; the per-channel agent file supplies
-the provider/model/persona. Data lives in the `jazz_discord_data` volume
-(`JAZZ_HOME=/data`): agents in `/data/agents`, transcripts in `/data/history`
-(keyed by channel id, **plaintext JSON** — treat the volume as sensitive), logs
-in `/data/logs`.
+the provider/model/persona. Data lives in the `jazz_discord_data` volume, one
+Jazz home per conversation under `/data/chats/dc_<channel_id>/`: that
+conversation's agent in `agents/`, transcripts in `history/` (**plaintext
+JSON** — treat the volume as sensitive), memory in `memory/`, reminders in
+`reminders/`. The bridge's own cross-conversation stores (`dc-tz.json`,
+`dc-usage.json`, …) and the seed `discord` agent stay at the top of `/data`.
 
 The Gateway connection is outbound-only. Slash command and button interactions
 are acknowledged within Discord's 3-second deadline, then the agent run continues
@@ -264,7 +266,7 @@ per stream with a character count and duration, and the last line is the outcome
 with the number of model rounds. The newest 200 runs per bridge are kept.
 
 Anything needing a human is also sent to the bridge's own chat via `notify.sh`,
-because a nightly cron failure that only appends to a logfile is invisible: a
+because a cron failure that only appends to a logfile is invisible: a
 checkout left on a feature branch silently skipped every update for over two
 weeks before anyone noticed. If the checkout isn't on `main`, the script parks it
 back there — stashing tracked edits (untracked files such as a local
@@ -276,6 +278,10 @@ Set `JAZZ_DEPLOY_BRANCH` to track something other than `main`.
 
 - Only allowlisted users / channels / guilds are answered; everyone else is ignored
   (slash commands from strangers get an ephemeral denial).
+- Each conversation's agent runs as **its own Unix user**, in its own Jazz home
+  — see [Per-conversation isolation](#per-conversation-isolation). This matters
+  more here than on other bridges: allowlisting a **guild** allows every member
+  of it, and each one gets their own conversation on your host.
 - In servers, mention-gating is the second gate: a busy allowlisted channel does
   not become an unbounded `jazz run` bill. Do not set `DISCORD_REQUIRE_MENTION=0`
   unless the channel is private and you mean it.
@@ -291,3 +297,66 @@ Set `JAZZ_DEPLOY_BRANCH` to track something other than `main`.
   someone sends `/mode mode:safe`.
 - Agent replies are sent with `allowed_mentions.parse = []` so the model cannot
   ping `@everyone`, `@here`, or arbitrary users.
+
+## Per-conversation isolation
+
+Allowlisting a guild does not make its members safe from each other — and a
+guild allowlist is the common case, so this is not a hypothetical. Everything
+an agent knows about someone — the transcript of every conversation, its memory
+notes, their reminders, the API keys in `secrets.json`, the mail account and
+GPG key `himalaya` and `pass` were set up with — is on one disk, and a Jazz
+agent has `read_file` and `execute_command`. A filename prefix does not stop a
+tool call. So each conversation gets a Unix user.
+
+**What the container does.** The bridge supervises as root; each `jazz run` is
+dropped with `setpriv` to a uid minted for that channel the first time it is
+used, and pointed at its own Jazz home:
+
+```text
+/data                              root:<operator>   2751   bridge stores; enterable, not listable
+/data/chats                        root:<operator>   2751   enterable, not listable
+/data/chats/dc_<channel_id>        <conv>:<operator> 2750   that conversation's whole Jazz home
+/data/chats/dc_<channel_id>/…      <conv>:<operator> 0640   everything its agent writes
+```
+
+`JAZZ_HOME`, `HOME`, `XDG_*`, `GNUPGHOME` and `PASSWORD_STORE_DIR` all move
+inside that home, so mail, calendar and `pass` are per conversation too.
+Conversation uids are deliberately **not** in the operator group, which is what
+makes the group bits one-way: the operator reads every conversation, no
+conversation reads another, and the setgid bit on each directory keeps the
+operator's access working as agents create new files.
+
+**Setting up mail or a calendar** belongs to one conversation, so do it as that
+conversation rather than as root — `jazz-chat` opens a shell as its user with
+everything already pointed at its home:
+
+```sh
+docker compose exec jazz-discord jazz-chat <channel_id>
+```
+
+**Migrating an existing deployment.** A bot that has been running has one shared
+home with everyone's state in it. Move it in — the script prints its plan and
+changes nothing until `--apply`:
+
+```sh
+docker compose exec jazz-discord bun /app/packages/discord-bot/src/migrate-isolation.ts --operator <your_channel_id>
+```
+
+`--operator` is the conversation that inherits what was never per-conversation
+to begin with: `secrets.json`, the mail/calendar config, the GPG keyring and the
+`pass` store. Use the DM or thread you set them up from. Re-run with `--apply`,
+then `docker compose restart`.
+
+**Turning it off.** `JAZZ_BOT_CHAT_ISOLATION=0` puts every conversation back in
+one shared home under one uid. It also stays off automatically when the bridge
+is not root, since switching uid needs the privilege — the startup log says
+which mode it came up in. Setting `JAZZ_BOT_RUN_AS=<uid>:<gid>` runs the whole
+bridge as one ordinary user with `/data` at `0700`, which is right only when the
+allowlist really is one person — a guild allowlist is not that.
+
+**What none of this protects against.** Anyone with root, `sudo`, or membership
+of the `docker` group on the host reads all of it, whatever the uid and modes
+say: `sudo cat` gets the volume directly, and `docker exec … cat` does not care
+that a file is 0600 — the daemon runs as root, and the docker group is
+root-equivalent by design. On a machine other people administer, the boundary is
+the machine, not the container.
