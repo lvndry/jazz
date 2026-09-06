@@ -6,8 +6,12 @@ WORKDIR /app
 
 # System Chromium for the create_web_app tool (puppeteer-core screenshots HTML
 # the agent writes). puppeteer-core ships no browser, so this is the only one.
+#
+# util-linux and passwd are what per-conversation isolation is built on:
+# `setpriv` drops each agent run to that conversation's own uid, and
+# `useradd`/`groupadd` mint those uids the first time a channel is seen.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    chromium fonts-liberation \
+    chromium fonts-liberation util-linux passwd \
     && rm -rf /var/lib/apt/lists/*
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
@@ -19,10 +23,16 @@ COPY . .
 RUN bun install --frozen-lockfile
 
 RUN printf '#!/bin/sh\nexec bun /app/packages/runtime/src/entry.ts "$@"\n' > /usr/local/bin/jazz \
-    && chmod +x /usr/local/bin/jazz \
+    && printf '#!/bin/sh\nexec bun /app/packages/discord-bot/src/chat-shell.ts "$@"\n' > /usr/local/bin/jazz-chat \
+    && chmod +x /usr/local/bin/jazz /usr/local/bin/jazz-chat \
     && chmod +x /app/packages/discord-bot/src/entrypoint.sh
 
-ENV JAZZ_HOME=/data \
+# Compose can start this container as an arbitrary uid that has no /etc/passwd
+# entry, which leaves $HOME unset and sends anything resolving "~" to / — where
+# a non-root user cannot write. The data volume is the one directory that uid
+# is guaranteed to own.
+ENV HOME=/data \
+    JAZZ_HOME=/data \
     JAZZ_BIN=jazz \
     JAZZ_NO_TUI=1 \
     JAZZ_DISABLE_UPDATE_CHECK=1 \

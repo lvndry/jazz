@@ -7,7 +7,56 @@ services:
     container_name: jazz-discord
     restart: always
     env_file: .env
+    # Who the bridge runs as. Leave unset (root) to get per-conversation
+    # sandboxes — which is what you want here, since allowing a guild means
+    # every member of it gets their own conversation on this host.
+    #
+    # Set JAZZ_BOT_RUN_AS to "<uid>:<gid>" only when the allowlist really is one
+    # person: the whole data directory is then owned by you and 0700. Chown the
+    # volume to match before the first start.
+    #
+    # Neither mode helps against someone with root, sudo or docker-group access
+    # on the host: all three can read the volume or exec into the container. On
+    # a shared machine that is the boundary that actually matters.
+    user: "${JAZZ_BOT_RUN_AS:-0:0}"
+    environment:
+      # The group allowed to read every conversation's state. Defaults to the
+      # group owning the data directory, which is what you want for a bind mount
+      # created as `chown root:<your group>`; set it explicitly for a named
+      # volume, which Docker creates as root:root.
+      JAZZ_BOT_OPERATOR_GID: "${JAZZ_BOT_OPERATOR_GID:-}"
+    # The supervisor stays root so it can hand each conversation's agent run its
+    # own uid; everything a conversation's agent touches runs stripped of that.
+    # These are the privileges that costs: SETUID/SETGID to make the switch,
+    # CHOWN to hand a conversation the files the bridge writes for it,
+    # DAC_OVERRIDE so the bridge can still read across sandboxes to sweep
+    # reminders and serve web apps, KILL so the cancel button can stop a run
+    # owned by another uid.
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - FSETID
+      - KILL
+      - SETGID
+      - SETUID
+      - AUDIT_WRITE
+    security_opt:
+      # Dropping to a conversation's uid is not affected by this; gaining
+      # privilege back through a setuid binary is, which is the point.
+      - no-new-privileges:true
     volumes:
+      # A Docker named volume lives under /var/lib/docker, which non-root host
+      # accounts cannot enter at all. For a bind mount on your own disk, prepare
+      # it first:
+      #
+      #   sudo mkdir -p /srv/jazz-discord/data
+      #   sudo chown root:$(id -gn) /srv/jazz-discord/data
+      #   sudo chmod 2750 /srv/jazz-discord/data
+      #
+      # and swap the line below for `- /srv/jazz-discord/data:/data`.
       - jazz_discord_data:/data
     extra_hosts:
       - "host.docker.internal:host-gateway"
