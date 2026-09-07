@@ -1,5 +1,5 @@
 #!/bin/sh
-# Nightly auto-update for a Jazz chat bridge, shared by every bridge.
+# Hourly auto-update for a Jazz chat bridge, shared by every bridge.
 #
 # Fast-forwards the checkout to the latest origin/main, rebuilds only if it
 # actually changed, and rolls back to the previous commit if the new build does
@@ -26,7 +26,7 @@ STAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 DEPLOY_BRANCH=${JAZZ_DEPLOY_BRANCH:-main}
 
 # Cron has no reader. Anything a human must act on goes to the bridge itself: in a
-# logfile, a nightly failure is indistinguishable from an update that was not needed.
+# logfile, a failed run is indistinguishable from an update that was not needed.
 notify() {
   echo "$STAMP $1"
   if [ -x "$BRIDGE_DIR/notify.sh" ]; then

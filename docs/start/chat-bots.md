@@ -178,10 +178,10 @@ provider offers. Reasoning effort is set automatically either way.
 
 Both bots ship an `auto-update.sh` that fast-forwards the checkout to `origin/main`,
 rebuilds only if something changed, and rolls back if the new build doesn't come up
-healthy. Install it as a nightly cron job (adjust the path to where you cloned the repo):
+healthy. Install it as an hourly cron job (adjust the path to where you cloned the repo):
 
 ```bash
-(crontab -l 2>/dev/null; echo "30 4 * * * $HOME/jazz/packages/telegram-bot/src/auto-update.sh >> $HOME/jazz-autoupdate.log 2>&1") | crontab -
+(crontab -l 2>/dev/null; echo "30 * * * * $HOME/jazz/packages/telegram-bot/src/auto-update.sh >> $HOME/jazz-autoupdate.log 2>&1") | crontab -
 ```
 
 Swap `telegram-bot` for `discord-bot` to update the other one. A sibling executable
