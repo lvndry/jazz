@@ -12,7 +12,11 @@ import type { ToolRegistry } from "@jazz/core/interfaces/tool-registry";
 import { REASONING_EFFORTS } from "@jazz/core/types/agent";
 import type { Agent } from "@jazz/core/types/agent";
 import { WEB_SEARCH_PROVIDERS } from "@jazz/core/types/config";
-import { StorageNotFoundError } from "@jazz/core/types/errors";
+import {
+  PersonaAlreadyExistsError,
+  PersonaNotFoundError,
+  StorageNotFoundError,
+} from "@jazz/core/types/errors";
 import { COMPANION_ROLES } from "@jazz/core/types/llm";
 import { isLoopbackProgressUrl, parseProgressEvents } from "@jazz/core/types/webhook";
 import type { WebhookConfig } from "@jazz/core/types/webhook";
@@ -48,6 +52,14 @@ function runnerFor(store: InMemoryRunStore) {
 
 function request(method: string, path: string, init?: RequestInit): Request {
   return new Request(`http://localhost${path}`, { method, ...init });
+}
+
+/** A JSON write, since every persona route takes one. */
+function writeRequest(method: string, path: string, body: unknown): Request {
+  return request(method, path, {
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
 }
 
 function agentFixture(overrides: Partial<Agent> = {}): Agent {
@@ -1106,6 +1118,152 @@ describe("the menus an agent editor is built from", () => {
       tone: "neutral",
     });
     expect(body.personas[0]).not.toHaveProperty("systemPrompt");
+  });
+
+  it("writes a persona and answers with the whole thing, prompt included", async () => {
+    const written: unknown[] = [];
+    const service = {
+      createPersona: (input: unknown) => {
+        written.push(input);
+        return Effect.succeed({
+          id: "psn_sceptic",
+          name: "sceptic",
+          description: "Asks what must be true",
+          systemPrompt: "Name the assumption.",
+          tone: "dry",
+          createdAt: new Date("2026-09-06T00:00:00Z"),
+          updatedAt: new Date("2026-09-06T00:00:00Z"),
+        });
+      },
+    } as unknown as PersonaService;
+    const handle = makeHandler(LOOPBACK, runnerProviding(PersonaServiceTag, service));
+
+    const response = await handle(
+      writeRequest("POST", "/personas", {
+        name: "sceptic",
+        description: "Asks what must be true",
+        systemPrompt: "Name the assumption.",
+        tone: "dry",
+        // Empty is absent, not an empty string written into the file's frontmatter.
+        style: "",
+      }),
+    );
+    expect(response.status).toBe(201);
+    const body = (await response.json()) as { persona: Record<string, unknown> };
+    // Unlike the list, which omits it: whoever just wrote a prompt is the one caller who
+    // has a use for reading it back.
+    expect(body.persona["systemPrompt"]).toBe("Name the assumption.");
+    expect(body.persona).not.toHaveProperty("style");
+    expect(written[0]).not.toHaveProperty("style");
+  });
+
+  it("names the field when the service refuses a persona, so a form can mark it", async () => {
+    const service = {
+      createPersona: () => Effect.fail(new PersonaAlreadyExistsError({ personaName: "default" })),
+    } as unknown as PersonaService;
+    const handle = makeHandler(LOOPBACK, runnerProviding(PersonaServiceTag, service));
+
+    const response = await handle(
+      writeRequest("POST", "/personas", { name: "default", systemPrompt: "…" }),
+    );
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ ok: false, field: "name" });
+  });
+
+  it("takes a persona's name where the CLI would, not only its id", async () => {
+    const asked: string[] = [];
+    const service = {
+      getPersona: (id: string) => {
+        asked.push(id);
+        return Effect.fail(new PersonaNotFoundError({ personaId: id }));
+      },
+      getPersonaByName: (name: string) =>
+        Effect.succeed({
+          id: "psn_sceptic",
+          name,
+          description: "",
+          systemPrompt: "old",
+          createdAt: new Date("2026-09-06T00:00:00Z"),
+          updatedAt: new Date("2026-09-06T00:00:00Z"),
+        }),
+      updatePersona: (id: string, updates: Record<string, unknown>) =>
+        Effect.succeed({
+          id,
+          name: "sceptic",
+          description: "",
+          systemPrompt: String(updates["systemPrompt"]),
+          createdAt: new Date("2026-09-06T00:00:00Z"),
+          updatedAt: new Date("2026-09-06T00:00:00Z"),
+        }),
+    } as unknown as PersonaService;
+    const handle = makeHandler(LOOPBACK, runnerProviding(PersonaServiceTag, service));
+
+    const response = await handle(
+      writeRequest("PATCH", "/personas/sceptic", { systemPrompt: "new" }),
+    );
+    expect(response.status).toBe(200);
+    expect(asked).toEqual(["sceptic"]);
+    const body = (await response.json()) as { persona: Record<string, unknown> };
+    expect(body.persona["systemPrompt"]).toBe("new");
+  });
+
+  // A patch carrying one field is a change to that field, not an instruction to blank the
+  // rest — the difference between editing a prompt and quietly dropping the tone with it.
+  it("leaves out of a patch the fields the patch left out", async () => {
+    let sent: Record<string, unknown> | undefined;
+    const service = {
+      getPersona: () =>
+        Effect.succeed({
+          id: "psn_sceptic",
+          name: "sceptic",
+          description: "d",
+          systemPrompt: "old",
+          tone: "dry",
+          createdAt: new Date("2026-09-06T00:00:00Z"),
+          updatedAt: new Date("2026-09-06T00:00:00Z"),
+        }),
+      updatePersona: (_id: string, updates: Record<string, unknown>) => {
+        sent = updates;
+        return Effect.succeed({
+          id: "psn_sceptic",
+          name: "sceptic",
+          description: "d",
+          systemPrompt: "new",
+          tone: "dry",
+          createdAt: new Date("2026-09-06T00:00:00Z"),
+          updatedAt: new Date("2026-09-06T00:00:00Z"),
+        });
+      },
+    } as unknown as PersonaService;
+    const handle = makeHandler(LOOPBACK, runnerProviding(PersonaServiceTag, service));
+
+    await handle(writeRequest("PATCH", "/personas/psn_sceptic", { systemPrompt: "new" }));
+    expect(sent).toEqual({ systemPrompt: "new" });
+  });
+
+  it("deletes a persona and says which one went", async () => {
+    const removed: string[] = [];
+    const service = {
+      getPersona: (id: string) =>
+        Effect.succeed({
+          id,
+          name: "sceptic",
+          description: "",
+          systemPrompt: "…",
+          createdAt: new Date("2026-09-06T00:00:00Z"),
+          updatedAt: new Date("2026-09-06T00:00:00Z"),
+        }),
+      deletePersona: (id: string) => {
+        removed.push(id);
+        return Effect.succeed(undefined);
+      },
+    } as unknown as PersonaService;
+    const handle = makeHandler(LOOPBACK, runnerProviding(PersonaServiceTag, service));
+
+    const response = await handle(request("DELETE", "/personas/psn_sceptic"));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true, id: "psn_sceptic" });
+    expect(removed).toEqual(["psn_sceptic"]);
   });
 
   it("lists pickable tools with their categories, and leaves hidden ones out", async () => {
