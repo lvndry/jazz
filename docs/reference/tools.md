@@ -90,6 +90,30 @@ of "unknown" is the most restrictive one.
 
 ---
 
+## What leaves the machine
+
+Risk and disclosure are both about this end of the call: what a tool does to your machine, and
+what its answer would reveal. Neither asks about the **request**, and for a handful of tools
+the request is where your material would actually leave.
+
+| Sends | Tools                                     |
+| ----- | ----------------------------------------- |
+| yes   | `http_request`, `web_fetch`, `web_search` |
+
+Two more, absent above only because they are registered per agent rather than globally:
+`ask_peer`, whose whole purpose is to put your model's words in front of somebody else's
+agent, and every MCP tool, whatever its transport — where a server outside this codebase
+carries the model's arguments is not knowable from here.
+
+This changes nothing in the terminal — approval tiers read the risk column, and a `read-only`
+tool that fetches a URL is still auto-approved under `--approval-policy read-only`, as it
+always was. It matters at exactly one door: a tool listed here is **never** granted to another
+person's agent by a disclosure tier. It has to be named in that peer's `allow`, the same as a
+tool that writes to disk. See
+[Agent-to-agent → Sending is not disclosure](../concepts/agent-to-agent.md#sending-is-not-disclosure).
+
+---
+
 ## The tools
 
 ### File Management

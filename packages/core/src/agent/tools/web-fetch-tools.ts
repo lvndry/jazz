@@ -56,6 +56,9 @@ export function createWebFetchTool(): ReturnType<typeof defineTool<LoggerService
   return defineTool<LoggerService, WebFetchArgs>({
     name: "web_fetch",
     disclosure: "public",
+    // A GET is still a send: the model writes the URL, so anything it knows can ride out in
+    // the path or query string, and the reply comes back for it to read.
+    egress: true,
     description:
       "Fetch a URL with HTTP GET and return its title and main content as markdown. HTML is passed through reader-mode extraction (via Defuddle) to strip navigation, ads, and other boilerplate — JavaScript is not run. PDFs and images are not supported. Allowed types: HTML, plain text, JSON, XML. " +
       "Default 50000 characters (max 200000) per call; the full body is still downloaded and extracted first. If the result is truncated (see `truncated` and `total_length` in the response), call again with `offset` set to page through the rest. Redirects are followed. For APIs, custom headers, POST, or binary, use http_request. To find URLs, use web_search.",

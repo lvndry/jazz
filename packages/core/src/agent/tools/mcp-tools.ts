@@ -283,6 +283,10 @@ function adaptMCPToolToJazz(
         // Defined outside this codebase: its output is unknowable, and the safe
         // reading of "unknown" is the most restrictive level.
         disclosure: "private",
+        // The arguments are the model's, and where the server carries them is unknowable
+        // from here. An http-transport server is plainly off the machine; a stdio one is a
+        // process nothing stops from relaying onward.
+        egress: true,
         description,
         parameters,
         ...(unwrappedJsonSchema !== undefined ? { jsonSchema: unwrappedJsonSchema } : {}),
@@ -301,6 +305,10 @@ function adaptMCPToolToJazz(
     // Defined outside this codebase: its output is unknowable, and the safe
     // reading of "unknown" is the most restrictive level.
     disclosure: "private",
+    // The arguments are the model's, and where the server carries them is unknowable from
+    // here. An http-transport server is plainly off the machine; a stdio one is a process
+    // nothing stops from relaying onward.
+    egress: true,
     description,
     parameters,
     riskLevel,
@@ -360,6 +368,9 @@ export function buildResourceTools(
     hidden: false,
     riskLevel: "read-only",
     disclosure: "private",
+    // The filter is the model's, and it reaches a server whose onward reach is unknowable
+    // from here.
+    egress: true,
     handler: (args: Record<string, unknown>) =>
       Effect.gen(function* () {
         const mcpManager = yield* MCPServerManagerTag;
@@ -419,6 +430,9 @@ export function buildResourceTools(
     hidden: false,
     riskLevel: "read-only",
     disclosure: "private",
+    // The uri is the model's, and it reaches a server whose onward reach is unknowable from
+    // here.
+    egress: true,
     handler: (args: Record<string, unknown>) =>
       Effect.gen(function* () {
         const mcpManager = yield* MCPServerManagerTag;

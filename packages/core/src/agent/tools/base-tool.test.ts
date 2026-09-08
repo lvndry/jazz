@@ -71,6 +71,65 @@ describe("defineTool", () => {
   });
 });
 
+describe("egress", () => {
+  test("defaults to false, so only a tool that says so is treated as sending", () => {
+    const tool = defineTool({
+      name: "echo_path",
+      description: "Echo a path",
+      disclosure: "public",
+      parameters: echoParameters,
+      handler: (args: EchoArgs) => Effect.succeed({ success: true, result: { path: args.path } }),
+    });
+
+    expect(tool.egress).toBe(false);
+  });
+
+  test("is carried through when declared", () => {
+    const tool = defineTool({
+      name: "call_out",
+      description: "Call something out there",
+      disclosure: "public",
+      egress: true,
+      parameters: echoParameters,
+      handler: (args: EchoArgs) => Effect.succeed({ success: true, result: { path: args.path } }),
+    });
+
+    expect(tool.egress).toBe(true);
+  });
+
+  test("reaches both halves of an approval pair", () => {
+    // The hidden execute half is the one that actually sends, and it is looked up by name
+    // rather than through its proposal, so a flag set only on the visible half would be the
+    // half that never runs.
+    const pair = defineApprovalTool({
+      name: "post_note",
+      description: "Post a note somewhere",
+      disclosure: "public",
+      egress: true,
+      parameters: echoParameters,
+      approvalMessage: (args: EchoArgs) => Effect.succeed(`Post ${args.path}`),
+      handler: (args: EchoArgs) => Effect.succeed({ success: true, result: { path: args.path } }),
+    });
+
+    expect(pair.approval.egress).toBe(true);
+    expect(pair.execute.egress).toBe(true);
+  });
+
+  test("an approval pair that says nothing sends nothing", () => {
+    const pair = defineApprovalTool({
+      name: "write_note",
+      description: "Write a note",
+      disclosure: "public",
+      parameters: echoParameters,
+      approvalMessage: (args: EchoArgs) => Effect.succeed(`Write ${args.path}`),
+      handler: (args: EchoArgs) => Effect.succeed({ success: true, result: { path: args.path } }),
+    });
+
+    expect(pair.approval.egress).toBe(false);
+    expect(pair.execute.egress).toBe(false);
+  });
+});
+
 describe("defineApprovalTool", () => {
   test("returns an approval payload and a hidden execute counterpart", async () => {
     const pair = defineApprovalTool({

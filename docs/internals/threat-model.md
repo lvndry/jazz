@@ -74,6 +74,36 @@ Source: `packages/core/src/agent/tools/command-risk.ts`.
 - `JAZZ_OFFLINE=1` stops every outbound request Jazz makes on its own behalf except model
   inference itself. Source: [airgapped](../start/airgapped.md).
 
+## The peer door
+
+`jazz daemon --serve-peers <agentId>` is the only way another person's agent can reach yours,
+and it is opt-in twice: the daemon must be running, and started with that flag. What a peer
+reaches is decided by three things, none of which the peer can talk its way past — the tool is
+either in that run's allowlist or it does not exist for it, and there is no approval prompt to
+trigger.
+
+- **Capability.** Fixed by which agent the flag names. A tool that agent was never given is
+  not a permission check, it is an absence.
+- **A disclosure tier.** Per-peer, and a ceiling on what an *answer* may reveal: `public`,
+  `internal`, `private`, or `none` (the default — configured but suspended). It grants only
+  tools that read locally.
+- **`peer.allow`.** Per-peer, and the only route to a tool that acts (anything above
+  `read-only`) or that **sends** (`egress`, in
+  [tools](../reference/tools.md#what-leaves-the-machine)). Never implied by a tier.
+
+That third bullet's second half is a fix, not an original property. Before it, `http_request`,
+`web_fetch` and `web_search` were granted by tier alone: honestly `read-only`, since they
+touch nothing on this machine, and honestly low-disclosure, since they answer with a
+stranger's web page — and jointly a channel where a peer's question chose both the bytes and
+the address they went to. At `private` that composed with `read_file` into exfiltration; at
+`public` it still reached the host's own network and returned the reply. Risk and disclosure
+are both about the answer; `egress` is the axis about the request. Source:
+`packages/adapters/src/peers/serve.ts`, [agent-to-agent](../concepts/agent-to-agent.md).
+
+Peer traffic also gets its own conversation, never the operator's transcript, so a stranger's
+text cannot arrive pre-trusted as history. Every exchange is recorded in a tamper-evident
+ledger (`jazz peers log`).
+
 ## Runaway protection
 
 Unattended runs are budgeted, not trusted: an iteration ceiling with escalating wrap-up
@@ -105,6 +135,10 @@ re-checked, on the released binary, before we say the word "safe" anywhere:
   default approval policy asks before mutations.
 - ☐ `read-only` tier semantics: enumerate exactly which outbound requests it permits, and
   document that list.
+- ☑ Peer door: no tool that leaves the machine is reachable on a disclosure tier alone.
+  Pinned per tier against the live registry in
+  `packages/adapters/src/peers/serve.test.ts`, so a tool added later fails the suite rather
+  than quietly widening a relationship.
 - ☐ Port scan of a default `docker compose up` bridge: nothing listening except `/health`.
 - ☐ `jazz bench safety` tripwire suite passes 10/10 on the release candidate (planned —
   see the eval harness).

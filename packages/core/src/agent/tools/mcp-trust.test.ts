@@ -79,6 +79,17 @@ describe("MCP tool registration", () => {
     expect(tools[0]?.riskLevel).toBe("low-risk");
   });
 
+  test("marks every registered tool as sending, whatever the server's transport", async () => {
+    // A read-only tool from a trusted server is the one that would otherwise reach a peer on
+    // a disclosure tier alone. Where the server takes the model's arguments is not knowable
+    // from here, so the peer door must be told to gate it like an action.
+    const ungated = await build(true, tool("list_issues", { readOnlyHint: true }));
+    expect(ungated[0]?.egress).toBe(true);
+
+    const pair = await build(false, tool("delete_page", { destructiveHint: true }));
+    expect(pair.map((registered) => registered.egress)).toEqual([true, true]);
+  });
+
   test("names the declared annotations in the approval prompt", async () => {
     const tools = await build(false, tool("drop_table", { destructiveHint: true }));
     const approval = tools[0];

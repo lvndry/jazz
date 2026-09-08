@@ -37,6 +37,7 @@ function makeTool(name: string, summary: string): Tool<ToolRequirements> {
     hidden: false,
     riskLevel: "read-only",
     disclosure: "internal",
+    egress: false,
     execute: () => Effect.succeed({ success: true, result: "" }),
     createSummary: undefined,
   };
