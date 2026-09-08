@@ -39,6 +39,16 @@ export function resolveStorageDirectory(storage: StorageConfig): string {
 }
 
 /**
+ * Whether a storage key satisfies Jazz's storage-safe format. Prefer
+ * {@link requireValidStorageKey} where an invalid key should fail; this
+ * predicate exists for callers that must skip an invalid key without
+ * aborting the surrounding operation.
+ */
+export function isValidStorageKey(key: string): boolean {
+  return AGENT_ID_PATTERN.test(key);
+}
+
+/**
  * Require a storage key (agent id, memory scope name, etc.) to satisfy Jazz's
  * storage-safe format: 1–64 ASCII letters, digits, underscores, and hyphens,
  * since these values become file and lock names. `label` names the kind of

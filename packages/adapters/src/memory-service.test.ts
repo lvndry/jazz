@@ -322,3 +322,100 @@ describe("path safety", () => {
     }
   });
 });
+
+describe("root listing", () => {
+  test("lists the files inside every accessible scope in one call", async () => {
+    const service = new MemoryServiceImpl({ baseMemoryDirectory: tmpDir });
+    const twoScopes = ["personal", "work"];
+    await runEffect(service.create(twoScopes, "personal/prefs.md", "bun over npm"));
+    await runEffect(service.create(twoScopes, "personal/people/alex.md", "likes tea"));
+    await runEffect(service.create(twoScopes, "work/status.md", "shipping"));
+
+    const outcome = await runEffect(service.view(twoScopes, ""));
+    expect(outcome.kind).toBe("directory");
+    if (outcome.kind === "directory") {
+      expect(outcome.entries.map((entry) => entry.name)).toEqual([
+        "personal/",
+        "personal/people/",
+        "personal/people/alex.md",
+        "personal/prefs.md",
+        "work/",
+        "work/status.md",
+      ]);
+      const prefs = outcome.entries.find((entry) => entry.name === "personal/prefs.md");
+      expect(prefs?.sizeBytes).toBe("bun over npm".length);
+    }
+  });
+
+  test("does not create a scope directory as a side effect of listing", async () => {
+    const service = new MemoryServiceImpl({ baseMemoryDirectory: tmpDir });
+    const outcome = await runEffect(service.view(["never-written"], ""));
+    expect(outcome.kind).toBe("directory");
+    if (outcome.kind === "directory") {
+      expect(outcome.entries).toEqual([
+        { name: "never-written/", kind: "directory", sizeBytes: 0 },
+      ]);
+    }
+    expect(fs.existsSync(path.join(tmpDir, "never-written"))).toBe(false);
+  });
+
+  test("still lists a scope whose name is not storage-safe, without walking it", async () => {
+    const service = new MemoryServiceImpl({ baseMemoryDirectory: tmpDir });
+    const outcome = await runEffect(service.view(["../escape"], ""));
+    expect(outcome.kind).toBe("directory");
+    if (outcome.kind === "directory") {
+      expect(outcome.entries).toEqual([{ name: "../escape/", kind: "directory", sizeBytes: 0 }]);
+    }
+  });
+});
+
+describe("scope byte budget", () => {
+  function makeBudgetService(): MemoryServiceImpl {
+    return new MemoryServiceImpl({
+      baseMemoryDirectory: tmpDir,
+      maxTotalBytesPerScope: 100,
+      maxFileBytes: 500,
+    });
+  }
+
+  test("rejects a create that would exceed the total byte budget", async () => {
+    const service = makeBudgetService();
+    await runEffect(service.create(scopes, "agent-1/a.txt", "A".repeat(60)));
+    const result = await runEither(service.create(scopes, "agent-1/b.txt", "B".repeat(50)));
+    expect(result._tag).toBe("Left");
+    if (result._tag === "Left") {
+      expect(String(result.left)).toContain("total memory budget");
+    }
+  });
+
+  test("rejects an insert that grows a file past the total byte budget", async () => {
+    const service = makeBudgetService();
+    await runEffect(service.create(scopes, "agent-1/a.txt", "A".repeat(60)));
+    const result = await runEither(service.insert(scopes, "agent-1/a.txt", 1, "B".repeat(50)));
+    expect(result._tag).toBe("Left");
+    if (result._tag === "Left") {
+      expect(String(result.left)).toContain("total memory budget");
+    }
+  });
+
+  test("rejects a str_replace that grows a file past the total byte budget", async () => {
+    const service = makeBudgetService();
+    await runEffect(service.create(scopes, "agent-1/a.txt", "A".repeat(60)));
+    const result = await runEither(
+      service.strReplace(scopes, "agent-1/a.txt", "A".repeat(60), "B".repeat(111)),
+    );
+    expect(result._tag).toBe("Left");
+    if (result._tag === "Left") {
+      expect(String(result.left)).toContain("total memory budget");
+    }
+  });
+
+  test("allows a shrinking edit on a scope already at the budget ceiling", async () => {
+    const service = makeBudgetService();
+    await runEffect(service.create(scopes, "agent-1/a.txt", "A".repeat(100)));
+    const outcome = await runEffect(
+      service.strReplace(scopes, "agent-1/a.txt", "A".repeat(100), "B".repeat(10)),
+    );
+    expect(outcome.success).toBe(true);
+  });
+});

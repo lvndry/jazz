@@ -59,8 +59,8 @@ const viewMemoryParameters = z
       .default("")
       .describe(
         'Path starting with a scope name (e.g. "personal/notes.txt" or "github-project-a/status.md"). ' +
-          'Empty string or "/" lists the scopes you can access, each as a directory — use that to discover ' +
-          "them instead of guessing.",
+          'Empty string or "/" lists every scope you can access along with the files inside each one — ' +
+          "use that to discover them instead of guessing.",
       ),
     view_range: z
       .tuple([z.number().int(), z.number().int()])
@@ -79,8 +79,10 @@ export function createViewMemoryTool(): Tool<MemoryToolDeps> {
     disclosure: "private",
     description:
       "Call this first, before you answer, at the start of every conversation — even a casual one. " +
-      'No path lists the memory scopes you can access (e.g. "personal", "github-project-a"); ' +
-      'a path like "personal/notes.md" reads one file within a scope. ' +
+      "Calling it with no path is the whole survey: it returns every memory scope you can access " +
+      '(e.g. "personal", "github-project-a") and the files saved in each, with sizes, so one call tells you ' +
+      "whether there is anything worth reading. " +
+      'A path like "personal/notes.md" then reads one file. ' +
       "An empty or missing directory just means nothing has been saved yet — that is a normal answer, not an error.",
     parameters: viewMemoryParameters,
     riskLevel: "read-only",

@@ -27,6 +27,7 @@ import { MemoryServiceTag } from "@jazz/core/interfaces/memory-service";
 import { getMemoryDirectory } from "@jazz/core/utils/paths";
 import {
   abbreviateHomePath,
+  isValidStorageKey,
   requireValidStorageKey,
   withLock,
   writeFileStringAtomic,
@@ -132,6 +133,12 @@ function listDirectoryEntries(
 export interface MemoryServiceImplOptions {
   /** Override for tests; defaults to ~/.jazz/memory (or $JAZZ_HOME/memory). */
   readonly baseMemoryDirectory?: string;
+  /** Override for tests; defaults to {@link MAX_MEMORY_FILE_BYTES}. */
+  readonly maxFileBytes?: number;
+  /** Override for tests; defaults to {@link MAX_MEMORY_TOTAL_BYTES_PER_SCOPE}. */
+  readonly maxTotalBytesPerScope?: number;
+  /** Override for tests; defaults to {@link MAX_MEMORY_FILES_PER_SCOPE}. */
+  readonly maxFilesPerScope?: number;
 }
 
 /** A path names a scope outside the caller's accessible set, or names no scope at all. */
@@ -141,9 +148,15 @@ type ScopeResolution =
 
 export class MemoryServiceImpl implements MemoryService {
   private readonly baseMemoryDirectory: string;
+  private readonly maxFileBytes: number;
+  private readonly maxTotalBytesPerScope: number;
+  private readonly maxFilesPerScope: number;
 
   constructor(options?: MemoryServiceImplOptions) {
     this.baseMemoryDirectory = options?.baseMemoryDirectory ?? getMemoryDirectory();
+    this.maxFileBytes = options?.maxFileBytes ?? MAX_MEMORY_FILE_BYTES;
+    this.maxTotalBytesPerScope = options?.maxTotalBytesPerScope ?? MAX_MEMORY_TOTAL_BYTES_PER_SCOPE;
+    this.maxFilesPerScope = options?.maxFilesPerScope ?? MAX_MEMORY_FILES_PER_SCOPE;
   }
 
   private memoryLockPath(scope: string): string {
@@ -199,6 +212,43 @@ export class MemoryServiceImpl implements MemoryService {
     return { ok: true, scope, rest };
   }
 
+  /**
+   * Enforces the scope-wide byte and file-count caps for one write.
+   * `addedBytes` is the write's net delta, so an edit is charged only its
+   * growth rather than the whole file, and a shrinking edit always fits.
+   *
+   * Must be called inside the scope lock: it walks the whole tree, and the
+   * result is only sound if no other write lands between the walk and the
+   * write it authorizes.
+   */
+  private requireScopeBudget(
+    fs: FileSystem.FileSystem,
+    root: string,
+    options: { readonly addedBytes: number; readonly addsFile: boolean; readonly subject: string },
+  ): Effect.Effect<void, MemoryGuardrailViolation | Error> {
+    const maxFilesPerScope = this.maxFilesPerScope;
+    const maxTotalBytesPerScope = this.maxTotalBytesPerScope;
+    return Effect.gen(function* () {
+      if (options.addedBytes <= 0 && !options.addsFile) return;
+
+      const stats = yield* walkMemoryTree(fs, root);
+      if (options.addsFile && stats.fileCount + 1 > maxFilesPerScope) {
+        return yield* Effect.fail(
+          new MemoryGuardrailViolation(
+            `${options.subject} would exceed the maximum of ${maxFilesPerScope} files in memory.`,
+          ),
+        );
+      }
+      if (stats.totalBytes + options.addedBytes > maxTotalBytesPerScope) {
+        return yield* Effect.fail(
+          new MemoryGuardrailViolation(
+            `${options.subject} would exceed the total memory budget of ${maxTotalBytesPerScope} bytes.`,
+          ),
+        );
+      }
+    });
+  }
+
   private withValidatedScopeLock<A, E, R>(
     scope: string,
     operation: Effect.Effect<A, E, R>,
@@ -217,12 +267,28 @@ export class MemoryServiceImpl implements MemoryService {
         const { scope, rest } = splitScopeAndRest(virtualPath);
 
         if (scope === null) {
+          const entries: MemoryDirectoryEntry[] = [];
+          for (const name of [...scopes].sort()) {
+            entries.push({ name: `${name}/`, kind: "directory", sizeBytes: 0 });
+
+            // A root listing must not create anything, so an unwritten scope
+            // contributes only its own directory line. Walking an invalid
+            // scope name is skipped rather than failed: it would be rejected
+            // by any real access, and one bad config entry should not blank
+            // out the listing for every other scope.
+            const isValidScope = isValidStorageKey(name);
+            if (!isValidScope) continue;
+
+            const scopeRoot = path.join(this.baseMemoryDirectory, name);
+            const nested = yield* listDirectoryEntries(fs, scopeRoot, 2);
+            for (const child of nested) {
+              entries.push({ ...child, name: `${name}/${child.name}` });
+            }
+          }
           return {
             kind: "directory",
             path: abbreviateHomePath(this.baseMemoryDirectory),
-            entries: [...scopes]
-              .sort()
-              .map((name) => ({ name: `${name}/`, kind: "directory", sizeBytes: 0 }) as const),
+            entries,
           } satisfies MemoryViewOutcome;
         }
 
@@ -306,10 +372,10 @@ export class MemoryServiceImpl implements MemoryService {
               const target = yield* resolveMemoryPath(root, rest);
 
               const fileTextBytes = Buffer.byteLength(fileText, "utf-8");
-              if (fileTextBytes > MAX_MEMORY_FILE_BYTES) {
+              if (fileTextBytes > this.maxFileBytes) {
                 return yield* Effect.fail(
                   new MemoryGuardrailViolation(
-                    `File would be ${fileTextBytes} bytes, exceeding the maximum of ${MAX_MEMORY_FILE_BYTES} bytes.`,
+                    `File would be ${fileTextBytes} bytes, exceeding the maximum of ${this.maxFileBytes} bytes.`,
                   ),
                 );
               }
@@ -324,22 +390,11 @@ export class MemoryServiceImpl implements MemoryService {
                 } satisfies MemoryMutationOutcome;
               }
 
-              const stats = yield* walkMemoryTree(fs, root);
-              if (stats.fileCount + 1 > MAX_MEMORY_FILES_PER_SCOPE) {
-                return yield* Effect.fail(
-                  new MemoryGuardrailViolation(
-                    `Creating this file would exceed the maximum of ${MAX_MEMORY_FILES_PER_SCOPE} files in memory.`,
-                  ),
-                );
-              }
-              if (stats.totalBytes + fileTextBytes > MAX_MEMORY_TOTAL_BYTES_PER_SCOPE) {
-                return yield* Effect.fail(
-                  new MemoryGuardrailViolation(
-                    `Creating this file would exceed the total memory budget of ${MAX_MEMORY_TOTAL_BYTES_PER_SCOPE} bytes.`,
-                  ),
-                );
-              }
-
+              yield* this.requireScopeBudget(fs, root, {
+                addedBytes: fileTextBytes,
+                addsFile: true,
+                subject: "Creating this file",
+              });
               yield* writeFileStringAtomic(fs, target, fileText, { tempPrefix: "memory" });
 
               return {
@@ -403,13 +458,19 @@ export class MemoryServiceImpl implements MemoryService {
                 content.slice(0, index) + replacement + content.slice(index + oldStr.length);
 
               const updatedBytes = Buffer.byteLength(updatedContent, "utf-8");
-              if (updatedBytes > MAX_MEMORY_FILE_BYTES) {
+              if (updatedBytes > this.maxFileBytes) {
                 return yield* Effect.fail(
                   new MemoryGuardrailViolation(
-                    `Edit would grow the file to ${updatedBytes} bytes, exceeding the maximum of ${MAX_MEMORY_FILE_BYTES} bytes.`,
+                    `Edit would grow the file to ${updatedBytes} bytes, exceeding the maximum of ${this.maxFileBytes} bytes.`,
                   ),
                 );
               }
+
+              yield* this.requireScopeBudget(fs, root, {
+                addedBytes: updatedBytes - Buffer.byteLength(content, "utf-8"),
+                addsFile: false,
+                subject: "This edit",
+              });
 
               yield* writeFileStringAtomic(fs, target, updatedContent, { tempPrefix: "memory" });
 
@@ -470,13 +531,19 @@ export class MemoryServiceImpl implements MemoryService {
               const updatedContent = updatedLines.join("\n");
 
               const updatedBytes = Buffer.byteLength(updatedContent, "utf-8");
-              if (updatedBytes > MAX_MEMORY_FILE_BYTES) {
+              if (updatedBytes > this.maxFileBytes) {
                 return yield* Effect.fail(
                   new MemoryGuardrailViolation(
-                    `Edit would grow the file to ${updatedBytes} bytes, exceeding the maximum of ${MAX_MEMORY_FILE_BYTES} bytes.`,
+                    `Edit would grow the file to ${updatedBytes} bytes, exceeding the maximum of ${this.maxFileBytes} bytes.`,
                   ),
                 );
               }
+
+              yield* this.requireScopeBudget(fs, root, {
+                addedBytes: updatedBytes - Buffer.byteLength(content, "utf-8"),
+                addsFile: false,
+                subject: "This edit",
+              });
 
               yield* writeFileStringAtomic(fs, target, updatedContent, { tempPrefix: "memory" });
 
