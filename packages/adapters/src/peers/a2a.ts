@@ -27,15 +27,12 @@
 
 import { resolveAgentToolNames } from "@jazz/core/agent/tools/agent-tool-resolution";
 import { ToolRegistryTag } from "@jazz/core/interfaces/tool-registry";
+import type { ToolDisclosure } from "@jazz/core/interfaces/tool-registry";
 import type { Agent } from "@jazz/core/types";
+import { allowedToolsForTier } from "@jazz/core/types/disclosure-tier";
 import type { PeerConfig } from "@jazz/core/types/peer";
 import { Effect } from "effect";
-import {
-  allowedToolsForPeer,
-  describeToolForPeer,
-  servePeerRequest,
-  type PeerVisibleTool,
-} from "./serve";
+import { servePeerRequest } from "./serve";
 import packageJson from "../../../../package.json";
 
 /** The one security scheme this server actually accepts: a peer's own bearer token. */
@@ -168,11 +165,16 @@ export function buildExtendedAgentCard(
   agentName: string,
   endpointUrl: string,
   peer: PeerConfig,
-  tools: readonly PeerVisibleTool[],
+  tools: readonly {
+    readonly name: string;
+    readonly riskLevel: string;
+    readonly disclosure: ToolDisclosure;
+    readonly egress: boolean;
+  }[],
 ): AgentCard {
   const tier = peer.disclosure ?? "none";
   const allow = peer.allow ?? [];
-  const reachable = allowedToolsForPeer(tier, allow, tools);
+  const reachable = allowedToolsForTier(tier, allow, tools);
   const base = buildPublicAgentCard(agentName, endpointUrl);
   return {
     ...base,
@@ -349,9 +351,20 @@ export function handleA2ARpc(
       const reachableNames = (yield* resolveAgentToolNames(agent)).filter((name) =>
         allToolNames.includes(name),
       );
-      const described: PeerVisibleTool[] = [];
+      const described: {
+        name: string;
+        riskLevel: string;
+        disclosure: ToolDisclosure;
+        egress: boolean;
+      }[] = [];
       for (const name of reachableNames) {
-        described.push(describeToolForPeer(name, yield* registry.getTool(name)));
+        const tool = yield* registry.getTool(name);
+        described.push({
+          name,
+          riskLevel: tool.riskLevel,
+          disclosure: tool.disclosure,
+          egress: tool.egress,
+        });
       }
       return {
         jsonrpc: "2.0",

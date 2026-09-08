@@ -14,6 +14,8 @@
  * `migrateTriggersToWebhooks` and the daemon's route table.
  */
 
+import type { DisclosureTier } from "./disclosure-tier";
+
 export interface WebhookConfig {
   /** Local name, used in the URL (`POST /webhooks/<name>`) and to look up its token. Unique. */
   readonly name: string;
@@ -40,7 +42,47 @@ export interface WebhookConfig {
    * every turn.
    */
   readonly conversation?: WebhookConversationMode;
+  /**
+   * How much this webhook's caller may learn, as a ceiling on the tools its run may reach.
+   *
+   * **A webhook token holder is an external counterparty, not the operator.** That decision
+   * is the whole reason this field exists, so it is worth stating rather than leaving to be
+   * inferred: the secret authenticates *this webhook*, never a person, and it lives in some
+   * third party's settings screen — a GitHub repo's webhook config, an IFTTT applet, an email
+   * relay — which the operator does not administer and cannot audit. Treating whoever presents
+   * it as owner-equivalent would mean a leaked field in somebody else's SaaS console is a
+   * shell on this machine. So a webhook is bounded exactly the way a peer is, by the same
+   * {@link DisclosureTier} ladder and the same `allow` escape hatch.
+   *
+   * Absent means {@link DEFAULT_WEBHOOK_DISCLOSURE}, which unlike a peer's `none` is a
+   * working default. The asymmetry is deliberate: a peer chooses its own question, so there
+   * is nothing to grant until the operator decides what that stranger may ask; a webhook runs
+   * a `promptTemplate` the operator wrote, so the read-only surface it needs was already
+   * settled when they wrote it.
+   */
+  readonly disclosure?: DisclosureTier;
+  /**
+   * Tool names this webhook may invoke beyond read-only risk.
+   *
+   * `disclosure` is a ceiling on what an answer may *reveal* and says nothing about damage,
+   * so a tool that can act is admitted only by being named here — at any tier, and never by
+   * raising the tier. An unnamed one is left out of the run's allowlist entirely rather than
+   * queued for an approval, so the model is never offered it. See `PeerConfig.allow`, which
+   * is the same axis on the other external door.
+   */
+  readonly allow?: readonly string[];
 }
+
+/**
+ * What a webhook may reach when its config does not say.
+ *
+ * `internal` is read-only tools up to the `internal` disclosure ceiling: the shape of the
+ * machine (what exists, what is installed, what the web says) but not the contents of a file,
+ * the operator's memory, or anything that acts. It is the level at which the common webhook
+ * shapes — summarize this event, look something up, react to a deploy — still work, while a
+ * secret sitting in a third party's console stops being enough to read the operator's files.
+ */
+export const DEFAULT_WEBHOOK_DISCLOSURE: DisclosureTier = "internal";
 
 export type WebhookConversationMode = "ephemeral" | "threaded";
 

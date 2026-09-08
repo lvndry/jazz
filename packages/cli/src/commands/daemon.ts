@@ -36,6 +36,7 @@ import {
   explainDaemonTokenProvisionFailure,
   resolveDaemonToken,
   resolveOrProvisionDaemonToken,
+  type ProvisionDaemonTokenResult,
 } from "@jazz/adapters/daemon/token";
 import { runDueTriggers } from "@jazz/adapters/daemon/trigger-runner";
 import { resolvePeerToken } from "@jazz/adapters/peers/token";
@@ -70,6 +71,51 @@ export interface DaemonCommandOptions {
    * should not quietly also be answering strangers.
    */
   readonly peerAgent?: string | undefined;
+}
+
+/** The token a daemon will serve behind, and the one thing worth telling the operator. */
+export interface DaemonTokenDecision {
+  /** Absent only when nothing could be stored and the bind is loopback, so it serves open. */
+  readonly token: string | undefined;
+  /** A line for stderr, or nothing when there is genuinely nothing new to say. */
+  readonly notice: string | undefined;
+}
+
+/**
+ * Turn a provisioning result into the token to serve behind and what to print.
+ *
+ * Separated from `daemonCommand` because that function binds a socket and then never
+ * returns, which makes the interesting decision here — a freshly generated token has to be
+ * shown, an already-stored one must not be reprinted into logs on every restart, and a
+ * failure on loopback degrades rather than exits — untestable in place.
+ */
+export function decideDaemonToken(result: ProvisionDaemonTokenResult): DaemonTokenDecision {
+  if (!result.ok) {
+    return {
+      token: undefined,
+      notice:
+        `Could not store a daemon token, so this daemon is answering on loopback with no ` +
+        `credential — anything else running as any user on this machine can drive an agent ` +
+        `with filesystem access through it. ` +
+        `${explainDaemonTokenProvisionFailure(result)}`,
+    };
+  }
+
+  // An already-stored token is reprinted nowhere: a daemon restarted by a supervisor would
+  // otherwise write the secret into its logs on every start. `jazz daemon set-token` is the
+  // way back to it.
+  if (!result.generated || result.backend === undefined) {
+    return { token: result.token, notice: undefined };
+  }
+
+  return {
+    token: result.token,
+    notice:
+      `Generated a daemon token and stored it in ${describeKeyringBackend(result.backend)}: ` +
+      `${result.token}\n` +
+      `Every client of this daemon must send it as a bearer token. Run ` +
+      `\`jazz daemon set-token\` to issue a new one if you lose it.`,
+  };
 }
 
 /**
@@ -122,35 +168,38 @@ function formatServiceInstalledMessage(
  * The token comes from the environment or the OS keyring rather than a flag: a token in argv
  * is a token in `ps` output and in shell history, and this one authorises driving an agent.
  *
- * Loopback needs no token at all. A non-loopback host does, and rather than making a fresh
- * daemon unusable there until someone runs `jazz daemon set-token` by hand first, one is
- * generated and stored in the keyring automatically the first time — the daemon works from
- * the first run, at the cost of printing the token once so it can be copied to a client.
+ * Every bind gets a token, loopback included, generated and stored in the keyring the first
+ * time rather than making a fresh daemon unusable until someone runs `jazz daemon set-token`
+ * by hand. It is printed once, so it can be copied to a client.
+ *
+ * Loopback used to get none, on the reasoning that a port only this machine can reach needs
+ * no credential. That reasoning does not survive contact with either of loopback's two real
+ * neighbours: every other user account on a shared box, and every page in the operator's
+ * browser. The browser half is answered structurally (see `browserRefusal` in the daemon's
+ * server), but nothing except a token separates a tokenless loopback daemon from any other
+ * local process, and what it is protecting is an agent with filesystem access.
+ *
+ * The one asymmetry left is what happens when there is nowhere to keep a token. A
+ * non-loopback bind refuses to start — `refuseReason` has always said so. Loopback warns and
+ * serves anyway: exiting would turn "the keyring is unavailable" into "jazz does not run
+ * here", which is a worse trade than the exposure it prevents on a port only this machine
+ * can reach.
  */
 export function daemonCommand(options: DaemonCommandOptions) {
   return Effect.gen(function* () {
-    let token: string | undefined;
-    if (isLoopback(options.host)) {
-      token = yield* resolveDaemonToken();
-    } else {
-      const provisioned = yield* resolveOrProvisionDaemonToken();
-      if (!provisioned.ok) {
-        // A precise, OS-aware explanation instead of `refuseReason`'s generic "no token" —
-        // provisioning already knows exactly why it failed, so say that instead of making
-        // the operator rediscover it themselves.
-        process.stderr.write(`${formatDaemonTokenProvisionFailure(provisioned, options)}\n`);
-        process.exitCode = 1;
-        return;
-      }
-      token = provisioned.token;
-      if (provisioned.generated && provisioned.backend !== undefined) {
-        process.stderr.write(
-          `Generated a daemon token and stored it in ${describeKeyringBackend(provisioned.backend)}: ` +
-            `${provisioned.token}\n` +
-            `Use it as a bearer token from any client reaching this daemon over the network.\n`,
-        );
-      }
+    const provisioned = yield* resolveOrProvisionDaemonToken();
+    if (!provisioned.ok && !isLoopback(options.host)) {
+      // A precise, OS-aware explanation instead of `refuseReason`'s generic "no token" —
+      // provisioning already knows exactly why it failed, so say that instead of making
+      // the operator rediscover it themselves.
+      process.stderr.write(`${formatDaemonTokenProvisionFailure(provisioned, options)}\n`);
+      process.exitCode = 1;
+      return;
     }
+
+    const decided = decideDaemonToken(provisioned);
+    if (decided.notice !== undefined) process.stderr.write(`${decided.notice}\n`);
+    const token = decided.token;
 
     // Offer to make this persistent right where the operator would actually hit the need —
     // not a separate subcommand they'd have to already know exists. Only when there's an
@@ -295,7 +344,7 @@ export function daemonCommand(options: DaemonCommandOptions) {
 
       process.stderr.write(
         `jazz daemon listening on http://${daemonOptions.host}:${String(server.port)}` +
-          `${token === undefined ? " (no token: loopback only)" : ""}\n`,
+          `${token === undefined ? " (unauthenticated: no token could be stored)" : ""}\n`,
       );
 
       // In-process alternative to depending on launchd/crontab existing on the host: every
@@ -390,9 +439,14 @@ export function setDaemonTokenCommand() {
       process.exitCode = 1;
       return;
     }
+    // A generated token is printed, because otherwise there is nowhere to read it back from
+    // and this command is the recovery path for an operator who lost the one the daemon
+    // printed at startup. A token that came from the environment is already in the
+    // operator's hands, so it is not echoed.
     process.stdout.write(
       generated
-        ? `Generated and stored a daemon token in ${describeKeyringBackend(backend)}.\n`
+        ? `Generated and stored a daemon token in ${describeKeyringBackend(backend)}: ${token}\n` +
+            `Restart the daemon for it to take effect, then send it as a bearer token.\n`
         : `Stored the daemon token in ${describeKeyringBackend(backend)}.\n`,
     );
   });

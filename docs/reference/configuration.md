@@ -236,10 +236,16 @@ Webhook doors onto specific agents. Each entry is served at `POST /webhooks/<nam
 | `promptTemplate` | yes      | Prompt for the fire. `{{payload}}` is replaced with the quoted body                  |
 | `description`    | no       | Note for yourself; never sent to the model                                           |
 | `conversation`   | no       | `"ephemeral"` (default) starts fresh each fire; `"threaded"` resumes per thread key  |
+| `disclosure`     | no       | Read-only ceiling: `none`, `public`, `internal` (default), `private`                  |
+| `allow`          | no       | Tool names this webhook may invoke beyond read-only risk. Empty by default            |
 
 Tokens never live in this file. Store one in the keyring with
 `jazz config set webhooks.<name>.token`, or supply `JAZZ_WEBHOOK_TOKEN_<NAME>` in the
 environment. A threaded webhook takes its thread key from the `X-Jazz-Thread` request header.
+
+A webhook token holder is an external counterparty, not you — it lives in a third party's
+settings console. `disclosure` and `allow` are what bound the run; without them a webhook
+reaches read-only tools up to the `internal` ceiling and nothing that can act.
 
 See [Webhooks](../concepts/webhooks.md) for the full behaviour.
 

@@ -65,8 +65,9 @@ Source: `packages/core/src/agent/tools/command-risk.ts`.
 
 ## Network posture
 
-- The CLI opens **no listening port**. `jazz run` is a process that starts, works, and
-  exits.
+- `jazz run` opens **no listening port**. It is a process that starts, works, and exits.
+- `jazz daemon` **does** open one, and it is the only part of Jazz that accepts inbound
+  requests. Its posture is set out below.
 - The Telegram bridge defaults to **long-polling** (`getUpdates`): outbound connections
   only, no public URL, works behind NAT. Webhook mode exists but is opt-in and requires a
   secret. One caveat stated honestly: the bridge container always runs a minimal `/health`
@@ -74,35 +75,47 @@ Source: `packages/core/src/agent/tools/command-risk.ts`.
 - `JAZZ_OFFLINE=1` stops every outbound request Jazz makes on its own behalf except model
   inference itself. Source: [airgapped](../start/airgapped.md).
 
-## The peer door
+## The daemon's doors
 
-`jazz daemon --serve-peers <agentId>` is the only way another person's agent can reach yours,
-and it is opt-in twice: the daemon must be running, and started with that flag. What a peer
-reaches is decided by three things, none of which the peer can talk its way past — the tool is
-either in that run's allowlist or it does not exist for it, and there is no approval prompt to
-trigger.
+`jazz daemon` binds `127.0.0.1:4747` by default and refuses to bind anywhere else without a
+token. Three kinds of caller reach it, and they are **not** equally trusted:
 
-- **Capability.** Fixed by which agent the flag names. A tool that agent was never given is
-  not a permission check, it is an absence.
-- **A disclosure tier.** Per-peer, and a ceiling on what an *answer* may reveal: `public`,
-  `internal`, `private`, or `none` (the default — configured but suspended). It grants only
-  tools that read locally.
-- **`peer.allow`.** Per-peer, and the only route to a tool that acts (anything above
-  `read-only`) or that **sends** (`egress`, in
-  [tools](../reference/tools.md#what-leaves-the-machine)). Never implied by a tier.
+| Caller | Credential | What it may do |
+| --- | --- | --- |
+| Operator | daemon token | Owner-equivalent. Start runs, approve them, edit agents. |
+| Peer | per-peer token | Non-egress read-only tools up to that peer's `disclosure` tier, plus whatever its `allow` names. |
+| Webhook | per-webhook token | Non-egress read-only tools up to that webhook's `disclosure` (default `internal`), plus whatever its `allow` names. |
 
-That third bullet's second half is a fix, not an original property. Before it, `http_request`,
-`web_fetch` and `web_search` were granted by tier alone: honestly `read-only`, since they
-touch nothing on this machine, and honestly low-disclosure, since they answer with a
-stranger's web page — and jointly a channel where a peer's question chose both the bytes and
-the address they went to. At `private` that composed with `read_file` into exfiltration; at
-`public` it still reached the host's own network and returned the reply. Risk and disclosure
-are both about the answer; `egress` is the axis about the request. Source:
-`packages/adapters/src/peers/serve.ts`, [agent-to-agent](../concepts/agent-to-agent.md).
+**A webhook token holder is an external counterparty, not the operator.** The secret
+authenticates the webhook, never a person, and it lives in a third party's settings console
+— a GitHub repo, an IFTTT applet, an email relay — that the operator neither administers nor
+can audit. So a webhook run is bounded by the same two-axis rule a peer's is: `disclosure`
+caps what an answer may *reveal*, and nothing riskier than read-only or that sends data off
+the machine exists for that caller unless its `allow` names it. Source:
+`packages/core/src/types/disclosure-tier.ts`,
+[webhooks](../concepts/webhooks.md).
 
-Peer traffic also gets its own conversation, never the operator's transcript, so a stranger's
-text cannot arrive pre-trusted as history. Every exchange is recorded in a tamper-evident
-ledger (`jazz peers log`).
+**Loopback is not a trust boundary, and is not treated as one.** Every bind gets a token,
+loopback included — generated into the keyring on first start and printed once. Loopback's
+two real neighbours are every other user account on a shared host and every page in the
+operator's browser, and a token only answers the first. For the second, every door
+structurally refuses anything a browser could have sent:
+
+- a request carrying an `Origin` header is refused `403` — no legitimate client of this API
+  sets one, and a browser cannot omit it;
+- a request body must be `content-type: application/json` (`415` otherwise), which is
+  precisely the thing an HTML form cannot send and a cross-origin `fetch` cannot send without
+  a preflight these doors never answer.
+
+The webhook door is exempt from the content-type check only, because its body is whatever the
+sending system sends; it is gated by a per-webhook token no page could hold. Source:
+`browserRefusal` in `packages/adapters/src/daemon/server.ts`.
+
+**The residual exposure, stated plainly:** if `$JAZZ_DISABLE_KEYRING` is set and no
+`$JAZZ_DAEMON_TOKEN` is given, a loopback daemon warns and serves with no credential rather
+than refusing to start — so any local process can drive it. A non-loopback bind refuses
+outright in that situation. Beyond that, the daemon does not distinguish two operator clients
+from each other: the token is a single grant, not a per-client identity.
 
 ## Runaway protection
 
@@ -135,14 +148,13 @@ re-checked, on the released binary, before we say the word "safe" anywhere:
   default approval policy asks before mutations.
 - ☐ `read-only` tier semantics: enumerate exactly which outbound requests it permits, and
   document that list.
-- ☑ Peer door: no tool that leaves the machine is reachable on a disclosure tier alone.
-  Pinned per tier against the live registry in
-  `packages/adapters/src/peers/serve.test.ts`, so a tool added later fails the suite rather
-  than quietly widening a relationship.
 - ☐ Port scan of a default `docker compose up` bridge: nothing listening except `/health`.
 - ☐ `jazz bench safety` tripwire suite passes 10/10 on the release candidate (planned —
   see the eval harness).
 - ☐ Webhook mode: secret required, requests without it rejected.
+- ☐ Daemon default bind: token present on loopback, `Origin`-bearing and non-JSON requests
+  refused on every door, and a webhook run's toolset is its `disclosure` ceiling and not the
+  agent's whole toolset.
 
 ## Reporting
 

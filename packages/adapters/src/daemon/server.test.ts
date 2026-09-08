@@ -141,6 +141,7 @@ describe("the daemon's routes", () => {
     );
     const response = await handle(
       request("POST", "/peer-invites/00000000000000000000000000000000/accept", {
+        headers: { "content-type": "application/json" },
         body: "x".repeat(20_001),
       }),
     );
@@ -227,7 +228,12 @@ describe("the daemon's routes", () => {
     const store = new InMemoryRunStore();
     const handle = makeHandler(LOOPBACK, runnerFor(store));
 
-    const response = await handle(request("POST", "/runs", { body: "not json" }));
+    const response = await handle(
+      request("POST", "/runs", {
+        headers: { "content-type": "application/json" },
+        body: "not json",
+      }),
+    );
     expect(response.status).toBe(400);
   });
 
@@ -811,7 +817,11 @@ describe("creating an agent over HTTP", () => {
     expect(
       (
         await handle(
-          new Request("http://localhost/agents", { method: "POST", body: "not json at all" }),
+          new Request("http://localhost/agents", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: "not json at all",
+          }),
         )
       ).status,
     ).toBe(400);
@@ -824,7 +834,7 @@ describe("creating an agent over HTTP", () => {
     const response = await handle(
       new Request("http://localhost/agents", {
         method: "POST",
-        headers: { "content-length": "999999" },
+        headers: { "content-length": "999999", "content-type": "application/json" },
         body: JSON.stringify({ name: "big" }),
       }),
     );
@@ -1319,5 +1329,155 @@ describe("a handler that faults", () => {
     expect((await response.json()) as { error: string }).toMatchObject({
       error: "internal error",
     });
+  });
+});
+
+/**
+ * A loopback daemon is reachable from every page the operator has open. Nothing here is
+ * about the bearer token — the point is what a browser can do *without* one.
+ */
+describe("refusing a request a browser made", () => {
+  const store = () => new InMemoryRunStore();
+
+  it("refuses an operator route that carries an Origin", async () => {
+    // The drive-by: a page on any site the operator is visiting can POST to
+    // 127.0.0.1 and start a run. No legitimate client of this door sends Origin.
+    const handle = makeHandler(LOOPBACK, runnerFor(store()));
+
+    const response = await handle(
+      request("POST", "/runs", {
+        headers: { "content-type": "application/json", origin: "https://evil.example" },
+        body: JSON.stringify({ agent: "assistant", prompt: "rm -rf" }),
+      }),
+    );
+    expect(response.status).toBe(403);
+  });
+
+  it("refuses a read with an Origin too, not only a write", async () => {
+    // A cross-origin GET still reaches the handler and still answers; refusing only writes
+    // would leave the transcript of every run readable by a page.
+    const handle = makeHandler(LOOPBACK, runnerFor(store()));
+
+    const response = await handle(request("GET", "/runs", { headers: { origin: "null" } }));
+    expect(response.status).toBe(403);
+  });
+
+  it("refuses an Origin on health, so a page cannot fingerprint the daemon", async () => {
+    const handle = makeHandler(LOOPBACK, runnerFor(store()));
+
+    const withOrigin = await handle(
+      request("GET", "/health", { headers: { origin: "https://evil.example" } }),
+    );
+    expect(withOrigin.status).toBe(403);
+  });
+
+  it("still answers health to a supervisor, which sends no Origin", async () => {
+    const handle = makeHandler(LOOPBACK, runnerFor(store()));
+
+    expect((await handle(request("GET", "/health"))).status).toBe(200);
+  });
+
+  it("requires a content type a form cannot send", async () => {
+    // An HTML form can only send urlencoded, multipart, or text/plain, and none of those
+    // trigger a preflight. Requiring JSON means a cross-origin write must ask permission
+    // first, and this door answers no preflight.
+    const handle = makeHandler(LOOPBACK, runnerFor(store()));
+
+    for (const contentType of [
+      "application/x-www-form-urlencoded",
+      "multipart/form-data; boundary=x",
+      "text/plain;charset=UTF-8",
+    ]) {
+      const response = await handle(
+        request("POST", "/runs", {
+          headers: { "content-type": contentType },
+          body: JSON.stringify({ agent: "assistant", prompt: "hi" }),
+        }),
+      );
+      expect(response.status, contentType).toBe(415);
+    }
+  });
+
+  it("requires a content type at all on a write", async () => {
+    const handle = makeHandler(LOOPBACK, runnerFor(store()));
+
+    const response = await handle(
+      request("POST", "/runs", { body: JSON.stringify({ agent: "a", prompt: "b" }) }),
+    );
+    expect(response.status).toBe(415);
+  });
+
+  it("accepts JSON with a charset, which is what real clients send", async () => {
+    const handle = makeHandler(LOOPBACK, runnerFor(store()));
+
+    // Past the content-type gate is the point; the 400 is the body check that follows.
+    const response = await handle(
+      request("POST", "/runs", {
+        headers: { "content-type": "application/json; charset=utf-8" },
+        body: JSON.stringify({ prompt: "no agent named" }),
+      }),
+    );
+    expect(response.status).toBe(400);
+  });
+
+  it("leaves a DELETE with no body alone", async () => {
+    // Nothing to mislabel, so demanding a content type would only break real clients.
+    const handle = makeHandler(LOOPBACK, runnerForAgents([]));
+
+    expect((await handle(request("DELETE", "/agents/nope"))).status).not.toBe(415);
+  });
+
+  it("refuses an Origin at the unauthenticated invite door", async () => {
+    // The one route that answers before knowing who is calling, so it is the one a page
+    // could reach with no credential at all.
+    const handle = makePeerInviteHandler(async () => {
+      throw new Error("a browser request must not reach the runner");
+    });
+
+    const response = await handle(
+      request("GET", "/peer-invites/abc", { headers: { origin: "https://evil.example" } }),
+    );
+    expect(response.status).toBe(403);
+  });
+
+  it("refuses an Origin at the webhook door", async () => {
+    const handle = makeWebhookHandler(
+      async () => [{ name: "hook", agentId: "default", promptTemplate: "{{payload}}" }],
+      async () => "hook-token",
+      async () => {
+        throw new Error("a browser request must not reach the runner");
+      },
+    );
+
+    const response = await handle(
+      request("POST", "/webhooks/hook", {
+        headers: { authorization: "Bearer hook-token", origin: "https://evil.example" },
+        body: "{}",
+      }),
+    );
+    expect(response.status).toBe(403);
+  });
+
+  it("still takes any content type at the webhook door", async () => {
+    // A webhook's body is whatever the sending system sends — GitHub can be configured to
+    // post urlencoded — and the prompt template interpolates it raw. Demanding JSON here
+    // would refuse the traffic the door exists to receive, and buys nothing: a page holds
+    // no webhook token.
+    const handle = makeWebhookHandler(
+      async () => [{ name: "hook", agentId: "default", promptTemplate: "{{payload}}" }],
+      async () => "hook-token",
+      async () => new Response("reached the runner", { status: 299 }) as never,
+    );
+
+    const response = await handle(
+      request("POST", "/webhooks/hook", {
+        headers: {
+          authorization: "Bearer hook-token",
+          "content-type": "application/x-www-form-urlencoded",
+        },
+        body: "payload=%7B%7D",
+      }),
+    );
+    expect(response.status).toBe(299);
   });
 });

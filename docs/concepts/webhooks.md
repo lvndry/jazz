@@ -64,6 +64,8 @@ the endpoint does not.
 | `promptTemplate` | yes | The prompt the fire runs. `{{payload}}` is replaced with the request body, quoted. Without the placeholder, the payload is appended. |
 | `description` | no | A note for yourself. Never sent to the model. |
 | `conversation` | no | `"ephemeral"` (default) or `"threaded"`. See below. |
+| `disclosure` | no | How much this webhook may learn: `none`, `public`, `internal` (default), `private`. See below. |
+| `allow` | no | Tool names this webhook may invoke beyond read-only risk. Empty by default. |
 
 ### Tokens
 
@@ -77,6 +79,49 @@ export JAZZ_WEBHOOK_TOKEN_DEPLOYS="…"            # or the environment, for a c
 
 The token never lives in `config.json`. A request without a matching one gets a `401`, and
 a body over 1 MB is refused with a `413` while it is still being read.
+
+---
+
+## What a webhook may reach
+
+**A webhook token holder is an external counterparty, not you.** The token authenticates
+*the webhook*, and it lives in somebody else's settings screen — a GitHub repo's webhook
+config, an IFTTT applet, an email relay. You do not administer that console and cannot audit
+who reads it. So a webhook run is bounded the same way a peer's question is, by the same two
+axes:
+
+| `disclosure` | Read-only tools the run may reach |
+| --- | --- |
+| `none` | Nothing. The way to switch a webhook off without deleting it. |
+| `public` | Answers that reveal nothing about you or your machine — web search, web fetch. |
+| `internal` | **Default.** Adds the shape of the machine: what exists, what is installed, directory listings. Not file contents. |
+| `private` | Adds your own material — file contents, memory, arbitrary HTTP. Still read-only. |
+
+`disclosure` is a ceiling on what an answer may *reveal*; it never admits a tool that can
+*act*. Anything riskier than read-only — writing a file, running a command, sending a
+message — is admitted only by naming it in `allow`, at any tier:
+
+```json
+{
+  "webhooks": [
+    {
+      "name": "deploys",
+      "agentId": "assistant",
+      "promptTemplate": "A deploy finished. {{payload}}",
+      "disclosure": "private",
+      "allow": ["write_file"]
+    }
+  ]
+}
+```
+
+An unnamed tool is not queued for approval, it is absent: it is never offered to the model,
+so a hostile payload has nothing to talk its way into.
+
+> **Upgrading:** before this existed, a webhook ran with the agent's entire toolset. If a
+> webhook of yours reads files or runs commands, it now needs `disclosure: "private"` and/or
+> an `allow` list saying so. The symptom is the agent replying that it has no tool for the
+> job.
 
 ---
 
