@@ -100,8 +100,38 @@ export interface IMessageSurfaceOptions {
   readonly resolveTarget: (chatId: ChatId) => ImsgTarget;
 }
 
-export function createIMessageSurface(options: IMessageSurfaceOptions): Surface {
+/**
+ * How many recently sent messages to remember for the echo guard.
+ *
+ * Only has to cover the gap between sending and that same row coming back
+ * through `imsg watch`, which is under a second; this is slack for a long
+ * answer split into many chunks arriving behind a slow watcher.
+ */
+const SENT_ECHO_MEMORY = 50;
+
+export interface IMessageSurface extends Surface {
+  /**
+   * Did this bridge send this exact text?
+   *
+   * Everything the bridge sends comes back through the watch stream marked as
+   * from the account owner, which is the same mark a person typing on their own
+   * Mac gets. Without this the bridge cannot tell its own reply from a message
+   * to answer, and answering its own replies is an unbounded loop.
+   */
+  wasSentByUs(text: string): boolean;
+}
+
+export function createIMessageSurface(options: IMessageSurfaceOptions): IMessageSurface {
+  const recentlySent: string[] = [];
+
+  const remember = (chunk: string): void => {
+    recentlySent.push(chunk.trim());
+    if (recentlySent.length > SENT_ECHO_MEMORY) recentlySent.shift();
+  };
+
   return {
+    wasSentByUs: (text: string): boolean => recentlySent.includes(text.trim()),
+
     name: "imessage",
     capabilities: CAPABILITIES,
 
@@ -109,6 +139,7 @@ export function createIMessageSurface(options: IMessageSurfaceOptions): Surface 
       const target = options.resolveTarget(chatId);
       for (const chunk of splitForSurface(renderForIMessage(message), IMESSAGE_CHUNK_CHARS)) {
         if (chunk.trim().length === 0) continue;
+        remember(chunk);
         await sendText(options.binary, target, chunk);
       }
       // Messages.app assigns the row id asynchronously and `imsg send` does not
@@ -122,6 +153,7 @@ export function createIMessageSurface(options: IMessageSurfaceOptions): Surface 
       const target = options.resolveTarget(chatId);
       return imsgSendFile(options.binary, target, filePath).then(async () => {
         if (caption !== undefined && caption.trim().length > 0) {
+          remember(caption);
           await sendText(options.binary, target, caption);
         }
       });

@@ -38,7 +38,7 @@ import {
   watchMessages,
 } from "./imsg";
 import { confirm, homebrewPresent, installImsg, planInstall } from "./install";
-import { createIMessageSurface } from "./surface";
+import { createIMessageSurface, type IMessageSurface } from "./surface";
 
 const STORE_FILES = {
   timezone: "im-tz.json",
@@ -65,6 +65,15 @@ interface BridgeConfig extends AccessConfig {
   readonly runTimeoutMs: number;
   readonly dailyCostCapUsd: number;
   readonly showReasoning: boolean;
+  /**
+   * Prefix that makes a message you send yourself a question for the agent.
+   *
+   * Without it a solo operator cannot reach their own bridge at all: iMessage
+   * marks everything you type as from you, including in a chat with yourself,
+   * and the bridge has to ignore those or it answers its own replies forever.
+   * Unset leaves self-messages ignored entirely.
+   */
+  readonly selfTrigger: string | undefined;
 }
 
 function envFlag(name: string, defaultOn: boolean): boolean {
@@ -79,11 +88,14 @@ function loadConfig(): BridgeConfig {
     process.env["IMESSAGE_ALLOWED_GROUP_CHAT_IDS"]?.trim() ?? "",
   );
 
-  if (allowedHandles.size === 0 && allowedGroupChatIds.size === 0) {
+  const selfTrigger = process.env["IMESSAGE_SELF_TRIGGER"]?.trim();
+  if (allowedHandles.size === 0 && allowedGroupChatIds.size === 0 && !selfTrigger) {
     throw new Error(
       "IMESSAGE_ALLOWED_HANDLES is empty. This bridge answers on a phone number that " +
         "anyone can text, so it refuses to start without an allow-list. Set it to a " +
-        "comma-separated list of phone numbers (E.164, e.g. +15551234567) or Apple IDs.",
+        "comma-separated list of phone numbers (E.164, e.g. +15551234567) or Apple IDs.\n" +
+        "To try it alone with no allow-list, set IMESSAGE_SELF_TRIGGER=jazz and text " +
+        'yourself "jazz <question>".',
     );
   }
 
@@ -106,6 +118,7 @@ function loadConfig(): BridgeConfig {
     runTimeoutMs: Number.parseInt(process.env["JAZZ_RUN_TIMEOUT_MS"]?.trim() || "300000", 10),
     dailyCostCapUsd: Number.parseFloat(process.env["JAZZ_DAILY_COST_CAP_USD"]?.trim() || "0") || 0,
     showReasoning: envFlag("JAZZ_IMESSAGE_SHOW_REASONING", false),
+    selfTrigger: process.env["IMESSAGE_SELF_TRIGGER"]?.trim().toLowerCase() || undefined,
   };
 }
 
@@ -170,19 +183,50 @@ function promptFrom(message: ImsgMessage): string {
   return parts.join("\n");
 }
 
+/**
+ * Should a message the account owner sent be treated as a question?
+ *
+ * Everything this bridge sends comes back marked as from the owner, so the
+ * default is no. With a trigger configured, a message that opens with it is one
+ * the owner typed deliberately — which is the only way a person with no second
+ * device can talk to their own bridge.
+ *
+ * Two independent guards keep this from looping: the bridge's own sends are
+ * recognised and dropped whatever they say, and a reply would additionally have
+ * to begin with the trigger to get this far.
+ */
+function selfPrompt(
+  config: BridgeConfig,
+  surface: IMessageSurface,
+  prompt: string,
+): string | undefined {
+  if (surface.wasSentByUs(prompt)) return undefined;
+  if (config.selfTrigger === undefined) return undefined;
+  if (!prompt.toLowerCase().startsWith(config.selfTrigger)) return undefined;
+  const stripped = prompt.slice(config.selfTrigger.length).trim();
+  return stripped.length > 0 ? stripped : undefined;
+}
+
 async function handleIncoming(
   config: BridgeConfig,
   runner: TurnRunner,
+  surface: IMessageSurface,
   message: ImsgMessage,
 ): Promise<void> {
-  // Our own replies come back through the same watch stream; answering them
-  // would be an unbounded loop with a person watching it happen.
-  if (message.isFromMe) return;
   // A tapback is an event about another message, not a message to answer.
   if (message.isReaction) return;
 
-  const prompt = promptFrom(message);
-  if (prompt.length === 0) return;
+  const raw = promptFrom(message);
+  if (raw.length === 0) return;
+
+  if (message.isFromMe) {
+    // No allow-list check: this is the account owner typing on their own Mac,
+    // which is the one identity the allow-list exists to establish.
+    const prompt = selfPrompt(config, surface, raw);
+    if (prompt === undefined) return;
+    await runner.handle(String(message.chatId), prompt);
+    return;
+  }
 
   const chat = await chatFor(config, message.chatId);
   const decision = decideAccess(config, {
@@ -197,7 +241,7 @@ async function handleIncoming(
     return;
   }
 
-  await runner.handle(String(message.chatId), prompt);
+  await runner.handle(String(message.chatId), raw);
 }
 
 /**
@@ -285,7 +329,7 @@ async function start(): Promise<void> {
     onRestart: (reason) => console.error(`${reason}; restarting the watcher.`),
     onMessage: (message) => {
       writeCursor(config.jazzHome, message.id);
-      void handleIncoming(config, runner, message).catch((error) =>
+      void handleIncoming(config, runner, surface, message).catch((error) =>
         console.error(`Failed to handle message ${message.id}: ${String(error)}`),
       );
     },

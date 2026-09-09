@@ -80,7 +80,22 @@ OPENAI_API_KEY=sk-… \
 bun packages/imessage-bot/src/bridge.ts
 ```
 
-Text yourself from another device: `🤔 Working…`, then the answer.
+Have that person text you: `🤔 Working…`, then the answer.
+
+**Testing it by yourself.** Messages you type are marked as coming from you —
+including in a chat with yourself — and so are the bridge's own replies, which
+is why it ignores them by default. Set a trigger word to reach it alone:
+
+```bash
+IMESSAGE_SELF_TRIGGER=jazz \
+OPENAI_API_KEY=sk-… \
+bun packages/imessage-bot/src/bridge.ts
+```
+
+Then text **yourself** `jazz what's on my calendar tomorrow?` from any of your
+devices. Only messages starting with the trigger are picked up, the trigger is
+stripped before the agent sees it, and the bridge recognises its own replies, so
+it cannot end up answering itself.
 
 **3. Keep it running.** A LaunchAgent at
 `~/Library/LaunchAgents/ai.lysk.jazz.imessage.plist` survives logout and
@@ -93,6 +108,7 @@ restarts; grant Full Disk Access to `/opt/homebrew/bin/bun` (or whatever
 | --------------------------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------- |
 | `IMESSAGE_ALLOWED_HANDLES`        | _(required)_        | Comma-separated phone numbers (E.164) or Apple IDs allowed to DM the agent. Punctuation and case are normalised.       |
 | `IMESSAGE_ALLOWED_GROUP_CHAT_IDS` | _(none)_            | Comma-separated `chat.db` rowids of group chats to answer in. Being allowed to DM does **not** admit you in a group.   |
+| `IMESSAGE_SELF_TRIGGER`           | _(none)_            | Prefix that makes a message you send yourself a question for the agent, e.g. `jazz`. Off by default, since the bridge must otherwise ignore its own replies. |
 | `IMSG_BIN`                        | `imsg`              | Path to the `imsg` binary.                                                                                            |
 | `JAZZ_BIN`                        | `jazz`              | Path to the Jazz binary.                                                                                              |
 | `JAZZ_HOME`                       | `~/.jazz-imessage`  | Data directory: agents, conversations, reminders, usage.                                                              |
