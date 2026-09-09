@@ -25,6 +25,7 @@ import {
   recordStorePath,
   writeRecordStore,
 } from "@jazz/bot-shared/scoped-record-store";
+import { ensureSeedAgent } from "@jazz/bot-shared/seed-agent";
 import type { ChatId } from "@jazz/bot-shared/surface";
 import { createTurnRunner, type TurnRunner } from "@jazz/bot-shared/turn";
 import { type AccessConfig, decideAccess, parseChatIdList, parseHandleList } from "./access";
@@ -64,6 +65,9 @@ interface BridgeConfig extends AccessConfig {
   readonly autoApproveTools: readonly string[];
   readonly runTimeoutMs: number;
   readonly dailyCostCapUsd: number;
+  readonly provider: string;
+  readonly model: string;
+  readonly reasoningEffort: string;
   readonly showReasoning: boolean;
   /**
    * Prefix that makes a message you send yourself a question for the agent.
@@ -117,6 +121,9 @@ function loadConfig(): BridgeConfig {
       .filter((name) => name.length > 0),
     runTimeoutMs: Number.parseInt(process.env["JAZZ_RUN_TIMEOUT_MS"]?.trim() || "300000", 10),
     dailyCostCapUsd: Number.parseFloat(process.env["JAZZ_DAILY_COST_CAP_USD"]?.trim() || "0") || 0,
+    provider: process.env["JAZZ_IMESSAGE_PROVIDER"]?.trim() || "openai",
+    model: process.env["JAZZ_IMESSAGE_MODEL"]?.trim() || "gpt-5.4",
+    reasoningEffort: process.env["JAZZ_REASONING"]?.trim() || "medium",
     showReasoning: envFlag("JAZZ_IMESSAGE_SHOW_REASONING", false),
     selfTrigger: process.env["IMESSAGE_SELF_TRIGGER"]?.trim().toLowerCase() || undefined,
   };
@@ -287,6 +294,22 @@ async function start(): Promise<void> {
   const config = loadConfig();
 
   if (!(await ensureImsgUsable(config.imsgBinary))) process.exit(1);
+
+  if (
+    ensureSeedAgent(config.jazzHome, {
+      id: config.baseAgentId,
+      name: "Jazz",
+      description: "Everyday assistant reachable from iMessage.",
+      provider: config.provider,
+      model: config.model,
+      reasoningEffort: config.reasoningEffort,
+    })
+  ) {
+    console.error(
+      `Created the template agent ${config.baseAgentId} (${config.provider}/${config.model}) ` +
+        `in ${config.jazzHome}. Change it per chat with /model, or set JAZZ_IMESSAGE_MODEL.`,
+    );
+  }
 
   const surface = createIMessageSurface({
     binary: config.imsgBinary,

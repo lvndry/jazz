@@ -18,6 +18,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { startReminderSweep } from "@jazz/bot-shared/reminder-sweep";
+import { ensureSeedAgent } from "@jazz/bot-shared/seed-agent";
 import { createTurnRunner, type TurnRunner } from "@jazz/bot-shared/turn";
 import qrcode from "qrcode-terminal";
 import { type AccessConfig, decideAccess, normalizeJid, parseJidList } from "./access";
@@ -49,6 +50,9 @@ interface BridgeConfig extends AccessConfig {
   readonly autoApproveTools: readonly string[];
   readonly runTimeoutMs: number;
   readonly dailyCostCapUsd: number;
+  readonly provider: string;
+  readonly model: string;
+  readonly reasoningEffort: string;
   readonly showReasoning: boolean;
 }
 
@@ -91,6 +95,9 @@ function loadConfig(): BridgeConfig {
       .filter((name) => name.length > 0),
     runTimeoutMs: Number.parseInt(process.env["JAZZ_RUN_TIMEOUT_MS"]?.trim() || "300000", 10),
     dailyCostCapUsd: Number.parseFloat(process.env["JAZZ_DAILY_COST_CAP_USD"]?.trim() || "0") || 0,
+    provider: process.env["JAZZ_WHATSAPP_PROVIDER"]?.trim() || "openai",
+    model: process.env["JAZZ_WHATSAPP_MODEL"]?.trim() || "gpt-5.4",
+    reasoningEffort: process.env["JAZZ_REASONING"]?.trim() || "medium",
     showReasoning: envFlag("JAZZ_WHATSAPP_SHOW_REASONING", false),
   };
 }
@@ -180,6 +187,22 @@ async function start(): Promise<void> {
    * mid-startup, which is backfill rather than a live question.
    */
   let deliver: (message: WhatsAppMessage) => void = () => {};
+
+  if (
+    ensureSeedAgent(config.jazzHome, {
+      id: config.baseAgentId,
+      name: "Jazz",
+      description: "Everyday assistant reachable from WhatsApp.",
+      provider: config.provider,
+      model: config.model,
+      reasoningEffort: config.reasoningEffort,
+    })
+  ) {
+    console.error(
+      `Created the template agent ${config.baseAgentId} (${config.provider}/${config.model}) ` +
+        `in ${config.jazzHome}. Change it per chat with /model, or set JAZZ_WHATSAPP_MODEL.`,
+    );
+  }
 
   const connection = await connect({
     authDir: config.authDir,
