@@ -247,7 +247,7 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
 
     const state = stateFor(chatId);
     state.pending.set(toolCallId, { kind: "approval", toolCallId, choices });
-    await surface.send(chatId, { body, choices });
+    await surface.send(chatId, { body, choices, promptId: toolCallId });
     notifyPendingChange(chatId);
   };
 
@@ -276,7 +276,7 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
       body,
       // With no suggestions there is nothing to number: the person answers in
       // their own words and their next message is forwarded verbatim.
-      ...(choices.length > 0 ? { choices } : {}),
+      ...(choices.length > 0 ? { choices, promptId: requestId } : {}),
     });
     notifyPendingChange(chatId);
   };

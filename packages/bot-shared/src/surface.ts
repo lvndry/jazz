@@ -70,6 +70,16 @@ export interface OutgoingMessage {
   readonly body: RichText;
   /** Rendered as buttons where the surface has them, numbered text where it doesn't. */
   readonly choices?: readonly Choice[];
+  /**
+   * What these choices are answering, when they answer something the agent is
+   * blocked on.
+   *
+   * A `Choice.id` says *which option* ("approve"), never *which question* — and
+   * a run can have five approvals outstanding at once, each with an identical
+   * pair of options. A surface with buttons has to carry this back so the tap
+   * resolves the prompt it was drawn under and not whichever came last.
+   */
+  readonly promptId?: string;
   readonly replyTo?: MessageRef;
 }
 
