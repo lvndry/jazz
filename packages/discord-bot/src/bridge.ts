@@ -713,7 +713,7 @@ async function runJazz(
       stdout: "pipe",
       stderr: "pipe",
       stdin: "pipe",
-      env: sandboxEnv(sandbox, process.env),
+      env: sandboxEnv(sandbox, process.env, "discord"),
     },
   );
   activeRuns.set(runToken, { child, cancelled: false });
@@ -1039,7 +1039,7 @@ async function jazzJson(
       ...extraArgs,
       prompt,
     ]),
-    { stdout: "pipe", stderr: "pipe", env: sandboxEnv(sandbox, process.env) },
+    { stdout: "pipe", stderr: "pipe", env: sandboxEnv(sandbox, process.env, "discord") },
   );
   const timeout = setTimeout(() => child.kill(), 90_000);
   const [stdout] = await Promise.all([

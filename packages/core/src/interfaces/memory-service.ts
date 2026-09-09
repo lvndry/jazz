@@ -7,6 +7,7 @@
  */
 import { FileSystem } from "@effect/platform";
 import { Context, Effect } from "effect";
+import type { MemoryFileProvenance } from "./memory-provenance";
 
 export interface MemoryDirectoryEntry {
   readonly name: string;
@@ -48,6 +49,17 @@ export interface MemoryMutationOutcome {
 }
 
 /**
+ * Who is writing. Required on every mutating call so a shared scope can report
+ * which agents have touched a file.
+ *
+ * Whether a write is *allowed* is decided before this, in `manage_memory`: a
+ * run that has ingested untrusted external content cannot write memory at all.
+ */
+export interface MemoryWriteContext {
+  readonly agentId: string;
+}
+
+/**
  * File-backed memory an agent manages via tool calls (view/create/str_replace/
  * insert/delete/rename), partitioned into named scopes rather than one silo
  * per agent.
@@ -72,6 +84,7 @@ export interface MemoryService {
     scopes: readonly string[],
     virtualPath: string,
     fileText: string,
+    writeContext: MemoryWriteContext,
   ) => Effect.Effect<MemoryMutationOutcome, Error, FileSystem.FileSystem>;
 
   readonly strReplace: (
@@ -79,6 +92,7 @@ export interface MemoryService {
     virtualPath: string,
     oldStr: string,
     newStr: string | undefined,
+    writeContext: MemoryWriteContext,
   ) => Effect.Effect<MemoryMutationOutcome, Error, FileSystem.FileSystem>;
 
   readonly insert: (
@@ -86,6 +100,7 @@ export interface MemoryService {
     virtualPath: string,
     insertLine: number,
     insertText: string,
+    writeContext: MemoryWriteContext,
   ) => Effect.Effect<MemoryMutationOutcome, Error, FileSystem.FileSystem>;
 
   readonly delete: (
@@ -93,10 +108,20 @@ export interface MemoryService {
     virtualPath: string,
   ) => Effect.Effect<MemoryMutationOutcome, Error, FileSystem.FileSystem>;
 
+  /**
+   * Provenance for one file, or undefined when nothing is recorded for it —
+   * a file written before provenance tracking, or edited outside Jazz.
+   */
+  readonly provenance: (
+    scopes: readonly string[],
+    virtualPath: string,
+  ) => Effect.Effect<MemoryFileProvenance | undefined, Error, FileSystem.FileSystem>;
+
   readonly rename: (
     scopes: readonly string[],
     oldVirtualPath: string,
     newVirtualPath: string,
+    writeContext: MemoryWriteContext,
   ) => Effect.Effect<MemoryMutationOutcome, Error, FileSystem.FileSystem>;
 }
 

@@ -10,6 +10,7 @@ import type { AutoApprovePolicy } from "@jazz/core/types/tools";
  * Types of special commands available in the chat interface
  */
 export type CommandType =
+  | "memory"
   | "new"
   | "fork"
   | "help"

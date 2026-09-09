@@ -1019,7 +1019,7 @@ async function runJazz(
       stdout: "pipe",
       stderr: "pipe",
       stdin: "pipe",
-      env: sandboxEnv(sandbox, process.env),
+      env: sandboxEnv(sandbox, process.env, "telegram"),
     },
   );
   // Register so the ⏹ Cancel button can find and kill this process.
@@ -1358,7 +1358,7 @@ async function jazzJson(
       ...extraArgs,
       prompt,
     ]),
-    { stdout: "pipe", stderr: "pipe", env: sandboxEnv(sandbox, process.env) },
+    { stdout: "pipe", stderr: "pipe", env: sandboxEnv(sandbox, process.env, "telegram") },
   );
   const timeout = setTimeout(() => child.kill(), 90_000);
   const [stdout] = await Promise.all([

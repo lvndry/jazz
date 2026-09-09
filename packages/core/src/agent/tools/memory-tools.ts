@@ -7,7 +7,11 @@
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { z } from "zod";
-import type { MemoryService, MemoryViewOutcome } from "@/core/interfaces/memory-service";
+import type {
+  MemoryService,
+  MemoryViewOutcome,
+  MemoryWriteContext,
+} from "@/core/interfaces/memory-service";
 import { MemoryServiceTag } from "@/core/interfaces/memory-service";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionResult } from "@/core/types/tools";
@@ -59,8 +63,8 @@ const viewMemoryParameters = z
       .default("")
       .describe(
         'Path starting with a scope name (e.g. "personal/notes.txt" or "github-project-a/status.md"). ' +
-          'Empty string or "/" lists the scopes you can access, each as a directory — use that to discover ' +
-          "them instead of guessing.",
+          'Empty string or "/" lists every scope you can access along with the files inside each one — ' +
+          "use that to discover them instead of guessing.",
       ),
     view_range: z
       .tuple([z.number().int(), z.number().int()])
@@ -79,8 +83,10 @@ export function createViewMemoryTool(): Tool<MemoryToolDeps> {
     disclosure: "private",
     description:
       "Call this first, before you answer, at the start of every conversation — even a casual one. " +
-      'No path lists the memory scopes you can access (e.g. "personal", "github-project-a"); ' +
-      'a path like "personal/notes.md" reads one file within a scope. ' +
+      "Calling it with no path is the whole survey: it returns every memory scope you can access " +
+      '(e.g. "personal", "github-project-a") and the files saved in each, with sizes, so one call tells you ' +
+      "whether there is anything worth reading. " +
+      'A path like "personal/notes.md" then reads one file. ' +
       "An empty or missing directory just means nothing has been saved yet — that is a normal answer, not an error.",
     parameters: viewMemoryParameters,
     riskLevel: "read-only",
@@ -220,19 +226,32 @@ export function createManageMemoryTool(): Tool<MemoryToolDeps> {
       Effect.gen(function* () {
         const memoryService = yield* MemoryServiceTag;
         const scopes = context.memoryScopes ?? [context.agentId];
+        const writeContext: MemoryWriteContext = { agentId: context.agentId };
 
         const outcome = yield* (() => {
           switch (args.command) {
             case "create":
-              return memoryService.create(scopes, args.path, args.file_text);
+              return memoryService.create(scopes, args.path, args.file_text, writeContext);
             case "str_replace":
-              return memoryService.strReplace(scopes, args.path, args.old_str, args.new_str);
+              return memoryService.strReplace(
+                scopes,
+                args.path,
+                args.old_str,
+                args.new_str,
+                writeContext,
+              );
             case "insert":
-              return memoryService.insert(scopes, args.path, args.insert_line, args.insert_text);
+              return memoryService.insert(
+                scopes,
+                args.path,
+                args.insert_line,
+                args.insert_text,
+                writeContext,
+              );
             case "delete":
               return memoryService.delete(scopes, args.path);
             case "rename":
-              return memoryService.rename(scopes, args.old_path, args.new_path);
+              return memoryService.rename(scopes, args.old_path, args.new_path, writeContext);
           }
         })();
 
