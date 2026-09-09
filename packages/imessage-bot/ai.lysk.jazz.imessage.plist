@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  LaunchAgent for the iMessage bridge.
+
+  Generate it with ./install-launchagent.sh, which resolves every path and
+  writes it to ~/Library/LaunchAgents/. Editing it by hand works too — but keep
+  every path absolute. launchd expands neither ~ nor $HOME nor a login shell's
+  PATH, and a relative path or a bare binary name is the usual reason one of
+  these silently never starts.
+
+  Running under launchd rather than from a terminal is what keeps Full Disk
+  Access scoped: launchd starts the bun binary directly, so bun is the process
+  macOS attributes the access to, and the grant covers this bridge instead of
+  every command typed into a terminal.
+-->
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>ai.lysk.jazz.imessage</string>
+
+    <key>ProgramArguments</key>
+    <array>
+      <string>__BUN__</string>
+      <string>__REPO__/packages/imessage-bot/src/bridge.ts</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>__REPO__</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+      <!--
+        launchd hands a process a minimal PATH that contains none of the places
+        a Mac actually installs things. The agent shells out through
+        execute_command, so this is the PATH its commands get, not just the
+        bridge's own.
+      -->
+      <key>PATH</key>
+      <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+
+      <!-- Absolute, so a change to PATH can never point these somewhere else. -->
+      <key>JAZZ_BIN</key>
+      <string>__JAZZ__</string>
+      <key>IMSG_BIN</key>
+      <string>__IMSG__</string>
+
+      <key>JAZZ_HOME</key>
+      <string>__JAZZ_HOME__</string>
+
+      <!--
+        Who may talk to the agent. Deny-by-default: this answers on a phone
+        number anyone can text. Phone numbers in E.164, or Apple IDs.
+      -->
+      <key>IMESSAGE_ALLOWED_HANDLES</key>
+      <string>__ALLOWED_HANDLES__</string>
+
+      <!--
+        Lets you reach the bridge from your own account by texting yourself
+        "jazz <question>". Remove it once other people are on the allow-list and
+        you no longer need to talk to it alone.
+      -->
+      <key>IMESSAGE_SELF_TRIGGER</key>
+      <string>jazz</string>
+
+      <!-- A ceiling on what a runaway day can cost. 0 disables it. -->
+      <key>JAZZ_DAILY_COST_CAP_USD</key>
+      <string>5</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Restart if it dies: a bridge that quietly stopped is a bridge nobody notices. -->
+    <key>KeepAlive</key>
+    <true/>
+
+    <!--
+      Well above launchd's 10s default. A misconfiguration exits immediately,
+      and at 10s that is a restart every 10 seconds writing the same error into
+      the log forever.
+    -->
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+
+    <key>StandardOutPath</key>
+    <string>__JAZZ_HOME__/bridge.log</string>
+    <key>StandardErrorPath</key>
+    <string>__JAZZ_HOME__/bridge.log</string>
+  </dict>
+</plist>
