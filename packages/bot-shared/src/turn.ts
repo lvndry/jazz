@@ -22,6 +22,17 @@ import {
   writeAgentFile,
 } from "./agent-file";
 import {
+  cancelledSummary,
+  deliverWebApp,
+  doneSummary,
+  failedSummary,
+  FOLLOWUP_PROMPT_ID,
+  followupChoices,
+  followupPrompt,
+  formatTokenCount,
+  planWebAppDelivery,
+} from "./answer";
+import {
   APPROVAL_MODE_LABELS,
   type ApprovalMode,
   approvalModeFor,
@@ -31,7 +42,7 @@ import {
 } from "./approval-mode-store";
 import { type ChatSandbox, ensureChatSandbox } from "./chat-sandbox";
 import { adoptIntoSandbox } from "./chat-sandbox";
-import { type JazzEnvelope, type JazzEvent, type JazzRun, startJazzRun } from "./jazz-run";
+import { type JazzEvent, type JazzRun, startJazzRun } from "./jazz-run";
 import { listPersonaNames } from "./personas";
 import { createProgressReporter } from "./progress";
 import { splitReasoning } from "./reasoning";
@@ -45,6 +56,7 @@ import {
   line,
   matchChoice,
   plainLine,
+  quote,
   type RichText,
   type Surface,
 } from "./surface";
@@ -75,6 +87,15 @@ export interface TurnConfig {
   readonly files: TurnStoreFiles;
   /** The agent id a conversation's files live under. */
   readonly agentIdFor: (chatId: ChatId) => string;
+  /**
+   * Public origin an interactive `create_web_app` result is served from.
+   *
+   * Undefined disables the interactive mode; the static one is an image and
+   * needs no origin.
+   */
+  readonly publicBaseUrl?: string;
+  /** The setting to name when an interactive web app has nowhere to be served from. */
+  readonly publicUrlSettingName?: string;
   /** Extra help lines describing anything the bridge adds on top. */
   readonly extraHelp?: readonly string[];
   /**
@@ -334,20 +355,6 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
 
   // --- The run -------------------------------------------------------------
 
-  const formatTokenCount = (tokens: number): string =>
-    tokens >= 1000 ? `${(tokens / 1000).toFixed(1)}k` : String(tokens);
-
-  const runSummary = (envelope: JazzEnvelope, toolCount: number): string => {
-    if (!envelope.ok) return "";
-    const bits = [`✅ ${toolCount} tool${toolCount === 1 ? "" : "s"}`];
-    const totalTokens = envelope.tokenUsage?.totalTokens ?? 0;
-    if (totalTokens > 0) bits.push(`${formatTokenCount(totalTokens)} tokens`);
-    if (envelope.costKnown !== false && envelope.costUSD > 0) {
-      bits.push(`$${envelope.costUSD.toFixed(4)}`);
-    }
-    return bits.join(" · ");
-  };
-
   const answer = async (chatId: ChatId, prompt: string): Promise<void> => {
     const capBlock = dailyCostCapBlockReason(
       todayUsage(config.jazzHome, config.files.usage),
@@ -418,7 +425,7 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
     runLog.finish(envelope);
 
     if (!envelope.ok) {
-      const failure: RichText = [plainLine(`⚠️ ${envelope.error}`)];
+      const failure = run.cancelled() ? cancelledSummary() : failedSummary(envelope.error);
       if (!(await reporter.finish(failure))) await send(chatId, failure);
       return;
     }
@@ -436,16 +443,22 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
       envelope.costKnown !== false,
     );
 
-    const summary = runSummary(envelope, reporter.toolsUsed().length);
-    const summaryShown = await reporter.finish([plainLine(summary)]);
+    const summary = doneSummary(envelope, reporter.toolsUsed());
+    const summaryShown = await reporter.finish(summary);
+
     await surface.send(chatId, {
       body: [
         plainLine(envelope.answer),
-        // Where the progress display could not show it — an append-only
-        // surface has no bubble to close — the summary rides under the answer
-        // rather than costing its own notification.
-        ...(summaryShown || summary.length === 0 ? [] : [plainLine(""), plainLine(summary)]),
+        // Where the progress display could not show it — an append-only surface
+        // has no bubble to close — the summary rides under the answer rather
+        // than costing its own notification.
+        ...(summaryShown ? [] : [plainLine(""), ...summary]),
       ],
+      // Offered, never required: a surface without buttons drops these rather
+      // than appending a numbered menu to every answer.
+      choices: followupChoices(),
+      choiceKind: "suggestion",
+      promptId: FOLLOWUP_PROMPT_ID,
     });
 
     if (config.showReasoning) {
@@ -453,19 +466,27 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
         budget: REASONING_PART_CHARS,
         maxParts: REASONING_MAX_PARTS,
       });
-      for (const part of parts) {
-        await send(chatId, [line(bold("💭 Reasoning")), plainLine(part)]);
+      for (const [index, part] of parts.entries()) {
+        const counter = parts.length > 1 ? ` (${index + 1}/${parts.length})` : "";
+        await send(chatId, [
+          line(bold(`💭 Reasoning${counter}`)),
+          // Collapsed where the surface can collapse it, an ordinary quote
+          // where it cannot.
+          quote(part, true),
+        ]);
       }
     }
 
-    // A static `create_web_app` result is an image, which every surface here
-    // can show; the interactive mode needs a public URL to open it at, which a
-    // bridge with no origin of its own cannot offer.
-    const imagePath = envelope.webApp?.imagePath;
-    if (imagePath !== undefined && surface.sendFile !== undefined) {
-      await surface
-        .sendFile(chatId, imagePath, envelope.webApp?.title)
-        .catch((error) => console.error(`Failed to send the web app image: ${String(error)}`));
+    if (envelope.webApp !== undefined) {
+      await deliverWebApp(
+        surface,
+        chatId,
+        planWebAppDelivery(
+          envelope.webApp,
+          config.publicBaseUrl,
+          config.publicUrlSettingName ?? "the public URL setting",
+        ),
+      );
     }
   };
 
@@ -681,6 +702,15 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
     send,
 
     async deliverChoice(chatId: ChatId, id: string, choiceId: string): Promise<boolean> {
+      // A follow-up is not something the agent is waiting on: it is a new turn
+      // whose prompt happens to have been chosen by tapping rather than typed.
+      if (id === FOLLOWUP_PROMPT_ID) {
+        const prompt = followupPrompt(choiceId);
+        if (prompt === undefined) return false;
+        await this.handle(chatId, prompt);
+        return true;
+      }
+
       const state = stateFor(chatId);
       const pending = state.pending.get(id);
       if (pending === undefined || state.run === undefined) return false;

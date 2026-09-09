@@ -39,6 +39,9 @@ const CAPABILITIES: SurfaceCapabilities = {
   // on a personal one — a prompt nobody can answer. Numbered replies always work.
   buttons: false,
   attachments: true,
+  // Link buttons are a business-account feature and degrade to nothing on a
+  // personal one, same as the interactive buttons above.
+  linkButtons: false,
   typingIndicator: true,
   maxMessageChars: WHATSAPP_CHUNK_CHARS,
 };
@@ -47,6 +50,10 @@ export function renderForWhatsApp(message: OutgoingMessage): string {
   const rendered = message.body
     .map((block) => {
       switch (block.kind) {
+        case "subtle":
+          // WhatsApp has no subtext, but italics are the closest thing to a
+          // line that steps back.
+          return `_${block.spans.map((span) => span.text).join("")}_`;
         case "line":
           return block.spans
             .map((span) => {
@@ -66,7 +73,15 @@ export function renderForWhatsApp(message: OutgoingMessage): string {
     })
     .join("\n");
 
-  if (message.choices === undefined || message.choices.length === 0) return rendered;
+  // Suggestions are an affordance nobody is waiting on; a numbered menu under
+  // every answer is noise on a surface where it cannot be a button.
+  if (
+    message.choices === undefined ||
+    message.choices.length === 0 ||
+    (message.choiceKind ?? "prompt") === "suggestion"
+  ) {
+    return rendered;
+  }
   return `${rendered}\n\n${renderChoicesAsText(message.choices)}\n\n_reply with a number_`;
 }
 

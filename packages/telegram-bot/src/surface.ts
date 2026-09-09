@@ -46,6 +46,8 @@ const CAPABILITIES: SurfaceCapabilities = {
   editMessages: true,
   buttons: true,
   attachments: true,
+  // Telegram calls these Web App buttons.
+  linkButtons: true,
   typingIndicator: true,
   maxMessageChars: TELEGRAM_MAX_CHARS,
 };
@@ -106,7 +108,10 @@ export function renderRichText(body: RichText): string {
   return body
     .map((block) => {
       switch (block.kind) {
+        case "subtle":
         case "line":
+          // Telegram has no subtext style; these lines were already plain here,
+          // and inventing italics for them would change what people see today.
           return block.spans
             .map((span) => {
               const escaped = escapeHtml(span.text);
@@ -164,10 +169,16 @@ export function createTelegramSurface(options: TelegramSurfaceOptions): Telegram
     choices: readonly Choice[],
     promptId: string | undefined,
   ): Record<string, unknown> => {
-    const buttons = choices.map((choice) => ({
-      text: choice.label,
-      callback_data: choiceTokens.mint({ promptId: promptId ?? "", choiceId: choice.id }),
-    }));
+    const buttons = choices.map((choice) =>
+      // A URL button opens a page instead of calling back, so it carries no
+      // token — Telegram rejects a button that has both.
+      choice.url === undefined
+        ? {
+            text: choice.label,
+            callback_data: choiceTokens.mint({ promptId: promptId ?? "", choiceId: choice.id }),
+          }
+        : { text: choice.label, web_app: { url: choice.url } },
+    );
     const rows: (typeof buttons)[] = [];
     for (let index = 0; index < buttons.length; index += 2) {
       rows.push(buttons.slice(index, index + 2));

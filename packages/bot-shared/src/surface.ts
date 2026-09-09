@@ -33,12 +33,22 @@ export const code = (value: string): Span => ({ kind: "code", text: value });
  */
 export type Block =
   | { readonly kind: "line"; readonly spans: readonly Span[] }
+  /**
+   * A line that should recede — a cost or token trailer under an answer.
+   *
+   * Discord renders it as subtext (`-# `) and nothing else has an equivalent,
+   * which is exactly why it is a role here rather than a prefix at the call
+   * site: written as markup it drifted, and the two bridges already disagree
+   * about a line they otherwise compute identically.
+   */
+  | { readonly kind: "subtle"; readonly spans: readonly Span[] }
   | { readonly kind: "codeBlock"; readonly text: string; readonly language?: string }
   | { readonly kind: "quote"; readonly text: string; readonly expandable?: boolean };
 
 export type RichText = readonly Block[];
 
 export const line = (...spans: readonly Span[]): Block => ({ kind: "line", spans });
+export const subtle = (...spans: readonly Span[]): Block => ({ kind: "subtle", spans });
 export const plainLine = (value: string): Block => line(text(value));
 export const codeBlock = (value: string, language?: string): Block => ({
   kind: "codeBlock",
@@ -64,12 +74,30 @@ export interface Choice {
   readonly label: string;
   /** `danger` marks a destructive option so a surface can colour it; advisory. */
   readonly intent?: "default" | "primary" | "danger";
+  /**
+   * Opens a link instead of answering back. Only meaningful where
+   * `capabilities.linkButtons` is set; elsewhere the URL goes in the text.
+   */
+  readonly url?: string;
 }
+
+/**
+ * Whether the person has to be able to answer these.
+ *
+ * `prompt` blocks a run: an approval or a question the agent is parked on, so a
+ * surface without buttons must still offer it some other way — numbered, and
+ * answerable by typing. `suggestion` is an affordance nobody is waiting on, so
+ * a surface without buttons drops it rather than appending a numbered menu to
+ * every answer that the person then has to ignore.
+ */
+export type ChoiceKind = "prompt" | "suggestion";
 
 export interface OutgoingMessage {
   readonly body: RichText;
   /** Rendered as buttons where the surface has them, numbered text where it doesn't. */
   readonly choices?: readonly Choice[];
+  /** Defaults to `prompt`: something is waiting on the answer. */
+  readonly choiceKind?: ChoiceKind;
   /**
    * What these choices are answering, when they answer something the agent is
    * blocked on.
@@ -100,6 +128,13 @@ export interface SurfaceCapabilities {
   /** Whether choices can be buttons. False falls back to numbered text replies. */
   readonly buttons: boolean;
   readonly attachments: boolean;
+  /**
+   * Whether a choice can be a button that opens a URL.
+   *
+   * Splits the two halves of an interactive web app: every surface can be told
+   * one exists, only some can offer a tap that opens it.
+   */
+  readonly linkButtons: boolean;
   readonly typingIndicator: boolean;
   /** Hard per-message character limit the splitter stays under. */
   readonly maxMessageChars: number;
@@ -138,6 +173,7 @@ export function renderPlain(body: RichText): string {
     .map((block) => {
       switch (block.kind) {
         case "line":
+        case "subtle":
           return block.spans.map((span) => span.text).join("");
         case "codeBlock":
           return block.text;

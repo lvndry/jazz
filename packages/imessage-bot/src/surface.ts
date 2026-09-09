@@ -40,6 +40,8 @@ const CAPABILITIES: SurfaceCapabilities = {
   editMessages: false,
   buttons: false,
   attachments: true,
+  // Messages has no button of any kind; a URL is just text in a bubble.
+  linkButtons: false,
   // Typing indicators are also bridge-tier for the same reason.
   typingIndicator: false,
   maxMessageChars: IMESSAGE_CHUNK_CHARS,
@@ -57,6 +59,9 @@ export function renderForIMessage(message: OutgoingMessage): string {
     .map((block) => {
       switch (block.kind) {
         case "line":
+        case "subtle":
+          // iMessage has no way to make a line recede, so a cost trailer reads
+          // as an ordinary line. Better that than inventing a marker for it.
           return block.spans
             .map((span) => (span.kind === "code" ? `“${span.text}”` : span.text))
             .join("");
@@ -71,7 +76,15 @@ export function renderForIMessage(message: OutgoingMessage): string {
     })
     .join("\n");
 
-  if (message.choices === undefined || message.choices.length === 0) return rendered;
+  // Suggestions are an affordance nobody is waiting on. Numbering them here
+  // would append a menu to every single answer that the person has to read past.
+  if (
+    message.choices === undefined ||
+    message.choices.length === 0 ||
+    (message.choiceKind ?? "prompt") === "suggestion"
+  ) {
+    return rendered;
+  }
   return `${rendered}\n\n${renderChoicesAsText(message.choices)}\n\n(reply with a number)`;
 }
 
