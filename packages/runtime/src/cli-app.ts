@@ -976,6 +976,35 @@ function registerWakeTriggerCommand(program: Command): void {
 }
 
 /**
+ * Register `jazz job run` — internal, invoked by the detached worker process that `enqueue_batch`
+ * starts, not meant for interactive use.
+ *
+ * Sibling of `wake-trigger fire` and `reminder fire` in spirit — a jazz process started from
+ * outside to do one piece of scheduled work — but started directly by the enqueueing process
+ * rather than by launchd or `at`. Those two schedule a future instant, which those schedulers are
+ * good at; a background batch needs to start now, which launchd's minute-resolution
+ * `StartCalendarInterval` cannot express.
+ */
+function registerJobCommand(program: Command): void {
+  const jobCommand = program
+    .command("job")
+    .description("Internal: commands invoked by the background job worker");
+
+  jobCommand
+    .command("run")
+    .description(
+      "Internal: run this agent's due background jobs until none are left (invoked by the job worker, not meant for interactive use)",
+    )
+    .requiredOption("--agent <agentId>", "Agent id whose jobs should be run")
+    .action((options: { agent: string }) =>
+      runCliAction(
+        () => import("@jazz/cli/commands/job").then((mod) => mod.runJobsCommand(options)),
+        cliRuntimeOptions(program),
+      ),
+    );
+}
+
+/**
  * Register `jazz reminder fire` — internal, invoked by the host scheduler (launchd/`at`) when a
  * reminder's `fireAt` arrives, not meant for interactive use. Sibling of `wake-trigger fire`:
  * both are one-shot OS-job firings, but this one sends a desktop notification instead of
@@ -1587,6 +1616,7 @@ export function createCLIApp(): Command {
   registerUpdateCommand(program);
   registerDaemonCommand(program);
   registerWakeTriggerCommand(program);
+  registerJobCommand(program);
   registerReminderCommand(program);
   registerPeersCommands(program);
   registerRunsCommands(program);

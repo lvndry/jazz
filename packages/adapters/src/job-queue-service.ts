@@ -399,6 +399,44 @@ export interface ClaimedJob {
  * file's read-modify-write happens inside that batch's own lock, so two daemon ticks (or two
  * workers within one tick) can never claim the same job twice.
  */
+/**
+ * The soonest instant at which this agent has a job worth claiming, or `null` if it has none.
+ *
+ * A worker draining an agent's batches needs to distinguish "nothing left to do" from "nothing
+ * due *yet*" — a job waiting out its retry backoff is the second, and treating it as the first
+ * abandons the batch half-finished with nobody scheduled to come back for it.
+ */
+export function nextClaimableAt(
+  baseJobBatchDirectory: string,
+  agentId: string,
+): Effect.Effect<number | null, Error, FileSystem.FileSystem> {
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const agentDir = agentDirectory(baseJobBatchDirectory, agentId);
+    const names = yield* fs
+      .readDirectory(agentDir)
+      .pipe(Effect.catchAll(() => Effect.succeed<string[]>([])));
+
+    let soonest: number | null = null;
+    for (const name of names) {
+      if (!name.endsWith(".json")) continue;
+      const batchId = name.slice(0, -".json".length);
+      const batch = yield* readBatchFile(
+        fs,
+        batchFilePath(baseJobBatchDirectory, agentId, batchId),
+      ).pipe(Effect.catchAll(() => Effect.succeed(null)));
+      if (batch === null || batch.completedAt !== null) continue;
+
+      for (const job of batch.jobs) {
+        if (job.status !== "pending") continue;
+        if (soonest === null || job.nextAttemptAt < soonest) soonest = job.nextAttemptAt;
+      }
+    }
+
+    return soonest;
+  });
+}
+
 export function claimDueJobs(
   baseJobBatchDirectory: string,
   agentId: string,
@@ -611,6 +649,24 @@ export function reclaimExpiredLeases(
         .map((name) => name.slice(0, -".json".length));
 
       for (const batchId of batchIds) {
+        // Look before locking. An expired lease means a worker died mid-job, which is rare, while
+        // this runs on every tick over every active batch — so locking first spent a lock cycle
+        // per batch per tick to discover, almost always, that there was nothing to reclaim. The
+        // decision is re-made under the lock below, so a lease that expires between the two reads
+        // is caught on the next tick rather than lost.
+        const unlockedPeek = yield* readBatchFile(
+          fs,
+          batchFilePath(baseJobBatchDirectory, agentId, batchId),
+        ).pipe(Effect.catchAll(() => Effect.succeed(null)));
+        const peekHasExpiredLease =
+          unlockedPeek !== null &&
+          unlockedPeek.completedAt === null &&
+          unlockedPeek.jobs.some(
+            (job) =>
+              job.status === "running" && job.leaseExpiresAt !== null && job.leaseExpiresAt <= now,
+          );
+        if (!peekHasExpiredLease) continue;
+
         const completion = yield* withLock(
           batchLockPath(baseJobBatchDirectory, agentId, batchId),
           Effect.gen(function* () {

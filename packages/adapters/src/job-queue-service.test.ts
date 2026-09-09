@@ -10,6 +10,7 @@ import {
   claimDueJobs,
   completeJob,
   JobQueueServiceImpl,
+  nextClaimableAt,
   reclaimExpiredLeases,
 } from "./job-queue-service";
 
@@ -295,5 +296,81 @@ describe("cancelBatch", () => {
     const batch = await runEffect(service.getBatch("agent-1", outcome.batch.id));
     expect(batch?.jobs.every((job) => job.status === "cancelled")).toBe(true);
     expect(batch?.completedAt).not.toBeNull();
+  });
+});
+
+/**
+ * A worker draining an agent's batches has to tell "nothing left to do" apart from "nothing due
+ * yet". A job waiting out its retry backoff is the second, and exiting on it abandons the batch
+ * half-finished with nobody scheduled to come back for it.
+ */
+describe("nextClaimableAt", () => {
+  test("returns null for an agent with no batches at all", async () => {
+    expect(await runEffect(nextClaimableAt(tmpDir, "nobody"))).toBeNull();
+  });
+
+  test("returns the soonest pending attempt time", async () => {
+    const service = makeService();
+    const outcome = await runEffect(
+      service.enqueueBatch("a1", "c1", jobInputs(2), { reason: "r" }),
+    );
+    expect(outcome.success).toBe(true);
+
+    const soonest = await runEffect(nextClaimableAt(tmpDir, "a1"));
+    expect(soonest).not.toBeNull();
+    expect(soonest).toBeLessThanOrEqual(Date.now());
+  });
+
+  test("returns null once every job has reached a terminal state", async () => {
+    const service = makeService();
+    const outcome = await runEffect(
+      service.enqueueBatch("a1", "c1", jobInputs(1), { reason: "r" }),
+    );
+    if (!outcome.success) throw new Error(outcome.message);
+
+    const claimed = await runEffect(claimDueJobs(tmpDir, "a1", Date.now(), 4, "owner"));
+    expect(claimed.length).toBe(1);
+    for (const job of claimed) {
+      await runEffect(
+        completeJob(
+          tmpDir,
+          "a1",
+          job.batchId,
+          job.jobId,
+          { success: true, result: "ok" },
+          Date.now(),
+        ),
+      );
+    }
+
+    expect(await runEffect(nextClaimableAt(tmpDir, "a1"))).toBeNull();
+  });
+
+  test("still reports a job that is pending but not yet due", async () => {
+    const service = makeService();
+    const outcome = await runEffect(
+      service.enqueueBatch("a1", "c1", jobInputs(1), { reason: "r", maxAttempts: 3 }),
+    );
+    if (!outcome.success) throw new Error(outcome.message);
+
+    const claimed = await runEffect(claimDueJobs(tmpDir, "a1", Date.now(), 4, "owner"));
+    const first = claimed[0];
+    if (first === undefined) throw new Error("expected a claimed job");
+    await runEffect(
+      completeJob(
+        tmpDir,
+        "a1",
+        first.batchId,
+        first.jobId,
+        { success: false, result: null, error: "flaky" },
+        Date.now(),
+      ),
+    );
+
+    // Retried with backoff, so it is pending with a future attempt time — unfinished work, not
+    // an empty queue.
+    const soonest = await runEffect(nextClaimableAt(tmpDir, "a1"));
+    expect(soonest).not.toBeNull();
+    expect(soonest).toBeGreaterThan(Date.now());
   });
 });

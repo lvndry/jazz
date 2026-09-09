@@ -225,6 +225,20 @@ conversation the same way a wake trigger fires, once every job in the batch reac
 state, and the agent is told each job's status **and what it printed** — a batch exists to find
 something out, so an exit code on its own would tell it nothing.
 
+`enqueue_batch` does not depend on `jazz daemon` running. Enqueueing a batch starts a detached
+worker process (`jazz job run`) immediately, which claims and runs that agent's due jobs, waits out
+any retry backoff, and resumes the conversation when the batch finishes. Previously jobs ran only
+from the daemon's tick, so on a machine with no daemon the tool returned a batch id, the person
+approved commands to run unattended, and then nothing ran and nothing woke them.
+
+Unlike wake triggers and reminders, this is not a one-shot `launchd`/`at` job. Those schedule a
+future instant, which those schedulers do well; a batch starts now, and launchd's
+`StartCalendarInterval` has minute resolution and no year key — so "run this now" either misses the
+current minute or waits up to sixty seconds for it, and a two-second retry backoff cannot be
+expressed at all. The daemon's ticker still calls the same worker and remains the safety net for a
+batch whose worker was killed mid-flight. If no worker can be started at all, the tool says so in
+its result rather than leaving the agent waiting for a wake-up that will never come.
+
 If that resumed turn needs an approval nobody is there to give, the run parks instead of dying:
 you get a desktop notification naming it, and `jazz runs resume <id>` finishes it. See
 [tools and approval](../internals/tools-and-approval.md).

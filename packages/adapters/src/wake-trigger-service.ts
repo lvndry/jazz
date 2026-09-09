@@ -279,6 +279,17 @@ export function sweepDueWakeTriggers(
       const filePath = wakeTriggerFilePath(baseWakeTriggerDirectory, agentId);
       const lockPath = wakeTriggerLockPath(baseWakeTriggerDirectory, agentId);
 
+      // Look before locking. Taking the write lock first meant every tick created and removed a
+      // lock directory for every agent, whether or not anything was due — at a one-second tick
+      // that is tens of thousands of pointless lock cycles a day, each one contending with an
+      // agent trying to register a trigger of its own. Nothing is lost by reading unlocked: the
+      // decision is re-made under the lock below, so a trigger that arrives between the two
+      // reads is seen by the lock-held pass, and one that leaves is skipped there.
+      const unlockedPeek = yield* readWakeTriggerFile(fs, filePath).pipe(
+        Effect.catchAll(() => Effect.succeed([] as WakeTriggerRecord[])),
+      );
+      if (!unlockedPeek.some((trigger) => trigger.fireAt <= now)) continue;
+
       const dueForAgent = yield* withLock(
         lockPath,
         Effect.gen(function* () {

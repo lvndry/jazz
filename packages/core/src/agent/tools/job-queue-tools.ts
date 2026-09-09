@@ -13,6 +13,7 @@ import { FileSystemContextServiceTag, type FileSystemContextService } from "@/co
 import type { JobBatchRecord, JobQueueService } from "@/core/interfaces/job-queue-service";
 import { JobQueueServiceTag } from "@/core/interfaces/job-queue-service";
 import type { Tool } from "@/core/interfaces/tool-registry";
+import { spawnJobWorker } from "@/core/jobs/spawn-job-worker";
 import type { ToolExecutionResult } from "@/core/types/tools";
 import { defineApprovalTool, defineTool, makeZodValidator } from "./base-tool";
 import { tailForModel } from "./capped-output";
@@ -259,9 +260,30 @@ These commands will run unattended, without further approval, until every job fi
           } satisfies ToolExecutionResult;
         }
 
+        // Start the worker here rather than leaving the batch for a daemon that may not be
+        // running. Without this the tool returned a batch id, the person approved unattended
+        // execution, and then nothing ran and nothing woke them.
+        const worker = yield* spawnJobWorker(context.agentId);
+
         return {
           success: true,
-          result: { batchId: outcome.batch.id, jobCount: outcome.batch.jobs.length },
+          result: {
+            batchId: outcome.batch.id,
+            jobCount: outcome.batch.jobs.length,
+            // Said out loud when it fails, because the failure is invisible otherwise: the batch
+            // is enqueued either way, but without a worker it only runs if `jazz daemon` happens
+            // to be running, and waiting silently for a wake-up that never comes is the worst
+            // available outcome.
+            ...(worker.spawned
+              ? {}
+              : {
+                  warning:
+                    `No background worker could be started (${worker.reason ?? "unknown reason"}), ` +
+                    "so these jobs will only run if `jazz daemon` is running. Do not assume you " +
+                    "will be woken with the results — tell the person, and consider running the " +
+                    "commands directly instead.",
+                }),
+          },
         } satisfies ToolExecutionResult;
       }).pipe(
         Effect.catchAll((error) =>
