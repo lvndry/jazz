@@ -25,6 +25,15 @@ export type InstallPlan =
   | { readonly action: "proceed" }
   /** Ask the person, and install if they agree. */
   | { readonly action: "offer"; readonly message: string }
+  /**
+   * Walk the person to the one step software cannot take.
+   *
+   * Full Disk Access is the only TCC class Apple gives no request API for —
+   * there is no prompt a program can raise, so this opens the right settings
+   * pane and puts the path on the clipboard instead of leaving someone to find
+   * both by hand.
+   */
+  | { readonly action: "grant"; readonly message: string; readonly grantPath: string }
   /** Nothing to offer: say why and stop. */
   | { readonly action: "explain"; readonly message: string };
 
@@ -32,6 +41,14 @@ export interface PlanContext {
   /** Whether there is a person who can answer a prompt. */
   readonly interactive: boolean;
   readonly homebrewPresent: boolean;
+  /**
+   * The binary to grant Full Disk Access to — this process's own executable.
+   *
+   * Under launchd that is what macOS holds responsible, which is the whole
+   * reason to run the bridge that way: the grant covers the bridge rather than
+   * a terminal and everything ever typed into it.
+   */
+  readonly grantPath: string;
 }
 
 const FULL_DISK_ACCESS_HELP =
@@ -58,7 +75,9 @@ export function planInstall(availability: ImsgAvailability, context: PlanContext
   // Reinstalling cannot grant a permission, so this never becomes an offer
   // however convenient that would be.
   if (availability.kind === "denied") {
-    return { action: "explain", message: FULL_DISK_ACCESS_HELP };
+    return context.interactive
+      ? { action: "grant", message: FULL_DISK_ACCESS_HELP, grantPath: context.grantPath }
+      : { action: "explain", message: FULL_DISK_ACCESS_HELP };
   }
   if (availability.kind === "failed") {
     return { action: "explain", message: availability.reason };
@@ -114,6 +133,38 @@ export async function confirm(question: string): Promise<boolean> {
     return answer === "y" || answer === "yes";
   }
   return false;
+}
+
+/** The System Settings pane holding the Full Disk Access list. */
+const FULL_DISK_ACCESS_PANE =
+  "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles";
+
+/**
+ * Open the settings pane and put the path on the clipboard.
+ *
+ * The path is the fiddly half: the file picker opens at /Applications and a
+ * unix path can only be typed into its Cmd-Shift-G dialog, so having it ready
+ * to paste is most of the work. Both halves are best-effort — the message
+ * printed alongside already says what to do if either fails.
+ */
+export async function openFullDiskAccessSettings(grantPath: string): Promise<void> {
+  try {
+    const pbcopy = Bun.spawn(["pbcopy"], { stdin: "pipe", stdout: "ignore", stderr: "ignore" });
+    await pbcopy.stdin.write(grantPath);
+    await pbcopy.stdin.end();
+    await pbcopy.exited;
+  } catch {
+    // Clipboard is a convenience, never the instruction.
+  }
+  try {
+    const open = Bun.spawn(["open", FULL_DISK_ACCESS_PANE], {
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    await open.exited;
+  } catch {
+    // Older or locked-down systems may not route the URL; the path is printed.
+  }
 }
 
 /** Run the install, streaming its output so a slow build does not look hung. */

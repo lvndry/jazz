@@ -110,30 +110,20 @@ devices. Only messages starting with the trigger are picked up, the trigger is
 stripped before the agent sees it, and the bridge recognises its own replies, so
 it cannot end up answering itself.
 
-**3. Keep it running.** Generate a LaunchAgent, which restarts the bridge if it
-dies and brings it back at login:
+**3. Keep it running.** Once it answers, it offers to install itself as a
+background service and hands over to it — so it survives closing the terminal
+and comes back at login.
+
+That also narrows the Full Disk Access grant. Started from a terminal, macOS
+holds the *terminal* responsible, so granting it there gives every command you
+ever run in that window access to every file on the machine. Under launchd this
+binary is responsible, and the grant covers the bridge alone.
 
 ```bash
-./packages/imessage-bot/install-launchagent.sh "+15551234567"
+tail -f ~/.jazz-imessage/bridge.log                        # follow it
+launchctl bootout gui/$(id -u)/ai.lysk.jazz.imessage       # stop it
+launchctl kickstart -k gui/$(id -u)/ai.lysk.jazz.imessage  # restart it
 ```
-
-It resolves every path (launchd expands neither `~` nor a login shell's `PATH`)
-and prints the next steps. It deliberately does not start the agent: Full Disk
-Access has to be granted first, and an agent loaded before that crash-loops
-writing the same permission error into its log.
-
-This is also the better security posture. Run from a terminal, macOS attributes
-the access to the terminal app — so granting it there gives *every command you
-ever run in that terminal* access to every file on the machine. Under launchd,
-`bun` is the responsible process and the grant covers this bridge alone.
-
-```bash
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.lysk.jazz.imessage.plist
-tail -f ~/.jazz-imessage/bridge.log
-```
-
-Stop it with `launchctl bootout gui/$(id -u)/ai.lysk.jazz.imessage`, restart it
-with `launchctl kickstart -k gui/$(id -u)/ai.lysk.jazz.imessage`.
 
 ## Configuration
 

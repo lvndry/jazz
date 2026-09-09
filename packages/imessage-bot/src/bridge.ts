@@ -19,6 +19,7 @@
 
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { startReminderSweep } from "@jazz/bot-shared/reminder-sweep";
 import {
   readRecordStore,
@@ -38,7 +39,21 @@ import {
   listChats,
   watchMessages,
 } from "./imsg";
-import { confirm, homebrewPresent, installImsg, planInstall } from "./install";
+import {
+  confirm,
+  homebrewPresent,
+  installImsg,
+  openFullDiskAccessSettings,
+  planInstall,
+} from "./install";
+import {
+  bootstrapService,
+  carriedEnvironment,
+  runningUnderLaunchd,
+  serviceInstalled,
+  SERVICE_LABEL,
+  writeServicePlist,
+} from "./service";
 import { createIMessageSurface, type IMessageSurface } from "./surface";
 
 const STORE_FILES = {
@@ -260,14 +275,29 @@ async function handleIncoming(
  * will actually hit.
  */
 async function ensureImsgUsable(binary: string): Promise<boolean> {
-  const plan = planInstall(await checkImsg(binary), {
+  const planContext = {
     interactive: process.stdin.isTTY === true,
     homebrewPresent: await homebrewPresent(),
-  });
+    // This process's own binary: what launchd hands macOS as the responsible
+    // process, and so what the grant has to name.
+    grantPath: process.execPath,
+  };
+  const plan = planInstall(await checkImsg(binary), planContext);
 
   if (plan.action === "proceed") return true;
   if (plan.action === "explain") {
     console.error(plan.message);
+    return false;
+  }
+  if (plan.action === "grant") {
+    console.error(plan.message);
+    console.error(`\nThe path to add is:\n  ${plan.grantPath}\n`);
+    if (await confirm("Open that settings pane and copy the path to the clipboard?")) {
+      await openFullDiskAccessSettings(plan.grantPath);
+      console.error(
+        "\nAdd it with +, paste with Cmd-V after pressing Cmd-Shift-G, then start this again.",
+      );
+    }
     return false;
   }
 
@@ -282,12 +312,67 @@ async function ensureImsgUsable(binary: string): Promise<boolean> {
   // past Full Disk Access, which is the failure most people actually hit, and
   // the second pass is what names it instead of reporting a missing package.
   const afterInstall = planInstall(await checkImsg(binary), {
+    ...planContext,
+    // Not a prompt: the install just ran, and anything still wrong is for the
+    // person to read rather than answer.
     interactive: false,
-    homebrewPresent: true,
   });
   if (afterInstall.action === "proceed") return true;
   console.error(afterInstall.message);
   return false;
+}
+
+/**
+ * Offer to keep the bridge running once it is actually working.
+ *
+ * Asked here rather than at startup because until this point there was nothing
+ * worth installing: a bridge that cannot read the message database or reach a
+ * model is not one to bring back at every login.
+ *
+ * Installing does not start a second copy — the answer says to stop this one
+ * first — because two bridges on one account both answer every message.
+ */
+async function maybeOfferService(config: BridgeConfig): Promise<void> {
+  if (runningUnderLaunchd() || serviceInstalled()) return;
+  if (process.stdin.isTTY !== true) return;
+
+  console.error(
+    "\nThis is running in the foreground and stops when you close the terminal.\n" +
+      "Installing it as a background service also narrows the Full Disk Access grant: " +
+      "macOS holds the terminal responsible for what you start from it, and this binary " +
+      "for what launchd starts.",
+  );
+  if (!(await confirm("Install it as a background service?"))) return;
+
+  try {
+    const path = writeServicePlist({
+      runtime: process.execPath,
+      entrypoint: fileURLToPath(import.meta.url),
+      workingDirectory: process.cwd(),
+      jazzHome: config.jazzHome,
+      environment: carriedEnvironment(),
+    });
+    console.error(`\nWrote ${path}`);
+
+    // Handing over rather than starting alongside: two bridges on one account
+    // both answer every message, so this process ends as the service begins.
+    if (await bootstrapService()) {
+      console.error(
+        `\nRunning in the background now. Follow it with:\n` +
+          `  tail -f ${config.jazzHome}/bridge.log\n\n` +
+          `Stop it with:    launchctl bootout gui/$(id -u)/${SERVICE_LABEL}\n` +
+          `Restart it with: launchctl kickstart -k gui/$(id -u)/${SERVICE_LABEL}`,
+      );
+      process.exit(0);
+    }
+
+    console.error(
+      `\nlaunchctl would not start it. Stop this one (Ctrl-C) and try by hand:\n` +
+        `  launchctl bootstrap gui/$(id -u) ${path}`,
+    );
+  } catch (error) {
+    console.error(`Could not install the service: ${String(error)}`);
+  }
 }
 
 async function start(): Promise<void> {
@@ -335,6 +420,8 @@ async function start(): Promise<void> {
     `iMessage bridge ready. ${config.allowedHandles.size} allowed handle(s), ` +
       `${config.allowedGroupChatIds.size} allowed group(s), ${chatCache.size} chat(s) known.`,
   );
+
+  await maybeOfferService(config);
 
   startReminderSweep({
     dataDir: config.jazzHome,
