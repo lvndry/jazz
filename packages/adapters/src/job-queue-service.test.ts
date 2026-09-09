@@ -312,7 +312,7 @@ describe("nextClaimableAt", () => {
   test("returns the soonest pending attempt time", async () => {
     const service = makeService();
     const outcome = await runEffect(
-      service.enqueueBatch("a1", "c1", jobInputs(2), { reason: "r" }),
+      service.enqueueBatch("a1", "c1", jobInputs(2), { workingDir: "/tmp", reason: "r" }),
     );
     expect(outcome.success).toBe(true);
 
@@ -324,7 +324,7 @@ describe("nextClaimableAt", () => {
   test("returns null once every job has reached a terminal state", async () => {
     const service = makeService();
     const outcome = await runEffect(
-      service.enqueueBatch("a1", "c1", jobInputs(1), { reason: "r" }),
+      service.enqueueBatch("a1", "c1", jobInputs(1), { workingDir: "/tmp", reason: "r" }),
     );
     if (!outcome.success) throw new Error(outcome.message);
 
@@ -332,14 +332,11 @@ describe("nextClaimableAt", () => {
     expect(claimed.length).toBe(1);
     for (const job of claimed) {
       await runEffect(
-        completeJob(
-          tmpDir,
-          "a1",
-          job.batchId,
-          job.jobId,
-          { success: true, result: "ok" },
-          Date.now(),
-        ),
+        completeJob(tmpDir, "a1", job.batchId, job.jobId, {
+          success: true,
+          result: { stdout: "ok", stderr: "", exitCode: 0 },
+          error: null,
+        }),
       );
     }
 
@@ -349,7 +346,11 @@ describe("nextClaimableAt", () => {
   test("still reports a job that is pending but not yet due", async () => {
     const service = makeService();
     const outcome = await runEffect(
-      service.enqueueBatch("a1", "c1", jobInputs(1), { reason: "r", maxAttempts: 3 }),
+      service.enqueueBatch("a1", "c1", jobInputs(1), {
+        workingDir: "/tmp",
+        reason: "r",
+        maxAttempts: 3,
+      }),
     );
     if (!outcome.success) throw new Error(outcome.message);
 
@@ -357,14 +358,11 @@ describe("nextClaimableAt", () => {
     const first = claimed[0];
     if (first === undefined) throw new Error("expected a claimed job");
     await runEffect(
-      completeJob(
-        tmpDir,
-        "a1",
-        first.batchId,
-        first.jobId,
-        { success: false, result: null, error: "flaky" },
-        Date.now(),
-      ),
+      completeJob(tmpDir, "a1", first.batchId, first.jobId, {
+        success: false,
+        result: null,
+        error: "flaky",
+      }),
     );
 
     // Retried with backoff, so it is pending with a future attempt time — unfinished work, not
