@@ -291,12 +291,13 @@ async function ensureImsgUsable(binary: string): Promise<boolean> {
   }
   if (plan.action === "grant") {
     console.error(plan.message);
-    console.error(`\nThe path to add is:\n  ${plan.grantPath}\n`);
-    if (await confirm("Open that settings pane and copy the path to the clipboard?")) {
+    console.error(
+      `\nAdd this in System Settings → Privacy & Security → Full Disk Access:\n` +
+        `  ${plan.grantPath}\n`,
+    );
+    if (await confirm("Open that page and copy the path now?")) {
       await openFullDiskAccessSettings(plan.grantPath);
-      console.error(
-        "\nAdd it with +, paste with Cmd-V after pressing Cmd-Shift-G, then start this again.",
-      );
+      console.error("\nClick +, press Cmd-Shift-G, paste, then run Jazz again.");
     }
     return false;
   }

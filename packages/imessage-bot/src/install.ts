@@ -51,23 +51,19 @@ export interface PlanContext {
   readonly grantPath: string;
 }
 
+/**
+ * What to say when macOS blocks the message database.
+ *
+ * Short and matter-of-fact. This is a setup step, not an incident: an earlier
+ * version explained the whole TCC responsible-process model here and read like
+ * a security warning, which is the wrong tone for someone three minutes into
+ * trying a chat bridge. The detail lives in the README for anyone who wants it.
+ */
 const FULL_DISK_ACCESS_HELP =
-  "macOS is refusing access to the message database (~/Library/Messages/chat.db).\n" +
+  "Jazz needs Full Disk Access to read your Messages.\n" +
   "\n" +
-  "Why it is needed: Apple publishes no API for *receiving* iMessages, and the\n" +
-  "AppleScript handler that once existed is gone — the row in chat.db is the only\n" +
-  "record that a message arrived. Sending does not need this; that is the separate,\n" +
-  "much narrower Automation → Messages grant.\n" +
-  "\n" +
-  "Why the permission is so broad: chat.db sits behind macOS's all-files privacy\n" +
-  'class, and Apple offers no narrower "read Messages" grant to third-party\n' +
-  "software. It is all files or nothing.\n" +
-  "\n" +
-  "Grant it in System Settings → Privacy & Security → Full Disk Access, then start\n" +
-  "this again. macOS attributes the access to the *responsible* process, so from a\n" +
-  "terminal that is the terminal app — which then also grants every other command\n" +
-  "you run there. To keep the grant scoped to this bridge, run it from a\n" +
-  "LaunchAgent and grant the binary in ProgramArguments instead.";
+  "macOS keeps messages in a protected database, and this is the only permission\n" +
+  "that can open it. It is what lets the agent see the messages you send it.";
 
 export function planInstall(availability: ImsgAvailability, context: PlanContext): InstallPlan {
   if (availability.available) return { action: "proceed" };

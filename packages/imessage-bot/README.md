@@ -49,22 +49,15 @@ Two consequences show up in the chat itself:
   package manager unattended. It also never offers an install for a *permission*
   problem, since reinstalling cannot grant Full Disk Access.
 
-- **Full Disk Access** for whatever launches the bridge. System Settings →
-  Privacy & Security → Full Disk Access. Without it the bridge exits at startup
-  saying so.
+- **Full Disk Access**, so it can read your Messages. macOS keeps messages in a
+  protected database and this is the only permission that opens it; the bridge
+  points you at the right settings page on first run.
 
-  It needs this because Apple publishes no API for *receiving* iMessages — the
-  AppleScript handler that once existed is gone, so the row in
-  `~/Library/Messages/chat.db` is the only record that a message arrived. That
-  file sits behind macOS's all-files privacy class and Apple offers no narrower
-  "read Messages" grant, which is why the permission is so broad. Sending needs
-  none of it; that is the separate Automation grant below.
+  It is worth granting to the *background service* rather than to your terminal.
+  macOS attributes the access to whatever started the process, so granting it
+  from a terminal covers every command you run there, while the service grants
+  only this bridge. Step 3 below sets that up.
 
-  macOS attributes the access to the *responsible* process, so granting it from
-  a terminal grants it to the terminal — and thereby to every command you run
-  there. For anything you intend to leave running, use the LaunchAgent below and
-  grant the binary in `ProgramArguments` instead, so the grant is scoped to the
-  bridge.
 - **Automation → Messages** for the same process, granted the first time it
   sends. macOS prompts once.
 - A model backend: an API key for a cloud provider, or a local

@@ -1,20 +1,27 @@
 ---
-description: "Step-by-step: create a Telegram bot or a Discord bot, wire it to a Jazz agent, and run it. Covers tokens, allowlists, .env, docker compose, and switching providers/models at runtime."
+description: "Step-by-step: reach a Jazz agent from Telegram, Discord, iMessage or WhatsApp. Covers tokens, pairing, allowlists, macOS permissions, and switching providers/models at runtime."
 ---
 
-# Creating a Telegram or Discord bot
+# Reaching your agent from a chat app
 
-A hands-on walkthrough for going from nothing to a working Jazz agent in your Telegram DMs
-or a Discord server. Both bridges are shipped, Docker-based services — this page is the
-account-creation and configuration steps; see
+A hands-on walkthrough for going from nothing to a working Jazz agent in your Telegram DMs,
+a Discord server, Messages on a Mac, or WhatsApp. See
 [Chat platforms](../use-cases/chat-platforms.md) for what they demonstrate architecturally,
 and each bridge's own README for the full command/environment-variable reference:
-[`packages/telegram-bot/README.md`](../../packages/telegram-bot/README.md),
-[`packages/discord-bot/README.md`](../../packages/discord-bot/README.md).
+[Telegram](../../packages/telegram-bot/README.md),
+[Discord](../../packages/discord-bot/README.md),
+[iMessage](../../packages/imessage-bot/README.md),
+[WhatsApp](../../packages/whatsapp-bot/README.md).
 
-You need Docker + Docker Compose, and a model backend — an API key for a cloud provider
-(OpenAI by default), or a local [Ollama](https://ollama.com) with a tool-capable model
-pulled.
+All four give you the same thing: per-chat memory, per-chat `/model` and `/persona`,
+reminders, and attachments. They differ in where they can run and what the app can show.
+Telegram and Discord are Docker services you can put on a server. iMessage only exists on a
+Mac, so its bridge runs there as a background service. WhatsApp links to your account the
+way WhatsApp Web does.
+
+You need a model backend for any of them — an API key for a cloud provider (OpenAI by
+default), or a local [Ollama](https://ollama.com) with a tool-capable model pulled.
+Telegram and Discord additionally need Docker + Docker Compose.
 
 ---
 
@@ -153,12 +160,104 @@ allowlisted, or you didn't @mention it (`DISCORD_REQUIRE_MENTION=1` by default).
 
 ---
 
+## iMessage
+
+Runs on a Mac that is signed into iMessage, awake, and logged in — there is no server-side
+option, because iMessage exists nowhere else.
+
+### 1. Start it
+
+```bash
+IMESSAGE_SELF_TRIGGER=jazz bun packages/imessage-bot/src/bridge.ts
+```
+
+`IMESSAGE_SELF_TRIGGER` lets you reach the bridge from your own account by texting yourself
+`jazz <question>`. You need it to try this alone: iMessage marks everything you type as
+coming from you, including in a chat with yourself, so without a trigger word the bridge
+cannot tell your question from its own reply.
+
+### 2. Say yes twice
+
+The first run walks you through the two things it needs:
+
+- **`imsg`**, the CLI it reads and sends Messages through. It offers to install it.
+- **Full Disk Access**, so it can read your Messages. macOS keeps them in a protected
+  database and this is the only permission that opens it. The bridge opens the right
+  settings page and copies the path you need to add — click `+`, press `Cmd-Shift-G`,
+  paste, then run it again.
+
+The first message it sends also raises a one-time Automation → Messages prompt.
+
+### 3. Let it run in the background
+
+Once it answers, it offers to install itself as a background service and hands over. From
+then on it starts at login and restarts itself if it dies.
+
+```bash
+tail -f ~/.jazz-imessage/bridge.log                        # watch it
+launchctl bootout gui/$(id -u)/ai.lysk.jazz.imessage       # stop it
+```
+
+Granting Full Disk Access to the service rather than to your terminal is worth doing:
+macOS attributes the access to whatever started the process, so a terminal grant covers
+every command you run there while the service grant covers only this bridge.
+
+### 4. Let other people in
+
+```bash
+IMESSAGE_ALLOWED_HANDLES="+15551234567,friend@icloud.com"
+```
+
+Deny-by-default, because this answers on a phone number anyone can text. A message from an
+unlisted number is logged and never answered. Group chats are admitted by their own id
+(`IMESSAGE_ALLOWED_GROUP_CHAT_IDS`) — being allowed to DM the agent does not put it in your
+group chats.
+
+---
+
+## WhatsApp
+
+The bridge links to your WhatsApp account as a device, exactly as WhatsApp Web does.
+
+### 1. Start it and pair
+
+```bash
+WHATSAPP_ALLOWED_NUMBERS="+15551234567" bun packages/whatsapp-bot/src/bridge.ts
+```
+
+It prints a QR code: WhatsApp → Settings → Linked Devices → Link a device. On a machine
+with no screen to point a phone at, set `WHATSAPP_PAIR_NUMBER` to the account's own number
+and it prints an 8-character code to type in under **Link with phone number** instead.
+
+Pairing happens once; the credentials are kept in `$JAZZ_HOME/wa-auth`.
+
+### 2. Groups
+
+An allowed group (`WHATSAPP_ALLOWED_GROUPS`) still needs the bot @-mentioned or replied to
+before it answers, so it can sit in a busy thread without joining in. Turn that off with
+`WHATSAPP_REQUIRE_MENTION_IN_GROUPS=0` if you want it answering everything.
+
+### What to know before you rely on it
+
+WhatsApp publishes no API for personal accounts, so this speaks the WhatsApp Web protocol
+via [Baileys](https://github.com/WhiskeySockets/Baileys) — capable, but not sanctioned by
+Meta. A number that behaves unusually can be rate-limited or banned, so use a dedicated
+number if the account matters. Unlinking the device from your phone ends the session and
+the bridge says so and exits.
+
+The official alternative, the WhatsApp Cloud API, needs a Meta Business account and a
+separate business number, and only allows template messages outside a 24-hour reply window
+— which is why it is not what this uses.
+
+---
+
 ## Adding more providers
 
-Both bridges start on one provider (`OPENAI_API_KEY`/`gpt-5.4` by default), but `/model`
+Every bridge starts on one provider (`OPENAI_API_KEY`/`gpt-5.4` by default), but `/model`
 can switch a conversation to any of the ~18 providers Jazz supports — Anthropic, Gemini,
-xAI, OpenRouter, Groq, and more — without touching `JAZZ_TELEGRAM_PROVIDER`/
-`JAZZ_DISCORD_PROVIDER` (those only set what a brand-new conversation starts on).
+xAI, OpenRouter, Groq, and more — without touching `JAZZ_TELEGRAM_PROVIDER`,
+`JAZZ_DISCORD_PROVIDER`, `JAZZ_IMESSAGE_PROVIDER` or `JAZZ_WHATSAPP_PROVIDER` (those only
+set what a brand-new conversation starts on).
 
 To enable a provider for `/model`, set its API key as an env var on the bot and restart the
 container — `.env.example` lists the full set (`ANTHROPIC_API_KEY`,
@@ -176,7 +275,7 @@ provider offers. Reasoning effort is set automatically either way.
 
 ## Keeping it updated
 
-Both bots ship an `auto-update.sh` that fast-forwards the checkout to `origin/main`,
+The Telegram and Discord bots ship an `auto-update.sh` that fast-forwards the checkout to `origin/main`,
 rebuilds only if something changed, and rolls back if the new build doesn't come up
 healthy. Install it as an hourly cron job (adjust the path to where you cloned the repo):
 
