@@ -192,11 +192,24 @@ async function runImsg(
   return { stdout, stderr, exitCode };
 }
 
-export interface ImsgAvailability {
-  readonly available: boolean;
-  /** Why it is unusable, ready to put in front of an operator. */
-  readonly reason?: string;
-}
+/**
+ * Why `imsg` cannot be used, when it cannot.
+ *
+ * The two cases have nothing in common. `missing` is a package that is not
+ * installed, which the bridge can offer to fix. `denied` is Full Disk Access
+ * not granted to whatever launched this process — a permission a human has to
+ * grant in System Settings, and one that reinstalling would not touch. Telling
+ * them apart is what keeps the bridge from offering an install that changes
+ * nothing.
+ */
+export type ImsgAvailability =
+  | { readonly available: true }
+  | {
+      readonly available: false;
+      readonly kind: "missing" | "denied" | "failed";
+      /** Ready to put in front of a person. */
+      readonly reason: string;
+    };
 
 /**
  * Check that `imsg` is installed and can actually read the message database.
@@ -207,6 +220,22 @@ export interface ImsgAvailability {
  * grant in System Settings, so the bridge has to say which one rather than
  * looping on an empty stream.
  */
+/**
+ * Does this failure read as macOS refusing access to the message database?
+ *
+ * SQLite reports it as an authorization error and the TCC layer as "operation
+ * not permitted", and neither says the words "Full Disk Access" — which is the
+ * only thing that fixes it, and so the only useful thing to tell a person.
+ */
+function isAuthorizationFailure(stderr: string): boolean {
+  const lowered = stderr.toLowerCase();
+  return (
+    lowered.includes("authorization denied") ||
+    lowered.includes("operation not permitted") ||
+    lowered.includes("unable to open database")
+  );
+}
+
 export async function checkImsg(binary: string): Promise<ImsgAvailability> {
   let probe: { stdout: string; stderr: string; exitCode: number };
   try {
@@ -214,7 +243,8 @@ export async function checkImsg(binary: string): Promise<ImsgAvailability> {
   } catch {
     return {
       available: false,
-      reason: `\`${binary}\` is not on PATH. Install it with: brew install steipete/tap/imsg`,
+      kind: "missing",
+      reason: `\`${binary}\` is not installed.`,
     };
   }
 
@@ -222,10 +252,8 @@ export async function checkImsg(binary: string): Promise<ImsgAvailability> {
     const detail = probe.stderr.trim().split("\n").at(0) ?? `exit ${probe.exitCode}`;
     return {
       available: false,
-      reason:
-        `\`${binary} chats\` failed: ${detail}\n` +
-        "If it mentions authorization, grant Full Disk Access to whatever runs this bridge " +
-        "(System Settings → Privacy & Security → Full Disk Access), then start it again.",
+      kind: isAuthorizationFailure(probe.stderr) ? "denied" : "failed",
+      reason: `\`${binary} chats\` failed: ${detail}`,
     };
   }
 

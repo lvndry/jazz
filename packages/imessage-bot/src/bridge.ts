@@ -37,6 +37,7 @@ import {
   listChats,
   watchMessages,
 } from "./imsg";
+import { confirm, homebrewPresent, installImsg, planInstall } from "./install";
 import { createIMessageSurface } from "./surface";
 
 const STORE_FILES = {
@@ -199,14 +200,49 @@ async function handleIncoming(
   await runner.handle(String(message.chatId), prompt);
 }
 
+/**
+ * Make sure `imsg` is installed and can read the message database, offering to
+ * install it when a person is there to be asked.
+ *
+ * Re-checked after a successful install rather than assumed: a fresh install
+ * still has to get past Full Disk Access, and that is the failure most people
+ * will actually hit.
+ */
+async function ensureImsgUsable(binary: string): Promise<boolean> {
+  const plan = planInstall(await checkImsg(binary), {
+    interactive: process.stdin.isTTY === true,
+    homebrewPresent: await homebrewPresent(),
+  });
+
+  if (plan.action === "proceed") return true;
+  if (plan.action === "explain") {
+    console.error(plan.message);
+    return false;
+  }
+
+  console.error(plan.message);
+  if (!(await confirm("Install it?"))) {
+    console.error("Not installing. The iMessage bridge cannot run without it.");
+    return false;
+  }
+  if (!(await installImsg())) return false;
+
+  // Re-checked rather than assumed: a freshly installed `imsg` still has to get
+  // past Full Disk Access, which is the failure most people actually hit, and
+  // the second pass is what names it instead of reporting a missing package.
+  const afterInstall = planInstall(await checkImsg(binary), {
+    interactive: false,
+    homebrewPresent: true,
+  });
+  if (afterInstall.action === "proceed") return true;
+  console.error(afterInstall.message);
+  return false;
+}
+
 async function start(): Promise<void> {
   const config = loadConfig();
 
-  const availability = await checkImsg(config.imsgBinary);
-  if (!availability.available) {
-    console.error(availability.reason);
-    process.exit(1);
-  }
+  if (!(await ensureImsgUsable(config.imsgBinary))) process.exit(1);
 
   const surface = createIMessageSurface({
     binary: config.imsgBinary,

@@ -29,11 +29,23 @@ Two consequences show up in the chat itself:
 ## Requirements
 
 - A Mac running **macOS 14 or newer**, signed into iMessage.
-- [`imsg`](https://github.com/openclaw/imsg) — the CLI this bridge drives:
+- [`imsg`](https://github.com/openclaw/imsg) — the MIT CLI this bridge drives.
+  **You do not have to install it first**: on the first run the bridge notices
+  it is missing and offers to install it for you.
 
-  ```bash
-  brew install steipete/tap/imsg
+  ```text
+  `imsg` is not installed.
+
+  The iMessage bridge reads Messages through `imsg`, an open-source (MIT) CLI:
+    https://github.com/openclaw/imsg
+
+  Install it now with `brew install steipete/tap/imsg`? Install it? [Y/n]
   ```
+
+  It only ever asks when there is a terminal attached — started as a
+  LaunchAgent, it prints the command and exits rather than reaching out to a
+  package manager unattended. It also never offers an install for a *permission*
+  problem, since reinstalling cannot grant Full Disk Access.
 
 - **Full Disk Access** for whatever launches the bridge (your terminal, or the
   LaunchAgent below). System Settings → Privacy & Security → Full Disk Access.
