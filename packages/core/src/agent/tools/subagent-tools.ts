@@ -335,7 +335,9 @@ ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSc
             maxIterations: context.maxSubagentIterations ?? DEFAULT_MAX_SUBAGENT_ITERATIONS,
             ephemeralRegionId: regionId,
             // Cap the child at the parent's own effective tools.
-            ...(context.parentToolNames ? { toolAllowlist: context.parentToolNames } : {}),
+            ...(context.effectiveToolNames
+              ? { toolAllowlist: [...context.effectiveToolNames] }
+              : {}),
             subagentDepth: currentDepth + 1,
             ...(context.getAutoApprovePolicy
               ? { autoApprovePolicy: context.getAutoApprovePolicy }

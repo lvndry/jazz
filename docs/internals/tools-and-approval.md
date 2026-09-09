@@ -33,7 +33,9 @@ terminal; headless and remote surfaces retain their own authorization contracts.
 flowchart TD
     IN(["Model emits a tool call"]) --> PARSE{"Arguments<br/>valid JSON?"}
     PARSE -->|no| ERR["Return an error result —<br/>the agent can retry"]
-    PARSE -->|yes| LOOKUP["Look up in the registry:<br/>schema · risk level · timeout"]
+    PARSE -->|yes| SET{"Name in this run's<br/>effective tool set?"}
+    SET -->|no| ERR
+    SET -->|yes| LOOKUP["Look up in the registry:<br/>schema · risk level · timeout"]
 
     LOOKUP --> RUN["<b>Invoke the tool</b><br/>timeout: per-tool, else 3 min<br/>(longRunning tools: no timeout)"]
 
@@ -55,9 +57,54 @@ flowchart TD
 
     classDef gate fill:#f9a03f,stroke:#b3541e,color:#1a1a1a
     classDef act fill:#4f9d9d,stroke:#2f6d6d,color:#ffffff
-    class POLICY,PROMPT gate
+    class SET,POLICY,PROMPT gate
     class RUN,EXEC act
 ```
+
+---
+
+## Which tools a run can reach
+
+The tier gate above decides whether a call is _approved_. A separate, earlier question is
+whether the run may make it at all.
+
+A run resolves its toolset once at the start: the agent's own tools, plus the built-in
+categories its persona admits, minus the persona and agent deny lists, minus the carve-outs
+for a run that cannot persist (`manage_memory`) or cannot ask a human anything
+(`ask_user_question`, `ask_file_picker`), narrowed by any `toolAllowlist` it inherited. That list
+is then expanded with the names its tools also answer to — advertised aliases (`glob` for
+`find`) and the hidden execute half of each gated pair (`execute_execute_command`) — and the
+denials are re-applied over what expansion added, so a deny entry cannot be undone by an
+alias one step below it. The result is the run's **effective tool set**.
+
+That one set does three jobs:
+
+- **Advertisement.** `eager`-tier members are sent as schemas with every request;
+  `deferred`-tier ones appear as a name/summary index and their schemas arrive via
+  `search_tools`. Hidden execute halves are never advertised at all.
+- **Execution.** The executor tests every call against the set before handing the name to
+  the registry, and returns a plain tool-error result — the same treatment as unparseable
+  arguments — for anything outside it.
+- **Inheritance.** `spawn_subagent` hands it down as the child's `toolAllowlist`, so a child
+  can never hold a tool its parent lacks.
+
+The second is not redundant. The registry resolves a name against every tool registered in
+the process, so a narrowed advertisement only shapes what a model is _likely_ to ask for.
+Nothing stops a model from naming a tool it was never offered, and the AI SDK does not drop
+such a call: it forwards it flagged `invalid` and lets the caller decide. Constrained
+decoding at a hosted provider makes it unlikely; a local model, or any path where tool calls
+are parsed out of text, makes it ordinary.
+
+One member of the set is deliberately unreachable from a model-issued call: **the hidden
+execute half of a gated pair.** It has to be in the set for the approval branch to run it,
+and it is refused when the model writes the name itself — otherwise guessing
+`execute_write_file` would skip the approval the pair exists to collect. Every other member
+runs through whatever gate its risk level demands, and a name outside the set does not run
+at all.
+
+This is what makes `toolAllowlist` an authorization boundary rather than a hint, and it is
+what [`/a2a` peer serving](./peer-invites.md) relies on: a peer-served run auto-approves
+everything, on the grounds that the tier decided reachability before the run started.
 
 ---
 
@@ -234,8 +281,11 @@ approved: "git status"
 ```
 
 The strongest control isn't a policy at all: **an agent whose toolset omits
-`execute_command` cannot run shell commands regardless of tier.** Trim the toolset in the
-agent config when the blast radius matters — see [Chat platforms](../use-cases/chat-platforms.md#security-for-chat-surfaces).
+`execute_command` cannot run shell commands regardless of tier.** Not merely because the
+tool is never offered — the executor refuses a call to it outright, so a model that names it
+anyway gets a tool error rather than a shell. Trim the toolset in the agent config when the
+blast radius matters — see [Chat platforms](../use-cases/chat-platforms.md#security-for-chat-surfaces),
+and [Which tools a run can reach](#which-tools-a-run-can-reach) for how that set is built.
 
 ---
 

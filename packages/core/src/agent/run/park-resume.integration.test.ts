@@ -38,7 +38,7 @@ const AGENT: Agent = {
     persona: "default",
     llmProvider: "openai",
     llmModel: "gpt-4",
-    tools: ["danger"],
+    tools: ["danger", "harmless"],
   },
   createdAt: new Date("2026-08-01T00:00:00Z"),
   updatedAt: new Date("2026-08-01T00:00:00Z"),
@@ -140,8 +140,8 @@ function makeLayers(
   const registry = {
     registerTool: mock(() => Effect.succeed(undefined)),
     registerForCategory: mock(() => mock(() => Effect.succeed(undefined))),
-    listTools: mock(() => Effect.succeed(["danger"])),
-    listAllTools: mock(() => Effect.succeed(["danger", "danger_execute"])),
+    listTools: mock(() => Effect.succeed(["danger", "harmless"])),
+    listAllTools: mock(() => Effect.succeed(["danger", "danger_execute", "harmless"])),
     getToolsInCategory: mock(() => Effect.succeed([])),
     getTool: mock((name: string) =>
       Effect.succeed(

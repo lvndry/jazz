@@ -83,6 +83,36 @@ const emptyMcp = {} as unknown as MCPServerManager;
 const emptyMemory = {} as unknown as MemoryService;
 const emptyReminders = {} as unknown as ReminderService;
 
+/**
+ * The tool pipeline's full service set, with the three services these tests actually vary.
+ * The rest are discharged rather than cast away so a tool reaching for one fails loudly.
+ */
+function makeTestLayer(services: {
+  registry: ToolRegistry;
+  presentation?: PresentationService;
+  llm?: LLMService;
+}) {
+  return Layer.mergeAll(
+    Layer.succeed(LoggerServiceTag, mockLogger),
+    Layer.succeed(PresentationServiceTag, services.presentation ?? mockPresentationService),
+    Layer.succeed(ToolRegistryTag, services.registry),
+    Layer.succeed(AgentConfigServiceTag, mockAgentConfigService),
+    Layer.succeed(FileSystem.FileSystem, emptyFs),
+    Layer.succeed(TerminalServiceTag, emptyTerminal),
+    Layer.succeed(FileSystemContextServiceTag, emptyFsContext),
+    Layer.succeed(SkillServiceTag, mockSkillService),
+    Layer.succeed(LLMServiceTag, services.llm ?? emptyLlm),
+    Layer.succeed(MCPServerManagerTag, emptyMcp),
+    Layer.succeed(MemoryServiceTag, emptyMemory),
+    Layer.succeed(WorkspaceServiceTag, {} as any),
+    Layer.succeed(WakeTriggerServiceTag, {} as any),
+    Layer.succeed(JobQueueServiceTag, {} as any),
+    Layer.succeed(ReminderServiceTag, emptyReminders),
+    Layer.succeed(PeerLedgerServiceTag, {} as any),
+    Layer.succeed(PeerTokenServiceTag, {} as any),
+  );
+}
+
 function makeRunMetrics(): ReturnType<typeof createAgentRunMetrics> {
   return {
     runId: "test-run",
@@ -139,25 +169,7 @@ describe("ToolExecutor.executeTool", () => {
       executeTool: () => Effect.succeed({ success: true, result: { data: "ok" } }),
     } as unknown as ToolRegistry;
 
-    const testLayer = Layer.mergeAll(
-      Layer.succeed(LoggerServiceTag, mockLogger),
-      Layer.succeed(PresentationServiceTag, mockPresentationService),
-      Layer.succeed(ToolRegistryTag, mockToolRegistry),
-      Layer.succeed(AgentConfigServiceTag, mockAgentConfigService),
-      Layer.succeed(FileSystem.FileSystem, emptyFs),
-      Layer.succeed(TerminalServiceTag, emptyTerminal),
-      Layer.succeed(FileSystemContextServiceTag, emptyFsContext),
-      Layer.succeed(SkillServiceTag, mockSkillService),
-      Layer.succeed(LLMServiceTag, emptyLlm),
-      Layer.succeed(MCPServerManagerTag, emptyMcp),
-      Layer.succeed(MemoryServiceTag, emptyMemory),
-      Layer.succeed(WorkspaceServiceTag, {} as any),
-      Layer.succeed(WakeTriggerServiceTag, {} as any),
-      Layer.succeed(JobQueueServiceTag, {} as any),
-      Layer.succeed(ReminderServiceTag, emptyReminders),
-      Layer.succeed(PeerLedgerServiceTag, {} as any),
-      Layer.succeed(PeerTokenServiceTag, {} as any),
-    );
+    const testLayer = makeTestLayer({ registry: mockToolRegistry });
 
     const result = await Effect.runPromise(
       ToolExecutor.executeTool(
@@ -180,25 +192,7 @@ describe("ToolExecutor.executeTool", () => {
       executeTool: () => Effect.succeed({ success: true, result: "ok" }),
     } as unknown as ToolRegistry;
 
-    const testLayer = Layer.mergeAll(
-      Layer.succeed(LoggerServiceTag, mockLogger),
-      Layer.succeed(PresentationServiceTag, mockPresentationService),
-      Layer.succeed(ToolRegistryTag, mockToolRegistry),
-      Layer.succeed(AgentConfigServiceTag, mockAgentConfigService),
-      Layer.succeed(FileSystem.FileSystem, emptyFs),
-      Layer.succeed(TerminalServiceTag, emptyTerminal),
-      Layer.succeed(FileSystemContextServiceTag, emptyFsContext),
-      Layer.succeed(SkillServiceTag, mockSkillService),
-      Layer.succeed(LLMServiceTag, emptyLlm),
-      Layer.succeed(MCPServerManagerTag, emptyMcp),
-      Layer.succeed(MemoryServiceTag, emptyMemory),
-      Layer.succeed(WorkspaceServiceTag, {} as any),
-      Layer.succeed(WakeTriggerServiceTag, {} as any),
-      Layer.succeed(JobQueueServiceTag, {} as any),
-      Layer.succeed(ReminderServiceTag, emptyReminders),
-      Layer.succeed(PeerLedgerServiceTag, {} as any),
-      Layer.succeed(PeerTokenServiceTag, {} as any),
-    );
+    const testLayer = makeTestLayer({ registry: mockToolRegistry });
 
     // executeTool still works even if getTool fails for timeout lookup
     const result = await Effect.runPromise(
@@ -229,25 +223,7 @@ describe("ToolExecutor.executeToolCall", () => {
       executeTool: () => Effect.succeed({ success: true, result: "ok" }),
     } as unknown as ToolRegistry;
 
-    const testLayer = Layer.mergeAll(
-      Layer.succeed(LoggerServiceTag, mockLogger),
-      Layer.succeed(PresentationServiceTag, mockPresentationService),
-      Layer.succeed(ToolRegistryTag, mockToolRegistry),
-      Layer.succeed(AgentConfigServiceTag, mockAgentConfigService),
-      Layer.succeed(FileSystem.FileSystem, emptyFs),
-      Layer.succeed(TerminalServiceTag, emptyTerminal),
-      Layer.succeed(FileSystemContextServiceTag, emptyFsContext),
-      Layer.succeed(SkillServiceTag, mockSkillService),
-      Layer.succeed(LLMServiceTag, emptyLlm),
-      Layer.succeed(MCPServerManagerTag, emptyMcp),
-      Layer.succeed(MemoryServiceTag, emptyMemory),
-      Layer.succeed(WorkspaceServiceTag, {} as any),
-      Layer.succeed(WakeTriggerServiceTag, {} as any),
-      Layer.succeed(JobQueueServiceTag, {} as any),
-      Layer.succeed(ReminderServiceTag, emptyReminders),
-      Layer.succeed(PeerLedgerServiceTag, {} as any),
-      Layer.succeed(PeerTokenServiceTag, {} as any),
-    );
+    const testLayer = makeTestLayer({ registry: mockToolRegistry });
 
     const toolCall: ToolCall = {
       id: "call_1",
@@ -274,25 +250,7 @@ describe("ToolExecutor.executeToolCall", () => {
 
   it("should skip non-function tool calls", async () => {
     const emptyRegistry = {} as unknown as ToolRegistry;
-    const testLayer = Layer.mergeAll(
-      Layer.succeed(LoggerServiceTag, mockLogger),
-      Layer.succeed(PresentationServiceTag, mockPresentationService),
-      Layer.succeed(ToolRegistryTag, emptyRegistry),
-      Layer.succeed(AgentConfigServiceTag, mockAgentConfigService),
-      Layer.succeed(FileSystem.FileSystem, emptyFs),
-      Layer.succeed(TerminalServiceTag, emptyTerminal),
-      Layer.succeed(FileSystemContextServiceTag, emptyFsContext),
-      Layer.succeed(SkillServiceTag, mockSkillService),
-      Layer.succeed(LLMServiceTag, emptyLlm),
-      Layer.succeed(MCPServerManagerTag, emptyMcp),
-      Layer.succeed(MemoryServiceTag, emptyMemory),
-      Layer.succeed(WorkspaceServiceTag, {} as any),
-      Layer.succeed(WakeTriggerServiceTag, {} as any),
-      Layer.succeed(JobQueueServiceTag, {} as any),
-      Layer.succeed(ReminderServiceTag, emptyReminders),
-      Layer.succeed(PeerLedgerServiceTag, {} as any),
-      Layer.succeed(PeerTokenServiceTag, {} as any),
-    );
+    const testLayer = makeTestLayer({ registry: emptyRegistry });
 
     const toolCall = {
       id: "call_1",
@@ -331,25 +289,7 @@ describe("ToolExecutor.executeToolCalls", () => {
       executeTool: (_name: string) => Effect.succeed({ success: true, result: { data: "ok" } }),
     } as unknown as ToolRegistry;
 
-    const testLayer = Layer.mergeAll(
-      Layer.succeed(LoggerServiceTag, mockLogger),
-      Layer.succeed(PresentationServiceTag, mockPresentationService),
-      Layer.succeed(ToolRegistryTag, mockToolRegistry),
-      Layer.succeed(AgentConfigServiceTag, mockAgentConfigService),
-      Layer.succeed(FileSystem.FileSystem, emptyFs),
-      Layer.succeed(TerminalServiceTag, emptyTerminal),
-      Layer.succeed(FileSystemContextServiceTag, emptyFsContext),
-      Layer.succeed(SkillServiceTag, mockSkillService),
-      Layer.succeed(LLMServiceTag, emptyLlm),
-      Layer.succeed(MCPServerManagerTag, emptyMcp),
-      Layer.succeed(MemoryServiceTag, emptyMemory),
-      Layer.succeed(WorkspaceServiceTag, {} as any),
-      Layer.succeed(WakeTriggerServiceTag, {} as any),
-      Layer.succeed(JobQueueServiceTag, {} as any),
-      Layer.succeed(ReminderServiceTag, emptyReminders),
-      Layer.succeed(PeerLedgerServiceTag, {} as any),
-      Layer.succeed(PeerTokenServiceTag, {} as any),
-    );
+    const testLayer = makeTestLayer({ registry: mockToolRegistry });
 
     const toolCalls: ToolCall[] = [
       {
@@ -409,25 +349,7 @@ describe("ToolExecutor.executeToolCalls", () => {
       flush: () => Effect.void,
     };
 
-    const testLayer = Layer.mergeAll(
-      Layer.succeed(LoggerServiceTag, mockLogger),
-      Layer.succeed(PresentationServiceTag, mockPresentationService),
-      Layer.succeed(ToolRegistryTag, mockToolRegistry),
-      Layer.succeed(AgentConfigServiceTag, mockAgentConfigService),
-      Layer.succeed(FileSystem.FileSystem, emptyFs),
-      Layer.succeed(TerminalServiceTag, emptyTerminal),
-      Layer.succeed(FileSystemContextServiceTag, emptyFsContext),
-      Layer.succeed(SkillServiceTag, mockSkillService),
-      Layer.succeed(LLMServiceTag, emptyLlm),
-      Layer.succeed(MCPServerManagerTag, emptyMcp),
-      Layer.succeed(MemoryServiceTag, emptyMemory),
-      Layer.succeed(WorkspaceServiceTag, {} as any),
-      Layer.succeed(WakeTriggerServiceTag, {} as any),
-      Layer.succeed(JobQueueServiceTag, {} as any),
-      Layer.succeed(ReminderServiceTag, emptyReminders),
-      Layer.succeed(PeerLedgerServiceTag, {} as any),
-      Layer.succeed(PeerTokenServiceTag, {} as any),
-    );
+    const testLayer = makeTestLayer({ registry: mockToolRegistry });
 
     const toolCalls: ToolCall[] = [
       {
@@ -512,25 +434,7 @@ describe("ToolExecutor.executeToolCalls", () => {
       flush: () => Effect.void,
     };
 
-    const testLayer = Layer.mergeAll(
-      Layer.succeed(LoggerServiceTag, mockLogger),
-      Layer.succeed(PresentationServiceTag, mockPresentationService),
-      Layer.succeed(ToolRegistryTag, mockToolRegistry),
-      Layer.succeed(AgentConfigServiceTag, mockAgentConfigService),
-      Layer.succeed(FileSystem.FileSystem, emptyFs),
-      Layer.succeed(TerminalServiceTag, emptyTerminal),
-      Layer.succeed(FileSystemContextServiceTag, emptyFsContext),
-      Layer.succeed(SkillServiceTag, mockSkillService),
-      Layer.succeed(LLMServiceTag, emptyLlm),
-      Layer.succeed(MCPServerManagerTag, emptyMcp),
-      Layer.succeed(MemoryServiceTag, emptyMemory),
-      Layer.succeed(WorkspaceServiceTag, {} as any),
-      Layer.succeed(WakeTriggerServiceTag, {} as any),
-      Layer.succeed(JobQueueServiceTag, {} as any),
-      Layer.succeed(ReminderServiceTag, emptyReminders),
-      Layer.succeed(PeerLedgerServiceTag, {} as any),
-      Layer.succeed(PeerTokenServiceTag, {} as any),
-    );
+    const testLayer = makeTestLayer({ registry: mockToolRegistry });
 
     const toolCalls: ToolCall[] = [
       {
@@ -656,25 +560,10 @@ describe("ToolExecutor.executeToolCall approval events", () => {
       flush: () => Effect.void,
     };
 
-    const testLayer = Layer.mergeAll(
-      Layer.succeed(LoggerServiceTag, mockLogger),
-      Layer.succeed(PresentationServiceTag, approvingPresentationService),
-      Layer.succeed(ToolRegistryTag, mockToolRegistry),
-      Layer.succeed(AgentConfigServiceTag, mockAgentConfigService),
-      Layer.succeed(FileSystem.FileSystem, emptyFs),
-      Layer.succeed(TerminalServiceTag, emptyTerminal),
-      Layer.succeed(FileSystemContextServiceTag, emptyFsContext),
-      Layer.succeed(SkillServiceTag, mockSkillService),
-      Layer.succeed(LLMServiceTag, emptyLlm),
-      Layer.succeed(MCPServerManagerTag, emptyMcp),
-      Layer.succeed(MemoryServiceTag, emptyMemory),
-      Layer.succeed(WorkspaceServiceTag, {} as any),
-      Layer.succeed(WakeTriggerServiceTag, {} as any),
-      Layer.succeed(JobQueueServiceTag, {} as any),
-      Layer.succeed(ReminderServiceTag, emptyReminders),
-      Layer.succeed(PeerLedgerServiceTag, {} as any),
-      Layer.succeed(PeerTokenServiceTag, {} as any),
-    );
+    const testLayer = makeTestLayer({
+      registry: mockToolRegistry,
+      presentation: approvingPresentationService,
+    });
 
     const toolCall: ToolCall = {
       id: "call_approval_1",
@@ -763,25 +652,11 @@ describe("ToolExecutor.executeToolCall approval events", () => {
         Effect.succeed({ id: "1", model: "gpt-4o-mini", content: "read-only" }),
     } as unknown as LLMService;
 
-    const testLayer = Layer.mergeAll(
-      Layer.succeed(LoggerServiceTag, mockLogger),
-      Layer.succeed(PresentationServiceTag, promptingPresentation),
-      Layer.succeed(ToolRegistryTag, mockToolRegistry),
-      Layer.succeed(AgentConfigServiceTag, mockAgentConfigService),
-      Layer.succeed(FileSystem.FileSystem, emptyFs),
-      Layer.succeed(TerminalServiceTag, emptyTerminal),
-      Layer.succeed(FileSystemContextServiceTag, emptyFsContext),
-      Layer.succeed(SkillServiceTag, mockSkillService),
-      Layer.succeed(LLMServiceTag, classifyingLlm),
-      Layer.succeed(MCPServerManagerTag, emptyMcp),
-      Layer.succeed(MemoryServiceTag, emptyMemory),
-      Layer.succeed(WorkspaceServiceTag, {} as any),
-      Layer.succeed(WakeTriggerServiceTag, {} as any),
-      Layer.succeed(JobQueueServiceTag, {} as any),
-      Layer.succeed(ReminderServiceTag, emptyReminders),
-      Layer.succeed(PeerLedgerServiceTag, {} as any),
-      Layer.succeed(PeerTokenServiceTag, {} as any),
-    );
+    const testLayer = makeTestLayer({
+      registry: mockToolRegistry,
+      presentation: promptingPresentation,
+      llm: classifyingLlm,
+    });
 
     const toolCall: ToolCall = {
       id: "call_cmd_1",
@@ -876,25 +751,10 @@ describe("ToolExecutor picker-style approvals", () => {
       },
     } as unknown as PresentationService;
 
-    const testLayer = Layer.mergeAll(
-      Layer.succeed(LoggerServiceTag, mockLogger),
-      Layer.succeed(PresentationServiceTag, presentationService),
-      Layer.succeed(ToolRegistryTag, mockToolRegistry),
-      Layer.succeed(AgentConfigServiceTag, mockAgentConfigService),
-      Layer.succeed(FileSystem.FileSystem, emptyFs),
-      Layer.succeed(TerminalServiceTag, emptyTerminal),
-      Layer.succeed(FileSystemContextServiceTag, emptyFsContext),
-      Layer.succeed(SkillServiceTag, mockSkillService),
-      Layer.succeed(LLMServiceTag, emptyLlm),
-      Layer.succeed(MCPServerManagerTag, emptyMcp),
-      Layer.succeed(MemoryServiceTag, emptyMemory),
-      Layer.succeed(WorkspaceServiceTag, {} as any),
-      Layer.succeed(WakeTriggerServiceTag, {} as any),
-      Layer.succeed(JobQueueServiceTag, {} as any),
-      Layer.succeed(ReminderServiceTag, emptyReminders),
-      Layer.succeed(PeerLedgerServiceTag, {} as any),
-      Layer.succeed(PeerTokenServiceTag, {} as any),
-    );
+    const testLayer = makeTestLayer({
+      registry: mockToolRegistry,
+      presentation: presentationService,
+    });
 
     return { testLayer, executeArgsSeen, receivedRequests };
   }
@@ -932,5 +792,150 @@ describe("ToolExecutor picker-style approvals", () => {
     expect(executeArgsSeen).toHaveLength(1);
     const seen = executeArgsSeen[0] as Record<string, unknown> | undefined;
     expect(seen?.["_selectedOptionId"]).toBe("anthropic/claude-sonnet-4-5");
+  });
+});
+
+describe("a run's effective tool set as the execution boundary", () => {
+  /**
+   * A registry holding both halves of one gated pair plus an unrelated tool, standing in for
+   * the process-wide registry that resolves any name the model writes.
+   */
+  function makeFullRegistry(executed: string[]): ToolRegistry {
+    const tools: Record<string, Record<string, unknown>> = {
+      read_file: { name: "read_file", riskLevel: "read-only" },
+      execute_command: {
+        name: "execute_command",
+        riskLevel: "unknown",
+        approvalExecuteToolName: "execute_execute_command",
+      },
+      execute_execute_command: {
+        name: "execute_execute_command",
+        riskLevel: "unknown",
+        hidden: true,
+      },
+    };
+    return {
+      getTool: (name: string) =>
+        tools[name] !== undefined
+          ? Effect.succeed(tools[name])
+          : Effect.fail(new Error(`Tool not found: ${name}`)),
+      executeTool: (name: string) =>
+        Effect.sync(() => {
+          executed.push(name);
+          return name === "execute_command"
+            ? {
+                success: true,
+                result: {
+                  approvalRequired: true,
+                  message: "Run ls",
+                  executeToolName: "execute_execute_command",
+                  executeArgs: { command: "ls" },
+                },
+              }
+            : { success: true, result: { stdout: "ok", exitCode: 0 } };
+        }),
+    } as unknown as ToolRegistry;
+  }
+
+  function callToolNamed(
+    name: string,
+    effectiveToolNames: ReadonlySet<string>,
+    executed: string[],
+    presentation?: PresentationService,
+  ): Promise<ToolCallExecutionResult> {
+    const toolCall: ToolCall = {
+      id: `call_${name}`,
+      type: "function",
+      function: { name, arguments: '{"command":"ls"}' },
+    };
+    return Effect.runPromise(
+      ToolExecutor.executeToolCall(
+        toolCall,
+        {
+          agentId: "agent-1",
+          conversationId: "sess-1",
+          effectiveToolNames,
+          // Yolo, as a peer-served run sets it: nothing here should pass because approval
+          // was skipped, only because the name was granted in the first place.
+          getAutoApprovePolicy: () => true,
+        },
+        displayConfig,
+        null,
+        makeRunMetrics(),
+        "agent-1",
+        "conv-123",
+        new Set(["execute_command"]),
+      ).pipe(
+        Effect.provide(
+          makeTestLayer({
+            registry: makeFullRegistry(executed),
+            ...(presentation !== undefined ? { presentation } : {}),
+          }),
+        ),
+      ) as Effect.Effect<ToolCallExecutionResult, unknown, never>,
+    );
+  }
+
+  it("refuses a tool the run was never granted, however well the registry knows it", async () => {
+    const executed: string[] = [];
+    const result = await callToolNamed("execute_command", new Set(["read_file"]), executed);
+
+    expect(executed).toEqual([]);
+    expect(result.success).toBe(false);
+    expect(result.result).toMatchObject({
+      error: expect.stringContaining("not available to this agent"),
+    });
+  });
+
+  it("hands the refusal back as a tool result the model can act on, not a failed run", async () => {
+    const executed: string[] = [];
+    const result = await callToolNamed("execute_command", new Set(["read_file"]), executed);
+
+    // Same shape as unparseable arguments: a settled tool result on the original call id,
+    // so the transcript stays valid and the next turn can choose a tool it does have.
+    expect(result.toolCallId).toBe("call_execute_command");
+    expect(result.name).toBe("execute_command");
+  });
+
+  it("still runs the hidden execute half once its proposal is approved", async () => {
+    const executed: string[] = [];
+    const result = await callToolNamed(
+      "execute_command",
+      new Set(["execute_command", "execute_execute_command"]),
+      executed,
+    );
+
+    expect(executed).toEqual(["execute_command", "execute_execute_command"]);
+    expect(result.success).toBe(true);
+    expect(result.name).toBe("execute_execute_command");
+  });
+
+  it("refuses the hidden execute half when the model names it directly", async () => {
+    const executed: string[] = [];
+    // In the effective set — the approval path needs it there — so only the fact that the
+    // model wrote the name itself can be what stops it.
+    const result = await callToolNamed(
+      "execute_execute_command",
+      new Set(["execute_command", "execute_execute_command"]),
+      executed,
+    );
+
+    expect(executed).toEqual([]);
+    expect(result.success).toBe(false);
+    expect(result.result).toMatchObject({
+      error: expect.stringContaining("cannot be called directly"),
+    });
+  });
+
+  it("leaves a caller with no effective set unrestricted", async () => {
+    const executed: string[] = [];
+    const result = await Effect.runPromise(
+      ToolExecutor.executeTool("read_file", {}, { agentId: "agent-1" }).pipe(
+        Effect.provide(makeTestLayer({ registry: makeFullRegistry(executed) })),
+      ) as Effect.Effect<ToolExecutionResult, unknown, never>,
+    );
+
+    expect(executed).toEqual(["read_file"]);
+    expect(result.success).toBe(true);
   });
 });

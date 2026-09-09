@@ -339,11 +339,6 @@ export interface ToolExecutionContext {
   /** Iteration budget for a sub-agent spawned here — its own, not the parent's remainder. */
   readonly maxSubagentIterations?: number;
   /**
-   * The parent's effective tool names. `spawn_subagent` passes these down as
-   * the child's allowlist so a child can never hold a tool its parent lacks.
-   */
-  readonly parentToolNames?: readonly string[];
-  /**
    * How many sub-agent levels sit above the run executing this tool. 0 at the
    * top level; `spawn_subagent` increments it and refuses past the limit.
    */
@@ -355,6 +350,22 @@ export interface ToolExecutionContext {
    * Used by summarize_context to actually update the executor's message array.
    */
   readonly compactConversation?: (compacted: readonly ChatMessage[]) => void;
+  /**
+   * Every tool name this run may execute: its resolved toolset plus the alias and
+   * hidden-execute-half names those tools answer to.
+   *
+   * The executor tests each call against this set before handing the name to the registry,
+   * which resolves against every tool registered in the process and would otherwise run one
+   * this run was never granted. Advertising a narrowed list is not enough on its own — a
+   * model that names an unadvertised tool anyway reaches the registry all the same.
+   *
+   * `spawn_subagent` also hands it down as the child's allowlist, so a child can never hold
+   * a tool its parent lacks. One set for both: a second copy of the same list is one edit
+   * away from letting a child execute something the parent could not.
+   *
+   * Undefined means unrestricted, for callers that run a tool outside an agent run.
+   */
+  readonly effectiveToolNames?: ReadonlySet<string>;
   /** Names of this run's `deferred`-tier tools `search_tools` may look up. */
   readonly deferredToolNames?: readonly string[];
   /** Called by `search_tools` to make fetched schemas callable for the rest of this run — mirrors `compactConversation`. */
