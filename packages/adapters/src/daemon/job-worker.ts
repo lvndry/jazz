@@ -10,12 +10,9 @@
  */
 
 import * as os from "node:os";
+import { tailForModel as tail } from "@jazz/core/agent/tools/capped-output";
 import { runShellCommand } from "@jazz/core/agent/tools/shell-tools";
-import {
-  DEFAULT_JOB_TIMEOUT_MS,
-  JOB_OUTPUT_TAIL_CHARS,
-  WORKER_POOL_SIZE,
-} from "@jazz/core/constants/job-queue";
+import { DEFAULT_JOB_TIMEOUT_MS, WORKER_POOL_SIZE } from "@jazz/core/constants/job-queue";
 import type { JobBatchRecord, JobRecord } from "@jazz/core/interfaces/job-queue-service";
 import { createSanitizedEnv } from "@jazz/core/utils/env";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
@@ -31,11 +28,6 @@ import {
 
 function jobBatchDirectory(): string {
   return `${getJazzHomeDirectory()}/job-batches`;
-}
-
-function tail(output: string): string {
-  if (output.length <= JOB_OUTPUT_TAIL_CHARS) return output;
-  return `…(earlier output trimmed)…\n${output.slice(-JOB_OUTPUT_TAIL_CHARS)}`;
 }
 
 function formatJobLine(job: JobRecord): string {

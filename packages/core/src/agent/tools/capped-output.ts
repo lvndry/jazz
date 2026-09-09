@@ -145,3 +145,18 @@ export function bindCappedStdio(
   });
   return () => ({ stdout: out, stderr: err });
 }
+
+/**
+ * How much of a command's output is quoted back to the model when the whole thing is too long
+ * to spend context on. A tail, because that is where a command's verdict lives.
+ */
+export const TOOL_OUTPUT_TAIL_CHARS = 2000;
+
+/**
+ * Trim output to its last `TOOL_OUTPUT_TAIL_CHARS` characters, marking that earlier output was
+ * dropped so the reader never mistakes a tail for the whole run.
+ */
+export function tailForModel(output: string): string {
+  if (output.length <= TOOL_OUTPUT_TAIL_CHARS) return output;
+  return `…(earlier output trimmed)…\n${output.slice(-TOOL_OUTPUT_TAIL_CHARS)}`;
+}

@@ -52,6 +52,7 @@ import {
   WORKSPACE_CATEGORY,
 } from "./tool-categories";
 import { userInteractionTools } from "./user-interaction-tools";
+import { createWaitTools } from "./wait-tools";
 import {
   createCancelTriggerTool,
   createListTriggersTool,
@@ -157,6 +158,10 @@ export function registerShellTools(): Effect.Effect<void, Error, ToolRegistry> {
     const shellTools = createShellCommandTools();
     yield* registerTool(shellTools.approval);
     yield* registerTool(shellTools.execute);
+
+    const waitTools = createWaitTools();
+    yield* registerTool(waitTools.approval);
+    yield* registerTool(waitTools.execute);
   });
 }
 

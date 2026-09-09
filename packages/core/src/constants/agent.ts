@@ -37,6 +37,19 @@ export const SHELL_COMMAND_TIMEOUT_MINUTES = 15;
  */
 export const SHELL_COMMAND_MAX_TIMEOUT_MS = SHELL_COMMAND_TIMEOUT_MINUTES * 60 * 1000;
 
+/**
+ * Floor on `wait_for`'s poll interval. A predicate is a real process spawn, so a caller that asks
+ * to check "constantly" should get a tight loop, not a fork bomb — but the floor is low enough
+ * that catching a transition the moment it happens is still expressible.
+ */
+export const WAIT_FOR_MIN_INTERVAL_MS = 250;
+
+/**
+ * Default `wait_for` poll interval. Most things worth waiting on — a build, an upload, a page
+ * changing — do not change faster than this, and each check costs a process spawn.
+ */
+export const WAIT_FOR_DEFAULT_INTERVAL_MS = 5_000;
+
 /** Maximum number of workflow run history records to keep */
 export const MAX_RUN_HISTORY_RECORDS = 100;
 

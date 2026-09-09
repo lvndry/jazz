@@ -3,7 +3,6 @@ import { Effect } from "effect";
 import { z } from "zod";
 import {
   JOB_COMMAND_MAX_LENGTH,
-  JOB_OUTPUT_TAIL_CHARS,
   JOB_REASON_MAX_LENGTH,
   JOB_TIMEOUT_MINUTES,
   MAX_CONCURRENCY_CAP,
@@ -16,6 +15,7 @@ import { JobQueueServiceTag } from "@/core/interfaces/job-queue-service";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionResult } from "@/core/types/tools";
 import { defineApprovalTool, defineTool, makeZodValidator } from "./base-tool";
+import { tailForModel } from "./capped-output";
 import { buildKeyFromContext } from "./context-utils";
 import { denylistBlockedError } from "./shell-tools";
 
@@ -36,8 +36,7 @@ function summarizeJobStatuses(batch: JobBatchRecord): {
 function tailOutput(output: string | undefined): string | null {
   const trimmed = output?.trim();
   if (!trimmed) return null;
-  if (trimmed.length <= JOB_OUTPUT_TAIL_CHARS) return trimmed;
-  return `…(earlier output trimmed)…\n${trimmed.slice(-JOB_OUTPUT_TAIL_CHARS)}`;
+  return tailForModel(trimmed);
 }
 
 function formatBatchSummary(batch: JobBatchRecord) {

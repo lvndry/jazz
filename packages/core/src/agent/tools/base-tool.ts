@@ -233,6 +233,11 @@ export interface ApprovalToolConfig<R, Args extends Record<string, unknown>> {
    * Overrides the default 3-minute executor timeout.
    */
   readonly timeoutMs?: number;
+  /**
+   * Suppresses the UI's "taking longer than expected" warning. Set it for a tool whose whole
+   * purpose is to block for a long time, where that warning would be describing normal operation.
+   */
+  readonly longRunning?: boolean;
 }
 
 /**
@@ -320,6 +325,7 @@ export function defineApprovalTool<R, Args extends Record<string, unknown>>(
     handler: config.handler,
     ...(config.createSummary ? { createSummary: config.createSummary } : {}),
     ...(config.timeoutMs !== undefined ? { timeoutMs: config.timeoutMs } : {}),
+    ...(config.longRunning !== undefined ? { longRunning: config.longRunning } : {}),
   });
 
   return {
