@@ -214,6 +214,7 @@ class DefaultToolRegistry implements ToolRegistry {
           categoryId: category?.id ?? "other",
           categoryDisplayName: category?.displayName ?? "Other",
           summary: tool.summary ?? truncateForSummary(tool.description),
+          ...(tool.keywords !== undefined ? { keywords: tool.keywords } : {}),
         });
       });
 

@@ -19,6 +19,24 @@ export const DEFAULT_MAX_SUBAGENT_DEPTH = 3;
 /** Tool execution timeout in milliseconds (3 minutes) */
 export const TOOL_TIMEOUT_MS = 3 * 60 * 1000;
 
+export const SHELL_COMMAND_TIMEOUT_MINUTES = 15;
+
+/**
+ * Wall-clock ceiling on one shell command run through a tool call: the executor's own
+ * `Effect.timeoutFail` deadline, the default when the caller names none, and the largest value a
+ * caller may ask for.
+ *
+ * All three must be the same number. The executor interrupts the tool call at its deadline and
+ * reports a bare timeout message, while the command runner's own deadline reports the exit code
+ * plus whatever the command had already printed. So a caller allowed to request more than the
+ * executor's deadline gets the interrupt instead of the useful result — a longer wait it asked
+ * for, silently converted into the same wait with its partial output dropped.
+ *
+ * Waits that genuinely outlast this belong to `register_trigger`, which suspends the run and
+ * resumes it later rather than holding a model turn open.
+ */
+export const SHELL_COMMAND_MAX_TIMEOUT_MS = SHELL_COMMAND_TIMEOUT_MINUTES * 60 * 1000;
+
 /** Maximum number of workflow run history records to keep */
 export const MAX_RUN_HISTORY_RECORDS = 100;
 

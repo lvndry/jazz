@@ -75,8 +75,16 @@ describe("rankToolsByQuery", () => {
  */
 describe("finding a tool for an open-ended watch", () => {
   const candidates = [
-    { name: "enqueue_batch", summary: enqueueBatchSummary() },
-    { name: "register_trigger", summary: registerTriggerSummary() },
+    {
+      name: "enqueue_batch",
+      summary: enqueueBatchSummary(),
+      keywords: createJobQueueTools().enqueueBatch.approval.keywords ?? [],
+    },
+    {
+      name: "register_trigger",
+      summary: registerTriggerSummary(),
+      keywords: createRegisterTriggerTool().keywords ?? [],
+    },
   ];
 
   it.each([
@@ -100,6 +108,44 @@ describe("finding a tool for an open-ended watch", () => {
 
   it("still tells the caller the per-job ceiling it has to plan around", () => {
     expect(enqueueBatchSummary()).toContain(`${JOB_TIMEOUT_MINUTES} minutes`);
+  });
+
+  /**
+   * Substring matching is asymmetric — a longer query token is never a substring of the shorter
+   * word it is inflected from — so a summary saying "watch" was found by "watch" and missed by
+   * "watching", which is the more natural way to ask.
+   */
+  it.each([
+    "watching a deploy until it lands",
+    "monitoring a github action",
+    "polling a log for errors",
+    "keep checking the build",
+    "tracking changes in a repo",
+    "notify me when the logs show an error",
+  ])("resolves the inflected phrasing %p", (query) => {
+    expect(rankToolsByQuery(query, candidates).length).toBeGreaterThan(0);
+  });
+
+  /**
+   * Every example in these summaries used to be a developer example, so an everyday-life request
+   * to keep an eye on something scored zero and the tool was unreachable — the capability was
+   * present and unfindable.
+   */
+  it.each([
+    "tell me when the concert tickets go on sale",
+    "watch this price and let me know if it drops",
+    "let me know when my package is delivered",
+    "check whether my flight is delayed",
+    "keep an eye on the restock",
+    "wait for the download to finish",
+    "tell me when they reply to my email",
+    "check back when the appointment slot opens",
+  ])("resolves the non-developer phrasing %p", (query) => {
+    expect(rankToolsByQuery(query, candidates).length).toBeGreaterThan(0);
+  });
+
+  it("does not match a query that merely shares a stopword with the summary", () => {
+    expect(rankToolsByQuery("pick a theme for the website", candidates)).toEqual([]);
   });
 });
 

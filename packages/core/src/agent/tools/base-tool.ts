@@ -37,6 +37,8 @@ export interface BaseToolConfig<R, Args extends Record<string, unknown>> {
    * has to carry the words a request would use rather than the ones the implementation uses.
    */
   readonly summary?: string;
+  /** Retrieval-only vocabulary for `search_tools`; see `Tool.keywords`. */
+  readonly keywords?: readonly string[];
   /**
    * Optional array of tags for categorizing and organizing tools.
    */
@@ -116,10 +118,12 @@ export function defineTool<R, Args extends Record<string, unknown>>(
     name: config.name,
     description: config.description,
     ...(config.summary !== undefined ? { summary: config.summary } : {}),
+    ...(config.keywords !== undefined ? { keywords: config.keywords } : {}),
     tags: config.tags ?? [],
     ...(config.aliases ? { aliases: config.aliases } : {}),
     parameters: config.parameters,
     ...(config.jsonSchema !== undefined ? { jsonSchema: config.jsonSchema } : {}),
+    ...(config.keywords !== undefined ? { keywords: config.keywords } : {}),
     hidden: config.hidden === true,
     riskLevel: config.riskLevel ?? defaultRiskLevel,
     disclosure: config.disclosure,
@@ -181,6 +185,8 @@ export interface ApprovalToolConfig<R, Args extends Record<string, unknown>> {
   readonly description: string;
   /** One-line summary `search_tools` matches. See {@link BaseToolConfig.summary}. */
   readonly summary?: string;
+  /** Retrieval-only vocabulary for `search_tools`; see `Tool.keywords`. */
+  readonly keywords?: readonly string[];
   /** Optional tags for categorization */
   readonly tags?: readonly string[];
   /** Zod schema for parameters */
