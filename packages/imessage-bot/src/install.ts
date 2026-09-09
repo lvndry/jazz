@@ -35,11 +35,22 @@ export interface PlanContext {
 }
 
 const FULL_DISK_ACCESS_HELP =
-  "macOS is refusing access to the message database.\n" +
-  "Grant Full Disk Access to whatever runs this bridge — System Settings → " +
-  "Privacy & Security → Full Disk Access — then start it again.\n" +
-  "For a LaunchAgent that is the binary in ProgramArguments (e.g. the `bun` " +
-  "executable), not Terminal.";
+  "macOS is refusing access to the message database (~/Library/Messages/chat.db).\n" +
+  "\n" +
+  "Why it is needed: Apple publishes no API for *receiving* iMessages, and the\n" +
+  "AppleScript handler that once existed is gone — the row in chat.db is the only\n" +
+  "record that a message arrived. Sending does not need this; that is the separate,\n" +
+  "much narrower Automation → Messages grant.\n" +
+  "\n" +
+  "Why the permission is so broad: chat.db sits behind macOS's all-files privacy\n" +
+  'class, and Apple offers no narrower "read Messages" grant to third-party\n' +
+  "software. It is all files or nothing.\n" +
+  "\n" +
+  "Grant it in System Settings → Privacy & Security → Full Disk Access, then start\n" +
+  "this again. macOS attributes the access to the *responsible* process, so from a\n" +
+  "terminal that is the terminal app — which then also grants every other command\n" +
+  "you run there. To keep the grant scoped to this bridge, run it from a\n" +
+  "LaunchAgent and grant the binary in ProgramArguments instead.";
 
 export function planInstall(availability: ImsgAvailability, context: PlanContext): InstallPlan {
   if (availability.available) return { action: "proceed" };
