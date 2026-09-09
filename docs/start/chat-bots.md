@@ -168,25 +168,28 @@ option, because iMessage exists nowhere else.
 ### 1. Start it
 
 ```bash
-IMESSAGE_SELF_TRIGGER=jazz bun packages/imessage-bot/src/bridge.ts
+jazz imessage
 ```
 
-`IMESSAGE_SELF_TRIGGER` lets you reach the bridge from your own account by texting yourself
-`jazz <question>`. You need it to try this alone: iMessage marks everything you type as
-coming from you, including in a chat with yourself, so without a trigger word the bridge
-cannot tell your question from its own reply.
+The first run of this command is where setup happens, and nowhere earlier —
+installing Jazz never asks about iMessage, because a request for Full Disk
+Access from something you did not ask for is alarming rather than helpful.
 
 ### 2. Say yes twice
 
-The first run walks you through the two things it needs:
+It walks through the two things it needs:
 
 - **`imsg`**, the CLI it reads and sends Messages through. It offers to install it.
 - **Full Disk Access**, so it can read your Messages. macOS keeps them in a protected
-  database and this is the only permission that opens it. The bridge opens the right
-  settings page and copies the path you need to add — click `+`, press `Cmd-Shift-G`,
-  paste, then run it again.
+  database and this is the only permission that opens it. Jazz opens the right settings
+  page and copies the path you need to add — click `+`, press `Cmd-Shift-G`, paste, then
+  run it again.
 
 The first message it sends also raises a one-time Automation → Messages prompt.
+
+With nothing else configured it answers only you: text **yourself**
+`jazz <question>`. That keeps a first run useful without opening your number to
+anyone.
 
 ### 3. Let it run in the background
 
@@ -194,8 +197,9 @@ Once it answers, it offers to install itself as a background service and hands o
 then on it starts at login and restarts itself if it dies.
 
 ```bash
-tail -f ~/.jazz-imessage/bridge.log                        # watch it
-launchctl bootout gui/$(id -u)/ai.lysk.jazz.imessage       # stop it
+jazz imessage status   # installed? running?
+jazz imessage logs     # follow it
+jazz imessage stop     # stop it
 ```
 
 Granting Full Disk Access to the service rather than to your terminal is worth doing:

@@ -18,7 +18,7 @@
  */
 
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { startReminderSweep } from "@jazz/bot-shared/reminder-sweep";
 import {
@@ -67,6 +67,14 @@ const STORE_FILES = {
 const CURSOR_FILE = "im-cursor.json";
 const CURSOR_KEY = "lastRowId";
 
+/**
+ * The word that makes a message you send yourself a question for the agent.
+ *
+ * Used when a first run has nothing configured — the one setting that makes the
+ * bridge useful while still admitting nobody but the account owner.
+ */
+const DEFAULT_SELF_TRIGGER = "jazz";
+
 /** How many chats to pull when refreshing the chat metadata cache. */
 const CHAT_LIST_LIMIT = 200;
 
@@ -95,26 +103,63 @@ interface BridgeConfig extends AccessConfig {
   readonly selfTrigger: string | undefined;
 }
 
+/**
+ * The Jazz binary a run is spawned with.
+ *
+ * When the bridge runs inside the Jazz binary, that binary is this process, and
+ * naming it directly beats a PATH lookup that could resolve to a different
+ * install. Under `bun bridge.ts` the executable is bun, which cannot run a Jazz
+ * turn, so that case falls back to the name.
+ */
+/**
+ * The arguments the service needs after the binary.
+ *
+ * Inside the Jazz binary that is the subcommand; under `bun` it is the path of
+ * this file, which is what bun was given.
+ */
+function serviceArgs(): readonly string[] {
+  if (defaultJazzBinary() === process.execPath) return ["imessage"];
+  // Started with `bun`, so the service runs the same script entry point.
+  return [join(dirname(fileURLToPath(import.meta.url)), "main.ts")];
+}
+
+function defaultJazzBinary(): string {
+  const executable = process.execPath;
+  return executable.endsWith("/jazz") ? executable : "jazz";
+}
+
 function envFlag(name: string, defaultOn: boolean): boolean {
   const raw = process.env[name]?.trim().toLowerCase();
   if (raw === undefined || raw.length === 0) return defaultOn;
   return !["0", "false", "off", "no"].includes(raw);
 }
 
-function loadConfig(): BridgeConfig {
+function loadConfig(interactive: boolean): BridgeConfig {
   const allowedHandles = parseHandleList(process.env["IMESSAGE_ALLOWED_HANDLES"]?.trim() ?? "");
   const allowedGroupChatIds = parseChatIdList(
     process.env["IMESSAGE_ALLOWED_GROUP_CHAT_IDS"]?.trim() ?? "",
   );
 
-  const selfTrigger = process.env["IMESSAGE_SELF_TRIGGER"]?.trim();
-  if (allowedHandles.size === 0 && allowedGroupChatIds.size === 0 && !selfTrigger) {
+  let selfTrigger = process.env["IMESSAGE_SELF_TRIGGER"]?.trim().toLowerCase() || undefined;
+  const nothingConfigured =
+    allowedHandles.size === 0 && allowedGroupChatIds.size === 0 && selfTrigger === undefined;
+
+  if (nothingConfigured && interactive) {
+    // Starting with nothing configured is what a first run looks like, and it
+    // should work rather than teach environment variables. The self trigger is
+    // the safe default to land on: it opens the bridge to exactly one person —
+    // whoever is already signed in on this Mac — and to nobody else.
+    selfTrigger = DEFAULT_SELF_TRIGGER;
+    console.error(
+      `No one is allowed to text this agent yet, so it will answer only you.\n` +
+        `Text yourself "${DEFAULT_SELF_TRIGGER} <question>" to try it.\n` +
+        `To let others in, set IMESSAGE_ALLOWED_HANDLES to their numbers.\n`,
+    );
+  } else if (nothingConfigured) {
     throw new Error(
-      "IMESSAGE_ALLOWED_HANDLES is empty. This bridge answers on a phone number that " +
-        "anyone can text, so it refuses to start without an allow-list. Set it to a " +
-        "comma-separated list of phone numbers (E.164, e.g. +15551234567) or Apple IDs.\n" +
-        "To try it alone with no allow-list, set IMESSAGE_SELF_TRIGGER=jazz and text " +
-        'yourself "jazz <question>".',
+      "IMESSAGE_ALLOWED_HANDLES is empty, and there is no terminal to ask. This bridge " +
+        "answers on a phone number anyone can text, so it will not start without an " +
+        "allow-list. Set it to a comma-separated list of phone numbers (E.164) or Apple IDs.",
     );
   }
 
@@ -122,7 +167,7 @@ function loadConfig(): BridgeConfig {
     allowedHandles,
     allowedGroupChatIds,
     imsgBinary: process.env["IMSG_BIN"]?.trim() || "imsg",
-    jazzBinary: process.env["JAZZ_BIN"]?.trim() || "jazz",
+    jazzBinary: process.env["JAZZ_BIN"]?.trim() || defaultJazzBinary(),
     // Not `/data`: unlike the containerised bridges this runs as a normal
     // process on someone's Mac, where an absolute root path is neither
     // writable nor expected.
@@ -140,7 +185,7 @@ function loadConfig(): BridgeConfig {
     model: process.env["JAZZ_IMESSAGE_MODEL"]?.trim() || "gpt-5.4",
     reasoningEffort: process.env["JAZZ_REASONING"]?.trim() || "medium",
     showReasoning: envFlag("JAZZ_IMESSAGE_SHOW_REASONING", false),
-    selfTrigger: process.env["IMESSAGE_SELF_TRIGGER"]?.trim().toLowerCase() || undefined,
+    selfTrigger,
   };
 }
 
@@ -348,7 +393,9 @@ async function maybeOfferService(config: BridgeConfig): Promise<void> {
   try {
     const path = writeServicePlist({
       runtime: process.execPath,
-      entrypoint: fileURLToPath(import.meta.url),
+      // The same command that started this one, so the service and a person
+      // invoke the bridge identically.
+      args: serviceArgs(),
       workingDirectory: process.cwd(),
       jazzHome: config.jazzHome,
       environment: carriedEnvironment(),
@@ -376,8 +423,8 @@ async function maybeOfferService(config: BridgeConfig): Promise<void> {
   }
 }
 
-async function start(): Promise<void> {
-  const config = loadConfig();
+export async function startBridge(): Promise<void> {
+  const config = loadConfig(process.stdin.isTTY === true);
 
   if (!(await ensureImsgUsable(config.imsgBinary))) process.exit(1);
 
@@ -453,8 +500,3 @@ async function start(): Promise<void> {
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
 }
-
-void start().catch((error) => {
-  console.error(String(error));
-  process.exit(1);
-});

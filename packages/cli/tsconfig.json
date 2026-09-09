@@ -9,7 +9,7 @@
       "@/cli/*": ["./src/*"]
     }
   },
-  "references": [{ "path": "../core" }, { "path": "../adapters" }],
+  "references": [{ "path": "../core" }, { "path": "../adapters" }, { "path": "../imessage-bot" }],
   "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.d.ts"],
   "exclude": ["node_modules", "dist", "**/*.test.ts", "**/*.test.tsx"]
 }

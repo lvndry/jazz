@@ -70,53 +70,38 @@ machine and does not use them.
 
 ## Quick start
 
-**1. Find your own handle.** The allow-list is matched against the handle
-iMessage reports, which is a phone number in E.164 or an Apple ID:
-
 ```bash
-imsg chats --limit 20 --json | jq -s '.[] | {id, contact_name, identifier, is_group}'
+jazz imessage
 ```
 
-**2. Run it.** The allow-list is mandatory — this bridge answers on a phone
-number anyone can text, so it refuses to start without one:
+That is the whole of it. The first run walks through what it needs — installing
+[`imsg`](https://github.com/openclaw/imsg), granting Full Disk Access, and
+whether to keep running in the background — and nothing is asked before you ask
+for iMessage, which is why none of it happens when you install Jazz.
+
+With nothing configured it answers only you: text **yourself** `jazz <question>`
+from any of your devices. To let other people in, set their numbers:
 
 ```bash
-IMESSAGE_ALLOWED_HANDLES="+15551234567" \
-OPENAI_API_KEY=sk-… \
-bun packages/imessage-bot/src/bridge.ts
+IMESSAGE_ALLOWED_HANDLES="+15551234567,friend@icloud.com" jazz imessage
 ```
 
-Have that person text you: `🤔 Working…`, then the answer.
-
-**Testing it by yourself.** Messages you type are marked as coming from you —
-including in a chat with yourself — and so are the bridge's own replies, which
-is why it ignores them by default. Set a trigger word to reach it alone:
+Once it offers to run in the background and you accept, it starts at login and
+restarts itself if it dies.
 
 ```bash
-IMESSAGE_SELF_TRIGGER=jazz \
-OPENAI_API_KEY=sk-… \
-bun packages/imessage-bot/src/bridge.ts
+jazz imessage status   # installed? running?
+jazz imessage logs     # follow it
+jazz imessage stop     # stop it
 ```
 
-Then text **yourself** `jazz what's on my calendar tomorrow?` from any of your
-devices. Only messages starting with the trigger are picked up, the trigger is
-stripped before the agent sees it, and the bridge recognises its own replies, so
-it cannot end up answering itself.
+Granting Full Disk Access to the background service rather than to your terminal
+is worth doing. macOS attributes the access to whatever started the process, so
+granting it from a terminal covers every command you run there, while the
+service grants only Jazz.
 
-**3. Keep it running.** Once it answers, it offers to install itself as a
-background service and hands over to it — so it survives closing the terminal
-and comes back at login.
-
-That also narrows the Full Disk Access grant. Started from a terminal, macOS
-holds the *terminal* responsible, so granting it there gives every command you
-ever run in that window access to every file on the machine. Under launchd this
-binary is responsible, and the grant covers the bridge alone.
-
-```bash
-tail -f ~/.jazz-imessage/bridge.log                        # follow it
-launchctl bootout gui/$(id -u)/ai.lysk.jazz.imessage       # stop it
-launchctl kickstart -k gui/$(id -u)/ai.lysk.jazz.imessage  # restart it
-```
+From a checkout without an installed binary, `bun packages/imessage-bot/src/main.ts`
+is the same thing.
 
 ## Configuration
 

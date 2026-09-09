@@ -44,8 +44,15 @@ export function runningUnderLaunchd(env: NodeJS.ProcessEnv = process.env): boole
 export interface ServiceSpec {
   /** The binary launchd starts — this process's own executable. */
   readonly runtime: string;
-  /** Absolute path of the bridge entrypoint it runs. */
-  readonly entrypoint: string;
+  /**
+   * Arguments after the binary.
+   *
+   * `["imessage"]` when the bridge runs inside the Jazz binary, or the path of
+   * bridge.ts when it was started with `bun`. Either way the service runs the
+   * same command a person would, so there is one way for it to start and one
+   * thing to grant Full Disk Access to.
+   */
+  readonly args: readonly string[];
   readonly workingDirectory: string;
   readonly jazzHome: string;
   /** Environment the service runs with, minus anything launchd sets itself. */
@@ -91,7 +98,7 @@ export function renderServicePlist(spec: ServiceSpec): string {
     <key>ProgramArguments</key>
     <array>
       <string>${escapeXml(spec.runtime)}</string>
-      <string>${escapeXml(spec.entrypoint)}</string>
+${spec.args.map((arg) => `      <string>${escapeXml(arg)}</string>`).join("\n")}
     </array>
     <key>WorkingDirectory</key>
     <string>${escapeXml(spec.workingDirectory)}</string>

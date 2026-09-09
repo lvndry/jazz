@@ -832,6 +832,73 @@ function registerUpdateCommand(program: Command): void {
  * plaintext (the token) and the part worth reading back (the ledger).
  */
 /**
+ * Run a command that needs none of the Effect services.
+ *
+ * `runCliAction` builds the service layer, which the iMessage bridge has no use
+ * for: it spawns `jazz run` as a subprocess, so the agent's services are built
+ * inside that process rather than this one. Failures print their message alone
+ * — these are setup problems for a person to act on, not stack traces.
+ */
+function runPlainAction(action: () => Promise<void> | void): Promise<void> {
+  return Promise.resolve()
+    .then(action)
+    .catch((error: unknown) => {
+      console.error(error instanceof Error ? error.message : String(error));
+      process.exitCode = 1;
+    });
+}
+
+/**
+ * Register `jazz imessage` — reach the agent from Messages on a Mac.
+ *
+ * A top-level noun rather than something under a `bridge` group, matching the
+ * other surfaces this binary will grow: what a person wants is "iMessage", not
+ * a category to navigate first.
+ *
+ * The bare command starts the bridge in the foreground and, on a first run,
+ * walks through what it needs. The subcommands exist because it offers to keep
+ * running in the background, and a service you cannot stop or read the logs of
+ * is worse than no service.
+ */
+function registerIMessageCommand(program: Command): void {
+  const imessageCommand = program
+    .command("imessage")
+    .description("Chat with your agent from Messages (macOS)")
+    .action(() =>
+      runPlainAction(() =>
+        import("@jazz/cli/commands/imessage").then((mod) => mod.imessageCommand()),
+      ),
+    );
+
+  imessageCommand
+    .command("stop")
+    .description("Stop the background bridge")
+    .action(() =>
+      runPlainAction(() =>
+        import("@jazz/cli/commands/imessage").then((mod) => mod.imessageStopCommand()),
+      ),
+    );
+
+  imessageCommand
+    .command("status")
+    .description("Whether the background bridge is installed and running")
+    .action(() =>
+      runPlainAction(() =>
+        import("@jazz/cli/commands/imessage").then((mod) => mod.imessageStatusCommand()),
+      ),
+    );
+
+  imessageCommand
+    .command("logs")
+    .description("Follow the bridge log")
+    .action(() =>
+      runPlainAction(() =>
+        import("@jazz/cli/commands/imessage").then((mod) => mod.imessageLogsCommand()),
+      ),
+    );
+}
+
+/**
  * Register `jazz daemon` — the long-lived HTTP server.
  *
  * One command, in the foreground. Supervision belongs to whatever already supervises this
@@ -1586,6 +1653,7 @@ export function createCLIApp(): Command {
   registerMCPCommands(program);
   registerUpdateCommand(program);
   registerDaemonCommand(program);
+  registerIMessageCommand(program);
   registerWakeTriggerCommand(program);
   registerReminderCommand(program);
   registerPeersCommands(program);

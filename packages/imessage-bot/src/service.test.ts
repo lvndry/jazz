@@ -8,8 +8,8 @@ import {
 } from "./service";
 
 const SPEC: ServiceSpec = {
-  runtime: "/Users/me/.bun/bin/bun",
-  entrypoint: "/Users/me/jazz/packages/imessage-bot/src/bridge.ts",
+  runtime: "/Users/me/.local/bin/jazz",
+  args: ["imessage"],
   workingDirectory: "/Users/me/jazz",
   jazzHome: "/Users/me/.jazz-imessage",
   environment: { IMESSAGE_SELF_TRIGGER: "jazz" },
@@ -17,7 +17,18 @@ const SPEC: ServiceSpec = {
 
 describe("renderServicePlist", () => {
   test("names the binary launchd starts, which is what the grant must match", () => {
-    expect(renderServicePlist(SPEC)).toContain("<string>/Users/me/.bun/bin/bun</string>");
+    expect(renderServicePlist(SPEC)).toContain("<string>/Users/me/.local/bin/jazz</string>");
+  });
+
+  test("runs the same command a person would, so there is one way in", () => {
+    expect(renderServicePlist(SPEC)).toContain("<string>imessage</string>");
+  });
+
+  test("carries several arguments through in order", () => {
+    const plist = renderServicePlist({ ...SPEC, args: ["run", "--flag", "value"] });
+    const order = ["run", "--flag", "value"].map((arg) => plist.indexOf(`<string>${arg}</string>`));
+    expect(order.every((index) => index > 0)).toBe(true);
+    expect([...order].sort((left, right) => left - right)).toEqual(order);
   });
 
   test("spells out a PATH, since launchd's own reaches none of the usual places", () => {
