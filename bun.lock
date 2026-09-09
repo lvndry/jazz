@@ -156,6 +156,15 @@
         "@jazz/core": "workspace:*",
       },
     },
+    "packages/imessage-bot": {
+      "name": "@jazz/imessage-bot",
+      "version": "0.15.6",
+      "dependencies": {
+        "@jazz/adapters": "workspace:*",
+        "@jazz/bot-shared": "workspace:*",
+        "@jazz/core": "workspace:*",
+      },
+    },
     "packages/runtime": {
       "name": "@jazz/runtime",
       "version": "0.15.6",
@@ -476,6 +485,8 @@
     "@jazz/core": ["@jazz/core@workspace:packages/core"],
 
     "@jazz/discord-bot": ["@jazz/discord-bot@workspace:packages/discord-bot"],
+
+    "@jazz/imessage-bot": ["@jazz/imessage-bot@workspace:packages/imessage-bot"],
 
     "@jazz/runtime": ["@jazz/runtime@workspace:packages/runtime"],
 
