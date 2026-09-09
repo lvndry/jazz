@@ -5,6 +5,7 @@
  */
 
 import { Cause, Effect, Fiber, Option, Ref } from "effect";
+import { recordMemoryRecall, VIEW_MEMORY_TOOL_NAME } from "@/core/agent/memory-recall-log";
 import { isRunParkRequested, withTranscript } from "@/core/agent/run/park-signal";
 import { isLocalServerProvider } from "@/core/constants/local-providers";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
@@ -1329,6 +1330,16 @@ export function executeAgentLoop(
             }
           }
         }
+
+        // Before finalizeRun, which may rewrite the transcript: whether a
+        // `view_memory` call landed before the answer is an ordering fact about
+        // the messages this loop actually produced.
+        yield* recordMemoryRecall({
+          agentId: agent.id,
+          conversationId: runContext.actualConversationId,
+          messages: state.currentMessages,
+          memoryToolsOffered: runContext.expandedToolNames.includes(VIEW_MEMORY_TOOL_NAME),
+        });
 
         return yield* finalizeRun(
           {

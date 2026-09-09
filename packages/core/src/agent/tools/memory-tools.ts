@@ -7,7 +7,11 @@
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { z } from "zod";
-import type { MemoryService, MemoryViewOutcome } from "@/core/interfaces/memory-service";
+import type {
+  MemoryService,
+  MemoryViewOutcome,
+  MemoryWriteContext,
+} from "@/core/interfaces/memory-service";
 import { MemoryServiceTag } from "@/core/interfaces/memory-service";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionResult } from "@/core/types/tools";
@@ -222,19 +226,32 @@ export function createManageMemoryTool(): Tool<MemoryToolDeps> {
       Effect.gen(function* () {
         const memoryService = yield* MemoryServiceTag;
         const scopes = context.memoryScopes ?? [context.agentId];
+        const writeContext: MemoryWriteContext = { agentId: context.agentId };
 
         const outcome = yield* (() => {
           switch (args.command) {
             case "create":
-              return memoryService.create(scopes, args.path, args.file_text);
+              return memoryService.create(scopes, args.path, args.file_text, writeContext);
             case "str_replace":
-              return memoryService.strReplace(scopes, args.path, args.old_str, args.new_str);
+              return memoryService.strReplace(
+                scopes,
+                args.path,
+                args.old_str,
+                args.new_str,
+                writeContext,
+              );
             case "insert":
-              return memoryService.insert(scopes, args.path, args.insert_line, args.insert_text);
+              return memoryService.insert(
+                scopes,
+                args.path,
+                args.insert_line,
+                args.insert_text,
+                writeContext,
+              );
             case "delete":
               return memoryService.delete(scopes, args.path);
             case "rename":
-              return memoryService.rename(scopes, args.old_path, args.new_path);
+              return memoryService.rename(scopes, args.old_path, args.new_path, writeContext);
           }
         })();
 

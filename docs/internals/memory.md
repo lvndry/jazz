@@ -54,6 +54,47 @@ file count per scope (`core/constants/memory.ts`). The per-file cap is checked o
 write; the scope-wide byte and file-count caps are checked on every write that grows the
 scope, with an edit charged only its net delta so a shrinking edit always fits.
 
+## Provenance
+
+Every write records who made it, when, and when the file was last read back, in a hidden
+per-scope sidecar (`.provenance.json`). It is a sidecar rather than a header inside the
+memory files because those files are both the artifact a person edits directly and exactly
+what reaches the model — a header would break that equivalence and shift every line number
+`str_replace` and `insert` address. Hidden entries are excluded from listings and from the
+byte and file-count budgets: Jazz's own bookkeeping must not consume the operator's quota.
+
+`lastViewedAt` is recorded but deliberately wired to nothing. Personal memory is not
+re-derivable — delete "allergic to shellfish" and it is gone — so "unused" is a bad proxy
+for "unimportant": an allergy is read once a year. The signal exists for a human reviewing
+memory, not for an automatic deleter.
+
+## Seeing and controlling it
+
+```text
+jazz memory list <agent>            every file the agent can read, with provenance
+jazz memory show <agent> <path>     one file, exactly as the agent reads it
+jazz memory forget <agent> <path>   delete one file permanently
+jazz memory recall [--surface]      how often runs consulted memory before answering
+```
+
+`/memory` does the same inside a chat session (`/memory <path>` to read one, `/memory forget
+<path>` to remove one). Both operate on the real files, so nothing shown is a regenerated
+summary that could differ from what the model actually receives.
+
+## Measuring recall
+
+`view_memory` is tool-call-gated with no preload: nothing injects memory into context, so
+whether a run has continuity depends on the model choosing to spend a call before it
+answers. That is a property of a surface, not something a unit test can settle — a casual
+opener on a chat bridge is both the likeliest miss and the least likely to be noticed.
+
+Each finished run appends one line to `~/.jazz/memory-recall/memory-recall.jsonl` recording
+whether a `view_memory` call landed before the first substantive answer, tagged with the
+surface it came through. Bots shell out to the same `jazz run` a terminal user invokes, so
+each bridge sets `JAZZ_SURFACE`; absent the marker a run is plain CLI. Runs never offered the
+memory tools are recorded too, and excluded from the denominator — they cannot be a miss.
+`jazz memory recall` reports the rate per surface.
+
 ## Path safety
 
 Every action goes through one function, `resolveMemoryPath`, before touching the

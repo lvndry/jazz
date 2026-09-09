@@ -18,10 +18,19 @@ import {
   MEMORY_VIEW_TRUNCATE_CHARS,
 } from "@jazz/core/constants/memory";
 import type {
+  MemoryFileProvenance,
+  MemoryScopeProvenance,
+} from "@jazz/core/interfaces/memory-provenance";
+import {
+  EMPTY_MEMORY_SCOPE_PROVENANCE,
+  MEMORY_PROVENANCE_FILENAME,
+} from "@jazz/core/interfaces/memory-provenance";
+import type {
   MemoryDirectoryEntry,
   MemoryMutationOutcome,
   MemoryService,
   MemoryViewOutcome,
+  MemoryWriteContext,
 } from "@jazz/core/interfaces/memory-service";
 import { MemoryServiceTag } from "@jazz/core/interfaces/memory-service";
 import { getMemoryDirectory } from "@jazz/core/utils/paths";
@@ -81,6 +90,10 @@ function walkMemoryTree(
     let totalBytes = 0;
     let fileCount = 0;
     for (const name of names) {
+      // Hidden entries are Jazz's own bookkeeping (the provenance sidecar), not
+      // saved memory, so they must not consume the operator's byte or file
+      // budget — and they are excluded from listings for the same reason.
+      if (name.startsWith(".")) continue;
       const entryPath = path.join(dir, name);
       const info = yield* fs.stat(entryPath).pipe(Effect.catchAll(() => Effect.succeed(null)));
       if (!info) continue;
@@ -127,6 +140,133 @@ function listDirectoryEntries(
       }
     }
     return entries;
+  });
+}
+
+/**
+ * Reads a scope's provenance sidecar. A missing or corrupt file reads as empty
+ * rather than failing: provenance is metadata about memory, and losing it must
+ * never make the memory itself unreadable.
+ */
+function readScopeProvenance(
+  fs: FileSystem.FileSystem,
+  scopeRoot: string,
+): Effect.Effect<MemoryScopeProvenance, never> {
+  return fs.readFileString(path.join(scopeRoot, MEMORY_PROVENANCE_FILENAME)).pipe(
+    Effect.map((raw) => {
+      const parsed: unknown = JSON.parse(raw);
+      if (
+        typeof parsed !== "object" ||
+        parsed === null ||
+        typeof (parsed as MemoryScopeProvenance).files !== "object"
+      ) {
+        return EMPTY_MEMORY_SCOPE_PROVENANCE;
+      }
+      return parsed as MemoryScopeProvenance;
+    }),
+    Effect.catchAll(() => Effect.succeed(EMPTY_MEMORY_SCOPE_PROVENANCE)),
+  );
+}
+
+function writeScopeProvenance(
+  fs: FileSystem.FileSystem,
+  scopeRoot: string,
+  provenance: MemoryScopeProvenance,
+): Effect.Effect<void, never> {
+  return writeFileStringAtomic(
+    fs,
+    path.join(scopeRoot, MEMORY_PROVENANCE_FILENAME),
+    `${JSON.stringify(provenance, null, 2)}\n`,
+    { tempPrefix: "memory-provenance" },
+  ).pipe(Effect.catchAll(() => Effect.void));
+}
+
+/** Records a write against `relativePath`, creating its entry if it is new. */
+function recordWrite(
+  fs: FileSystem.FileSystem,
+  scopeRoot: string,
+  relativePath: string,
+  writeContext: MemoryWriteContext,
+): Effect.Effect<void, never> {
+  return Effect.gen(function* () {
+    const provenance = yield* readScopeProvenance(fs, scopeRoot);
+    const existing = provenance.files[relativePath];
+    const now = new Date().toISOString();
+    const writtenBy = existing?.writtenBy.includes(writeContext.agentId)
+      ? existing.writtenBy
+      : [...(existing?.writtenBy ?? []), writeContext.agentId];
+
+    const updated: MemoryFileProvenance = {
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+      ...(existing?.lastViewedAt !== undefined ? { lastViewedAt: existing.lastViewedAt } : {}),
+      writeCount: (existing?.writeCount ?? 0) + 1,
+      writtenBy,
+    };
+
+    yield* writeScopeProvenance(fs, scopeRoot, {
+      version: 1,
+      files: { ...provenance.files, [relativePath]: updated },
+    });
+  });
+}
+
+function forgetProvenance(
+  fs: FileSystem.FileSystem,
+  scopeRoot: string,
+  relativePath: string,
+): Effect.Effect<void, never> {
+  return Effect.gen(function* () {
+    const provenance = yield* readScopeProvenance(fs, scopeRoot);
+    if (provenance.files[relativePath] === undefined) return;
+    const files = { ...provenance.files };
+    delete files[relativePath];
+    yield* writeScopeProvenance(fs, scopeRoot, { version: 1, files });
+  });
+}
+
+function moveProvenance(
+  fs: FileSystem.FileSystem,
+  scopeRoot: string,
+  fromPath: string,
+  toPath: string,
+  writeContext: MemoryWriteContext,
+): Effect.Effect<void, never> {
+  return Effect.gen(function* () {
+    const provenance = yield* readScopeProvenance(fs, scopeRoot);
+    const existing = provenance.files[fromPath];
+    const files = { ...provenance.files };
+    delete files[fromPath];
+    const now = new Date().toISOString();
+    files[toPath] = {
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+      ...(existing?.lastViewedAt !== undefined ? { lastViewedAt: existing.lastViewedAt } : {}),
+      writeCount: (existing?.writeCount ?? 0) + 1,
+      writtenBy: existing?.writtenBy.includes(writeContext.agentId)
+        ? existing.writtenBy
+        : [...(existing?.writtenBy ?? []), writeContext.agentId],
+    };
+    yield* writeScopeProvenance(fs, scopeRoot, { version: 1, files });
+  });
+}
+
+function touchViewed(
+  fs: FileSystem.FileSystem,
+  scopeRoot: string,
+  relativePath: string,
+): Effect.Effect<void, never> {
+  return Effect.gen(function* () {
+    const provenance = yield* readScopeProvenance(fs, scopeRoot);
+    const existing = provenance.files[relativePath];
+    if (existing === undefined) return;
+    yield* writeScopeProvenance(fs, scopeRoot, {
+      version: 1,
+      files: {
+        ...provenance.files,
+        [relativePath]: { ...existing, lastViewedAt: new Date().toISOString() },
+      },
+    });
   });
 }
 
@@ -345,6 +485,8 @@ export class MemoryServiceImpl implements MemoryService {
         const truncated = selected.length > MEMORY_VIEW_TRUNCATE_CHARS;
         const displayContent = truncated ? selected.slice(0, MEMORY_VIEW_TRUNCATE_CHARS) : selected;
 
+        yield* touchViewed(fs, root, path.relative(root, target));
+
         return {
           kind: "file",
           path: abbreviateHomePath(target),
@@ -356,7 +498,21 @@ export class MemoryServiceImpl implements MemoryService {
       }.bind(this),
     );
 
-  readonly create: MemoryService["create"] = (scopes, virtualPath, fileText) =>
+  readonly provenance: MemoryService["provenance"] = (scopes, virtualPath) =>
+    Effect.gen(
+      function* (this: MemoryServiceImpl) {
+        const fs = yield* FileSystem.FileSystem;
+        const { scope, rest } = splitScopeAndRest(virtualPath);
+        if (scope === null || !scopes.includes(scope) || !isValidStorageKey(scope)) {
+          return undefined;
+        }
+        const scopeRoot = path.join(this.baseMemoryDirectory, scope);
+        const provenance = yield* readScopeProvenance(fs, scopeRoot);
+        return provenance.files[rest];
+      }.bind(this),
+    );
+
+  readonly create: MemoryService["create"] = (scopes, virtualPath, fileText, writeContext) =>
     Effect.gen(
       function* (this: MemoryServiceImpl) {
         const resolved = this.resolveScope(scopes, virtualPath);
@@ -396,6 +552,7 @@ export class MemoryServiceImpl implements MemoryService {
                 subject: "Creating this file",
               });
               yield* writeFileStringAtomic(fs, target, fileText, { tempPrefix: "memory" });
+              yield* recordWrite(fs, root, path.relative(root, target), writeContext);
 
               return {
                 success: true,
@@ -407,7 +564,13 @@ export class MemoryServiceImpl implements MemoryService {
       }.bind(this),
     );
 
-  readonly strReplace: MemoryService["strReplace"] = (scopes, virtualPath, oldStr, newStr) =>
+  readonly strReplace: MemoryService["strReplace"] = (
+    scopes,
+    virtualPath,
+    oldStr,
+    newStr,
+    writeContext,
+  ) =>
     Effect.gen(
       function* (this: MemoryServiceImpl) {
         const resolved = this.resolveScope(scopes, virtualPath);
@@ -473,6 +636,7 @@ export class MemoryServiceImpl implements MemoryService {
               });
 
               yield* writeFileStringAtomic(fs, target, updatedContent, { tempPrefix: "memory" });
+              yield* recordWrite(fs, root, path.relative(root, target), writeContext);
 
               return {
                 success: true,
@@ -484,7 +648,13 @@ export class MemoryServiceImpl implements MemoryService {
       }.bind(this),
     );
 
-  readonly insert: MemoryService["insert"] = (scopes, virtualPath, insertLine, insertText) =>
+  readonly insert: MemoryService["insert"] = (
+    scopes,
+    virtualPath,
+    insertLine,
+    insertText,
+    writeContext,
+  ) =>
     Effect.gen(
       function* (this: MemoryServiceImpl) {
         const resolved = this.resolveScope(scopes, virtualPath);
@@ -546,6 +716,7 @@ export class MemoryServiceImpl implements MemoryService {
               });
 
               yield* writeFileStringAtomic(fs, target, updatedContent, { tempPrefix: "memory" });
+              yield* recordWrite(fs, root, path.relative(root, target), writeContext);
 
               return {
                 success: true,
@@ -597,6 +768,8 @@ export class MemoryServiceImpl implements MemoryService {
                   ),
                 );
 
+              yield* forgetProvenance(fs, root, path.relative(root, target));
+
               return {
                 success: true,
                 message: `Successfully deleted ${abbreviateHomePath(target)}`,
@@ -607,7 +780,12 @@ export class MemoryServiceImpl implements MemoryService {
       }.bind(this),
     );
 
-  readonly rename: MemoryService["rename"] = (scopes, oldVirtualPath, newVirtualPath) =>
+  readonly rename: MemoryService["rename"] = (
+    scopes,
+    oldVirtualPath,
+    newVirtualPath,
+    writeContext,
+  ) =>
     Effect.gen(
       function* (this: MemoryServiceImpl) {
         const resolvedOld = this.resolveScope(scopes, oldVirtualPath);
@@ -673,6 +851,14 @@ export class MemoryServiceImpl implements MemoryService {
                     Effect.fail(e instanceof Error ? e : new Error(String(e))),
                   ),
                 );
+
+              yield* moveProvenance(
+                fs,
+                root,
+                path.relative(root, source),
+                path.relative(root, destination),
+                writeContext,
+              );
 
               return {
                 success: true,

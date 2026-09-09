@@ -29,6 +29,11 @@ export const CHAT_COMMANDS: readonly ChatCommandInfo[] = [
   { name: "fork", description: "Fork conversation (new branch from last message)" },
   { name: "help", description: "Show available commands and shortcuts", usage: "[command]" },
   {
+    name: "memory",
+    description: "Show what this agent has remembered about you, or forget one file",
+    usage: "[forget <path>]",
+  },
+  {
     name: "limit",
     description: "Set a session turn, cost, or token limit (applied immediately)",
     usage: "[turns|usd|tokens <value>|clear]",

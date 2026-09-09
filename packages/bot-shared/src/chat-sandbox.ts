@@ -439,11 +439,20 @@ export function sandboxCommand(sandbox: ChatSandbox, command: string[]): string[
  * The mail, calendar, GPG and `pass` stores are here for the same reason as
  * Jazz's own state — they are the account credentials of whoever set them up,
  * and a second conversation has no business reading them.
+ *
+ * `surface` names the front door for whatever the spawned process records about
+ * itself. A bot shells out to the same `jazz run` a terminal user invokes, so
+ * without the marker the two are indistinguishable in any per-surface metric.
  */
-export function sandboxEnv(sandbox: ChatSandbox, base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  if (!sandbox.isolated) return { ...base };
+export function sandboxEnv(
+  sandbox: ChatSandbox,
+  base: NodeJS.ProcessEnv,
+  surface?: string,
+): NodeJS.ProcessEnv {
+  const withSurface = surface === undefined ? { ...base } : { ...base, JAZZ_SURFACE: surface };
+  if (!sandbox.isolated) return withSurface;
   return {
-    ...base,
+    ...withSurface,
     HOME: sandbox.home,
     JAZZ_HOME: sandbox.home,
     XDG_CONFIG_HOME: join(sandbox.home, "xdg-config"),
