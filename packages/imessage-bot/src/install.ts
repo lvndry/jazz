@@ -81,7 +81,7 @@ export function planInstall(availability: ImsgAvailability, context: PlanContext
       `${availability.reason}\n\n` +
       "The iMessage bridge reads Messages through `imsg`, an open-source (MIT) CLI:\n" +
       "  https://github.com/openclaw/imsg\n\n" +
-      `Install it now with \`${IMSG_INSTALL_COMMAND}\`?`,
+      `It can be installed now with \`${IMSG_INSTALL_COMMAND}\`.`,
   };
 }
 

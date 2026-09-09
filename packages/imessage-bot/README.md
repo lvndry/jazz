@@ -39,7 +39,9 @@ Two consequences show up in the chat itself:
   The iMessage bridge reads Messages through `imsg`, an open-source (MIT) CLI:
     https://github.com/openclaw/imsg
 
-  Install it now with `brew install steipete/tap/imsg`? Install it? [Y/n]
+  It can be installed now with `brew install steipete/tap/imsg`.
+
+  Install it? [Y/n]
   ```
 
   It only ever asks when there is a terminal attached — started as a
@@ -111,7 +113,7 @@ restarts; grant Full Disk Access to `/opt/homebrew/bin/bun` (or whatever
 | `/persona name`          | Switch this chat's persona; bare `/persona` lists them              |
 | `/mode safe\|yolo`       | Whether risky tools stop to ask. Sticky per chat; `/new` keeps it.  |
 | `/tz Europe/Paris`       | Timezone reminders resolve in                                       |
-| `/status`                | Model, persona, mode, timezone, today's usage, uptime               |
+| `/status`                | Model, persona, mode, timezone, today's usage                       |
 | `/help`                  | The list above                                                      |
 
 A message starting with `/` that is not one of these is passed to the agent
