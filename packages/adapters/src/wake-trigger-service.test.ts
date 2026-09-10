@@ -1,3 +1,4 @@
+import * as fsSync from "node:fs";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -234,6 +235,45 @@ describe("sweepDueWakeTriggers", () => {
 
     const list = await runEffect(service.list("agent-1"));
     expect(list.length).toBe(1);
+  });
+
+  /**
+   * The sweep runs on every tick, and the ticker is now fast enough that taking a write lock per
+   * agent per tick would be tens of thousands of lock cycles a day, each contending with an agent
+   * registering a trigger of its own. Asserted on the lock directory rather than on timing, which
+   * would be flaky.
+   */
+  test("takes no lock when nothing is due", async () => {
+    const service = makeService();
+    const outcome = await runEffect(
+      service.add("agent-1", "conv-1", "1d", "not yet", "reason", "UTC"),
+    );
+    expect(outcome.success).toBe(true);
+
+    const lockPath = path.join(tmpDir, "agent-1.lock");
+    let lockSeen = false;
+    const watcher = setInterval(() => {
+      if (fsSync.existsSync(lockPath)) lockSeen = true;
+    }, 1);
+
+    await runEffect(sweepDueWakeTriggers(tmpDir, Date.now()));
+    clearInterval(watcher);
+
+    expect(lockSeen).toBe(false);
+    expect(fsSync.existsSync(lockPath)).toBe(false);
+  });
+
+  test("still fires a trigger that is due, which needs the lock", async () => {
+    const service = makeService();
+    const outcome = await runEffect(
+      service.add("agent-1", "conv-1", "1s", "due now", "reason", "UTC"),
+    );
+    expect(outcome.success).toBe(true);
+
+    const fired = await runEffect(sweepDueWakeTriggers(tmpDir, Date.now() + 5_000));
+
+    expect(fired.map((entry) => entry.trigger.prompt)).toEqual(["due now"]);
+    expect(fsSync.existsSync(path.join(tmpDir, "agent-1.lock"))).toBe(false);
   });
 });
 

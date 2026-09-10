@@ -100,6 +100,8 @@ export interface ToolSummary {
   readonly categoryId: string;
   readonly categoryDisplayName: string;
   readonly summary: string;
+  /** Retrieval-only vocabulary; see `Tool.keywords`. Never rendered to the model. */
+  readonly keywords?: readonly string[];
 }
 
 export interface Tool<R = never> {
@@ -109,6 +111,17 @@ export interface Tool<R = never> {
   readonly description: string;
   /** One-line summary for a `deferred`-tier tool; falls back to a truncated `description` if unset. Ignored for `eager` tools. */
   readonly summary?: string;
+  /**
+   * Extra vocabulary `search_tools` matches against, never shown to the model.
+   *
+   * A `deferred` tool is reachable only by keyword overlap against its name and summary, so every
+   * phrasing a caller might use has to appear in that one sentence — which pits retrieval breadth
+   * against a summary that still reads as prose, and the sentence wins. These words carry the
+   * breadth instead: domain terms for the same capability ("restock", "delivery", "price") that
+   * would be noise in a one-liner. Free in context, since they are only ever part of the search
+   * haystack.
+   */
+  readonly keywords?: readonly string[];
   /** Optional labels for grouping (UI, docs). Not sent to the model. */
   readonly tags?: readonly string[];
   /** Alternative names the LLM may use to call this tool. Resolved transparently at execution time. */

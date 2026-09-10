@@ -10,20 +10,22 @@
  */
 
 import * as os from "node:os";
+import { tailForModel as tail } from "@jazz/core/agent/tools/capped-output";
 import { runShellCommand } from "@jazz/core/agent/tools/shell-tools";
 import {
+  DEFAULT_BACKOFF_MAX_MS,
   DEFAULT_JOB_TIMEOUT_MS,
-  JOB_OUTPUT_TAIL_CHARS,
   WORKER_POOL_SIZE,
 } from "@jazz/core/constants/job-queue";
 import type { JobBatchRecord, JobRecord } from "@jazz/core/interfaces/job-queue-service";
 import { createSanitizedEnv } from "@jazz/core/utils/env";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
-import { Effect } from "effect";
+import { Duration, Effect } from "effect";
 import { runUnattendedTurn } from "@/adapters/daemon/unattended-resume";
 import {
   claimDueJobs,
   completeJob,
+  nextClaimableAt,
   listAgentIdsWithActiveBatches,
   reclaimExpiredLeases,
   type ClaimedJob,
@@ -31,11 +33,6 @@ import {
 
 function jobBatchDirectory(): string {
   return `${getJazzHomeDirectory()}/job-batches`;
-}
-
-function tail(output: string): string {
-  if (output.length <= JOB_OUTPUT_TAIL_CHARS) return output;
-  return `…(earlier output trimmed)…\n${output.slice(-JOB_OUTPUT_TAIL_CHARS)}`;
 }
 
 function formatJobLine(job: JobRecord): string {
@@ -109,6 +106,62 @@ function runClaimedJob(claimed: ClaimedJob) {
     );
     if (batchNowComplete && batch !== null) {
       yield* fireBatchResume(claimed.agentId, batch);
+    }
+  });
+}
+
+/**
+ * Run one agent's background jobs to completion, in this process, and return when there is
+ * nothing left to run.
+ *
+ * This is what makes a background batch independent of `jazz daemon`. Previously jobs executed
+ * only from the daemon's tick, so on a machine with no daemon `enqueue_batch` returned a batch id,
+ * the person approved unattended execution, and nothing ever ran or woke — a silent stall with an
+ * approval prompt in front of it.
+ *
+ * A one-shot host-scheduler job, the mechanism wake triggers use, does not fit here: launchd's
+ * `StartCalendarInterval` has minute resolution and no year key, so "run this now" either misses
+ * the current minute or waits up to sixty seconds for it, and a two-second retry backoff cannot be
+ * expressed at all. A batch instead gets a detached worker process started the moment it is
+ * enqueued, which is this function's body.
+ *
+ * Waiting out a retry backoff is part of the job, not a reason to exit: a pending job whose
+ * `nextAttemptAt` is in the future means the batch is unfinished, and returning would leave it
+ * that way with nobody scheduled to come back. The daemon's ticker still calls `runDueJobs` and
+ * remains a safety net for a batch whose worker was killed mid-flight.
+ */
+export function drainAgentJobs(agentId: string) {
+  return Effect.gen(function* () {
+    const baseDirectory = jobBatchDirectory();
+    const leaseOwner = `${os.hostname()}-${process.pid}`;
+
+    while (true) {
+      const claimed = yield* claimDueJobs(
+        baseDirectory,
+        agentId,
+        Date.now(),
+        WORKER_POOL_SIZE,
+        leaseOwner,
+      ).pipe(Effect.catchAll(() => Effect.succeed<readonly ClaimedJob[]>([])));
+
+      if (claimed.length > 0) {
+        yield* Effect.forEach(claimed, runClaimedJob, { concurrency: WORKER_POOL_SIZE }).pipe(
+          Effect.catchAll(() => Effect.void),
+        );
+        continue;
+      }
+
+      const nextAt = yield* nextClaimableAt(baseDirectory, agentId).pipe(
+        Effect.catchAll(() => Effect.succeed(null)),
+      );
+      if (nextAt === null) return;
+
+      const waitMs = nextAt - Date.now();
+      if (waitMs <= 0) {
+        // Claimable by the clock but not claimed — another worker holds it. Nothing to do here.
+        return;
+      }
+      yield* Effect.sleep(Duration.millis(Math.min(waitMs, DEFAULT_BACKOFF_MAX_MS)));
     }
   });
 }

@@ -1,4 +1,4 @@
-import { JOB_OUTPUT_TAIL_CHARS } from "@jazz/core/constants/job-queue";
+import { TOOL_OUTPUT_TAIL_CHARS } from "@jazz/core/agent/tools/capped-output";
 import type { JobBatchRecord, JobRecord } from "@jazz/core/interfaces/job-queue-service";
 import { describe, expect, it } from "bun:test";
 import { summarizeBatch } from "./job-worker";
@@ -96,7 +96,7 @@ describe("summarizeBatch", () => {
   });
 
   it("keeps the tail of a long output, and marks that it cut", () => {
-    const long = `${"x".repeat(JOB_OUTPUT_TAIL_CHARS * 2)}THE-VERDICT`;
+    const long = `${"x".repeat(TOOL_OUTPUT_TAIL_CHARS * 2)}THE-VERDICT`;
     const summary = summarizeBatch(
       batch([
         job({ id: "j1", command: "build", result: { stdout: long, stderr: "", exitCode: 0 } }),

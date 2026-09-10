@@ -7,26 +7,114 @@ import type { ToolExecutionResult } from "@/core/types/tools";
 /** Caps schemas per call so a broad query can't dump the entire deferred surface into context. */
 export const MAX_SEARCH_TOOLS_RESULTS = 8;
 
-/** Ranks by case-insensitive token overlap against name + summary. No embeddings; revisit only past a few hundred deferred tools. */
+/**
+ * Reduce a word to a crude stem so an inflected query still finds a tool whose summary uses the
+ * base form. Plain substring matching is asymmetric: a summary saying "watch" is found by the
+ * query "watch" but not by "watching", because the longer token is not a substring of the
+ * shorter word — and "watching", "monitoring", "polling", "logs" are exactly how a caller
+ * phrases it.
+ *
+ * Suffix stripping, not prefix matching, because prefixes match far too much: it would let
+ * "theme" find any summary containing "the". The transformation only has to be *consistent*
+ * across both sides to make them meet, not linguistically correct — "status" stemming to
+ * "statu" is harmless, since the summary's own "status" stems to "statu" too.
+ */
+function stemWord(word: string): string {
+  for (const suffix of ["ing", "ed", "es", "s"]) {
+    if (word.length - suffix.length >= 3 && word.endsWith(suffix)) {
+      return word.slice(0, -suffix.length);
+    }
+  }
+  return word;
+}
+
+/**
+ * Function words carry no retrieval signal but are long enough to clear the 3-char floor, and
+ * `the`, `for` and `and` appear in every prose summary — so any query containing one scored a
+ * point against every candidate, which is how "pick a theme for the website" came back holding a
+ * background-job tool. Only words that are never what a caller is actually asking for belong
+ * here; a domain word that happens to be short does not.
+ */
+const STOPWORDS = new Set([
+  "the",
+  "and",
+  "for",
+  "with",
+  "that",
+  "this",
+  "from",
+  "into",
+  "its",
+  "was",
+  "are",
+  "has",
+  "had",
+  "have",
+  "not",
+  "but",
+  "you",
+  "your",
+  "our",
+  "their",
+  "them",
+  "then",
+  "than",
+  "there",
+  "here",
+  "what",
+  "which",
+  "who",
+  "how",
+  "why",
+  "all",
+  "any",
+  "some",
+  "each",
+  "per",
+  "via",
+  "also",
+  "just",
+  "only",
+  "very",
+  "more",
+  "most",
+  "such",
+  "same",
+  "own",
+]);
+
+/** Ranks by case-insensitive token overlap against name + summary + keywords. No embeddings; revisit only past a few hundred deferred tools. */
 export function rankToolsByQuery(
   query: string,
-  candidates: readonly { readonly name: string; readonly summary: string }[],
+  candidates: readonly {
+    readonly name: string;
+    readonly summary: string;
+    readonly keywords?: readonly string[];
+  }[],
 ): readonly string[] {
   // Tokens under 3 chars ("a", "to", "in") match as a substring almost everywhere and would
   // turn any query containing one into a false-positive match against unrelated tools.
   const queryTokens = query
     .toLowerCase()
     .split(/\W+/)
-    .filter((token) => token.length >= 3);
+    .filter((token) => token.length >= 3 && !STOPWORDS.has(token));
   if (queryTokens.length === 0) return [];
 
   const scored = candidates
     .map((candidate) => {
-      const haystack = `${candidate.name} ${candidate.summary}`.toLowerCase();
-      const score = queryTokens.reduce(
-        (total, token) => total + (haystack.includes(token) ? 1 : 0),
-        0,
+      const haystack = `${candidate.name} ${candidate.summary} ${(candidate.keywords ?? []).join(
+        " ",
+      )}`.toLowerCase();
+      const haystackStems = new Set(
+        haystack
+          .split(/\W+/)
+          .filter((word) => word.length > 0)
+          .map(stemWord),
       );
+      const score = queryTokens.reduce((total, token) => {
+        const matched = haystack.includes(token) || haystackStems.has(stemWord(token));
+        return total + (matched ? 1 : 0);
+      }, 0);
       return { name: candidate.name, score };
     })
     .filter((candidate) => candidate.score > 0)

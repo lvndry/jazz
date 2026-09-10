@@ -57,8 +57,27 @@ import { getJazzSchedulerInvocation } from "@jazz/core/utils/runtime";
 import { SchedulerServiceTag } from "@jazz/core/workflows/scheduler-service";
 import { Effect, Runtime } from "effect";
 
-/** How often the daemon checks for due workflow schedules and wake triggers. */
-const DEFAULT_TICK_INTERVAL_MS = 60_000;
+/**
+ * How often the daemon checks for due wake triggers, reminders and jobs.
+ *
+ * Five seconds, not a minute, because the tick interval is the resolution of every duration the
+ * agent is allowed to ask for: `register_trigger` accepts "30s" and a minute-long tick made that
+ * a lie by up to a minute. The sweeps it drives now read unlocked and take a lock only when
+ * something is actually due, so a tick with nothing to do is a handful of small reads.
+ *
+ * `JAZZ_DAEMON_TICK_MS` overrides it, down to a second, for anything that needs tighter timing.
+ * Note what this is *not*: waking the agent every second. A model turn per second is nonsense at
+ * any tick rate — that is `wait_for`'s job, which polls inside a single tool call. This interval
+ * only bounds how late a scheduled wake-up is.
+ */
+const DEFAULT_TICK_INTERVAL_MS = 5_000;
+
+/**
+ * Cron has no sub-minute resolution, so re-deriving workflow due-ness on a five-second tick would
+ * parse every schedule twelve times to reach the same answer. This bounds it to once a minute
+ * regardless of how fast the ticker runs.
+ */
+const WORKFLOW_CATCH_UP_INTERVAL_MS = 60_000;
 
 export interface DaemonCommandOptions {
   readonly port: number;
@@ -309,11 +328,16 @@ export function daemonCommand(options: DaemonCommandOptions) {
       })();
 
       let tickRunning = false;
+      let lastWorkflowCatchUpAt = 0;
       const ticker = setInterval(() => {
         if (tickRunning) return;
         tickRunning = true;
+        const now = Date.now();
+        const workflowsDue =
+          runInProcessWorkflows && now - lastWorkflowCatchUpAt >= WORKFLOW_CATCH_UP_INTERVAL_MS;
+        if (workflowsDue) lastWorkflowCatchUpAt = now;
         void run(
-          runDueTriggers({ runWorkflows: runInProcessWorkflows }).pipe(
+          runDueTriggers({ runWorkflows: workflowsDue }).pipe(
             Effect.catchAll((error) =>
               Effect.sync(() => {
                 process.stderr.write(`jazz daemon tick failed: ${String(error)}\n`);

@@ -2,8 +2,15 @@
  * The `read` tool: returns file contents numbered for coding-model consumption,
  * with an optional line range (negative values count from the end of the file)
  * and a hard character cap to avoid flooding the context window.
+ *
+ * `sinceByte` is the incremental mode, for watching a file that is still being written. Without
+ * it, following a log across several looks means re-reading and re-paying for text already seen,
+ * and tracking a line number in prose between looks — which goes wrong the moment the file rolls
+ * over. With it, a caller reads only what was appended and hands back the `nextByte` and `inode`
+ * it was given, so the tool can tell an append from a rotation and say which happened.
  */
 
+import { open, stat } from "node:fs/promises";
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { z } from "zod";
@@ -91,6 +98,113 @@ function trimToMaxChars(
   return { lines: kept, truncated: true };
 }
 
+/** What a `sinceByte` read found, before line numbering and capping are applied. */
+interface IncrementalRead {
+  readonly text: string;
+  /** Byte offset where `text` begins in the current file. */
+  readonly startByte: number;
+  readonly nextByte: number;
+  readonly fileSize: number;
+  readonly inode: number;
+  /** Set when `sinceByte` was ignored and the read restarted at 0, with the reason why. */
+  readonly reset?: "rotated" | "truncated";
+}
+
+/**
+ * Read the bytes appended after `sinceByte`, detecting the two ways an offset goes stale.
+ *
+ * A log that rolls over mid-watch is the normal case, not an edge case, and both of its forms
+ * have to be caught or a caller silently reads nothing forever. Rotation by rename gives the path
+ * a different file, which only the inode reveals — the new file can easily be *longer* than the
+ * old offset, so a size comparison sees a valid offset into unrelated content. Truncation in place
+ * keeps the inode and drops the size below the offset. Either way the honest answer is to start
+ * over from 0 and say so, rather than return an empty read that looks like "nothing happened".
+ */
+async function readSince(
+  filePath: string,
+  sinceByte: number,
+  sinceInode: number | undefined,
+): Promise<IncrementalRead> {
+  const stats = await stat(filePath);
+  const inode = Number(stats.ino);
+  const fileSize = stats.size;
+
+  const rotated = sinceInode !== undefined && sinceInode !== inode;
+  const truncated = fileSize < sinceByte;
+  const start = rotated || truncated ? 0 : sinceByte;
+
+  const handle = await open(filePath, "r");
+  try {
+    const length = Math.max(0, fileSize - start);
+    if (length === 0) {
+      return {
+        text: "",
+        startByte: start,
+        nextByte: fileSize,
+        fileSize,
+        inode,
+        ...(rotated
+          ? { reset: "rotated" as const }
+          : truncated
+            ? { reset: "truncated" as const }
+            : {}),
+      };
+    }
+    const buffer = Buffer.allocUnsafe(length);
+    const { bytesRead } = await handle.read(buffer, 0, length, start);
+    return {
+      text: buffer.subarray(0, bytesRead).toString("utf8"),
+      startByte: start,
+      nextByte: start + bytesRead,
+      fileSize,
+      inode,
+      ...(rotated
+        ? { reset: "rotated" as const }
+        : truncated
+          ? { reset: "truncated" as const }
+          : {}),
+    };
+  } finally {
+    await handle.close();
+  }
+}
+
+/**
+ * The byte cursor immediately after the source represented by a capped incremental response.
+ *
+ * `trimToMaxChars` deliberately returns whole lines where it can, so the next reader must pass
+ * the line ending too; otherwise it gets an artificial empty line before the first unseen one.
+ * When a single line is longer than the cap, it instead returns a character prefix of that line.
+ * Calculating the offset from the original text preserves CRLF and UTF-8 byte widths, which the
+ * normalized rendered response does not retain.
+ */
+function nextByteAfterCappedText(
+  incremental: IncrementalRead,
+  returnedLines: readonly string[],
+): number {
+  let sourceIndex = 0;
+  for (const returned of returnedLines) {
+    const newline = incremental.text.indexOf("\n", sourceIndex);
+    const contentEnd =
+      newline === -1
+        ? incremental.text.length
+        : newline > sourceIndex && incremental.text[newline - 1] === "\r"
+          ? newline - 1
+          : newline;
+    const sourceLine = incremental.text.slice(sourceIndex, contentEnd);
+
+    if (returned.length < sourceLine.length) {
+      return (
+        incremental.startByte +
+        Buffer.byteLength(incremental.text.slice(0, sourceIndex + returned.length))
+      );
+    }
+
+    sourceIndex = newline === -1 ? incremental.text.length : newline + 1;
+  }
+  return incremental.startByte + Buffer.byteLength(incremental.text.slice(0, sourceIndex));
+}
+
 export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
   const parameters = z
     .object({
@@ -118,8 +232,34 @@ export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
         .describe(
           "Maximum number of characters to return after applying the line range. Measured as JavaScript string length, not UTF-8 bytes, despite the parameter name. Default 131072, hard cap 524288.",
         ),
+      sinceByte: z
+        .number()
+        .int()
+        .min(0)
+        .optional()
+        .describe(
+          "Read only what was appended past this byte offset, for following a file that is still being written. Pass the nextByte from your previous read. Cannot be combined with startLine or endLine.",
+        ),
+      sinceInode: z
+        .number()
+        .int()
+        .optional()
+        .describe(
+          "The inode from your previous read, passed back so a rotated file is detected rather than read as if the offset still meant something. Only meaningful alongside sinceByte.",
+        ),
     })
-    .strict();
+    .strict()
+    .refine((value) => value.sinceByte === undefined || value.startLine === undefined, {
+      message:
+        "sinceByte reads by byte offset and startLine reads by line number; pass one or the other, not both.",
+    })
+    .refine((value) => value.sinceByte === undefined || value.endLine === undefined, {
+      message:
+        "sinceByte reads by byte offset and endLine reads by line number; pass one or the other, not both.",
+    })
+    .refine((value) => value.sinceInode === undefined || value.sinceByte !== undefined, {
+      message: "sinceInode only means something alongside sinceByte.",
+    });
 
   type ReadFileParams = z.infer<typeof parameters>;
 
@@ -132,7 +272,8 @@ export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
       "Use this to inspect or edit text and code. Do not use this for directories (ls), to discover filenames (find), for unsupported binary formats, or via execute_command with cat/sed/nl. " +
       "For large files, pass startLine and endLine. A negative startLine reads from the end (startLine: -20 is the last 20 lines). " +
       "Do not copy the `N|` prefix into edit_file or write_file — it is line-number metadata. " +
-      "If truncated is true, read the next range; do not assume you saw the whole file. UTF-8 only; a leading BOM is stripped.",
+      "If truncated is true, read the next range; do not assume you saw the whole file. UTF-8 only; a leading BOM is stripped. " +
+      "To follow a file that is still being written, pass sinceByte (from the previous read's nextByte) and sinceInode: you get only what was appended, plus a reset field saying the file was rotated or truncated when the offset stopped meaning anything.",
     tags: ["filesystem", "read"],
     parameters,
     validate: makeZodValidator(parameters),
@@ -150,6 +291,37 @@ export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
         if (mediaOutcome.kind !== "not-media") return mediaOutcome.result;
 
         try {
+          if (args.sinceByte !== undefined) {
+            const incremental = yield* Effect.promise(() =>
+              readSince(filePathResult, args.sinceByte ?? 0, args.sinceInode),
+            );
+            const appendedLines = incremental.text === "" ? [] : incremental.text.split(/\r?\n/);
+            const requestedMax =
+              typeof args.maxBytes === "number" && args.maxBytes > 0
+                ? args.maxBytes
+                : DEFAULT_MAX_CHARS;
+            const capped = trimToMaxChars(appendedLines, Math.min(requestedMax, HARD_MAX_CHARS));
+
+            return {
+              success: true,
+              result: {
+                path: filePathResult,
+                content: capped.lines.join("\n"),
+                truncated: capped.truncated,
+                returnedLines: capped.lines.length,
+                // Handed straight back on the next call. A capped response must resume after
+                // exactly the source represented here; advancing past the whole disk read would
+                // silently discard the omitted tail.
+                nextByte: capped.truncated
+                  ? nextByteAfterCappedText(incremental, capped.lines)
+                  : incremental.nextByte,
+                fileSize: incremental.fileSize,
+                inode: incremental.inode,
+                ...(incremental.reset !== undefined ? { reset: incremental.reset } : {}),
+              },
+            };
+          }
+
           const raw = stripUtf8Bom(yield* fs.readFileString(filePathResult));
           const allLines = raw === "" ? [] : raw.split(/\r?\n/);
           const totalLines = allLines.length;

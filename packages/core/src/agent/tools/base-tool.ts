@@ -37,6 +37,8 @@ export interface BaseToolConfig<R, Args extends Record<string, unknown>> {
    * has to carry the words a request would use rather than the ones the implementation uses.
    */
   readonly summary?: string;
+  /** Retrieval-only vocabulary for `search_tools`; see `Tool.keywords`. */
+  readonly keywords?: readonly string[];
   /**
    * Optional array of tags for categorizing and organizing tools.
    */
@@ -121,10 +123,12 @@ export function defineTool<R, Args extends Record<string, unknown>>(
     name: config.name,
     description: config.description,
     ...(config.summary !== undefined ? { summary: config.summary } : {}),
+    ...(config.keywords !== undefined ? { keywords: config.keywords } : {}),
     tags: config.tags ?? [],
     ...(config.aliases ? { aliases: config.aliases } : {}),
     parameters: config.parameters,
     ...(config.jsonSchema !== undefined ? { jsonSchema: config.jsonSchema } : {}),
+    ...(config.keywords !== undefined ? { keywords: config.keywords } : {}),
     hidden: config.hidden === true,
     riskLevel: config.riskLevel ?? defaultRiskLevel,
     disclosure: config.disclosure,
@@ -187,6 +191,8 @@ export interface ApprovalToolConfig<R, Args extends Record<string, unknown>> {
   readonly description: string;
   /** One-line summary `search_tools` matches. See {@link BaseToolConfig.summary}. */
   readonly summary?: string;
+  /** Retrieval-only vocabulary for `search_tools`; see `Tool.keywords`. */
+  readonly keywords?: readonly string[];
   /** Optional tags for categorization */
   readonly tags?: readonly string[];
   /** Zod schema for parameters */
@@ -238,6 +244,11 @@ export interface ApprovalToolConfig<R, Args extends Record<string, unknown>> {
    * Overrides the default 3-minute executor timeout.
    */
   readonly timeoutMs?: number;
+  /**
+   * Suppresses the UI's "taking longer than expected" warning. Set it for a tool whose whole
+   * purpose is to block for a long time, where that warning would be describing normal operation.
+   */
+  readonly longRunning?: boolean;
 }
 
 /**
@@ -327,6 +338,7 @@ export function defineApprovalTool<R, Args extends Record<string, unknown>>(
     handler: config.handler,
     ...(config.createSummary ? { createSummary: config.createSummary } : {}),
     ...(config.timeoutMs !== undefined ? { timeoutMs: config.timeoutMs } : {}),
+    ...(config.longRunning !== undefined ? { longRunning: config.longRunning } : {}),
   });
 
   return {

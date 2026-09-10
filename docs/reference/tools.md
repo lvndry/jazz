@@ -19,13 +19,13 @@ and [Security](../../SECURITY.md) for the threat model.
 
 |                                                                         | Count  |
 | ----------------------------------------------------------------------- | ------ |
-| **Agent-facing tools**                                                  | **46** |
-| Hidden `execute_*` counterparts (the second half of each approval pair) | 9      |
-| Total registered                                                        | 56     |
+| **Agent-facing tools**                                                  | **47** |
+| Hidden `execute_*` counterparts (the second half of each approval pair) | 10     |
+| Total registered                                                        | 58     |
 | `read-only`                                                             | 25     |
 | `low-risk`                                                              | 12     |
 | `high-risk`                                                             | 7      |
-| `unknown`                                                               | 2      |
+| `unknown`                                                               | 3      |
 
 Plus, registered per agent rather than globally:
 
@@ -74,7 +74,7 @@ cannot be added without someone deciding.
 | ---------- | --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `public`   | safe to tell anyone                                             | `add_reminder`, `cp`, `mkdir`, `mv`, `rm`, `web_fetch`, `web_search`, `write_file`                                                                                                                                                                                                                                     |
 | `internal` | the shape of this machine — paths, names, what is installed     | `analyze_media`, `cancel_batch`, `cancel_trigger`, `cd`, `context_info`, `create_pdf`, `create_web_app`, `find`, `get_time`, `list_jobs`, `list_triggers`, `ls`, `pdf_page_count`, `pwd`, `register_trigger`, `search_tools`, `stat`                                                                                                                               |
-| `private`  | your own material — file contents, memory, schedule, transcript | `ask_file_picker`, `ask_user_question`, `cancel_reminder`, `edit_file`, `enqueue_batch`, `execute_command`, `grep`, `http_request`, `list_reminders`, `list_todos`, `manage_memory`, `manage_todos`, `manage_workspace`, `read_file`, `read_pdf`, `retrieve_tool_result`, `spawn_subagent`, `summarize_context`, `update_work_state`, `view_memory`, `view_workspace` |
+| `private`  | your own material — file contents, memory, schedule, transcript | `ask_file_picker`, `ask_user_question`, `cancel_reminder`, `edit_file`, `enqueue_batch`, `execute_command`, `grep`, `http_request`, `list_reminders`, `list_todos`, `manage_memory`, `manage_todos`, `manage_workspace`, `read_file`, `read_pdf`, `retrieve_tool_result`, `spawn_subagent`, `summarize_context`, `update_work_state`, `view_memory`, `view_workspace`, `wait_for` |
 
 A tool spanning two levels takes the more sensitive one — `edit_file` writes, but its approval
 message carries a diff of your file, so it is `private`. `http_request` reaches private
@@ -130,7 +130,7 @@ tool that writes to disk. See
 | `mv`             | `high-risk` | `execute_mv`         | Move or rename a file or directory. Equivalent to shell mv.                                                               |
 | `pdf_page_count` | `read-only` | —                    | Get total page count of a PDF without reading content.                                                                    |
 | `pwd`            | `read-only` | —                    | Print the current working directory.                                                                                      |
-| `read_file`      | `read-only` | —                    | Read a UTF-8 text file with numbered lines. startLine/endLine; negative startLine reads from the end.                     |
+| `read_file`      | `read-only` | —                    | Read a UTF-8 text file with numbered lines. startLine/endLine; negative startLine reads from the end; sinceByte reads only what was appended.                     |
 | `read_pdf`       | `read-only` | —                    | Extract text and tables from a PDF. Use pdf_page_count first for large files. Supports page ranges.                       |
 | `rm`             | `high-risk` | `execute_rm`         | Remove a file or directory. May be irreversible.                                                                          |
 | `stat`           | `read-only` | —                    | Check file/directory existence and get metadata (type, size, times).                                                      |
@@ -141,6 +141,14 @@ tool that writes to disk. See
 | Tool              | Risk      | Approval pair             | What it does                                                                                                                                                                                                  |
 | ----------------- | --------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `execute_command` | `unknown` | `execute_execute_command` | Run a shell command when no dedicated tool exists. Each command is classified `read-only`, `low-risk`, or `high-risk`, and the active tier then applies to that verdict. Stdout/stderr capped at 256 KB each. |
+| `wait_for`        | `unknown` | `execute_wait_for`        | Block until a command exits 0, re-running it on an interval as tight as 250 ms. One tool call however many checks it takes, capped at 15 minutes.                                                              |
+
+`wait_for` exists so that watching something does not cost a model turn per look. The polling
+happens inside one tool call — the condition command runs, the fiber sleeps, it runs again — so a
+caller can check every quarter second without waking the model each time. It is bounded at the same
+15 minutes as any other command, because a longer block means a turn held open with nobody able to
+interject. Waits that outlast that belong to `register_trigger`, which suspends the run and resumes
+it later; the two compose, polling tightly inside the budget and re-arming across it.
 
 In the interactive terminal, an operator can also type `! <command>`. That explicit shell escape
 uses the same cwd resolution, environment sanitization, denylist, timeout, interruption, and
@@ -241,6 +249,20 @@ conversation the same way a wake trigger fires, once every job in the batch reac
 state, and the agent is told each job's status **and what it printed** — a batch exists to find
 something out, so an exit code on its own would tell it nothing.
 
+`enqueue_batch` does not depend on `jazz daemon` running. Enqueueing a batch starts a detached
+worker process (`jazz job run`) immediately, which claims and runs that agent's due jobs, waits out
+any retry backoff, and resumes the conversation when the batch finishes. Previously jobs ran only
+from the daemon's tick, so on a machine with no daemon the tool returned a batch id, the person
+approved commands to run unattended, and then nothing ran and nothing woke them.
+
+Unlike wake triggers and reminders, this is not a one-shot `launchd`/`at` job. Those schedule a
+future instant, which those schedulers do well; a batch starts now, and launchd's
+`StartCalendarInterval` has minute resolution and no year key — so "run this now" either misses the
+current minute or waits up to sixty seconds for it, and a two-second retry backoff cannot be
+expressed at all. The daemon's ticker still calls the same worker and remains the safety net for a
+batch whose worker was killed mid-flight. If no worker can be started at all, the tool says so in
+its result rather than leaving the agent waiting for a wake-up that will never come.
+
 If that resumed turn needs an approval nobody is there to give, the run parks instead of dying:
 you get a desktop notification naming it, and `jazz runs resume <id>` finishes it. See
 [tools and approval](../internals/tools-and-approval.md).
@@ -327,10 +349,11 @@ That keeps the tier low while letting the one command through. Matching is on a 
 
 ## Notes
 
+- **Following a file that is still being written** — `read_file` with `sinceByte` returns only the bytes appended past that offset, along with the `nextByte` and `inode` to hand back on the next look. Both are needed to tell an append from a rollover: truncation in place keeps the inode and drops the size below the offset, while rotation by rename gives the path a different file whose replacement can be _longer_ than the stale offset, so a size comparison alone would read unrelated content out of the middle of a new file and report it as an append. When either happens the read restarts at 0 and says which, rather than returning an empty result that looks like a quiet file.
 - **`find` vs `grep`** — `find` locates files by name, glob, or path pattern. `grep` searches _inside_ file contents. Non-overlapping on purpose.
 - **`execute_command` classifier**. The tool is `unknown`, so a harness-model classifier labels each command `read-only`, `low-risk`, or `high-risk` and the active tier judges that verdict: `--approval-policy read-only` auto-approves an inspect-only command, an interactive session skips its prompt, yolo skips the classifier entirely. The live zone shows `classifying` while it runs, and the verdict is printed on the settled receipt. It sees the last five _user_ requests (800 characters) on an interactive session and the command alone everywhere else — never the assistant's own turns. Timeouts and ambiguous replies stay `high-risk`. See [Tools & approval](../internals/tools-and-approval.md#command-classifier).
 - **`http_request` is `read-only`** by risk classification even though it can issue POSTs. It reaches whatever URL the agent targets; network policy belongs at the firewall, not the tier. Treat it accordingly on surfaces that accept untrusted input.
-- **Timeouts** — 3 minutes by default per tool. `ask_user_question` and `ask_file_picker` are `longRunning` and never time out, because waiting for a human is not a hang.
+- **Timeouts** — 3 minutes by default per tool. `ask_user_question` and `ask_file_picker` are `longRunning` and never time out, because waiting for a human is not a hang. `execute_command` and `wait_for` are capped at 15 minutes, which is also the largest timeout either will accept — asking for more is refused rather than silently reduced, since the executor would kill the call at 15 minutes anyway and discard the output the command had already produced.
 - **Concurrency** — up to 10 tools execute in parallel per iteration.
 - **`create_pdf` needs a browser too** — same `puppeteer-core` path as `create_web_app`'s static mode, rendering through `page.pdf()`. It writes to the agent's working directory by default (an explicit `path` overrides), unlike `create_web_app`, whose output lands in Jazz's own data directory because only a bridge ever reads it.
 - **`create_web_app` needs a browser for `mode: "static"`** — it screenshots the page through `puppeteer-core`, which deliberately ships no bundled Chrome so that installing Jazz never downloads one. It uses `PUPPETEER_EXECUTABLE_PATH` if set, otherwise an installed Google Chrome; with neither it fails and says so. `mode: "interactive"` needs no browser.
