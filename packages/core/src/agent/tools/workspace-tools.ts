@@ -1,10 +1,12 @@
 /**
- * `view_workspace` and `manage_workspace`: read and edit an agent's durable
+ * `view_scratchpad` and `manage_scratchpad`: read and edit an agent's durable
  * scratch space, presented with the same line-numbered, view-a-range
  * ergonomics as the memory tools. Unlike memory (small, curated notes),
- * workspace is where large working drafts, research dumps, and intermediate
- * artifacts live — reference a workspace path from a memory entry once the
+ * the scratchpad is where large working drafts, research dumps, and intermediate
+ * artifacts live — reference a scratchpad path from a memory entry once the
  * work is done, rather than duplicating it there.
+ *
+ * Legacy aliases: `view_workspace` / `manage_workspace`.
  */
 
 import { FileSystem } from "@effect/platform";
@@ -77,10 +79,11 @@ type ViewWorkspaceArgs = z.infer<typeof viewWorkspaceParameters>;
 
 export function createViewWorkspaceTool(): Tool<WorkspaceToolDeps> {
   return defineTool<WorkspaceToolDeps, ViewWorkspaceArgs>({
-    name: "view_workspace",
+    name: "view_scratchpad",
+    aliases: ["view_workspace"],
     disclosure: "private",
     description:
-      "View your durable scratch space: working drafts, research dumps, and intermediate " +
+      "View your durable scratchpad: working drafts, research dumps, and intermediate " +
       "artifacts too large or too provisional for memory. No path lists everything you've " +
       "saved; a path reads one file. An empty or missing directory just means nothing has " +
       "been saved yet — that is a normal answer, not an error.",
@@ -123,9 +126,9 @@ export function createViewWorkspaceTool(): Tool<WorkspaceToolDeps> {
       if (!result.success) return undefined;
       const data = result.result as { outcome: WorkspaceViewOutcome };
       if (data.outcome.kind === "directory")
-        return `Listed workspace (${data.outcome.entries.length} item(s))`;
+        return `Listed scratchpad (${data.outcome.entries.length} item(s))`;
       if (data.outcome.kind === "file")
-        return `Read workspace file (${data.outcome.totalLines} line(s))`;
+        return `Read scratchpad file (${data.outcome.totalLines} line(s))`;
       return undefined;
     },
   });
@@ -135,14 +138,14 @@ const manageWorkspaceParameters = z.discriminatedUnion("command", [
   z
     .object({
       command: z.literal("create"),
-      path: z.string().min(1).describe("Workspace file path relative to the workspace directory."),
+      path: z.string().min(1).describe("Scratchpad file path relative to the scratchpad directory."),
       file_text: z.string().describe("Full file contents. Errors if the path already exists."),
     })
     .strict(),
   z
     .object({
       command: z.literal("str_replace"),
-      path: z.string().min(1).describe("Workspace file path relative to the workspace directory."),
+      path: z.string().min(1).describe("Scratchpad file path relative to the scratchpad directory."),
       old_str: z.string().min(1).describe("Exact unique snippet to replace."),
       new_str: z.string().optional().describe("Replacement text. Omit to delete the snippet."),
     })
@@ -150,13 +153,13 @@ const manageWorkspaceParameters = z.discriminatedUnion("command", [
   z
     .object({
       command: z.literal("insert"),
-      path: z.string().min(1).describe("Workspace file path relative to the workspace directory."),
+      path: z.string().min(1).describe("Scratchpad file path relative to the scratchpad directory."),
       insert_line: z
         .number()
         .int()
         .nonnegative()
         .describe(
-          "0-based line index to insert after (0 = beginning of the file). Note that view_workspace view_range is 1-based.",
+          "0-based line index to insert after (0 = beginning of the file). Note that view_scratchpad view_range is 1-based.",
         ),
       insert_text: z.string().describe("Text to insert."),
     })
@@ -164,14 +167,14 @@ const manageWorkspaceParameters = z.discriminatedUnion("command", [
   z
     .object({
       command: z.literal("delete"),
-      path: z.string().min(1).describe("Workspace file path to delete."),
+      path: z.string().min(1).describe("Scratchpad file path to delete."),
     })
     .strict(),
   z
     .object({
       command: z.literal("rename"),
-      old_path: z.string().min(1).describe("Current path, relative to the workspace directory."),
-      new_path: z.string().min(1).describe("New path, relative to the workspace directory."),
+      old_path: z.string().min(1).describe("Current path, relative to the scratchpad directory."),
+      new_path: z.string().min(1).describe("New path, relative to the scratchpad directory."),
     })
     .strict(),
 ]);
@@ -180,13 +183,14 @@ type ManageWorkspaceArgs = z.infer<typeof manageWorkspaceParameters>;
 
 export function createManageWorkspaceTool(): Tool<WorkspaceToolDeps> {
   return defineTool<WorkspaceToolDeps, ManageWorkspaceArgs>({
-    name: "manage_workspace",
+    name: "manage_scratchpad",
+    aliases: ["manage_workspace"],
     disclosure: "private",
     description:
       "Save durable working drafts, research dumps, or intermediate artifacts that are too " +
       "large or too provisional for memory — full research results, scraped data, long " +
-      "in-progress documents. Once work is done, reference the workspace path from a memory " +
-      'entry (e.g. "full research at workspace/research/topic.md") instead of duplicating ' +
+      "in-progress documents. Once work is done, reference the scratchpad path from a memory " +
+      'entry (e.g. "full research at scratchpad/research/topic.md") instead of duplicating ' +
       "the content into memory. Never write secrets (account numbers, passwords, health data).",
     parameters: manageWorkspaceParameters,
     riskLevel: "low-risk",
