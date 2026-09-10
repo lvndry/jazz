@@ -76,16 +76,8 @@ describe("rankToolsByQuery", () => {
  */
 describe("finding a tool for an open-ended watch", () => {
   const candidates = [
-    {
-      name: "enqueue_batch",
-      summary: enqueueBatchSummary(),
-      keywords: createJobQueueTools().enqueueBatch.approval.keywords ?? [],
-    },
-    {
-      name: "register_trigger",
-      summary: registerTriggerSummary(),
-      keywords: createRegisterTriggerTool().keywords ?? [],
-    },
+    { name: "enqueue_batch", summary: enqueueBatchSummary() },
+    { name: "register_trigger", summary: registerTriggerSummary() },
   ];
 
   it.each([

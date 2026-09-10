@@ -111,24 +111,11 @@ function runClaimedJob(claimed: ClaimedJob) {
 }
 
 /**
- * Run one agent's background jobs to completion, in this process, and return when there is
- * nothing left to run.
+ * Run one agent's background jobs to completion in this process — what makes a batch independent
+ * of `jazz daemon`.
  *
- * This is what makes a background batch independent of `jazz daemon`. Previously jobs executed
- * only from the daemon's tick, so on a machine with no daemon `enqueue_batch` returned a batch id,
- * the person approved unattended execution, and nothing ever ran or woke — a silent stall with an
- * approval prompt in front of it.
- *
- * A one-shot host-scheduler job, the mechanism wake triggers use, does not fit here: launchd's
- * `StartCalendarInterval` has minute resolution and no year key, so "run this now" either misses
- * the current minute or waits up to sixty seconds for it, and a two-second retry backoff cannot be
- * expressed at all. A batch instead gets a detached worker process started the moment it is
- * enqueued, which is this function's body.
- *
- * Waiting out a retry backoff is part of the job, not a reason to exit: a pending job whose
- * `nextAttemptAt` is in the future means the batch is unfinished, and returning would leave it
- * that way with nobody scheduled to come back. The daemon's ticker still calls `runDueJobs` and
- * remains a safety net for a batch whose worker was killed mid-flight.
+ * Sleeps through a retry backoff rather than returning: a pending `nextAttemptAt` in the future
+ * means the batch is unfinished, and nobody else is scheduled to come back for it.
  */
 export function drainAgentJobs(agentId: string) {
   return Effect.gen(function* () {

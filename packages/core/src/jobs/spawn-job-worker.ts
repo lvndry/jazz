@@ -1,20 +1,10 @@
 /**
- * @fileoverview Starting a detached worker for a freshly enqueued job batch.
+ * @fileoverview Detached worker for a freshly enqueued batch, so a batch runs with no daemon.
  *
- * A batch used to execute only from `jazz daemon`'s tick. On a machine with no daemon running,
- * `enqueue_batch` returned a batch id, the person approved commands to run unattended, and then
- * nothing ran and nothing woke them — a silent stall standing behind an approval prompt.
- *
- * Wake triggers solve their version of this with a one-shot host-scheduler job (launchd, or `at`),
- * but that mechanism schedules a future *instant*: launchd's `StartCalendarInterval` has minute
- * resolution and no year key, so asking it to run something now either misses the current minute
- * or waits up to sixty seconds for it, and a two-second retry backoff cannot be expressed at all.
- * A batch is meant to start immediately, so it gets a detached child process instead — no
- * scheduler, no resident daemon, no minute rounding.
- *
- * Detached and unreferenced on purpose: the worker has to outlive the CLI or chat turn that
- * enqueued the batch, which is the entire point of a background job. `jazz daemon`'s ticker still
- * calls `runDueJobs`, which stays the safety net for a batch whose worker is killed mid-flight.
+ * Not a one-shot launchd/`at` job like wake triggers use: those schedule a future instant, and
+ * launchd's minute resolution can neither start now nor express a two-second retry backoff.
+ * Detached so the worker outlives the turn that enqueued it; `runDueJobs` stays the net for a
+ * worker killed mid-flight.
  */
 import { spawn } from "node:child_process";
 import { Effect } from "effect";

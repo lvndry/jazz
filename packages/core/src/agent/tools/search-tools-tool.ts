@@ -8,16 +8,9 @@ import type { ToolExecutionResult } from "@/core/types/tools";
 export const MAX_SEARCH_TOOLS_RESULTS = 8;
 
 /**
- * Reduce a word to a crude stem so an inflected query still finds a tool whose summary uses the
- * base form. Plain substring matching is asymmetric: a summary saying "watch" is found by the
- * query "watch" but not by "watching", because the longer token is not a substring of the
- * shorter word — and "watching", "monitoring", "polling", "logs" are exactly how a caller
- * phrases it.
- *
- * Suffix stripping, not prefix matching, because prefixes match far too much: it would let
- * "theme" find any summary containing "the". The transformation only has to be *consistent*
- * across both sides to make them meet, not linguistically correct — "status" stemming to
- * "statu" is harmless, since the summary's own "status" stems to "statu" too.
+ * Crude stem so "watching" finds a summary saying "watch" — substring matching is asymmetric and
+ * misses the longer token. Suffix stripping rather than prefix matching, which would let "theme"
+ * match "the". Only has to be consistent on both sides, not correct: "statu" is fine.
  */
 function stemWord(word: string): string {
   for (const suffix of ["ing", "ed", "es", "s"]) {
@@ -29,11 +22,8 @@ function stemWord(word: string): string {
 }
 
 /**
- * Function words carry no retrieval signal but are long enough to clear the 3-char floor, and
- * `the`, `for` and `and` appear in every prose summary — so any query containing one scored a
- * point against every candidate, which is how "pick a theme for the website" came back holding a
- * background-job tool. Only words that are never what a caller is actually asking for belong
- * here; a domain word that happens to be short does not.
+ * `the`, `for` and `and` clear the 3-char floor and appear in every prose summary, so any query
+ * containing one scored against every candidate. Function words only — never a short domain word.
  */
 const STOPWORDS = new Set([
   "the",
@@ -83,14 +73,10 @@ const STOPWORDS = new Set([
   "own",
 ]);
 
-/** Ranks by case-insensitive token overlap against name + summary + keywords. No embeddings; revisit only past a few hundred deferred tools. */
+/** Ranks by case-insensitive token overlap against name + summary. No embeddings; revisit only past a few hundred deferred tools. */
 export function rankToolsByQuery(
   query: string,
-  candidates: readonly {
-    readonly name: string;
-    readonly summary: string;
-    readonly keywords?: readonly string[];
-  }[],
+  candidates: readonly { readonly name: string; readonly summary: string }[],
 ): readonly string[] {
   // Tokens under 3 chars ("a", "to", "in") match as a substring almost everywhere and would
   // turn any query containing one into a false-positive match against unrelated tools.
@@ -102,9 +88,7 @@ export function rankToolsByQuery(
 
   const scored = candidates
     .map((candidate) => {
-      const haystack = `${candidate.name} ${candidate.summary} ${(candidate.keywords ?? []).join(
-        " ",
-      )}`.toLowerCase();
+      const haystack = `${candidate.name} ${candidate.summary}`.toLowerCase();
       const haystackStems = new Set(
         haystack
           .split(/\W+/)
