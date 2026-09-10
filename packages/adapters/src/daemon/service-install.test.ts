@@ -25,7 +25,7 @@ describe("the systemd unit", () => {
   it("points at the daemon command with the resolved invocation and options", () => {
     const unit = buildSystemdUnit(OPTIONS);
     expect(unit).toContain(
-      "ExecStart='/home/bob/.local/bin/jazz' 'daemon' '--serve-peers' 'bob' " +
+      "ExecStart='/home/bob/.local/bin/jazz' 'daemon' '--foreground' '--serve-peers' 'bob' " +
         "'--host' '100.101.102.103' '--port' '4747'",
     );
   });
@@ -54,6 +54,7 @@ describe("the launchd plist", () => {
     const plistXml = buildLaunchdPlist(OPTIONS);
     expect(plistXml).toContain("source '/etc/jazz/daemon.env'");
     expect(plistXml).toContain("'/home/bob/.local/bin/jazz'");
+    expect(plistXml).toContain("'--foreground'");
     expect(plistXml).toContain("'--serve-peers'");
     expect(plistXml).toContain("'bob'");
   });

@@ -144,6 +144,7 @@ export function buildSystemdUnit(options: ServiceInstallOptions): string {
   const execStart = [
     ...options.invocation,
     "daemon",
+    "--foreground",
     "--serve-peers",
     options.agentId,
     "--host",
@@ -177,6 +178,7 @@ export function buildLaunchdPlist(options: ServiceInstallOptions): string {
   const programArgs = [
     ...options.invocation,
     "daemon",
+    "--foreground",
     "--serve-peers",
     options.agentId,
     "--host",
