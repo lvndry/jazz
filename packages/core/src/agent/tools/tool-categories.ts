@@ -59,7 +59,7 @@ export const MEMORY_CATEGORY: ToolCategory = {
 };
 export const WORKSPACE_CATEGORY: ToolCategory = {
   id: "workspace",
-  displayName: "Workspace",
+  displayName: "Scratchpad",
   loadTier: "eager",
 };
 export const PEERS_CATEGORY: ToolCategory = {
