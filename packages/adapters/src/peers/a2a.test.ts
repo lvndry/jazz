@@ -1,4 +1,5 @@
 import { AgentCard as A2AAgentCard, SendMessageResponse } from "@a2a-js/sdk";
+import type { TierCandidateTool } from "@jazz/core/types/disclosure-tier";
 import type { PeerConfig } from "@jazz/core/types/peer";
 import { describe, expect, it } from "bun:test";
 import {
@@ -8,11 +9,9 @@ import {
   normalizeProtocolVersion,
   parseA2ARequest,
 } from "./a2a";
-import type { PeerVisibleTool } from "./serve";
-
 const ENDPOINT = "https://me.example/a2a";
 
-const TOOLS: readonly PeerVisibleTool[] = [
+const TOOLS: readonly TierCandidateTool[] = [
   { name: "get_time", riskLevel: "read-only", disclosure: "internal", egress: false },
   { name: "read_file", riskLevel: "read-only", disclosure: "private", egress: false },
   { name: "send_message", riskLevel: "high-risk", disclosure: "public", egress: false },

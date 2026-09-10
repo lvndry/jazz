@@ -15,28 +15,21 @@
  * separate from `riskLevel`, and why tiers here are expressed in those terms.
  */
 
+import { DISCLOSURE_TIERS, isDisclosureTier, type DisclosureTier } from "./disclosure-tier";
+
 /**
- * How much a peer's agent may learn — literally the {@link ToolDisclosure} levels a tool's
- * own answer can carry, plus `none` for a peer granted nothing at all. Not a separate,
- * friendlier vocabulary: the tier a peer holds directly names the disclosure ceiling it
- * admits, so nothing here can be misread as describing risk or permission to act (see
- * `PeerConfig.allow` for that entirely separate axis).
+ * How much a peer's agent may learn.
+ *
+ * The same ladder every external door on this machine uses — see {@link DisclosureTier} —
+ * because "which of this agent's tools does a caller who is not the operator get?" is one
+ * question, and a peer is one of two callers who ask it. The peer-facing name stays because
+ * that is the vocabulary `jazz peers` and the config file speak.
  */
-export type PeerTier =
-  /** Configured but answering nothing. The default, and what revoking a peer sets. */
-  | "none"
-  /** Only `public`-disclosure answers: nothing about the operator or their machine. */
-  | "public"
-  /** Adds `internal`: paths, names, what is installed. Not file contents. */
-  | "internal"
-  /** Adds `private`, but still read-only. The most a peer can ever be given. */
-  | "private";
+export type PeerTier = DisclosureTier;
 
-export const PEER_TIERS: readonly PeerTier[] = ["none", "public", "internal", "private"];
+export const PEER_TIERS: readonly PeerTier[] = DISCLOSURE_TIERS;
 
-export function isPeerTier(value: string): value is PeerTier {
-  return (PEER_TIERS as readonly string[]).includes(value);
-}
+export const isPeerTier: (value: string) => value is PeerTier = isDisclosureTier;
 
 export interface PeerConfig {
   /** Local name, used in commands and in the ledger. Unique. */

@@ -25,15 +25,6 @@
  * never offered it and never tries. Quieter and stronger than a queue: an operator who wants
  * to grant more edits the config, once, deliberately.
  *
- * **So does a tool that sends anything off the machine, however harmless its risk level.**
- * `http_request`, `web_fetch` and `web_search` damage nothing and answer with a stranger's
- * web page, so they are honestly `read-only` and honestly low-disclosure — and a tier that
- * granted them would let a stranger's question choose both the bytes and the address they
- * travel to, using this machine as the sender. At `private` that composes with `read_file`
- * into plain exfiltration; at `public` it still reaches whatever the host can, the operator's
- * own network included, and hands the reply back. `Tool.egress` marks that class, and it is
- * gated exactly like an action: named in `peer.allow`, or absent.
- *
  * **The peer gets its own conversation.** If peer traffic joined the operator's transcript,
  * a stranger's agent would be writing into the context their agent uses to answer them — a
  * prompt-injection channel straight into the assistant, with the injected text arriving
@@ -41,85 +32,12 @@
  */
 
 import { AgentRunner } from "@jazz/core/agent/agent-runner";
-import { ToolRegistryTag } from "@jazz/core/interfaces/tool-registry";
-import type { ToolDisclosure, ToolRiskLevel } from "@jazz/core/interfaces/tool-registry";
 import type { Agent } from "@jazz/core/types";
-import type { PeerConfig, PeerTier } from "@jazz/core/types/peer";
+import { resolveToolAllowlist } from "@jazz/core/types/disclosure-tier";
+import type { PeerConfig } from "@jazz/core/types/peer";
 import { generateConversationId } from "@jazz/core/utils/conversation-id";
 import { Effect } from "effect";
 import { record as recordLedger } from "./ledger";
-
-/**
- * Everything the peer door decides on, read straight off a registered tool.
- *
- * Named rather than spelled out at each of the four places that build it, so that adding an
- * axis to the decision is one edit and cannot be half-applied — a caller that kept passing
- * the old shape would go on making the old decision silently.
- */
-export interface PeerVisibleTool {
-  readonly name: string;
-  readonly riskLevel: ToolRiskLevel;
-  readonly disclosure: ToolDisclosure;
-  readonly egress: boolean;
-}
-
-/** Project a registered tool down to what {@link allowedToolsForPeer} looks at. */
-export function describeToolForPeer(
-  name: string,
-  tool: Pick<PeerVisibleTool, "riskLevel" | "disclosure" | "egress">,
-): PeerVisibleTool {
-  return {
-    name,
-    riskLevel: tool.riskLevel,
-    disclosure: tool.disclosure,
-    egress: tool.egress,
-  };
-}
-
-/**
- * What each tier admits among tools that neither act nor send, as a ceiling on disclosure.
- *
- * Those only: a tool riskier than read-only, or one that sends anything off the machine, is
- * never gated by disclosure — only by whether it appears in `peer.allow`. See the file-level
- * comment.
- */
-const TIER_ALLOWS: Readonly<Record<PeerTier, readonly ToolDisclosure[]>> = {
-  none: [],
-  public: ["public"],
-  internal: ["public", "internal"],
-  private: ["public", "internal", "private"],
-};
-
-/**
- * Tools this tier's peer may reach at all.
- *
- * `allow` names tools this specific peer already has standing permission to invoke, and it
- * is the only way to reach two kinds of tool: one riskier than read-only, and one that sends
- * something off the machine. Neither is something a disclosure tier can speak to — a tier
- * says how much this peer may be *told*, and has nothing to say about a tool that acts
- * without revealing, or one that reveals by where it sends rather than by what it returns.
- * An ungranted tool must be absent rather than merely unapproved: it is never offered to the
- * model, so there is nothing to talk its way into.
- */
-export function allowedToolsForPeer(
-  tier: PeerTier,
-  allow: readonly string[],
-  tools: readonly PeerVisibleTool[],
-): readonly string[] {
-  // A suspended peer gets nothing, full stop — a standing `allow` grant from before is not a
-  // second relationship that survives revocation to `none`.
-  if (tier === "none") return [];
-
-  const permitted = TIER_ALLOWS[tier];
-  const allowSet = new Set(allow);
-  return tools
-    .filter((tool) =>
-      tool.riskLevel === "read-only" && !tool.egress
-        ? permitted.includes(tool.disclosure)
-        : allowSet.has(tool.name),
-    )
-    .map((tool) => tool.name);
-}
 
 /**
  * The prompt a peer's question is answered under.
@@ -211,14 +129,7 @@ export function servePeerRequest(request: ServePeerRequest) {
       return { kind: "refused", reason: "not accepting questions" } satisfies ServePeerOutcome;
     }
 
-    const registry = yield* ToolRegistryTag;
-    const names = yield* registry.listTools();
-    const described: PeerVisibleTool[] = [];
-    for (const name of names) {
-      described.push(describeToolForPeer(name, yield* registry.getTool(name)));
-    }
-
-    const toolAllowlist = allowedToolsForPeer(tier, allow, described);
+    const toolAllowlist = yield* resolveToolAllowlist(tier, allow);
 
     // Its own conversation, always: peer traffic must never join the operator's transcript,
     // or a stranger's question becomes part of the context their agent answers them from.
