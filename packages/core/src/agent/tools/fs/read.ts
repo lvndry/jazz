@@ -101,6 +101,8 @@ function trimToMaxChars(
 /** What a `sinceByte` read found, before line numbering and capping are applied. */
 interface IncrementalRead {
   readonly text: string;
+  /** Byte offset where `text` begins in the current file. */
+  readonly startByte: number;
   readonly nextByte: number;
   readonly fileSize: number;
   readonly inode: number;
@@ -137,6 +139,7 @@ async function readSince(
     if (length === 0) {
       return {
         text: "",
+        startByte: start,
         nextByte: fileSize,
         fileSize,
         inode,
@@ -151,6 +154,7 @@ async function readSince(
     const { bytesRead } = await handle.read(buffer, 0, length, start);
     return {
       text: buffer.subarray(0, bytesRead).toString("utf8"),
+      startByte: start,
       nextByte: start + bytesRead,
       fileSize,
       inode,
@@ -163,6 +167,42 @@ async function readSince(
   } finally {
     await handle.close();
   }
+}
+
+/**
+ * The byte cursor immediately after the source represented by a capped incremental response.
+ *
+ * `trimToMaxChars` deliberately returns whole lines where it can, so the next reader must pass
+ * the line ending too; otherwise it gets an artificial empty line before the first unseen one.
+ * When a single line is longer than the cap, it instead returns a character prefix of that line.
+ * Calculating the offset from the original text preserves CRLF and UTF-8 byte widths, which the
+ * normalized rendered response does not retain.
+ */
+function nextByteAfterCappedText(
+  incremental: IncrementalRead,
+  returnedLines: readonly string[],
+): number {
+  let sourceIndex = 0;
+  for (const returned of returnedLines) {
+    const newline = incremental.text.indexOf("\n", sourceIndex);
+    const contentEnd =
+      newline === -1
+        ? incremental.text.length
+        : newline > sourceIndex && incremental.text[newline - 1] === "\r"
+          ? newline - 1
+          : newline;
+    const sourceLine = incremental.text.slice(sourceIndex, contentEnd);
+
+    if (returned.length < sourceLine.length) {
+      return (
+        incremental.startByte +
+        Buffer.byteLength(incremental.text.slice(0, sourceIndex + returned.length))
+      );
+    }
+
+    sourceIndex = newline === -1 ? incremental.text.length : newline + 1;
+  }
+  return incremental.startByte + Buffer.byteLength(incremental.text.slice(0, sourceIndex));
 }
 
 export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
@@ -269,11 +309,12 @@ export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
                 content: capped.lines.join("\n"),
                 truncated: capped.truncated,
                 returnedLines: capped.lines.length,
-                // Handed straight back on the next call. When the output was capped this is still
-                // the offset of everything read off disk, not of what was returned — the capped
-                // tail is gone either way, and reporting the smaller offset would re-read bytes
-                // already dropped rather than recover them.
-                nextByte: incremental.nextByte,
+                // Handed straight back on the next call. A capped response must resume after
+                // exactly the source represented here; advancing past the whole disk read would
+                // silently discard the omitted tail.
+                nextByte: capped.truncated
+                  ? nextByteAfterCappedText(incremental, capped.lines)
+                  : incremental.nextByte,
                 fileSize: incremental.fileSize,
                 inode: incremental.inode,
                 ...(incremental.reset !== undefined ? { reset: incremental.reset } : {}),

@@ -151,6 +151,35 @@ describe("read_file with sinceByte", () => {
     expect(secondData.reset).toBeUndefined();
   });
 
+  it("continues after the returned source when maxBytes caps an incremental read", async () => {
+    writeFileSync(logPath, "one\ntwo\n");
+    const first = await read({ sinceByte: 0, maxBytes: 4 });
+    const firstData = first.result as {
+      content: string;
+      nextByte: number;
+      inode: number;
+      truncated: boolean;
+    };
+
+    expect(firstData).toMatchObject({ content: "one", nextByte: 4, truncated: true });
+
+    const second = await read({ sinceByte: firstData.nextByte, sinceInode: firstData.inode });
+    expect((second.result as { content: string }).content).toBe("two\n");
+  });
+
+  it("keeps a byte cursor correct across CRLF and UTF-8 when capped", async () => {
+    writeFileSync(logPath, "é\r\ntwo\r\n");
+    const first = await read({ sinceByte: 0, maxBytes: 1 });
+    const firstData = first.result as { content: string; nextByte: number; inode: number };
+
+    // `é` is two UTF-8 bytes and the source delimiter is CRLF, even though the
+    // displayed response normalizes line endings.
+    expect(firstData).toMatchObject({ content: "é", nextByte: 4 });
+
+    const second = await read({ sinceByte: firstData.nextByte, sinceInode: firstData.inode });
+    expect((second.result as { content: string }).content).toBe("two\n");
+  });
+
   /**
    * Truncation in place keeps the inode and drops the size below the offset. Left undetected the
    * caller reads past the end forever and sees an empty result that looks like a quiet file.
