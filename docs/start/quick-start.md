@@ -31,8 +31,8 @@ binary:
 # npm
 npm install -g jazz-ai
 
-# bun
-bun add -g jazz-ai
+# bun (--trust lets the postinstall script fetch the platform binary)
+bun add -g --trust jazz-ai
 
 # pnpm
 pnpm add -g jazz-ai
