@@ -344,7 +344,11 @@ function initializeAgentRun(
     const allToolNames = yield* toolRegistry.listAllTools();
     combinedToolNames = combinedToolNames.filter((toolName) => allToolNames.includes(toolName));
 
-    // Expand tool names to include approval execute tools and advertised aliases
+    // Expand tool names to include approval execute tools and advertised aliases. These are
+    // other names for a tool that already survived every filter above, so they are granted
+    // with it: a run that may call `execute_command` has to be able to reach
+    // `execute_execute_command` once the approval is answered, and the registry resolves
+    // `glob` to `find`.
     const expandedToolNameSet = new Set(combinedToolNames);
     for (const toolName of combinedToolNames) {
       const tool = yield* toolRegistry.getTool(toolName);
@@ -357,6 +361,18 @@ function initializeAgentRun(
       if (tool.approvalExecuteToolName) {
         expandedToolNameSet.add(tool.approvalExecuteToolName);
       }
+    }
+
+    // Denials run again over what expansion added, because expansion grants: a persona that
+    // denies `glob` would otherwise get it back the moment `find` is granted. Denial has to
+    // be the last word, or a deny entry is one alias away from meaningless.
+    //
+    // The allowlist deliberately is not re-applied. A peer's allowlist is built from
+    // `listTools()`, which omits hidden tools, so it never names an execute half; narrowing
+    // to it here would leave every gated tool proposable and none of them executable.
+    // Advertisement and execution agree by sharing this one set instead.
+    for (const toolName of expandedToolNameSet) {
+      if (denied.has(toolName)) expandedToolNameSet.delete(toolName);
     }
 
     const expandedToolNames = Array.from(expandedToolNameSet);
@@ -467,7 +483,10 @@ function initializeAgentRun(
       // subsequent isAutoApproved checks within the same agent run.
       autoApprovedCommands,
       autoApprovedTools,
-      parentToolNames: expandedToolNames,
+      // What the executor rejects off-list calls against, and what a sub-agent inherits as
+      // its allowlist: this run may execute the list it was offered, not whatever the
+      // registry happens to hold.
+      effectiveToolNames: expandedToolNameSet,
       ...(deferredToolNames.length > 0 ? { deferredToolNames } : {}),
       // `tools` is a real mutable array (see AgentRunContext) reused by reference across every
       // iteration of this run's loop, so pushing here makes a fetched schema callable on the

@@ -463,7 +463,7 @@ describe("spawn_subagent tool ceiling", () => {
     try {
       const { presentation } = createPresentationHarness();
       await runSpawn(presentation, {
-        parentToolNames: ["read_file", "grep", "spawn_subagent"],
+        effectiveToolNames: new Set(["read_file", "grep", "spawn_subagent"]),
       });
 
       expect(captured?.toolAllowlist).toEqual(["read_file", "grep", "spawn_subagent"]);

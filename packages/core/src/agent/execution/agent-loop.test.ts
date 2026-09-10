@@ -177,7 +177,7 @@ function makeOptions(overrides?: Partial<AgentRunnerOptions>): AgentRunnerOption
 function makeRunContext(overrides?: Partial<AgentRunContext>): AgentRunContext {
   return {
     actualConversationId: "conv-123",
-    context: { agentId: "agent-1", conversationId: "conv-123" },
+    context: { agentId: "agent-1", conversationId: "conv-123", unrestrictedTools: true },
     tools: [],
     messages: [{ role: "user", content: "hello" }],
     runMetrics: {

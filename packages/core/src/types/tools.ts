@@ -339,11 +339,6 @@ export interface ToolExecutionContext {
   /** Iteration budget for a sub-agent spawned here — its own, not the parent's remainder. */
   readonly maxSubagentIterations?: number;
   /**
-   * The parent's effective tool names. `spawn_subagent` passes these down as
-   * the child's allowlist so a child can never hold a tool its parent lacks.
-   */
-  readonly parentToolNames?: readonly string[];
-  /**
    * How many sub-agent levels sit above the run executing this tool. 0 at the
    * top level; `spawn_subagent` increments it and refuses past the limit.
    */
@@ -355,6 +350,25 @@ export interface ToolExecutionContext {
    * Used by summarize_context to actually update the executor's message array.
    */
   readonly compactConversation?: (compacted: readonly ChatMessage[]) => void;
+  /**
+   * Every tool name this run may execute: resolved toolset plus aliases and hidden
+   * execute halves. The executor refuses anything outside it before hitting the registry.
+   * `spawn_subagent` hands the same set down as the child's allowlist.
+   *
+   * Required for agent runs. Omitting it without `unrestrictedTools` fails closed.
+   */
+  readonly effectiveToolNames?: ReadonlySet<string>;
+  /**
+   * Explicit escape hatch for one-shot callers outside an agent run. Without this (or
+   * `effectiveToolNames`), `executeTool` refuses rather than treating a missing set as
+   * allow-all.
+   */
+  readonly unrestrictedTools?: boolean;
+  /**
+   * Set only by the post-approval path when invoking a gated pair's hidden execute half.
+   * Hidden tools are refused in `executeTool` unless this is true.
+   */
+  readonly allowHiddenExecute?: boolean;
   /** Names of this run's `deferred`-tier tools `search_tools` may look up. */
   readonly deferredToolNames?: readonly string[];
   /** Called by `search_tools` to make fetched schemas callable for the rest of this run — mirrors `compactConversation`. */

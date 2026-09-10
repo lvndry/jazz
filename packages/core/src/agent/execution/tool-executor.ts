@@ -82,18 +82,60 @@ export class ToolExecutor {
       const registry = yield* ToolRegistryTag;
       const logger = yield* LoggerServiceTag;
 
-      // Use caller-provided timeout, or look up per-tool timeout, or fall back to default
+      // Registry resolves against every tool in the process — reachability is decided here.
+      // Fail closed unless the run set an allowlist or the caller opted into unrestricted.
+      if (context.unrestrictedTools !== true) {
+        if (context.effectiveToolNames === undefined) {
+          yield* logger.warn("Blocked tool call with no effective tool set configured", {
+            agentId: context.agentId,
+            toolName: name,
+          });
+          return {
+            success: false,
+            result: null,
+            error: `Tool '${name}' cannot run: no effective tool set was configured for this call.`,
+          } satisfies ToolExecutionResult;
+        }
+        if (!context.effectiveToolNames.has(name)) {
+          yield* logger.warn("Blocked tool call outside this run's tool set", {
+            agentId: context.agentId,
+            toolName: name,
+          });
+          return {
+            success: false,
+            result: null,
+            error: `Tool '${name}' is not available to this agent. Use one of the tools you were given.`,
+          } satisfies ToolExecutionResult;
+        }
+      }
+
+      // Use caller-provided timeout, or look up per-tool timeout, or fall back to default.
+      // Always resolve meta so the hidden-tool gate below cannot be skipped when a timeout
+      // override is passed.
       let timeoutMs = overrideTimeoutMs;
-      const toolMeta =
-        timeoutMs === undefined
-          ? yield* registry.getTool(name).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
-          : undefined;
+      const toolMeta = yield* registry
+        .getTool(name)
+        .pipe(Effect.catchAll(() => Effect.succeed(undefined)));
       if (timeoutMs === undefined) {
         timeoutMs = toolMeta?.timeoutMs;
         // Long-running tools (e.g. user interaction) with no explicit timeout run indefinitely
         if (timeoutMs === undefined && !toolMeta?.longRunning) {
           timeoutMs = TOOL_TIMEOUT_MS;
         }
+      }
+
+      // Hidden execute halves skip approval if called directly. Only the post-approval
+      // path sets allowHiddenExecute when invoking the name the propose half returned.
+      if (toolMeta?.hidden === true && context.allowHiddenExecute !== true) {
+        yield* logger.warn("Blocked direct call to hidden execute tool", {
+          agentId: context.agentId,
+          toolName: name,
+        });
+        return {
+          success: false,
+          result: null,
+          error: `Tool '${name}' cannot be called directly. Call the tool that proposes it and the approved operation will run.`,
+        } satisfies ToolExecutionResult;
       }
 
       const execution = registry.executeTool(name, args, context);
@@ -187,6 +229,25 @@ export class ToolExecutor {
           .getTool(name)
           .pipe(Effect.catchAll(() => Effect.succeed(undefined)));
         const isLongRunning = toolMeta?.longRunning === true;
+
+        // Hidden tools are refused in executeTool unless allowHiddenExecute is set.
+        // Bail before UI start events when the model named one directly.
+        if (toolMeta?.hidden === true && context.allowHiddenExecute !== true) {
+          const errorMessage = `Tool '${name}' cannot be called directly. Call the tool that proposes it and the approved operation will run.`;
+          recordToolError(runMetrics, name, new Error(errorMessage));
+          yield* logger.warn("Blocked direct call to hidden execute tool", {
+            agentId,
+            conversationId,
+            toolName: name,
+            toolCallId: toolCall.id,
+          });
+          return {
+            toolCallId: toolCall.id,
+            result: { error: errorMessage },
+            success: false,
+            name,
+          };
+        }
 
         // Emit tool execution start - skip for approval tools to avoid interleaving with
         // approval UI when multiple tools run in parallel (approval wrapper returns
@@ -461,12 +522,12 @@ export class ToolExecutor {
               }
             }
 
-            // Execute the actual tool
-            result = yield* ToolExecutor.executeTool(
-              approvalResult.executeToolName,
-              executeArgs,
-              context,
-            );
+            // Execute the actual tool. allowHiddenExecute is required: executeTool refuses
+            // hidden tools unless the post-approval path opts in.
+            result = yield* ToolExecutor.executeTool(approvalResult.executeToolName, executeArgs, {
+              ...context,
+              allowHiddenExecute: true,
+            });
             toolDuration = Date.now() - executeStartTime;
             finalToolName = approvalResult.executeToolName;
 
