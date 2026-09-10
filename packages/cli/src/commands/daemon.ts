@@ -1,15 +1,13 @@
 /**
- * @fileoverview `jazz daemon` — run the HTTP server in the foreground.
+ * @fileoverview `jazz daemon` — run the HTTP server (background by default).
  *
- * Foreground on purpose. Supervision is the host's job, and the host already has one: the
- * Telegram bridge ships as a container with an entrypoint, and scheduled workflows use
- * launchd. A daemon that forks and writes a pidfile would be a third mechanism competing
- * with both, and the first thing anyone deploying it would have to work around.
+ * Interactive use backgrounds after the socket is up and writes a pidfile under `$JAZZ_HOME`
+ * so `jazz daemon stop` can SIGTERM it. Pass `--foreground` to stay attached (what
+ * systemd/launchd need for Type=simple / KeepAlive).
  *
- * `install`/`uninstall` do not change that — they don't add a jazz-owned supervision
- * mechanism, they wire this same foreground command into whichever supervisor the host
- * already has (systemd/launchd), which is exactly "the host's job" rather than a jazz pidfile
- * competing with it. See `@jazz/adapters/daemon/service-install` for that half.
+ * `install`/`uninstall` still wire the host supervisor: those units invoke
+ * `jazz daemon --foreground …` so the supervisor owns the process tree, not our pidfile.
+ * See `@jazz/adapters/daemon/service-install`.
  */
 
 import { randomBytes } from "node:crypto";
@@ -55,6 +53,12 @@ import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
 import { OneShotPresentationServiceLayer } from "@jazz/core/presentation/oneshot-presentation-service";
 import type { AppConfig } from "@jazz/core/types/config";
 import { getJazzSchedulerInvocation } from "@jazz/core/utils/runtime";
+import {
+  clearDaemonPid,
+  stopDaemonProcess,
+  waitForDaemonHealth,
+  writeDaemonPid,
+} from "../helpers/daemon-process";
 import { SchedulerServiceTag } from "@jazz/core/workflows/scheduler-service";
 import { Effect, Runtime } from "effect";
 
@@ -71,6 +75,12 @@ const WORKFLOW_CATCH_UP_INTERVAL_MS = 60_000;
 export interface DaemonCommandOptions {
   readonly port: number;
   readonly host: string;
+  /**
+   * Stay attached to the terminal. Default is background (pidfile + detach) so a normal
+   * `jazz daemon` returns once healthy. System services pass this so the supervisor owns the
+   * process.
+   */
+  readonly foreground?: boolean;
   /**
    * Agent that answers peer questions. Omitted means peers are not served at all.
    *
@@ -194,6 +204,11 @@ function formatServiceInstalledMessage(
  */
 export function daemonCommand(options: DaemonCommandOptions) {
   return Effect.gen(function* () {
+    if (options.foreground !== true) {
+      yield* startDaemonInBackground(options);
+      return;
+    }
+
     const provisioned = yield* resolveOrProvisionDaemonToken();
     if (!provisioned.ok && !isLoopback(options.host)) {
       // A precise, OS-aware explanation instead of `refuseReason`'s generic "no token" —
@@ -353,6 +368,7 @@ export function daemonCommand(options: DaemonCommandOptions) {
         `jazz daemon listening on http://${daemonOptions.host}:${String(server.port)}` +
           `${token === undefined ? " (unauthenticated: no token could be stored)" : ""}\n`,
       );
+      void writeDaemonPid(daemonOptions.port, process.pid);
 
       // In-process alternative to depending on launchd/crontab existing on the host: every
       // tick, run whatever workflow catch-up is due and fire any self-registered wake
@@ -390,6 +406,7 @@ export function daemonCommand(options: DaemonCommandOptions) {
         // Not awaited: the process is going away, and blocking the signal handler on a
         // drain that may never finish is how a daemon becomes unkillable.
         clearInterval(ticker);
+        void clearDaemonPid(daemonOptions.port);
         void server.stop(true);
         resume(Effect.void);
       };
@@ -398,6 +415,7 @@ export function daemonCommand(options: DaemonCommandOptions) {
 
       return Effect.sync(() => {
         clearInterval(ticker);
+        void clearDaemonPid(daemonOptions.port);
         void server.stop(true);
       });
     });
@@ -413,6 +431,83 @@ export function daemonCommand(options: DaemonCommandOptions) {
     Effect.provide(OneShotPresentationServiceLayer),
     Effect.provide(makeFileRunStoreLayer()),
   );
+}
+
+/**
+ * Re-exec this CLI with `--foreground`, detach, wait until `/health` answers, then exit.
+ */
+function startDaemonInBackground(options: DaemonCommandOptions) {
+  return Effect.gen(function* () {
+    const terminal = yield* TerminalServiceTag;
+    const invocation = yield* getJazzSchedulerInvocation();
+    const args = [
+      ...invocation,
+      "daemon",
+      "--foreground",
+      "--port",
+      String(options.port),
+      "--host",
+      options.host,
+      ...(options.peerAgent !== undefined ? ["--serve-peers", options.peerAgent] : []),
+    ];
+
+    const child = Bun.spawn({
+      cmd: args,
+      stdout: "ignore",
+      stderr: "ignore",
+      stdin: "ignore",
+      env: process.env,
+    });
+    child.unref();
+
+    const healthy = yield* Effect.promise(() => waitForDaemonHealth(options.host, options.port));
+    if (!healthy) {
+      try {
+        process.kill(child.pid, "SIGTERM");
+      } catch {
+        // already gone
+      }
+      yield* terminal.error(
+        `jazz daemon did not become healthy on http://${options.host}:${String(options.port)} — not leaving it running.`,
+      );
+      process.exitCode = 1;
+      return;
+    }
+
+    yield* Effect.promise(() => writeDaemonPid(options.port, child.pid));
+    yield* terminal.success(
+      `jazz daemon running in the background on http://${options.host}:${String(options.port)} (pid ${String(child.pid)})`,
+    );
+    yield* terminal.info(`Stop it with: jazz daemon stop --port ${String(options.port)}`);
+    yield* terminal.info("Logs stay quiet in background mode; use --foreground to watch them.");
+  });
+}
+
+/**
+ * Stop a background (or still-attached) daemon for this port via SIGTERM.
+ * Idempotent: nothing running is not an error.
+ */
+export function stopDaemonCommand(options: { readonly port: number }) {
+  return Effect.gen(function* () {
+    const terminal = yield* TerminalServiceTag;
+    const result = yield* Effect.promise(() => stopDaemonProcess(options.port));
+    switch (result.kind) {
+      case "nothing":
+        yield* terminal.info(`No jazz daemon on port ${String(options.port)}.`);
+        return;
+      case "stopped":
+        yield* terminal.success(
+          `Stopped jazz daemon on port ${String(options.port)} (pid ${String(result.pid)}).`,
+        );
+        return;
+      case "failed":
+        yield* terminal.error(
+          `Could not stop pid ${String(result.pid)} on port ${String(options.port)}: ${result.detail}`,
+        );
+        process.exitCode = 1;
+        return;
+    }
+  });
 }
 
 /**

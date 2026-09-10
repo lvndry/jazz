@@ -896,9 +896,8 @@ function registerUpdateCommand(program: Command): void {
 /**
  * Register `jazz daemon` — the long-lived HTTP server.
  *
- * One command, in the foreground. Supervision belongs to whatever already supervises this
- * host: the bridge ships as a container, scheduled workflows use launchd. A daemon that
- * forked and wrote a pidfile would be a third mechanism competing with both.
+ * Background by default (pidfile under `$JAZZ_HOME`); `--foreground` for supervisors.
+ * `jazz daemon stop` SIGTERMs the process for that port.
  */
 function registerDaemonCommand(program: Command): void {
   const daemonCommand = program
@@ -916,7 +915,11 @@ function registerDaemonCommand(program: Command): void {
       "--serve-peers <agentId>",
       "Also answer questions from configured peers, using this agent. Off unless given: a daemon for your own use should not quietly answer strangers.",
     )
-    .action((options: { port: number; host: string; servePeers?: string }) =>
+    .option(
+      "--foreground",
+      "Stay attached to the terminal (default is background). Required for systemd/launchd.",
+    )
+    .action((options: { port: number; host: string; servePeers?: string; foreground?: boolean }) =>
       // No `{ session: true }` — that opts into the fullscreen alternate-screen TUI, meant
       // for commands a human actively drives (agent create/edit, chat, persona edit). A
       // daemon is long-running but headless: it logs plain lines to stderr and blocks,
@@ -927,6 +930,7 @@ function registerDaemonCommand(program: Command): void {
             mod.daemonCommand({
               port: options.port,
               host: options.host,
+              ...(options.foreground === true ? { foreground: true } : {}),
               ...(options.servePeers !== undefined ? { peerAgent: options.servePeers } : {}),
             }),
           ),
@@ -955,6 +959,20 @@ function registerDaemonCommand(program: Command): void {
         cliRuntimeOptions(program),
       ),
     );
+
+  daemonCommand
+    .command("stop")
+    .description("Stop a background jazz daemon for this port (SIGTERM via pidfile / listener)")
+    .action(() => {
+      const daemonOptions = daemonCommand.opts<{ readonly port: number }>();
+      return runCliAction(
+        () =>
+          import("@jazz/cli/commands/daemon").then((mod) =>
+            mod.stopDaemonCommand({ port: daemonOptions.port }),
+          ),
+        cliRuntimeOptions(program),
+      );
+    });
 
   daemonCommand
     .command("install")
