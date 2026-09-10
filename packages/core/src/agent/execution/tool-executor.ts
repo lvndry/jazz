@@ -82,39 +82,60 @@ export class ToolExecutor {
       const registry = yield* ToolRegistryTag;
       const logger = yield* LoggerServiceTag;
 
-      // The registry resolves a name against every tool registered in the process, so
-      // whether a run may reach one is decided here or nowhere: advertising a narrowed list
-      // only shapes what the model is likely to ask for. Peer-served runs lean on this —
-      // their allowlist is the whole authorization boundary and they auto-approve
-      // everything inside it.
-      //
-      // Reported as a failed result rather than a raised error, the same as unparseable
-      // arguments: the model asked for something it does not have, which is a turn it can
-      // recover from by picking a tool it does have.
-      if (context.effectiveToolNames !== undefined && !context.effectiveToolNames.has(name)) {
-        yield* logger.warn("Blocked tool call outside this run's tool set", {
-          agentId: context.agentId,
-          toolName: name,
-        });
-        return {
-          success: false,
-          result: null,
-          error: `Tool '${name}' is not available to this agent. Use one of the tools you were given.`,
-        } satisfies ToolExecutionResult;
+      // Registry resolves against every tool in the process — reachability is decided here.
+      // Fail closed unless the run set an allowlist or the caller opted into unrestricted.
+      if (context.unrestrictedTools !== true) {
+        if (context.effectiveToolNames === undefined) {
+          yield* logger.warn("Blocked tool call with no effective tool set configured", {
+            agentId: context.agentId,
+            toolName: name,
+          });
+          return {
+            success: false,
+            result: null,
+            error: `Tool '${name}' cannot run: no effective tool set was configured for this call.`,
+          } satisfies ToolExecutionResult;
+        }
+        if (!context.effectiveToolNames.has(name)) {
+          yield* logger.warn("Blocked tool call outside this run's tool set", {
+            agentId: context.agentId,
+            toolName: name,
+          });
+          return {
+            success: false,
+            result: null,
+            error: `Tool '${name}' is not available to this agent. Use one of the tools you were given.`,
+          } satisfies ToolExecutionResult;
+        }
       }
 
-      // Use caller-provided timeout, or look up per-tool timeout, or fall back to default
+      // Use caller-provided timeout, or look up per-tool timeout, or fall back to default.
+      // Always resolve meta so the hidden-tool gate below cannot be skipped when a timeout
+      // override is passed.
       let timeoutMs = overrideTimeoutMs;
-      const toolMeta =
-        timeoutMs === undefined
-          ? yield* registry.getTool(name).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
-          : undefined;
+      const toolMeta = yield* registry
+        .getTool(name)
+        .pipe(Effect.catchAll(() => Effect.succeed(undefined)));
       if (timeoutMs === undefined) {
         timeoutMs = toolMeta?.timeoutMs;
         // Long-running tools (e.g. user interaction) with no explicit timeout run indefinitely
         if (timeoutMs === undefined && !toolMeta?.longRunning) {
           timeoutMs = TOOL_TIMEOUT_MS;
         }
+      }
+
+      // Hidden execute halves skip approval if called directly. Only the post-approval
+      // path sets allowHiddenExecute when invoking the name the propose half returned.
+      if (toolMeta?.hidden === true && context.allowHiddenExecute !== true) {
+        yield* logger.warn("Blocked direct call to hidden execute tool", {
+          agentId: context.agentId,
+          toolName: name,
+        });
+        return {
+          success: false,
+          result: null,
+          error: `Tool '${name}' cannot be called directly. Call the tool that proposes it and the approved operation will run.`,
+        } satisfies ToolExecutionResult;
       }
 
       const execution = registry.executeTool(name, args, context);
@@ -209,15 +230,23 @@ export class ToolExecutor {
           .pipe(Effect.catchAll(() => Effect.succeed(undefined)));
         const isLongRunning = toolMeta?.longRunning === true;
 
-        // A hidden tool is the execute half of a propose/execute pair, and is never in any
-        // tool list the model is shown — so a model that names one guessed it, and running
-        // it would skip the very approval the pair exists to collect. The legitimate route
-        // to that half is the approval branch further down, which calls it by the name the
-        // propose half returned rather than by a name the model wrote.
-        if (toolMeta?.hidden === true) {
-          throw new Error(
-            `Tool '${name}' cannot be called directly. Call the tool that proposes it and the approved operation will run.`,
-          );
+        // Hidden tools are refused in executeTool unless allowHiddenExecute is set.
+        // Bail before UI start events when the model named one directly.
+        if (toolMeta?.hidden === true && context.allowHiddenExecute !== true) {
+          const errorMessage = `Tool '${name}' cannot be called directly. Call the tool that proposes it and the approved operation will run.`;
+          recordToolError(runMetrics, name, new Error(errorMessage));
+          yield* logger.warn("Blocked direct call to hidden execute tool", {
+            agentId,
+            conversationId,
+            toolName: name,
+            toolCallId: toolCall.id,
+          });
+          return {
+            toolCallId: toolCall.id,
+            result: { error: errorMessage },
+            success: false,
+            name,
+          };
         }
 
         // Emit tool execution start - skip for approval tools to avoid interleaving with
@@ -493,12 +522,12 @@ export class ToolExecutor {
               }
             }
 
-            // Execute the actual tool
-            result = yield* ToolExecutor.executeTool(
-              approvalResult.executeToolName,
-              executeArgs,
-              context,
-            );
+            // Execute the actual tool. allowHiddenExecute is required: executeTool refuses
+            // hidden tools unless the post-approval path opts in.
+            result = yield* ToolExecutor.executeTool(approvalResult.executeToolName, executeArgs, {
+              ...context,
+              allowHiddenExecute: true,
+            });
             toolDuration = Date.now() - executeStartTime;
             finalToolName = approvalResult.executeToolName;
 

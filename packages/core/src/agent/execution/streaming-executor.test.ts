@@ -118,6 +118,7 @@ describe("executeWithStreaming", () => {
       context: {
         agentId: "agent-1",
         conversationId: "conv-123",
+        unrestrictedTools: true,
       },
       tools: [],
       messages: [{ role: "user", content: "hello" }],
@@ -328,6 +329,7 @@ describe("executeWithStreaming", () => {
       context: {
         agentId: "agent-1",
         conversationId: "conv-123",
+        unrestrictedTools: true,
       },
       tools: [],
       messages: [{ role: "user", content: "run tool" }],
@@ -447,6 +449,7 @@ describe("executeWithStreaming", () => {
       context: {
         agentId: "agent-1",
         conversationId: "conv-123",
+        unrestrictedTools: true,
       },
       tools: [],
       messages: [{ role: "user", content: "hello" }],

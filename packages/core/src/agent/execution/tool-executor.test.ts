@@ -178,6 +178,7 @@ describe("ToolExecutor.executeTool", () => {
         {
           agentId: "agent-1",
           conversationId: "sess-1",
+          unrestrictedTools: true,
         },
       ).pipe(Effect.provide(testLayer)) as Effect.Effect<ToolExecutionResult, unknown, never>,
     );
@@ -202,6 +203,7 @@ describe("ToolExecutor.executeTool", () => {
         {
           agentId: "agent-1",
           conversationId: "sess-1",
+          unrestrictedTools: true,
         },
       ).pipe(Effect.provide(testLayer)) as Effect.Effect<ToolExecutionResult, unknown, never>,
     );
@@ -234,7 +236,7 @@ describe("ToolExecutor.executeToolCall", () => {
     const result = await Effect.runPromise(
       ToolExecutor.executeToolCall(
         toolCall,
-        { agentId: "agent-1", conversationId: "sess-1" },
+        { agentId: "agent-1", conversationId: "sess-1", unrestrictedTools: true },
         displayConfig,
         null,
         makeRunMetrics(),
@@ -261,7 +263,7 @@ describe("ToolExecutor.executeToolCall", () => {
     const result = await Effect.runPromise(
       ToolExecutor.executeToolCall(
         toolCall,
-        { agentId: "agent-1", conversationId: "sess-1" },
+        { agentId: "agent-1", conversationId: "sess-1", unrestrictedTools: true },
         displayConfig,
         null,
         makeRunMetrics(),
@@ -307,7 +309,7 @@ describe("ToolExecutor.executeToolCalls", () => {
     const results = await Effect.runPromise(
       ToolExecutor.executeToolCalls(
         toolCalls,
-        { agentId: "agent-1", conversationId: "sess-1" },
+        { agentId: "agent-1", conversationId: "sess-1", unrestrictedTools: true },
         { showReasoning: false, showToolExecution: false, mode: "hybrid" as const },
         null,
         makeRunMetrics(),
@@ -364,7 +366,7 @@ describe("ToolExecutor.executeToolCalls", () => {
       const fiber = yield* Effect.fork(
         ToolExecutor.executeToolCalls(
           toolCalls,
-          { agentId: "agent-1", conversationId: "sess-1" },
+          { agentId: "agent-1", conversationId: "sess-1", unrestrictedTools: true },
           { showReasoning: false, showToolExecution: true, mode: "hybrid" as const },
           recordingRenderer,
           makeRunMetrics(),
@@ -451,7 +453,7 @@ describe("ToolExecutor.executeToolCalls", () => {
       const fiber = yield* Effect.fork(
         ToolExecutor.executeToolCalls(
           toolCalls,
-          { agentId: "agent-1", conversationId: "sess-1" },
+          { agentId: "agent-1", conversationId: "sess-1", unrestrictedTools: true },
           { showReasoning: false, showToolExecution: true, mode: "hybrid" as const },
           recordingRenderer,
           makeRunMetrics(),
@@ -574,7 +576,7 @@ describe("ToolExecutor.executeToolCall approval events", () => {
     await Effect.runPromise(
       ToolExecutor.executeToolCall(
         toolCall,
-        { agentId: "agent-1", conversationId: "sess-1" },
+        { agentId: "agent-1", conversationId: "sess-1", unrestrictedTools: true },
         displayConfig,
         recordingRenderer,
         makeRunMetrics(),
@@ -670,6 +672,7 @@ describe("ToolExecutor.executeToolCall approval events", () => {
         {
           agentId: "agent-1",
           conversationId: "sess-1",
+          unrestrictedTools: true,
           parentAgent: {
             id: "agent-1",
             name: "test",
@@ -775,6 +778,7 @@ describe("ToolExecutor picker-style approvals", () => {
         // Yolo: every other high-risk tool would sail through. A picker must not.
         {
           agentId: "agent-1",
+          unrestrictedTools: true,
           getAutoApprovePolicy: () => true,
         },
         displayConfig,
@@ -927,7 +931,26 @@ describe("a run's effective tool set as the execution boundary", () => {
     });
   });
 
-  it("leaves a caller with no effective set unrestricted", async () => {
+  it("runs when the caller explicitly opts into unrestrictedTools", async () => {
+    const executed: string[] = [];
+    const result = await Effect.runPromise(
+      ToolExecutor.executeTool(
+        "read_file",
+        {},
+        {
+          agentId: "agent-1",
+          unrestrictedTools: true,
+        },
+      ).pipe(
+        Effect.provide(makeTestLayer({ registry: makeFullRegistry(executed) })),
+      ) as Effect.Effect<ToolExecutionResult, unknown, never>,
+    );
+
+    expect(executed).toEqual(["read_file"]);
+    expect(result.success).toBe(true);
+  });
+
+  it("refuses when neither effectiveToolNames nor unrestrictedTools is set", async () => {
     const executed: string[] = [];
     const result = await Effect.runPromise(
       ToolExecutor.executeTool("read_file", {}, { agentId: "agent-1" }).pipe(
@@ -935,7 +958,65 @@ describe("a run's effective tool set as the execution boundary", () => {
       ) as Effect.Effect<ToolExecutionResult, unknown, never>,
     );
 
-    expect(executed).toEqual(["read_file"]);
+    expect(executed).toEqual([]);
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/no effective tool set/i);
+  });
+
+  it("refuses via executeTool when the name is outside effectiveToolNames", async () => {
+    const executed: string[] = [];
+    const result = await Effect.runPromise(
+      ToolExecutor.executeTool(
+        "execute_command",
+        { command: "ls" },
+        { agentId: "agent-1", effectiveToolNames: new Set(["read_file"]) },
+      ).pipe(
+        Effect.provide(makeTestLayer({ registry: makeFullRegistry(executed) })),
+      ) as Effect.Effect<ToolExecutionResult, unknown, never>,
+    );
+
+    expect(executed).toEqual([]);
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/not available to this agent/);
+  });
+
+  it("refuses a hidden tool via executeTool without allowHiddenExecute", async () => {
+    const executed: string[] = [];
+    const result = await Effect.runPromise(
+      ToolExecutor.executeTool(
+        "execute_execute_command",
+        { command: "ls" },
+        {
+          agentId: "agent-1",
+          effectiveToolNames: new Set(["execute_command", "execute_execute_command"]),
+        },
+      ).pipe(
+        Effect.provide(makeTestLayer({ registry: makeFullRegistry(executed) })),
+      ) as Effect.Effect<ToolExecutionResult, unknown, never>,
+    );
+
+    expect(executed).toEqual([]);
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/cannot be called directly/);
+  });
+
+  it("runs a hidden tool via executeTool when allowHiddenExecute is set", async () => {
+    const executed: string[] = [];
+    const result = await Effect.runPromise(
+      ToolExecutor.executeTool(
+        "execute_execute_command",
+        { command: "ls" },
+        {
+          agentId: "agent-1",
+          effectiveToolNames: new Set(["execute_command", "execute_execute_command"]),
+          allowHiddenExecute: true,
+        },
+      ).pipe(
+        Effect.provide(makeTestLayer({ registry: makeFullRegistry(executed) })),
+      ) as Effect.Effect<ToolExecutionResult, unknown, never>,
+    );
+
+    expect(executed).toEqual(["execute_execute_command"]);
     expect(result.success).toBe(true);
   });
 });

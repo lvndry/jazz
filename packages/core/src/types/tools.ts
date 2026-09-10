@@ -351,21 +351,24 @@ export interface ToolExecutionContext {
    */
   readonly compactConversation?: (compacted: readonly ChatMessage[]) => void;
   /**
-   * Every tool name this run may execute: its resolved toolset plus the alias and
-   * hidden-execute-half names those tools answer to.
+   * Every tool name this run may execute: resolved toolset plus aliases and hidden
+   * execute halves. The executor refuses anything outside it before hitting the registry.
+   * `spawn_subagent` hands the same set down as the child's allowlist.
    *
-   * The executor tests each call against this set before handing the name to the registry,
-   * which resolves against every tool registered in the process and would otherwise run one
-   * this run was never granted. Advertising a narrowed list is not enough on its own — a
-   * model that names an unadvertised tool anyway reaches the registry all the same.
-   *
-   * `spawn_subagent` also hands it down as the child's allowlist, so a child can never hold
-   * a tool its parent lacks. One set for both: a second copy of the same list is one edit
-   * away from letting a child execute something the parent could not.
-   *
-   * Undefined means unrestricted, for callers that run a tool outside an agent run.
+   * Required for agent runs. Omitting it without `unrestrictedTools` fails closed.
    */
   readonly effectiveToolNames?: ReadonlySet<string>;
+  /**
+   * Explicit escape hatch for one-shot callers outside an agent run. Without this (or
+   * `effectiveToolNames`), `executeTool` refuses rather than treating a missing set as
+   * allow-all.
+   */
+  readonly unrestrictedTools?: boolean;
+  /**
+   * Set only by the post-approval path when invoking a gated pair's hidden execute half.
+   * Hidden tools are refused in `executeTool` unless this is true.
+   */
+  readonly allowHiddenExecute?: boolean;
   /** Names of this run's `deferred`-tier tools `search_tools` may look up. */
   readonly deferredToolNames?: readonly string[];
   /** Called by `search_tools` to make fetched schemas callable for the rest of this run — mirrors `compactConversation`. */
