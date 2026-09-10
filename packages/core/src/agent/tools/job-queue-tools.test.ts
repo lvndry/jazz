@@ -1,7 +1,7 @@
 import { NodeFileSystem } from "@effect/platform-node";
 import { describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
-import { JOB_OUTPUT_TAIL_CHARS } from "@/core/constants/job-queue";
+import { TOOL_OUTPUT_TAIL_CHARS } from "@/core/agent/tools/capped-output";
 import {
   JobQueueServiceTag,
   type JobBatchRecord,
@@ -52,7 +52,7 @@ const BATCH: JobBatchRecord = {
       id: "j3",
       command: "build",
       result: {
-        stdout: `${"x".repeat(JOB_OUTPUT_TAIL_CHARS * 2)}THE-VERDICT`,
+        stdout: `${"x".repeat(TOOL_OUTPUT_TAIL_CHARS * 2)}THE-VERDICT`,
         stderr: "",
         exitCode: 0,
       },
@@ -113,6 +113,6 @@ describe("list_jobs", () => {
 
     expect(stdout).toContain("THE-VERDICT");
     expect(stdout).toContain("earlier output trimmed");
-    expect(stdout.length).toBeLessThan(JOB_OUTPUT_TAIL_CHARS * 2);
+    expect(stdout.length).toBeLessThan(TOOL_OUTPUT_TAIL_CHARS * 2);
   });
 });

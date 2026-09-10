@@ -62,6 +62,11 @@ export interface BaseToolConfig<R, Args extends Record<string, unknown>> {
   /** What an answer from this tool reveals about the operator. No default: decide. */
   readonly disclosure: ToolDisclosure;
   /**
+   * Set when calling this tool sends model-authored content off this machine. Defaults to
+   * `false`. Only the peer door reads it — see {@link Tool.egress}.
+   */
+  readonly egress?: boolean;
+  /**
    * Optional validator. When omitted, arguments are checked with
    * {@link makeZodValidator} against `parameters`.
    *
@@ -123,6 +128,7 @@ export function defineTool<R, Args extends Record<string, unknown>>(
     hidden: config.hidden === true,
     riskLevel: config.riskLevel ?? defaultRiskLevel,
     disclosure: config.disclosure,
+    egress: config.egress === true,
     ...(config.approvalExecuteToolName
       ? { approvalExecuteToolName: config.approvalExecuteToolName }
       : {}),
@@ -192,6 +198,11 @@ export interface ApprovalToolConfig<R, Args extends Record<string, unknown>> {
   readonly riskLevel?: ToolRiskLevel;
   /** What an answer from this tool reveals about the operator. No default: decide. */
   readonly disclosure: ToolDisclosure;
+  /**
+   * Set when calling this tool sends model-authored content off this machine. Defaults to
+   * `false`, and applies to both halves of the pair. See {@link Tool.egress}.
+   */
+  readonly egress?: boolean;
   /** Optional custom validator */
   readonly validate?: ToolValidator<Args>;
   /**
@@ -227,6 +238,11 @@ export interface ApprovalToolConfig<R, Args extends Record<string, unknown>> {
    * Overrides the default 3-minute executor timeout.
    */
   readonly timeoutMs?: number;
+  /**
+   * Suppresses the UI's "taking longer than expected" warning. Set it for a tool whose whole
+   * purpose is to block for a long time, where that warning would be describing normal operation.
+   */
+  readonly longRunning?: boolean;
 }
 
 /**
@@ -270,6 +286,7 @@ export function defineApprovalTool<R, Args extends Record<string, unknown>>(
     parameters: config.parameters,
     riskLevel,
     disclosure: config.disclosure,
+    ...(config.egress === true ? { egress: true } : {}),
     validate: validator,
     approvalExecuteToolName: executeToolName,
     handler: (args: Args, context: ToolExecutionContext) =>
@@ -309,11 +326,13 @@ export function defineApprovalTool<R, Args extends Record<string, unknown>>(
     hidden: true,
     riskLevel,
     disclosure: config.disclosure,
+    ...(config.egress === true ? { egress: true } : {}),
     parameters: config.parameters,
     validate: validator,
     handler: config.handler,
     ...(config.createSummary ? { createSummary: config.createSummary } : {}),
     ...(config.timeoutMs !== undefined ? { timeoutMs: config.timeoutMs } : {}),
+    ...(config.longRunning !== undefined ? { longRunning: config.longRunning } : {}),
   });
 
   return {

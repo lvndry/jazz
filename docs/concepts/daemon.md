@@ -71,21 +71,48 @@ that, not instead of it.
 `GET /health` is unauthenticated on purpose — a process supervisor should be able to check
 that the daemon is alive without holding a credential that can drive an agent.
 
-Everything else needs a bearer token, but only when it matters: binding to `127.0.0.1` (the
-default) needs no token at all, since reaching it already means being on the machine.
-Binding anywhere else does. The first time a daemon binds a non-loopback host with no token
-already set, Jazz generates one, stores it (OS keyring, or a `chmod 600`
-`$JAZZ_HOME/secrets.json` where there's no keyring), and prints it once so you can copy it to
-a client.
+Everything else needs a bearer token, **including on loopback**. The first time a daemon
+starts with no token already set, Jazz generates one, stores it (OS keyring, or a
+`chmod 600` `$JAZZ_HOME/secrets.json` where there's no keyring), and prints it once so you
+can copy it to a client. It is not reprinted on later starts, so a supervisor's logs never
+accumulate the secret.
 
 ```bash
-jazz daemon set-token      # generate (or store $JAZZ_DAEMON_TOKEN) ahead of the daemon's first run
+jazz daemon set-token      # generate (or store $JAZZ_DAEMON_TOKEN); prints a generated value
 jazz daemon forget-token   # remove it
 ```
+
+Loopback used to need no token, on the reasoning that reaching `127.0.0.1` already means
+being on the machine. That reasoning ignores loopback's two real neighbours: every other user
+account on a shared host, and every page open in your browser. The browser half is handled
+structurally — see below — but nothing except a token separates a tokenless loopback daemon
+from any other local process, and what it guards is an agent with filesystem access.
+
+If nothing can store a token at all (`$JAZZ_DISABLE_KEYRING` set with no
+`$JAZZ_DAEMON_TOKEN`), a loopback daemon warns and serves unauthenticated rather than
+refusing to start; a non-loopback bind still refuses outright.
 
 Set `$JAZZ_DAEMON_TOKEN` yourself instead of letting Jazz generate one when the value needs
 to be known in advance — a client config written before the daemon has ever run, or an
 ephemeral container whose `$JAZZ_HOME` won't survive to the next deploy.
+
+### It does not answer your browser
+
+A loopback port is inside the trust boundary of every page you have open, and a page can POST
+to `127.0.0.1` without you doing anything. Two checks close that, on every door:
+
+- **A request carrying an `Origin` header is refused with `403`.** Nothing that legitimately
+  drives this daemon sets one — not a CLI, not `curl`, not a supervisor's health probe, not
+  another jazz. A browser sets it on every cross-origin request and cannot be talked out of
+  it, so its presence identifies the wrong kind of client.
+- **A request body must be `content-type: application/json`** (`415` otherwise). An HTML form
+  can only send urlencoded, multipart, or `text/plain`; anything else makes the browser ask
+  permission first, and these doors answer no such preflight. The webhook door is the one
+  exception — its body is whatever the sending system sends — and it is gated by a per-webhook
+  token no page could hold.
+
+If you are writing a client, send `application/json` and no `Origin`, which is what every
+ordinary HTTP client already does.
 
 Peers and webhooks don't use this token — each has its own, checked separately, because a
 credential that can start and approve runs is a much bigger grant than one that can only

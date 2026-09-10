@@ -18,15 +18,25 @@ import {
   MEMORY_VIEW_TRUNCATE_CHARS,
 } from "@jazz/core/constants/memory";
 import type {
+  MemoryFileProvenance,
+  MemoryScopeProvenance,
+} from "@jazz/core/interfaces/memory-provenance";
+import {
+  EMPTY_MEMORY_SCOPE_PROVENANCE,
+  MEMORY_PROVENANCE_FILENAME,
+} from "@jazz/core/interfaces/memory-provenance";
+import type {
   MemoryDirectoryEntry,
   MemoryMutationOutcome,
   MemoryService,
   MemoryViewOutcome,
+  MemoryWriteContext,
 } from "@jazz/core/interfaces/memory-service";
 import { MemoryServiceTag } from "@jazz/core/interfaces/memory-service";
 import { getMemoryDirectory } from "@jazz/core/utils/paths";
 import {
   abbreviateHomePath,
+  isValidStorageKey,
   requireValidStorageKey,
   withLock,
   writeFileStringAtomic,
@@ -80,6 +90,10 @@ function walkMemoryTree(
     let totalBytes = 0;
     let fileCount = 0;
     for (const name of names) {
+      // Hidden entries are Jazz's own bookkeeping (the provenance sidecar), not
+      // saved memory, so they must not consume the operator's byte or file
+      // budget — and they are excluded from listings for the same reason.
+      if (name.startsWith(".")) continue;
       const entryPath = path.join(dir, name);
       const info = yield* fs.stat(entryPath).pipe(Effect.catchAll(() => Effect.succeed(null)));
       if (!info) continue;
@@ -129,9 +143,142 @@ function listDirectoryEntries(
   });
 }
 
+/**
+ * Reads a scope's provenance sidecar. A missing or corrupt file reads as empty
+ * rather than failing: provenance is metadata about memory, and losing it must
+ * never make the memory itself unreadable.
+ */
+function readScopeProvenance(
+  fs: FileSystem.FileSystem,
+  scopeRoot: string,
+): Effect.Effect<MemoryScopeProvenance, never> {
+  return fs.readFileString(path.join(scopeRoot, MEMORY_PROVENANCE_FILENAME)).pipe(
+    Effect.map((raw) => {
+      const parsed: unknown = JSON.parse(raw);
+      if (
+        typeof parsed !== "object" ||
+        parsed === null ||
+        typeof (parsed as MemoryScopeProvenance).files !== "object"
+      ) {
+        return EMPTY_MEMORY_SCOPE_PROVENANCE;
+      }
+      return parsed as MemoryScopeProvenance;
+    }),
+    Effect.catchAll(() => Effect.succeed(EMPTY_MEMORY_SCOPE_PROVENANCE)),
+  );
+}
+
+function writeScopeProvenance(
+  fs: FileSystem.FileSystem,
+  scopeRoot: string,
+  provenance: MemoryScopeProvenance,
+): Effect.Effect<void, never> {
+  return writeFileStringAtomic(
+    fs,
+    path.join(scopeRoot, MEMORY_PROVENANCE_FILENAME),
+    `${JSON.stringify(provenance, null, 2)}\n`,
+    { tempPrefix: "memory-provenance" },
+  ).pipe(Effect.catchAll(() => Effect.void));
+}
+
+/** Records a write against `relativePath`, creating its entry if it is new. */
+function recordWrite(
+  fs: FileSystem.FileSystem,
+  scopeRoot: string,
+  relativePath: string,
+  writeContext: MemoryWriteContext,
+): Effect.Effect<void, never> {
+  return Effect.gen(function* () {
+    const provenance = yield* readScopeProvenance(fs, scopeRoot);
+    const existing = provenance.files[relativePath];
+    const now = new Date().toISOString();
+    const writtenBy = existing?.writtenBy.includes(writeContext.agentId)
+      ? existing.writtenBy
+      : [...(existing?.writtenBy ?? []), writeContext.agentId];
+
+    const updated: MemoryFileProvenance = {
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+      ...(existing?.lastViewedAt !== undefined ? { lastViewedAt: existing.lastViewedAt } : {}),
+      writeCount: (existing?.writeCount ?? 0) + 1,
+      writtenBy,
+    };
+
+    yield* writeScopeProvenance(fs, scopeRoot, {
+      version: 1,
+      files: { ...provenance.files, [relativePath]: updated },
+    });
+  });
+}
+
+function forgetProvenance(
+  fs: FileSystem.FileSystem,
+  scopeRoot: string,
+  relativePath: string,
+): Effect.Effect<void, never> {
+  return Effect.gen(function* () {
+    const provenance = yield* readScopeProvenance(fs, scopeRoot);
+    if (provenance.files[relativePath] === undefined) return;
+    const files = { ...provenance.files };
+    delete files[relativePath];
+    yield* writeScopeProvenance(fs, scopeRoot, { version: 1, files });
+  });
+}
+
+function moveProvenance(
+  fs: FileSystem.FileSystem,
+  scopeRoot: string,
+  fromPath: string,
+  toPath: string,
+  writeContext: MemoryWriteContext,
+): Effect.Effect<void, never> {
+  return Effect.gen(function* () {
+    const provenance = yield* readScopeProvenance(fs, scopeRoot);
+    const existing = provenance.files[fromPath];
+    const files = { ...provenance.files };
+    delete files[fromPath];
+    const now = new Date().toISOString();
+    files[toPath] = {
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+      ...(existing?.lastViewedAt !== undefined ? { lastViewedAt: existing.lastViewedAt } : {}),
+      writeCount: (existing?.writeCount ?? 0) + 1,
+      writtenBy: existing?.writtenBy.includes(writeContext.agentId)
+        ? existing.writtenBy
+        : [...(existing?.writtenBy ?? []), writeContext.agentId],
+    };
+    yield* writeScopeProvenance(fs, scopeRoot, { version: 1, files });
+  });
+}
+
+function touchViewed(
+  fs: FileSystem.FileSystem,
+  scopeRoot: string,
+  relativePath: string,
+): Effect.Effect<void, never> {
+  return Effect.gen(function* () {
+    const provenance = yield* readScopeProvenance(fs, scopeRoot);
+    const existing = provenance.files[relativePath];
+    if (existing === undefined) return;
+    yield* writeScopeProvenance(fs, scopeRoot, {
+      version: 1,
+      files: {
+        ...provenance.files,
+        [relativePath]: { ...existing, lastViewedAt: new Date().toISOString() },
+      },
+    });
+  });
+}
+
 export interface MemoryServiceImplOptions {
   /** Override for tests; defaults to ~/.jazz/memory (or $JAZZ_HOME/memory). */
   readonly baseMemoryDirectory?: string;
+  /** Override for tests; defaults to {@link MAX_MEMORY_FILE_BYTES}. */
+  readonly maxFileBytes?: number;
+  /** Override for tests; defaults to {@link MAX_MEMORY_TOTAL_BYTES_PER_SCOPE}. */
+  readonly maxTotalBytesPerScope?: number;
+  /** Override for tests; defaults to {@link MAX_MEMORY_FILES_PER_SCOPE}. */
+  readonly maxFilesPerScope?: number;
 }
 
 /** A path names a scope outside the caller's accessible set, or names no scope at all. */
@@ -141,9 +288,15 @@ type ScopeResolution =
 
 export class MemoryServiceImpl implements MemoryService {
   private readonly baseMemoryDirectory: string;
+  private readonly maxFileBytes: number;
+  private readonly maxTotalBytesPerScope: number;
+  private readonly maxFilesPerScope: number;
 
   constructor(options?: MemoryServiceImplOptions) {
     this.baseMemoryDirectory = options?.baseMemoryDirectory ?? getMemoryDirectory();
+    this.maxFileBytes = options?.maxFileBytes ?? MAX_MEMORY_FILE_BYTES;
+    this.maxTotalBytesPerScope = options?.maxTotalBytesPerScope ?? MAX_MEMORY_TOTAL_BYTES_PER_SCOPE;
+    this.maxFilesPerScope = options?.maxFilesPerScope ?? MAX_MEMORY_FILES_PER_SCOPE;
   }
 
   private memoryLockPath(scope: string): string {
@@ -199,6 +352,43 @@ export class MemoryServiceImpl implements MemoryService {
     return { ok: true, scope, rest };
   }
 
+  /**
+   * Enforces the scope-wide byte and file-count caps for one write.
+   * `addedBytes` is the write's net delta, so an edit is charged only its
+   * growth rather than the whole file, and a shrinking edit always fits.
+   *
+   * Must be called inside the scope lock: it walks the whole tree, and the
+   * result is only sound if no other write lands between the walk and the
+   * write it authorizes.
+   */
+  private requireScopeBudget(
+    fs: FileSystem.FileSystem,
+    root: string,
+    options: { readonly addedBytes: number; readonly addsFile: boolean; readonly subject: string },
+  ): Effect.Effect<void, MemoryGuardrailViolation | Error> {
+    const maxFilesPerScope = this.maxFilesPerScope;
+    const maxTotalBytesPerScope = this.maxTotalBytesPerScope;
+    return Effect.gen(function* () {
+      if (options.addedBytes <= 0 && !options.addsFile) return;
+
+      const stats = yield* walkMemoryTree(fs, root);
+      if (options.addsFile && stats.fileCount + 1 > maxFilesPerScope) {
+        return yield* Effect.fail(
+          new MemoryGuardrailViolation(
+            `${options.subject} would exceed the maximum of ${maxFilesPerScope} files in memory.`,
+          ),
+        );
+      }
+      if (stats.totalBytes + options.addedBytes > maxTotalBytesPerScope) {
+        return yield* Effect.fail(
+          new MemoryGuardrailViolation(
+            `${options.subject} would exceed the total memory budget of ${maxTotalBytesPerScope} bytes.`,
+          ),
+        );
+      }
+    });
+  }
+
   private withValidatedScopeLock<A, E, R>(
     scope: string,
     operation: Effect.Effect<A, E, R>,
@@ -217,12 +407,28 @@ export class MemoryServiceImpl implements MemoryService {
         const { scope, rest } = splitScopeAndRest(virtualPath);
 
         if (scope === null) {
+          const entries: MemoryDirectoryEntry[] = [];
+          for (const name of [...scopes].sort()) {
+            entries.push({ name: `${name}/`, kind: "directory", sizeBytes: 0 });
+
+            // A root listing must not create anything, so an unwritten scope
+            // contributes only its own directory line. Walking an invalid
+            // scope name is skipped rather than failed: it would be rejected
+            // by any real access, and one bad config entry should not blank
+            // out the listing for every other scope.
+            const isValidScope = isValidStorageKey(name);
+            if (!isValidScope) continue;
+
+            const scopeRoot = path.join(this.baseMemoryDirectory, name);
+            const nested = yield* listDirectoryEntries(fs, scopeRoot, 2);
+            for (const child of nested) {
+              entries.push({ ...child, name: `${name}/${child.name}` });
+            }
+          }
           return {
             kind: "directory",
             path: abbreviateHomePath(this.baseMemoryDirectory),
-            entries: [...scopes]
-              .sort()
-              .map((name) => ({ name: `${name}/`, kind: "directory", sizeBytes: 0 }) as const),
+            entries,
           } satisfies MemoryViewOutcome;
         }
 
@@ -279,6 +485,8 @@ export class MemoryServiceImpl implements MemoryService {
         const truncated = selected.length > MEMORY_VIEW_TRUNCATE_CHARS;
         const displayContent = truncated ? selected.slice(0, MEMORY_VIEW_TRUNCATE_CHARS) : selected;
 
+        yield* touchViewed(fs, root, path.relative(root, target));
+
         return {
           kind: "file",
           path: abbreviateHomePath(target),
@@ -290,7 +498,21 @@ export class MemoryServiceImpl implements MemoryService {
       }.bind(this),
     );
 
-  readonly create: MemoryService["create"] = (scopes, virtualPath, fileText) =>
+  readonly provenance: MemoryService["provenance"] = (scopes, virtualPath) =>
+    Effect.gen(
+      function* (this: MemoryServiceImpl) {
+        const fs = yield* FileSystem.FileSystem;
+        const { scope, rest } = splitScopeAndRest(virtualPath);
+        if (scope === null || !scopes.includes(scope) || !isValidStorageKey(scope)) {
+          return undefined;
+        }
+        const scopeRoot = path.join(this.baseMemoryDirectory, scope);
+        const provenance = yield* readScopeProvenance(fs, scopeRoot);
+        return provenance.files[rest];
+      }.bind(this),
+    );
+
+  readonly create: MemoryService["create"] = (scopes, virtualPath, fileText, writeContext) =>
     Effect.gen(
       function* (this: MemoryServiceImpl) {
         const resolved = this.resolveScope(scopes, virtualPath);
@@ -306,10 +528,10 @@ export class MemoryServiceImpl implements MemoryService {
               const target = yield* resolveMemoryPath(root, rest);
 
               const fileTextBytes = Buffer.byteLength(fileText, "utf-8");
-              if (fileTextBytes > MAX_MEMORY_FILE_BYTES) {
+              if (fileTextBytes > this.maxFileBytes) {
                 return yield* Effect.fail(
                   new MemoryGuardrailViolation(
-                    `File would be ${fileTextBytes} bytes, exceeding the maximum of ${MAX_MEMORY_FILE_BYTES} bytes.`,
+                    `File would be ${fileTextBytes} bytes, exceeding the maximum of ${this.maxFileBytes} bytes.`,
                   ),
                 );
               }
@@ -324,23 +546,13 @@ export class MemoryServiceImpl implements MemoryService {
                 } satisfies MemoryMutationOutcome;
               }
 
-              const stats = yield* walkMemoryTree(fs, root);
-              if (stats.fileCount + 1 > MAX_MEMORY_FILES_PER_SCOPE) {
-                return yield* Effect.fail(
-                  new MemoryGuardrailViolation(
-                    `Creating this file would exceed the maximum of ${MAX_MEMORY_FILES_PER_SCOPE} files in memory.`,
-                  ),
-                );
-              }
-              if (stats.totalBytes + fileTextBytes > MAX_MEMORY_TOTAL_BYTES_PER_SCOPE) {
-                return yield* Effect.fail(
-                  new MemoryGuardrailViolation(
-                    `Creating this file would exceed the total memory budget of ${MAX_MEMORY_TOTAL_BYTES_PER_SCOPE} bytes.`,
-                  ),
-                );
-              }
-
+              yield* this.requireScopeBudget(fs, root, {
+                addedBytes: fileTextBytes,
+                addsFile: true,
+                subject: "Creating this file",
+              });
               yield* writeFileStringAtomic(fs, target, fileText, { tempPrefix: "memory" });
+              yield* recordWrite(fs, root, path.relative(root, target), writeContext);
 
               return {
                 success: true,
@@ -352,7 +564,13 @@ export class MemoryServiceImpl implements MemoryService {
       }.bind(this),
     );
 
-  readonly strReplace: MemoryService["strReplace"] = (scopes, virtualPath, oldStr, newStr) =>
+  readonly strReplace: MemoryService["strReplace"] = (
+    scopes,
+    virtualPath,
+    oldStr,
+    newStr,
+    writeContext,
+  ) =>
     Effect.gen(
       function* (this: MemoryServiceImpl) {
         const resolved = this.resolveScope(scopes, virtualPath);
@@ -403,15 +621,22 @@ export class MemoryServiceImpl implements MemoryService {
                 content.slice(0, index) + replacement + content.slice(index + oldStr.length);
 
               const updatedBytes = Buffer.byteLength(updatedContent, "utf-8");
-              if (updatedBytes > MAX_MEMORY_FILE_BYTES) {
+              if (updatedBytes > this.maxFileBytes) {
                 return yield* Effect.fail(
                   new MemoryGuardrailViolation(
-                    `Edit would grow the file to ${updatedBytes} bytes, exceeding the maximum of ${MAX_MEMORY_FILE_BYTES} bytes.`,
+                    `Edit would grow the file to ${updatedBytes} bytes, exceeding the maximum of ${this.maxFileBytes} bytes.`,
                   ),
                 );
               }
 
+              yield* this.requireScopeBudget(fs, root, {
+                addedBytes: updatedBytes - Buffer.byteLength(content, "utf-8"),
+                addsFile: false,
+                subject: "This edit",
+              });
+
               yield* writeFileStringAtomic(fs, target, updatedContent, { tempPrefix: "memory" });
+              yield* recordWrite(fs, root, path.relative(root, target), writeContext);
 
               return {
                 success: true,
@@ -423,7 +648,13 @@ export class MemoryServiceImpl implements MemoryService {
       }.bind(this),
     );
 
-  readonly insert: MemoryService["insert"] = (scopes, virtualPath, insertLine, insertText) =>
+  readonly insert: MemoryService["insert"] = (
+    scopes,
+    virtualPath,
+    insertLine,
+    insertText,
+    writeContext,
+  ) =>
     Effect.gen(
       function* (this: MemoryServiceImpl) {
         const resolved = this.resolveScope(scopes, virtualPath);
@@ -470,15 +701,22 @@ export class MemoryServiceImpl implements MemoryService {
               const updatedContent = updatedLines.join("\n");
 
               const updatedBytes = Buffer.byteLength(updatedContent, "utf-8");
-              if (updatedBytes > MAX_MEMORY_FILE_BYTES) {
+              if (updatedBytes > this.maxFileBytes) {
                 return yield* Effect.fail(
                   new MemoryGuardrailViolation(
-                    `Edit would grow the file to ${updatedBytes} bytes, exceeding the maximum of ${MAX_MEMORY_FILE_BYTES} bytes.`,
+                    `Edit would grow the file to ${updatedBytes} bytes, exceeding the maximum of ${this.maxFileBytes} bytes.`,
                   ),
                 );
               }
 
+              yield* this.requireScopeBudget(fs, root, {
+                addedBytes: updatedBytes - Buffer.byteLength(content, "utf-8"),
+                addsFile: false,
+                subject: "This edit",
+              });
+
               yield* writeFileStringAtomic(fs, target, updatedContent, { tempPrefix: "memory" });
+              yield* recordWrite(fs, root, path.relative(root, target), writeContext);
 
               return {
                 success: true,
@@ -530,6 +768,8 @@ export class MemoryServiceImpl implements MemoryService {
                   ),
                 );
 
+              yield* forgetProvenance(fs, root, path.relative(root, target));
+
               return {
                 success: true,
                 message: `Successfully deleted ${abbreviateHomePath(target)}`,
@@ -540,7 +780,12 @@ export class MemoryServiceImpl implements MemoryService {
       }.bind(this),
     );
 
-  readonly rename: MemoryService["rename"] = (scopes, oldVirtualPath, newVirtualPath) =>
+  readonly rename: MemoryService["rename"] = (
+    scopes,
+    oldVirtualPath,
+    newVirtualPath,
+    writeContext,
+  ) =>
     Effect.gen(
       function* (this: MemoryServiceImpl) {
         const resolvedOld = this.resolveScope(scopes, oldVirtualPath);
@@ -606,6 +851,14 @@ export class MemoryServiceImpl implements MemoryService {
                     Effect.fail(e instanceof Error ? e : new Error(String(e))),
                   ),
                 );
+
+              yield* moveProvenance(
+                fs,
+                root,
+                path.relative(root, source),
+                path.relative(root, destination),
+                writeContext,
+              );
 
               return {
                 success: true,

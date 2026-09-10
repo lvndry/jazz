@@ -278,3 +278,12 @@ export function getBuiltinWorkflowsDirectory(): string | null {
 export function getGlobalWorkflowsDirectory(): string {
   return path.join(getJazzHomeDirectory(), "workflows");
 }
+
+/**
+ * Returns the directory holding the memory-recall log: a JSONL record of
+ * whether each run consulted memory before answering, kept separate from
+ * ordinary logs so the per-surface recall rate can be measured.
+ */
+export function getMemoryRecallLogDirectory(): string {
+  return path.join(getJazzHomeDirectory(), "memory-recall");
+}

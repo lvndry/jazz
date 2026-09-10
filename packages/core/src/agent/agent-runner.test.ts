@@ -1,6 +1,6 @@
 import os from "node:os";
 import { FileSystem } from "@effect/platform";
-import { describe, expect, it, mock, type Mock } from "bun:test";
+import { afterEach, describe, expect, it, mock, type Mock } from "bun:test";
 import { Effect, Layer, Stream } from "effect";
 import { AgentRunner } from "./agent-runner";
 import type { AgentRunnerOptions } from "./types";
@@ -437,6 +437,81 @@ describe("AgentRunner", () => {
       );
 
       expect(lastRequestedToolNames()).toContain("ask_user_question");
+    });
+  });
+
+  describe("the effective tool set", () => {
+    /**
+     * Every name the run resolved, aliases and hidden execute halves included — the list
+     * `partitionByTier` is handed, which is also the set the executor rejects off-list
+     * calls against.
+     */
+    function lastEffectiveToolNames(): readonly string[] {
+      const partitionMock = mockToolRegistry.partitionByTier as Mock<
+        ToolRegistry["partitionByTier"]
+      >;
+      return partitionMock.mock.calls.at(-1)?.[0] ?? [];
+    }
+
+    // The registry mock is shared by every test in this file, so a swapped-in `getTool`
+    // has to be put back or the next describe inherits tool1's alias.
+    const originalGetTool = (
+      mockToolRegistry.getTool as Mock<ToolRegistry["getTool"]>
+    ).getMockImplementation();
+    afterEach(() => {
+      const getToolMock = mockToolRegistry.getTool as Mock<ToolRegistry["getTool"]>;
+      if (originalGetTool !== undefined) getToolMock.mockImplementation(originalGetTool);
+    });
+
+    /** Gives `tool1` an alias and a gated execute half, as the real shell tool has. */
+    function withDerivedNames(): void {
+      const getToolMock = mockToolRegistry.getTool as Mock<ToolRegistry["getTool"]>;
+      getToolMock.mockImplementation((name: string) =>
+        Effect.succeed({
+          name,
+          ...(name === "tool1"
+            ? { aliases: ["tool1_alias"], approvalExecuteToolName: "execute_tool1" }
+            : { approvalExecuteToolName: undefined }),
+          longRunning: false,
+          timeoutMs: undefined,
+          function: { name, description: `Description for ${name}` },
+        } as never),
+      );
+    }
+
+    it("admits the alias and execute half of a tool it granted", async () => {
+      withDerivedNames();
+
+      await runWithTestLayers(
+        AgentRunner.run({ ...defaultOptions, stream: true, maxIterations: 1 }),
+      );
+
+      // The execute half has to be in here or an approved gated call has nothing to run.
+      expect(lastEffectiveToolNames()).toContain("tool1");
+      expect(lastEffectiveToolNames()).toContain("tool1_alias");
+      expect(lastEffectiveToolNames()).toContain("execute_tool1");
+    });
+
+    it("does not let expansion hand back a name the deny list removed", async () => {
+      withDerivedNames();
+
+      await runWithTestLayers(
+        AgentRunner.run({
+          ...defaultOptions,
+          agent: {
+            ...mockAgent,
+            config: { ...mockAgent.config, deniedTools: ["tool1_alias", "execute_tool1"] },
+          },
+          stream: true,
+          maxIterations: 1,
+        }),
+      );
+
+      // Denying only the alias leaves the tool itself granted — nonsense as a config, but
+      // the denial must still hold, or every deny entry is one alias away from meaningless.
+      expect(lastEffectiveToolNames()).toContain("tool1");
+      expect(lastEffectiveToolNames()).not.toContain("tool1_alias");
+      expect(lastEffectiveToolNames()).not.toContain("execute_tool1");
     });
   });
 

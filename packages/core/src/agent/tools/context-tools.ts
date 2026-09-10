@@ -32,6 +32,7 @@ export function createGetTimeTool(): Tool<never> {
       "Get the current date and time. The Environment block already has today's date — use this only when you need a fresh clock during a long run, for scheduling, relative times such as 'yesterday', or timestamps.",
     parameters: z.object({}).strict(),
     riskLevel: "read-only",
+    egress: false,
     hidden: false,
     createSummary: undefined,
     execute: () => {
@@ -69,6 +70,7 @@ export function createContextInfoTool(): Tool<never> {
       "Report how much of the context window is in use. The harness already warns at 70% and 90% and auto-compacts around 80%. Do not poll this. If you need to free space now, call summarize_context.",
     parameters: z.object({}),
     riskLevel: "read-only",
+    egress: false,
     hidden: false,
     createSummary: undefined,
     execute: (_args, context) => {
@@ -131,6 +133,7 @@ export function createRetrieveToolResultTool(): Tool<never> {
       "re-run the original tool instead — the host may be read-only.",
     parameters: retrieveToolResultParameters,
     riskLevel: "read-only",
+    egress: false,
     hidden: false,
     validate: makeZodValidator(retrieveToolResultParameters),
     handler: (args, context) =>

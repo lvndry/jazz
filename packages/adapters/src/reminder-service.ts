@@ -275,6 +275,15 @@ export function sweepDueReminders(
       const filePath = reminderFilePath(baseReminderDirectory, agentId);
       const lockPath = reminderLockPath(baseReminderDirectory, agentId);
 
+      // Look before locking, so a tick with nothing due creates no lock directories at all.
+      // Acquiring the write lock first made every agent's file a lock cycle on every tick, which
+      // scales with tick frequency and contends with an agent writing a reminder of its own.
+      // Reading unlocked is safe because the decision is re-made under the lock below.
+      const unlockedPeek = yield* readReminderFile(fs, filePath).pipe(
+        Effect.catchAll(() => Effect.succeed([] as ReminderRecord[])),
+      );
+      if (!unlockedPeek.some((reminder) => reminder.fireAt <= now)) continue;
+
       const dueForAgent = yield* withLock(
         lockPath,
         Effect.gen(function* () {

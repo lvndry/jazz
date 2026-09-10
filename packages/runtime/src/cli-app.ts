@@ -495,6 +495,68 @@ function registerAgentCommands(program: Command): void {
 }
 
 /**
+ * Register `jazz memory` — the operator's view of what an agent has written
+ * down about them, plus the measured rate at which runs actually consult it.
+ */
+function registerMemoryCommands(program: Command): void {
+  const memoryCommand = program
+    .command("memory")
+    .description("Inspect and control what an agent remembers");
+
+  memoryCommand
+    .command("list <agent>")
+    .description("List every memory file an agent can read")
+    .action((agent: string) =>
+      runCliAction(
+        () => import("@jazz/cli/commands/memory").then((mod) => mod.listMemoryCommand(agent)),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  memoryCommand
+    .command("show <agent> <path>")
+    .description("Print one memory file exactly as the agent reads it")
+    .action((agent: string, memoryPath: string) =>
+      runCliAction(
+        () =>
+          import("@jazz/cli/commands/memory").then((mod) =>
+            mod.showMemoryCommand(agent, memoryPath),
+          ),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  memoryCommand
+    .command("forget <agent> <path>")
+    .description("Delete one memory file permanently")
+    .action((agent: string, memoryPath: string) =>
+      runCliAction(
+        () =>
+          import("@jazz/cli/commands/memory").then((mod) =>
+            mod.forgetMemoryCommand(agent, memoryPath),
+          ),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  memoryCommand
+    .command("recall")
+    .description("Show how often runs consulted memory before answering, by surface")
+    .option("--surface <name>", "Only report one surface (cli, telegram, discord)")
+    .action((options: { surface?: string }) =>
+      runCliAction(
+        () =>
+          import("@jazz/cli/commands/memory").then((mod) =>
+            mod.memoryRecallCommand(
+              options.surface !== undefined ? { surface: options.surface } : {},
+            ),
+          ),
+        cliRuntimeOptions(program),
+      ),
+    );
+}
+
+/**
  * Register configuration-related commands
  */
 function registerConfigCommands(program: Command): void {
@@ -1037,6 +1099,26 @@ function registerWakeTriggerCommand(program: Command): void {
           import("@jazz/cli/commands/wake-trigger").then((mod) =>
             mod.fireWakeTriggerCommand(options),
           ),
+        cliRuntimeOptions(program),
+      ),
+    );
+}
+
+/** Register `jazz job run` — internal, invoked by the detached worker `enqueue_batch` starts. */
+function registerJobCommand(program: Command): void {
+  const jobCommand = program
+    .command("job")
+    .description("Internal: commands invoked by the background job worker");
+
+  jobCommand
+    .command("run")
+    .description(
+      "Internal: run this agent's due background jobs until none are left (invoked by the job worker, not meant for interactive use)",
+    )
+    .requiredOption("--agent <agentId>", "Agent id whose jobs should be run")
+    .action((options: { agent: string }) =>
+      runCliAction(
+        () => import("@jazz/cli/commands/job").then((mod) => mod.runJobsCommand(options)),
         cliRuntimeOptions(program),
       ),
     );
@@ -1649,12 +1731,14 @@ export function createCLIApp(): Command {
   registerAgentCommands(program);
   registerPersonaCommands(program);
   registerConfigCommands(program);
+  registerMemoryCommands(program);
   registerWebhookCommands(program);
   registerMCPCommands(program);
   registerUpdateCommand(program);
   registerDaemonCommand(program);
   registerIMessageCommand(program);
   registerWakeTriggerCommand(program);
+  registerJobCommand(program);
   registerReminderCommand(program);
   registerPeersCommands(program);
   registerRunsCommands(program);

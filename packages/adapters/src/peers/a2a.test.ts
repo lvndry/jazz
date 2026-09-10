@@ -1,5 +1,5 @@
 import { AgentCard as A2AAgentCard, SendMessageResponse } from "@a2a-js/sdk";
-import type { ToolDisclosure } from "@jazz/core/interfaces/tool-registry";
+import type { TierCandidateTool } from "@jazz/core/types/disclosure-tier";
 import type { PeerConfig } from "@jazz/core/types/peer";
 import { describe, expect, it } from "bun:test";
 import {
@@ -9,18 +9,13 @@ import {
   normalizeProtocolVersion,
   parseA2ARequest,
 } from "./a2a";
-
 const ENDPOINT = "https://me.example/a2a";
 
-const TOOLS: readonly {
-  name: string;
-  riskLevel: string;
-  disclosure: ToolDisclosure;
-}[] = [
-  { name: "get_time", riskLevel: "read-only", disclosure: "internal" },
-  { name: "web_search", riskLevel: "read-only", disclosure: "public" },
-  { name: "read_file", riskLevel: "read-only", disclosure: "private" },
-  { name: "send_message", riskLevel: "high-risk", disclosure: "public" },
+const TOOLS: readonly TierCandidateTool[] = [
+  { name: "get_time", riskLevel: "read-only", disclosure: "internal", egress: false },
+  { name: "read_file", riskLevel: "read-only", disclosure: "private", egress: false },
+  { name: "send_message", riskLevel: "high-risk", disclosure: "public", egress: false },
+  { name: "web_search", riskLevel: "read-only", disclosure: "public", egress: true },
 ];
 
 describe("the public agent card", () => {
@@ -100,13 +95,24 @@ describe("telling an answer apart from a refusal", () => {
 
 describe("the extended agent card", () => {
   it("reflects exactly what this peer's tier admits", () => {
-    const peer: PeerConfig = { name: "sam", disclosure: "public" };
+    const peer: PeerConfig = { name: "sam", disclosure: "internal" };
     const card = buildExtendedAgentCard("my-agent", ENDPOINT, peer, TOOLS);
-    expect(card.skills[0]?.tags).toEqual(["web_search"]);
+    expect(card.skills[0]?.tags).toEqual(["get_time"]);
+  });
+
+  it("advertises no outbound tool a tier alone would have implied", () => {
+    const peer: PeerConfig = { name: "sam", disclosure: "private" };
+    const card = buildExtendedAgentCard("my-agent", ENDPOINT, peer, TOOLS);
+    expect(card.skills[0]?.tags).not.toContain("web_search");
+    expect(card.skills[0]?.tags).toContain("read_file");
   });
 
   it("adds a granted riskier tool without needing a wider tier", () => {
-    const peer: PeerConfig = { name: "sam", disclosure: "public", allow: ["send_message"] };
+    const peer: PeerConfig = {
+      name: "sam",
+      disclosure: "public",
+      allow: ["send_message", "web_search"],
+    };
     const card = buildExtendedAgentCard("my-agent", ENDPOINT, peer, TOOLS);
     expect(card.skills[0]?.tags).toContain("send_message");
     expect(card.skills[0]?.tags).toContain("web_search");

@@ -32,59 +32,12 @@
  */
 
 import { AgentRunner } from "@jazz/core/agent/agent-runner";
-import { ToolRegistryTag } from "@jazz/core/interfaces/tool-registry";
-import type { ToolDisclosure } from "@jazz/core/interfaces/tool-registry";
 import type { Agent } from "@jazz/core/types";
-import type { PeerConfig, PeerTier } from "@jazz/core/types/peer";
+import { resolveToolAllowlist } from "@jazz/core/types/disclosure-tier";
+import type { PeerConfig } from "@jazz/core/types/peer";
 import { generateConversationId } from "@jazz/core/utils/conversation-id";
 import { Effect } from "effect";
 import { record as recordLedger } from "./ledger";
-
-/**
- * What each tier admits among `read-only` tools, as a ceiling on disclosure.
- *
- * Read-only only: a tool riskier than that is never gated by disclosure, only by whether it
- * appears in `peer.allow` — see the file-level comment.
- */
-const TIER_ALLOWS: Readonly<Record<PeerTier, readonly ToolDisclosure[]>> = {
-  none: [],
-  public: ["public"],
-  internal: ["public", "internal"],
-  private: ["public", "internal", "private"],
-};
-
-/**
- * Tools this tier's peer may reach at all.
- *
- * `allow` names tools riskier than read-only this specific peer already has standing
- * permission to invoke — included here because capability is otherwise silent about them
- * (disclosure has nothing to say about a tool that can act but reveals nothing) and because
- * an unlisted one must be absent, not merely unapproved: it is never offered to the model,
- * so there is nothing to talk its way into.
- */
-export function allowedToolsForPeer(
-  tier: PeerTier,
-  allow: readonly string[],
-  tools: readonly {
-    readonly name: string;
-    readonly riskLevel: string;
-    readonly disclosure: ToolDisclosure;
-  }[],
-): readonly string[] {
-  // A suspended peer gets nothing, full stop — a standing `allow` grant from before is not a
-  // second relationship that survives revocation to `none`.
-  if (tier === "none") return [];
-
-  const permitted = TIER_ALLOWS[tier];
-  const allowSet = new Set(allow);
-  return tools
-    .filter((tool) =>
-      tool.riskLevel === "read-only"
-        ? permitted.includes(tool.disclosure)
-        : allowSet.has(tool.name),
-    )
-    .map((tool) => tool.name);
-}
 
 /**
  * The prompt a peer's question is answered under.
@@ -176,15 +129,7 @@ export function servePeerRequest(request: ServePeerRequest) {
       return { kind: "refused", reason: "not accepting questions" } satisfies ServePeerOutcome;
     }
 
-    const registry = yield* ToolRegistryTag;
-    const names = yield* registry.listTools();
-    const described: { name: string; riskLevel: string; disclosure: ToolDisclosure }[] = [];
-    for (const name of names) {
-      const tool = yield* registry.getTool(name);
-      described.push({ name, riskLevel: tool.riskLevel, disclosure: tool.disclosure });
-    }
-
-    const toolAllowlist = allowedToolsForPeer(tier, allow, described);
+    const toolAllowlist = yield* resolveToolAllowlist(tier, allow);
 
     // Its own conversation, always: peer traffic must never join the operator's transcript,
     // or a stranger's question becomes part of the context their agent answers them from.

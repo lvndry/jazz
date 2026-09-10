@@ -1,6 +1,8 @@
 import { describe, expect, it } from "bun:test";
-import { Effect } from "effect";
-import { runShellCommand } from "./shell-tools";
+import { Effect, Layer } from "effect";
+import { createShellCommandTools, runShellCommand } from "./shell-tools";
+import { SHELL_COMMAND_MAX_TIMEOUT_MS } from "../../constants/agent";
+import type { ToolExecutionContext, ToolExecutionResult } from "../../types";
 
 /**
  * A command killed at its cap has usually already produced the output somebody wanted. The
@@ -43,5 +45,34 @@ describe("runShellCommand when the clock runs out", () => {
     const result = await run("kill -TERM $$", 10_000);
 
     expect(result.exitCode).not.toBe(0);
+  });
+});
+
+/**
+ * The executor interrupts a tool call at its own deadline and reports a bare timeout message,
+ * dropping the partial output the command runner's deadline would have preserved. A request for
+ * more time than the executor allows therefore bought the same wait with a worse result, so the
+ * schema refuses it and names the tool that does span longer waits.
+ */
+describe("the execute_command timeout ceiling", () => {
+  const tools = createShellCommandTools();
+
+  function runWithTimeout(timeout: number) {
+    return Effect.runPromise(
+      tools.approval
+        .execute({ command: "echo hi", description: "test", timeout }, {} as ToolExecutionContext)
+        .pipe(Effect.provide(Layer.empty)) as Effect.Effect<ToolExecutionResult, Error>,
+    );
+  }
+
+  it("rejects a timeout above the ceiling instead of silently capping it", async () => {
+    const result = await runWithTimeout(SHELL_COMMAND_MAX_TIMEOUT_MS + 1);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("register_trigger");
+  });
+
+  it("caps the executor deadline at the same value the schema allows", () => {
+    expect(tools.execute.timeoutMs).toBe(SHELL_COMMAND_MAX_TIMEOUT_MS);
   });
 });

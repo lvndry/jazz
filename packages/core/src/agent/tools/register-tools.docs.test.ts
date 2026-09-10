@@ -25,6 +25,7 @@ interface RegisteredTool {
   readonly name: string;
   readonly riskLevel: ToolRiskLevel;
   readonly disclosure: ToolDisclosure;
+  readonly egress: boolean;
 }
 
 /**
@@ -41,7 +42,12 @@ const collectTools = Effect.gen(function* () {
   const tools: RegisteredTool[] = [];
   for (const name of names) {
     const tool = yield* registry.getTool(name);
-    tools.push({ name: tool.name, riskLevel: tool.riskLevel, disclosure: tool.disclosure });
+    tools.push({
+      name: tool.name,
+      riskLevel: tool.riskLevel,
+      disclosure: tool.disclosure,
+      egress: tool.egress,
+    });
   }
   return tools;
 });
@@ -119,6 +125,25 @@ describe("docs/reference/tools.md", () => {
     );
 
     expect([...misfiled, ...stale].join("; ")).toBe("");
+  });
+
+  it("lists exactly the tools that send something off the machine", async () => {
+    const tools = await registeredTools();
+    const markdown = readFileSync(DOCS_PATH, "utf-8");
+
+    // The "What leaves the machine" table has one row. Parsed for the same reason the other
+    // two tables are: this row is what tells a reader which tools a peer's tier will not
+    // hand over, so a stale one misdescribes an authorization boundary.
+    const row = markdown.split("\n").find((line) => line.startsWith("| yes"));
+    const documented = new Set([...(row ?? "").matchAll(/`([a-z_0-9]+)`/g)].map((m) => m[1]!));
+
+    const registered = new Set(tools.filter((tool) => tool.egress).map((tool) => tool.name));
+
+    const missing = [...registered].filter((name) => !documented.has(name)).sort();
+    const stale = [...documented].filter((name) => !registered.has(name)).sort();
+
+    expect(missing, `${DOCS_PATH} omits sending tools: ${missing.join(", ")}`).toEqual([]);
+    expect(stale, `${DOCS_PATH} lists non-sending tools: ${stale.join(", ")}`).toEqual([]);
   });
 
   it("reports the agent-facing tool count accurately", async () => {

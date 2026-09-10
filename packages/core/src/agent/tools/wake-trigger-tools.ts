@@ -46,9 +46,10 @@ export function createRegisterTriggerTool(): Tool<WakeTriggerToolDeps> {
     name: "register_trigger",
     disclosure: "internal",
     summary:
-      "Wake yourself up later to check back on something — monitor or watch a build, deploy, " +
-      "CI run, GitHub Action, log file or repo over minutes or hours, and keep looking until " +
-      "it is done.",
+      "Wake yourself up later to check back on anything unfinished — monitor, watch or poll it " +
+      "over minutes, hours or days until it is done: a build, deploy, CI run or GitHub Action, a " +
+      "log file, a price or restock, tickets going on sale, a package arriving, a reply, a site " +
+      "coming back up.",
     description:
       "Schedule yourself to wake up later and resume this exact conversation — use this " +
       "when you need to check back on something ('check again in 20 minutes', 'come back " +

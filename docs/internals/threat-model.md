@@ -7,7 +7,7 @@ description: "The Jazz threat model: what the harness defends against, what it e
 **Status: draft — v1 to be dated and published. Items marked ☐ are self-audit checks still
 to be run before any public safety claim.**
 
-Jazz's safety stance is *fail closed by construction*: when the agent, the classifier, or
+Jazz's safety stance is _fail closed by construction_: when the agent, the classifier, or
 the operator hasn't explicitly widened what may run, the answer is "ask a human." This
 document lists what that means concretely, what it does **not** protect against, and how to
 check both.
@@ -44,9 +44,9 @@ Two sharper controls sit under the dial:
 ## Shell commands fail closed
 
 Commands with no static risk annotation are classified before approval. The classifier's
-instruction is explicit: *"high-risk = anything else, including uncertainty"* and *"a
+instruction is explicit: _"high-risk = anything else, including uncertainty"_ and _"a
 clearly mutating command is high-risk even if the conversation asked for something
-milder."* Text inside the command is treated as data to classify, never as instructions.
+milder."_ Text inside the command is treated as data to classify, never as instructions.
 An ambiguous command on an unattended run therefore blocks rather than runs.
 Source: `packages/core/src/agent/tools/command-risk.ts`.
 
@@ -65,8 +65,9 @@ Source: `packages/core/src/agent/tools/command-risk.ts`.
 
 ## Network posture
 
-- The CLI opens **no listening port**. `jazz run` is a process that starts, works, and
-  exits.
+- `jazz run` opens **no listening port**. It is a process that starts, works, and exits.
+- `jazz daemon` **does** open one, and it is the only part of Jazz that accepts inbound
+  requests. Its posture is set out below.
 - The Telegram bridge defaults to **long-polling** (`getUpdates`): outbound connections
   only, no public URL, works behind NAT. Webhook mode exists but is opt-in and requires a
   secret. One caveat stated honestly: the bridge container always runs a minimal `/health`
@@ -74,10 +75,65 @@ Source: `packages/core/src/agent/tools/command-risk.ts`.
 - `JAZZ_OFFLINE=1` stops every outbound request Jazz makes on its own behalf except model
   inference itself. Source: [airgapped](../start/airgapped.md).
 
+## The peer door
+
+`jazz daemon --serve-peers <agentId>` gives another Jazz agent a constrained doorway into
+the named agent. The capability is fixed by configuration, never by the request:
+
+- `disclosure` admits only non-egress, read-only tools at or below its tier;
+- `allow` names every additional tool, including tools that send data off the machine;
+- each peer has a separate transcript root, so one peer cannot continue another peer's
+  conversation.
+
+The peer's token identifies the configured peer. It is not an operator credential and does
+not turn the peer's prompt into authority.
+
+## The daemon's doors
+
+`jazz daemon` binds `127.0.0.1:4747` by default and refuses to bind anywhere else without a
+token. Three kinds of caller reach it, and they are **not** equally trusted:
+
+| Caller   | Credential        | What it may do                                                                                                      |
+| -------- | ----------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Operator | daemon token      | Owner-equivalent. Start runs, approve them, edit agents.                                                            |
+| Peer     | per-peer token    | Non-egress read-only tools up to that peer's `disclosure` tier, plus whatever its `allow` names.                    |
+| Webhook  | per-webhook token | Non-egress read-only tools up to that webhook's `disclosure` (default `internal`), plus whatever its `allow` names. |
+
+**A webhook token holder is an external counterparty, not the operator.** The secret
+authenticates the webhook, never a person, and it lives in a third party's settings console
+— a GitHub repo, an IFTTT applet, an email relay — that the operator neither administers nor
+can audit. So a webhook run is bounded by the same two-axis rule a peer's is: `disclosure`
+caps what an answer may _reveal_, and nothing riskier than read-only or that sends data off
+the machine exists for that caller unless its `allow` names it. Source:
+`packages/core/src/types/disclosure-tier.ts`,
+[webhooks](../concepts/webhooks.md).
+
+**Loopback is not a trust boundary, and is not treated as one.** Every bind gets a token,
+loopback included — generated into the keyring on first start and printed once. Loopback's
+two real neighbours are every other user account on a shared host and every page in the
+operator's browser, and a token only answers the first. For the second, every door
+structurally refuses anything a browser could have sent:
+
+- a request carrying an `Origin` header is refused `403` — no legitimate client of this API
+  sets one, and a browser cannot omit it;
+- a request body must be `content-type: application/json` (`415` otherwise), which is
+  precisely the thing an HTML form cannot send and a cross-origin `fetch` cannot send without
+  a preflight these doors never answer.
+
+The webhook door is exempt from the content-type check only, because its body is whatever the
+sending system sends; it is gated by a per-webhook token no page could hold. Source:
+`browserRefusal` in `packages/adapters/src/daemon/server.ts`.
+
+**The residual exposure, stated plainly:** if `$JAZZ_DISABLE_KEYRING` is set and no
+`$JAZZ_DAEMON_TOKEN` is given, a loopback daemon warns and serves with no credential rather
+than refusing to start — so any local process can drive it. A non-loopback bind refuses
+outright in that situation. Beyond that, the daemon does not distinguish two operator clients
+from each other: the token is a single grant, not a per-client identity.
+
 ## Runaway protection
 
 Unattended runs are budgeted, not trusted: an iteration ceiling with escalating wrap-up
-pressure, loop detection keyed on tool-name *plus arguments*, context compaction, and cost
+pressure, loop detection keyed on tool-name _plus arguments_, context compaction, and cost
 reported on every run. Source: [agent-loop](./agent-loop.md).
 
 ## What Jazz does NOT protect against
@@ -85,7 +141,7 @@ reported on every run. Source: [agent-loop](./agent-loop.md).
 Claiming less is part of the model. Jazz does not currently defend against:
 
 - **Prompt injection steering permitted actions.** Content the agent reads (a web page, an
-  email, a PR body) can influence what it does *within* its approved tier. The mitigations
+  email, a PR body) can influence what it does _within_ its approved tier. The mitigations
   are structural — narrow toolsets, low tiers for unattended runs, approval walls for
   everything mutating — not content analysis.
 - **A hostile deployment operator.** `customTools` command handlers run what the
@@ -109,6 +165,9 @@ re-checked, on the released binary, before we say the word "safe" anywhere:
 - ☐ `jazz bench safety` tripwire suite passes 10/10 on the release candidate (planned —
   see the eval harness).
 - ☐ Webhook mode: secret required, requests without it rejected.
+- ☐ Daemon default bind: token present on loopback, `Origin`-bearing and non-JSON requests
+  refused on every door, and a webhook run's toolset is its `disclosure` ceiling and not the
+  agent's whole toolset.
 
 ## Reporting
 

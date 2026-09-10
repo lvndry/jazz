@@ -10,20 +10,22 @@
  */
 
 import * as os from "node:os";
+import { tailForModel as tail } from "@jazz/core/agent/tools/capped-output";
 import { runShellCommand } from "@jazz/core/agent/tools/shell-tools";
 import {
+  DEFAULT_BACKOFF_MAX_MS,
   DEFAULT_JOB_TIMEOUT_MS,
-  JOB_OUTPUT_TAIL_CHARS,
   WORKER_POOL_SIZE,
 } from "@jazz/core/constants/job-queue";
 import type { JobBatchRecord, JobRecord } from "@jazz/core/interfaces/job-queue-service";
 import { createSanitizedEnv } from "@jazz/core/utils/env";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
-import { Effect } from "effect";
+import { Duration, Effect } from "effect";
 import { runUnattendedTurn } from "@/adapters/daemon/unattended-resume";
 import {
   claimDueJobs,
   completeJob,
+  nextClaimableAt,
   listAgentIdsWithActiveBatches,
   reclaimExpiredLeases,
   type ClaimedJob,
@@ -31,11 +33,6 @@ import {
 
 function jobBatchDirectory(): string {
   return `${getJazzHomeDirectory()}/job-batches`;
-}
-
-function tail(output: string): string {
-  if (output.length <= JOB_OUTPUT_TAIL_CHARS) return output;
-  return `…(earlier output trimmed)…\n${output.slice(-JOB_OUTPUT_TAIL_CHARS)}`;
 }
 
 function formatJobLine(job: JobRecord): string {
@@ -109,6 +106,49 @@ function runClaimedJob(claimed: ClaimedJob) {
     );
     if (batchNowComplete && batch !== null) {
       yield* fireBatchResume(claimed.agentId, batch);
+    }
+  });
+}
+
+/**
+ * Run one agent's background jobs to completion in this process — what makes a batch independent
+ * of `jazz daemon`.
+ *
+ * Sleeps through a retry backoff rather than returning: a pending `nextAttemptAt` in the future
+ * means the batch is unfinished, and nobody else is scheduled to come back for it.
+ */
+export function drainAgentJobs(agentId: string) {
+  return Effect.gen(function* () {
+    const baseDirectory = jobBatchDirectory();
+    const leaseOwner = `${os.hostname()}-${process.pid}`;
+
+    while (true) {
+      const claimed = yield* claimDueJobs(
+        baseDirectory,
+        agentId,
+        Date.now(),
+        WORKER_POOL_SIZE,
+        leaseOwner,
+      ).pipe(Effect.catchAll(() => Effect.succeed<readonly ClaimedJob[]>([])));
+
+      if (claimed.length > 0) {
+        yield* Effect.forEach(claimed, runClaimedJob, { concurrency: WORKER_POOL_SIZE }).pipe(
+          Effect.catchAll(() => Effect.void),
+        );
+        continue;
+      }
+
+      const nextAt = yield* nextClaimableAt(baseDirectory, agentId).pipe(
+        Effect.catchAll(() => Effect.succeed(null)),
+      );
+      if (nextAt === null) return;
+
+      const waitMs = nextAt - Date.now();
+      if (waitMs <= 0) {
+        // Claimable by the clock but not claimed — another worker holds it. Nothing to do here.
+        return;
+      }
+      yield* Effect.sleep(Duration.millis(Math.min(waitMs, DEFAULT_BACKOFF_MAX_MS)));
     }
   });
 }

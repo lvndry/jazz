@@ -19,6 +19,20 @@ export const DEFAULT_MAX_SUBAGENT_DEPTH = 3;
 /** Tool execution timeout in milliseconds (3 minutes) */
 export const TOOL_TIMEOUT_MS = 3 * 60 * 1000;
 
+export const SHELL_COMMAND_TIMEOUT_MINUTES = 15;
+
+/**
+ * Ceiling on one shell command: the executor deadline, the default, and the schema maximum, which
+ * must be one number. Allowed to ask for more, a caller gets the executor's interrupt — same
+ * wait, but the partial output dropped. Longer waits are `register_trigger`'s job.
+ */
+export const SHELL_COMMAND_MAX_TIMEOUT_MS = SHELL_COMMAND_TIMEOUT_MINUTES * 60 * 1000;
+
+/** Floor on `wait_for`'s poll interval; each check is a process spawn. */
+export const WAIT_FOR_MIN_INTERVAL_MS = 250;
+
+export const WAIT_FOR_DEFAULT_INTERVAL_MS = 5_000;
+
 /** Maximum number of workflow run history records to keep */
 export const MAX_RUN_HISTORY_RECORDS = 100;
 

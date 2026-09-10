@@ -2,6 +2,10 @@ import { spawn, type ChildProcess } from "child_process";
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { z } from "zod";
+import {
+  SHELL_COMMAND_MAX_TIMEOUT_MS,
+  SHELL_COMMAND_TIMEOUT_MINUTES,
+} from "@/core/constants/agent";
 import { FileSystemContextServiceTag, type FileSystemContextService } from "@/core/interfaces/fs";
 import type { LoggerService } from "@/core/interfaces/logger";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
@@ -419,8 +423,20 @@ const executeCommandParameters = z
       .number()
       .int()
       .positive()
+      .max(
+        SHELL_COMMAND_MAX_TIMEOUT_MS,
+        `timeout cannot exceed ${String(SHELL_COMMAND_MAX_TIMEOUT_MS)}ms (${String(
+          SHELL_COMMAND_TIMEOUT_MINUTES,
+        )} minutes), the hard ceiling on one command. To wait longer than that, let this command ` +
+          `finish and use register_trigger to resume the task later.`,
+      )
       .optional()
-      .describe("How long to wait, in milliseconds. Default 900000 (15 minutes)."),
+      .describe(
+        `How long to wait, in milliseconds. Default and maximum ${String(
+          SHELL_COMMAND_MAX_TIMEOUT_MS,
+        )} (${String(SHELL_COMMAND_TIMEOUT_MINUTES)} minutes); a larger value is rejected rather ` +
+          `than silently capped.`,
+      ),
   })
   .strict();
 
@@ -620,10 +636,14 @@ export function createShellCommandTools(): ApprovalToolPair<ShellCommandDeps> {
       "Risk is unknown until each command is classified: inspect-only and minor reversible commands may be auto-approved, mutating or ambiguous ones stay high-risk and need approval. " +
       "Commands are non-interactive: stdin is discarded, so do not run pagers, REPLs, or git rebase -i without a non-interactive editor. " +
       "sudo and su are blocked. Interpreter inline-code flags (python3 -c, node -e, bash -c, and similar) are blocked — write a script to a unique temporary file and run that instead. " +
-      "The environment is sanitized (no KEY, TOKEN, or SECRET); you cannot pass env vars. Timeout defaults to 15 minutes. stdout and stderr are each capped at 256 KB; a truncation marker means re-run with a narrower command.",
+      "The environment is sanitized (no KEY, TOKEN, or SECRET); you cannot pass env vars. " +
+      `Timeout defaults to ${String(SHELL_COMMAND_TIMEOUT_MINUTES)} minutes, which is also the ` +
+      "maximum — to wait longer, let the command finish and use register_trigger to resume later, " +
+      "rather than asking for a bigger timeout. " +
+      "stdout and stderr are each capped at 256 KB; a truncation marker means re-run with a narrower command.",
     tags: ["shell", "execution"],
     riskLevel: "unknown",
-    timeoutMs: 15 * 60 * 1000, // 15 minutes — executor cap so long-running commands can complete
+    timeoutMs: SHELL_COMMAND_MAX_TIMEOUT_MS,
     parameters: executeCommandParameters,
     validate: makeZodValidator(executeCommandParameters),
 
@@ -648,7 +668,7 @@ export function createShellCommandTools(): ApprovalToolPair<ShellCommandDeps> {
         });
 
         const workingDir = args.workingDirectory || cwd;
-        const timeout = args.timeout || 900_000; // 15 minutes
+        const timeout = args.timeout ?? SHELL_COMMAND_MAX_TIMEOUT_MS;
         const description = args.description.trim();
 
         return `Command: ${args.command}
@@ -671,7 +691,7 @@ This command will be executed on your system. Only approve commands you trust.`;
         const workingDir = args.workingDirectory
           ? yield* shell.resolvePath(key, args.workingDirectory)
           : yield* shell.getCwd(key);
-        const timeout = args.timeout || 900_000; // 15 minutes
+        const timeout = args.timeout ?? SHELL_COMMAND_MAX_TIMEOUT_MS;
 
         // Basic safety checks
         const command = args.command.trim();

@@ -33,6 +33,7 @@ import {
   type MCPServerConfig,
   type MCPServerManager,
 } from "@jazz/core/interfaces/mcp-server";
+import { MemoryServiceTag, type MemoryService } from "@jazz/core/interfaces/memory-service";
 import { PersonaServiceTag, type PersonaService } from "@jazz/core/interfaces/persona-service";
 import type { PresentationService } from "@jazz/core/interfaces/presentation";
 import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
@@ -144,6 +145,9 @@ export function handleSpecialCommand(
 
       case "skills":
         return yield* handleSkillsCommand(terminal);
+
+      case "memory":
+        return yield* handleMemoryCommand(terminal, agent, command.args);
 
       case "context":
         return yield* handleContextCommand(terminal, agent, conversationHistory);
@@ -2666,6 +2670,72 @@ function generateContextGrid(usage: ContextUsageBreakdown): string[] {
   return rows;
 }
 
+/**
+ * `/memory` — what this agent has written down about the person talking to it,
+ * and a way to remove any of it without leaving the conversation.
+ *
+ * Lists the real files and prints their real bytes: what is shown here is
+ * exactly what reaches the model, never a regenerated summary of it.
+ */
+function handleMemoryCommand(
+  terminal: TerminalService,
+  agent: CommandContext["agent"],
+  args: string[],
+): Effect.Effect<CommandResult, Error, MemoryService | FileSystem.FileSystem> {
+  return Effect.gen(function* () {
+    const memoryService = yield* MemoryServiceTag;
+    const configuredScopes = agent.config.memoryScopes;
+    const scopes =
+      configuredScopes !== undefined && configuredScopes.length > 0 ? configuredScopes : [agent.id];
+
+    if (args[0] === "forget") {
+      const target = args[1];
+      if (target === undefined) {
+        yield* terminal.info("Name the file to forget: /memory forget personal/notes.md");
+        return { shouldContinue: true };
+      }
+      const outcome = yield* memoryService.delete(scopes, target);
+      yield* terminal.log(outcome.success ? fmt.heading("Forgotten") : outcome.message);
+      return { shouldContinue: true };
+    }
+
+    if (args[0] !== undefined) {
+      const outcome = yield* memoryService.view(scopes, args[0]);
+      if (outcome.kind === "file") {
+        const provenance = yield* memoryService
+          .provenance(scopes, args[0])
+          .pipe(Effect.catchAll(() => Effect.succeed(undefined)));
+        yield* terminal.log(fmt.heading(outcome.path));
+        if (provenance !== undefined) {
+          yield* terminal.log(
+            `updated ${provenance.updatedAt.slice(0, 10)} · ${provenance.writeCount} write(s)\n`,
+          );
+        }
+        yield* terminal.log(outcome.content);
+        return { shouldContinue: true };
+      }
+      yield* terminal.info(outcome.kind === "directory" ? "That is a directory." : outcome.message);
+      return { shouldContinue: true };
+    }
+
+    const outcome = yield* memoryService.view(scopes, "");
+    const files =
+      outcome.kind === "directory" ? outcome.entries.filter((entry) => entry.kind === "file") : [];
+
+    yield* terminal.log(fmt.heading("Memory"));
+    if (files.length === 0) {
+      yield* terminal.log(`\nNothing saved yet. Scopes: ${scopes.join(", ")}.`);
+      return { shouldContinue: true };
+    }
+
+    yield* terminal.log("");
+    for (const file of files) {
+      yield* terminal.log(`  ${file.name}`);
+    }
+    yield* terminal.log("\n/memory <path> to read one · /memory forget <path> to remove one");
+    return { shouldContinue: true };
+  });
+}
 /**
  * Handle /work command — show or discard the working state kept for this conversation.
  *

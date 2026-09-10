@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { formatDaemonTokenProvisionFailure } from "./daemon";
+import { decideDaemonToken, formatDaemonTokenProvisionFailure } from "./daemon";
 
 describe("daemon token-provisioning failures", () => {
   it("directs headless peer servers to the persistent-service installer", () => {
@@ -21,5 +21,42 @@ describe("daemon token-provisioning failures", () => {
     );
 
     expect(message).not.toContain("daemon install");
+  });
+});
+
+describe("what a daemon serves behind", () => {
+  it("serves behind a freshly generated token, and shows it once", () => {
+    // Loopback gets a token now too — nothing but a credential separates a loopback daemon
+    // from every other local user account — so the generated value has to reach the operator.
+    const decision = decideDaemonToken({
+      ok: true,
+      token: "abc123",
+      generated: true,
+      backend: "macos",
+    });
+
+    expect(decision.token).toBe("abc123");
+    expect(decision.notice).toContain("abc123");
+    expect(decision.notice).toContain("set-token");
+  });
+
+  it("says nothing about a token it merely found", () => {
+    // A supervisor restarting this daemon would otherwise write the secret into its logs on
+    // every start.
+    const decision = decideDaemonToken({ ok: true, token: "abc123", generated: false });
+
+    expect(decision.token).toBe("abc123");
+    expect(decision.notice).toBeUndefined();
+  });
+
+  it("serves open rather than refusing when nothing can store a token, and says so", () => {
+    // Only reachable on loopback: `daemonCommand` exits on a non-loopback bind before asking
+    // for a decision at all. Exiting here too would turn an unavailable keyring into "jazz
+    // does not run on this machine".
+    const decision = decideDaemonToken({ ok: false, reason: "no-keyring" });
+
+    expect(decision.token).toBeUndefined();
+    expect(decision.notice).toContain("no credential");
+    expect(decision.notice).toContain("JAZZ_DISABLE_KEYRING");
   });
 });

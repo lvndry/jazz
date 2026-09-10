@@ -7,6 +7,72 @@ import type { ToolExecutionResult } from "@/core/types/tools";
 /** Caps schemas per call so a broad query can't dump the entire deferred surface into context. */
 export const MAX_SEARCH_TOOLS_RESULTS = 8;
 
+/**
+ * Crude stem so "watching" finds a summary saying "watch" — substring matching is asymmetric and
+ * misses the longer token. Suffix stripping rather than prefix matching, which would let "theme"
+ * match "the". Only has to be consistent on both sides, not correct: "statu" is fine.
+ */
+function stemWord(word: string): string {
+  for (const suffix of ["ing", "ed", "es", "s"]) {
+    if (word.length - suffix.length >= 3 && word.endsWith(suffix)) {
+      return word.slice(0, -suffix.length);
+    }
+  }
+  return word;
+}
+
+/**
+ * `the`, `for` and `and` clear the 3-char floor and appear in every prose summary, so any query
+ * containing one scored against every candidate. Function words only — never a short domain word.
+ */
+const STOPWORDS = new Set([
+  "the",
+  "and",
+  "for",
+  "with",
+  "that",
+  "this",
+  "from",
+  "into",
+  "its",
+  "was",
+  "are",
+  "has",
+  "had",
+  "have",
+  "not",
+  "but",
+  "you",
+  "your",
+  "our",
+  "their",
+  "them",
+  "then",
+  "than",
+  "there",
+  "here",
+  "what",
+  "which",
+  "who",
+  "how",
+  "why",
+  "all",
+  "any",
+  "some",
+  "each",
+  "per",
+  "via",
+  "also",
+  "just",
+  "only",
+  "very",
+  "more",
+  "most",
+  "such",
+  "same",
+  "own",
+]);
+
 /** Ranks by case-insensitive token overlap against name + summary. No embeddings; revisit only past a few hundred deferred tools. */
 export function rankToolsByQuery(
   query: string,
@@ -17,16 +83,22 @@ export function rankToolsByQuery(
   const queryTokens = query
     .toLowerCase()
     .split(/\W+/)
-    .filter((token) => token.length >= 3);
+    .filter((token) => token.length >= 3 && !STOPWORDS.has(token));
   if (queryTokens.length === 0) return [];
 
   const scored = candidates
     .map((candidate) => {
       const haystack = `${candidate.name} ${candidate.summary}`.toLowerCase();
-      const score = queryTokens.reduce(
-        (total, token) => total + (haystack.includes(token) ? 1 : 0),
-        0,
+      const haystackStems = new Set(
+        haystack
+          .split(/\W+/)
+          .filter((word) => word.length > 0)
+          .map(stemWord),
       );
+      const score = queryTokens.reduce((total, token) => {
+        const matched = haystack.includes(token) || haystackStems.has(stemWord(token));
+        return total + (matched ? 1 : 0);
+      }, 0);
       return { name: candidate.name, score };
     })
     .filter((candidate) => candidate.score > 0)
@@ -52,6 +124,7 @@ export function createSearchToolsTool(): Tool<ToolRegistry> {
       "Do not use execute_command to replicate what a listed-but-unfetched tool already does; search for it here instead.",
     parameters: searchToolsParameters,
     riskLevel: "read-only",
+    egress: false,
     hidden: false,
     createSummary: (result) => {
       if (!result.success) return undefined;

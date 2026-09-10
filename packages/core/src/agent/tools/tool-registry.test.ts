@@ -16,6 +16,7 @@ describe("ToolRegistry", () => {
       hidden: false,
       riskLevel: "read-only",
       disclosure: "public",
+      egress: false,
       execute: mock(() => Effect.succeed({ success: true, result: "ok" })),
       createSummary: undefined,
     };
@@ -49,6 +50,7 @@ describe("ToolRegistry", () => {
       hidden: false,
       riskLevel: "read-only",
       disclosure: "public",
+      egress: false,
       execute: () => Effect.succeed({ success: true, result: "" }),
       createSummary: undefined,
     };
@@ -59,6 +61,7 @@ describe("ToolRegistry", () => {
       hidden: true,
       riskLevel: "read-only",
       disclosure: "public",
+      egress: false,
       execute: () => Effect.succeed({ success: true, result: "" }),
       createSummary: undefined,
     };
@@ -84,6 +87,7 @@ describe("ToolRegistry", () => {
       hidden: false,
       riskLevel: "read-only",
       disclosure: "public",
+      egress: false,
       execute: mock(() => Effect.succeed({ success: true, result: "ok" })),
       createSummary: undefined,
     };
@@ -112,6 +116,7 @@ describe("ToolRegistry", () => {
       hidden: false,
       riskLevel: "read-only",
       disclosure: "public",
+      egress: false,
       execute: mock(() => Effect.succeed({ success: true, result: "ok" })),
       createSummary: undefined,
     };
@@ -141,6 +146,7 @@ describe("ToolRegistry", () => {
       hidden: false,
       riskLevel: "read-only",
       disclosure: "public",
+      egress: false,
       execute: () => Effect.succeed({ success: true, result: "" }),
       createSummary: undefined,
     };
@@ -175,6 +181,7 @@ describe("ToolRegistry", () => {
         hidden: false,
         riskLevel: "read-only",
         disclosure: "internal",
+        egress: false,
         execute: () => Effect.succeed({ success: true, result: "" }),
         createSummary: undefined,
       };

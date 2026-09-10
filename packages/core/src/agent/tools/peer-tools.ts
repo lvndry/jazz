@@ -217,6 +217,9 @@ export function createAskPeerTool(
     // The answer is a third party's text about their own affairs. What this tool discloses
     // travels in the request, which the ledger records, not in what it returns.
     disclosure: "public",
+    // That outbound half is the whole point of the tool: the model writes a question and it
+    // leaves the machine for somebody else's agent.
+    egress: true,
     hidden: false,
     longRunning: true,
     validate: makeZodValidator(parameters),

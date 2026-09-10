@@ -308,6 +308,33 @@ function detectPackageManager(): Effect.Effect<PackageManagerInfo, UpdateInstall
 }
 
 /**
+ * Builds the arguments a package manager needs to install Jazz globally.
+ *
+ * Bun needs `--trust` so the published package's `postinstall` script is allowed
+ * to run. That script downloads the platform binary, so without the flag Bun
+ * skips it and still exits 0, leaving behind a launcher that fails on every
+ * invocation. The release workflow already installs with `--trust`.
+ *
+ * @param packageManager - Name of the detected package manager.
+ * @param packageName - Name of the npm package to install.
+ * @returns Arguments to pass to the package manager executable.
+ */
+export function buildInstallArgs(packageManager: string, packageName: string): string[] {
+  const target = `${packageName}@latest`;
+
+  switch (packageManager) {
+    case "bun":
+      return ["add", "-g", "--trust", target];
+    case "pnpm":
+      return ["add", "-g", target];
+    case "yarn":
+      return ["global", "add", target];
+    default:
+      return ["install", "-g", target];
+  }
+}
+
+/**
  * Install the latest version.
  *
  * Binary installations replace themselves from the GitHub release; package
@@ -341,20 +368,13 @@ function installUpdate(
               "Please update Jazz using one of:\n" +
               "- npm: npm install -g jazz-ai@latest\n" +
               "- pnpm: pnpm add -g jazz-ai@latest\n" +
-              "- bun: bun add -g jazz-ai@latest",
+              "- bun: bun add -g --trust jazz-ai@latest",
           }),
         );
       }
     }
 
-    const installArgs =
-      pmInfo.name === "bun"
-        ? ["add", "-g", `${packageName}@latest`]
-        : pmInfo.name === "pnpm"
-          ? ["add", "-g", `${packageName}@latest`]
-          : pmInfo.name === "yarn"
-            ? ["global", "add", `${packageName}@latest`]
-            : ["install", "-g", `${packageName}@latest`];
+    const installArgs = buildInstallArgs(pmInfo.name, packageName);
 
     yield* Effect.async<void, UpdateInstallError>((resume) => {
       const child = spawn(pmInfo.name, installArgs, {
@@ -456,7 +476,7 @@ export function updateCommand(options?: {
           if (!isStandaloneBinary()) {
             yield* terminal.log("\n💡 You can manually update by running:");
             yield* terminal.log(`   npm install -g ${packageJson.name}@latest`);
-            yield* terminal.log(`   bun add -g ${packageJson.name}@latest`);
+            yield* terminal.log(`   bun add -g --trust ${packageJson.name}@latest`);
             yield* terminal.log(`   pnpm add -g ${packageJson.name}@latest`);
           }
         });

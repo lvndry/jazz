@@ -3,7 +3,6 @@ import { Effect } from "effect";
 import { z } from "zod";
 import {
   JOB_COMMAND_MAX_LENGTH,
-  JOB_OUTPUT_TAIL_CHARS,
   JOB_REASON_MAX_LENGTH,
   JOB_TIMEOUT_MINUTES,
   MAX_CONCURRENCY_CAP,
@@ -14,8 +13,10 @@ import { FileSystemContextServiceTag, type FileSystemContextService } from "@/co
 import type { JobBatchRecord, JobQueueService } from "@/core/interfaces/job-queue-service";
 import { JobQueueServiceTag } from "@/core/interfaces/job-queue-service";
 import type { Tool } from "@/core/interfaces/tool-registry";
+import { spawnJobWorker } from "@/core/jobs/spawn-job-worker";
 import type { ToolExecutionResult } from "@/core/types/tools";
 import { defineApprovalTool, defineTool, makeZodValidator } from "./base-tool";
+import { tailForModel } from "./capped-output";
 import { buildKeyFromContext } from "./context-utils";
 import { denylistBlockedError } from "./shell-tools";
 
@@ -36,8 +37,7 @@ function summarizeJobStatuses(batch: JobBatchRecord): {
 function tailOutput(output: string | undefined): string | null {
   const trimmed = output?.trim();
   if (!trimmed) return null;
-  if (trimmed.length <= JOB_OUTPUT_TAIL_CHARS) return trimmed;
-  return `…(earlier output trimmed)…\n${trimmed.slice(-JOB_OUTPUT_TAIL_CHARS)}`;
+  return tailForModel(trimmed);
 }
 
 function formatBatchSummary(batch: JobBatchRecord) {
@@ -119,9 +119,10 @@ export function createJobQueueTools(): {
     disclosure: "private",
     summary:
       "Run shell commands in the background and get woken with what they printed — monitor or " +
-      "watch a build, deploy, CI run or GitHub Action, poll a log file or a repo for changes, " +
-      "run the same check across several repos. Each job is capped at " +
+      "watch something until it finishes, poll a log, a page, a price or a repo for changes, " +
+      "run the same check across several targets. Each job is capped at " +
       `${JOB_TIMEOUT_MINUTES} minutes.`,
+
     description:
       "Run several independent shell commands in the background, with a concurrency cap and " +
       "per-job retry/backoff, without blocking your turn. Returns immediately with a batchId — " +
@@ -198,9 +199,30 @@ These commands will run unattended, without further approval, until every job fi
           } satisfies ToolExecutionResult;
         }
 
+        // Start the worker here rather than leaving the batch for a daemon that may not be
+        // running. Without this the tool returned a batch id, the person approved unattended
+        // execution, and then nothing ran and nothing woke them.
+        const worker = yield* spawnJobWorker(context.agentId);
+
         return {
           success: true,
-          result: { batchId: outcome.batch.id, jobCount: outcome.batch.jobs.length },
+          result: {
+            batchId: outcome.batch.id,
+            jobCount: outcome.batch.jobs.length,
+            // Said out loud when it fails, because the failure is invisible otherwise: the batch
+            // is enqueued either way, but without a worker it only runs if `jazz daemon` happens
+            // to be running, and waiting silently for a wake-up that never comes is the worst
+            // available outcome.
+            ...(worker.spawned
+              ? {}
+              : {
+                  warning:
+                    `No background worker could be started (${worker.reason ?? "unknown reason"}), ` +
+                    "so these jobs will only run if `jazz daemon` is running. Do not assume you " +
+                    "will be woken with the results — tell the person, and consider running the " +
+                    "commands directly instead.",
+                }),
+          },
         } satisfies ToolExecutionResult;
       }).pipe(
         Effect.catchAll((error) =>

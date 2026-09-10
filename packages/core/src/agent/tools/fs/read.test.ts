@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { appendFileSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
@@ -98,5 +98,131 @@ describe("read_file tool", () => {
     const data = result.result as { content: string; totalLines: number };
     expect(data.totalLines).toBe(0);
     expect(data.content).toBe("");
+  });
+});
+
+/**
+ * Following a file that is still being written used to mean re-reading it whole each time and
+ * carrying a line number between looks in prose. `sinceByte` makes the offset the tool's business
+ * instead — including telling the caller when the offset stopped meaning anything.
+ */
+describe("read_file with sinceByte", () => {
+  const tool = createReadFileTool();
+  const watchDir = join(tmpdir(), `jazz-read-since-${String(process.pid)}`);
+  const logPath = join(watchDir, "app.log");
+
+  beforeAll(() => {
+    mkdirSync(watchDir, { recursive: true });
+  });
+
+  afterAll(() => {
+    rmSync(watchDir, { recursive: true, force: true });
+  });
+
+  function read(args: Record<string, unknown>) {
+    return runTool(tool, { path: logPath, ...args }, watchDir);
+  }
+
+  it("returns only what was appended after the offset", async () => {
+    writeFileSync(logPath, "first line\n");
+    const initial = await read({ sinceByte: 0 });
+    const data = initial.result as { content: string; nextByte: number; inode: number };
+    expect(data.content).toContain("first line");
+
+    appendFileSync(logPath, "second line\n");
+    const next = await read({ sinceByte: data.nextByte, sinceInode: data.inode });
+    const appended = next.result as { content: string; nextByte: number };
+
+    expect(appended.content).toContain("second line");
+    expect(appended.content).not.toContain("first line");
+    expect(appended.nextByte).toBeGreaterThan(data.nextByte);
+  });
+
+  it("returns nothing and holds the offset when the file has not changed", async () => {
+    writeFileSync(logPath, "steady\n");
+    const first = await read({ sinceByte: 0 });
+    const firstData = first.result as { nextByte: number; inode: number };
+
+    const second = await read({ sinceByte: firstData.nextByte, sinceInode: firstData.inode });
+    const secondData = second.result as { content: string; nextByte: number; reset?: string };
+
+    expect(secondData.content).toBe("");
+    expect(secondData.nextByte).toBe(firstData.nextByte);
+    expect(secondData.reset).toBeUndefined();
+  });
+
+  it("continues after the returned source when maxBytes caps an incremental read", async () => {
+    writeFileSync(logPath, "one\ntwo\n");
+    const first = await read({ sinceByte: 0, maxBytes: 4 });
+    const firstData = first.result as {
+      content: string;
+      nextByte: number;
+      inode: number;
+      truncated: boolean;
+    };
+
+    expect(firstData).toMatchObject({ content: "one", nextByte: 4, truncated: true });
+
+    const second = await read({ sinceByte: firstData.nextByte, sinceInode: firstData.inode });
+    expect((second.result as { content: string }).content).toBe("two\n");
+  });
+
+  it("keeps a byte cursor correct across CRLF and UTF-8 when capped", async () => {
+    writeFileSync(logPath, "é\r\ntwo\r\n");
+    const first = await read({ sinceByte: 0, maxBytes: 1 });
+    const firstData = first.result as { content: string; nextByte: number; inode: number };
+
+    // `é` is two UTF-8 bytes and the source delimiter is CRLF, even though the
+    // displayed response normalizes line endings.
+    expect(firstData).toMatchObject({ content: "é", nextByte: 4 });
+
+    const second = await read({ sinceByte: firstData.nextByte, sinceInode: firstData.inode });
+    expect((second.result as { content: string }).content).toBe("two\n");
+  });
+
+  /**
+   * Truncation in place keeps the inode and drops the size below the offset. Left undetected the
+   * caller reads past the end forever and sees an empty result that looks like a quiet file.
+   */
+  it("restarts from the top and says so when the file is truncated in place", async () => {
+    writeFileSync(logPath, "a".repeat(500) + "\n");
+    const before = await read({ sinceByte: 0 });
+    const beforeData = before.result as { nextByte: number; inode: number };
+
+    writeFileSync(logPath, "fresh start\n");
+    const after = await read({ sinceByte: beforeData.nextByte, sinceInode: beforeData.inode });
+    const afterData = after.result as { content: string; reset?: string };
+
+    expect(afterData.reset).toBe("truncated");
+    expect(afterData.content).toContain("fresh start");
+  });
+
+  /**
+   * Rotation by rename gives the path a different file, and the replacement can be *longer* than
+   * the stale offset — so only the inode reveals it. A size check alone reads unrelated content
+   * from the middle of a new file and reports it as an append.
+   */
+  it("restarts from the top and says so when the file is rotated by rename", async () => {
+    writeFileSync(logPath, "short\n");
+    const before = await read({ sinceByte: 0 });
+    const beforeData = before.result as { nextByte: number; inode: number };
+
+    renameSync(logPath, join(watchDir, "app.log.1"));
+    writeFileSync(logPath, "b".repeat(2000) + "\nrotated content\n");
+
+    const after = await read({ sinceByte: beforeData.nextByte, sinceInode: beforeData.inode });
+    const afterData = after.result as { content: string; reset?: string; inode: number };
+
+    expect(afterData.reset).toBe("rotated");
+    expect(afterData.content).toContain("rotated content");
+    expect(afterData.inode).not.toBe(beforeData.inode);
+  });
+
+  it("refuses to mix byte offsets with line numbers", async () => {
+    writeFileSync(logPath, "one\ntwo\n");
+    const result = await read({ sinceByte: 0, startLine: 1 });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("one or the other");
   });
 });

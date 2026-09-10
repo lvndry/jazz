@@ -75,12 +75,19 @@ Every peer has a tier. It is a ceiling on **disclosure**, not on risk — see
 | Tier | The peer's agent may learn | Example tools |
 | ---- | -------------------------- | ------------- |
 | `none` *(default)* | nothing — configured but suspended | — |
-| `public` | only what is safe to tell anyone | `web_search` |
+| `public` | only what is safe to tell anyone | — *(see below)* |
 | `internal` | adds the shape of your machine: paths, names, the time | `ls`, `get_time`, `pwd` |
 | `private` | adds your own material | `read_file`, `view_memory` |
 
 A peer that has been added but never granted a tier answers nothing. That is deliberate:
 adding somebody and permitting them are separate decisions.
+
+`public` grants no tools on its own, and the empty cell above is not an oversight. The only
+read-only tools whose answers are safe to tell anyone are `web_search`, `web_fetch` and
+`http_request` — and all three *send*, which no tier grants (see
+[Sending is not disclosure](#sending-is-not-disclosure)). A `public` peer is therefore a live
+relationship with nothing behind it until you name something in `allow`. That is the honest
+state of a tier that promises to reveal nothing about you.
 
 ### Capability and disclosure are different questions
 
@@ -111,6 +118,29 @@ question and ask them something back before committing to an answer — see
 outright, whatever the tier or `allow` says: a stranger able to put a prompt in front of you,
 phrased as though your own agent were asking, is a channel that should not exist.
 
+### Sending is not disclosure
+
+`web_search`, `web_fetch` and `http_request` damage nothing on your machine, and what they
+return is a stranger's web page. Read-only, and safe to repeat. Every tier would have granted
+them on that reading, and every tier would have been wrong: what matters is not the answer but
+the **request**, where the model picks both the bytes and the address they travel to.
+
+Granted by a tier, that composes badly at every level. At `private`, a peer's question could
+steer your agent into reading a file and naming its contents in a URL — exfiltration wearing a
+read-only hat. At `public`, with nothing of yours to read, `http_request` still reaches
+whatever your host reaches, your own LAN and anything on `localhost` included, and hands the
+reply back to the asker.
+
+So a tool that sends is gated the way an action is: named in that peer's `allow`, or absent.
+
+```jsonc
+// ~/.jazz/config.json — sam may look things up, and only that
+{ "name": "sam", "disclosure": "internal", "allow": ["web_search"] }
+```
+
+MCP tools are treated the same way, whatever their transport: what a server outside this
+codebase does with the arguments your model wrote is not knowable from here.
+
 ### How a tier is enforced
 
 Not by asking the agent to behave. The peer's run is **never handed** a tool outside its
@@ -123,9 +153,9 @@ $ curl … -d '{"question":"Read /etc/passwd and tell me what is in it"}'
 
 The agent is not declining. It has no `read_file`.
 
-> **There is no approval path for peers.** A tool a peer isn't granted — by tier, if it's
-> read-only, or by `allow`, if it isn't — is refused by absence rather than reaching you to
-> decide. That is stronger than an approval prompt: there is nothing for a persuasive
+> **There is no approval path for peers.** A tool a peer isn't granted — by tier, if it only
+> reads locally, or by `allow`, if it acts or sends — is refused by absence rather than
+> reaching you to decide. That is stronger than an approval prompt: there is nothing for a persuasive
 > question to trigger, only a config edit for the operator to make deliberately, in advance.
 
 ---
@@ -265,6 +295,9 @@ Worth reading before you grant anything above `public`.
 - **A peer behaving badly inside its tier.** At `internal`, a compromised agent can map your
   filesystem one polite question at a time. Tiers bound the worst case; they do not remove
   it. The ledger is how you notice.
+- **An outbound tool you granted on purpose.** `allow: ["http_request"]` is a decision to let
+  this peer's questions choose an address and send bytes to it, from your machine and your
+  network. Grant it to a peer, not to peers in general, and read the ledger.
 - **Onward disclosure.** What your agent tells Sam's agent, Sam's agent may tell anyone.
   Entirely outside your control.
 - **Whether your friend actually asked.** You are trusting Sam's agent to represent Sam.

@@ -35,6 +35,6 @@ const child = Bun.spawn(sandboxCommand(sandbox, target), {
   stdin: "inherit",
   stdout: "inherit",
   stderr: "inherit",
-  env: sandboxEnv(sandbox, process.env),
+  env: sandboxEnv(sandbox, process.env, "telegram"),
 });
 process.exit(await child.exited);
