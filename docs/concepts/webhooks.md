@@ -57,15 +57,15 @@ the endpoint does not.
 
 ## Configuring one
 
-| Field | Required | What it does |
-| --- | --- | --- |
-| `name` | yes | Used in the URL (`POST /webhooks/<name>`) and to look up the token. Unique. |
-| `agentId` | yes | Which agent this webhook wakes. |
-| `promptTemplate` | yes | The prompt the fire runs. `{{payload}}` is replaced with the request body, quoted. Without the placeholder, the payload is appended. |
-| `description` | no | A note for yourself. Never sent to the model. |
-| `conversation` | no | `"ephemeral"` (default) or `"threaded"`. See below. |
-| `disclosure` | no | How much this webhook may learn: `none`, `public`, `internal` (default), `private`. See below. |
-| `allow` | no | Tool names this webhook may invoke beyond read-only risk. Empty by default. |
+| Field            | Required | What it does                                                                                                                         |
+| ---------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `name`           | yes      | Used in the URL (`POST /webhooks/<name>`) and to look up the token. Unique.                                                          |
+| `agentId`        | yes      | Which agent this webhook wakes.                                                                                                      |
+| `promptTemplate` | yes      | The prompt the fire runs. `{{payload}}` is replaced with the request body, quoted. Without the placeholder, the payload is appended. |
+| `description`    | no       | A note for yourself. Never sent to the model.                                                                                        |
+| `conversation`   | no       | `"ephemeral"` (default) or `"threaded"`. See below.                                                                                  |
+| `disclosure`     | no       | How much this webhook may learn: `none`, `public`, `internal` (default), `private`. See below.                                       |
+| `allow`          | no       | Tool names this webhook may invoke beyond read-only risk. Empty by default.                                                          |
 
 ### Tokens
 
@@ -85,21 +85,22 @@ a body over 1 MB is refused with a `413` while it is still being read.
 ## What a webhook may reach
 
 **A webhook token holder is an external counterparty, not you.** The token authenticates
-*the webhook*, and it lives in somebody else's settings screen — a GitHub repo's webhook
+_the webhook_, and it lives in somebody else's settings screen — a GitHub repo's webhook
 config, an IFTTT applet, an email relay. You do not administer that console and cannot audit
 who reads it. So a webhook run is bounded the same way a peer's question is, by the same two
 axes:
 
-| `disclosure` | Read-only tools the run may reach |
-| --- | --- |
-| `none` | Nothing. The way to switch a webhook off without deleting it. |
-| `public` | Answers that reveal nothing about you or your machine — web search, web fetch. |
-| `internal` | **Default.** Adds the shape of the machine: what exists, what is installed, directory listings. Not file contents. |
-| `private` | Adds your own material — file contents, memory, arbitrary HTTP. Still read-only. |
+| `disclosure` | Read-only tools the run may reach                                                                                  |
+| ------------ | ------------------------------------------------------------------------------------------------------------------ |
+| `none`       | Nothing. The way to switch a webhook off without deleting it.                                                      |
+| `public`     | Answers that reveal nothing about you or your machine.                                                             |
+| `internal`   | **Default.** Adds the shape of the machine: what exists, what is installed, directory listings. Not file contents. |
+| `private`    | Adds your own material — file contents, memory, arbitrary HTTP. Still read-only.                                   |
 
-`disclosure` is a ceiling on what an answer may *reveal*; it never admits a tool that can
-*act*. Anything riskier than read-only — writing a file, running a command, sending a
-message — is admitted only by naming it in `allow`, at any tier:
+`disclosure` is a ceiling on what an answer may _reveal_; it never admits a tool that can
+_act_ or send information off the machine. Anything riskier than read-only — writing a
+file, running a command, sending a message — and every outbound tool is admitted only by
+naming it in `allow`, at any tier:
 
 ```json
 {
@@ -196,11 +197,11 @@ Every event is a `POST` of one JSON object to that URL.
 
 ### The events
 
-| `kind` | Sent when | Also carries |
-|---|---|---|
-| `tool-started` | a tool call begins | — |
-| `tool-finished` | that call returns | `ok`, `result` |
-| `approval-required` | the run has stopped and needs a person | — |
+| `kind`              | Sent when                              | Also carries   |
+| ------------------- | -------------------------------------- | -------------- |
+| `tool-started`      | a tool call begins                     | —              |
+| `tool-finished`     | that call returns                      | `ok`, `result` |
+| `approval-required` | the run has stopped and needs a person | —              |
 
 Every event carries `kind`, `toolName`, and `toolCallId`. The id is the model's own id for
 that call, so a turn asking for several tools at once gives you a distinct id per call and

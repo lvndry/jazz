@@ -82,11 +82,11 @@ dimension is uncapped.
 }
 ```
 
-| Key             | Unit         | Checks                                         |
-| --------------- | ------------ | ----------------------------------------------- |
-| `maxCostUSD`    | US dollars   | Own tokens priced via models.dev, plus any sub-agent spend rolled up through `childCostUSD`. |
+| Key             | Unit         | Checks                                                                                        |
+| --------------- | ------------ | --------------------------------------------------------------------------------------------- |
+| `maxCostUSD`    | US dollars   | Own tokens priced via models.dev, plus any sub-agent spend rolled up through `childCostUSD`.  |
 | `maxTokens`     | token count  | Own prompt + completion tokens. Sub-agent tokens are not rolled up (cost is; tokens are not). |
-| `maxDurationMs` | milliseconds | Wall-clock time since the run started.          |
+| `maxDurationMs` | milliseconds | Wall-clock time since the run started.                                                        |
 
 All three share the same enforcement model, distinct from `maxIterations`/`maxSubagentIterations`
 in one important way:
@@ -115,7 +115,7 @@ An explicit `--max-cost-usd`, `--max-tokens`, or `--max-duration-ms` on the comm
 workflow's own frontmatter key, still wins over the config value here.
 
 Distinct from `--timeout` (`jazz run --timeout <ms>` / `jazz workflow run --timeout <ms>`), which
-is an *external* hard kill — a race against the whole run with no pressure warning — rather than a
+is an _external_ hard kill — a race against the whole run with no pressure warning — rather than a
 soft, in-loop checkpoint. Use `--timeout` as the outer safety net and `maxDurationMs` for the
 warned, graceful budget.
 
@@ -129,7 +129,7 @@ How many levels of sub-agent may nest below a top-level run. Defaults to **3**.
 }
 ```
 
-Each level of delegation gets a *fresh* iteration budget rather than its parent's remainder — a
+Each level of delegation gets a _fresh_ iteration budget rather than its parent's remainder — a
 child spawned on the parent's last iteration would be useless otherwise — so this depth, not the
 parent's remaining budget, is what bounds how much a nest of sub-agents can spend. Past the
 limit `spawn_subagent` returns an error telling the agent to do the work itself; it never
@@ -154,7 +154,7 @@ When to warn the model that its context is filling, and when to compact history 
 | `warnThresholdRatio`    | 0.7     | The model is told to consolidate what it has while detail still exists |
 | `compactThresholdRatio` | 0.8     | Older history is summarized automatically                              |
 
-The ordering `warn < compact < 0.95` is enforced. The 0.95 ceiling is the trim ratio: trimming *discards* messages rather than summarizing them, so a compaction threshold at or above it would let trimming pre-empt compaction and turn the whole scheme into a sliding window. A value that breaks the ordering — or that isn't a number strictly between 0 and 1 — is ignored with a logged warning and the default is used; the run never fails on a bad ratio.
+The ordering `warn < compact < 0.95` is enforced. The 0.95 ceiling is the trim ratio: trimming _discards_ messages rather than summarizing them, so a compaction threshold at or above it would let trimming pre-empt compaction and turn the whole scheme into a sliding window. A value that breaks the ordering — or that isn't a number strictly between 0 and 1 — is ignored with a logged warning and the default is used; the run never fails on a bad ratio.
 
 Raising `compactThresholdRatio` keeps more verbatim history but leaves less headroom, which bites hardest on local servers whose real window is smaller than advertised. Lowering it compacts earlier and more often, costing a summarizer call each time. The reserved-space figure in `/context` is derived from this setting, so the grid always reflects where compaction actually fires.
 
@@ -173,12 +173,12 @@ Terminal display of reasoning, tools, and formatting. The interactive TUI reads 
 }
 ```
 
-| Key                  | Default | Effect                                                                                          |
-| -------------------- | ------- | ----------------------------------------------------------------------------------------------- |
-| `showReasoning`      | `true`  | Stream the model's reasoning while it thinks                                                    |
-| `collapseReasoning`  | `true`  | After thinking finishes, collapse it to a one-line summary. **Ctrl+R** expands it in place      |
-| `showToolExecution`  | `true`  | Show tool calls as they run                                                                     |
-| `mode`               | `hybrid` | `rendered` \| `hybrid` \| `raw` \| `quiet`. Overridable with `JAZZ_OUTPUT_MODE` / `--output` |
+| Key                 | Default  | Effect                                                                                       |
+| ------------------- | -------- | -------------------------------------------------------------------------------------------- |
+| `showReasoning`     | `true`   | Stream the model's reasoning while it thinks                                                 |
+| `collapseReasoning` | `true`   | After thinking finishes, collapse it to a one-line summary. **Ctrl+R** expands it in place   |
+| `showToolExecution` | `true`   | Show tool calls as they run                                                                  |
+| `mode`              | `hybrid` | `rendered` \| `hybrid` \| `raw` \| `quiet`. Overridable with `JAZZ_OUTPUT_MODE` / `--output` |
 
 Set `collapseReasoning` to `false` to leave the full reasoning visible after it finishes. Ctrl+R is then unused — there is nothing collapsed to expand. Change it with `jazz config set output.collapseReasoning false`, or from **Output & Display** in `jazz config`.
 
@@ -195,7 +195,7 @@ own in-process ticker inside `jazz daemon`. Defaults to `"auto"`, which uses the
 }
 ```
 
-| Value          | Effect                                                                 |
+| Value          | Effect                                                                  |
 | -------------- | ----------------------------------------------------------------------- |
 | `"auto"`       | Default. `jazz workflow schedule` installs a launchd/cron entry         |
 | `"in-process"` | `jazz daemon` polls due schedules itself once per minute; no OS entries |
@@ -229,15 +229,15 @@ Webhook doors onto specific agents. Each entry is served at `POST /webhooks/<nam
 }
 ```
 
-| Field            | Required | Effect                                                                              |
-| ---------------- | -------- | ----------------------------------------------------------------------------------- |
-| `name`           | yes      | URL segment and token lookup key. Unique                                             |
-| `agentId`        | yes      | Which agent the webhook wakes                                                        |
-| `promptTemplate` | yes      | Prompt for the fire. `{{payload}}` is replaced with the quoted body                  |
-| `description`    | no       | Note for yourself; never sent to the model                                           |
-| `conversation`   | no       | `"ephemeral"` (default) starts fresh each fire; `"threaded"` resumes per thread key  |
-| `disclosure`     | no       | Read-only ceiling: `none`, `public`, `internal` (default), `private`                  |
-| `allow`          | no       | Tool names this webhook may invoke beyond read-only risk. Empty by default            |
+| Field            | Required | Effect                                                                                            |
+| ---------------- | -------- | ------------------------------------------------------------------------------------------------- |
+| `name`           | yes      | URL segment and token lookup key. Unique                                                          |
+| `agentId`        | yes      | Which agent the webhook wakes                                                                     |
+| `promptTemplate` | yes      | Prompt for the fire. `{{payload}}` is replaced with the quoted body                               |
+| `description`    | no       | Note for yourself; never sent to the model                                                        |
+| `conversation`   | no       | `"ephemeral"` (default) starts fresh each fire; `"threaded"` resumes per thread key               |
+| `disclosure`     | no       | Non-egress read-only ceiling: `none`, `public`, `internal` (default), `private`                   |
+| `allow`          | no       | Tool names this webhook may invoke beyond the ceiling, including outbound tools. Empty by default |
 
 Tokens never live in this file. Store one in the keyring with
 `jazz config set webhooks.<name>.token`, or supply `JAZZ_WEBHOOK_TOKEN_<NAME>` in the
@@ -245,7 +245,8 @@ environment. A threaded webhook takes its thread key from the `X-Jazz-Thread` re
 
 A webhook token holder is an external counterparty, not you — it lives in a third party's
 settings console. `disclosure` and `allow` are what bound the run; without them a webhook
-reaches read-only tools up to the `internal` ceiling and nothing that can act.
+reaches non-egress read-only tools up to the `internal` ceiling and nothing that can act or
+send data off the machine.
 
 See [Webhooks](../concepts/webhooks.md) for the full behaviour.
 
@@ -269,7 +270,7 @@ Override settings or provide API keys via `.env` or the process environment.
 
 | Variable                     | Effect                                                                                                                                                                                |
 | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `JAZZ_OFFLINE`               | `1`/`true`: make no outbound request of Jazz's own — skips the update check *and* the models.dev catalog fetch. See [Airgapped](../start/airgapped.md)                                |
+| `JAZZ_OFFLINE`               | `1`/`true`: make no outbound request of Jazz's own — skips the update check _and_ the models.dev catalog fetch. See [Airgapped](../start/airgapped.md)                                |
 | `JAZZ_DISABLE_UPDATE_CHECK`  | `1`: skip only the npm version check                                                                                                                                                  |
 | `JAZZ_MODELS_DEV_URL`        | Point the model catalog at an internal mirror of `https://models.dev/api.json`                                                                                                        |
 | `HTTPS_PROXY` / `HTTP_PROXY` | Send every outbound request — provider APIs, web tools, remote MCP servers, the update check — through an HTTP proxy. Lowercase names work too, and `ALL_PROXY` covers both protocols |
@@ -303,15 +304,15 @@ required`, set `ANTHROPIC_WORKSPACE_ID` or `llm.anthropic.workspace_id` in
 
 ### Output and terminal
 
-| Variable           | Effect                                                                       |
-| ------------------ | ---------------------------------------------------------------------------- |
-| `JAZZ_NO_TUI`      | `1`: no terminal UI at all, plain output (same as `--no-tui`)                |
+| Variable           | Effect                                                                                                                                        |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `JAZZ_NO_TUI`      | `1`: no terminal UI at all, plain output (same as `--no-tui`)                                                                                 |
 | `JAZZ_FULLSCREEN`  | `0`: keep an interactive interface but not the alternate screen. Print-and-exit commands never enter it, so their output stays in scrollback. |
-| `JAZZ_OUTPUT_MODE` | `rendered` \| `hybrid` \| `raw` \| `quiet` (same as `--output`)              |
-| `JAZZ_THEME`       | Colour theme                                                                 |
-| `JAZZ_UI_GLYPHS`   | `unicode` \| `ascii` — override glyph detection for terminals that misreport |
-| `JAZZ_TABLE_STYLE` | Table rendering style                                                        |
-| `NO_COLOR`         | Standard: disable colour output                                              |
+| `JAZZ_OUTPUT_MODE` | `rendered` \| `hybrid` \| `raw` \| `quiet` (same as `--output`)                                                                               |
+| `JAZZ_THEME`       | Colour theme                                                                                                                                  |
+| `JAZZ_UI_GLYPHS`   | `unicode` \| `ascii` — override glyph detection for terminals that misreport                                                                  |
+| `JAZZ_TABLE_STYLE` | Table rendering style                                                                                                                         |
+| `NO_COLOR`         | Standard: disable colour output                                                                                                               |
 
 ### Scheduling
 
@@ -437,7 +438,7 @@ tool is simply skipped at registration.
 Each entry has a `handler.type` of either `record` or `command`.
 
 **`record`** — no side effect. The call is validated and appended to the run's `toolCalls` (the
-same field every other tool call surfaces in), so the *caller* embedding Jazz can read the
+same field every other tool call surfaces in), so the _caller_ embedding Jazz can read the
 arguments and act on them; the model itself only ever sees the fixed `response`. Note that
 `toolCalls` reports calls as the model sent them — including calls whose arguments failed schema
 validation — so callers must re-validate arguments before acting on them. This is the
@@ -451,7 +452,10 @@ pattern behind confirmation-card / propose-then-confirm flows:
     "type": "object",
     "properties": {
       "action": { "type": "string", "description": "Short description of the proposed action" },
-      "payload": { "type": "object", "description": "Structured data needed to carry out the action" }
+      "payload": {
+        "type": "object",
+        "description": "Structured data needed to carry out the action"
+      }
     },
     "required": ["action"]
   },
@@ -512,8 +516,8 @@ user-supplied ones.
 A custom tool name that collides with an already-registered builtin or MCP tool name — or one of
 its aliases (e.g. `glob`) — fails the run with a configuration error rather than silently
 overriding the existing tool; rename the custom tool or remove the conflicting one. Because tool
-registration runs on every agent run (not just once per process), re-registering the *exact
-same* custom tool definition under a name that's already registered is a no-op, not a collision;
+registration runs on every agent run (not just once per process), re-registering the _exact
+same_ custom tool definition under a name that's already registered is a no-op, not a collision;
 only a genuinely different definition sharing that name is rejected — and since the registry has
 no way to update an existing registration in place, that rejection fails the run MID-SESSION
 (not at process startup): restart the session, or revert the custom tool definition to match

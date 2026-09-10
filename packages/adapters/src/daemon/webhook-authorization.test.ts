@@ -21,12 +21,12 @@ import { webhookRunOptions } from "./server";
  * The interesting corners of the real registry: a read-only tool at each disclosure level,
  * and two that can act.
  */
-const TOOLS: readonly { name: string; riskLevel: string; disclosure: string }[] = [
-  { name: "web_search", riskLevel: "read-only", disclosure: "public" },
-  { name: "ls", riskLevel: "read-only", disclosure: "internal" },
-  { name: "read_file", riskLevel: "read-only", disclosure: "private" },
-  { name: "write_file", riskLevel: "high-risk", disclosure: "public" },
-  { name: "execute_command", riskLevel: "unknown", disclosure: "private" },
+const TOOLS: readonly { name: string; riskLevel: string; disclosure: string; egress: boolean }[] = [
+  { name: "web_search", riskLevel: "read-only", disclosure: "public", egress: true },
+  { name: "ls", riskLevel: "read-only", disclosure: "internal", egress: false },
+  { name: "read_file", riskLevel: "read-only", disclosure: "private", egress: false },
+  { name: "write_file", riskLevel: "high-risk", disclosure: "public", egress: false },
+  { name: "execute_command", riskLevel: "unknown", disclosure: "private", egress: false },
 ];
 
 const registry = {
@@ -80,9 +80,9 @@ describe("a webhook run is bounded by a tool allowlist", () => {
     expect((await runFor(HOOK)).toolAllowlist).toBeArray();
   });
 
-  it("defaults to read-only tools up to the internal disclosure ceiling", async () => {
+  it("defaults to non-egress read-only tools up to the internal disclosure ceiling", async () => {
     expect(DEFAULT_WEBHOOK_DISCLOSURE).toBe("internal");
-    expect(await allowedTools(HOOK)).toEqual(["ls", "web_search"]);
+    expect(await allowedTools(HOOK)).toEqual(["ls"]);
   });
 
   it("withholds file contents by default", async () => {
@@ -101,9 +101,12 @@ describe("a webhook run is bounded by a tool allowlist", () => {
 
   it("admits one that can act only where the webhook names it", async () => {
     expect(await allowedTools({ ...HOOK, disclosure: "public", allow: ["write_file"] })).toEqual([
-      "web_search",
       "write_file",
     ]);
+  });
+
+  it("admits an outbound tool only where the webhook names it", async () => {
+    expect(await allowedTools({ ...HOOK, allow: ["web_search"] })).toEqual(["ls", "web_search"]);
   });
 
   it("reaches nothing at all when the webhook is revoked to none", async () => {
