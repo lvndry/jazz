@@ -71,6 +71,12 @@ describe("carriedEnvironment", () => {
     });
   });
 
+  test("carries a configured default that was not present in the shell", () => {
+    expect(carriedEnvironment({}, { IMESSAGE_SELF_TRIGGER: "jazz" })).toEqual({
+      IMESSAGE_SELF_TRIGGER: "jazz",
+    });
+  });
+
   test("never carries a provider key into a plist, which is not built to hold one", () => {
     const carried = carriedEnvironment({
       OPENAI_API_KEY: "sk-secret",

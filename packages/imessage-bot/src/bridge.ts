@@ -398,7 +398,12 @@ async function maybeOfferService(config: BridgeConfig): Promise<void> {
       args: serviceArgs(),
       workingDirectory: process.cwd(),
       jazzHome: config.jazzHome,
-      environment: carriedEnvironment(),
+      // The first-run self trigger is a safe default held in config rather
+      // than process.env. Carry it explicitly so the background service
+      // starts with the same admission rule as the foreground bridge.
+      environment: carriedEnvironment(process.env, {
+        IMESSAGE_SELF_TRIGGER: config.selfTrigger,
+      }),
     });
     console.error(`\nWrote ${path}`);
 

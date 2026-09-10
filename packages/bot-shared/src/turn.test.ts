@@ -86,6 +86,7 @@ describe("turn runner", () => {
       editMessages: false,
       buttons: true,
       attachments: false,
+      linkButtons: false,
       typingIndicator: false,
       maxMessageChars: 4000,
     },

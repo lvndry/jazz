@@ -146,10 +146,13 @@ const CARRIED_ENV = [
   "JAZZ_IMESSAGE_SHOW_REASONING",
 ] as const;
 
-export function carriedEnvironment(env: NodeJS.ProcessEnv = process.env): Record<string, string> {
+export function carriedEnvironment(
+  env: NodeJS.ProcessEnv = process.env,
+  overrides: Readonly<Partial<Record<(typeof CARRIED_ENV)[number], string | undefined>>> = {},
+): Record<string, string> {
   const carried: Record<string, string> = {};
   for (const key of CARRIED_ENV) {
-    const value = env[key];
+    const value = overrides[key] ?? env[key];
     if (value !== undefined && value.length > 0) carried[key] = value;
   }
   return carried;
