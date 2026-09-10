@@ -59,25 +59,13 @@ import { SchedulerServiceTag } from "@jazz/core/workflows/scheduler-service";
 import { Effect, Runtime } from "effect";
 
 /**
- * How often the daemon checks for due wake triggers, reminders and jobs.
- *
- * Five seconds, not a minute, because the tick interval is the resolution of every duration the
- * agent is allowed to ask for: `register_trigger` accepts "30s" and a minute-long tick made that
- * a lie by up to a minute. The sweeps it drives now read unlocked and take a lock only when
- * something is actually due, so a tick with nothing to do is a handful of small reads.
- *
- * `JAZZ_DAEMON_TICK_MS` overrides it, down to a second, for anything that needs tighter timing.
- * Note what this is *not*: waking the agent every second. A model turn per second is nonsense at
- * any tick rate — that is `wait_for`'s job, which polls inside a single tool call. This interval
- * only bounds how late a scheduled wake-up is.
+ * Tick interval, and so the resolution of every duration an agent may ask for — a minute-long tick
+ * made `register_trigger`'s "30s" a lie. Idle ticks are a few unlocked reads.
+ * `JAZZ_DAEMON_TICK_MS` overrides it. Bounds how late a wake-up is, not how often the agent runs.
  */
 const DEFAULT_TICK_INTERVAL_MS = 5_000;
 
-/**
- * Cron has no sub-minute resolution, so re-deriving workflow due-ness on a five-second tick would
- * parse every schedule twelve times to reach the same answer. This bounds it to once a minute
- * regardless of how fast the ticker runs.
- */
+/** Cron has no sub-minute resolution, so parsing schedules faster than this changes no answer. */
 const WORKFLOW_CATCH_UP_INTERVAL_MS = 60_000;
 
 export interface DaemonCommandOptions {

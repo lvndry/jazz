@@ -3,11 +3,8 @@
  * with an optional line range (negative values count from the end of the file)
  * and a hard character cap to avoid flooding the context window.
  *
- * `sinceByte` is the incremental mode, for watching a file that is still being written. Without
- * it, following a log across several looks means re-reading and re-paying for text already seen,
- * and tracking a line number in prose between looks — which goes wrong the moment the file rolls
- * over. With it, a caller reads only what was appended and hands back the `nextByte` and `inode`
- * it was given, so the tool can tell an append from a rotation and say which happened.
+ * `sinceByte` is the incremental mode for a file still being written: read only what was
+ * appended, hand back the `nextByte` and `inode` to distinguish an append from a rotation.
  */
 
 import { open, stat } from "node:fs/promises";
@@ -111,14 +108,11 @@ interface IncrementalRead {
 }
 
 /**
- * Read the bytes appended after `sinceByte`, detecting the two ways an offset goes stale.
+ * Read the bytes appended after `sinceByte`, restarting at 0 when the offset went stale.
  *
- * A log that rolls over mid-watch is the normal case, not an edge case, and both of its forms
- * have to be caught or a caller silently reads nothing forever. Rotation by rename gives the path
- * a different file, which only the inode reveals — the new file can easily be *longer* than the
- * old offset, so a size comparison sees a valid offset into unrelated content. Truncation in place
- * keeps the inode and drops the size below the offset. Either way the honest answer is to start
- * over from 0 and say so, rather than return an empty read that looks like "nothing happened".
+ * Rotation needs the inode, not the size: a renamed-away log's replacement is often *longer* than
+ * the old offset, so a size check sees a valid offset into unrelated content. Truncation in place
+ * keeps the inode and drops below the offset.
  */
 async function readSince(
   filePath: string,

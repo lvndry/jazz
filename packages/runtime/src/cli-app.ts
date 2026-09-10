@@ -1037,16 +1037,7 @@ function registerWakeTriggerCommand(program: Command): void {
     );
 }
 
-/**
- * Register `jazz job run` — internal, invoked by the detached worker process that `enqueue_batch`
- * starts, not meant for interactive use.
- *
- * Sibling of `wake-trigger fire` and `reminder fire` in spirit — a jazz process started from
- * outside to do one piece of scheduled work — but started directly by the enqueueing process
- * rather than by launchd or `at`. Those two schedule a future instant, which those schedulers are
- * good at; a background batch needs to start now, which launchd's minute-resolution
- * `StartCalendarInterval` cannot express.
- */
+/** Register `jazz job run` — internal, invoked by the detached worker `enqueue_batch` starts. */
 function registerJobCommand(program: Command): void {
   const jobCommand = program
     .command("job")

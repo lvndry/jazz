@@ -1,21 +1,7 @@
 /**
- * @fileoverview `wait_for` — block on a condition inside a single tool call.
- *
- * The gap this fills: watching something resolve used to cost one model turn per look. A caller
- * asked to catch a transition quickly had no way to check often, because "check every second"
- * meant a model run every second, and the tools that suspend the run instead (`register_trigger`)
- * only wake on a schedule measured in minutes. So a caller either polled coarsely and missed the
- * moment, or chained `execute_command` calls with `sleep` in between and paid a turn for each.
- *
- * Here the polling happens inside one tool call: the predicate runs, the fiber sleeps, the
- * predicate runs again, and the model is only involved once — when the condition is met, or when
- * the budget runs out. Cheap enough to poll at sub-second intervals.
- *
- * What this deliberately does *not* do is outlast its budget. `SHELL_COMMAND_MAX_TIMEOUT_MS`
- * bounds it, the same as any other command, because a longer block means a model turn held open
- * with the caller unable to interject and everything lost if the process dies. Waits that outlast
- * that are `register_trigger`'s job: it suspends the run and resumes it later. The two compose —
- * poll tightly inside the budget, re-arm across it.
+ * @fileoverview `wait_for` — poll a condition inside one tool call, so watching costs one model
+ * turn instead of one per look. Bounded by `SHELL_COMMAND_MAX_TIMEOUT_MS`; longer waits compose
+ * with `register_trigger`, which suspends the run instead of holding a turn open.
  */
 import { FileSystem } from "@effect/platform";
 import { Duration, Effect } from "effect";
@@ -185,8 +171,7 @@ The command runs repeatedly and unattended until it succeeds or the time runs ou
           if (remainingMs <= 0) break;
 
           attempts += 1;
-          // A hung predicate must not eat a budget that belongs to the wait, so its own deadline
-          // is whatever is left rather than the full cap.
+          // A hung predicate gets only what is left, not the full cap.
           const attempt = yield* runShellCommand({
             command: args.command,
             workingDir,
@@ -226,9 +211,8 @@ The command runs repeatedly and unattended until it succeeds or the time runs ou
           yield* Effect.sleep(Duration.millis(sleepMs));
         }
 
-        // Running out of time is a real answer, not a failure: the caller needs to know the
-        // condition did not come true so it can decide whether to re-arm, and needs the last
-        // check's output to decide. Reporting it as an error would throw both away.
+        // Expiring is an answer, not a failure — an error would drop the last output the caller
+        // needs to decide whether to re-arm.
         return {
           success: true,
           result: {
