@@ -127,6 +127,9 @@ export function createWebSearchTool(): ReturnType<
   return defineTool<AgentConfigService | LoggerService, WebSearchArgs>({
     name: "web_search",
     disclosure: "public",
+    // The destination is the operator's configured provider, but the query is the model's
+    // prose, sent verbatim to a third party under the operator's account.
+    egress: true,
     description:
       "Search the public web. Each result has a title, url, snippet, and sometimes a publishedDate. This does not fetch full pages — follow up with web_fetch for HTML or text, or http_request for APIs and POST. " +
       "Put operators such as site: and filetype: in query. fromDate, toDate, searchDepth, sourceType, and searchQueries are hints; some providers ignore them. If search is unavailable the tool returns an error — do not invent sources.",

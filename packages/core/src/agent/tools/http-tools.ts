@@ -349,6 +349,10 @@ export function createHttpRequestTool(): Tool<never> {
   return defineTool<never, HttpRequestArgs>({
     name: "http_request",
     disclosure: "private",
+    // The model picks the address, the method, the headers and the body. Nothing in this
+    // codebase constrains where those bytes go, which is why a peer never receives this
+    // tool from a disclosure tier alone.
+    egress: true,
     description:
       "Call an HTTP API. Supports GET, POST, PUT, PATCH, DELETE, HEAD, and OPTIONS, plus headers, a query string, and a json, text, or form body. Multipart and file upload are not supported. " +
       "JSON responses are parsed; images, audio, and video come back as base64; other bodies as text. Default timeout 15 seconds (max 120). Default response cap 1MB (max 5MB). Redirects are followed by default. " +

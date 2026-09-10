@@ -140,6 +140,29 @@ export interface Tool<R = never> {
    */
   readonly disclosure: ToolDisclosure;
   /**
+   * Whether calling this tool sends model-authored content off this machine, to a
+   * destination the model has a say in.
+   *
+   * A third axis, and it does not follow from the other two. {@link ToolRiskLevel} asks what
+   * a tool does *to* this machine, so a request that leaves it untouched is honestly
+   * `read-only` however far the request travels. {@link ToolDisclosure} asks what the
+   * *answer* reveals, and the answer to `web_fetch` is a stranger's web page, which reveals
+   * nothing about the operator. Both readings are correct, and together they say nothing
+   * about the request, which is where the operator's material would actually leave.
+   *
+   * The axis exists because of one caller: the door that serves another person's agent
+   * (`allowedToolsForPeer`). There, a tool marked here is never granted by a disclosure
+   * tier — it has to be named in that peer's `allow` — because otherwise a question from a
+   * stranger could pick both the bytes and the address they go to. Everywhere else this is
+   * inert: the terminal's approval tiers read `riskLevel` and are unaffected.
+   *
+   * Defaults to `false`, which is right for the overwhelming majority. What keeps a new
+   * networking tool from silently defaulting into a peer's reach is not this field but the
+   * pinned reachability test beside `allowedToolsForPeer`, which fails the moment the set of
+   * tools a tier grants changes at all.
+   */
+  readonly egress: boolean;
+  /**
    * Optional helper for approval-based tools pointing to the follow-up tool name
    * that should be made available once user confirmation is granted.
    */

@@ -36,6 +36,7 @@ export function createSkillTools(skillNames: readonly string[]): Tool<SkillServi
       }),
       hidden: false,
       riskLevel: "read-only",
+      egress: false,
       createSummary: undefined,
       execute: (args: Record<string, unknown>) =>
         Effect.gen(function* () {
@@ -81,6 +82,7 @@ export function createSkillTools(skillNames: readonly string[]): Tool<SkillServi
       }),
       hidden: false,
       riskLevel: "read-only",
+      egress: false,
       createSummary: undefined,
       execute: (args: Record<string, unknown>) =>
         Effect.gen(function* () {
@@ -115,6 +117,7 @@ export function createSkillTools(skillNames: readonly string[]): Tool<SkillServi
       }),
       hidden: false,
       riskLevel: "read-only",
+      egress: false,
       createSummary: undefined,
       execute: (args: Record<string, unknown>) =>
         Effect.gen(function* () {

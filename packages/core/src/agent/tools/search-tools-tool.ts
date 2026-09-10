@@ -52,6 +52,7 @@ export function createSearchToolsTool(): Tool<ToolRegistry> {
       "Do not use execute_command to replicate what a listed-but-unfetched tool already does; search for it here instead.",
     parameters: searchToolsParameters,
     riskLevel: "read-only",
+    egress: false,
     hidden: false,
     createSummary: (result) => {
       if (!result.success) return undefined;
