@@ -11,6 +11,7 @@
     { "path": "../adapters" },
     { "path": "../bot-shared" },
     { "path": "../imessage-bot" },
+    { "path": "../photon-bot" },
     { "path": "../whatsapp-bot" }
   ],
   "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.d.ts"],

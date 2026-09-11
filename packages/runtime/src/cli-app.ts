@@ -928,6 +928,27 @@ function runPlainAction(action: () => Promise<void> | void): Promise<void> {
  * A linked device rather than a container, so like iMessage it runs on the
  * machine in front of you and needs a way in from the installed binary.
  */
+/**
+ * Register `jazz photon` - the agent on its own iMessage line.
+ *
+ * The only bridge that does not borrow an account you already own, so it is the
+ * one that needs no Mac and no trigger word.
+ */
+function registerPhotonCommand(program: Command): void {
+  program
+    .command("photon")
+    .description("Chat with your agent on its own iMessage line (via Photon)")
+    .option(
+      "--agent <id-or-name>",
+      "Seed the bridge from one of your agents, copied into its own home",
+    )
+    .action((options: { agent?: string }) =>
+      runPlainAction(() =>
+        import("@jazz/cli/commands/photon").then((mod) => mod.photonCommand(options.agent)),
+      ),
+    );
+}
+
 function registerWhatsappCommand(program: Command): void {
   program
     .command("whatsapp")
@@ -1781,6 +1802,7 @@ export function createCLIApp(): Command {
   registerDaemonCommand(program);
   registerIMessageCommand(program);
   registerWhatsappCommand(program);
+  registerPhotonCommand(program);
   registerWakeTriggerCommand(program);
   registerJobCommand(program);
   registerReminderCommand(program);

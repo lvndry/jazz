@@ -82,6 +82,7 @@
     "react": "^19.2.8",
     "semver": "^7.8.5",
     "short-uuid": "^6.0.3",
+    "spectrum-ts": "^12.8.0",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.68.0",
     "tz-lookup": "^6.1.25",

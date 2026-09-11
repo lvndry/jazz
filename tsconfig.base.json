@@ -15,6 +15,7 @@
       "@/bot-shared/*": ["./packages/bot-shared/src/*"],
       "@/discord-bot/*": ["./packages/discord-bot/src/*"],
       "@/imessage-bot/*": ["./packages/imessage-bot/src/*"],
+      "@/photon-bot/*": ["./packages/photon-bot/src/*"],
       "@/telegram-bot/*": ["./packages/telegram-bot/src/*"],
       "@/whatsapp-bot/*": ["./packages/whatsapp-bot/src/*"]
     },

@@ -1,6 +1,7 @@
+import { renderForIMessage } from "@jazz/bot-shared/imessage-render";
 import { bold, code, line, plainLine, subtle, text } from "@jazz/bot-shared/surface";
 import { describe, expect, test } from "bun:test";
-import { createIMessageSurface, renderForIMessage } from "./surface";
+import { createIMessageSurface } from "./surface";
 
 describe("renderForIMessage", () => {
   test("drops marks it cannot show but keeps code spans readable as quotations", () => {
