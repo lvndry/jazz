@@ -19,7 +19,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { defaultJazzBinary } from "@jazz/bot-shared/jazz-binary";
-import { promptLine } from "@jazz/bot-shared/prompt";
+import { closePrompt, promptLine } from "@jazz/bot-shared/prompt";
 import { startReminderSweep } from "@jazz/bot-shared/reminder-sweep";
 import { ensureSeedAgent } from "@jazz/bot-shared/seed-agent";
 import { agentStoreDirectory, importSeedAgent } from "@jazz/bot-shared/seed-import";
@@ -280,6 +280,7 @@ async function handleIncoming(
 
 export async function startBridge(): Promise<void> {
   const config = await loadConfig(process.stdin.isTTY === true);
+  closePrompt();
 
   /**
    * Where inbound messages go once everything is wired.

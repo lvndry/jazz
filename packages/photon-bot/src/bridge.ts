@@ -18,7 +18,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { normalizeHandle, parseHandleList } from "@jazz/bot-shared/handles";
 import { defaultJazzBinary } from "@jazz/bot-shared/jazz-binary";
-import { promptLine } from "@jazz/bot-shared/prompt";
+import { closePrompt, promptLine } from "@jazz/bot-shared/prompt";
 import { startReminderSweep } from "@jazz/bot-shared/reminder-sweep";
 import { ensureSeedAgent } from "@jazz/bot-shared/seed-agent";
 import { agentStoreDirectory, importSeedAgent } from "@jazz/bot-shared/seed-import";
@@ -128,17 +128,77 @@ async function askForAllowList(jazzHome: string): Promise<string> {
   throw new Error("No allow-list given, so the bridge will not start.");
 }
 
-async function loadConfig(interactive: boolean): Promise<BridgeConfig> {
-  const projectId = process.env["PHOTON_PROJECT_ID"]?.trim() ?? "";
-  const projectSecret = process.env["PHOTON_PROJECT_SECRET"]?.trim() ?? "";
-  if (projectId.length === 0 || projectSecret.length === 0) {
-    throw new Error(
-      "PHOTON_PROJECT_ID and PHOTON_PROJECT_SECRET are required. Create a project at\n" +
-        "https://app.photon.codes and copy them from its Settings page.",
-    );
+/** Where answered credentials are kept, so they are asked for once. */
+export function credentialsPath(jazzHome: string): string {
+  return join(jazzHome, "photon-credentials.json");
+}
+
+export interface PhotonCredentials {
+  readonly projectId: string;
+  readonly projectSecret: string;
+}
+
+export function readSavedCredentials(jazzHome: string): PhotonCredentials | undefined {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(credentialsPath(jazzHome), "utf8"));
+    const { projectId, projectSecret } = parsed as Partial<PhotonCredentials>;
+    if (typeof projectId !== "string" || typeof projectSecret !== "string") return undefined;
+    if (projectId.length === 0 || projectSecret.length === 0) return undefined;
+    return { projectId, projectSecret };
+  } catch {
+    return undefined;
+  }
+}
+
+export function saveCredentials(jazzHome: string, credentials: PhotonCredentials): void {
+  mkdirSync(jazzHome, { recursive: true });
+  // 0600: the secret can send as your line, so it is no more readable than an
+  // API key in the Jazz config.
+  writeFileSync(credentialsPath(jazzHome), `${JSON.stringify(credentials, null, 2)}\n`, {
+    mode: 0o600,
+  });
+}
+
+/** Ask for the project credentials, once, and remember them. */
+async function askForCredentials(jazzHome: string): Promise<PhotonCredentials> {
+  console.error(
+    "\nThis bridge needs a Photon project.\n" +
+      "Create one at https://app.photon.codes and open its Settings page.\n",
+  );
+
+  const projectId = await promptLine("Project ID:");
+  const projectSecret = await promptLine("Project secret:");
+  if (projectId.trim().length === 0 || projectSecret.trim().length === 0) {
+    throw new Error("Both a project id and secret are needed, so the bridge will not start.");
   }
 
+  const credentials = { projectId: projectId.trim(), projectSecret: projectSecret.trim() };
+  saveCredentials(jazzHome, credentials);
+  console.error(`\nSaved to ${credentialsPath(jazzHome)}. Delete that file to change them.\n`);
+  return credentials;
+}
+
+async function loadConfig(interactive: boolean): Promise<BridgeConfig> {
   const jazzHome = process.env["JAZZ_HOME"]?.trim() || join(homedir(), ".jazz-photon");
+
+  // The environment wins, then whatever a previous run was told, then a person.
+  const fromEnv = {
+    projectId: process.env["PHOTON_PROJECT_ID"]?.trim() ?? "",
+    projectSecret: process.env["PHOTON_PROJECT_SECRET"]?.trim() ?? "",
+  };
+  let credentials: PhotonCredentials | undefined =
+    fromEnv.projectId.length > 0 && fromEnv.projectSecret.length > 0 ? fromEnv : undefined;
+  credentials ??= readSavedCredentials(jazzHome);
+  if (credentials === undefined) {
+    if (!interactive) {
+      throw new Error(
+        "PHOTON_PROJECT_ID and PHOTON_PROJECT_SECRET are unset, and there is no terminal to " +
+          "ask. Create a project at https://app.photon.codes, or run `jazz photon` once from " +
+          "a terminal to be asked for them.",
+      );
+    }
+    credentials = await askForCredentials(jazzHome);
+  }
 
   // The environment wins, then whatever a previous run was told, then a person.
   let allowed = parseHandleList(process.env["PHOTON_ALLOWED_HANDLES"]?.trim() ?? "");
@@ -156,8 +216,8 @@ async function loadConfig(interactive: boolean): Promise<BridgeConfig> {
   }
 
   return {
-    projectId,
-    projectSecret,
+    projectId: credentials.projectId,
+    projectSecret: credentials.projectSecret,
     allowedHandles: allowed,
     jazzBinary: process.env["JAZZ_BIN"]?.trim() || defaultJazzBinary(),
     jazzHome,
@@ -220,6 +280,7 @@ async function describeLines(config: BridgeConfig): Promise<string> {
 
 export async function startBridge(): Promise<void> {
   const config = await loadConfig(process.stdin.isTTY === true);
+  closePrompt();
 
   // `--agent` arrives as JAZZ_PHOTON_AGENT, so a restart keeps the same seed.
   if (config.baseAgentId !== DEFAULT_BASE_AGENT_ID) {

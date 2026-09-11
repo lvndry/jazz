@@ -36,10 +36,16 @@ different sending numbers. A dedicated number is a paid tier.
 ## Quick start
 
 ```bash
-PHOTON_PROJECT_ID=… PHOTON_PROJECT_SECRET=… jazz photon
+jazz photon
 ```
 
-On the first run it asks whose messages the agent should answer and remembers
+The first run asks for the project id and secret and saves them to
+`photon-credentials.json` (mode 0600) under its home, so it only asks once.
+`PHOTON_PROJECT_ID` and `PHOTON_PROJECT_SECRET` skip the question, which is what
+you want on a server, where the bridge refuses to start rather than ask a
+terminal that is not there.
+
+It then asks whose messages the agent should answer and remembers
 the answer in `photon-allowed.json` under its home. To answer as an agent you
 already have rather than a fresh assistant:
 
@@ -54,8 +60,8 @@ is the same thing.
 
 | Variable                     | Default                | What it does                                                                                   |
 | ---------------------------- | ---------------------- | ---------------------------------------------------------------------------------------------- |
-| `PHOTON_PROJECT_ID`          | _(required)_           | Project id from app.photon.codes.                                                              |
-| `PHOTON_PROJECT_SECRET`      | _(required)_           | Project secret. Anything holding it can send as your line.                                     |
+| `PHOTON_PROJECT_ID`          | _(asked on first run)_ | Project id from app.photon.codes.                                                              |
+| `PHOTON_PROJECT_SECRET`      | _(asked on first run)_ | Project secret. Anything holding it can send as your line; saved 0600.                         |
 | `PHOTON_ALLOWED_HANDLES`     | _(asked on first run)_ | Comma-separated handles allowed to write to the agent. Punctuation and case are normalised.    |
 | `JAZZ_HOME`                  | `~/.jazz-photon`       | Data directory: agents, conversations, reminders, usage.                                       |
 | `JAZZ_PHOTON_AGENT`          | `photon`               | Seed agent every per-chat agent is cloned from. `--agent` sets this and copies the agent in.   |

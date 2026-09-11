@@ -1,8 +1,16 @@
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { agentIdForSpace, allowListPath, readSavedAllowList, saveAllowList } from "./bridge";
+import {
+  agentIdForSpace,
+  allowListPath,
+  credentialsPath,
+  readSavedAllowList,
+  readSavedCredentials,
+  saveAllowList,
+  saveCredentials,
+} from "./bridge";
 
 describe("agentIdForSpace", () => {
   test("is filename-safe, since the id becomes an agent file", () => {
@@ -35,4 +43,25 @@ describe("the saved allow-list", () => {
 test("importing the bridge exposes an entry point without starting one", async () => {
   const bridge = await import("./bridge");
   expect(typeof bridge.startBridge).toBe("function");
+});
+
+describe("saved credentials", () => {
+  test("round-trip, and the file is not readable by anyone else", () => {
+    const home = mkdtempSync(join(tmpdir(), "jazz-photon-creds-"));
+    saveCredentials(home, { projectId: "abc", projectSecret: "shh" });
+
+    expect(readSavedCredentials(home)).toEqual({ projectId: "abc", projectSecret: "shh" });
+    // The secret can send as your line, so it is no more readable than an API key.
+    expect(statSync(credentialsPath(home)).mode & 0o077).toBe(0);
+  });
+
+  test("a half-written file is no credentials at all, not a broken login", () => {
+    const home = mkdtempSync(join(tmpdir(), "jazz-photon-half-"));
+    writeFileSync(credentialsPath(home), JSON.stringify({ projectId: "abc" }));
+    expect(readSavedCredentials(home)).toBeUndefined();
+  });
+
+  test("an unanswered home reads as none rather than throwing", () => {
+    expect(readSavedCredentials(mkdtempSync(join(tmpdir(), "jazz-photon-none-")))).toBeUndefined();
+  });
 });
