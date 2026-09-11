@@ -1,6 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { mountFullscreenApp, type FullscreenHandle } from "./attach";
-import { decideFullscreen, installTerminalLifecycle, type LifecycleRenderer } from "./mount";
+import {
+  decideFullscreen,
+  installTerminalLifecycle,
+  transcriptTextForForeignWrite,
+  type LifecycleRenderer,
+} from "./mount";
 
 const ENVIRONMENT = { TERM: "xterm-256color" };
 const OUTPUT = { isTTY: true, columns: 100, rows: 24 };
@@ -197,5 +202,25 @@ describe("installTerminalLifecycle", () => {
     expect(calls.suspend).toBe(0);
     expect(calls.resume).toBe(0);
     expect(kills).toEqual([]);
+  });
+});
+
+describe("transcriptTextForForeignWrite", () => {
+  test("routes anything that would paint cells into the transcript", () => {
+    expect(transcriptTextForForeignWrite("visit https://example.com\n")).toBe(
+      "visit https://example.com",
+    );
+    // Styled text still paints — the desync does not care that it is pretty.
+    expect(transcriptTextForForeignWrite("\u001b[32mdone\u001b[39m\n")).toBe(
+      "\u001b[32mdone\u001b[39m",
+    );
+  });
+
+  test("lets pure control sequences through untouched", () => {
+    // Setting the window title paints no cells, so intercepting it would only
+    // put `0;jazz` in the transcript and lose the title.
+    expect(transcriptTextForForeignWrite("\u001b]0;jazz\u0007")).toBeNull();
+    expect(transcriptTextForForeignWrite("\u001b[?2004h")).toBeNull();
+    expect(transcriptTextForForeignWrite("\n")).toBeNull();
   });
 });
