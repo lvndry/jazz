@@ -74,7 +74,7 @@ cannot be added without someone deciding.
 | ---------- | --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `public`   | safe to tell anyone                                             | `add_reminder`, `cp`, `mkdir`, `mv`, `rm`, `web_fetch`, `web_search`, `write_file`                                                                                                                                                                                                                                     |
 | `internal` | the shape of this machine — paths, names, what is installed     | `analyze_media`, `cancel_batch`, `cancel_trigger`, `cd`, `context_info`, `create_pdf`, `create_web_app`, `find`, `get_time`, `list_jobs`, `list_triggers`, `ls`, `pdf_page_count`, `pwd`, `register_trigger`, `search_tools`, `stat`                                                                                                                               |
-| `private`  | your own material — file contents, memory, schedule, transcript | `ask_file_picker`, `ask_user_question`, `cancel_reminder`, `edit_file`, `enqueue_batch`, `execute_command`, `grep`, `http_request`, `list_reminders`, `list_todos`, `manage_memory`, `manage_todos`, `manage_workspace`, `read_file`, `read_pdf`, `retrieve_tool_result`, `spawn_subagent`, `summarize_context`, `update_work_state`, `view_memory`, `view_workspace`, `wait_for` |
+| `private`  | your own material — file contents, memory, schedule, transcript | `ask_file_picker`, `ask_user_question`, `cancel_reminder`, `edit_file`, `enqueue_batch`, `execute_command`, `grep`, `http_request`, `list_reminders`, `list_todos`, `manage_memory`, `manage_todos`, `manage_scratchpad`, `read_file`, `read_pdf`, `retrieve_tool_result`, `spawn_subagent`, `summarize_context`, `update_work_state`, `view_memory`, `view_scratchpad`, `wait_for` |
 
 A tool spanning two levels takes the more sensitive one — `edit_file` writes, but its approval
 message carries a diff of your file, so it is `private`. `http_request` reaches private
@@ -200,8 +200,8 @@ dumps, and intermediate artifacts live, referenced from memory rather than dupli
 
 | Tool               | Risk        | Approval pair | What it does                                                                                       |
 | ------------------- | ----------- | ------------- | --------------------------------------------------------------------------------------------------- |
-| `view_workspace`   | `read-only` | —             | View your durable scratch space: working drafts, research dumps, and intermediate artifacts too…  |
-| `manage_workspace` | `low-risk`  | —             | Save durable working drafts, research dumps, or intermediate artifacts too large or provisional…  |
+| `view_scratchpad`   | `read-only` | —             | View your durable scratchpad: working drafts, research dumps, and intermediate artifacts too…  |
+| `manage_scratchpad` | `low-risk`  | —             | Save durable working drafts, research dumps, or intermediate artifacts too large or provisional…  |
 
 ### Reminders
 

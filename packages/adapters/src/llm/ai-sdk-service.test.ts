@@ -1219,7 +1219,7 @@ describe("buildToolInputSchema", () => {
   });
 
   it("flattens a top-level discriminated union, which Anthropic rejects both for a missing type and for the oneOf keyword itself", () => {
-    // Matches manage_memory/manage_workspace's shape: argument shape keyed by a
+    // Matches manage_memory/manage_scratchpad's shape: argument shape keyed by a
     // "command" field, which serializes to `oneOf` with no top-level `type` —
     // and Anthropic separately rejects `oneOf` at the top level regardless.
     const parameters = z.discriminatedUnion("command", [
