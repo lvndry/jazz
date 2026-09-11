@@ -68,10 +68,6 @@ fi
 # for those on its own — nothing here needs to force it.
 bun /app/packages/bot-shared/src/write-bridge-config.ts "${JAZZ_HOME}/config.json"
 
-# The template agent per-chat agents are cloned from is seeded by the bridge
-# itself (ensureSeedAgent), which writes it once instead of overwriting a
-# model or persona the operator has since changed.
-
 if [ "$(id -u)" -ne 0 ]; then
   echo "Running as uid $(id -u): one Jazz home, ${JAZZ_HOME} is 0700, and only that user can read it. Per-conversation sandboxes need root and are off." >&2
 elif [ "${JAZZ_BOT_CHAT_ISOLATION:-1}" = "0" ]; then
