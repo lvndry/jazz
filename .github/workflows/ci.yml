@@ -101,14 +101,8 @@ jobs:
       - name: Build
         run: bun run build:binary
 
-      # The build above proves the binary compiles; it does not prove it runs.
-      # A release once shipped a binary where every command that loaded the
-      # agent stack died during module instantiation, while `--version` and
-      # `--help` still worked — the build was green throughout.
-      #
-      # Asserts on output rather than exit status on purpose: that failure
-      # printed "Fatal error" and still exited 0, so a status check would have
-      # sailed past it.
+      # Building proves it compiles, not that it runs. Asserts on output, not
+      # exit status: the crash this exists for printed "Fatal error" and exited 0.
       - name: Smoke-test the compiled binary
         env:
           JAZZ_HOME: ${{ runner.temp }}/jazz-smoke-home

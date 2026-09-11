@@ -10,14 +10,9 @@ import { ensureNativeLibrariesForTarget } from "./opentui-natives";
  * only into macOS binaries; the others are platform-independent.
  */
 /**
- * Minimum Bun for the compile step.
- *
- * `bytecode: true` below needs ESM bytecode support, which landed in Bun 1.4;
- * 1.3 refuses it from deep inside the bundler with "format must be 'cjs' when
- * bytecode is true", which says nothing about what to do about it. Bun does
- * not enforce `engines.bun` itself — an impossible range installs cleanly —
- * so the requirement is checked here, where it actually applies. Everything
- * else in the repo (tests, the CLI from source) still runs on older Bun.
+ * `bytecode: true` below needs ESM bytecode, added in Bun 1.4. Checked here
+ * rather than via `engines.bun`, which Bun does not enforce — and only here,
+ * since tests and the CLI from source still run on older Bun.
  */
 const MINIMUM_BUN_VERSION = [1, 4] as const;
 
@@ -204,10 +199,6 @@ async function buildStandaloneBinary(compileTarget: string): Promise<string> {
     target: "bun",
     minify: true,
     splitting: true,
-    // ESM bytecode needs Bun >= 1.4 (1.3 rejected it: "format must be 'cjs'").
-    // CI installs `latest`, so this is a floor on contributors' local Bun, and
-    // the failure if it is older is an explicit build error rather than a
-    // silently slower binary.
     format: "esm",
     bytecode: true,
     plugins: createStandalonePlugins(generatedAssets),
