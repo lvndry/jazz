@@ -181,6 +181,7 @@ async function buildStandaloneBinary(compileTarget: string): Promise<string> {
     entrypoints: ["packages/runtime/src/entry.ts"],
     target: "bun",
     minify: true,
+    splitting: true,
     plugins: createStandalonePlugins(generatedAssets),
     compile: { target: compileTarget, outfile },
   });

@@ -39,7 +39,6 @@
     "@opentui/core": "^0.5.8",
     "@opentui/react": "^0.5.8",
     "@perplexity-ai/perplexity_ai": "^0.38.3",
-    "@tavily/core": "^0.7.8",
     "@types/bun": "^1.4.0",
     "@types/marked": "^6.0.0",
     "@types/marked-terminal": "^6.1.1",
