@@ -25,7 +25,6 @@ JAZZ_TELEGRAM_MODEL="${JAZZ_TELEGRAM_MODEL:-gpt-5.4}"
 # (gpt-5.4, qwen3, …) can use low|medium|high; models without it (mistral-small,
 # gemma, …) 400 unless this is "disable".
 JAZZ_REASONING="${JAZZ_REASONING:-medium}"
-AGENT_TEMPLATE="/app/packages/telegram-bot/src/agent.telegram.json"
 
 mkdir -p "${JAZZ_HOME}/agents"
 
@@ -81,12 +80,9 @@ chmod 700 "${GNUPGHOME:-/data/gnupg}"
 # events, and jazz selects the streaming path for those on its own.
 bun /app/packages/bot-shared/src/write-bridge-config.ts "${JAZZ_HOME}/config.json"
 
-# Seed / refresh the template agent that per-chat agents are cloned from.
-sed -e "s#__JAZZ_PROVIDER__#${JAZZ_TELEGRAM_PROVIDER}#g" \
-    -e "s#__JAZZ_MODEL__#${JAZZ_TELEGRAM_MODEL}#g" \
-    -e "s#__JAZZ_REASONING__#${JAZZ_REASONING}#g" \
-    "${AGENT_TEMPLATE}" > "${JAZZ_HOME}/agents/telegram.json"
-echo "Seeded agent 'telegram' (model=${JAZZ_TELEGRAM_PROVIDER}/${JAZZ_TELEGRAM_MODEL}, reasoning=${JAZZ_REASONING}) into ${JAZZ_HOME}/agents"
+# The template agent per-chat agents are cloned from is seeded by the bridge
+# itself (ensureSeedAgent), which writes it once instead of overwriting a
+# model or persona the operator has since changed.
 
 if [ "$(id -u)" -ne 0 ]; then
   echo "Running as uid $(id -u): one Jazz home, ${JAZZ_HOME} is 0700, and only that user can read it. Per-chat sandboxes need root and are off." >&2

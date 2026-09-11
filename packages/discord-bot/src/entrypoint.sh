@@ -5,7 +5,6 @@ JAZZ_HOME="${JAZZ_HOME:-/data}"
 JAZZ_DISCORD_PROVIDER="${JAZZ_DISCORD_PROVIDER:-openai}"
 JAZZ_DISCORD_MODEL="${JAZZ_DISCORD_MODEL:-gpt-5.4}"
 JAZZ_REASONING="${JAZZ_REASONING:-medium}"
-AGENT_TEMPLATE="/app/packages/discord-bot/src/agent.discord.json"
 
 # Two ways to run this, and they protect against different people.
 #
@@ -69,11 +68,9 @@ fi
 # for those on its own — nothing here needs to force it.
 bun /app/packages/bot-shared/src/write-bridge-config.ts "${JAZZ_HOME}/config.json"
 
-sed -e "s#__JAZZ_PROVIDER__#${JAZZ_DISCORD_PROVIDER}#g" \
-    -e "s#__JAZZ_MODEL__#${JAZZ_DISCORD_MODEL}#g" \
-    -e "s#__JAZZ_REASONING__#${JAZZ_REASONING}#g" \
-    "${AGENT_TEMPLATE}" > "${JAZZ_HOME}/agents/discord.json"
-echo "Seeded agent 'discord' (model=${JAZZ_DISCORD_PROVIDER}/${JAZZ_DISCORD_MODEL}, reasoning=${JAZZ_REASONING}) into ${JAZZ_HOME}/agents"
+# The template agent per-chat agents are cloned from is seeded by the bridge
+# itself (ensureSeedAgent), which writes it once instead of overwriting a
+# model or persona the operator has since changed.
 
 if [ "$(id -u)" -ne 0 ]; then
   echo "Running as uid $(id -u): one Jazz home, ${JAZZ_HOME} is 0700, and only that user can read it. Per-conversation sandboxes need root and are off." >&2
