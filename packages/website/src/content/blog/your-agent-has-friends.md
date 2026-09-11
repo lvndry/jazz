@@ -22,7 +22,7 @@ subjects under 18. Theirs asks; yours answers. To do it, your agent only needed 
 check a provenance file it was allowed to read, not hand over the whole corpus.
 
 Neither lab merged datasets. Nobody got read access to the other's drive. The
-partner's agent got an *answer*, not *access*. That's the whole shift: instead of
+partner's agent got an _answer_, not _access_. That's the whole shift: instead of
 wiring two systems together so they can read each other, you let two agents exchange
 one bounded reply.
 
