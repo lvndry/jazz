@@ -43,6 +43,7 @@ import { listPersonaNames } from "@jazz/bot-shared/personas";
 import { listModelsForProvider } from "@jazz/bot-shared/provider-models";
 import { reasoningSnippet, splitReasoning } from "@jazz/bot-shared/reasoning";
 import { createRunLog, type RunLog } from "@jazz/bot-shared/run-log";
+import { ensureSeedAgent } from "@jazz/bot-shared/seed-agent";
 import {
   conversationKey,
   isIncognito,
@@ -167,6 +168,9 @@ interface BridgeConfig {
   readonly webhookUrl: string | undefined;
   readonly allowedChatIds: ReadonlySet<number>;
   readonly baseAgentId: string;
+  readonly provider: string;
+  readonly model: string;
+  readonly reasoningEffort: string;
   readonly approvalPolicy: string;
   /** Tool names to auto-approve without prompting, regardless of approvalPolicy. */
   readonly autoApproveTools: readonly string[];
@@ -272,6 +276,9 @@ function loadConfig(): BridgeConfig {
     webhookUrl,
     allowedChatIds,
     baseAgentId: process.env["JAZZ_TELEGRAM_AGENT"]?.trim() || "telegram",
+    provider: process.env["JAZZ_TELEGRAM_PROVIDER"]?.trim() || "openai",
+    model: process.env["JAZZ_TELEGRAM_MODEL"]?.trim() || "gpt-5.4",
+    reasoningEffort: process.env["JAZZ_REASONING"]?.trim() || "medium",
     approvalPolicy: process.env["JAZZ_APPROVAL_POLICY"]?.trim() || "low-risk",
     autoApproveTools: (process.env["JAZZ_AUTO_APPROVE_TOOLS"]?.trim() || "")
       .split(",")
@@ -2362,6 +2369,25 @@ async function start(): Promise<void> {
   // outside the operator group — the data directory is shared with whoever
   // else is on the host.
   process.umask(SANDBOX_UMASK);
+
+  // Seeded here rather than by the entrypoint, which used to sed a JSON
+  // template into place on every restart - overwriting a model or persona the
+  // operator had changed. This writes it once and then leaves it alone.
+  if (
+    ensureSeedAgent(config.jazzHome, {
+      id: config.baseAgentId,
+      name: "Jazz",
+      description: "Everyday assistant reachable from Telegram.",
+      provider: config.provider,
+      model: config.model,
+      reasoningEffort: config.reasoningEffort,
+    })
+  ) {
+    console.log(
+      `Seeded agent '${config.baseAgentId}' (${config.provider}/${config.model}, ` +
+        `reasoning=${config.reasoningEffort}) into ${config.jazzHome}/agents`,
+    );
+  }
   // Drop the cached CTA agent so it re-seeds from the current template (picks
   // up a changed default model on redeploy); ensureSuggestAgent recreates it.
   for (const home of [

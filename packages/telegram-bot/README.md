@@ -386,7 +386,8 @@ commit. Check `~/jazz-autoupdate.log` for the run history.
   default `low-risk`, higher-risk actions (shell, delete, push, …) are
   auto-declined; raise it to `high-risk` only if you understand that a prompt
   (or prompt injection) could then run arbitrary commands on the host. Trim the
-  toolset in `agent.telegram.json` if you want a smaller blast radius.
+  toolset in `${JAZZ_HOME}/agents/telegram.json` if you want a smaller blast
+  radius - the bridge writes it once and never overwrites it.
 
 ## Per-chat isolation
 

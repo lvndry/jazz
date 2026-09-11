@@ -35,6 +35,7 @@ import { listPersonaNames } from "@jazz/bot-shared/personas";
 import { listModelsForProvider } from "@jazz/bot-shared/provider-models";
 import { reasoningSnippet, splitReasoning } from "@jazz/bot-shared/reasoning";
 import { createRunLog, type RunLog } from "@jazz/bot-shared/run-log";
+import { ensureSeedAgent } from "@jazz/bot-shared/seed-agent";
 import {
   conversationKey,
   isIncognito,
@@ -171,6 +172,9 @@ interface BridgeConfig extends AccessConfig {
   readonly botToken: string;
   readonly createThreads: boolean;
   readonly baseAgentId: string;
+  readonly provider: string;
+  readonly model: string;
+  readonly reasoningEffort: string;
   readonly approvalPolicy: string;
   readonly autoApproveTools: readonly string[];
   readonly runTimeoutMs: number;
@@ -265,6 +269,9 @@ function loadConfig(): BridgeConfig {
     requireMention: envFlag("DISCORD_REQUIRE_MENTION", true),
     createThreads: envFlag("DISCORD_CREATE_THREADS", true),
     baseAgentId: process.env["JAZZ_DISCORD_AGENT"]?.trim() || "discord",
+    provider: process.env["JAZZ_DISCORD_PROVIDER"]?.trim() || "openai",
+    model: process.env["JAZZ_DISCORD_MODEL"]?.trim() || "gpt-5.4",
+    reasoningEffort: process.env["JAZZ_REASONING"]?.trim() || "medium",
     approvalPolicy: process.env["JAZZ_APPROVAL_POLICY"]?.trim() || "low-risk",
     autoApproveTools: (process.env["JAZZ_AUTO_APPROVE_TOOLS"]?.trim() || "")
       .split(",")
@@ -1986,6 +1993,25 @@ function start(): void {
   // outside the operator group — the data directory is shared with whoever
   // else is on the host.
   process.umask(SANDBOX_UMASK);
+
+  // Seeded here rather than by the entrypoint, which used to sed a JSON
+  // template into place on every restart - overwriting a model or persona the
+  // operator had changed. This writes it once and then leaves it alone.
+  if (
+    ensureSeedAgent(config.jazzHome, {
+      id: config.baseAgentId,
+      name: "Jazz",
+      description: "Everyday assistant reachable from Discord.",
+      provider: config.provider,
+      model: config.model,
+      reasoningEffort: config.reasoningEffort,
+    })
+  ) {
+    console.log(
+      `Seeded agent '${config.baseAgentId}' (${config.provider}/${config.model}, ` +
+        `reasoning=${config.reasoningEffort}) into ${config.jazzHome}/agents`,
+    );
+  }
   for (const home of [
     config.jazzHome,
     ...listChatSandboxes(config.jazzHome).map((sandbox) => sandbox.home),

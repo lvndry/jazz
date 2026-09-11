@@ -291,7 +291,8 @@ Set `JAZZ_DEPLOY_BRANCH` to track something other than `main`.
   default `low-risk`, higher-risk actions (shell, delete, push, …) are
   auto-declined; raise it to `high-risk` only if you understand that a prompt
   (or prompt injection) could then run arbitrary commands on the host. Trim the
-  toolset in `agent.discord.json` if you want a smaller blast radius. Anyone on
+  toolset in `${JAZZ_HOME}/agents/discord.json` if you want a smaller blast
+  radius - the bridge writes it once and never overwrites it. Anyone on
   the allowlist can also put their own conversation on `/mode mode:yolo`, which
   is `high-risk` for that conversation and survives `/new` and restarts until
   someone sends `/mode mode:safe`.
