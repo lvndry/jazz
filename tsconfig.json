@@ -8,7 +8,9 @@
     { "path": "./packages/runtime" },
     { "path": "./packages/bot-shared" },
     { "path": "./packages/discord-bot" },
+    { "path": "./packages/imessage-bot" },
     { "path": "./packages/telegram-bot" },
+    { "path": "./packages/whatsapp-bot" },
     { "path": "./tsconfig.build.json" }
   ]
 }

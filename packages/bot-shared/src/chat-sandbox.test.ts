@@ -78,6 +78,21 @@ describe("without isolation nothing moves", () => {
       expect(sandboxEnv(sandbox, { JAZZ_HOME: "/data" })).toEqual({ JAZZ_HOME: "/data" });
     });
   });
+
+  test("still names the data directory, which a native bridge has not exported", () => {
+    // The containerised bridges always had JAZZ_HOME in the environment, so an
+    // unisolated run inheriting it worked by accident. A bridge running as an
+    // ordinary process on someone's Mac inherits *their* environment, where it
+    // is unset, and the run then looks for the chat's agent in their own Jazz
+    // home instead of the bridge's.
+    withIsolationFlag("0", () => {
+      const sandbox = ensureChatSandbox("/Users/me/.jazz-imessage", "im_7");
+      expect(sandboxEnv(sandbox, { PATH: "/usr/bin" })).toEqual({
+        PATH: "/usr/bin",
+        JAZZ_HOME: "/Users/me/.jazz-imessage",
+      });
+    });
+  });
 });
 
 describe("a sandboxed run", () => {

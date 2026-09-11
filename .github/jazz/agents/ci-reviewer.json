@@ -1,7 +1,7 @@
 {
   "id": "ci-reviewer",
   "name": "ci-reviewer",
-  "description": "Adversarial CI review board lead — spawns specialist sub-agents and cross-examines their findings",
+  "description": "Adversarial CI review board lead: spawns specialist sub-agents and cross-examines their findings",
   "config": {
     "persona": "coder",
     "llmProvider": "openai",

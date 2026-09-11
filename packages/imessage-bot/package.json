@@ -1,0 +1,18 @@
+{
+  "name": "@jazz/imessage-bot",
+  "version": "0.15.6",
+  "private": true,
+  "description": "iMessage bridge for Jazz agents (macOS, via the imsg CLI).",
+  "type": "module",
+  "exports": {
+    "./*": [
+      "./src/*.ts",
+      "./src/*/index.ts"
+    ]
+  },
+  "dependencies": {
+    "@jazz/adapters": "workspace:*",
+    "@jazz/bot-shared": "workspace:*",
+    "@jazz/core": "workspace:*"
+  }
+}

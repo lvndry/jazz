@@ -6,7 +6,13 @@
     "outDir": "./dist",
     "tsBuildInfoFile": "./.tsbuildinfo"
   },
-  "references": [{ "path": "../core" }, { "path": "../adapters" }],
+  "references": [
+    { "path": "../core" },
+    { "path": "../adapters" },
+    { "path": "../bot-shared" },
+    { "path": "../imessage-bot" },
+    { "path": "../whatsapp-bot" }
+  ],
   "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.d.ts"],
   "exclude": ["node_modules", "dist", "**/*.test.ts", "**/*.test.tsx"]
 }

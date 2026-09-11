@@ -894,6 +894,98 @@ function registerUpdateCommand(program: Command): void {
  * plaintext (the token) and the part worth reading back (the ledger).
  */
 /**
+ * Run a command that needs none of the Effect services.
+ *
+ * `runCliAction` builds the service layer, which the iMessage bridge has no use
+ * for: it spawns `jazz run` as a subprocess, so the agent's services are built
+ * inside that process rather than this one. Failures print their message alone
+ * — these are setup problems for a person to act on, not stack traces.
+ */
+function runPlainAction(action: () => Promise<void> | void): Promise<void> {
+  return Promise.resolve()
+    .then(action)
+    .catch((error: unknown) => {
+      console.error(error instanceof Error ? error.message : String(error));
+      process.exitCode = 1;
+    });
+}
+
+/**
+ * Register `jazz imessage` — reach the agent from Messages on a Mac.
+ *
+ * A top-level noun rather than something under a `bridge` group, matching the
+ * other surfaces this binary will grow: what a person wants is "iMessage", not
+ * a category to navigate first.
+ *
+ * The bare command starts the bridge in the foreground and, on a first run,
+ * walks through what it needs. The subcommands exist because it offers to keep
+ * running in the background, and a service you cannot stop or read the logs of
+ * is worse than no service.
+ */
+/**
+ * Register `jazz whatsapp` — reach the agent from WhatsApp.
+ *
+ * A linked device rather than a container, so like iMessage it runs on the
+ * machine in front of you and needs a way in from the installed binary.
+ */
+function registerWhatsappCommand(program: Command): void {
+  program
+    .command("whatsapp")
+    .description("Chat with your agent from WhatsApp")
+    .option(
+      "--agent <id-or-name>",
+      "Seed the bridge from one of your agents, copied into its own home",
+    )
+    .action((options: { agent?: string }) =>
+      runPlainAction(() =>
+        import("@jazz/cli/commands/whatsapp").then((mod) => mod.whatsappCommand(options.agent)),
+      ),
+    );
+}
+
+function registerIMessageCommand(program: Command): void {
+  const imessageCommand = program
+    .command("imessage")
+    .description("Chat with your agent from Messages (macOS)")
+    .option(
+      "--agent <id-or-name>",
+      "Seed the bridge from one of your agents, copied into its own home",
+    )
+    .action((options: { agent?: string }) =>
+      runPlainAction(() =>
+        import("@jazz/cli/commands/imessage").then((mod) => mod.imessageCommand(options.agent)),
+      ),
+    );
+
+  imessageCommand
+    .command("stop")
+    .description("Stop the background bridge")
+    .action(() =>
+      runPlainAction(() =>
+        import("@jazz/cli/commands/imessage").then((mod) => mod.imessageStopCommand()),
+      ),
+    );
+
+  imessageCommand
+    .command("status")
+    .description("Whether the background bridge is installed and running")
+    .action(() =>
+      runPlainAction(() =>
+        import("@jazz/cli/commands/imessage").then((mod) => mod.imessageStatusCommand()),
+      ),
+    );
+
+  imessageCommand
+    .command("logs")
+    .description("Follow the bridge log")
+    .action(() =>
+      runPlainAction(() =>
+        import("@jazz/cli/commands/imessage").then((mod) => mod.imessageLogsCommand()),
+      ),
+    );
+}
+
+/**
  * Register `jazz daemon` — the long-lived HTTP server.
  *
  * Background by default (pidfile under `$JAZZ_HOME`); `--foreground` for supervisors.
@@ -1687,6 +1779,8 @@ export function createCLIApp(): Command {
   registerMCPCommands(program);
   registerUpdateCommand(program);
   registerDaemonCommand(program);
+  registerIMessageCommand(program);
+  registerWhatsappCommand(program);
   registerWakeTriggerCommand(program);
   registerJobCommand(program);
   registerReminderCommand(program);

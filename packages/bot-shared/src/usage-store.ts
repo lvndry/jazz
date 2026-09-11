@@ -62,3 +62,16 @@ export function recordUsage(
   }
   writeRecordStore(path, usage);
 }
+
+/**
+ * What to tell someone whose message the cap just blocked.
+ *
+ * The wording is a product promise about money, and it was written out
+ * verbatim in each bridge — so it lives with the rule that produces it rather
+ * than being re-typed per surface, where the two would drift.
+ */
+export function capBlockMessage(reason: "unpriced" | "reached", capUSD: number): string {
+  return reason === "unpriced"
+    ? "⚠️ Daily cost cap paused: pricing was unavailable for an earlier run today, so spend cannot be verified. Try again tomorrow, disable the cap, or select a priced model."
+    : `⚠️ Daily cost cap ($${capUSD.toFixed(2)}) reached. Try again tomorrow, or raise JAZZ_DAILY_COST_CAP_USD.`;
+}

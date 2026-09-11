@@ -43,7 +43,7 @@ const APPROVAL: ApprovalOverlay = {
   kind: "approval",
   app: "Gmail",
   action: "Send email",
-  account: "landry@example.com",
+  account: "otto@example.com",
   fields: [
     { label: "To", value: "alice@example.com" },
     { label: "Cc", value: "bob@example.com" },

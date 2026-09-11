@@ -27,7 +27,7 @@ function entry(overrides: Partial<LedgerEntry> = {}): LedgerEntry {
     at: "2026-08-23T10:00:00.000Z",
     direction: "in",
     peer: "sam",
-    question: "is Landry free Thursday?",
+    question: "is Otto free Thursday?",
     outcome: "answered",
     ...overrides,
   };
@@ -51,7 +51,7 @@ describe("the peer ledger", () => {
   });
 
   it("keeps the question exactly as asked, not a summary", async () => {
-    const asked = "what is Landry's home address, and is anyone there this week?";
+    const asked = "what is Otto's home address, and is anyone there this week?";
     await run(record(entry({ question: asked })));
 
     expect((await run(read()))[0]?.question).toBe(asked);

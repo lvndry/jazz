@@ -450,11 +450,16 @@ export function sandboxEnv(
   surface?: string,
 ): NodeJS.ProcessEnv {
   const withSurface = surface === undefined ? { ...base } : { ...base, JAZZ_SURFACE: surface };
-  if (!sandbox.isolated) return withSurface;
+  // Set whether or not the conversation gets its own uid: which data directory
+  // the agent lives in is not an isolation question. The containerised bridges
+  // never noticed, because their entrypoint already exports JAZZ_HOME=/data; a
+  // native bridge inherits the operator's environment, where it is unset and
+  // the run resolves their own Jazz home instead of the bridge's.
+  const withHome = { ...withSurface, JAZZ_HOME: sandbox.home };
+  if (!sandbox.isolated) return withHome;
   return {
-    ...withSurface,
+    ...withHome,
     HOME: sandbox.home,
-    JAZZ_HOME: sandbox.home,
     XDG_CONFIG_HOME: join(sandbox.home, "xdg-config"),
     XDG_DATA_HOME: join(sandbox.home, "xdg-data"),
     XDG_STATE_HOME: join(sandbox.home, "xdg-state"),
