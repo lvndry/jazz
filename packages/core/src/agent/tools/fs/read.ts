@@ -255,14 +255,14 @@ export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
         .min(0)
         .optional()
         .describe(
-          "Read only what was appended past this byte offset, for following a file that is still being written. Pass the nextByte from your previous read. Omit it entirely for an ordinary read — it cannot be combined with startLine or endLine.",
+          "Returns only what was appended past this byte offset, for following a file still being written. Pass the previous read's nextByte. Omit for ordinary reads; not combinable with startLine/endLine.",
         ),
       sinceInode: z
         .number()
         .int()
         .optional()
         .describe(
-          "The inode from your previous read, passed back so a rotated file is detected rather than read as if the offset still meant something. Only meaningful alongside sinceByte; omit it for an ordinary read.",
+          "The previous read's inode, so a rotated file is detected instead of read as an append. Only with sinceByte; omit otherwise.",
         ),
     })
     .strict()
