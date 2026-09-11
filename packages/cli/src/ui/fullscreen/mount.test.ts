@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { mountFullscreenApp, type FullscreenHandle } from "./attach";
-import { decideFullscreen } from "./mount";
+import { decideFullscreen, installTerminalLifecycle, type LifecycleRenderer } from "./mount";
 
 const ENVIRONMENT = { TERM: "xterm-256color" };
 const OUTPUT = { isTTY: true, columns: 100, rows: 24 };
@@ -69,5 +69,86 @@ describe("mountFullscreenApp", () => {
     rejectMount?.(new Error("late failure"));
     await Promise.resolve();
     expect(fallbackCalled).toBe(false);
+  });
+});
+
+describe("installTerminalLifecycle", () => {
+  function stubRuntime() {
+    const listeners = new Map<string, () => void>();
+    return {
+      listeners,
+      runtime: {
+        pid: 1,
+        on: (event: string, listener: () => void) => listeners.set(event, listener),
+        off: (event: string, listener: () => void) => {
+          if (listeners.get(event) === listener) listeners.delete(event);
+        },
+        kill: () => true,
+      },
+    };
+  }
+
+  function stubRenderer() {
+    const calls = { destroy: 0, suspend: 0, resume: 0 };
+    return {
+      calls,
+      renderer: {
+        get isDestroyed() {
+          return calls.destroy > 0;
+        },
+        destroy: () => {
+          calls.destroy += 1;
+        },
+        suspend: () => {
+          calls.suspend += 1;
+        },
+        resume: () => {
+          calls.resume += 1;
+        },
+        requestRender: () => {},
+        resetTerminalBgColor: () => {},
+      } as unknown as LifecycleRenderer,
+    };
+  }
+
+  test("restores the terminal when the process exits without a signal", () => {
+    const { listeners, runtime } = stubRuntime();
+    const { calls, renderer } = stubRenderer();
+
+    installTerminalLifecycle(renderer, runtime);
+    listeners.get("exit")?.();
+
+    // Without this the wizard's `process.exit(0)` would leave mouse reporting
+    // on, and the shell would print every mouse move as `35;97;18M`.
+    expect(calls.destroy).toBe(1);
+  });
+
+  test("releases once, and stops listening afterwards", () => {
+    const { listeners, runtime } = stubRuntime();
+    const { calls, renderer } = stubRenderer();
+
+    const release = installTerminalLifecycle(renderer, runtime);
+    const onExit = listeners.get("exit");
+    release();
+    release();
+    onExit?.();
+
+    expect(calls.destroy).toBe(1);
+    expect(listeners.size).toBe(0);
+  });
+
+  test("ignores job-control signals once released", () => {
+    const { listeners, runtime } = stubRuntime();
+    const { calls, renderer } = stubRenderer();
+
+    const release = installTerminalLifecycle(renderer, runtime);
+    const onSuspend = listeners.get("SIGTSTP");
+    const onContinue = listeners.get("SIGCONT");
+    release();
+    onSuspend?.();
+    onContinue?.();
+
+    expect(calls.suspend).toBe(0);
+    expect(calls.resume).toBe(0);
   });
 });

@@ -8,8 +8,9 @@
  * `unhandledRejection`, and `createCliRenderer` wraps terminal setup in a
  * try/catch that destroys the renderer if setup throws partway. So this module
  * deliberately does not reimplement any of it; it configures it, and adds the
- * two things OpenTUI leaves to the caller: job control, and the decision about
- * whether to take over the screen at all.
+ * three things OpenTUI leaves to the caller: job control, restoring the terminal
+ * when the process exits without a signal, and the decision about whether to
+ * take over the screen at all.
  */
 
 import { createCliRenderer, type CliRenderer } from "@opentui/core";
@@ -114,6 +115,76 @@ export interface MountedRenderer {
  */
 const MAX_FPS = 12;
 
+/** The renderer surface the lifecycle drives, narrowed so tests can pass a stand-in. */
+export type LifecycleRenderer = Pick<
+  CliRenderer,
+  "destroy" | "suspend" | "resume" | "requestRender" | "resetTerminalBgColor" | "isDestroyed"
+>;
+
+/** The slice of `process` the lifecycle listens on, for the same reason. */
+export interface LifecycleProcess {
+  readonly pid: number;
+  on(event: string, listener: () => void): unknown;
+  off(event: string, listener: () => void): unknown;
+  kill(pid: number, signal: string): unknown;
+}
+
+/**
+ * Wires the renderer to the process events OpenTUI does not own, and returns the
+ * idempotent release.
+ *
+ * Two of those events matter. Job control is the one OpenTUI documents as the
+ * caller's: on suspend the terminal must be handed back before the process
+ * stops, or the shell resumes into a broken screen; on continue we re-enter and
+ * repaint.
+ *
+ * `exit` is the one it silently leaves open. OpenTUI installs handlers for the
+ * configured exit signals and for uncaught errors, but never for `process.exit`
+ * — so a plain exit tears the process down with mouse reporting and the
+ * alternate screen still on, and the shell that gets the terminal back prints
+ * every mouse move as a stray `35;97;18M`. jazz reaches exactly that path on a
+ * normal quit, where the wizard ends on `process.exit(0)` and Effect's
+ * finalizers (which is where the terminal cleanup lives) never run.
+ *
+ * Exit listeners may only do synchronous work; `destroy()` is synchronous.
+ */
+export function installTerminalLifecycle(
+  renderer: LifecycleRenderer,
+  runtime: LifecycleProcess = process,
+): () => void {
+  let released = false;
+
+  const onSuspend = (): void => {
+    if (released) return;
+    renderer.resetTerminalBgColor();
+    renderer.suspend();
+    runtime.kill(runtime.pid, "SIGSTOP");
+  };
+  const onContinue = (): void => {
+    if (released) return;
+    renderer.resume();
+    renderer.requestRender();
+  };
+  const onExit = (): void => {
+    release();
+  };
+
+  function release(): void {
+    if (released) return;
+    released = true;
+    runtime.off("SIGTSTP", onSuspend);
+    runtime.off("SIGCONT", onContinue);
+    runtime.off("exit", onExit);
+    if (!renderer.isDestroyed) renderer.destroy();
+  }
+
+  runtime.on("SIGTSTP", onSuspend);
+  runtime.on("SIGCONT", onContinue);
+  runtime.on("exit", onExit);
+
+  return release;
+}
+
 export async function mountFullscreen(): Promise<MountedRenderer> {
   const renderer = await createCliRenderer({
     screenMode: "alternate-screen",
@@ -133,33 +204,7 @@ export async function mountFullscreen(): Promise<MountedRenderer> {
     clearOnShutdown: false,
   });
 
-  let released = false;
-
-  // Job control is the one part of the lifecycle OpenTUI leaves to the caller.
-  // On suspend the terminal must be handed back before the process stops, or the
-  // shell resumes into a broken screen; on continue we re-enter and repaint.
-  const onSuspend = (): void => {
-    if (released) return;
-    renderer.resetTerminalBgColor();
-    renderer.suspend();
-    process.kill(process.pid, "SIGSTOP");
-  };
-  const onContinue = (): void => {
-    if (released) return;
-    renderer.resume();
-    renderer.requestRender();
-  };
-
-  process.on("SIGTSTP", onSuspend);
-  process.on("SIGCONT", onContinue);
-
-  const release = (): void => {
-    if (released) return;
-    released = true;
-    process.off("SIGTSTP", onSuspend);
-    process.off("SIGCONT", onContinue);
-    if (!renderer.isDestroyed) renderer.destroy();
-  };
+  const release = installTerminalLifecycle(renderer);
 
   renderer.start();
   return { renderer, release };
