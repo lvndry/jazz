@@ -93,6 +93,7 @@
   },
   "description": "One agent. Every surface. Your rules.",
   "engines": {
+    "bun": ">=1.4.0",
     "node": ">=22.16.0",
     "npm": ">=10.0.0"
   },
