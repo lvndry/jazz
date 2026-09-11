@@ -7,7 +7,7 @@ date: 2026-08-31
 Most agents that can write files do it by letting the model emit a tool call and
 then running it. The safety story is "we'll ask you before the dangerous ones."
 That story has a hole you only notice after the fact: to show you a useful preview
-of what a write *will* do, something has to read the target file and compute the
+of what a write _will_ do, something has to read the target file and compute the
 diff. If the tool that shows you the preview is the same tool that performs the
 write, then "preview" and "do it" are the same action with a question mark in
 front of it.
@@ -24,12 +24,12 @@ Every gated built-in registers as a pair. From `register-tools.ts`:
 
 ```ts
 const writeTools = fs.write();
-yield* registerTool(writeTools.approval);   // "write_file"  - visible to the model
-yield* registerTool(writeTools.execute);    // "write_file_execute" - hidden
+yield * registerTool(writeTools.approval); // "write_file"  - visible to the model
+yield * registerTool(writeTools.execute); // "write_file_execute" - hidden
 
 const editTools = fs.edit();
-yield* registerTool(editTools.approval);
-yield* registerTool(editTools.execute);
+yield * registerTool(editTools.approval);
+yield * registerTool(editTools.execute);
 // ... mkdir, rm, mv, cp, and execute_command too
 ```
 
@@ -47,7 +47,7 @@ computed the diff is not the thing that applies it.
 
 ## One lifecycle, two gates
 
-Here is a single tool call from emit to result. The only branch is *who* answers
+Here is a single tool call from emit to result. The only branch is _who_ answers
 the gate: a human at a terminal, or a policy set in advance. The path is otherwise
 identical.
 
@@ -188,7 +188,7 @@ stays `high-risk` regardless of context.
 ## Why this is the moat, not a checkbox
 
 The property that makes the whole thing worth building: interactive and unattended
-runs go down the *same* path. The only difference is who answers the gate. There is
+runs go down the _same_ path. The only difference is who answers the gate. There is
 no separate headless mode that can drift out of sync with the interactive one, no
 second code path where a write "just happens" because nobody was there to ask. The
 agent you trust to run while you sleep is the same agent, gated the same way, that

@@ -25,10 +25,10 @@ import {
 import {
   detectInitSystem,
   generateDaemonToken,
-  type InstalledService,
   installService,
   serviceAlreadyInstalled,
   uninstallService,
+  type InstalledService,
 } from "@jazz/adapters/daemon/service-install";
 import {
   explainDaemonTokenProvisionFailure,
@@ -53,14 +53,14 @@ import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
 import { OneShotPresentationServiceLayer } from "@jazz/core/presentation/oneshot-presentation-service";
 import type { AppConfig } from "@jazz/core/types/config";
 import { getJazzSchedulerInvocation } from "@jazz/core/utils/runtime";
+import { SchedulerServiceTag } from "@jazz/core/workflows/scheduler-service";
+import { Effect, Runtime } from "effect";
 import {
   clearDaemonPid,
   stopDaemonProcess,
   waitForDaemonHealth,
   writeDaemonPid,
 } from "../helpers/daemon-process";
-import { SchedulerServiceTag } from "@jazz/core/workflows/scheduler-service";
-import { Effect, Runtime } from "effect";
 
 /**
  * Tick interval, and so the resolution of every duration an agent may ask for — a minute-long tick
