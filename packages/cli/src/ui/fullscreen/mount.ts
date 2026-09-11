@@ -292,6 +292,50 @@ export function guardOutput(
   };
 }
 
+/** The renderer surface the repaint hook drives, narrowed so tests can pass a stand-in. */
+export interface RepaintableRenderer {
+  on(event: "resize", listener: () => void): unknown;
+  off(event: "resize", listener: () => void): unknown;
+  requestRender(): void;
+}
+
+/**
+ * Repaint everything after the terminal changes size.
+ *
+ * `processResize` reallocates the buffers but, outside `split-footer` mode,
+ * never clears them and never asks for a full repaint — so the next frame is
+ * diffed against cells whose relationship to the physical screen the resize has
+ * just broken. Terminals reflow or truncate their own grid, OpenTUI crops its
+ * buffer, and wherever the two disagree the diff skips the cell and the old
+ * glyph stays: the same desync a foreign write causes, arriving through another
+ * door. It needs nobody to drag a window — a display change while the machine
+ * sleeps (the lid, an external monitor, a window restored at another size) is a
+ * resize the user never typed, which is why this shows up as "it was fine when
+ * I left it".
+ *
+ * `forceFullRepaintRequested` is the flag OpenTUI sets for itself on resume and
+ * on a capability response, and it is private — so this checks for it and does
+ * nothing if a later version renames it. A missing repaint is the bug that is
+ * already there, not a new one.
+ *
+ * ponytail: reaching into a private field, because the public API has no
+ * "repaint everything". Drop this the day OpenTUI exposes one, or resizes with
+ * the same force it resumes with.
+ */
+export function repaintAfterResize(renderer: RepaintableRenderer): () => void {
+  const onResize = (): void => {
+    const internals = renderer as unknown as { forceFullRepaintRequested?: boolean };
+    if (typeof internals.forceFullRepaintRequested !== "boolean") return;
+    internals.forceFullRepaintRequested = true;
+    renderer.requestRender();
+  };
+
+  renderer.on("resize", onResize);
+  return () => {
+    renderer.off("resize", onResize);
+  };
+}
+
 export async function mountFullscreen(): Promise<MountedRenderer> {
   const renderer = await createCliRenderer({
     screenMode: "alternate-screen",
@@ -313,11 +357,13 @@ export async function mountFullscreen(): Promise<MountedRenderer> {
 
   const release = installTerminalLifecycle(renderer);
   const stopGuard = guardOutput(renderer);
+  const stopRepaint = repaintAfterResize(renderer);
 
   renderer.start();
   return {
     renderer,
     release: () => {
+      stopRepaint();
       stopGuard();
       release();
     },

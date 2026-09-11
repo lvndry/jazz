@@ -4,6 +4,7 @@ import {
   decideFullscreen,
   guardOutput,
   installTerminalLifecycle,
+  repaintAfterResize,
   transcriptTextForForeignWrite,
   type GuardedStream,
   type LifecycleRenderer,
@@ -294,5 +295,53 @@ describe("guardOutput", () => {
 
     expect(out.written).toEqual(["after\n"]);
     expect(entries).toEqual([]);
+  });
+});
+
+describe("repaintAfterResize", () => {
+  function stubRepaintRenderer(forceFullRepaintRequested: unknown) {
+    const listeners = new Set<() => void>();
+    let renders = 0;
+    return {
+      forceFullRepaintRequested,
+      get renders() {
+        return renders;
+      },
+      resize: () => {
+        for (const listener of [...listeners]) listener();
+      },
+      on: (_event: "resize", listener: () => void) => listeners.add(listener),
+      off: (_event: "resize", listener: () => void) => listeners.delete(listener),
+      requestRender: () => {
+        renders += 1;
+      },
+    };
+  }
+
+  test("asks for a full repaint when the terminal changes size", () => {
+    const renderer = stubRepaintRenderer(false);
+
+    const stop = repaintAfterResize(renderer);
+    renderer.resize();
+
+    expect(renderer.forceFullRepaintRequested).toBe(true);
+    expect(renderer.renders).toBe(1);
+
+    stop();
+    renderer.forceFullRepaintRequested = false;
+    renderer.resize();
+    expect(renderer.forceFullRepaintRequested).toBe(false);
+    expect(renderer.renders).toBe(1);
+  });
+
+  test("does nothing if OpenTUI ever renames the flag", () => {
+    // Whatever stands in that slot in a future version, it is not ours to set.
+    const renderer = stubRepaintRenderer("not a flag any more");
+
+    repaintAfterResize(renderer);
+    renderer.resize();
+
+    expect(renderer.forceFullRepaintRequested).toBe("not a flag any more");
+    expect(renderer.renders).toBe(0);
   });
 });
