@@ -36,6 +36,7 @@ describe("turn runner", () => {
   let pendingSeen: PendingSummary[][];
   let current: FakeRun | undefined;
   let runner: TurnRunner;
+  let baseConfig: TurnConfig;
 
   const makeFakeRun = (): FakeRun => {
     let settle: (envelope: JazzEnvelope) => void = () => {};
@@ -68,6 +69,7 @@ describe("turn runner", () => {
       decisions,
       answers,
       emit: (event) => {
+        handlers.onEvent?.(event);
         if (event.type === "approval_required") handlers.onApprovalRequired?.(event);
         if (event.type === "user_input_required") handlers.onUserInputRequired?.(event);
       },
@@ -142,6 +144,7 @@ describe("turn runner", () => {
         return fake.run;
       },
     };
+    baseConfig = config;
     runner = createTurnRunner(config);
   });
 
@@ -161,6 +164,25 @@ describe("turn runner", () => {
     if (current === undefined) throw new Error("the run never started");
     return { turn };
   };
+
+  test("reasoning arrives before the answer, not after it", async () => {
+    // It is the work that produced the answer, so it reads before it - and on
+    // an append-only surface a reader should not have to scroll back past the
+    // answer to find out how the agent got there.
+    runner = createTurnRunner({ ...baseConfig, showReasoning: true });
+    const { turn } = await startTurn();
+    current?.emit({ type: "thinking_chunk", content: "weighing the options" });
+    await Bun.sleep(5);
+
+    current?.finish();
+    await turn;
+
+    const reasoningAt = sent.findIndex((message) => message.text.includes("Reasoning"));
+    const answerAt = sent.findIndex((message) => message.text.includes("done"));
+    expect(reasoningAt).toBeGreaterThanOrEqual(0);
+    expect(answerAt).toBeGreaterThanOrEqual(0);
+    expect(reasoningAt).toBeLessThan(answerAt);
+  });
 
   test("a button tap answers the approval it names", async () => {
     const { turn } = await startTurn();
