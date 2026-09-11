@@ -138,14 +138,20 @@ const manageWorkspaceParameters = z.discriminatedUnion("command", [
   z
     .object({
       command: z.literal("create"),
-      path: z.string().min(1).describe("Scratchpad file path relative to the scratchpad directory."),
+      path: z
+        .string()
+        .min(1)
+        .describe("Scratchpad file path relative to the scratchpad directory."),
       file_text: z.string().describe("Full file contents. Errors if the path already exists."),
     })
     .strict(),
   z
     .object({
       command: z.literal("str_replace"),
-      path: z.string().min(1).describe("Scratchpad file path relative to the scratchpad directory."),
+      path: z
+        .string()
+        .min(1)
+        .describe("Scratchpad file path relative to the scratchpad directory."),
       old_str: z.string().min(1).describe("Exact unique snippet to replace."),
       new_str: z.string().optional().describe("Replacement text. Omit to delete the snippet."),
     })
@@ -153,7 +159,10 @@ const manageWorkspaceParameters = z.discriminatedUnion("command", [
   z
     .object({
       command: z.literal("insert"),
-      path: z.string().min(1).describe("Scratchpad file path relative to the scratchpad directory."),
+      path: z
+        .string()
+        .min(1)
+        .describe("Scratchpad file path relative to the scratchpad directory."),
       insert_line: z
         .number()
         .int()

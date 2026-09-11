@@ -1,12 +1,7 @@
 {
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
-    "noEmit": true,
-    "paths": {
-      "@/core/*": ["./packages/core/src/*"],
-      "@/adapters/*": ["./packages/adapters/src/*"],
-      "@/cli/*": ["./packages/cli/src/*"]
-    }
+    "noEmit": true
   },
   "include": [
     "test-preload.ts",

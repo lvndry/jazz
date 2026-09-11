@@ -31,7 +31,7 @@ Depends on `@jazz/core` and `@jazz/adapters` (for `PersonaServiceImpl`).
   owns, and what happens when their backing environment variables go away. Kept pure and
   filesystem-free so it's testable without touching disk.
 - **`write-bridge-config.ts`** — the entrypoint script (`bun write-bridge-config.ts
-  <path-to-config.json>`) that applies `bridge-config.ts`'s merge rule to a real file, run at
+<path-to-config.json>`) that applies `bridge-config.ts`'s merge rule to a real file, run at
   container startup. Merges rather than overwrites, since the data volume outlives the container
   and anything an operator added by hand must survive a restart.
 - **`run-log.ts`** — per-turn NDJSON record of what a bridge run did, written to
