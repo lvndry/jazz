@@ -35,6 +35,64 @@ export function generateDiff(
   return generateDiffWithMetadata(originalContent, newContent, filepath, options).diff;
 }
 
+/**
+ * The most recent patch, keyed by the exact inputs that produced it.
+ *
+ * One file mutation renders its patch two or three times: `write_file` and
+ * `edit_file` each build a full patch for the approval preview, then a capped
+ * one for terminal output after the write, then a full one again when the
+ * result needs a Ctrl+O expansion. The inputs are identical every time, and
+ * `createPatch` is a Myers diff — on a file whose every line changed it is
+ * the most expensive thing on the approval path by two orders of magnitude,
+ * so paying it once per render was paying it two or three times per edit.
+ *
+ * Deliberately one entry: the calls that matter are consecutive on the same
+ * content, so a single slot catches them, and nothing accumulates. Concurrent
+ * mutations of different files simply miss, which costs only what it cost
+ * before. `PATCH_CACHE_MAX_CHARS` keeps a very large pair of file versions
+ * from being held alive until the next edit.
+ */
+let lastPatch:
+  | {
+      readonly basename: string;
+      readonly originalContent: string;
+      readonly newContent: string;
+      readonly contextLines: number;
+      readonly patch: string;
+    }
+  | undefined;
+
+/** Combined size of the two file versions above which the patch is not retained. */
+const PATCH_CACHE_MAX_CHARS = 8_000_000;
+
+function patchFor(
+  basename: string,
+  originalContent: string,
+  newContent: string,
+  contextLines: number,
+): string {
+  if (
+    lastPatch !== undefined &&
+    lastPatch.contextLines === contextLines &&
+    lastPatch.basename === basename &&
+    lastPatch.originalContent === originalContent &&
+    lastPatch.newContent === newContent
+  ) {
+    return lastPatch.patch;
+  }
+
+  const patch = createPatch(basename, originalContent, newContent, "", "", {
+    context: contextLines,
+  });
+
+  lastPatch =
+    originalContent.length + newContent.length > PATCH_CACHE_MAX_CHARS
+      ? undefined
+      : { basename, originalContent, newContent, contextLines, patch };
+
+  return patch;
+}
+
 export function generateDiffWithMetadata(
   originalContent: string,
   newContent: string,
@@ -59,9 +117,7 @@ export function generateDiffWithMetadata(
 
   // Generate unified diff using the diff library
   const basename = getBasename(filepath);
-  const patch = createPatch(basename, originalContent, newContent, "", "", {
-    context: contextLines,
-  });
+  const patch = patchFor(basename, originalContent, newContent, contextLines);
 
   // Parse and colorize the patch output
   const lines = patch.split("\n");
