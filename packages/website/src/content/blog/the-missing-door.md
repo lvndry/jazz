@@ -62,7 +62,7 @@ standing key. Neither operator typed a password.
 
 ## A tier, set in advance
 
-Every peer gets a ceiling on what it may *learn*: `none`, `public`, `internal`,
+Every peer gets a ceiling on what it may _learn_: `none`, `public`, `internal`,
 `private`. The tier is a disclosure level, not a risk score, and the person being
 asked decides it before anyone asks. Adding someone and permitting them are
 separate decisions; a peer with no tier answers nothing.
