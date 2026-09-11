@@ -2,10 +2,13 @@ import { describe, expect, test } from "bun:test";
 import { mountFullscreenApp, type FullscreenHandle } from "./attach";
 import {
   decideFullscreen,
+  guardOutput,
   installTerminalLifecycle,
   transcriptTextForForeignWrite,
+  type GuardedStream,
   type LifecycleRenderer,
 } from "./mount";
+import type { OutputEntry } from "../types";
 
 const ENVIRONMENT = { TERM: "xterm-256color" };
 const OUTPUT = { isTTY: true, columns: 100, rows: 24 };
@@ -222,5 +225,74 @@ describe("transcriptTextForForeignWrite", () => {
     expect(transcriptTextForForeignWrite("\u001b]0;jazz\u0007")).toBeNull();
     expect(transcriptTextForForeignWrite("\u001b[?2004h")).toBeNull();
     expect(transcriptTextForForeignWrite("\n")).toBeNull();
+  });
+});
+
+function stubStream(): GuardedStream & { readonly written: string[] } {
+  const written: string[] = [];
+  return {
+    written,
+    write(chunk: unknown) {
+      written.push(String(chunk));
+      return true;
+    },
+  };
+}
+
+describe("guardOutput", () => {
+  function setup(isDestroyed = false) {
+    const out = stubStream();
+    const err = stubStream();
+    const entries: OutputEntry[] = [];
+    const restore = guardOutput({ isDestroyed }, (entry) => entries.push(entry), { out, err });
+    return { out, err, entries, restore };
+  }
+
+  test("takes text off the screen and puts it in the transcript", () => {
+    const { out, err, entries, restore } = setup();
+
+    out.write("this would desync the frame\n");
+    err.write("AI SDK warning: something\n");
+    restore();
+
+    expect(out.written).toEqual([]);
+    expect(err.written).toEqual([]);
+    expect(entries.map((entry) => [entry.type, entry.message])).toEqual([
+      ["log", "this would desync the frame"],
+      ["warn", "AI SDK warning: something"],
+    ]);
+  });
+
+  test("lets control sequences reach the terminal", () => {
+    const { out, entries, restore } = setup();
+
+    // The window title, and OpenTUI's own palette queries, paint no cells.
+    out.write("\u001b]0;jazz\u0007");
+    restore();
+
+    expect(out.written).toEqual(["\u001b]0;jazz\u0007"]);
+    expect(entries).toEqual([]);
+  });
+
+  test("stands aside once the renderer is destroyed", () => {
+    // OpenTUI's uncaughtException handler destroys the renderer before anything
+    // prints, so the crash has to reach a terminal that can still show it.
+    const { err, entries, restore } = setup(true);
+
+    err.write("Error: it all fell over\n");
+    restore();
+
+    expect(err.written).toEqual(["Error: it all fell over\n"]);
+    expect(entries).toEqual([]);
+  });
+
+  test("restores the original write", () => {
+    const { out, entries, restore } = setup();
+    restore();
+
+    out.write("after\n");
+
+    expect(out.written).toEqual(["after\n"]);
+    expect(entries).toEqual([]);
   });
 });

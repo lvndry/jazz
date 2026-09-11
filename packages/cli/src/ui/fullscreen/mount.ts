@@ -202,6 +202,11 @@ export function installTerminalLifecycle(
   return release;
 }
 
+/** The slice of a stdio stream the guard replaces, so tests can pass a stand-in. */
+export interface GuardedStream {
+  write(chunk: unknown, encoding?: unknown, callback?: unknown): boolean;
+}
+
 /**
  * What a foreign write should show in the transcript, or null when it is pure
  * terminal control — an OSC title, a mode toggle — which paints no cells and
@@ -236,17 +241,20 @@ export function transcriptTextForForeignWrite(chunk: string): string | null {
  * is by definition somebody else's output. It goes to the transcript, where it
  * is visible instead of destructive — nothing is swallowed.
  */
-function guardOutput(renderer: CliRenderer): () => void {
+export function guardOutput(
+  renderer: Pick<CliRenderer, "isDestroyed">,
+  sink: (entry: OutputEntry) => unknown = store.printOutput,
+  streams: { readonly out: GuardedStream; readonly err: GuardedStream } = {
+    out: process.stdout,
+    err: process.stderr,
+  },
+): () => void {
   let reentrant = false;
 
-  const guard = (
-    stream: NodeJS.WriteStream,
-    entry: (message: string) => OutputEntry,
-  ): (() => void) => {
+  const guard = (stream: GuardedStream, entry: (message: string) => OutputEntry): (() => void) => {
     const original = stream.write.bind(stream);
     stream.write = (chunk: unknown, encoding?: unknown, callback?: unknown) => {
-      const passthrough = (): boolean =>
-        (original as (...args: readonly unknown[]) => boolean)(chunk, encoding, callback);
+      const passthrough = (): boolean => original(chunk, encoding, callback);
       // Once the renderer is gone the screen is the shell's again and writing to
       // it is the correct thing to do — which is what makes a crash message,
       // printed after OpenTUI's own handlers destroy the renderer, still arrive.
@@ -257,7 +265,7 @@ function guardOutput(renderer: CliRenderer): () => void {
 
       reentrant = true;
       try {
-        store.printOutput(entry(line));
+        sink(entry(line));
       } finally {
         reentrant = false;
       }
@@ -272,11 +280,11 @@ function guardOutput(renderer: CliRenderer): () => void {
   };
 
   const restore = [
-    guard(process.stdout, (message) => ({ type: "log", message, timestamp: new Date() })),
+    guard(streams.out, (message) => ({ type: "log", message, timestamp: new Date() })),
     // stderr is not the rarer case it looks: the AI SDK's warning banner goes
     // through `console.error` by deliberate choice (see runtime/src/main.ts),
     // and stderr paints the alternate screen exactly as stdout does.
-    guard(process.stderr, (message) => ({ type: "warn", message, timestamp: new Date() })),
+    guard(streams.err, (message) => ({ type: "warn", message, timestamp: new Date() })),
   ];
 
   return () => {
