@@ -59,7 +59,9 @@ From a checkout without an installed binary, `bun packages/whatsapp-bot/src/main
 is the same thing.
 
 On first run it prints a QR code — WhatsApp → Settings → Linked Devices → Link a
-device. On a headless machine there is no camera to point at it, so set
+device. Scan it promptly: WhatsApp expires each code after about a minute and
+issues another, and a stale one is refused with "check your connection". Only
+one is ever on screen, so scan the one you can see. On a headless machine there is no camera to point at it, so set
 `WHATSAPP_PAIR_NUMBER` to the account's number instead and it prints an
 8-character code to type into WhatsApp under **Link with phone number**.
 

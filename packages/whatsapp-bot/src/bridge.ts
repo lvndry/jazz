@@ -291,12 +291,25 @@ export async function startBridge(): Promise<void> {
     );
   }
 
+  let codesShown = 0;
   const connection = await connect({
     authDir: config.authDir,
     pairWithNumber: config.pairWithNumber,
     onQr: (qr) => {
-      console.error("\nScan this with WhatsApp → Settings → Linked Devices:\n");
+      codesShown += 1;
+      // Only the newest code is live: WhatsApp expires each one after about a
+      // minute and issues another. Printing the new one underneath left a
+      // screen of dead codes that look exactly like the live one, and scanning
+      // any of them is answered with "check your connection".
+      if (codesShown > 1 && process.stderr.isTTY === true)
+        process.stderr.write("\u001b[2J\u001b[H");
+      console.error(
+        codesShown === 1
+          ? "\nScan this with WhatsApp → Settings → Linked Devices:\n"
+          : `\nThat code expired before it was scanned. Here is a fresh one (#${codesShown}):\n`,
+      );
       qrcode.generate(qr, { small: true });
+      console.error("\nGood for about a minute, then it is replaced.\n");
     },
     onReady: (selfJid) => {
       console.error(
