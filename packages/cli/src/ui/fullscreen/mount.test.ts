@@ -335,7 +335,6 @@ describe("repaintAfterResize", () => {
   });
 
   test("does nothing if OpenTUI ever renames the flag", () => {
-    // Whatever stands in that slot in a future version, it is not ours to set.
     const renderer = stubRepaintRenderer("not a flag any more");
 
     repaintAfterResize(renderer);
