@@ -15,9 +15,9 @@ describe("buildReplyContext", () => {
 
   it("names a human sender, which is what disambiguates a group chat", () => {
     const context = buildReplyContext({
-      reply_to_message: { text: "can you book it?", from: { first_name: "Landry" } },
+      reply_to_message: { text: "can you book it?", from: { first_name: "Otto" } },
     });
-    expect(context).toBe('[Replying to Landry\'s message: "can you book it?"]');
+    expect(context).toBe('[Replying to Otto\'s message: "can you book it?"]');
   });
 
   it("falls back to the username when there is no first name", () => {

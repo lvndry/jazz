@@ -922,6 +922,27 @@ function runPlainAction(action: () => Promise<void> | void): Promise<void> {
  * running in the background, and a service you cannot stop or read the logs of
  * is worse than no service.
  */
+/**
+ * Register `jazz whatsapp` — reach the agent from WhatsApp.
+ *
+ * A linked device rather than a container, so like iMessage it runs on the
+ * machine in front of you and needs a way in from the installed binary.
+ */
+function registerWhatsappCommand(program: Command): void {
+  program
+    .command("whatsapp")
+    .description("Chat with your agent from WhatsApp")
+    .option(
+      "--agent <id-or-name>",
+      "Seed the bridge from one of your agents, copied into its own home",
+    )
+    .action((options: { agent?: string }) =>
+      runPlainAction(() =>
+        import("@jazz/cli/commands/whatsapp").then((mod) => mod.whatsappCommand(options.agent)),
+      ),
+    );
+}
+
 function registerIMessageCommand(program: Command): void {
   const imessageCommand = program
     .command("imessage")
@@ -1759,6 +1780,7 @@ export function createCLIApp(): Command {
   registerUpdateCommand(program);
   registerDaemonCommand(program);
   registerIMessageCommand(program);
+  registerWhatsappCommand(program);
   registerWakeTriggerCommand(program);
   registerJobCommand(program);
   registerReminderCommand(program);

@@ -40,8 +40,19 @@ this bridge does not use it.
 ```bash
 WHATSAPP_ALLOWED_NUMBERS="+15551234567" \
 OPENAI_API_KEY=sk-… \
-bun packages/whatsapp-bot/src/bridge.ts
+jazz whatsapp
 ```
+
+To answer as an agent you already have rather than a fresh assistant, name it —
+it is copied into the bridge's home, so the original keeps its name and stays
+yours:
+
+```bash
+jazz whatsapp --agent nostra
+```
+
+From a checkout without an installed binary, `bun packages/whatsapp-bot/src/main.ts`
+is the same thing.
 
 On first run it prints a QR code — WhatsApp → Settings → Linked Devices → Link a
 device. On a headless machine there is no camera to point at it, so set
@@ -62,7 +73,7 @@ Anything that can read that directory can act as the account.
 | `WHATSAPP_AUTH_DIR`                  | `$JAZZ_HOME/wa-auth`   | Linked-device credentials.                                                                            |
 | `JAZZ_BIN`                           | `jazz`                 | Path to the Jazz binary.                                                                              |
 | `JAZZ_HOME`                          | `~/.jazz-whatsapp`     | Data directory: agents, conversations, reminders, usage.                                              |
-| `JAZZ_WHATSAPP_AGENT`                | `whatsapp`             | Seed agent every per-chat agent is cloned from.                                                       |
+| `JAZZ_WHATSAPP_AGENT`                | `whatsapp`             | Seed agent every per-chat agent is cloned from. `--agent` sets this and copies the agent in. |
 | `JAZZ_APPROVAL_POLICY`               | `low-risk`             | Tier above which tools stop and ask.                                                                  |
 | `JAZZ_AUTO_APPROVE_TOOLS`            | _(none)_               | Tool names that never prompt, whatever the policy.                                                    |
 | `JAZZ_RUN_TIMEOUT_MS`                | `300000`               | Per-turn timeout.                                                                                     |

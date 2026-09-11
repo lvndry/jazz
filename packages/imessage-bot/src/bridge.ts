@@ -18,8 +18,9 @@
  */
 
 import { homedir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { defaultJazzBinary, runningAsJazzBinary } from "@jazz/bot-shared/jazz-binary";
 import { startReminderSweep } from "@jazz/bot-shared/reminder-sweep";
 import {
   readRecordStore,
@@ -27,6 +28,7 @@ import {
   writeRecordStore,
 } from "@jazz/bot-shared/scoped-record-store";
 import { ensureSeedAgent } from "@jazz/bot-shared/seed-agent";
+import { agentStoreDirectory, importSeedAgent } from "@jazz/bot-shared/seed-import";
 import type { ChatId } from "@jazz/bot-shared/surface";
 import { createTurnRunner, type TurnRunner } from "@jazz/bot-shared/turn";
 import { type AccessConfig, decideAccess, parseChatIdList, parseHandleList } from "./access";
@@ -48,7 +50,6 @@ import {
   planInstall,
   terminalAppName,
 } from "./install";
-import { agentStoreDirectory, importSeedAgent } from "./seed-import";
 import {
   bootstrapService,
   carriedEnvironment,
@@ -110,19 +111,6 @@ interface BridgeConfig extends AccessConfig {
 }
 
 /**
- * Is `executablePath` a compiled Jazz binary? By basename, not a `/jazz` suffix:
- * npm ships it as `bin/jazz`, `build:binary` writes `jazz-darwin-arm64`.
- */
-export function isJazzBinaryPath(executablePath: string): boolean {
-  const name = basename(executablePath);
-  return name === "jazz" || name.startsWith("jazz-");
-}
-
-function runningAsJazzBinary(): boolean {
-  return isJazzBinaryPath(process.execPath);
-}
-
-/**
  * The arguments the service needs after the binary.
  *
  * Inside the Jazz binary that is the subcommand; under `bun` it is the path of
@@ -132,18 +120,6 @@ function serviceArgs(): readonly string[] {
   if (runningAsJazzBinary()) return ["imessage"];
   // Started with `bun`, so the service runs the same script entry point.
   return [join(dirname(fileURLToPath(import.meta.url)), "main.ts")];
-}
-
-/**
- * The Jazz binary a run is spawned with.
- *
- * When the bridge runs inside the Jazz binary, that binary is this process, and
- * naming it directly beats a PATH lookup that could resolve to a different
- * install. Under `bun bridge.ts` the executable is bun, which cannot run a Jazz
- * turn, so that case falls back to the name.
- */
-function defaultJazzBinary(): string {
-  return runningAsJazzBinary() ? process.execPath : "jazz";
 }
 
 function envFlag(name: string, defaultOn: boolean): boolean {

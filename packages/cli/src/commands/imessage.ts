@@ -63,7 +63,7 @@ export async function imessageCommand(agent?: string): Promise<void> {
  */
 async function selectSeedAgent(query: string): Promise<void> {
   const { agentStoreDirectory, listAgents, matchAgent } =
-    await import("@jazz/imessage-bot/seed-import");
+    await import("@jazz/bot-shared/seed-import");
 
   const home = agentStoreDirectory();
   const agents = listAgents(home);

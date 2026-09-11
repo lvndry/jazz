@@ -1,16 +1,16 @@
 /**
  * @fileoverview Seeding the bridge from an agent you already have.
  *
- * Copied into the bridge's home, never read in place: the bridge renames its
- * seed to the Messages display name, which would rename your real agent.
+ * Copied into the bridge's home, never read in place: a bridge renames its seed
+ * to the chat's display name, which would rename your real agent.
  */
 
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { agentPath, readAgentFile } from "@jazz/bot-shared/agent-file";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
 import { resolveStorageDirectory } from "@jazz/core/utils/storage";
+import { agentPath, readAgentFile } from "./agent-file";
 
 /**
  * Where your agents actually live.

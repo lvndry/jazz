@@ -109,7 +109,7 @@ const PASSWORD: TextPromptModel = {
 const FILES: FilePickerModel = {
   kind: "filepicker",
   message: "Which file should I attach?",
-  basePath: "/Users/landry/github/jazz",
+  basePath: "/Users/otto/github/jazz",
   entries: [
     { name: "src/services", isDirectory: true },
     { name: "src/cli/ui/theme.ts", isDirectory: false },
@@ -774,7 +774,7 @@ describe("file picker overlay", () => {
       <FilePicker
         model={{
           ...FILES,
-          basePath: `/Users/landry/${"nested/".repeat(12)}root`,
+          basePath: `/Users/otto/${"nested/".repeat(12)}root`,
           entries: [{ name: deep, isDirectory: false }],
           selected: 0,
         }}

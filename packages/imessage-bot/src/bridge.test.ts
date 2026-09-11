@@ -1,5 +1,6 @@
+import { isJazzBinaryPath } from "@jazz/bot-shared/jazz-binary";
 import { describe, expect, test } from "bun:test";
-import { isJazzBinaryPath, promptFrom, questionFromSelfText } from "./bridge";
+import { promptFrom, questionFromSelfText } from "./bridge";
 
 describe("isJazzBinaryPath", () => {
   test("recognises the npm-installed binary", () => {

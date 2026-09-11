@@ -17,8 +17,10 @@
 
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { defaultJazzBinary } from "@jazz/bot-shared/jazz-binary";
 import { startReminderSweep } from "@jazz/bot-shared/reminder-sweep";
 import { ensureSeedAgent } from "@jazz/bot-shared/seed-agent";
+import { agentStoreDirectory, importSeedAgent } from "@jazz/bot-shared/seed-import";
 import { createTurnRunner, type TurnRunner } from "@jazz/bot-shared/turn";
 import qrcode from "qrcode-terminal";
 import { type AccessConfig, decideAccess, normalizeJid, parseJidList } from "./access";
@@ -35,6 +37,9 @@ const STORE_FILES = {
 
 /** Where inbound attachments are written before the agent is pointed at them. */
 const MEDIA_DIR = "wa-media";
+
+/** The seed agent the bridge makes for itself when `--agent` names none. */
+const DEFAULT_BASE_AGENT_ID = "whatsapp";
 
 /** Chats already reported as refused, so the log says each thing once. */
 const loggedRejections = new Set<string>();
@@ -84,9 +89,9 @@ function loadConfig(): BridgeConfig {
     // anything that can read them can act as the account.
     authDir: process.env["WHATSAPP_AUTH_DIR"]?.trim() || join(jazzHome, "wa-auth"),
     pairWithNumber: process.env["WHATSAPP_PAIR_NUMBER"]?.trim() || undefined,
-    jazzBinary: process.env["JAZZ_BIN"]?.trim() || "jazz",
+    jazzBinary: process.env["JAZZ_BIN"]?.trim() || defaultJazzBinary(),
     jazzHome,
-    baseAgentId: process.env["JAZZ_WHATSAPP_AGENT"]?.trim() || "whatsapp",
+    baseAgentId: process.env["JAZZ_WHATSAPP_AGENT"]?.trim() || DEFAULT_BASE_AGENT_ID,
     builtinPersonasDir: process.env["JAZZ_BUILTIN_PERSONAS_DIR"]?.trim() || "",
     approvalPolicy: process.env["JAZZ_APPROVAL_POLICY"]?.trim() || "low-risk",
     autoApproveTools: (process.env["JAZZ_AUTO_APPROVE_TOOLS"]?.trim() || "")
@@ -175,7 +180,7 @@ async function handleIncoming(
   await runner.handle(message.chatJid, prompt);
 }
 
-async function start(): Promise<void> {
+export async function startBridge(): Promise<void> {
   const config = loadConfig();
 
   /**
@@ -187,6 +192,14 @@ async function start(): Promise<void> {
    * mid-startup, which is backfill rather than a live question.
    */
   let deliver: (message: WhatsAppMessage) => void = () => {};
+
+  // `--agent` arrives as JAZZ_WHATSAPP_AGENT, so a service inherits it too.
+  if (config.baseAgentId !== DEFAULT_BASE_AGENT_ID) {
+    const userHome = agentStoreDirectory();
+    if (importSeedAgent(userHome, config.jazzHome, config.baseAgentId)) {
+      console.error(`Seeded ${config.baseAgentId} from ${userHome} — your original is untouched.`);
+    }
+  }
 
   if (
     ensureSeedAgent(config.jazzHome, {
@@ -261,8 +274,3 @@ async function start(): Promise<void> {
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
 }
-
-void start().catch((error) => {
-  console.error(String(error));
-  process.exit(1);
-});
