@@ -4,7 +4,6 @@
  */
 
 import Perplexity from "@perplexity-ai/perplexity_ai";
-import { tavily } from "@tavily/core";
 import { Effect, Schedule } from "effect";
 import Exa from "exa-js";
 import { LinkupClient } from "linkup-sdk";
@@ -368,26 +367,70 @@ function executeParallelSearch(
   });
 }
 
+const TAVILY_SEARCH_URL = "https://api.tavily.com/search";
+
+/**
+ * What `@tavily/core` used as its default request timeout. `fetch` has none, so
+ * without this a stalled connection would hang the tool run instead of failing.
+ */
+const TAVILY_TIMEOUT_MS = 60_000;
+
+/** The fields this tool reads from Tavily's `/search` response. */
+interface TavilySearchResponse {
+  readonly results?: readonly {
+    readonly title?: string;
+    readonly url?: string;
+    readonly content?: string;
+    readonly raw_content?: string;
+    readonly published_date?: string;
+    readonly score?: number;
+  }[];
+}
+
+/**
+ * Calls Tavily's REST endpoint directly, like every other provider in this file.
+ *
+ * Not through `@tavily/core`: that SDK depends on `js-tiktoken`, whose embedded
+ * BPE tables were 5.6MB of the compiled binary's 20MB of JavaScript — a quarter
+ * of the bundle, and about 55ms of parse on every `jazz` invocation, for a token
+ * counter this tool never asks it to use (jazz counts with `gpt-tokenizer`). The
+ * request and response shapes below are the SDK's own wire format.
+ */
 function executeTavilySearch(
   args: WebSearchArgs,
   apiKey: string,
 ): Effect.Effect<WebSearchResult, Error, LoggerService> {
   return Effect.gen(function* () {
     const logger = yield* LoggerServiceTag;
-    const client = tavily({ apiKey });
 
     yield* logger.info(`Executing Tavily search for query: "${args.query}"`);
 
     const response = yield* Effect.retry(
       Effect.tryPromise({
-        try: () =>
-          client.search(args.query, {
-            searchDepth: "basic",
-            maxResults: args.maxResults ?? DEFAULT_MAX_RESULTS,
-            includeRawContent: false,
-            ...(args.fromDate ? { startDate: args.fromDate } : {}),
-            ...(args.toDate ? { endDate: args.toDate } : {}),
-          }),
+        try: async () => {
+          const res = await fetch(TAVILY_SEARCH_URL, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify({
+              query: args.query,
+              search_depth: "basic",
+              max_results: args.maxResults ?? DEFAULT_MAX_RESULTS,
+              include_raw_content: false,
+              ...(args.fromDate ? { start_date: args.fromDate } : {}),
+              ...(args.toDate ? { end_date: args.toDate } : {}),
+            }),
+            signal: AbortSignal.timeout(TAVILY_TIMEOUT_MS),
+          });
+
+          if (!res.ok) {
+            throw new Error(`Tavily search failed: ${res.statusText}`);
+          }
+
+          return (await res.json()) as TavilySearchResponse;
+        },
         catch: (error) =>
           new Error(
             `Tavily search failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -396,11 +439,11 @@ function executeTavilySearch(
       SEARCH_RETRY_POLICY,
     );
 
-    const results: WebSearchItem[] = (response.results || []).map((result) => ({
+    const results: WebSearchItem[] = (response.results ?? []).map((result) => ({
       title: result.title || "",
       url: result.url || "",
-      snippet: result.rawContent || result.content || "",
-      ...(result.publishedDate ? { publishedDate: result.publishedDate } : {}),
+      snippet: result.raw_content || result.content || "",
+      ...(result.published_date ? { publishedDate: result.published_date } : {}),
       ...(result.score !== undefined ? { metadata: { score: result.score } } : {}),
     }));
 
