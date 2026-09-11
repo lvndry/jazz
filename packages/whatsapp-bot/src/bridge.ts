@@ -189,6 +189,30 @@ async function loadConfig(interactive: boolean): Promise<BridgeConfig> {
  * once the connection is open — before that nothing can be addressed to us, and
  * treating unknown as "not addressed" keeps a group quiet rather than loud.
  */
+/**
+ * Say so when the allow-list holds nothing but the linked account.
+ *
+ * The bridge answers *as* the account it is linked to, and drops everything
+ * that account sends, since its own replies come back through the same event.
+ * So an allow-list containing only that number can never admit anyone, and the
+ * bridge would sit there looking healthy while ignoring every message.
+ */
+function warnIfOnlySelfAllowed(config: BridgeConfig, selfJid: string): void {
+  if (config.allowedGroups.size > 0) return;
+  const self = normalizeJid(selfJid);
+  const others = [...config.allowedNumbers].filter((number) => number !== self);
+  if (others.length > 0 || !config.allowedNumbers.has(self)) return;
+
+  console.error(
+    `\nNothing can reach this agent yet. The only allowed number, ${self}, is the\n` +
+      `account the bridge is linked to - and it answers *as* that account, so its own\n` +
+      `messages are ignored.\n\n` +
+      `Add whoever should be able to write to it, then restart:\n` +
+      `  ${allowListPath(config.jazzHome)}\n` +
+      `To try it yourself you need a second WhatsApp account to write from.\n`,
+  );
+}
+
 function addressesBot(message: WhatsAppMessage, selfJid: string | undefined): boolean {
   if (selfJid === undefined) return false;
   const self = normalizeJid(selfJid);
@@ -312,6 +336,7 @@ export async function startBridge(): Promise<void> {
       console.error("\nGood for about a minute, then it is replaced.\n");
     },
     onReady: (selfJid) => {
+      warnIfOnlySelfAllowed(config, selfJid);
       console.error(
         `WhatsApp bridge ready as ${selfJid}. ${config.allowedNumbers.size} allowed ` +
           `number(s), ${config.allowedGroups.size} allowed group(s); groups ` +

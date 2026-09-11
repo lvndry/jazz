@@ -112,3 +112,22 @@ describe("decideAccess", () => {
     ).toBe(false);
   });
 });
+
+describe("the linked account itself", () => {
+  test("is refused like anyone else, since the bridge answers as it", () => {
+    const config: AccessConfig = {
+      allowedNumbers: parseJidList("+33760440874"),
+      allowedGroups: parseJidList(""),
+      requireMentionInGroups: true,
+    };
+    // Allowed by the list, but bridge.ts drops isFromMe before this is reached;
+    // an allow-list holding only the linked number therefore admits nobody.
+    expect(
+      decideAccess(config, {
+        chatJid: "33760440874@s.whatsapp.net",
+        senderJid: "33760440874@s.whatsapp.net",
+        addressesBot: false,
+      }).allowed,
+    ).toBe(true);
+  });
+});
