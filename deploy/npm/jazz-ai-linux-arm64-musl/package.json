@@ -1,7 +1,7 @@
 {
   "name": "jazz-ai-linux-arm64-musl",
   "version": "0.0.0-placeholder",
-  "description": "Jazz CLI binary for Linux (arm64, musl — Alpine). Installed automatically as an optional dependency of jazz-ai — not meant to be installed directly.",
+  "description": "Jazz CLI binary for Linux (arm64, musl / Alpine). Installed automatically as an optional dependency of jazz-ai; not meant to be installed directly.",
   "license": "MIT",
   "bin": {
     "jazz": "./bin/jazz"

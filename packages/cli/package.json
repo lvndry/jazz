@@ -2,7 +2,7 @@
   "name": "@jazz/cli",
   "version": "0.15.6",
   "private": true,
-  "description": "Jazz's terminal presentation layer \u2014 Ink/OpenTUI rendering, commands, and the interactive chat loop.",
+  "description": "Jazz's terminal presentation layer: Ink/OpenTUI rendering, commands, and the interactive chat loop.",
   "type": "module",
   "exports": {
     "./chat/commands": "./src/chat/commands/index.ts",
