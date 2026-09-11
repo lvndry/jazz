@@ -18,7 +18,7 @@
  */
 
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { startReminderSweep } from "@jazz/bot-shared/reminder-sweep";
 import {
@@ -41,11 +41,14 @@ import {
 } from "./imsg";
 import {
   confirm,
+  type GrantTarget,
   homebrewPresent,
   installImsg,
   openFullDiskAccessSettings,
   planInstall,
+  terminalAppName,
 } from "./install";
+import { agentStoreDirectory, importSeedAgent } from "./seed-import";
 import {
   bootstrapService,
   carriedEnvironment,
@@ -74,6 +77,9 @@ const CURSOR_KEY = "lastRowId";
  * bridge useful while still admitting nobody but the account owner.
  */
 const DEFAULT_SELF_TRIGGER = "jazz";
+
+/** The seed agent the bridge makes for itself when `--agent` names none. */
+const DEFAULT_BASE_AGENT_ID = "imessage";
 
 /** How many chats to pull when refreshing the chat metadata cache. */
 const CHAT_LIST_LIMIT = 200;
@@ -104,13 +110,18 @@ interface BridgeConfig extends AccessConfig {
 }
 
 /**
- * The Jazz binary a run is spawned with.
- *
- * When the bridge runs inside the Jazz binary, that binary is this process, and
- * naming it directly beats a PATH lookup that could resolve to a different
- * install. Under `bun bridge.ts` the executable is bun, which cannot run a Jazz
- * turn, so that case falls back to the name.
+ * Is `executablePath` a compiled Jazz binary? By basename, not a `/jazz` suffix:
+ * npm ships it as `bin/jazz`, `build:binary` writes `jazz-darwin-arm64`.
  */
+export function isJazzBinaryPath(executablePath: string): boolean {
+  const name = basename(executablePath);
+  return name === "jazz" || name.startsWith("jazz-");
+}
+
+function runningAsJazzBinary(): boolean {
+  return isJazzBinaryPath(process.execPath);
+}
+
 /**
  * The arguments the service needs after the binary.
  *
@@ -118,14 +129,21 @@ interface BridgeConfig extends AccessConfig {
  * this file, which is what bun was given.
  */
 function serviceArgs(): readonly string[] {
-  if (defaultJazzBinary() === process.execPath) return ["imessage"];
+  if (runningAsJazzBinary()) return ["imessage"];
   // Started with `bun`, so the service runs the same script entry point.
   return [join(dirname(fileURLToPath(import.meta.url)), "main.ts")];
 }
 
+/**
+ * The Jazz binary a run is spawned with.
+ *
+ * When the bridge runs inside the Jazz binary, that binary is this process, and
+ * naming it directly beats a PATH lookup that could resolve to a different
+ * install. Under `bun bridge.ts` the executable is bun, which cannot run a Jazz
+ * turn, so that case falls back to the name.
+ */
 function defaultJazzBinary(): string {
-  const executable = process.execPath;
-  return executable.endsWith("/jazz") ? executable : "jazz";
+  return runningAsJazzBinary() ? process.execPath : "jazz";
 }
 
 function envFlag(name: string, defaultOn: boolean): boolean {
@@ -172,7 +190,7 @@ function loadConfig(interactive: boolean): BridgeConfig {
     // process on someone's Mac, where an absolute root path is neither
     // writable nor expected.
     jazzHome: process.env["JAZZ_HOME"]?.trim() || join(homedir(), ".jazz-imessage"),
-    baseAgentId: process.env["JAZZ_IMESSAGE_AGENT"]?.trim() || "imessage",
+    baseAgentId: process.env["JAZZ_IMESSAGE_AGENT"]?.trim() || DEFAULT_BASE_AGENT_ID,
     builtinPersonasDir: process.env["JAZZ_BUILTIN_PERSONAS_DIR"]?.trim() || "",
     approvalPolicy: process.env["JAZZ_APPROVAL_POLICY"]?.trim() || "low-risk",
     autoApproveTools: (process.env["JAZZ_AUTO_APPROVE_TOOLS"]?.trim() || "")
@@ -239,10 +257,11 @@ function writeCursor(dataDir: string, rowId: number): void {
  * path, and an iMessage attachment is already a local file, so there is nothing
  * to download — the one thing this bridge has easier than the others.
  */
-function promptFrom(message: ImsgMessage): string {
+export function promptFrom(message: ImsgMessage, text: string = message.text): string {
   const parts: string[] = [];
   if (message.replyToText !== undefined) parts.push(`[replying to: ${message.replyToText}]`);
-  if (message.text.trim().length > 0) parts.push(message.text.trim());
+  const body = text.trim();
+  if (body.length > 0) parts.push(body);
   for (const attachment of message.attachments) {
     if (attachment.missing) continue;
     parts.push(attachment.convertedPath ?? attachment.originalPath);
@@ -261,17 +280,31 @@ function promptFrom(message: ImsgMessage): string {
  * Two independent guards keep this from looping: the bridge's own sends are
  * recognised and dropped whatever they say, and a reply would additionally have
  * to begin with the trigger to get this far.
+ *
+ * Matched against what was typed, never the composed prompt: a reply prepends
+ * its quoted context, which made replying to anything swallow the message.
  */
+export function questionFromSelfText(
+  text: string,
+  selfTrigger: string | undefined,
+): string | undefined {
+  if (selfTrigger === undefined) return undefined;
+  const typed = text.trim();
+  if (!typed.toLowerCase().startsWith(selfTrigger)) return undefined;
+  const stripped = typed.slice(selfTrigger.length).trim();
+  return stripped.length > 0 ? stripped : undefined;
+}
+
 function selfPrompt(
   config: BridgeConfig,
   surface: IMessageSurface,
-  prompt: string,
+  message: ImsgMessage,
 ): string | undefined {
-  if (surface.wasSentByUs(prompt)) return undefined;
-  if (config.selfTrigger === undefined) return undefined;
-  if (!prompt.toLowerCase().startsWith(config.selfTrigger)) return undefined;
-  const stripped = prompt.slice(config.selfTrigger.length).trim();
-  return stripped.length > 0 ? stripped : undefined;
+  if (surface.wasSentByUs(message.text)) return undefined;
+  const asked = questionFromSelfText(message.text, config.selfTrigger);
+  // The reply context goes back in around the question, so "jazz summarise
+  // this" sent as a reply still reaches the agent with the thing it quoted.
+  return asked === undefined ? undefined : promptFrom(message, asked);
 }
 
 async function handleIncoming(
@@ -283,17 +316,17 @@ async function handleIncoming(
   // A tapback is an event about another message, not a message to answer.
   if (message.isReaction) return;
 
-  const raw = promptFrom(message);
-  if (raw.length === 0) return;
-
   if (message.isFromMe) {
     // No allow-list check: this is the account owner typing on their own Mac,
     // which is the one identity the allow-list exists to establish.
-    const prompt = selfPrompt(config, surface, raw);
+    const prompt = selfPrompt(config, surface, message);
     if (prompt === undefined) return;
     await runner.handle(String(message.chatId), prompt);
     return;
   }
+
+  const raw = promptFrom(message);
+  if (raw.length === 0) return;
 
   const chat = await chatFor(config, message.chatId);
   const decision = decideAccess(config, {
@@ -312,6 +345,17 @@ async function handleIncoming(
 }
 
 /**
+ * Under launchd the binary is its own responsible process, so the grant covers
+ * Jazz alone. From a terminal macOS holds the terminal responsible instead.
+ */
+function grantTarget(): GrantTarget {
+  if (runningUnderLaunchd()) {
+    return { kind: "self", label: "Jazz", path: process.execPath };
+  }
+  return { kind: "launcher", label: terminalAppName(process.env), path: undefined };
+}
+
+/**
  * Make sure `imsg` is installed and can read the message database, offering to
  * install it when a person is there to be asked.
  *
@@ -323,9 +367,7 @@ async function ensureImsgUsable(binary: string): Promise<boolean> {
   const planContext = {
     interactive: process.stdin.isTTY === true,
     homebrewPresent: await homebrewPresent(),
-    // This process's own binary: what launchd hands macOS as the responsible
-    // process, and so what the grant has to name.
-    grantPath: process.execPath,
+    grant: grantTarget(),
   };
   const plan = planInstall(await checkImsg(binary), planContext);
 
@@ -338,11 +380,16 @@ async function ensureImsgUsable(binary: string): Promise<boolean> {
     console.error(plan.message);
     console.error(
       `\nAdd this in System Settings → Privacy & Security → Full Disk Access:\n` +
-        `  ${plan.grantPath}\n`,
+        `  ${plan.grant.path ?? plan.grant.label}\n`,
     );
-    if (await confirm("Open that page and copy the path now?")) {
-      await openFullDiskAccessSettings(plan.grantPath);
-      console.error("\nClick +, press Cmd-Shift-G, paste, then run Jazz again.");
+    const hasPath = plan.grant.path !== undefined;
+    if (await confirm(hasPath ? "Open that page and copy the path now?" : "Open that page now?")) {
+      await openFullDiskAccessSettings(plan.grant.path);
+      console.error(
+        hasPath
+          ? "\nClick +, press Cmd-Shift-G, paste, then run Jazz again."
+          : `\nClick +, pick ${plan.grant.label}, then run Jazz again.`,
+      );
     }
     return false;
   }
@@ -432,6 +479,14 @@ export async function startBridge(): Promise<void> {
   const config = loadConfig(process.stdin.isTTY === true);
 
   if (!(await ensureImsgUsable(config.imsgBinary))) process.exit(1);
+
+  // `--agent` arrives as JAZZ_IMESSAGE_AGENT, so the plist carries it too.
+  if (config.baseAgentId !== DEFAULT_BASE_AGENT_ID) {
+    const userHome = agentStoreDirectory();
+    if (importSeedAgent(userHome, config.jazzHome, config.baseAgentId)) {
+      console.error(`Seeded ${config.baseAgentId} from ${userHome} — your original is untouched.`);
+    }
+  }
 
   if (
     ensureSeedAgent(config.jazzHome, {

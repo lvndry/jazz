@@ -1,10 +1,13 @@
 import { describe, expect, test } from "bun:test";
-import { IMSG_INSTALL_COMMAND, planInstall } from "./install";
+import { type GrantTarget, IMSG_INSTALL_COMMAND, planInstall, terminalAppName } from "./install";
+
+const IN_GHOSTTY: GrantTarget = { kind: "launcher", label: "Ghostty", path: undefined };
+const UNDER_LAUNCHD: GrantTarget = { kind: "self", label: "Jazz", path: "/usr/local/bin/jazz" };
 
 const AT_A_TERMINAL = {
   interactive: true,
   homebrewPresent: true,
-  grantPath: "/opt/homebrew/bin/bun",
+  grant: IN_GHOSTTY,
 };
 
 describe("planInstall", () => {
@@ -30,13 +33,32 @@ describe("planInstall", () => {
     expect(plan.action !== "proceed" && plan.message).toContain("Full Disk Access");
   });
 
-  test("walks a person to the grant, naming the binary macOS holds responsible", () => {
+  test("names the terminal, which is what macOS holds responsible for a run from one", () => {
     const plan = planInstall(
       { available: false, kind: "denied", reason: "authorization denied" },
       AT_A_TERMINAL,
     );
     expect(plan.action).toBe("grant");
-    expect(plan.action === "grant" && plan.grantPath).toBe("/opt/homebrew/bin/bun");
+    expect(plan.action === "grant" && plan.grant.label).toBe("Ghostty");
+    expect(plan.action !== "proceed" && plan.message).toContain("Ghostty");
+  });
+
+  test("does not tell a terminal user to add the Jazz binary, which would do nothing", () => {
+    const plan = planInstall(
+      { available: false, kind: "denied", reason: "authorization denied" },
+      AT_A_TERMINAL,
+    );
+    expect(plan.action === "grant" && plan.grant.path).toBeUndefined();
+    expect(plan.action !== "proceed" && plan.message).toContain("rather than Jazz itself");
+  });
+
+  test("names the binary instead under launchd, where it is its own responsible process", () => {
+    const plan = planInstall(
+      { available: false, kind: "denied", reason: "authorization denied" },
+      { ...AT_A_TERMINAL, grant: UNDER_LAUNCHD },
+    );
+    expect(plan.action === "grant" && plan.grant.path).toBe("/usr/local/bin/jazz");
+    expect(plan.action !== "proceed" && plan.message).toStartWith("Jazz needs Full Disk Access");
   });
 
   test("does not try to open settings where nobody is watching the screen", () => {
@@ -72,5 +94,20 @@ describe("planInstall", () => {
     );
     expect(plan.action).toBe("explain");
     expect(plan.action !== "proceed" && plan.message).toContain("disk I/O error");
+  });
+});
+
+describe("terminalAppName", () => {
+  test("gives the app name a person will recognise in the settings list", () => {
+    expect(terminalAppName({ TERM_PROGRAM: "Apple_Terminal" })).toBe("Terminal");
+    expect(terminalAppName({ TERM_PROGRAM: "ghostty" })).toBe("Ghostty");
+  });
+
+  test("passes an unknown terminal through rather than guessing at it", () => {
+    expect(terminalAppName({ TERM_PROGRAM: "WeirdTerm" })).toBe("WeirdTerm");
+  });
+
+  test("stays vague when nothing says what the terminal is", () => {
+    expect(terminalAppName({})).toBe("your terminal app");
   });
 });

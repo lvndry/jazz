@@ -53,10 +53,13 @@ Two consequences show up in the chat itself:
   protected database and this is the only permission that opens it; the bridge
   points you at the right settings page on first run.
 
-  It is worth granting to the *background service* rather than to your terminal.
-  macOS attributes the access to whatever started the process, so granting it
-  from a terminal covers every command you run there, while the service grants
-  only this bridge. Step 3 below sets that up.
+  The grant names whatever macOS holds **responsible** for the process: your
+  terminal when you run `jazz imessage` in one, the Jazz binary itself under the
+  background service. Adding the binary to the list while running from a
+  terminal does nothing, so the bridge names whichever one actually applies.
+
+  The service is the one worth granting: a terminal grant covers every command
+  you ever run there, the service grants only this bridge. Step 3 sets that up.
 
 - **Automation → Messages** for the same process, granted the first time it
   sends. macOS prompts once.
@@ -78,6 +81,14 @@ That is the whole of it. The first run walks through what it needs — installin
 [`imsg`](https://github.com/openclaw/imsg), granting Full Disk Access, and
 whether to keep running in the background — and nothing is asked before you ask
 for iMessage, which is why none of it happens when you install Jazz.
+
+By default it answers as its own seeded assistant. To use an agent you already
+have, name it — it is copied into the bridge's home, so the original keeps its
+name and stays yours:
+
+```bash
+jazz imessage --agent nostra
+```
 
 With nothing configured it answers only you: text **yourself** `jazz <question>`
 from any of your devices. To let other people in, set their numbers:
@@ -113,7 +124,7 @@ is the same thing.
 | `IMSG_BIN`                        | `imsg`              | Path to the `imsg` binary.                                                                                            |
 | `JAZZ_BIN`                        | `jazz`              | Path to the Jazz binary.                                                                                              |
 | `JAZZ_HOME`                       | `~/.jazz-imessage`  | Data directory: agents, conversations, reminders, usage.                                                              |
-| `JAZZ_IMESSAGE_AGENT`             | `imessage`          | Seed agent every per-chat agent is cloned from.                                                                       |
+| `JAZZ_IMESSAGE_AGENT`             | `imessage`          | Seed agent every per-chat agent is cloned from. `--agent` sets this and copies the agent in. |
 | `JAZZ_APPROVAL_POLICY`            | `low-risk`          | Tier above which tools stop and ask.                                                                                  |
 | `JAZZ_AUTO_APPROVE_TOOLS`         | _(none)_            | Tool names that never prompt, whatever the policy.                                                                    |
 | `JAZZ_RUN_TIMEOUT_MS`             | `300000`            | Per-turn timeout.                                                                                                     |

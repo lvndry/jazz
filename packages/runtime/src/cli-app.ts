@@ -926,9 +926,13 @@ function registerIMessageCommand(program: Command): void {
   const imessageCommand = program
     .command("imessage")
     .description("Chat with your agent from Messages (macOS)")
-    .action(() =>
+    .option(
+      "--agent <id-or-name>",
+      "Seed the bridge from one of your agents, copied into its own home",
+    )
+    .action((options: { agent?: string }) =>
       runPlainAction(() =>
-        import("@jazz/cli/commands/imessage").then((mod) => mod.imessageCommand()),
+        import("@jazz/cli/commands/imessage").then((mod) => mod.imessageCommand(options.agent)),
       ),
     );
 

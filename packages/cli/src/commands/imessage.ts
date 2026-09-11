@@ -9,6 +9,9 @@
  *
  * macOS only, and only where Messages is signed in — so this reports that
  * plainly rather than failing at an unrelated place.
+ *
+ * `--agent` seeds the bridge from an agent you already have. It is copied into
+ * the bridge's own home, so the original keeps its name and stays yours.
  */
 
 import { existsSync } from "node:fs";
@@ -45,10 +48,43 @@ function guiDomain(): string {
  * On its first run it walks through what it needs — the `imsg` CLI, Full Disk
  * Access, and then whether to keep running in the background.
  */
-export async function imessageCommand(): Promise<void> {
+export async function imessageCommand(agent?: string): Promise<void> {
   requireMac();
+  if (agent !== undefined) await selectSeedAgent(agent);
   const { startBridge } = await import("@jazz/imessage-bot/bridge");
   await startBridge();
+}
+
+/**
+ * Resolve `--agent` against your agent store.
+ *
+ * Handed over as JAZZ_IMESSAGE_AGENT so the background service inherits it too
+ * — the plist is built from the environment.
+ */
+async function selectSeedAgent(query: string): Promise<void> {
+  const { agentStoreDirectory, listAgents, matchAgent } =
+    await import("@jazz/imessage-bot/seed-import");
+
+  const home = agentStoreDirectory();
+  const agents = listAgents(home);
+  const match = matchAgent(agents, query);
+  const list = (found: readonly { id: string; name: string }[]): string =>
+    found.map((agent) => `  ${agent.id}  ${agent.name}`).join("\n");
+
+  if (match.kind === "ambiguous") {
+    throw new Error(
+      `More than one agent is called "${query}". Name it by id instead:\n${list(match.matches)}`,
+    );
+  }
+  if (match.kind === "missing") {
+    throw new Error(
+      agents.length === 0
+        ? `No agents in ${home}. Make one with \`jazz create\`.`
+        : `No agent "${query}" in ${home}. There is:\n${list(agents)}`,
+    );
+  }
+
+  process.env["JAZZ_IMESSAGE_AGENT"] = match.id;
 }
 
 export async function imessageStopCommand(): Promise<void> {
