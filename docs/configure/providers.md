@@ -102,6 +102,18 @@ Use `--jinja` when the model should call tools. Jazz reads `/props` for context 
 
 A bare `llama-server` serves the one model loaded at launch and ignores the requested model name, and that model can change between runs. Jazz therefore treats the model chosen at agent creation as a hint: at the start of each run it reads the actually-served model from `/v1/models` and the real context window from `/props`, so the displayed model and context accounting match what the server is running. A pinned `numCtx` still overrides the server-reported window.
 
+## Slow first tokens from local models
+
+Jazz abandons a provider stream that stays silent for `llm.streamIdleTimeoutMs` milliseconds, 120000 by default, and reports `Provider stream produced nothing for 120s and was abandoned`. The timer restarts on every streamed part, so it never caps a long answer, and tools run between streams rather than inside one.
+
+A hosted provider answers well inside two minutes. Ollama or llama.cpp loading a large model from disk and then prefilling a long prompt can legitimately take longer before the first token, so raise the budget for those hosts:
+
+```bash
+jazz config set llm.streamIdleTimeoutMs 600000
+```
+
+`JAZZ_STREAM_IDLE_TIMEOUT_MS` sets the same budget for one process; the saved value wins over it. `llm.ollama.keep_alive` avoids paying the cold start again.
+
 ## Gemini naming
 
 The Jazz provider ID is `gemini`; its SDK and environment variable retain Google's upstream naming. Existing `google` agent and configuration identifiers are migrated to `gemini` when read.

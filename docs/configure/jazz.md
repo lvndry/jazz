@@ -32,6 +32,16 @@ Configuration files are partial overrides, so include only values you intend to 
 
 Use `jazz config show`, `jazz config get <key>`, or `jazz config set <key> <value>` instead of editing JSON when practical.
 
+`jazz config set` stores a value with the type the setting is read back as: `jazz config set maxRetries 5` stores the number `5`, and `jazz config set output.collapseReasoning false` stores the boolean `false`. Text settings such as API keys, paths, `logging.level`, and `llm.ollama.keep_alive` are stored as typed. A value that cannot be read as the setting's type is refused instead of written, because a string in a numeric or boolean field is ignored by everything that reads it:
+
+```console
+$ jazz config set maxRetries never
+❌ Configuration Validation Error
+   Field "maxRetries" expected a whole number, got never
+
+💡 Suggestion: Pass a plain whole number, with no units or quotes — 600000, not 600000ms.
+```
+
 ## Run budgets
 
 | Key                     | Default | Meaning                                                                                                       |

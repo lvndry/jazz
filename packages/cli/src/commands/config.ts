@@ -5,6 +5,11 @@ import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/inter
 import { ink, TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
 import type { LoggingConfig } from "@jazz/core/types/config";
 import { ConfigurationValidationError } from "@jazz/core/types/errors";
+import {
+  type ConfigValue,
+  type ConfigValueType,
+  parseConfigValue,
+} from "@jazz/core/utils/config-value";
 import { sortProvidersForPicker } from "@jazz/core/utils/provider-picker";
 import { Effect } from "effect";
 import React from "react";
@@ -73,6 +78,40 @@ export function getConfigCommand(
 
     yield* terminal.log(JSON.stringify(value, null, 2));
   });
+}
+
+/** What to type instead, for a value the declared type could not read. */
+const VALUE_HINTS: Readonly<Record<ConfigValueType, string>> = {
+  integer: "Pass a plain whole number, with no units or quotes — 600000, not 600000ms.",
+  number: "Pass a plain number, with no units or quotes — 0.8, not 80%.",
+  boolean: "Pass true or false (yes/no, on/off and 1/0 are read too).",
+  "boolean-or-auto": "Pass true, false, or auto.",
+};
+
+/**
+ * Convert one raw CLI string to the type its config path declares, failing the
+ * command when it cannot be read as that type.
+ *
+ * Falling back to the string would be worse than refusing: config.json would
+ * still parse, and every reader of that setting would then ignore it, because
+ * they check for a real number or a real boolean.
+ */
+function typedConfigValue(
+  path: string,
+  raw: string,
+): Effect.Effect<ConfigValue, ConfigurationValidationError> {
+  const parsed = parseConfigValue(path, raw);
+  if (parsed.ok) {
+    return Effect.succeed(parsed.value);
+  }
+  return Effect.fail(
+    new ConfigurationValidationError({
+      field: path,
+      expected: parsed.expected,
+      actual: raw,
+      suggestion: VALUE_HINTS[parsed.type],
+    }),
+  );
 }
 
 /**
@@ -182,9 +221,10 @@ export function setConfigCommand(
         yield* terminal.info("Cancelled — configuration unchanged.");
         return;
       }
-      yield* configService.set(targetKey, answer);
+      const typedAnswer = yield* typedConfigValue(targetKey, answer);
+      yield* configService.set(targetKey, typedAnswer);
       yield* terminal.success(
-        secret ? `Config set: ${targetKey}` : `Config set: ${targetKey} = ${answer}`,
+        secret ? `Config set: ${targetKey}` : `Config set: ${targetKey} = ${String(typedAnswer)}`,
       );
       return;
     }
@@ -208,7 +248,8 @@ export function setConfigCommand(
     }
 
     const settingSecret = isSecretPath(targetKey);
-    yield* configService.set(targetKey, value);
+    const typedValue = yield* typedConfigValue(targetKey, value);
+    yield* configService.set(targetKey, typedValue);
     if (settingSecret && configService.secretStorageUnavailable(targetKey)) {
       yield* terminal.error(
         `Nowhere to store ${targetKey}: there is no usable keyring, and a per-entry token ` +
@@ -218,7 +259,9 @@ export function setConfigCommand(
       return;
     }
     yield* terminal.success(
-      settingSecret ? `Config set: ${targetKey}` : `Config set: ${targetKey} = ${value}`,
+      settingSecret
+        ? `Config set: ${targetKey}`
+        : `Config set: ${targetKey} = ${String(typedValue)}`,
     );
   });
 }
