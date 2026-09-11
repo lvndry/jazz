@@ -15,9 +15,11 @@
  * Runs on Bun. Configuration is entirely environment variables (see README).
  */
 
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { defaultJazzBinary } from "@jazz/bot-shared/jazz-binary";
+import { promptLine } from "@jazz/bot-shared/prompt";
 import { startReminderSweep } from "@jazz/bot-shared/reminder-sweep";
 import { ensureSeedAgent } from "@jazz/bot-shared/seed-agent";
 import { agentStoreDirectory, importSeedAgent } from "@jazz/bot-shared/seed-import";
@@ -37,6 +39,9 @@ const STORE_FILES = {
 
 /** Where inbound attachments are written before the agent is pointed at them. */
 const MEDIA_DIR = "wa-media";
+
+/** How many times to re-ask before giving up on an allow-list. */
+const ALLOW_LIST_ATTEMPTS = 3;
 
 /** The seed agent the bridge makes for itself when `--agent` names none. */
 const DEFAULT_BASE_AGENT_ID = "whatsapp";
@@ -67,19 +72,88 @@ function envFlag(name: string, defaultOn: boolean): boolean {
   return !["0", "false", "off", "no"].includes(raw);
 }
 
-function loadConfig(): BridgeConfig {
-  const allowedNumbers = parseJidList(process.env["WHATSAPP_ALLOWED_NUMBERS"]?.trim() ?? "");
+/** Where an answered allow-list is kept, so the question is asked once. */
+export function allowListPath(jazzHome: string): string {
+  return join(jazzHome, "wa-allowed.json");
+}
+
+/** The saved allow-list, verbatim as it was typed. Empty when there is none. */
+export function readSavedAllowList(jazzHome: string): string {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(allowListPath(jazzHome), "utf8"));
+    const saved = (parsed as { allowedNumbers?: unknown }).allowedNumbers;
+    return typeof saved === "string" ? saved : "";
+  } catch {
+    return "";
+  }
+}
+
+export function saveAllowList(jazzHome: string, answer: string): void {
+  mkdirSync(jazzHome, { recursive: true });
+  // Stored as typed rather than normalised, so the file stays editable by hand.
+  writeFileSync(
+    allowListPath(jazzHome),
+    `${JSON.stringify({ allowedNumbers: answer }, null, 2)}\n`,
+    {
+      mode: 0o600,
+    },
+  );
+}
+
+/**
+ * Ask whose messages the agent should answer.
+ *
+ * Only ever called with a terminal attached. Refusing to start is right when
+ * nobody is there to be asked, but in front of a person it is just a question
+ * with an obvious answer, so it gets asked instead of printed as an error.
+ */
+async function askForAllowList(jazzHome: string): Promise<string> {
+  console.error(
+    "\nNo one is allowed to write to this agent yet.\n" +
+      "WhatsApp answers on a number anyone can reach, so the bridge needs to know whose\n" +
+      "messages to take. Everyone else is ignored.\n",
+  );
+
+  for (let attempt = 0; attempt < ALLOW_LIST_ATTEMPTS; attempt += 1) {
+    const answer = await promptLine(
+      "Whose messages should it answer? Comma-separated, international form\n" +
+        "(e.g. +15551234567):",
+    );
+    if (parseJidList(answer).size > 0) {
+      saveAllowList(jazzHome, answer);
+      console.error(
+        `\nSaved to ${allowListPath(jazzHome)}. Edit or delete that file to change it.\n`,
+      );
+      return answer;
+    }
+    console.error("That has no number in it. Write them in international form, e.g. +15551234567.");
+  }
+
+  throw new Error("No allow-list given, so the bridge will not start.");
+}
+
+async function loadConfig(interactive: boolean): Promise<BridgeConfig> {
+  const jazzHome = process.env["JAZZ_HOME"]?.trim() || join(homedir(), ".jazz-whatsapp");
+
+  // The environment wins, then whatever a previous run was told, then a person.
+  let allowedNumbers = parseJidList(process.env["WHATSAPP_ALLOWED_NUMBERS"]?.trim() ?? "");
   const allowedGroups = parseJidList(process.env["WHATSAPP_ALLOWED_GROUPS"]?.trim() ?? "");
 
   if (allowedNumbers.size === 0 && allowedGroups.size === 0) {
-    throw new Error(
-      "WHATSAPP_ALLOWED_NUMBERS is empty. This bridge answers on a phone number that " +
-        "anyone can write to, so it refuses to start without an allow-list. Set it to a " +
-        "comma-separated list of numbers in international form, e.g. +15551234567.",
-    );
+    allowedNumbers = parseJidList(readSavedAllowList(jazzHome));
   }
 
-  const jazzHome = process.env["JAZZ_HOME"]?.trim() || join(homedir(), ".jazz-whatsapp");
+  if (allowedNumbers.size === 0 && allowedGroups.size === 0) {
+    if (!interactive) {
+      throw new Error(
+        "WHATSAPP_ALLOWED_NUMBERS is empty, and there is no terminal to ask. This bridge " +
+          "answers on a phone number that anyone can write to, so it will not start without " +
+          "an allow-list. Set it to a comma-separated list of numbers in international form, " +
+          "e.g. +15551234567, or run `jazz whatsapp` once from a terminal.",
+      );
+    }
+    allowedNumbers = parseJidList(await askForAllowList(jazzHome));
+  }
 
   return {
     allowedNumbers,
@@ -181,7 +255,7 @@ async function handleIncoming(
 }
 
 export async function startBridge(): Promise<void> {
-  const config = loadConfig();
+  const config = await loadConfig(process.stdin.isTTY === true);
 
   /**
    * Where inbound messages go once everything is wired.

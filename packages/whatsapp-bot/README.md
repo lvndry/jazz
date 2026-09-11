@@ -38,10 +38,14 @@ this bridge does not use it.
 ## Quick start
 
 ```bash
-WHATSAPP_ALLOWED_NUMBERS="+15551234567" \
-OPENAI_API_KEY=sk-… \
-jazz whatsapp
+OPENAI_API_KEY=sk-… jazz whatsapp
 ```
+
+On the first run it asks whose messages the agent should answer, and remembers
+the answer in `wa-allowed.json` under its home. Set
+`WHATSAPP_ALLOWED_NUMBERS="+15551234567,+33123456789"` instead to skip the
+question — which is what you want on a server, where the bridge refuses to start
+rather than ask a terminal that is not there.
 
 To answer as an agent you already have rather than a fresh assistant, name it —
 it is copied into the bridge's home, so the original keeps its name and stays
@@ -66,7 +70,7 @@ Anything that can read that directory can act as the account.
 
 | Variable                             | Default                | What it does                                                                                        |
 | ------------------------------------ | ---------------------- | ----------------------------------------------------------------------------------------------------- |
-| `WHATSAPP_ALLOWED_NUMBERS`           | _(required)_           | Comma-separated numbers allowed to DM the agent. Written however you like; compared as digits.        |
+| `WHATSAPP_ALLOWED_NUMBERS`           | _(asked on first run)_ | Comma-separated numbers allowed to DM the agent. Written however you like; compared as digits. |
 | `WHATSAPP_ALLOWED_GROUPS`            | _(none)_               | Comma-separated group JIDs the agent will speak in. Being allowed to DM does **not** admit you here.  |
 | `WHATSAPP_REQUIRE_MENTION_IN_GROUPS` | on                     | In an allowed group, only answer when @-mentioned or replied to. Turning this off makes it answer everything. |
 | `WHATSAPP_PAIR_NUMBER`               | _(none)_               | Link by 8-character code instead of QR. The account's own number.                                     |
