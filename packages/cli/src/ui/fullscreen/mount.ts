@@ -17,6 +17,7 @@ import { createCliRenderer, type CliRenderer } from "@opentui/core";
 import { stripAnsiCodes } from "@/cli/utils/string-utils";
 import { MIN_HEIGHT, MIN_WIDTH } from "./types";
 import { store } from "../store";
+import type { OutputEntry } from "../types";
 
 /** Why the fullscreen interface declined to start, when it does. */
 export type PlainReason =
@@ -235,32 +236,51 @@ export function transcriptTextForForeignWrite(chunk: string): string | null {
  * is by definition somebody else's output. It goes to the transcript, where it
  * is visible instead of destructive — nothing is swallowed.
  */
-function guardStdout(): () => void {
-  const stdout = process.stdout;
-  const original = stdout.write.bind(stdout);
+function guardOutput(renderer: CliRenderer): () => void {
   let reentrant = false;
 
-  stdout.write = (chunk: unknown, encoding?: unknown, callback?: unknown) => {
-    const passthrough = (): boolean =>
-      (original as (...args: readonly unknown[]) => boolean)(chunk, encoding, callback);
-    if (reentrant) return passthrough();
+  const guard = (
+    stream: NodeJS.WriteStream,
+    entry: (message: string) => OutputEntry,
+  ): (() => void) => {
+    const original = stream.write.bind(stream);
+    stream.write = (chunk: unknown, encoding?: unknown, callback?: unknown) => {
+      const passthrough = (): boolean =>
+        (original as (...args: readonly unknown[]) => boolean)(chunk, encoding, callback);
+      // Once the renderer is gone the screen is the shell's again and writing to
+      // it is the correct thing to do — which is what makes a crash message,
+      // printed after OpenTUI's own handlers destroy the renderer, still arrive.
+      if (reentrant || renderer.isDestroyed) return passthrough();
 
-    const line = transcriptTextForForeignWrite(typeof chunk === "string" ? chunk : String(chunk));
-    if (line === null) return passthrough();
+      const line = transcriptTextForForeignWrite(typeof chunk === "string" ? chunk : String(chunk));
+      if (line === null) return passthrough();
 
-    reentrant = true;
-    try {
-      store.printOutput({ type: "log", message: line, timestamp: new Date() });
-    } finally {
-      reentrant = false;
-    }
-    const done = typeof encoding === "function" ? encoding : callback;
-    if (typeof done === "function") process.nextTick(done);
-    return true;
+      reentrant = true;
+      try {
+        store.printOutput(entry(line));
+      } finally {
+        reentrant = false;
+      }
+      const done = typeof encoding === "function" ? encoding : callback;
+      if (typeof done === "function") process.nextTick(done);
+      return true;
+    };
+
+    return () => {
+      stream.write = original;
+    };
   };
 
+  const restore = [
+    guard(process.stdout, (message) => ({ type: "log", message, timestamp: new Date() })),
+    // stderr is not the rarer case it looks: the AI SDK's warning banner goes
+    // through `console.error` by deliberate choice (see runtime/src/main.ts),
+    // and stderr paints the alternate screen exactly as stdout does.
+    guard(process.stderr, (message) => ({ type: "warn", message, timestamp: new Date() })),
+  ];
+
   return () => {
-    stdout.write = original;
+    for (const undo of restore) undo();
   };
 }
 
@@ -284,7 +304,7 @@ export async function mountFullscreen(): Promise<MountedRenderer> {
   });
 
   const release = installTerminalLifecycle(renderer);
-  const stopGuard = guardStdout();
+  const stopGuard = guardOutput(renderer);
 
   renderer.start();
   return {
