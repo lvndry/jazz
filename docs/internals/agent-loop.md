@@ -58,8 +58,11 @@ flowchart TD
 
     TRACK --> MELT{"<b>Meltdown?</b><br/>unique keys / 10 &lt; 40%"}
     MELT -->|yes| INJECT["Inject recovery message:<br/>'stop, summarize, try a<br/>different strategy'<br/>reset the window"]
-    MELT -->|no| EXEC
-    INJECT --> EXEC
+    MELT -->|no| DEDUPE
+    INJECT --> DEDUPE
+
+    DEDUPE["<b>Collapse duplicates</b><br/>identical read-only calls<br/>in this batch run once"]
+    DEDUPE --> EXEC
 
     EXEC["<b>Execute</b><br/>≤10 concurrent, each forked<br/>3-min default timeout<br/>approval-gated per tool"]
     EXEC --> VALIDATE{"Every call<br/>got a result?"}
@@ -181,6 +184,29 @@ and the agent should keep remembering that its last approach didn't work.
 
 ---
 
+## Guard 3 — duplicate calls within one batch
+
+Meltdown detection watches repetition *across* turns, and can only react once a window of
+10 has filled. It says nothing about a single assistant turn that asks for the same file
+three times at once — a real shape, seen in practice as three identical `read_file` calls
+and two identical `package.json` ones inside one parallel batch, all dispatched in the same
+millisecond.
+
+So before the batch runs, byte-identical calls are collapsed: keyed on `name:arguments`,
+exactly like meltdown detection, the first occurrence executes and the rest reuse its
+result. The saving is doubled — the tool runs once instead of N times, and its output enters
+context once instead of N times.
+
+**Only `read-only` tools are collapsed.** Two identical mutating calls could legitimately be
+two separate effects, and guessing wrong there destroys work rather than saving it. A
+read-only call repeated with identical arguments cannot mean two different things.
+
+Nothing leaves the transcript. Providers require one `role: "tool"` message per
+`tool_call_id`, so collapsed calls are mapped onto the surviving call's result and every id
+still gets its message — the model sees the batch it asked for.
+
+---
+
 ## Streaming vs batch
 
 The loop is shared. Only how it talks to the model and renders output differs, expressed
@@ -238,6 +264,7 @@ Two details worth noting:
 | `Sending LLM request`                           | Top of an iteration — includes iteration number, message count, tool count |
 | `Agent decided to use tools`                    | Tool phase starting, with the chosen tool names                            |
 | `Meltdown detected — injecting recovery signal` | Guard 2 fired; the agent was looping                                       |
+| `Collapsed duplicate tool calls in batch`       | Guard 3 fired; identical read-only calls in one batch ran once            |
 | `Compacting context`                            | Crossed 80% of the window; a summary is being produced                     |
 | `Tool timeout: <name>`                          | A tool exceeded its timeout; returned as a failed result, not a crash      |
 | `Agent provided final response`                 | Loop exiting normally                                                      |
