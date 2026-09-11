@@ -146,7 +146,21 @@ export interface LifecycleProcess {
  * normal quit, where the wizard ends on `process.exit(0)` and Effect's
  * finalizers (which is where the terminal cleanup lives) never run.
  *
- * Exit listeners may only do synchronous work; `destroy()` is synchronous.
+ * Both job-control handlers check `isDestroyed` as well as `released`, because
+ * OpenTUI destroys the renderer from its own signal handlers without telling us:
+ * `exitHandler` is just `destroy()`, and it does not exit the process, so a
+ * first Ctrl+C leaves a destroyed renderer while jazz runs its graceful
+ * shutdown. `destroy()` also restores ISIG, so a ^Z in that window arrives as a
+ * real SIGTSTP. Neither `suspend()` nor `resume()` checks `isDestroyed` itself,
+ * and `destroy()` does not null `rendererPtr` — so an unguarded handler would
+ * call into a freed renderer, and `resume()` would re-enter raw mode and start
+ * the terminal keep-alive with no TUI left to run.
+ *
+ * Exit listeners may only do synchronous work. `destroy()` is synchronous here
+ * because it defers to `finalizeDestroy()` only while `rendering` is true, which
+ * needs a registered frame callback, and jazz registers none. Were that to
+ * change, the deferred path still runs `cleanupBeforeDestroy()` — which is what
+ * disables mouse reporting — so only the alternate-screen restore would be lost.
  */
 export function installTerminalLifecycle(
   renderer: LifecycleRenderer,
@@ -155,13 +169,13 @@ export function installTerminalLifecycle(
   let released = false;
 
   const onSuspend = (): void => {
-    if (released) return;
+    if (released || renderer.isDestroyed) return;
     renderer.resetTerminalBgColor();
     renderer.suspend();
     runtime.kill(runtime.pid, "SIGSTOP");
   };
   const onContinue = (): void => {
-    if (released) return;
+    if (released || renderer.isDestroyed) return;
     renderer.resume();
     renderer.requestRender();
   };

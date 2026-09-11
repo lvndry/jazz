@@ -75,15 +75,17 @@ describe("mountFullscreenApp", () => {
 describe("installTerminalLifecycle", () => {
   function stubRuntime() {
     const listeners = new Map<string, () => void>();
+    const kills: string[] = [];
     return {
       listeners,
+      kills,
       runtime: {
         pid: 1,
         on: (event: string, listener: () => void) => listeners.set(event, listener),
         off: (event: string, listener: () => void) => {
           if (listeners.get(event) === listener) listeners.delete(event);
         },
-        kill: () => true,
+        kill: (_pid: number, signal: string) => kills.push(signal),
       },
     };
   }
@@ -137,6 +139,28 @@ describe("installTerminalLifecycle", () => {
     expect(listeners.size).toBe(0);
   });
 
+  test("hands the terminal back on suspend and re-enters on continue", () => {
+    const { listeners, kills, runtime } = stubRuntime();
+    const { calls, renderer } = stubRenderer();
+
+    installTerminalLifecycle(renderer, runtime);
+
+    // Asserted before the handlers run: reading them with `get(...)?.()` and
+    // checking for zero calls would pass just as well if the registrations were
+    // dropped altogether, which is how job control could regress unnoticed.
+    expect(listeners.has("SIGTSTP")).toBe(true);
+    expect(listeners.has("SIGCONT")).toBe(true);
+
+    listeners.get("SIGTSTP")?.();
+    expect(calls.suspend).toBe(1);
+    // The stop has to come after the terminal is handed back, or the shell
+    // resumes into a screen the renderer still owns.
+    expect(kills).toEqual(["SIGSTOP"]);
+
+    listeners.get("SIGCONT")?.();
+    expect(calls.resume).toBe(1);
+  });
+
   test("ignores job-control signals once released", () => {
     const { listeners, runtime } = stubRuntime();
     const { calls, renderer } = stubRenderer();
@@ -144,11 +168,34 @@ describe("installTerminalLifecycle", () => {
     const release = installTerminalLifecycle(renderer, runtime);
     const onSuspend = listeners.get("SIGTSTP");
     const onContinue = listeners.get("SIGCONT");
+    expect(onSuspend).toBeDefined();
+    expect(onContinue).toBeDefined();
     release();
     onSuspend?.();
     onContinue?.();
 
     expect(calls.suspend).toBe(0);
     expect(calls.resume).toBe(0);
+  });
+
+  test("ignores job-control signals when the renderer was destroyed elsewhere", () => {
+    const { listeners, kills, runtime } = stubRuntime();
+    const { calls, renderer } = stubRenderer();
+
+    installTerminalLifecycle(renderer, runtime);
+
+    // OpenTUI's own exit handler is just `destroy()`, and it does not exit the
+    // process — so a first Ctrl+C leaves a destroyed renderer while jazz runs
+    // its graceful shutdown, with `release` never called. `suspend()` and
+    // `resume()` do not check `isDestroyed`, and `destroy()` leaves
+    // `rendererPtr` dangling, so acting here would call into a freed renderer.
+    renderer.destroy();
+
+    listeners.get("SIGTSTP")?.();
+    listeners.get("SIGCONT")?.();
+
+    expect(calls.suspend).toBe(0);
+    expect(calls.resume).toBe(0);
+    expect(kills).toEqual([]);
   });
 });
