@@ -152,5 +152,10 @@
   "type": "module",
   "workspaces": [
     "packages/*"
-  ]
+  ],
+  "dependencies": {
+    "@grpc/grpc-js": "^1.14.4",
+    "nice-grpc": "^2.1.17",
+    "nice-grpc-common": "^2.0.4"
+  }
 }

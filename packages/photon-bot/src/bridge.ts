@@ -240,41 +240,47 @@ async function loadConfig(interactive: boolean): Promise<BridgeConfig> {
 }
 
 /**
- * What line the agent answers on, straight from Photon's management API.
+ * The number to text to reach the agent, straight from Photon's management API.
  *
- * Worth one request at startup because the failure it catches is silent: with
- * no line and no registered user the message stream simply ends, and the bridge
- * sits there looking connected while nothing can ever reach it.
+ * Worth one request at startup because there is otherwise no way to find it: on
+ * a shared plan the line is assigned per registered user, so it is a property
+ * of whoever is allowed to write rather than of the project. Without it the
+ * bridge sits there connected and you have nothing to text.
  *
  * Best-effort - a management API that is down should not stop a bridge whose
  * message stream is fine.
  */
 async function describeLines(config: BridgeConfig): Promise<string> {
-  const auth = Buffer.from(`${config.projectId}:${config.projectSecret}`).toString("base64");
-  const at = async (path: string): Promise<unknown> => {
-    const response = await fetch(
-      `https://spectrum.photon.codes/projects/${config.projectId}/${path}/`,
-      { headers: { authorization: `Basic ${auth}` } },
-    );
-    if (!response.ok) throw new Error(`${path}: ${String(response.status)}`);
-    return response.json();
-  };
+  interface PhotonUser {
+    readonly phoneNumber?: string;
+    readonly assignedPhoneNumber?: string;
+  }
 
   try {
-    const lines = (await at("lines")) as { data?: { lines?: readonly { phone?: string }[] } };
-    const numbers = (lines.data?.lines ?? []).map((line) => line.phone).filter(Boolean);
-    if (numbers.length > 0) return `Text ${numbers.join(", ")} to reach it.`;
+    const auth = Buffer.from(`${config.projectId}:${config.projectSecret}`).toString("base64");
+    const response = await fetch(
+      `https://spectrum.photon.codes/projects/${config.projectId}/users/`,
+      { headers: { authorization: `Basic ${auth}` } },
+    );
+    if (!response.ok) throw new Error(String(response.status));
 
-    const users = (await at("users")) as { data?: { total?: number } };
-    if ((users.data?.total ?? 0) > 0) return "No dedicated line; your plan assigns one per user.";
+    const body = (await response.json()) as { data?: { users?: readonly PhotonUser[] } };
+    const lines = (body.data?.users ?? [])
+      .filter((user) => user.assignedPhoneNumber !== undefined)
+      .map((user) =>
+        user.phoneNumber === undefined
+          ? `text ${String(user.assignedPhoneNumber)}`
+          : `${user.phoneNumber} texts ${String(user.assignedPhoneNumber)}`,
+      );
 
+    if (lines.length > 0) return `Reach it here: ${lines.join("; ")}.`;
     return (
-      "No line and no registered user yet, so nothing can reach this agent.\n" +
-      "Finish setup at https://app.photon.codes - register the number you will text\n" +
-      "from, and Photon assigns the line to text it on."
+      "No line assigned yet, so nothing can reach this agent.\n" +
+      "Register the number you will text from at https://app.photon.codes and Photon\n" +
+      "assigns the line to text it on."
     );
   } catch {
-    return "Could not read the project's lines; carrying on.";
+    return "Could not read the project's assigned lines; carrying on.";
   }
 }
 
