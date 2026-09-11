@@ -16,6 +16,13 @@
  * at most `MAX_SESSIONS_SCANNED` files, at most `MAX_BYTES_PER_SESSION` of each,
  * preferring a session's head (for its title) and its tail (its recent turns).
  *
+ * What it does not do is pay that bound twice for the same bytes. Each log's
+ * parsed, normalized lines are kept and reused until its mtime or size moves
+ * (see `preparedCache`), so a query that grows one character at a time
+ * re-matches rather than re-reads. That is a cache over the scan, not an
+ * index beside the log: it is derived from the file, it is checked against the
+ * file, and losing it costs one slower keystroke.
+ *
  * Deliberately plain async rather than Effect: the shape below is fixed by the
  * interface that renders it, it is called on every keystroke of the search
  * overlay, and it reads with byte offsets that `FileSystem` would only make
@@ -164,6 +171,8 @@ function toRenderableLine(
 interface ScannedConversation {
   readonly filePath: string;
   readonly modifiedAtMs: number;
+  /** Paired with `modifiedAtMs` to decide whether a prepared log is still current. */
+  readonly sizeBytes: number;
 }
 
 /**
@@ -200,7 +209,7 @@ async function listCandidates(
       try {
         const info = await fsp.stat(filePath);
         if (!info.isFile()) continue;
-        conversations.push({ filePath, modifiedAtMs: info.mtimeMs });
+        conversations.push({ filePath, modifiedAtMs: info.mtimeMs, sizeBytes: info.size });
       } catch {
         continue;
       }
@@ -222,7 +231,7 @@ async function statConversation(filePath: string): Promise<ScannedConversation |
   try {
     const info = await fsp.stat(filePath);
     if (!info.isFile()) return null;
-    return { filePath, modifiedAtMs: info.mtimeMs };
+    return { filePath, modifiedAtMs: info.mtimeMs, sizeBytes: info.size };
   } catch {
     return null;
   }
@@ -302,9 +311,100 @@ function readConversationContent(content: string): ConversationContent | null {
   return { ...header, title: deriveConversationTitle(title, messages), texts };
 }
 
+/**
+ * One conversation's searchable text, in the order hits are collected from it.
+ *
+ * Lines arrive normalized — whitespace-collapsed, trimmed, empties dropped —
+ * because that is the form both the matcher and the renderer need, and
+ * running that regex over every line of every candidate is the single most
+ * expensive step of a scan. Newest message first, since in a transcript the
+ * most recent mention is the one the reader is usually looking for.
+ */
+interface PreparedConversation {
+  readonly agentId: string;
+  readonly conversationId: string;
+  readonly title: string;
+  readonly lines: readonly string[];
+}
+
+/**
+ * Prepared logs, keyed by path and validated against the file's mtime and size.
+ *
+ * The overlay calls `search` on every keystroke, and between two keystrokes
+ * the corpus has not changed — only the query has. Reading, JSON-parsing and
+ * normalizing every candidate again for each character is most of what a scan
+ * costs, and all of it is the same work; keeping the prepared form leaves only
+ * the matching to repeat. A log that has been appended to since — the live
+ * conversation, every turn — changes both mtime and size and is prepared
+ * afresh rather than answered stale.
+ *
+ * Bounded by the number of logs one query may scan, each itself bounded by
+ * `MAX_BYTES_PER_SESSION`, so the cache cannot outgrow what a single search
+ * was already willing to read.
+ */
+const preparedCache = new Map<
+  string,
+  {
+    readonly modifiedAtMs: number;
+    readonly sizeBytes: number;
+    /** `null` for a log with no header event: nothing searchable, and worth not re-reading. */
+    readonly prepared: PreparedConversation | null;
+  }
+>();
+
+function prepareConversation(content: ConversationContent): PreparedConversation {
+  const lines: string[] = [];
+  for (let index = content.texts.length - 1; index >= 0; index--) {
+    const text = content.texts[index];
+    if (text === undefined) continue;
+    for (const rawLine of text.split("\n")) {
+      const line = normalizeLine(rawLine);
+      if (line.length === 0) continue;
+      lines.push(line);
+    }
+  }
+  return {
+    agentId: content.agentId,
+    conversationId: content.conversationId,
+    title: content.title,
+    lines,
+  };
+}
+
+async function preparedFor(
+  conversation: ScannedConversation,
+): Promise<PreparedConversation | null> {
+  const cached = preparedCache.get(conversation.filePath);
+  if (
+    cached !== undefined &&
+    cached.modifiedAtMs === conversation.modifiedAtMs &&
+    cached.sizeBytes === conversation.sizeBytes
+  ) {
+    return cached.prepared;
+  }
+
+  const content = readConversationContent(await readCappedLog(conversation.filePath));
+  const prepared = content === null ? null : prepareConversation(content);
+  preparedCache.set(conversation.filePath, {
+    modifiedAtMs: conversation.modifiedAtMs,
+    sizeBytes: conversation.sizeBytes,
+    prepared,
+  });
+
+  // Map iterates in insertion order, so this drops the longest-held entries.
+  if (preparedCache.size > MAX_SESSIONS_SCANNED) {
+    for (const key of preparedCache.keys()) {
+      preparedCache.delete(key);
+      if (preparedCache.size <= MAX_SESSIONS_SCANNED) break;
+    }
+  }
+
+  return prepared;
+}
+
 function collectHits(
   conversation: ScannedConversation,
-  content: ConversationContent,
+  prepared: PreparedConversation,
   needle: readonly string[],
   lowercaseQuery: string,
   options: { readonly nowMs: number; readonly currentPath?: string; readonly budget: number },
@@ -313,34 +413,27 @@ function collectHits(
   const when = formatRelativeWhen(conversation.modifiedAtMs, options.nowMs);
   const current = conversation.filePath === options.currentPath;
 
-  // Newest turn first: in a transcript the most recent mention is the one the
-  // reader is usually looking for.
-  for (let index = content.texts.length - 1; index >= 0; index--) {
-    const text = content.texts[index];
-    if (text === undefined) continue;
-    for (const rawLine of text.split("\n")) {
-      if (hits.length >= options.budget) return hits;
-      const line = normalizeLine(rawLine);
-      if (line.length === 0) continue;
-      // Cheap reject before the per-code-point walk.
-      if (!line.toLowerCase().includes(lowercaseQuery)) continue;
+  // Already newest-turn-first and normalized; all that is left is the query.
+  for (const line of prepared.lines) {
+    if (hits.length >= options.budget) return hits;
+    // Cheap reject before the per-code-point walk.
+    if (!line.toLowerCase().includes(lowercaseQuery)) continue;
 
-      const chars = [...line];
-      const matchStart = findCodePointMatch(chars, needle);
-      if (matchStart < 0) continue;
+    const chars = [...line];
+    const matchStart = findCodePointMatch(chars, needle);
+    if (matchStart < 0) continue;
 
-      const renderable = toRenderableLine(chars, matchStart, needle.length);
-      hits.push({
-        agentId: content.agentId,
-        conversationId: content.conversationId,
-        conversationTitle: content.title,
-        when,
-        line: renderable.line,
-        matchStart: renderable.matchStart,
-        matchLength: renderable.matchLength,
-        current,
-      });
-    }
+    const renderable = toRenderableLine(chars, matchStart, needle.length);
+    hits.push({
+      agentId: prepared.agentId,
+      conversationId: prepared.conversationId,
+      conversationTitle: prepared.title,
+      when,
+      line: renderable.line,
+      matchStart: renderable.matchStart,
+      matchLength: renderable.matchLength,
+      current,
+    });
   }
   return hits;
 }
@@ -387,10 +480,10 @@ export async function search(query: string, options: SearchOptions): Promise<Sea
   const hits: SearchHit[] = [];
   for (const conversation of candidates) {
     if (hits.length >= limit) break;
-    const content = readConversationContent(await readCappedLog(conversation.filePath));
-    if (!content) continue;
+    const prepared = await preparedFor(conversation);
+    if (!prepared) continue;
     hits.push(
-      ...collectHits(conversation, content, needle, lowercaseQuery, {
+      ...collectHits(conversation, prepared, needle, lowercaseQuery, {
         nowMs,
         ...(currentPath === undefined ? {} : { currentPath }),
         budget: limit - hits.length,
