@@ -18,12 +18,12 @@
  * An unnamed tool is absent, not merely unapproved.
  */
 
-import { Effect } from "effect";
-import {
-  ToolRegistryTag,
-  type ToolDisclosure,
-  type ToolRegistry,
-} from "@/core/interfaces/tool-registry";
+// Types only, deliberately. This module is imported by `types/peer`, which the CLI's
+// Commander tree imports for its tier constants — so anything with a runtime import here
+// lands in the startup graph of every invocation, `jazz --version` included. Effect and the
+// tool registry cost about 150ms to evaluate, which is why the one function that needs them
+// lives in `./resolve-tool-allowlist` instead of here.
+import type { ToolDisclosure } from "@/core/interfaces/tool-registry";
 
 /**
  * How much an external caller may learn — literally the {@link ToolDisclosure} levels a
@@ -98,35 +98,4 @@ export function allowedToolsForTier(
         : allowSet.has(tool.name),
     )
     .map((tool) => tool.name);
-}
-
-/**
- * {@link allowedToolsForTier} against the live registry, which is what both doors actually
- * want: the tier and the grant come from config, the risk and disclosure of each tool come
- * from whatever is registered in this process.
- */
-export function resolveToolAllowlist(
-  tier: string,
-  allow: readonly string[],
-): Effect.Effect<readonly string[], never, ToolRegistry> {
-  return Effect.gen(function* () {
-    const registry = yield* ToolRegistryTag;
-    const names = yield* registry.listTools();
-    const described: TierCandidateTool[] = [];
-    for (const name of names) {
-      const tool = yield* registry.getTool(name).pipe(
-        // A name the registry listed but will not hand over cannot be reasoned about, so it
-        // is left out rather than admitted unexamined.
-        Effect.catchAll(() => Effect.succeed(undefined)),
-      );
-      if (tool === undefined) continue;
-      described.push({
-        name,
-        riskLevel: tool.riskLevel,
-        disclosure: tool.disclosure,
-        egress: tool.egress,
-      });
-    }
-    return allowedToolsForTier(tier, allow, described);
-  });
 }

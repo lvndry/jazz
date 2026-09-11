@@ -6,10 +6,10 @@ import {
   allowedToolsForTier,
   DISCLOSURE_TIERS,
   isDisclosureTier,
-  resolveToolAllowlist,
   type DisclosureTier,
   type TierCandidateTool,
 } from "./disclosure-tier";
+import { resolveToolAllowlist } from "./resolve-tool-allowlist";
 
 /** A slice of the real registry: one tool per interesting combination. */
 const TOOLS: readonly TierCandidateTool[] = [

@@ -1,40 +1,18 @@
-// Session resume (--continue) parses and reduces the whole JSONL log before
-// the first prompt renders — this is the startup tax of a long-lived session.
-import { PROSE_PARAGRAPH } from "./corpus";
+// Session resume (--continue) parses and reduces the whole JSONL log, then
+// replays the surviving messages into the scrollback store, all before the
+// first prompt renders — this is the startup tax of a long-lived session.
+import { conversationLogContent } from "./corpus";
 import { bench, report } from "./harness";
 import {
   parseConversationLog,
   reduceConversationLog,
 } from "../packages/adapters/src/history/conversation-log";
+import { outputEntriesFromHistory } from "../packages/cli/src/ui/hydrate-transcript";
 
-function logContent(eventCount: number): string {
-  const lines: string[] = [
-    JSON.stringify({
-      type: "conversation",
-      version: 2,
-      agentId: "agent-1",
-      conversationId: "conv-1",
-      startedAt: new Date(0).toISOString(),
-    }),
-  ];
-  for (let index = 0; index < eventCount; index += 1) {
-    lines.push(
-      JSON.stringify({
-        type: "message",
-        at: new Date(index * 1000).toISOString(),
-        message: {
-          role: index % 2 === 0 ? "user" : "assistant",
-          content: index % 4 === 3 ? PROSE_PARAGRAPH.repeat(5) : `message ${String(index)}`,
-        },
-      }),
-    );
-  }
-  return lines.join("\n");
-}
-
-const smallLog = logContent(50);
-const largeLog = logContent(5_000);
+const smallLog = conversationLogContent(50);
+const largeLog = conversationLogContent(5_000);
 const largeEvents = parseConversationLog(largeLog);
+const largeMessages = reduceConversationLog(largeEvents)?.messages ?? [];
 
 const results = [
   bench("parseConversationLog, 50 events", () => {
@@ -49,6 +27,11 @@ const results = [
   ),
   bench("reduceConversationLog, 5000 events", () => {
     reduceConversationLog(largeEvents);
+  }),
+  // The last leg of resume: reduced history becomes scrollback entries. The
+  // store write itself is `store-writes`; this is the mapping in front of it.
+  bench("outputEntriesFromHistory, 5000 messages", () => {
+    outputEntriesFromHistory(largeMessages);
   }),
 ];
 

@@ -77,6 +77,27 @@ const MESSAGE_BASE_OVERHEAD = 4;
 const TOOL_RESULT_OVERHEAD = 10;
 
 /** Smoothing factor applied to new observations during calibration. */
+/**
+ * Characters of already-counted text one counter keeps BPE results for.
+ *
+ * Sized to hold a long conversation's worth of message bodies (a full context
+ * window of text is on the order of a megabyte) without becoming a place
+ * where a run's memory quietly accumulates. Keys are the callers' own
+ * strings, so this bounds retention, not copying.
+ */
+const BPE_CACHE_MAX_CHARS = 4_000_000;
+
+/**
+ * True for families counted with a real tokenizer rather than a ratio.
+ *
+ * Two things follow from it: the count is exact and cacheable by text, and it
+ * does not depend on the calibrated ratio — so calibration has nothing to
+ * invalidate for these models.
+ */
+function isTokenizerBacked(family: ModelFamily): boolean {
+  return family === "openai-o200k" || family === "openai-cl100k";
+}
+
 const CALIBRATION_SMOOTHING = 0.7;
 /** Lower bound on calibrated chars-per-token (anything lower is an accounting bug). */
 const RATIO_MIN = 2.0;
@@ -166,6 +187,26 @@ export class TokenCounter {
   private messageCache = new WeakMap<ChatMessage, number>();
 
   /**
+   * BPE results for text already counted, per family, keyed by the text itself.
+   *
+   * `messageCache` above is keyed by message *reference*, which is the right
+   * cache for a steady conversation — the same objects come back turn after
+   * turn. It misses exactly when the objects are new but their text is not:
+   * resuming a session parses every message fresh out of the log, and
+   * compaction rebuilds history around a summary. Both then re-tokenize a
+   * whole conversation that was already tokenized, and for OpenAI families
+   * that is a real BPE pass rather than a division.
+   *
+   * Keyed on `text`, this stays correct without invalidation: the BPE branch
+   * is a pure function of (text, family), and calibration only moves the ratio
+   * used by the other branch. Keys are the caller's own strings, so nothing is
+   * copied; `bpeCacheChars` bounds what the map keeps alive after the caller
+   * lets go.
+   */
+  private bpeCaches = new Map<ModelFamily, Map<string, number>>();
+  private bpeCacheChars = 0;
+
+  /**
    * Count tokens in a string under the given model.
    *
    * Uses gpt-tokenizer for OpenAI families (exact). Falls back to the
@@ -175,24 +216,49 @@ export class TokenCounter {
     if (text.length === 0) return 0;
     const family = inferFamily(hint);
 
-    if (family === "openai-o200k") {
+    if (isTokenizerBacked(family)) {
+      const cached = this.bpeCaches.get(family)?.get(text);
+      if (cached !== undefined) return cached;
       try {
-        return countO200k(text);
+        const counted = family === "openai-o200k" ? countO200k(text) : countCl100k(text);
+        this.rememberBpeCount(family, text, counted);
+        return counted;
       } catch {
-        // gpt-tokenizer can throw on malformed UTF-16 surrogate pairs.
-        // Fall through to ratio-based estimate rather than crashing the run.
-      }
-    }
-    if (family === "openai-cl100k") {
-      try {
-        return countCl100k(text);
-      } catch {
-        // Same defensive fallthrough as o200k above.
+        // gpt-tokenizer can throw on malformed UTF-16 surrogate pairs. Fall
+        // through to the ratio estimate rather than crashing the run — and do
+        // not cache, so the failure is never mistaken for a count.
       }
     }
 
     const ratio = this.ratioFor(hint, family);
     return Math.ceil(text.length / ratio);
+  }
+
+  /**
+   * Store one BPE result, evicting oldest-first to stay inside the char budget.
+   *
+   * Text longer than the budget is counted and returned but never stored: one
+   * such string would evict everything else to hold a single entry.
+   */
+  private rememberBpeCount(family: ModelFamily, text: string, counted: number): void {
+    if (text.length > BPE_CACHE_MAX_CHARS) return;
+    let cache = this.bpeCaches.get(family);
+    if (!cache) {
+      cache = new Map<string, number>();
+      this.bpeCaches.set(family, cache);
+    }
+    cache.set(text, counted);
+    this.bpeCacheChars += text.length;
+    if (this.bpeCacheChars <= BPE_CACHE_MAX_CHARS) return;
+    // Map iterates in insertion order, so this drops the least recently added.
+    for (const [otherFamily, otherCache] of this.bpeCaches) {
+      for (const [key] of otherCache) {
+        otherCache.delete(key);
+        this.bpeCacheChars -= key.length;
+        if (this.bpeCacheChars <= BPE_CACHE_MAX_CHARS) return;
+      }
+      if (otherCache.size === 0) this.bpeCaches.delete(otherFamily);
+    }
   }
 
   /**
@@ -308,10 +374,16 @@ export class TokenCounter {
 
     this.calibratedRatio.set(modelKey, clamped);
 
-    // Invalidate the per-message cache. WeakMap can't be filtered, so we
-    // discard it. Hot messages are recomputed on next access; cold messages
-    // (already trimmed away) are GC'd by the WeakMap.
-    this.messageCache = new WeakMap<ChatMessage, number>();
+    // Invalidate the per-message cache, but only for the models whose counts
+    // actually moved. A tokenizer-backed family never consults the ratio, so
+    // discarding its memo would re-tokenize the whole history on the next
+    // estimate — every turn, since this runs after every response — to arrive
+    // at the same numbers. WeakMap can't be filtered, so ratio-backed models
+    // still discard the lot: hot messages are recomputed on next access, cold
+    // ones (already trimmed away) are GC'd.
+    if (!isTokenizerBacked(inferFamily(hint))) {
+      this.messageCache = new WeakMap<ChatMessage, number>();
+    }
 
     // Now that the ratio is fresh, whatever the provider counted beyond our
     // messages is the request overhead. Exact for tokenizer-backed families,
