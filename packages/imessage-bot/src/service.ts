@@ -19,7 +19,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-export const SERVICE_LABEL = "ai.lysk.jazz.imessage";
+export const SERVICE_LABEL = "com.github.lvndry.jazz.imessage";
 
 export function servicePlistPath(): string {
   return join(homedir(), "Library", "LaunchAgents", `${SERVICE_LABEL}.plist`);

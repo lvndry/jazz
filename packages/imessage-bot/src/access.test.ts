@@ -9,31 +9,31 @@ import {
 
 describe("normalizeHandle", () => {
   test("strips the punctuation a human types into a config file", () => {
-    expect(normalizeHandle("+33 (7) 61-15.79 47")).toBe("+33761157947");
+    expect(normalizeHandle("+33 (1) 23-45.67 89")).toBe("+33123456789");
   });
 
   test("treats a 00 international prefix as +", () => {
-    expect(normalizeHandle("0033761157947")).toBe("+33761157947");
+    expect(normalizeHandle("0033123456789")).toBe("+33123456789");
   });
 
   test("lowercases an Apple ID but leaves its shape alone", () => {
-    expect(normalizeHandle("  Landry@Lysk.AI ")).toBe("landry@lysk.ai");
+    expect(normalizeHandle("  Someone@Example.COM ")).toBe("someone@example.com");
   });
 
   test("leaves a bare national number unmatched rather than guessing a country", () => {
-    expect(normalizeHandle("0761157947")).not.toBe(normalizeHandle("+33761157947"));
+    expect(normalizeHandle("0123456789")).not.toBe(normalizeHandle("+33123456789"));
   });
 });
 
 describe("decideAccess", () => {
   const config: AccessConfig = {
-    allowedHandles: parseHandleList("+33761157947, landry@lysk.ai"),
+    allowedHandles: parseHandleList("+33123456789, someone@example.com"),
     allowedGroupChatIds: parseChatIdList("42"),
   };
 
   test("admits a listed handle in a direct message", () => {
     expect(
-      decideAccess(config, { sender: "+33 761 157 947", chatId: 7, isGroup: false }).allowed,
+      decideAccess(config, { sender: "+33 123 456 789", chatId: 7, isGroup: false }).allowed,
     ).toBe(true);
   });
 
@@ -49,7 +49,7 @@ describe("decideAccess", () => {
 
   test("refuses a group that was not listed, even from an allowed sender", () => {
     expect(
-      decideAccess(config, { sender: "+33761157947", chatId: 99, isGroup: true }).allowed,
+      decideAccess(config, { sender: "+33123456789", chatId: 99, isGroup: true }).allowed,
     ).toBe(false);
   });
 
@@ -61,18 +61,18 @@ describe("decideAccess", () => {
 
   test("does not let a listed handle open an unlisted group by being in it", () => {
     const openConfig: AccessConfig = {
-      allowedHandles: parseHandleList("+33761157947"),
+      allowedHandles: parseHandleList("+33123456789"),
       allowedGroupChatIds: new Set<number>(),
     };
     expect(
-      decideAccess(openConfig, { sender: "+33761157947", chatId: 5, isGroup: true }).allowed,
+      decideAccess(openConfig, { sender: "+33123456789", chatId: 5, isGroup: true }).allowed,
     ).toBe(false);
   });
 });
 
 describe("parseHandleList", () => {
   test("drops empty entries from a trailing comma", () => {
-    expect(parseHandleList("+33761157947, ,")).toEqual(new Set(["+33761157947"]));
+    expect(parseHandleList("+33123456789, ,")).toEqual(new Set(["+33123456789"]));
   });
 
   test("an empty list admits nobody", () => {

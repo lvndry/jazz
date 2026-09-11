@@ -10,7 +10,7 @@ const MESSAGE_LINE = JSON.stringify({
   id: 918_233,
   chat_id: 42,
   guid: "A1B2-C3",
-  sender: "+33761157947",
+  sender: "+33123456789",
   sender_name: "Alex",
   is_from_me: false,
   text: "what's on my calendar tomorrow?",
@@ -24,12 +24,12 @@ const MESSAGE_LINE = JSON.stringify({
 const CHAT_LINE = JSON.stringify({
   id: 42,
   name: "Alex",
-  identifier: "+33761157947",
-  guid: "iMessage;-;+33761157947",
+  identifier: "+33123456789",
+  guid: "iMessage;-;+33123456789",
   display_name: null,
   contact_name: "Alex Dubois",
   is_group: false,
-  participants: ["+33761157947"],
+  participants: ["+33123456789"],
   service: "iMessage",
   last_message_at: "2026-09-09T08:14:03Z",
   unread_count: 1,
@@ -41,7 +41,7 @@ describe("parseMessageLine", () => {
     expect(message).toBeDefined();
     expect(message?.id).toBe(918_233);
     expect(message?.chatId).toBe(42);
-    expect(message?.sender).toBe("+33761157947");
+    expect(message?.sender).toBe("+33123456789");
     expect(message?.senderName).toBe("Alex");
     expect(message?.isFromMe).toBe(false);
     expect(message?.text).toBe("what's on my calendar tomorrow?");
@@ -105,8 +105,8 @@ describe("parseChatLine", () => {
     const chat = parseChatLine(CHAT_LINE);
     expect(chat?.id).toBe(42);
     expect(chat?.isGroup).toBe(false);
-    expect(chat?.participants).toEqual(["+33761157947"]);
-    expect(chat?.guid).toBe("iMessage;-;+33761157947");
+    expect(chat?.participants).toEqual(["+33123456789"]);
+    expect(chat?.guid).toBe("iMessage;-;+33123456789");
   });
 
   test("reads a group chat", () => {
@@ -116,7 +116,7 @@ describe("parseChatLine", () => {
       is_group: true,
       display_name: "Crew",
       contact_name: null,
-      participants: ["+33761157947", "+15551234567"],
+      participants: ["+33123456789", "+15551234567"],
     });
     const chat = parseChatLine(group);
     expect(chat?.isGroup).toBe(true);

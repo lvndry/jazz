@@ -1,7 +1,7 @@
 /**
  * WhatsApp chat → agent id mapping.
  *
- * A JID (`33761157947@s.whatsapp.net`, `1203…@g.us`) contains `@` and `.`,
+ * A JID (`33123456789@s.whatsapp.net`, `1203…@g.us`) contains `@` and `.`,
  * neither of which belongs in a filename, so the id keeps only the part that
  * identifies the conversation and tags which kind it was. Both directions are
  * needed: reminders arrive holding an agent id and have to be delivered back to

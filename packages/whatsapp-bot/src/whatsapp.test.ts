@@ -4,7 +4,7 @@ import { flattenMessage } from "./whatsapp";
 
 function dm(message: Record<string, unknown>, key: Record<string, unknown> = {}) {
   return {
-    key: { remoteJid: "33761157947@s.whatsapp.net", id: "3EB0", fromMe: false, ...key },
+    key: { remoteJid: "33123456789@s.whatsapp.net", id: "3EB0", fromMe: false, ...key },
     pushName: "Alex",
     message,
   };
@@ -14,8 +14,8 @@ describe("flattenMessage", () => {
   test("reads a plain text message", () => {
     const flat = flattenMessage(dm({ conversation: "what's on my calendar?" }));
     expect(flat?.text).toBe("what's on my calendar?");
-    expect(flat?.chatJid).toBe("33761157947@s.whatsapp.net");
-    expect(flat?.senderJid).toBe("33761157947@s.whatsapp.net");
+    expect(flat?.chatJid).toBe("33123456789@s.whatsapp.net");
+    expect(flat?.senderJid).toBe("33123456789@s.whatsapp.net");
     expect(flat?.isFromMe).toBe(false);
   });
 
@@ -30,11 +30,11 @@ describe("flattenMessage", () => {
     const flat = flattenMessage(
       dm(
         { conversation: "hi" },
-        { remoteJid: "120363042@g.us", participant: "33761157947@s.whatsapp.net" },
+        { remoteJid: "120363042@g.us", participant: "33123456789@s.whatsapp.net" },
       ),
     );
     expect(flat?.chatJid).toBe("120363042@g.us");
-    expect(flat?.senderJid).toBe("33761157947@s.whatsapp.net");
+    expect(flat?.senderJid).toBe("33123456789@s.whatsapp.net");
   });
 
   test("carries mentions and the quoted author, which decide group addressing", () => {
@@ -87,7 +87,7 @@ describe("flattenMessage", () => {
 
 describe("agent ids", () => {
   test("round-trip a DM jid", () => {
-    const jid = "33761157947@s.whatsapp.net";
+    const jid = "33123456789@s.whatsapp.net";
     expect(jidFromAgentId(agentIdForChat(jid))).toBe(jid);
   });
 

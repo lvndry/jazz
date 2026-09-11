@@ -3,15 +3,15 @@ import { type AccessConfig, decideAccess, isGroupJid, normalizeJid, parseJidList
 
 describe("normalizeJid", () => {
   test("reduces a DM jid to its digits", () => {
-    expect(normalizeJid("33761157947@s.whatsapp.net")).toBe("33761157947");
+    expect(normalizeJid("33123456789@s.whatsapp.net")).toBe("33123456789");
   });
 
   test("drops the device suffix a linked device adds", () => {
-    expect(normalizeJid("33761157947:12@s.whatsapp.net")).toBe("33761157947");
+    expect(normalizeJid("33123456789:12@s.whatsapp.net")).toBe("33123456789");
   });
 
   test("matches a hand-written number against the jid form", () => {
-    expect(normalizeJid("+33 7 61 15 79 47")).toBe(normalizeJid("33761157947@s.whatsapp.net"));
+    expect(normalizeJid("+33 1 23 45 67 89")).toBe(normalizeJid("33123456789@s.whatsapp.net"));
   });
 
   test("normalises a group id the same way on both sides of a comparison", () => {
@@ -19,8 +19,8 @@ describe("normalizeJid", () => {
     // groups. What matters is not which characters survive but that an
     // allow-list entry and an incoming jid land on the same string.
     expect(normalizeJid("120363042@g.us")).toBe(normalizeJid("120363042"));
-    expect(normalizeJid("33761157947-1600000000@g.us")).toBe(
-      normalizeJid("33761157947-1600000000"),
+    expect(normalizeJid("33123456789-1600000000@g.us")).toBe(
+      normalizeJid("33123456789-1600000000"),
     );
   });
 
@@ -32,13 +32,13 @@ describe("normalizeJid", () => {
 describe("isGroupJid", () => {
   test("distinguishes a group from a person", () => {
     expect(isGroupJid("120363042@g.us")).toBe(true);
-    expect(isGroupJid("33761157947@s.whatsapp.net")).toBe(false);
+    expect(isGroupJid("33123456789@s.whatsapp.net")).toBe(false);
   });
 });
 
 describe("decideAccess", () => {
   const config: AccessConfig = {
-    allowedNumbers: parseJidList("+33761157947"),
+    allowedNumbers: parseJidList("+33123456789"),
     allowedGroups: parseJidList("120363042@g.us"),
     requireMentionInGroups: true,
   };
@@ -46,8 +46,8 @@ describe("decideAccess", () => {
   test("admits a listed number in a DM", () => {
     expect(
       decideAccess(config, {
-        chatJid: "33761157947@s.whatsapp.net",
-        senderJid: "33761157947@s.whatsapp.net",
+        chatJid: "33123456789@s.whatsapp.net",
+        senderJid: "33123456789@s.whatsapp.net",
         addressesBot: false,
       }).allowed,
     ).toBe(true);
@@ -66,7 +66,7 @@ describe("decideAccess", () => {
   test("stays quiet in an allowed group until the bot is addressed", () => {
     const unaddressed = decideAccess(config, {
       chatJid: "120363042@g.us",
-      senderJid: "33761157947@s.whatsapp.net",
+      senderJid: "33123456789@s.whatsapp.net",
       addressesBot: false,
     });
     expect(unaddressed.allowed).toBe(false);
@@ -75,7 +75,7 @@ describe("decideAccess", () => {
     expect(
       decideAccess(config, {
         chatJid: "120363042@g.us",
-        senderJid: "33761157947@s.whatsapp.net",
+        senderJid: "33123456789@s.whatsapp.net",
         addressesBot: true,
       }).allowed,
     ).toBe(true);
@@ -96,7 +96,7 @@ describe("decideAccess", () => {
     expect(
       decideAccess(config, {
         chatJid: "999999@g.us",
-        senderJid: "33761157947@s.whatsapp.net",
+        senderJid: "33123456789@s.whatsapp.net",
         addressesBot: true,
       }).allowed,
     ).toBe(false);
