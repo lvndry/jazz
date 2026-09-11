@@ -15,6 +15,7 @@ import {
   buildPostCompactionMessage,
   buildTimeBudgetPressureMessage,
   buildTokenBudgetPressureMessage,
+  dedupeToolCalls,
   detectMeltdown,
   executeAgentLoop,
   type CompletionStrategy,
@@ -1798,5 +1799,90 @@ describe("executeAgentLoop cost and token caps", () => {
     const secondIterationMessages = seenMessages[1] ?? [];
     expect(firstIterationMessages.some((m) => m.content?.includes("TOKEN NOTICE"))).toBe(false);
     expect(secondIterationMessages.some((m) => m.content?.includes("TOKEN NOTICE"))).toBe(true);
+  });
+});
+
+/**
+ * The batch that prompted this collapsed three identical `read_file README.md` calls and two
+ * identical `package.json` ones into a single assistant turn — every one of them rejected with
+ * the same schema error, all within the same millisecond.
+ */
+describe("dedupeToolCalls", () => {
+  const readOnly = (name: string) => name === "read_file";
+
+  function call(id: string, name: string, args: string) {
+    return { id, type: "function" as const, function: { name, arguments: args } };
+  }
+
+  it("executes one of a repeated read and aliases the rest to it", () => {
+    const args = JSON.stringify({ path: "README.md", startLine: 1, endLine: 240 });
+    const { toExecute, aliases } = dedupeToolCalls(
+      [call("a", "read_file", args), call("b", "read_file", args), call("c", "read_file", args)],
+      readOnly,
+    );
+
+    expect(toExecute.map((tc) => tc.id)).toEqual(["a"]);
+    expect(aliases.get("b")).toBe("a");
+    expect(aliases.get("c")).toBe("a");
+  });
+
+  it("keeps calls that differ only in arguments", () => {
+    const { toExecute, aliases } = dedupeToolCalls(
+      [
+        call("a", "read_file", JSON.stringify({ path: "README.md" })),
+        call("b", "read_file", JSON.stringify({ path: "package.json" })),
+      ],
+      readOnly,
+    );
+
+    expect(toExecute.map((tc) => tc.id)).toEqual(["a", "b"]);
+    expect(aliases.size).toBe(0);
+  });
+
+  it("never collapses a tool the caller did not mark dedupable", () => {
+    const args = JSON.stringify({ command: "echo hi" });
+    const { toExecute, aliases } = dedupeToolCalls(
+      [call("a", "execute_command", args), call("b", "execute_command", args)],
+      readOnly,
+    );
+
+    expect(toExecute.map((tc) => tc.id)).toEqual(["a", "b"]);
+    expect(aliases.size).toBe(0);
+  });
+
+  it("leaves a batch with no repeats untouched", () => {
+    const { toExecute, aliases } = dedupeToolCalls(
+      [
+        call("a", "read_file", JSON.stringify({ path: "a.ts" })),
+        call("b", "read_file", JSON.stringify({ path: "b.ts" })),
+        call("c", "read_file", JSON.stringify({ path: "c.ts" })),
+      ],
+      readOnly,
+    );
+
+    expect(toExecute).toHaveLength(3);
+    expect(aliases.size).toBe(0);
+  });
+
+  it("collapses per distinct call, not per tool name", () => {
+    const readme = JSON.stringify({ path: "README.md" });
+    const pkg = JSON.stringify({ path: "package.json" });
+    const { toExecute, aliases } = dedupeToolCalls(
+      [
+        call("a", "read_file", readme),
+        call("b", "read_file", pkg),
+        call("c", "read_file", readme),
+        call("d", "read_file", pkg),
+        call("e", "read_file", readme),
+      ],
+      readOnly,
+    );
+
+    expect(toExecute.map((tc) => tc.id)).toEqual(["a", "b"]);
+    expect([...aliases.entries()].sort()).toEqual([
+      ["c", "a"],
+      ["d", "b"],
+      ["e", "a"],
+    ]);
   });
 });

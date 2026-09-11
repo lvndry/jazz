@@ -218,11 +218,47 @@ describe("read_file with sinceByte", () => {
     expect(afterData.inode).not.toBe(beforeData.inode);
   });
 
-  it("refuses to mix byte offsets with line numbers", async () => {
+  it("refuses to mix a real byte offset with line numbers, and says which to drop", async () => {
     writeFileSync(logPath, "one\ntwo\n");
-    const result = await read({ sinceByte: 0, startLine: 1 });
+    const result = await read({ sinceByte: 4, startLine: 1 });
 
     expect(result.success).toBe(false);
-    expect(result.error).toContain("one or the other");
+    expect(result.error).toContain("Drop sinceByte to read the line range");
+    expect(result.error).toContain("drop startLine and endLine");
+  });
+
+  /**
+   * Models routinely fill every optional number in the schema with 0. `sinceByte: 0` is
+   * "from the start of the file", which is what a line-range read already does, so the pair
+   * is not a contradiction — refusing it stalled real runs on a conflict nobody intended.
+   */
+  it("honours the line range when a zero-filled sinceByte rides along", async () => {
+    writeFileSync(logPath, "one\ntwo\nthree\n");
+    const result = await read({ startLine: 1, endLine: 2, sinceByte: 0, sinceInode: 0 });
+
+    expect(result.success).toBe(true);
+    const data = result.result as { content: string; returnedLines: number };
+    expect(data.returnedLines).toBe(2);
+    expect(data.content).toContain("one");
+    expect(data.content).toContain("two");
+    expect(data.content).not.toContain("three");
+  });
+
+  it("still follows from the start when sinceByte is 0 with no line range", async () => {
+    writeFileSync(logPath, "one\ntwo\n");
+    const result = await read({ sinceByte: 0, sinceInode: 0 });
+
+    expect(result.success).toBe(true);
+    const data = result.result as { content: string; nextByte: number; inode: number };
+    expect(data.content).toContain("one");
+    expect(data.nextByte).toBeGreaterThan(0);
+  });
+
+  it("rejects sinceInode without sinceByte and names the remedy", async () => {
+    writeFileSync(logPath, "one\n");
+    const result = await read({ sinceInode: 7 });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("Drop sinceInode");
   });
 });

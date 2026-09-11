@@ -199,6 +199,29 @@ function nextByteAfterCappedText(
   return incremental.startByte + Buffer.byteLength(incremental.text.slice(0, sourceIndex));
 }
 
+/**
+ * Whether this call is a genuine incremental follow-read.
+ *
+ * `sinceByte: 0` means "from the start of the file", which is what an ordinary read already
+ * does — so on its own it contradicts nothing, and a line range alongside it simply narrows
+ * the result. Models that fill every optional number in the schema with 0 send exactly that
+ * shape, and refusing them for a conflict they did not intend costs a round trip that teaches
+ * nothing. Only a *positive* `sinceByte` genuinely conflicts with a line range, and the schema
+ * refuses that outright.
+ *
+ * `sinceByte: 0` with no line range stays incremental, so a caller can legitimately start
+ * following a file from its very beginning and still get `nextByte` and `inode` back.
+ */
+export function isIncrementalRead(args: {
+  readonly sinceByte?: number | undefined;
+  readonly startLine?: number | undefined;
+  readonly endLine?: number | undefined;
+}): boolean {
+  if (args.sinceByte === undefined) return false;
+  if (args.sinceByte > 0) return true;
+  return args.startLine === undefined && args.endLine === undefined;
+}
+
 export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemContextService> {
   const parameters = z
     .object({
@@ -232,27 +255,30 @@ export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
         .min(0)
         .optional()
         .describe(
-          "Read only what was appended past this byte offset, for following a file that is still being written. Pass the nextByte from your previous read. Cannot be combined with startLine or endLine.",
+          "Returns only what was appended past this byte offset, for following a file still being written. Pass the previous read's nextByte. Omit for ordinary reads; not combinable with startLine/endLine.",
         ),
       sinceInode: z
         .number()
         .int()
         .optional()
         .describe(
-          "The inode from your previous read, passed back so a rotated file is detected rather than read as if the offset still meant something. Only meaningful alongside sinceByte.",
+          "The previous read's inode, so a rotated file is detected instead of read as an append. Only with sinceByte; omit otherwise.",
         ),
     })
     .strict()
-    .refine((value) => value.sinceByte === undefined || value.startLine === undefined, {
-      message:
-        "sinceByte reads by byte offset and startLine reads by line number; pass one or the other, not both.",
-    })
-    .refine((value) => value.sinceByte === undefined || value.endLine === undefined, {
-      message:
-        "sinceByte reads by byte offset and endLine reads by line number; pass one or the other, not both.",
-    })
+    .refine(
+      (value) =>
+        value.sinceByte === undefined ||
+        value.sinceByte === 0 ||
+        (value.startLine === undefined && value.endLine === undefined),
+      {
+        message:
+          "sinceByte reads by byte offset while startLine and endLine read by line number. Drop sinceByte to read the line range, or drop startLine and endLine to follow the file from that offset.",
+      },
+    )
     .refine((value) => value.sinceInode === undefined || value.sinceByte !== undefined, {
-      message: "sinceInode only means something alongside sinceByte.",
+      message:
+        "sinceInode only means something alongside sinceByte. Drop sinceInode, or pass sinceByte from your previous read's nextByte.",
     });
 
   type ReadFileParams = z.infer<typeof parameters>;
@@ -285,7 +311,7 @@ export function createReadFileTool(): Tool<FileSystem.FileSystem | FileSystemCon
         if (mediaOutcome.kind !== "not-media") return mediaOutcome.result;
 
         try {
-          if (args.sinceByte !== undefined) {
+          if (isIncrementalRead(args)) {
             const incremental = yield* Effect.promise(() =>
               readSince(filePathResult, args.sinceByte ?? 0, args.sinceInode),
             );

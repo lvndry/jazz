@@ -12,7 +12,11 @@ import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interface
 import type { LLMService } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import type { PresentationService, StreamingRenderer } from "@/core/interfaces/presentation";
-import type { ToolRegistry, ToolRequirements } from "@/core/interfaces/tool-registry";
+import {
+  ToolRegistryTag,
+  type ToolRegistry,
+  type ToolRequirements,
+} from "@/core/interfaces/tool-registry";
 import type { ChatMessage, ConversationMessages } from "@/core/types";
 import { parseGeneratedArtifacts } from "@/core/types/artifact";
 import {
@@ -290,6 +294,54 @@ export function detectMeltdown(
   const keys = window.map((tc) => `${tc.name}:${tc.arguments}`);
   const uniqueness = new Set(keys).size / windowSize;
   return uniqueness < 0.4;
+}
+
+/**
+ * Collapse byte-identical calls inside a single parallel batch.
+ *
+ * A model that asks for the same file three times in one batch pays three times: the read
+ * itself, and three copies of the answer in context. There is no reading of `read_file` on one
+ * path under which the second and third calls mean anything the first did not.
+ *
+ * Distinct from {@link detectMeltdown}, which watches for repetition *across* turns and can
+ * only react after a window has filled. This is decided within the batch, before anything runs.
+ *
+ * Only tools the caller marks dedupable are collapsed — in practice `read-only` ones. Two
+ * identical mutating calls could legitimately be two separate effects, and guessing wrong there
+ * destroys work rather than saving it.
+ *
+ * Nothing leaves the transcript: providers require one `role: "tool"` message per
+ * `tool_call_id`, so a collapsed call is mapped onto the surviving call's result via `aliases`.
+ */
+export function dedupeToolCalls(
+  toolCalls: NonNullable<ChatCompletionResponse["toolCalls"]>,
+  isDedupable: (toolName: string) => boolean,
+): {
+  readonly toExecute: NonNullable<ChatCompletionResponse["toolCalls"]>;
+  /** Collapsed `tool_call_id` → the id whose result it reuses. */
+  readonly aliases: ReadonlyMap<string, string>;
+} {
+  const canonicalByKey = new Map<string, string>();
+  const aliases = new Map<string, string>();
+  const toExecute: NonNullable<ChatCompletionResponse["toolCalls"]>[number][] = [];
+
+  for (const toolCall of toolCalls) {
+    if (toolCall.type !== "function" || !isDedupable(toolCall.function.name)) {
+      toExecute.push(toolCall);
+      continue;
+    }
+
+    const key = `${toolCall.function.name}:${toolCall.function.arguments}`;
+    const canonicalId = canonicalByKey.get(key);
+    if (canonicalId === undefined) {
+      canonicalByKey.set(key, toolCall.id);
+      toExecute.push(toolCall);
+    } else {
+      aliases.set(toolCall.id, canonicalId);
+    }
+  }
+
+  return { toExecute, aliases };
 }
 
 /**
@@ -598,8 +650,33 @@ function handleToolPhase(
         : {}),
     };
 
+    // Risk level is the safe axis for collapsing repeats: a read-only call repeated with
+    // identical arguments cannot mean two things, while a mutating one might.
+    const registry = yield* ToolRegistryTag;
+    const dedupableNames = new Set<string>();
+    for (const toolName of new Set(
+      toolCalls.filter((tc) => tc.type === "function").map((tc) => tc.function.name),
+    )) {
+      const tool = yield* Effect.option(registry.getTool(toolName));
+      if (Option.isSome(tool) && tool.value.riskLevel === "read-only") {
+        dedupableNames.add(toolName);
+      }
+    }
+
+    const { toExecute, aliases } = dedupeToolCalls(toolCalls, (toolName) =>
+      dedupableNames.has(toolName),
+    );
+    if (aliases.size > 0) {
+      yield* logger.debug("Collapsed duplicate tool calls in batch", {
+        agentId: agent.id,
+        conversationId: actualConversationId,
+        collapsed: aliases.size,
+        executed: toExecute.length,
+      });
+    }
+
     const toolResults = yield* ToolExecutor.executeToolCalls(
-      toolCalls,
+      toExecute,
       contextWithTokenStats,
       displayConfig,
       toolRenderer,
@@ -620,6 +697,10 @@ function handleToolPhase(
 
     // Validate all tool calls have results
     const resultMap = new Map(toolResults.map((r) => [r.toolCallId, r.result]));
+    for (const [duplicateId, canonicalId] of aliases) {
+      const canonicalResult = resultMap.get(canonicalId);
+      if (canonicalResult !== undefined) resultMap.set(duplicateId, canonicalResult);
+    }
     const missingResults: string[] = [];
     for (const toolCall of toolCalls) {
       if (toolCall.type === "function" && !resultMap.has(toolCall.id)) {
