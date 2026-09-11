@@ -36,6 +36,10 @@ export function bench(
     run(iteration);
     durations.push(performance.now() - start);
   }
+  return summarize(name, iterations, durations);
+}
+
+function summarize(name: string, iterations: number, durations: number[]): BenchResult {
   durations.sort((first, second) => first - second);
   const totalMs = durations.reduce((sum, value) => sum + value, 0);
   const percentile = (fraction: number): number =>
@@ -48,6 +52,31 @@ export function bench(
     p50Ms: round(percentile(0.5), 4),
     p95Ms: round(percentile(0.95), 4),
   };
+}
+
+/**
+ * Async twin of `bench`, for paths that are only reachable through a promise
+ * (a provider stream, a history scan). Identical accounting — the await is
+ * inside the timed region, so provider-side waiting would show up here; the
+ * suites that use it drive already-resolved data so it does not.
+ */
+export async function benchAsync(
+  name: string,
+  run: (iteration: number) => Promise<void>,
+  options: BenchOptions = {},
+): Promise<BenchResult> {
+  const iterations = options.iterations ?? DEFAULT_ITERATIONS;
+  const warmupIterations = options.warmupIterations ?? DEFAULT_WARMUP;
+  for (let iteration = 0; iteration < warmupIterations; iteration += 1) {
+    await run(iteration);
+  }
+  const durations: number[] = [];
+  for (let iteration = 0; iteration < iterations; iteration += 1) {
+    const start = performance.now();
+    await run(iteration);
+    durations.push(performance.now() - start);
+  }
+  return summarize(name, iterations, durations);
 }
 
 function round(value: number, digits: number): number {
