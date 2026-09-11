@@ -182,6 +182,12 @@ async function buildStandaloneBinary(compileTarget: string): Promise<string> {
     target: "bun",
     minify: true,
     splitting: true,
+    // ESM bytecode needs Bun >= 1.4 (1.3 rejected it: "format must be 'cjs'").
+    // CI installs `latest`, so this is a floor on contributors' local Bun, and
+    // the failure if it is older is an explicit build error rather than a
+    // silently slower binary.
+    format: "esm",
+    bytecode: true,
     plugins: createStandalonePlugins(generatedAssets),
     compile: { target: compileTarget, outfile },
   });
