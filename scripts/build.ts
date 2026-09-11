@@ -9,6 +9,23 @@ import { ensureNativeLibrariesForTarget } from "./opentui-natives";
  * `vendor/` holds the macOS `terminal-notifier` app bundles and is embedded
  * only into macOS binaries; the others are platform-independent.
  */
+/**
+ * `bytecode: true` below needs ESM bytecode, added in Bun 1.4. Checked here
+ * rather than via `engines.bun`, which Bun does not enforce — and only here,
+ * since tests and the CLI from source still run on older Bun.
+ */
+const MINIMUM_BUN_VERSION = [1, 4] as const;
+
+function assertBunSupportsBytecode(): void {
+  const [major = 0, minor = 0] = Bun.version.split(".").map((part) => Number.parseInt(part, 10));
+  const [requiredMajor, requiredMinor] = MINIMUM_BUN_VERSION;
+  if (major > requiredMajor || (major === requiredMajor && minor >= requiredMinor)) return;
+  throw new Error(
+    `Compiling a binary needs Bun >= ${requiredMajor}.${requiredMinor} (found ${Bun.version}): ` +
+      `ESM bytecode compilation is unavailable before it. Run \`bun upgrade\`.`,
+  );
+}
+
 const ASSET_DIRECTORIES = ["personas", "skills", "workflows"] as const;
 const DARWIN_ONLY_ASSET_DIRECTORIES = ["vendor"] as const;
 
@@ -182,6 +199,8 @@ async function buildStandaloneBinary(compileTarget: string): Promise<string> {
     target: "bun",
     minify: true,
     splitting: true,
+    format: "esm",
+    bytecode: true,
     plugins: createStandalonePlugins(generatedAssets),
     compile: { target: compileTarget, outfile },
   });
@@ -299,6 +318,8 @@ async function main(): Promise<void> {
       : [`bun-${process.platform}-${process.arch}`];
 
   const stageNpm = args.includes("--npm-packages");
+
+  assertBunSupportsBytecode();
 
   fs.mkdirSync(path.join("deploy", "binaries"), { recursive: true });
   for (const target of targets) {
