@@ -101,6 +101,40 @@ jobs:
       - name: Build
         run: bun run build:binary
 
+      # The build above proves the binary compiles; it does not prove it runs.
+      # A release once shipped a binary where every command that loaded the
+      # agent stack died during module instantiation, while `--version` and
+      # `--help` still worked — the build was green throughout.
+      #
+      # Asserts on output rather than exit status on purpose: that failure
+      # printed "Fatal error" and still exited 0, so a status check would have
+      # sailed past it.
+      - name: Smoke-test the compiled binary
+        env:
+          JAZZ_HOME: ${{ runner.temp }}/jazz-smoke-home
+        run: |
+          set -euo pipefail
+          binary="deploy/binaries/jazz-linux-$(if [ "$(uname -m)" = "x86_64" ]; then echo x64; else echo arm64; fi)"
+          version="$(bun --print 'require("./package.json").version')"
+
+          check() {
+            expected="$1"
+            shift
+            printf '  jazz %s\n' "$*"
+            output="$("$binary" "$@" 2>&1 || true)"
+            if ! printf '%s' "$output" | grep -qF -- "$expected"; then
+              printf 'expected %s in the output of `jazz %s`, got:\n%s\n' "$expected" "$*" "$output" >&2
+              exit 1
+            fi
+          }
+
+          check "$version" --version
+          check "Usage: jazz" --help
+          # Reaches the agent stack, which is what the shipped crash broke.
+          check "No agents found" agent list
+          # Reads a persona out of the binary's embedded assets.
+          check "Personas" persona list
+
   test:
     runs-on: ubuntu-latest
     steps:
