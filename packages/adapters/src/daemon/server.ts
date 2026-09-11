@@ -43,7 +43,6 @@ import type { ToolRegistry, ToolRequirements } from "@jazz/core/interfaces/tool-
 import { REASONING_EFFORTS } from "@jazz/core/types/agent";
 import type { Agent, AgentConfig } from "@jazz/core/types/agent";
 import { WEB_SEARCH_PROVIDERS } from "@jazz/core/types/config";
-import { resolveToolAllowlist } from "@jazz/core/types/disclosure-tier";
 import {
   AgentAlreadyExistsError,
   AgentConfigurationError,
@@ -59,6 +58,7 @@ import type { ModelInfo } from "@jazz/core/types/llm";
 import type { PeerConfig } from "@jazz/core/types/peer";
 import { inviteStatus } from "@jazz/core/types/peer-invite";
 import type { Persona } from "@jazz/core/types/persona";
+import { resolveToolAllowlist } from "@jazz/core/types/resolve-tool-allowlist";
 import type { ToolProgressEvent } from "@jazz/core/types/tools";
 import type { WebhookConfig } from "@jazz/core/types/webhook";
 import {
