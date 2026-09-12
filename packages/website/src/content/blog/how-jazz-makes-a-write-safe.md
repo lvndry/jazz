@@ -81,7 +81,7 @@ flowchart TD
 ```
 
 The diagram is the same one in the
-[tools and approval reference](/docs/internals/tools-and-approval), reproduced here
+[tools and approval reference](/docs/maintainers/tool-lifecycle), reproduced here
 because it is the spine of the whole design.
 
 ## Why a pair, not a flag
@@ -198,4 +198,4 @@ and it is the part Jazz treats as the actual product.
 The companion piece, [the harness is the product](/blog/the-harness-is-the-product),
 tours the rest of that product. The full mechanism, with the concurrency and
 shell-defenses sections, is in
-[tools and approval](/docs/internals/tools-and-approval).
+[tools and approval](/docs/maintainers/tool-lifecycle).

@@ -74,6 +74,6 @@ don't, and asks before touching anything real — that's what Jazz is for.
 curl -fsSL https://github.com/lvndry/jazz/releases/latest/download/install.sh | bash
 ```
 
-MIT licensed, single binary, no runtime dependencies. The [quick start](/docs/start/quick-start)
-gets you to a working agent in a few minutes, and the [playbooks](/docs/playbooks)
+MIT licensed, single binary, no runtime dependencies. The [quick start](/docs/getting-started/quick-start)
+gets you to a working agent in a few minutes, and the [guides](/docs/guides)
 has forkable recipes for inbox triage, PR watchdogs, and research digests.

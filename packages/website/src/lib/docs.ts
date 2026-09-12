@@ -4,15 +4,16 @@ export const REPO_URL = "https://github.com/lvndry/jazz";
 
 /** Section order mirrors the section list in docs/index.md. */
 export const SECTIONS: ReadonlyArray<{ dir: string; label: string }> = [
-  { dir: "guide", label: "Guide" },
+  { dir: "getting-started", label: "Getting started" },
+  { dir: "features", label: "Features" },
   { dir: "surfaces", label: "Where it runs" },
-  { dir: "integrations", label: "Integrations" },
   { dir: "concepts", label: "Concepts" },
-  { dir: "cookbook", label: "Cookbook" },
-  { dir: "examples", label: "Examples" },
-  { dir: "reference", label: "Reference" },
-  { dir: "internals", label: "Internals" },
-  { dir: "design", label: "Design" },
+  { dir: "guides", label: "Guides" },
+  { dir: "configure", label: "Configure" },
+  { dir: "tools", label: "Tools" },
+  { dir: "security", label: "Security" },
+  { dir: "runtime-data", label: "Runtime data" },
+  { dir: "maintainers", label: "Maintainers" },
 ];
 
 const sectionKeyFor = (id: string): string => id.split("/")[0] ?? "";
@@ -25,47 +26,60 @@ export type DocsEntry = CollectionEntry<"docs">;
  * alphabetically.
  */
 const PINNED_ORDER: Record<string, string[]> = {
-  guide: ["guide/quick-start", "guide/creating-agents", "guide/airgapped", "guide/observability"],
-  surfaces: [
-    "surfaces/headless",
-    "surfaces/chat-platforms",
-    "surfaces/ci-cd",
-    "surfaces/scheduled",
+  "getting-started": [
+    "getting-started/quick-start",
+    "getting-started/create-an-agent",
+    "getting-started/local-models",
   ],
+  features: ["features/long-running-work", "features/automation", "features/media"],
+  surfaces: ["surfaces/headless", "surfaces/chat", "surfaces/ci", "surfaces/scheduled"],
   concepts: [
     "concepts/agents",
     "concepts/personas",
     "concepts/skills",
     "concepts/tools",
     "concepts/workflows",
-    "concepts/scheduling",
     "concepts/webhooks",
+    "concepts/conversations-and-memory",
+    "concepts/peers-and-subagents",
   ],
-  reference: [
-    "reference/cli",
-    "reference/configuration",
-    "reference/tools",
-    "reference/workflow-frontmatter",
+  guides: [
+    "guides/pr-review",
+    "guides/contain-cloudflare-attack",
+    "guides/multi-agent-verification",
+    "guides/goggins-accountability-agent",
+    "guides/media-companions",
+    "guides/connect-peers",
+    "guides/deploy-a-chat-agent",
+    "guides/inbox-triage",
+    "guides/research-digest",
   ],
-  cookbook: [
-    "cookbook/inbox-triage",
-    "cookbook/pr-watchdog",
-    "cookbook/research-digest",
-    "cookbook/competitor-watch",
-    "cookbook/codebase-tech-debt-radar",
-    "cookbook/ci-pr-reviewer",
-    "cookbook/release-notes-draft",
+  configure: [
+    "configure/jazz",
+    "configure/agents",
+    "configure/workflows",
+    "configure/providers",
+    "configure/mcp",
+    "configure/web-search",
+    "configure/email-calendar",
+    "configure/observability",
   ],
-  internals: [
-    "internals/agent-loop",
-    "internals/context-management",
-    "internals/tools-and-approval",
-    "internals/subagents",
-    "internals/skills-loading",
-    "internals/providers-and-models",
-    "internals/evals",
-    "internals/design-decisions",
-    "internals/code-map",
+  security: [
+    "security/approvals",
+    "security/unattended-runs",
+    "security/secrets-and-egress",
+    "security/surface-access",
+    "security/threat-model",
+  ],
+  maintainers: [
+    "maintainers/architecture",
+    "maintainers/run-lifecycle",
+    "maintainers/context-lifecycle",
+    "maintainers/tool-lifecycle",
+    "maintainers/add-a-service",
+    "maintainers/add-a-provider",
+    "maintainers/testing-and-evals",
+    "maintainers/documentation",
   ],
 };
 
@@ -143,7 +157,8 @@ export interface SidebarSection {
 export function buildSidebar(entries: DocsEntry[]): SidebarSection[] {
   const bySection = new Map<string, DocsEntry[]>();
   for (const entry of entries) {
-    if (entry.id === "index") continue;
+    // The exhaustive command index is linked contextually and searchable, not a navigation pillar.
+    if (entry.id === "index" || entry.id === "commands") continue;
     const section = sectionKeyFor(entry.id);
     const bucket = bySection.get(section) ?? [];
     bucket.push(entry);

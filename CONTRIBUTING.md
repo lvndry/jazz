@@ -1,6 +1,6 @@
 # Contributing to Jazz
 
-Thank you for your interest in contributing to Jazz! Please read the [Quick Start](docs/start/quick-start.md) guide, and the [Code map](docs/internals/code-map.md) for how the codebase is organized.
+Thank you for your interest in contributing to Jazz! Please read the [Quick Start](docs/getting-started/quick-start.md) guide, and the [Code map](docs/maintainers/architecture.md) for how the codebase is organized.
 
 ## Workspace
 
@@ -12,29 +12,28 @@ from one it doesn't declare as a dependency, not just a documented convention.
 
 - Bun 1.4.0 or newer
 
-| Package             | Purpose                                                          | Depends on                      |
-| -------------------- | ----------------------------------------------------------------- | --------------------------------- |
-| `packages/core`       | Business logic, interfaces, types (no I/O); publishable as `@jazz/core` | nothing else in the workspace     |
-| `packages/adapters`   | Service implementations (LLM, storage, MCP, keyring, etc.)         | `core`                            |
-| `packages/cli`        | Ink/OpenTUI commands and presentation                              | `core`                            |
-| `packages/runtime`    | Composition root — wires core+adapters+cli into the `jazz` binary  | `core`, `adapters`, `cli`         |
-| `packages/bot-shared`  | Shared run-logging/usage helpers for the bot bridges                | `core`                            |
-| `packages/telegram-bot`| Telegram bridge                                                    | `core`, `adapters`, `bot-shared`  |
-| `packages/discord-bot` | Discord bridge                                                     | `core`, `adapters`, `bot-shared`  |
-| `packages/website`    | Astro docs/marketing site, reads `docs/` as a content collection    | `cli` (design tokens only)        |
+| Package                 | Purpose                                                                 | Depends on                       |
+| ----------------------- | ----------------------------------------------------------------------- | -------------------------------- |
+| `packages/core`         | Business logic, interfaces, types (no I/O); publishable as `@jazz/core` | nothing else in the workspace    |
+| `packages/adapters`     | Service implementations (LLM, storage, MCP, keyring, etc.)              | `core`                           |
+| `packages/cli`          | Ink/OpenTUI commands and presentation                                   | `core`                           |
+| `packages/runtime`      | Composition root — wires core+adapters+cli into the `jazz` binary       | `core`, `adapters`, `cli`        |
+| `packages/bot-shared`   | Shared run-logging/usage helpers for the bot bridges                    | `core`                           |
+| `packages/telegram-bot` | Telegram bridge                                                         | `core`, `adapters`, `bot-shared` |
+| `packages/discord-bot`  | Discord bridge                                                          | `core`, `adapters`, `bot-shared` |
+| `packages/website`      | Astro docs/marketing site, reads `docs/` as a content collection        | `cli` (design tokens only)       |
 
 **Critical rule**: `core/` must **never** import from `adapters/`, `cli/`, or `runtime/`.
 Dependencies flow inward only.
 
 Read the READMEs:
 
-- `docs/start/quick-start.md` - Install and first run
-- `docs/internals/code-map.md` - Code organization and conventions
+- `docs/getting-started/quick-start.md` - Install and first run
+- `docs/maintainers/architecture.md` - Code organization and conventions
 - `packages/core/README.md` - Core package patterns
 - `packages/adapters/README.md` - Adapter implementations
 - `packages/cli/README.md` - CLI commands
-- `docs/reference/architecture.md` - System architecture
-- `docs/FAQ.md` - Common patterns
+- `docs/maintainers/index.md` - Runtime traces, extension points, and test strategy
 
 ## Key Best Practices
 
@@ -65,11 +64,11 @@ When adding features:
 Jazz ships one artifact — a self-contained standalone binary — through two channels, from one
 codebase:
 
-| Command                      | Output                                         | Used by                                                     |
-| ----------------------------- | ----------------------------------------------- | ------------------------------------------------------------ |
-| `bun run build:binary`        | `deploy/binaries/jazz-<os>-<arch>` for this machine | local testing                                                 |
-| `bun run build:binaries`      | every published target                           | `.github/workflows/release-binaries.yml`                     |
-| `bun run stage-npm-packages`  | binaries copied into `deploy/npm/jazz-ai-<platform>/` | the npm publish job in `.github/workflows/release-binaries.yml` |
+| Command                      | Output                                                | Used by                                                         |
+| ---------------------------- | ----------------------------------------------------- | --------------------------------------------------------------- |
+| `bun run build:binary`       | `deploy/binaries/jazz-<os>-<arch>` for this machine   | local testing                                                   |
+| `bun run build:binaries`     | every published target                                | `.github/workflows/release-binaries.yml`                        |
+| `bun run stage-npm-packages` | binaries copied into `deploy/npm/jazz-ai-<platform>/` | the npm publish job in `.github/workflows/release-binaries.yml` |
 
 Installing via `curl \| bash` gets the binary directly; `npm i -g jazz-ai` gets a thin wrapper
 package whose `postinstall` copies in the matching binary from one of the `jazz-ai-<platform>`

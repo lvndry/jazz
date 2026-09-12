@@ -95,7 +95,7 @@ logging the answer and not just the outcome.
 
 ## Next
 
-[peer setup guide](/docs/start/peers-setup).
+[peer setup guide](/docs/guides/connect-peers).
 
 The [showcase](/blog/your-agent-has-friends) shows what else this unlocks; the
 [essay](/blog/the-missing-door) is the why.

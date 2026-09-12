@@ -68,7 +68,7 @@ triage a non-issue than miss a real one.
 **Approval gating is the primary control.** 15 of the built-in tools do not act when the model
 calls them; they describe what they would do (including a real diff for edits) and wait for
 approval — from you, or from the policy tier on an unattended run. Mechanism and risk tiers:
-[Tools & approval](docs/internals/tools-and-approval.md).
+[Tools & approval](docs/maintainers/tool-lifecycle.md).
 
 **A shell command denylist** blocks 56 patterns before execution — privilege escalation
 (`sudo`, `su`), filesystem destruction (`rm -rf /`), remote code execution (`curl … | sh`),
@@ -82,7 +82,7 @@ Quoting the implementation directly, because it matters:
 > variable expansion, base64 obfuscation, eval, and other indirection paths can route around
 > any string matcher.
 
-Its job is catching an *accident* from a confused model. Do not treat it as a boundary against
+Its job is catching an _accident_ from a confused model. Do not treat it as a boundary against
 a hostile one. If you need a real boundary, use [container isolation](#harden-the-host).
 Implementation and the documented set of known bypasses:
 [`shell-tools.ts`](packages/core/src/agent/tools/shell-tools.ts),
@@ -94,9 +94,11 @@ Implementation and the documented set of known bypasses:
 a command genuinely needs one. Implementation:
 [`env.ts`](packages/core/src/utils/env.ts).
 
-**Local-only data.** Credentials live in your config; telemetry is JSON on your disk and is
-never transmitted. `JAZZ_OFFLINE=1` stops Jazz initiating any outbound request of its own. See
-[Airgapped & self-hosted](docs/start/airgapped.md).
+**Local-first data.** Credentials resolve from the environment, OS keyring, or local config.
+Telemetry is recorded locally by default and is exported only when you configure an OTLP endpoint.
+`JAZZ_OFFLINE=1` skips Jazz's update, public model-catalog, and persona-marketplace requests; it
+does not block inference, tools, MCP, or telemetry export. See
+[Local and air-gapped models](docs/getting-started/local-models.md).
 
 **Audit trail.** Every tool invocation is logged under `~/.jazz/logs/`, with per-run token and
 cost records under `~/.jazz/telemetry/`. Credential-bearing fields in tool arguments and
@@ -116,12 +118,12 @@ on the gate.
 
 ### Pick the lowest policy tier that lets the job finish
 
-| Tier            | Auto-approves                                                                         |
-| --------------- | ------------------------------------------------------------------------------------- |
-| unset / `false` | Interactive: read-only and low-risk, prompts for the rest. Unattended: **nothing**    |
-| `read-only`     | Reads, search, web requests, shell classified inspect-only                            |
-| `low-risk`      | + `manage_todos`, `update_work_state`, `spawn_subagent`, shell classified low-risk    |
-| `high-risk`     | + writes, deletes, shell, unresolved `unknown` tools                                  |
+| Tier            | Auto-approves                                                                      |
+| --------------- | ---------------------------------------------------------------------------------- |
+| unset / `false` | Interactive: read-only and low-risk, prompts for the rest. Unattended: **nothing** |
+| `read-only`     | Reads, search, web requests, shell classified inspect-only                         |
+| `low-risk`      | + `manage_todos`, `update_work_state`, `spawn_subagent`, shell classified low-risk |
+| `high-risk`     | + writes, deletes, shell, unresolved `unknown` tools                               |
 
 Leaving the tier unset is the safe default on a webhook or a cron precisely because it
 grants nothing there: skipping a prompt is a convenience where a prompt was the
@@ -137,7 +139,7 @@ one binary over raising the whole tier:
 ```
 
 Matching uses a parsed key (binary + first subcommand), never a raw prefix — `git status` does
-not also permit `git status && rm -rf /`. Full tiers: [Tools reference](docs/reference/tools.md).
+not also permit `git status && rm -rf /`. Full tiers: [Tools reference](docs/tools/index.md).
 
 ### Be deliberate on surfaces that accept input from other people
 
@@ -145,7 +147,7 @@ A chat bridge, a public webhook, or a CI job reviewing fork PRs takes input from
 not you. At `high-risk`, a message — or a prompt injection inside a web page the agent fetched
 — can run arbitrary commands on that host. Use an allowlist of senders, keep the tier low, and
 trim the toolset. See
-[Chat platforms → security](docs/use-cases/chat-platforms.md#security-for-chat-surfaces).
+[Chat platforms → security](docs/surfaces/chat.md#security-for-chat-surfaces).
 
 ### Before approving, ask
 
@@ -199,15 +201,15 @@ covered by the keyring — treat them as sensitive in their own right.
 1. **Stop the run** — double-Escape interrupts generation and any running tool; otherwise exit the process.
 2. **Check what happened** — `~/.jazz/logs/` has every tool invocation with its arguments;
    credential-bearing fields are shown as `<redacted>`.
-3. **Recover** — `git reflog` finds the pre-mistake state, then `git reset --hard <commit>`. For files, restore from backup or your trash.
+3. **Recover** — inspect `git status` and `git reflog`, then restore only the affected paths or branch from a known-good commit. For non-Git files, use your backup or trash.
 4. **Report it** — if the cause was Jazz acting without approval rather than an approval you granted, that is [in scope](#scope).
 
 ---
 
 ## Related
 
-- [Tools & approval](docs/internals/tools-and-approval.md) — how gating and risk tiers are enforced
-- [Tools reference](docs/reference/tools.md) — every tool and its tier
-- [Configuration](docs/reference/configuration.md) — `envAllowlist`, `autoApprovedCommands`
-- [Airgapped & self-hosted](docs/start/airgapped.md) — removing outbound network entirely
+- [Tools & approval](docs/maintainers/tool-lifecycle.md) — how gating and risk tiers are enforced
+- [Tools reference](docs/tools/index.md) — every tool and its tier
+- [Configuration](docs/configure/jazz.md) — `envAllowlist`, `autoApprovedCommands`
+- [Local and air-gapped models](docs/getting-started/local-models.md) — offline mode, local providers, and the network controls required for a real air gap
 - **Security questions:** [Discord](https://discord.gg/yBDbS2NZju) · [Discussions](https://github.com/lvndry/jazz/discussions)

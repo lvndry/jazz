@@ -151,7 +151,7 @@ approach didn't work" is something the run should keep remembering.
 ## Guard: context is managed like the scarce resource it is
 
 Three mechanisms, three jobs, deliberately layered
-([the full writeup](/docs/internals/context-management)):
+([the full writeup](/docs/maintainers/context-lifecycle)):
 
 1. **Counting.** Every provider tokenizes differently, so Jazz estimates
    before each call and calibrates against what the provider actually
@@ -228,9 +228,9 @@ for the run nobody is watching. The model will keep getting smarter, and
 every agent gets that upgrade for free. The harness is the part you choose.
 
 All of it is MIT-licensed and documented at the level of this post and
-below: start at [the agent loop](/docs/internals/agent-loop), then
-[context management](/docs/internals/context-management),
-[tools & approval](/docs/internals/tools-and-approval),
-[skills loading](/docs/internals/skills-loading), and
-[sub-agents](/docs/internals/subagents). If you'd rather just see it play,
+below: start at [the agent loop](/docs/maintainers/run-lifecycle), then
+[context management](/docs/maintainers/context-lifecycle),
+[tools & approval](/docs/maintainers/tool-lifecycle),
+[skills loading](/docs/concepts/skills), and
+[sub-agents](/docs/concepts/peers-and-subagents). If you'd rather just see it play,
 the [homepage](/) runs a session in front of you.

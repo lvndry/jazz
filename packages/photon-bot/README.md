@@ -10,7 +10,7 @@ iMessage  ◀──(Photon hosted line)──▶  spectrum-ts  ──▶  bridge
 ## How this one is different
 
 Every other bridge borrows an account you already own. `jazz imessage` answers
-as *you*, which is why it needs a trigger word: iMessage marks everything you
+as _you_, which is why it needs a trigger word: iMessage marks everything you
 send as yours, including the bridge's own replies, so a chat with yourself has
 to be told which lines are questions.
 
@@ -20,7 +20,7 @@ side is Photon's problem, so this needs no Mac, no Full Disk Access and no
 LaunchAgent.
 
 The trade is that it is a hosted third party. Your messages pass through
-Photon's infrastructure, which the local `jazz imessage` bridge avoids entirely.
+Photon's infrastructure, which `jazz imessage --local` avoids for message transport.
 
 ## Requirements
 
@@ -58,18 +58,18 @@ is the same thing.
 
 ## Configuration
 
-| Variable                     | Default                | What it does                                                                                   |
-| ---------------------------- | ---------------------- | ---------------------------------------------------------------------------------------------- |
-| `PHOTON_PROJECT_ID`          | _(asked on first run)_ | Project id from app.photon.codes.                                                              |
-| `PHOTON_PROJECT_SECRET`      | _(asked on first run)_ | Project secret. Anything holding it can send as your line; saved 0600.                         |
-| `PHOTON_ALLOWED_HANDLES`     | _(asked on first run)_ | Comma-separated handles allowed to write to the agent. Punctuation and case are normalised.    |
-| `JAZZ_HOME`                  | `~/.jazz-photon`       | Data directory: agents, conversations, reminders, usage.                                       |
-| `JAZZ_PHOTON_AGENT`          | `photon`               | Seed agent every per-chat agent is cloned from. `--agent` sets this and copies the agent in.   |
-| `JAZZ_APPROVAL_POLICY`       | `low-risk`             | Tier above which tools stop and ask.                                                           |
-| `JAZZ_AUTO_APPROVE_TOOLS`    | _(none)_               | Tool names that never prompt, whatever the policy.                                             |
-| `JAZZ_RUN_TIMEOUT_MS`        | `300000`               | Per-turn timeout.                                                                              |
-| `JAZZ_DAILY_COST_CAP_USD`    | `0` (off)              | Spend ceiling across all chats per day.                                                        |
-| `JAZZ_PHOTON_SHOW_REASONING` | on                     | Send the run's reasoning under the answer.                                                     |
+| Variable                     | Default                | What it does                                                                                 |
+| ---------------------------- | ---------------------- | -------------------------------------------------------------------------------------------- |
+| `PHOTON_PROJECT_ID`          | _(asked on first run)_ | Project id from app.photon.codes.                                                            |
+| `PHOTON_PROJECT_SECRET`      | _(asked on first run)_ | Project secret. Anything holding it can send as your line; saved 0600.                       |
+| `PHOTON_ALLOWED_HANDLES`     | _(asked on first run)_ | Comma-separated handles allowed to write to the agent. Punctuation and case are normalised.  |
+| `JAZZ_HOME`                  | `~/.jazz-photon`       | Data directory: agents, conversations, reminders, usage.                                     |
+| `JAZZ_PHOTON_AGENT`          | `photon`               | Seed agent every per-chat agent is cloned from. `--agent` sets this and copies the agent in. |
+| `JAZZ_APPROVAL_POLICY`       | `low-risk`             | Tier above which tools stop and ask.                                                         |
+| `JAZZ_AUTO_APPROVE_TOOLS`    | _(none)_               | Tool names that never prompt, whatever the policy.                                           |
+| `JAZZ_RUN_TIMEOUT_MS`        | `300000`               | Per-turn timeout.                                                                            |
+| `JAZZ_DAILY_COST_CAP_USD`    | `0` (off)              | Spend ceiling across all chats per day.                                                      |
+| `JAZZ_PHOTON_SHOW_REASONING` | on                     | Send the run's reasoning under the answer.                                                   |
 
 ## Attachments
 
@@ -77,7 +77,7 @@ Photos, PDFs and voice notes work in both directions. Inbound media arrives as
 metadata plus a reader rather than as a file - unlike the local bridge, where an
 iMessage attachment is already on disk - so the bytes are fetched and written
 under `ph-media/` in the bridge's home, and the agent is handed the path. What it
-can *read* depends on the model: images and PDFs almost anywhere, audio and video
+can _read_ depends on the model: images and PDFs almost anywhere, audio and video
 only where the model accepts them.
 
 ## Security

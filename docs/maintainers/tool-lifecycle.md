@@ -1,0 +1,415 @@
+---
+description: "How a tool call becomes an action in Jazz: risk tiers, the approval card, auto-approve policies, and what no tier can ever bypass."
+---
+
+# Tools & approval
+
+This page explains how a tool call becomes an action, and what stands between the
+two.
+
+Source:
+[`execution/tool-executor.ts`](../../packages/core/src/agent/execution/tool-executor.ts) ·
+[`tools/tool-registry.ts`](../../packages/core/src/agent/tools/tool-registry.ts) ·
+[`tools/register-tools.ts`](../../packages/core/src/agent/tools/register-tools.ts) ·
+[`tools/register-mcp-tools.ts`](../../packages/core/src/agent/tools/register-mcp-tools.ts) ·
+[`types/tools.ts`](../../packages/core/src/types/tools.ts)
+
+---
+
+## The lifecycle of one tool call
+
+### Operator shell escapes
+
+Interactive terminal users can explicitly run a command with `! <command>`. This path runs
+before the model turn and feeds the bounded result back as tagged command context. It shares
+the shell executor's working-directory resolution, sanitized environment, timeout, interruption
+handling, denylist, and stdout/stderr caps. Because the operator authored the command directly,
+the `!` path is an explicit operator action rather than a model-issued approval request; it does
+not make the command safe or weaken the denylist. Shell output is untrusted data and must be
+treated as context, not as instructions. This syntax is available only in the interactive
+terminal; headless and remote surfaces retain their own authorization contracts.
+
+```mermaid
+flowchart TD
+    IN(["Model emits a tool call"]) --> PARSE{"Arguments<br/>valid JSON?"}
+    PARSE -->|no| ERR["Return an error result —<br/>the agent can retry"]
+    PARSE -->|yes| SET{"Name in this run's<br/>effective tool set?"}
+    SET -->|no| ERR
+    SET -->|yes| LOOKUP["Look up in the registry:<br/>schema · risk level · timeout"]
+
+    LOOKUP --> RUN["<b>Invoke the tool</b><br/>timeout: per-tool, else 3 min<br/>(longRunning tools: no timeout)"]
+
+    RUN --> GATED{"Result is an<br/>approval request?"}
+    GATED -->|"no — read-only tool"| RESULT
+    GATED -->|yes| POLICY{"Auto-approved?"}
+
+    POLICY -->|"policy tier covers<br/>this risk level"| EXEC
+    POLICY -->|"per-tool allowlist"| EXEC
+    POLICY -->|"per-command allowlist"| EXEC
+    POLICY -->|"no — ask"| PROMPT["<b>Approval prompt</b><br/>args + preview diff"]
+
+    PROMPT -->|approve| EXEC
+    PROMPT -->|deny| DENIED["Return a refusal —<br/>the agent reasons around it"]
+
+    EXEC["<b>Execute the real tool</b><br/>the second half of the pair"]
+    EXEC --> RESULT["Format for context<br/>+ record metrics"]
+    RESULT --> OUT(["Result → next iteration"])
+
+    classDef gate fill:#f9a03f,stroke:#b3541e,color:#1a1a1a
+    classDef act fill:#4f9d9d,stroke:#2f6d6d,color:#ffffff
+    class SET,POLICY,PROMPT gate
+    class RUN,EXEC act
+```
+
+---
+
+## Which tools a run can reach
+
+The tier gate above decides whether a call is _approved_. A separate, earlier question is
+whether the run may make it at all.
+
+A run resolves its toolset once at the start: the agent's own tools, plus the built-in
+categories its persona admits, minus the persona and agent deny lists, minus the carve-outs
+for a run that cannot persist (`manage_memory`) or cannot ask a human anything
+(`ask_user_question`, `ask_file_picker`), narrowed by any `toolAllowlist` it inherited. That list
+is then expanded with the names its tools also answer to — advertised aliases (`glob` for
+`find`) and the hidden execute half of each gated pair (`execute_execute_command`) — and the
+denials are re-applied over what expansion added, so a deny entry cannot be undone by an
+alias one step below it. The result is the run's **effective tool set**.
+
+That one set does three jobs:
+
+- **Advertisement.** `eager`-tier members are sent as schemas with every request;
+  `deferred`-tier ones appear as a name/summary index and their schemas arrive via
+  `search_tools`. Hidden execute halves are never advertised at all.
+- **Execution.** The executor tests every call against the set before handing the name to
+  the registry, and returns a plain tool-error result — the same treatment as unparseable
+  arguments — for anything outside it.
+- **Inheritance.** `spawn_subagent` hands it down as the child's `toolAllowlist`, so a child
+  can never hold a tool its parent lacks.
+
+The second is not redundant. The registry resolves a name against every tool registered in
+the process, so a narrowed advertisement only shapes what a model is _likely_ to ask for.
+Nothing stops a model from naming a tool it was never offered, and the AI SDK does not drop
+such a call: it forwards it flagged `invalid` and lets the caller decide. Constrained
+decoding at a hosted provider makes it unlikely; a local model, or any path where tool calls
+are parsed out of text, makes it ordinary.
+
+One member of the set is deliberately unreachable from a model-issued call: **the hidden
+execute half of a gated pair.** It has to be in the set for the approval branch to run it,
+and it is refused when the model writes the name itself — otherwise guessing
+`execute_write_file` would skip the approval the pair exists to collect. Every other member
+runs through whatever gate its risk level demands, and a name outside the set does not run
+at all.
+
+This is what makes `toolAllowlist` an authorization boundary rather than a hint, and it is
+what [`/a2a` peer serving](../concepts/agent-to-agent.md) relies on: a peer-served run auto-approves
+everything, on the grounds that the tier decided reachability before the run started.
+
+---
+
+## Two-phase execution
+
+A gated tool doesn't act when the model calls it. It returns a description of what it
+_would_ do:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant M as Model
+    participant P as write_file<br/>(propose)
+    participant G as Gate<br/>policy or human
+    participant E as write_file_execute
+
+    M->>P: write_file({path, content})
+    P->>P: resolve the path, read the current file,<br/>compute a diff — no mutation
+    P-->>G: ApprovalRequired{message, previewDiff,<br/>executeToolName, executeArgs}
+    alt policy covers this risk tier
+        G->>E: execute immediately
+    else needs a human
+        G->>G: show args + diff, wait
+        G->>E: execute on approval
+    end
+    E-->>M: result
+```
+
+**Why a pair rather than a `dangerous: true` flag.** You cannot show a useful preview
+without doing the work — computing a diff means reading the target and resolving the path.
+Two phases let the propose step do real work and _still_ not mutate anything, which is what
+makes "here is the exact diff, approve?" possible.
+
+**What it buys.** Interactive and unattended runs go down the _same_ path. The only
+difference is who answers the gate. There is no separate headless mode to drift out of sync
+with the interactive one.
+
+### Picker-style approvals
+
+Most gates are yes/no. Some decisions are "_which one_" — `analyze_media` asks which
+model should inspect a file, while `generate_media` asks which should create an artifact. A proposal may carry `options` alongside its
+message; surfaces then render a picker (same card, rows instead of Yes/No), and the chosen
+row's id returns on the outcome as `selectedOptionId`, merged into the execution tool's
+args under `_selectedOptionId` — a key the model never writes and cannot spoof.
+
+Two properties are load-bearing:
+
+- **A request with options is never auto-approved**, under any policy including yolo.
+  There is nothing to approve until somebody picked a row. The pre-bound path
+  (`config.companions`) skips approval inside the tool itself instead — binding is the
+  consent. Bindings are keyed by companion role — `"<analyze|generate>:<image|audio|video>"` —
+  because reading a modality and producing it are different models: `analyze:image` and
+  `generate:image` bind independently on the same agent.
+- **Unattended runs fail loudly when nothing is bound.** Nobody to ask plus no standing
+  consent means a clear refusal naming what would fix it ("bind an `analyze:image`
+  companion"), not a silent fallback to whichever model happens to be first.
+
+---
+
+## Risk tiers
+
+Every tool declares a level. One dial decides what runs without asking.
+
+```mermaid
+flowchart LR
+    subgraph tiers["Tool risk levels"]
+        direction TB
+        RO["<b>read-only</b><br/>read_file · grep · find · ls<br/>web_search · web_fetch · http_request"]
+        LR["<b>low-risk</b><br/>manage_todos<br/>spawn_subagent"]
+        HR["<b>high-risk</b><br/>write_file · edit_file · rm<br/>mv · cp · mkdir"]
+        UN["<b>unknown</b><br/>execute_command"]
+    end
+
+    subgraph policies["--approval-policy"]
+        direction TB
+        P0["<i>unset / false</i><br/>read-only + low-risk"]
+        P1["read-only"]
+        P2["low-risk"]
+        P3["high-risk"]
+    end
+
+    P0 -.->|approves| RO
+    P0 -.->|approves| LR
+    P1 -.->|approves| RO
+    P2 -.->|approves| RO
+    P2 -.->|approves| LR
+    P3 -.->|approves| RO
+    P3 -.->|approves| LR
+    P3 -.->|approves| HR
+    P3 -.->|approves| UN
+    UN -.->|classified as| RO
+    UN -.->|classified as| LR
+    UN -.->|classified as| HR
+
+    classDef safe fill:#4f9d9d,stroke:#2f6d6d,color:#ffffff
+    classDef warn fill:#f9a03f,stroke:#b3541e,color:#1a1a1a
+    classDef bad fill:#c1443c,stroke:#7d2b26,color:#ffffff
+    classDef muted fill:#6b7280,stroke:#374151,color:#ffffff
+    class RO safe
+    class LR warn
+    class HR bad
+    class UN muted
+```
+
+The policy is read through a **getter**, not captured once, so a mid-run change takes effect
+immediately — that's how Shift+Tab mode switching works in the TUI, and why a tool queued
+behind another can pick up a policy that changed while it waited.
+
+### Command classifier
+
+`execute_command` is declared `unknown` because the command decides the blast radius. Jazz
+asks the cheap harness model (`summarizerModel`, else the agent's own) whether this
+particular command is `read-only`, `low-risk`, or `high-risk`, and the tier then applies to
+the verdict as it would to any declared level. So `--approval-policy read-only` runs
+`git log` unattended without also unlocking `rm`, and an interactive session skips the
+prompt for a listing but still asks about a push.
+
+The classifier is skipped when it cannot change anything: yolo approves either way, the
+command is already allowlisted, or the level was never `unknown`. Everywhere else it runs,
+including on surfaces that cannot prompt — an unclassified command stays `unknown`, which
+approves nowhere, so skipping it there would park a run on `git status`.
+
+While it runs, the live zone shows `classifying` on that command (the round-trip can take a
+few seconds). The verdict then lands on the settled receipt — `read-only`, `low-risk`, or
+`high-risk` — so an auto-approved inspect-only command is visibly why it ran without a
+prompt. The raw classifier prompt is not shown: it includes recent user requests, and the
+token is the decision.
+
+Fail closed: timeouts, provider errors, empty replies, and anything other than the exact
+token `read-only` or `low-risk` stay `high-risk`. A clearly mutating command stays
+`high-risk` regardless of context.
+
+**What the classifier is allowed to read.** The command, always. Plus the last five _user_
+requests (hard-capped at 800 characters) when the session is interactive, so an ambiguous
+command can be lowered only when the person at the keyboard asked for that milder action.
+Two exclusions are deliberate:
+
+- **Assistant turns are never included.** The agent proposing the command also writes those
+  turns, so quoting them back would let a model that has been talked into something by a web
+  page or a tool result supply its own corroborating evidence.
+- **No conversation at all on a bridge or a headless run.** There the "user" turns come from
+  whoever is messaging the bot, and corroboration from a stranger is not corroboration.
+
+Both blocks are wrapped as tagged data with `<` escaped, so the model is told not to follow
+instructions inside them and cannot close the tag early. A wrong milder verdict is still
+possible; the shell denylist is the backstop for known-destructive patterns, not for
+`git push`.
+
+Each classifier call is recorded as `llm_usage` with `purpose: "classifier"` (tokens in/out
+and wall-clock latency) and rolled into `classifierUsage` on `agent_run_completed`. Those
+numbers stay beside the agent-loop `usage` — they are not mixed into it — so a run shows how
+much was approval gating versus the conversation. See [Observability](../configure/observability.md).
+
+Implementation: [`command-risk.ts`](../../packages/core/src/agent/tools/command-risk.ts).
+
+### Two sharper controls
+
+Tiers are coarse on purpose. When you need precision:
+
+| Control                   | Scope        | Behavior                                                    |
+| ------------------------- | ------------ | ----------------------------------------------------------- |
+| **Per-tool allowlist**    | this session | "Always approve this tool" — chosen from an approval prompt |
+| **Per-command allowlist** | persisted    | "Always approve this command" — `execute_command` only      |
+
+The command allowlist does **not** prefix-match raw strings. It extracts an approval key
+(binary + first subcommand) and matches exactly or on a word boundary:
+
+```text
+approved: "git status"
+  ✅ git status
+  ✅ git status --short
+  ❌ git statusfoo
+  ❌ git status && rm -rf /     ← the reason prefix matching was rejected
+```
+
+The strongest control isn't a policy at all: **an agent whose toolset omits
+`execute_command` cannot run shell commands regardless of tier.** Not merely because the
+tool is never offered — the executor refuses a call to it outright, so a model that names it
+anyway gets a tool error rather than a shell. Trim the toolset in the agent config when the
+blast radius matters — see [Chat platforms](../surfaces/chat.md#security-for-chat-surfaces),
+and [Which tools a run can reach](#which-tools-a-run-can-reach) for how that set is built.
+
+---
+
+## Concurrency and timeouts
+
+```mermaid
+flowchart TB
+    BATCH(["Model requested 6 tool calls"]) --> META["Pre-fetch metadata for<br/>unique tool names<br/>(parallel, ≤10)"]
+    META --> FORK["Fork all 6 as fibers<br/>≤10 running concurrently"]
+    FORK --> JOIN{"Race"}
+    JOIN -->|"all complete"| RESULTS(["6 results"])
+    JOIN -->|"interrupt signal<br/>(double-Esc)"| KILL["Interrupt every fiber<br/>settle UI · stop the loop"]
+
+    classDef act fill:#4f9d9d,stroke:#2f6d6d,color:#ffffff
+    class FORK act
+```
+
+| Setting                | Value      | Notes                                                            |
+| ---------------------- | ---------- | ---------------------------------------------------------------- |
+| `MAX_CONCURRENT_TOOLS` | 10         | Prevents resource exhaustion when a model asks for 40 file reads |
+| `TOOL_TIMEOUT_MS`      | 3 min      | Default; a tool can declare its own                              |
+| `longRunning` tools    | no timeout | e.g. `ask_user_question` — waiting for a human isn't a hang      |
+
+A timeout is **not** a crash. It comes back as a failed result with the message, the agent
+sees it, and the run continues. A tool that can't finish shouldn't take the whole run down.
+
+Approval prompts are queued rather than raced, and re-checked at dequeue time — a parallel
+tool's "always approve" may have changed the answer while this one waited.
+
+Double-Esc during a running tool is a **clean stop**, not a crash. In-flight tools get a
+cancelled receipt, `execute_command`'s child process is killed, dangling `tool_calls` in
+the transcript get a matching tool-result so the next turn stays valid, and the loop
+exits the same way an LLM-stream interrupt does.
+
+---
+
+## Two shell-specific defenses
+
+`execute_command` gets two protections beyond the approval gate, both in
+[`shell-tools.ts`](../../packages/core/src/agent/tools/shell-tools.ts).
+
+### A 56-pattern denylist
+
+Commands are matched against a denylist _before_ execution — privilege escalation (`sudo`,
+`su`), filesystem destruction (`rm -rf /`), remote code execution (`curl … | sh`),
+power/runlevel changes (`shutdown`), and reads or copies of `/etc/passwd`, `/etc/shadow`,
+`/etc/sudoers`. A blocked command returns the specific reason, so the agent learns why rather
+than retrying blindly.
+
+It carries one carve-out worth knowing: `tmp="$(mktemp -d)"; …; rm -rf "$tmp"` passes, because
+temp-dir cleanup is routine and blocking it trains users to disable the denylist. `rm -rf`
+against a real path — or a mix of temp and real paths — still blocks.
+
+**This is explicitly not a sandbox.** From the implementation:
+
+> It cannot stop a determined attacker — variable expansion, base64 obfuscation, eval, and
+> other indirection paths can route around any string matcher.
+
+Its purpose is catching an accident from a confused model. Approval is the real control, and
+container isolation is the real boundary. The known bypasses are documented as a regression
+suite in [`shell-tools.security.test.ts`](../../packages/core/src/agent/tools/shell-tools.security.test.ts) —
+worth reading before you rely on the denylist for anything.
+
+### Environment sanitization
+
+Shell commands do not inherit your full environment. Variables whose _names_ match
+`API|KEY|SECRET|TOKEN|PASSWORD|CREDENTIAL|AUTH` (case-insensitive), plus everything prefixed
+`SSH_`, are stripped before the command runs — so a command that echoes its environment cannot
+exfiltrate your provider keys.
+
+When a command genuinely needs one, an agent's `envAllowlist` exempts specific names. The
+allowlist can only un-hide a variable that already exists in the parent environment; it never
+invents a value, and the `SSH_` block applies regardless. Implementation:
+[`env.ts`](../../packages/core/src/utils/env.ts).
+
+---
+
+## The tool registry
+
+Tools are registered by category at startup, except MCP:
+
+| Category               | Tools   | Examples                                                                                              |
+| ---------------------- | ------- | ----------------------------------------------------------------------------------------------------- |
+| File Management        | 15      | `read_file` `write_file` `edit_file` `find` `grep` `read_pdf` `pdf_page_count` `mkdir` `rm` `mv` `cp` |
+| Shell Commands         | 1       | `execute_command` (`unknown`; classified before the approval decision)                                |
+| Web Search / Web Fetch | 2       | `web_search` `web_fetch`                                                                              |
+| HTTP                   | 1       | `http_request`                                                                                        |
+| Todo                   | 2       | `manage_todos` `list_todos`                                                                           |
+| Memory                 | 2       | `view_memory` `manage_memory`                                                                         |
+| Reminders              | 3       | `add_reminder` `list_reminders` `cancel_reminder`                                                     |
+| Context                | 3       | `context_info` `get_time` `retrieve_tool_result`                                                      |
+| Sub Agents             | 2       | `spawn_subagent` `summarize_context`                                                                  |
+| User Interaction       | 2       | `ask_user_question` `ask_file_picker`                                                                 |
+| Web App                | 1       | `create_web_app`                                                                                      |
+| **Total agent-facing** | **35**  | plus 7 hidden `execute_*` counterparts                                                                |
+| **Skills**             | 3       | `find_skills` `load_skill` `load_skill_section` — per agent                                           |
+| **MCP**                | dynamic | `mcp_<server>_<tool>` — per agent, connected lazily                                                   |
+
+**MCP is lazy by design.** Servers are child processes; connecting six of them at boot makes
+`jazz` slow to start and hangs the CLI when one misbehaves. Instead, an agent's MCP tools are
+registered from its tool list and the server connects on first invocation. Connected servers
+are tracked so they can be cleaned up when the conversation ends.
+
+**Captured process output is bounded.** `execute_command` and find/grep each keep at
+most 256 KB of stdout and 256 KB of stderr, collected as bytes so a flood cannot grow until
+the timeout. Truncated `execute_command` streams include a marker. The grep and find
+parsers keep stdout clean (so a partial last line is not treated as a path or match) and set
+`truncated` on the tool result — without that flag a cut-short enumeration is
+indistinguishable from an exhaustive one. Custom `command` tools use the same collector with
+a 16 KB cap — they are typically small, trusted argv programs, not a general shell.
+
+**MCP argument schemas are advisory, not a gate.** `convertMCPSchemaToZod` is lossy — `$ref`
+is unresolved and an untyped property carries no constraint — so MCP tools forward the
+model's arguments untouched and let the server's own schema reject bad calls. Validating
+locally against the converted schema would reject or silently empty calls the server accepts.
+Builtin tools, whose schemas are authored alongside their handlers, are validated normally.
+
+Current tool list: [tool inventory](../tools/index.md).
+
+---
+
+## Related
+
+- [Agent loop](./run-lifecycle.md) — where the tool phase sits
+- [Headless](../surfaces/headless.md) — setting the policy for unattended runs
+- [Security](../../SECURITY.md) — the threat model and hardening guidance
+- [Architecture](./architecture.md) — package boundaries and extension points

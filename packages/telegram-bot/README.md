@@ -131,7 +131,7 @@ don't need to change — they only set what a brand-new chat starts on.
 (email), [khal](https://github.com/pimutils/khal) + [vdirsyncer](https://github.com/pimutils/vdirsyncer)
 (calendar, non-Google), and [gcalcli](https://github.com/insanum/gcalcli) (calendar,
 Google) — the CLIs the `email`/`calendar` skills already know how to drive via
-`execute_command` (see [Email & Calendar](../../docs/integrations/email-calendar.md)
+`execute_command` (see [Email & Calendar](../../docs/configure/email-calendar.md)
 and the calendar skill's [Google Calendar (gcalcli)](../../skills/calendar/SKILL.md#google-calendar-gcalcli)
 section). None of them are allowlisted: like every other shell command, each call is
 `high-risk` and shows up in Telegram as an Accept/Reject prompt before it runs.
@@ -354,7 +354,7 @@ model, so it costs nothing and works even while the agent is busy or down:
 
 Anything on the host can use it — scripts, cron, a finished job, you at a shell.
 `auto-update.sh` uses it to report failures. See
-[Chat platforms — sending yourself a message](../../docs/use-cases/chat-platforms.md#sending-yourself-a-message).
+[Chat platforms — sending yourself a message](../../docs/surfaces/chat.md#sending-yourself-a-message).
 
 **Run logs:** every turn appends an NDJSON record of the jazz event stream to
 `<JAZZ_HOME>/logs/runs/<conversation>-<timestamp>.ndjson`, written as the run

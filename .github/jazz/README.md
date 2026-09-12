@@ -20,8 +20,8 @@ repo. This is the guide for doing that.
    - `.github/jazz/` (this whole directory)
 2. Add **one repo secret** for your model provider (Settings → Secrets and
    variables → Actions):
-   - `OPENROUTER_API_KEY` — if you use OpenRouter (the default here), **or**
-   - `OPENAI_API_KEY` — if you point the agents at OpenAI.
+   - `OPENAI_API_KEY` — for the checked-in OpenAI agent configs, **or**
+   - `OPENROUTER_API_KEY` — if you change them to OpenRouter.
    - `GITHUB_TOKEN` is provided automatically; you don't create it.
 3. Customize for your stack (see below).
 4. Open a PR, or comment `/jazz summarize this PR`.
@@ -59,8 +59,8 @@ SHAs into the `WORKFLOW.md` template (`__PR_BASE_SHA__`, `__PR_HEAD_SHA__`,
 Two files almost certainly need editing — the defaults are tuned for **this**
 (TypeScript / Bun / Effect-TS) repo:
 
-1. **`agents/*.json` — pick your model.**.
-   Swap `model` / `llmModel` / `llmProvider` for whatever you want. A stronger model gives noticeably better reviews on large diffs.
+1. **`agents/*.json` — pick your model.**
+   Change `llmProvider`, `llmModel`, and optionally `reasoningEffort`. The checked-in configs use `openai/gpt-5.4-mini`; use the provider key that matches your choice.
 2. **`workflows/code-review/WORKFLOW.md` — match your codebase.** Its **"Runtime
    Model"** section describes Jazz's specifics (single-threaded JS, Effect-TS
    error channels, Bun). Replace it with your language, framework, and the risk

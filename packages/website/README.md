@@ -22,6 +22,4 @@ bun run dev        # local dev server
 bun run build      # tokens + astro build → dist/
 ```
 
-Design direction and phase plan: `docs/superpowers/plans/website.md`
-(local-only). Marketing pages pin `data-skin="dark"`; docs pages follow the
-viewer's preference.
+Marketing pages pin `data-skin="dark"`; docs pages follow the viewer's preference.

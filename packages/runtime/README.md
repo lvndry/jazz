@@ -32,7 +32,7 @@ running `jazz` CLI, and is what `scripts/build.ts` compiles into the standalone 
 
 `@jazz/runtime` is the only package allowed to depend on all three of `core`, `adapters`, and
 `cli` at once — everywhere else, the dependency rule points inward (see
-`docs/internals/code-map.md`).
+`docs/maintainers/architecture.md`).
 
 ## Key files
 
@@ -58,4 +58,4 @@ running `jazz` CLI, and is what `scripts/build.ts` compiles into the standalone 
 - **Core**: `packages/core/README.md`
 - **Adapters**: `packages/adapters/README.md`
 - **CLI**: `packages/cli/README.md`
-- **Architecture**: `docs/reference/architecture.md`
+- **Architecture**: `docs/maintainers/architecture.md`

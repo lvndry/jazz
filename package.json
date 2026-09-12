@@ -143,6 +143,7 @@
     "test:watch": "bun test --watch",
     "bench": "bun bench/run.ts",
     "docs:check-links": "bun run scripts/check-docs-links.ts",
+    "docs:check-metadata": "bun run scripts/check-docs-metadata.ts",
     "docs:design": "bun run scripts/gen-design-docs.ts",
     "docs:lint": "bunx markdownlint-cli2",
     "docs:lint:fix": "bunx markdownlint-cli2 --fix",

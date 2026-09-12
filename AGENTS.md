@@ -1,7 +1,7 @@
 # Working on Jazz
 
 Jazz is an agent harness. You are working on the machine that turns a model into
-something that can actually *do* a job — unattended, on a real machine, with real
+something that can actually _do_ a job — unattended, on a real machine, with real
 consequences. That is hard, interesting work. Treat it that way.
 
 Do not reconstruct Jazz from memory. Do not answer from vibes. The documentation
@@ -15,14 +15,13 @@ source of truth for how it is implemented. Read both before you speak.
 Start here, in this order, for whatever you are about to do:
 
 - What is Jazz, and what can it do? [README.md](README.md), [docs/](docs/index.md)
-- How does the harness work? [docs/internals/](docs/internals/index.md)
-- Why is it built this way? [design-decisions.md](docs/internals/design-decisions.md)
-- Where does my change go? [code-map.md](docs/internals/code-map.md)
-- What does the interface demand? [docs/design/](docs/design/index.md)
-- What is the security model? [SECURITY.md](SECURITY.md), [threat-model.md](docs/internals/threat-model.md)
+- How does the harness work? [maintainer guide](docs/maintainers/index.md)
+- Why is it built this way, and where does my change go? [architecture](docs/maintainers/architecture.md)
+- What does the interface demand? [interface design](docs/maintainers/interface-design.md)
+- What is the security model? [SECURITY.md](SECURITY.md), [threat-model.md](docs/security/threat-model.md)
 - How do I contribute? [CONTRIBUTING.md](CONTRIBUTING.md)
-- Public flags, tools, config? [docs/reference/](docs/reference/index.md)
-- Did this harness change help? [evals](evals/README.md), [evals internals](docs/internals/evals.md)
+- Public flags, tools, config? [commands](docs/commands.md), [tools](docs/tools/index.md), [configure](docs/configure/index.md)
+- Did this harness change help? [evals](evals/README.md), [evals internals](docs/maintainers/testing-and-evals.md)
 
 The stack, the commands, the architecture, the Effect patterns, the naming: they
 live in the repo. Open the files. Match what you find.
@@ -92,7 +91,7 @@ propose sharply, confirm when it matters, then execute all the way.
 
 ## Documentation
 
-- Everytime a behavior changes, a feature is added or removed  update the `docs` folder to reflect the change.
+- Everytime a behavior changes, a feature is added or removed update the `docs` folder to reflect the change.
 - Add a docstring on top of files the explain in details its purpose and how to use the functions/objects declared in it.
 - Document functions when needed. Avoid inline comments and prefer to document at the function or file level.
 
