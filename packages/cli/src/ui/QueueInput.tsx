@@ -39,7 +39,8 @@ function truncateEntry(entry: string): string {
  * Each Enter appends a new entry to the in-memory message queue. The queue
  * preview shows entries stacked one per line; on agent completion the chat
  * loop drains the queue (joining with `\n`) and sends it as a single
- * combined turn. `↑` recalls the whole queue into the input for editing
+ * combined turn; a queued slash command runs alone through the command path.
+ * `↑` recalls the whole queue into the input for editing
  * (any typed draft is kept below the recalled text). `Ctrl-X` clears the
  * queue when the input buffer is empty.
  */
@@ -122,11 +123,6 @@ export function QueueInput({
             >
               {`  ${G.bullet} `}
               {truncateEntry(entry)}
-              {/* Slash commands only run when queued alone — a mixed queue is
-                  sent to the agent as prose. Warn while it's still editable. */}
-              {entry.trimStart().startsWith("/") && queue.length > 1 ? (
-                <Text color={THEME.warning}> (sent as text, not run — queue it alone)</Text>
-              ) : null}
             </Text>
           ))}
         </Box>

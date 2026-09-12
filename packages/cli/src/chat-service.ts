@@ -206,27 +206,23 @@ export class ChatServiceImpl implements ChatService {
 
       while (chatActive) {
         let userMessage: string | undefined;
-        const queuedEntryCount = store.getMessageQueueSnapshot().length;
         const queued = store.peekQueue();
         // A flush (Esc with queued messages during a run) takes priority over the
         // error path: even though the prior turn was interrupted, the user asked
         // for the queue to go into the chat now, not to be re-edited.
         const flushRequested = store.consumeFlushQueue();
-        // A multi-entry drain is prose for the agent even if the first entry
-        // starts with "/" — parsing the joined text as one command would
-        // silently discard the other entries.
-        let drainedMultipleEntries = false;
 
         if (queued.length > 0 && (!lastTurnErrored || flushRequested)) {
-          // Clean prior turn → drain the queue as the next user message
-          // without re-prompting. Record entries in input history for ↑
-          // recall parity with interactively typed messages.
-          for (const entry of store.getMessageQueueSnapshot()) {
+          // Clean prior turn → drain the next queued turn without re-prompting.
+          // A command at the head runs alone through the command path below;
+          // prose entries are combined. Anything left is picked up next loop.
+          // Record entries in input history for ↑ recall parity with
+          // interactively typed messages.
+          const entries = store.takeQueuedTurn();
+          for (const entry of entries) {
             store.pushInputHistory(entry);
           }
-          store.takeQueue();
-          userMessage = queued;
-          drainedMultipleEntries = queuedEntryCount > 1;
+          userMessage = entries.join("\n");
           // Echo "You: <prompt>" to scrollback so the user can see when their
           // queued message was actually popped (vs when the LLM started
           // responding to it). The interactive ask() path emits the same
@@ -297,12 +293,10 @@ export class ChatServiceImpl implements ChatService {
         let messageForAgent = userMessage;
 
         // A message with interior newlines (multi-line composition or a
-        // multi-line queued entry) is prose even when it starts with "/" or
-        // "!" —
+        // combined prose drain) is prose even when it starts with "/" or "!" —
         // command parsing would silently discard everything after line one.
         if (
           (trimmedMessage.startsWith("/") || trimmedMessage.startsWith("!")) &&
-          !drainedMultipleEntries &&
           !trimmedMessage.includes("\n")
         ) {
           const specialCommand = parseSpecialCommand(userMessage);
@@ -508,7 +502,7 @@ export class ChatServiceImpl implements ChatService {
               }
             },
             checkQueuedMessage: () => {
-              const queued = store.takeQueue();
+              const queued = store.takeQueuedProse().join("\n");
               if (queued.length === 0) return undefined;
               Effect.runSync(terminal.user(queued));
               return queued;
