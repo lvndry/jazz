@@ -14,7 +14,7 @@ Jazz combines a small set of independent building blocks:
 - A [conversation](./conversations-and-memory.md) carries dialogue; work state, todos, the scratchpad, and memory each provide a different kind of continuity.
 - [Deferred work](./deferred-work.md) is how an agent leaves something running past the end of a turn and resumes when it is done.
 - An [artifact](./artifacts.md) is a file a run produced, labelled with whether a model generated it or it was rendered from data.
-- [Cost](./cost.md) is reported per run, children included, and reported as unknown rather than guessed.
+- [Budgets](./budgets.md) cap a run by iterations, cost, tokens, or time, and report what it actually spent.
 - A **surface** is where a person or system reaches the agent: terminal, headless command, schedule, bot, webhook, or peer request.
 - A [subagent](./peers-and-subagents.md) is a delegated child run on the same installation.
 - A [webhook](./webhooks.md) is a fixed, authenticated HTTP door onto an agent.
