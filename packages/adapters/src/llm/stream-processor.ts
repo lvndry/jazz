@@ -259,7 +259,7 @@ export class StreamProcessor {
     });
 
     // Start processing stream
-    void this.logger.debug(`[LLM Timing] 🔄 Starting to process fullStream...`);
+    Effect.runFork(this.logger.debug(`[LLM Timing] 🔄 Starting to process fullStream...`));
     const streamProcessStart = Date.now();
     await this.processFullStream(result);
 
@@ -267,8 +267,10 @@ export class StreamProcessor {
       this.routeParsedChunk(this.config.reasoningParser.flush());
     }
 
-    void this.logger.debug(
-      `[LLM Timing] ✓ Stream processing completed in ${Date.now() - streamProcessStart}ms`,
+    Effect.runFork(
+      this.logger.debug(
+        `[LLM Timing] ✓ Stream processing completed in ${Date.now() - streamProcessStart}ms`,
+      ),
     );
 
     // Wait for completion
@@ -357,8 +359,10 @@ export class StreamProcessor {
             // remain visible to the user rather than be silently dropped.
             if (this.state.reasoningSequence === 0) {
               const firstReasoningLatency = Date.now() - this.config.startTime;
-              void this.logger.debug(
-                `[LLM Timing] 🧠 REASONING START arrived after ${firstReasoningLatency}ms`,
+              Effect.runFork(
+                this.logger.debug(
+                  `[LLM Timing] 🧠 REASONING START arrived after ${firstReasoningLatency}ms`,
+                ),
               );
               void this.emitEvent({ type: "thinking_start", provider: this.config.providerName });
               this.recordFirstToken("reasoning");
@@ -375,8 +379,10 @@ export class StreamProcessor {
               // Emit thinking start if we haven't received reasoning-start event
               if (this.state.reasoningSequence === 0) {
                 const firstReasoningLatency = Date.now() - this.config.startTime;
-                void this.logger.debug(
-                  `[LLM Timing] 🧠 FIRST REASONING TOKEN arrived after ${firstReasoningLatency}ms`,
+                Effect.runFork(
+                  this.logger.debug(
+                    `[LLM Timing] 🧠 FIRST REASONING TOKEN arrived after ${firstReasoningLatency}ms`,
+                  ),
                 );
                 void this.emitEvent({ type: "thinking_start", provider: this.config.providerName });
                 this.recordFirstToken("reasoning");
@@ -523,7 +529,9 @@ export class StreamProcessor {
               finishReason !== "length" &&
               finishReason !== "tool-calls"
             ) {
-              void this.logger.warn(`[StreamProcessor] Unexpected finish reason: ${finishReason}`);
+              Effect.runFork(
+                this.logger.warn(`[StreamProcessor] Unexpected finish reason: ${finishReason}`),
+              );
             }
             break;
           }
@@ -535,13 +543,15 @@ export class StreamProcessor {
       }
     } catch (error) {
       if (error instanceof Error && error.name === "AI_TypeValidationError") {
-        void this.logger.warn(
-          `[StreamProcessor] AI SDK validation error (likely due to provider-specific content format): ${error.message}`,
-          {
-            provider: this.config.providerName,
-            model: this.config.modelName,
-            errorName: error.name,
-          },
+        Effect.runFork(
+          this.logger.warn(
+            `[StreamProcessor] AI SDK validation error (likely due to provider-specific content format): ${error.message}`,
+            {
+              provider: this.config.providerName,
+              model: this.config.modelName,
+              errorName: error.name,
+            },
+          ),
         );
 
         throw error;
@@ -556,7 +566,9 @@ export class StreamProcessor {
   private emitVisibleText(textChunk: string): void {
     if (!this.state.hasStartedText) {
       const firstTokenLatency = Date.now() - this.config.startTime;
-      void this.logger.debug(`[LLM Timing] 🎯 FIRST TOKEN arrived after ${firstTokenLatency}ms`);
+      Effect.runFork(
+        this.logger.debug(`[LLM Timing] 🎯 FIRST TOKEN arrived after ${firstTokenLatency}ms`),
+      );
       void this.emitEvent({ type: "text_start" });
       this.state.hasStartedText = true;
       this.recordFirstToken("text");
@@ -573,8 +585,10 @@ export class StreamProcessor {
   private routeParsedChunk(chunk: ParseChunk): void {
     if (chunk.thinkingStarted && this.state.reasoningSequence === 0) {
       const firstReasoningLatency = Date.now() - this.config.startTime;
-      void this.logger.debug(
-        `[LLM Timing] 🧠 PARSER REASONING START after ${firstReasoningLatency}ms`,
+      Effect.runFork(
+        this.logger.debug(
+          `[LLM Timing] 🧠 PARSER REASONING START after ${firstReasoningLatency}ms`,
+        ),
       );
       void this.emitEvent({ type: "thinking_start", provider: this.config.providerName });
       this.recordFirstToken("reasoning");

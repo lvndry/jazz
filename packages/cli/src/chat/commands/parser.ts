@@ -60,8 +60,9 @@ export function parseSpecialCommand(input: string): SpecialCommand {
       return { type: "cost", args };
     case "workflows":
       return { type: "workflows", args };
+    case "info":
     case "stats":
-      return { type: "stats", args };
+      return { type: "info", args };
     case "mcp":
       return { type: "mcp", args };
     case "mode":

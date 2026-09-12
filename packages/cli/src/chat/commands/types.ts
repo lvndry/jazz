@@ -28,7 +28,7 @@ export type CommandType =
   | "work"
   | "cost"
   | "workflows"
-  | "stats"
+  | "info"
   | "mcp"
   | "mode"
   | "resume"
@@ -87,7 +87,7 @@ export interface SessionUsage {
 
 /**
  * Session-wide caps set by /limit. Checked against this conversation's
- * accumulated usage (the same numbers /cost and /stats show) before every
+ * accumulated usage (the same numbers /cost and /info show) before every
  * turn; an absent field means that metric is uncapped.
  */
 export interface SessionLimits {
@@ -112,7 +112,7 @@ export interface CommandContext {
   sessionTurnCount: number;
   /** Session-wide turn/cost/token caps set by /limit (persists across /new). */
   sessionLimits: SessionLimits;
-  /** Timestamp when the chat session started (for /stats duration). */
+  /** Timestamp when the chat session started (for /info duration). */
   sessionStartedAt: Date;
   /** Current auto-approve policy (for /mode display). */
   autoApprovePolicy?: AutoApprovePolicy;

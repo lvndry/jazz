@@ -57,7 +57,10 @@ export const CHAT_COMMANDS: readonly ChatCommandInfo[] = [
   { name: "retry", description: "Re-send your last message" },
   { name: "new", description: "Start a new conversation (clear context)" },
   { name: "skills", description: "List and view available skills" },
-  { name: "stats", description: "Show session statistics and usage summary" },
+  {
+    name: "info",
+    description: "Show conversation id, title, usage, and log file paths for this session",
+  },
   {
     name: "switch",
     description: "Switch to a different agent in the same conversation",

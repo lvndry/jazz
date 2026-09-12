@@ -1,6 +1,8 @@
 import { spawn } from "node:child_process";
+import path from "node:path";
 import { FileSystem } from "@effect/platform";
 import { loadConversation, loadHistory } from "@jazz/adapters/history/conversation-history-service";
+import { getLogsDirectory } from "@jazz/adapters/logger";
 import { authorizeServer, clearServerAuth, hasStoredAuth } from "@jazz/adapters/mcp/oauth";
 import { AgentRunner } from "@jazz/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
@@ -50,6 +52,7 @@ import type { AutoApprovePolicy } from "@jazz/core/types/tools";
 import { generateConversationId } from "@jazz/core/utils/conversation-id";
 import { describeCronSchedule } from "@jazz/core/utils/cron";
 import { createSanitizedEnv } from "@jazz/core/utils/env";
+import { conversationLogGroup } from "@jazz/core/utils/log-group";
 import { getModelsDevMetadata } from "@jazz/core/utils/models-dev";
 import type { WorkflowMetadata } from "@jazz/core/workflows/workflow-service";
 import { WorkflowServiceTag, type WorkflowService } from "@jazz/core/workflows/workflow-service";
@@ -161,8 +164,8 @@ export function handleSpecialCommand(
       case "workflows":
         return yield* handleWorkflowsCommand(terminal);
 
-      case "stats":
-        return yield* handleStatsCommand(terminal, agent, context);
+      case "info":
+        return yield* handleInfoCommand(terminal, agent, context);
 
       case "mcp":
         return yield* handleMcpCommand(terminal, command.args);
@@ -1201,7 +1204,7 @@ function handleReasoningCommand(
  * "Session-wide" means the limit stays in effect for the rest of this
  * conversation (not just the current turn) and is checked before every turn
  * against this conversation's accumulated usage — the same numbers /cost and
- * /stats show. With no args in an interactive terminal this opens the picker
+ * /info show. With no args in an interactive terminal this opens the picker
  * (select the metric, then type a value); with no args elsewhere it prints
  * current usage and limits. A limit that's already exceeded the moment it's
  * set is reported immediately here — enforcement itself happens on the next
@@ -1889,15 +1892,22 @@ function handleSkillsCommand(
 }
 
 /**
- * Handle /stats command - Show session statistics and usage summary
+ * Handle /info command - Show session identity, usage, and where its logs are
  */
-function handleStatsCommand(
+function handleInfoCommand(
   terminal: TerminalService,
   agent: CommandContext["agent"],
   context: CommandContext,
-): Effect.Effect<CommandResult, never, FileSystemContextService> {
+): Effect.Effect<CommandResult, never, FileSystemContextService | FileSystem.FileSystem> {
   return Effect.gen(function* () {
-    yield* terminal.log(fmt.heading("Session Statistics"));
+    yield* terminal.log(fmt.heading("Session Info"));
+
+    const conversation = yield* loadConversation(agent.id, context.conversationId).pipe(
+      Effect.catchAll(() => Effect.succeed(null)),
+    );
+    yield* terminal.log(fmt.keyValueCompact("Conversation", context.conversationId));
+    yield* terminal.log(fmt.keyValueCompact("Title", conversation?.title ?? "(not saved yet)"));
+    yield* terminal.log(fmt.blank());
 
     // Session duration
     const now = new Date();
@@ -1932,6 +1942,11 @@ function handleStatsCommand(
     yield* terminal.log(fmt.blank());
     yield* terminal.log(fmt.keyValueCompact("Duration", duration));
     yield* terminal.log(fmt.keyValueCompact("Messages", `${context.conversationHistory.length}`));
+    const toolCalls = context.conversationHistory.reduce(
+      (count, message) => count + (message.tool_calls?.length ?? 0),
+      0,
+    );
+    yield* terminal.log(fmt.keyValueCompact("Tool calls", `${toolCalls}`));
 
     const { promptTokens, completionTokens } = context.sessionUsage;
     const totalTokens = promptTokens + completionTokens;
@@ -1952,6 +1967,16 @@ function handleStatsCommand(
     const outputCost = (completionTokens / 1_000_000) * outputPricePerMillion;
     const totalCost = inputCost + outputCost;
     yield* terminal.log(fmt.keyValueCompact("Est. cost", formatUsd(totalCost)));
+
+    const logsDir = getLogsDirectory();
+    yield* terminal.log(fmt.blank());
+    yield* terminal.log(
+      fmt.keyValueCompact(
+        "Session log",
+        path.join(logsDir, `${conversationLogGroup(agent.id, context.conversationId)}.log`),
+      ),
+    );
+    yield* terminal.log(fmt.keyValueCompact("Main log", path.join(logsDir, "jazz.log")));
 
     yield* terminal.log(fmt.blank());
     return { shouldContinue: true };
