@@ -12,4 +12,6 @@ Use ephemeral conversation mode when events are independent. Use threaded mode w
 
 Webhook definitions live in Jazz configuration; bearer tokens are managed separately with `jazz webhook` and should remain in the system keyring.
 
+Build one end to end in [Wake an agent from another system with a webhook](../guides/webhook-endpoint.md).
+
 Choose a webhook for structured events from another application. Choose a [peer](./agent-to-agent.md) when another trusted agent needs to ask open-ended questions. See [Surface access](../security/surface-access.md) before exposing the daemon beyond localhost.

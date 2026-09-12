@@ -14,6 +14,7 @@ These are complete jobs, not prompt galleries. Each guide combines Jazz features
 - [Build a reusable accountability persona named Goggins](./goggins-accountability-agent.md) — define behavior once, attach it to an agent, then use the same identity interactively, from a script, or on a schedule.
 - [Turn incident evidence into a visual briefing](./media-companions.md) — let specialist models inspect screenshots, recordings, and video, then use a generation companion for the final artifact.
 - [Connect two Jazz agents as peers](./connect-peers.md) — let separately deployed, explicitly trusted agents ask each other for help.
+- [Wake an agent from another system with a webhook](./webhook-endpoint.md) — bind one authenticated URL to one agent and one prompt, and bound what the caller can reach.
 
 ## More complete examples
 
@@ -27,7 +28,6 @@ A guide belongs here only when its commands and configuration are maintained. Sh
 
 These combinations deserve the same end-to-end treatment next:
 
-- **Zero-persistence event processor:** accept a fixed authenticated webhook, retain no Jazz history, and let the caller carry continuation state.
 - **Cross-boundary engineering team:** let a personal planning agent consult a company-hosted code agent without copying repository credentials or private files between them.
 - **Small-model escalation ladder:** run the routine path on a local model, delegate specialist checks, and ask a peer backed by a stronger model only when verification fails.
 - **Memory-scoped support agent:** share product memory across channels while keeping each customer's conversation and private facts isolated.

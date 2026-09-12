@@ -15,4 +15,4 @@ Jazz supports several automation shapes. Choose based on who starts the work and
 
 Unattended runs cannot answer interactive questions. They must decline gated actions, receive an explicit auto-approval policy, or use `--park` so a person can approve and resume the saved run later.
 
-Start with [Scheduled runs](../surfaces/scheduled.md), [Headless runs](../surfaces/headless.md), or [Webhooks](../concepts/webhooks.md).
+Start with [Scheduled runs](../surfaces/scheduled.md), [Headless runs](../surfaces/headless.md), or [Webhooks](../concepts/webhooks.md) — the last has a [step-by-step build](../guides/webhook-endpoint.md).

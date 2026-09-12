@@ -22,4 +22,4 @@ A surface is a front door onto the same agent runner. The model, tools, memory, 
 
 Peers are explicitly configured remote agents. Unlike webhooks, they accept an open-ended request, so identity, disclosure, and tool ceilings are central to the contract.
 
-Read the dedicated pages for [headless runs](./headless.md), [scheduled work](./scheduled.md), [CI](./ci.md), and [chat platforms](./chat.md).
+Read the dedicated pages for [headless runs](./headless.md), [scheduled work](./scheduled.md), [CI](./ci.md), and [chat platforms](./chat.md). Webhooks have a [concept page](../concepts/webhooks.md) and a [build-one guide](../guides/webhook-endpoint.md).
