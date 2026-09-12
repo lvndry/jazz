@@ -117,4 +117,4 @@ The report remains available in workflow history and scheduler logs. If another 
 
 Use a separate, human-approved workflow if the report should publish to a public channel or mutate a knowledge base. Research and publication do not need the same permissions.
 
-Read [Automation](../features/automation.md), [Scheduled runs](../surfaces/scheduled.md), and [Peers and subagents](../concepts/peers-and-subagents.md) for the underlying contracts.
+Read [Automation](../features/automation.md), [Scheduled runs](../surfaces/scheduled.md), and [Delegation](../concepts/agents.md#delegation) for the underlying contracts.

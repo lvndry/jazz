@@ -162,4 +162,4 @@ Follow [surface access security](../security/surface-access.md) before remote ac
 
 The same architecture works for rotating a leaked credential, pausing a compromised integration, quarantining an object, or revoking a session: automate evidence gathering and proposal quality, then put the irreversible boundary in front of a person.
 
-Read [MCP configuration](../configure/mcp.md), [Approvals](../security/approvals.md), [Peers and subagents](../concepts/peers-and-subagents.md), and [`jazz runs`](../commands.md#jazz-runs) for the underlying contracts.
+Read [MCP configuration](../configure/mcp.md), [Approvals](../security/approvals.md), [Delegation](../concepts/agents.md#delegation), and [`jazz runs`](../commands.md#jazz-runs) for the underlying contracts.

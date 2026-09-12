@@ -132,4 +132,4 @@ Comment `/jazz-review` to rerun the review. Comment `/jazz <question>` to invoke
 - Headless stdout is a clean machine contract while progress stays on stderr.
 - GitHub mutation remains outside the model's capabilities.
 
-Read [CI as a Jazz surface](../surfaces/ci.md), [Headless runs](../surfaces/headless.md), and [Peers and subagents](../concepts/peers-and-subagents.md) for the underlying contracts.
+Read [CI as a Jazz surface](../surfaces/ci.md), [Headless runs](../surfaces/headless.md), and [Delegation](../concepts/agents.md#delegation) for the underlying contracts.

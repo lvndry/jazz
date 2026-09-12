@@ -276,5 +276,5 @@ Two details worth noting:
 
 - [Context management](./context-lifecycle.md) — what "compact" and "trim" actually do
 - [Tools & approval](./tool-lifecycle.md) — the execution and gating detail
-- [Sub-agents](../concepts/peers-and-subagents.md) — what the loop does when the agent delegates
+- [Delegation](../concepts/agents.md#delegation) — what the loop does when the agent delegates
 - [Architecture](./architecture.md) — where the loop sits in the runtime

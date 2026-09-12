@@ -172,10 +172,31 @@ pressure warnings, loop detection, and automatic context compaction. The full me
 | **Delegator**   | adds `spawn_subagent`                          | Deep research, work that would blow one window |
 | **Mixed-model** | cheap main model plus `companions`             | Screenshots, recordings, generated assets     |
 
-The delegator pattern is the one people underuse. `spawn_subagent` hands a task to a child with
-its own context window, which returns a summary instead of 100k tokens of raw sources. A
-sub-agent never holds more tools than its parent. See
-[Peers and sub-agents](./peers-and-subagents.md).
+### Delegation
+
+The delegator pattern is the one people underuse. `spawn_subagent` hands a task to a child run on
+this same installation, with a task, a persona (`coder`, `researcher`, or `default`), and its own
+context window. The parent gets back a summary and the cost, not the child's transcript.
+
+The point is context, not parallelism. Research that would fill the parent's window with raw
+sources runs in the child's window instead, and the parent receives a few hundred tokens of
+conclusion. Ask for a structured handoff with `resultSchema`, a JSON Schema with root type
+`object`, and Jazz validates the child's result before it reaches the parent, so a malformed
+answer fails loudly instead of being parsed by hope.
+
+The bounds, none of them optional:
+
+- **A child never holds more tools than its parent.** The parent's effective toolset becomes the
+  child's allowlist, so delegation cannot widen reach.
+- **Depth stops at 3.** A subagent can spawn one, but the chain ends there. `maxSubagentDepth: 0`
+  disables delegation outright.
+- **30 iterations** by default, against the parent's 100.
+- **Cost rolls up.** The child's spend is added to the parent's, and an unpriced child makes the
+  parent report its own total as incomplete rather than confidently wrong.
+
+A subagent is not a [peer](./agent-to-agent.md). A subagent is yours, on your machine, inside
+your trust boundary. A peer belongs to somebody else and is bounded by a disclosure tier because
+of it.
 
 ---
 

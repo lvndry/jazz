@@ -415,6 +415,6 @@ See [Surfaces](../surfaces/index.md) for where Jazz runs, and
 
 - [Tools and approval](../maintainers/tool-lifecycle.md) — how approval decisions are made
 - [Context management](../maintainers/context-lifecycle.md) — what the context meter measures
-- [Subagents](../concepts/peers-and-subagents.md) — what the lanes represent
+- [Delegation](../concepts/agents.md#delegation) — what the lanes represent
 - [Personas](../concepts/personas.md) — where the house voice is defined
 - [**website.html**](../design/website.html) — the website's design direction ("the terminal, unboxed"): the moodboard with the equalizer hero, the motion language, and the OG/SEO strategy, all animated. Open in a browser; GitHub shows HTML as source

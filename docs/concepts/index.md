@@ -16,7 +16,7 @@ Jazz combines a small set of independent building blocks:
 - An [artifact](./artifacts.md) is a file a run produced, labelled with whether a model generated it or it was rendered from data.
 - [Budgets](./budgets.md) cap a run by iterations, cost, tokens, or time, and report what it actually spent.
 - A **surface** is where a person or system reaches the agent: terminal, headless command, schedule, bot, webhook, or peer request.
-- A [subagent](./peers-and-subagents.md) is a delegated child run on the same installation.
+- A [subagent](./agents.md#delegation) is a delegated child run on the same installation, inside your trust boundary.
 - A [webhook](./webhooks.md) is a fixed, authenticated HTTP door onto an agent.
 - A [peer](./agent-to-agent.md) is another explicitly trusted Jazz agent.
 - The [daemon](./daemon.md) is the process that serves runs, webhooks, and peer requests over HTTP when no terminal is attached.

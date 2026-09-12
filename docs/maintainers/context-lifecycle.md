@@ -392,5 +392,5 @@ And in the logs: `Conversation context approaching limit`, `Context compacted su
 ## Related
 
 - [Agent loop](./run-lifecycle.md) — where compaction and trimming sit in an iteration
-- [Sub-agents](../concepts/peers-and-subagents.md) — the other way to keep the parent's context small
+- [Delegation](../concepts/agents.md#delegation) — the other way to keep the parent's context small
 - [Architecture](./architecture.md) — where context management sits in the harness

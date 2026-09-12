@@ -128,4 +128,4 @@ For a stronger design, run this workflow before implementation and a separate [p
 - Aggregate cost and lifecycle events visible to the parent surface.
 - One explicit owner for reconciliation and the final decision.
 
-Read [Peers and subagents](../concepts/peers-and-subagents.md) and [Long-running work](../features/long-running-work.md) for the execution model.
+Read [Delegation](../concepts/agents.md#delegation) and [Long-running work](../features/long-running-work.md) for the execution model.

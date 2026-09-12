@@ -68,7 +68,7 @@ on the active surface. See [Model companions](./media.md) and the
 
 ## Connect agents and applications
 
-MCP adds external tool servers. Webhooks expose a fixed prompt safely. Peers let explicitly trusted Jazz agents ask each other open-ended questions. Subagents delegate bounded work with isolated context. See [MCP](../configure/mcp.md), [Webhooks](../concepts/webhooks.md), and [Peers and subagents](../concepts/peers-and-subagents.md).
+MCP adds external tool servers. Webhooks expose a fixed prompt safely. Peers let explicitly trusted Jazz agents ask each other open-ended questions. Subagents delegate bounded work with isolated context. See [MCP](../configure/mcp.md), [Webhooks](../concepts/webhooks.md), and [delegation](../concepts/agents.md#delegation) and [peers](../concepts/agent-to-agent.md).
 
 ## Run everywhere
 
