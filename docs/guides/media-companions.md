@@ -38,33 +38,42 @@ from providers you configured:
   "name": "incident-media-analyst",
   "config": {
     "persona": "coder",
-    "llmProvider": "openai",
-    "llmModel": "gpt-5.4-mini",
+    "llmProvider": "openrouter",
+    "llmModel": "z-ai/glm-5.3-flash",
     "companions": {
-      "analyze:image": "anthropic/claude-haiku-4-5",
-      "analyze:audio": "gemini/gemini-2.5-flash",
-      "analyze:video": "gemini/gemini-2.5-flash",
-      "generate:image": "gemini/gemini-3-pro-image"
+      "analyze:image": "openrouter/inclusionai/ling-3.0-flash-vl",
+      "analyze:audio": "alibaba/qwen3.6-27b",
+      "analyze:video": "openrouter/inclusionai/ling-3.0-flash-vl",
+      "generate:image": "openrouter/google/gemini-3.1-flash-image"
     }
   }
 }
 ```
 
-Those four ids are real and current, and they show the shape of the decision rather than a
-single right answer:
+These are open-weight models wherever one exists for the job, reached through OpenRouter so no
+single vendor's key is required. They show the shape of the decision rather than a single right
+answer:
 
-| Role             | Model here                  | Why this one                                            |
-| ---------------- | --------------------------- | ------------------------------------------------------- |
-| `analyze:image`  | `anthropic/claude-haiku-4-5` | Cheapest Anthropic model that reads images and PDFs     |
-| `analyze:audio`  | `gemini/gemini-2.5-flash`   | Gemini is the practical source of audio and video input  |
-| `analyze:video`  | `gemini/gemini-2.5-flash`   | Same model, bound separately so you can change one       |
-| `generate:image` | `gemini/gemini-3-pro-image` | Converses in text and returns an image in the same turn  |
+| Role             | Model here                              | Weights | In $/M | Why this one                                        |
+| ---------------- | --------------------------------------- | ------- | ------ | --------------------------------------------------- |
+| primary          | `openrouter/z-ai/glm-5.3-flash`         | open    | 0.075  | Tool-capable, 1.3M context, cheap enough to orchestrate |
+| `analyze:image`  | `openrouter/inclusionai/ling-3.0-flash-vl` | open | 0.06   | Takes image and video, and is the cheapest that does |
+| `analyze:audio`  | `alibaba/qwen3.6-27b`                   | open    | 0.6    | Audio input is rare in open weights; Qwen has it     |
+| `analyze:video`  | `openrouter/inclusionai/ling-3.0-flash-vl` | open | 0.06   | Same model as image, bound separately so you can change one |
+| `generate:image` | `openrouter/google/gemini-3.1-flash-image` | closed | 0.5  | No open-weight model in the catalog returns an image |
 
-Note that the provider segment is Jazz's provider name, so Gemini models are `gemini/...` even
-though the upstream catalog files them under `google`. Check what your keys actually reach with
-`jazz agent list --can image` before committing to a binding; Jazz validates the role names and
-the `provider/model` shape when it loads the agent, but it cannot know which providers you pay
+That last row is worth being honest about. Image generation is the one role here with no
+open-weight option: nothing in the catalog that Jazz can reach emits an image alongside text.
+Binding a closed model for that one role, and nothing else, is exactly what per-role bindings are
 for.
+
+Two notes that cost an afternoon otherwise. The provider segment is Jazz's provider name, so
+Gemini models are `gemini/...` when you hold a Google key directly and `openrouter/google/...`
+through OpenRouter. And prices move, so treat the numbers above as the reason for each choice
+rather than a quote; `jazz agent list --can image` shows what your own keys actually reach.
+
+Jazz validates the role names and the `provider/model` shape when it loads the agent, but it
+cannot know which providers you actually pay for.
 
 ## 3. Give it an end-to-end cross-media job
 

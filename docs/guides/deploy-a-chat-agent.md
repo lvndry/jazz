@@ -360,7 +360,7 @@ container — `.env.example` lists the full set (`ANTHROPIC_API_KEY`,
 as a normal message in the chat:
 
 ```text
-/model anthropic/claude-sonnet-5
+/model openrouter/z-ai/glm-5.3-flash
 ```
 
 Bare `/model` (no arguments) instead shows a picker of whatever the conversation's current

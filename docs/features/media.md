@@ -13,10 +13,10 @@ best for reasoning and tool use, then bind specialist models to media roles:
     "llmProvider": "openai",
     "llmModel": "gpt-5.4-mini",
     "companions": {
-      "analyze:image": "anthropic/claude-haiku-4-5",
-      "analyze:audio": "gemini/gemini-2.5-flash",
-      "analyze:video": "gemini/gemini-2.5-flash",
-      "generate:image": "gemini/gemini-3-pro-image"
+      "analyze:image": "openrouter/inclusionai/ling-3.0-flash-vl",
+      "analyze:audio": "alibaba/qwen3.6-27b",
+      "analyze:video": "openrouter/inclusionai/ling-3.0-flash-vl",
+      "generate:image": "openrouter/google/gemini-3.1-flash-image"
     }
   }
 }
@@ -60,7 +60,7 @@ task to that provider.
 For one headless run, override analysis companions without changing the saved agent:
 
 ```bash
-jazz run --agent analyst --with-vision anthropic/claude-haiku-4-5 \
+jazz run --agent analyst --with-vision openrouter/inclusionai/ling-3.0-flash-vl \
   "Read @/tmp/dashboard.png and identify the failing service and time window"
 ```
 

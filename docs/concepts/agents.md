@@ -58,8 +58,8 @@ terminal, in CI, and on Telegram.
 
 ### Model
 
-Written `provider/model` with a **slash**: `anthropic/claude-sonnet-4-5`,
-`openrouter/qwen/qwen3-next-80b-a3b-instruct:free`, `ollama/qwen3`. Stored split into
+Written `provider/model` with a **slash**: `openrouter/z-ai/glm-5.3-flash`,
+`mistral/mistral-large-latest`, `ollama/qwen3`. Stored split into
 `llmProvider` and `llmModel`. Eighteen providers are available, including local ones that need
 no API key; see [Model providers](../configure/providers.md).
 
