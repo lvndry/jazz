@@ -23,9 +23,14 @@ function trackedPaths(): Set<string> {
   }
   const paths = new Set(result.stdout.split("\n").filter((line) => line.length > 0));
 
-  // `git ls-files` includes tracked files deleted in the working tree. During a docs move that
-  // made links to the old path look valid until after commit, exactly when the check is meant to
-  // catch them. Preserve git as the case-sensitive path oracle, but remove unstaged deletions.
+  // `git ls-files` reports the index, not the disk, so a file deleted without staging the
+  // deletion is still listed. That is the exact state of a half-finished docs move: the old page
+  // is gone, every link to it is broken, and this check would pass until the deletion was
+  // committed. Subtracting unstaged deletions keeps git as the path oracle, which is the reason
+  // not to use `existsSync` here: git records the true case of every path, and a
+  // case-insensitive filesystem would accept `docs/Tools/index.md` for `docs/tools/index.md` and
+  // break only on Linux. Staged deletions need no handling; staging one removes it from the
+  // index, and so from `ls-files`.
   const deleted = spawnSync("git", ["diff", "--name-only", "--diff-filter=D"], {
     encoding: "utf-8",
   });
