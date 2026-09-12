@@ -88,25 +88,46 @@ Pick the lowest tier that lets the job finish. See
 
 ---
 
-## Missed runs and catch-up
+## Sleep, missed runs, and catch-up
 
-Neither launchd nor cron fires a job whose slot passed while the machine was asleep. A 6 AM
-workflow on a laptop that wakes at 9 simply doesn't run.
+macOS and Linux behave differently here, and the difference decides whether you need catch-up
+at all.
 
-Jazz handles this explicitly rather than pretending otherwise:
+**launchd fires on wake.** Jazz installs a `StartCalendarInterval` job, and from
+`man launchd.plist`: _"Unlike cron which skips job invocations when the computer is asleep,
+launchd will start the job the next time the computer wakes up. If multiple intervals transpire
+before the computer is woken, those events will be coalesced into one event upon wake from
+sleep."_ A 6 AM workflow on a laptop you open at 9 runs at 9 — once, even if it slept through
+three days of slots. Powered off is different: nothing is scheduled to wake the machine, so the
+slot passes.
+
+**cron skips.** A slot that passes while a Linux box is asleep or off never runs. Standard cron
+has no memory of missed jobs. `anacron` does, but it needs root and does not exist on macOS,
+so Jazz does not build on it.
+
+Either way, catch-up is explicit rather than automatic:
 
 ```bash
 jazz workflow catchup      # list what missed its slot, pick, run
 ```
 
-Catch-up is age-bounded — by default a missed run older than 24 hours is not worth running
-anymore, and per-workflow `maxCatchUpAge` overrides that. A "good morning" briefing at
-4 PM is noise, not recovery.
+It is age-bounded: a missed run older than 24 hours is skipped, and per-workflow
+`maxCatchUpAge` overrides that. A "good morning" briefing at 4 PM is noise, not recovery. The
+separate `catchUpOnRestart` flag covers the in-process daemon — a slot missed because the daemon
+was stopped, not because the machine was asleep.
 
-If the schedule genuinely can't be missed, run Jazz somewhere always-on. Same commands,
-different host: see [Local and air-gapped models](../getting-started/local-models.md), and
-[Scheduling: behavior & limitations](../features/automation.md) for the full treatment
-including keep-awake options and always-on device setups.
+### If the schedule really cannot be missed
+
+In rough order of how much they cost you:
+
+- **Pick a forgiving time.** Hourly, or 9 AM instead of 6 AM, gives the machine more chances to
+  be awake. Cheapest fix, and usually enough.
+- **Keep the machine awake** while a daemon runs: `caffeinate -i jazz daemon` on macOS,
+  `systemd-inhibit --what=sleep jazz daemon` on Linux.
+- **Wake it on purpose.** macOS can schedule a wake or power-on:
+  `sudo pmset repeat wakeorpoweron MTWRFSU 05:55:00` for a 6 AM job.
+- **Run it somewhere always on** — a home server, a VPS, a Raspberry Pi. Same commands,
+  different host, and the one answer that actually holds for a schedule with consequences.
 
 ---
 
@@ -132,6 +153,6 @@ minimal `PATH`.
 ## Related
 
 - [Workflows](../concepts/workflows.md) — the file format and frontmatter
-- [Scheduling: behavior & limitations](../features/automation.md) — sleep, catch-up, always-on hosts
+- [Automation](../features/automation.md) — the other unattended shapes, and when to pick which
 - [Guides](../guides/index.md) — scheduled recipes with install steps
 - [Headless](./headless.md) — for dynamic prompts instead of a fixed workflow file
