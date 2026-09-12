@@ -38,6 +38,7 @@ import { ToolExecutor } from "./tool-executor";
 import { logContextRung } from "../context/context-telemetry";
 import { resolveContextThresholds } from "../context/context-thresholds";
 import {
+  CONTEXT_CLEAR_THRESHOLD_RATIO,
   CONTEXT_COMPACT_THRESHOLD_RATIO,
   CONTEXT_TRIM_THRESHOLD_RATIO,
   CONTEXT_WARN_THRESHOLD_RATIO,
@@ -864,12 +865,14 @@ function runIteration(
       yield* observer.onThinking(agent.name, iterationIndex === 0);
     }
 
-    // Cheapest rung first: persist large tool bodies, then stub every cycle
-    // except the live one. Runs every iteration — each result is rewritten at
-    // most once (`cleared` sticks), so the prompt-cache prefix only jumps when
-    // a result actually ages out. A failed write (read-only CI, container)
-    // still stubs; the placeholder then says to re-run the original tool.
-    {
+    // Cheapest rung first, and only under pressure: persist large tool bodies,
+    // then stub every cycle older than the protected window. Below the clear
+    // threshold nothing is touched, so the model keeps the evidence it gathered
+    // and the prompt-cache prefix never moves. A failed write (read-only CI,
+    // container) still stubs; the placeholder then says to re-run the tool.
+    if (
+      runContextWindowManager.usage(state.currentMessages).ratio >= CONTEXT_CLEAR_THRESHOLD_RATIO
+    ) {
       const before = runContextWindowManager.totalRequestTokens(state.currentMessages);
       const modelHint = { provider, modelId: model };
       const retrievableIds = yield* persistLargeToolResults(state.currentMessages, {

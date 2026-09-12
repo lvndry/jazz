@@ -6,9 +6,9 @@ import { DEFAULT_TOKEN_COUNTER, type ModelHint, type TokenCounter } from "./toke
  * rung of the ladder.
  *
  * A long run's tokens are overwhelmingly raw tool results, and most of them
- * stop mattering the moment the model has read them once. The latest tool
- * cycle stays verbatim so the model can act on what it just asked for; older
- * large results are stubbed. When the bytes were persisted, the stub names
+ * stop mattering once the model has acted on them. The last few tool cycles
+ * stay verbatim so the model can still compare what it read against what it
+ * is about to change; older large results are stubbed. When the bytes were persisted, the stub names
  * `retrieve_tool_result`. When the disk would not take them (read-only CI,
  * container, Telegram host), the stub tells the model to re-run the original
  * tool instead. Either way the message and `tool_call_id` stay, so
@@ -25,6 +25,15 @@ import { DEFAULT_TOKEN_COUNTER, type ModelHint, type TokenCounter } from "./toke
  * back, so a small stub is cheap to undo.
  */
 export const MIN_CLEARABLE_RESULT_TOKENS = 256;
+
+/**
+ * Tool cycles kept verbatim, counting back from the live one.
+ *
+ * One cycle is not enough: a model that reads a file, then lists a directory,
+ * then edits has already lost the file by the time it edits, and refetches it
+ * every turn. Five covers a read-compare-edit sequence with room to spare.
+ */
+export const PROTECTED_TOOL_CYCLES = 5;
 
 export interface ClearToolResultsOptions {
   /** Messages at this index and after must not be touched (the live tool cycle). */
@@ -43,26 +52,25 @@ export interface ClearToolResultsOutcome {
 }
 
 /**
- * Index of the live tool cycle: the last assistant message that still has
- * `tool_calls`, through the end of the list.
+ * Index from which tool results stay verbatim: the assistant message that opened
+ * the `cycles`-th most recent tool cycle, through the end of the list.
  *
- * Those results have not been fed to the model yet (or are the ones it is
- * about to use). Everything before that cycle is fair game. A later assistant
- * message without tool calls means the previous cycle was already consumed —
- * protect nothing, clear the lot.
+ * Fewer cycles than that in the transcript means every result is still recent;
+ * none at all means there is nothing to clear.
  */
-export function toolResultsProtectFromIndex(messages: readonly ChatMessage[]): number {
-  for (let index = messages.length - 1; index >= 0; index--) {
+export function toolResultsProtectFromIndex(
+  messages: readonly ChatMessage[],
+  cycles = PROTECTED_TOOL_CYCLES,
+): number {
+  let protectFrom = messages.length;
+  let seen = 0;
+  for (let index = messages.length - 1; index >= 0 && seen < cycles; index--) {
     const message = messages[index];
-    if (!message || message.role !== "assistant") continue;
-    if (message.tool_calls && message.tool_calls.length > 0) {
-      return index;
-    }
-    if ((message.content?.trim().length ?? 0) > 0) {
-      return messages.length;
-    }
+    if (message?.role !== "assistant" || !message.tool_calls?.length) continue;
+    protectFrom = index;
+    seen++;
   }
-  return messages.length;
+  return protectFrom;
 }
 
 function placeholderFor(

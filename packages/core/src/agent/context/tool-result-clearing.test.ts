@@ -1,6 +1,10 @@
 import { describe, expect, it } from "bun:test";
 import type { ChatMessage } from "@/core/types/message";
-import { clearToolResults, toolResultsProtectFromIndex } from "./tool-result-clearing";
+import {
+  clearToolResults,
+  PROTECTED_TOOL_CYCLES,
+  toolResultsProtectFromIndex,
+} from "./tool-result-clearing";
 
 const modelHint = { provider: "openai", modelId: "gpt-4o" };
 
@@ -34,24 +38,33 @@ function conversation(pairs: number): ChatMessage[] {
 }
 
 describe("toolResultsProtectFromIndex", () => {
-  it("protects the live tool cycle so the model still sees what it just asked for", () => {
-    const messages = conversation(3);
-    const protectFrom = toolResultsProtectFromIndex(messages);
-    let lastCall = -1;
-    for (let index = messages.length - 1; index >= 0; index--) {
-      if (messages[index]?.role === "assistant") {
-        lastCall = index;
-        break;
-      }
-    }
-    expect(protectFrom).toBe(lastCall);
+  function callIndexes(messages: readonly ChatMessage[]): number[] {
+    return messages.flatMap((message, index) =>
+      message.role === "assistant" && message.tool_calls?.length ? [index] : [],
+    );
+  }
+
+  it("protects the last PROTECTED_TOOL_CYCLES cycles so evidence survives a read-compare-edit", () => {
+    const messages = conversation(PROTECTED_TOOL_CYCLES + 3);
+    const calls = callIndexes(messages);
+    expect(calls.at(-PROTECTED_TOOL_CYCLES)).toBe(toolResultsProtectFromIndex(messages));
   });
 
-  it("protects nothing once a later assistant message has consumed the cycle", () => {
+  it("protects everything when the transcript has fewer cycles than the window", () => {
+    const messages = conversation(2);
+    expect(callIndexes(messages)[0]).toBe(toolResultsProtectFromIndex(messages));
+  });
+
+  it("keeps protecting after a plain assistant reply; the cycles behind it are still recent", () => {
     const messages = [
       ...conversation(2),
       { role: "assistant", content: "here is the answer" } as ChatMessage,
     ];
+    expect(callIndexes(messages)[0]).toBe(toolResultsProtectFromIndex(messages));
+  });
+
+  it("protects nothing when there are no tool cycles", () => {
+    const messages: ChatMessage[] = [{ role: "system", content: "system" }];
     expect(toolResultsProtectFromIndex(messages)).toBe(messages.length);
   });
 });

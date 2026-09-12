@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import { Effect, Layer } from "effect";
 import { DEFAULT_MAX_ITERATIONS } from "@/core/constants/agent";
 import { GenerationInterruptedError } from "@/core/types/errors";
-import type { ConversationMessages } from "@/core/types/message";
+import type { ChatMessage, ConversationMessages } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
 import { clearModelsDevCache } from "@/core/utils/models-dev";
 import {
@@ -42,6 +42,7 @@ import { WorkspaceServiceTag } from "../../interfaces/workspace-service";
 import { SkillServiceTag } from "../../skills/skill-service";
 import type { RecursiveRunner } from "../context/summarizer";
 import { DEFAULT_TOKEN_COUNTER } from "../context/token-counter";
+import { PROTECTED_TOOL_CYCLES } from "../context/tool-result-clearing";
 import type { AgentRunContext, AgentRunnerOptions, AgentResponse } from "../types";
 
 // Shared mocks
@@ -1384,6 +1385,78 @@ describe("executeAgentLoop context window accounting", () => {
   it("compacts against the pinned num_ctx rather than the advertised model maximum", async () => {
     const { compactions } = await runWithHistory(PINNED_CONTEXT_WINDOW);
     expect(compactions).toBeGreaterThan(0);
+  });
+
+  // PROTECTED_TOOL_CYCLES + 1 read cycles, so exactly the first result is old enough to clear.
+  function toolHistory(resultChars: number): ChatMessage[] {
+    const messages: ChatMessage[] = [
+      { role: "system", content: "system" },
+      { role: "user", content: "go" },
+    ];
+    for (let cycle = 0; cycle <= PROTECTED_TOOL_CYCLES; cycle++) {
+      const id = `call_${cycle}`;
+      messages.push({
+        role: "assistant",
+        content: "",
+        tool_calls: [{ id, type: "function", function: { name: "read_file", arguments: "{}" } }],
+      } as ChatMessage);
+      messages.push({
+        role: "tool",
+        tool_call_id: id,
+        content: (cycle === 0 ? "oldest " : "recent ").padEnd(resultChars, "x"),
+      } as ChatMessage);
+    }
+    messages.push({ role: "user", content: "now decide" });
+    return messages;
+  }
+
+  async function toolResultsSeenByModel(resultChars: number, numCtx?: number): Promise<string[]> {
+    let seen: ConversationMessages | undefined;
+    const strategy: CompletionStrategy = {
+      shouldShowReasoning: false,
+      getCompletion: (messages) => {
+        seen ??= messages;
+        return Effect.succeed({
+          completion: { id: "c1", model: "qwen3.6:27b", content: "done" },
+          interrupted: false,
+        });
+      },
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+    await Effect.runPromise(
+      executeAgentLoop(
+        makeOptions({ agent: ollamaAgent(numCtx) as AgentRunnerOptions["agent"] }),
+        makeRunContext({
+          provider: "ollama",
+          model: "qwen3.6:27b",
+          agent: ollamaAgent(numCtx) as AgentRunContext["agent"],
+          messages: toolHistory(resultChars) as AgentRunContext["messages"],
+        }),
+        displayConfig,
+        strategy,
+        defaultObserver,
+        runRecursive,
+      ).pipe(Effect.provide(TestLayer)),
+    );
+    return (seen ?? []).filter((message) => message.role === "tool").map((m) => m.content ?? "");
+  }
+
+  it("leaves every tool result verbatim while the window is under the clear threshold", async () => {
+    // 6 × 20k chars ≈ 34k tokens: about 13% of the advertised window. Nothing is under pressure,
+    // so the evidence the model read six cycles ago is still there when it decides.
+    const results = await toolResultsSeenByModel(20_000);
+    expect(results).toHaveLength(PROTECTED_TOOL_CYCLES + 1);
+    expect(results[0]).toStartWith("oldest ");
+  });
+
+  it("stubs only results older than the protected cycles once past the clear threshold", async () => {
+    // The same 34k tokens against a pinned 60k window is ~57%: over the clear line, under compaction.
+    const results = await toolResultsSeenByModel(20_000, 60_000);
+    expect(results).toHaveLength(PROTECTED_TOOL_CYCLES + 1);
+    expect(results[0]).toStartWith("[tool result");
+    for (const recent of results.slice(1)) expect(recent).toStartWith("recent ");
   });
 
   it("tells the model to resume the original task after mid-run compaction", async () => {
