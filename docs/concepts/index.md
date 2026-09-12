@@ -1,5 +1,5 @@
 ---
-description: "Understand the core Jazz concepts: agents, personas, tools, skills, workflows, conversations, memory, surfaces, subagents, webhooks, peers, and the daemon."
+description: "Understand the core Jazz concepts: agents, personas, tools, skills, workflows, conversations, memory, artifacts, cost, deferred work, webhooks, peers, and the daemon."
 ---
 
 # Jazz concepts
@@ -11,7 +11,10 @@ Jazz combines a small set of independent building blocks:
 - A [tool](./tools.md) lets the model inspect or change something.
 - A [skill](./skills.md) teaches the model how to complete a kind of work.
 - A [workflow](./workflows.md) packages a prompt with repeatable run settings.
-- A [conversation](./conversations-and-memory.md) carries dialogue; working state and memory provide different kinds of continuity.
+- A [conversation](./conversations-and-memory.md) carries dialogue; work state, todos, the scratchpad, and memory each provide a different kind of continuity.
+- [Deferred work](./deferred-work.md) is how an agent leaves something running past the end of a turn and resumes when it is done.
+- An [artifact](./artifacts.md) is a file a run produced, labelled with whether a model generated it or it was rendered from data.
+- [Cost](./cost.md) is reported per run, children included, and reported as unknown rather than guessed.
 - A **surface** is where a person or system reaches the agent: terminal, headless command, schedule, bot, webhook, or peer request.
 - A [subagent](./peers-and-subagents.md) is a delegated child run on the same installation.
 - A [webhook](./webhooks.md) is a fixed, authenticated HTTP door onto an agent.
