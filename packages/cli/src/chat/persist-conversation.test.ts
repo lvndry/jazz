@@ -30,7 +30,6 @@ function runEffect<A>(eff: Effect.Effect<A, unknown, FileSystem.FileSystem>) {
 function makeInput(overrides: Partial<PersistConversationInput> = {}): PersistConversationInput {
   return {
     ephemeral: false,
-    conversationTitle: "Summarize yesterday's standup",
     conversationHistory: [
       { role: "user", content: "Summarize yesterday's standup" },
       { role: "assistant", content: "The team shipped the resume fix." },
@@ -43,7 +42,7 @@ function makeInput(overrides: Partial<PersistConversationInput> = {}): PersistCo
 }
 
 describe("shouldPersistConversation", () => {
-  test("is true after the first titled turn", () => {
+  test("is true once the user has said something", () => {
     expect(shouldPersistConversation(makeInput())).toBe(true);
   });
 
@@ -51,8 +50,12 @@ describe("shouldPersistConversation", () => {
     expect(shouldPersistConversation(makeInput({ ephemeral: true }))).toBe(false);
   });
 
-  test("is false when the title has not been assigned yet", () => {
-    expect(shouldPersistConversation(makeInput({ conversationTitle: null }))).toBe(false);
+  test("is false before the first user message", () => {
+    expect(
+      shouldPersistConversation(
+        makeInput({ conversationHistory: [{ role: "system", content: "resuming" }] }),
+      ),
+    ).toBe(false);
   });
 
   test("is false when history is empty", () => {
@@ -87,11 +90,20 @@ describe("persistConversationIfNeeded", () => {
     expect(fs.existsSync(path.join(tmpDir, `${input.agentId}.json`))).toBe(false);
   });
 
-  test("does not write history when the title is missing", async () => {
-    await runEffect(persistConversationIfNeeded(makeInput({ conversationTitle: null }), tmpDir));
+  test("titles a resumed transcript by its first user message, not the newest one", async () => {
+    const resumed = makeInput({
+      conversationId: "conv-2",
+      conversationHistory: [
+        { role: "system", content: "Resuming conversation" },
+        { role: "user", content: "How do I get the app viral?" },
+        { role: "assistant", content: "Ship it." },
+        { role: "user", content: "mv the plan to /tmp" },
+      ] as ChatMessage[],
+    });
+    await runEffect(persistConversationIfNeeded(resumed, tmpDir));
 
-    const { conversations } = await runEffect(loadHistory("agent-1", tmpDir));
-    expect(conversations).toEqual([]);
+    const { conversations } = await runEffect(loadHistory(resumed.agentId, tmpDir));
+    expect(conversations[0]?.title).toBe("How do I get the app viral?");
   });
 
   test("does not write history when the transcript is empty", async () => {
