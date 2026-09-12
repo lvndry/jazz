@@ -121,7 +121,7 @@ CI runs all four. `typecheck` does not cover test files; `test:typecheck` does.
 When a task starts from a failing check, run that exact command first and see
 it fail, then again before you report.
 
-```
+```sh
 bun run typecheck
 bun run test:typecheck
 bun run lint
