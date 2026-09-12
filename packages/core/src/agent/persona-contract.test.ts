@@ -11,10 +11,10 @@ import { describe, expect, test } from "bun:test";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "../../../..");
 
-const PERSONA_SOURCES = [
-  { label: "personas", dir: join(REPO_ROOT, "personas") },
-  { label: "marketplace/personas", dir: join(REPO_ROOT, "marketplace/personas") },
-] as const;
+const PERSONA_SOURCES: [label: string, dir: string][] = [
+  ["personas", join(REPO_ROOT, "personas")],
+  ["marketplace/personas", join(REPO_ROOT, "marketplace/personas")],
+];
 
 // Identity placeholders, substituted from the agent's own config.
 const IDENTITY_PLACEHOLDERS = ["{agentName}", "{agentDescription}"] as const;
@@ -36,7 +36,7 @@ function countOccurrences(haystack: string, needle: string): number {
   return count;
 }
 
-describe.each(PERSONA_SOURCES)("persona placeholder contract ($label)", ({ label, dir }) => {
+describe.each(PERSONA_SOURCES)("persona placeholder contract (%s)", (label, dir) => {
   const personaNames = readdirSync(dir, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name);
