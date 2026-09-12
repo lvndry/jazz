@@ -4,7 +4,7 @@ description: "Expose a Jazz agent through an authenticated fixed-prompt HTTP end
 
 # Webhooks in Jazz
 
-A webhook is an authenticated HTTP door served by `jazz daemon`. It binds a URL name to one agent and one prompt template.
+A webhook is an authenticated HTTP door served by the [daemon](./daemon.md). It binds a URL name to one agent and one prompt template.
 
 Incoming request data is quoted into the template as data. The caller does not choose the agent or replace the surrounding instructions. A webhook may further limit disclosure and allow only named tools beyond that ceiling.
 

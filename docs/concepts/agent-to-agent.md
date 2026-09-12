@@ -21,4 +21,4 @@ Use the narrower webhook boundary when a fixed event contract is sufficient.
 
 ## Start
 
-`jazz peers` manages known peers and invite flows. `jazz daemon` serves peer requests. Follow [Connect two Jazz agents](../guides/connect-peers.md) for localhost, tailnet, and internet-facing setups.
+`jazz peers` manages known peers and invite flows. The [daemon](./daemon.md) serves peer requests. Follow [Connect two Jazz agents](../guides/connect-peers.md) for localhost, tailnet, and internet-facing setups.
