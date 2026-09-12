@@ -10,6 +10,8 @@ Run `jazz agent create` for the normal setup path. The wizard discovers configur
 
 ## Supported providers
 
+Where a provider is known by two names, Jazz accepts both. `GEMINI_API_KEY` is what Google's own documentation and CLI use, so it works as well as the `GOOGLE_GENERATIVE_AI_API_KEY` the AI SDK reads; set either. When both are set the canonical one wins.
+
 The provider identifiers below come from `AVAILABLE_PROVIDERS` in [`packages/core/src/constants/models.ts`](../../packages/core/src/constants/models.ts). Model names are not maintained in this page: hosted catalogs change frequently, so Jazz resolves them at runtime.
 
 | Provider ID  | API-key environment variable                                      |
@@ -20,7 +22,7 @@ The provider identifiers below come from `AVAILABLE_PROVIDERS` in [`packages/cor
 | `cerebras`   | `CEREBRAS_API_KEY`                                                |
 | `deepseek`   | `DEEPSEEK_API_KEY`                                                |
 | `fireworks`  | `FIREWORKS_API_KEY`                                               |
-| `gemini`     | `GOOGLE_GENERATIVE_AI_API_KEY`                                    |
+| `gemini`     | `GOOGLE_GENERATIVE_AI_API_KEY`, or `GEMINI_API_KEY`               |
 | `groq`       | `GROQ_API_KEY`                                                    |
 | `llamacpp`   | `LLAMACPP_API_KEY` when the server requires bearer authentication |
 | `minimax`    | `MINIMAX_API_KEY`                                                 |

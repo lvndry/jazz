@@ -84,7 +84,7 @@ import {
   type KeyringDependency,
 } from "@/adapters/peers/invites";
 import { servePeerRequest } from "@/adapters/peers/serve";
-import { LLM_PROVIDER_ENV_VARS } from "@/adapters/secrets/registry";
+import { llmProviderApiKeyFromEnv } from "@/adapters/secrets/registry";
 import {
   loadConversation,
   saveConversation,
@@ -1400,8 +1400,7 @@ function listModels(provider: ProviderName, role?: CompanionRole) {
     // Same precedence the LLM service itself uses: global config before environment. A
     // key in the OS keyring is not consulted, because listing models is not worth
     // unlocking a keyring for — providers that need a key and have none simply list none.
-    const apiKey =
-      llmConfig?.[provider]?.api_key ?? process.env[LLM_PROVIDER_ENV_VARS[provider] ?? ""];
+    const apiKey = llmConfig?.[provider]?.api_key ?? llmProviderApiKeyFromEnv(provider);
 
     const models = yield* listModelsForProvider(provider, { apiKey, llmConfig });
     return json({

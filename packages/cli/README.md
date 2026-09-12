@@ -65,12 +65,12 @@ docs test until it is documented.
 
 ## What belongs where
 
-| Belongs here                                   | Belongs elsewhere                                  |
-| ---------------------------------------------- | -------------------------------------------------- |
-| Prompts, formatting, progress, approvals        | Agent execution and policy → `@jazz/core/agent/`   |
-| Command effects and their user-facing errors    | LLM clients → `@jazz/adapters/llm/`                |
-| The full-screen interface and input handling    | Storage and keyring → `@jazz/adapters/`            |
-| Anything a terminal is required to do           | Tool implementations → `@jazz/core/agent/tools/`   |
+| Belongs here                                 | Belongs elsewhere                                |
+| -------------------------------------------- | ------------------------------------------------ |
+| Prompts, formatting, progress, approvals     | Agent execution and policy → `@jazz/core/agent/` |
+| Command effects and their user-facing errors | LLM clients → `@jazz/adapters/llm/`              |
+| The full-screen interface and input handling | Storage and keyring → `@jazz/adapters/`          |
+| Anything a terminal is required to do        | Tool implementations → `@jazz/core/agent/tools/` |
 
 The test is whether a chat bridge or the daemon would need it. If yes, it is not presentation and
 does not belong in this package.

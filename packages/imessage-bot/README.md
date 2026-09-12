@@ -129,7 +129,7 @@ is the same thing.
 | `JAZZ_AUTO_APPROVE_TOOLS`         | _(none)_           | Tool names that never prompt, whatever the policy.                                                                                                           |
 | `JAZZ_RUN_TIMEOUT_MS`             | `300000`           | Per-turn timeout.                                                                                                                                            |
 | `JAZZ_DAILY_COST_CAP_USD`         | `0` (off)          | Spend ceiling across all chats per day.                                                                                                                      |
-| `JAZZ_IMESSAGE_SHOW_REASONING`    | off                | Send the run's reasoning under the answer. Off by default: on iMessage it is extra notifications, not a folded quote.                                       |
+| `JAZZ_IMESSAGE_SHOW_REASONING`    | off                | Send the run's reasoning under the answer. Off by default: on iMessage it is extra notifications, not a folded quote.                                        |
 
 ## Commands
 
