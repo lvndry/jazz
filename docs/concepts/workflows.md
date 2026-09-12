@@ -34,12 +34,12 @@ does not: a name, a schedule, and a diff when somebody changes it.
 
 ## What the frontmatter does
 
-| Field          | Decides                                    |
-| -------------- | ------------------------------------------ |
-| `agent`        | Who runs it                                |
-| `schedule`     | When, as a cron expression                 |
-| `autoApprove`  | What it may do with nobody watching        |
-| `maxCostUSD` and friends | When to stop                     |
+| Field                    | Decides                             |
+| ------------------------ | ----------------------------------- |
+| `agent`                  | Who runs it                         |
+| `schedule`               | When, as a cron expression          |
+| `autoApprove`            | What it may do with nobody watching |
+| `maxCostUSD` and friends | When to stop                        |
 
 Those live next to the prompt on purpose. If someone changes `autoApprove` from `read-only` to
 `high-risk`, that shows up in the pull request, right beside whatever prompt change they wanted

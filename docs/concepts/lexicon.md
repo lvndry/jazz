@@ -6,9 +6,9 @@ description: "The Jazz glossary: which word means what, which two words are not 
 
 This page tells you which word to use, and which two words are not the same thing.
 
-Jazz has a lot of nouns that sound alike. Several of them used to be genuinely
-interchangeable, which is worse than having too many: a name that means two things cannot
-be wrong, only ambiguous, so nothing ever forced the confusion into the open.
+Jazz has a lot of nouns that sound alike. Several used to be genuinely interchangeable, which is
+worse than having too many. A name that means two things is never wrong, only ambiguous, so
+nothing forces the confusion into the open.
 
 This page is the reference. Where two terms were collapsed into one, it says so, because
 the old name still appears in older discussions.

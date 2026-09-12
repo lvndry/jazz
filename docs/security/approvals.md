@@ -29,26 +29,28 @@ declined or [parked](#with-nobody-there).
 ## Gated tools act in two phases
 
 A gated tool does not act when the model calls it. The first phase returns a description of what
-it _would_ do, including a real preview diff for an edit, and only after approval does Jazz
-invoke the hidden `execute_*` half of the pair.
+it would do, including a real diff for an edit. Only after approval does Jazz invoke the hidden
+`execute_*` half.
 
-That is why you see the exact diff before a file is written, and why a declined call leaves
-nothing half-done: the first phase produced a proposal and touched nothing.
+So you see the exact diff before a file is written. And a declined call leaves nothing half-done,
+because the first phase only produced a proposal.
 
 ## Shell commands are classified individually
 
-`execute_command` cannot have one risk level, because `ls` and `rm -rf /` are the same tool. Its
-level is `unknown`, and when the verdict could change the outcome Jazz asks a model to classify
-that specific command as `read-only`, `low-risk`, or `high-risk` before the policy is applied.
+`ls` and `rm -rf /` are the same tool, so `execute_command` cannot have one risk level. Its level
+is `unknown`.
+
+When the verdict would change the outcome, Jazz asks a model to classify that specific command as
+`read-only`, `low-risk`, or `high-risk`, then applies the policy to that.
 
 Three properties of that classifier are worth knowing:
 
 - **Uncertainty is high-risk.** Ambiguity resolves upward, never downward.
 - **The command is classified first, and the conversation cannot talk it down.** A clearly
   mutating command stays high-risk even if the user asked for something milder.
-- **The command text is data, not instruction.** It arrives in tagged blocks with instructions to
-  ignore anything inside them, because the thing being classified is attacker-controlled in
-  exactly the case that matters.
+- **The command text is data, not instruction.** It arrives in tagged blocks the classifier is
+  told to ignore instructions inside. In the case that matters, the thing being classified is
+  attacker-controlled.
 
 An unclassified command stays `unknown` and therefore fails closed.
 
@@ -72,9 +74,10 @@ An unattended run has no one to ask. It declines gated calls by default and says
 usually what you want: the run finishes and reports what it could not do.
 
 When the work genuinely needs a decision, `--park` saves the run instead, exits `2`, and waits.
-`jazz runs show <id>` prints exactly what it is waiting on, `jazz runs approve <id>` finishes it,
-and `jazz runs reject <id> --note "why"` turns it down with a reason the agent can act on. Park
-only where somebody will actually look.
+`jazz runs show <id>` prints what it is waiting on. `jazz runs approve <id>` finishes it.
+`jazz runs reject <id> --note "why"` turns it down with a reason the agent can use.
+
+Park only where somebody will actually look.
 
 ## Related
 

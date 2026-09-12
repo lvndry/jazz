@@ -90,10 +90,12 @@ jazz daemon set-token      # generate (or store $JAZZ_DAEMON_TOKEN); prints a ge
 jazz daemon forget-token   # remove it
 ```
 
-Loopback used to need no token, on the reasoning that reaching `127.0.0.1` already means being
-on the machine. That ignores loopback's two real neighbours: every other user account on a
-shared host, and every page open in your browser. The browser half is handled structurally, as below.
-But nothing except a token separates a tokenless loopback daemon from any other local process, and what it guards is an agent with filesystem access.
+Loopback used to need no token. The reasoning was that reaching `127.0.0.1` means you are already
+on the machine.
+
+That ignores loopback's two real neighbours: every other user account on a shared host, and every
+page open in your browser. The browser half is handled structurally, below. For the other,
+nothing but a token stands between a local process and an agent with filesystem access.
 
 If nothing can store a token at all (`$JAZZ_DISABLE_KEYRING` set with no `$JAZZ_DAEMON_TOKEN`),
 a loopback daemon warns and serves unauthenticated rather than refusing to start; a non-loopback

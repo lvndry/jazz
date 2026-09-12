@@ -13,9 +13,8 @@ Four caps bound a run, and every one of them is optional except the first.
 | `maxTokens`     |   unset | Prompt plus completion tokens, **own run only, not children**    |
 | `maxDurationMs` |   unset | Wall-clock time                                                  |
 
-That asymmetry on the middle two is deliberate and worth remembering. A cost cap is what you
-want when an agent delegates, because children are where the money goes. A token cap needs no
-pricing data at all, which makes it the one that still works on a model nobody has priced.
+Those two differ on purpose. Use a cost cap when an agent delegates, because children are where
+the money goes. Use a token cap on a model nobody has priced, because it needs no pricing data.
 
 Two more shape delegation itself: `maxSubagentIterations` (30) and `maxSubagentDepth` (3), where
 `0` disables delegation outright.
@@ -89,11 +88,14 @@ which means a local Ollama or llama.cpp model. Anything else is unknown, and Jaz
 { "ok": true, "costUSD": 0, "costKnown": false }
 ```
 
-`costUSD` stays `0` there for compatibility with consumers that read it blindly, so anything
-enforcing a ceiling has to check `costKnown` rather than the number. If any delegated child's
-price is unknown, the parent marks its own total incomplete instead of reporting the sum of the
-parts it happened to know. An Ollama model with a cloud tag is the edge that proves the rule:
-local provider name, remote billing, so it does not count as free.
+`costUSD` stays `0` for compatibility with consumers that read it blindly. Check `costKnown`, not
+the number.
+
+One unknown child makes the parent's total unknown too. Reporting the sum of the parts it
+happened to know would be worse than admitting it cannot say.
+
+The edge case that proves the rule: an Ollama model with a cloud tag has a local provider name
+and remote billing, so it does not count as free.
 
 A cost cap cannot be enforced against a model nobody has priced. That is the case `maxTokens`
 exists for.

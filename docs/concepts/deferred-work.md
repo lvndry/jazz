@@ -56,13 +56,12 @@ covers it.
 
 ## When the resumed turn needs a person
 
-A resumed run is unattended by definition. Nobody typed anything to start it, so nobody is
-necessarily watching when it reaches a gated tool.
+Nobody typed anything to start a resumed run, so nobody is necessarily watching when it reaches a
+gated tool.
 
-Rather than dying or hanging, the run parks: it saves itself, sends a desktop notification naming
-what it wants, and waits. `jazz runs approve <id>` finishes it once you answer, and
-`jazz runs reject <id> --note "why"` turns it down. That is the same
-parking mechanism a `--park` headless run uses, so the recovery path is one you already know.
+It parks rather than dying or hanging. The run saves itself, sends a desktop notification naming
+what it wants, and waits. `jazz runs approve <id>` finishes it; `jazz runs reject <id> --note
+"why"` turns it down. Same mechanism a `--park` headless run uses.
 
 ## Related
 
