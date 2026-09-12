@@ -1922,6 +1922,14 @@ function handleInfoCommand(
     const duration = durationParts.join(" ");
 
     yield* terminal.log(fmt.keyValueCompact("Agent", `${agent.name} (${agent.id})`));
+    const personaServiceOption = yield* Effect.serviceOption(PersonaServiceTag);
+    const persona = Option.isSome(personaServiceOption)
+      ? yield* personaServiceOption.value
+          .getPersonaByIdentifier(agent.config.persona)
+          .pipe(Effect.catchAll(() => Effect.succeed(null)))
+      : null;
+    yield* terminal.log(fmt.keyValueCompact("Persona", persona?.name ?? agent.config.persona));
+    yield* terminal.log(fmt.keyValueCompact("Persona file", persona?.filePath ?? "(not found)"));
     yield* terminal.log(
       fmt.keyValueCompact("Model", `${agent.config.llmProvider}/${agent.config.llmModel}`),
     );
