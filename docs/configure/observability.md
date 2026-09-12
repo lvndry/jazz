@@ -1,5 +1,5 @@
 ---
-description: "Every Jazz run is recorded locally and can stream OpenTelemetry events to your own collector — traces, token usage, and tool calls for unattended agents."
+description: "Record every Jazz run locally and export OpenTelemetry traces to your own collector or to Langfuse: spans, token usage, tool calls, and what stays private."
 ---
 
 # Observability
@@ -14,7 +14,7 @@ Each run emits:
 
 | Event                                       | When                                                                                                                                                                                                                                                                               |
 | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `agent_run_started` / `agent_run_completed` | Once per run — a run emits exactly one terminal event. `usage` is the agent-loop model (system prompt + conversation). `classifierUsage` is the command-risk classifier, kept beside it so the two numbers stay comparable. Both ends carry a `process` snapshot (RSS, heap, CPU). |
+| `agent_run_started` / `agent_run_completed` | Once per run; a run emits exactly one terminal event. `usage` is the agent-loop model (system prompt + conversation). `classifierUsage` is the command-risk classifier, kept beside it so the two numbers stay comparable. Both ends carry a `process` snapshot (RSS, heap, CPU). |
 | `agent_run_failed`                          | Instead of `completed` when the run dies                                                                                                                                                                                                                                           |
 | `llm_usage`                                 | Per LLM request, with token usage and wall-clock `durationMs`. Classifier calls are tagged `purpose: "classifier"` and use the harness model, not the agent's.                                                                                                                     |
 | `llm_retry`                                 | Per failed LLM attempt                                                                                                                                                                                                                                                             |
@@ -33,7 +33,7 @@ Point Jazz at any OTLP/HTTP endpoint:
 export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
 ```
 
-That is the whole setup — an endpoint alone turns export on. To try it end to end, run a
+That is the whole setup: an endpoint alone turns export on. To try it end to end, run a
 collector that prints what it receives:
 
 ```bash
@@ -41,13 +41,13 @@ docker run --rm -p 4318:4318 otel/opentelemetry-collector
 ```
 
 Then run any agent and watch the events arrive. To configure it persistently instead of by
-environment, use `telemetry.otlp` in `~/.jazz/config.json` — see
+environment, use `telemetry.otlp` in `~/.jazz/config.json`. See
 [Configuration](../configure/jazz.md#telemetry).
 
 ## Signals: traces and logs
 
 Jazz exports **traces** by default. Spans are what turn a run into a waterfall, and they are
-what LLM-observability backends accept — Langfuse ingests OTLP traces and not logs.
+what LLM-observability backends accept. Langfuse ingests OTLP traces and not logs.
 
 Each run becomes one trace: the run is the root span, and every LLM request, retry, and tool
 call is a child span under it. Span timings are derived from each event's recorded duration, so
@@ -66,21 +66,54 @@ the parent run's span. Everything within a single run nests correctly.
 
 ## Exporting to Langfuse
 
-Langfuse ingests OTLP traces directly, so it needs no separate integration — just its endpoint
-and a Basic auth header built from your key pair:
+Langfuse ingests OTLP traces directly, so it needs no separate integration. Two settings: its
+traces endpoint, and a Basic auth header built from your key pair.
+
+Get a public and secret key from **Settings → API keys** in your Langfuse project, then either
+export them for one shell:
 
 ```bash
 export OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=https://cloud.langfuse.com/api/public/otel/v1/traces
 export OTEL_EXPORTER_OTLP_HEADERS="authorization=Basic $(printf '%s:%s' "$LANGFUSE_PUBLIC_KEY" "$LANGFUSE_SECRET_KEY" | base64)"
 ```
 
-Self-hosted Langfuse works the same way with your own host in place of `cloud.langfuse.com`.
-Do not add `logs` to `signals` for Langfuse — it has no logs endpoint and the requests would
-just fail.
+or configure it once in `~/.jazz/config.json`, which is what you want on a server:
 
-Note that `OTEL_EXPORTER_OTLP_HEADERS` values are percent-decoded, per the OpenTelemetry spec.
-Base64 padding (`=`) survives fine, but if your header value contains a literal `%` you must
-encode it as `%25`.
+```json
+{
+  "telemetry": {
+    "otlp": {
+      "tracesEndpoint": "https://cloud.langfuse.com/api/public/otel/v1/traces",
+      "headers": { "authorization": "Basic cGstbGYtMTIzNDU2Nzg6c2stbGYtODc2NTQzMjE=" },
+      "serviceName": "jazz",
+      "signals": ["traces"]
+    }
+  }
+}
+```
+
+The header value is `base64(public_key:secret_key)`. Use `tracesEndpoint` rather than `endpoint`,
+because Langfuse does not serve OTLP at `<base>/v1/traces`.
+
+Then run anything and look at **Tracing → Traces**:
+
+```bash
+jazz run --agent default "what is 2+2"
+```
+
+One trace per run, named for the run, with the agent-loop LLM call as a child span carrying
+`gen_ai.request.model` and the input and output token counts. A run that used tools shows each
+call as its own span with its duration, so a slow turn reads as a waterfall rather than a total.
+Cost in Langfuse comes from its own model pricing applied to those token counts, so check that
+your model is in its price list before trusting the dollar figures.
+
+Self-hosted Langfuse works the same way with your own host in place of `cloud.langfuse.com`.
+
+Two things that will waste an afternoon otherwise. **Do not add `logs` to `signals`**: Langfuse
+has no logs endpoint, and those requests fail while traces keep working, so the symptom is a log
+full of errors and a dashboard that looks fine. And `OTEL_EXPORTER_OTLP_HEADERS` values are
+percent-decoded per the OpenTelemetry spec, so base64 padding (`=`) survives, but a literal `%`
+in a header value has to be written `%25`.
 
 ## Attributes
 
@@ -94,13 +127,13 @@ conventions define one, Jazz uses it:
 | `gen_ai.operation.name`                                    | `chat`                              |
 | `gen_ai.usage.input_tokens` / `gen_ai.usage.output_tokens` | Token counts                        |
 
-Everything else is namespaced under `jazz.*` — `jazz.agent.id`, `jazz.conversation.id`,
+Everything else is namespaced under `jazz.*`: `jazz.agent.id`, `jazz.conversation.id`,
 `jazz.run.id`, `jazz.toolName`, `jazz.durationMs`, `jazz.purpose` (`classifier` on
 command-risk calls), `jazz.classifierUsage.*`, `jazz.process.*` (RSS, heap, cumulative CPU),
 and the cache and reasoning token counts that have no semconv equivalent, under
 `jazz.usage.*`.
 
-**Latency** is wall-clock `durationMs` on each `llm_usage` and `tool_invocation` span — that
+**Latency** is wall-clock `durationMs` on each `llm_usage` and `tool_invocation` span, which
 is per-call time, including classifier round-trips. The run span is the sum of waiting, not
 of CPU.
 
@@ -122,7 +155,7 @@ By default Jazz exports **no** user or model text. Content-bearing fields are dr
 remaining string attribute is truncated to 256 characters, so a stack trace or a long tool name
 cannot smuggle content out.
 
-Turning this off is deliberate and config-only — there is no environment variable for it:
+Turning this off is deliberate and config-only. There is no environment variable for it:
 
 ```json
 { "telemetry": { "otlp": { "captureContent": true } } }
@@ -136,7 +169,7 @@ adding a content-bearing field later cannot leak it by default.
 
 Telemetry is best-effort by construction and never fails or slows a run:
 
-- Sinks are written concurrently and independently — a dead collector does not stop the local
+- Sinks are written concurrently and independently, so a dead collector does not stop the local
   file, and vice versa.
 - Failed writes are retried on the next flush, but only when _every_ sink failed, so a working
   file sink plus a dead collector never duplicates rows on disk.
@@ -152,4 +185,4 @@ Telemetry is best-effort by construction and never fails or slows a run:
 ```
 
 This stops local recording as well as export. To keep local files but stop exporting, set
-`telemetry.otlp.enabled` to `false` — the endpoint stays configured.
+`telemetry.otlp.enabled` to `false`, which leaves the endpoint configured.
