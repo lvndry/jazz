@@ -264,7 +264,7 @@ batch whose worker was killed mid-flight. If no worker can be started at all, th
 its result rather than leaving the agent waiting for a wake-up that will never come.
 
 If that resumed turn needs an approval nobody is there to give, the run parks instead of dying:
-you get a desktop notification naming it, and `jazz runs resume <id>` finishes it. See
+you get a desktop notification naming it, and `jazz runs approve <id>` finishes it. See
 [tools and approval](../maintainers/tool-lifecycle.md).
 
 | Tool            | Risk        | Approval pair           | What it does                                                                                               |

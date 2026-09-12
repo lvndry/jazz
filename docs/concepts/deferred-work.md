@@ -60,7 +60,8 @@ A resumed run is unattended by definition. Nobody typed anything to start it, so
 necessarily watching when it reaches a gated tool.
 
 Rather than dying or hanging, the run parks: it saves itself, sends a desktop notification naming
-what it wants, and waits. `jazz runs resume <id>` finishes it once you answer. That is the same
+what it wants, and waits. `jazz runs approve <id>` finishes it once you answer, and
+`jazz runs reject <id> --note "why"` turns it down. That is the same
 parking mechanism a `--park` headless run uses, so the recovery path is one you already know.
 
 ## Related

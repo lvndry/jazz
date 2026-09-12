@@ -46,8 +46,9 @@ Caps are set per workflow or per run, and checked between iterations rather than
 | `maxIterations`  | the loop has taken that many turns: default 100    |
 
 The first three are unset by default, which means uncapped. All four warn the agent as they fill
-rather than only cutting it off: pressure messages at 50, 80 and 90% give it a chance to
-consolidate what it has instead of being killed mid-thought.
+rather than only cutting it off, so it can consolidate what it has instead of being killed
+mid-thought. Cost, tokens and duration nudge at 50, 80 and 90% of the budget; iterations nudge at
+70 and 90%.
 
 A cost cap cannot be enforced against an unpriced model. That is another reason unknown is
 reported as unknown.
