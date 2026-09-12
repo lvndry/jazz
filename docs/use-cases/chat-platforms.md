@@ -1,8 +1,8 @@
 ---
-description: "Run a real tool-using AI agent inside Telegram, Discord, Slack, or your own app — same agent, same tools, same approval rules as the terminal."
+description: "Run a real tool-using AI agent inside Telegram, Discord, iMessage, WhatsApp, Slack, or your own app — same agent, same tools, same approval rules as the terminal."
 ---
 
-# Chat platforms — Telegram, Discord, Slack, your own app
+# Chat platforms — Telegram, Discord, iMessage, WhatsApp, your own app
 
 How to put a real tool-using agent into a chat thread.
 
@@ -10,17 +10,20 @@ A Jazz agent in a chat window isn't a chatbot with your logo on it. It's the sam
 that reads your filesystem, runs git, searches the web, and spawns sub-agents — reachable
 from your phone.
 
-| Platform         | Status                        | Where                                                            |
-| ---------------- | ----------------------------- | ---------------------------------------------------------------- |
-| **Telegram**     | ✅ Deployable reference bridge | [`packages/telegram-bot/`](../../packages/telegram-bot/) |
-| **Discord**      | ✅ Deployable reference bridge | [`packages/discord-bot/`](../../packages/discord-bot/)   |
-| **Slack**        | 🔧 Bring your own bridge       | pattern below                                                    |
-| **Google Chat**  | 🔧 Bring your own bridge       | pattern below                                                    |
-| **Your own app** | 🔧 Bring your own bridge       | pattern below                                                    |
+| Platform         | Status                         | Where                                                                     |
+| ---------------- | ------------------------------ | ------------------------------------------------------------------------- |
+| **Telegram**     | ✅ Deployable reference bridge | [`packages/telegram-bot/`](../../packages/telegram-bot/)                  |
+| **Discord**      | ✅ Deployable reference bridge | [`packages/discord-bot/`](../../packages/discord-bot/)                    |
+| **iMessage**     | ✅ Shipped, runs on your Mac   | [`packages/imessage-bot/`](../../packages/imessage-bot/), `jazz imessage` |
+| **WhatsApp**     | ✅ Shipped, linked device      | [`packages/whatsapp-bot/`](../../packages/whatsapp-bot/), `jazz whatsapp` |
+| **Slack**        | 🔧 Bring your own bridge       | pattern below                                                             |
+| **Google Chat**  | 🔧 Bring your own bridge       | pattern below                                                             |
+| **Your own app** | 🔧 Bring your own bridge       | pattern below                                                             |
 
 **Be clear on what ships.** Telegram and Discord are complete, production-deployed
 services with a Dockerfile, per-conversation model switching, reminders, and live
-progress. Slack and Google Chat do not ship an adapter. What they share is the
+progress. iMessage and WhatsApp ship too, as commands rather than containers, because
+neither account can be moved to a server. Slack and Google Chat do not ship an adapter. What they share is the
 contract — and the transport-specific part of a bridge is small enough that copying
 a shipped one and swapping the transport is the intended path, not a workaround.
 
@@ -76,25 +79,25 @@ docker compose up -d --build
 ```
 
 That's a working agent in your DMs. For the account-creation steps (bot token, chat id),
-see [Creating a Telegram or Discord bot](../start/chat-bots.md); for the full
+see [Reaching your agent from a chat app](../start/chat-bots.md); for the full
 configuration table and security notes, see
 [`packages/telegram-bot/README.md`](../../packages/telegram-bot/README.md).
 
 What the Telegram bridge demonstrates — worth reading before you write your own:
 
-| Feature             | How it works                                                                                                                                                                   |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Per-user agents** | Each chat gets `tg_<chat_id>.json`, cloned from a template on first contact. `/model` and `/persona` change only that user's experience.                                       |
-| **Per-user isolation** | Each chat's agent runs as its own Unix user, in its own Jazz home under `/data/chats/tg_<chat_id>/`. One allowlisted person's agent cannot read another's transcripts, memory, secrets or mail credentials — the kernel refuses, rather than a filename convention discouraging it. |
-| **Any-provider `/model`** | Bare `/model` lists the current provider's models; `/model provider/model` (e.g. `/model anthropic/claude-sonnet-5`) switches to any provider Jazz supports — set that provider's API key as an env var on the bot first (see `.env.example`).                                       |
-| **Per-chat memory** | `--conversation <chat_id>`. The bridge itself is stateless.                                                                                                                    |
-| **Live progress**   | `--events` NDJSON on stderr drives a status bubble that updates with thinking, tool calls, and sub-agents, then closes with a `✅ Done · 7 tools · 12k tokens · $0.03` summary. |
-| **Cancellation**    | A ⏹ button kills the child process mid-run.                                                                                                                                    |
-| **Approvals**       | Each tool needing a human gets its own accept/reject message. A parallel batch of tool calls grows **⚡ Approve all N** / **🚫 Reject all N** so the whole batch clears in one tap, and `/mode` opts a conversation out of prompting altogether (yolo runs at `high-risk`). Both bridges do this. |
-| **Reminders**       | `/remind 30m …`, persisted to disk so they survive restarts and fire late if the bridge was down.                                                                              |
-| **Spend cap**       | `JAZZ_DAILY_COST_CAP_USD` — known `costUSD` is accumulated per day; after an unpriced run, further requests pause until the next UTC day.                                      |
-| **Local-only mode** | Point `JAZZ_TELEGRAM_PROVIDER=ollama` at a local model: no keys, no cloud, no per-message cost.                                                                                |
-| **Allowlist**       | Only `TELEGRAM_ALLOWED_CHAT_IDS` are answered; everyone else is silently ignored.                                                                                              |
+| Feature                   | How it works                                                                                                                                                                                                                                                                                      |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Per-user agents**       | Each chat gets `tg_<chat_id>.json`, cloned from a template on first contact. `/model` and `/persona` change only that user's experience.                                                                                                                                                          |
+| **Per-user isolation**    | Each chat's agent runs as its own Unix user, in its own Jazz home under `/data/chats/tg_<chat_id>/`. One allowlisted person's agent cannot read another's transcripts, memory, secrets or mail credentials — the kernel refuses, rather than a filename convention discouraging it.               |
+| **Any-provider `/model`** | Bare `/model` lists the current provider's models; `/model provider/model` (e.g. `/model anthropic/claude-sonnet-5`) switches to any provider Jazz supports — set that provider's API key as an env var on the bot first (see `.env.example`).                                                    |
+| **Per-chat memory**       | `--conversation <chat_id>`. The bridge itself is stateless.                                                                                                                                                                                                                                       |
+| **Live progress**         | `--events` NDJSON on stderr drives a status bubble that updates with thinking, tool calls, and sub-agents, then closes with a `✅ Done · 7 tools · 12k tokens · $0.03` summary.                                                                                                                   |
+| **Cancellation**          | A ⏹ button kills the child process mid-run.                                                                                                                                                                                                                                                       |
+| **Approvals**             | Each tool needing a human gets its own accept/reject message. A parallel batch of tool calls grows **⚡ Approve all N** / **🚫 Reject all N** so the whole batch clears in one tap, and `/mode` opts a conversation out of prompting altogether (yolo runs at `high-risk`). Both bridges do this. |
+| **Reminders**             | `/remind 30m …`, persisted to disk so they survive restarts and fire late if the bridge was down.                                                                                                                                                                                                 |
+| **Spend cap**             | `JAZZ_DAILY_COST_CAP_USD` — known `costUSD` is accumulated per day; after an unpriced run, further requests pause until the next UTC day.                                                                                                                                                         |
+| **Local-only mode**       | Point `JAZZ_TELEGRAM_PROVIDER=ollama` at a local model: no keys, no cloud, no per-message cost.                                                                                                                                                                                                   |
+| **Allowlist**             | Only `TELEGRAM_ALLOWED_CHAT_IDS` are answered; everyone else is silently ignored.                                                                                                                                                                                                                 |
 
 ### The message flow
 
@@ -131,19 +134,45 @@ docker compose up -d --build
 
 DM the bot, or `@mention` it in an allowlisted channel. For the account-creation steps
 (application, intents, invite URL), see
-[Creating a Telegram or Discord bot](../start/chat-bots.md); for the full configuration
+[Reaching your agent from a chat app](../start/chat-bots.md); for the full configuration
 table and mention-gating details, see
 [`packages/discord-bot/README.md`](../../packages/discord-bot/README.md).
 
 Same `jazz run` contract as Telegram. What Discord adds on top:
 
-| Feature            | How it works                                                                                                           |
-| ------------------ | ---------------------------------------------------------------------------------------------------------------------- |
-| **Mention-gating** | In servers the bot ignores chatter unless mentioned, replied-to, or already in the thread. DMs always respond.         |
-| **Thread binding** | An `@mention` in a channel starts a thread; `--conversation` is the thread id so the rest of the room is not the chat. |
-| **3-second ack**   | Slash commands and buttons are acknowledged immediately, then the agent run continues asynchronously.                  |
-| **Allowlists**     | Users, channels, and/or guilds. At least one is required.                                                              |
+| Feature                   | How it works                                                                                                                                                                                                                                                                                                                                    |
+| ------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Mention-gating**        | In servers the bot ignores chatter unless mentioned, replied-to, or already in the thread. DMs always respond.                                                                                                                                                                                                                                  |
+| **Thread binding**        | An `@mention` in a channel starts a thread; `--conversation` is the thread id so the rest of the room is not the chat.                                                                                                                                                                                                                          |
+| **3-second ack**          | Slash commands and buttons are acknowledged immediately, then the agent run continues asynchronously.                                                                                                                                                                                                                                           |
+| **Allowlists**            | Users, channels, and/or guilds. At least one is required.                                                                                                                                                                                                                                                                                       |
 | **Any-provider `/model`** | Bare `/model` shows a select menu of the current provider's models; send `/model provider/model` (e.g. `/model anthropic/claude-sonnet-5`) as a normal message — not the slash-command menu, which can't take a free-form value — to switch provider outright. Set that provider's API key as an env var on the bot first (see `.env.example`). |
+
+---
+
+## iMessage and WhatsApp (shipped)
+
+```bash
+jazz imessage     # macOS 14+, signed into iMessage
+jazz whatsapp     # links as a device, the way WhatsApp Web does
+```
+
+Setup walkthrough: [Reaching your agent from a chat app](../start/chat-bots.md#imessage).
+Full tables: [`packages/imessage-bot/README.md`](../../packages/imessage-bot/README.md),
+[`packages/whatsapp-bot/README.md`](../../packages/whatsapp-bot/README.md).
+
+These two are the same `jazz run` contract as Telegram, and they are worth reading precisely
+because of what the platform takes away:
+
+| Concern              | What changes                                                                                                                                                                                                                     |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Where it runs**    | Neither account can move to a server. iMessage needs a Mac that is awake and signed in; WhatsApp needs the linked device process alive. A bridge is not always a container.                                                      |
+| **No buttons**       | Approvals arrive as numbered options answered by replying `1` or `2`. A reply matching nothing is treated as an ordinary message, so an ignored prompt never swallows the next question.                                         |
+| **No live progress** | iMessage cannot edit a sent message: `🤔 Working…`, a "still working" line at 45s and roughly once a minute after, then the answer. No status bubble to update.                                                                  |
+| **Whose account**    | iMessage answers as _you_, so a chat with yourself needs a trigger word to tell questions from the bridge's own replies. Photon gives the agent a line of its own instead: [`packages/photon-bot/`](../../packages/photon-bot/). |
+| **Allow-list shape** | Handles (E.164 or Apple ID) and group rowids for iMessage; numbers and group JIDs for WhatsApp. Both deny-by-default; being allowed to DM never admits you to a group.                                                           |
+| **Isolation**        | Per-conversation uid sandboxing is a Linux mechanism the containerised bridges use. On a Mac or a linked device every chat shares one `JAZZ_HOME` and runs as your user.                                                         |
+| **Sanctioning**      | WhatsApp publishes no API for personal accounts; the bridge speaks the WhatsApp Web protocol via Baileys. Unusual behaviour can get a number limited or banned — use a dedicated one if it matters.                              |
 
 ---
 
@@ -292,4 +321,6 @@ Full model: [Security](../../SECURITY.md).
 - [Headless](./headless.md) — the contract every bridge uses
 - [`packages/telegram-bot/`](../../packages/telegram-bot/) — Telegram reference implementation
 - [`packages/discord-bot/`](../../packages/discord-bot/) — Discord reference implementation
+- [`packages/imessage-bot/`](../../packages/imessage-bot/) — iMessage, on your Mac
+- [`packages/whatsapp-bot/`](../../packages/whatsapp-bot/) — WhatsApp, as a linked device
 - [Airgapped & self-hosted](../start/airgapped.md) — running a bridge with no cloud provider

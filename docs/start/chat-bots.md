@@ -115,10 +115,10 @@ In Discord: **User Settings → Advanced → Developer Mode** (on). Then right-c
 **Copy … ID**:
 
 | You want…                       | Right-click                           |
-| -------------------------------- | -------------------------------------- |
-| Yourself (DMs + your @mentions)  | your avatar / username → Copy User ID  |
-| One channel only                 | the channel → Copy Channel ID          |
-| The whole server                 | the server name → Copy Server ID       |
+| ------------------------------- | ------------------------------------- |
+| Yourself (DMs + your @mentions) | your avatar / username → Copy User ID |
+| One channel only                | the channel → Copy Channel ID         |
+| The whole server                | the server name → Copy Server ID      |
 
 For a private server, the usual choice is `DISCORD_ALLOWED_GUILD_IDS=<server id>` (anyone in
 the server can @mention the bot), or `DISCORD_ALLOWED_USER_IDS=<your id>` (only you, in DMs
@@ -162,8 +162,9 @@ allowlisted, or you didn't @mention it (`DISCORD_REQUIRE_MENTION=1` by default).
 
 ## iMessage
 
-Runs on a Mac that is signed into iMessage, awake, and logged in — there is no server-side
-option, because iMessage exists nowhere else.
+Runs on a Mac running macOS 14 or newer, signed into iMessage, awake and logged in — there
+is no server-side option, because iMessage exists nowhere else. The agent answers on **your**
+Apple account: the same line your friends already text.
 
 ### 1. Start it
 
@@ -174,6 +175,13 @@ jazz imessage
 The first run of this command is where setup happens, and nowhere earlier —
 installing Jazz never asks about iMessage, because a request for Full Disk
 Access from something you did not ask for is alarming rather than helpful.
+
+To answer as an agent you already have rather than a fresh assistant, name it — it is copied
+into the bridge's own home, so the original keeps its name and stays yours:
+
+```bash
+jazz imessage --agent nostra
+```
 
 ### 2. Say yes twice
 
@@ -187,18 +195,30 @@ It walks through the two things it needs:
 
 The first message it sends also raises a one-time Automation → Messages prompt.
 
-With nothing else configured it answers only you: text **yourself**
-`jazz <question>`. That keeps a first run useful without opening your number to
-anyone.
+### 3. Talk to it
 
-### 3. Let it run in the background
+With nothing configured, a first run answers only you: text **yourself**
+`jazz <question>` from any of your devices. That is `IMESSAGE_SELF_TRIGGER` falling back to
+`jazz` precisely because no allow-list is set — it opens the bridge to one person, whoever is
+already signed in on this Mac, and to nobody else.
 
-Once it answers, it offers to install itself as a background service and hands over. From
-then on it starts at login and restarts itself if it dies.
+Two consequences of borrowing your own account, both visible in the chat:
+
+- **A trigger word is needed for messages to yourself.** iMessage marks everything you send
+  as yours, the bridge's own replies included, so in a chat with yourself it has to be told
+  which lines are questions. Texts from other allowed handles need no prefix.
+- **No live progress, and approvals are numbered replies.** iMessage cannot edit a sent
+  message, so you get `🤔 Working…` then the answer, and a tool that needs a human arrives as
+  numbered options you answer with `1` or `2`.
+
+### 4. Let it run in the background
+
+Once it answers, it offers to install itself as a LaunchAgent and hands over. From then on it
+starts at login and restarts itself if it dies.
 
 ```bash
 jazz imessage status   # installed? running?
-jazz imessage logs     # follow it
+jazz imessage logs     # follow it ($JAZZ_HOME/bridge.log)
 jazz imessage stop     # stop it
 ```
 
@@ -206,40 +226,94 @@ Granting Full Disk Access to the service rather than to your terminal is worth d
 macOS attributes the access to whatever started the process, so a terminal grant covers
 every command you run there while the service grant covers only this bridge.
 
-### 4. Let other people in
+**Set the allow-list before you accept the install.** The plist is written from the
+environment at install time — `IMESSAGE_ALLOWED_HANDLES`, `JAZZ_HOME`, `JAZZ_IMESSAGE_MODEL`
+and the rest are snapshotted into it, and it is never overwritten afterwards. To change any
+of them later: `jazz imessage stop`, delete
+`~/Library/LaunchAgents/com.github.lvndry.jazz.imessage.plist`, then run `jazz imessage`
+again with the new values (or edit that file by hand). Provider API keys are deliberately not
+carried — the agent reads those from the OS keyring itself.
+
+### 5. Let other people in
 
 ```bash
-IMESSAGE_ALLOWED_HANDLES="+15551234567,friend@icloud.com"
+IMESSAGE_ALLOWED_HANDLES="+15551234567,friend@icloud.com" jazz imessage
 ```
 
 Deny-by-default, because this answers on a phone number anyone can text. A message from an
-unlisted number is logged and never answered. Group chats are admitted by their own id
-(`IMESSAGE_ALLOWED_GROUP_CHAT_IDS`) — being allowed to DM the agent does not put it in your
-group chats.
+unlisted number is logged and never answered. Group chats are admitted by their own
+`chat.db` rowid (`IMESSAGE_ALLOWED_GROUP_CHAT_IDS`) — being allowed to DM the agent does not
+put it in your group chats.
+
+Once any allow-list is set, the `jazz` self-trigger stops being assumed; set
+`IMESSAGE_SELF_TRIGGER=jazz` explicitly to keep texting yourself as well. Started without a
+terminal — which is what the background service is — and with nothing allowed, the bridge
+refuses to start rather than answer a number anyone can text.
+
+Full variable table: [`packages/imessage-bot/README.md`](../../packages/imessage-bot/README.md).
+If you would rather the agent had a line of its own than share yours, there is a third
+option on this front — see [`packages/photon-bot/README.md`](../../packages/photon-bot/README.md).
 
 ---
 
 ## WhatsApp
 
-The bridge links to your WhatsApp account as a device, exactly as WhatsApp Web does.
+The bridge links to your WhatsApp account as a device, exactly as WhatsApp Web does. It runs
+wherever you are, not in a container, and it has no background installer: keep the process
+alive yourself (a terminal you leave open, `tmux`, or your init system of choice).
 
-### 1. Start it and pair
+### 1. Start it
 
 ```bash
-WHATSAPP_ALLOWED_NUMBERS="+15551234567" bun packages/whatsapp-bot/src/bridge.ts
+jazz whatsapp
 ```
 
-It prints a QR code: WhatsApp → Settings → Linked Devices → Link a device. On a machine
-with no screen to point a phone at, set `WHATSAPP_PAIR_NUMBER` to the account's own number
-and it prints an 8-character code to type in under **Link with phone number** instead.
+From a checkout without an installed binary, `bun packages/whatsapp-bot/src/main.ts` is the
+same thing. `--agent nostra` seeds it from an agent you already have, copied into the
+bridge's own home.
 
-Pairing happens once; the credentials are kept in `$JAZZ_HOME/wa-auth`.
+On the first run it asks whose messages the agent should answer and remembers the answer in
+`wa-allowed.json` under its home. To skip the question — which is what you want on a server,
+where the bridge refuses to start rather than ask a terminal that is not there:
 
-### 2. Groups
+```bash
+WHATSAPP_ALLOWED_NUMBERS="+15551234567,+33123456789" jazz whatsapp
+```
 
-An allowed group (`WHATSAPP_ALLOWED_GROUPS`) still needs the bot @-mentioned or replied to
-before it answers, so it can sit in a busy thread without joining in. Turn that off with
-`WHATSAPP_REQUIRE_MENTION_IN_GROUPS=0` if you want it answering everything.
+The environment wins over the saved answer, which wins over asking.
+
+### 2. Pair it
+
+It prints a QR code: WhatsApp → Settings → Linked Devices → Link a device. Scan the one on
+screen promptly — WhatsApp expires each code after about a minute and prints another, and a
+stale one is refused with "check your connection".
+
+On a machine with no screen to point a phone at, set `WHATSAPP_PAIR_NUMBER` to the account's
+own number and it prints an 8-character code to type in under **Link with phone number**
+instead.
+
+Pairing happens once. The linked-device credentials land in `WHATSAPP_AUTH_DIR`
+(`$JAZZ_HOME/wa-auth` by default, where `JAZZ_HOME` is `~/.jazz-whatsapp`) — anything that
+can read that directory can act as the account.
+
+### 3. Talk to it
+
+DM the linked account from any allowed number. Approvals and questions arrive as numbered
+options you answer by replying with a number: WhatsApp buttons are restricted to business
+accounts and degrade to nothing on a personal one.
+
+### 4. Groups
+
+An allowed group (`WHATSAPP_ALLOWED_GROUPS`, by JID) still needs the bot @-mentioned or
+replied to before it answers, so it can sit in a busy thread without joining in. Turn that
+off with `WHATSAPP_REQUIRE_MENTION_IN_GROUPS=0` if you want it answering everything. Being
+allowed to DM the agent does not admit you to a group, and the reverse is also true — but
+inside an allowed group the number list is not consulted at all, so everyone in that thread
+can address the agent.
+
+Group JIDs look like `120363043211234567@g.us`. The simplest way to get one is to run the
+bridge, send a message in the group, and read the line it logs about ignoring a message from
+a group that is not on the list.
 
 ### What to know before you rely on it
 
@@ -247,11 +321,14 @@ WhatsApp publishes no API for personal accounts, so this speaks the WhatsApp Web
 via [Baileys](https://github.com/WhiskeySockets/Baileys) — capable, but not sanctioned by
 Meta. A number that behaves unusually can be rate-limited or banned, so use a dedicated
 number if the account matters. Unlinking the device from your phone ends the session and
-the bridge says so and exits.
+the bridge says so and exits. And it is a full device: everything that account receives, this
+process receives — the allow-list decides what it _answers_, not what it _sees_.
 
 The official alternative, the WhatsApp Cloud API, needs a Meta Business account and a
 separate business number, and only allows template messages outside a 24-hour reply window
 — which is why it is not what this uses.
+
+Full variable table: [`packages/whatsapp-bot/README.md`](../../packages/whatsapp-bot/README.md).
 
 ---
 

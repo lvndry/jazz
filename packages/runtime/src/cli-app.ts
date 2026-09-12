@@ -911,24 +911,6 @@ function runPlainAction(action: () => Promise<void> | void): Promise<void> {
 }
 
 /**
- * Register `jazz imessage` — reach the agent from Messages on a Mac.
- *
- * A top-level noun rather than something under a `bridge` group, matching the
- * other surfaces this binary will grow: what a person wants is "iMessage", not
- * a category to navigate first.
- *
- * The bare command starts the bridge in the foreground and, on a first run,
- * walks through what it needs. The subcommands exist because it offers to keep
- * running in the background, and a service you cannot stop or read the logs of
- * is worse than no service.
- */
-/**
- * Register `jazz whatsapp` — reach the agent from WhatsApp.
- *
- * A linked device rather than a container, so like iMessage it runs on the
- * machine in front of you and needs a way in from the installed binary.
- */
-/**
  * Register `jazz photon` - the agent on its own iMessage line.
  *
  * The only bridge that does not borrow an account you already own, so it is the
@@ -949,6 +931,12 @@ function registerPhotonCommand(program: Command): void {
     );
 }
 
+/**
+ * Register `jazz whatsapp` — reach the agent from WhatsApp.
+ *
+ * A linked device rather than a container, so like iMessage it runs on the
+ * machine in front of you and needs a way in from the installed binary.
+ */
 function registerWhatsappCommand(program: Command): void {
   program
     .command("whatsapp")
@@ -964,6 +952,18 @@ function registerWhatsappCommand(program: Command): void {
     );
 }
 
+/**
+ * Register `jazz imessage` — reach the agent from Messages on a Mac.
+ *
+ * A top-level noun rather than something under a `bridge` group, matching the
+ * other surfaces this binary will grow: what a person wants is "iMessage", not
+ * a category to navigate first.
+ *
+ * The bare command starts the bridge in the foreground and, on a first run,
+ * walks through what it needs. The subcommands exist because it offers to keep
+ * running in the background, and a service you cannot stop or read the logs of
+ * is worse than no service.
+ */
 function registerIMessageCommand(program: Command): void {
   const imessageCommand = program
     .command("imessage")

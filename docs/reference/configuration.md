@@ -314,6 +314,21 @@ required`, set `ANTHROPIC_WORKSPACE_ID` or `llm.anthropic.workspace_id` in
 | `JAZZ_TABLE_STYLE` | Table rendering style                                                                                                                         |
 | `NO_COLOR`         | Standard: disable colour output                                                                                                               |
 
+### Chat bridges
+
+Each bridge reads its own variables — allow-lists, the seed agent, the provider and model a
+new conversation starts on, a daily spend cap. They are documented where they are read, one
+table per bridge:
+[Telegram](../../packages/telegram-bot/README.md),
+[Discord](../../packages/discord-bot/README.md),
+[iMessage](../../packages/imessage-bot/README.md),
+[WhatsApp](../../packages/whatsapp-bot/README.md).
+
+Two shapes are worth knowing before you look: each bridge keeps its own `JAZZ_HOME`
+(`~/.jazz-imessage`, `~/.jazz-whatsapp`) so a bridge's agents and transcripts never mix with
+your terminal's, and every allow-list denies by default. Setup:
+[Reaching your agent from a chat app](../start/chat-bots.md).
+
 ### Scheduling
 
 | Variable                | Effect                                            |
