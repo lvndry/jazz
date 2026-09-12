@@ -2,7 +2,7 @@
 description: "How Jazz measures whether a harness change actually makes agents better: the eval suite, scoring, and regression gates for contributors."
 ---
 
-# Evals — measuring the harness
+# Evals: measuring the harness
 
 This page shows how to tell whether a harness change actually made agents better, rather than
 assuming it did.
@@ -14,7 +14,7 @@ Source: [`evals/`](../../evals/) · run instructions: [`evals/README.md`](../../
 ## The question the harness exists to answer
 
 Given a weak model and a strong one, how much of the gap between them is closable by the
-_harness_ — better context management, better prompting, better tool design — rather than by
+_harness_ (better context management, better prompting, better tool design) rather than by
 paying for a bigger model?
 
 That framing drives the whole design. Every run measures a **system under test** against a
@@ -45,7 +45,7 @@ flowchart LR
     class CEIL,JUDGE strong
 ```
 
-The judge is never the model under test — a model grading itself measures its own confidence,
+The judge is never the model under test: a model grading itself measures its own confidence,
 not its competence.
 
 ---
@@ -58,13 +58,13 @@ unreliable one. So the harness reports:
 | Metric              | What it tells you                                                |
 | ------------------- | ---------------------------------------------------------------- |
 | **pass@1**          | Did it work on the first try                                     |
-| **pass@k**          | Did it work at least once in k tries — an _optimistic_ bound     |
-| **Pass^k**          | Did it work on **every** one of k tries — the reliability number |
+| **pass@k**          | Did it work at least once in k tries: an _optimistic_ bound     |
+| **Pass^k**          | Did it work on **every** one of k tries: the reliability number |
 | **bootstrap CI**    | Whether the difference you're looking at survives sampling noise |
 | **cost-normalized** | Whether the improvement is real or just bought with more tokens  |
 
 `pass@k` rewards a lucky roll. **Pass^k** is the one to quote when claiming an agent is
-dependable, because unattended surfaces — cron, CI, a chat bridge — get one attempt.
+dependable, because unattended surfaces (cron, CI, a chat bridge) get one attempt.
 
 The bootstrap CI matters because eval suites are small. A jump from 6/10 to 7/10 is usually
 noise, and reporting it as a win is how a harness accumulates changes that do nothing.
@@ -77,21 +77,21 @@ Each task seeds a temp workspace, runs the agent, and checks **state** rather th
 model whether the answer looked good. Four check families live in
 [`evals/checks.ts`](../../evals/checks.ts):
 
-- **State checks** — did the file actually end up in the right place with the right content
-- **Constraint checks** — did it avoid doing the thing it was told not to do
-- **Citation grounding** — are the cited sources real and do they support the claim
-- **Comprehension proxies** — did it understand the task, not just pattern-match the wording
+- **State checks**: did the file actually end up in the right place with the right content
+- **Constraint checks**: did it avoid doing the thing it was told not to do
+- **Citation grounding**: are the cited sources real and do they support the claim
+- **Comprehension proxies**: did it understand the task, not just pattern-match the wording
 
 ### The grounding suite is the interesting one
 
 [`evals/tasks/grounding/`](../../evals/tasks/grounding/) tests whether the agent resolves
-indexical references — "this machine", "this repo", "the latest version" — against the real
+indexical references ("this machine", "this repo", "the latest version") against the real
 environment instead of answering generically from training data. This is the failure mode most
 likely to make an assistant feel useless while scoring fine on benchmarks.
 
 Two checks are worth understanding because they encode a general principle:
 
-- **`machineSpecGroundingCheck`** asserts against ground truth from `node:os`. Asking "how much RAM does this machine have" passes if the answer cites the real figure _or_ the agent probed the system (`system_profiler`, `sysctl`). It **fails** on generic RAM-bucket advice, and it fails on asking the user to look it up themselves — because the agent has `execute_command` and could have just checked.
+- **`machineSpecGroundingCheck`** asserts against ground truth from `node:os`. Asking "how much RAM does this machine have" passes if the answer cites the real figure _or_ the agent probed the system (`system_profiler`, `sysctl`). It **fails** on generic RAM-bucket advice, and it fails on asking the user to look it up themselves, because the agent has `execute_command` and could have just checked.
 - **`toolGroundedAnswerCheck`** requires **both** a matching tool call **and** answer content consistent with it. Calling the tool proves nothing if the answer still guesses; this is the check that catches an agent going through the motions.
 
 Web-dependent tasks use record-replay cassettes under `evals/fixtures/web/`, so
@@ -136,13 +136,13 @@ Reports land in `evals/report/` (gitignored). Full flags and task-authoring guid
 
 Run the A/B. A change to context management, prompting, tool descriptions, or the agent loop
 is exactly what this measures, and "it seems better in my testing" is not a result. If the
-change is neutral on the suite, that's worth knowing too — it may mean the suite needs a task
+change is neutral on the suite, that's worth knowing too: it may mean the suite needs a task
 that captures what you improved.
 
 ---
 
 ## Related
 
-- [Agent loop](./run-lifecycle.md) · [Context management](./context-lifecycle.md) — the things most worth measuring
-- [Architecture](./architecture.md) — the harness boundaries these evals measure
-- [`evals/README.md`](../../evals/README.md) — flags, task authoring, agent configs
+- [Agent loop](./run-lifecycle.md) · [Context management](./context-lifecycle.md): the things most worth measuring
+- [Architecture](./architecture.md): the harness boundaries these evals measure
+- [`evals/README.md`](../../evals/README.md): flags, task authoring, agent configs

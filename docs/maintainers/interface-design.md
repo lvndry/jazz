@@ -11,7 +11,7 @@ Jazz is a conversation, not an instrument panel. The answer is the point and
 everything else is apparatus, so the design is measured against legibility
 rather than density.
 
-The tables below are generated from the modules that define them — run
+The tables below are generated from the modules that define them: run
 `bun run docs:design` after changing [`theme.ts`](../../packages/cli/src/ui/theme.ts) or
 [`glyphs.ts`](../../packages/cli/src/ui/glyphs.ts). A design document that restates hex
 values by hand starts drifting the first time someone tunes a colour, and a
@@ -39,10 +39,10 @@ are intentionally absent from the key legend until their actions exist.
 
 ### Colour is semantics
 
-Every hue answers the question _"what is this?"_ — who is speaking, is this a
+Every hue answers the question _"what is this?"_: who is speaking, is this a
 tool, did it work, should I worry, is this about to touch my real accounts. That
-is six questions, so six hues. Everything else — headings, rules, borders,
-labels, timestamps, paths — lives on the neutral ramp.
+is six questions, so six hues. Everything else: headings, rules, borders,
+labels, timestamps, paths: lives on the neutral ramp.
 
 Six is a set you can hold in your head, which is the point: after an hour in the
 app you read colour without deciding to.
@@ -61,7 +61,7 @@ Two consequences worth stating, because both were bugs before:
 
 ### Motion is allowed where text is not
 
-While the model is silent the interface may move — that is the one moment when
+While the model is silent the interface may move. That is the one moment when
 motion is pure information. The instant a token lands, everything except the
 status line goes still, and the only thing changing in the frame is the sentence
 being read.
@@ -100,7 +100,7 @@ ensemble, `▙▚▖` for a lead voice with the section behind it.
 
 The ornament is not decoration and not the name spelled a second time. Upper
 half-cells and lower half-cells are two independent rhythmic voices sharing one
-line of text — a five-cell figure against a three-cell one, so the pattern never
+line of text: a five-cell figure against a three-cell one, so the pattern never
 settles into a square loop.
 
 ---
@@ -129,10 +129,10 @@ Three consequences drive every choice:
 
 1. Box Drawing and Block Elements are the only ranges with full coverage
    everywhere. Dingbats (`✓ ✗ ❯`), Geometric Shapes (`◆ ◐ ● ○`), Arrows and
-   Misc Symbols (`♪`) are not safe — SF Mono, the default macOS coding font, is
+   Misc Symbols (`♪`) are not safe. SF Mono, the default macOS coding font, is
    missing most of them and substitutes a fallback at a mismatched advance width.
 2. **Braille has zero coverage in every target font.** Only DejaVu ships it, so
-   every braille spinner in the ecosystem is drawn by fallback — which is where
+   every braille spinner in the ecosystem is drawn by fallback, which is where
    the familiar right-hand gap comes from.
 3. Within Block Elements the _quadrants_ (`▖▗▘▝▚▞▙▛▜▟`) plus `▐ ░` are
    East-Asian Neutral: exactly one column in every locale. The eighth-block
@@ -178,8 +178,8 @@ shipping from unsafe ranges are named so they cannot return.
 Five lanes, each resting and then playing a three-step burst on its own period.
 
 The point is that it can **count**. A generalist agent's characteristic state is
-several things in flight at once — reaching into a mailbox, a search and a
-calendar simultaneously — and a single rotating glyph cannot express that. A
+several things in flight at once: reaching into a mailbox, a search and a
+calendar simultaneously, and a single rotating glyph cannot express that. A
 longer period means a longer rest, so the number of moving lanes tracks how much
 work is actually happening.
 
@@ -188,14 +188,14 @@ work is actually happening.
 | Property               | Value                                  |
 | ---------------------- | -------------------------------------- |
 | Lane periods           | 3, 4, 5, 7, 11 frames                  |
-| Burst                  | `▖▚▘` — opening, live, closing         |
+| Burst                  | `▖▚▘`: opening, live, closing         |
 | At rest                | `░`                                    |
 | Cycle before repeating | 4620 frames, about 13 minutes at 170ms |
 
 <!-- /generated:indicator -->
 
 The periods are pairwise coprime, which matters: a previous version used 4, 6, 3,
-4, 6, so the composite looped every 12 frames — about two seconds — and the two
+4, 6, so the composite looped every 12 frames (about two seconds) and the two
 pairs of equal periods were locked together permanently.
 
 Two properties hold for every frame, and both are guaranteed by using periodic
@@ -216,13 +216,13 @@ is byte-identical over SSH rather than approximated by a downgrade.
 | ----------------- | --------- | ----------------------------------------------------------------- |
 | `canvas`          | `#0B0D10` | the window's own ground                                           |
 | `primary`         | `#00D7FF` | live, and your own affordances                                    |
-| `agent`           | `#00D7FF` | live agent identity — the same accent, because the glyph says who |
+| `agent`           | `#00D7FF` | live agent identity: the same accent, because the glyph says who |
 | `accentDim`       | `#00AFD7` | subordinate live content, links, citations                        |
 | `link`            | `#00AFD7` |                                                                   |
 | `success`         | `#5FD787` | it worked                                                         |
 | `error`           | `#FF6B6B` | it broke                                                          |
 | `warning`         | `#D7AF5F` | a scope worth noticing                                            |
-| `info`            | `#A9B2BD` | on the neutral ramp — info is not a hue                           |
+| `info`            | `#A9B2BD` | on the neutral ramp: info is not a hue                           |
 | `selected`        | `#E8EBEF` | primary text                                                      |
 | `prompt`          | `#00D7FF` |                                                                   |
 | `secondary`       | `#A9B2BD` | secondary text                                                    |
@@ -242,7 +242,7 @@ is byte-identical over SSH rather than approximated by a downgrade.
 
 The light palette is not an inversion. The accent has to carry real contrast
 against paper, so cyan darkens to a teal that still reads as the same role, and
-the syntax tints are re-chosen rather than merely darkened — on paper they have
+the syntax tints are re-chosen rather than merely darkened: on paper they have
 to separate by hue rather than by lightness.
 
 <!-- generated:palette-light -->
@@ -251,13 +251,13 @@ to separate by hue rather than by lightness.
 | ----------------- | --------- | ----------------------------------------------------------------- |
 | `canvas`          | `#FBFCFD` | the window's own ground                                           |
 | `primary`         | `#00718F` | live, and your own affordances                                    |
-| `agent`           | `#00718F` | live agent identity — the same accent, because the glyph says who |
+| `agent`           | `#00718F` | live agent identity: the same accent, because the glyph says who |
 | `accentDim`       | `#005F87` | subordinate live content, links, citations                        |
 | `link`            | `#005F87` |                                                                   |
 | `success`         | `#116B3E` | it worked                                                         |
 | `error`           | `#B3261E` | it broke                                                          |
 | `warning`         | `#8A5F00` | a scope worth noticing                                            |
-| `info`            | `#4A525E` | on the neutral ramp — info is not a hue                           |
+| `info`            | `#4A525E` | on the neutral ramp: info is not a hue                           |
 | `selected`        | `#12151A` | primary text                                                      |
 | `prompt`          | `#00718F` |                                                                   |
 | `secondary`       | `#4A525E` | secondary text                                                    |
@@ -304,19 +304,19 @@ runs with colour disabled, which makes ordinary colour assertions vacuous.
 Usage on the right is billed input/output tokens plus estimated USD, compactly
 formatted (`20k/40k $0.26`). Mode and spend never drop at a narrow width.
 
-[**interface.html**](../design/interface.html) renders the specified design in full colour —
+[**interface.html**](../design/interface.html) renders the specified design in full colour ,
 the session, approval, subagents, reasoning and search screens, plus an 80-column
 variant, with the activity indicator animating. Open it in a browser; GitHub shows
 HTML files as source rather than rendering them.
 
-One column at every width. No sidebar, and no breakpoint at which one appears —
+One column at every width. No sidebar, and no breakpoint at which one appears ,
 which also removes the collapse behaviour, the two-column reflow, and every
 "sidebar hidden" variant.
 
 **The live zone** is a bounded region pinned directly above the input, holding
 one row per tool in flight plus the current step of any multi-step task. It is
 always in the same place, so "what is jazz doing right now" has exactly one place
-to look — and it sits against the input, where the eye already is. The input and
+to look, and it sits against the input, where the eye already is. The input and
 footer are anchored to the bottom, so the zone grows _upward_ and the
 conversation yields the rows; typing never moves under your hands.
 
@@ -339,7 +339,7 @@ product.
 | Rule                                                   | Why                                                                                                                       |
 | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
 | It is a different class of object                      | Whatever the visual language is, this block breaks it in one deliberate way. It must never look like another log line     |
-| It names the real account, verbatim                    | Not "your calendar" — the actual address. The trust argument is that Jazz always says which real-world object is in scope |
+| It names the real account, verbatim                    | Not "your calendar": the actual address. The trust argument is that Jazz always says which real-world object is in scope |
 | Every resulting field, before you commit               | Title, exact time with timezone, every attendee, which calendar. Nothing discoverable only after pressing enter           |
 | Irreversibility stated in prose                        | A sentence, not an icon                                                                                                   |
 | It reads as a decision, not a fault                    | Red belongs to things that already broke; colouring a choice like an error teaches people to dismiss errors               |
@@ -347,7 +347,7 @@ product.
 | Controls sit outside the data frame                    | The card is what will happen; the line beneath is what you can do                                                         |
 | Reject is as available as accept                       | Hiding the alternative is how consent theatre works                                                                       |
 | "Always allow" is the least attractive thing on screen | The irreversible convenience option should be findable, never inviting                                                    |
-| A distinct glyph for asking versus speaking            | `▐` asking, `╶` speaking — one codepoint carrying a real semantic distinction                                             |
+| A distinct glyph for asking versus speaking            | `▐` asking, `╶` speaking: one codepoint carrying a real semantic distinction                                             |
 | On failure, say what did _not_ happen                  | Silence about state destroys trust, and auth failure is this product's characteristic error                               |
 
 Two of these are safety requirements rather than aesthetics. The card opens in a
@@ -385,7 +385,7 @@ Turn all of them off and the design is unchanged in structure.
 ### Mouse and scroll
 
 Wheel scrolling is on in the fullscreen interface so a long transcript can move
-without arrow keys. OpenTUI does not expose wheel-only mouse reporting — scroll
+without arrow keys. OpenTUI does not expose wheel-only mouse reporting: scroll
 also replaces the terminal's native click-drag selection with the renderer's own
 selection layer. Releasing a highlight copies it immediately and the footer says
 `copied` for two seconds; Cmd+C and Ctrl+Shift+C copy whatever is currently
@@ -394,13 +394,13 @@ OSC 52 where the terminal supports it.
 
 ### Headless
 
-Every state carries a word — `ok`, `failed`, `running`, `asking`, `renew`,
-`stopped` — so nothing is encoded in colour alone. The interface collapses to a
+Every state carries a word. `ok`, `failed`, `running`, `asking`, `renew`,
+`stopped`, so nothing is encoded in colour alone. The interface collapses to a
 clean append-only log with one line per state transition, which is more useful in
 a CI log than a spinner and is diffable.
 
 The best consequence of designing for headless: **the approval card does not
-disappear when nobody is watching — it travels.** The same object, carrying the
+disappear when nobody is watching: it travels.** The same object, carrying the
 same fields and the same named account, reaches you as a band in the terminal, a
 message from a bot, or a scoped decision a scheduled run is allowed to make on
 its own. It is the one component that has to render in three places, which is why
@@ -413,8 +413,8 @@ See [Surfaces](../surfaces/index.md) for where Jazz runs, and
 
 ## Related
 
-- [Tools and approval](../maintainers/tool-lifecycle.md) — how approval decisions are made
-- [Context management](../maintainers/context-lifecycle.md) — what the context meter measures
-- [Delegation](../concepts/agents.md#delegation) — what the lanes represent
-- [Personas](../concepts/personas.md) — where the house voice is defined
-- [**website.html**](../design/website.html) — the website's design direction ("the terminal, unboxed"): the moodboard with the equalizer hero, the motion language, and the OG/SEO strategy, all animated. Open in a browser; GitHub shows HTML as source
+- [Tools and approval](../maintainers/tool-lifecycle.md): how approval decisions are made
+- [Context management](../maintainers/context-lifecycle.md): what the context meter measures
+- [Delegation](../concepts/agents.md#delegation): what the lanes represent
+- [Personas](../concepts/personas.md): where the house voice is defined
+- [**website.html**](../design/website.html): the website's design direction ("the terminal, unboxed"): the moodboard with the equalizer hero, the motion language, and the OG/SEO strategy, all animated. Open in a browser; GitHub shows HTML as source

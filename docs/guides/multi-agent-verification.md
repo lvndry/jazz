@@ -70,7 +70,7 @@ After all three return:
 
 ## 3. Write a real proposal
 
-Create `PROPOSAL.md` with the outcome, affected behavior, constraints, migration plan, and validation criteria. Avoid prescribing the implementation too precisely—the simplicity reviewer needs room to find an existing path you missed.
+Create `PROPOSAL.md` with the outcome, affected behavior, constraints, migration plan, and validation criteria. Avoid prescribing the implementation too precisely, the simplicity reviewer needs room to find an existing path you missed.
 
 ## 4. Run it with live delegation events
 

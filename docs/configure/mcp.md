@@ -87,7 +87,7 @@ jazz mcp test <server>
 
 ## Large tool catalogs
 
-Jazz initially gives the model tool names and short summaries. The agent calls `search_tools` to retrieve relevant full schemas. This keeps integrations such as Cloudflare's API—thousands of possible endpoints—usable without putting every parameter into every prompt.
+Jazz initially gives the model tool names and short summaries. The agent calls `search_tools` to retrieve relevant full schemas. This keeps integrations such as Cloudflare's API, thousands of possible endpoints, usable without putting every parameter into every prompt.
 
 Servers can announce a changed tool list during a live process. Jazz updates the registry, adds newly advertised tools, and removes retired ones without requiring a restart.
 

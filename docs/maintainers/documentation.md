@@ -38,7 +38,7 @@ A Jazz tutorial includes:
 
 A prompt with a title is not a tutorial. Neither is a partial snippet that tells the reader to invent the hard half. Prefer linking to a maintained repository template over reproducing a large file that will drift.
 
-Distinctive tutorials should combine Jazz capabilities—agents, personas, subagents, peers, surfaces, memory, companions, workflows, structured output, and approvals—only when the combination solves a real problem.
+Distinctive tutorials should combine Jazz capabilities, agents, personas, subagents, peers, surfaces, memory, companions, workflows, structured output, and approvals, only when the combination solves a real problem.
 
 ## Make claims searchable and specific
 

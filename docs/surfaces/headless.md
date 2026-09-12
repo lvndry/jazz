@@ -1,8 +1,8 @@
 ---
-description: "Call Jazz from your own code with jazz run: pass a dynamic prompt, get structured JSON back, control autonomy and timeouts — the contract every integration builds on."
+description: "Call Jazz from your own code with jazz run: pass a dynamic prompt, get structured JSON back, control autonomy and timeouts: the contract every integration builds on."
 ---
 
-# Headless — the `jazz run` contract
+# Headless: the `jazz run` contract
 
 How to call Jazz from your own code and get a parseable result back.
 
@@ -50,7 +50,7 @@ stdout and you're done.
 ### Plain (default)
 
 stdout is the answer as raw markdown, trimmed, with a trailing newline. Raw markdown is
-deliberate — it's the easiest thing to translate downstream into Slack `mrkdwn`, Google
+deliberate: it's the easiest thing to translate downstream into Slack `mrkdwn`, Google
 Chat formatting, or Telegram HTML.
 
 ```bash
@@ -63,7 +63,7 @@ silently yields an error string.
 
 ### JSON (`--json`)
 
-stdout is exactly one single-line object. Always one line, always one object — on success
+stdout is exactly one single-line object. Always one line, always one object: on success
 _and_ on failure.
 
 ```jsonc
@@ -83,7 +83,7 @@ _and_ on failure.
 { "ok": false, "error": "Run exceeded the 300000ms timeout.", "costUSD": 0.0041 }
 ```
 
-Note that the failure envelope still reports `costUSD` — a run that timed out still
+Note that the failure envelope still reports `costUSD`: a run that timed out still
 spent money, and an unattended deployment needs to account for it.
 
 Successful envelopes also include `costKnown`. When pricing metadata is unavailable,
@@ -113,8 +113,8 @@ interpret that fallback as a free run.
 
 ## Prompt input: argument or stdin
 
-The prompt comes from the positional argument, or — when that's absent and stdin isn't a
-TTY — from piped stdin.
+The prompt comes from the positional argument, or: when that's absent and stdin isn't a
+TTY: from piped stdin.
 
 ```bash
 jazz run --agent dev "review this diff"          # argument
@@ -124,7 +124,7 @@ echo "$UNTRUSTED_WEBHOOK_TEXT" | jazz run --agent bot   # stdin, preferred
 
 **Use stdin for anything a stranger typed.** Webhook text is untrusted; piping it avoids
 shell-escaping it into an argv, which is a whole class of injection bug you don't have to
-think about. (It does not make the _content_ trusted — see
+think about. (It does not make the _content_ trusted: see
 [Security](../../SECURITY.md).)
 
 ---
@@ -132,7 +132,7 @@ think about. (It does not make the _content_ trusted — see
 ## Memory without a database
 
 `--conversation <id>` is the feature that makes stateless bridges practical. Pass any
-stable key — a Telegram chat id, a Slack thread ts, a support ticket number — and Jazz
+stable key (a Telegram chat id, a Slack thread ts, a support ticket number) and Jazz
 handles the transcript for you.
 
 ```mermaid
@@ -184,8 +184,8 @@ jazz run --json --stream --events tools,subagent --agent dev "audit this repo" \
 never be invisible on the live stream.
 
 Streaming auto-disables when stdout is a pipe, which is every headless caller. Tool,
-approval and subagent events survive that — the batch path routes them through the same
-renderer — but `reasoning` and `text` deltas exist only on the streaming path. Asking for
+approval and subagent events survive that: the batch path routes them through the same
+renderer, but `reasoning` and `text` deltas exist only on the streaming path. Asking for
 either category therefore turns streaming back on for you; pass `--no-stream` if you would
 rather keep the batch path and take tool events only.
 
@@ -193,20 +193,20 @@ rather keep the batch path and take tool events only.
 
 ## Asking the human something
 
-An unattended run has nobody to ask, so by default the tools that solicit an answer —
-`ask_user_question`, `ask_file_picker` — are **not offered to the model at all**. It never
+An unattended run has nobody to ask, so by default the tools that solicit an answer ,
+`ask_user_question`, `ask_file_picker`: are **not offered to the model at all**. It never
 sees them, so it cannot spend a round on a question that will not be answered, and cannot
 mistake a blank for a reply and act on it. A run in CI or cron that stopped to ask
 something would hang until its timeout for nobody's benefit.
 
 Where a human _is_ reachable, the tools come back. That is detected rather than declared
 wherever it can be: **stdin being a terminal is enough on its own**, so running `jazz run`
-by hand needs no flag — the question is printed and you answer by typing a line, either the
+by hand needs no flag: the question is printed and you answer by typing a line, either the
 number of an option or something of your own.
 
 ```text
 ❓ Which database?
-  1) Postgres — the default
+  1) Postgres: the default
   2) SQLite
 Answer (number, or type your own; empty to skip):
 ```
@@ -240,7 +240,7 @@ that it could not ask and the model is told to state an assumption or put the qu
 its reply instead. Time spent waiting does not count against `--timeout`, so a human can
 take as long as they like.
 
-The question is never truncated, unlike other event payloads — a clipped option is one
+The question is never truncated, unlike other event payloads: a clipped option is one
 nobody can meaningfully choose. Both shipped chat bridges pass this flag and render the
 suggestions as buttons.
 
@@ -253,7 +253,7 @@ stops to ask something would wait out its timeout for nobody. An explicit
 ## Autonomy
 
 Unattended runs have nobody to ask, so `--approval-policy` decides in advance. Tools
-above the tier are **declined** — the agent gets a refusal it can reason about and route
+above the tier are **declined**: the agent gets a refusal it can reason about and route
 around, rather than hanging forever on a prompt nobody will answer.
 
 | Policy      | Auto-approves                                                     |
@@ -265,7 +265,7 @@ around, rather than hanging forever on a prompt nobody will answer.
 
 Omitting the policy really does grant nothing here. The interactive default auto-approves
 read-only and low-risk tools, but that is a statement about prompts it is not worth showing
-a person — with nobody to show, an absent policy falls back to declining everything. Shell
+a person: with nobody to show, an absent policy falls back to declining everything. Shell
 commands under `read-only` and `low-risk` are admitted per command by the
 [classifier](../maintainers/tool-lifecycle.md#command-classifier), which is what lets
 `git log` through without also unlocking `git push`.
@@ -277,17 +277,17 @@ commands under `read-only` and `low-risk` are admitted per command by the
 > `~/.jazz/config.json`. See the [tool inventory](../tools/index.md#what-is-not-a-built-in-tool).
 
 Pick the lowest tier that lets the job finish. `high-risk` on a surface that accepts
-input from strangers means a prompt injection can run shell commands on that host — see
+input from strangers means a prompt injection can run shell commands on that host: see
 [Security](../../SECURITY.md).
 
 ---
 
 ## One-shot run in a sandbox
 
-CI, a review bot, any service that spins up one ephemeral container per job — these all want
+CI, a review bot, any service that spins up one ephemeral container per job: these all want
 the same guarantee: the agent can do whatever the task needs, but nothing it writes should
 outlive the container, and it shouldn't be able to tamper with the config it was seeded with.
-That's a security requirement, not a filesystem preference — a compromised or misbehaving task
+That's a security requirement, not a filesystem preference: a compromised or misbehaving task
 shouldn't be able to plant a persona, poison the model config, or otherwise leave something
 behind for the next run to pick up.
 
@@ -300,7 +300,7 @@ docker run --rm --read-only --tmpfs /tmp \
   my-image jazz run --agent reviewer
 ```
 
-This breaks. `JAZZ_HOME` isn't read-only config — jazz writes there too: custom personas
+This breaks. `JAZZ_HOME` isn't read-only config: jazz writes there too: custom personas
 (`jazz persona create`), per-conversation work state and the compaction journal, cached model
 metadata. A live read-only mount at that path fails those writes, and depending on what's
 running, that shows up anywhere from a hard crash at startup (persona resolution falls through
@@ -316,12 +316,12 @@ docker run --rm --read-only --tmpfs /tmp --tmpfs /home/jazz/.jazz:rw,mode=1777 \
   my-image sh -c 'cp -r /config/jazz/. /home/jazz/.jazz/ && exec jazz run --agent reviewer'
 ```
 
-The security guarantee this was after — the agent can't tamper with its own durable config, and
-nothing it writes survives past the job — doesn't actually need a read-only permission bit on
+The security guarantee this was after: the agent can't tamper with its own durable config, and
+nothing it writes survives past the job: doesn't actually need a read-only permission bit on
 `JAZZ_HOME` itself. It only needs whatever the agent writes to be discarded, which `--rm` (or
 the container simply never being reused) already does. Copying the seed config into an ephemeral
 tmpfs at startup gets you that guarantee while jazz still gets one ordinary, fully-writable home
-directory — exactly like every other environment it runs in. The container's read-only root
+directory: exactly like every other environment it runs in. The container's read-only root
 filesystem is still doing real work here (nothing outside `/tmp` and the seeded tmpfs can be
 touched at all); it's specifically a read-only `JAZZ_HOME` that's the wrong tool for isolating
 this agent.
@@ -388,7 +388,7 @@ the [Telegram](./chat.md) and [Discord](./chat.md) bridges do.
 
 ## Related
 
-- [Chat platforms](./chat.md) — this contract, wired to a real transport
-- [CI/CD](./ci.md) — the same contract inside GitHub Actions
-- [Tools & approval](../maintainers/tool-lifecycle.md) — how risk tiers are decided
-- [Commands and flags](../commands.md) — every command and flag
+- [Chat platforms](./chat.md): this contract, wired to a real transport
+- [CI/CD](./ci.md): the same contract inside GitHub Actions
+- [Tools & approval](../maintainers/tool-lifecycle.md): how risk tiers are decided
+- [Commands and flags](../commands.md): every command and flag

@@ -1,5 +1,5 @@
 ---
-description: "Every YAML field a WORKFLOW.md accepts: schedules, auto-approve policies, model bindings, and delivery targets — verified against the parser source."
+description: "Every YAML field a WORKFLOW.md accepts: schedules, auto-approve policies, model bindings, and delivery targets: verified against the parser source."
 ---
 
 # Workflow frontmatter
@@ -37,23 +37,23 @@ maxDurationMs: 1800000
 | ------------------ | ----------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `name`             | string      | ✅       | Workflow identifier used by every `jazz workflow` command                                                                                                 |
 | `description`      | string      | ✅       | One-line summary shown in `jazz workflow list`                                                                                                            |
-| `agent`            | string      | —        | Agent id or name to run this workflow with. Overridable at runtime with `--agent`                                                                         |
-| `schedule`         | cron string | —        | When to run. Required only if you intend to `jazz workflow schedule` it                                                                                   |
-| `autoApprove`      | see below   | —        | Autonomy tier for unattended runs                                                                                                                         |
-| `skills`           | string[]    | —        | Skills to make available to the agent for this workflow                                                                                                   |
-| `catchUpOnRestart` | boolean     | —        | Whether a recent missed run may be replayed after daemon restart                                                                                          |
-| `maxCatchUpAge`    | seconds     | —        | Past this age a missed run is skipped. Default 86400 (24 h)                                                                                               |
-| `maxIterations`    | number      | —        | Iteration cap for this workflow. Default 100. Overridable with `--max-iterations`                                                                         |
-| `maxCostUSD`       | number      | —        | Spend cap in USD, checked between iterations. Unset = uncapped. Overridable with `--max-cost-usd`                                                         |
-| `maxTokens`        | number      | —        | Cap on cumulative prompt + completion tokens for this run (not sub-agents), checked between iterations. Unset = uncapped. Overridable with `--max-tokens` |
-| `maxDurationMs`    | ms          | —        | Wall-clock budget with 50/80/90% agent pressure nudges. Unset = uncapped. Overridable with `--max-duration-ms`                                            |
+| `agent`            | string      | no      | Agent id or name to run this workflow with. Overridable at runtime with `--agent`                                                                         |
+| `schedule`         | cron string | no      | When to run. Required only if you intend to `jazz workflow schedule` it                                                                                   |
+| `autoApprove`      | see below   | no      | Autonomy tier for unattended runs                                                                                                                         |
+| `skills`           | string[]    | no      | Skills to make available to the agent for this workflow                                                                                                   |
+| `catchUpOnRestart` | boolean     | no      | Whether a recent missed run may be replayed after daemon restart                                                                                          |
+| `maxCatchUpAge`    | seconds     | no      | Past this age a missed run is skipped. Default 86400 (24 h)                                                                                               |
+| `maxIterations`    | number      | no      | Iteration cap for this workflow. Default 100. Overridable with `--max-iterations`                                                                         |
+| `maxCostUSD`       | number      | no      | Spend cap in USD, checked between iterations. Unset = uncapped. Overridable with `--max-cost-usd`                                                         |
+| `maxTokens`        | number      | no      | Cap on cumulative prompt + completion tokens for this run (not sub-agents), checked between iterations. Unset = uncapped. Overridable with `--max-tokens` |
+| `maxDurationMs`    | ms          | no      | Wall-clock budget with 50/80/90% agent pressure nudges. Unset = uncapped. Overridable with `--max-duration-ms`                                            |
 
 `maxCostUSD`, `maxTokens`, and `maxDurationMs` are soft checkpoints, evaluated between
-iterations — not preemptive interrupts. See
+iterations, not preemptive interrupts. See
 [Configuration → run budgets](../configure/jazz.md#run-budgets)
 for the full enforcement model and how `maxDurationMs` differs from `--timeout`.
 
-There is **no** `autoApprovedCommands` field in frontmatter — that is a global config setting.
+There is **no** `autoApprovedCommands` field in frontmatter. That is a global config setting.
 See [the note below](#the-low-risk-trap).
 
 ---
@@ -96,7 +96,7 @@ flowchart LR
 
 Two ways out, and the second is usually right:
 
-**1. Raise the tier to `high-risk`** — also unlocks `rm`, `git push`, and arbitrary shell.
+**1. Raise the tier to `high-risk`**: also unlocks `rm`, `git push`, and arbitrary shell.
 Rarely what you want on a schedule.
 
 **2. Allowlist the specific binary** and keep the tier low:
@@ -106,7 +106,7 @@ Rarely what you want on a schedule.
 { "autoApprovedCommands": ["himalaya", "khal"] }
 ```
 
-Matching is on a parsed key (binary + first subcommand), never a raw prefix — so `himalaya`
+Matching is on a parsed key (binary + first subcommand), never a raw prefix, so `himalaya`
 is allowed while `himalaya && rm -rf /` is not. See
 [Tools & approval](../maintainers/tool-lifecycle.md#two-sharper-controls).
 
@@ -115,11 +115,11 @@ is allowed while `himalaya && rm -rf /` is not. See
 ## `schedule`
 
 Standard 5-field cron. **macOS caveat:** launchd's `StartCalendarInterval` supports only plain
-integers and wildcards — no step values (`*/15`), ranges (`1-5`), or lists (`1,3,5`). Jazz
+integers and wildcards: no step values (`*/15`), ranges (`1-5`), or lists (`1,3,5`). Jazz
 expands what it can into multiple entries and rejects what it can't with an explicit error
 rather than silently scheduling something else.
 
-Neither launchd nor cron fires a job whose slot passed while the machine was asleep — see
+Neither launchd nor cron fires a job whose slot passed while the machine was asleep: see
 [Scheduling](../features/automation.md) and [Surfaces → Scheduled](../surfaces/scheduled.md).
 
 ---
@@ -128,15 +128,15 @@ Neither launchd nor cron fires a job whose slot passed while the machine was asl
 
 Discovered in this order; later overrides earlier on name collision:
 
-1. **Built-in** — shipped with the `jazz-ai` package
-2. **Global** — `~/.jazz/workflows/<name>/WORKFLOW.md`
-3. **Local** — `./workflows/<name>/WORKFLOW.md`, scanned up to depth 4 from the cwd
+1. **Built-in**: shipped with the `jazz-ai` package
+2. **Global**: `~/.jazz/workflows/<name>/WORKFLOW.md`
+3. **Local**: `./workflows/<name>/WORKFLOW.md`, scanned up to depth 4 from the cwd
 
 ---
 
 ## Related
 
-- [Workflows](../concepts/workflows.md) — the concept and the body of the file
-- [Guides](../guides/index.md) — complete, code-backed recipes
-- [Surfaces → Scheduled](../surfaces/scheduled.md) — running them unattended
-- [Workflow commands](../commands.md#jazz-workflow) — invocation and scheduling flags
+- [Workflows](../concepts/workflows.md): the concept and the body of the file
+- [Guides](../guides/index.md): complete, code-backed recipes
+- [Surfaces → Scheduled](../surfaces/scheduled.md): running them unattended
+- [Workflow commands](../commands.md#jazz-workflow): invocation and scheduling flags

@@ -43,10 +43,10 @@ Use the email skill to inspect messages received in the last 24 hours.
 
 Return a concise briefing with these sections:
 
-1. **Reply today** — direct questions, commitments, approvals, and time-sensitive requests.
-2. **Action without reply** — bills, security alerts, forms, or tasks with a deadline.
-3. **Read when possible** — relevant human updates that require no action.
-4. **Noise count** — counts only for newsletters, automated notifications, and marketing.
+1. **Reply today**: direct questions, commitments, approvals, and time-sensitive requests.
+2. **Action without reply**: bills, security alerts, forms, or tasks with a deadline.
+3. **Read when possible**: relevant human updates that require no action.
+4. **Noise count**: counts only for newsletters, automated notifications, and marketing.
 
 For every item in the first two sections, include sender, subject, requested action, and any explicit deadline. Quote no more message content than needed to justify the classification.
 

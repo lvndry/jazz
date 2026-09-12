@@ -2,12 +2,12 @@
 description: "Put a Jazz agent in your pipeline: PR review bots, release-note drafting, and scheduled CI jobs with pinned models and read-only-by-default policies."
 ---
 
-# CI/CD — Jazz in your pipeline
+# CI/CD. Jazz in your pipeline
 
 How to get an agent reviewing your pull requests and writing your release notes.
 
 Jazz reviews every pull request in this repository, and writes every release's notes. Not
-as a demo — as the actual process. This page is how to get the same thing, and how to run
+as a demo: as the actual process. This page is how to get the same thing, and how to run
 Jazz in any pipeline.
 
 ---
@@ -46,7 +46,7 @@ flowchart TD
 ```
 
 - **`code-review`** runs automatically on non-draft PRs from the same repository, and on demand via `/jazz-review`. It posts **inline comments on specific lines**, not a wall of text at the bottom.
-- **`assistant`** answers `/jazz <anything>` on a PR — "summarize this", "why does this work", "is this backwards compatible" — grounded in the real diff and the real code.
+- **`assistant`** answers `/jazz <anything>` on a PR ("summarize this", "why does this work", "is this backwards compatible") grounded in the real diff and the real code.
 - **`resolve`** exists because the three triggers carry PR context in three different shapes. It normalizes them, and reacts 👀 to the triggering comment so you know it's alive.
 
 Release notes work the same way: [`release.yml`](../../.github/workflows/release.yml) bumps
@@ -71,18 +71,18 @@ Then add **one** repo secret (Settings → Secrets and variables → Actions):
 | `GITHUB_TOKEN`       | automatic                                   | read PR context, post comments |
 
 The checked-in agents use `openai`, so `OPENAI_API_KEY` is the one to add if you
-change nothing — that is the key `jazz.yml` passes. Point `config.llmProvider` at
+change nothing. That is the key `jazz.yml` passes. Point `config.llmProvider` at
 another provider and add its key as the secret, plus one `<PROVIDER>_API_KEY:` line
 beside `OPENAI_API_KEY` in the workflow's two `Run` steps. The variable names are
 in [Model providers](../configure/providers.md).
 
 Open a PR, or comment `/jazz summarize this PR`.
 
-Two files will want editing — the defaults are tuned for a TypeScript / Bun / Effect-TS
+Two files will want editing: the defaults are tuned for a TypeScript / Bun / Effect-TS
 codebase:
 
-- `.github/jazz/agents/ci-reviewer.json` — model, provider, toolset
-- `.github/jazz/workflows/code-review/WORKFLOW.md` — what "a good review" means for _your_ stack
+- `.github/jazz/agents/ci-reviewer.json`: model, provider, toolset
+- `.github/jazz/workflows/code-review/WORKFLOW.md`: what "a good review" means for _your_ stack
 
 Full setup and customization guide:
 [`.github/jazz/README.md`](../../.github/jazz/README.md).
@@ -113,8 +113,8 @@ sequenceDiagram
 
 Two flags do the CI-specific work:
 
-- `--output raw` — no ANSI colors, no TUI, no progress spinners. Log-friendly text.
-- `--auto-approve` — apply the workflow's own `autoApprove:` policy instead of prompting. There is no human on a runner.
+- `--output raw`: no ANSI colors, no TUI, no progress spinners. Log-friendly text.
+- `--auto-approve`: apply the workflow's own `autoApprove:` policy instead of prompting. There is no human on a runner.
 
 `fetch-depth: 0` matters: the agent needs real history to diff against the base.
 
@@ -154,18 +154,18 @@ Because the answer is on stdout and the noise is on stderr, this composes with `
 
 | Concern                           | What to do                                                                                                                                                                               |
 | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Runaway cost**                  | Set `--max-iterations` and `--timeout`. The `--json` envelope reports `costUSD` per run — log it and alert on it.                                                                        |
+| **Runaway cost**                  | Set `--max-iterations` and `--timeout`. The `--json` envelope reports `costUSD` per run: log it and alert on it.                                                                        |
 | **Fork PRs**                      | The `code-review` job deliberately only runs for PRs from the same repository. A fork PR can contain a prompt injection _and_ a workflow change; don't hand it a provider secret.        |
-| **Prompt injection via the diff** | The diff is untrusted input. Keep the reviewer at the lowest policy that works — a reviewer needs to _read_, not to `git push`.                                                          |
+| **Prompt injection via the diff** | The diff is untrusted input. Keep the reviewer at the lowest policy that works: a reviewer needs to _read_, not to `git push`.                                                          |
 | **Flaky provider**                | Jazz retries transient LLM failures with capped exponential backoff (up to 10 attempts, 15-minute ceiling for the whole call), so a single 429 doesn't fail your build.                  |
 | **Reproducibility**               | Pin the model in the agent JSON. `latest` aliases move under you.                                                                                                                        |
 | **Provider choice**               | CI is where a cheap fast model usually wins. This is one field in the agent config.                                                                                                      |
-| **One-shot run in a sandbox**     | Don't bind-mount seed config straight at `JAZZ_HOME` read-only — jazz writes there too (personas, work state). See [One-shot run in a sandbox](./headless.md#one-shot-run-in-a-sandbox). |
+| **One-shot run in a sandbox**     | Don't bind-mount seed config straight at `JAZZ_HOME` read-only: jazz writes there too (personas, work state). See [One-shot run in a sandbox](./headless.md#one-shot-run-in-a-sandbox). |
 
 ---
 
 ## Related
 
-- [Headless](./headless.md) — the `jazz run` contract
-- [CI pull-request reviewer](../guides/pr-review.md) — the maintained GitHub Actions setup
-- [`.github/jazz/README.md`](../../.github/jazz/README.md) — setup guide
+- [Headless](./headless.md): the `jazz run` contract
+- [CI pull-request reviewer](../guides/pr-review.md): the maintained GitHub Actions setup
+- [`.github/jazz/README.md`](../../.github/jazz/README.md): setup guide

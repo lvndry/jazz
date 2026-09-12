@@ -1,5 +1,5 @@
 ---
-description: "Install the Jazz CLI with one curl command and run your first AI agent in minutes. Single self-contained binary for macOS and Linux — no Node or npm required."
+description: "Install the Jazz CLI with one curl command and run your first AI agent in minutes. Single self-contained binary for macOS and Linux: no Node or npm required."
 ---
 
 # Quick start
@@ -53,12 +53,12 @@ jazz
 On first run Jazz walks you through provider setup and creates an agent. After that, `jazz`
 drops you straight into a conversation.
 
-Jazz itself is free and always will be — it's MIT-licensed with no account and no tiers. The
+Jazz itself is free and always will be: it's MIT-licensed with no account and no tiers. The
 only variable cost is the model you choose, and there are two ways to make that zero:
 
-- **Start using Jazz for free** — choose [OpenRouter](https://openrouter.ai) and the
+- **Start using Jazz for free**: choose [OpenRouter](https://openrouter.ai) and the
   [`Free Models Router`](https://openrouter.ai/openrouter/free) model. No credit card.
-- **Keep it entirely local** — choose `ollama`, and the model runs on your machine too.
+- **Keep it entirely local**: choose `ollama`, and the model runs on your machine too.
 
 ## 3. Update Jazz
 
@@ -70,7 +70,7 @@ jazz update
 
 ## Next steps
 
-- **[Creating agents](./create-an-agent.md)** — configure one for a specific job
-- **[Surfaces](../surfaces/index.md)** — run the same agent headless, on a schedule, in CI, or in a chat thread
-- **[Guides](../guides/index.md)** — copy-pasteable recipes
-- **[Concepts](../concepts/index.md)** — learn the vocabulary behind Jazz
+- **[Creating agents](./create-an-agent.md)**: configure one for a specific job
+- **[Surfaces](../surfaces/index.md)**: run the same agent headless, on a schedule, in CI, or in a chat thread
+- **[Guides](../guides/index.md)**: copy-pasteable recipes
+- **[Concepts](../concepts/index.md)**: learn the vocabulary behind Jazz

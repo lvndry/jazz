@@ -49,7 +49,7 @@ The checked-in reviewer currently pins the provider and model in `.github/jazz/a
 
 Add the matching repository secret:
 
-`<PROVIDER>_API_KEY`, for whichever provider the agent names — `OPENROUTER_API_KEY`
+`<PROVIDER>_API_KEY`, for whichever provider the agent names. `OPENROUTER_API_KEY`
 here, `OPENAI_API_KEY` for the checked-in configs, `ANTHROPIC_API_KEY`,
 `MISTRAL_API_KEY`, and so on; the variable names are in
 [Model providers](../configure/providers.md). `jazz.yml` passes `OPENAI_API_KEY` as

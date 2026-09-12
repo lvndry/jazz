@@ -38,7 +38,7 @@ flowchart TB
         A2["Vercel AI Gateway"]
     end
 
-    subgraph local["Local — no API key"]
+    subgraph local["Local: no API key"]
         L1["Ollama"]
         L2["llama.cpp"]
     end
@@ -54,7 +54,7 @@ flowchart TB
     class local free
 ```
 
-Adding a provider means adding an SDK package and a catalog entry — not a new streaming
+Adding a provider means adding an SDK package and a catalog entry, not a new streaming
 implementation, not a new tool-calling translation. The cost is that Jazz is bounded by what
 the SDK normalizes, and inherits its bugs.
 
@@ -111,7 +111,7 @@ flowchart TB
     STREAM["Model stream"] --> SELECT{"selectParser(provider,<br/>modelId, chatTemplate,<br/>capabilities)"}
 
     SELECT -->|"a factory claims it"| P1["That parser"]
-    SELECT -->|"Harmony format detected<br/>&lt;|channel|&gt;analysis"| NONE["No parser —<br/>passthrough would mangle<br/>the delimiters"]
+    SELECT -->|"Harmony format detected<br/>&lt;|channel|&gt;analysis"| NONE["No parser,<br/>passthrough would mangle<br/>the delimiters"]
     SELECT -->|"nothing claims it"| P2["<b>Defensive TagPairParser</b><br/>passthrough on plain text;<br/>acts only if a real<br/>&lt;think&gt; tag appears"]
 
     P1 --> SPLIT
@@ -125,7 +125,7 @@ flowchart TB
 ```
 
 The default is **defensive rather than strict**, and that's a deliberate call. A strict
-factory gate — only parse when metadata says the model reasons — silently leaks
+factory gate (only parse when metadata says the model reasons) silently leaks
 `<think>` tags into the user-visible answer for the many local models that don't declare it.
 The fallback parser is a passthrough until it actually sees an opening tag, so the cost of
 being wrong is zero. The one format explicitly refused is Harmony, where naive tag-pair
@@ -135,10 +135,10 @@ Parsers are stateful per request and buffer across chunk boundaries, so a `<thin
 across two network packets is stitched correctly rather than half-rendered.
 
 **Reasoning effort** (`low` / `medium` / `high` / `disable`) is normalized per provider.
-Models without reasoning support error if you ask for it — which is why `--reasoning disable`
+Models without reasoning support error if you ask for it, which is why `--reasoning disable`
 exists and why the Discord/Telegram bridges' `/model` command sets it automatically from
 whichever source knows that model's capabilities (a local Ollama's own reporting, the
-models.dev catalog, or the provider's own model-listing endpoint), for any provider — not
+models.dev catalog, or the provider's own model-listing endpoint), for any provider, not
 just local models.
 
 ---
@@ -171,7 +171,7 @@ ownCost = promptTokens/1e6 × inputPrice + completionTokens/1e6 × outputPrice
 total   = ownCost + Σ(sub-agent cost)
 ```
 
-A figure is emitted whenever _either_ side is known — a free local parent that delegated to a
+A figure is emitted whenever _either_ side is known: a free local parent that delegated to a
 paid cloud sub-agent still reports real spend. When neither side is priced (an uncatalogued
 local model), cost is omitted rather than reported as `$0.00`, because those aren't the same
 claim.
@@ -190,7 +190,7 @@ model, not the agent's, and mixing the two would hide both numbers. See
 | -------------------- | --------------------------------------------------------------- |
 | Mid-conversation     | `/switch` (or `/models`) to an agent configured with the model  |
 | Per agent            | the agent's `llmProvider` / `llmModel` fields                   |
-| For compaction only  | the agent's `summarizerModel` — run a cheap model for summaries |
+| For compaction only  | the agent's `summarizerModel`: run a cheap model for summaries |
 | For one headless run | `--reasoning` (effort); model comes from the agent config       |
 | Whole install        | `~/.jazz/config.json`                                           |
 
@@ -201,7 +201,7 @@ highest-value version of this, and it's one field.
 
 ## Related
 
-- [Integrations: providers](../configure/index.md#llm-providers) — API keys and setup
-- [Local and air-gapped models](../getting-started/local-models.md) — local-only operation
-- [Context management](./context-lifecycle.md) — what the context window is used for
-- [Architecture](./architecture.md) — provider boundaries and dependency direction
+- [Integrations: providers](../configure/index.md#llm-providers): API keys and setup
+- [Local and air-gapped models](../getting-started/local-models.md): local-only operation
+- [Context management](./context-lifecycle.md): what the context window is used for
+- [Architecture](./architecture.md): provider boundaries and dependency direction

@@ -14,13 +14,13 @@ the code lives and how it's wired, rather than what the harness does at runtime.
 ## Core Principles
 
 Jazz is a Bun workspace under `packages/*`. The dependency rule below is not just documented
-convention — it's structurally enforced by TypeScript project references, so `tsc -b` rejects a
+convention: it's structurally enforced by TypeScript project references, so `tsc -b` rejects a
 package importing from one it doesn't declare a reference to.
 
 - **`packages/core/`** contains the domain, contracts (interfaces and types), and business logic.
   - No imports from `packages/adapters/` or `packages/cli/` allowed in core, except in tests.
   - Contracts are expressed as interfaces + Context tags (e.g., `AgentConfigServiceTag`).
-  - Publishable standalone as `@jazz/core` — no workspace dependencies of its own.
+  - Publishable standalone as `@jazz/core`: no workspace dependencies of its own.
 - **`packages/adapters/`** implements adapters for model providers, configuration, storage,
   files, MCP, the daemon, telemetry, notifications, peers, and webhooks.
   - Adapters provide Layers that satisfy the tags declared in `core/interfaces`.
@@ -28,7 +28,7 @@ package importing from one it doesn't declare a reference to.
 - **`packages/cli/`** contains user-facing command implementations, Ink/OpenTUI presentation,
   and the terminal-rendering `TerminalService` implementation.
   - Depends on `core` only.
-- **`packages/runtime/`** is the composition root — wires core, adapters, and cli into the
+- **`packages/runtime/`** is the composition root: wires core, adapters, and cli into the
   Effect Layer graph that becomes the `jazz` binary.
   - Depends on `core`, `adapters`, and `cli`.
 - **`packages/bot-shared/`**, **`packages/telegram-bot/`**, **`packages/discord-bot/`** are the
@@ -80,7 +80,7 @@ flowchart LR
 
 ```text
 packages/
-├── cli/src/                      # @jazz/cli — user-facing CLI
+├── cli/src/                      # @jazz/cli: user-facing CLI
 │   ├── commands/                 # Command implementations (chat, agent, config)
 │   ├── presentation/             # Output formatting (markdown, CLI renderer)
 │   ├── chat-service.ts           # Chat orchestrator (UI-touching; lives here, not adapters)
@@ -98,7 +98,7 @@ packages/
 │       ├── LineInput.tsx         # Readline-style input component
 │       └── text-utils.ts         # Word boundary utilities
 │
-├── core/src/                     # @jazz/core — domain and contracts
+├── core/src/                     # @jazz/core: domain and contracts
 │   ├── agent/                    # Agent execution engine
 │   │   ├── agent-runner.ts       # Orchestrator (delegates to executors)
 │   │   ├── types.ts              # Shared types (AgentRunnerOptions, etc.)
@@ -118,18 +118,18 @@ packages/
 │   ├── types/                    # Domain types
 │   └── utils/                    # Shared utilities
 │
-├── adapters/src/                 # @jazz/adapters — adapter implementations
+├── adapters/src/                 # @jazz/adapters: adapter implementations
 │   ├── llm/                      # LLM provider adapters
 │   ├── mcp/                      # MCP client + OAuth
 │   ├── peers/                    # ask_peer ledger/token adapters
 │   └── storage/                  # Persistence (JSON file storage)
 │
-├── runtime/src/                  # @jazz/runtime — composition root
+├── runtime/src/                  # @jazz/runtime: composition root
 │   ├── entry.ts                  # Binary entrypoint
 │   ├── cli-app.ts                # Commander.js program, command registration
 │   └── app-layer.ts              # Effect Layer composition
 │
-├── bot-shared/src/                # @jazz/bot-shared — shared bridge helpers
+├── bot-shared/src/                # @jazz/bot-shared: shared bridge helpers
 ├── telegram-bot/src/              # Telegram bridge
 └── discord-bot/src/               # Discord bridge
 ```
@@ -254,7 +254,7 @@ The `ErrorBoundary` component wraps the app to catch rendering errors gracefully
 
 ## Why This Structure
 
-- **Separates policy (core) from mechanics (adapters)** — makes it easy to:
+- **Separates policy (core) from mechanics (adapters)**: makes it easy to:
   - Swap LLM providers
   - Substitute storage backends
   - Test core logic with deterministic mocks

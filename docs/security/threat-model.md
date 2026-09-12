@@ -1,5 +1,5 @@
 ---
-description: "The Jazz threat model: the failures its approval, disclosure, egress, secret, daemon, webhook, peer, and isolation controls address—and their limits."
+description: "The Jazz threat model: the failures its approval, disclosure, egress, secret, daemon, webhook, peer, and isolation controls address, and their limits."
 ---
 
 # Jazz threat model

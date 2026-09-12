@@ -2,14 +2,14 @@
 description: "A self-contained template showing how to design, implement, wire, and test a service in Jazz following the project architecture."
 ---
 
-# Feature Flag Service — Example Template
+# Feature Flag Service. Example Template
 
 This example is a self-contained template showing how to design, implement, wire, and test a simple FeatureFlagService following the project architecture:
 
-- Contract (core) — `packages/core/src/interfaces` (interface + Tag)
-- Adapter (services) — `packages/adapters` (implementation + Layer)
-- App wiring — layer composition in `createAppLayer` (main)
-- Tests — how to mock the service with `Layer.succeed`
+- Contract (core): `packages/core/src/interfaces` (interface + Tag)
+- Adapter (services): `packages/adapters` (implementation + Layer)
+- App wiring: layer composition in `createAppLayer` (main)
+- Tests: how to mock the service with `Layer.succeed`
 
 IMPORTANT: This is a reference/template for contributors. Do NOT copy this file into production code paths without review.
 
@@ -38,12 +38,12 @@ Feature flags are a common cross-cutting concern. The pattern below shows how to
 
 ---
 
-## 1. Contract — core interface
+## 1. Contract: core interface
 
 Place this under `packages/core/src/interfaces/feature-flag.ts` in your real codebase. In this example it's shown inline.
 
 ```ts
-// packages/core/src/interfaces/feature-flag.ts — example
+// packages/core/src/interfaces/feature-flag.ts: example
 import { Context, Effect } from "effect";
 
 export interface FeatureFlagService {
@@ -63,7 +63,7 @@ export const FeatureFlagServiceTag = Context.GenericTag<FeatureFlagService>("Fea
 Design guidance
 
 - Keep the contract small and focused.
-- Prefer safe return types (boolean/number) for non-critical features — allow graceful degradation.
+- Prefer safe return types (boolean/number) for non-critical features: allow graceful degradation.
 - Put contracts in `packages/core/src/interfaces` so the core layer depends only on the contract.
 - Use `Effect.Effect<ReturnType, ErrorType, Dependencies>`:
   - `ReturnType`: what the function returns (boolean, number, etc.)
@@ -72,7 +72,7 @@ Design guidance
 
 ---
 
-## 2. Adapter — HTTP-backed example (template)
+## 2. Adapter. HTTP-backed example (template)
 
 This is an example service implementation showing:
 
@@ -158,7 +158,7 @@ Notes:
 
 ---
 
-## 3. Wiring — provide the layer in createAppLayer (example)
+## 3. Wiring: provide the layer in createAppLayer (example)
 
 In your app bootstrap (e.g., `src/main.ts`) you compose layers. Example snippet:
 
@@ -194,12 +194,12 @@ Important:
 
 ---
 
-## 4. Usage — how core and CLI access the service
+## 4. Usage: how core and CLI access the service
 
 **Architecture overview**:
 
-- **Services** implement core interfaces (services depend on core) — services are the concrete implementations
-- **Core** and **CLI** access services through dependency injection via tags — they use the service without knowing the implementation
+- **Services** implement core interfaces (services depend on core): services are the concrete implementations
+- **Core** and **CLI** access services through dependency injection via tags: they use the service without knowing the implementation
 
 Both **core** and **CLI** layers can use the service by:
 
@@ -209,7 +209,7 @@ Both **core** and **CLI** layers can use the service by:
 
 **Creating utility functions**:
 
-Utility functions that wrap service calls should live in `packages/core/src/utils/` (or `packages/core/src/agent/` if agent-specific). These are convenience wrappers that use the service tag — they're not part of the service implementation itself.
+Utility functions that wrap service calls should live in `packages/core/src/utils/` (or `packages/core/src/agent/` if agent-specific). These are convenience wrappers that use the service tag: they're not part of the service implementation itself.
 
 ````ts
 // packages/core/src/utils/feature-flag.ts
@@ -342,7 +342,7 @@ const result = yield * program.pipe(Effect.provide(appLayer));
 
 ---
 
-## 5. Testing — mock the service with Layer.succeed
+## 5. Testing: mock the service with Layer.succeed
 
 Unit tests should not call the remote flag service. Provide a mock implementation with `Layer.succeed`.
 
@@ -387,12 +387,12 @@ Checklist before copying into production `src/`:
 - [ ] Add typed errors in `packages/core/src/types/errors.ts` if the service needs to surface structured failures
 - [ ] Use LoggerServiceTag for structured logging inside the service (instead of console)
 - [ ] Add unit tests and, optionally, integration tests that run against a test flag server
-- [ ] Ensure no secrets (API keys) are committed to the repo — use env variables or secure stores
+- [ ] Ensure no secrets (API keys) are committed to the repo. Use env variables or secure stores
 - [ ] Ensure feature-flag calls are safe and fail closed or open according to product policy (this example fails safe to `false`)
 
 ## FAQ
 
-**Q: What if feature flags are not critical and their failure shouldn't break the app?**  
+**Q: What if feature flags are not critical and their failure shouldn't break the app?**
 A: Use conservative defaults (false/0) to avoid unexpected behavior. Consider adding metrics to detect when flags are unavailable.
 
 For the directory structure, Effect patterns, and testing conventions this template follows, see the [Code map](./architecture.md).

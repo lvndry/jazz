@@ -8,14 +8,14 @@ Use these pages to answer two questions: where does a change belong, and which i
 
 ## Read in this order
 
-1. [Architecture](./architecture.md) — package ownership and dependency direction.
-2. [Run lifecycle](./run-lifecycle.md) — input to final answer and persistence.
-3. [Context lifecycle](./context-lifecycle.md) — pressure, trimming, compaction, and working state.
-4. [Tool lifecycle](./tool-lifecycle.md) — registration, selection, disclosure, approval, and execution.
-5. [Security threat model](../security/threat-model.md) — trust boundaries and non-goals.
-6. [Testing and evals](./testing-and-evals.md) — proving correctness and harness lift.
-7. [Design decisions](./design-decisions.md) — why each choice is the way it is, and what it gives up.
-8. [Documentation quality](./documentation.md) — writing code-backed concepts, lookup pages, and tutorials without filler or false completeness.
+1. [Architecture](./architecture.md): package ownership and dependency direction.
+2. [Run lifecycle](./run-lifecycle.md): input to final answer and persistence.
+3. [Context lifecycle](./context-lifecycle.md): pressure, trimming, compaction, and working state.
+4. [Tool lifecycle](./tool-lifecycle.md): registration, selection, disclosure, approval, and execution.
+5. [Security threat model](../security/threat-model.md): trust boundaries and non-goals.
+6. [Testing and evals](./testing-and-evals.md): proving correctness and harness lift.
+7. [Design decisions](./design-decisions.md): why each choice is the way it is, and what it gives up.
+8. [Documentation quality](./documentation.md): writing code-backed concepts, lookup pages, and tutorials without filler or false completeness.
 
 ## Extend Jazz
 

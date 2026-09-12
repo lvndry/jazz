@@ -32,7 +32,7 @@ terminal; headless and remote surfaces retain their own authorization contracts.
 ```mermaid
 flowchart TD
     IN(["Model emits a tool call"]) --> PARSE{"Arguments<br/>valid JSON?"}
-    PARSE -->|no| ERR["Return an error result —<br/>the agent can retry"]
+    PARSE -->|no| ERR["Return an error result,<br/>the agent can retry"]
     PARSE -->|yes| SET{"Name in this run's<br/>effective tool set?"}
     SET -->|no| ERR
     SET -->|yes| LOOKUP["Look up in the registry:<br/>schema · risk level · timeout"]
@@ -40,16 +40,16 @@ flowchart TD
     LOOKUP --> RUN["<b>Invoke the tool</b><br/>timeout: per-tool, else 3 min<br/>(longRunning tools: no timeout)"]
 
     RUN --> GATED{"Result is an<br/>approval request?"}
-    GATED -->|"no — read-only tool"| RESULT
+    GATED -->|"no, read-only tool"| RESULT
     GATED -->|yes| POLICY{"Auto-approved?"}
 
     POLICY -->|"policy tier covers<br/>this risk level"| EXEC
     POLICY -->|"per-tool allowlist"| EXEC
     POLICY -->|"per-command allowlist"| EXEC
-    POLICY -->|"no — ask"| PROMPT["<b>Approval prompt</b><br/>args + preview diff"]
+    POLICY -->|"no, ask"| PROMPT["<b>Approval prompt</b><br/>args + preview diff"]
 
     PROMPT -->|approve| EXEC
-    PROMPT -->|deny| DENIED["Return a refusal —<br/>the agent reasons around it"]
+    PROMPT -->|deny| DENIED["Return a refusal,<br/>the agent reasons around it"]
 
     EXEC["<b>Execute the real tool</b><br/>the second half of the pair"]
     EXEC --> RESULT["Format for context<br/>+ record metrics"]
@@ -72,8 +72,8 @@ A run resolves its toolset once at the start: the agent's own tools, plus the bu
 categories its persona admits, minus the persona and agent deny lists, minus the carve-outs
 for a run that cannot persist (`manage_memory`) or cannot ask a human anything
 (`ask_user_question`, `ask_file_picker`), narrowed by any `toolAllowlist` it inherited. That list
-is then expanded with the names its tools also answer to — advertised aliases (`glob` for
-`find`) and the hidden execute half of each gated pair (`execute_execute_command`) — and the
+is then expanded with the names its tools also answer to: advertised aliases (`glob` for
+`find`) and the hidden execute half of each gated pair (`execute_execute_command`), and the
 denials are re-applied over what expansion added, so a deny entry cannot be undone by an
 alias one step below it. The result is the run's **effective tool set**.
 
@@ -83,8 +83,8 @@ That one set does three jobs:
   `deferred`-tier ones appear as a name/summary index and their schemas arrive via
   `search_tools`. Hidden execute halves are never advertised at all.
 - **Execution.** The executor tests every call against the set before handing the name to
-  the registry, and returns a plain tool-error result — the same treatment as unparseable
-  arguments — for anything outside it.
+  the registry, and returns a plain tool-error result: the same treatment as unparseable
+  arguments: for anything outside it.
 - **Inheritance.** `spawn_subagent` hands it down as the child's `toolAllowlist`, so a child
   can never hold a tool its parent lacks.
 
@@ -97,7 +97,7 @@ are parsed out of text, makes it ordinary.
 
 One member of the set is deliberately unreachable from a model-issued call: **the hidden
 execute half of a gated pair.** It has to be in the set for the approval branch to run it,
-and it is refused when the model writes the name itself — otherwise guessing
+and it is refused when the model writes the name itself: otherwise guessing
 `execute_write_file` would skip the approval the pair exists to collect. Every other member
 runs through whatever gate its risk level demands, and a name outside the set does not run
 at all.
@@ -122,7 +122,7 @@ sequenceDiagram
     participant E as write_file_execute
 
     M->>P: write_file({path, content})
-    P->>P: resolve the path, read the current file,<br/>compute a diff — no mutation
+    P->>P: resolve the path, read the current file,<br/>compute a diff: no mutation
     P-->>G: ApprovalRequired{message, previewDiff,<br/>executeToolName, executeArgs}
     alt policy covers this risk tier
         G->>E: execute immediately
@@ -134,7 +134,7 @@ sequenceDiagram
 ```
 
 **Why a pair rather than a `dangerous: true` flag.** You cannot show a useful preview
-without doing the work — computing a diff means reading the target and resolving the path.
+without doing the work: computing a diff means reading the target and resolving the path.
 Two phases let the propose step do real work and _still_ not mutate anything, which is what
 makes "here is the exact diff, approve?" possible.
 
@@ -144,18 +144,18 @@ with the interactive one.
 
 ### Picker-style approvals
 
-Most gates are yes/no. Some decisions are "_which one_" — `analyze_media` asks which
+Most gates are yes/no. Some decisions are "_which one_". `analyze_media` asks which
 model should inspect a file, while `generate_media` asks which should create an artifact. A proposal may carry `options` alongside its
 message; surfaces then render a picker (same card, rows instead of Yes/No), and the chosen
 row's id returns on the outcome as `selectedOptionId`, merged into the execution tool's
-args under `_selectedOptionId` — a key the model never writes and cannot spoof.
+args under `_selectedOptionId`: a key the model never writes and cannot spoof.
 
 Two properties are load-bearing:
 
 - **A request with options is never auto-approved**, under any policy including yolo.
   There is nothing to approve until somebody picked a row. The pre-bound path
-  (`config.companions`) skips approval inside the tool itself instead — binding is the
-  consent. Bindings are keyed by companion role — `"<analyze|generate>:<image|audio|video>"` —
+  (`config.companions`) skips approval inside the tool itself instead: binding is the
+  consent. Bindings are keyed by companion role. `"<analyze|generate>:<image|audio|video>"` ,
   because reading a modality and producing it are different models: `analyze:image` and
   `generate:image` bind independently on the same agent.
 - **Unattended runs fail loudly when nothing is bound.** Nobody to ask plus no standing
@@ -210,7 +210,7 @@ flowchart LR
 ```
 
 The policy is read through a **getter**, not captured once, so a mid-run change takes effect
-immediately — that's how Shift+Tab mode switching works in the TUI, and why a tool queued
+immediately: that's how Shift+Tab mode switching works in the TUI, and why a tool queued
 behind another can pick up a policy that changed while it waited.
 
 ### Command classifier
@@ -224,12 +224,12 @@ prompt for a listing but still asks about a push.
 
 The classifier is skipped when it cannot change anything: yolo approves either way, the
 command is already allowlisted, or the level was never `unknown`. Everywhere else it runs,
-including on surfaces that cannot prompt — an unclassified command stays `unknown`, which
+including on surfaces that cannot prompt: an unclassified command stays `unknown`, which
 approves nowhere, so skipping it there would park a run on `git status`.
 
 While it runs, the live zone shows `classifying` on that command (the round-trip can take a
-few seconds). The verdict then lands on the settled receipt — `read-only`, `low-risk`, or
-`high-risk` — so an auto-approved inspect-only command is visibly why it ran without a
+few seconds). The verdict then lands on the settled receipt. `read-only`, `low-risk`, or
+`high-risk`, so an auto-approved inspect-only command is visibly why it ran without a
 prompt. The raw classifier prompt is not shown: it includes recent user requests, and the
 token is the decision.
 
@@ -255,7 +255,7 @@ possible; the shell denylist is the backstop for known-destructive patterns, not
 
 Each classifier call is recorded as `llm_usage` with `purpose: "classifier"` (tokens in/out
 and wall-clock latency) and rolled into `classifierUsage` on `agent_run_completed`. Those
-numbers stay beside the agent-loop `usage` — they are not mixed into it — so a run shows how
+numbers stay beside the agent-loop `usage` (they are not mixed into it) so a run shows how
 much was approval gating versus the conversation. See [Observability](../configure/observability.md).
 
 Implementation: [`command-risk.ts`](../../packages/core/src/agent/tools/command-risk.ts).
@@ -266,8 +266,8 @@ Tiers are coarse on purpose. When you need precision:
 
 | Control                   | Scope        | Behavior                                                    |
 | ------------------------- | ------------ | ----------------------------------------------------------- |
-| **Per-tool allowlist**    | this session | "Always approve this tool" — chosen from an approval prompt |
-| **Per-command allowlist** | persisted    | "Always approve this command" — `execute_command` only      |
+| **Per-tool allowlist**    | this session | "Always approve this tool": chosen from an approval prompt |
+| **Per-command allowlist** | persisted    | "Always approve this command": `execute_command` only      |
 
 The command allowlist does **not** prefix-match raw strings. It extracts an approval key
 (binary + first subcommand) and matches exactly or on a word boundary:
@@ -282,9 +282,9 @@ approved: "git status"
 
 The strongest control isn't a policy at all: **an agent whose toolset omits
 `execute_command` cannot run shell commands regardless of tier.** Not merely because the
-tool is never offered — the executor refuses a call to it outright, so a model that names it
+tool is never offered: the executor refuses a call to it outright, so a model that names it
 anyway gets a tool error rather than a shell. Trim the toolset in the agent config when the
-blast radius matters — see [Chat platforms](../surfaces/chat.md#security-for-chat-surfaces),
+blast radius matters. See [Chat platforms](../surfaces/chat.md#security-for-chat-surfaces),
 and [Which tools a run can reach](#which-tools-a-run-can-reach) for how that set is built.
 
 ---
@@ -307,12 +307,12 @@ flowchart TB
 | ---------------------- | ---------- | ---------------------------------------------------------------- |
 | `MAX_CONCURRENT_TOOLS` | 10         | Prevents resource exhaustion when a model asks for 40 file reads |
 | `TOOL_TIMEOUT_MS`      | 3 min      | Default; a tool can declare its own                              |
-| `longRunning` tools    | no timeout | e.g. `ask_user_question` — waiting for a human isn't a hang      |
+| `longRunning` tools    | no timeout | e.g. `ask_user_question`: waiting for a human isn't a hang      |
 
 A timeout is **not** a crash. It comes back as a failed result with the message, the agent
 sees it, and the run continues. A tool that can't finish shouldn't take the whole run down.
 
-Approval prompts are queued rather than raced, and re-checked at dequeue time — a parallel
+Approval prompts are queued rather than raced, and re-checked at dequeue time: a parallel
 tool's "always approve" may have changed the answer while this one waited.
 
 Double-Esc during a running tool is a **clean stop**, not a crash. In-flight tools get a
@@ -329,7 +329,7 @@ exits the same way an LLM-stream interrupt does.
 
 ### A 56-pattern denylist
 
-Commands are matched against a denylist _before_ execution — privilege escalation (`sudo`,
+Commands are matched against a denylist _before_ execution: privilege escalation (`sudo`,
 `su`), filesystem destruction (`rm -rf /`), remote code execution (`curl … | sh`),
 power/runlevel changes (`shutdown`), and reads or copies of `/etc/passwd`, `/etc/shadow`,
 `/etc/sudoers`. A blocked command returns the specific reason, so the agent learns why rather
@@ -337,23 +337,23 @@ than retrying blindly.
 
 It carries one carve-out worth knowing: `tmp="$(mktemp -d)"; …; rm -rf "$tmp"` passes, because
 temp-dir cleanup is routine and blocking it trains users to disable the denylist. `rm -rf`
-against a real path — or a mix of temp and real paths — still blocks.
+against a real path (or a mix of temp and real paths) still blocks.
 
 **This is explicitly not a sandbox.** From the implementation:
 
-> It cannot stop a determined attacker — variable expansion, base64 obfuscation, eval, and
+> It cannot stop a determined attacker: variable expansion, base64 obfuscation, eval, and
 > other indirection paths can route around any string matcher.
 
 Its purpose is catching an accident from a confused model. Approval is the real control, and
 container isolation is the real boundary. The known bypasses are documented as a regression
-suite in [`shell-tools.security.test.ts`](../../packages/core/src/agent/tools/shell-tools.security.test.ts) —
+suite in [`shell-tools.security.test.ts`](../../packages/core/src/agent/tools/shell-tools.security.test.ts) ,
 worth reading before you rely on the denylist for anything.
 
 ### Environment sanitization
 
 Shell commands do not inherit your full environment. Variables whose _names_ match
 `API|KEY|SECRET|TOKEN|PASSWORD|CREDENTIAL|AUTH` (case-insensitive), plus everything prefixed
-`SSH_`, are stripped before the command runs — so a command that echoes its environment cannot
+`SSH_`, are stripped before the command runs, so a command that echoes its environment cannot
 exfiltrate your provider keys.
 
 When a command genuinely needs one, an agent's `envAllowlist` exempts specific names. The
@@ -381,8 +381,8 @@ Tools are registered by category at startup, except MCP:
 | User Interaction       | 2       | `ask_user_question` `ask_file_picker`                                                                 |
 | Web App                | 1       | `create_web_app`                                                                                      |
 | **Total agent-facing** | **35**  | plus 7 hidden `execute_*` counterparts                                                                |
-| **Skills**             | 3       | `find_skills` `load_skill` `load_skill_section` — per agent                                           |
-| **MCP**                | dynamic | `mcp_<server>_<tool>` — per agent, connected lazily                                                   |
+| **Skills**             | 3       | `find_skills` `load_skill` `load_skill_section`: per agent                                           |
+| **MCP**                | dynamic | `mcp_<server>_<tool>`: per agent, connected lazily                                                   |
 
 **MCP is lazy by design.** Servers are child processes; connecting six of them at boot makes
 `jazz` slow to start and hangs the CLI when one misbehaves. Instead, an agent's MCP tools are
@@ -393,12 +393,12 @@ are tracked so they can be cleaned up when the conversation ends.
 most 256 KB of stdout and 256 KB of stderr, collected as bytes so a flood cannot grow until
 the timeout. Truncated `execute_command` streams include a marker. The grep and find
 parsers keep stdout clean (so a partial last line is not treated as a path or match) and set
-`truncated` on the tool result — without that flag a cut-short enumeration is
+`truncated` on the tool result: without that flag a cut-short enumeration is
 indistinguishable from an exhaustive one. Custom `command` tools use the same collector with
-a 16 KB cap — they are typically small, trusted argv programs, not a general shell.
+a 16 KB cap. They are typically small, trusted argv programs, not a general shell.
 
-**MCP argument schemas are advisory, not a gate.** `convertMCPSchemaToZod` is lossy — `$ref`
-is unresolved and an untyped property carries no constraint — so MCP tools forward the
+**MCP argument schemas are advisory, not a gate.** `convertMCPSchemaToZod` is lossy. `$ref`
+is unresolved and an untyped property carries no constraint, so MCP tools forward the
 model's arguments untouched and let the server's own schema reject bad calls. Validating
 locally against the converted schema would reject or silently empty calls the server accepts.
 Builtin tools, whose schemas are authored alongside their handlers, are validated normally.
@@ -409,7 +409,7 @@ Current tool list: [tool inventory](../tools/index.md).
 
 ## Related
 
-- [Agent loop](./run-lifecycle.md) — where the tool phase sits
-- [Headless](../surfaces/headless.md) — setting the policy for unattended runs
-- [Security](../../SECURITY.md) — the threat model and hardening guidance
-- [Architecture](./architecture.md) — package boundaries and extension points
+- [Agent loop](./run-lifecycle.md): where the tool phase sits
+- [Headless](../surfaces/headless.md): setting the policy for unattended runs
+- [Security](../../SECURITY.md): the threat model and hardening guidance
+- [Architecture](./architecture.md): package boundaries and extension points

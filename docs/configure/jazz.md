@@ -99,11 +99,11 @@ Provider and integration keys should be set through Jazz so it can use the syste
 
 Common process-wide overrides include:
 
-- `JAZZ_HOME` — data directory, normally `~/.jazz`;
-- `JAZZ_CONFIG_PATH` — replacement global config file;
-- `JAZZ_OUTPUT_MODE` — terminal output mode;
-- `JAZZ_OFFLINE` — disable network-dependent catalog and update behavior;
-- `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, `NO_PROXY` — outbound proxy configuration;
-- `OTEL_*` — OpenTelemetry exporter configuration.
+- `JAZZ_HOME`: data directory, normally `~/.jazz`;
+- `JAZZ_CONFIG_PATH`: replacement global config file;
+- `JAZZ_OUTPUT_MODE`: terminal output mode;
+- `JAZZ_OFFLINE`: disable network-dependent catalog and update behavior;
+- `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, `NO_PROXY`: outbound proxy configuration;
+- `OTEL_*`: OpenTelemetry exporter configuration.
 
 Provider-specific keys and endpoints are listed in [Model providers](./providers.md).

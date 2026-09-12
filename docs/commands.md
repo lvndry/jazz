@@ -30,7 +30,7 @@ Available on every command.
 
 ## `jazz`
 
-With no arguments, launches the interactive wizard — new conversation, create/list/edit/delete
+With no arguments, launches the interactive wizard: new conversation, create/list/edit/delete
 agents, update configuration. The home screen reports what is ready under **setup** (agents) and,
 under **environment**, the same machine facts every agent receives in its system prompt: date,
 OS with shell and user, working directory, and hardware. Both come from one source, so the screen
@@ -39,7 +39,7 @@ first section dropped, after the tip.
 
 ---
 
-## `jazz run` — headless, one-shot
+## `jazz run`: headless, one-shot
 
 The command every non-terminal integration is built on. Takes a dynamic prompt, runs one
 agent turn, prints a clean payload. **stdout is the answer; all chatter goes to stderr.**
@@ -55,7 +55,7 @@ absent and stdin is not a TTY.
 | ------------------------------ | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `--agent <id>`                 | **required** | Agent id or name                                                                                                                                      |
 | `--json`                       | off          | Emit one JSON envelope: `{ ok, answer, costUSD, tokenUsage, toolCalls }`                                                                              |
-| `--conversation <id>`          | none         | Stable conversation key. Loads prior history before the run, saves the transcript after — gives stateless bridges per-chat memory                     |
+| `--conversation <id>`          | none         | Stable conversation key. Loads prior history before the run, saves the transcript after, which gives stateless bridges per-chat memory                     |
 | `--approval-policy <p>`        | none         | `read-only` \| `low-risk` \| `high-risk`. Tools above the tier are **declined**                                                                       |
 | `--auto-approve-tools <names>` | none         | Comma-separated tool names allowed regardless of policy; narrower than raising the whole tier                                                         |
 | `--timezone <iana-tz>`         | UTC          | Time zone used to resolve reminder times, such as `Europe/Paris`                                                                                      |
@@ -64,10 +64,10 @@ absent and stdin is not a TTY.
 | `--timeout <ms>`               | none         | Abort the run after this many milliseconds (hard external kill, no warning)                                                                           |
 | `--max-iterations <n>`         | 100          | Cap reasoning iterations                                                                                                                              |
 | `--max-cost-usd <$>`           | none         | Abort once cumulative spend (own + sub-agent) reaches this many dollars, checked between iterations                                                   |
-| `--max-tokens <n>`             | none         | Abort once cumulative prompt + completion tokens (own run only, not sub-agents) reach this count, checked between iterations — needs no model pricing |
+| `--max-tokens <n>`             | none         | Abort once cumulative prompt + completion tokens (own run only, not sub-agents) reach this count, checked between iterations: needs no model pricing |
 | `--max-duration-ms <ms>`       | none         | Abort once elapsed wall-clock time reaches this budget, with agent pressure nudges at 50/80/90%, checked between iterations                           |
 | `--stream`                     | auto         | Force streaming. Required for `--events` in non-TTY contexts, where streaming auto-disables                                                           |
-| `--no-stream`                  | —            | Disable streaming                                                                                                                                     |
+| `--no-stream`                  | off         | Disable streaming                                                                                                                                     |
 | `--interactive-stdin`          | off          | Let a bridge relay questions and approvals as stdin/stdout events                                                                                     |
 | `--ephemeral`                  | off          | Do not load or save Jazz conversation/session history; withhold long-term memory writes                                                               |
 | `--history-json <json>`        | none         | Prior messages for an ephemeral run; the success envelope returns the updated `messages` array                                                        |
@@ -77,7 +77,7 @@ absent and stdin is not a TTY.
 | `--with-video <p/m>`           | agent config | Bind a video-analysis companion for this run                                                                                                          |
 
 `--max-cost-usd`, `--max-tokens`, and `--max-duration-ms` are soft checkpoints, not preemptive
-interrupts — see [Configuration → run budgets](./configure/jazz.md#run-budgets)
+interrupts. See [Configuration → run budgets](./configure/jazz.md#run-budgets)
 for the enforcement model and how they differ from `--timeout`.
 
 **Exit codes:** `0` on success, `1` on failure. In plain mode stdout is empty on failure and
@@ -109,7 +109,7 @@ Full contract, examples, and a complete bridge implementation:
 | --------------------------------- | -------------------------------------------------- |
 | `jazz workflow list`              | List available workflows (built-in, global, local) |
 | `jazz workflow show <name>`       | Show a workflow's prompt and metadata              |
-| `jazz workflow run <name>`        | Run once — see flags below                         |
+| `jazz workflow run <name>`        | Run once. See flags below                         |
 | `jazz workflow schedule <name>`   | Install into launchd (macOS) or cron (Linux)       |
 | `jazz workflow unschedule <name>` | Remove from the scheduler                          |
 | `jazz workflow scheduled`         | List scheduled workflows                           |
@@ -128,7 +128,7 @@ Full contract, examples, and a complete bridge implementation:
 | `--max-duration-ms <ms>` | Override the workflow's wall-clock budget (50/80/90% agent pressure nudges) |
 | `--json`                 | One JSON envelope on stdout; all chatter suppressed                         |
 | `--timeout <ms>`         | Abort after this many milliseconds (hard external kill, no warning)         |
-| `--events <categories>`  | NDJSON progress on stderr. **Requires `--json`** — otherwise it errors      |
+| `--events <categories>`  | NDJSON progress on stderr. **Requires `--json`**: otherwise it errors      |
 | `--scheduled`            | Marks the run as scheduler-triggered (set automatically by launchd/cron)    |
 
 Frontmatter fields: [Workflow frontmatter](./configure/workflows.md).
@@ -156,7 +156,7 @@ See [MCP configuration](./configure/mcp.md).
 
 ## `jazz runs`
 
-Inspect runs still in flight — including your own parked ones, and, once a daemon started
+Inspect runs still in flight, including your own parked ones, and, once a daemon started
 one, runs begun from somewhere else entirely.
 
 | Command                     | Purpose                                                                                                          |
@@ -168,7 +168,7 @@ one, runs begun from somewhere else entirely.
 | `jazz runs answer <runId>`  | Answer a question the run asked, in your own words: `--response <text>` (empty declines it)                      |
 | `jazz runs cancel <runId>`  | Abandon a parked run without answering it                                                                        |
 
-A run parks when it hits something needing your approval and nobody is there to give it — see
+A run parks when it hits something needing your approval and nobody is there to give it: see
 [Daemon](#jazz-daemon) for answering one from a different process than the one that started it.
 
 ---
@@ -176,7 +176,7 @@ A run parks when it hits something needing your approval and nobody is there to 
 ## `jazz daemon`
 
 Serves runs over HTTP: start one, poll it, approve or reject what a parked one is waiting for
-— from a different terminal, a different process, or a different machine than the one that
+,  from a different terminal, a different process, or a different machine than the one that
 began it. It backgrounds itself by default; use `--foreground` under your own supervisor.
 `jazz daemon install` creates the systemd/launchd service for you.
 
@@ -195,14 +195,14 @@ one. `/peer/ask` uses separate per-peer credentials; see [`jazz peers`](#jazz-pe
 
 | Command                    | Purpose                                                                                                                                                                                                                                                                                     |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `jazz daemon set-token`    | Generate (or store `$JAZZ_DAEMON_TOKEN` if set) a token before the daemon's first run — useful when a client needs the value in advance                                                                                                                                                     |
+| `jazz daemon set-token`    | Generate (or store `$JAZZ_DAEMON_TOKEN` if set) a token before the daemon's first run: useful when a client needs the value in advance                                                                                                                                                     |
 | `jazz daemon forget-token` | Remove the stored token                                                                                                                                                                                                                                                                     |
 | `jazz daemon stop`         | Stop the background daemon listening on this port                                                                                                                                                                                                                                           |
 | `jazz daemon install`      | Install this as a persistent system service (systemd/launchd). Needs root; generates and stores its own token if none is set (no keyring or `$JAZZ_DAEMON_TOKEN` needed); doesn't report success until `/health` answers; `--serve-peers <agentId>` (required), `--host`, `--port`, `--yes` |
 | `jazz daemon uninstall`    | Remove the service installed by `install`. Needs root; `--yes`                                                                                                                                                                                                                              |
 
 Set `$JAZZ_DAEMON_TOKEN` yourself instead of letting Jazz generate one when the value needs to
-be known ahead of time — a client config written before the daemon has ever run, or an
+be known ahead of time: a client config written before the daemon has ever run, or an
 ephemeral container whose `$JAZZ_HOME` doesn't survive to the next deploy.
 
 See [Setting up peers](./guides/connect-peers.md) for a full walkthrough, and
@@ -230,7 +230,7 @@ optionally installing a background service.
 
 Who it answers is `IMESSAGE_ALLOWED_HANDLES`, deny-by-default; with nothing set, an
 interactive first run answers only you, via a `jazz` prefix in a chat with yourself. The
-background service's environment is snapshotted into its plist at install time — see
+background service's environment is snapshotted into its plist at install time: see
 [Reaching your agent from a chat app](./guides/deploy-a-chat-agent.md#imessage) for changing it
 afterwards, and
 [`packages/imessage-bot/README.md`](../packages/imessage-bot/README.md) for every
@@ -241,7 +241,7 @@ variable.
 ## `jazz whatsapp`
 
 Reach the agent from WhatsApp. The bridge links to your account as a device, the way
-WhatsApp Web does, and runs in the foreground — there is no service installer.
+WhatsApp Web does, and runs in the foreground: there is no service installer.
 
 | Command         | Purpose                                                                                        |
 | --------------- | ---------------------------------------------------------------------------------------------- |
@@ -250,7 +250,7 @@ WhatsApp Web does, and runs in the foreground — there is no service installer.
 The first run asks whose messages to answer and remembers it in `wa-allowed.json`;
 `WHATSAPP_ALLOWED_NUMBERS` skips the question and is required where there is no terminal to
 ask. Pairing is a QR code, or an 8-character code with `WHATSAPP_PAIR_NUMBER` on a headless
-machine, and happens once — credentials live in `WHATSAPP_AUTH_DIR`. See
+machine, and happens once: credentials live in `WHATSAPP_AUTH_DIR`. See
 [Reaching your agent from a chat app](./guides/deploy-a-chat-agent.md#whatsapp) for the walkthrough and
 [`packages/whatsapp-bot/README.md`](../packages/whatsapp-bot/README.md) for every variable.
 
@@ -267,8 +267,8 @@ Other people's agents this machine talks to, and what has been said to or by the
 | `jazz peers forget-token <name>` | Remove a peer's stored token                                                                         |
 | `jazz peers log`                 | Everything said to and by a peer, newest first. `--peer <name>`, `--limit <n>`, `--json`, `--follow` |
 
-Peers can be added by [invite](./guides/connect-peers.md) — `jazz peers invite create/accept`
-— or by editing `~/.jazz/config.json` directly. See [Setting up peers](./guides/connect-peers.md)
+Peers can be added by [invite](./guides/connect-peers.md): `jazz peers invite create/accept`
+,  or by editing `~/.jazz/config.json` directly. See [Setting up peers](./guides/connect-peers.md)
 for both paths.
 
 ### `jazz peers invite`
@@ -295,7 +295,7 @@ for both paths.
 | `jazz persona search`              | List every persona the marketplace offers. `--refresh`                                                   |
 | `jazz persona install <name>`      | Install a marketplace persona. `--as <name>` (local name), `-y`/`--yes` (skip confirmation), `--refresh` |
 
-`install` prints the full system prompt and asks before writing it — a persona becomes an agent's
+`install` prints the full system prompt and asks before writing it: a persona becomes an agent's
 instructions, so non-interactive runs must pass `--yes`. The catalog is cached under
 `<jazz home>/cache/persona-registry.json` and keeps working offline; `JAZZ_PERSONA_REGISTRY_URL`
 points Jazz at a self-hosted catalog.
@@ -397,7 +397,7 @@ suggest the next step. `!` is an interactive terminal feature and is not interpr
 | Mode       | Behavior                                   |
 | ---------- | ------------------------------------------ |
 | `rendered` | Full markdown rendering                    |
-| `hybrid`   | Default — rendered with plain fallbacks    |
+| `hybrid`   | Default: rendered with plain fallbacks    |
 | `raw`      | No formatting, no ANSI. **Use this in CI** |
 | `quiet`    | Suppress output                            |
 
@@ -405,7 +405,7 @@ suggest the next step. `!` is an interactive terminal feature and is not interpr
 
 ## Related
 
-- [Surfaces → Headless](./surfaces/headless.md) — the `jazz run` contract in depth
-- [Configuration](./configure/jazz.md) — config file and environment variables
-- [Tools](./tools/index.md) — every tool and its risk tier
-- [Workflow frontmatter](./configure/workflows.md) — the `WORKFLOW.md` fields
+- [Surfaces → Headless](./surfaces/headless.md): the `jazz run` contract in depth
+- [Configuration](./configure/jazz.md): config file and environment variables
+- [Tools](./tools/index.md): every tool and its risk tier
+- [Workflow frontmatter](./configure/workflows.md): the `WORKFLOW.md` fields

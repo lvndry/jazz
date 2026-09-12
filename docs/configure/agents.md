@@ -6,7 +6,7 @@ description: "Configure Jazz agents: primary and companion models, personas, con
 
 An agent is the durable identity Jazz runs on every surface. Its JSON selects the primary model,
 persona, tools, memory, and optional specialist companions. Run budgets and output belong to the
-application, workflow, or individual run—not the agent.
+application, workflow, or individual run, not the agent.
 
 Agent files live under `$JAZZ_HOME/agents/`, normally `~/.jazz/agents/`. The easiest starting point
 is `jazz agent create`; edit the generated file for fields the wizard does not expose.
@@ -114,7 +114,7 @@ registered only when its name also appears in `tools`.
 - `description` is 1–1024 characters and should say when to call the tool.
 - `parameters` is a JSON Schema object with `type: "object"`.
 - A `record` handler returns fixed text and is read-only.
-- A `command` handler spawns the argv directly—never through a shell—and writes validated arguments
+- A `command` handler spawns the argv directly, never through a shell, and writes validated arguments
   as JSON to stdin. It runs in the current working directory, uses Jazz's scrubbed environment,
   and is always high-risk. `timeoutMs` may be 1–300000.
 

@@ -33,7 +33,7 @@ Jazz can run against a self-hosted inference server such as [Ollama](https://oll
    }
    ```
 
-3. Create an agent and chat — Jazz lists models straight from Ollama's `/api/tags` endpoint, so no external catalog is needed:
+3. Create an agent and chat. Jazz lists models straight from Ollama's `/api/tags` endpoint, so no external catalog is needed:
 
    ```bash
    jazz agent create
@@ -42,13 +42,13 @@ Jazz can run against a self-hosted inference server such as [Ollama](https://oll
 
 llama.cpp works the same way via `LLAMACPP_BASE_URL` (default `http://localhost:8080/v1`); start `llama-server` with `--jinja` for tool calling.
 
-## What `JAZZ_OFFLINE` does—and does not do
+## What `JAZZ_OFFLINE` does, and does not do
 
 With `JAZZ_OFFLINE=1` (or `true`), Jazz skips these product-service requests:
 
-- **No update check** — the periodic npm registry version check is skipped (equivalent to `JAZZ_DISABLE_UPDATE_CHECK=1`).
-- **No models.dev fetch** — the model catalog (used for cloud-provider model lists and metadata enrichment like context windows and pricing) is not fetched. Jazz uses the on-disk snapshot at `~/.jazz/cache/models-dev.json` if one exists from a previous online run, and otherwise falls back to provider-reported metadata and defaults.
-- **No persona marketplace fetch** — `jazz persona browse` reads the snapshot at `~/.jazz/cache/persona-registry.json` from a previous online run, and errors if there is none. Point `JAZZ_PERSONA_REGISTRY_URL` at an internal catalog to browse and install inside the airgap.
+- **No update check**: the periodic npm registry version check is skipped (equivalent to `JAZZ_DISABLE_UPDATE_CHECK=1`).
+- **No models.dev fetch**: the model catalog (used for cloud-provider model lists and metadata enrichment like context windows and pricing) is not fetched. Jazz uses the on-disk snapshot at `~/.jazz/cache/models-dev.json` if one exists from a previous online run, and otherwise falls back to provider-reported metadata and defaults.
+- **No persona marketplace fetch**: `jazz persona browse` reads the snapshot at `~/.jazz/cache/persona-registry.json` from a previous online run, and errors if there is none. Point `JAZZ_PERSONA_REGISTRY_URL` at an internal catalog to browse and install inside the airgap.
 
 It does **not** block inference, `web_fetch`, `http_request`, remote MCP, OTLP export, or a command the agent runs. In an air-gapped deployment, use a local provider, disable OTLP export, omit network-capable tools and MCP servers, and enforce egress at the OS, container, or firewall boundary.
 
@@ -63,7 +63,7 @@ If you want catalog metadata (e.g. pricing display for cloud models) inside the 
 
 ## Other network surfaces to know about
 
-- **Web tools**: the `web_search` tool requires a configured search provider API key and will simply error without one; `web_fetch` and `http_request` reach whatever URL the agent targets — inside an airgap they can still hit internal services, which is often desirable. Network enforcement should ultimately live at the firewall.
+- **Web tools**: the `web_search` tool requires a configured search provider API key and will simply error without one; `web_fetch` and `http_request` reach whatever URL the agent targets: inside an airgap they can still hit internal services, which is often desirable. Network enforcement should ultimately live at the firewall.
 - **MCP servers**: stdio servers run locally; HTTP servers connect to the URL you configure.
 - **Telemetry**: NDJSON is always local under `~/.jazz/telemetry`; if an OTLP endpoint is configured, Jazz also exports to it. Leave OTLP unconfigured or set `telemetry.otlp.enabled` to `false` for a local-only deployment.
 
@@ -77,4 +77,4 @@ If you want catalog metadata (e.g. pricing display for cloud models) inside the 
 | `JAZZ_MODELS_DEV_URL`       | Internal mirror for the models.dev catalog                                                       |
 | `JAZZ_PERSONA_REGISTRY_URL` | Base URL of the persona marketplace catalog (default the public Jazz site)                       |
 | `JAZZ_DISABLE_UPDATE_CHECK` | `1`: skip only the update check                                                                  |
-| `JAZZ_HOME`                 | Data directory (default `~/.jazz`) — holds the catalog snapshot, history, telemetry              |
+| `JAZZ_HOME`                 | Data directory (default `~/.jazz`): holds the catalog snapshot, history, telemetry              |
