@@ -7,9 +7,18 @@ import { DEFAULT_TOKEN_COUNTER, type ModelHint, type TokenCounter } from "./toke
 /**
  * The compaction ladder's thresholds and `ContextWindowManager`, which decides
  * whether a conversation needs compaction or trimming before the next LLM call
- * and carries out that decision. Tool-result clearing runs every iteration in
- * the agent loop and does not use a window-fill gate.
+ * and carries out that decision. Tool-result clearing, the rung below both,
+ * is gated by `CONTEXT_CLEAR_THRESHOLD_RATIO` in the agent loop.
  */
+
+/**
+ * Fraction of the context budget below which old tool results are left verbatim.
+ *
+ * Clearing is only worth its cost under pressure. Below this line the model keeps
+ * every result it has read, so evidence gathered three turns ago is still there when
+ * it decides; above it, results older than `PROTECTED_TOOL_CYCLES` are stubbed.
+ */
+export const CONTEXT_CLEAR_THRESHOLD_RATIO = 0.5;
 
 /**
  * Fraction of the context budget at which the user is told the window is filling up,

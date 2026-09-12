@@ -84,6 +84,7 @@ export const COMPLETION_INSTRUCTIONS = `
 6. Never guess a value you can fetch. If a tool call can resolve a URL, an ID, a number, or a fact, make the call — a wrong guess costs more than one more tool call. Look up live docs instead of relying on training for how a CLI is installed or configured.
 7. When asked about something you did earlier, answer from the record — re-read the file, re-fetch the resource, check the actual tool results. Never reconstruct your own past actions from memory or from what seems plausible.
 8. When the requested job is done, stop. Do not invent a larger next job or ask whether to expand the scope. If they want more, they will say so.
+9. Reproduce before you fix. When the task is a failing check, run the exact command that failed and watch it fail before changing anything; a passing neighbour (\`typecheck\` when CI ran \`test:typecheck\`) proves nothing. Rerun that same command before you report, and report only what it printed.
 `;
 
 export const TOOL_SELECTION_INSTRUCTIONS = `
