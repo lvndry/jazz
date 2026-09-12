@@ -1,12 +1,10 @@
 ---
-description: "What a Jazz workflow is: a Markdown prompt with run policy in frontmatter, versioned in git, runnable by name and schedulable without changing the prompt."
+description: "A Jazz workflow is a Markdown file: the body is the prompt, the frontmatter says how it runs. Save it once, run it by name, put it on a schedule."
 ---
 
 # Workflows
 
-A workflow is a Markdown file whose body is a prompt and whose frontmatter is the policy that
-prompt runs under. It turns a job you would otherwise retype into something versionable,
-reviewable, runnable by name, and schedulable.
+A workflow is a Markdown file. The body is the prompt. The frontmatter says how it runs.
 
 ```markdown
 ---
@@ -24,58 +22,63 @@ maxCostUSD: 1.00
 Inspect commits from the last seven days. Report regressions, risky changes, and missing tests.
 ```
 
+Save that as `workflows/weekly-review/WORKFLOW.md` and you can run it by name:
+
 ```bash
-jazz workflow run weekly-review        # now, in front of you
-jazz workflow schedule weekly-review   # and from now on, on the clock
+jazz workflow run weekly-review        # now
+jazz workflow schedule weekly-review   # every Friday at 5pm
 ```
 
-## Why the policy lives with the prompt
+You could paste the same prompt into a chat instead. The file gives you three things a paste
+does not: a name, a schedule, and a diff when somebody changes it.
 
-The frontmatter is the part that makes this more than a saved prompt. `autoApprove` decides what
-runs unattended, the four budget caps bound the blast radius, `agent` pins who runs it, and
-`schedule` is a cron expression that `jazz workflow schedule` installs with your OS scheduler.
+## What the frontmatter does
 
-Keeping them in one file means the prompt and the authority it runs with are reviewed together
-and change together. A pull request that widens `autoApprove` from `read-only` to `high-risk` is
-visible as exactly that, in the same diff as whatever prompt change motivated it.
+| Field          | Decides                                    |
+| -------------- | ------------------------------------------ |
+| `agent`        | Who runs it                                |
+| `schedule`     | When, as a cron expression                 |
+| `autoApprove`  | What it may do with nobody watching        |
+| `maxCostUSD` and friends | When to stop                     |
 
-The full field reference is [Workflow frontmatter](../configure/workflows.md).
+Those live next to the prompt on purpose. If someone changes `autoApprove` from `read-only` to
+`high-risk`, that shows up in the pull request, right beside whatever prompt change they wanted
+it for.
 
-## Where they live, and which one wins
+Every field is listed in [workflow frontmatter](../configure/workflows.md).
 
-| Source   | Path                 | Scope                |
-| -------- | -------------------- | -------------------- |
-| Built-in | ships with Jazz      | everywhere           |
-| Global   | `~/.jazz/workflows/` | all your projects    |
-| Project  | `./workflows/`       | this repository only |
+## Where Jazz looks
 
-A local definition beats a global one, which beats built-in. That is what lets a repository carry
-its own `code-review` without disabling yours.
+| Path                 | Applies to           |
+| -------------------- | -------------------- |
+| ships with Jazz      | everywhere           |
+| `~/.jazz/workflows/` | all your projects    |
+| `./workflows/`       | this repository only |
 
-The checked-in GitHub Action uses this deliberately: templates live in `.github/jazz/workflows/`,
-and the job renders one into `./workflows/` before invoking Jazz, so CI runs the repository's
-version of the workflow and nothing else.
+Closest wins. A repository can have its own `code-review` without touching yours.
 
-## Workflow, skill, or agent
+## Workflow, skill, or agent?
 
-- A **workflow** is a whole job: this prompt, this agent, these limits, this schedule.
-- A **[skill](./skills.md)** is know-how the model loads when a task matches. It has no prompt of
-  its own and cannot be scheduled.
-- An **[agent](./agents.md)** is the identity that runs either one.
+A **workflow** is a job: this prompt, this agent, these limits.
 
-A workflow may name skills in its frontmatter, which is the usual combination: the workflow says
-what to do this Friday, the skill says how that kind of work is done.
+A **[skill](./skills.md)** is know-how. The model loads it when a task matches. No prompt of its
+own, and you cannot schedule it.
 
-## Run it in front of you first
+An **[agent](./agents.md)** is who does the work.
+
+They combine. A workflow can list skills in its frontmatter: the workflow says what to do on
+Friday, the skill says how that kind of work is done.
+
+## Try it in the terminal first
 
 ```bash
 jazz workflow run weekly-review --auto-approve
 ```
 
-Scheduled and unattended runs use the same code path, so a workflow that works in your terminal
-under the policy it will actually run with is a workflow that works at 5pm on Friday. The reverse
-is the common failure: a prompt tested interactively, where you approved things by hand without
-noticing, that silently declines half its tools once nobody is there.
+This is the same code path the scheduler uses. If it works here, it works on Friday.
+
+Skip this and you get the usual surprise: the prompt worked when you tested it, because you
+approved things by hand without noticing, and at 5pm nobody is there to approve them.
 
 ## Related
 
