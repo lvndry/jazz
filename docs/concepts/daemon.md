@@ -4,13 +4,14 @@ description: "The daemon is what lets Jazz act with no terminal open: serving ru
 
 # Daemon: Jazz with no terminal attached
 
-`jazz chat` and `jazz run` are one process talking to one terminal. That is fine until
-something has to happen when nobody is typing: a scheduled workflow firing at 6 AM, a webhook
-from GitHub landing at 2 PM, a run parked on an approval that only somebody at a different
-machine can answer.
+`jazz chat` and `jazz run` are one process talking to one terminal. Some things have to happen
+when nobody is typing:
 
-`jazz daemon` is that something. Same agent runtime, reachable over HTTP instead of a REPL, and
-able to sit there running with nobody attached.
+- a scheduled workflow firing at 6 AM,
+- a webhook from GitHub landing at 2 PM,
+- a parked run that only somebody at another machine can approve.
+
+`jazz daemon` is that something. Same agent runtime, reachable over HTTP instead of a REPL.
 
 ---
 
@@ -51,12 +52,11 @@ One process, several jobs, most of them opt-in:
   flight. This is the only way to answer a parked run from a different process than the one that
   started it.
 - **Serves the agent catalogue.** `GET`/`POST`/`DELETE` on `/agents`, `/personas`, plus
-  `/catalog`, `/models` and `/tools`. This is the read and write surface an agent editor needs, so a UI
-  never has to parse JSON files on disk or reimplement validation.
-- **Owns the schedule ticker**, when `scheduler.mode` is `in-process`. Workflow schedules
-  normally ride the OS scheduler (`launchd`, `cron`), which only fires while the machine is
-  awake; the daemon's own ticker is the alternative on a host you mean to leave running. See
-  [Scheduled runs](../surfaces/scheduled.md).
+  `/catalog`, `/models` and `/tools`. This is what an agent editor talks to, so a UI never has to
+  parse JSON files on disk or reimplement validation.
+- **Owns the schedule ticker**, when `scheduler.mode` is `in-process`. Schedules normally ride the
+  OS scheduler, which only fires while the machine is awake. The daemon's ticker is the
+  alternative on a host you leave running. See [Scheduled runs](../surfaces/scheduled.md).
 - **Answers peers**, when started with `--serve-peers <agentId>`. `POST /peer/ask` and `POST
 /a2a` need a running daemon to have anyone to ask. Without one your agent can still ask
   _other_ peers, but nobody can ask yours. See [Agent-to-agent](./agent-to-agent.md).
@@ -78,12 +78,14 @@ of it.
 `GET /health` is unauthenticated on purpose: a process supervisor should be able to see that the
 daemon is alive without holding a credential that can drive an agent.
 
-Everything else needs a bearer token, **including on loopback**, and including paths that match
-no route, so an unauthenticated caller cannot map the door by telling 404s from 401s. The first
-time a daemon starts with no token set, Jazz generates one, stores it (OS keyring, or a
-`chmod 600` `$JAZZ_HOME/secrets.json` where there is no keyring), and prints it once so you can
-copy it to a client. It is not reprinted on later starts, so a supervisor's logs never
-accumulate the secret.
+Everything else needs a bearer token, **including on loopback**. That covers paths matching no
+route, so an unauthenticated caller cannot map the door by telling 404s from 401s.
+
+On its first start with no token set, Jazz generates one and prints it once, so you can copy it
+to a client. It goes to the OS keyring, or to a `chmod 600` `$JAZZ_HOME/secrets.json` where there
+is no keyring.
+
+It is never printed again. A supervisor's logs should not accumulate the secret.
 
 ```bash
 jazz daemon set-token      # generate (or store $JAZZ_DAEMON_TOKEN); prints a generated value
@@ -97,13 +99,13 @@ That ignores loopback's two real neighbours: every other user account on a share
 page open in your browser. The browser half is handled structurally, below. For the other,
 nothing but a token stands between a local process and an agent with filesystem access.
 
-If nothing can store a token at all (`$JAZZ_DISABLE_KEYRING` set with no `$JAZZ_DAEMON_TOKEN`),
-a loopback daemon warns and serves unauthenticated rather than refusing to start; a non-loopback
-bind refuses outright.
+If nothing can store a token at all, a loopback daemon warns and serves unauthenticated rather
+than refusing to start. A non-loopback bind refuses outright. (That happens when
+`$JAZZ_DISABLE_KEYRING` is set and `$JAZZ_DAEMON_TOKEN` is not.)
 
-Set `$JAZZ_DAEMON_TOKEN` yourself instead of letting Jazz generate one when the value has to be
-known in advance: a client config written before the daemon has ever run, or an ephemeral
-container whose `$JAZZ_HOME` will not survive to the next deploy.
+Set `$JAZZ_DAEMON_TOKEN` yourself when the value has to be known in advance. Two cases: a client
+config written before the daemon has ever run, and a container whose `$JAZZ_HOME` will not
+survive the next deploy.
 
 ### It does not answer your browser
 
@@ -123,9 +125,8 @@ A loopback port is inside the trust boundary of every page you have open, and a 
 Writing a client? Send `application/json` and no `Origin`, which is what every ordinary HTTP
 client already does.
 
-Peers and webhooks do not use the daemon token. Each has its own, checked separately, because a
-credential that can start and approve runs is a much bigger grant than one that can ask a
-question or fire one fixed prompt.
+Peers and webhooks do not use this token. Each has its own. A credential that can start and
+approve runs is a much bigger grant than one that can ask a question.
 
 ### Reaching it from another machine
 
@@ -143,11 +144,11 @@ curl http://<host>:4747/runs \
   -d '{"agent":"default","prompt":"summarize today'\''s deploys"}'
 ```
 
-`0.0.0.0` binds every interface, so reachability beyond that is whatever your firewall or router
-already allows. Bind a specific interface's address instead if you mean one network and not
-"anywhere this host has a route". Either way the token is the only thing between that interface
-and an agent with filesystem access, so scope who can reach the port, not just who holds the
-token. See [Surface access](../security/surface-access.md).
+`0.0.0.0` binds every interface. What that reaches is whatever your firewall or router allows, so
+bind one interface's address if you mean one network.
+
+Scope who can reach the port, not just who holds the token. See
+[Surface access](../security/surface-access.md).
 
 ---
 
