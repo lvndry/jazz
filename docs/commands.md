@@ -51,30 +51,30 @@ jazz run --agent <id> [prompt]
 The prompt comes from the positional argument, or from piped stdin when the argument is
 absent and stdin is not a TTY.
 
-| Flag                           | Default      | Purpose                                                                                                                                               |
-| ------------------------------ | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--agent <id>`                 | **required** | Agent id or name                                                                                                                                      |
-| `--json`                       | off          | Emit one JSON envelope: `{ ok, answer, costUSD, tokenUsage, toolCalls }`                                                                              |
-| `--conversation <id>`          | none         | Stable conversation key. Loads prior history before the run, saves the transcript after, which gives stateless bridges per-chat memory                     |
-| `--approval-policy <p>`        | none         | `read-only` \| `low-risk` \| `high-risk`. Tools above the tier are **declined**                                                                       |
-| `--auto-approve-tools <names>` | none         | Comma-separated tool names allowed regardless of policy; narrower than raising the whole tier                                                         |
-| `--timezone <iana-tz>`         | UTC          | Time zone used to resolve reminder times, such as `Europe/Paris`                                                                                      |
-| `--events <categories>`        | none         | NDJSON progress on stderr: `tools`, `reasoning`, `text`, `usage`, `approval`, `subagent`, `all` (comma-separated)                                     |
-| `--reasoning <effort>`         | agent config | `low` \| `medium` \| `high` \| `disable`                                                                                                              |
-| `--timeout <ms>`               | none         | Abort the run after this many milliseconds (hard external kill, no warning)                                                                           |
-| `--max-iterations <n>`         | 100          | Cap reasoning iterations                                                                                                                              |
-| `--max-cost-usd <$>`           | none         | Abort once cumulative spend (own + sub-agent) reaches this many dollars, checked between iterations                                                   |
+| Flag                           | Default      | Purpose                                                                                                                                              |
+| ------------------------------ | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--agent <id>`                 | **required** | Agent id or name                                                                                                                                     |
+| `--json`                       | off          | Emit one JSON envelope: `{ ok, answer, costUSD, tokenUsage, toolCalls }`                                                                             |
+| `--conversation <id>`          | none         | Stable conversation key. Loads prior history before the run, saves the transcript after, which gives stateless bridges per-chat memory               |
+| `--approval-policy <p>`        | none         | `read-only` \| `low-risk` \| `high-risk`. Tools above the tier are **declined**                                                                      |
+| `--auto-approve-tools <names>` | none         | Comma-separated tool names allowed regardless of policy; narrower than raising the whole tier                                                        |
+| `--timezone <iana-tz>`         | UTC          | Time zone used to resolve reminder times, such as `Europe/Paris`                                                                                     |
+| `--events <categories>`        | none         | NDJSON progress on stderr: `tools`, `reasoning`, `text`, `usage`, `approval`, `subagent`, `all` (comma-separated)                                    |
+| `--reasoning <effort>`         | agent config | `low` \| `medium` \| `high` \| `disable`                                                                                                             |
+| `--timeout <ms>`               | none         | Abort the run after this many milliseconds (hard external kill, no warning)                                                                          |
+| `--max-iterations <n>`         | 100          | Cap reasoning iterations                                                                                                                             |
+| `--max-cost-usd <$>`           | none         | Abort once cumulative spend (own + sub-agent) reaches this many dollars, checked between iterations                                                  |
 | `--max-tokens <n>`             | none         | Abort once cumulative prompt + completion tokens (own run only, not sub-agents) reach this count, checked between iterations: needs no model pricing |
-| `--max-duration-ms <ms>`       | none         | Abort once elapsed wall-clock time reaches this budget, with agent pressure nudges at 50/80/90%, checked between iterations                           |
-| `--stream`                     | auto         | Force streaming. Required for `--events` in non-TTY contexts, where streaming auto-disables                                                           |
-| `--no-stream`                  | off         | Disable streaming                                                                                                                                     |
-| `--interactive-stdin`          | off          | Let a bridge relay questions and approvals as stdin/stdout events                                                                                     |
-| `--ephemeral`                  | off          | Do not load or save Jazz conversation/session history; withhold long-term memory writes                                                               |
-| `--history-json <json>`        | none         | Prior messages for an ephemeral run; the success envelope returns the updated `messages` array                                                        |
-| `--park`                       | off          | Persist the run and exit `2` at an unanswered approval; resume it with `jazz runs approve`                                                            |
-| `--with-vision <p/m>`          | agent config | Bind an image-analysis companion for this run                                                                                                         |
-| `--with-audio <p/m>`           | agent config | Bind an audio-analysis companion for this run                                                                                                         |
-| `--with-video <p/m>`           | agent config | Bind a video-analysis companion for this run                                                                                                          |
+| `--max-duration-ms <ms>`       | none         | Abort once elapsed wall-clock time reaches this budget, with agent pressure nudges at 50/80/90%, checked between iterations                          |
+| `--stream`                     | auto         | Force streaming. Required for `--events` in non-TTY contexts, where streaming auto-disables                                                          |
+| `--no-stream`                  | off          | Disable streaming                                                                                                                                    |
+| `--interactive-stdin`          | off          | Let a bridge relay questions and approvals as stdin/stdout events                                                                                    |
+| `--ephemeral`                  | off          | Do not load or save Jazz conversation/session history; withhold long-term memory writes                                                              |
+| `--history-json <json>`        | none         | Prior messages for an ephemeral run; the success envelope returns the updated `messages` array                                                       |
+| `--park`                       | off          | Persist the run and exit `2` at an unanswered approval; resume it with `jazz runs approve`                                                           |
+| `--with-vision <p/m>`          | agent config | Bind an image-analysis companion for this run                                                                                                        |
+| `--with-audio <p/m>`           | agent config | Bind an audio-analysis companion for this run                                                                                                        |
+| `--with-video <p/m>`           | agent config | Bind a video-analysis companion for this run                                                                                                         |
 
 `--max-cost-usd`, `--max-tokens`, and `--max-duration-ms` are soft checkpoints, not preemptive
 interrupts. See [Configuration → run budgets](./configure/jazz.md#run-budgets)
@@ -90,14 +90,14 @@ Full contract, examples, and a complete bridge implementation:
 
 ## `jazz agent`
 
-| Command                             | Purpose                                                           |
-| ----------------------------------- | ----------------------------------------------------------------- |
+| Command                             | Purpose                                                                                        |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------- |
 | `jazz agent list`                   | List all agents; `--can image\|audio\|video` filters to the ones that can generate that medium |
-| `jazz agent create`                 | Create an agent (interactive)                                     |
-| `jazz agent show <agentId>`         | Show an agent's details                                           |
-| `jazz agent edit <agentId>`         | Edit an agent                                                     |
-| `jazz agent delete <agentId>`       | Delete an agent. `-y, --yes` / `-f, --force` to skip confirmation |
-| `jazz agent chat <agentIdentifier>` | Interactive session with a specific agent, by id or name          |
+| `jazz agent create`                 | Create an agent (interactive)                                                                  |
+| `jazz agent show <agentId>`         | Show an agent's details                                                                        |
+| `jazz agent edit <agentId>`         | Edit an agent                                                                                  |
+| `jazz agent delete <agentId>`       | Delete an agent. `-y, --yes` / `-f, --force` to skip confirmation                              |
+| `jazz agent chat <agentIdentifier>` | Interactive session with a specific agent, by id or name                                       |
 
 `agent chat` accepts `--stream` / `--no-stream`, `--max-iterations <n>`, and `--ephemeral`.
 
@@ -109,7 +109,7 @@ Full contract, examples, and a complete bridge implementation:
 | --------------------------------- | -------------------------------------------------- |
 | `jazz workflow list`              | List available workflows (built-in, global, local) |
 | `jazz workflow show <name>`       | Show a workflow's prompt and metadata              |
-| `jazz workflow run <name>`        | Run once. See flags below                         |
+| `jazz workflow run <name>`        | Run once. See flags below                          |
 | `jazz workflow schedule <name>`   | Install into launchd (macOS) or cron (Linux)       |
 | `jazz workflow unschedule <name>` | Remove from the scheduler                          |
 | `jazz workflow scheduled`         | List scheduled workflows                           |
@@ -128,7 +128,7 @@ Full contract, examples, and a complete bridge implementation:
 | `--max-duration-ms <ms>` | Override the workflow's wall-clock budget (50/80/90% agent pressure nudges) |
 | `--json`                 | One JSON envelope on stdout; all chatter suppressed                         |
 | `--timeout <ms>`         | Abort after this many milliseconds (hard external kill, no warning)         |
-| `--events <categories>`  | NDJSON progress on stderr. **Requires `--json`**: otherwise it errors      |
+| `--events <categories>`  | NDJSON progress on stderr. **Requires `--json`**: otherwise it errors       |
 | `--scheduled`            | Marks the run as scheduler-triggered (set automatically by launchd/cron)    |
 
 Frontmatter fields: [Workflow frontmatter](./configure/workflows.md).
@@ -176,7 +176,7 @@ A run parks when it hits something needing your approval and nobody is there to 
 ## `jazz daemon`
 
 Serves runs over HTTP: start one, poll it, approve or reject what a parked one is waiting for
-,  from a different terminal, a different process, or a different machine than the one that
+, from a different terminal, a different process, or a different machine than the one that
 began it. It backgrounds itself by default; use `--foreground` under your own supervisor.
 `jazz daemon install` creates the systemd/launchd service for you.
 
@@ -195,7 +195,7 @@ one. `/peer/ask` uses separate per-peer credentials; see [`jazz peers`](#jazz-pe
 
 | Command                    | Purpose                                                                                                                                                                                                                                                                                     |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `jazz daemon set-token`    | Generate (or store `$JAZZ_DAEMON_TOKEN` if set) a token before the daemon's first run: useful when a client needs the value in advance                                                                                                                                                     |
+| `jazz daemon set-token`    | Generate (or store `$JAZZ_DAEMON_TOKEN` if set) a token before the daemon's first run: useful when a client needs the value in advance                                                                                                                                                      |
 | `jazz daemon forget-token` | Remove the stored token                                                                                                                                                                                                                                                                     |
 | `jazz daemon stop`         | Stop the background daemon listening on this port                                                                                                                                                                                                                                           |
 | `jazz daemon install`      | Install this as a persistent system service (systemd/launchd). Needs root; generates and stores its own token if none is set (no keyring or `$JAZZ_DAEMON_TOKEN` needed); doesn't report success until `/health` answers; `--serve-peers <agentId>` (required), `--host`, `--port`, `--yes` |
@@ -268,7 +268,7 @@ Other people's agents this machine talks to, and what has been said to or by the
 | `jazz peers log`                 | Everything said to and by a peer, newest first. `--peer <name>`, `--limit <n>`, `--json`, `--follow` |
 
 Peers can be added by [invite](./guides/connect-peers.md): `jazz peers invite create/accept`
-,  or by editing `~/.jazz/config.json` directly. See [Setting up peers](./guides/connect-peers.md)
+, or by editing `~/.jazz/config.json` directly. See [Setting up peers](./guides/connect-peers.md)
 for both paths.
 
 ### `jazz peers invite`
@@ -397,7 +397,7 @@ suggest the next step. `!` is an interactive terminal feature and is not interpr
 | Mode       | Behavior                                   |
 | ---------- | ------------------------------------------ |
 | `rendered` | Full markdown rendering                    |
-| `hybrid`   | Default: rendered with plain fallbacks    |
+| `hybrid`   | Default: rendered with plain fallbacks     |
 | `raw`      | No formatting, no ANSI. **Use this in CI** |
 | `quiet`    | Suppress output                            |
 

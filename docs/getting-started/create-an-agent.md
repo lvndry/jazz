@@ -22,9 +22,9 @@ file directly (shape below) or copy an existing one.
 | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Name**             | How you'll refer to it: `jazz agent chat reviewer`                                                                                                                                                                                     |
 | **Provider + model** | See [Providers](../configure/providers.md). `openrouter` with a free model costs nothing; `ollama` keeps everything local unless you pick a `:cloud` model, which needs an [Ollama API key](../configure/providers.md#ollama-cloud)    |
-| **Persona**          | `default`, `coder`, `researcher`, or one of yours. See [Personas](../concepts/personas.md)                                                                                                                                            |
+| **Persona**          | `default`, `coder`, `researcher`, or one of yours. See [Personas](../concepts/personas.md)                                                                                                                                             |
 | **Toolset**          | Extra capabilities to add, including configured MCP servers. Built-in tools are supplied by the persona's tool profile; use `deniedTools` in the agent file for hard per-agent restrictions. Selecting an MCP server may connect to it |
-| **Skills**           | Maintained instructions it can load on demand. See [Skills](../concepts/skills.md)                                                                                                                                                    |
+| **Skills**           | Maintained instructions it can load on demand. See [Skills](../concepts/skills.md)                                                                                                                                                     |
 
 ---
 
@@ -52,8 +52,8 @@ Useful optional fields:
 | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `reasoningEffort` | `low` \| `medium` \| `high` \| `disable`. Models without reasoning support error unless this is `disable`                                                                           |
 | `temperature`     | Sampling temperature from `0` to `2`. Not asked by the wizard. Unset means Jazz sends nothing and the provider's default applies; models that reject a custom temperature ignore it |
-| `summarizerModel` | `provider/model` used for context compaction **and** `execute_command` risk classification: point it at something cheap                                                            |
-| `customTools`     | Declare extra tools (`record` or `command` handlers) without changing Jazz. See [Agent configuration](../configure/agents.md#custom-tools)                                         |
+| `summarizerModel` | `provider/model` used for context compaction **and** `execute_command` risk classification: point it at something cheap                                                             |
+| `customTools`     | Declare extra tools (`record` or `command` handlers) without changing Jazz. See [Agent configuration](../configure/agents.md#custom-tools)                                          |
 | `companions`      | Bind specialist `provider/model` pairs for image, audio, or video analysis and generation without changing the primary model; see [Model companions](../features/media.md)          |
 | `envAllowlist`    | Exempt specific env vars from secret scrubbing for `execute_command`                                                                                                                |
 | `deniedTools`     | Remove named tools from this agent after every other capability source is applied                                                                                                   |

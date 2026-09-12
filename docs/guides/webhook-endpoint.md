@@ -61,12 +61,12 @@ Webhooks live in `~/.jazz/config.json` under `webhooks`. Add one:
 
 Four of those fields carry weight:
 
-| Field            | What it decides                                                                         |
-| ---------------- | --------------------------------------------------------------------------------------- |
-| `name`           | The URL (`/webhooks/issue-triage`) and which token unlocks it                            |
-| `agentId`        | Which agent wakes, by id or by name                                                     |
-| `promptTemplate` | The entire instruction. `{{payload}}` is where the body lands, quoted as data            |
-| `disclosure`     | The ceiling on what the run may reveal. Defaults to `internal` when you leave it out     |
+| Field            | What it decides                                                                      |
+| ---------------- | ------------------------------------------------------------------------------------ |
+| `name`           | The URL (`/webhooks/issue-triage`) and which token unlocks it                        |
+| `agentId`        | Which agent wakes, by id or by name                                                  |
+| `promptTemplate` | The entire instruction. `{{payload}}` is where the body lands, quoted as data        |
+| `disclosure`     | The ceiling on what the run may reveal. Defaults to `internal` when you leave it out |
 
 Leave `{{payload}}` out and the payload is appended at the end instead, with the same quoting
 and less control over where it sits.
@@ -88,7 +88,7 @@ Copy the value now. If you lose it, run the command again to mint a new one, whi
 the old. On a host with no keyring (a container), set
 `JAZZ_WEBHOOK_TOKEN_ISSUE_TRIAGE` in the daemon's environment instead.
 
-The token never goes in `config.json`. It authenticates *this webhook*, not you. See
+The token never goes in `config.json`. It authenticates _this webhook_, not you. See
 [what the caller can reach](#what-the-caller-can-and-cannot-do) for why that distinction
 decides the tool ceiling.
 
@@ -136,7 +136,7 @@ Then, in the repository's **Settings → Webhooks → Add webhook**:
 - **Payload URL:** `https://<your-host>/webhooks/issue-triage`
 - **Content type:** `application/json`
 - **Secret:** leave empty. Jazz authenticates with the bearer token, not GitHub's HMAC
-- **Events:** *Let me select individual events* → **Issues**
+- **Events:** _Let me select individual events_ → **Issues**
 
 GitHub does not send an `Authorization` header, so terminate at a proxy that adds it:
 
@@ -206,11 +206,11 @@ IFTTT applet, a proxy. You do not administer that place and cannot audit it. So 
 the holder as an external counterparty, never as you, and bounds the run on two independent
 axes:
 
-- **`disclosure`** is a ceiling on what an answer may *reveal*. `internal` (the default) is
+- **`disclosure`** is a ceiling on what an answer may _reveal_. `internal` (the default) is
   read-only tools that describe the shape of the machine (what exists, what is installed, what
   the web says) but not the contents of your files or your memory. `public` is less,
   `private` is the most an external caller can ever hold, and `none` reaches nothing.
-- **`allow`** is the separate question of *damage*. Disclosure says nothing about acting, so a
+- **`allow`** is the separate question of _damage_. Disclosure says nothing about acting, so a
   tool that can act is admitted only by being named here, at any tier:
 
   ```json
@@ -238,13 +238,13 @@ Approve it yourself later with `jazz runs approve <runId>`, or leave those tools
 
 ## When it does not work
 
-| Response                             | Meaning                                                                          |
-| ------------------------------------ | -------------------------------------------------------------------------------- |
-| `401 unauthorized`                   | Missing, wrong, or un-minted token. Re-run `jazz webhook token <name>`           |
-| `404 not found`                      | No webhook by that name in `config.json`. Check spelling, not the daemon        |
-| `400 ... is not threaded`            | A thread key was sent to an `ephemeral` door                                     |
-| `413`                                | Body over 1 MiB                                                                  |
-| `202 input-required`                 | The run needs an approval. See the `allow` list above                            |
+| Response                  | Meaning                                                                  |
+| ------------------------- | ------------------------------------------------------------------------ |
+| `401 unauthorized`        | Missing, wrong, or un-minted token. Re-run `jazz webhook token <name>`   |
+| `404 not found`           | No webhook by that name in `config.json`. Check spelling, not the daemon |
+| `400 ... is not threaded` | A thread key was sent to an `ephemeral` door                             |
+| `413`                     | Body over 1 MiB                                                          |
+| `202 input-required`      | The run needs an approval. See the `allow` list above                    |
 
 ## Next
 

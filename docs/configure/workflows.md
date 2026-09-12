@@ -37,16 +37,16 @@ maxDurationMs: 1800000
 | ------------------ | ----------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `name`             | string      | ✅       | Workflow identifier used by every `jazz workflow` command                                                                                                 |
 | `description`      | string      | ✅       | One-line summary shown in `jazz workflow list`                                                                                                            |
-| `agent`            | string      | no      | Agent id or name to run this workflow with. Overridable at runtime with `--agent`                                                                         |
-| `schedule`         | cron string | no      | When to run. Required only if you intend to `jazz workflow schedule` it                                                                                   |
-| `autoApprove`      | see below   | no      | Autonomy tier for unattended runs                                                                                                                         |
-| `skills`           | string[]    | no      | Skills to make available to the agent for this workflow                                                                                                   |
-| `catchUpOnRestart` | boolean     | no      | Whether a recent missed run may be replayed after daemon restart                                                                                          |
-| `maxCatchUpAge`    | seconds     | no      | Past this age a missed run is skipped. Default 86400 (24 h)                                                                                               |
-| `maxIterations`    | number      | no      | Iteration cap for this workflow. Default 100. Overridable with `--max-iterations`                                                                         |
-| `maxCostUSD`       | number      | no      | Spend cap in USD, checked between iterations. Unset = uncapped. Overridable with `--max-cost-usd`                                                         |
-| `maxTokens`        | number      | no      | Cap on cumulative prompt + completion tokens for this run (not sub-agents), checked between iterations. Unset = uncapped. Overridable with `--max-tokens` |
-| `maxDurationMs`    | ms          | no      | Wall-clock budget with 50/80/90% agent pressure nudges. Unset = uncapped. Overridable with `--max-duration-ms`                                            |
+| `agent`            | string      | no       | Agent id or name to run this workflow with. Overridable at runtime with `--agent`                                                                         |
+| `schedule`         | cron string | no       | When to run. Required only if you intend to `jazz workflow schedule` it                                                                                   |
+| `autoApprove`      | see below   | no       | Autonomy tier for unattended runs                                                                                                                         |
+| `skills`           | string[]    | no       | Skills to make available to the agent for this workflow                                                                                                   |
+| `catchUpOnRestart` | boolean     | no       | Whether a recent missed run may be replayed after daemon restart                                                                                          |
+| `maxCatchUpAge`    | seconds     | no       | Past this age a missed run is skipped. Default 86400 (24 h)                                                                                               |
+| `maxIterations`    | number      | no       | Iteration cap for this workflow. Default 100. Overridable with `--max-iterations`                                                                         |
+| `maxCostUSD`       | number      | no       | Spend cap in USD, checked between iterations. Unset = uncapped. Overridable with `--max-cost-usd`                                                         |
+| `maxTokens`        | number      | no       | Cap on cumulative prompt + completion tokens for this run (not sub-agents), checked between iterations. Unset = uncapped. Overridable with `--max-tokens` |
+| `maxDurationMs`    | ms          | no       | Wall-clock budget with 50/80/90% agent pressure nudges. Unset = uncapped. Overridable with `--max-duration-ms`                                            |
 
 `maxCostUSD`, `maxTokens`, and `maxDurationMs` are soft checkpoints, evaluated between
 iterations, not preemptive interrupts. See

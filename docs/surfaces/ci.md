@@ -152,14 +152,14 @@ Because the answer is on stdout and the noise is on stderr, this composes with `
 
 ## Practical notes for unattended runs
 
-| Concern                           | What to do                                                                                                                                                                               |
-| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Concern                           | What to do                                                                                                                                                                              |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Runaway cost**                  | Set `--max-iterations` and `--timeout`. The `--json` envelope reports `costUSD` per run: log it and alert on it.                                                                        |
-| **Fork PRs**                      | The `code-review` job deliberately only runs for PRs from the same repository. A fork PR can contain a prompt injection _and_ a workflow change; don't hand it a provider secret.        |
+| **Fork PRs**                      | The `code-review` job deliberately only runs for PRs from the same repository. A fork PR can contain a prompt injection _and_ a workflow change; don't hand it a provider secret.       |
 | **Prompt injection via the diff** | The diff is untrusted input. Keep the reviewer at the lowest policy that works: a reviewer needs to _read_, not to `git push`.                                                          |
-| **Flaky provider**                | Jazz retries transient LLM failures with capped exponential backoff (up to 10 attempts, 15-minute ceiling for the whole call), so a single 429 doesn't fail your build.                  |
-| **Reproducibility**               | Pin the model in the agent JSON. `latest` aliases move under you.                                                                                                                        |
-| **Provider choice**               | CI is where a cheap fast model usually wins. This is one field in the agent config.                                                                                                      |
+| **Flaky provider**                | Jazz retries transient LLM failures with capped exponential backoff (up to 10 attempts, 15-minute ceiling for the whole call), so a single 429 doesn't fail your build.                 |
+| **Reproducibility**               | Pin the model in the agent JSON. `latest` aliases move under you.                                                                                                                       |
+| **Provider choice**               | CI is where a cheap fast model usually wins. This is one field in the agent config.                                                                                                     |
 | **One-shot run in a sandbox**     | Don't bind-mount seed config straight at `JAZZ_HOME` read-only: jazz writes there too (personas, work state). See [One-shot run in a sandbox](./headless.md#one-shot-run-in-a-sandbox). |
 
 ---

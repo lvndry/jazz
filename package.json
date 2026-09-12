@@ -138,7 +138,7 @@
     "prepare": "git config core.hooksPath .githooks || true",
     "lint": "bun eslint packages scripts --cache",
     "lint:fix": "bun eslint packages scripts --fix --cache",
-    "format": "bun prettier --write packages",
+    "format": "bun prettier --write packages docs",
     "test": "bun test",
     "test:watch": "bun test --watch",
     "bench": "bun bench/run.ts",

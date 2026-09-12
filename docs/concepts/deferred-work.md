@@ -11,11 +11,11 @@ hundred repositories to check.
 Jazz gives an agent three ways to leave work running and come back to it. They differ in what
 starts them and who they come back to, and picking the wrong one is the usual mistake.
 
-| Shape               | Starts                | Comes back        | Resumes the conversation |
-| ------------------- | --------------------- | ----------------- | ------------------------ |
-| **Wake trigger**    | at a time you name    | the agent runs again | yes, the exact one    |
-| **Background jobs** | now, detached         | when every job ends  | yes, the exact one    |
-| **Reminder**        | at a time you name    | a person is told     | no                    |
+| Shape               | Starts             | Comes back           | Resumes the conversation |
+| ------------------- | ------------------ | -------------------- | ------------------------ |
+| **Wake trigger**    | at a time you name | the agent runs again | yes, the exact one       |
+| **Background jobs** | now, detached      | when every job ends  | yes, the exact one       |
+| **Reminder**        | at a time you name | a person is told     | no                       |
 
 ## Reminders are for people, triggers are for agents
 

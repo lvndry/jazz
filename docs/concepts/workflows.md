@@ -43,11 +43,11 @@ The full field reference is [Workflow frontmatter](../configure/workflows.md).
 
 ## Where they live, and which one wins
 
-| Source   | Path                  | Scope                |
-| -------- | --------------------- | -------------------- |
-| Built-in | ships with Jazz       | everywhere           |
-| Global   | `~/.jazz/workflows/`  | all your projects    |
-| Project  | `./workflows/`        | this repository only |
+| Source   | Path                 | Scope                |
+| -------- | -------------------- | -------------------- |
+| Built-in | ships with Jazz      | everywhere           |
+| Global   | `~/.jazz/workflows/` | all your projects    |
+| Project  | `./workflows/`       | this repository only |
 
 A local definition beats a global one, which beats built-in. That is what lets a repository carry
 its own `code-review` without disabling yours.

@@ -16,10 +16,10 @@ without asking. Denying a tool is a wall; an approval policy is a door with a lo
 Every tool declares a risk level. One dial decides which levels run unattended:
 `--approval-policy` on a run, or `autoApprove` in a workflow.
 
-| Policy      | Runs without asking                                                    |
-| ----------- | ---------------------------------------------------------------------- |
+| Policy      | Runs without asking                                                     |
+| ----------- | ----------------------------------------------------------------------- |
 | `false`     | Nothing. A gated call is declined and the agent continues or reports it |
-| `read-only` | Reads, searches, web requests                                          |
+| `read-only` | Reads, searches, web requests                                           |
 | `low-risk`  | Adds todos, work state, subagents, and shell commands judged low-risk   |
 | `high-risk` | Adds everything gated: writes, edits, deletes, `execute_command`        |
 
@@ -29,7 +29,7 @@ declined or [parked](#with-nobody-there).
 ## Gated tools act in two phases
 
 A gated tool does not act when the model calls it. The first phase returns a description of what
-it *would* do, including a real preview diff for an edit, and only after approval does Jazz
+it _would_ do, including a real preview diff for an edit, and only after approval does Jazz
 invoke the hidden `execute_*` half of the pair.
 
 That is why you see the exact diff before a file is written, and why a declined call leaves

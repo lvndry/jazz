@@ -14,11 +14,11 @@ reach?**
 Most harnesses have one dial: approved or not. Jazz separates three properties, because
 collapsing them loses the cases that actually bite.
 
-| Property       | The question it answers                                |
-| -------------- | ------------------------------------------------------ |
-| **Risk**       | Can running this change something, or cause harm?      |
-| **Disclosure** | What class of information can its *answer* carry?      |
-| **Egress**     | Does calling it send data off this machine?            |
+| Property       | The question it answers                           |
+| -------------- | ------------------------------------------------- |
+| **Risk**       | Can running this change something, or cause harm? |
+| **Disclosure** | What class of information can its _answer_ carry? |
+| **Egress**     | Does calling it send data off this machine?       |
 
 They are independent in both directions, and that is the point:
 
@@ -36,8 +36,8 @@ Two doors on this machine answer somebody who is not you. A **peer** is another 
 question. A **webhook** is an external system firing a fixed prompt. They are the same authorization
 question in two wire formats, so they share one model.
 
-**A webhook token holder is a counterparty, not the operator.** The secret authenticates *this
-webhook*, never a person, and it lives in some third party's settings screen: a GitHub repo's
+**A webhook token holder is a counterparty, not the operator.** The secret authenticates _this
+webhook_, never a person, and it lives in some third party's settings screen: a GitHub repo's
 webhook config, an IFTTT applet, a proxy you do not administer and cannot audit. Treating
 whoever presents it as owner-equivalent would make a leaked field in somebody else's SaaS
 console a shell on your machine. Peers get the same treatment for the same reason.
@@ -51,11 +51,11 @@ tool is read-only AND non-egress  →  admitted if its disclosure fits the tier
 anything else                     →  admitted only if named in `allow`
 ```
 
-| Tier       | Admits read-only, non-egress tools whose answers are…       |
-| ---------- | ------------------------------------------------------------ |
-| `none`     | nothing at all. This is what revoking a caller sets           |
-| `public`   | nothing about you or your machine                             |
-| `internal` | + paths, names, what is installed. Not file contents          |
+| Tier       | Admits read-only, non-egress tools whose answers are…          |
+| ---------- | -------------------------------------------------------------- |
+| `none`     | nothing at all. This is what revoking a caller sets            |
+| `public`   | nothing about you or your machine                              |
+| `internal` | + paths, names, what is installed. Not file contents           |
 | `private`  | + your own material, still read-only. The most any caller gets |
 
 Three consequences worth stating plainly:
@@ -70,12 +70,12 @@ Three consequences worth stating plainly:
 
 ## Where each control lives
 
-| Control                  | Set on                                                                   |
-| ------------------------ | ------------------------------------------------------------------------ |
-| Which tools exist at all       | the agent. `tools` adds, `deniedTools` subtracts last                 |
-| Disclosure and `allow`         | the caller. Each peer, each webhook                                   |
+| Control                        | Set on                                                                     |
+| ------------------------------ | -------------------------------------------------------------------------- |
+| Which tools exist at all       | the agent. `tools` adds, `deniedTools` subtracts last                      |
+| Disclosure and `allow`         | the caller. Each peer, each webhook                                        |
 | What runs without asking       | the run. Approval policy, plus a per-command verdict for `execute_command` |
-| What happens with nobody there | the surface. Decline, or `--park` and resume after a person answers   |
+| What happens with nobody there | the surface. Decline, or `--park` and resume after a person answers        |
 
 ## Read next
 
@@ -84,5 +84,5 @@ Three consequences worth stating plainly:
 - [Secrets and egress](./secrets-and-egress.md): keyring, the shell environment scrub, MCP trust
 - [Unattended runs](./unattended-runs.md): the checklist before you automate something
 - [Surface access](./surface-access.md): authenticating bots, webhooks, the daemon, and peers
-- [Threat model](./threat-model.md): the attacks this model does *not* stop
+- [Threat model](./threat-model.md): the attacks this model does _not_ stop
 - [SECURITY.md](../../SECURITY.md): reporting a vulnerability

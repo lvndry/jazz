@@ -14,11 +14,11 @@ information its answer carries), and **egress** (does this send data off the mac
 independent, and [the security model](../security/index.md) explains why collapsing them loses
 the cases that bite. Risk is the one an approval policy compares against:
 
-| Tier        | Covers                                                                  |
-| ----------- | ------------------------------------------------------------------------ |
-| `read-only` | Reads, searches, web requests                                            |
-| `low-risk`  | Todos, work state, subagents, and other bounded writes                   |
-| `high-risk` | Anything that mutates: writes, deletes, moves                            |
+| Tier        | Covers                                                                     |
+| ----------- | -------------------------------------------------------------------------- |
+| `read-only` | Reads, searches, web requests                                              |
+| `low-risk`  | Todos, work state, subagents, and other bounded writes                     |
+| `high-risk` | Anything that mutates: writes, deletes, moves                              |
 | `unknown`   | `execute_command`, classified per command and then judged against the tier |
 
 **`low-risk` is narrower than it sounds.** It does not mean "moderately dangerous things". Email,
@@ -29,7 +29,7 @@ minor. The [tool inventory](../tools/index.md) lists the exact classification of
 ## Gated tools act in two phases
 
 A `high-risk` tool does not act when the model calls it. It returns a description of what it
-*would* do, including a real preview diff for edits, and only after approval does Jazz invoke the
+_would_ do, including a real preview diff for edits, and only after approval does Jazz invoke the
 hidden `execute_*` half of the pair.
 
 That is why you see the exact diff before a file is written, and why an unattended run can
@@ -40,11 +40,11 @@ happened.
 
 Raising the whole policy to admit one command is the wrong move. Narrow the exception instead:
 
-| Control               | Where                                             | Scope                              |
-| --------------------- | ------------------------------------------------- | ---------------------------------- |
-| Per-tool allowlist    | "Always approve this tool" in an approval prompt  | this session                       |
-| Per-command allowlist | `autoApprovedCommands` in `~/.jazz/config.json`   | persisted, `execute_command` only  |
-| Toolset trimming      | the agent's `deniedTools`                         | permanent, and the strongest       |
+| Control               | Where                                            | Scope                             |
+| --------------------- | ------------------------------------------------ | --------------------------------- |
+| Per-tool allowlist    | "Always approve this tool" in an approval prompt | this session                      |
+| Per-command allowlist | `autoApprovedCommands` in `~/.jazz/config.json`  | persisted, `execute_command` only |
+| Toolset trimming      | the agent's `deniedTools`                        | permanent, and the strongest      |
 
 ```json
 { "autoApprovedCommands": ["himalaya", "khal"] }

@@ -10,13 +10,13 @@ problems, because a model cannot fix them from inside the conversation it is los
 
 ## The ladder, in order of when it fires
 
-| At            | What happens                                                                 |
-| ------------- | ---------------------------------------------------------------------------- |
-| 50/80/90% of a cost, token, or duration budget | The model is told, and asked to consolidate |
-| 70/90% of the iteration budget | Same, on the iteration axis                                 |
-| 70% of the context window | The model is warned that older history will be summarized      |
-| 80% of the context window | Compaction: the middle is summarized, system and recent turns kept |
-| 95% of the context window | Trimming: whole turns dropped, never mid-tool-call             |
+| At                                             | What happens                                                       |
+| ---------------------------------------------- | ------------------------------------------------------------------ |
+| 50/80/90% of a cost, token, or duration budget | The model is told, and asked to consolidate                        |
+| 70/90% of the iteration budget                 | Same, on the iteration axis                                        |
+| 70% of the context window                      | The model is warned that older history will be summarized          |
+| 80% of the context window                      | Compaction: the middle is summarized, system and recent turns kept |
+| 95% of the context window                      | Trimming: whole turns dropped, never mid-tool-call                 |
 
 Every warning is ephemeral. It is added to that one request and never stored, because a history
 carrying eight escalating FINISH NOW messages wastes tokens, contradicts itself, and poisons the
@@ -59,7 +59,7 @@ with.
 Over the last 10 tool calls, if unique `name:arguments` keys fall below 40%, the agent is told it
 is looping and the window resets.
 
-It keys on name *and* arguments deliberately. Counting repeats of the tool name alone would flag
+It keys on name _and_ arguments deliberately. Counting repeats of the tool name alone would flag
 `web_search → web_fetch → web_search` as a meltdown, which is what research looks like, and ten
 `read_file` calls in a row, which is what understanding a codebase looks like. An agent that
 loops with slightly varied arguments still slips through; catching that needs semantic

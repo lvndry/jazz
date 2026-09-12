@@ -340,7 +340,7 @@ process receives: the allow-list decides what it _answers_, not what it _sees_.
 
 The official alternative, the WhatsApp Cloud API, needs a Meta Business account and a
 separate business number, and only allows template messages outside a 24-hour reply window
-,  which is why it is not what this uses.
+, which is why it is not what this uses.
 
 Full variable table: [`packages/whatsapp-bot/README.md`](../../packages/whatsapp-bot/README.md).
 

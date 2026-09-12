@@ -58,8 +58,8 @@ unreliable one. So the harness reports:
 | Metric              | What it tells you                                                |
 | ------------------- | ---------------------------------------------------------------- |
 | **pass@1**          | Did it work on the first try                                     |
-| **pass@k**          | Did it work at least once in k tries: an _optimistic_ bound     |
-| **Pass^k**          | Did it work on **every** one of k tries: the reliability number |
+| **pass@k**          | Did it work at least once in k tries: an _optimistic_ bound      |
+| **Pass^k**          | Did it work on **every** one of k tries: the reliability number  |
 | **bootstrap CI**    | Whether the difference you're looking at survives sampling noise |
 | **cost-normalized** | Whether the improvement is real or just bought with more tokens  |
 

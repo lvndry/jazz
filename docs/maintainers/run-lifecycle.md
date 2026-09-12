@@ -167,12 +167,12 @@ return uniqueness < 0.4;
 The key is composite. **tool name _plus_ arguments**. This distinction is the whole
 design:
 
-| Recent calls                                              | Unique keys  | Verdict                                   |
-| --------------------------------------------------------- | ------------ | ----------------------------------------- |
+| Recent calls                                              | Unique keys  | Verdict                                  |
+| --------------------------------------------------------- | ------------ | ---------------------------------------- |
 | `web_search("effect-ts")` × 10                            | 1/10 = 10%   | 🔴 Stuck: same query over and over       |
 | `web_search(q1)` → `web_fetch(u1)` → `web_search(q2)` → … | 10/10 = 100% | 🟢 Productive: that's research           |
 | `read_file(a)` `read_file(b)` … 10 distinct files         | 10/10 = 100% | 🟢 Productive: that's reading a codebase |
-| `execute_command()` × 6, `read_file(x)` × 4               | 2/10 = 20%   | 🔴 Stuck                                  |
+| `execute_command()` × 6, `read_file(x)` × 4               | 2/10 = 20%   | 🔴 Stuck                                 |
 
 Keying on tool _name_ alone would flag the second and third rows as meltdowns, which are
 exactly the behaviors you want. When a meltdown does trip, Jazz injects a message telling
@@ -212,13 +212,13 @@ still gets its message: the model sees the batch it asked for.
 The loop is shared. Only how it talks to the model and renders output differs, expressed
 as a `CompletionStrategy`:
 
-|                    | Streaming                             | Batch                        |
-| ------------------ | ------------------------------------- | ---------------------------- |
-| Model call         | token-by-token stream                 | single response              |
-| Rendering          | live, as tokens arrive                | markdown rendered at the end |
-| Thinking indicator | yes                                   | no                           |
+|                    | Streaming                            | Batch                        |
+| ------------------ | ------------------------------------ | ---------------------------- |
+| Model call         | token-by-token stream                | single response              |
+| Rendering          | live, as tokens arrive               | markdown rendered at the end |
+| Thinking indicator | yes                                  | no                           |
 | Interruptible      | yes: double-Esc races tool execution | no                           |
-| Used by            | terminal TUI, `--events` bridges      | `jazz run` piped output, CI  |
+| Used by            | terminal TUI, `--events` bridges     | `jazz run` piped output, CI  |
 
 Adding a third mode means implementing one interface, not forking the loop. That's the
 reason for the indirection.
@@ -259,16 +259,16 @@ Two details worth noting:
 
 ## Reading a run in the logs
 
-| Log line                                        | Means                                                                      |
-| ----------------------------------------------- | -------------------------------------------------------------------------- |
-| `Sending LLM request`                           | Top of an iteration: includes iteration number, message count, tool count |
-| `Agent decided to use tools`                    | Tool phase starting, with the chosen tool names                            |
-| `Meltdown detected: injecting recovery signal` | Guard 2 fired; the agent was looping                                       |
-| `Collapsed duplicate tool calls in batch`       | Guard 3 fired; identical read-only calls in one batch ran once             |
-| `Compacting context`                            | Crossed 80% of the window; a summary is being produced                     |
-| `Tool timeout: <name>`                          | A tool exceeded its timeout; returned as a failed result, not a crash      |
-| `Agent provided final response`                 | Loop exiting normally                                                      |
-| `Missing tool results for some tool calls`      | Bug: please open an issue with the log                                    |
+| Log line                                       | Means                                                                     |
+| ---------------------------------------------- | ------------------------------------------------------------------------- |
+| `Sending LLM request`                          | Top of an iteration: includes iteration number, message count, tool count |
+| `Agent decided to use tools`                   | Tool phase starting, with the chosen tool names                           |
+| `Meltdown detected: injecting recovery signal` | Guard 2 fired; the agent was looping                                      |
+| `Collapsed duplicate tool calls in batch`      | Guard 3 fired; identical read-only calls in one batch ran once            |
+| `Compacting context`                           | Crossed 80% of the window; a summary is being produced                    |
+| `Tool timeout: <name>`                         | A tool exceeded its timeout; returned as a failed result, not a crash     |
+| `Agent provided final response`                | Loop exiting normally                                                     |
+| `Missing tool results for some tool calls`     | Bug: please open an issue with the log                                    |
 
 ---
 

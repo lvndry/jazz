@@ -18,11 +18,11 @@ that could quietly widen an agent's reach would be a very odd security boundary.
 A useful skill library is far larger than a context window. Jazz loads it in three levels, so an
 agent can have fifty skills and pay for the one it uses.
 
-| Level | What the model sees             | Loaded by           |
-| ----- | -------------------------------- | ------------------- |
+| Level | What the model sees                         | Loaded by                    |
+| ----- | ------------------------------------------- | ---------------------------- |
 | 1     | Every skill's name and one-line description | always, in the system prompt |
-| 2     | One skill's full `SKILL.md`      | `load_skill`        |
-| 3     | One referenced file inside it    | `load_skill_section` |
+| 2     | One skill's full `SKILL.md`                 | `load_skill`                 |
+| 3     | One referenced file inside it               | `load_skill_section`         |
 
 Level 1 is what makes the choice possible: the agent knows a research playbook exists without
 reading it. Level 3 is what makes big skills affordable, since a skill that points at
@@ -31,12 +31,12 @@ reading it. Level 3 is what makes big skills affordable, since a skill that poin
 
 ## Where they come from, and who wins
 
-| Source   | Path                          | Scope                |
-| -------- | ----------------------------- | -------------------- |
-| Built-in | ships with Jazz               | everywhere           |
-| Shared   | `~/.agents/skills/`           | every tool that reads the convention |
-| Global   | `~/.jazz/skills/`             | all your projects    |
-| Project  | `./skills/`                   | this repository only |
+| Source   | Path                | Scope                                |
+| -------- | ------------------- | ------------------------------------ |
+| Built-in | ships with Jazz     | everywhere                           |
+| Shared   | `~/.agents/skills/` | every tool that reads the convention |
+| Global   | `~/.jazz/skills/`   | all your projects                    |
+| Project  | `./skills/`         | this repository only                 |
 
 On a name collision the more specific source wins, so a project can override a built-in skill
 with its own version. That is the point of the project tier: a repository-specific procedure
@@ -51,7 +51,7 @@ creating personas, workflows and skills themselves.
 Three things that sound similar and are not:
 
 - A **skill** is know-how. Use it for a procedure the model should follow.
-- A **[tool](./tools.md)** is a capability. Use it when the model needs to *do* something new.
+- A **[tool](./tools.md)** is a capability. Use it when the model needs to _do_ something new.
 - A **[workflow](./workflows.md)** is a whole prompt plus its run settings. Use it when a
   complete job should be invoked or scheduled as a unit.
 

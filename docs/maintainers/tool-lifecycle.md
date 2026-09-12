@@ -264,8 +264,8 @@ Implementation: [`command-risk.ts`](../../packages/core/src/agent/tools/command-
 
 Tiers are coarse on purpose. When you need precision:
 
-| Control                   | Scope        | Behavior                                                    |
-| ------------------------- | ------------ | ----------------------------------------------------------- |
+| Control                   | Scope        | Behavior                                                   |
+| ------------------------- | ------------ | ---------------------------------------------------------- |
 | **Per-tool allowlist**    | this session | "Always approve this tool": chosen from an approval prompt |
 | **Per-command allowlist** | persisted    | "Always approve this command": `execute_command` only      |
 
@@ -307,7 +307,7 @@ flowchart TB
 | ---------------------- | ---------- | ---------------------------------------------------------------- |
 | `MAX_CONCURRENT_TOOLS` | 10         | Prevents resource exhaustion when a model asks for 40 file reads |
 | `TOOL_TIMEOUT_MS`      | 3 min      | Default; a tool can declare its own                              |
-| `longRunning` tools    | no timeout | e.g. `ask_user_question`: waiting for a human isn't a hang      |
+| `longRunning` tools    | no timeout | e.g. `ask_user_question`: waiting for a human isn't a hang       |
 
 A timeout is **not** a crash. It comes back as a failed result with the message, the agent
 sees it, and the run continues. A tool that can't finish shouldn't take the whole run down.
@@ -381,8 +381,8 @@ Tools are registered by category at startup, except MCP:
 | User Interaction       | 2       | `ask_user_question` `ask_file_picker`                                                                 |
 | Web App                | 1       | `create_web_app`                                                                                      |
 | **Total agent-facing** | **35**  | plus 7 hidden `execute_*` counterparts                                                                |
-| **Skills**             | 3       | `find_skills` `load_skill` `load_skill_section`: per agent                                           |
-| **MCP**                | dynamic | `mcp_<server>_<tool>`: per agent, connected lazily                                                   |
+| **Skills**             | 3       | `find_skills` `load_skill` `load_skill_section`: per agent                                            |
+| **MCP**                | dynamic | `mcp_<server>_<tool>`: per agent, connected lazily                                                    |
 
 **MCP is lazy by design.** Servers are child processes; connecting six of them at boot makes
 `jazz` slow to start and hangs the CLI when one misbehaves. Instead, an agent's MCP tools are

@@ -9,22 +9,22 @@ Jazz keeps everything under one directory, `~/.jazz` by default, moved with `JAZ
 
 ## What is on disk
 
-| Path              | Holds                                                                   | Stable? |
-| ----------------- | ----------------------------------------------------------------------- | ------- |
-| `config.json`     | Global configuration. Secrets are **not** here                           | yes     |
-| `agents/`         | One JSON file per agent                                                  | yes     |
-| `personas/`       | Your custom personas                                                     | yes     |
-| `skills/`         | Your installed and hand-written skills                                   | yes     |
-| `workflows/`      | Your workflow files                                                      | yes     |
-| `memory/`         | Durable memory, by scope                                                 | yes     |
-| `workspace/`      | Per-agent scratchpad                                                     | yes     |
-| `history/`        | Conversation logs, one append-only file per conversation                 | shape may change |
-| `runs/`           | One record per run, pruned once terminal                                 | shape may change |
-| `work/`           | Per-conversation work state, journal, and offloaded tool results         | internal |
-| `generated/`      | Media a model produced, referenced by artifacts                          | path is in the artifact |
-| `logs/`           | Per-workflow stdout and stderr from scheduled runs                       | yes     |
-| `telemetry/`      | Local NDJSON events, pruned after `telemetry.retentionDays`              | yes     |
-| `runtime/`, `cache/`, `misfires/`, `memory-recall/`, `schedules/` | Bookkeeping     | internal |
+| Path                                                              | Holds                                                            | Stable?                 |
+| ----------------------------------------------------------------- | ---------------------------------------------------------------- | ----------------------- |
+| `config.json`                                                     | Global configuration. Secrets are **not** here                   | yes                     |
+| `agents/`                                                         | One JSON file per agent                                          | yes                     |
+| `personas/`                                                       | Your custom personas                                             | yes                     |
+| `skills/`                                                         | Your installed and hand-written skills                           | yes                     |
+| `workflows/`                                                      | Your workflow files                                              | yes                     |
+| `memory/`                                                         | Durable memory, by scope                                         | yes                     |
+| `workspace/`                                                      | Per-agent scratchpad                                             | yes                     |
+| `history/`                                                        | Conversation logs, one append-only file per conversation         | shape may change        |
+| `runs/`                                                           | One record per run, pruned once terminal                         | shape may change        |
+| `work/`                                                           | Per-conversation work state, journal, and offloaded tool results | internal                |
+| `generated/`                                                      | Media a model produced, referenced by artifacts                  | path is in the artifact |
+| `logs/`                                                           | Per-workflow stdout and stderr from scheduled runs               | yes                     |
+| `telemetry/`                                                      | Local NDJSON events, pruned after `telemetry.retentionDays`      | yes                     |
+| `runtime/`, `cache/`, `misfires/`, `memory-recall/`, `schedules/` | Bookkeeping                                                      | internal                |
 
 "Stable" means the location and the format are a contract: Jazz will not move or reshape them
 without saying so. "Internal" means exactly the opposite, and a script that parses them will

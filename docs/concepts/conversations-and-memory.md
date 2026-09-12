@@ -8,13 +8,13 @@ Jazz keeps five kinds of state, and they are separate on purpose. Collapsing any
 produces the same failure: something that mattered gets discarded, or something that stopped
 being true gets carried forever.
 
-| Kind                     | Written by                     | Scope             | Survives                 |
-| ------------------------ | ------------------------------ | ----------------- | ------------------------ |
-| **Conversation history** | the runtime, every turn        | one conversation  | until compaction trims it |
-| **Work state**           | the model, `update_work_state` | one conversation  | compaction               |
-| **Todos**                | the model, `manage_todos`      | one conversation  | compaction               |
-| **Scratchpad**           | the model, `manage_scratchpad` | one agent         | forever, until deleted   |
-| **Memory**               | the model, `manage_memory`     | one memory scope  | forever, until deleted   |
+| Kind                     | Written by                     | Scope            | Survives                  |
+| ------------------------ | ------------------------------ | ---------------- | ------------------------- |
+| **Conversation history** | the runtime, every turn        | one conversation | until compaction trims it |
+| **Work state**           | the model, `update_work_state` | one conversation | compaction                |
+| **Todos**                | the model, `manage_todos`      | one conversation | compaction                |
+| **Scratchpad**           | the model, `manage_scratchpad` | one agent        | forever, until deleted    |
+| **Memory**               | the model, `manage_memory`     | one memory scope | forever, until deleted    |
 
 ## Conversation history
 
@@ -31,7 +31,7 @@ in them is gone. That is what the next two exist to survive.
 The agent's account of what it is doing: the goal, the constraints, what it has decided, what is
 still open, what it means to do next. One per conversation, discarded when the work ends.
 
-Its job is to survive compaction. History records what was said; work state records *intent*,
+Its job is to survive compaction. History records what was said; work state records _intent_,
 which only the agent knows and only while it still holds it in context. Written as JSON rather
 than prose because it is edited repeatedly, and models patch structured documents far more
 reliably than they rewrite paragraphs.
@@ -64,7 +64,7 @@ by default, which `workspaceMaxTotalBytesPerAgent` overrides.
 
 ## Memory
 
-Facts that stay true *between* conversations, split into named scopes so an agent reaches only
+Facts that stay true _between_ conversations, split into named scopes so an agent reaches only
 what it should. Something true of the person regardless of what they are doing belongs in a
 personal scope; something true only inside one project belongs in that project's.
 

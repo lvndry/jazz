@@ -54,13 +54,13 @@ These are open-weight models wherever one exists for the job, reached through Op
 single vendor's key is required. They show the shape of the decision rather than a single right
 answer:
 
-| Role             | Model here                              | Weights | In $/M | Why this one                                        |
-| ---------------- | --------------------------------------- | ------- | ------ | --------------------------------------------------- |
-| primary          | `openrouter/z-ai/glm-5.3-flash`         | open    | 0.075  | Tool-capable, 1.3M context, cheap enough to orchestrate |
-| `analyze:image`  | `openrouter/inclusionai/ling-3.0-flash-vl` | open | 0.06   | Takes image and video, and is the cheapest that does |
-| `analyze:audio`  | `alibaba/qwen3.6-27b`                   | open    | 0.6    | Audio input is rare in open weights; Qwen has it     |
-| `analyze:video`  | `openrouter/inclusionai/ling-3.0-flash-vl` | open | 0.06   | Same model as image, bound separately so you can change one |
-| `generate:image` | `openrouter/google/gemini-3.1-flash-image` | closed | 0.5  | No open-weight model in the catalog returns an image |
+| Role             | Model here                                 | Weights | In $/M | Why this one                                                |
+| ---------------- | ------------------------------------------ | ------- | ------ | ----------------------------------------------------------- |
+| primary          | `openrouter/z-ai/glm-5.3-flash`            | open    | 0.075  | Tool-capable, 1.3M context, cheap enough to orchestrate     |
+| `analyze:image`  | `openrouter/inclusionai/ling-3.0-flash-vl` | open    | 0.06   | Takes image and video, and is the cheapest that does        |
+| `analyze:audio`  | `alibaba/qwen3.6-27b`                      | open    | 0.6    | Audio input is rare in open weights; Qwen has it            |
+| `analyze:video`  | `openrouter/inclusionai/ling-3.0-flash-vl` | open    | 0.06   | Same model as image, bound separately so you can change one |
+| `generate:image` | `openrouter/google/gemini-3.1-flash-image` | closed  | 0.5    | No open-weight model in the catalog returns an image        |
 
 That last row is worth being honest about. Image generation is the one role here with no
 open-weight option: nothing in the catalog that Jazz can reach emits an image alongside text.

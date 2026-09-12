@@ -29,8 +29,8 @@ and [Security](../../SECURITY.md) for the threat model.
 
 Plus, registered per agent rather than globally:
 
-| Source     | Tools                                             | Notes                                                                                       |
-| ---------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Source     | Tools                                             | Notes                                                                                      |
+| ---------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------ |
 | **Skills** | `find_skills`, `load_skill`, `load_skill_section` | Present when the agent has skills available. See [Skills loading](../concepts/skills.md)   |
 | **MCP**    | `mcp_<server>_<tool>`                             | Discovered from the agent's tool list, connected lazily. See [MCP](../configure/mcp.md)    |
 | **Custom** | whatever you define                               | Agent-config `customTools`: see [Agent configuration](../configure/agents.md#custom-tools) |
@@ -70,9 +70,9 @@ nothing, `write_file` changes the machine and reveals nothing at all.
 Every tool declares both. The field is required, with no default anywhere, so a new tool
 cannot be added without someone deciding.
 
-| Level      | Safe to tell                                                    | Tools                                                                                                                                                                                                                                                                                                                                                                               |
-| ---------- | --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `public`   | safe to tell anyone                                             | `add_reminder`, `cp`, `mkdir`, `mv`, `rm`, `web_fetch`, `web_search`, `write_file`                                                                                                                                                                                                                                                                                                  |
+| Level      | Safe to tell                                                   | Tools                                                                                                                                                                                                                                                                                                                                                                               |
+| ---------- | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `public`   | safe to tell anyone                                            | `add_reminder`, `cp`, `mkdir`, `mv`, `rm`, `web_fetch`, `web_search`, `write_file`                                                                                                                                                                                                                                                                                                  |
 | `internal` | the shape of this machine: paths, names, what is installed     | `analyze_media`, `cancel_batch`, `cancel_trigger`, `cd`, `context_info`, `create_pdf`, `create_web_app`, `find`, `generate_media`, `get_time`, `list_jobs`, `list_triggers`, `ls`, `pdf_page_count`, `pwd`, `register_trigger`, `search_tools`, `stat`                                                                                                                              |
 | `private`  | your own material: file contents, memory, schedule, transcript | `ask_file_picker`, `ask_user_question`, `cancel_reminder`, `edit_file`, `enqueue_batch`, `execute_command`, `grep`, `http_request`, `list_reminders`, `list_todos`, `manage_memory`, `manage_todos`, `manage_scratchpad`, `read_file`, `read_pdf`, `retrieve_tool_result`, `spawn_subagent`, `summarize_context`, `update_work_state`, `view_memory`, `view_scratchpad`, `wait_for` |
 
@@ -120,20 +120,20 @@ tool that writes to disk. See
 
 | Tool             | Risk        | Approval pair        | What it does                                                                                                                                  |
 | ---------------- | ----------- | -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `cd`             | `read-only` | none | Change the working directory for this session. Persists across subsequent tool calls.                                                         |
+| `cd`             | `read-only` | none                 | Change the working directory for this session. Persists across subsequent tool calls.                                                         |
 | `cp`             | `high-risk` | `execute_cp`         | Copy a file or directory. Equivalent to shell cp/cp -r. Directories are copied recursively.                                                   |
 | `edit_file`      | `high-risk` | `execute_edit_file`  | Edit file via replace_lines, replace_pattern, insert, or delete_lines. Applied in order. IMPORTANT: Use rep…                                  |
-| `find`           | `read-only` | none | Find files/directories by name, glob, or regex. Also advertised as `glob`. Searches names/paths, NOT contents (use grep).                     |
-| `grep`           | `read-only` | none | Search file contents for text patterns (ripgrep with grep fallback). Supports regex, file filters, context…                                   |
-| `ls`             | `read-only` | none | List directory contents. Supports recursive traversal, name filtering, hidden files. Default 200 results, c…                                  |
+| `find`           | `read-only` | none                 | Find files/directories by name, glob, or regex. Also advertised as `glob`. Searches names/paths, NOT contents (use grep).                     |
+| `grep`           | `read-only` | none                 | Search file contents for text patterns (ripgrep with grep fallback). Supports regex, file filters, context…                                   |
+| `ls`             | `read-only` | none                 | List directory contents. Supports recursive traversal, name filtering, hidden files. Default 200 results, c…                                  |
 | `mkdir`          | `high-risk` | `execute_mkdir`      | Create a directory. Parents created automatically by default.                                                                                 |
 | `mv`             | `high-risk` | `execute_mv`         | Move or rename a file or directory. Equivalent to shell mv.                                                                                   |
-| `pdf_page_count` | `read-only` | none | Get total page count of a PDF without reading content.                                                                                        |
-| `pwd`            | `read-only` | none | Print the current working directory.                                                                                                          |
-| `read_file`      | `read-only` | none | Read a UTF-8 text file with numbered lines. startLine/endLine; negative startLine reads from the end; sinceByte reads only what was appended. |
-| `read_pdf`       | `read-only` | none | Extract text and tables from a PDF. Use pdf_page_count first for large files. Supports page ranges.                                           |
+| `pdf_page_count` | `read-only` | none                 | Get total page count of a PDF without reading content.                                                                                        |
+| `pwd`            | `read-only` | none                 | Print the current working directory.                                                                                                          |
+| `read_file`      | `read-only` | none                 | Read a UTF-8 text file with numbered lines. startLine/endLine; negative startLine reads from the end; sinceByte reads only what was appended. |
+| `read_pdf`       | `read-only` | none                 | Extract text and tables from a PDF. Use pdf_page_count first for large files. Supports page ranges.                                           |
 | `rm`             | `high-risk` | `execute_rm`         | Remove a file or directory. May be irreversible.                                                                                              |
-| `stat`           | `read-only` | none | Check file/directory existence and get metadata (type, size, times).                                                                          |
+| `stat`           | `read-only` | none                 | Check file/directory existence and get metadata (type, size, times).                                                                          |
 | `write_file`     | `high-risk` | `execute_write_file` | Write content to a file, creating it if needed. Replaces entire file content.                                                                 |
 
 ### Shell Commands
@@ -159,36 +159,36 @@ available through `jazz run` or remote chat surfaces.
 
 | Tool         | Risk        | Approval pair | What it does                              |
 | ------------ | ----------- | ------------- | ----------------------------------------- |
-| `web_search` | `read-only` | none | Search the web for real-time information. |
+| `web_search` | `read-only` | none          | Search the web for real-time information. |
 
 ### Web Fetch
 
 | Tool        | Risk        | Approval pair | What it does                               |
 | ----------- | ----------- | ------------- | ------------------------------------------ |
-| `web_fetch` | `read-only` | none | Fetch and extract text content from a URL. |
+| `web_fetch` | `read-only` | none          | Fetch and extract text content from a URL. |
 
 ### HTTP
 
 | Tool           | Risk        | Approval pair | What it does                                                                       |
 | -------------- | ----------- | ------------- | ---------------------------------------------------------------------------------- |
-| `http_request` | `read-only` | none | Send HTTP requests. Supports all methods, headers, query params, and body formats. |
+| `http_request` | `read-only` | none          | Send HTTP requests. Supports all methods, headers, query params, and body formats. |
 
 ### Todo
 
 | Tool                | Risk        | Approval pair | What it does                                                                                                 |
 | ------------------- | ----------- | ------------- | ------------------------------------------------------------------------------------------------------------ |
-| `list_todos`        | `read-only` | none | Read the current todo list. Returns all items with their status and priority.                                |
-| `manage_todos`      | `low-risk`  | none | Create or update the todo list. Send the FULL list of items each time (replaces the previous list). Use thi… |
-| `update_work_state` | `low-risk`  | none | Record where you are in the current task so it survives compaction and resuming later. Patches o…            |
+| `list_todos`        | `read-only` | none          | Read the current todo list. Returns all items with their status and priority.                                |
+| `manage_todos`      | `low-risk`  | none          | Create or update the todo list. Send the FULL list of items each time (replaces the previous list). Use thi… |
+| `update_work_state` | `low-risk`  | none          | Record where you are in the current task so it survives compaction and resuming later. Patches o…            |
 
 ### Memory
 
 Opt-in per agent (like File Management) rather than always-on. See [Memory](../concepts/conversations-and-memory.md).
 
-| Tool            | Risk        | Approval pair | What it does                                                                                      |
-| --------------- | ----------- | ------------- | ------------------------------------------------------------------------------------------------- |
-| `view_memory`   | `read-only` | none | Call first, before answering, at the start of every conversation.                                 |
-| `manage_memory` | `low-risk`  | (| Save facts about this person that will still matter later) preferences, location, age, how they… |
+| Tool            | Risk        | Approval pair | What it does                                                                                     |
+| --------------- | ----------- | ------------- | ------------------------------------------------------------------------------------------------ |
+| `view_memory`   | `read-only` | none          | Call first, before answering, at the start of every conversation.                                |
+| `manage_memory` | `low-risk`  | (             | Save facts about this person that will still matter later) preferences, location, age, how they… |
 
 `update_work_state` lives with the todo tools (always-on). It is scoped to one conversation and discarded when the task ends, unlike memory which persists across conversations. See [Context management](../maintainers/context-lifecycle.md).
 
@@ -200,8 +200,8 @@ dumps, and intermediate artifacts live, referenced from memory rather than dupli
 
 | Tool                | Risk        | Approval pair | What it does                                                                                     |
 | ------------------- | ----------- | ------------- | ------------------------------------------------------------------------------------------------ |
-| `view_scratchpad`   | `read-only` | none | View your durable scratchpad: working drafts, research dumps, and intermediate artifacts too…    |
-| `manage_scratchpad` | `low-risk`  | none | Save durable working drafts, research dumps, or intermediate artifacts too large or provisional… |
+| `view_scratchpad`   | `read-only` | none          | View your durable scratchpad: working drafts, research dumps, and intermediate artifacts too…    |
+| `manage_scratchpad` | `low-risk`  | none          | Save durable working drafts, research dumps, or intermediate artifacts too large or provisional… |
 
 ### Reminders
 
@@ -217,9 +217,9 @@ as chat messages from their own in-process interval, unchanged.
 
 | Tool              | Risk        | Approval pair | What it does                                                                                                                                     |
 | ----------------- | ----------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `add_reminder`    | `low-risk`  | none | Schedule a reminder from a duration (`30m`), clock time (`18:00`), `tomorrow HH:MM`, a weekday (`tue 20:00`), or an absolute `2026-08-25 20:00`. |
-| `list_reminders`  | `read-only` | none | List this person's pending reminders, including their id, fire time, and text.                                                                   |
-| `cancel_reminder` | `low-risk`  | none | Cancel a pending reminder by id (get the id from list_reminders first).                                                                          |
+| `add_reminder`    | `low-risk`  | none          | Schedule a reminder from a duration (`30m`), clock time (`18:00`), `tomorrow HH:MM`, a weekday (`tue 20:00`), or an absolute `2026-08-25 20:00`. |
+| `list_reminders`  | `read-only` | none          | List this person's pending reminders, including their id, fire time, and text.                                                                   |
+| `cancel_reminder` | `low-risk`  | none          | Cancel a pending reminder by id (get the id from list_reminders first).                                                                          |
 
 ### Wake Triggers
 
@@ -235,11 +235,11 @@ environments with neither `launchd` nor the `at` binary available (most containe
 scheduling with the host is always best-effort: if it fails for any reason, registration still
 succeeds and the ticker is the safety net.
 
-| Tool               | Risk        | Approval pair | What it does                                                                                       |
-| ------------------ | ----------- | ------------- | -------------------------------------------------------------------------------------------------- |
-| `register_trigger` | `low-risk`  | none | Schedule yourself to wake up later and resume this exact conversation. Use this when you need to… |
-| `list_triggers`    | `read-only` | none | List this agent's pending self-scheduled wake triggers.                                            |
-| `cancel_trigger`   | `low-risk`  | none | Cancel a pending wake trigger by id (get the id from list_triggers first).                         |
+| Tool               | Risk        | Approval pair | What it does                                                                                      |
+| ------------------ | ----------- | ------------- | ------------------------------------------------------------------------------------------------- |
+| `register_trigger` | `low-risk`  | none          | Schedule yourself to wake up later and resume this exact conversation. Use this when you need to… |
+| `list_triggers`    | `read-only` | none          | List this agent's pending self-scheduled wake triggers.                                           |
+| `cancel_trigger`   | `low-risk`  | none          | Cancel a pending wake trigger by id (get the id from list_triggers first).                        |
 
 ### Background Jobs
 
@@ -270,29 +270,29 @@ you get a desktop notification naming it, and `jazz runs approve <id>` finishes 
 | Tool            | Risk        | Approval pair           | What it does                                                                                               |
 | --------------- | ----------- | ----------------------- | ---------------------------------------------------------------------------------------------------------- |
 | `enqueue_batch` | `unknown`   | `execute_enqueue_batch` | Run several independent shell commands in the background with a concurrency cap and per-job retry/backoff. |
-| `list_jobs`     | `read-only` | none | List this agent's background job batches, every job's status, and what each one printed.                   |
-| `cancel_batch`  | `low-risk`  | none | Cancel a job batch's pending jobs by id (jobs already running finish naturally).                           |
+| `list_jobs`     | `read-only` | none                    | List this agent's background job batches, every job's status, and what each one printed.                   |
+| `cancel_batch`  | `low-risk`  | none                    | Cancel a job batch's pending jobs by id (jobs already running finish naturally).                           |
 
 ### Context
 
 | Tool                   | Risk        | Approval pair | What it does                                                                                            |
 | ---------------------- | ----------- | ------------- | ------------------------------------------------------------------------------------------------------- |
-| `context_info`         | `read-only` | none | Get current context window token usage statistics.                                                      |
-| `get_time`             | `read-only` | none | Get current date and time. Use for scheduling, relative times (yesterday, next Monday), and timestamps. |
-| `retrieve_tool_result` | `read-only` | none | Read a tool body that was offloaded from context. Pass the `tool_call_id` from the placeholder.         |
+| `context_info`         | `read-only` | none          | Get current context window token usage statistics.                                                      |
+| `get_time`             | `read-only` | none          | Get current date and time. Use for scheduling, relative times (yesterday, next Monday), and timestamps. |
+| `retrieve_tool_result` | `read-only` | none          | Read a tool body that was offloaded from context. Pass the `tool_call_id` from the placeholder.         |
 
 ### Tool Search
 
 | Tool           | Risk        | Approval pair | What it does                                                                                                                                        |
 | -------------- | ----------- | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `search_tools` | `read-only` | none | Fetch full parameter schemas for deferred tools (MCP servers, background jobs, etc.) you can see by name in your tool list but haven't fetched yet. |
+| `search_tools` | `read-only` | none          | Fetch full parameter schemas for deferred tools (MCP servers, background jobs, etc.) you can see by name in your tool list but haven't fetched yet. |
 
 ### Sub Agents
 
 | Tool                | Risk        | Approval pair | What it does                                                                                                                                                                              |
 | ------------------- | ----------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `spawn_subagent`    | `low-risk`  | none | Spawn a sub-agent with fresh context for a specific task. Personas: coder, researcher, default. Optionally validate a bounded JSON handoff with `resultSchema`; see Sub-agents internals. |
-| `summarize_context` | `read-only` | none | Compact conversation by summarizing older messages to free token budget. Always performs summarization when…                                                                              |
+| `spawn_subagent`    | `low-risk`  | none          | Spawn a sub-agent with fresh context for a specific task. Personas: coder, researcher, default. Optionally validate a bounded JSON handoff with `resultSchema`; see Sub-agents internals. |
+| `summarize_context` | `read-only` | none          | Compact conversation by summarizing older messages to free token budget. Always performs summarization when…                                                                              |
 
 ### Perception Delegation
 
@@ -307,17 +307,17 @@ Always-on. Lets an agent borrow specialist perception or generation from another
 
 | Tool                | Risk        | Approval pair | What it does                                                                            |
 | ------------------- | ----------- | ------------- | --------------------------------------------------------------------------------------- |
-| `ask_file_picker`   | `read-only` | none | Show an interactive file picker for the user to select a file.                          |
-| `ask_user_question` | `read-only` | none | Ask the user a question with interactive selectable suggestions. One question per call. |
+| `ask_file_picker`   | `read-only` | none          | Show an interactive file picker for the user to select a file.                          |
+| `ask_user_question` | `read-only` | none          | Ask the user a question with interactive selectable suggestions. One question per call. |
 
 ### Web App
 
 Opt-in per agent via `tools`. Used by chat bridges that can render a Mini App or a static image.
 
-| Tool             | Risk       | Approval pair | What it does                                                                                                                                                  |
-| ---------------- | ---------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `create_web_app` | `low-risk` | (| Create an interactive UI) a chart, form, dashboard, small game, or any other webpage: for delivery as a static image or a live page.                        |
-| `create_pdf`     | `low-risk` | none | Render a PDF from HTML the agent writes, saved to the working directory or an explicit path. Text and numbers are exact: a renderer, not an image generator. |
+| Tool             | Risk       | Approval pair | What it does                                                                                                                                                 |
+| ---------------- | ---------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `create_web_app` | `low-risk` | (             | Create an interactive UI) a chart, form, dashboard, small game, or any other webpage: for delivery as a static image or a live page.                         |
+| `create_pdf`     | `low-risk` | none          | Render a PDF from HTML the agent writes, saved to the working directory or an explicit path. Text and numbers are exact: a renderer, not an image generator. |
 
 ---
 

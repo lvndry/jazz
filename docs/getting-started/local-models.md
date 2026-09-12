@@ -77,4 +77,4 @@ If you want catalog metadata (e.g. pricing display for cloud models) inside the 
 | `JAZZ_MODELS_DEV_URL`       | Internal mirror for the models.dev catalog                                                       |
 | `JAZZ_PERSONA_REGISTRY_URL` | Base URL of the persona marketplace catalog (default the public Jazz site)                       |
 | `JAZZ_DISABLE_UPDATE_CHECK` | `1`: skip only the update check                                                                  |
-| `JAZZ_HOME`                 | Data directory (default `~/.jazz`): holds the catalog snapshot, history, telemetry              |
+| `JAZZ_HOME`                 | Data directory (default `~/.jazz`): holds the catalog snapshot, history, telemetry               |

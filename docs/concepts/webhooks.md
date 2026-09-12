@@ -25,7 +25,7 @@ an instruction the operator wrote, not as the instruction itself.
 
 ## The caller is not you
 
-A webhook token authenticates *that webhook*, never a person, and it lives in somebody else's
+A webhook token authenticates _that webhook_, never a person, and it lives in somebody else's
 settings screen: a repository's webhook config, an IFTTT applet, a proxy you do not administer
 and cannot audit. So the run is bounded the way a peer's is, on two axes.
 

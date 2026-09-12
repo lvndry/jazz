@@ -9,7 +9,7 @@ an agent runs a loop: it reads the situation, calls tools, observes what came ba
 going until the task is done or its budget runs out.
 
 One distinction is worth being precise about: **Jazz itself is not an agent. It is the harness**,
-the runtime agents run inside. An *agent* in Jazz is a configuration: a model, a persona, a
+the runtime agents run inside. An _agent_ in Jazz is a configuration: a model, a persona, a
 toolset, skills, and memory, saved as a file. Jazz hosts any number of them, runs their loops,
 guards their budgets, and gates their tools. That is why `jazz agent create` makes another agent,
 not another Jazz.
@@ -65,7 +65,7 @@ no API key; see [Model providers](../configure/providers.md).
 
 ### Persona
 
-Shapes *how* the agent communicates (tone, style, vocabulary) independently of the model.
+Shapes _how_ the agent communicates (tone, style, vocabulary) independently of the model.
 Ships with `default`, `coder`, and `researcher`, and you can write your own. See
 [Personas](./personas.md).
 
@@ -73,7 +73,7 @@ Ships with `default`, `coder`, and `researcher`, and you can write your own. See
 
 Two fields, pulling in opposite directions:
 
-- **`tools` is additive.** It grants capabilities *on top of* the built-in bundle the persona
+- **`tools` is additive.** It grants capabilities _on top of_ the built-in bundle the persona
   already permits. Listing a built-in tool changes nothing, and leaving one out does **not**
   withhold it.
 - **`deniedTools` subtracts, last.** It is applied after every other grant, which makes it the
@@ -127,11 +127,11 @@ repository and every Jazz agent working there picks it up, with no per-agent con
 
 Discovery runs on each turn against the agent's current working directory:
 
-| Order | File                    | Purpose                                        |
-| ----- | ----------------------- | ---------------------------------------------- |
-| 1     | `~/.agents/AGENTS.md`   | Your personal defaults, across every project   |
-| 2     | `<repo root>/AGENTS.md` | How this project works                         |
-| 3     | `<subdirectory>/AGENTS.md` | Overrides for one package or area           |
+| Order | File                       | Purpose                                      |
+| ----- | -------------------------- | -------------------------------------------- |
+| 1     | `~/.agents/AGENTS.md`      | Your personal defaults, across every project |
+| 2     | `<repo root>/AGENTS.md`    | How this project works                       |
+| 3     | `<subdirectory>/AGENTS.md` | Overrides for one package or area            |
 
 The walk climbs from the working directory to the repository root, the nearest ancestor with a
 `.git`, and stops there, so a checkout never inherits an unrelated `AGENTS.md` from a directory
@@ -165,12 +165,12 @@ pressure warnings, loop detection, and automatic context compaction. The full me
 
 ## Patterns worth copying
 
-| Pattern         | Shape                                          | Good for                                      |
-| --------------- | ---------------------------------------------- | --------------------------------------------- |
-| **Generalist**  | broad: files, git, web, shell                   | Daily driver in your terminal                 |
-| **Specialist**  | narrow: reads and greps, everything else denied | CI review, anything unattended                |
-| **Delegator**   | adds `spawn_subagent`                          | Deep research, work that would blow one window |
-| **Mixed-model** | cheap main model plus `companions`             | Screenshots, recordings, generated assets     |
+| Pattern         | Shape                                           | Good for                                       |
+| --------------- | ----------------------------------------------- | ---------------------------------------------- |
+| **Generalist**  | broad: files, git, web, shell                   | Daily driver in your terminal                  |
+| **Specialist**  | narrow: reads and greps, everything else denied | CI review, anything unattended                 |
+| **Delegator**   | adds `spawn_subagent`                           | Deep research, work that would blow one window |
+| **Mixed-model** | cheap main model plus `companions`              | Screenshots, recordings, generated assets      |
 
 ### Delegation
 

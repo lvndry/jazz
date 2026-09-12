@@ -58,8 +58,8 @@ One process, several jobs, most of them opt-in:
   awake; the daemon's own ticker is the alternative on a host you mean to leave running. See
   [Scheduled runs](../surfaces/scheduled.md).
 - **Answers peers**, when started with `--serve-peers <agentId>`. `POST /peer/ask` and `POST
-  /a2a` need a running daemon to have anyone to ask. Without one your agent can still ask
-  *other* peers, but nobody can ask yours. See [Agent-to-agent](./agent-to-agent.md).
+/a2a` need a running daemon to have anyone to ask. Without one your agent can still ask
+  _other_ peers, but nobody can ask yours. See [Agent-to-agent](./agent-to-agent.md).
 - **Serves webhooks.** `POST /webhooks/<name>` wakes the agent that webhook names. See
   [Webhooks](./webhooks.md).
 

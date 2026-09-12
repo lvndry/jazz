@@ -9,12 +9,12 @@ which conversation do they resume, and what may that run reveal or execute.
 
 The four surfaces answer them differently, and the differences are not arbitrary.
 
-| Surface     | Who is authenticated   | Credential                       | Bounded by                     |
-| ----------- | ---------------------- | -------------------------------- | ------------------------------ |
-| **Chat bot** | a platform account     | platform allowlist of chat ids   | the agent's own toolset        |
-| **Webhook** | one door, not a person | a per-webhook bearer token       | `disclosure` and `allow`       |
-| **Daemon**  | the operator           | one bearer token, all routes     | nothing; this is you           |
-| **Peer**    | one agent identity     | a per-peer token, or an invite   | `disclosure` and `allow`       |
+| Surface      | Who is authenticated   | Credential                     | Bounded by               |
+| ------------ | ---------------------- | ------------------------------ | ------------------------ |
+| **Chat bot** | a platform account     | platform allowlist of chat ids | the agent's own toolset  |
+| **Webhook**  | one door, not a person | a per-webhook bearer token     | `disclosure` and `allow` |
+| **Daemon**   | the operator           | one bearer token, all routes   | nothing; this is you     |
+| **Peer**     | one agent identity     | a per-peer token, or an invite | `disclosure` and `allow` |
 
 The daemon row is the one to read twice. Its token is operator-equivalent: it can start runs,
 approve what they are parked on, and edit agents. Peers and webhooks deliberately do not use it,

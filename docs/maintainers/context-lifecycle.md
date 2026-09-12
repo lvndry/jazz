@@ -49,7 +49,7 @@ flowchart TB
 | Runs        | after appending the assistant message, once tokens exceed **95%** of the context budget | when tokens exceed 80% of the context budget (the model's window, or the agent's `maxContextTokens` ceiling when it is lower) |
 | Costs       | nothing                                                                                 | one LLM call                                                                                                                  |
 | Budget      | a fixed working-set target (50k tokens by default)                                      | the context window the provider will actually honour                                                                          |
-| What's lost | old messages, entirely                                                                  | detail: the gist survives as a summary                                                                                       |
+| What's lost | old messages, entirely                                                                  | detail: the gist survives as a summary                                                                                        |
 | Preserves   | system message + last N complete turns                                                  | system message + a summary + recent messages                                                                                  |
 
 **Trimming sits above compaction, deliberately.** Its budget is 95% of the context budget,
@@ -261,7 +261,7 @@ on a window-fill percentage: it runs **every iteration**.
 | Clear tool results | every iteration | nothing            | Live tool cycle stays verbatim. Older large results become a pointer (or a re-run stub). |
 | Warn               | 70%             | nothing            | User _and_ agent are told; the agent is nudged to consolidate                            |
 | Compact            | 80%             | one LLM call       | Older history summarized into the running summary                                        |
-| Trim               | 95%             | nothing, but lossy | Messages dropped unsummarized: the floor, not the path                                  |
+| Trim               | 95%             | nothing, but lossy | Messages dropped unsummarized: the floor, not the path                                   |
 
 Clearing is free, so it runs first, every turn. Each result is rewritten at most
 once (`cleared` sticks), so the prompt-cache prefix only jumps when a result
@@ -296,10 +296,10 @@ per model. Counting messages alone meant an agent believed it was at 79% when it
 
 Two thresholds share one budget, both defined in `context-window-manager.ts`:
 
-|          | Warning                                                                    | Compaction                              |
-| -------- | -------------------------------------------------------------------------- | --------------------------------------- |
-| Fires at | 70% of the budget (`CONTEXT_WARN_THRESHOLD_RATIO`)                         | 80% (`CONTEXT_COMPACT_THRESHOLD_RATIO`) |
-| Costs    | nothing                                                                    | an extra LLM call                       |
+|          | Warning                                                                   | Compaction                              |
+| -------- | ------------------------------------------------------------------------- | --------------------------------------- |
+| Fires at | 70% of the budget (`CONTEXT_WARN_THRESHOLD_RATIO`)                        | 80% (`CONTEXT_COMPACT_THRESHOLD_RATIO`) |
+| Costs    | nothing                                                                   | an extra LLM call                       |
 | Effect   | `context 74% full of 60,000 tokens: will auto-compact soon`, once per run | history is summarized                   |
 
 Both the user _and the agent_ are told. Past 70% the request carries an ephemeral

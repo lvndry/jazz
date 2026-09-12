@@ -186,13 +186,13 @@ model, not the agent's, and mixing the two would hide both numbers. See
 
 ## Switching models
 
-| Where                | How                                                             |
-| -------------------- | --------------------------------------------------------------- |
-| Mid-conversation     | `/switch` (or `/models`) to an agent configured with the model  |
-| Per agent            | the agent's `llmProvider` / `llmModel` fields                   |
+| Where                | How                                                            |
+| -------------------- | -------------------------------------------------------------- |
+| Mid-conversation     | `/switch` (or `/models`) to an agent configured with the model |
+| Per agent            | the agent's `llmProvider` / `llmModel` fields                  |
 | For compaction only  | the agent's `summarizerModel`: run a cheap model for summaries |
-| For one headless run | `--reasoning` (effort); model comes from the agent config       |
-| Whole install        | `~/.jazz/config.json`                                           |
+| For one headless run | `--reasoning` (effort); model comes from the agent config      |
+| Whole install        | `~/.jazz/config.json`                                          |
 
 Running a cheap model for compaction while the main agent runs an expensive one is the
 highest-value version of this, and it's one field.

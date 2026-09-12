@@ -4,7 +4,7 @@ description: "What a Jazz persona is, how it shapes behaviour and can narrow an 
 
 # Personas
 
-A persona is a reusable system prompt with a name. It decides *how* an agent works: its voice,
+A persona is a reusable system prompt with a name. It decides _how_ an agent works: its voice,
 its priorities, what it does when a task is ambiguous. It says nothing about which model runs or
 which provider pays, so the same persona behaves recognisably on a frontier model and a local
 one.
@@ -38,9 +38,9 @@ uses it:
 
 | Placeholder          | Becomes                                                        |
 | -------------------- | -------------------------------------------------------------- |
-| `{agentName}`        | The agent's name, so the persona addresses itself correctly     |
-| `{agentDescription}` | The agent's own description, so one persona hosts many jobs     |
-| `{environment}`      | Live machine facts: date, OS, shell, home, hostname, user, TTY  |
+| `{agentName}`        | The agent's name, so the persona addresses itself correctly    |
+| `{agentDescription}` | The agent's own description, so one persona hosts many jobs    |
+| `{environment}`      | Live machine facts: date, OS, shell, home, hostname, user, TTY |
 
 Use `{environment}` rather than writing "you are on macOS" into the prompt. A persona that
 hardcodes the machine is wrong the first time somebody else installs it, and the block is

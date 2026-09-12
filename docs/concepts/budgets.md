@@ -6,12 +6,12 @@ description: "Cap a Jazz run by iterations, cost, tokens, or wall-clock time, wa
 
 Four caps bound a run, and every one of them is optional except the first.
 
-| Cap              |  Default | Counts                                                      |
-| ---------------- | -------: | ----------------------------------------------------------- |
-| `maxIterations`  |    `100` | Reason-and-act cycles in a top-level run                     |
-| `maxCostUSD`     |    unset | Model spend in dollars, **own run plus everything it delegated** |
-| `maxTokens`      |    unset | Prompt plus completion tokens, **own run only, not children** |
-| `maxDurationMs`  |    unset | Wall-clock time                                              |
+| Cap             | Default | Counts                                                           |
+| --------------- | ------: | ---------------------------------------------------------------- |
+| `maxIterations` |   `100` | Reason-and-act cycles in a top-level run                         |
+| `maxCostUSD`    |   unset | Model spend in dollars, **own run plus everything it delegated** |
+| `maxTokens`     |   unset | Prompt plus completion tokens, **own run only, not children**    |
+| `maxDurationMs` |   unset | Wall-clock time                                                  |
 
 That asymmetry on the middle two is deliberate and worth remembering. A cost cap is what you
 want when an agent delegates, because children are where the money goes. A token cap needs no
@@ -26,7 +26,7 @@ Three places, narrowest wins:
 
 ```jsonc
 // ~/.jazz/config.json: every run on this machine
-{ "maxIterations": 60, "maxCostUSD": 2.00 }
+{ "maxIterations": 60, "maxCostUSD": 2.0 }
 ```
 
 ```yaml
@@ -55,8 +55,13 @@ one, so you get asked to confirm rather than losing work in flight.
 ## Watching from a script
 
 ```json
-{ "ok": true, "answer": "…", "costUSD": 0.0041, "costKnown": true,
-  "tokenUsage": { "promptTokens": 1204, "completionTokens": 6, "totalTokens": 1210 } }
+{
+  "ok": true,
+  "answer": "…",
+  "costUSD": 0.0041,
+  "costKnown": true,
+  "tokenUsage": { "promptTokens": 1204, "completionTokens": 6, "totalTokens": 1210 }
+}
 ```
 
 A failed envelope still carries `costUSD`, because a run that timed out still spent money and an

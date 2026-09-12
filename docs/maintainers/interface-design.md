@@ -188,7 +188,7 @@ work is actually happening.
 | Property               | Value                                  |
 | ---------------------- | -------------------------------------- |
 | Lane periods           | 3, 4, 5, 7, 11 frames                  |
-| Burst                  | `▖▚▘`: opening, live, closing         |
+| Burst                  | `▖▚▘`: opening, live, closing          |
 | At rest                | `░`                                    |
 | Cycle before repeating | 4620 frames, about 13 minutes at 170ms |
 
@@ -212,31 +212,31 @@ is byte-identical over SSH rather than approximated by a downgrade.
 
 <!-- generated:palette-dark -->
 
-| Token             | dark      | Role                                                              |
-| ----------------- | --------- | ----------------------------------------------------------------- |
-| `canvas`          | `#0B0D10` | the window's own ground                                           |
-| `primary`         | `#00D7FF` | live, and your own affordances                                    |
+| Token             | dark      | Role                                                             |
+| ----------------- | --------- | ---------------------------------------------------------------- |
+| `canvas`          | `#0B0D10` | the window's own ground                                          |
+| `primary`         | `#00D7FF` | live, and your own affordances                                   |
 | `agent`           | `#00D7FF` | live agent identity: the same accent, because the glyph says who |
-| `accentDim`       | `#00AFD7` | subordinate live content, links, citations                        |
-| `link`            | `#00AFD7` |                                                                   |
-| `success`         | `#5FD787` | it worked                                                         |
-| `error`           | `#FF6B6B` | it broke                                                          |
-| `warning`         | `#D7AF5F` | a scope worth noticing                                            |
+| `accentDim`       | `#00AFD7` | subordinate live content, links, citations                       |
+| `link`            | `#00AFD7` |                                                                  |
+| `success`         | `#5FD787` | it worked                                                        |
+| `error`           | `#FF6B6B` | it broke                                                         |
+| `warning`         | `#D7AF5F` | a scope worth noticing                                           |
 | `info`            | `#A9B2BD` | on the neutral ramp: info is not a hue                           |
-| `selected`        | `#E8EBEF` | primary text                                                      |
-| `prompt`          | `#00D7FF` |                                                                   |
-| `secondary`       | `#A9B2BD` | secondary text                                                    |
-| `muted`           | `#5C6673` | metadata, settled receipts, timestamps                            |
-| `reasoning`       | `#00AFD7` | live, but subordinate to an answer                                |
-| `toolBorder`      | `#22272E` |                                                                   |
-| `surface`         | `#14171B` |                                                                   |
-| `surfaceSoft`     | `#14171B` |                                                                   |
-| `surfaceStrong`   | `#22272E` |                                                                   |
-| `border`          | `#22272E` |                                                                   |
-| `borderSoft`      | `#22272E` |                                                                   |
-| `syntaxStructure` | `#9B8CFF` | keywords and structure                                            |
-| `syntaxValue`     | `#D787AF` | strings, numbers, and inline code                                 |
-| `syntaxType`      | `#92B4C8` | types and constructors                                            |
+| `selected`        | `#E8EBEF` | primary text                                                     |
+| `prompt`          | `#00D7FF` |                                                                  |
+| `secondary`       | `#A9B2BD` | secondary text                                                   |
+| `muted`           | `#5C6673` | metadata, settled receipts, timestamps                           |
+| `reasoning`       | `#00AFD7` | live, but subordinate to an answer                               |
+| `toolBorder`      | `#22272E` |                                                                  |
+| `surface`         | `#14171B` |                                                                  |
+| `surfaceSoft`     | `#14171B` |                                                                  |
+| `surfaceStrong`   | `#22272E` |                                                                  |
+| `border`          | `#22272E` |                                                                  |
+| `borderSoft`      | `#22272E` |                                                                  |
+| `syntaxStructure` | `#9B8CFF` | keywords and structure                                           |
+| `syntaxValue`     | `#D787AF` | strings, numbers, and inline code                                |
+| `syntaxType`      | `#92B4C8` | types and constructors                                           |
 
 <!-- /generated:palette-dark -->
 
@@ -247,31 +247,31 @@ to separate by hue rather than by lightness.
 
 <!-- generated:palette-light -->
 
-| Token             | light     | Role                                                              |
-| ----------------- | --------- | ----------------------------------------------------------------- |
-| `canvas`          | `#FBFCFD` | the window's own ground                                           |
-| `primary`         | `#00718F` | live, and your own affordances                                    |
+| Token             | light     | Role                                                             |
+| ----------------- | --------- | ---------------------------------------------------------------- |
+| `canvas`          | `#FBFCFD` | the window's own ground                                          |
+| `primary`         | `#00718F` | live, and your own affordances                                   |
 | `agent`           | `#00718F` | live agent identity: the same accent, because the glyph says who |
-| `accentDim`       | `#005F87` | subordinate live content, links, citations                        |
-| `link`            | `#005F87` |                                                                   |
-| `success`         | `#116B3E` | it worked                                                         |
-| `error`           | `#B3261E` | it broke                                                          |
-| `warning`         | `#8A5F00` | a scope worth noticing                                            |
+| `accentDim`       | `#005F87` | subordinate live content, links, citations                       |
+| `link`            | `#005F87` |                                                                  |
+| `success`         | `#116B3E` | it worked                                                        |
+| `error`           | `#B3261E` | it broke                                                         |
+| `warning`         | `#8A5F00` | a scope worth noticing                                           |
 | `info`            | `#4A525E` | on the neutral ramp: info is not a hue                           |
-| `selected`        | `#12151A` | primary text                                                      |
-| `prompt`          | `#00718F` |                                                                   |
-| `secondary`       | `#4A525E` | secondary text                                                    |
-| `muted`           | `#767F8C` | metadata, settled receipts, timestamps                            |
-| `reasoning`       | `#005F87` | live, but subordinate to an answer                                |
-| `toolBorder`      | `#D9DEE5` |                                                                   |
-| `surface`         | `#F1F3F6` |                                                                   |
-| `surfaceSoft`     | `#F1F3F6` |                                                                   |
-| `surfaceStrong`   | `#D9DEE5` |                                                                   |
-| `border`          | `#D9DEE5` |                                                                   |
-| `borderSoft`      | `#D9DEE5` |                                                                   |
-| `syntaxStructure` | `#5B3FBF` | keywords and structure                                            |
-| `syntaxValue`     | `#9B2C6F` | strings, numbers, and inline code                                 |
-| `syntaxType`      | `#2F6690` | types and constructors                                            |
+| `selected`        | `#12151A` | primary text                                                     |
+| `prompt`          | `#00718F` |                                                                  |
+| `secondary`       | `#4A525E` | secondary text                                                   |
+| `muted`           | `#767F8C` | metadata, settled receipts, timestamps                           |
+| `reasoning`       | `#005F87` | live, but subordinate to an answer                               |
+| `toolBorder`      | `#D9DEE5` |                                                                  |
+| `surface`         | `#F1F3F6` |                                                                  |
+| `surfaceSoft`     | `#F1F3F6` |                                                                  |
+| `surfaceStrong`   | `#D9DEE5` |                                                                  |
+| `border`          | `#D9DEE5` |                                                                  |
+| `borderSoft`      | `#D9DEE5` |                                                                  |
+| `syntaxStructure` | `#5B3FBF` | keywords and structure                                           |
+| `syntaxValue`     | `#9B2C6F` | strings, numbers, and inline code                                |
+| `syntaxType`      | `#2F6690` | types and constructors                                           |
 
 <!-- /generated:palette-light -->
 
@@ -336,19 +336,19 @@ permission to send an email, write to a calendar, or post in a channel other
 people read. There is no undo, so this is the most consequential component in the
 product.
 
-| Rule                                                   | Why                                                                                                                       |
-| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------- |
-| It is a different class of object                      | Whatever the visual language is, this block breaks it in one deliberate way. It must never look like another log line     |
+| Rule                                                   | Why                                                                                                                      |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
+| It is a different class of object                      | Whatever the visual language is, this block breaks it in one deliberate way. It must never look like another log line    |
 | It names the real account, verbatim                    | Not "your calendar": the actual address. The trust argument is that Jazz always says which real-world object is in scope |
-| Every resulting field, before you commit               | Title, exact time with timezone, every attendee, which calendar. Nothing discoverable only after pressing enter           |
-| Irreversibility stated in prose                        | A sentence, not an icon                                                                                                   |
-| It reads as a decision, not a fault                    | Red belongs to things that already broke; colouring a choice like an error teaches people to dismiss errors               |
-| It animates in, then holds perfectly still             | Persistent motion reads as pressure, and pressure on an irreversible choice is a dark pattern                             |
-| Controls sit outside the data frame                    | The card is what will happen; the line beneath is what you can do                                                         |
-| Reject is as available as accept                       | Hiding the alternative is how consent theatre works                                                                       |
-| "Always allow" is the least attractive thing on screen | The irreversible convenience option should be findable, never inviting                                                    |
+| Every resulting field, before you commit               | Title, exact time with timezone, every attendee, which calendar. Nothing discoverable only after pressing enter          |
+| Irreversibility stated in prose                        | A sentence, not an icon                                                                                                  |
+| It reads as a decision, not a fault                    | Red belongs to things that already broke; colouring a choice like an error teaches people to dismiss errors              |
+| It animates in, then holds perfectly still             | Persistent motion reads as pressure, and pressure on an irreversible choice is a dark pattern                            |
+| Controls sit outside the data frame                    | The card is what will happen; the line beneath is what you can do                                                        |
+| Reject is as available as accept                       | Hiding the alternative is how consent theatre works                                                                      |
+| "Always allow" is the least attractive thing on screen | The irreversible convenience option should be findable, never inviting                                                   |
 | A distinct glyph for asking versus speaking            | `▐` asking, `╶` speaking: one codepoint carrying a real semantic distinction                                             |
-| On failure, say what did _not_ happen                  | Silence about state destroys trust, and auth failure is this product's characteristic error                               |
+| On failure, say what did _not_ happen                  | Silence about state destroys trust, and auth failure is this product's characteristic error                              |
 
 Two of these are safety requirements rather than aesthetics. The card opens in a
 deny-only state for 250ms, so buffered Enter and always-allow keys are discarded
