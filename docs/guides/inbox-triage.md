@@ -63,7 +63,26 @@ Run the same policy the scheduler will use:
 jazz workflow run morning-inbox --auto-approve
 ```
 
-Check that the result identifies real obligations and that `jazz workflow history morning-inbox` records it. If a read command is declined, inspect the proposed command rather than raising the entire policy.
+### What you should see
+
+A briefing in the four sections the prompt asked for, and nothing else:
+
+```text
+## Reply today
+- Priya Raman - "Contract redline v3" - asks you to confirm clause 7.2 by Friday 17:00.
+- billing@fastly.com - "Card declined" - payment retry fails in 3 days.
+
+## Action without reply
+- URSSAF - Q1 declaration form, due 2026-04-30.
+
+## Read when possible
+- Marc - trip photos, no action.
+
+## Noise count
+41 newsletters, 12 automated notifications, 6 marketing.
+```
+
+Two things to check beyond the content. `jazz workflow history morning-inbox` should record the run, and the mailbox should be untouched: same unread count, nothing archived. If a read command is declined, inspect the proposed command rather than raising the entire policy.
 
 Do not add `himalaya` broadly to `autoApprovedCommands`: Jazz keys that allowlist by binary and first subcommand, and a broad entry can authorize more mailbox actions than this briefing needs.
 

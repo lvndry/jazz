@@ -101,6 +101,25 @@ exit "$status"
 jazz runs show <run-id>
 ```
 
+### What you should see
+
+The run parked rather than finished, with the pending call spelled out in full:
+
+```text
+run_01JKX8  parked  agent: incident-responder  cost: $0.18
+
+Waiting on: mcp_cloudflare_waf_rule_create (high-risk)
+  zone_id:    8f21c0e3…
+  expression: (ip.src eq 203.0.113.44 and http.request.uri.path eq "/v1/login")
+  action:     managed_challenge
+  notes:      "Rollback: delete rule; review 2026-04-22"
+
+Reasoning: 4,112 requests from one address to /v1/login in 9 minutes, 98% 401.
+Rejected: zone-wide rate limit (would affect the /v1/search spike from a partner).
+```
+
+The exit code is `2`, and production traffic is unchanged until you answer.
+
 Verify:
 
 - the source, path, zone, and time window match the evidence;

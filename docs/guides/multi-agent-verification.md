@@ -83,6 +83,37 @@ jazz workflow run change-council \
 
 The event stream shows each child start and finish while the final answer remains clean. Each child has isolated context and a bounded iteration budget inherited from Jazz's subagent configuration. Invalid structured output returns validation errors to the parent instead of silently becoming evidence.
 
+### What you should see
+
+Three subagent events on stderr while the run works, one pair per reviewer:
+
+```text
+{"type":"subagent_started","agentName":"Sub-Agent (coder)","task":"Correctness: trace the affected code paths…"}
+{"type":"subagent_finished","agentName":"Sub-Agent (coder)","costUSD":0.031,"iterations":9}
+```
+
+Then one envelope on stdout. `answer` is the parent's reconciliation, not a concatenation of the three reviews:
+
+```json
+{
+  "ok": true,
+  "answer": "VERDICT: revise
+
+Correctness found that retryUpload() assumes the stream is replayable; PROPOSAL.md line 34 reuses the same Readable across attempts, so attempt 2 uploads zero bytes (src/upload.ts:88).
+Security found no new trust boundary.
+Simplicity found withRetry() in src/net/retry.ts already does this.
+
+Required before implementing:
+1. Buffer or re-open the stream per attempt.
+2. Use withRetry() instead of a second retry loop.",
+  "costUSD": 0.214,
+  "costKnown": true,
+  "tokenUsage": { "promptTokens": 48213, "completionTokens": 3102, "totalTokens": 51315 }
+}
+```
+
+`costUSD` includes all three children. If a reviewer returns a `review` object that does not validate against the schema, the parent receives the validation error and re-delegates rather than treating prose as evidence, which shows up as a fourth subagent pair in the stream.
+
 ## 5. Use the verdict as a gate
 
 In CI, capture the result with Jazz's headless output contract and require a human to accept `revise` or `block`. Do not let the reviewers merge code themselves. Review and mutation should remain separate capabilities.

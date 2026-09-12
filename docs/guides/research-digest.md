@@ -74,7 +74,28 @@ jazz workflow run agent-harness-radar --auto-approve
 jazz workflow history agent-harness-radar
 ```
 
-Verify every material claim has a direct source and date. A report that cannot establish recency should state that limitation, not quietly include the item.
+### What you should see
+
+The four sections from the prompt, with a dated source on every claim:
+
+```text
+## What changed
+- vLLM 0.12 ships prefix-caching for multi-turn tool calls (2026-03-28, release notes).
+  Matters because our harness re-sends the same 12k system prefix on every iteration.
+
+## One claim worth testing
+- "Structured output removes the need for a validation pass" (vendor blog, 2026-03-31).
+  Testable: run 200 delegations with and without schema validation, count malformed results.
+
+## Disagreements and uncertainty
+- Two benchmarks disagree on tool-call accuracy for the same model; neither publishes its
+  harness. Treat both as unverified.
+
+## Quiet-week note
+Nothing new on context compaction this week.
+```
+
+That last section is the one to check. A week with no real news should produce the quiet-week note, not four items of filler. Verify every material claim has a direct source and date; a report that cannot establish recency should state that limitation rather than quietly including the item.
 
 ## 4. Schedule it
 
