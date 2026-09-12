@@ -20,6 +20,11 @@ type ModeSwitchHandler = (mode: "safe" | "yolo") => void;
 const EMPTY_STREAM = "";
 const EMPTY_OUTPUT_ENTRIES: readonly OutputEntryWithId[] = [];
 const EMPTY_QUEUE: readonly string[] = [];
+
+function isQueuedCommand(entry: string): boolean {
+  const trimmed = entry.trim();
+  return (trimmed.startsWith("/") || trimmed.startsWith("!")) && !trimmed.includes("\n");
+}
 const EMPTY_REGIONS: readonly EphemeralRegion[] = [];
 const EMPTY_CONNECTORS: ReadonlyMap<string, ConnectorStatus> = new Map();
 const EMPTY_RUN_STATS: RunStats = {};
@@ -466,6 +471,33 @@ export class UIStore {
     const value = queue.join("\n");
     patchSlice(this.prompt, { messageQueue: EMPTY_QUEUE });
     return value;
+  };
+
+  /**
+   * Pop the leading run of prose entries, leaving any slash/shell command at
+   * the head (and everything behind it) queued. Used mid-run so a queued
+   * command is never injected into the model conversation as text.
+   */
+  takeQueuedProse = (): readonly string[] => {
+    const queue = this.prompt.getSnapshot().messageQueue;
+    const firstCommand = queue.findIndex(isQueuedCommand);
+    const end = firstCommand === -1 ? queue.length : firstCommand;
+    if (end === 0) return EMPTY_QUEUE;
+    patchSlice(this.prompt, { messageQueue: queue.slice(end) });
+    return queue.slice(0, end);
+  };
+
+  /**
+   * Pop the next turn: a command at the head runs alone, otherwise the
+   * leading prose run is sent as one combined message.
+   */
+  takeQueuedTurn = (): readonly string[] => {
+    const queue = this.prompt.getSnapshot().messageQueue;
+    const head = queue[0];
+    if (head === undefined) return EMPTY_QUEUE;
+    if (!isQueuedCommand(head)) return this.takeQueuedProse();
+    patchSlice(this.prompt, { messageQueue: queue.slice(1) });
+    return [head];
   };
 
   clearQueue = (): void => {

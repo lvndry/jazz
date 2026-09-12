@@ -621,14 +621,14 @@ describe("input", () => {
     expect(some).toHaveLength(2 + MAX_VISIBLE_QUEUED);
   });
 
-  it("collapses queued newlines and warns when a slash command is mixed in", () => {
+  it("collapses queued newlines in the preview", () => {
     const some = inputRows(
       { ...base, queued: ["/clear", "keep going"] },
       { width: WIDTH, height: HEIGHT },
     );
     const text = some.map((row) => row.segments.map((s) => s.text).join("")).join("\n");
     expect(text).toContain("/clear");
-    expect(text).toContain("sent as text, not run");
+    expect(text).not.toContain("sent as text, not run");
     expect(text).toContain("keep going");
 
     const wrapped = inputRows(

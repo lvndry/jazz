@@ -150,23 +150,13 @@ function previewQueuedEntry(entry: string): string {
   return entry.replace(/\s+/g, " ").trim();
 }
 
-function queuePreviewRows(
-  entries: readonly string[],
-  width: number,
-  glyphs: GlyphSet,
-  mixedQueue: boolean,
-): InputRow[] {
+function queuePreviewRows(entries: readonly string[], width: number, glyphs: GlyphSet): InputRow[] {
   return entries.map((entry, index) => {
     const oneLine = previewQueuedEntry(entry);
-    // Slash commands only run when they are the whole queue; mixed in they
-    // go to the model as prose, so say so while the entry is still editable.
-    const slashWarning =
-      mixedQueue && oneLine.startsWith("/") ? " (sent as text, not run — queue it alone)" : "";
     const segments: InputSegment[] = [
       { text: `${glyphs.rail} `, fg: THEME.border },
       { text: `${glyphs.bullet} `, fg: THEME.muted },
       { text: oneLine, fg: THEME.muted },
-      ...(slashWarning.length > 0 ? [{ text: slashWarning, fg: THEME.warning }] : []),
     ];
     return {
       key: `queue:${String(index)}:${oneLine}`,
@@ -334,7 +324,7 @@ export function inputRows(
     rows.push(alignRow("chrome", left, right, width));
   }
   if (visibleQueued.length > 0) {
-    rows.push(...queuePreviewRows(visibleQueued, width, glyphs, queuedCount > 1));
+    rows.push(...queuePreviewRows(visibleQueued, width, glyphs));
   }
 
   // The caret's own line may have scrolled out of `visible` — the window

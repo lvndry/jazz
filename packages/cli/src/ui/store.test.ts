@@ -624,6 +624,45 @@ describe("UIStore", () => {
       expect(s.takeQueue()).toBe("");
     });
 
+    test("takeQueuedTurn pops a head command alone and leaves the rest queued", () => {
+      const s = new UIStore();
+      s.appendToQueue("/info");
+      s.appendToQueue("keep going");
+      s.appendToQueue("and this");
+
+      expect(s.takeQueuedTurn()).toEqual(["/info"]);
+      expect(s.getMessageQueueSnapshot()).toEqual(["keep going", "and this"]);
+      expect(s.takeQueuedTurn()).toEqual(["keep going", "and this"]);
+      expect(s.getMessageQueueSnapshot()).toEqual([]);
+    });
+
+    test("takeQueuedTurn stops a prose run at the next command", () => {
+      const s = new UIStore();
+      s.appendToQueue("first");
+      s.appendToQueue("! git status");
+      s.appendToQueue("last");
+
+      expect(s.takeQueuedTurn()).toEqual(["first"]);
+      expect(s.takeQueuedTurn()).toEqual(["! git status"]);
+      expect(s.takeQueuedTurn()).toEqual(["last"]);
+      expect(s.takeQueuedTurn()).toEqual([]);
+    });
+
+    test("takeQueuedProse never pops a command, so mid-run injection skips it", () => {
+      const s = new UIStore();
+      s.appendToQueue("/compact");
+      s.appendToQueue("note");
+      expect(s.takeQueuedProse()).toEqual([]);
+      expect(s.getMessageQueueSnapshot()).toEqual(["/compact", "note"]);
+
+      const t = new UIStore();
+      t.appendToQueue("a");
+      t.appendToQueue("/slash\nstill prose");
+      t.appendToQueue("/help");
+      expect(t.takeQueuedProse()).toEqual(["a", "/slash\nstill prose"]);
+      expect(t.getMessageQueueSnapshot()).toEqual(["/help"]);
+    });
+
     test("clearQueue empties the array", () => {
       const s = new UIStore();
       s.appendToQueue("a");
