@@ -13,7 +13,7 @@ export const collections = {
     }),
   }),
   marketplace: defineCollection({
-    loader: glob({ pattern: "**/persona.md", base: "../../marketplace/personas" }),
+    loader: glob({ pattern: "**/{PERSONA,persona}.md", base: "../../marketplace/personas" }),
     schema: z.object({
       name: z.string(),
       description: z.string(),
