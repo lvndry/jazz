@@ -8,7 +8,7 @@ export async function getStaticPaths() {
   }));
 }
 
-/** The raw `persona.md`, exactly as `jazz persona install` parses it. */
+/** The raw `PERSONA.md`, exactly as `jazz persona install` parses it. */
 export function GET(context: { props: { entry: MarketplaceEntry } }): Response {
   const { entry } = context.props;
   const { name, description, tone, style, author, tags } = entry.data;

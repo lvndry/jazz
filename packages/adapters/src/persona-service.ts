@@ -1,6 +1,6 @@
 /**
  * Implements `PersonaService`: reading built-in personas and creating/managing user-defined
- * ones, each backed by a `persona.md` file with YAML frontmatter.
+ * ones, each backed by a `PERSONA.md` file with YAML frontmatter.
  */
 
 import * as fs from "node:fs/promises";
@@ -21,7 +21,18 @@ import { getBuiltinPersonasDirectory } from "@jazz/core/utils/paths";
 import { Effect, Layer, Option } from "effect";
 import matter from "gray-matter";
 
-const PERSONA_DEFINITION_FILENAME = "persona.md" as const;
+const PERSONA_DEFINITION_FILENAMES = ["PERSONA.md", "persona.md"] as const;
+const PERSONA_DEFINITION_FILENAME = PERSONA_DEFINITION_FILENAMES[0];
+
+async function readPersonaDefinition(personaDir: string): Promise<string> {
+  const [canonical, legacy] = PERSONA_DEFINITION_FILENAMES;
+  try {
+    return await fs.readFile(path.join(personaDir, canonical), "utf-8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    return await fs.readFile(path.join(personaDir, legacy), "utf-8");
+  }
+}
 
 /**
  * Escapes a string for use as a YAML double-quoted scalar.
@@ -80,7 +91,7 @@ export interface PersonaServiceImplOptions {
   readonly builtinPersonasDir?: string;
 }
 
-/** Metadata from persona.md frontmatter (used for scanning). */
+/** Metadata from PERSONA.md frontmatter (used for scanning). */
 interface PersonaMetadata {
   readonly path: string;
   readonly name: string;
@@ -132,9 +143,9 @@ function parseToolProfile(data: Record<string, unknown>): PersonaToolProfile | u
 /**
  * File-based PersonaService implementation
  *
- * Scans two directories for persona.md files (like skills and workflows):
- * 1. Built-in: package personas/<name>/persona.md
- * 2. Custom: ~/.jazz/personas/<name>/persona.md
+ * Scans two directories for PERSONA.md files (like skills and workflows):
+ * 1. Built-in: package personas/<name>/PERSONA.md
+ * 2. Custom: ~/.jazz/personas/<name>/PERSONA.md
  *
  * Frontmatter: name, description, tone?, style?
  * Body: the system prompt (raw markdown).
@@ -166,7 +177,7 @@ export class PersonaServiceImpl implements PersonaService {
   }
 
   /**
-   * Load a Persona from a persona.md file.
+   * Load a Persona from a PERSONA.md file.
    */
   private loadPersonaFromFile(
     personaDir: string,
@@ -175,7 +186,7 @@ export class PersonaServiceImpl implements PersonaService {
     return Effect.gen(function* () {
       const filePath = path.join(personaDir, PERSONA_DEFINITION_FILENAME);
       const content = yield* Effect.tryPromise({
-        try: () => fs.readFile(filePath, "utf-8"),
+        try: () => readPersonaDefinition(personaDir),
         catch: (error) => {
           if (
             error instanceof Error &&
@@ -301,7 +312,7 @@ updatedAt: "${now.toISOString()}"
         const builtinName = id.startsWith("builtin-") ? id.slice("builtin-".length) : id;
         const builtinDir = this.getBuiltinPersonasDir();
 
-        // 1. Try built-in: personas/<name>/persona.md
+        // 1. Try built-in: personas/<name>/PERSONA.md
         if (builtinDir) {
           const builtinPath = path.join(builtinDir, builtinName);
           const builtinResult = yield* this.loadPersonaFromFile(
@@ -333,7 +344,7 @@ updatedAt: "${now.toISOString()}"
           }
         }
 
-        // 2. Try custom: ~/.jazz/personas/<id>/persona.md
+        // 2. Try custom: ~/.jazz/personas/<id>/PERSONA.md
         const customDir = this.getPersonaDir(id);
         const customResult = yield* this.loadPersonaFromFile(customDir, id).pipe(
           Effect.catchTag("StorageNotFoundError", () => Effect.succeed(null)),
@@ -369,7 +380,7 @@ updatedAt: "${now.toISOString()}"
   }
 
   /**
-   * List personas from a directory (persona.md files).
+   * List personas from a directory (PERSONA.md files).
    */
   private listPersonasFromDir(
     dir: string,
@@ -396,8 +407,11 @@ updatedAt: "${now.toISOString()}"
         );
 
         const personas: Persona[] = [];
+        const seenDirs = new Set<string>();
         for (const m of meta) {
           if (excludeSummarizer && m.name === "summarizer") continue;
+          if (seenDirs.has(m.path)) continue;
+          seenDirs.add(m.path);
           const persona = yield* this.loadPersonaFromFile(
             m.path,
             source === "builtin" ? `builtin-${m.name}` : m.name,
@@ -705,6 +719,20 @@ function validatePersonaDescription(description: string): Effect.Effect<void, Va
   return Effect.void;
 }
 
+const SUBSTITUTED_PLACEHOLDERS = [
+  "{agentName}",
+  "{agentDescription}",
+  "{environment}",
+  "{currentDate}",
+  "{osInfo}",
+  "{hardware}",
+  "{shell}",
+  "{homeDirectory}",
+  "{hostname}",
+  "{username}",
+  "{tty}",
+] as const;
+
 function validatePersonaSystemPrompt(systemPrompt: string): Effect.Effect<void, ValidationError> {
   if (!systemPrompt || systemPrompt.trim().length === 0) {
     return Effect.fail(
@@ -716,6 +744,20 @@ function validatePersonaSystemPrompt(systemPrompt: string): Effect.Effect<void, 
           "Provide instructions that define how the persona should behave, e.g., 'You are a cyberpunk hacker. Always use technical jargon and l33t speak...'",
       }),
     );
+  }
+
+  for (const placeholder of SUBSTITUTED_PLACEHOLDERS) {
+    const occurrences = systemPrompt.split(placeholder).length - 1;
+    if (occurrences > 1) {
+      return Effect.fail(
+        new ValidationError({
+          field: "systemPrompt",
+          message: `${placeholder} appears ${occurrences} times — only the first is substituted`,
+          value: placeholder,
+          suggestion: `Use ${placeholder} at most once. Later occurrences reach the model as literal text.`,
+        }),
+      );
+    }
   }
 
   if (systemPrompt.length > 10000) {

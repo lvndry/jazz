@@ -9,7 +9,12 @@ import { describe, expect, test } from "bun:test";
  * as a literal token. This test locks that contract.
  */
 
-const PERSONAS_DIR = join(dirname(fileURLToPath(import.meta.url)), "../../../../personas");
+const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "../../../..");
+
+const PERSONA_SOURCES = [
+  { label: "personas", dir: join(REPO_ROOT, "personas") },
+  { label: "marketplace/personas", dir: join(REPO_ROOT, "marketplace/personas") },
+] as const;
 
 // Identity placeholders, substituted from the agent's own config.
 const IDENTITY_PLACEHOLDERS = ["{agentName}", "{agentDescription}"] as const;
@@ -31,17 +36,17 @@ function countOccurrences(haystack: string, needle: string): number {
   return count;
 }
 
-const personaNames = readdirSync(PERSONAS_DIR, { withFileTypes: true })
-  .filter((entry) => entry.isDirectory())
-  .map((entry) => entry.name);
+describe.each(PERSONA_SOURCES)("persona placeholder contract ($label)", ({ label, dir }) => {
+  const personaNames = readdirSync(dir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name);
 
-describe("persona placeholder contract", () => {
   test("personas directory is discoverable", () => {
     expect(personaNames.length).toBeGreaterThan(0);
   });
 
   for (const persona of personaNames) {
-    const path = join(PERSONAS_DIR, persona, "persona.md");
+    const path = join(dir, persona, "PERSONA.md");
     const content = readFileSync(path, "utf-8");
 
     test(`${persona}: each placeholder appears at most once`, () => {
@@ -49,7 +54,7 @@ describe("persona placeholder contract", () => {
         const occurrences = countOccurrences(content, placeholder);
         expect(
           occurrences,
-          `${placeholder} appears ${occurrences} times in personas/${persona}/persona.md — .replace substitutes only the first`,
+          `${placeholder} appears ${occurrences} times in ${label}/${persona}/PERSONA.md — .replace substitutes only the first`,
         ).toBeLessThanOrEqual(1);
       }
     });
