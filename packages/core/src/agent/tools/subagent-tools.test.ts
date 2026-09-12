@@ -324,7 +324,7 @@ describe("spawn_subagent persona handling", () => {
       );
 
       // The persona reaches the child as config, so AgentPromptBuilder resolves
-      // the packaged persona.md into its system prompt.
+      // the packaged PERSONA.md into its system prompt.
       expect(captured?.agent.config.persona).toBe("coder");
       // The task itself must not carry a competing one-line persona blurb.
       expect(captured?.userInput).not.toContain("specialist");

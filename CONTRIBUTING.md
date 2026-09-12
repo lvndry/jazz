@@ -17,7 +17,7 @@ from one it doesn't declare as a dependency, not just a documented convention.
 | `packages/core`         | Business logic, interfaces, types (no I/O); publishable as `@jazz/core` | nothing else in the workspace    |
 | `packages/adapters`     | Service implementations (LLM, storage, MCP, keyring, etc.)              | `core`                           |
 | `packages/cli`          | Ink/OpenTUI commands and presentation                                   | `core`                           |
-| `packages/runtime`      | Composition root: wires core+adapters+cli into the `jazz` binary       | `core`, `adapters`, `cli`        |
+| `packages/runtime`      | Composition root: wires core+adapters+cli into the `jazz` binary        | `core`, `adapters`, `cli`        |
 | `packages/bot-shared`   | Shared run-logging/usage helpers for the bot bridges                    | `core`                           |
 | `packages/telegram-bot` | Telegram bridge                                                         | `core`, `adapters`, `bot-shared` |
 | `packages/discord-bot`  | Discord bridge                                                          | `core`, `adapters`, `bot-shared` |
@@ -113,9 +113,9 @@ existing trust relationship for a package name it has never seen published.
 
 ## Contributing a Persona
 
-The persona marketplace is a directory in this repo, not a hosted service. `marketplace/personas/<name>/persona.md`. To add one:
+The persona marketplace is a directory in this repo, not a hosted service. `marketplace/personas/<name>/PERSONA.md`. To add one:
 
-1. Create `marketplace/personas/<name>/persona.md` with frontmatter (`name`, `description`, optional `tone`, `style`, `author`, `tags`) and the system prompt in the body. Same format as the built-ins in `personas/`, which are worth reading first.
+1. Create `marketplace/personas/<name>/PERSONA.md` with frontmatter (`name`, `description`, optional `tone`, `style`, `author`, `tags`) and the system prompt in the body. Same format as the built-ins in `personas/`, which are worth reading first.
 2. Keep the prompt under 10,000 characters. `jazz persona install` refuses anything longer.
 3. Open a PR. Merging publishes it to <https://jazz-cli.vercel.app/marketplace> and to `jazz persona browse`.
 

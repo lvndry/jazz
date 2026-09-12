@@ -4,7 +4,7 @@ export type MarketplaceEntry = CollectionEntry<"marketplace">;
 
 /**
  * One persona as the CLI's `personas.json` index describes it: metadata plus the
- * URL of the raw `persona.md`. The prompt body is deliberately not inlined —
+ * URL of the raw `PERSONA.md`. The prompt body is deliberately not inlined —
  * browsing a catalog should not download every prompt in it.
  */
 export interface MarketplaceIndexEntry {

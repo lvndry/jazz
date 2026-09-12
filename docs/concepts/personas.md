@@ -15,7 +15,7 @@ read-only investigation, and `summarizer`, which is internal and has no user to 
 
 ## What a persona file looks like
 
-One `persona.md` per persona, frontmatter plus prompt:
+One `PERSONA.md` per persona, frontmatter plus prompt:
 
 ```markdown
 ---
@@ -61,7 +61,7 @@ your agent can do to your machine.
 
 ## Where they come from
 
-Built-in personas ship with Jazz. Your own live in `~/.jazz/personas/<name>/persona.md`, written
+Built-in personas ship with Jazz. Your own live in `~/.jazz/personas/<name>/PERSONA.md`, written
 by hand or with `jazz persona create`. The marketplace is the third source:
 
 ```bash

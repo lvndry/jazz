@@ -12,12 +12,16 @@ import { AgentPromptBuilder, type AgentPromptOptions } from "./agent-prompt";
  * ask_user_question or ask_file_picker.
  */
 
-function personaServiceReturning(systemPrompt: string): PersonaService {
+function personaServiceReturning(
+  systemPrompt: string,
+  voice: { tone?: string; style?: string } = {},
+): PersonaService {
   const persona: Persona = {
     id: "test-id",
     name: "test",
     description: "test persona",
     systemPrompt,
+    ...voice,
     createdAt: new Date(0),
     updatedAt: new Date(0),
   };
@@ -26,7 +30,11 @@ function personaServiceReturning(systemPrompt: string): PersonaService {
   } as unknown as PersonaService;
 }
 
-function build(personaName: string, options: Partial<AgentPromptOptions> = {}): string {
+function build(
+  personaName: string,
+  options: Partial<AgentPromptOptions> = {},
+  voice: { tone?: string; style?: string } = {},
+): string {
   const builder = new AgentPromptBuilder();
   const fullOptions: AgentPromptOptions = {
     agentName: "Test",
@@ -38,10 +46,61 @@ function build(personaName: string, options: Partial<AgentPromptOptions> = {}): 
     builder.buildSystemPrompt(
       personaName,
       fullOptions,
-      personaServiceReturning("You are {agentName}."),
+      personaServiceReturning("You are {agentName}.", voice),
     ),
   );
 }
+
+describe("persona voice reminder", () => {
+  test("tone and style are restated, and land after everything else", () => {
+    const result = build(
+      "noir",
+      {
+        toolNames: ["run_command"],
+        projectInstructions: [{ path: "/repo/AGENTS.md", content: "Use tabs." }],
+      },
+      { tone: "hardboiled", style: "atmospheric" },
+    );
+
+    expect(result).toContain("tone hardboiled, style atmospheric");
+    expect(result.indexOf("# Voice")).toBeGreaterThan(result.indexOf("# Seeing work through"));
+    expect(result.indexOf("# Voice")).toBeGreaterThan(result.indexOf("Use tabs."));
+  });
+
+  test("either field alone is enough", () => {
+    expect(build("noir", {}, { tone: "hardboiled" })).toContain("tone hardboiled");
+    expect(build("noir", {}, { style: "atmospheric" })).toContain("style atmospheric");
+  });
+
+  test("a persona declaring neither gets no voice block", () => {
+    expect(build("default")).not.toContain("# Voice");
+    expect(build("default", {}, { tone: "  ", style: "" })).not.toContain("# Voice");
+  });
+
+  test("the summarizer has no reader to perform for", () => {
+    expect(build("summarizer", {}, { tone: "hardboiled" })).not.toContain("# Voice");
+  });
+
+  test("editing only the frontmatter voice still busts the prompt cache", () => {
+    const builder = new AgentPromptBuilder();
+    const options: AgentPromptOptions = {
+      agentName: "Test",
+      agentDescription: "a test agent.",
+      userInput: "hello",
+    };
+    const withTone = (tone: string) =>
+      Effect.runSync(
+        builder.buildSystemPrompt(
+          "noir",
+          options,
+          personaServiceReturning("You are {agentName}.", { tone }),
+        ),
+      );
+
+    expect(withTone("hardboiled")).toContain("tone hardboiled");
+    expect(withTone("chipper")).toContain("tone chipper");
+  });
+});
 
 describe("completion instructions injection", () => {
   test("acting personas get the completion contract", () => {

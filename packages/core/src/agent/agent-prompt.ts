@@ -72,6 +72,8 @@ export interface AgentPersona {
   readonly description: string;
   readonly systemPrompt: string;
   readonly userPromptTemplate: string;
+  readonly tone?: string;
+  readonly style?: string;
 }
 
 export interface AgentPromptOptions {
@@ -170,6 +172,19 @@ function getSkillIndexLineFromOption(s: {
   return desc;
 }
 
+function formatPersonaVoice(persona: AgentPersona): string {
+  return [
+    persona.tone && persona.tone.trim().length > 0 ? `tone ${persona.tone.trim()}` : "",
+    persona.style && persona.style.trim().length > 0 ? `style ${persona.style.trim()}` : "",
+  ]
+    .filter((part) => part.length > 0)
+    .join(", ");
+}
+
+function renderVoiceReminder(voice: string): string {
+  return `\n\n# Voice\n\nThis persona speaks in a specific register — ${voice}. Hold it in every reply, including the last one of a long run, and where it conflicts with the generic formatting habits above, the persona's voice wins. Never break character to announce the register; just use it.\n`;
+}
+
 export class AgentPromptBuilder {
   private systemPromptCache = new Map<string, string>();
 
@@ -200,18 +215,20 @@ export class AgentPromptBuilder {
 
   /**
    * Compute a cache key for system prompt based on inputs that affect the output.
-   * Includes the persona's system prompt content so edits to custom personas
-   * are reflected immediately without waiting for a process restart.
+   * Includes the persona's system prompt content and voice fields so edits to
+   * custom personas are reflected immediately without waiting for a restart.
    * Includes date string to invalidate daily (since prompts include current date).
    */
   private computeSystemPromptCacheKey(
     personaName: string,
     options: AgentPromptOptions,
     personaSystemPrompt: string,
+    personaVoice: string,
   ): string {
     const hash = createHash("md5");
     hash.update(personaName);
     hash.update(personaSystemPrompt);
+    hash.update(personaVoice);
     hash.update(options.agentName);
     hash.update(options.agentDescription);
     if (options.knownSkills && options.knownSkills.length > 0) {
@@ -244,7 +261,7 @@ export class AgentPromptBuilder {
 
   /**
    * Resolve a persona by name via PersonaService (built-in and custom).
-   * Built-in personas ship in the package under personas/<name>/persona.md;
+   * Built-in personas ship in the package under personas/<name>/PERSONA.md;
    * custom personas live in ~/.jazz/personas/.
    *
    * There is no built-in fallback prompt. A persona that cannot be resolved is
@@ -275,7 +292,7 @@ export class AgentPromptBuilder {
           return yield* Effect.fail(
             new Error(
               `Persona "${name}" has an empty system prompt. Built-in personas ship ` +
-                `with the package under personas/<name>/persona.md.`,
+                `with the package under personas/<name>/PERSONA.md.`,
             ),
           );
         }
@@ -285,6 +302,8 @@ export class AgentPromptBuilder {
           description: persona.description,
           systemPrompt: persona.systemPrompt,
           userPromptTemplate: "{userInput}",
+          ...(persona.tone !== undefined && { tone: persona.tone }),
+          ...(persona.style !== undefined && { style: persona.style }),
         } satisfies AgentPersona;
       }.bind(this),
     );
@@ -311,11 +330,13 @@ export class AgentPromptBuilder {
         // Resolve persona first so its content is included in the cache key.
         // This ensures edits to custom personas invalidate the cache immediately.
         const persona = yield* this.resolvePersona(personaName, personaService);
+        const voice = formatPersonaVoice(persona);
 
         const cacheKey = this.computeSystemPromptCacheKey(
           personaName,
           options,
           persona.systemPrompt,
+          voice,
         );
         const cached = this.systemPromptCache.get(cacheKey);
         if (cached) return cached;
@@ -416,6 +437,10 @@ ${indexLines}
         // has before the conversation itself.
         if (options.projectInstructions && options.projectInstructions.length > 0) {
           systemPrompt = systemPrompt + renderProjectInstructions(options.projectInstructions);
+        }
+
+        if (personaName !== "summarizer" && voice.length > 0) {
+          systemPrompt = systemPrompt + renderVoiceReminder(voice);
         }
 
         // Cache the result

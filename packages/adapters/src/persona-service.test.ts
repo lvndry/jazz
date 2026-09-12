@@ -1,4 +1,12 @@
-import { chmodSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PersonaServiceTag } from "@jazz/core/interfaces/persona-service";
@@ -81,6 +89,39 @@ describe("PersonaService", () => {
         expect(err).toBeInstanceOf(ValidationError);
         expect((err as ValidationError).field).toBe("name");
       }
+    });
+
+    it("should fail with ValidationError for a placeholder used twice", async () => {
+      const program = Effect.gen(function* () {
+        const service = yield* PersonaServiceTag;
+        return yield* service.createPersona({
+          ...validInput,
+          systemPrompt: "You are {agentName}. Sign every reply as {agentName}.",
+        });
+      });
+
+      const exit = await runExit(program);
+      expect(exit._tag).toBe("Failure");
+      if (exit._tag === "Failure") {
+        const err = (exit.cause as { error: unknown }).error;
+        expect(err).toBeInstanceOf(ValidationError);
+        expect((err as ValidationError).field).toBe("systemPrompt");
+        expect((err as ValidationError).message).toContain("{agentName}");
+      }
+    });
+
+    it("accepts brace tokens the runtime never substitutes", async () => {
+      const program = Effect.gen(function* () {
+        const service = yield* PersonaServiceTag;
+        return yield* service.createPersona({
+          ...validInput,
+          name: "code-sample",
+          systemPrompt: "You are {agentName}. Emit {name} and {name} as literal JSON keys.",
+        });
+      });
+
+      const result = await run(program);
+      expect(result.systemPrompt).toContain("{name}");
     });
 
     it("should fail with ValidationError for name with invalid characters", async () => {
@@ -469,6 +510,27 @@ describe("PersonaService", () => {
 
       const result = await run(program);
       expect(result.name).toBe("by-name");
+    });
+  });
+
+  describe("definition filename", () => {
+    it("reads PERSONA.md, and prefers it over a legacy persona.md", async () => {
+      const dir = join(tempDir, "personas", "cased");
+      mkdirSync(dir, { recursive: true });
+      const file = (body: string) => `---\nname: cased\ndescription: Cased.\n---\n\n${body}\n`;
+      writeFileSync(join(dir, "PERSONA.md"), file("Upper."), "utf-8");
+      const caseInsensitiveFs = existsSync(join(dir, "persona.md"));
+      if (!caseInsensitiveFs) {
+        writeFileSync(join(dir, "persona.md"), file("Lower."), "utf-8");
+      }
+
+      const program = Effect.gen(function* () {
+        const service = yield* PersonaServiceTag;
+        return yield* service.getPersonaByName("cased");
+      });
+
+      const result = await run(program);
+      expect(result.systemPrompt).toBe("Upper.");
     });
   });
 

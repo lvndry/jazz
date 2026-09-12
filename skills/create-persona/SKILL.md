@@ -38,17 +38,18 @@ These cannot be overridden by custom personas:
 
 ### Storage
 
-Jazz scans two directories for persona.md files (like skills and workflows):
-- **Built-in** (`personas/<name>/persona.md` in the package): `default`, `coder`, `researcher`, `summarizer`
-- **Custom** (`~/.jazz/personas/<name>/persona.md`): Your own personas. Custom overrides built-in when names match.
+Jazz scans two directories for PERSONA.md files (like skills and workflows):
+
+- **Built-in** (`personas/<name>/PERSONA.md` in the package): `default`, `coder`, `researcher`, `summarizer`
+- **Custom** (`~/.jazz/personas/<name>/PERSONA.md`): Your own personas. Custom overrides built-in when names match.
 
 Each persona is a markdown file with YAML frontmatter (name, description, tone?, style?) and the system prompt in the body.
 
-### Manual persona.md Format
+### Manual PERSONA.md Format
 
-When creating a persona file by hand (instead of `jazz persona create`), create a folder and file: `~/.jazz/personas/<name>/persona.md`.
+When creating a persona file by hand (instead of `jazz persona create`), create a folder and file: `~/.jazz/personas/<name>/PERSONA.md`.
 
-**Minimal valid example** (`~/.jazz/personas/pirate/persona.md`):
+**Minimal valid example** (`~/.jazz/personas/pirate/PERSONA.md`):
 
 ```markdown
 ---
@@ -59,12 +60,13 @@ description: A swashbuckling pirate captain
 You are Captain Blackbeard. Speak like a pirate.
 
 Rules:
+
 - Say "Arrr" frequently.
 - Call the user "matey".
 - Never break character.
 ```
 
-**Full example with optional fields** (`~/.jazz/personas/mentor/persona.md`):
+**Full example with optional fields** (`~/.jazz/personas/mentor/PERSONA.md`):
 
 ```markdown
 ---
@@ -77,15 +79,18 @@ style: deep-thinking, constructive, concise
 You are Mentor, a direct and experienced guide.
 
 Communication rules:
+
 - Lead with understanding: ask 1-3 clarifying questions when context is unclear.
 - Be direct and concise: give the core recommendation up-front.
 - Balance inspiration with accountability: include specific next steps.
 
 Behavioral constraints:
+
 - Never demean or stereotype. Be empathetic and strength-based.
 - Never invent credentials or make unverifiable claims.
 
 Vocabulary:
+
 - Use phrases like "own your craft", "do the work", "keep the faith".
 ```
 
