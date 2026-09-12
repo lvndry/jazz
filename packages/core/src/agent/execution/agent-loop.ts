@@ -598,15 +598,11 @@ function handleToolPhase(
       state.recentToolCalls.splice(0, state.recentToolCalls.length - MELTDOWN_WINDOW_SIZE);
     }
 
-    if (detectMeltdown(state.recentToolCalls)) {
+    const meltdown = detectMeltdown(state.recentToolCalls);
+    if (meltdown) {
       yield* logger.warn("Meltdown detected — injecting recovery signal", {
         agentId: agent.id,
         recentTools: state.recentToolCalls.slice(-10).map((tc) => tc.name),
-      });
-      state.currentMessages.push({
-        role: "user",
-        content:
-          "[MELTDOWN DETECTED: You have been repeating the same tool calls without progress. Stop the current approach. Summarize what you have found so far, identify what is still missing, and either proceed directly to output or try a fundamentally different search strategy. Do not repeat your last action.]",
       });
       state.recentToolCalls.length = 0;
     }
@@ -753,6 +749,16 @@ function handleToolPhase(
           recordToolResultTokens(runMetrics, toolCall.function.name, formattedResult.length);
         }
       }
+    }
+
+    // Only after every tool result is in place: a user message between an assistant's
+    // tool_calls and their results is an invalid transcript that providers reject.
+    if (meltdown) {
+      state.currentMessages.push({
+        role: "user",
+        content:
+          "[MELTDOWN DETECTED: You have been repeating the same tool calls without progress. Stop the current approach. Summarize what you have found so far, identify what is still missing, and either proceed directly to output or try a fundamentally different search strategy. Do not repeat your last action.]",
+      });
     }
 
     // Media attached by tools rides on a user message after the tool results. A `role: "tool"`
