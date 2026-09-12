@@ -18,6 +18,7 @@ import {
   dedupeToolCalls,
   detectMeltdown,
   executeAgentLoop,
+  MELTDOWN_WINDOW_SIZE,
   type CompletionStrategy,
   type TrackedToolCall,
 } from "./agent-loop";
@@ -1799,6 +1800,64 @@ describe("executeAgentLoop cost and token caps", () => {
     const secondIterationMessages = seenMessages[1] ?? [];
     expect(firstIterationMessages.some((m) => m.content?.includes("TOKEN NOTICE"))).toBe(false);
     expect(secondIterationMessages.some((m) => m.content?.includes("TOKEN NOTICE"))).toBe(true);
+  });
+
+  it("injects the meltdown signal after the tool results, never between a call and its result", async () => {
+    const originalExecute = ToolExecutor.executeToolCalls;
+    ToolExecutor.executeToolCalls = mockToolExecutor((toolCalls) =>
+      succeedWithToolResults(toolCalls),
+    );
+
+    const seenMessages: ConversationMessages[] = [];
+    let call = 0;
+    const strategy: CompletionStrategy = {
+      shouldShowReasoning: false,
+      getCompletion: (messages) => {
+        call++;
+        seenMessages.push(messages);
+        return Effect.succeed({
+          completion: {
+            id: `c${call}`,
+            model: "gpt-4",
+            content: "",
+            toolCalls: [
+              {
+                id: `call_${call}`,
+                type: "function" as const,
+                function: { name: "read_file", arguments: '{"path":"README.md"}' },
+              },
+            ],
+          },
+          interrupted: false,
+        });
+      },
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+
+    await Effect.runPromise(
+      executeAgentLoop(
+        makeOptions({ maxIterations: MELTDOWN_WINDOW_SIZE + 1 }),
+        makeRunContext({ maxIterations: MELTDOWN_WINDOW_SIZE + 1 }),
+        displayConfig,
+        strategy,
+        defaultObserver,
+        runRecursive,
+      ).pipe(Effect.provide(TestLayer)),
+    );
+
+    ToolExecutor.executeToolCalls = originalExecute;
+
+    const lastRequest = seenMessages[seenMessages.length - 1] ?? [];
+    const meltdownIndex = lastRequest.findIndex((m) => m.content?.includes("MELTDOWN DETECTED"));
+    expect(meltdownIndex).toBeGreaterThan(0);
+    expect(lastRequest[meltdownIndex - 1]?.role).toBe("tool");
+    for (const [index, message] of lastRequest.entries()) {
+      if (message.role === "assistant" && (message.tool_calls?.length ?? 0) > 0) {
+        expect(lastRequest[index + 1]?.role).toBe("tool");
+      }
+    }
   });
 });
 
