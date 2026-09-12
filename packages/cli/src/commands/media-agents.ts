@@ -1,10 +1,10 @@
 /**
  * @fileoverview Finding which of your agents can generate media
  *
- * Jazz has no image-generation tool on purpose: producing media is a capability of the model an
- * agent runs on, not something jazz can hand to any agent.
- * The cost of that choice is discoverability — "use a model that can" is useless advice if you
- * cannot see which of your agents qualify, or which model to pick when none do.
+ * Producing media is a capability of a model, not something jazz can hand to any agent: either
+ * the agent's own model makes it, or a `generate:<modality>` companion it has bound does.
+ * The cost of that is discoverability — "use a model that can" is useless advice if you cannot
+ * see which of your agents qualify, or which model to pick when none do.
  *
  * This answers both questions: the agents that can, and, when there are none, a concrete model
  * to create one with.
@@ -33,15 +33,22 @@ export interface CapableAgent {
   readonly agent: Agent;
   /** True when the agent can also call tools, which most media models cannot. */
   readonly supportsTools: boolean;
+  /** The bound companion doing the producing, when it is not the agent's own model. */
+  readonly via?: string;
 }
 
 /**
- * The agents whose model produces `modality`.
+ * The agents that produce `modality`, by their own model or by a bound companion.
  *
  * `supportsTools` rides along because it is the difference between an agent that can draw *and*
  * work, and one that can only draw — most image models report `tool_call: false`, so an agent on
  * `gemini-3-pro-image` cannot read a file or search the web. Someone choosing between two image
- * agents needs to know that before they pick.
+ * agents needs to know that before they pick. A companion-backed agent usually has both: its own
+ * model keeps the tools, the companion does the drawing.
+ *
+ * A binding counts without checking the catalog. Unlike a model's own metadata — where unknown
+ * reads as "no" rather than a guess — a binding is a deliberate statement by the person who
+ * wrote it, and second-guessing it would hide an agent that works.
  */
 export async function findAgentsThatGenerate(
   agents: readonly Agent[],
@@ -54,11 +61,16 @@ export async function findAgentsThatGenerate(
       metadata = await getModelsDevMetadata(agent.config.llmModel, agent.config.llmProvider);
     } catch {
       // An unreachable catalog should not make every agent look incapable, but there is nothing
-      // better to say about this one than "unknown", which reads the same as "no".
-      continue;
+      // better to say about its own model than "unknown", which reads the same as "no". A
+      // binding, below, is still a fact.
     }
     if (metadataGenerates(metadata, modality)) {
       capable.push({ agent, supportsTools: metadata?.supportsTools === true });
+      continue;
+    }
+    const bound = agent.config.companions?.[companionRole("generate", modality)];
+    if (bound !== undefined) {
+      capable.push({ agent, supportsTools: metadata?.supportsTools === true, via: bound });
     }
   }
   return capable;

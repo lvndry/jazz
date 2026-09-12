@@ -162,7 +162,7 @@ function registerRunCommand(program: Command): void {
     )
     .option(
       "--ephemeral",
-      "Skip persistence entirely: --conversation is ignored (no history load/save) and long-term memory writes are withheld. Nothing about this run touches disk.",
+      "Skip Jazz conversation/session persistence: --conversation is ignored (no history load/save) and long-term memory writes are withheld. File tools and local telemetry still follow their normal configuration.",
     )
     .option(
       "--history-json <json>",
@@ -268,7 +268,9 @@ function registerRunCommand(program: Command): void {
         }
 
         // The `--with-*` flags name the modality only; every one of them binds the
-        // analysis side, since there is no generation delegation to bind yet.
+        // analysis side. Generation binds through the agent file — a headless run that
+        // generates media is rarer than one that reads it, and three more flags to say so
+        // is worse than one line of config.
         const companionFlags: readonly {
           readonly flag: string;
           readonly role: CompanionRole;
@@ -457,12 +459,12 @@ function registerAgentCommands(program: Command): void {
     .option("--no-stream", "Disable streaming mode")
     .option(
       "--max-iterations <n>",
-      "Maximum agent reasoning iterations per turn (default 80)",
+      "Maximum agent reasoning iterations per turn (default 100)",
       parsePositiveInt("--max-iterations"),
     )
     .option(
       "--ephemeral",
-      "Skip persistence for this session entirely: no conversation history save, no session log, and long-term memory writes are withheld. Nothing about the session touches disk.",
+      "Skip Jazz conversation/session persistence: no conversation history save, no session log, and long-term memory writes are withheld. File tools and local telemetry still follow their normal configuration.",
     )
     .action(
       (
@@ -932,7 +934,7 @@ function registerWhatsappCommand(program: Command): void {
 }
 
 /**
- * Register `jazz imessage` — reach the agent from Messages on a Mac.
+ * Register `jazz imessage` — use a hosted Photon line, or `--local` for Messages on a Mac.
  *
  * A top-level noun rather than something under a `bridge` group, matching the
  * other surfaces this binary will grow: what a person wants is "iMessage", not
@@ -953,7 +955,7 @@ function registerIMessageCommand(program: Command): void {
     )
     .option(
       "--local",
-      "Use your own Mac and Apple account instead of a hosted line: nothing leaves your machine, but the agent answers as you and needs a trigger word",
+      "Use your own Mac and Apple account instead of a hosted line. Messages avoid Photon, but model and tool traffic still follow the agent configuration; the agent answers as you and needs a trigger word",
     )
     .action((options: { agent?: string; local?: boolean }) =>
       runPlainAction(() =>

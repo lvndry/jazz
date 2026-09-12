@@ -14,6 +14,7 @@ import { renderProjectInstructions, type ProjectInstructionFile } from "./projec
 import {
   COMPLETION_INSTRUCTIONS,
   ENVIRONMENT_TEMPLATE,
+  MEDIA_GENERATION_DELEGATED,
   MEDIA_GENERATION_UNAVAILABLE,
   MEMORY_INSTRUCTIONS,
   SKILLS_INSTRUCTIONS,
@@ -357,9 +358,11 @@ export class AgentPromptBuilder {
         }
 
         // Only for models that cannot generate media, and never for the summarizer, which has no
-        // user to advise.
+        // user to advise. Which line depends on whether delegation is on the table: an agent
+        // holding generate_media should reach for it, not send the user to another agent.
         if (personaName !== "summarizer" && options.canGenerateMedia === false) {
-          systemPrompt = `${systemPrompt}\n${MEDIA_GENERATION_UNAVAILABLE}`;
+          const canDelegate = options.toolNames?.includes("generate_media") === true;
+          systemPrompt = `${systemPrompt}\n${canDelegate ? MEDIA_GENERATION_DELEGATED : MEDIA_GENERATION_UNAVAILABLE}`;
         }
 
         // Every acting persona gets the completion contract. The summarizer is

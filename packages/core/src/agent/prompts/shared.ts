@@ -14,11 +14,11 @@ export const ENVIRONMENT_TEMPLATE =
   "Environment: Date: {currentDate} | OS: {osInfo} | Hardware: {hardware} | Shell: {shell} | Home: {homeDirectory} | Hostname: {hostname} | User: {username} | TTY: {tty}";
 
 /**
- * Added only for models that cannot generate media themselves.
+ * Added only for models that cannot generate media themselves, and have no companion to
+ * delegate it to — `generate_media` is not in their tool set.
  *
- * Jazz has no image-generation tool — producing media is a capability of the model an agent runs
- * on. Without this line the agent answers "I can't generate images" and stops, which is true but
- * a dead end: the user has no way to discover that another of their agents might be able to, or
+ * Without this line the agent answers "I can't generate images" and stops, which is true but a
+ * dead end: the user has no way to discover that another of their agents might be able to, or
  * which model to create one with. Two sentences buys them the next step.
  */
 export const MEDIA_GENERATION_UNAVAILABLE = `
@@ -27,6 +27,20 @@ for it. If asked for one, say so plainly and tell the user to run \`jazz agent l
 (or \`--can audio\` / \`--can video\`), which lists the agents that can and suggests a model to
 create one with when none do. Do not offer ASCII art or a description as a substitute unless they
 ask for that instead.
+`;
+
+/**
+ * The same situation, except `generate_media` is available: the modality wall is crossable.
+ *
+ * Said explicitly because a model that knows it cannot draw will refuse before it reads its
+ * tool list — the refusal is baked in deeper than the tool description reaches.
+ */
+export const MEDIA_GENERATION_DELEGATED = `
+Your own model produces text only, but you are not stuck: generate_media delegates an image,
+audio clip, or video to a model that does produce it and returns the file. Use it when asked for
+media rather than refusing. Unless a companion is already bound for the role, the person picks
+which model runs — so in an unattended run it may fail, and then say so plainly. Do not offer
+ASCII art or a description as a substitute unless they ask for that instead.
 `;
 
 export const SKILLS_INSTRUCTIONS = `
