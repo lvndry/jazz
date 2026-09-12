@@ -23,14 +23,9 @@ function trackedPaths(): Set<string> {
   }
   const paths = new Set(result.stdout.split("\n").filter((line) => line.length > 0));
 
-  // `git ls-files` reports the index, not the disk, so a file deleted without staging the
-  // deletion is still listed. That is the exact state of a half-finished docs move: the old page
-  // is gone, every link to it is broken, and this check would pass until the deletion was
-  // committed. Subtracting unstaged deletions keeps git as the path oracle, which is the reason
-  // not to use `existsSync` here: git records the true case of every path, and a
-  // case-insensitive filesystem would accept `docs/Tools/index.md` for `docs/tools/index.md` and
-  // break only on Linux. Staged deletions need no handling; staging one removes it from the
-  // index, and so from `ls-files`.
+  // ls-files reports the index, so a deletion that is not staged is still listed: exactly the
+  // half-finished docs move this check exists to catch. Git rather than `existsSync` because it
+  // records the true case of every path.
   const deleted = spawnSync("git", ["diff", "--name-only", "--diff-filter=D"], {
     encoding: "utf-8",
   });
