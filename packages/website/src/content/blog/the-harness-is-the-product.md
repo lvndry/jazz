@@ -232,5 +232,5 @@ below: start at [the agent loop](/docs/maintainers/run-lifecycle), then
 [context management](/docs/maintainers/context-lifecycle),
 [tools & approval](/docs/maintainers/tool-lifecycle),
 [skills loading](/docs/concepts/skills), and
-[sub-agents](/docs/concepts/peers-and-subagents). If you'd rather just see it play,
+[sub-agents](/docs/concepts/agents#delegation). If you'd rather just see it play,
 the [homepage](/) runs a session in front of you.
