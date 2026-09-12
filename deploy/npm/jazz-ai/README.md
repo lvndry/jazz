@@ -48,11 +48,11 @@ provider and agent setup. You can also install the standalone release without np
 
 ## Useful entry points
 
-- [`jazz`](https://github.com/lvndry/jazz/blob/main/docs/getting-started/quick-start.md) — interactive terminal
-- `jazz run --json --agent reviewer "Review this checkout"` — scripts and CI
-- `jazz workflow schedule daily-briefing` — recurring work
-- `jazz imessage` or `jazz imessage --local` — hosted or local-Mac iMessage
-- `jazz whatsapp` — linked-device WhatsApp
+- [`jazz`](https://github.com/lvndry/jazz/blob/main/docs/getting-started/quick-start.md): interactive terminal
+- `jazz run --json --agent reviewer "Review this checkout"`: scripts and CI
+- `jazz workflow schedule daily-briefing`: recurring work
+- `jazz imessage` or `jazz imessage --local`: hosted or local-Mac iMessage
+- `jazz whatsapp`: linked-device WhatsApp
 
 Start with the [Jazz documentation](https://github.com/lvndry/jazz/blob/main/docs/index.md), then
 explore [features](https://github.com/lvndry/jazz/blob/main/docs/features/index.md),

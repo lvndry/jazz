@@ -1,7 +1,7 @@
 # iMessage bridge (`jazz imessage --local`)
 
 Chat with a [Jazz](../../README.md) agent from Messages. Every text you send
-runs the agent once and comes back as a reply — with per-chat memory,
+runs the agent once and comes back as a reply: with per-chat memory,
 per-chat model and persona, reminders, and attachments read straight off disk.
 
 ```text
@@ -29,7 +29,7 @@ Two consequences show up in the chat itself:
 ## Requirements
 
 - A Mac running **macOS 14 or newer**, signed into iMessage.
-- [`imsg`](https://github.com/openclaw/imsg) — the MIT CLI this bridge drives.
+- [`imsg`](https://github.com/openclaw/imsg): the MIT CLI this bridge drives.
   **You do not have to install it first**: on the first run the bridge notices
   it is missing and offers to install it for you.
 
@@ -44,7 +44,7 @@ Two consequences show up in the chat itself:
   Install it? [Y/n]
   ```
 
-  It only ever asks when there is a terminal attached — started as a
+  It only ever asks when there is a terminal attached: started as a
   LaunchAgent, it prints the command and exits rather than reaching out to a
   package manager unattended. It also never offers an install for a _permission_
   problem, since reinstalling cannot grant Full Disk Access.
@@ -68,7 +68,7 @@ Two consequences show up in the chat itself:
 
 Only `imsg`'s standard capability tier is used (`chats`, `watch`, `send`).
 Typing indicators, editing, unsending and tapback-by-GUID are bridge-tier
-features that require disabling SIP — this bridge does not ask that of your
+features that require disabling SIP. This bridge does not ask that of your
 machine and does not use them.
 
 ## Quick start
@@ -77,13 +77,13 @@ machine and does not use them.
 jazz imessage --local
 ```
 
-That is the whole of it. The first run walks through what it needs — installing
+That is the whole of it. The first run walks through what it needs: installing
 [`imsg`](https://github.com/openclaw/imsg), granting Full Disk Access, and
-whether to keep running in the background — and nothing is asked before you ask
+whether to keep running in the background, and nothing is asked before you ask
 for iMessage, which is why none of it happens when you install Jazz.
 
 By default it answers as its own seeded assistant. To use an agent you already
-have, name it — it is copied into the bridge's home, so the original keeps its
+have, name it. It is copied into the bridge's home, so the original keeps its
 name and stays yours:
 
 ```bash
@@ -129,7 +129,7 @@ is the same thing.
 | `JAZZ_AUTO_APPROVE_TOOLS`         | _(none)_           | Tool names that never prompt, whatever the policy.                                                                                                           |
 | `JAZZ_RUN_TIMEOUT_MS`             | `300000`           | Per-turn timeout.                                                                                                                                            |
 | `JAZZ_DAILY_COST_CAP_USD`         | `0` (off)          | Spend ceiling across all chats per day.                                                                                                                      |
-| `JAZZ_IMESSAGE_SHOW_REASONING`    | off                | Send the run's reasoning under the answer. Off by default — on iMessage it is extra notifications, not a folded quote.                                       |
+| `JAZZ_IMESSAGE_SHOW_REASONING`    | off                | Send the run's reasoning under the answer. Off by default: on iMessage it is extra notifications, not a folded quote.                                       |
 
 ## Commands
 
@@ -150,7 +150,7 @@ unchanged, so a sentence beginning with a slash still gets an answer.
 ## Attachments
 
 Photos, PDFs, voice notes and video sent to the chat reach the agent as file
-paths — Jazz ingests media by path, and an iMessage attachment is already a
+paths. Jazz ingests media by path, and an iMessage attachment is already a
 local file, so nothing is downloaded. Whether the agent can _read_ one depends
 on the model: images and PDFs work almost everywhere, audio and video need a
 model that accepts them.
@@ -159,7 +159,7 @@ model that accepts them.
 
 The allow-list is the whole security model, and it is deny-by-default:
 
-- A message from an unlisted handle is logged and **never answered** — replying
+- A message from an unlisted handle is logged and **never answered**: replying
   would confirm to a stranger that something automated reads this number.
 - A group is admitted by its own rowid, never because a member is allowed.
   Everything the agent says in a group is read by everyone in it.

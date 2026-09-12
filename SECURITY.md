@@ -1,6 +1,6 @@
 # Security Policy
 
-Jazz is an agent that executes real actions on your machine: it reads and writes files, runs
+Jazz is an agent that executes real actions on your machine. It reads and writes files, runs
 shell commands, makes network requests, and drives external services. This document is both
 the vulnerability-reporting policy and the guide to running it safely.
 
@@ -32,7 +32,7 @@ investigate, and credit you in the advisory unless you prefer otherwise.
 
 ## Supported versions
 
-Jazz is pre-1.0 and ships frequently. Fixes land on the latest published version — please
+Jazz is pre-1.0 and ships frequently. Fixes land on the latest published version: please
 confirm the issue reproduces on the current release (`jazz update`) before reporting.
 
 ---
@@ -41,7 +41,7 @@ confirm the issue reproduces on the current release (`jazz update`) before repor
 
 Some behavior that looks alarming is deliberate and documented rather than a vulnerability.
 
-**In scope** — please report:
+**In scope**: please report:
 
 - A gated tool executing without approval, or any way to bypass the approval system
 - Privilege escalation past the configured `--approval-policy` / `autoApprove` tier
@@ -50,15 +50,15 @@ Some behavior that looks alarming is deliberate and documented rather than a vul
 - Command or argument injection reachable from untrusted input
 - Anything that lets a remote party act on a host running Jazz without local consent
 
-**Out of scope** — working as documented:
+**Out of scope**: working as documented:
 
 - `--approval-policy high-risk` (or `autoApprove: true`) permitting destructive commands. That tier exists to grant exactly that, and the docs say so.
-- A novel way to phrase a shell command that the denylist does not catch. The denylist is defense-in-depth against an accident, [explicitly not a sandbox](#the-command-denylist-is-not-a-sandbox) — approval is the real control.
+- A novel way to phrase a shell command that the denylist does not catch. The denylist is defense-in-depth against an accident, [explicitly not a sandbox](#the-command-denylist-is-not-a-sandbox): approval is the real control.
 - An agent acting on instructions embedded in content it fetched, when running at a tier that permits those actions. Prompt injection is real, which is why the tiers exist.
 - Plaintext conversation transcripts under `~/.jazz/history/`. Documented; treat that directory as sensitive.
 - An MCP server you configured doing something you did not expect. MCP servers are third-party code you chose to run.
 
-If you are unsure which side of that line something falls on, report it — we would rather
+If you are unsure which side of that line something falls on, report it: we would rather
 triage a non-issue than miss a real one.
 
 ---
@@ -67,10 +67,10 @@ triage a non-issue than miss a real one.
 
 **Approval gating is the primary control.** 15 of the built-in tools do not act when the model
 calls them; they describe what they would do (including a real diff for edits) and wait for
-approval — from you, or from the policy tier on an unattended run. Mechanism and risk tiers:
+approval: from you, or from the policy tier on an unattended run. Mechanism and risk tiers:
 [Tools & approval](docs/maintainers/tool-lifecycle.md).
 
-**A shell command denylist** blocks 56 patterns before execution — privilege escalation
+**A shell command denylist** blocks 56 patterns before execution: privilege escalation
 (`sudo`, `su`), filesystem destruction (`rm -rf /`), remote code execution (`curl … | sh`),
 power/runlevel changes (`shutdown`), and reads of `/etc/passwd`, `/etc/shadow`, `/etc/sudoers`.
 
@@ -78,7 +78,7 @@ power/runlevel changes (`shutdown`), and reads of `/etc/passwd`, `/etc/shadow`, 
 
 Quoting the implementation directly, because it matters:
 
-> This is a defense-in-depth denylist, not a sandbox. It cannot stop a determined attacker —
+> This is a defense-in-depth denylist, not a sandbox. It cannot stop a determined attacker ,
 > variable expansion, base64 obfuscation, eval, and other indirection paths can route around
 > any string matcher.
 
@@ -102,7 +102,7 @@ does not block inference, tools, MCP, or telemetry export. See
 
 **Audit trail.** Every tool invocation is logged under `~/.jazz/logs/`, with per-run token and
 cost records under `~/.jazz/telemetry/`. Credential-bearing fields in tool arguments and
-structured metadata — including nested headers — are replaced with `<redacted>` before a log is
+structured metadata (including nested headers) are replaced with `<redacted>` before a log is
 written. Logs can still contain other sensitive user content, so protect the directory.
 
 ---
@@ -129,7 +129,7 @@ Leaving the tier unset is the safe default on a webhook or a cron precisely beca
 grants nothing there: skipping a prompt is a convenience where a prompt was the
 alternative, and a widening of unsupervised authority where it was not.
 
-`low-risk` is narrower than it sounds — it adds three tools. Email, calendar, and
+`low-risk` is narrower than it sounds. It adds three tools. Email, calendar, and
 Obsidian are skills that shell out via `execute_command` (`unknown`), so prefer allowlisting
 one binary over raising the whole tier:
 
@@ -138,14 +138,14 @@ one binary over raising the whole tier:
 { "autoApprovedCommands": ["himalaya", "khal"] }
 ```
 
-Matching uses a parsed key (binary + first subcommand), never a raw prefix — `git status` does
+Matching uses a parsed key (binary + first subcommand), never a raw prefix. `git status` does
 not also permit `git status && rm -rf /`. Full tiers: [Tools reference](docs/tools/index.md).
 
 ### Be deliberate on surfaces that accept input from other people
 
 A chat bridge, a public webhook, or a CI job reviewing fork PRs takes input from someone who is
-not you. At `high-risk`, a message — or a prompt injection inside a web page the agent fetched
-— can run arbitrary commands on that host. Use an allowlist of senders, keep the tier low, and
+not you. At `high-risk`, a message, or a prompt injection inside a web page the agent fetched
+,  can run arbitrary commands on that host. Use an allowlist of senders, keep the tier low, and
 trim the toolset. See
 [Chat platforms → security](docs/surfaces/chat.md#security-for-chat-surfaces).
 
@@ -153,7 +153,7 @@ trim the toolset. See
 
 - Do I understand what this will do, and is it reversible?
 - Am I in the right directory, and are the paths correct?
-- For `git push` — the right remote and branch?
+- For `git push`: the right remote and branch?
 
 ### Harden the host
 
@@ -174,11 +174,11 @@ GitHub account, a separate mailbox) so a mistake cannot reach your primary ident
 
 Jazz resolves every secret in this order, and uses the first hit:
 
-1. **Environment variable** — `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `BRAVE_API_KEY`, and so
+1. **Environment variable**: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `BRAVE_API_KEY`, and so
    on. Nothing touches disk. Best for containers and CI.
-2. **OS keyring** — macOS Keychain, or libsecret (`secret-tool`) on Linux. Used automatically
+2. **OS keyring**: macOS Keychain, or libsecret (`secret-tool`) on Linux. Used automatically
    when available. Keys already sitting in `~/.jazz/config.json` are moved here on next start.
-3. **`~/.jazz/config.json`** — the fallback when there is no keyring, e.g. a headless server with
+3. **`~/.jazz/config.json`**: the fallback when there is no keyring, e.g. a headless server with
    no session D-Bus. Jazz creates the file mode `0600` and repairs looser modes on load, but the
    keys are plaintext to anyone who can read that file (including `root`).
 
@@ -192,24 +192,24 @@ cat ~/.jazz/config.json && ls -l ~/.jazz/config.json
 ```
 
 Note that `~/.jazz/history/` and `~/.jazz/logs/` are separate plaintext stores and are not
-covered by the keyring — treat them as sensitive in their own right.
+covered by the keyring: treat them as sensitive in their own right.
 
 ---
 
 ## If something goes wrong
 
-1. **Stop the run** — double-Escape interrupts generation and any running tool; otherwise exit the process.
-2. **Check what happened** — `~/.jazz/logs/` has every tool invocation with its arguments;
+1. **Stop the run**: double-Escape interrupts generation and any running tool; otherwise exit the process.
+2. **Check what happened**: `~/.jazz/logs/` has every tool invocation with its arguments;
    credential-bearing fields are shown as `<redacted>`.
-3. **Recover** — inspect `git status` and `git reflog`, then restore only the affected paths or branch from a known-good commit. For non-Git files, use your backup or trash.
-4. **Report it** — if the cause was Jazz acting without approval rather than an approval you granted, that is [in scope](#scope).
+3. **Recover**: inspect `git status` and `git reflog`, then restore only the affected paths or branch from a known-good commit. For non-Git files, use your backup or trash.
+4. **Report it**: if the cause was Jazz acting without approval rather than an approval you granted, that is [in scope](#scope).
 
 ---
 
 ## Related
 
-- [Tools & approval](docs/maintainers/tool-lifecycle.md) — how gating and risk tiers are enforced
-- [Tools reference](docs/tools/index.md) — every tool and its tier
-- [Configuration](docs/configure/jazz.md) — `envAllowlist`, `autoApprovedCommands`
-- [Local and air-gapped models](docs/getting-started/local-models.md) — offline mode, local providers, and the network controls required for a real air gap
+- [Tools & approval](docs/maintainers/tool-lifecycle.md): how gating and risk tiers are enforced
+- [Tools reference](docs/tools/index.md): every tool and its tier
+- [Configuration](docs/configure/jazz.md): `envAllowlist`, `autoApprovedCommands`
+- [Local and air-gapped models](docs/getting-started/local-models.md): offline mode, local providers, and the network controls required for a real air gap
 - **Security questions:** [Discord](https://discord.gg/yBDbS2NZju) · [Discussions](https://github.com/lvndry/jazz/discussions)

@@ -31,18 +31,18 @@ running `jazz` CLI, and is what `scripts/build.ts` compiles into the standalone 
 ```
 
 `@jazz/runtime` is the only package allowed to depend on all three of `core`, `adapters`, and
-`cli` at once — everywhere else, the dependency rule points inward (see
+`cli` at once: everywhere else, the dependency rule points inward (see
 `docs/maintainers/architecture.md`).
 
 ## Key files
 
-- **`entry.ts`** — process-level bootstrap (suppresses noisy deprecation warnings) before the
+- **`entry.ts`**: process-level bootstrap (suppresses noisy deprecation warnings) before the
   rest of the app loads. This is the binary's actual entrypoint.
-- **`main.ts`** — second-stage entrypoint imported by `entry.ts`; builds the Commander program
+- **`main.ts`**: second-stage entrypoint imported by `entry.ts`; builds the Commander program
   and parses `argv`. Also routes the `ai` SDK's warning logger to stderr, since `jazz run --json`
   requires stdout to be JSON-only.
-- **`cli-app.ts`** — Commander.js setup and command registration for every `jazz <command>`.
-- **`app-layer.ts`** — builds the Effect `Layer` that wires every adapter (storage, LLM,
+- **`cli-app.ts`**: Commander.js setup and command registration for every `jazz <command>`.
+- **`app-layer.ts`**: builds the Effect `Layer` that wires every adapter (storage, LLM,
   terminal, presentation, telemetry, ...) behind `@jazz/core`'s service tags, then runs a
   command's effect against it. This is where a new service's `Layer` gets registered.
 

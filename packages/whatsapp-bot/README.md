@@ -1,7 +1,7 @@
 # WhatsApp bridge
 
 Chat with a [Jazz](../../README.md) agent from WhatsApp. The bridge links to
-your account as a device — the same standing WhatsApp Web has in a browser — and
+your account as a device (the same standing WhatsApp Web has in a browser) and
 answers every message you send it, with per-chat memory, per-chat model and
 persona, reminders, and attachments.
 
@@ -15,8 +15,8 @@ WhatsApp publishes no API for personal accounts.
 [Baileys](https://github.com/WhiskeySockets/Baileys) implements the WhatsApp Web
 protocol by reverse engineering, which has consequences you are accepting:
 
-- **Meta does not sanction this.** A number that behaves unusually — bursts of
-  messages, replies at machine speed, many new conversations — can be rate
+- **Meta does not sanction this.** A number that behaves unusually: bursts of
+  messages, replies at machine speed, many new conversations: can be rate
   limited or banned. Run it on a **dedicated number** if the account matters.
 - **The link can be cut.** Unlinking the device from your phone, or WhatsApp
   deciding to, ends the session; the bridge says so and exits rather than
@@ -26,7 +26,7 @@ protocol by reverse engineering, which has consequences you are accepting:
 
 The official alternative is the WhatsApp Cloud API, which needs a Meta Business
 account and a separate business number, and only permits template messages
-outside a 24-hour reply window — unusable for a personal assistant, which is why
+outside a 24-hour reply window: unusable for a personal assistant, which is why
 this bridge does not use it.
 
 ## Requirements
@@ -44,10 +44,10 @@ OPENAI_API_KEY=sk-… jazz whatsapp
 On the first run it asks whose messages the agent should answer, and remembers
 the answer in `wa-allowed.json` under its home. Set
 `WHATSAPP_ALLOWED_NUMBERS="+15551234567,+33123456789"` instead to skip the
-question — which is what you want on a server, where the bridge refuses to start
+question, which is what you want on a server, where the bridge refuses to start
 rather than ask a terminal that is not there.
 
-To answer as an agent you already have rather than a fresh assistant, name it —
+To answer as an agent you already have rather than a fresh assistant, name it ,
 it is copied into the bridge's home, so the original keeps its name and stays
 yours:
 
@@ -58,7 +58,7 @@ jazz whatsapp --agent nostra
 From a checkout without an installed binary, `bun packages/whatsapp-bot/src/main.ts`
 is the same thing.
 
-On first run it prints a QR code — WhatsApp → Settings → Linked Devices → Link a
+On first run it prints a QR code. WhatsApp → Settings → Linked Devices → Link a
 device. Scan it promptly: WhatsApp expires each code after about a minute and
 issues another, and a stale one is refused with "check your connection". Only
 one is ever on screen, so scan the one you can see. On a headless machine there is no camera to point at it, so set

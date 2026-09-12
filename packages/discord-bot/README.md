@@ -2,7 +2,7 @@
 
 Chat with a [Jazz](../../README.md) agent from Discord. A small Bun service
 bridges Discord to the `jazz` CLI: every message runs the agent once and replies
-with the answer — with per-conversation model/persona switching, per-channel
+with the answer: with per-conversation model/persona switching, per-channel
 memory, mention-gating in servers, and thread-bound guild chats.
 
 Works with any Jazz provider. **Defaults to OpenAI `gpt-5.4`**; point it at a
@@ -14,21 +14,21 @@ Discord  ◀──(Gateway websocket)──▶  bridge  ──jazz run --json─
 
 ## Features
 
-- 🤖 **Any Jazz agent over Discord** — a full tool-using agent, not an echo bot.
-- 🔌 **Bring your own model** — OpenAI `gpt-5.4` out of the box, or any provider Jazz supports (including local Ollama).
-- 🎛️ **Per-conversation `/model` and `/persona`** — `/model` picks from a select menu of the current provider's models, or `/model openai/gpt-5.2` (sent as a normal message) switches to any other provider Jazz supports outright; each DM or thread keeps its own choice.
-- 🧵 **Thread binding in servers** — `@mention` in a channel starts a thread; follow-ups in that thread don't need another mention.
-- 🤫 **Mention-gating** — in servers the bot ignores chatter unless mentioned, replied-to, or already in the thread. DMs always respond.
-- 🛡️ **Approvals you can get through fast** — a tool needing a human posts its own accept/reject message; when a model fires several tool calls at once, every outstanding prompt grows **⚡ Approve all N** / **🚫 Reject all N** so one click clears the batch. `/mode mode:yolo` turns approvals off for that conversation entirely; `/mode mode:safe` puts them back.
-- 📡 **Live progress** — a status message updates in real time with thinking, tool calls, sub-agents (🤖), and tools awaiting approval (⛔); it closes with a `✅ Done · tools · tokens · $cost` summary, and the answer lands as a new message.
-- ⏰ **Reminders** — `/remind` or plain language ("remind me in 2 hours …"), scheduled by the agent via a native tool, resolved in your timezone (`/tz`) and delivered even across restarts.
+- 🤖 **Any Jazz agent over Discord**: a full tool-using agent, not an echo bot.
+- 🔌 **Bring your own model**: OpenAI `gpt-5.4` out of the box, or any provider Jazz supports (including local Ollama).
+- 🎛️ **Per-conversation `/model` and `/persona`**: `/model` picks from a select menu of the current provider's models, or `/model openai/gpt-5.2` (sent as a normal message) switches to any other provider Jazz supports outright; each DM or thread keeps its own choice.
+- 🧵 **Thread binding in servers**: `@mention` in a channel starts a thread; follow-ups in that thread don't need another mention.
+- 🤫 **Mention-gating**: in servers the bot ignores chatter unless mentioned, replied-to, or already in the thread. DMs always respond.
+- 🛡️ **Approvals you can get through fast**: a tool needing a human posts its own accept/reject message; when a model fires several tool calls at once, every outstanding prompt grows **⚡ Approve all N** / **🚫 Reject all N** so one click clears the batch. `/mode mode:yolo` turns approvals off for that conversation entirely; `/mode mode:safe` puts them back.
+- 📡 **Live progress**: a status message updates in real time with thinking, tool calls, sub-agents (🤖), and tools awaiting approval (⛔); it closes with a `✅ Done · tools · tokens · $cost` summary, and the answer lands as a new message.
+- ⏰ **Reminders**: `/remind` or plain language ("remind me in 2 hours …"), scheduled by the agent via a native tool, resolved in your timezone (`/tz`) and delivered even across restarts.
 - 💬 **Per-channel memory**, 🔒 **allowlist-gated**, 🐳 **one-command Docker deploy**.
 
 ## Requirements
 
 - Docker + Docker Compose.
 - A Discord bot token from the [developer portal](https://discord.com/developers/applications).
-- A model backend — **either** an API key for a cloud provider (OpenAI by default)
+- A model backend. **either** an API key for a cloud provider (OpenAI by default)
   **or** a local [Ollama](https://ollama.com) with a tool-capable model pulled.
 - Outbound HTTPS/WSS to `discord.com` / `gateway.discord.gg`. No public inbound port
   (the Gateway connection is outbound).
@@ -98,7 +98,7 @@ Set at least:
 - `DISCORD_BOT_TOKEN`
 - one allowlist: `DISCORD_ALLOWED_USER_IDS` and/or `DISCORD_ALLOWED_CHANNEL_IDS`
   and/or `DISCORD_ALLOWED_GUILD_IDS`
-- a model backend — by default `OPENAI_API_KEY` (uses `gpt-5.4`). To go local
+- a model backend: by default `OPENAI_API_KEY` (uses `gpt-5.4`). To go local
   instead, set `JAZZ_DISCORD_PROVIDER=ollama` + `JAZZ_DISCORD_MODEL=<pulled model>`.
 
 The image builds Jazz from the repo source, so the compose build context is the
@@ -111,7 +111,7 @@ docker compose logs -f          # expect "Discord → Jazz bridge ready as @…"
 
 ### 5. Talk to it
 
-- **In the server:** `@Jazz what's the weather in Lyon` — it starts a thread and
+- **In the server:** `@Jazz what's the weather in Lyon`. It starts a thread and
   replies there. Follow-ups in that thread don’t need another mention.
 - **Slash commands** (`/help`, `/status`, `/tz`, …) work in the server as soon
   as the bridge has registered them (a few seconds after “ready”).
@@ -127,11 +127,11 @@ allowlisted, or you didn’t @mention it (`DISCORD_REQUIRE_MENTION=1` by default
 | _(DM, or @mention in a server)_ | Answered by your agent                                                                                                                                                                                                    |
 | `/model`                        | Select menu of the current provider's models; send `/model provider/model` (e.g. `anthropic/claude-sonnet-5`) as a normal message to switch this conversation to a different provider outright                            |
 | `/persona`                      | Select menu of available personas                                                                                                                                                                                         |
-| `/mode`                         | Show or set this conversation's approval mode. **Safe** (default) keeps `JAZZ_APPROVAL_POLICY`, so risky tools stop and ask. **Yolo** runs every tool without asking. Sticky per conversation — `/new` does not reset it. |
-| `/new`                          | Start a fresh conversation — clears earlier context; keeps your model/persona                                                                                                                                             |
+| `/mode`                         | Show or set this conversation's approval mode. **Safe** (default) keeps `JAZZ_APPROVAL_POLICY`, so risky tools stop and ask. **Yolo** runs every tool without asking. Sticky per conversation: `/new` does not reset it. |
+| `/new`                          | Start a fresh conversation: clears earlier context; keeps your model/persona                                                                                                                                             |
 | `/incognito`                    | Private conversation (nothing saved to history or memory) until `/new`                                                                                                                                                    |
 | `/remind`                       | Schedule a reminder. `when` = `30m`, `1h30m`, `18:00`, `tomorrow 09:00`, `tue 20:00`, or `2026-08-25 20:00`. Routed through a normal agent turn, which calls the `add_reminder` tool.                                     |
-| _(natural language)_            | Just say it — "remind me to call the dentist in 2 hours". The agent calls `add_reminder` itself.                                                                                                                          |
+| _(natural language)_            | Just say it: "remind me to call the dentist in 2 hours". The agent calls `add_reminder` itself.                                                                                                                          |
 | `/reminders`                    | List your pending reminders (in your timezone); tap one to cancel                                                                                                                                                         |
 | `/tz`                           | Show or set your timezone (IANA name, e.g. `/tz zone:Europe/Paris`) so reminder times are local                                                                                                                           |
 | `/status`                       | Current model, your timezone, approval mode, today's runs/tokens/cost, daily cap, uptime                                                                                                                                  |
@@ -142,7 +142,7 @@ button that kills the run. Each answer gets follow-up buttons (`🔍 Go deeper`,
 `✂️ Shorter`, …) that upgrade to contextual ones a beat later; set
 `JAZZ_DISCORD_DYNAMIC_CTA=0` to keep only the static ones.
 The 💭 line on the progress message is only the tail of the model's current
-thought, and that message is replaced when the answer lands — so the full
+thought, and that message is replaced when the answer lands, so the full
 reasoning follows the answer as **Reasoning** spoilers you click to reveal.
 Very long runs are split across a few spoilers, and the last one says how much
 was left out; set `JAZZ_DISCORD_SHOW_REASONING=0` to drop them.
@@ -170,31 +170,31 @@ the `discord` template on first contact), so `/model` and `/persona` change only
 _that_ conversation. `JAZZ_DISCORD_PROVIDER` / `JAZZ_DISCORD_MODEL` /
 `JAZZ_REASONING` set the defaults new conversations start from. Bare `/model`
 lists whatever the conversation's current provider offers. To let people
-switch to a **different** provider — send `/model anthropic/claude-sonnet-5` as a normal
-message (not the slash-command menu, which can't take a free-form value), for example — set that provider's API key as an env var on the bot (see
+switch to a **different** provider: send `/model anthropic/claude-sonnet-5` as a normal
+message (not the slash-command menu, which can't take a free-form value), for example: set that provider's API key as an env var on the bot (see
 `.env.example` for the full list, e.g. `ANTHROPIC_API_KEY`) and restart the
-container; `JAZZ_DISCORD_PROVIDER`/`JAZZ_DISCORD_MODEL` don't need to change —
+container; `JAZZ_DISCORD_PROVIDER`/`JAZZ_DISCORD_MODEL` don't need to change ,
 they only set what a brand-new conversation starts on.
 
 ## Configuration
 
 | Variable                      | Default                                 | Purpose                                                                                                                                                                                                                                                                 |
 | ----------------------------- | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `DISCORD_BOT_TOKEN`           | —                                       | **Required.** Bot token from the developer portal.                                                                                                                                                                                                                      |
-| `DISCORD_ALLOWED_USER_IDS`    | —                                       | Comma-separated user ids. Required for DMs; also gates guild senders when set.                                                                                                                                                                                          |
-| `DISCORD_ALLOWED_CHANNEL_IDS` | —                                       | Comma-separated channel ids (threads of these channels inherit).                                                                                                                                                                                                        |
-| `DISCORD_ALLOWED_GUILD_IDS`   | —                                       | Comma-separated server ids. At least one of the three allowlists is required.                                                                                                                                                                                           |
+| `DISCORD_BOT_TOKEN`           | none                                   | **Required.** Bot token from the developer portal.                                                                                                                                                                                                                      |
+| `DISCORD_ALLOWED_USER_IDS`    | none                                   | Comma-separated user ids. Required for DMs; also gates guild senders when set.                                                                                                                                                                                          |
+| `DISCORD_ALLOWED_CHANNEL_IDS` | none                                   | Comma-separated channel ids (threads of these channels inherit).                                                                                                                                                                                                        |
+| `DISCORD_ALLOWED_GUILD_IDS`   | none                                   | Comma-separated server ids. At least one of the three allowlists is required.                                                                                                                                                                                           |
 | `DISCORD_REQUIRE_MENTION`     | `1`                                     | In servers, only respond to mentions / replies / existing threads.                                                                                                                                                                                                      |
 | `DISCORD_CREATE_THREADS`      | `1`                                     | `@mention` in a channel starts a thread and keeps the conversation there.                                                                                                                                                                                               |
 | `JAZZ_DISCORD_PROVIDER`       | `openai`                                | LLM provider.                                                                                                                                                                                                                                                           |
 | `JAZZ_DISCORD_MODEL`          | `gpt-5.4`                               | Default model id for the provider.                                                                                                                                                                                                                                      |
-| `OPENAI_API_KEY` (+ others)   | —                                       | API key for the default provider. Set any other provider's key too (`ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, …, see `.env.example` for the full list) to let `/model` switch to it. Not needed for local `ollama`/`llamacpp`.                                         |
-| `BRAVE_API_KEY`               | —                                       | If set, `web_search` uses Brave.                                                                                                                                                                                                                                        |
-| `JAZZ_OLLAMA_KEEP_ALIVE`      | —                                       | How long a local Ollama keeps the model loaded (`keep_alive`): `-1` pins it indefinitely, or a duration like `30m`. Unset uses Ollama's 5-minute default, so the first message after a quiet spell pays a full cold model load with no progress shown while it happens. |
+| `OPENAI_API_KEY` (+ others)   | none                                   | API key for the default provider. Set any other provider's key too (`ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, …, see `.env.example` for the full list) to let `/model` switch to it. Not needed for local `ollama`/`llamacpp`.                                         |
+| `BRAVE_API_KEY`               | none                                   | If set, `web_search` uses Brave.                                                                                                                                                                                                                                        |
+| `JAZZ_OLLAMA_KEEP_ALIVE`      | none                                   | How long a local Ollama keeps the model loaded (`keep_alive`): `-1` pins it indefinitely, or a duration like `30m`. Unset uses Ollama's 5-minute default, so the first message after a quiet spell pays a full cold model load with no progress shown while it happens. |
 | `JAZZ_REASONING`              | `medium`                                | `disable`\|`low`\|`medium`\|`high`.                                                                                                                                                                                                                                     |
 | `OLLAMA_BASE_URL`             | `http://host.docker.internal:11434/api` | Ollama endpoint, used whenever a conversation's provider is `ollama` (default or via `/model`).                                                                                                                                                                         |
 | `JAZZ_APPROVAL_POLICY`        | `low-risk`                              | Auto-approve tools up to: `read-only`\|`low-risk`\|`high-risk`. This is what "safe" means for the deployment; a conversation on `/mode mode:yolo` runs at `high-risk` instead.                                                                                          |
-| `JAZZ_AUTO_APPROVE_TOOLS`     | —                                       | Comma-separated tool names to auto-approve regardless of policy. Tools needing approval that aren't in this list are sent to the channel as an accept/reject prompt instead of being declined.                                                                          |
+| `JAZZ_AUTO_APPROVE_TOOLS`     | none                                   | Comma-separated tool names to auto-approve regardless of policy. Tools needing approval that aren't in this list are sent to the channel as an accept/reject prompt instead of being declined.                                                                          |
 | `JAZZ_RUN_TIMEOUT_MS`         | `300000`                                | Per-message agent timeout.                                                                                                                                                                                                                                              |
 | `JAZZ_DAILY_COST_CAP_USD`     | `0`                                     | Daily known-spend ceiling across all conversations; an unpriced run pauses later requests for the UTC day; `0` disables the cap.                                                                                                                                        |
 | `DISCORD_PUBLIC_BASE_URL`     | unset                                   | Public HTTPS origin used to link `create_web_app`'s interactive pages. Unset disables interactive mode (static/image mode always works).                                                                                                                                |
@@ -218,7 +218,7 @@ jazz run --no-tui --json --agent dc_<channel_id> --conversation <channel_id> "<t
 the provider/model/persona. Data lives in the `jazz_discord_data` volume, one
 Jazz home per conversation under `/data/chats/dc_<channel_id>/`: that
 conversation's agent in `agents/`, transcripts in `history/` (**plaintext
-JSON** — treat the volume as sensitive), memory in `memory/`, reminders in
+JSON**: treat the volume as sensitive), memory in `memory/`, reminders in
 `reminders/`. The bridge's own cross-conversation stores (`dc-tz.json`,
 `dc-usage.json`, …) and the seed `discord` agent stay at the top of `/data`.
 
@@ -229,7 +229,7 @@ asynchronously.
 ## Updating Jazz
 
 The image builds Jazz **from this repo's source** at `docker compose up --build`
-time, so the deployed version is pinned to the checkout's commit — it does **not**
+time, so the deployed version is pinned to the checkout's commit. It does **not**
 update on its own. To update manually:
 
 ```sh
@@ -254,13 +254,13 @@ model, so it costs nothing and works even while the agent is busy or down:
 ./long-job.sh && ./notify.sh "done" || ./notify.sh "FAILED ($?)"
 ```
 
-Anything on the host can use it — scripts, cron, a finished job, you at a shell.
+Anything on the host can use it: scripts, cron, a finished job, you at a shell.
 `auto-update.sh` uses it to report failures. See
-[Chat platforms — sending yourself a message](../../docs/surfaces/chat.md#sending-yourself-a-message).
+[Chat platforms: sending yourself a message](../../docs/surfaces/chat.md#sending-yourself-a-message).
 
 **Run logs:** every turn appends an NDJSON record of the jazz event stream to
 `<JAZZ_HOME>/logs/runs/<conversation>-<timestamp>.ndjson`, written as the run
-happens rather than when it finishes — so a run that times out still leaves a
+happens rather than when it finishes, so a run that times out still leaves a
 trace. Each line carries elapsed time, token deltas are collapsed into one line
 per stream with a character count and duration, and the last line is the outcome
 with the number of model rounds. The newest 200 runs per bridge are kept.
@@ -269,7 +269,7 @@ Anything needing a human is also sent to the bridge's own chat via `notify.sh`,
 because a cron failure that only appends to a logfile is invisible: a
 checkout left on a feature branch silently skipped every update for over two
 weeks before anyone noticed. If the checkout isn't on `main`, the script parks it
-back there — stashing tracked edits (untracked files such as a local
+back there: stashing tracked edits (untracked files such as a local
 `docker-compose.override.yml` are left alone) and reporting both the stash and any
 commits left behind on the old branch by name, so nothing goes quietly missing.
 Set `JAZZ_DEPLOY_BRANCH` to track something other than `main`.
@@ -279,14 +279,14 @@ Set `JAZZ_DEPLOY_BRANCH` to track something other than `main`.
 - Only allowlisted users / channels / guilds are answered; everyone else is ignored
   (slash commands from strangers get an ephemeral denial).
 - Each conversation's agent runs as **its own Unix user**, in its own Jazz home
-  — see [Per-conversation isolation](#per-conversation-isolation). This matters
+. See [Per-conversation isolation](#per-conversation-isolation). This matters
   more here than on other bridges: allowlisting a **guild** allows every member
   of it, and each one gets their own conversation on your host.
 - In servers, mention-gating is the second gate: a busy allowlisted channel does
   not become an unbounded `jazz run` bill. Do not set `DISCORD_REQUIRE_MENTION=0`
   unless the channel is private and you mean it.
-- The agent ships with the **full toolset** — filesystem (incl. write/delete),
-  `execute_command`, git (incl. push), HTTP, and web search — and runs
+- The agent ships with the **full toolset**: filesystem (incl. write/delete),
+  `execute_command`, git (incl. push), HTTP, and web search, and runs
   **without a human in the loop**. `JAZZ_APPROVAL_POLICY` is the gate: at the
   default `low-risk`, higher-risk actions (shell, delete, push, …) are
   auto-declined; raise it to `high-risk` only if you understand that a prompt
@@ -301,11 +301,11 @@ Set `JAZZ_DEPLOY_BRANCH` to track something other than `main`.
 
 ## Per-conversation isolation
 
-Allowlisting a guild does not make its members safe from each other — and a
+Allowlisting a guild does not make its members safe from each other, and a
 guild allowlist is the common case, so this is not a hypothetical. Everything
-an agent knows about someone — the transcript of every conversation, its memory
+an agent knows about someone: the transcript of every conversation, its memory
 notes, their reminders, the API keys in `secrets.json`, the mail account and
-GPG key `himalaya` and `pass` were set up with — is on one disk, and a Jazz
+GPG key `himalaya` and `pass` were set up with: is on one disk, and a Jazz
 agent has `read_file` and `execute_command`. A filename prefix does not stop a
 tool call. So each conversation gets a Unix user.
 
@@ -328,7 +328,7 @@ conversation reads another, and the setgid bit on each directory keeps the
 operator's access working as agents create new files.
 
 **Setting up mail or a calendar** belongs to one conversation, so do it as that
-conversation rather than as root — `jazz-chat` opens a shell as its user with
+conversation rather than as root. `jazz-chat` opens a shell as its user with
 everything already pointed at its home:
 
 ```sh
@@ -336,7 +336,7 @@ docker compose exec jazz-discord jazz-chat <channel_id>
 ```
 
 **Migrating an existing deployment.** A bot that has been running has one shared
-home with everyone's state in it. Move it in — the script prints its plan and
+home with everyone's state in it. Move it in: the script prints its plan and
 changes nothing until `--apply`:
 
 ```sh
@@ -350,14 +350,14 @@ then `docker compose restart`.
 
 **Turning it off.** `JAZZ_BOT_CHAT_ISOLATION=0` puts every conversation back in
 one shared home under one uid. It also stays off automatically when the bridge
-is not root, since switching uid needs the privilege — the startup log says
+is not root, since switching uid needs the privilege: the startup log says
 which mode it came up in. Setting `JAZZ_BOT_RUN_AS=<uid>:<gid>` runs the whole
 bridge as one ordinary user with `/data` at `0700`, which is right only when the
-allowlist really is one person — a guild allowlist is not that.
+allowlist really is one person: a guild allowlist is not that.
 
 **What none of this protects against.** Anyone with root, `sudo`, or membership
 of the `docker` group on the host reads all of it, whatever the uid and modes
 say: `sudo cat` gets the volume directly, and `docker exec … cat` does not care
-that a file is 0600 — the daemon runs as root, and the docker group is
+that a file is 0600: the daemon runs as root, and the docker group is
 root-equivalent by design. On a machine other people administer, the boundary is
 the machine, not the container.

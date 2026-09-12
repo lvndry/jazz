@@ -1,4 +1,4 @@
-# Jazz on GitHub Actions — AI PR review + assistant
+# Jazz on GitHub Actions. AI PR review + assistant
 
 This directory plus [`.github/workflows/jazz.yml`](../workflows/jazz.yml) run the
 [`jazz-ai`](https://www.npmjs.com/package/jazz-ai) CLI in CI to review pull
@@ -9,7 +9,7 @@ repo. This is the guide for doing that.
 
 - **Automatic code review** on every PR (opened / marked ready). Posts a verdict
   plus inline, line-level comments.
-- **On-demand PR assistant** — comment `/jazz <question>` on a PR and it answers,
+- **On-demand PR assistant**: comment `/jazz <question>` on a PR and it answers,
   grounded in the actual diff and code (reviews, summaries, "why does X work",
   change suggestions).
 
@@ -20,7 +20,7 @@ repo. This is the guide for doing that.
    - `.github/jazz/` (this whole directory)
 2. Add **one repo secret** for your model provider (Settings → Secrets and
    variables → Actions): `<PROVIDER>_API_KEY`, for whichever provider your agent
-   configs name — `OPENAI_API_KEY` for the checked-in ones, `ANTHROPIC_API_KEY`,
+   configs name. `OPENAI_API_KEY` for the checked-in ones, `ANTHROPIC_API_KEY`,
    `OPENROUTER_API_KEY`, `GROQ_API_KEY`, and so on. The workflow passes
    `OPENAI_API_KEY`; for another provider add its variable beside that line in
    `jazz.yml` (one line, both jobs).
@@ -35,7 +35,7 @@ repo. This is the guide for doing that.
 | `GITHUB_TOKEN`        | automatic                                | Read PR context, post comments (no action needed) |
 | `<PROVIDER>_API_KEY`  | one, for the provider your agents use    | Model access for the agents                       |
 
-You only need the key that matches the provider in your agent configs —
+You only need the key that matches the provider in your agent configs ,
 `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, `MISTRAL_API_KEY`,
 `GOOGLE_GENERATIVE_AI_API_KEY`, whichever it is. The full list of environment
 variable names is in [Model providers](https://jazz.tools/docs/configure/providers).
@@ -70,15 +70,15 @@ SHAs into the `WORKFLOW.md` template (`__PR_BASE_SHA__`, `__PR_HEAD_SHA__`,
 
 ## Customize for your project
 
-Two files almost certainly need editing — the defaults are tuned for **this**
+Two files almost certainly need editing: the defaults are tuned for **this**
 (TypeScript / Bun / Effect-TS) repo:
 
-1. **`agents/*.json` — pick your model.**
+1. **`agents/*.json`: pick your model.**
    Change `llmProvider`, `llmModel`, and optionally `reasoningEffort`. The checked-in configs use `openai/gpt-5.4-mini`; use the provider key that matches your choice.
-2. **`workflows/code-review/WORKFLOW.md` — match your codebase.** Its **"Runtime
+2. **`workflows/code-review/WORKFLOW.md`: match your codebase.** Its **"Runtime
    Model"** section describes Jazz's specifics (single-threaded JS, Effect-TS
    error channels, Bun). Replace it with your language, framework, and the risk
-   areas that matter for your project — otherwise the reviewer applies
+   areas that matter for your project: otherwise the reviewer applies
    assumptions that don't fit your stack.
 
 Everything else (the diff-inspection steps, the output contract, the
@@ -98,7 +98,7 @@ goes to the conversational assistant; the hyphen form runs the inline reviewer.
 
 ## Who can trigger it
 
-Comment triggers are restricted to trusted authors — `OWNER`, `MEMBER`, or
+Comment triggers are restricted to trusted authors. `OWNER`, `MEMBER`, or
 `COLLABORATOR`. Comments from other users are ignored, so drive-by commenters
 can't spend your model budget.
 
@@ -106,7 +106,7 @@ can't spend your model budget.
 
 The jobs only run for PRs from **the same repository** (a
 `pr_head_repo_full_name == github.repository` guard). PRs from **forks are
-skipped** — a fork's `GITHUB_TOKEN` is read-only and has no access to your
+skipped**: a fork's `GITHUB_TOKEN` is read-only and has no access to your
 secrets, so the reviewer can't run there safely. If you need review on external
 contributors' PRs, that's the point where a GitHub App (with its own installation
 token) becomes the right tool instead of Actions.
@@ -114,6 +114,6 @@ token) becomes the right tool instead of Actions.
 ## Cost and free-tier behavior
 
 The code-review job **does not fail CI** when the model provider throttles or
-errors — it posts a "could not run, re-run to retry" notice instead of a red X,
+errors. It posts a "could not run, re-run to retry" notice instead of a red X,
 so a rate-limited free tier doesn't spam failures. Swap in a paid model if you
 want reliable, higher-quality reviews.

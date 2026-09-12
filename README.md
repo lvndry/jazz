@@ -11,8 +11,8 @@
 </div>
 
 Jazz is an agent harness: the loop, guardrails, and surfaces that turn a model into an
-agent you can run unattended. You define the agent — primary and companion models, a persona, tools, and
-permissions in one JSON file — and Jazz runs it in your terminal, from scripts, on a
+agent you can run unattended. You define the agent: primary and companion models, a persona, tools, and
+permissions in one JSON file, and Jazz runs it in your terminal, from scripts, on a
 schedule, or behind a Telegram or Discord bot you own. Out of the box an agent works with
 your files, git, and the web; connect an inbox, an Obsidian vault, or a search provider and
 it grows into an everyday assistant.
@@ -38,7 +38,7 @@ curl -fsSL https://github.com/lvndry/jazz/releases/latest/download/install.sh | 
 jazz
 ```
 
-That installs a single self-contained binary into `~/.local/bin` — no Node, no npm, nothing
+That installs a single self-contained binary into `~/.local/bin`: no Node, no npm, nothing
 else to install. Set `JAZZ_INSTALL_DIR` to put it somewhere else. If you would rather go
 through npm:
 
@@ -53,7 +53,7 @@ Jazz walks you through provider setup on first run. It can cost nothing:
 [OpenRouter](https://openrouter.ai)'s [free models router](https://openrouter.ai/openrouter/free)
 needs no credit card, and `ollama` runs entirely on your own hardware.
 
-Then ask it for what you want. These work the moment the wizard finishes — no extra keys,
+Then ask it for what you want. These work the moment the wizard finishes: no extra keys,
 no extra installs:
 
 ```text
@@ -95,14 +95,14 @@ Slack, Google Chat, or your own app work the same way. See
 
 Start at [`docs/index.md`](docs/index.md).
 
-- [Getting started](docs/getting-started/index.md) — install, first run, and first custom agent
-- [Features](docs/features/index.md) — what Jazz unlocks and why the harness matters
-- [Surfaces](docs/surfaces/index.md) — terminal, headless, schedules, CI, chat, webhooks, and peers
-- [Concepts](docs/concepts/index.md) — agents, personas, tools, skills, workflows, and memory
-- [Guides](docs/guides/index.md) — complete setups you can run
-- [Security](docs/security/index.md) — permissions, approvals, secrets, egress, and remote access
-- [Configure](docs/configure/index.md) — models, agents, workflows, MCP, search, and telemetry
-- [Maintainers](docs/maintainers/index.md) — code-backed architecture and runtime traces
+- [Getting started](docs/getting-started/index.md): install, first run, and first custom agent
+- [Features](docs/features/index.md): what Jazz unlocks and why the harness matters
+- [Surfaces](docs/surfaces/index.md): terminal, headless, schedules, CI, chat, webhooks, and peers
+- [Concepts](docs/concepts/index.md): agents, personas, tools, skills, workflows, and memory
+- [Guides](docs/guides/index.md): complete setups you can run
+- [Security](docs/security/index.md): permissions, approvals, secrets, egress, and remote access
+- [Configure](docs/configure/index.md): models, agents, workflows, MCP, search, and telemetry
+- [Maintainers](docs/maintainers/index.md): code-backed architecture and runtime traces
 
 ## Community
 

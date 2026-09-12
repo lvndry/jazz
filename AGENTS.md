@@ -1,7 +1,7 @@
 # Working on Jazz
 
 Jazz is an agent harness. You are working on the machine that turns a model into
-something that can actually _do_ a job — unattended, on a real machine, with real
+something that can actually _do_ a job: unattended, on a real machine, with real
 consequences. That is hard, interesting work. Treat it that way.
 
 Do not reconstruct Jazz from memory. Do not answer from vibes. The documentation
@@ -53,7 +53,7 @@ problem. Lean into it.
 
 Novel patterns are welcome: speculative execution, verification-refinement
 loops, multi-model consensus, better context strategies, tighter approval UX,
-cheaper long runs. Bring ambition. Bring a design. Then prove the lift —
+cheaper long runs. Bring ambition. Bring a design. Then prove the lift ,
 a claim about agent quality is worth only as much as its measurement.
 
 If you change the harness, run the evals. See [evals/README.md](evals/README.md).
@@ -76,7 +76,7 @@ knows the product, the users, and the taste. Use them.
   rejecting. That reasoning is the part a reviewer cannot reconstruct later.
 - **Validate before you act.** If the request is ambiguous, if the design has
   real trade-offs, if you would touch more than the obvious files, or if you
-  might break a user-facing contract — stop and check. Come with a
+  might break a user-facing contract: stop and check. Come with a
   recommendation, not a blank. Then wait for the go.
 - **Do not expand the job in the dark.** Spotting something worth changing
   outside your scope is useful. Silently rewriting it is not. Say it. Ask.
@@ -127,7 +127,7 @@ Lean toward the most performance- and memory-efficient solution that is still
 correct and readable. Allocate less. Copy less. Stream when the alternative is
 buffering. Lazy-load anything that spawns a process. Parallelize independent
 work. The dominant costs in an agent run are LLM round trips and tool output
-volume — attack those before micro-optimizing a map. "This feels slow" is a
+volume: attack those before micro-optimizing a map. "This feels slow" is a
 hypothesis; profile before you declare a win.
 
 ### UX
@@ -137,7 +137,7 @@ chat message from their own bot. Every extra frame, extra line, extra question,
 extra round trip is a tax on them. Design the interaction: what they see,
 when they are asked, what happens when they say no, how failure is explained.
 If you change the TUI, the approval card, the CLI output, or a chat surface,
-go use it the way they would — or the closest substitute the tests give you —
+go use it the way they would, or the closest substitute the tests give you ,
 before you call it done.
 
 ---

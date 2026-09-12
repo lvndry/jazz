@@ -1,8 +1,8 @@
 # `@jazz/core`
 
 The domain layer of Jazz: agent execution, tool orchestration, and the service contracts
-(interfaces) that everything else implements. Zero I/O — no filesystem, network, or terminal
-access — which is what makes it independently testable and, eventually, publishable as a
+(interfaces) that everything else implements. Zero I/O: no filesystem, network, or terminal
+access, which is what makes it independently testable and, eventually, publishable as a
 standalone agent SDK.
 
 ## Architecture
@@ -35,7 +35,7 @@ standalone agent SDK.
 
 `@jazz/cli` (Ink/OpenTUI presentation) also depends only on `@jazz/core`; `@jazz/runtime` is the
 composition root that ties all three together into the `jazz` binary. The boundary is
-structurally enforced via TypeScript project references — `@jazz/core` has no dependency on any
+structurally enforced via TypeScript project references. `@jazz/core` has no dependency on any
 other workspace package, so `tsc -b` rejects an accidental import back out of it.
 
 ### Design principles
@@ -48,24 +48,24 @@ other workspace package, so `tsc -b` rejects an accidental import back out of it
 
 ## Key directories
 
-- **`agent/`** — agent execution logic, context management, prompts, tools, tracking
-- **`interfaces/`** — service contracts (ports) that adapters implement
-- **`types/`** — domain models and data structures
-- **`constants/`** — application-wide constants
-- **`utils/`** — shared pure utility functions
-- **`workflows/`**, **`skills/`**, **`presentation/`**, **`eval/`** — agent workflow definitions,
+- **`agent/`**: agent execution logic, context management, prompts, tools, tracking
+- **`interfaces/`**: service contracts (ports) that adapters implement
+- **`types/`**: domain models and data structures
+- **`constants/`**: application-wide constants
+- **`utils/`**: shared pure utility functions
+- **`workflows/`**, **`skills/`**, **`presentation/`**, **`eval/`**: agent workflow definitions,
   skill loading, presentation-agnostic formatting, and the eval harness
 
 ### Interfaces vs types
 
-**`interfaces/`** — service contracts (ports): define _behavior_ infrastructure must implement
+**`interfaces/`**: service contracts (ports): define _behavior_ infrastructure must implement
 (`LLMService`, `StorageService`, `LoggerService`).
 
-**`types/`** — domain models: define the _shape_ of domain data (`Agent`, `ChatMessage`,
+**`types/`**: domain models: define the _shape_ of domain data (`Agent`, `ChatMessage`,
 `ToolCall`).
 
 Keeping them separate means types describe data while interfaces describe capabilities, and
-either can change independently — a new adapter doesn't need a new domain type, and a new domain
+either can change independently: a new adapter doesn't need a new domain type, and a new domain
 field doesn't need a new interface method.
 
 ## Adding a new service contract
@@ -94,10 +94,10 @@ Wire the layer into the app at `@jazz/runtime/app-layer.ts`.
 
 ## What belongs in `@jazz/core`
 
-✅ Pure business logic and domain models — agent execution flow, context window management,
+✅ Pure business logic and domain models: agent execution flow, context window management,
 domain types, service interfaces, business rules.
 
-❌ Infrastructure and UI concerns — API clients, filesystem, keyring, terminal rendering, HTTP
+❌ Infrastructure and UI concerns. API clients, filesystem, keyring, terminal rendering, HTTP
 requests. Those belong in `@jazz/adapters` or `@jazz/cli`.
 
 ## Testing
