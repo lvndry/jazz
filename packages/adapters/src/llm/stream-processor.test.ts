@@ -10,9 +10,10 @@ import {
 } from "./stream-processor";
 
 describe("StreamProcessor", () => {
+  const logged: string[] = [];
   const mockLogger = {
-    debug: mock(() => {}),
-    warn: mock(() => {}),
+    debug: mock((message: string) => Effect.sync(() => logged.push(`debug:${message}`))),
+    warn: mock((message: string) => Effect.sync(() => logged.push(`warn:${message}`))),
   } as unknown as LoggerService;
 
   it("should process text deltas and emit events", async () => {
@@ -407,6 +408,30 @@ describe("StreamProcessor", () => {
   });
 
   // -------------------------------------------------------------------------
+  it("runs its log effects instead of discarding them", async () => {
+    logged.length = 0;
+    const emit = (eff: Effect.Effect<Chunk.Chunk<any>, any>) => {
+      Effect.runSync(eff);
+    };
+
+    const processor = new StreamProcessor(
+      { providerName: "p1", modelName: "m1", hasReasoningEnabled: false, startTime: Date.now() },
+      emit,
+      mockLogger,
+    );
+
+    await processor.process({
+      fullStream: (async function* () {
+        yield { type: "text-delta", text: "hi" };
+        yield { type: "finish", finishReason: "stop" };
+      })(),
+      usage: Promise.resolve({ inputTokens: 1, outputTokens: 1, totalTokens: 2 }),
+    } as any);
+
+    expect(logged.some((line) => line.includes("Starting to process fullStream"))).toBe(true);
+    expect(logged.some((line) => line.includes("FIRST TOKEN arrived"))).toBe(true);
+  });
+
   // Integration: selectParser → StreamProcessor end-to-end routing
   //
   // These tests cross the seam between the parser registry and the stream

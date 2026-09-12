@@ -151,7 +151,7 @@ export class ToolExecutor {
             Effect.catchAll((error) => {
               const message = error instanceof Error ? error.message : String(error);
               if (message.includes("timed out")) {
-                void logger.warn(`Tool timeout: ${name}: ${message}`);
+                Effect.runFork(logger.warn(`Tool timeout: ${name}: ${message}`));
                 return Effect.succeed({
                   success: false,
                   result: null,

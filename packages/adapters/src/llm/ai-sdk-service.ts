@@ -86,7 +86,7 @@ import {
   type ToolSet,
   type TypedToolCall,
 } from "ai";
-import { Chunk, Effect, Layer, Option, Stream } from "effect";
+import { Chunk, Duration, Effect, Layer, Option, Stream } from "effect";
 import { createOllama } from "ollama-ai-provider-v2";
 import shortUUID from "short-uuid";
 import { minimax } from "vercel-minimax-ai-provider";
@@ -103,7 +103,7 @@ import {
 } from "./models";
 import { selectParser } from "./reasoning";
 import { extractReasoningParts } from "./reasoning-parts";
-import { StreamProcessor } from "./stream-processor";
+import { resolveStreamIdleTimeoutMs, StreamProcessor } from "./stream-processor";
 
 /** DelayedPromise fields on streamText results reject when the stream fails. */
 const STREAM_TEXT_PROMISE_FIELDS = [
@@ -588,8 +588,10 @@ function getProviderNativeWebSearchTool(
     }
   } catch (error) {
     if (logger) {
-      void logger.warn(
-        `[Web Search Error] Failed to get native web search tool for ${providerName}: ${error instanceof Error ? error.message : String(error)}`,
+      Effect.runFork(
+        logger.warn(
+          `[Web Search Error] Failed to get native web search tool for ${providerName}: ${error instanceof Error ? error.message : String(error)}`,
+        ),
       );
     }
     return null;
@@ -1304,6 +1306,9 @@ class AISDKService implements LLMService {
   ): Promise<ModelInfo | undefined> {
     const models = await Effect.runPromise(
       this.getProviderModels(providerName).pipe(
+        Effect.timeout(
+          Duration.millis(resolveStreamIdleTimeoutMs(this.config.llmConfig?.streamIdleTimeoutMs)),
+        ),
         Effect.catchAll(() => Effect.succeed([] as readonly ModelInfo[])),
       ),
     );
@@ -1396,8 +1401,10 @@ class AISDKService implements LLMService {
         !selectedExternalProvider &&
         !hasSelectedProviderKey;
       if (isXaiLiveSearch) {
-        void this.logger.debug(
-          `[Web Search] Using xAI Live Search (searchParameters) for ${providerName}`,
+        Effect.runFork(
+          this.logger.debug(
+            `[Web Search] Using xAI Live Search (searchParameters) for ${providerName}`,
+          ),
         );
         delete tools["web_search"];
         providerNativeToolNames.add("web_search");
@@ -1409,19 +1416,25 @@ class AISDKService implements LLMService {
       const shouldUseExternal = selectedExternalProvider && hasSelectedProviderKey;
 
       if (!isXaiLiveSearch && shouldUseProviderNative) {
-        void this.logger.debug(
-          `[Web Search] Using provider-native web search tool for ${providerName} (builtin selected, no external provider configured)`,
+        Effect.runFork(
+          this.logger.debug(
+            `[Web Search] Using provider-native web search tool for ${providerName} (builtin selected, no external provider configured)`,
+          ),
         );
         tools["web_search"] = providerNativeWebSearch;
         providerNativeToolNames.add("web_search");
       } else if (shouldUseExternal) {
-        void this.logger.debug(
-          `[Web Search] Using Jazz web_search tool with external provider: ${selectedExternalProvider}`,
+        Effect.runFork(
+          this.logger.debug(
+            `[Web Search] Using Jazz web_search tool with external provider: ${selectedExternalProvider}`,
+          ),
         );
         // Keep Jazz's web_search tool - it will route to the external provider
       } else if (!isXaiLiveSearch && !providerNativeWebSearch && !shouldUseExternal) {
-        void this.logger.debug(
-          `[Web Search] web_search tool available but may fail: provider ${providerName} has no native support and no external provider configured`,
+        Effect.runFork(
+          this.logger.debug(
+            `[Web Search] web_search tool available but may fail: provider ${providerName} has no native support and no external provider configured`,
+          ),
         );
         // Keep Jazz's web_search tool but it will return an error when called
       }
@@ -1432,8 +1445,8 @@ class AISDKService implements LLMService {
     if (hasWebFetch) {
       const providerNativeWebFetch = getProviderNativeWebFetchTool(providerName);
       if (providerNativeWebFetch) {
-        void this.logger.debug(
-          `[Web Fetch] Using provider-native web fetch tool for ${providerName}`,
+        Effect.runFork(
+          this.logger.debug(`[Web Fetch] Using provider-native web fetch tool for ${providerName}`),
         );
         tools["web_fetch"] = providerNativeWebFetch;
         providerNativeToolNames.add("web_fetch");
@@ -1449,11 +1462,15 @@ class AISDKService implements LLMService {
         schemaCharCount(toolDef);
     }
 
-    void this.logger.debug(
-      `[Tool Telemetry] ${Object.keys(tools).length} tools, ~${toolDefinitionChars} chars (~${Math.ceil(toolDefinitionChars / 4)} tokens est.) sent to ${providerName}`,
+    Effect.runFork(
+      this.logger.debug(
+        `[Tool Telemetry] ${Object.keys(tools).length} tools, ~${toolDefinitionChars} chars (~${Math.ceil(toolDefinitionChars / 4)} tokens est.) sent to ${providerName}`,
+      ),
     );
-    void this.logger.debug(
-      `[LLM Timing] Tool conversion (${Object.keys(tools).length} tools) took ${Date.now() - toolConversionStart}ms`,
+    Effect.runFork(
+      this.logger.debug(
+        `[LLM Timing] Tool conversion (${Object.keys(tools).length} tools) took ${Date.now() - toolConversionStart}ms`,
+      ),
     );
 
     return { tools, providerNativeToolNames, toolDefinitionChars };
@@ -1471,14 +1488,16 @@ class AISDKService implements LLMService {
           options.providerApiKeys,
         );
         const timingStart = Date.now();
-        void this.logger.debug(
-          `[LLM Timing] Starting non-streaming completion for ${providerName}:${options.model}`,
+        Effect.runFork(
+          this.logger.debug(
+            `[LLM Timing] Starting non-streaming completion for ${providerName}:${options.model}`,
+          ),
         );
 
         const modelSelectStart = Date.now();
         const model = selectModel(providerName, options.model, effectiveLLMConfig, this.modelCache);
-        void this.logger.debug(
-          `[LLM Timing] Model selection took ${Date.now() - modelSelectStart}ms`,
+        Effect.runFork(
+          this.logger.debug(`[LLM Timing] Model selection took ${Date.now() - modelSelectStart}ms`),
         );
 
         const modelInfo = await this.resolveModelInfo(providerName, options.model);
@@ -1514,12 +1533,14 @@ class AISDKService implements LLMService {
           this.logger,
         );
         const coreMessages = toCoreMessages(options.messages, providerName, resolvedAttachments);
-        void this.logger.debug(
-          `[LLM Timing] Message conversion (${options.messages.length} messages) took ${Date.now() - messageConversionStart}ms`,
+        Effect.runFork(
+          this.logger.debug(
+            `[LLM Timing] Message conversion (${options.messages.length} messages) took ${Date.now() - messageConversionStart}ms`,
+          ),
         );
 
         const generateTextStart = Date.now();
-        void this.logger.debug(`[LLM Timing] Calling generateText...`);
+        Effect.runFork(this.logger.debug(`[LLM Timing] Calling generateText...`));
         const result = await generateText({
           model,
           messages: coreMessages,
@@ -1533,14 +1554,20 @@ class AISDKService implements LLMService {
           ...(providerOptions ? { providerOptions } : {}),
           stopWhen: stepCountIs(AI_SDK_MAX_STEPS),
         });
-        void this.logger.debug(
-          `[LLM Timing] generateText completed in ${Date.now() - generateTextStart}ms`,
+        Effect.runFork(
+          this.logger.debug(
+            `[LLM Timing] generateText completed in ${Date.now() - generateTextStart}ms`,
+          ),
         );
-        void this.logger.info(`[LLM Timing] Total completion time: ${Date.now() - timingStart}ms`);
+        Effect.runFork(
+          this.logger.info(`[LLM Timing] Total completion time: ${Date.now() - timingStart}ms`),
+        );
 
         if (toolsDisabled) {
-          void this.logger.info(
-            `Tools were provided but skipped because ${options.model} does not support tools`,
+          Effect.runFork(
+            this.logger.info(
+              `Tools were provided but skipped because ${options.model} does not support tools`,
+            ),
           );
         }
 
@@ -1579,10 +1606,12 @@ class AISDKService implements LLMService {
           // Log provider-native tool calls so they're visible to the user
           for (const tc of result.toolCalls) {
             if (providerNativeToolNames.has(tc.toolName)) {
-              void this.logger.info(`Provider-native tool used: ${tc.toolName}`, {
-                provider: providerName,
-                toolName: tc.toolName,
-              });
+              Effect.runFork(
+                this.logger.info(`Provider-native tool used: ${tc.toolName}`, {
+                  provider: providerName,
+                  toolName: tc.toolName,
+                }),
+              );
             }
           }
 
@@ -1644,7 +1673,7 @@ class AISDKService implements LLMService {
         const cleanMessage = extractCleanErrorMessage(error);
 
         // Log clean error message at error level (user-facing)
-        void this.logger.error(`LLM Error: ${llmError._tag} - ${cleanMessage}`);
+        Effect.runFork(this.logger.error(`LLM Error: ${llmError._tag} - ${cleanMessage}`));
 
         // Log detailed error information at debug level (for debugging)
         const errorDetails: Record<string, unknown> = {
@@ -1671,7 +1700,7 @@ class AISDKService implements LLMService {
           errorDetails["requestBodyValues"] = truncatedRequestBody;
         }
 
-        void this.logger.debug("LLM Error Details", errorDetails);
+        Effect.runFork(this.logger.debug("LLM Error Details", errorDetails));
 
         return llmError;
       },
@@ -1713,14 +1742,16 @@ class AISDKService implements LLMService {
           options.providerApiKeys,
         );
         const timingStart = Date.now();
-        void this.logger.debug(
-          `[LLM Timing] ⏱️  Starting streaming completion for ${providerName}:${options.model}`,
+        Effect.runFork(
+          this.logger.debug(
+            `[LLM Timing] ⏱️  Starting streaming completion for ${providerName}:${options.model}`,
+          ),
         );
 
         const modelSelectStart = Date.now();
         const model = selectModel(providerName, options.model, effectiveLLMConfig, this.modelCache);
-        void this.logger.debug(
-          `[LLM Timing] Model selection took ${Date.now() - modelSelectStart}ms`,
+        Effect.runFork(
+          this.logger.debug(`[LLM Timing] Model selection took ${Date.now() - modelSelectStart}ms`),
         );
 
         const providerOptions = buildProviderOptions(
@@ -1738,8 +1769,10 @@ class AISDKService implements LLMService {
           this.logger,
         );
         const coreMessages = toCoreMessages(options.messages, providerName, resolvedAttachments);
-        void this.logger.debug(
-          `[LLM Timing] Message conversion (${options.messages.length} messages) took ${Date.now() - messageConversionStart}ms`,
+        Effect.runFork(
+          this.logger.debug(
+            `[LLM Timing] Message conversion (${options.messages.length} messages) took ${Date.now() - messageConversionStart}ms`,
+          ),
         );
 
         return { timingStart, model, providerOptions, coreMessages };
@@ -1762,8 +1795,10 @@ class AISDKService implements LLMService {
               let streamTextResult: Awaited<ReturnType<typeof streamText>> | undefined;
               try {
                 const streamTextStart = Date.now();
-                void this.logger.debug(
-                  `[LLM Timing] 🚀 Calling streamText at +${streamTextStart - timingStart}ms...`,
+                Effect.runFork(
+                  this.logger.debug(
+                    `[LLM Timing] 🚀 Calling streamText at +${streamTextStart - timingStart}ms...`,
+                  ),
                 );
 
                 const modelInfo = await this.resolveModelInfo(providerName, options.model);
@@ -1787,8 +1822,10 @@ class AISDKService implements LLMService {
                 const tools = prepared?.tools;
 
                 if (toolsDisabled) {
-                  void this.logger.info(
-                    `Tools were provided but skipped because ${options.model} does not support tools`,
+                  Effect.runFork(
+                    this.logger.info(
+                      `Tools were provided but skipped because ${options.model} does not support tools`,
+                    ),
                   );
                 }
 
@@ -1809,8 +1846,10 @@ class AISDKService implements LLMService {
                 });
                 const result = streamTextResult;
 
-                void this.logger.debug(
-                  `[LLM Timing] ✓ streamText returned (initialization) in ${Date.now() - streamTextStart}ms`,
+                Effect.runFork(
+                  this.logger.debug(
+                    `[LLM Timing] ✓ streamText returned (initialization) in ${Date.now() - streamTextStart}ms`,
+                  ),
                 );
 
                 const providerNativeToolNames = prepared?.providerNativeToolNames;
@@ -1847,10 +1886,19 @@ class AISDKService implements LLMService {
                 // `files` resolves once the stream finishes, so media a model emitted mid-answer
                 // is saved after the text has already been rendered. Awaited here rather than in
                 // the processor so streaming stays purely about text deltas.
-                const streamedArtifacts = await saveModelGeneratedFiles(
-                  await result.files,
-                  options.model,
-                );
+                const files = await Promise.race([
+                  result.files,
+                  new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 5_000)),
+                ]);
+                if (files === undefined) {
+                  Effect.runFork(
+                    this.logger.warn(
+                      "[LLM] Stream finished but `files` never resolved; skipping generated-file capture",
+                      { provider: providerName, model: options.model },
+                    ),
+                  );
+                }
+                const streamedArtifacts = await saveModelGeneratedFiles(files ?? [], options.model);
 
                 // Resolve deferred for consumers who just await response
                 responseDeferred.resolve(
@@ -1906,9 +1954,9 @@ class AISDKService implements LLMService {
 
                 const cleanMessage = extractCleanErrorMessage(error);
                 // Log clean error message at error level (user-facing)
-                void this.logger.error(`LLM Error: ${llmError._tag} - ${cleanMessage}`);
+                Effect.runFork(this.logger.error(`LLM Error: ${llmError._tag} - ${cleanMessage}`));
                 // Log detailed error information at debug level (for debugging)
-                void this.logger.debug("LLM Error Details", errorDetails);
+                Effect.runFork(this.logger.debug("LLM Error Details", errorDetails));
 
                 void emit(Effect.fail(Option.some(llmError)));
 

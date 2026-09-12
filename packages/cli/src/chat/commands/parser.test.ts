@@ -76,6 +76,10 @@ describe("parseSpecialCommand", () => {
       expect(result.args).toEqual([]);
     });
 
+    it("should parse /info as an alias of /stats", () => {
+      expect(parseSpecialCommand("/info").type).toBe("stats");
+    });
+
     it("should parse /mcp command", () => {
       const result = parseSpecialCommand("/mcp");
       expect(result.type).toBe("mcp");
