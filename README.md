@@ -72,14 +72,16 @@ The [Playbooks](docs/playbooks/index.md) walk through each one.
 
 ## Where it runs
 
-| Surface              | How you run it                                                                  |
-| -------------------- | ------------------------------------------------------------------------------- |
-| Terminal             | `jazz`                                                                          |
-| Scripts & pipes      | `jazz run --json --agent dev "…"`                                               |
-| Cron / launchd       | `jazz workflow schedule <name>`                                                 |
-| GitHub PRs & Actions | [`.github/jazz/`](.github/jazz/), reviews every PR in this repo                 |
-| Telegram             | [`packages/telegram-bot/`](packages/telegram-bot/), `docker compose up` |
-| Discord              | [`packages/discord-bot/`](packages/discord-bot/), `docker compose up`   |
+| Surface              | How you run it                                                              |
+| -------------------- | --------------------------------------------------------------------------- |
+| Terminal             | `jazz`                                                                      |
+| Scripts & pipes      | `jazz run --json --agent dev "…"`                                           |
+| Cron / launchd       | `jazz workflow schedule <name>`                                             |
+| GitHub PRs & Actions | [`.github/jazz/`](.github/jazz/), reviews every PR in this repo             |
+| Telegram             | [`packages/telegram-bot/`](packages/telegram-bot/), `docker compose up`     |
+| Discord              | [`packages/discord-bot/`](packages/discord-bot/), `docker compose up`       |
+| iMessage             | [`packages/imessage-bot/`](packages/imessage-bot/), `jazz imessage` (macOS) |
+| WhatsApp             | [`packages/whatsapp-bot/`](packages/whatsapp-bot/), `jazz whatsapp`         |
 
 Slack, Google Chat, or your own app work the same way. See
 [Chat platforms](docs/use-cases/chat-platforms.md).

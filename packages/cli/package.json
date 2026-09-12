@@ -18,6 +18,7 @@
     "@jazz/bot-shared": "workspace:*",
     "@jazz/core": "workspace:*",
     "@jazz/imessage-bot": "workspace:*",
+    "@jazz/photon-bot": "workspace:*",
     "@jazz/whatsapp-bot": "workspace:*",
     "ignore": "^7.0.6",
     "qrcode-terminal": "^0.12.0"

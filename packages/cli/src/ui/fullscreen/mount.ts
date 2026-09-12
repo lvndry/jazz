@@ -14,7 +14,10 @@
  */
 
 import { createCliRenderer, type CliRenderer } from "@opentui/core";
+import { stripAnsiCodes } from "@/cli/utils/string-utils";
 import { MIN_HEIGHT, MIN_WIDTH } from "./types";
+import { store } from "../store";
+import type { OutputEntry } from "../types";
 
 /** Why the fullscreen interface declined to start, when it does. */
 export type PlainReason =
@@ -199,6 +202,140 @@ export function installTerminalLifecycle(
   return release;
 }
 
+/** The slice of a stdio stream the guard replaces, so tests can pass a stand-in. */
+export interface GuardedStream {
+  write(chunk: unknown, encoding?: unknown, callback?: unknown): boolean;
+}
+
+/**
+ * What a foreign write should show in the transcript, or null when it is pure
+ * terminal control — an OSC title, a mode toggle — which paints no cells and
+ * can go straight through.
+ */
+export function transcriptTextForForeignWrite(chunk: string): string | null {
+  for (const character of stripAnsiCodes(chunk)) {
+    const code = character.codePointAt(0) ?? 0;
+    // Space and below occupy no ink; DEL occupies no column.
+    if (code > 0x20 && code !== 0x7f) return chunk.replace(/\r?\n+$/, "");
+  }
+  return null;
+}
+
+/**
+ * Keep the screen the renderer's alone.
+ *
+ * OpenTUI paints the alternate screen by diffing against its own model of what
+ * is already on it, and it writes frames through a reference to the real
+ * `write` captured when the renderer was constructed — never through
+ * `process.stdout.write`. So anything else that writes changes the screen
+ * without the model knowing, and from then on every frame skips the cells it
+ * wrongly believes are already correct. That desync is what a long session
+ * shows as half-rows of two different strings interleaved and a trail of stale
+ * live-band rows: not leaked state (the band is clamped to LIVE_ZONE_MAX_ROWS,
+ * and no single frame can hold the rows on screen), but old cells nothing ever
+ * repainted. OpenTUI guards against this only in `split-footer` mode, via
+ * `externalOutputMode: "capture-stdout"`, which the alternate screen refuses.
+ *
+ * Installed after `createCliRenderer` precisely so the renderer's captured
+ * reference stays the untouched one: frames bypass this, and what arrives here
+ * is by definition somebody else's output. It goes to the transcript, where it
+ * is visible instead of destructive — nothing is swallowed.
+ */
+export function guardOutput(
+  renderer: Pick<CliRenderer, "isDestroyed">,
+  sink: (entry: OutputEntry) => unknown = store.printOutput,
+  streams: { readonly out: GuardedStream; readonly err: GuardedStream } = {
+    out: process.stdout,
+    err: process.stderr,
+  },
+): () => void {
+  let reentrant = false;
+
+  const guard = (stream: GuardedStream, entry: (message: string) => OutputEntry): (() => void) => {
+    const original = stream.write.bind(stream);
+    stream.write = (chunk: unknown, encoding?: unknown, callback?: unknown) => {
+      const passthrough = (): boolean => original(chunk, encoding, callback);
+      // Once the renderer is gone the screen is the shell's again and writing to
+      // it is the correct thing to do — which is what makes a crash message,
+      // printed after OpenTUI's own handlers destroy the renderer, still arrive.
+      if (reentrant || renderer.isDestroyed) return passthrough();
+
+      const line = transcriptTextForForeignWrite(typeof chunk === "string" ? chunk : String(chunk));
+      if (line === null) return passthrough();
+
+      reentrant = true;
+      try {
+        sink(entry(line));
+      } finally {
+        reentrant = false;
+      }
+      const done = typeof encoding === "function" ? encoding : callback;
+      if (typeof done === "function") process.nextTick(done);
+      return true;
+    };
+
+    return () => {
+      stream.write = original;
+    };
+  };
+
+  const restore = [
+    guard(streams.out, (message) => ({ type: "log", message, timestamp: new Date() })),
+    // stderr is not the rarer case it looks: the AI SDK's warning banner goes
+    // through `console.error` by deliberate choice (see runtime/src/main.ts),
+    // and stderr paints the alternate screen exactly as stdout does.
+    guard(streams.err, (message) => ({ type: "warn", message, timestamp: new Date() })),
+  ];
+
+  return () => {
+    for (const undo of restore) undo();
+  };
+}
+
+/** The renderer surface the repaint hook drives, narrowed so tests can pass a stand-in. */
+export interface RepaintableRenderer {
+  on(event: "resize", listener: () => void): unknown;
+  off(event: "resize", listener: () => void): unknown;
+  requestRender(): void;
+}
+
+/**
+ * Repaint everything after the terminal changes size.
+ *
+ * `processResize` reallocates the buffers but, outside `split-footer` mode,
+ * never clears them and never asks for a full repaint — so the next frame is
+ * diffed against cells whose relationship to the physical screen the resize has
+ * just broken. Terminals reflow or truncate their own grid, OpenTUI crops its
+ * buffer, and wherever the two disagree the diff skips the cell and the old
+ * glyph stays: the same desync a foreign write causes, arriving through another
+ * door. It needs nobody to drag a window — a display change while the machine
+ * sleeps (the lid, an external monitor, a window restored at another size) is a
+ * resize the user never typed, which is why this shows up as "it was fine when
+ * I left it".
+ *
+ * `forceFullRepaintRequested` is the flag OpenTUI sets for itself on resume and
+ * on a capability response, and it is private — so this checks for it and does
+ * nothing if a later version renames it. A missing repaint is the bug that is
+ * already there, not a new one.
+ *
+ * ponytail: reaching into a private field, because the public API has no
+ * "repaint everything". Drop this the day OpenTUI exposes one, or resizes with
+ * the same force it resumes with.
+ */
+export function repaintAfterResize(renderer: RepaintableRenderer): () => void {
+  const onResize = (): void => {
+    const internals = renderer as unknown as { forceFullRepaintRequested?: boolean };
+    if (typeof internals.forceFullRepaintRequested !== "boolean") return;
+    internals.forceFullRepaintRequested = true;
+    renderer.requestRender();
+  };
+
+  renderer.on("resize", onResize);
+  return () => {
+    renderer.off("resize", onResize);
+  };
+}
+
 export async function mountFullscreen(): Promise<MountedRenderer> {
   const renderer = await createCliRenderer({
     screenMode: "alternate-screen",
@@ -219,7 +356,16 @@ export async function mountFullscreen(): Promise<MountedRenderer> {
   });
 
   const release = installTerminalLifecycle(renderer);
+  const stopGuard = guardOutput(renderer);
+  const stopRepaint = repaintAfterResize(renderer);
 
   renderer.start();
-  return { renderer, release };
+  return {
+    renderer,
+    release: () => {
+      stopRepaint();
+      stopGuard();
+      release();
+    },
+  };
 }

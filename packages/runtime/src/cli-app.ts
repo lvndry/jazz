@@ -911,18 +911,6 @@ function runPlainAction(action: () => Promise<void> | void): Promise<void> {
 }
 
 /**
- * Register `jazz imessage` — reach the agent from Messages on a Mac.
- *
- * A top-level noun rather than something under a `bridge` group, matching the
- * other surfaces this binary will grow: what a person wants is "iMessage", not
- * a category to navigate first.
- *
- * The bare command starts the bridge in the foreground and, on a first run,
- * walks through what it needs. The subcommands exist because it offers to keep
- * running in the background, and a service you cannot stop or read the logs of
- * is worse than no service.
- */
-/**
  * Register `jazz whatsapp` — reach the agent from WhatsApp.
  *
  * A linked device rather than a container, so like iMessage it runs on the
@@ -943,23 +931,41 @@ function registerWhatsappCommand(program: Command): void {
     );
 }
 
+/**
+ * Register `jazz imessage` — reach the agent from Messages on a Mac.
+ *
+ * A top-level noun rather than something under a `bridge` group, matching the
+ * other surfaces this binary will grow: what a person wants is "iMessage", not
+ * a category to navigate first.
+ *
+ * The bare command starts the bridge in the foreground and, on a first run,
+ * walks through what it needs. The subcommands exist because it offers to keep
+ * running in the background, and a service you cannot stop or read the logs of
+ * is worse than no service.
+ */
 function registerIMessageCommand(program: Command): void {
   const imessageCommand = program
     .command("imessage")
-    .description("Chat with your agent from Messages (macOS)")
+    .description("Chat with your agent from Messages, on a line of its own")
     .option(
       "--agent <id-or-name>",
       "Seed the bridge from one of your agents, copied into its own home",
     )
-    .action((options: { agent?: string }) =>
+    .option(
+      "--local",
+      "Use your own Mac and Apple account instead of a hosted line: nothing leaves your machine, but the agent answers as you and needs a trigger word",
+    )
+    .action((options: { agent?: string; local?: boolean }) =>
       runPlainAction(() =>
-        import("@jazz/cli/commands/imessage").then((mod) => mod.imessageCommand(options.agent)),
+        import("@jazz/cli/commands/imessage").then((mod) =>
+          mod.imessageCommand(options.agent, options.local === true),
+        ),
       ),
     );
 
   imessageCommand
     .command("stop")
-    .description("Stop the background bridge")
+    .description("Stop the background bridge (--local only)")
     .action(() =>
       runPlainAction(() =>
         import("@jazz/cli/commands/imessage").then((mod) => mod.imessageStopCommand()),
@@ -968,7 +974,7 @@ function registerIMessageCommand(program: Command): void {
 
   imessageCommand
     .command("status")
-    .description("Whether the background bridge is installed and running")
+    .description("Whether the background bridge is installed and running (--local only)")
     .action(() =>
       runPlainAction(() =>
         import("@jazz/cli/commands/imessage").then((mod) => mod.imessageStatusCommand()),
@@ -977,7 +983,7 @@ function registerIMessageCommand(program: Command): void {
 
   imessageCommand
     .command("logs")
-    .description("Follow the bridge log")
+    .description("Follow the bridge log (--local only)")
     .action(() =>
       runPlainAction(() =>
         import("@jazz/cli/commands/imessage").then((mod) => mod.imessageLogsCommand()),

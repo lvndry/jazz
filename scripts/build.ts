@@ -89,6 +89,32 @@ function createStandalonePlugins(generatedAssetsModule: string): import("bun").B
       },
     },
     {
+      /**
+       * Neutralise `@photon-ai/advanced-imessage`'s peer preflight.
+       *
+       * Before opening a gRPC channel it calls `import.meta.resolve(peer)` for
+       * each of nice-grpc, nice-grpc-common and @grpc/grpc-js, and refuses to
+       * connect if any throws. A standalone binary has no node_modules to
+       * resolve against, so that check always fails - even though the peers are
+       * bundled and a static import of them works, which is how the real client
+       * loads them.
+       *
+       * The check already skips itself where `import.meta.resolve` is
+       * unavailable, so this flips that guard on rather than deleting the
+       * function: inside the binary resolution genuinely is not available.
+       */
+      name: "jazz-photon-grpc-peer-preflight",
+      setup(build) {
+        build.onLoad({ filter: /@photon-ai\/advanced-imessage\/dist\/.*\.js$/ }, async (args) => {
+          const source = await Bun.file(args.path).text();
+          return {
+            contents: source.replaceAll('typeof meta.resolve !== "function"', "true"),
+            loader: "js",
+          };
+        });
+      },
+    },
+    {
       name: "jazz-stub-optional-imports",
       setup(build) {
         const stubbed = new RegExp(`^(${["react-devtools-core", "@x402/core/http"].join("|")})$`);

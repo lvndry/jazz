@@ -1,5 +1,5 @@
 ---
-description: "Where a Jazz agent can run: terminal REPL, headless scripts via jazz run, CI pipelines, OS schedulers, and chat platforms like Telegram and Discord."
+description: "Where a Jazz agent can run: terminal REPL, headless scripts via jazz run, CI pipelines, OS schedulers, and chat platforms like Telegram, Discord, iMessage and WhatsApp."
 ---
 
 # Use cases
@@ -24,10 +24,12 @@ This section is the map. Start with the matrix, then read the page for the surfa
 | **[Scheduled](./scheduled.md)** — launchd / cron, with catch-up for missed slots     | `jazz workflow schedule`           | No                             | ✅ Shipped                     |
 | **[CI/CD](./ci-cd.md)** — PR review with inline comments, `/jazz` PR assistant       | `jazz workflow run --auto-approve` | No                             | ✅ Shipped (used on this repo) |
 | **[Chat platforms](./chat-platforms.md)** — Telegram, Discord                        | `docker compose up`                | No (policy-gated)              | ✅ Reference bridges           |
+| **[Chat platforms](./chat-platforms.md)** — iMessage, WhatsApp                       | `jazz imessage` / `jazz whatsapp`  | No (policy-gated)              | ✅ Shipped, on your machine    |
 | **[Chat platforms](./chat-platforms.md)** — Slack, Google Chat, your own app         | your webhook → `jazz run`          | No (policy-gated)              | 🔧 Bring your own bridge       |
 
 > **On "bring your own bridge":** no Slack/Google Chat adapter ships in this repo
-> today. What ships is the contract they'd all use, and complete, deployed
+> today. iMessage and WhatsApp do ship, as commands rather than containers — neither
+> account can be moved to a server. What ships is the contract they'd all use, and complete, deployed
 > implementations of it for Telegram and Discord that you copy and re-point at a
 > different transport. The transport-specific part is roughly 100 lines. See
 > [Chat platforms](./chat-platforms.md).
@@ -51,7 +53,7 @@ flowchart LR
         SCRIPT["Script / pipe"]
         CRON["launchd / cron"]
         CI["GitHub Actions"]
-        BRIDGE["Chat bridge<br/>Telegram · Discord · Slack"]
+        BRIDGE["Chat bridge<br/>Telegram · Discord · iMessage · WhatsApp"]
     end
 
     RUN["<b>jazz run</b><br/>stdout = answer<br/>stderr = everything else"]
@@ -146,7 +148,7 @@ how the run started:
 | Page                                             | What it answers                                                                   |
 | ------------------------------------------------ | --------------------------------------------------------------------------------- |
 | [Headless](./headless.md)                        | The `jazz run` contract: stdout/stderr, `--json`, memory, live events, exit codes |
-| [Chat platforms](./chat-platforms.md)            | How to put an agent in Telegram, Discord, Slack, or your own app                  |
+| [Chat platforms](./chat-platforms.md)            | How to put an agent in Telegram, Discord, iMessage, WhatsApp, or your own app     |
 | [CI/CD](./ci-cd.md)                              | PR review, the `/jazz` assistant, release notes, generic CI                       |
 | [Scheduled](./scheduled.md)                      | launchd/cron, catch-up, logs, unattended safety                                   |
 | [Airgapped & self-hosted](../start/airgapped.md) | Running the whole stack inside your own network                                   |

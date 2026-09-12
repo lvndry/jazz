@@ -1,5 +1,5 @@
 ---
-description: "Jazz is an open-source AI agent harness that runs a general-purpose agent on your own machine — terminal, cron, CI, Telegram, Discord. Any of 18 LLM providers, fully local-capable, MIT licensed."
+description: "Jazz is an open-source AI agent harness that runs a general-purpose agent on your own machine — terminal, cron, CI, Telegram, Discord, iMessage, WhatsApp. Any of 18 LLM providers, fully local-capable, MIT licensed."
 ---
 
 # Jazz Documentation
@@ -11,15 +11,15 @@ chat. Any model, including local ones. These docs are organized by what you're t
 
 ## Start here
 
-| I want to… | Go to |
-| --- | --- |
-| **Install it and see it work** | [Quick Start](./start/quick-start.md) |
-| **Know where it can run** | [Where it runs](./use-cases/index.md) |
-| **Copy a finished thing** | [Playbooks](./playbooks/index.md) |
-| **Understand a concept** | [Concepts](./concepts/index.md) |
-| **Look up a flag or tool** | [Reference](./reference/index.md) |
-| **See how it works inside** | [Internals](./internals/index.md) |
-| **Understand the interface design** | [Design](./design/index.md) |
+| I want to…                          | Go to                                 |
+| ----------------------------------- | ------------------------------------- |
+| **Install it and see it work**      | [Quick Start](./start/quick-start.md) |
+| **Know where it can run**           | [Where it runs](./use-cases/index.md) |
+| **Copy a finished thing**           | [Playbooks](./playbooks/index.md)     |
+| **Understand a concept**            | [Concepts](./concepts/index.md)       |
+| **Look up a flag or tool**          | [Reference](./reference/index.md)     |
+| **See how it works inside**         | [Internals](./internals/index.md)     |
+| **Understand the interface design** | [Design](./design/index.md)           |
 
 ---
 
@@ -29,7 +29,7 @@ chat. Any model, including local ones. These docs are organized by what you're t
 
 - [Quick Start](./start/quick-start.md) — install, configure a provider, first answer
 - [Creating Agents](./start/creating-agents.md) — build an agent for a job
-- [Creating a Telegram or Discord bot](./start/chat-bots.md) — bot token to a working agent in your chats
+- [Reaching your agent from a chat app](./start/chat-bots.md) — Telegram, Discord, iMessage and WhatsApp, from nothing to a working agent in your chats
 - [Airgapped & Self-Hosted](./start/airgapped.md) — fully offline with Ollama or llama.cpp
 - [Observability](./start/observability.md) — telemetry to your own OpenTelemetry collector or Langfuse
 
@@ -38,7 +38,7 @@ chat. Any model, including local ones. These docs are organized by what you're t
 One agent, many front doors. Start with the matrix below.
 
 - [Headless](./use-cases/headless.md) — the `jazz run` contract: stdout/stderr, JSON envelope, per-chat memory, live events
-- [Chat platforms](./use-cases/chat-platforms.md) — Telegram and Discord (shipped), Slack / Google Chat (bring your own bridge)
+- [Chat platforms](./use-cases/chat-platforms.md) — Telegram, Discord, iMessage and WhatsApp (shipped), Slack / Google Chat (bring your own bridge)
 - [CI/CD](./use-cases/ci-cd.md) — PR review with inline comments, the `/jazz` assistant, release notes
 - [Scheduled](./use-cases/scheduled.md) — launchd / cron, catch-up, unattended safety
 

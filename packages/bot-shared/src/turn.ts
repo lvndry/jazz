@@ -179,7 +179,7 @@ interface ChatState {
  */
 const incognitoHistory = new Map<ChatId, unknown[]>();
 
-/** How much reasoning to attach under an answer, when a bridge asks for it. */
+/** How much reasoning to send ahead of an answer, when a bridge asks for it. */
 const REASONING_PART_CHARS = 1_500;
 const REASONING_MAX_PARTS = 2;
 
@@ -446,21 +446,6 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
     const summary = doneSummary(envelope, reporter.toolsUsed());
     const summaryShown = await reporter.finish(summary);
 
-    await surface.send(chatId, {
-      body: [
-        plainLine(envelope.answer),
-        // Where the progress display could not show it — an append-only surface
-        // has no bubble to close — the summary rides under the answer rather
-        // than costing its own notification.
-        ...(summaryShown ? [] : [plainLine(""), ...summary]),
-      ],
-      // Offered, never required: a surface without buttons drops these rather
-      // than appending a numbered menu to every answer.
-      choices: followupChoices(),
-      choiceKind: "suggestion",
-      promptId: FOLLOWUP_PROMPT_ID,
-    });
-
     if (config.showReasoning) {
       const parts = splitReasoning(reporter.reasoningLog(), {
         budget: REASONING_PART_CHARS,
@@ -476,6 +461,21 @@ export function createTurnRunner(config: TurnConfig): TurnRunner {
         ]);
       }
     }
+
+    await surface.send(chatId, {
+      body: [
+        plainLine(envelope.answer),
+        // Where the progress display could not show it — an append-only surface
+        // has no bubble to close — the summary rides under the answer rather
+        // than costing its own notification.
+        ...(summaryShown ? [] : [plainLine(""), ...summary]),
+      ],
+      // Offered, never required: a surface without buttons drops these rather
+      // than appending a numbered menu to every answer.
+      choices: followupChoices(),
+      choiceKind: "suggestion",
+      promptId: FOLLOWUP_PROMPT_ID,
+    });
 
     if (envelope.webApp !== undefined) {
       await deliverWebApp(

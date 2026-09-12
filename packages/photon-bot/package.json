@@ -1,0 +1,19 @@
+{
+  "name": "@jazz/photon-bot",
+  "version": "0.15.20",
+  "private": true,
+  "description": "Photon (hosted iMessage line) bridge for Jazz agents.",
+  "type": "module",
+  "exports": {
+    "./*": [
+      "./src/*.ts",
+      "./src/*/index.ts"
+    ]
+  },
+  "dependencies": {
+    "@jazz/adapters": "workspace:*",
+    "@jazz/bot-shared": "workspace:*",
+    "@jazz/core": "workspace:*",
+    "spectrum-ts": "^12.8.0"
+  }
+}

@@ -1,6 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { mountFullscreenApp, type FullscreenHandle } from "./attach";
-import { decideFullscreen, installTerminalLifecycle, type LifecycleRenderer } from "./mount";
+import {
+  decideFullscreen,
+  guardOutput,
+  installTerminalLifecycle,
+  repaintAfterResize,
+  transcriptTextForForeignWrite,
+  type GuardedStream,
+  type LifecycleRenderer,
+} from "./mount";
+import type { OutputEntry } from "../types";
 
 const ENVIRONMENT = { TERM: "xterm-256color" };
 const OUTPUT = { isTTY: true, columns: 100, rows: 24 };
@@ -197,5 +206,141 @@ describe("installTerminalLifecycle", () => {
     expect(calls.suspend).toBe(0);
     expect(calls.resume).toBe(0);
     expect(kills).toEqual([]);
+  });
+});
+
+describe("transcriptTextForForeignWrite", () => {
+  test("routes anything that would paint cells into the transcript", () => {
+    expect(transcriptTextForForeignWrite("visit https://example.com\n")).toBe(
+      "visit https://example.com",
+    );
+    // Styled text still paints — the desync does not care that it is pretty.
+    expect(transcriptTextForForeignWrite("\u001b[32mdone\u001b[39m\n")).toBe(
+      "\u001b[32mdone\u001b[39m",
+    );
+  });
+
+  test("lets pure control sequences through untouched", () => {
+    // Setting the window title paints no cells, so intercepting it would only
+    // put `0;jazz` in the transcript and lose the title.
+    expect(transcriptTextForForeignWrite("\u001b]0;jazz\u0007")).toBeNull();
+    expect(transcriptTextForForeignWrite("\u001b[?2004h")).toBeNull();
+    expect(transcriptTextForForeignWrite("\n")).toBeNull();
+  });
+});
+
+function stubStream(): GuardedStream & { readonly written: string[] } {
+  const written: string[] = [];
+  return {
+    written,
+    write(chunk: unknown) {
+      written.push(String(chunk));
+      return true;
+    },
+  };
+}
+
+describe("guardOutput", () => {
+  function setup(isDestroyed = false) {
+    const out = stubStream();
+    const err = stubStream();
+    const entries: OutputEntry[] = [];
+    const restore = guardOutput({ isDestroyed }, (entry) => entries.push(entry), { out, err });
+    return { out, err, entries, restore };
+  }
+
+  test("takes text off the screen and puts it in the transcript", () => {
+    const { out, err, entries, restore } = setup();
+
+    out.write("this would desync the frame\n");
+    err.write("AI SDK warning: something\n");
+    restore();
+
+    expect(out.written).toEqual([]);
+    expect(err.written).toEqual([]);
+    expect(entries.map((entry) => [entry.type, entry.message])).toEqual([
+      ["log", "this would desync the frame"],
+      ["warn", "AI SDK warning: something"],
+    ]);
+  });
+
+  test("lets control sequences reach the terminal", () => {
+    const { out, entries, restore } = setup();
+
+    // The window title, and OpenTUI's own palette queries, paint no cells.
+    out.write("\u001b]0;jazz\u0007");
+    restore();
+
+    expect(out.written).toEqual(["\u001b]0;jazz\u0007"]);
+    expect(entries).toEqual([]);
+  });
+
+  test("stands aside once the renderer is destroyed", () => {
+    // OpenTUI's uncaughtException handler destroys the renderer before anything
+    // prints, so the crash has to reach a terminal that can still show it.
+    const { err, entries, restore } = setup(true);
+
+    err.write("Error: it all fell over\n");
+    restore();
+
+    expect(err.written).toEqual(["Error: it all fell over\n"]);
+    expect(entries).toEqual([]);
+  });
+
+  test("restores the original write", () => {
+    const { out, entries, restore } = setup();
+    restore();
+
+    out.write("after\n");
+
+    expect(out.written).toEqual(["after\n"]);
+    expect(entries).toEqual([]);
+  });
+});
+
+describe("repaintAfterResize", () => {
+  function stubRepaintRenderer(forceFullRepaintRequested: unknown) {
+    const listeners = new Set<() => void>();
+    let renders = 0;
+    return {
+      forceFullRepaintRequested,
+      get renders() {
+        return renders;
+      },
+      resize: () => {
+        for (const listener of [...listeners]) listener();
+      },
+      on: (_event: "resize", listener: () => void) => listeners.add(listener),
+      off: (_event: "resize", listener: () => void) => listeners.delete(listener),
+      requestRender: () => {
+        renders += 1;
+      },
+    };
+  }
+
+  test("asks for a full repaint when the terminal changes size", () => {
+    const renderer = stubRepaintRenderer(false);
+
+    const stop = repaintAfterResize(renderer);
+    renderer.resize();
+
+    expect(renderer.forceFullRepaintRequested).toBe(true);
+    expect(renderer.renders).toBe(1);
+
+    stop();
+    renderer.forceFullRepaintRequested = false;
+    renderer.resize();
+    expect(renderer.forceFullRepaintRequested).toBe(false);
+    expect(renderer.renders).toBe(1);
+  });
+
+  test("does nothing if OpenTUI ever renames the flag", () => {
+    const renderer = stubRepaintRenderer("not a flag any more");
+
+    repaintAfterResize(renderer);
+    renderer.resize();
+
+    expect(renderer.forceFullRepaintRequested).toBe("not a flag any more");
+    expect(renderer.renders).toBe(0);
   });
 });

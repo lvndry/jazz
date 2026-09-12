@@ -253,6 +253,15 @@ export class ToolExecutor {
         // approval UI when multiple tools run in parallel (approval wrapper returns
         // immediately; the real "Executing tool" is emitted after user approval)
         const isApprovalTool = toolsRequiringApproval.has(name);
+        // The counterpart to "Tool execution succeeded"/"failed" below. Both carry the
+        // tool call id, so a start with no completion — a row the live band keeps
+        // spinning forever — is one grep apart from being named.
+        yield* logger.debug("Tool execution starting", {
+          agentId,
+          conversationId,
+          toolName: name,
+          toolCallId: toolCall.id,
+        });
         // Reported regardless of display config: a caller watching over HTTP is not a
         // terminal that can be told to be quiet, and this is its only view of a long turn.
         context.onToolEvent?.({ kind: "tool-started", toolName: name, toolCallId: toolCall.id });
