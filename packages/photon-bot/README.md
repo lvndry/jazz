@@ -1,4 +1,4 @@
-# Photon bridge
+# Photon bridge (`jazz imessage`)
 
 Chat with a [Jazz](../../README.md) agent on an iMessage line **of its own**,
 rather than on your Apple account.
@@ -36,7 +36,7 @@ different sending numbers. A dedicated number is a paid tier.
 ## Quick start
 
 ```bash
-jazz photon
+jazz imessage
 ```
 
 The first run asks for the project id and secret and saves them to
@@ -50,7 +50,7 @@ the answer in `photon-allowed.json` under its home. To answer as an agent you
 already have rather than a fresh assistant:
 
 ```bash
-jazz photon --agent nostra
+jazz imessage --agent nostra
 ```
 
 From a checkout without an installed binary, `bun packages/photon-bot/src/main.ts`

@@ -1,6 +1,12 @@
 /**
  * @fileoverview `jazz imessage` — reach your agent from Messages.
  *
+ * Two transports reach the same app, and the default is the one that works
+ * without a Mac: a line Photon hosts, which the agent owns, so there is a real
+ * thread to open. `--local` is the other one - your own Apple account on your
+ * own Mac, which answers *as you* and so needs a trigger word, but keeps every
+ * message off a third party.
+ *
  * The first run of this command is where setup happens, and nowhere earlier.
  * Installing Jazz does not ask about iMessage: most people never want it, and a
  * request for Full Disk Access from something nobody asked for is alarming
@@ -48,9 +54,16 @@ function guiDomain(): string {
  * On its first run it walks through what it needs — the `imsg` CLI, Full Disk
  * Access, and then whether to keep running in the background.
  */
-export async function imessageCommand(agent?: string): Promise<void> {
+export async function imessageCommand(agent?: string, local = false): Promise<void> {
+  if (!local) {
+    if (agent !== undefined) await selectSeedAgent(agent, "JAZZ_PHOTON_AGENT");
+    const { startBridge } = await import("@jazz/photon-bot/bridge");
+    await startBridge();
+    return;
+  }
+
   requireMac();
-  if (agent !== undefined) await selectSeedAgent(agent);
+  if (agent !== undefined) await selectSeedAgent(agent, "JAZZ_IMESSAGE_AGENT");
   const { startBridge } = await import("@jazz/imessage-bot/bridge");
   await startBridge();
 }
@@ -58,10 +71,10 @@ export async function imessageCommand(agent?: string): Promise<void> {
 /**
  * Resolve `--agent` against your agent store.
  *
- * Handed over as JAZZ_IMESSAGE_AGENT so the background service inherits it too
- * — the plist is built from the environment.
+ * Handed over in the environment so a background service inherits it too - the
+ * plist is built from the environment.
  */
-async function selectSeedAgent(query: string): Promise<void> {
+async function selectSeedAgent(query: string, envVar: string): Promise<void> {
   const { agentStoreDirectory, listAgents, matchAgent } =
     await import("@jazz/bot-shared/seed-import");
 
@@ -84,7 +97,7 @@ async function selectSeedAgent(query: string): Promise<void> {
     );
   }
 
-  process.env["JAZZ_IMESSAGE_AGENT"] = match.id;
+  process.env[envVar] = match.id;
 }
 
 export async function imessageStopCommand(): Promise<void> {
@@ -105,7 +118,7 @@ export async function imessageStatusCommand(): Promise<void> {
 
   if (!serviceInstalled()) {
     console.log("Not installed as a background service.");
-    console.log("Run `jazz imessage` and answer yes when it offers to install one.");
+    console.log("Run `jazz imessage --local` and answer yes when it offers to install one.");
     return;
   }
 
@@ -114,7 +127,7 @@ export async function imessageStatusCommand(): Promise<void> {
   // loaded; the plist existing says only that it was installed once.
   const code = await launchctl("print", `${guiDomain()}/${SERVICE_LABEL}`);
   if (code !== 0) {
-    console.log("\nInstalled but not loaded. Start it with `jazz imessage`.");
+    console.log("\nInstalled but not loaded. Start it with `jazz imessage --local`.");
   }
 }
 

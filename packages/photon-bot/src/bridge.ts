@@ -193,7 +193,7 @@ async function loadConfig(interactive: boolean): Promise<BridgeConfig> {
     if (!interactive) {
       throw new Error(
         "PHOTON_PROJECT_ID and PHOTON_PROJECT_SECRET are unset, and there is no terminal to " +
-          "ask. Create a project at https://app.photon.codes, or run `jazz photon` once from " +
+          "ask. Create a project at https://app.photon.codes, or run `jazz imessage` once from " +
           "a terminal to be asked for them.",
       );
     }
@@ -209,7 +209,7 @@ async function loadConfig(interactive: boolean): Promise<BridgeConfig> {
         "PHOTON_ALLOWED_HANDLES is empty, and there is no terminal to ask. This bridge " +
           "answers on a line anyone can text, so it will not start without an allow-list. " +
           "Set it to a comma-separated list of numbers in international form, or run " +
-          "`jazz photon` once from a terminal.",
+          "`jazz imessage` once from a terminal.",
       );
     }
     allowed = parseHandleList(await askForAllowList(jazzHome));

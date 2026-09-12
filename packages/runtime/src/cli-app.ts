@@ -911,27 +911,6 @@ function runPlainAction(action: () => Promise<void> | void): Promise<void> {
 }
 
 /**
- * Register `jazz photon` - the agent on its own iMessage line.
- *
- * The only bridge that does not borrow an account you already own, so it is the
- * one that needs no Mac and no trigger word.
- */
-function registerPhotonCommand(program: Command): void {
-  program
-    .command("photon")
-    .description("Chat with your agent on its own iMessage line (via Photon)")
-    .option(
-      "--agent <id-or-name>",
-      "Seed the bridge from one of your agents, copied into its own home",
-    )
-    .action((options: { agent?: string }) =>
-      runPlainAction(() =>
-        import("@jazz/cli/commands/photon").then((mod) => mod.photonCommand(options.agent)),
-      ),
-    );
-}
-
-/**
  * Register `jazz whatsapp` — reach the agent from WhatsApp.
  *
  * A linked device rather than a container, so like iMessage it runs on the
@@ -967,20 +946,26 @@ function registerWhatsappCommand(program: Command): void {
 function registerIMessageCommand(program: Command): void {
   const imessageCommand = program
     .command("imessage")
-    .description("Chat with your agent from Messages (macOS)")
+    .description("Chat with your agent from Messages, on a line of its own")
     .option(
       "--agent <id-or-name>",
       "Seed the bridge from one of your agents, copied into its own home",
     )
-    .action((options: { agent?: string }) =>
+    .option(
+      "--local",
+      "Use your own Mac and Apple account instead of a hosted line: nothing leaves your machine, but the agent answers as you and needs a trigger word",
+    )
+    .action((options: { agent?: string; local?: boolean }) =>
       runPlainAction(() =>
-        import("@jazz/cli/commands/imessage").then((mod) => mod.imessageCommand(options.agent)),
+        import("@jazz/cli/commands/imessage").then((mod) =>
+          mod.imessageCommand(options.agent, options.local === true),
+        ),
       ),
     );
 
   imessageCommand
     .command("stop")
-    .description("Stop the background bridge")
+    .description("Stop the background bridge (--local only)")
     .action(() =>
       runPlainAction(() =>
         import("@jazz/cli/commands/imessage").then((mod) => mod.imessageStopCommand()),
@@ -989,7 +974,7 @@ function registerIMessageCommand(program: Command): void {
 
   imessageCommand
     .command("status")
-    .description("Whether the background bridge is installed and running")
+    .description("Whether the background bridge is installed and running (--local only)")
     .action(() =>
       runPlainAction(() =>
         import("@jazz/cli/commands/imessage").then((mod) => mod.imessageStatusCommand()),
@@ -998,7 +983,7 @@ function registerIMessageCommand(program: Command): void {
 
   imessageCommand
     .command("logs")
-    .description("Follow the bridge log")
+    .description("Follow the bridge log (--local only)")
     .action(() =>
       runPlainAction(() =>
         import("@jazz/cli/commands/imessage").then((mod) => mod.imessageLogsCommand()),
@@ -1802,7 +1787,6 @@ export function createCLIApp(): Command {
   registerDaemonCommand(program);
   registerIMessageCommand(program);
   registerWhatsappCommand(program);
-  registerPhotonCommand(program);
   registerWakeTriggerCommand(program);
   registerJobCommand(program);
   registerReminderCommand(program);

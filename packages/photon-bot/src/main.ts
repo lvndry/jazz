@@ -2,7 +2,7 @@
  * Script entry point for the Photon bridge.
  *
  * Separate from `bridge.ts` so that module can be imported without starting
- * anything - `jazz photon` loads it to call `startBridge` itself.
+ * anything - `jazz imessage` loads it to call `startBridge` itself.
  */
 
 import { startBridge } from "./bridge";

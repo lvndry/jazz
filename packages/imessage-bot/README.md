@@ -1,4 +1,4 @@
-# iMessage bridge
+# iMessage bridge (`jazz imessage --local`)
 
 Chat with a [Jazz](../../README.md) agent from Messages. Every text you send
 runs the agent once and comes back as a reply — with per-chat memory,
@@ -74,7 +74,7 @@ machine and does not use them.
 ## Quick start
 
 ```bash
-jazz imessage
+jazz imessage --local
 ```
 
 That is the whole of it. The first run walks through what it needs — installing
@@ -87,7 +87,7 @@ have, name it — it is copied into the bridge's home, so the original keeps its
 name and stays yours:
 
 ```bash
-jazz imessage --agent nostra
+jazz imessage --local --agent nostra
 ```
 
 With nothing configured it answers only you: text **yourself** `jazz <question>`
