@@ -24,13 +24,17 @@ import matter from "gray-matter";
 const PERSONA_DEFINITION_FILENAMES = ["PERSONA.md", "persona.md"] as const;
 const PERSONA_DEFINITION_FILENAME = PERSONA_DEFINITION_FILENAMES[0];
 
-async function readPersonaDefinition(personaDir: string): Promise<string> {
+async function readPersonaDefinition(
+  personaDir: string,
+): Promise<{ readonly filePath: string; readonly content: string }> {
   const [canonical, legacy] = PERSONA_DEFINITION_FILENAMES;
+  const canonicalPath = path.join(personaDir, canonical);
   try {
-    return await fs.readFile(path.join(personaDir, canonical), "utf-8");
+    return { filePath: canonicalPath, content: await fs.readFile(canonicalPath, "utf-8") };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    return await fs.readFile(path.join(personaDir, legacy), "utf-8");
+    const legacyPath = path.join(personaDir, legacy);
+    return { filePath: legacyPath, content: await fs.readFile(legacyPath, "utf-8") };
   }
 }
 
@@ -185,7 +189,7 @@ export class PersonaServiceImpl implements PersonaService {
   ): Effect.Effect<Persona, StorageError | StorageNotFoundError> {
     return Effect.gen(function* () {
       const filePath = path.join(personaDir, PERSONA_DEFINITION_FILENAME);
-      const content = yield* Effect.tryPromise({
+      const { filePath: definitionPath, content } = yield* Effect.tryPromise({
         try: () => readPersonaDefinition(personaDir),
         catch: (error) => {
           if (
@@ -219,6 +223,7 @@ export class PersonaServiceImpl implements PersonaService {
         name: typeof data["name"] === "string" ? data["name"] : path.basename(personaDir),
         description: typeof data["description"] === "string" ? data["description"] : "",
         systemPrompt: parsed.content.trim(),
+        filePath: definitionPath,
         ...(typeof data["tone"] === "string" && data["tone"].length > 0 && { tone: data["tone"] }),
         ...(typeof data["style"] === "string" &&
           data["style"].length > 0 && { style: data["style"] }),

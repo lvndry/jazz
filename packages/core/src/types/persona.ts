@@ -71,6 +71,8 @@ export interface Persona {
    * `agent.config.tools` and the default built-in bundle would provide.
    */
   readonly toolProfile?: PersonaToolProfile;
+  /** Absolute path of the PERSONA.md this persona was loaded from, when it came from disk. */
+  readonly filePath?: string;
   /** Creation timestamp */
   readonly createdAt: Date;
   /** Last update timestamp */
