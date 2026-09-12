@@ -45,6 +45,37 @@ const WEB_SEARCH_PROVIDER_ENV_VARS: Record<string, string> = {
   tavily: "TAVILY_API_KEY",
 };
 
+/**
+ * Extra environment variables accepted for a provider's key, tried after the canonical one.
+ *
+ * `GOOGLE_GENERATIVE_AI_API_KEY` stays canonical because it is what the AI SDK's Google
+ * provider reads when jazz passes no explicit key. But Google's own docs, its CLI, and most
+ * other tooling use `GEMINI_API_KEY`, so somebody who exports that has done nothing wrong and
+ * should not have to discover a second name for the same secret.
+ */
+export const LLM_PROVIDER_ENV_VAR_ALIASES: Readonly<Record<string, readonly string[]>> = {
+  gemini: ["GEMINI_API_KEY"],
+};
+
+/** Every environment variable that can supply this provider's key, canonical first. */
+export function llmProviderEnvVars(provider: string): readonly string[] {
+  const canonical = LLM_PROVIDER_ENV_VARS[provider];
+  const aliases = LLM_PROVIDER_ENV_VAR_ALIASES[provider] ?? [];
+  return canonical === undefined ? aliases : [canonical, ...aliases];
+}
+
+/** This provider's key from the environment, canonical variable first, or undefined. */
+export function llmProviderApiKeyFromEnv(
+  provider: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  for (const name of llmProviderEnvVars(provider)) {
+    const value = env[name];
+    if (value !== undefined && value.trim().length > 0) return value;
+  }
+  return undefined;
+}
+
 function buildSecretEnvVars(): Record<string, string> {
   const paths: Record<string, string> = {};
   for (const [provider, envVar] of Object.entries(LLM_PROVIDER_ENV_VARS)) {
@@ -154,6 +185,22 @@ export function isSecretPath(path: string): boolean {
 }
 
 /** Environment variable that supplies a secret path, if one is defined. */
+/**
+ * The value for a secret path from the environment, honouring provider aliases.
+ *
+ * `envVarForSecretPath` names one variable, which is right for a message telling somebody what
+ * to set. Resolution needs every accepted name, which is what this returns.
+ */
+export function secretValueFromEnv(
+  path: string,
+  env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  const llm = /^llm\.([^.]+)\.api_key$/.exec(path);
+  if (llm?.[1] !== undefined) return llmProviderApiKeyFromEnv(llm[1], env);
+  const envVar = envVarForSecretPath(path);
+  return envVar === undefined ? undefined : env[envVar];
+}
+
 export function envVarForSecretPath(path: string): string | undefined {
   if (path === DAEMON_TOKEN_PATH) return DAEMON_TOKEN_ENV_VAR;
   // Peer names are user-defined, so their variables are derived rather than enumerated.

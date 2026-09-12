@@ -1,7 +1,7 @@
 # Working on Jazz
 
 Jazz is an agent harness. You are working on the machine that turns a model into
-something that can actually *do* a job — unattended, on a real machine, with real
+something that can actually _do_ a job: unattended, on a real machine, with real
 consequences. That is hard, interesting work. Treat it that way.
 
 Do not reconstruct Jazz from memory. Do not answer from vibes. The documentation
@@ -15,14 +15,13 @@ source of truth for how it is implemented. Read both before you speak.
 Start here, in this order, for whatever you are about to do:
 
 - What is Jazz, and what can it do? [README.md](README.md), [docs/](docs/index.md)
-- How does the harness work? [docs/internals/](docs/internals/index.md)
-- Why is it built this way? [design-decisions.md](docs/internals/design-decisions.md)
-- Where does my change go? [code-map.md](docs/internals/code-map.md)
-- What does the interface demand? [docs/design/](docs/design/index.md)
-- What is the security model? [SECURITY.md](SECURITY.md), [threat-model.md](docs/internals/threat-model.md)
+- How does the harness work? [maintainer guide](docs/maintainers/index.md)
+- Why is it built this way, and where does my change go? [architecture](docs/maintainers/architecture.md)
+- What does the interface demand? [interface design](docs/maintainers/interface-design.md)
+- What is the security model? [SECURITY.md](SECURITY.md), [threat-model.md](docs/security/threat-model.md)
 - How do I contribute? [CONTRIBUTING.md](CONTRIBUTING.md)
-- Public flags, tools, config? [docs/reference/](docs/reference/index.md)
-- Did this harness change help? [evals](evals/README.md), [evals internals](docs/internals/evals.md)
+- Public flags, tools, config? [commands](docs/commands.md), [tools](docs/tools/index.md), [configure](docs/configure/index.md)
+- Did this harness change help? [evals](evals/README.md), [evals internals](docs/maintainers/testing-and-evals.md)
 
 The stack, the commands, the architecture, the Effect patterns, the naming: they
 live in the repo. Open the files. Match what you find.
@@ -54,7 +53,7 @@ problem. Lean into it.
 
 Novel patterns are welcome: speculative execution, verification-refinement
 loops, multi-model consensus, better context strategies, tighter approval UX,
-cheaper long runs. Bring ambition. Bring a design. Then prove the lift —
+cheaper long runs. Bring ambition. Bring a design. Then prove the lift ,
 a claim about agent quality is worth only as much as its measurement.
 
 If you change the harness, run the evals. See [evals/README.md](evals/README.md).
@@ -77,7 +76,7 @@ knows the product, the users, and the taste. Use them.
   rejecting. That reasoning is the part a reviewer cannot reconstruct later.
 - **Validate before you act.** If the request is ambiguous, if the design has
   real trade-offs, if you would touch more than the obvious files, or if you
-  might break a user-facing contract — stop and check. Come with a
+  might break a user-facing contract: stop and check. Come with a
   recommendation, not a blank. Then wait for the go.
 - **Do not expand the job in the dark.** Spotting something worth changing
   outside your scope is useful. Silently rewriting it is not. Say it. Ask.
@@ -92,7 +91,7 @@ propose sharply, confirm when it matters, then execute all the way.
 
 ## Documentation
 
-- Everytime a behavior changes, a feature is added or removed  update the `docs` folder to reflect the change.
+- Everytime a behavior changes, a feature is added or removed update the `docs` folder to reflect the change.
 - Add a docstring on top of files the explain in details its purpose and how to use the functions/objects declared in it.
 - Document functions when needed. Avoid inline comments and prefer to document at the function or file level.
 
@@ -128,7 +127,7 @@ Lean toward the most performance- and memory-efficient solution that is still
 correct and readable. Allocate less. Copy less. Stream when the alternative is
 buffering. Lazy-load anything that spawns a process. Parallelize independent
 work. The dominant costs in an agent run are LLM round trips and tool output
-volume — attack those before micro-optimizing a map. "This feels slow" is a
+volume: attack those before micro-optimizing a map. "This feels slow" is a
 hypothesis; profile before you declare a win.
 
 ### UX
@@ -138,7 +137,7 @@ chat message from their own bot. Every extra frame, extra line, extra question,
 extra round trip is a tax on them. Design the interaction: what they see,
 when they are asked, what happens when they say no, how failure is explained.
 If you change the TUI, the approval card, the CLI output, or a chat surface,
-go use it the way they would — or the closest substitute the tests give you —
+go use it the way they would, or the closest substitute the tests give you ,
 before you call it done.
 
 ---

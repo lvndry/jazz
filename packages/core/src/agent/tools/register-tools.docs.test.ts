@@ -1,5 +1,5 @@
 /**
- * Guards `docs/reference/tools.md` against drift from the tool registry.
+ * Guards `docs/tools/index.md` against drift from the tool registry.
  *
  * The page previously listed eight tools that did not exist (`search_web`, `run_command`,
  * `list_dir`, …) and omitted more than half of the real ones, because it was maintained by
@@ -11,7 +11,9 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
 import {
+  type Tool,
   ToolRegistryTag,
+  type ToolRequirements,
   type ToolDisclosure,
   type ToolRiskLevel,
 } from "@/core/interfaces/tool-registry";
@@ -19,7 +21,7 @@ import { registerAllTools } from "./register-tools";
 import { createToolRegistryLayer } from "./tool-registry";
 
 /** Repo-relative; `bun test` runs from the repository root. */
-const DOCS_PATH = "docs/reference/tools.md";
+const DOCS_PATH = "docs/tools/index.md";
 
 interface RegisteredTool {
   readonly name: string;
@@ -56,6 +58,19 @@ async function registeredTools(): Promise<readonly RegisteredTool[]> {
   return Effect.runPromise(collectTools.pipe(Effect.provide(createToolRegistryLayer())));
 }
 
+/** Includes hidden execution counterparts once each, but not aliases. */
+async function registeredPrimaryTools(): Promise<readonly Tool<ToolRequirements>[]> {
+  return Effect.runPromise(
+    Effect.gen(function* () {
+      yield* registerAllTools();
+      const registry = yield* ToolRegistryTag;
+      const names = yield* registry.listAllTools();
+      const resolved = yield* Effect.all(names.map((name) => registry.getTool(name)));
+      return [...new Map(resolved.map((tool) => [tool.name, tool])).values()];
+    }).pipe(Effect.provide(createToolRegistryLayer())),
+  );
+}
+
 /** Rows look like: `| \`read_file\` | \`read-only\` | — | description |` */
 function documentedTools(markdown: string): Map<string, string> {
   const documented = new Map<string, string>();
@@ -67,7 +82,7 @@ function documentedTools(markdown: string): Map<string, string> {
   return documented;
 }
 
-describe("docs/reference/tools.md", () => {
+describe(DOCS_PATH, () => {
   it("documents exactly the registered agent-facing tools", async () => {
     const tools = await registeredTools();
     const documented = documentedTools(readFileSync(DOCS_PATH, "utf-8"));
@@ -146,8 +161,9 @@ describe("docs/reference/tools.md", () => {
     expect(stale, `${DOCS_PATH} lists non-sending tools: ${stale.join(", ")}`).toEqual([]);
   });
 
-  it("reports the agent-facing tool count accurately", async () => {
+  it("reports every registry count accurately", async () => {
     const tools = await registeredTools();
+    const allTools = await registeredPrimaryTools();
     // Prettier pads markdown table cells to align the column, so the row is
     // compared with its runs of spaces collapsed. Matching the unpadded row
     // literally could never succeed once the file had been formatted, which
@@ -157,5 +173,14 @@ describe("docs/reference/tools.md", () => {
     expect(markdown, `${DOCS_PATH} should state the real tool count (${tools.length})`).toContain(
       `| **Agent-facing tools** | **${tools.length}** |`,
     );
+    expect(markdown).toContain(
+      `| Hidden \`execute_*\` counterparts (the second half of each approval pair) | ${allTools.filter((tool) => tool.hidden).length} |`,
+    );
+    expect(markdown).toContain(`| Total registered | ${allTools.length} |`);
+    for (const risk of ["read-only", "low-risk", "high-risk", "unknown"] as const) {
+      expect(markdown).toContain(
+        `| \`${risk}\` | ${tools.filter((tool) => tool.riskLevel === risk).length} |`,
+      );
+    }
   });
 });

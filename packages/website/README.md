@@ -4,7 +4,7 @@ The marketing site and docs renderer for Jazz. Astro 5 + Bun, static output.
 
 Three rules keep it honest:
 
-- **Docs stay in the repo.** Pages render `../docs/**/*.md` directly —
+- **Docs stay in the repo.** Pages render `../docs/**/*.md` directly ,
   never copy docs into this package. Contributors, the CLI, and the site
   all read the same files. `docs/superpowers/` and `docs/plans/` stay off
   the site.
@@ -22,6 +22,4 @@ bun run dev        # local dev server
 bun run build      # tokens + astro build → dist/
 ```
 
-Design direction and phase plan: `docs/superpowers/plans/website.md`
-(local-only). Marketing pages pin `data-skin="dark"`; docs pages follow the
-viewer's preference.
+Marketing pages pin `data-skin="dark"`; docs pages follow the viewer's preference.

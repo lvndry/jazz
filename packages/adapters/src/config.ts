@@ -34,7 +34,7 @@ import {
   keyringSet,
   type KeyringBackend,
 } from "./secrets/keyring";
-import { SECRET_PATHS, envVarForSecretPath, isSecretPath } from "./secrets/registry";
+import { SECRET_PATHS, isSecretPath, secretValueFromEnv } from "./secrets/registry";
 
 /**
  * ~/.jazz/config.json can hold API keys, so it is created private to the user
@@ -638,8 +638,7 @@ function resolveSecrets(
     const candidates = new Set([...SECRET_PATHS, ...collectSecretPaths(config)]);
 
     for (const path of candidates) {
-      const envVar = envVarForSecretPath(path);
-      const envValue = envVar ? process.env[envVar] : undefined;
+      const envValue = secretValueFromEnv(path);
       if (nonEmptyString(envValue)) {
         deepSet(resolved, path, envValue);
         origins.set(path, "env");

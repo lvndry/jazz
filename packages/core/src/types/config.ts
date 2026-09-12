@@ -75,9 +75,6 @@ export interface AppConfig {
    * Webhook doors onto specific agents. Unlike a peer, a webhook runs a fixed prompt template
    * rather than answering an open-ended question — a narrower surface, authenticated the same
    * way (a bearer token in the keyring, never in this file).
-   *
-   * Read from the legacy `triggers` key too, which is what this was called before "trigger"
-   * was freed up for wake triggers; see `migrateTriggersToWebhooks`.
    */
   readonly webhooks?: readonly WebhookConfig[];
 }

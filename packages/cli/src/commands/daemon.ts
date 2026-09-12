@@ -348,8 +348,6 @@ export function daemonCommand(options: DaemonCommandOptions) {
         { prefix: "/peer/", handle: handlePeer },
         { prefix: "/peer-invites/", handle: handlePeerInvite },
         { prefix: "/webhooks/", handle: handleWebhook },
-        // The pre-rename URL stays routed: it is written into other people's webhook
-        // settings, which jazz has no way to update.
         { prefix: "/a2a", handle: handleA2A },
         { prefix: "/.well-known/", handle: handleA2A },
       ];

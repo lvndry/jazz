@@ -1,18 +1,24 @@
 ---
-description: "The building blocks of Jazz: agents, personas, skills, tools, workflows, peers, and the vocabulary that ties them together."
+description: "Understand the core Jazz concepts: agents, personas, tools, skills, workflows, conversations, memory, artifacts, cost, deferred work, webhooks, peers, and the daemon."
 ---
 
-# Core Concepts
+# Jazz concepts
 
-Understand the building blocks of Jazz.
+Jazz combines a small set of independent building blocks:
 
-- **[Agents](./agents.md)**: The autonomous entities that execute your tasks.
-- **[Personas](./personas.md)**: Reusable character identities that shape how agents communicate.
-- **[Skills](./skills.md)**: Capability bundles that give agents domain-specific knowledge.
-- **[Tools](./tools.md)**: What agents can actually do, and what the risk tiers mean.
-- **[Workflows](./workflows.md)**: Multi-step procedures that can be automated.
-- **[Scheduling](./scheduling.md)**: Automate workflows to run on a schedule.
-- **[Daemon](./daemon.md)**: Serving runs, schedules, peers, and webhooks without a terminal attached.
-- **[Lexicon](./lexicon.md)**: What each of Jazz's words means, and which two are not the same thing.
-- **[Agent-to-agent](./agent-to-agent.md)**: Becoming peers by sending a link, instead of typing a shared secret onto two machines by hand.
-- **[Webhooks](./webhooks.md)**: Letting any HTTP-capable system wake an agent with a fixed prompt, one-shot or threaded.
+- An [agent](./agents.md) selects a model, persona, capabilities, and restrictions.
+- A [persona](./personas.md) supplies reusable behavioral instructions.
+- A [tool](./tools.md) lets the model inspect or change something.
+- A [skill](./skills.md) teaches the model how to complete a kind of work.
+- A [workflow](./workflows.md) packages a prompt with repeatable run settings.
+- A [conversation](./conversations-and-memory.md) carries dialogue; work state, todos, the scratchpad, and memory each provide a different kind of continuity.
+- [Deferred work](./deferred-work.md) is how an agent leaves something running past the end of a turn and resumes when it is done.
+- An [artifact](./artifacts.md) is a file a run produced, labelled with whether a model generated it or it was rendered from data.
+- [Budgets](./budgets.md) cap a run by iterations, cost, tokens, or time, and report what it actually spent.
+- A **surface** is where a person or system reaches the agent: terminal, headless command, schedule, bot, webhook, or peer request.
+- A [subagent](./agents.md#delegation) is a delegated child run on the same installation, inside your trust boundary.
+- A [webhook](./webhooks.md) is a fixed, authenticated HTTP door onto an agent.
+- A [peer](./agent-to-agent.md) is another explicitly trusted Jazz agent.
+- The [daemon](./daemon.md) is the process that serves runs, webhooks, and peer requests over HTTP when no terminal is attached.
+
+The boundaries matter. A skill is not a tool, a workflow is not an agent, and a webhook is not a peer. Keeping those roles separate lets the same agent move between surfaces without duplicating its identity or policy.

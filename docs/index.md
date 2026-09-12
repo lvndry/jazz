@@ -1,91 +1,43 @@
 ---
-description: "Jazz is an open-source AI agent harness that runs a general-purpose agent on your own machine — terminal, cron, CI, Telegram, Discord, iMessage, WhatsApp. Any of 18 LLM providers, fully local-capable, MIT licensed."
+description: "Install Jazz, run an AI agent from the terminal or unattended, connect tools and chat surfaces, and understand how the open-source agent harness works."
 ---
 
-# Jazz Documentation
+# Jazz documentation
 
-**Jazz runs your AI agent everywhere you are** — terminal, script, cron, CI,
-chat. Any model, including local ones. These docs are organized by what you're trying to do.
+Jazz is an open-source agent harness that lets a model work on a real machine. The same agent can run interactively in a terminal, non-interactively in scripts and CI, on a schedule, or through a chat bot you own.
 
----
+## Start in two minutes
 
-## Start here
+```bash
+curl -fsSL https://github.com/lvndry/jazz/releases/latest/download/install.sh | bash
+jazz
+```
 
-| I want to…                          | Go to                                 |
-| ----------------------------------- | ------------------------------------- |
-| **Install it and see it work**      | [Quick Start](./start/quick-start.md) |
-| **Know where it can run**           | [Where it runs](./use-cases/index.md) |
-| **Copy a finished thing**           | [Playbooks](./playbooks/index.md)     |
-| **Understand a concept**            | [Concepts](./concepts/index.md)       |
-| **Look up a flag or tool**          | [Reference](./reference/index.md)     |
-| **See how it works inside**         | [Internals](./internals/index.md)     |
-| **Understand the interface design** | [Design](./design/index.md)           |
+The first run asks you to choose a model provider and creates an agent. You can then ask it to inspect files, work with git, read the web, or create artifacts. See the [quick start](./getting-started/quick-start.md) for the complete first session.
 
----
+## Choose what you need
 
-## Sections
+- **New to Jazz:** [install it and complete your first useful run](./getting-started/index.md).
+- **Evaluating Jazz:** [browse its features](./features/index.md) and [compare where it runs](./surfaces/index.md).
+- **Building an agent:** understand the [core concepts](./concepts/index.md), then [configure Jazz](./configure/index.md).
+- **Solving a real job:** copy a maintained [guide](./guides/index.md).
+- **Operating it safely:** read the [security model](./security/index.md).
+- **Contributing:** trace the implementation in the [maintainer guide](./maintainers/index.md).
 
-### [Start](./start/index.md) — get running
+## What makes Jazz different
 
-- [Quick Start](./start/quick-start.md) — install, configure a provider, first answer
-- [Creating Agents](./start/creating-agents.md) — build an agent for a job
-- [Reaching your agent from a chat app](./start/chat-bots.md) — Telegram, Discord, iMessage and WhatsApp, from nothing to a working agent in your chats
-- [Airgapped & Self-Hosted](./start/airgapped.md) — fully offline with Ollama or llama.cpp
-- [Observability](./start/observability.md) — telemetry to your own OpenTelemetry collector or Langfuse
+Jazz is not a chat wrapper. It adds the machinery required for useful work: tool execution with approval boundaries, context management for long runs, durable work state, scheduling, per-conversation history, model-provider portability, and multiple user-facing surfaces.
 
-### [Use cases](./use-cases/index.md) — concrete jobs Jazz is good at
+- **One agent, every surface:** define an agent once and use it from the terminal, CI, schedules, bots, webhooks, or another agent.
+- **Built for automation:** `jazz run` keeps stdout clean, streams structured events to stderr, returns explicit exit codes, and supports JSON envelopes and run budgets.
+- **More than one generic assistant:** create multiple agents with different models, personas, tools, memory scopes, and safety ceilings.
+- **Several models inside one identity:** bind separate companions for image, audio, and video understanding or generation while the primary model keeps the plan, tools, memory, and conversation.
+- **Approvals that survive unattended work:** decline safely, ask on an interactive surface, or park a run and resume it after remote approval.
+- **Provider choice without losing the harness:** use cloud providers, Ollama, or llama.cpp while keeping Jazz's tools, context controls, workflows, and surfaces.
+- **Harness quality you can measure:** the eval suite tests whether context, prompts, and tools improve task reliability instead of assuming a change helped.
 
-One agent, many front doors. Start with the matrix below.
+The [features overview](./features/index.md) explains those capabilities without requiring you to read the implementation.
 
-- [Headless](./use-cases/headless.md) — the `jazz run` contract: stdout/stderr, JSON envelope, per-chat memory, live events
-- [Chat platforms](./use-cases/chat-platforms.md) — Telegram, Discord, iMessage and WhatsApp (shipped), Slack / Google Chat (bring your own bridge)
-- [CI/CD](./use-cases/ci-cd.md) — PR review with inline comments, the `/jazz` assistant, release notes
-- [Scheduled](./use-cases/scheduled.md) — launchd / cron, catch-up, unattended safety
+## Exact syntax
 
-### [Concepts](./concepts/index.md) — the building blocks
-
-- [Agents](./concepts/agents.md) · [Personas](./concepts/personas.md) · [Skills](./concepts/skills.md) · [Tools](./concepts/tools.md) · [Workflows](./concepts/workflows.md) · [Scheduling](./concepts/scheduling.md) · [Agent-to-agent](./concepts/agent-to-agent.md) · [Webhooks](./concepts/webhooks.md)
-
-### Walkthroughs
-
-Concrete sessions from ask to artifact: [setting up peers](./start/peers-setup.md), [deep research into Obsidian](./use-cases/deep-research.md), [git history surgery](./use-cases/git-squash.md), [security scans](./use-cases/security-scan.md), and more.
-
-### [Playbooks](./playbooks/index.md) — copy-pasteable recipes
-
-Production-ready workflows with install steps and risk tiers: inbox triage, PR watchdog, competitor watch, tech-debt radar, research digest, CI reviewer, release notes.
-
-### [Integrations](./integrations/index.md) — connect things
-
-- [LLM Providers](./integrations/providers.md) — 18 of them, including local
-- [MCP Servers](./integrations/mcp.md) · [Web Search](./integrations/web-search.md) · [Email & Calendar](./integrations/email-calendar.md)
-
-### [Reference](./reference/index.md) — look it up
-
-- [CLI](./reference/cli.md) · [Configuration](./reference/configuration.md) · [Tools](./reference/tools.md) · [Workflow frontmatter](./reference/workflow-frontmatter.md)
-
-### [Internals](./internals/index.md) — how it works
-
-- [Agent loop](./internals/agent-loop.md) — iterations, budget pressure, meltdown detection
-- [Context management](./internals/context-management.md) — token counting, trimming, compaction
-- [Tools & approval](./internals/tools-and-approval.md) — risk tiers, two-phase execution
-- [Sub-agents](./internals/subagents.md) · [Skills loading](./internals/skills-loading.md) · [Providers & models](./internals/providers-and-models.md)
-- [Evals](./internals/evals.md) — measuring whether a harness change actually helped
-- [Design decisions](./internals/design-decisions.md) — every harness choice and what it trades away
-- [Code map](./internals/code-map.md) — for contributors
-
-### [Design](./design/index.md) — how the interface is built
-
-The terminal interface: the mark, the single-column layout, the six-hue palette, the activity indicators, and the approval card. Includes the two rules that decide every case not covered explicitly, and how the same design holds over SSH, in a cutting-edge terminal, and with no terminal at all.
-
-### [Security](../SECURITY.md)
-
-The threat model, the approval tiers, hardening for unattended and chat-facing deployments, and how to report a vulnerability. Lives at the repository root.
-
----
-
-## Help
-
-- [Discord](https://discord.gg/yBDbS2NZju) — fastest way to get an answer
-- [GitHub Discussions](https://github.com/lvndry/jazz/discussions) — ideas and questions
-- [Issues](https://github.com/lvndry/jazz/issues) — bugs and feature requests
-- [`CONTRIBUTING.md`](../CONTRIBUTING.md) — contributor guide
+Commands and flags are collected in the generated [command index](./commands.md). Configuration and tool details live under [Configure](./configure/index.md) and [Tools](./tools/index.md), where examples are checked against the code.

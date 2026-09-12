@@ -339,8 +339,9 @@ export function runAgentOnceCommand(
 
     const resumedHistory = composeResumedHistory(priorRecord, workStatePreamble);
 
-    // Ephemeral runs never touch disk, so prior context (if any) comes back
-    // in as inline JSON from the caller rather than a `--conversation` load.
+    // Ephemeral runs do not use Jazz's conversation persistence, so prior context
+    // (if any) comes back inline rather than from a `--conversation` load. File
+    // tools and telemetry are intentionally unaffected by this flag.
     let inlineHistory: ChatMessage[] | undefined;
     if (ephemeral && options.historyJson !== undefined) {
       try {

@@ -1,21 +1,22 @@
 ---
-description: "What a Jazz agent is made of — identity, system prompt, model binding, skills, and tool policy — and how to configure one deliberately instead of by accident."
+description: "What a Jazz agent is made of: model, persona, tools, context budget, skills and companions, and how to configure one deliberately instead of by accident."
 ---
 
 # Agents
-
-This page explains what an agent is made of, so you can configure one deliberately.
 
 An agent is the thing that does the work. Unlike a chatbot that answers one prompt and stops,
 an agent runs a loop: it reads the situation, calls tools, observes what came back, and keeps
 going until the task is done or its budget runs out.
 
-One distinction worth being precise about: **Jazz itself is not an agent — it is the harness**
-(the runtime agents run in). An *agent* in Jazz is a configuration: a model, a persona, a
+One distinction is worth being precise about: **Jazz itself is not an agent. It is the harness**,
+the runtime agents run inside. An _agent_ in Jazz is a configuration: a model, a persona, a
 toolset, skills, and memory, saved as a file. Jazz hosts any number of them, runs their loops,
-guards their budgets, and gates their tools — which is why `jazz agent create` makes another
-agent, not another Jazz. See [the agent loop](../internals/agent-loop.md) for what the harness
-does around a run.
+guards their budgets, and gates their tools. That is why `jazz agent create` makes another agent,
+not another Jazz.
+
+An agent is also not a running process or a conversation. Each invocation resolves the current
+definition, builds the permitted toolset, then starts or resumes a conversation, so editing an
+agent changes the next turn with nothing to restart.
 
 ---
 
@@ -25,72 +26,119 @@ does around a run.
 flowchart TB
     A["<b>Agent</b><br/>~/.jazz/agents/&lt;id&gt;.json"]
 
-    A --> ID["<b>Identity</b><br/>id · name"]
-    A --> M["<b>Model</b><br/>llmProvider + llmModel<br/><i>e.g. openrouter/qwen3</i>"]
+    A --> ID["<b>Identity</b><br/>id · name · description"]
+    A --> M["<b>Model</b><br/>llmProvider + llmModel<br/><i>e.g. openai/gpt-5.4-mini</i>"]
     A --> P["<b>Persona</b><br/>tone and style<br/><i>default · coder · researcher</i>"]
-    A --> T["<b>Toolset</b><br/>explicit list of tool names<br/><i>omission is a security control</i>"]
+    A --> T["<b>Tools</b><br/>extra tools, and denied ones<br/><i>deniedTools is the ceiling</i>"]
     A --> S["<b>Skills</b><br/>playbooks it may load"]
-    A --> X["<b>Extras</b><br/>reasoningEffort · summarizerModel<br/>maxContextTokens · customTools · envAllowlist"]
+    A --> C["<b>Companions</b><br/>specialist models for<br/>image · audio · video"]
+    A --> X["<b>Budgets</b><br/>maxContextTokens · reasoningEffort<br/>temperature · memoryScopes"]
 
     classDef key fill:#4f9d9d,stroke:#2f6d6d,color:#ffffff
     class T key
 ```
 
+The smallest agent that runs is three fields and a persona:
+
+```json
+{
+  "id": "reviewer",
+  "name": "Reviewer",
+  "config": {
+    "persona": "coder",
+    "llmProvider": "openai",
+    "llmModel": "gpt-5.4"
+  }
+}
+```
+
+`jazz agent create` writes one interactively. Files live under the active Jazz data directory
+and are shared by every surface using that installation, so the same agent answers in your
+terminal, in CI, and on Telegram.
+
 ### Model
 
-Written `provider/model` with a **slash** — `openrouter/qwen/qwen3-next-80b-a3b-instruct:free`,
-`anthropic/claude-sonnet-4-5`, `ollama/qwen3`. Stored split into `llmProvider` and `llmModel`.
-Eighteen providers are available; see [Providers](../integrations/providers.md).
+Written `provider/model` with a **slash**: `openrouter/z-ai/glm-5.3-flash`,
+`mistral/mistral-large-latest`, `ollama/qwen3`. Stored split into
+`llmProvider` and `llmModel`. Eighteen providers are available, including local ones that need
+no API key; see [Model providers](../configure/providers.md).
 
 ### Persona
 
-Shapes *how* the agent communicates — tone, style, vocabulary — independently of the model.
-See [Personas](./personas.md).
+Shapes _how_ the agent communicates (tone, style, vocabulary) independently of the model.
+Ships with `default`, `coder`, and `researcher`, and you can write your own. See
+[Personas](./personas.md).
 
-### Toolset
+### Tools
 
-An explicit list of tool names the agent may call, e.g. `read_file`, `grep`, `execute_command`.
-**This is the strongest safety control available:** an agent whose list omits
-`execute_command` cannot run shell commands, no matter what approval policy is set. Give each
-agent the fewest tools its job needs. See [Tools](./tools.md).
+Two fields, pulling in opposite directions:
+
+- **`tools` is additive.** It grants capabilities _on top of_ the built-in bundle the persona
+  already permits. Listing a built-in tool changes nothing, and leaving one out does **not**
+  withhold it.
+- **`deniedTools` subtracts, last.** It is applied after every other grant, which makes it the
+  reliable way to enforce a per-agent ceiling. An agent with `execute_command` denied cannot run
+  shell commands, whatever the approval policy says.
+
+Give each agent the fewest capabilities its job needs, and reach for `deniedTools`, not an
+omission, when you mean it. See [Tools](./tools.md).
 
 ### Context budget
 
 `maxContextTokens` caps how much conversation this agent may carry, in tokens, whatever the
-model would allow. It is optional: unset, the agent uses the model's own window. Set it to
-keep cost and latency predictable, or to stop a model degrading long before its advertised
-limit. The agent warns at 70% of the budget and auto-compacts at 80%, so a smaller ceiling
-means earlier, cheaper compaction rather than a hard failure. Edit it with `jazz agent edit`
-→ **Max Context Tokens**. See [Context management](../internals/context-management.md).
+model would allow. Unset, it uses the model's own window. Set it to keep cost and latency
+predictable, or to stop a model degrading long before its advertised limit: the agent warns at
+70% of the budget and auto-compacts at 80%, so a smaller ceiling means earlier, cheaper
+compaction rather than a hard failure. See [Context lifecycle](../maintainers/context-lifecycle.md).
 
 ### Skills
 
-Skills are **not** bundles of tools — they are playbooks: markdown instructions the agent loads
-on demand when a task matches. Two agents can have identical toolsets and differ entirely in
-which skills they reach for. See [Skills](./skills.md).
+Skills are **not** bundles of tools. They are playbooks: Markdown instructions the agent loads
+on demand when a task matches. Two agents can have identical tools and differ entirely in which
+skills they reach for. See [Skills](./skills.md).
+
+### Companions
+
+`companions` lets one identity borrow specialist models without switching its main model.
+Analysis and generation bind independently, per medium:
+
+```json
+{
+  "companions": {
+    "analyze:image": "provider/vision-model",
+    "analyze:audio": "provider/audio-model",
+    "generate:image": "provider/image-generation-model"
+  }
+}
+```
+
+A companion run is bounded, tool-free, and isolated: analysis returns evidence, generation
+returns a file, and neither creates a second identity or conversation. A cheap text model can
+orchestrate the work while a vision model does the looking. See
+[Model companions](../features/media.md).
 
 ---
 
 ## Project instructions (AGENTS.md)
 
-Jazz reads [`AGENTS.md`](https://agents.md) — the cross-tool convention for telling an agent how
-a project works: build and test commands, conventions, house rules. Drop one at the root of a
+Jazz reads [`AGENTS.md`](https://agents.md), the cross-tool convention for telling an agent how a
+project works: build and test commands, conventions, house rules. Drop one at the root of a
 repository and every Jazz agent working there picks it up, with no per-agent configuration.
 
 Discovery runs on each turn against the agent's current working directory:
 
-| Order | File | Purpose |
-| --- | --- | --- |
-| 1 | `~/.agents/AGENTS.md` | Your personal defaults, across every project |
-| 2 | `<repo root>/AGENTS.md` | How this project works |
-| 3 | `<subdirectory>/AGENTS.md` | Overrides for one package or area |
+| Order | File                       | Purpose                                      |
+| ----- | -------------------------- | -------------------------------------------- |
+| 1     | `~/.agents/AGENTS.md`      | Your personal defaults, across every project |
+| 2     | `<repo root>/AGENTS.md`    | How this project works                       |
+| 3     | `<subdirectory>/AGENTS.md` | Overrides for one package or area            |
 
-The walk climbs from the working directory to the repository root (the nearest ancestor with a
-`.git`) and stops there, so a checkout never inherits an unrelated `AGENTS.md` from a directory
-above it. Files are placed in the system prompt outermost-first: **when two conflict, the more
-specific one wins.** Each file is capped at 32 KB — keep them short and they stay effective.
+The walk climbs from the working directory to the repository root, the nearest ancestor with a
+`.git`, and stops there, so a checkout never inherits an unrelated `AGENTS.md` from a directory
+above it. Files enter the system prompt outermost-first, so **when two conflict, the more
+specific one wins**. Each file is capped at 32 KB; keep them short and they stay effective.
 
-Edits take effect on the next turn; no restart needed.
+Edits take effect on the next turn. Nothing to restart.
 
 ---
 
@@ -109,45 +157,65 @@ flowchart LR
     class AC act
 ```
 
-Up to 100 iterations by default, with guards that keep long runs from spiralling — budget
-pressure, loop detection, and automatic context compaction. The full mechanism:
-[Agent loop](../internals/agent-loop.md).
+Up to 100 iterations by default, with guards that keep a long run from spiralling: budget
+pressure warnings, loop detection, and automatic context compaction. The full mechanism is in
+[Run lifecycle](../maintainers/run-lifecycle.md).
 
 ---
 
 ## Patterns worth copying
 
-| Pattern | Toolset | Good for |
-| --- | --- | --- |
-| **Generalist** | broad — files, git, web, shell | Daily driver in your terminal |
-| **Specialist** | narrow — e.g. reads and greps only | CI review, anything unattended |
-| **Delegator** | includes `spawn_subagent` | Deep research, work that would blow one context window |
+| Pattern         | Shape                                           | Good for                                       |
+| --------------- | ----------------------------------------------- | ---------------------------------------------- |
+| **Generalist**  | broad: files, git, web, shell                   | Daily driver in your terminal                  |
+| **Specialist**  | narrow: reads and greps, everything else denied | CI review, anything unattended                 |
+| **Delegator**   | adds `spawn_subagent`                           | Deep research, work that would blow one window |
+| **Mixed-model** | cheap main model plus `companions`              | Screenshots, recordings, generated assets      |
 
-The delegator pattern works today: `spawn_subagent` hands a task to a child agent with its own
-context window, which returns a summary rather than 100k tokens of raw sources. A sub-agent runs
-as the same agent under a chosen persona, and never holds more tools than its parent. See
-[Sub-agents](../internals/subagents.md).
+### Delegation
+
+The delegator pattern is the one people underuse. `spawn_subagent` hands a task to a child run on
+this same installation, with a task, a persona (`coder`, `researcher`, or `default`), and its own
+context window. The parent gets back a summary and the cost, not the child's transcript.
+
+The point is context, not parallelism. Research that would fill the parent's window with raw
+sources runs in the child's window instead, and the parent receives a few hundred tokens of
+conclusion. Ask for a structured handoff with `resultSchema`, a JSON Schema with root type
+`object`, and Jazz validates the child's result before it reaches the parent, so a malformed
+answer fails loudly instead of being parsed by hope.
+
+The bounds, none of them optional:
+
+- **A child never holds more tools than its parent.** The parent's effective toolset becomes the
+  child's allowlist, so delegation cannot widen reach.
+- **Depth stops at 3.** A subagent can spawn one, but the chain ends there. `maxSubagentDepth: 0`
+  disables delegation outright.
+- **30 iterations** by default, against the parent's 100.
+- **Cost rolls up.** The child's spend is added to the parent's, and an unpriced child makes the
+  parent report its own total as incomplete rather than confidently wrong.
+
+A subagent is not a [peer](./agent-to-agent.md). A subagent is yours, on your machine, inside
+your trust boundary. A peer belongs to somebody else and is bounded by a disclosure tier because
+of it.
 
 ---
 
-## Storage and memory
+## Where it all lives
 
-**Agents** live one JSON file each in `~/.jazz/agents/<id>.json`. Edit them with
-`jazz agent edit <id>`, or by hand.
+Agents are one JSON file each under the Jazz data directory (`~/.jazz/agents/<id>.json` by
+default). Edit them with `jazz agent edit <id>`, or by hand.
 
-**Conversations persist.** Transcripts are stored per conversation id under
-`~/.jazz/history/`, LRU-bounded to 100 conversations per agent. In the terminal you switch
-between them with `/switch`; headless callers pass `--conversation <id>` and get the same thread
-back across invocations — which is what gives a chat bridge memory without storing anything
-itself. See [Headless](../use-cases/headless.md#memory-without-a-database).
-
-Transcripts are plaintext JSON. Treat that directory as sensitive.
+Conversations persist separately, per conversation id. In the terminal, `/resume` browses past
+ones, `/new` starts a fresh one, and `/fork` branches from the last message; headless callers
+pass `--conversation <id>` and get the same thread back across invocations, which is what gives
+a chat bridge memory without storing anything itself. Transcripts are plaintext JSON: treat that
+directory as sensitive.
 
 ---
 
 ## Related
 
-- [Creating agents](../start/creating-agents.md) — the practical walkthrough
+- [Create an agent](../getting-started/create-an-agent.md): the practical walkthrough
+- [Agent configuration](../configure/agents.md): every field
 - [Personas](./personas.md) · [Skills](./skills.md) · [Tools](./tools.md)
-- [Agent loop](../internals/agent-loop.md) — what happens during a run
-- [Configuration](../reference/configuration.md) — every agent config field
+- [Run lifecycle](../maintainers/run-lifecycle.md): what the harness does around a turn

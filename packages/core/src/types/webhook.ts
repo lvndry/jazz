@@ -10,8 +10,7 @@
  * Called `webhook` rather than `trigger` because "trigger" already names an unrelated
  * feature — a wake trigger is an alarm clock the agent sets for itself, this is a door
  * somebody else knocks on. Two things sharing one word in a codebase is how it becomes
- * unreadable. `triggers` in config and `/triggers/<name>` in the URL still work; see
- * `migrateTriggersToWebhooks` and the daemon's route table.
+ * unreadable.
  */
 
 import type { DisclosureTier } from "./disclosure-tier";

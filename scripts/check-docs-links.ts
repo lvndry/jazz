@@ -1,5 +1,5 @@
 /**
- * Verifies every relative Markdown link in the docs and root README resolves.
+ * Verifies every relative Markdown link in published Markdown resolves.
  *
  * Resolution is deliberately case-sensitive even on macOS: links are checked against the
  * paths git actually tracks, because that is what GitHub and Linux checkouts serve. A link
@@ -21,7 +21,22 @@ function trackedPaths(): Set<string> {
   if (result.status !== 0) {
     throw new Error(`git ls-files failed: ${result.stderr}`);
   }
-  return new Set(result.stdout.split("\n").filter((line) => line.length > 0));
+  const paths = new Set(result.stdout.split("\n").filter((line) => line.length > 0));
+
+  // ls-files reports the index, so a deletion that is not staged is still listed: exactly the
+  // half-finished docs move this check exists to catch. Git rather than `existsSync` because it
+  // records the true case of every path.
+  const deleted = spawnSync("git", ["diff", "--name-only", "--diff-filter=D"], {
+    encoding: "utf-8",
+  });
+  if (deleted.status !== 0) {
+    throw new Error(`git diff failed: ${deleted.stderr}`);
+  }
+  for (const file of deleted.stdout.split("\n")) {
+    if (file.length > 0) paths.delete(file);
+  }
+
+  return paths;
 }
 
 function markdownFiles(directory: string, collected: string[] = []): string[] {
@@ -38,7 +53,9 @@ function markdownFiles(directory: string, collected: string[] = []): string[] {
 }
 
 function isExternal(link: string): boolean {
-  return /^(https?:|mailto:|#)/.test(link);
+  // A leading slash is an application route (Astro content uses /docs/... and /blog/...),
+  // not a repository-relative filesystem link.
+  return /^(https?:|mailto:|#|\/)/.test(link);
 }
 
 /**
@@ -62,6 +79,9 @@ function stripCodeFences(contents: string): string {
 
 function main(): void {
   const tracked = trackedPaths();
+  const trackedMarkdownSources = [...tracked].filter(
+    (file) => file.endsWith(".md") && !EXCLUDED_DIRS.some((excluded) => file.startsWith(excluded)),
+  );
   // Untracked new files are legitimate targets on a feature branch.
   const untracked = spawnSync("git", ["ls-files", "--others", "--exclude-standard"], {
     encoding: "utf-8",
@@ -79,12 +99,10 @@ function main(): void {
     }
   }
 
-  // Root-level Markdown (README, SECURITY, CONTRIBUTING, AGENTS) links into docs/, so it
-  // belongs in the same check. Untracked root files (e.g. a local CLAUDE.md) are skipped.
-  const rootMarkdown = readdirSync(".")
-    .filter((entry) => entry.endsWith(".md") && tracked.has(entry))
-    .sort();
-  const files = [...rootMarkdown, ...markdownFiles("docs")];
+  // Check every tracked Markdown source: package and deployment READMEs are published
+  // documentation too. Also include new docs/ files before their first commit, while skipping
+  // unrelated untracked Markdown at the repository root.
+  const files = [...new Set([...trackedMarkdownSources, ...markdownFiles("docs")])].sort();
   const broken: string[] = [];
 
   for (const file of files) {

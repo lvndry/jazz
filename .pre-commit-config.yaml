@@ -5,7 +5,7 @@ repos:
         name: Prettier
         entry: bun prettier --write --log-level warn
         language: system
-        types_or: [ts, tsx]
+        types_or: [ts, tsx, markdown]
 
       - id: eslint
         name: ESLint

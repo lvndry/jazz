@@ -1,318 +1,88 @@
 # `@jazz/cli`
 
-## Overview
+Terminal presentation and command implementations for Jazz. Commander registration and process wiring live in `@jazz/runtime`; agent policy and execution live in `@jazz/core`.
 
-`@jazz/cli` is the **presentation layer** for Jazz: Ink/OpenTUI rendering and command
-implementations. It serves as the bridge between users and the core agent system, handling all
-user interaction, command parsing, and terminal output while delegating business logic to
-`@jazz/core`. `@jazz/runtime` is the composition root that wires this package together with
-`@jazz/core` and `@jazz/adapters` into the `jazz` binary.
+## What belongs here
 
-**Key Responsibilities**:
+- interactive chat session management;
+- command effects for agents, personas, config, workflows, peers, runs, MCP, and bridges;
+- the full-screen OpenTUI interface and terminal input handling;
+- plain and one-shot presentation services;
+- formatting, progress, approvals, questions, and file pickers.
 
-- User input parsing and validation
-- Terminal output and rendering
-- Application bootstrapping and dependency wiring
-- Interactive prompts and user experience
+## Find the implementation
 
-## Architecture
+- `src/commands/`: command effects called by the runtime command tree
+- `src/chat/`: interactive sessions and slash-command handling
+- `src/ui/fullscreen/`: the current full-screen terminal interface
+- `src/ui/`: shared terminal components and state
+- `src/presentation/`: rendering for non-full-screen modes
+- `src/services/`: terminal-facing service implementations
 
-### Role in the System
+Add a command implementation here, then register its public syntax in `packages/runtime/src/cli-app.ts`. Keep business rules in core and external clients or persistence in adapters.
 
-`@jazz/cli` follows a **strict separation of concerns**:
+For user-facing syntax, read the [command index](../../docs/commands.md). For ownership and wiring, read the [architecture guide](../../docs/maintainers/architecture.md).
 
-```
-┌─────────────┐
-│   User      │
-└──────┬──────┘
-       │
-┌──────▼─────────────────────────────────┐
-│  @jazz/cli                              │
-│  - Command parsing                      │
-│  - User prompts                         │
-│  - Output rendering                     │
-│  - Error display                        │
-└──────┬──────────────────────────────────┘
-       │
-┌──────▼─────────────────────────────────┐
-│  @jazz/core                             │
-│  - Agent execution logic               │
-│  - Business rules                      │
-│  - Domain models                       │
-└──────┬──────────────────────────────────┘
-       │
-┌──────▼─────────────────────────────────┐
-│  @jazz/adapters                         │
-│  - LLM integration                     │
-│  - Storage operations                  │
-│  - External APIs                       │
-└────────────────────────────────────────┘
-```
+## Adding a command
 
-### Design Principles
+Two files, in this order.
 
-1. **Presentation Only**: No business logic lives in `@jazz/cli`
-2. **Dependency Orchestration**: `@jazz/runtime` wires together core, adapters, and cli using Effect Layers
-3. **User Experience First**: Handles all terminal interaction, formatting, and feedback
-
-## Entry Point
-
-The main entry point is `@jazz/runtime/app-layer.ts`, which:
-
-1. Parses CLI arguments using Commander.js
-2. Loads configuration from files/environment
-3. Creates dependency layers (Effect Layers)
-4. Executes the requested command with proper error handling
-
-**Command Registration**: Commands are registered in `@jazz/runtime/app-layer.ts` using Commander.js's hierarchical command structure.
-
-## Commands
-
-All commands are located in `@jazz/cli/commands/`. Each command is a self-contained module that handles user interaction and delegates to core services.
-
-### Agent Commands
-
-Located in `@jazz/cli/commands/`:
-
-- **`agent chat <identifier>`** (`chat-agent.ts`) - Start an interactive conversation with an AI agent
-- **`agent create`** (`chat-agent.ts`) - Create a new agent through an interactive wizard
-- **`agent list`** (`task-agent.ts`) - List all configured agents
-- **`agent get <id>`** (`task-agent.ts`) - Display details for a specific agent
-- **`agent edit <id>`** (`edit-agent.ts`) - Modify an existing agent's configuration
-- **`agent delete <id>`** (`task-agent.ts`) - Remove an agent
-
-### Configuration Commands
-
-Located in `@jazz/cli/commands/config.ts`:
-
-- **`config get <key>`** - Get a specific configuration value
-- **`config set <key> [value]`** - Set a configuration value
-- **`config show`** - Display all configuration values
-
-### Authentication Commands
-
-Located in `@jazz/cli/commands/auth.ts`:
-
-- **`auth gmail login`** - Authenticate with Gmail
-- **`auth gmail logout`** - Logout from Gmail
-- **`auth gmail status`** - Check Gmail authentication status
-
-### Utility Commands
-
-- **`update`** (`update.ts`) - Check for and install Jazz updates
-
-## Key Concepts
-
-### Command Structure
-
-Each command follows a consistent pattern:
+**1. The effect, here.** A command is a function returning an `Effect` that depends on services
+rather than constructing them:
 
 ```typescript
-// commands/my-command.ts
-export function myCommand(options: MyOptions): Effect.Effect<void, JazzError, R> {
+// src/commands/my-command.ts
+export function myCommand(name: string): Effect.Effect<void, JazzError, TerminalService> {
   return Effect.gen(function* () {
-    // 1. Get dependencies from Effect context
-    const service = yield* ServiceTag;
-
-    // 2. Parse/validate user input
-    const validated = yield* validateInput(options);
-
-    // 3. Call core business logic
-    const result = yield* coreLogic(validated);
-
-    // 4. Display results to user
-    yield* displayResult(result);
+    const terminal = yield* TerminalServiceTag;
+    yield* terminal.log(`hello ${name}`);
   });
 }
 ```
 
-Commands are registered in `@jazz/runtime/app-layer.ts` and executed with proper dependency injection via Effect Layers.
-
-### Interactive Prompts
-
-Uses `@inquirer/prompts` for user input:
-
-- Agent/model selection
-- Configuration wizards
-- Confirmations
-
-Example:
+**2. The syntax, in the runtime.** `packages/runtime/src/cli-app.ts` owns the Commander tree and
+nothing else:
 
 ```typescript
-const agentId = await select({
-  message: "Select an agent:",
-  choices: agents.map((a) => ({ name: a.name, value: a.id })),
-});
+program
+  .command("my-command <name>")
+  .description("Say hello")
+  .action((name: string) =>
+    runCliAction(
+      () => import("@jazz/cli/commands/my-command").then((m) => m.myCommand(name)),
+      cliRuntimeOptions(program),
+    ),
+  );
 ```
 
-### Output Rendering
+The dynamic `import()` is not stylistic. Actions load the agent stack only when a command
+actually runs, which is what keeps `jazz --help` and `jazz --version` on the Commander tree
+alone. A static import at the top of `cli-app.ts` pulls Effect and the tool registry into every
+invocation and costs roughly 150ms on all of them.
 
-`@jazz/cli` uses a sophisticated output rendering system (`@jazz/cli/presentation/`) that:
+`docs/commands.md` is checked against this tree by `cli-docs.test.ts`, so a new command fails the
+docs test until it is documented.
 
-- Auto-detects terminal capabilities (256 colors, 16 colors, or plain text)
-- Renders raw markdown by default (optional ANSI styling in markdown mode)
-- Handles streaming LLM responses
-- Shows progress indicators and thinking states
+## What belongs where
 
-## Development Guide
+| Belongs here                                 | Belongs elsewhere                                |
+| -------------------------------------------- | ------------------------------------------------ |
+| Prompts, formatting, progress, approvals     | Agent execution and policy → `@jazz/core/agent/` |
+| Command effects and their user-facing errors | LLM clients → `@jazz/adapters/llm/`              |
+| The full-screen interface and input handling | Storage and keyring → `@jazz/adapters/`          |
+| Anything a terminal is required to do        | Tool implementations → `@jazz/core/agent/tools/` |
 
-### Adding a New Command
-
-1. **Create command file** in `@jazz/cli/commands/`
-
-   ```typescript
-   // commands/my-command.ts
-   export function myCommand(options: MyOptions): Effect.Effect<void, JazzError, R> {
-     return Effect.gen(function* () {
-       // Implementation using Effect.gen
-     });
-   }
-   ```
-
-2. **Register in `@jazz/runtime/app-layer.ts`**
-
-   ```typescript
-   program
-     .command("my-command")
-     .description("Do something")
-     .action((options) => {
-       const opts = program.opts();
-       runCliEffect(
-         myCommand(options),
-         Boolean(opts["debug"]),
-         opts["config"] as string | undefined,
-       );
-     });
-   ```
-
-3. **Use Effect Layers for dependencies**
-
-   Commands receive dependencies through Effect's dependency injection system. The `createAppLayer()` function in `@jazz/runtime/app-layer.ts` provides all required services.
-
-### What Belongs in `@jazz/cli`?
-
-✅ **YES** - User interface and presentation
-
-- Command parsing and validation
-- Interactive prompts (`@inquirer/prompts`)
-- Terminal output and formatting
-- Error messages and user feedback
-- Help text and documentation
-
-❌ **NO** - Business logic or infrastructure
-
-- Agent execution logic → `@jazz/core/agent/`
-- LLM API calls → `@jazz/adapters/llm/`
-- Storage operations → `@jazz/adapters/storage/`
-- Tool implementations → `@jazz/core/agent/tools/`
-
-## Application Bootstrap
-
-The application bootstrap process (`@jazz/runtime/app-layer.ts`) handles:
-
-1. **Global Flags**: Parses `--debug`, `--config`, `--verbose`, `--output <mode>`
-2. **Configuration Loading**: Loads from files, environment variables, or CLI args
-3. **Dependency Layers**: Creates Effect Layers for all services
-4. **Error Handling**: Wraps commands with graceful error handling and user-friendly messages
-5. **Signal Handling**: Handles SIGINT/SIGTERM for graceful shutdown
-
-**Dependency Layer Composition**:
-
-```typescript
-const appLayer = Layer.mergeAll(
-  fileSystemLayer,
-  configLayer,
-  loggerLayer,
-  terminalLayer,
-  storageLayer,
-  gmailLayer,
-  llmLayer,
-  toolRegistryLayer,
-  // ... more layers
-);
-```
-
-All commands run within this layer context, providing automatic dependency injection.
-
-## Error Handling
-
-`@jazz/cli` uses a centralized error handler (`@jazz/core/presentation/error-handler.ts`) that:
-
-- Catches all errors (configuration, LLM, tool execution, etc.)
-- Provides actionable error messages
-- Suggests recovery steps
-- Logs detailed information in debug mode
-
-Errors are displayed in a user-friendly format with clear next steps.
-
-## Common Patterns
-
-### Effect-Based Commands
-
-All commands use Effect-TS for:
-
-- **Async Operations**: Effect.gen for async workflows
-- **Dependency Injection**: Effect Layers for services
-- **Error Handling**: Tagged errors with recovery strategies
-
-```typescript
-export function myCommand(id: string): Effect.Effect<void, JazzError, R> {
-  return Effect.gen(function* () {
-    const service = yield* ServiceTag;
-    const result = yield* service.doSomething(id);
-    yield* displayResult(result);
-  });
-}
-```
-
-### Streaming Output
-
-For real-time LLM responses, commands use the streaming system:
-
-```typescript
-const stream = yield * AgentRunner.runStream({ agent, message });
-yield *
-  Stream.runForEach(stream, (event) => {
-    renderer.handleEvent(event);
-  });
-```
-
-The output renderer (`@jazz/core/utils/output-renderer.ts`) handles:
-
-- Markdown rendering
-- Streaming text display
-- Tool execution indicators
-- Thinking states for reasoning models
+The test is whether a chat bridge or the daemon would need it. If yes, it is not presentation and
+does not belong in this package.
 
 ## Testing
 
-### Unit Testing
-
-Mock core services using Effect's testing utilities:
+Command effects are tested by providing stub service layers, with no process and no terminal:
 
 ```typescript
-const mockLayer = Layer.succeed(ServiceTag, mockService);
-const result = await Effect.runPromise(myCommand(options).pipe(Effect.provide(mockLayer)));
+const layer = Layer.succeed(TerminalServiceTag, fakeTerminal);
+await Effect.runPromise(myCommand("world").pipe(Effect.provide(layer)));
 ```
 
-### Integration Testing
-
-Test full command flows with:
-
-- Real storage (in-memory or temp directories)
-- Mocked external services (LLM, Gmail, etc.)
-- Output validation
-- Error scenario testing
-
-## File Structure
-
-`@jazz/cli` is organized into:
-
-- **`commands/`** - Command implementations for all CLI operations
-- **`presentation/`** - Output rendering and formatting utilities
-
-## Related Documentation
-
-- **Core**: See `@jazz/core/README.md` for agent execution logic
-- **Adapters**: See `@jazz/adapters/README.md` for adapter implementations
-- **Architecture**: See `docs/reference/architecture.md` for system-wide architecture
+`cli-app.test.ts` covers the Commander tree itself: flags parse, subcommands exist, and the
+docs match.

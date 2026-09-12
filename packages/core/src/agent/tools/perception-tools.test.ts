@@ -48,7 +48,7 @@ mock.module("@/core/utils/models-dev", () => ({
 }));
 
 // Imported after mock.module so the tool's catalog lookup sees the stub.
-const { createPerceptionTools } = await import("./perception-tools");
+const { createPerceptionTools, describeGeneratedMedia } = await import("./perception-tools");
 
 const parentAgent: Agent = {
   id: "agent-parent",
@@ -101,6 +101,12 @@ function makeLlmService(): LLMService {
     supportsTools: false,
     ingestImage: true,
   };
+  const painter = {
+    id: "draws-things",
+    displayName: "Draws Things",
+    supportsTools: false,
+    generatesImage: true,
+  };
   return {
     listProviders: () =>
       Effect.succeed([
@@ -110,7 +116,7 @@ function makeLlmService(): LLMService {
     getProvider: (name: string) =>
       Effect.succeed({
         name,
-        supportedModels: name === "ollama" ? [visionOnly] : [textOnly],
+        supportedModels: name === "ollama" ? [visionOnly, painter] : [textOnly],
         defaultModel: "x",
         authenticate: () => Effect.void,
       }),
@@ -330,5 +336,113 @@ describe("analyze_media proposal", () => {
     expect(result.options[0]?.detail).toContain("price unknown");
     expect(result.message).toContain("shot.png");
     expect(result.message).toContain("what is in this image?");
+  });
+});
+
+function runTool(name: string, args: Record<string, unknown>, context: ToolExecutionContext) {
+  const tool = createPerceptionTools().find((candidate) => candidate.name === name)!;
+  const layer = Layer.mergeAll(
+    Layer.succeed(LoggerServiceTag, logger),
+    Layer.succeed(PresentationServiceTag, makePresentation(true)),
+    Layer.succeed(LLMServiceTag, makeLlmService()),
+  );
+  return Effect.runPromise(
+    tool.execute(args, context).pipe(Effect.provide(layer)) as Effect.Effect<
+      ToolExecutionResult,
+      Error,
+      never
+    >,
+  ) as Promise<ProposalOutcome & { artifacts?: unknown[] }>;
+}
+
+describe("generate_media", () => {
+  it("offers only models that generate the modality, never the ones that only read it", async () => {
+    const outcome = await runTool(
+      "generate_media",
+      { modality: "image", prompt: "a red circle" },
+      makeContext(),
+    );
+
+    const result = outcome.result as {
+      approvalRequired: boolean;
+      executeToolName: string;
+      options: { id: string }[];
+    };
+    expect(result.approvalRequired).toBe(true);
+    expect(result.executeToolName).toBe("execute_generate_media");
+    expect(result.options.map((option) => option.id)).toEqual(["ollama/draws-things"]);
+  });
+
+  it("takes the bound companion instead of asking, so an unattended run can generate", async () => {
+    // Asserted through a deliberately broken binding: it proves the bound branch was taken
+    // without starting a real companion run.
+    const outcome = await runTool(
+      "generate_media",
+      { modality: "image", prompt: "a red circle" },
+      makeContext({
+        parentAgent: {
+          ...parentAgent,
+          config: {
+            ...parentAgent.config,
+            companions: { "generate:image": "no-provider-here" as `${string}/${string}` },
+          },
+        },
+      }),
+    );
+
+    expect(outcome.success).toBe(false);
+    expect(outcome.result).toBeNull();
+    expect(outcome.error).toContain("is not a valid provider/model id");
+  });
+});
+
+describe("what a generation companion came back with", () => {
+  const artifact = {
+    kind: "image" as const,
+    path: "/tmp/circle.png",
+    mediaType: "image/png",
+    tool: "ollama/draws-things",
+    source: "model" as const,
+  };
+
+  it("reports the file it produced, on the result the run loop reads", () => {
+    const outcome = describeGeneratedMedia(
+      { content: "Here it is.", artifacts: [artifact] },
+      "image",
+      "ollama/draws-things",
+    );
+
+    expect(outcome.success).toBe(true);
+    expect((outcome.result as { paths: string[] }).paths).toEqual(["/tmp/circle.png"]);
+    expect(outcome.artifacts).toHaveLength(1);
+  });
+
+  it("fails when the companion answered in words instead of producing the media", () => {
+    // Reporting this as success hands the parent a promise it repeats to the user.
+    const outcome = describeGeneratedMedia(
+      { content: "I imagine a red circle on white.", artifacts: [] },
+      "image",
+      "ollama/draws-things",
+    );
+
+    expect(outcome.success).toBe(false);
+    expect(outcome.error).toContain("no image file");
+    expect(outcome.error).toContain("I imagine a red circle");
+  });
+
+  it("ignores a file of the wrong modality", () => {
+    const outcome = describeGeneratedMedia(
+      {
+        content: "",
+        artifacts: [
+          { ...artifact, kind: "audio" as const, path: "/tmp/n.mp3", mediaType: "audio/mpeg" },
+        ],
+      },
+      "image",
+      "ollama/draws-things",
+    );
+
+    expect(outcome.success).toBe(false);
+    expect(outcome.error).toContain("no image file");
   });
 });

@@ -3,32 +3,32 @@ const recipes = [
   {
     slug: "inbox-triage",
     name: "Inbox triage",
-    run: ["╺ gmail.search — 41 unread", "╺ archived 33, labeled 5", "╶ 3 need you — summarized"],
+    run: ["╺ gmail.search — 41 unread", "╺ read-only: nothing moved", "╶ 3 need you — summarized"],
   },
   {
-    slug: "pr-watchdog",
-    name: "PR watchdog",
-    run: ["╺ 4 PRs stale > 48h", "╺ pinged owners on Discord", "╶ escalation list posted"],
-  },
-  {
-    slug: "competitor-watch",
-    name: "Competitor watch",
-    run: ["╺ 6 sources fetched", "╺ 2 real changes found", "╶ digest → your inbox"],
-  },
-  {
-    slug: "research-digest",
-    name: "Research digest",
-    run: ["╺ 18 papers scanned", "╺ 3 worth your time", "╶ notes → Obsidian vault"],
-  },
-  {
-    slug: "ci-pr-reviewer",
-    name: "CI PR reviewer",
+    slug: "pr-review",
+    name: "PR review in CI",
     run: ["╺ diff read — 12 files", "╺ 2 inline comments", "╶ no blockers, approved"],
   },
   {
-    slug: "release-notes-draft",
-    name: "Release notes",
-    run: ["╺ 23 commits since v0.14", "╺ grouped by surface", "╶ draft → CHANGELOG.md"],
+    slug: "research-digest",
+    name: "Research radar",
+    run: ["╺ 18 papers scanned", "╺ weak sources challenged", "╶ cited digest → your inbox"],
+  },
+  {
+    slug: "multi-agent-verification",
+    name: "Verification council",
+    run: ["╺ 4 reviewers, isolated", "╺ budgets bounded", "╶ one accountable verdict"],
+  },
+  {
+    slug: "contain-cloudflare-attack",
+    name: "Attack containment",
+    run: ["╺ traffic anomaly traced", "╺ WAF rule drafted", "╶ waiting on your approval"],
+  },
+  {
+    slug: "media-companions",
+    name: "Media companions",
+    run: ["╺ screenshot + recording read", "╺ timeline reconciled", "╶ briefing card generated"],
   },
 ];
 ---
@@ -42,7 +42,7 @@ const recipes = [
   <div class="grid">
     {
       recipes.map((recipe) => (
-        <a class="recipe" href={`/docs/playbooks/${recipe.slug}`}>
+        <a class="recipe" href={`/docs/guides/${recipe.slug}`}>
           <div class="name">{recipe.name}</div>
           <div class="run mono">
             {recipe.run.map((line, index) => (
@@ -56,7 +56,7 @@ const recipes = [
       ))
     }
   </div>
-  <a class="more mono" href="/docs/playbooks">more in the cookbook →</a>
+  <a class="more mono" href="/docs/guides">more in the cookbook →</a>
 </section>
 
 <style>

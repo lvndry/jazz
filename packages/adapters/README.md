@@ -1,247 +1,66 @@
 # `@jazz/adapters`
 
-## Overview
+Infrastructure implementations for the service contracts in `@jazz/core`. This package owns external I/O; it does not own agent policy.
 
-`@jazz/adapters` contains **implementations** of the interfaces defined in `@jazz/core`. This
-package handles all external dependencies: APIs, databases, file systems, logging, and
-third-party SDKs.
+## What belongs here
 
-**Key Responsibilities**:
+- model-provider integration and model metadata;
+- configuration loading and keyring-backed secrets;
+- filesystem, conversation, run, memory, and workspace persistence;
+- MCP clients and trust metadata;
+- daemon HTTP handling, job queues, reminders, peers, and webhooks;
+- telemetry and desktop notifications.
 
-- Implement service contracts defined in `@jazz/core/interfaces/`
-- Handle all I/O operations (APIs, file system, databases)
-- Integrate with third-party SDKs and external services
-- Provide Effect Layers for dependency injection
+`@jazz/core` defines each service interface and `Context` tag. An adapter implements that contract as an Effect `Layer`; `@jazz/runtime` composes it into the application.
 
-## Architecture
+## Find the implementation
 
-### Role in the System
+- `src/llm/`: AI SDK providers, model catalog, attachments, and reasoning normalization
+- `src/storage/` and `src/history/`: file-backed state and conversations
+- `src/mcp/`: MCP connection, OAuth, elicitation, and server lifecycle
+- `src/daemon/`: authenticated HTTP server and unattended run handling
+- `src/peers/` and `src/webhooks/`: remote agent and fixed-prompt boundaries
+- `src/telemetry/`: local and OTLP sinks
+- `src/config.ts`: global/project configuration merge and secret routing
 
-`@jazz/adapters` translates between:
+Tests live beside the implementation. Use temporary directories and test Layers; never depend on a developer's real Jazz home, keyring, provider account, or daemon.
 
-```
-┌─────────────────────────────────────────┐
-│  @jazz/core                             │
-│  - Defines interfaces (ports)           │
-│  - Business logic                       │
-└──────┬──────────────────────────────────┘
-       │ uses interfaces
-       │
-┌──────▼──────────────────────────────────┐
-│  @jazz/adapters                         │
-│  - Implements interfaces                │
-│  - External APIs                        │
-│  - Infrastructure                       │
-└─────────────────────────────────────────┘
-```
+For package boundaries and the service-extension path, read the [architecture guide](../../docs/maintainers/architecture.md) and [add a service](../../docs/maintainers/add-a-service.md).
 
-### Design Principles
+## The shape of an adapter
 
-1. **Implements Core Interfaces**: Every adapter implements a contract from `@jazz/core/interfaces/`
-2. **Depends on Core**: Adapters import from `@jazz/core`, never the other way around
-3. **Handles I/O**: All external communication happens here
-
-## Key Components
-
-`@jazz/adapters` contains implementations organized by functionality:
-
-- **`llm/`** - LLM service implementations using Vercel AI SDK
-- **`storage/`** - Storage service implementations (file-based and in-memory)
-- **`config.ts`** - Configuration service
-- **`logger.ts`** - Logging service
-- **`gmail.ts`** - Gmail API integration
-- **`fs.ts`** - File system service
-
-### Services Overview
-
-**LLM Service** (`llm/ai-sdk-service.ts`)
-
-- Implements `@jazz/core/interfaces/llm.ts`
-- Uses Vercel AI SDK for multi-provider support
-- Supports: OpenAI, Anthropic, Google, Mistral, xAI, DeepSeek, Ollama
-- Handles streaming and reasoning models
-
-**Storage Service** (`storage/file.ts`)
-
-- Implements `@jazz/core/interfaces/storage.ts`
-- File-based agent storage
-- JSON serialization
-
-**Configuration Service** (`config.ts`)
-
-- Implements `@jazz/core/interfaces/agent-config.ts`
-- Loads from `~/.jazz/config.json` or custom path
-- Merges with defaults
-
-**Logger Service** (`logger.ts`)
-
-- Implements `@jazz/core/interfaces/logger.ts`
-- Structured logging to `logs/jazz.log`
-- Debug, info, warn, error levels
-
-**Gmail Service** (`gmail.ts`)
-
-- Implements `@jazz/core/interfaces/gmail.ts`
-- Gmail API integration for email tools
-
-### Adapters Pattern
-
-Services are **Adapters** that translate between:
-
-- **Core's interfaces** (what the application needs)
-- **External libraries** (how those needs are fulfilled)
-
-Example:
+Three pieces, always in this order. The contract lives in core, the implementation lives here,
+and the wiring lives in the runtime:
 
 ```typescript
-// Core defines the contract (@jazz/core/interfaces/llm.ts)
-interface LLMService {
-  createChatCompletion(...): Effect<Response, Error>;
+// @jazz/core/interfaces/thing.ts: the contract, and the tag
+export interface ThingService {
+  readonly fetch: (id: string) => Effect.Effect<Thing, ThingError>;
 }
+export const ThingServiceTag = Context.GenericTag<ThingService>("ThingService");
 
-// Service implements using AI SDK (@jazz/adapters/llm/ai-sdk-service.ts)
-class AISDKService implements LLMService {
-  createChatCompletion(...) {
-    // Uses @ai-sdk/openai, @ai-sdk/anthropic, etc.
-    return Effect.tryPromise(() => generateText(...));
-  }
-}
-```
-
-## Development Guide
-
-### Adding a New Service
-
-1. **Define Interface** in `@jazz/core/interfaces/`
-
-   ```typescript
-   // @jazz/core/interfaces/my-service.ts
-   export interface MyService {
-     doSomething(): Effect.Effect<Result, Error>;
-   }
-   ```
-
-2. **Implement in Services**
-
-   ```typescript
-   // @jazz/adapters/my-service.ts
-   import type { MyService } from "@jazz/core/interfaces/my-service";
-
-   class MyServiceImpl implements MyService {
-     doSomething() {
-       /* Implementation using external libraries */
-     }
-   }
-   ```
-
-3. **Create Layer** for dependency injection
-
-   ```typescript
-   export const MyServiceLayer = Layer.effect(MyServiceTag, Effect.succeed(new MyServiceImpl()));
-   ```
-
-4. **Wire in `@jazz/runtime/app-layer.ts`**
-
-   Add the layer to `createAppLayer()` function.
-
-### Adding a New LLM Provider
-
-1. Add provider config to `llm/models.ts`
-2. Add API key handling in `llm/ai-sdk-service.ts`
-3. Configure provider-specific options (reasoning, thinking, etc.)
-
-### What Belongs in Adapters?
-
-✅ **YES** - Infrastructure and external dependencies
-
-- API clients (OpenAI SDK, Anthropic SDK) → `llm/`
-- Database connections → `storage/` or new service
-- File system operations → `fs.ts`
-- External API integrations (Gmail, etc.) → `gmail.ts`, etc.
-- Configuration loading → `config.ts`
-- Logging implementations → `logger.ts`
-
-❌ **NO** - Business logic
-
-- Agent execution flow → `@jazz/core/agent/`
-- Domain rules → `@jazz/core/`
-- UI rendering → `@jazz/cli/`
-
-### Testing
-
-Adapters should be tested with:
-
-- **Integration tests**: Test real external dependencies when possible
-- **Mocking**: Use test doubles for expensive operations
-- **Effect testing**: Leverage Effect's testing utilities
-
-```typescript
-// Test with mock service
-const mockService = Layer.succeed(ServiceTag, {
-  doSomething: () => Effect.succeed(mockResult),
+// @jazz/adapters/thing/http-thing.ts: one implementation
+export const HttpThingServiceLive = Layer.succeed(ThingServiceTag, {
+  fetch: (id) => Effect.tryPromise({ try: () => api.get(id), catch: toThingError }),
 });
 ```
 
-## Common Patterns
+Core depends on the tag and never on this package, which is what lets a test swap the whole
+adapter for `Layer.succeed(ThingServiceTag, stub)` and what keeps agent policy testable without
+a network, a keyring, or a disk.
 
-### Effect Layers
+The full walkthrough, including error types and wiring into `createAppLayer`, is
+[add a service](../../docs/maintainers/add-a-service.md). For providers specifically, see
+[add a model provider](../../docs/maintainers/add-a-provider.md).
 
-Services are provided via Effect's Layer system and composed in `@jazz/runtime/app-layer.ts`:
+## Rules that are not style
 
-```typescript
-// Create individual layers
-const ConfigLayer = createConfigLayer();
-const LoggerLayer = createLoggerLayer();
-const LLMLayer = createAISDKServiceLayer();
-
-// Compose into app layer
-const AppLayer = Layer.mergeAll(ConfigLayer, LoggerLayer, LLMLayer);
-
-// Use in application
-Effect.runPromise(myProgram.pipe(Effect.provide(AppLayer)));
-```
-
-### Service Tags
-
-Services are accessed via Effect Context tags:
-
-```typescript
-const llm = yield * LLMServiceTag;
-const logger = yield * LoggerServiceTag;
-const config = yield * AgentConfigServiceTag;
-```
-
-## External Dependencies
-
-### AI SDK Integration
-
-Uses **Vercel AI SDK** (`ai` package) for LLM providers:
-
-- Unified API across providers
-- Built-in streaming support
-- Tool calling abstraction
-- Reasoning model support
-
-### File System
-
-Uses Node.js `fs` with Effect-TS `@effect/platform` for:
-
-- Configuration files
-- Log files
-- Agent storage
-
-## Key Files
-
-- **`llm/ai-sdk-service.ts`** - Main LLM service implementation
-- **`storage/file.ts`** - File-based storage implementation
-- **`config.ts`** - Configuration service
-- **`logger.ts`** - Logging service
-- **`gmail.ts`** - Gmail API integration
-
-## Related Documentation
-
-- **Core**: See `@jazz/core/README.md` for interface definitions
-- **CLI**: See `@jazz/cli/README.md` for how adapters are used
-- **Architecture**: See `docs/reference/architecture.md` for system-wide architecture
-
-**Critical Rule**: Adapters import from `@jazz/core/`, never the other way around. Adapters implement core interfaces.
+- **Never import from `@jazz/cli` or `@jazz/runtime`.** Dependencies point inward. An adapter
+  that needs to ask the user something takes a service that can, rather than reaching for a
+  terminal.
+- **Secrets go through the keyring path**, never into `config.json` and never into a log line.
+  `src/secrets/registry.ts` is the single source of truth for which config paths hold one.
+- **Failure is a value.** Return a typed error in the Effect channel rather than throwing; the
+  caller decides whether an unreachable provider is fatal.
+- **Tests use temporary directories and stub layers.** Never a developer's real Jazz home,
+  keyring, provider account, or daemon.

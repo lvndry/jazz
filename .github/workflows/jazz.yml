@@ -14,7 +14,8 @@
 #   Actions tab dispatch    -> either job
 #
 # Configuration lives in .github/jazz/ (agent configs + workflow prompts).
-# Secrets: GITHUB_TOKEN (automatic), OPENROUTER_API_KEY and/or OPENAI_API_KEY.
+# Secrets: GITHUB_TOKEN (automatic), plus the <PROVIDER>_API_KEY your agent configs
+#          name — OPENAI_API_KEY, ANTHROPIC_API_KEY, OPENROUTER_API_KEY, any of them.
 # Setup and customization guide: .github/jazz/README.md
 
 name: Jazz
@@ -260,16 +261,6 @@ jobs:
       - name: Install Jazz
         run: bun install -g jazz-ai --trust
 
-      - name: Verify provider API key is set
-        env:
-          HAS_OPENAI: ${{ secrets.OPENAI_API_KEY != '' }}
-          HAS_OPENROUTER: ${{ secrets.OPENROUTER_API_KEY != '' }}
-        run: |
-          if [ "$HAS_OPENAI" != "true" ] && [ "$HAS_OPENROUTER" != "true" ]; then
-            echo "::error::No model provider API key found. Add OPENAI_API_KEY or OPENROUTER_API_KEY as a GitHub Actions secret (Settings → Secrets and variables → Actions)."
-            exit 1
-          fi
-
       - name: Setup Jazz agent and workflow
         env:
           PR_BASE_SHA: ${{ needs.resolve.outputs.base_sha }}
@@ -311,12 +302,17 @@ jobs:
 
       - name: Run code review
         env:
+          # The checked-in agents run on openai. Another provider means adding its
+          # <PROVIDER>_API_KEY line here too — see .github/jazz/README.md for the names.
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           CI: "true"
           JAZZ_DISABLE_CATCH_UP: "1"
         run: |
           set -uo pipefail
+          if ! env | grep -qE '^[A-Z0-9_]+_API_KEY=.'; then
+            echo "::error::No model provider API key found. Add <PROVIDER>_API_KEY — OPENAI_API_KEY, ANTHROPIC_API_KEY, OPENROUTER_API_KEY, whichever your agent configs name — as a GitHub Actions secret (Settings → Secrets and variables → Actions)."
+            exit 1
+          fi
           jazz --output raw workflow run code-review --auto-approve --agent ci-reviewer | tee /tmp/jazz-review.txt
           echo "${PIPESTATUS[0]}" > /tmp/jazz-review-exit
 
@@ -637,16 +633,6 @@ jobs:
       - name: Install Jazz
         run: bun install -g jazz-ai --trust
 
-      - name: Verify provider API key is set
-        env:
-          HAS_OPENAI: ${{ secrets.OPENAI_API_KEY != '' }}
-          HAS_OPENROUTER: ${{ secrets.OPENROUTER_API_KEY != '' }}
-        run: |
-          if [ "$HAS_OPENAI" != "true" ] && [ "$HAS_OPENROUTER" != "true" ]; then
-            echo "::error::No model provider API key found. Add OPENAI_API_KEY or OPENROUTER_API_KEY as a GitHub Actions secret (Settings → Secrets and variables → Actions)."
-            exit 1
-          fi
-
       - name: Setup Jazz agent and workflow
         env:
           PR_NUMBER: ${{ needs.resolve.outputs.pr_number }}
@@ -702,12 +688,17 @@ jobs:
 
       - name: Run Jazz assistant
         env:
+          # The checked-in agents run on openai. Another provider means adding its
+          # <PROVIDER>_API_KEY line here too — see .github/jazz/README.md for the names.
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           CI: "true"
           JAZZ_DISABLE_CATCH_UP: "1"
         run: |
           set -euo pipefail
+          if ! env | grep -qE '^[A-Z0-9_]+_API_KEY=.'; then
+            echo "::error::No model provider API key found. Add <PROVIDER>_API_KEY — OPENAI_API_KEY, ANTHROPIC_API_KEY, OPENROUTER_API_KEY, whichever your agent configs name — as a GitHub Actions secret (Settings → Secrets and variables → Actions)."
+            exit 1
+          fi
           jazz --output raw workflow run pr-assistant --auto-approve --agent pr-assistant \
             2>&1 | tee /tmp/jazz-pr-assistant.txt
 

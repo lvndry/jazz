@@ -41,7 +41,7 @@ import {
 import type { LLMConfig } from "@jazz/core/types/config";
 import type { ChatMessage } from "@jazz/core/types/message";
 import { uploadFile } from "ai";
-import { LLM_PROVIDER_ENV_VARS } from "@/adapters/secrets/registry";
+import { llmProviderApiKeyFromEnv } from "@/adapters/secrets/registry";
 
 /**
  * A resolved payload for one attachment: inline bytes, an uploaded provider reference, or a
@@ -70,8 +70,7 @@ export type ResolvedAttachments = ReadonlyMap<string, ResolvedAttachment>;
  */
 function resolveFilesApi(providerName: ProviderName, llmConfig?: LLMConfig): unknown {
   const normalized = providerName.toLowerCase();
-  const envVar = LLM_PROVIDER_ENV_VARS[providerName];
-  const apiKey = llmConfig?.[providerName]?.api_key ?? (envVar ? process.env[envVar] : undefined);
+  const apiKey = llmConfig?.[providerName]?.api_key ?? llmProviderApiKeyFromEnv(providerName);
 
   if (normalized === "openai") {
     return apiKey ? createOpenAI({ apiKey }) : openai;

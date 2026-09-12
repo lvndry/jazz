@@ -75,6 +75,28 @@ describe("findAgentsThatGenerate", () => {
     expect(await findAgentsThatGenerate([agent("s", "gemini/speaker")], "audio")).toHaveLength(1);
   });
 
+  it("counts an agent whose model cannot, but whose bound companion does", async () => {
+    // The binding is the whole point of companions: a cheap text agent that delegates the
+    // drawing is exactly the agent someone asking "which of mine can?" is looking for.
+    metadataByModel.set("claude-sonnet-5", metadata({ supportsTools: true }));
+    const delegator = agent("orchestrator", "anthropic/claude-sonnet-5");
+
+    const found = await findAgentsThatGenerate(
+      [
+        {
+          ...delegator,
+          config: { ...delegator.config, companions: { "generate:image": "gemini/draws" } },
+        },
+      ],
+      "image",
+    );
+
+    expect(found).toHaveLength(1);
+    expect(found[0]?.via).toBe("gemini/draws");
+    // Its own model keeps the tools, which is the combination a media-only model cannot offer.
+    expect(found[0]?.supportsTools).toBe(true);
+  });
+
   it("skips agents whose model id cannot be parsed or is unknown", async () => {
     // An unknown model reads the same as "cannot", which is the safe direction: claiming an
     // agent can generate when it cannot sends the user down a dead end.

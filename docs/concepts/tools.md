@@ -1,135 +1,83 @@
 ---
-description: "Every action a Jazz agent can take goes through a tool with an honest risk tier — from read-only lookups to gated mutations that always require your approval."
+description: "What a Jazz tool is, the three properties every tool declares, how a gated call runs in two phases, and how to add one without writing a plugin."
 ---
 
 # Tools
 
-This page explains what a tool is, what the risk tiers mean for you, and how to add
-your own.
+A tool is a typed operation the model may request: a name, a description, an input schema, a
+handler, and security metadata. The model asks; Jazz decides whether the call happens.
 
-For the exact list of tool names, see [Tools reference](../reference/tools.md). For the
-machinery, see [Internals → Tools & approval](../internals/tools-and-approval.md).
+## Three properties, not one dial
 
----
+Every tool declares **risk** (can this change something), **disclosure** (what class of
+information its answer carries), and **egress** (does this send data off the machine). They are
+independent, and [the security model](../security/index.md) explains why collapsing them loses
+the cases that bite. Risk is the one an approval policy compares against:
 
-## What a tool is
+| Tier        | Covers                                                                     |
+| ----------- | -------------------------------------------------------------------------- |
+| `read-only` | Reads, searches, web requests                                              |
+| `low-risk`  | Todos, work state, subagents, and other bounded writes                     |
+| `high-risk` | Anything that mutates: writes, deletes, moves                              |
+| `unknown`   | `execute_command`, classified per command and then judged against the tier |
 
-A tool is a typed function the model can call. Each one declares a name, a Zod schema for its
-arguments, a risk level, and an implementation. The model never runs code — it emits a request
-to call a named tool with arguments, and Jazz validates, gates, and executes it.
+**`low-risk` is narrower than it sounds.** It does not mean "moderately dangerous things".
 
-```mermaid
-flowchart LR
-    M["Model"] -->|"tool call:<br/>name + JSON args"| V["Schema validation"]
-    V --> G["Risk gate"]
-    G --> E["Execution"]
-    E -->|"formatted result"| M
+Email, calendar and Obsidian are skills that shell out through `execute_command`, so they sit at
+`unknown`. A `low-risk` run declines anything the classifier does not judge inspect-only or
+minor. The [tool inventory](../tools/index.md) has the exact classification of every tool.
 
-    classDef gate fill:#f9a03f,stroke:#b3541e,color:#1a1a1a
-    class G gate
-```
+## Gated tools act in two phases
 
-Tools come from four places:
+A `high-risk` tool does not act when the model calls it. It returns a description of what it
+_would_ do, including a real preview diff for edits, and only after approval does Jazz invoke the
+hidden `execute_*` half of the pair.
 
-| Source       | Scope                              | Example                                      |
-| ------------ | ---------------------------------- | -------------------------------------------- |
-| **Built-in** | always available                   | `read_file`, `execute_command`, `web_search` |
-| **Skills**   | when the agent has skills          | `find_skills`, `load_skill`                  |
-| **MCP**      | per agent, from configured servers | `mcp_notion_search`                          |
-| **Custom**   | per agent, defined by you          | whatever you declare                         |
+So you see the exact diff before a file is written. And an unattended run declines cleanly
+instead of half-acting, because the first phase only produced a proposal.
 
-An agent's config lists which tools it may use. **Omitting a tool is the strongest control
-there is** — an agent without `execute_command` cannot run shell commands no matter what
-policy is set.
+## When a tier is too coarse
 
-MCP tools, along with a few other situational categories (background jobs, reminders, wake
-triggers, workspace, peers), are also **deferred**: the model sees their names and a one-line
-summary every turn, but not their full schema until it calls `search_tools`. Built-in tools
-like `read_file` and `execute_command` are always sent in full. See
-[Design decisions](../internals/design-decisions.md#deferred-tool-schemas).
-
-Built-in and custom tools are validated against their own schema before the handler runs. MCP
-tools are the exception: their schemas are translated from the server's JSON Schema, and that
-translation is lossy enough that enforcing it locally would reject calls the server accepts.
-Their arguments are forwarded as-is and the server validates them. The risk gate is unaffected
-either way — it runs on every tool.
-
----
-
-## Risk tiers
-
-Every tool declares a risk level. One dial (`--approval-policy`, or `autoApprove:` in a
-workflow) decides what runs without asking.
-
-| Tier        | Tools                                                                                       | Count |
-| ----------- | ------------------------------------------------------------------------------------------- | ----- |
-| `read-only` | Reads, searches, web requests                                                               | 20    |
-| `low-risk`  | `manage_todos`, `update_work_state`, `spawn_subagent`, plus opt-in memory/reminders/web_app | 7     |
-| `high-risk` | Anything that mutates: writes, deletes, moves                                               | 6     |
-| `unknown`   | `execute_command` — classified per command, then judged by the tier                         | 1     |
-
-> ⚠️ **`low-risk` is narrower than most people expect.** It is *not* "moderately dangerous
-> things". Email, calendar, and Obsidian are skills that shell out via `execute_command`,
-> so they are gated at `unknown` and a `low-risk` run declines anything the classifier does
-> not call inspect-only or minor. See
-> [Tools reference](../reference/tools.md#what-is-not-a-built-in-tool).
-
-### When a tier is too coarse
-
-Rather than raising the whole tier, narrow the exception:
+Raising the whole policy to admit one command is the wrong move. Narrow the exception instead:
 
 | Control               | Where                                            | Scope                             |
 | --------------------- | ------------------------------------------------ | --------------------------------- |
 | Per-tool allowlist    | "Always approve this tool" in an approval prompt | this session                      |
 | Per-command allowlist | `autoApprovedCommands` in `~/.jazz/config.json`  | persisted, `execute_command` only |
-| Toolset trimming      | the agent's config                               | permanent, strongest              |
+| Toolset trimming      | the agent's `deniedTools`                        | permanent, and the strongest      |
 
 ```json
-// ~/.jazz/config.json — let one binary through, keep the tier low
 { "autoApprovedCommands": ["himalaya", "khal"] }
 ```
 
-Command matching uses a parsed key (binary + first subcommand), never a raw string prefix, so
-approving `git status` does not also approve `git status && rm -rf /`.
+Command matching uses a parsed key, the binary plus its first subcommand, never a raw string
+prefix. Approving `git status` therefore does not also approve `git status && rm -rf /`.
 
----
+## How a tool reaches the model
 
-## Gated tools act in two phases
+Jazz registers built-in, MCP, skill-support and agent-defined custom tools, resolves the agent
+and persona grants, subtracts explicit denials, applies caller requirements, and exposes what
+survives.
 
-A `high-risk` tool does not act when called. It returns a description of what it *would* do —
-for edits, an actual preview diff — and only after approval does Jazz invoke the hidden
-`execute_*` half of the pair.
+Not all of it arrives the same way. Always-on categories send their full schema every turn.
 
-This is why you see the exact diff before a file is written, and why an unattended run behaves
-identically to an interactive one apart from who answers.
-
----
+Deferred categories send a name and a one-line summary. The model calls `search_tools` to load a
+full schema when it needs one, which is what keeps a large MCP catalogue off every turn.
 
 ## Adding your own
 
-### Custom tools (declarative)
+Three routes, in increasing order of effort:
 
-Define a tool in an agent's config with `customTools` — a name, description, parameter schema,
-and a `record` or `command` handler. No code, no rebuild. Full schema and validation rules:
-[Configuration → customTools](../reference/configuration.md#agent-config-customtools).
-
-### MCP servers (reuse an ecosystem)
-
-If the capability already exists as an MCP server, that is almost always the better route —
-you get its tools without writing anything. See [Integrations → MCP](../integrations/mcp.md).
-
-### Built-in tools (contributing)
-
-Adding a tool to Jazz itself means implementing the `Tool` interface and registering it in a
-category. Gated tools use `defineApprovalTool` to produce the propose/execute pair. See
-[Code map](../internals/code-map.md), and update
-[Tools reference](../reference/tools.md) — a test fails if the docs and the registry drift.
-
----
+- **Custom tools**, declared in the agent's own JSON. A name, a schema, and either a fixed
+  response or a command to shell out to. No code, no plugin, no restart.
+- **MCP servers**, which bring an existing ecosystem's tools in. Jazz tracks whether you have
+  trusted a server before exposing its tools broadly.
+- **Built-in tools**, contributed to Jazz itself when the capability belongs to everyone. See
+  the [tool lifecycle](../maintainers/tool-lifecycle.md).
 
 ## Related
 
-- [Tools reference](../reference/tools.md) — every tool, every tier
-- [Internals → Tools & approval](../internals/tools-and-approval.md) — registry, concurrency, timeouts
-- [Skills](./skills.md) — packaged expertise, which is a different thing from a tool
-- [Security](../../SECURITY.md) — the threat model for unattended runs
+- [Tool inventory](../tools/index.md): every tool, its risk, disclosure, and egress
+- [Approvals](../security/approvals.md): what runs without asking, and what parks
+- [Agent configuration](../configure/agents.md#custom-tools): declaring a custom tool
+- [MCP](../configure/mcp.md): adding a server and trusting it

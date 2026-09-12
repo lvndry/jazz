@@ -1,126 +1,136 @@
 ---
-description: "The daemon is what lets Jazz act without a terminal open: serving runs over HTTP, owning the schedule ticker, answering peers, and serving webhooks."
+description: "The daemon is what lets Jazz act with no terminal open: serving runs over HTTP, owning the schedule ticker, answering peers, and serving webhooks."
 ---
 
-# Daemon — Jazz without a terminal attached
+# Daemon: Jazz with no terminal attached
 
-`jazz chat` and `jazz run` are one process talking to one terminal. That's fine until you
-need something to happen when nobody's typing: a scheduled workflow firing at 6 AM, a
-webhook from GitHub landing at 2 PM, a run parked on an approval that the person who can
-answer it is on a different machine entirely.
+`jazz chat` and `jazz run` are one process talking to one terminal. Some things have to happen
+when nobody is typing:
 
-`jazz daemon` is that "something." It's the same agent runtime, but reachable over HTTP
-instead of a REPL, and able to sit there running with nobody attached.
+- a scheduled workflow firing at 6 AM,
+- a webhook from GitHub landing at 2 PM,
+- a parked run that only somebody at another machine can approve.
+
+`jazz daemon` is that something. Same agent runtime, reachable over HTTP instead of a REPL.
 
 ---
 
 ## The short version
 
 ```bash
-# Start it
+# Start it. It backgrounds itself
 jazz daemon
 
-# From another terminal (or another machine): start a run
+# From another terminal, or another machine: start a run
 curl -X POST http://localhost:4747/runs \
+  -H "Authorization: Bearer $JAZZ_DAEMON_TOKEN" \
+  -H "Content-Type: application/json" \
   -d '{"agent":"default","prompt":"summarize today'\''s deploys"}'
 
 # Poll it
-curl http://localhost:4747/runs/<runId>
+curl http://localhost:4747/runs/<runId> -H "Authorization: Bearer $JAZZ_DAEMON_TOKEN"
 
 # If it parked on an approval, answer it
-curl -X POST http://localhost:4747/runs/<runId>/answer -d '{"approved":true}'
+curl -X POST http://localhost:4747/runs/<runId>/answer \
+  -H "Authorization: Bearer $JAZZ_DAEMON_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"approved":true}'
 ```
 
-`jazz runs` (list/show/approve/reject) is the same thing from the CLI, and works whether or
-not a daemon is involved — a daemon just means the run can be answered from somewhere other
-than the process that started it.
+`jazz runs` (list, show, approve, reject) is the same thing from the CLI, and works whether or
+not a daemon is involved. A daemon just means the run can be answered from somewhere other than
+the process that started it.
 
 ---
 
 ## What it actually does
 
-One process, four jobs, each opt-in:
+One process, several jobs, most of them opt-in:
 
-- **Serves runs over HTTP.** `POST /runs` starts one, `GET /runs/:id` polls it, `POST
-  /runs/:id/answer` approves or rejects what it's parked on, `GET /runs` lists what's in
-  flight. This is the only way to answer a parked run from a different process than the one
-  that started it.
-- **Owns the schedule ticker**, if `scheduler.mode` is set to `in-process`. Workflow
-  schedules normally ride your OS scheduler (`launchd`/`cron`), which only fires while the
-  machine is awake; the daemon's own ticker is the alternative for a host you mean to leave
-  running. See [Scheduling](./scheduling.md).
-- **Answers peers**, if started with `--serve-peers <agentId>`. `POST /peer/ask` and `POST
-  /a2a` both need a running daemon to have anyone to ask — without it, your agent can still
-  ask *other* peers, but nobody can ask yours. See [Peers](./agent-to-agent.md).
-- **Serves webhooks.** `POST /webhooks/<name>` wakes the agent that webhook is configured
-  for. See [Webhooks](./webhooks.md).
+- **Serves runs over HTTP.** `POST /runs` starts one, `GET /runs/:id` polls it,
+  `POST /runs/:id/answer` approves or rejects what it is parked on, `GET /runs` lists what is in
+  flight. This is the only way to answer a parked run from a different process than the one that
+  started it.
+- **Serves the agent catalogue.** `GET`/`POST`/`DELETE` on `/agents`, `/personas`, plus
+  `/catalog`, `/models` and `/tools`. This is what an agent editor talks to, so a UI never has to
+  parse JSON files on disk or reimplement validation.
+- **Owns the schedule ticker**, when `scheduler.mode` is `in-process`. Schedules normally ride the
+  OS scheduler, which only fires while the machine is awake. The daemon's ticker is the
+  alternative on a host you leave running. See [Scheduled runs](../surfaces/scheduled.md).
+- **Answers peers**, when started with `--serve-peers <agentId>`. `POST /peer/ask` and `POST
+/a2a` need a running daemon to have anyone to ask. Without one your agent can still ask
+  _other_ peers, but nobody can ask yours. See [Agent-to-agent](./agent-to-agent.md).
+- **Serves webhooks.** `POST /webhooks/<name>` wakes the agent that webhook names. See
+  [Webhooks](./webhooks.md).
 
-It's also the fallback ticker for [wake triggers](../reference/tools.md#wake-triggers): a
-trigger normally fires via a one-shot `launchd`/`at` job the host schedules directly, with
-no daemon required. The daemon's in-process ticker only matters on a host with neither
-(most containers).
+It is also the fallback ticker for [wake triggers](../tools/index.md): a trigger normally fires
+through a one-shot `launchd`/`at` job the host schedules directly, with no daemon required. The
+in-process ticker only matters on a host with neither, which mostly means containers.
 
-None of this needs all of it. A daemon started plain, with no flags, only serves runs and —
-if `scheduler.mode` is `in-process` — ticks workflows. Peers and webhooks activate on top of
-that, not instead of it.
+None of this needs all of it. A daemon started plain serves runs and the catalogue, and ticks
+workflows if `scheduler.mode` says so. Peers and webhooks activate on top of that, not instead
+of it.
 
 ---
 
 ## Authentication
 
-`GET /health` is unauthenticated on purpose — a process supervisor should be able to check
-that the daemon is alive without holding a credential that can drive an agent.
+`GET /health` is unauthenticated on purpose: a process supervisor should be able to see that the
+daemon is alive without holding a credential that can drive an agent.
 
-Everything else needs a bearer token, **including on loopback**. The first time a daemon
-starts with no token already set, Jazz generates one, stores it (OS keyring, or a
-`chmod 600` `$JAZZ_HOME/secrets.json` where there's no keyring), and prints it once so you
-can copy it to a client. It is not reprinted on later starts, so a supervisor's logs never
-accumulate the secret.
+Everything else needs a bearer token, **including on loopback**. That covers paths matching no
+route, so an unauthenticated caller cannot map the door by telling 404s from 401s.
+
+On its first start with no token set, Jazz generates one and prints it once, so you can copy it
+to a client. It goes to the OS keyring, or to a `chmod 600` `$JAZZ_HOME/secrets.json` where there
+is no keyring.
+
+It is never printed again. A supervisor's logs should not accumulate the secret.
 
 ```bash
 jazz daemon set-token      # generate (or store $JAZZ_DAEMON_TOKEN); prints a generated value
 jazz daemon forget-token   # remove it
 ```
 
-Loopback used to need no token, on the reasoning that reaching `127.0.0.1` already means
-being on the machine. That reasoning ignores loopback's two real neighbours: every other user
-account on a shared host, and every page open in your browser. The browser half is handled
-structurally — see below — but nothing except a token separates a tokenless loopback daemon
-from any other local process, and what it guards is an agent with filesystem access.
+Loopback used to need no token. The reasoning was that reaching `127.0.0.1` means you are already
+on the machine.
 
-If nothing can store a token at all (`$JAZZ_DISABLE_KEYRING` set with no
-`$JAZZ_DAEMON_TOKEN`), a loopback daemon warns and serves unauthenticated rather than
-refusing to start; a non-loopback bind still refuses outright.
+That ignores loopback's two real neighbours: every other user account on a shared host, and every
+page open in your browser. The browser half is handled structurally, below. For the other,
+nothing but a token stands between a local process and an agent with filesystem access.
 
-Set `$JAZZ_DAEMON_TOKEN` yourself instead of letting Jazz generate one when the value needs
-to be known in advance — a client config written before the daemon has ever run, or an
-ephemeral container whose `$JAZZ_HOME` won't survive to the next deploy.
+If nothing can store a token at all, a loopback daemon warns and serves unauthenticated rather
+than refusing to start. A non-loopback bind refuses outright. (That happens when
+`$JAZZ_DISABLE_KEYRING` is set and `$JAZZ_DAEMON_TOKEN` is not.)
+
+Set `$JAZZ_DAEMON_TOKEN` yourself when the value has to be known in advance. Two cases: a client
+config written before the daemon has ever run, and a container whose `$JAZZ_HOME` will not
+survive the next deploy.
 
 ### It does not answer your browser
 
-A loopback port is inside the trust boundary of every page you have open, and a page can POST
-to `127.0.0.1` without you doing anything. Two checks close that, on every door:
+A loopback port is inside the trust boundary of every page you have open, and a page can POST to
+`127.0.0.1` without you doing anything. Two checks close that, on every door:
 
 - **A request carrying an `Origin` header is refused with `403`.** Nothing that legitimately
-  drives this daemon sets one — not a CLI, not `curl`, not a supervisor's health probe, not
-  another jazz. A browser sets it on every cross-origin request and cannot be talked out of
-  it, so its presence identifies the wrong kind of client.
-- **A request body must be `content-type: application/json`** (`415` otherwise). An HTML form
-  can only send urlencoded, multipart, or `text/plain`; anything else makes the browser ask
+  drives this daemon sets one: not a CLI, not `curl`, not a supervisor's health probe, not
+  another Jazz. A browser sets it on every cross-origin request and cannot be talked out of it,
+  so its presence identifies the wrong kind of client.
+- **A request body must be `content-type: application/json`** (`415` otherwise). An HTML form can
+  only send urlencoded, multipart, or `text/plain`; anything else makes the browser ask
   permission first, and these doors answer no such preflight. The webhook door is the one
-  exception — its body is whatever the sending system sends — and it is gated by a per-webhook
+  exception, since its body is whatever the sending system sends, and it is gated by a per-webhook
   token no page could hold.
 
-If you are writing a client, send `application/json` and no `Origin`, which is what every
-ordinary HTTP client already does.
+Writing a client? Send `application/json` and no `Origin`, which is what every ordinary HTTP
+client already does.
 
-Peers and webhooks don't use this token — each has its own, checked separately, because a
-credential that can start and approve runs is a much bigger grant than one that can only
-ask a question or fire one fixed prompt.
+Peers and webhooks do not use this token. Each has its own. A credential that can start and
+approve runs is a much bigger grant than one that can ask a question.
 
 ### Reaching it from another machine
 
-Bind an interface other than loopback and pass the token on every request:
+Bind an interface other than loopback, and pass the token on every request:
 
 ```bash
 # On the host
@@ -130,38 +140,41 @@ jazz daemon --host 0.0.0.0
 # From another machine
 curl http://<host>:4747/runs \
   -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
   -d '{"agent":"default","prompt":"summarize today'\''s deploys"}'
 ```
 
-`0.0.0.0` binds every interface on the host, so reachability beyond that is whatever your
-firewall or router already allows — bind a specific interface's address instead if you mean
-one network and not "anywhere this host has a route." Either way, the token is the only thing
-standing between that interface and an agent with filesystem access, so treat exposing it like
-exposing any other unauthenticated-by-default service: scope who can reach the port, not just
-who holds the token.
+`0.0.0.0` binds every interface. What that reaches is whatever your firewall or router allows, so
+bind one interface's address if you mean one network.
+
+Scope who can reach the port, not just who holds the token. See
+[Surface access](../security/surface-access.md).
 
 ---
 
 ## Running it persistently
 
-`jazz daemon` runs in the foreground. Restarting it on crash and starting it on boot is your
-host's job, not the daemon's — that's what a process supervisor is for. `jazz daemon
-install` wires it into your OS's supervisor (`systemd` on Linux, `launchd` on macOS) instead
-of leaving that hand-written:
+`jazz daemon` backgrounds itself and writes a pidfile under `$JAZZ_HOME`; `jazz daemon stop`
+ends it. Use `--foreground` when something else, a supervisor or a container entrypoint, expects
+to own the process.
+
+Starting on boot and restarting on crash is the host's job. `jazz daemon install` wires it into
+the OS supervisor (`systemd` on Linux, `launchd` on macOS) instead of leaving that hand-written:
 
 ```bash
 sudo jazz daemon install --serve-peers my-agent
 sudo jazz daemon uninstall
 ```
 
-Both need root, and `install` doesn't report success until `/health` actually answers.
+Both need root, and `install` does not report success until `/health` actually answers.
 
 ---
 
 ## Related
 
-- [Scheduling](./scheduling.md) — the ticker the daemon owns in `in-process` mode
-- [Peers](./agent-to-agent.md) — what `--serve-peers` turns on, and its own credential model
-- [Webhooks](./webhooks.md) — the other thing a daemon serves
-- [CLI reference → `jazz daemon`](../reference/cli.md#jazz-daemon) — every flag and command
-- [Lexicon](./lexicon.md) — run, park, approval
+- [Scheduled runs](../surfaces/scheduled.md): the ticker the daemon owns in `in-process` mode
+- [Agent-to-agent](./agent-to-agent.md): what `--serve-peers` turns on, and its credential model
+- [Webhooks](./webhooks.md): the other thing a daemon serves, and its
+  [build-one guide](../guides/webhook-endpoint.md)
+- [`jazz daemon`](../commands.md): every flag and subcommand
+- [Threat model](../security/threat-model.md): what the token does and does not protect

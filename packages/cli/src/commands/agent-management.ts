@@ -158,7 +158,7 @@ function formatAgentsListBlock(
 /**
  * Show the agents that can produce a given kind of media, or how to get one.
  *
- * Jazz cannot generate media on a model that does not do it — there is no tool to fall back on —
+ * Jazz cannot generate media on a model that does not do it and has no companion bound for it,
  * so "none of your agents can" has to come with the next step attached, or it is a dead end.
  */
 function listAgentsThatGenerate(
@@ -174,11 +174,17 @@ function listAgentsThatGenerate(
 
     if (capable.length > 0) {
       yield* terminal.log(`Agents that can generate ${modality}:\n`);
-      for (const { agent, supportsTools } of capable) {
+      for (const { agent, supportsTools, via } of capable) {
         // Naming the tool gap matters: most media models cannot call tools at all, so an agent
-        // that draws may be unable to read a file or search the web.
-        const toolNote = supportsTools ? "" : "  (this model has no tools — generation only)";
-        yield* terminal.log(`  ${agent.name}  ${agentModelString(agent.config)}${toolNote}`);
+        // that draws may be unable to read a file or search the web. A companion-backed agent
+        // rarely has that problem, which is the point of saying which one it is.
+        const note =
+          via !== undefined
+            ? `  (via companion ${via})`
+            : supportsTools
+              ? ""
+              : "  (this model has no tools — generation only)";
+        yield* terminal.log(`  ${agent.name}  ${agentModelString(agent.config)}${note}`);
       }
       yield* terminal.log(`\nStart one with: jazz agent chat <name>`);
       return;

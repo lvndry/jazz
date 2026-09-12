@@ -1,6 +1,9 @@
 import { describe, expect, it } from "bun:test";
 import {
   SECRET_ENV_VARS,
+  llmProviderApiKeyFromEnv,
+  llmProviderEnvVars,
+  secretValueFromEnv,
   SECRET_PATHS,
   envVarForSecretPath,
   isSecretPath,
@@ -73,5 +76,46 @@ describe("secret registry", () => {
 
   it("normalizes a webhook name into its environment variable", () => {
     expect(webhookTokenEnvVar("deploy-bot")).toBe("JAZZ_WEBHOOK_TOKEN_DEPLOY_BOT");
+  });
+});
+
+describe("provider key aliases", () => {
+  it("accepts GEMINI_API_KEY as well as the canonical Google variable", () => {
+    // Google's own docs and CLI say GEMINI_API_KEY; the AI SDK reads
+    // GOOGLE_GENERATIVE_AI_API_KEY. Somebody who exports the first has done nothing wrong.
+    expect(llmProviderApiKeyFromEnv("gemini", { GEMINI_API_KEY: "from-alias" })).toBe("from-alias");
+    expect(llmProviderApiKeyFromEnv("gemini", { GOOGLE_GENERATIVE_AI_API_KEY: "canonical" })).toBe(
+      "canonical",
+    );
+  });
+
+  it("prefers the canonical variable when both are set", () => {
+    expect(
+      llmProviderApiKeyFromEnv("gemini", {
+        GOOGLE_GENERATIVE_AI_API_KEY: "canonical",
+        GEMINI_API_KEY: "alias",
+      }),
+    ).toBe("canonical");
+  });
+
+  it("ignores an empty alias rather than treating it as a key", () => {
+    expect(llmProviderApiKeyFromEnv("gemini", { GEMINI_API_KEY: "  " })).toBeUndefined();
+  });
+
+  it("resolves an aliased key through the generic secret path too", () => {
+    // config.ts resolves by path, not by provider, so the alias has to work there or it only
+    // works at the call sites that happen to ask by provider name.
+    expect(secretValueFromEnv("llm.gemini.api_key", { GEMINI_API_KEY: "from-alias" })).toBe(
+      "from-alias",
+    );
+    expect(secretValueFromEnv("llm.openai.api_key", { OPENAI_API_KEY: "sk" })).toBe("sk");
+  });
+
+  it("leaves providers without an alias alone", () => {
+    expect(llmProviderEnvVars("openai")).toEqual(["OPENAI_API_KEY"]);
+    expect(llmProviderEnvVars("gemini")).toEqual([
+      "GOOGLE_GENERATIVE_AI_API_KEY",
+      "GEMINI_API_KEY",
+    ]);
   });
 });

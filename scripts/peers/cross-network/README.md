@@ -1,7 +1,7 @@
 # Cross-network peer-invite demo
 
-Two jazz agents that can only reach each other through a reverse proxy — the same "over the
-internet" topology [docs/start/peers-setup.md](../../../docs/start/peers-setup.md) documents,
+Two jazz agents that can only reach each other through a reverse proxy: the same "over the
+internet" topology [docs/guides/connect-peers.md](../../../docs/guides/connect-peers.md) documents,
 simulated entirely on localhost with Docker, no real domain or external tunnel needed.
 
 ```
@@ -15,7 +15,7 @@ alice-net                    bob-net
           └───────────────────┘
 ```
 
-`alice` and `bob` are on two separate Docker networks with no route between them at all —
+`alice` and `bob` are on two separate Docker networks with no route between them at all ,
 `alice` cannot reach `bob`'s container by any address, and vice versa. `caddy` is attached to
 both, proxying `/peer/ask` and `/peer-invites/*` to `bob`, exactly like a real reverse proxy
 in front of a loopback-bound daemon. This is what `--public-url` on `jazz peers invite create`
@@ -23,11 +23,11 @@ exists for: bob's daemon has no address alice could ever reach directly, so the 
 advertise caddy's instead.
 
 What this does **not** simulate: real TLS. That needs a real public domain to get a
-certificate for, which a local demo has no way to provide — caddy proxies plain HTTP here. The
+certificate for, which a local demo has no way to provide: caddy proxies plain HTTP here. The
 network isolation and reverse-proxy shape are real; the encryption is not.
 
 Each container also runs a real headless keyring (`gnome-keyring` over a private D-Bus
-session — see the `Dockerfile` and the top of `entrypoint.sh`), so the invite's token actually
+session. See the `Dockerfile` and the top of `entrypoint.sh`), so the invite's token actually
 gets persisted rather than hitting the "no keyring available" refusal a bare container would.
 
 ## Running it
@@ -37,9 +37,9 @@ cd scripts/peers/cross-network
 OPENROUTER_API_KEY=... docker compose up --build
 ```
 
-Bob provisions an agent, starts serving, and invites Alice — advertising `http://caddy` as his
+Bob provisions an agent, starts serving, and invites Alice: advertising `http://caddy` as his
 address. Alice provisions her own agent, waits for the invite (dropped in a shared volume, not
-sent over the network — that hand-off itself is out of band, same as a real invite link
+sent over the network: that hand-off itself is out of band, same as a real invite link
 would be), accepts it, and asks a real question. Watch for:
 
 - `Invite URL (resolves to the caddy container, not bob's daemon directly): http://caddy/...`
@@ -54,10 +54,10 @@ docker compose down -v
 
 ## If it doesn't work
 
-- **`no OS keyring is available`** — the gnome-keyring setup in `entrypoint.sh` failed to
+- **`no OS keyring is available`**: the gnome-keyring setup in `entrypoint.sh` failed to
   start. Check the container logs for `dbus-run-session`/`gnome-keyring-daemon` errors.
-- **`Authentication failed for LLM provider "openrouter"`** — `OPENROUTER_API_KEY` wasn't
+- **`Authentication failed for LLM provider "openrouter"`**: `OPENROUTER_API_KEY` wasn't
   actually set, or isn't valid.
 - Everything up through "Added ... as a peer" succeeding but the final question failing proves
-  the feature itself works — invite creation, the network-isolated HTTP round trip through
+  the feature itself works: invite creation, the network-isolated HTTP round trip through
   caddy, secret hashing, redemption, and token storage. Only the model call needs a real key.

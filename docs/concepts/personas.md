@@ -1,181 +1,86 @@
 ---
-description: "Personas are reusable characters that shape how a Jazz agent communicates — tone, style, and behavioral rules, decoupled from both agents and models."
+description: "What a Jazz persona is, how it shapes behaviour and can narrow an agent's tools, the placeholders it can use, and where custom personas come from."
 ---
 
-# Concept: Custom Personas
+# Personas
 
-## What is a Persona?
+A persona is a reusable system prompt with a name. It decides how an agent works: its voice, its
+priorities, what it does when a task is unclear.
 
-A **Persona** is a reusable character or identity that shapes how an agent communicates. It defines tone, style, vocabulary, and behavioral rules through a system prompt. Personas are **decoupled from agents and models**—the same persona can be used with any agent running on any LLM provider.
+It says nothing about which model runs. The same persona behaves recognisably on a frontier
+model and on a local one.
 
-### Built-in vs Custom Personas
+Jazz ships four: `default` for general work, `coder` for code and git, `researcher` for
+read-only investigation, and `summarizer`, which is internal and has no user to address.
 
-Jazz ships with built-in personas:
+## What a persona file looks like
 
-| Type         | Description                                                                             |
-| ------------ | --------------------------------------------------------------------------------------- |
-| `default`    | General-purpose agent for various tasks.                                                |
-| `coder`      | Expert software engineer: code analysis, debugging, implementation.                     |
-| `researcher` | Meticulous researcher: deep exploration, source synthesis, evidence-backed conclusions. |
-| `summarizer` | Specialized in compressing conversation history (used internally).                      |
-
-**Custom personas** extend this with your own characters. You define the system prompt, and Jazz injects it into the agent's conversation—so you can have a sarcastic hacker, a formal tutor, a pirate, or any personality you want.
-
-## How Personas Work
-
-1. **Storage**: Jazz scans two directories for persona.md files (like skills and workflows):
-   - **Built-in** (package `personas/<name>/persona.md`): `default`, `coder`, `researcher`, `summarizer` — shipped with Jazz
-   - **Custom** (`~/.jazz/personas/<name>/persona.md`): Your own personas. When a custom persona has the same name as a built-in, the custom one takes precedence.
-
-   Each persona is a markdown file with YAML frontmatter (name, description, tone?, style?) and the system prompt in the body.
-2. **System prompt**: The persona's `systemPrompt` is the core. It is injected into the agent's system message and shapes how the model responds.
-3. **Agent config**: You assign a persona to an agent via the `persona` field in the agent's configuration. The persona's system prompt shapes the agent's behavior.
-4. **Model-agnostic**: Personas work with any LLM—OpenAI, Anthropic, Google, Ollama, etc. The same persona behaves consistently across providers.
-
-## Creating a Custom Persona
-
-### Option 1: Create a persona.md File Manually
-
-Create a folder and file at `~/.jazz/personas/<name>/persona.md`. The folder name becomes the persona name. Use a memorable slug (e.g., `pirate`, `therapist`).
-
-**Format:** YAML frontmatter + markdown body (the system prompt).
+One `persona.md` per persona, frontmatter plus prompt:
 
 ```markdown
 ---
-name: pirate
-description: A friendly pirate who explains things in nautical terms.
-tone: playful
-style: concise
+name: coder
+description: A hacker-engineer who sees the links between systems and builds for the long term.
+tone: technical
+style: precise
 ---
 
-You are a jovial pirate assistant. Use nautical vocabulary (ahoy, matey, landlubber). Keep responses concise. When explaining technical concepts, relate them to sailing or the sea. Sign off with 'Fair winds!'
-```
+You are {agentName}, a hacker-engineer. You think in connections…
 
-**Frontmatter fields:**
+{agentDescription}
 
-| Field         | Required | Description                                                       |
-| ------------- | -------- | ----------------------------------------------------------------- |
-| `name`        | Yes      | Alphanumeric, underscores, hyphens. Used for CLI references.      |
-| `description` | Yes      | Brief human-readable description (max 500 chars).                 |
-| `tone`        | No       | Descriptor for display (e.g., "sarcastic", "formal", "friendly"). |
-| `style`       | No       | Descriptor for display (e.g., "concise", "verbose", "technical"). |
-
-**Body:** The system prompt. Can use markdown (headings, lists, etc.). Max 10,000 characters.
-
-**Name rules**: Only letters, numbers, underscores, and hyphens. Examples: `cyber-punk`, `therapist`, `pirate`.
-
-### Option 2: Install One From the Marketplace
-
-The [persona marketplace](https://jazz-cli.vercel.app/marketplace) is a shared catalog of personas contributed to the Jazz repository. Browse it in your terminal and copy one into `~/.jazz/personas/`:
-
-```bash
-jazz persona browse            # interactive: search, read the prompt, install
-jazz persona search            # print the whole catalog
-jazz persona install rubber-duck
-jazz persona install rubber-duck --as duck   # install under a different local name
-```
-
-An installed persona becomes the system prompt of every agent you apply it to, so `install` prints the prompt in full and asks before writing anything. Non-interactive runs (scripts, CI) must pass `--yes` to accept it explicitly. Once installed, a marketplace persona is an ordinary custom persona — edit it, rename it, or delete it like any other.
-
-The catalog is cached under `<jazz home>/cache/persona-registry.json`, so browsing keeps working offline and with `JAZZ_OFFLINE=1`. Pass `--refresh` to re-fetch it. Set `JAZZ_PERSONA_REGISTRY_URL` to point Jazz at your own catalog — see [Publishing to the marketplace](#publishing-to-the-marketplace) for the format.
-
-### Option 3: Programmatic Creation
-
-The PersonaService exposes `createPersona`, `getPersona`, `listPersonas`, `updatePersona`, `deletePersona`, and `getPersonaByIdentifier`. Use these when building tooling or automation.
-
-### Example Personas
-
-**Sarcastic hacker** (`~/.jazz/personas/hacker/persona.md`):
-
-```markdown
----
-name: hacker
-description: A sarcastic hacker who explains everything in l33t speak.
-tone: sarcastic
-style: technical
----
-
-You are a cyberpunk hacker. Use l33t speak and technical jargon. Be sarcastic but helpful. When the user makes a mistake, gently mock them. Always stay in character.
-```
-
-**Formal tutor** (`~/.jazz/personas/tutor/persona.md`):
-
-```markdown
----
-name: tutor
-description: A patient, formal tutor who explains concepts step by step.
-tone: formal
-style: verbose
----
-
-You are a patient tutor. Use formal but warm language. Explain concepts step by step. Ask clarifying questions when needed. Summarize key points at the end.
-```
-
-## Applying a Persona to an Agent
-
-To use a custom persona with an agent, set the `persona` field in the agent's configuration. You can reference the persona by **ID** or **name**.
-
-**Edit the agent JSON** in `~/.jazz/agents/<id>.json` and set the `persona` field in the config:
-
-```json
-{
-  "id": "my-agent-id",
-  "name": "My Agent",
-  "config": {
-    "persona": "pirate",
-    "llmProvider": "openai",
-    "llmModel": "gpt-4"
-  }
-}
-```
-
-The `persona` field drives both communication style (via the system prompt) and tool selection. For example, the built-in `summarizer` persona has no tools; all other personas receive the default tool set plus any tools you configure on the agent.
-
-## Persona Prompt Placeholders
-
-When building the system prompt, Jazz replaces these placeholders if present in your persona's `systemPrompt`:
-
-| Placeholder          | Description                         |
-| -------------------- | ----------------------------------- |
-| `{agentName}`        | The agent's name                    |
-| `{agentDescription}` | The agent's description             |
-| `{environment}`      | Canonical block containing current date, OS, hardware, shell, home directory, hostname, user, and TTY |
-| `{currentDate}`      | Current date                        |
-| `{osInfo}`           | OS platform and version             |
-| `{hardware}`         | Hardware information                |
-| `{shell}`            | User's shell                        |
-| `{hostname}`         | Machine hostname                    |
-| `{username}`         | Current username                    |
-| `{homeDirectory}`    | User's home directory               |
-| `{tty}`              | `yes` if stdout is a TTY, else `no` |
-
-Example:
-
-```text
-You are {agentName}, a pirate assistant.
+# Environment
 
 {environment}
-
-You help the user with their tasks. Fair winds!
 ```
 
-## Publishing to the Marketplace
+Three placeholders are filled in at run time. They are what let one file serve many agents:
 
-Marketplace entries live in the Jazz repository, not in a hosted database — every persona arrives through a pull request:
+| Placeholder          | Becomes                                                        |
+| -------------------- | -------------------------------------------------------------- |
+| `{agentName}`        | The agent's name, so the persona addresses itself correctly    |
+| `{agentDescription}` | The agent's own description, so one persona hosts many jobs    |
+| `{environment}`      | Live machine facts: date, OS, shell, home, hostname, user, TTY |
 
-1. Add `marketplace/personas/<name>/persona.md`, using the same format as a custom persona plus two optional fields: `author` and `tags` (a list).
-2. Open a pull request against [lvndry/jazz](https://github.com/lvndry/jazz).
+Use `{environment}` rather than writing "you are on macOS" into the prompt. Hardcode the machine
+and the persona is wrong the first time somebody else installs it.
 
-Once merged, the website publishes the entry and `jazz persona browse` picks it up. A self-hosted catalog needs to serve the same two things at whatever `JAZZ_PERSONA_REGISTRY_URL` points at: `personas.json` (`{ version, personas: [{ name, description, url, ... }] }`) and one raw `persona.md` per entry. Jazz refuses to download an entry whose `url` resolves off the catalog's own origin.
+## A persona can narrow tools, never widen them
 
-## Managing Personas
+An optional `toolProfile` lets a persona restrict what agents using it may reach:
 
-- **List**: Persona files in `~/.jazz/personas/<name>/persona.md` are discovered automatically.
-- **Update**: Edit the persona.md file directly.
-- **Delete**: Remove the persona folder (e.g. `~/.jazz/personas/pirate/`), or run `jazz persona delete <name>`. Any agents referencing that persona will need to be updated.
+- `categories` picks which built-in tool categories the persona wants. Omitted means all of
+  them; an empty array means none, which is how `summarizer` runs with no tools at all.
+- `deny` is a hard exclusion applied last, after categories and after the agent's own `tools`.
 
-## See Also
+This only ever subtracts. A persona cannot grant a tool, undo `deniedTools`, raise a disclosure
+ceiling, or change the approval policy.
 
-- [Agents](./agents.md) – How agents are configured and used
-- [Creating Agents](../start/creating-agents.md) – Step-by-step agent creation
-- [CLI Reference](../reference/cli.md) – Command-line interface
+That separation is the point. Installing a persona from the marketplace should never widen what
+your agent can do to your machine.
+
+## Where they come from
+
+Built-in personas ship with Jazz. Your own live in `~/.jazz/personas/<name>/persona.md`, written
+by hand or with `jazz persona create`. The marketplace is the third source:
+
+```bash
+jazz persona list              # built-in and custom
+jazz persona show coder        # read one, as the agent sees it
+jazz persona browse            # marketplace, interactive install
+jazz persona search            # everything the marketplace offers
+```
+
+## Persona or agent config
+
+Ask whether you would want a second agent to inherit it.
+
+Yes, and it belongs in the persona. No, and it belongs in the agent, along with the provider,
+model, credentials, memory scopes, and tools.
+
+## Related
+
+- [Build a reusable accountability persona](../guides/goggins-accountability-agent.md): one
+  written end to end, then used interactively, headlessly, and on a schedule
+- [Agents](./agents.md): the configuration a persona is attached to
+- [`jazz persona`](../commands.md): every subcommand

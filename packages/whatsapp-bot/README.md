@@ -1,7 +1,7 @@
 # WhatsApp bridge
 
 Chat with a [Jazz](../../README.md) agent from WhatsApp. The bridge links to
-your account as a device — the same standing WhatsApp Web has in a browser — and
+your account as a device (the same standing WhatsApp Web has in a browser) and
 answers every message you send it, with per-chat memory, per-chat model and
 persona, reminders, and attachments.
 
@@ -15,18 +15,18 @@ WhatsApp publishes no API for personal accounts.
 [Baileys](https://github.com/WhiskeySockets/Baileys) implements the WhatsApp Web
 protocol by reverse engineering, which has consequences you are accepting:
 
-- **Meta does not sanction this.** A number that behaves unusually — bursts of
-  messages, replies at machine speed, many new conversations — can be rate
+- **Meta does not sanction this.** A number that behaves unusually: bursts of
+  messages, replies at machine speed, many new conversations: can be rate
   limited or banned. Run it on a **dedicated number** if the account matters.
 - **The link can be cut.** Unlinking the device from your phone, or WhatsApp
   deciding to, ends the session; the bridge says so and exits rather than
   looping.
 - **It is a full device.** Everything that account receives, this process
-  receives. The allow-list decides what it *answers*, not what it *sees*.
+  receives. The allow-list decides what it _answers_, not what it _sees_.
 
 The official alternative is the WhatsApp Cloud API, which needs a Meta Business
 account and a separate business number, and only permits template messages
-outside a 24-hour reply window — unusable for a personal assistant, which is why
+outside a 24-hour reply window: unusable for a personal assistant, which is why
 this bridge does not use it.
 
 ## Requirements
@@ -44,10 +44,10 @@ OPENAI_API_KEY=sk-… jazz whatsapp
 On the first run it asks whose messages the agent should answer, and remembers
 the answer in `wa-allowed.json` under its home. Set
 `WHATSAPP_ALLOWED_NUMBERS="+15551234567,+33123456789"` instead to skip the
-question — which is what you want on a server, where the bridge refuses to start
+question, which is what you want on a server, where the bridge refuses to start
 rather than ask a terminal that is not there.
 
-To answer as an agent you already have rather than a fresh assistant, name it —
+To answer as an agent you already have rather than a fresh assistant, name it ,
 it is copied into the bridge's home, so the original keeps its name and stays
 yours:
 
@@ -58,7 +58,7 @@ jazz whatsapp --agent nostra
 From a checkout without an installed binary, `bun packages/whatsapp-bot/src/main.ts`
 is the same thing.
 
-On first run it prints a QR code — WhatsApp → Settings → Linked Devices → Link a
+On first run it prints a QR code. WhatsApp → Settings → Linked Devices → Link a
 device. Scan it promptly: WhatsApp expires each code after about a minute and
 issues another, and a stale one is refused with "check your connection". Only
 one is ever on screen, so scan the one you can see. On a headless machine there is no camera to point at it, so set
@@ -70,21 +70,21 @@ Anything that can read that directory can act as the account.
 
 ## Configuration
 
-| Variable                             | Default                | What it does                                                                                        |
-| ------------------------------------ | ---------------------- | ----------------------------------------------------------------------------------------------------- |
-| `WHATSAPP_ALLOWED_NUMBERS`           | _(asked on first run)_ | Comma-separated numbers allowed to DM the agent. Written however you like; compared as digits. |
-| `WHATSAPP_ALLOWED_GROUPS`            | _(none)_               | Comma-separated group JIDs the agent will speak in. Being allowed to DM does **not** admit you here.  |
+| Variable                             | Default                | What it does                                                                                                  |
+| ------------------------------------ | ---------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `WHATSAPP_ALLOWED_NUMBERS`           | _(asked on first run)_ | Comma-separated numbers allowed to DM the agent. Written however you like; compared as digits.                |
+| `WHATSAPP_ALLOWED_GROUPS`            | _(none)_               | Comma-separated group JIDs the agent will speak in. Being allowed to DM does **not** admit you here.          |
 | `WHATSAPP_REQUIRE_MENTION_IN_GROUPS` | on                     | In an allowed group, only answer when @-mentioned or replied to. Turning this off makes it answer everything. |
-| `WHATSAPP_PAIR_NUMBER`               | _(none)_               | Link by 8-character code instead of QR. The account's own number.                                     |
-| `WHATSAPP_AUTH_DIR`                  | `$JAZZ_HOME/wa-auth`   | Linked-device credentials.                                                                            |
-| `JAZZ_BIN`                           | `jazz`                 | Path to the Jazz binary.                                                                              |
-| `JAZZ_HOME`                          | `~/.jazz-whatsapp`     | Data directory: agents, conversations, reminders, usage.                                              |
-| `JAZZ_WHATSAPP_AGENT`                | `whatsapp`             | Seed agent every per-chat agent is cloned from. `--agent` sets this and copies the agent in. |
-| `JAZZ_APPROVAL_POLICY`               | `low-risk`             | Tier above which tools stop and ask.                                                                  |
-| `JAZZ_AUTO_APPROVE_TOOLS`            | _(none)_               | Tool names that never prompt, whatever the policy.                                                    |
-| `JAZZ_RUN_TIMEOUT_MS`                | `300000`               | Per-turn timeout.                                                                                     |
-| `JAZZ_DAILY_COST_CAP_USD`            | `0` (off)              | Spend ceiling across all chats per day.                                                               |
-| `JAZZ_WHATSAPP_SHOW_REASONING`       | off                    | Send the run's reasoning under the answer.                                                            |
+| `WHATSAPP_PAIR_NUMBER`               | _(none)_               | Link by 8-character code instead of QR. The account's own number.                                             |
+| `WHATSAPP_AUTH_DIR`                  | `$JAZZ_HOME/wa-auth`   | Linked-device credentials.                                                                                    |
+| `JAZZ_BIN`                           | `jazz`                 | Path to the Jazz binary.                                                                                      |
+| `JAZZ_HOME`                          | `~/.jazz-whatsapp`     | Data directory: agents, conversations, reminders, usage.                                                      |
+| `JAZZ_WHATSAPP_AGENT`                | `whatsapp`             | Seed agent every per-chat agent is cloned from. `--agent` sets this and copies the agent in.                  |
+| `JAZZ_APPROVAL_POLICY`               | `low-risk`             | Tier above which tools stop and ask.                                                                          |
+| `JAZZ_AUTO_APPROVE_TOOLS`            | _(none)_               | Tool names that never prompt, whatever the policy.                                                            |
+| `JAZZ_RUN_TIMEOUT_MS`                | `300000`               | Per-turn timeout.                                                                                             |
+| `JAZZ_DAILY_COST_CAP_USD`            | `0` (off)              | Spend ceiling across all chats per day.                                                                       |
+| `JAZZ_WHATSAPP_SHOW_REASONING`       | off                    | Send the run's reasoning under the answer.                                                                    |
 
 ## Commands
 

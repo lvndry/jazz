@@ -3,7 +3,7 @@
  * (configured LLM providers, agent count) from config and env.
  */
 
-import { LLM_PROVIDER_ENV_VARS } from "@jazz/adapters/secrets/registry";
+import { LLM_PROVIDER_ENV_VARS, llmProviderApiKeyFromEnv } from "@jazz/adapters/secrets/registry";
 import type { AppConfig } from "@jazz/core/types/index";
 import { systemInfo } from "@jazz/core/utils/system-info";
 import type { HomeFact, HomeRequirement } from "./screens/Home";
@@ -22,9 +22,9 @@ export function configuredProviderNames(config: AppConfig): string[] {
       if (typeof key === "string" && key.length > 0) names.push(name);
     }
   }
-  for (const [provider, envVar] of Object.entries(LLM_PROVIDER_ENV_VARS)) {
-    const fromEnv = process.env[envVar];
-    if (fromEnv !== undefined && fromEnv.length > 0 && !names.includes(provider)) {
+  for (const provider of Object.keys(LLM_PROVIDER_ENV_VARS)) {
+    const fromEnv = llmProviderApiKeyFromEnv(provider);
+    if (fromEnv !== undefined && !names.includes(provider)) {
       names.push(provider);
     }
   }
