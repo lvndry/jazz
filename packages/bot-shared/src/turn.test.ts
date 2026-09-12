@@ -47,6 +47,7 @@ describe("turn runner", () => {
       settle = resolve;
     });
     let handlers: {
+      onEvent?: (e: JazzEvent) => void;
       onApprovalRequired?: (e: JazzEvent) => void;
       onUserInputRequired?: (e: JazzEvent) => void;
     } = {};
