@@ -164,8 +164,8 @@ export function handleSpecialCommand(
       case "workflows":
         return yield* handleWorkflowsCommand(terminal);
 
-      case "stats":
-        return yield* handleStatsCommand(terminal, agent, context);
+      case "info":
+        return yield* handleInfoCommand(terminal, agent, context);
 
       case "mcp":
         return yield* handleMcpCommand(terminal, command.args);
@@ -1204,7 +1204,7 @@ function handleReasoningCommand(
  * "Session-wide" means the limit stays in effect for the rest of this
  * conversation (not just the current turn) and is checked before every turn
  * against this conversation's accumulated usage — the same numbers /cost and
- * /stats show. With no args in an interactive terminal this opens the picker
+ * /info show. With no args in an interactive terminal this opens the picker
  * (select the metric, then type a value); with no args elsewhere it prints
  * current usage and limits. A limit that's already exceeded the moment it's
  * set is reported immediately here — enforcement itself happens on the next
@@ -1892,15 +1892,15 @@ function handleSkillsCommand(
 }
 
 /**
- * Handle /stats command - Show session statistics and usage summary
+ * Handle /info command - Show session identity, usage, and where its logs are
  */
-function handleStatsCommand(
+function handleInfoCommand(
   terminal: TerminalService,
   agent: CommandContext["agent"],
   context: CommandContext,
 ): Effect.Effect<CommandResult, never, FileSystemContextService | FileSystem.FileSystem> {
   return Effect.gen(function* () {
-    yield* terminal.log(fmt.heading("Session Statistics"));
+    yield* terminal.log(fmt.heading("Session Info"));
 
     const conversation = yield* loadConversation(agent.id, context.conversationId).pipe(
       Effect.catchAll(() => Effect.succeed(null)),

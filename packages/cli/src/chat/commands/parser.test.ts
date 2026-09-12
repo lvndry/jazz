@@ -70,14 +70,14 @@ describe("parseSpecialCommand", () => {
       expect(result.args).toEqual([]);
     });
 
-    it("should parse /stats command", () => {
-      const result = parseSpecialCommand("/stats");
-      expect(result.type).toBe("stats");
+    it("should parse /info command", () => {
+      const result = parseSpecialCommand("/info");
+      expect(result.type).toBe("info");
       expect(result.args).toEqual([]);
     });
 
-    it("should parse /info as an alias of /stats", () => {
-      expect(parseSpecialCommand("/info").type).toBe("stats");
+    it("should parse /stats as an alias of /info", () => {
+      expect(parseSpecialCommand("/stats").type).toBe("info");
     });
 
     it("should parse /mcp command", () => {
