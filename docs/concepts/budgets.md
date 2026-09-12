@@ -69,10 +69,11 @@ figures per scheduled run.
 
 ## Caps are checked between iterations
 
-None of these is a preemptive interrupt. Jazz checks them at the boundary between iterations, so
-a single model call or tool phase can cross a cap before the next iteration is stopped. Budget
-`--max-cost-usd` with that in mind, and use `--timeout` when you need a hard deadline around the
-whole run rather than a soft checkpoint inside it.
+None of these is a preemptive interrupt. Jazz checks them between iterations, so one model call
+or tool phase can cross a cap before the next iteration stops.
+
+Budget `--max-cost-usd` with that in mind. Use `--timeout` when you need a hard deadline around
+the whole run rather than a soft checkpoint inside it.
 
 The agent is warned as a budget fills rather than only being cut off. Cost, token and duration
 budgets nudge it at 50, 80 and 90%; iterations nudge at 70 and 90%. The messages are ephemeral,

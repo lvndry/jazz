@@ -10,8 +10,9 @@ reference files alongside.
 
 **A skill grants nothing.** It can teach an agent to drive a CLI, but the agent still needs
 `execute_command`, the binary still has to be installed, and the approval policy still applies.
-That separation is deliberate: instructions and capabilities are different things, and a document
-that could quietly widen an agent's reach would be a very odd security boundary.
+
+Instructions and capabilities are different things. A document that could quietly widen an
+agent's reach would be a very odd security boundary.
 
 ## Progressive loading
 
@@ -38,10 +39,10 @@ reading it. Level 3 is what makes big skills affordable, since a skill that poin
 | Global   | `~/.jazz/skills/`   | all your projects                    |
 | Project  | `./skills/`         | this repository only                 |
 
-On a name collision the more specific source wins, so a project can override a built-in skill
-with its own version. That is the point of the project tier: a repository-specific procedure
-belongs next to the code it governs, and it should beat your personal default without you having
-to remember to disable anything.
+On a name collision the more specific source wins, so a project can override a built-in skill.
+
+That is the point of the project tier. A repository-specific procedure belongs next to the code
+it governs, and it should beat your personal default without you disabling anything.
 
 Jazz ships skills for research, journaling, meeting notes, email, calendar, Obsidian, and
 creating personas, workflows and skills themselves.

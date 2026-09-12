@@ -21,10 +21,11 @@ the cases that bite. Risk is the one an approval policy compares against:
 | `high-risk` | Anything that mutates: writes, deletes, moves                              |
 | `unknown`   | `execute_command`, classified per command and then judged against the tier |
 
-**`low-risk` is narrower than it sounds.** It does not mean "moderately dangerous things". Email,
-calendar and Obsidian are skills that shell out through `execute_command`, so they sit at
-`unknown`, and a `low-risk` run declines anything the classifier does not judge inspect-only or
-minor. The [tool inventory](../tools/index.md) lists the exact classification of every tool.
+**`low-risk` is narrower than it sounds.** It does not mean "moderately dangerous things".
+
+Email, calendar and Obsidian are skills that shell out through `execute_command`, so they sit at
+`unknown`. A `low-risk` run declines anything the classifier does not judge inspect-only or
+minor. The [tool inventory](../tools/index.md) has the exact classification of every tool.
 
 ## Gated tools act in two phases
 
@@ -32,9 +33,8 @@ A `high-risk` tool does not act when the model calls it. It returns a descriptio
 _would_ do, including a real preview diff for edits, and only after approval does Jazz invoke the
 hidden `execute_*` half of the pair.
 
-That is why you see the exact diff before a file is written, and why an unattended run can
-decline cleanly instead of half-acting: the first phase produced a proposal, and nothing else
-happened.
+So you see the exact diff before a file is written. And an unattended run declines cleanly
+instead of half-acting, because the first phase only produced a proposal.
 
 ## When a tier is too coarse
 
@@ -60,9 +60,9 @@ and persona grants, subtracts explicit denials, applies caller requirements, and
 survives.
 
 Not all of it arrives the same way. Always-on categories send their full schema every turn.
-Deferred categories send only a name and a one-line summary, and the model calls `search_tools`
-to load a full schema when it needs one. That is what keeps a large MCP catalogue from costing
-tokens on every turn of every conversation.
+
+Deferred categories send a name and a one-line summary. The model calls `search_tools` to load a
+full schema when it needs one, which is what keeps a large MCP catalogue off every turn.
 
 ## Adding your own
 

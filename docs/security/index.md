@@ -5,9 +5,10 @@ description: "The Jazz authorization model: risk, disclosure, and egress as inde
 # Jazz security model
 
 Jazz runs model-selected actions as your operating-system user. These controls reduce accidental
-and model-induced harm; they do not turn an untrusted model into an OS sandbox. What they do
-give you is a way to answer one question precisely. **This caller, on this surface: what can it
-reach?**
+and model-induced harm. They do not turn an untrusted model into an OS sandbox.
+
+What they give you is a precise answer to one question. **This caller, on this surface: what can
+it reach?**
 
 ## Every tool declares three things, and they are independent
 
@@ -36,11 +37,12 @@ Two doors on this machine answer somebody who is not you. A **peer** is another 
 question. A **webhook** is an external system firing a fixed prompt. They are the same authorization
 question in two wire formats, so they share one model.
 
-**A webhook token holder is a counterparty, not the operator.** The secret authenticates _this
-webhook_, never a person, and it lives in some third party's settings screen: a GitHub repo's
-webhook config, an IFTTT applet, a proxy you do not administer and cannot audit. Treating
-whoever presents it as owner-equivalent would make a leaked field in somebody else's SaaS
-console a shell on your machine. Peers get the same treatment for the same reason.
+**A webhook token holder is a counterparty, not the operator.** The secret authenticates that
+webhook, never a person, and it lives in a third party's settings screen: a GitHub repo's webhook
+config, an IFTTT applet, a proxy you do not administer.
+
+Treat whoever presents it as owner-equivalent and a leaked field in somebody else's SaaS console
+becomes a shell on your machine. Peers get the same treatment, for the same reason.
 
 ## How the ceiling is computed
 
@@ -62,11 +64,11 @@ Three consequences worth stating plainly:
 
 - **Raising the tier never grants an acting tool.** Disclosure is silent about damage, so
   `execute_command` is not admitted at `private`. It is admitted by being named, at any tier.
-- **An unlisted tool is absent, not unapproved.** It is left out of the run's toolset entirely,
-  so the model is never offered it. There is nothing outside the list for an injected payload to
-  talk its way into, and no approval prompt for an unattended run to hang on.
+- **An unlisted tool is absent, not unapproved.** It is left out of the toolset, so the model is
+  never offered it. Nothing outside the list for an injected payload to talk its way into, and no
+  approval prompt for an unattended run to hang on.
 - **Revocation is total.** Set a caller to `none` and a standing `allow` grant does not survive
-  as a second relationship. An unrecognized tier lands in the same place: a typo fails closed.
+  it. An unrecognized tier lands in the same place, so a typo fails closed.
 
 ## Where each control lives
 

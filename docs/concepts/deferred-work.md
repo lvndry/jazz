@@ -21,22 +21,24 @@ starts them and who they come back to, and picking the wrong one is the usual mi
 
 This is the distinction worth being precise about, because both take a time.
 
-A **reminder** delivers a note. Nothing runs, nothing is decided, and the agent is not involved
-when it fires. "Tell me at six that the lease expires" is a reminder.
+A **reminder** delivers a note. Nothing runs and nothing is decided. "Tell me at six that the
+lease expires" is a reminder.
 
-A **wake trigger** runs the agent again with a prompt you gave it, resuming the exact
-conversation it was scheduled from. Everything already established is still there, so the agent
-picks up mid-thought rather than being re-briefed. "Check whether the deploy finished, then
-compare the error rate to what we measured before" is a trigger.
+A **wake trigger** runs the agent again, in the conversation it was scheduled from. Everything
+already established is still there, so it picks up mid-thought instead of being re-briefed.
+"Check whether the deploy finished, then compare the error rate to what we measured" is a
+trigger.
 
 If a person needs to read something, use a reminder. If a decision needs making, use a trigger.
 
 ## Background jobs are for fan-out
 
 `enqueue_batch` runs several independent shell commands at once, with a concurrency cap and
-per-job retry and backoff, without holding the turn open. When every job in the batch reaches a
-final state, the conversation resumes and the agent is told each job's status **and what it
-printed**. A batch exists to find something out, so an exit code alone would tell it nothing.
+per-job retry, without holding the turn open.
+
+When every job reaches a final state, the conversation resumes. The agent is told each job's
+status **and what it printed**, because a batch exists to find something out and an exit code
+alone would tell it nothing.
 
 Use it when the work is wide rather than long: check forty repositories, run a test suite per
 package, probe a list of hosts.
