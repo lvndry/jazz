@@ -1,5 +1,5 @@
 ---
-description: "What a Jazz agent is made of — model, persona, tools, context budget, skills, companions — and how to configure one deliberately instead of by accident."
+description: "What a Jazz agent is made of: model, persona, tools, context budget, skills and companions, and how to configure one deliberately instead of by accident."
 ---
 
 # Agents
@@ -8,15 +8,15 @@ An agent is the thing that does the work. Unlike a chatbot that answers one prom
 an agent runs a loop: it reads the situation, calls tools, observes what came back, and keeps
 going until the task is done or its budget runs out.
 
-One distinction worth being precise about: **Jazz itself is not an agent — it is the harness**,
+One distinction is worth being precise about: **Jazz itself is not an agent. It is the harness**,
 the runtime agents run inside. An *agent* in Jazz is a configuration: a model, a persona, a
 toolset, skills, and memory, saved as a file. Jazz hosts any number of them, runs their loops,
-guards their budgets, and gates their tools — which is why `jazz agent create` makes another
-agent, not another Jazz.
+guards their budgets, and gates their tools. That is why `jazz agent create` makes another agent,
+not another Jazz.
 
 An agent is also not a running process or a conversation. Each invocation resolves the current
-definition, builds the permitted toolset, then starts or resumes a conversation — so editing an
-agent changes the next turn, with nothing to restart.
+definition, builds the permitted toolset, then starts or resumes a conversation, so editing an
+agent changes the next turn with nothing to restart.
 
 ---
 
@@ -53,19 +53,19 @@ The smallest agent that runs is three fields and a persona:
 ```
 
 `jazz agent create` writes one interactively. Files live under the active Jazz data directory
-and are shared by every surface using that installation — the same agent answers in your
+and are shared by every surface using that installation, so the same agent answers in your
 terminal, in CI, and on Telegram.
 
 ### Model
 
-Written `provider/model` with a **slash** — `anthropic/claude-sonnet-4-5`,
+Written `provider/model` with a **slash**: `anthropic/claude-sonnet-4-5`,
 `openrouter/qwen/qwen3-next-80b-a3b-instruct:free`, `ollama/qwen3`. Stored split into
 `llmProvider` and `llmModel`. Eighteen providers are available, including local ones that need
 no API key; see [Model providers](../configure/providers.md).
 
 ### Persona
 
-Shapes *how* the agent communicates — tone, style, vocabulary — independently of the model.
+Shapes *how* the agent communicates (tone, style, vocabulary) independently of the model.
 Ships with `default`, `coder`, and `researcher`, and you can write your own. See
 [Personas](./personas.md).
 
@@ -80,8 +80,8 @@ Two fields, pulling in opposite directions:
   reliable way to enforce a per-agent ceiling. An agent with `execute_command` denied cannot run
   shell commands, whatever the approval policy says.
 
-Give each agent the fewest capabilities its job needs, and reach for `deniedTools` — not an
-omission — when you mean it. See [Tools](./tools.md).
+Give each agent the fewest capabilities its job needs, and reach for `deniedTools`, not an
+omission, when you mean it. See [Tools](./tools.md).
 
 ### Context budget
 
@@ -93,7 +93,7 @@ compaction rather than a hard failure. See [Context lifecycle](../maintainers/co
 
 ### Skills
 
-Skills are **not** bundles of tools — they are playbooks: Markdown instructions the agent loads
+Skills are **not** bundles of tools. They are playbooks: Markdown instructions the agent loads
 on demand when a task matches. Two agents can have identical tools and differ entirely in which
 skills they reach for. See [Skills](./skills.md).
 
@@ -121,8 +121,8 @@ orchestrate the work while a vision model does the looking. See
 
 ## Project instructions (AGENTS.md)
 
-Jazz reads [`AGENTS.md`](https://agents.md) — the cross-tool convention for telling an agent how
-a project works: build and test commands, conventions, house rules. Drop one at the root of a
+Jazz reads [`AGENTS.md`](https://agents.md), the cross-tool convention for telling an agent how a
+project works: build and test commands, conventions, house rules. Drop one at the root of a
 repository and every Jazz agent working there picks it up, with no per-agent configuration.
 
 Discovery runs on each turn against the agent's current working directory:
@@ -133,8 +133,8 @@ Discovery runs on each turn against the agent's current working directory:
 | 2     | `<repo root>/AGENTS.md` | How this project works                         |
 | 3     | `<subdirectory>/AGENTS.md` | Overrides for one package or area           |
 
-The walk climbs from the working directory to the repository root — the nearest ancestor with a
-`.git` — and stops there, so a checkout never inherits an unrelated `AGENTS.md` from a directory
+The walk climbs from the working directory to the repository root, the nearest ancestor with a
+`.git`, and stops there, so a checkout never inherits an unrelated `AGENTS.md` from a directory
 above it. Files enter the system prompt outermost-first, so **when two conflict, the more
 specific one wins**. Each file is capped at 32 KB; keep them short and they stay effective.
 
@@ -167,13 +167,13 @@ pressure warnings, loop detection, and automatic context compaction. The full me
 
 | Pattern         | Shape                                          | Good for                                      |
 | --------------- | ---------------------------------------------- | --------------------------------------------- |
-| **Generalist**  | broad — files, git, web, shell                 | Daily driver in your terminal                 |
-| **Specialist**  | narrow — reads and greps, everything else denied | CI review, anything unattended              |
+| **Generalist**  | broad: files, git, web, shell                   | Daily driver in your terminal                 |
+| **Specialist**  | narrow: reads and greps, everything else denied | CI review, anything unattended                |
 | **Delegator**   | adds `spawn_subagent`                          | Deep research, work that would blow one window |
 | **Mixed-model** | cheap main model plus `companions`             | Screenshots, recordings, generated assets     |
 
 The delegator pattern is the one people underuse. `spawn_subagent` hands a task to a child with
-its own context window, which returns a summary instead of 100k tokens of raw sources — and a
+its own context window, which returns a summary instead of 100k tokens of raw sources. A
 sub-agent never holds more tools than its parent. See
 [Peers and sub-agents](./peers-and-subagents.md).
 
@@ -186,7 +186,7 @@ default). Edit them with `jazz agent edit <id>`, or by hand.
 
 Conversations persist separately, per conversation id. In the terminal, `/resume` browses past
 ones, `/new` starts a fresh one, and `/fork` branches from the last message; headless callers
-pass `--conversation <id>` and get the same thread back across invocations — which is what gives
+pass `--conversation <id>` and get the same thread back across invocations, which is what gives
 a chat bridge memory without storing anything itself. Transcripts are plaintext JSON: treat that
 directory as sensitive.
 
@@ -194,7 +194,7 @@ directory as sensitive.
 
 ## Related
 
-- [Create an agent](../getting-started/create-an-agent.md) — the practical walkthrough
-- [Agent configuration](../configure/agents.md) — every field
+- [Create an agent](../getting-started/create-an-agent.md): the practical walkthrough
+- [Agent configuration](../configure/agents.md): every field
 - [Personas](./personas.md) · [Skills](./skills.md) · [Tools](./tools.md)
-- [Run lifecycle](../maintainers/run-lifecycle.md) — what the harness does around a turn
+- [Run lifecycle](../maintainers/run-lifecycle.md): what the harness does around a turn

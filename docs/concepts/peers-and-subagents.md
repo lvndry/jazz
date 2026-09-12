@@ -9,7 +9,7 @@ Both mechanisms let one agent ask another for help, but their trust and executio
 ## Subagents
 
 A subagent is a child run on the same Jazz installation. The parent calls `spawn_subagent` with
-a task and a persona — `coder`, `researcher`, or `default` — and gets back a summary plus the
+a task and a persona (`coder`, `researcher`, or `default`), and gets back a summary plus the
 cost, not the child's transcript.
 
 The point is context, not parallelism. A research task that would fill the parent's window with

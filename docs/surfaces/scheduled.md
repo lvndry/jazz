@@ -2,7 +2,7 @@
 description: "Schedule unattended Jazz runs with launchd or cron: workflow prompts on a clock, output written to disk or delivered to chat while you are away."
 ---
 
-# Scheduled — unattended runs on a clock
+# Scheduled runs on a clock
 
 How to have Jazz do something every morning without you being there.
 
@@ -59,7 +59,7 @@ flowchart TD
 
 Two platform details worth knowing up front:
 
-- **launchd doesn't do cron arithmetic.** `StartCalendarInterval` accepts plain integers and wildcards only — no step values (`*/15`), no ranges (`1-5`), no lists (`1,3,5`). Jazz expands what it can into multiple entries and rejects what it can't with an explicit error rather than silently scheduling the wrong thing.
+- **launchd doesn't do cron arithmetic.** `StartCalendarInterval` accepts plain integers and wildcards only: no step values (`*/15`), no ranges (`1-5`), no lists (`1,3,5`). Jazz expands what it can into multiple entries and rejects what it can't with an explicit error rather than silently scheduling the wrong thing.
 - **Schedulers start with a minimal environment.** launchd jobs don't inherit your shell's `PATH`, so Jazz writes an explicit one into the plist. If a workflow shells out to a tool installed somewhere unusual, use an absolute path.
 
 ---
@@ -97,7 +97,7 @@ at all.
 `man launchd.plist`: _"Unlike cron which skips job invocations when the computer is asleep,
 launchd will start the job the next time the computer wakes up. If multiple intervals transpire
 before the computer is woken, those events will be coalesced into one event upon wake from
-sleep."_ A 6 AM workflow on a laptop you open at 9 runs at 9 — once, even if it slept through
+sleep."_ A 6 AM workflow on a laptop you open at 9 runs at 9, once, even if it slept through
 three days of slots. Powered off is different: nothing is scheduled to wake the machine, so the
 slot passes.
 
@@ -113,8 +113,8 @@ jazz workflow catchup      # list what missed its slot, pick, run
 
 It is age-bounded: a missed run older than 24 hours is skipped, and per-workflow
 `maxCatchUpAge` overrides that. A "good morning" briefing at 4 PM is noise, not recovery. The
-separate `catchUpOnRestart` flag covers the in-process daemon — a slot missed because the daemon
-was stopped, not because the machine was asleep.
+separate `catchUpOnRestart` flag covers the in-process daemon, meaning a slot missed because the
+daemon was stopped rather than because the machine was asleep.
 
 ### If the schedule really cannot be missed
 
@@ -126,7 +126,7 @@ In rough order of how much they cost you:
   `systemd-inhibit --what=sleep jazz daemon` on Linux.
 - **Wake it on purpose.** macOS can schedule a wake or power-on:
   `sudo pmset repeat wakeorpoweron MTWRFSU 05:55:00` for a 6 AM job.
-- **Run it somewhere always on** — a home server, a VPS, a Raspberry Pi. Same commands,
+- **Run it somewhere always on**, such as a home server, a VPS, or a Raspberry Pi. Same commands,
   different host, and the one answer that actually holds for a schedule with consequences.
 
 ---
@@ -141,8 +141,8 @@ tail -f ~/.jazz/logs/<name>.error.log    # stderr
 jazz workflow run <name> --auto-approve  # reproduce it by hand, same policy
 ```
 
-That last command is the one to reach for first — it runs the identical code path the
-scheduler uses, in your terminal, where you can see it.
+That last command is the one to reach for first. It runs the identical code path the scheduler
+uses, in your terminal, where you can see it.
 
 Most scheduled-run failures are one of three things: the machine was asleep (see above), a
 tool was declined by the policy tier, or a binary the workflow shells out to isn't on the
@@ -152,7 +152,7 @@ minimal `PATH`.
 
 ## Related
 
-- [Workflows](../concepts/workflows.md) — the file format and frontmatter
-- [Automation](../features/automation.md) — the other unattended shapes, and when to pick which
-- [Guides](../guides/index.md) — scheduled recipes with install steps
-- [Headless](./headless.md) — for dynamic prompts instead of a fixed workflow file
+- [Workflows](../concepts/workflows.md): the file format and frontmatter
+- [Automation](../features/automation.md): the other unattended shapes, and when to pick which
+- [Guides](../guides/index.md): scheduled recipes with install steps
+- [Headless](./headless.md): for dynamic prompts instead of a fixed workflow file

@@ -1,11 +1,10 @@
 ---
-description: "Why the Jazz harness is built the way it is — the reasoning behind each architectural choice and what every choice gives up."
+description: "Why the Jazz harness is built the way it is: the reasoning behind each architectural choice and what every choice gives up."
 ---
 
 # Design decisions
 
-This page explains _why_ the harness is built this way — and what each choice
-gives up.
+This page explains _why_ the harness is built this way, and what each choice gives up.
 
 Every decision below is a real trade-off, not a free win. This page states the alternative
 that was rejected and the cost that was accepted, because a harness is only trustworthy if
@@ -49,8 +48,8 @@ mindmap
 "write your final output now". The message is appended to the request array for that one
 call and never stored.
 
-**Alternatives rejected.** A hard cap with no signalling — the agent gets cut off
-mid-thought and you get nothing. Storing the warnings — by iteration 78 the history carries
+**Alternatives rejected.** A hard cap with no signalling: the agent gets cut off
+mid-thought and you get nothing. Storing the warnings: by iteration 78 the history carries
 eight escalating FINISH NOW messages that cost tokens, contradict each other, and poison the
 next summarization.
 
@@ -64,13 +63,13 @@ been told this twice". In practice escalating tiers cover that.
 **Decision.** Over the last 10 tool calls, if unique `name:arguments` keys fall below 40%,
 inject a recovery message and reset the window.
 
-**Alternatives rejected.** Counting repeats of the tool _name_ — that flags
+**Alternatives rejected.** Counting repeats of the tool _name_: that flags
 `web_search(q1) → web_fetch(u1) → web_search(q2)` as a meltdown, which is what research
 looks like, and flags reading ten files in a row, which is what understanding a codebase
 looks like. Both are the behaviors you're trying to encourage.
 
-**Cost accepted.** An agent that loops with _slightly_ varied arguments — appending a
-counter to the same query — slips through. Catching that needs semantic similarity, which
+**Cost accepted.** An agent that loops with _slightly_ varied arguments, such as appending a
+counter to the same query, slips through. Catching that needs semantic similarity, which
 costs a model call per check.
 
 📄 [`agent-loop.ts:101`](../../packages/core/src/agent/execution/agent-loop.ts#L101) · [Agent loop](./run-lifecycle.md#guard-2--meltdown-detection)
@@ -80,7 +79,7 @@ costs a model call per check.
 **Decision.** When tokens pass 80% of the model's window, summarize the middle of the
 conversation into one message and rebuild as `[system, summary, ...recent]`.
 
-**Alternatives rejected.** A sliding window — it drops the oldest messages, which is where
+**Alternatives rejected.** A sliding window: it drops the oldest messages, which is where
 the task definition and the plan live. Forty minutes in you keep a tool result about page 14
 of a PDF and lose the reason you were reading it.
 
@@ -97,7 +96,7 @@ visible rather than silent, and by letting the agent trigger it deliberately via
 keeps an assistant message's `tool_calls` together with its `tool` results as a unit.
 
 **Alternatives rejected.** Dropping the oldest K messages. It eventually splits a tool call
-from its result, which is invalid to most providers — and the 400 shows up several
+from its result, which is invalid to most providers, and the 400 shows up several
 iterations later, far from the cause.
 
 **Cost accepted.** Trimming is coarser: sometimes a whole turn is dropped where a couple of
@@ -115,9 +114,9 @@ messages would have sufficed.
 family-seeded chars-per-token ratio that calibrates against the provider's own reported
 `usage.promptTokens` after each call, smoothed and clamped to `[2, 6]`.
 
-**Alternatives rejected.** One universal ratio (≈4 chars/token) — under-counts Claude by
-~15%, so you overrun the window you thought you were under. Anthropic's tokenizer package —
-stale, Claude-2 era. Their `count_tokens` API — a network round trip on the hot path.
+**Alternatives rejected.** One universal ratio (≈4 chars/token): under-counts Claude by
+~15%, so you overrun the window you thought you were under. Anthropic's tokenizer package:
+stale, Claude-2 era. Their `count_tokens` API: a network round trip on the hot path.
 
 **Cost accepted.** The first call against an unfamiliar model uses a seed estimate and can
 be off. It self-corrects after one exchange.
@@ -129,7 +128,7 @@ be off. It self-corrects after one exchange.
 **Decision.** Every tool result passes through `formatToolResultForContext` before being
 appended, and its size is recorded per tool name.
 
-**Alternatives rejected.** Storing raw payloads. Tool output — not conversation — is the
+**Alternatives rejected.** Storing raw payloads. Tool output (not conversation) is the
 dominant context cost in long runs, and raw JSON is the least token-efficient way to say
 anything.
 
@@ -146,10 +145,10 @@ directory, then replace every cycle except the live one with a pointer to
 does not fail the run: the placeholder tells the model to re-run the original
 tool. No window-fill gate.
 
-**Alternatives rejected.** Waiting until 65% of the window, once per crossing —
+**Alternatives rejected.** Waiting until 65% of the window, once per crossing:
 a 200k model carried ~130k of already-read grep/file output on every round trip.
-Clearing every turn without persist — the model cannot get the bytes back.
-Requiring a writable disk — Jazz runs in CI, Docker, and chat bridges that can
+Clearing every turn without persist: the model cannot get the bytes back.
+Requiring a writable disk. Jazz runs in CI, Docker, and chat bridges that can
 read but not write.
 
 **Cost accepted.** One cache miss per aged-out result (the prefix rewrites once,
@@ -164,9 +163,9 @@ body. Hosts that cannot write pay the same stub they had before, minus the wait.
 content part of the request as well as the system message. OpenAI requests
 always carry `promptCacheKey: "conversation"`, including when reasoning is off.
 
-**Alternatives rejected.** Caching only the system prompt — the dominant tokens
+**Alternatives rejected.** Caching only the system prompt: the dominant tokens
 in a long run are history, and they were re-billed at full input price every
-turn. Rewriting the prefix every iteration to shrink it — that busts the cache
+turn. Rewriting the prefix every iteration to shrink it: that busts the cache
 and makes every remaining token expensive.
 
 **Cost accepted.** A compaction or offload that rewrites an earlier message is
@@ -179,7 +178,7 @@ one cache miss. That is cheaper than never hitting the cache at all.
 **Decision.** A parent run reports its own cost plus all child cost, and emits a figure
 whenever _either_ side is known.
 
-**Alternatives rejected.** Reporting only the parent's own tokens — a local-model parent
+**Alternatives rejected.** Reporting only the parent's own tokens: a local-model parent
 that spawned three cloud sub-agents would report `$0.00` while your bill said otherwise.
 
 **Cost accepted.** You can't read per-child spend off the top-level number; that lives in
@@ -197,9 +196,9 @@ the telemetry records.
 Status notices, tool chatter, headers, footers, and `--events` NDJSON all go to stderr.
 `JAZZ_NO_TUI=1` is forced so Ink never touches stdout.
 
-**Alternatives rejected.** A `--quiet` flag over the normal output path — you're still
+**Alternatives rejected.** A `--quiet` flag over the normal output path: you're still
 filtering, and one new log line breaks every downstream parser. A dedicated `--format json`
-that only _mostly_ suppresses chatter — same problem, later.
+that only _mostly_ suppresses chatter, which is the same problem later.
 
 **Cost accepted.** Two streams to wire up in a bridge instead of one. That's the entire
 cost, and it's what makes every non-terminal surface possible.
@@ -212,12 +211,12 @@ cost, and it's what makes every non-terminal surface possible.
 one policy dial decides what runs unattended.
 
 **Alternatives rejected.** A per-tool allowlist as the primary mechanism. It doesn't
-generalize across surfaces — you'd maintain a different list for CI, cron, and each bridge,
+generalize across surfaces: you'd maintain a different list for CI, cron, and each bridge,
 and a new tool defaults to invisible rather than gated.
 
 **Cost accepted.** Tiers are coarse: `high-risk` covers both `git push` and `rm -rf`.
-Sharper control comes from the two escape hatches — a per-tool session allowlist and a
-per-command allowlist for `execute_command` — and from trimming the agent's toolset, which
+Sharper control comes from the two escape hatches: a per-tool session allowlist and a
+per-command allowlist for `execute_command`, and from trimming the agent's toolset, which
 is the strongest control available.
 
 📄 [`types/tools.ts:19`](../../packages/core/src/types/tools.ts#L19) · [Tools & approval](./tool-lifecycle.md)
@@ -225,7 +224,7 @@ is the strongest control available.
 ### Two-phase execution (propose → approve → execute)
 
 **Decision.** A gated tool doesn't act. It returns an approval request describing what it
-_would_ do — including a preview diff for edits. Approval (human or policy) then invokes the
+_would_ do, including a preview diff for edits. Approval (human or policy) then invokes the
 real execution tool.
 
 **Alternatives rejected.** A boolean `dangerous` flag checked before calling. You can't show
@@ -236,7 +235,7 @@ before the arguments are resolved.
 carries the propose→execute mapping.
 
 **What it buys:** interactive and unattended runs use _the same code path_. There is no
-separate headless mode that can drift from the interactive one — the only difference is who
+separate headless mode that can drift from the interactive one: the only difference is who
 answers.
 
 📄 [`tool-executor.ts:192`](../../packages/core/src/agent/execution/tool-executor.ts#L192)
@@ -263,11 +262,11 @@ answers.
 **Decision.** One adapter (`ai-sdk-service.ts`) behind the `LLMService` interface, giving 18
 providers including local Ollama and llama.cpp.
 
-**Alternatives rejected.** Hand-written clients per provider — every new provider becomes a
+**Alternatives rejected.** Hand-written clients per provider: every new provider becomes a
 project, and streaming plus tool-calling plus reasoning quirks get reimplemented each time.
 
 **Cost accepted.** Jazz is bounded by what the SDK normalizes, and inherits its bugs.
-Provider-specific behavior that leaks through — reasoning-effort semantics especially — is
+Provider-specific behavior that leaks through (reasoning-effort semantics especially) is
 normalized in `services/llm/reasoning/`. AI SDK's internal retries are turned off
 (`AI_SDK_MAX_RETRIES = 0`) so Jazz owns retry policy via Effect rather than having two
 retry loops fighting.
@@ -280,12 +279,12 @@ retry loops fighting.
 `~/.jazz/cache/models-dev.json`. Offline mode reads the snapshot; `JAZZ_MODELS_DEV_URL`
 points at an internal mirror.
 
-**Alternatives rejected.** Vendoring a pricing table — stale within weeks, and wrong pricing
-is worse than none. Requiring the network — breaks airgapped installs, which are a supported
+**Alternatives rejected.** Vendoring a pricing table: stale within weeks, and wrong pricing
+is worse than none. Requiring the network: breaks airgapped installs, which are a supported
 deployment.
 
 **Cost accepted.** A brand-new model may be missing from the catalog; Jazz falls back to
-provider-reported metadata and a 128k default. Ollama and llama.cpp need no catalog at all —
+provider-reported metadata and a 128k default. Ollama and llama.cpp need no catalog at all:
 model lists, context windows, and tool support are read from the local server.
 
 📄 [`models-dev.ts`](../../packages/core/src/utils/models-dev.ts) · [Airgapped](../getting-started/local-models.md)
@@ -295,7 +294,7 @@ model lists, context windows, and tool support are read from the local server.
 **Decision.** Typed errors, tracked effects, `Layer`-based dependency injection throughout.
 
 **Alternatives rejected.** Plain `async/await` with thrown exceptions. In an agent runtime
-the failure paths _are_ the product — a tool that times out, a provider that 429s, a
+the failure paths _are_ the product: a tool that times out, a provider that 429s, a
 malformed tool argument. With exceptions those become `undefined` three frames away.
 
 **Cost accepted.** A real learning curve. Effect is unfamiliar to most contributors and the
@@ -325,7 +324,7 @@ instructions), `load_skill_section` (a referenced file).
 
 **Alternatives rejected.** Preloading every skill's instructions into the system prompt. A
 hundred skills would consume the window before the user says anything. Re-injecting a loaded
-skill into the system prompt on later turns — that would bust the cached system prefix, so
+skill into the system prompt on later turns: that would bust the cached system prefix, so
 the playbook stays in the conversation as the `load_skill` tool result.
 
 **Cost accepted.** Two extra round trips before the agent starts working with a skill. Later
@@ -335,8 +334,8 @@ turns must follow a playbook that lives in transcript history, not in the system
 
 ### Deferred tool schemas
 
-**Decision.** Tool categories declare a `loadTier`: `eager` (schema sent every turn — files,
-shell, todo, etc.) or `deferred` (name + one-line summary only — MCP servers, background jobs,
+**Decision.** Tool categories declare a `loadTier`: `eager` (schema sent every turn: files,
+shell, todo, etc.) or `deferred` (name + one-line summary only. MCP servers, background jobs,
 reminders, wake triggers, workspace, peers). A `search_tools` tool fetches a deferred tool's
 full schema on demand; once fetched it stays callable for the rest of the run.
 
@@ -346,7 +345,7 @@ user-configured, so this cost grows without bound as someone adds servers, most 
 never come up in a given conversation.
 
 **Cost accepted.** An extra `search_tools` round trip before a deferred tool's first use per
-run. Names/summaries must stay visible in the prompt regardless — hiding them entirely would
+run. Names/summaries must stay visible in the prompt regardless: hiding them entirely would
 push the model toward replicating a listed tool with `execute_command` instead of discovering
 it, which `execute_command`'s own description now warns against explicitly.
 
@@ -357,5 +356,5 @@ it, which `execute_command`'s own description now warns against explicitly.
 ## Related
 
 - [Agent loop](./run-lifecycle.md) · [Context management](./context-lifecycle.md) · [Tools & approval](./tool-lifecycle.md)
-- [Code map](./architecture.md) — where the code for all of this lives
-- [Discussions](https://github.com/lvndry/jazz/discussions) — decisions not yet made
+- [Code map](./architecture.md): where the code for all of this lives
+- [Discussions](https://github.com/lvndry/jazz/discussions): decisions not yet made
