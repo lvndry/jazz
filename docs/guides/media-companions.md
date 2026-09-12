@@ -41,17 +41,30 @@ from providers you configured:
     "llmProvider": "openai",
     "llmModel": "gpt-5.4-mini",
     "companions": {
-      "analyze:image": "provider/vision-model",
-      "analyze:audio": "provider/audio-model",
-      "analyze:video": "provider/video-model",
-      "generate:image": "provider/image-generation-model"
+      "analyze:image": "anthropic/claude-haiku-4-5",
+      "analyze:audio": "gemini/gemini-2.5-flash",
+      "analyze:video": "gemini/gemini-2.5-flash",
+      "generate:image": "gemini/gemini-3-pro-image"
     }
   }
 }
 ```
 
-Replace the example companion values with exact `provider/model` ids from the live catalog. Jazz
-validates all six role names and the `provider/model` shape when it loads the agent.
+Those four ids are real and current, and they show the shape of the decision rather than a
+single right answer:
+
+| Role             | Model here                  | Why this one                                            |
+| ---------------- | --------------------------- | ------------------------------------------------------- |
+| `analyze:image`  | `anthropic/claude-haiku-4-5` | Cheapest Anthropic model that reads images and PDFs     |
+| `analyze:audio`  | `gemini/gemini-2.5-flash`   | Gemini is the practical source of audio and video input  |
+| `analyze:video`  | `gemini/gemini-2.5-flash`   | Same model, bound separately so you can change one       |
+| `generate:image` | `gemini/gemini-3-pro-image` | Converses in text and returns an image in the same turn  |
+
+Note that the provider segment is Jazz's provider name, so Gemini models are `gemini/...` even
+though the upstream catalog files them under `google`. Check what your keys actually reach with
+`jazz agent list --can image` before committing to a binding; Jazz validates the role names and
+the `provider/model` shape when it loads the agent, but it cannot know which providers you pay
+for.
 
 ## 3. Give it an end-to-end cross-media job
 

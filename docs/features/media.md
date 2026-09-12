@@ -13,19 +13,17 @@ best for reasoning and tool use, then bind specialist models to media roles:
     "llmProvider": "openai",
     "llmModel": "gpt-5.4-mini",
     "companions": {
-      "analyze:image": "provider/vision-model",
-      "analyze:audio": "provider/audio-model",
-      "analyze:video": "provider/video-model",
-      "generate:image": "provider/image-generation-model",
-      "generate:audio": "provider/audio-generation-model",
-      "generate:video": "provider/video-generation-model"
+      "analyze:image": "anthropic/claude-haiku-4-5",
+      "analyze:audio": "gemini/gemini-2.5-flash",
+      "analyze:video": "gemini/gemini-2.5-flash",
+      "generate:image": "gemini/gemini-3-pro-image"
     }
   }
 }
 ```
 
-The result is one stable agent—same persona, conversation, memory, tools, and surface—with
-different models doing the parts they are actually good at. A cheap text model can orchestrate a
+The result is one stable agent, with the same persona, conversation, memory, tools, and
+surface, and different models doing the parts they are actually good at. A cheap text model can orchestrate a
 run, a vision model can inspect screenshots, and a different image model can render the final
 asset. Each role can use a different provider, price point, and privacy boundary.
 
@@ -38,7 +36,7 @@ because a model that understands a medium is not necessarily the model you want 
 When the main agent delegates media work, Jazz starts a bounded, ephemeral companion run:
 
 1. Jazz resolves up to eight named files and verifies their media type.
-2. The companion receives the files plus a self-contained analysis task—not the parent
+2. The companion receives the files plus a self-contained analysis task, and none of the parent
    conversation, tools, or memory.
 3. It runs with no tools, at most four iterations, and a 30-minute timeout.
 4. An analysis result returns as text. Generated media is saved under `$JAZZ_HOME/generated/`
@@ -62,7 +60,7 @@ task to that provider.
 For one headless run, override analysis companions without changing the saved agent:
 
 ```bash
-jazz run --agent analyst --with-vision provider/vision-model \
+jazz run --agent analyst --with-vision anthropic/claude-haiku-4-5 \
   "Read @/tmp/dashboard.png and identify the failing service and time window"
 ```
 
@@ -81,9 +79,9 @@ and chat bridges upload it when the platform supports that medium. A capable pri
 still emit media directly; a `generate:*` binding lets you choose a specialist without replacing
 the agent's reasoning model.
 
-`jazz agent list --can image|audio|video` finds configured agents that can produce a medium—by
-their own model, or by a bound `generate:*` companion, marked `via companion`—and suggests capable
-models when none can. Companion bindings are configured independently in the agent file, so one
+`jazz agent list --can image|audio|video` finds configured agents that can produce a medium,
+either by their own model or by a bound `generate:*` companion marked `via companion`, and
+suggests capable models when none can. Companion bindings are configured independently in the agent file, so one
 agent can use six different specialists if the work calls for it.
 
 ## Security and cost
