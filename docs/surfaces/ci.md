@@ -65,11 +65,16 @@ cp path/to/jazz/.github/workflows/jazz.yml .github/workflows/
 
 Then add **one** repo secret (Settings → Secrets and variables → Actions):
 
-| Secret               | When                              | Purpose                        |
-| -------------------- | --------------------------------- | ------------------------------ |
-| `OPENAI_API_KEY`     | for the checked-in OpenAI configs | model access                   |
-| `OPENROUTER_API_KEY` | if you switch to OpenRouter       | model access                   |
-| `GITHUB_TOKEN`       | automatic                         | read PR context, post comments |
+| Secret               | When                                        | Purpose                        |
+| -------------------- | ------------------------------------------- | ------------------------------ |
+| `<PROVIDER>_API_KEY` | one, matching the provider your agents name | model access                   |
+| `GITHUB_TOKEN`       | automatic                                   | read PR context, post comments |
+
+The checked-in agents use `openai`, so `OPENAI_API_KEY` is the one to add if you
+change nothing — that is the key `jazz.yml` passes. Point `config.llmProvider` at
+another provider and add its key as the secret, plus one `<PROVIDER>_API_KEY:` line
+beside `OPENAI_API_KEY` in the workflow's two `Run` steps. The variable names are
+in [Model providers](../configure/providers.md).
 
 Open a PR, or comment `/jazz summarize this PR`.
 

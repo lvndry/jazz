@@ -145,9 +145,9 @@ You **must** add a model-provider API key as a GitHub Actions secret, or the wor
 
 1. In your repo: **Settings → Secrets and variables → Actions → New repository secret**.
 2. Add the key for the provider your agents actually use:
-   - `OPENAI_API_KEY` — the default (bundled agents set `config.llmProvider: openai`)
-   - `OPENROUTER_API_KEY` — if you switch the agents to OpenRouter
-   - any other provider's key — if you point `config.llmProvider` at it
+   - `<PROVIDER>_API_KEY` — the variable name for the provider your agents name:
+     `OPENAI_API_KEY` for the bundled configs (`config.llmProvider: openai`),
+     `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, `GROQ_API_KEY`, and so on
 3. **Use any model/provider you like.** Edit `config.llmProvider` and `config.llmModel` in `.github/jazz/agents/*.json`, then add the corresponding key. The workflow reads whichever key is set; only one is required.
 
 `GITHUB_TOKEN` is provided automatically — you don't create it.

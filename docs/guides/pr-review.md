@@ -49,9 +49,12 @@ The checked-in reviewer currently pins the provider and model in `.github/jazz/a
 
 Add the matching repository secret:
 
-- `OPENROUTER_API_KEY` for OpenRouter;
-- `OPENAI_API_KEY` for OpenAI;
-- the environment required by your provider if you adapt the Actions file.
+`<PROVIDER>_API_KEY`, for whichever provider the agent names — `OPENROUTER_API_KEY`
+here, `OPENAI_API_KEY` for the checked-in configs, `ANTHROPIC_API_KEY`,
+`MISTRAL_API_KEY`, and so on; the variable names are in
+[Model providers](../configure/providers.md). `jazz.yml` passes `OPENAI_API_KEY` as
+shipped, so a different provider also needs its `<PROVIDER>_API_KEY:` line added to the
+workflow's two `Run` steps.
 
 `openrouter/free` is useful for evaluating the workflow without selecting a paid model, but routing and availability vary. Pin a specific model for stable review quality and meaningful evals.
 

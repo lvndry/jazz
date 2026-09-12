@@ -19,22 +19,36 @@ repo. This is the guide for doing that.
    - `.github/workflows/jazz.yml`
    - `.github/jazz/` (this whole directory)
 2. Add **one repo secret** for your model provider (Settings → Secrets and
-   variables → Actions):
-   - `OPENAI_API_KEY` — for the checked-in OpenAI agent configs, **or**
-   - `OPENROUTER_API_KEY` — if you change them to OpenRouter.
+   variables → Actions): `<PROVIDER>_API_KEY`, for whichever provider your agent
+   configs name — `OPENAI_API_KEY` for the checked-in ones, `ANTHROPIC_API_KEY`,
+   `OPENROUTER_API_KEY`, `GROQ_API_KEY`, and so on. The workflow passes
+   `OPENAI_API_KEY`; for another provider add its variable beside that line in
+   `jazz.yml` (one line, both jobs).
    - `GITHUB_TOKEN` is provided automatically; you don't create it.
 3. Customize for your stack (see below).
 4. Open a PR, or comment `/jazz summarize this PR`.
 
 ## Required secrets
 
-| Secret               | Needed?             | Purpose                                           |
-| -------------------- | ------------------- | ------------------------------------------------- |
-| `GITHUB_TOKEN`       | automatic           | Read PR context, post comments (no action needed) |
-| `OPENROUTER_API_KEY` | if using OpenRouter | Model access for the agents                       |
-| `OPENAI_API_KEY`     | if using OpenAI     | Model access for the agents                       |
+| Secret                | Needed?                                  | Purpose                                           |
+| --------------------- | ---------------------------------------- | ------------------------------------------------- |
+| `GITHUB_TOKEN`        | automatic                                | Read PR context, post comments (no action needed) |
+| `<PROVIDER>_API_KEY`  | one, for the provider your agents use    | Model access for the agents                       |
 
-You only need the key that matches the provider in your agent configs.
+You only need the key that matches the provider in your agent configs —
+`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, `MISTRAL_API_KEY`,
+`GOOGLE_GENERATIVE_AI_API_KEY`, whichever it is. The full list of environment
+variable names is in [Model providers](https://jazz.tools/docs/configure/providers).
+
+`jazz.yml` ships passing `OPENAI_API_KEY`, since the checked-in agents run on
+OpenAI. On another provider, add that provider's line next to it in both the
+`Run code review` and `Run Jazz assistant` steps:
+
+```yaml
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }} # ← yours
+```
 
 ## File structure
 
