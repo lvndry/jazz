@@ -3,22 +3,22 @@ const steps = [
   {
     title: "The context is earned, not dumped",
     body: "Memory, skills and history are assembled per turn, then trimmed turn-aware — a message is never split in half. The window is a budget, and jazz counts it.",
-    link: "/docs/internals/context-management",
+    link: "/docs/maintainers/context-lifecycle",
   },
   {
     title: "Any model. Including yours.",
     body: "18 providers behind one loop — OpenAI, Anthropic, Google, Mistral, Groq, OpenRouter… or ollama and llama.cpp with no API key at all.",
-    link: "/docs/internals/providers-and-models",
+    link: "/docs/configure/providers",
   },
   {
     title: "Tools run in two phases",
     body: "Every call is classified by risk before it executes. Reading your calendar just runs; writing to it stops and asks — and the ask reaches whatever surface you're on.",
-    link: "/docs/internals/tools-and-approval",
+    link: "/docs/security/approvals",
   },
   {
     title: "Long runs survive on purpose",
     body: "Budget pressure, meltdown detection, and compaction: warn at 70%, compact at 80%, trim at 95. Watch the meter — this is the ladder, animated.",
-    link: "/docs/internals/agent-loop",
+    link: "/docs/features/long-running-work",
   },
 ];
 ---
