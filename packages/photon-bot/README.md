@@ -71,6 +71,15 @@ is the same thing.
 | `JAZZ_DAILY_COST_CAP_USD`    | `0` (off)              | Spend ceiling across all chats per day.                                                        |
 | `JAZZ_PHOTON_SHOW_REASONING` | on                     | Send the run's reasoning under the answer.                                                     |
 
+## Attachments
+
+Photos, PDFs and voice notes work in both directions. Inbound media arrives as
+metadata plus a reader rather than as a file - unlike the local bridge, where an
+iMessage attachment is already on disk - so the bytes are fetched and written
+under `ph-media/` in the bridge's home, and the agent is handed the path. What it
+can *read* depends on the model: images and PDFs almost anywhere, audio and video
+only where the model accepts them.
+
 ## Security
 
 The allow-list is the whole security model, and it is deny-by-default: a message

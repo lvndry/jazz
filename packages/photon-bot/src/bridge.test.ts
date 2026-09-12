@@ -9,6 +9,7 @@ import {
   readSavedAllowList,
   readSavedCredentials,
   saveAllowList,
+  promptFrom,
   saveCredentials,
 } from "./bridge";
 
@@ -63,5 +64,71 @@ describe("saved credentials", () => {
 
   test("an unanswered home reads as none rather than throwing", () => {
     expect(readSavedCredentials(mkdtempSync(join(tmpdir(), "jazz-photon-none-")))).toBeUndefined();
+  });
+});
+
+describe("promptFrom", () => {
+  const home = (): string => mkdtempSync(join(tmpdir(), "jazz-photon-media-"));
+
+  test("passes text straight through", async () => {
+    expect(await promptFrom({ id: "m1", content: { type: "text", text: " hi " } }, home())).toBe(
+      "hi",
+    );
+  });
+
+  test("writes an attachment to disk and hands over the path, since Jazz ingests by path", async () => {
+    const dataDir = home();
+    const prompt = await promptFrom(
+      {
+        id: "m2",
+        content: {
+          type: "attachment",
+          name: "receipt.pdf",
+          mimeType: "application/pdf",
+          read: () => Promise.resolve(Buffer.from("%PDF-1.4")),
+        },
+      },
+      dataDir,
+    );
+
+    expect(prompt).toBe(join(dataDir, "ph-media", "m2.pdf"));
+    expect(readFileSync(prompt, "utf8")).toBe("%PDF-1.4");
+  });
+
+  test("names a voice note by its mime type when it arrives without one", async () => {
+    const dataDir = home();
+    const prompt = await promptFrom(
+      {
+        id: "m3",
+        content: {
+          type: "voice",
+          mimeType: "audio/m4a",
+          read: () => Promise.resolve(Buffer.from("bytes")),
+        },
+      },
+      dataDir,
+    );
+
+    expect(prompt).toBe(join(dataDir, "ph-media", "m3.m4a"));
+  });
+
+  test("a download that fails loses the attachment, not the message", async () => {
+    const prompt = await promptFrom(
+      {
+        id: "m4",
+        content: {
+          type: "attachment",
+          name: "x.png",
+          mimeType: "image/png",
+          read: () => Promise.reject(new Error("gone")),
+        },
+      },
+      home(),
+    );
+    expect(prompt).toBe("");
+  });
+
+  test("a reaction carries nothing to answer", async () => {
+    expect(await promptFrom({ id: "m5", content: { type: "reaction" } }, home())).toBe("");
   });
 });

@@ -18,10 +18,16 @@ import {
   splitForSurface,
   type Surface,
 } from "@jazz/bot-shared/surface";
+import { attachment } from "spectrum-ts";
+
+/** The half of a Spectrum space this surface uses. */
+export interface PhotonSpace {
+  send(content: unknown): Promise<unknown>;
+}
 
 export interface PhotonSurfaceOptions {
   /** Resolve a chat id back to the Spectrum space it came from. */
-  readonly resolveSpace: (chatId: ChatId) => { send(text: string): Promise<unknown> } | undefined;
+  readonly resolveSpace: (chatId: ChatId) => PhotonSpace | undefined;
 }
 
 export function createPhotonSurface(options: PhotonSurfaceOptions): Surface {
@@ -42,6 +48,16 @@ export function createPhotonSurface(options: PhotonSurfaceOptions): Surface {
         await space.send(chunk);
       }
       return undefined;
+    },
+
+    async sendFile(chatId: ChatId, filePath: string, caption?: string): Promise<void> {
+      const space = options.resolveSpace(chatId);
+      if (space === undefined) return;
+
+      // A path rather than bytes: `attachment` reads it, and everything that
+      // reaches here is already a file the agent wrote or was handed.
+      await space.send(attachment(filePath));
+      if (caption !== undefined && caption.trim().length > 0) await space.send(caption);
     },
   };
 }

@@ -284,6 +284,72 @@ async function describeLines(config: BridgeConfig): Promise<string> {
   }
 }
 
+/** Where inbound media lands, since Jazz ingests it by path. */
+const MEDIA_DIR = "ph-media";
+
+/**
+ * Anything inbound that carries bytes.
+ *
+ * Photon delivers attachments and voice notes as metadata plus a `read()`, so
+ * unlike the local bridge - where an iMessage attachment is already a file on
+ * disk - the bytes have to be fetched and written before an agent can open
+ * them.
+ */
+interface ReadableContent {
+  readonly type: string;
+  readonly name?: string;
+  readonly mimeType?: string;
+  read(): Promise<Buffer>;
+}
+
+function readableContent(content: unknown): ReadableContent | undefined {
+  const candidate = content as Partial<ReadableContent> | null;
+  if (candidate === null || typeof candidate !== "object") return undefined;
+  if (candidate.type !== "attachment" && candidate.type !== "voice") return undefined;
+  return typeof candidate.read === "function" ? (candidate as ReadableContent) : undefined;
+}
+
+/** Extension for a saved file, from its name first and its MIME type second. */
+function extensionFor(media: ReadableContent): string {
+  const fromName = media.name?.split(".").at(-1);
+  if (fromName !== undefined && fromName.length > 0 && fromName !== media.name) return fromName;
+  const subtype = media.mimeType?.split("/").at(-1)?.split(";").at(0);
+  return subtype !== undefined && subtype.length > 0 ? subtype : "bin";
+}
+
+/**
+ * Turn one inbound message into the prompt the agent sees.
+ *
+ * Media is written under the bridge's home and handed over as a path, which is
+ * how every other surface does it and what the tools expect.
+ */
+export async function promptFrom(
+  message: { readonly id: string; readonly content: unknown },
+  jazzHome: string,
+): Promise<string> {
+  const parts: string[] = [];
+
+  const content = message.content as { type?: string; text?: string };
+  if (content.type === "text" && typeof content.text === "string") {
+    if (content.text.trim().length > 0) parts.push(content.text.trim());
+  }
+
+  const media = readableContent(message.content);
+  if (media !== undefined) {
+    try {
+      const directory = join(jazzHome, MEDIA_DIR);
+      mkdirSync(directory, { recursive: true });
+      const path = join(directory, `${message.id}.${extensionFor(media)}`);
+      writeFileSync(path, await media.read());
+      parts.push(path);
+    } catch (error) {
+      console.error(`Failed to save an attachment: ${String(error)}`);
+    }
+  }
+
+  return parts.join("\n");
+}
+
 export async function startBridge(): Promise<void> {
   const config = await loadConfig(process.stdin.isTTY === true);
   closePrompt();
@@ -360,7 +426,6 @@ export async function startBridge(): Promise<void> {
 
   for await (const [space, message] of app.messages) {
     if (message.direction !== "inbound") continue;
-    if (message.content.type !== "text") continue;
 
     // The sender id is the handle Photon delivers on: the only field the SDK
     // types guarantee. The provider's space carries a phone and a dm/group
@@ -381,8 +446,12 @@ export async function startBridge(): Promise<void> {
 
     const chatId: ChatId = space.id;
     spaces.set(chatId, space);
-    void runner
-      .handle(chatId, message.content.text)
+    void promptFrom(message, config.jazzHome)
+      .then(async (prompt) => {
+        // A reaction or a read receipt carries nothing to answer.
+        if (prompt.length === 0) return;
+        await runner.handle(chatId, prompt);
+      })
       .catch((error: unknown) => console.error(`Failed to handle ${message.id}: ${String(error)}`));
   }
 }
