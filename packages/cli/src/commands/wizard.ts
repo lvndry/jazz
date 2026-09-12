@@ -355,10 +355,7 @@ function selectAgent(
 /**
  * Start a chat session with an agent and save as last used
  */
-function startChatWithAgent(
-  agent: Agent,
-  options?: { initialHistory?: ChatMessage[]; initialConversationTitle?: string },
-) {
+function startChatWithAgent(agent: Agent, options?: { initialHistory?: ChatMessage[] }) {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
     const jazzState = yield* JazzStateServiceTag;
@@ -392,6 +389,8 @@ function startChatWithAgent(
     );
   });
 }
+
+const MAX_RESUME_CHOICES = 50;
 
 /**
  * Load all saved conversations across agents, show a selector, and resume the chosen one
@@ -427,8 +426,8 @@ function resumeConversation(agents: readonly Agent[], terminal: TerminalService)
       return;
     }
 
-    // Sort newest first
     entries.sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
+    entries.splice(MAX_RESUME_CHOICES);
 
     const choices = entries.map((entry, idx) => ({
       name: `${entry.title} · ${agentModelString(entry.agent.config)}`,
@@ -452,7 +451,6 @@ function resumeConversation(agents: readonly Agent[], terminal: TerminalService)
 
     yield* startChatWithAgent(selected.agent, {
       initialHistory: conversation?.messages ?? [],
-      initialConversationTitle: selected.title,
     });
   });
 }

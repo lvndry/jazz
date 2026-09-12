@@ -41,7 +41,6 @@ export interface ChatService {
     options?: {
       stream?: boolean;
       initialHistory?: ChatMessage[];
-      initialConversationTitle?: string;
       maxIterations?: number;
       /**
        * Skip persistence for this session entirely: no conversation history

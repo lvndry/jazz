@@ -78,7 +78,6 @@ export class ChatServiceImpl implements ChatService {
     options?: {
       stream?: boolean;
       initialHistory?: ChatMessage[];
-      initialConversationTitle?: string;
       maxIterations?: number;
       ephemeral?: boolean;
     },
@@ -165,7 +164,6 @@ export class ChatServiceImpl implements ChatService {
       const autoApprovedTools: string[] = [];
       const sessionStartedAt = new Date();
       let startedAt = sessionStartedAt.toISOString();
-      let conversationTitle: string | null = options?.initialConversationTitle ?? null;
 
       // Load persistent auto-approved commands from config
       const configService = yield* AgentConfigServiceTag;
@@ -296,15 +294,6 @@ export class ChatServiceImpl implements ChatService {
           continue;
         }
 
-        if (
-          conversationTitle === null &&
-          trimmedMessage.length > 0 &&
-          !trimmedMessage.startsWith("/") &&
-          !trimmedMessage.startsWith("!")
-        ) {
-          conversationTitle = trimmedMessage.slice(0, 80);
-        }
-
         let messageForAgent = userMessage;
 
         // A message with interior newlines (multi-line composition or a
@@ -354,7 +343,6 @@ export class ChatServiceImpl implements ChatService {
             if (commandResult.saveCurrentHistory) {
               yield* persistConversationIfNeeded({
                 ephemeral,
-                conversationTitle,
                 conversationHistory,
                 conversationId,
                 agentId: agent.id,
@@ -368,7 +356,6 @@ export class ChatServiceImpl implements ChatService {
               // Logs follow the conversation, so /new starts a new file rather than
               // appending the next conversation to the previous one's.
               yield* logger.setLogGroup(conversationLogGroup(agent.id, conversationId));
-              conversationTitle = null;
               startedAt = new Date().toISOString();
               sessionUsage = { promptTokens: 0, completionTokens: 0 };
               sessionTurnCount = 0;
@@ -408,15 +395,13 @@ export class ChatServiceImpl implements ChatService {
               // the agent can no longer see.
               hydrateTranscriptFromHistory(conversationHistory);
               if (commandResult.resendMessage !== undefined) {
-                // /retry replays the SAME conversation — keep the title (so
-                // the exit-time save still fires) and clamp the session-log
+                // /retry replays the SAME conversation — clamp the session-log
                 // cursor instead of resetting it (a reset would re-log the
                 // entire pre-retry history as duplicate events).
                 loggedMessageCount = Math.min(loggedMessageCount, conversationHistory.length);
               } else {
                 // Reset logged message count when history is cleared (e.g., /new command)
                 loggedMessageCount = 0;
-                conversationTitle = null;
               }
             }
             if (commandResult.resetStartedAt) {
@@ -686,7 +671,6 @@ export class ChatServiceImpl implements ChatService {
           if (!lastTurnErrored) {
             yield* persistConversationIfNeeded({
               ephemeral,
-              conversationTitle,
               conversationHistory,
               conversationId,
               agentId: agent.id,
@@ -741,7 +725,6 @@ export class ChatServiceImpl implements ChatService {
 
       yield* persistConversationIfNeeded({
         ephemeral,
-        conversationTitle,
         conversationHistory,
         conversationId,
         agentId: agent.id,
