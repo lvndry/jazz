@@ -153,6 +153,18 @@ The agent runner is split into focused modules; runtime behavior is documented i
 
 **Dependency Injection Pattern**: To avoid circular dependencies, the `summarizer.ts` accepts a `RecursiveRunner` function parameter instead of importing `AgentRunner` directly.
 
+#### Prompt assembly
+
+`AgentPromptBuilder` assembles system prompts through three semantic layers:
+
+- **Core** contains the persona and fixed Jazz harness guidance.
+- **Scope** contains instructions belonging to the current project or task.
+- **Live** contains runtime facts that may change while the agent runs, such as its environment.
+
+`prompts/layers.ts` owns their `Core → Scope → Live` rendering order. Keep new prompt content in
+the narrowest-lived layer that accurately describes it. Tool-specific operating details belong in
+the tool description rather than any shared layer.
+
 ### Chat Service (`packages/cli/src/chat/`)
 
 The chat service is split into focused modules:

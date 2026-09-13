@@ -67,7 +67,6 @@ export interface HarnessPromptOptions {
   readonly skillsIndex?: string;
   readonly deferredToolsIndex?: string;
   readonly media?: "delegated" | "unavailable";
-  readonly projectInstructions?: string;
 }
 
 /** Render all Jazz-owned behavioral guidance as one coherent prompt block. */
@@ -102,9 +101,5 @@ export function renderHarnessPrompt(options: HarnessPromptOptions): string {
       options.media === "delegated" ? MEDIA_GENERATION_DELEGATED : MEDIA_GENERATION_UNAVAILABLE;
     sections.push(`## Media\n\n${guidance}`);
   }
-  if (options.projectInstructions !== undefined) {
-    sections.push(options.projectInstructions.trim());
-  }
-
-  return `\n\n# Jazz harness\n\n${sections.join("\n\n")}\n`;
+  return `# Jazz harness\n\n${sections.join("\n\n")}`;
 }

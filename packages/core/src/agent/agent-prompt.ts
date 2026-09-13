@@ -11,6 +11,7 @@ import type { AttachmentKind, MessageAttachment } from "@/core/types/attachment"
 import type { ChatMessage, ConversationMessages } from "@/core/types/message";
 import { systemInfo } from "@/core/utils/system-info";
 import { renderProjectInstructions, type ProjectInstructionFile } from "./project-instructions";
+import { renderPromptLayers, type PromptSection } from "./prompts/layers";
 import { ENVIRONMENT_TEMPLATE, renderHarnessPrompt } from "./prompts/shared";
 import { collectUserInputAttachments } from "./user-input-attachments";
 
@@ -326,9 +327,13 @@ export class AgentPromptBuilder {
             .replace("{username}", username)
             .replace("{tty}", tty);
 
-        let systemPrompt = persona.systemPrompt
+        let personaPrompt = persona.systemPrompt
           .replace("{agentName}", options.agentName)
           .replace("{agentDescription}", options.agentDescription);
+
+        const core: PromptSection[] = [];
+        const scope: PromptSection[] = [];
+        const live: PromptSection[] = [];
 
         if (personaName !== "summarizer") {
           const envBlock = fillEnvironment(ENVIRONMENT_TEMPLATE);
@@ -341,14 +346,16 @@ export class AgentPromptBuilder {
             "{hostname}",
             "{username}",
             "{tty}",
-          ].some((placeholder) => systemPrompt.includes(placeholder));
-          systemPrompt = fillEnvironment(systemPrompt);
-          if (systemPrompt.includes("{environment}")) {
-            systemPrompt = systemPrompt.replace("{environment}", envBlock);
+          ].some((placeholder) => personaPrompt.includes(placeholder));
+          personaPrompt = fillEnvironment(personaPrompt);
+          if (personaPrompt.includes("{environment}")) {
+            personaPrompt = personaPrompt.replace("{environment}", envBlock);
           } else if (!usesIndividualEnvironmentFields) {
-            systemPrompt = `${systemPrompt}\n${envBlock}`;
+            live.push({ id: "environment", content: envBlock });
           }
         }
+
+        core.push({ id: "persona", content: personaPrompt });
 
         if (personaName !== "summarizer") {
           const skillsIndex = options.knownSkills
@@ -357,10 +364,6 @@ export class AgentPromptBuilder {
           const deferredToolsIndex = options.deferredTools
             ?.map((tool) => `- ${tool.name}: ${tool.summary}`)
             .join("\n");
-          const projectInstructions =
-            options.projectInstructions && options.projectInstructions.length > 0
-              ? renderProjectInstructions(options.projectInstructions)
-              : undefined;
           const media =
             options.canGenerateMedia === false
               ? options.toolNames?.includes("generate_media") === true
@@ -368,17 +371,28 @@ export class AgentPromptBuilder {
                 : "unavailable"
               : undefined;
 
-          systemPrompt += renderHarnessPrompt({
-            hasTools: (options.toolNames?.length ?? 0) > 0,
-            hasShell: options.toolNames?.includes("execute_command") === true,
-            hasSubagents: options.toolNames?.includes("spawn_subagent") === true,
-            hasToolResultRetrieval: options.toolNames?.includes("retrieve_tool_result") === true,
-            ...(skillsIndex ? { skillsIndex } : {}),
-            ...(deferredToolsIndex ? { deferredToolsIndex } : {}),
-            ...(media ? { media } : {}),
-            ...(projectInstructions ? { projectInstructions } : {}),
+          core.push({
+            id: "harness",
+            content: renderHarnessPrompt({
+              hasTools: (options.toolNames?.length ?? 0) > 0,
+              hasShell: options.toolNames?.includes("execute_command") === true,
+              hasSubagents: options.toolNames?.includes("spawn_subagent") === true,
+              hasToolResultRetrieval: options.toolNames?.includes("retrieve_tool_result") === true,
+              ...(skillsIndex ? { skillsIndex } : {}),
+              ...(deferredToolsIndex ? { deferredToolsIndex } : {}),
+              ...(media ? { media } : {}),
+            }),
           });
+
+          if (options.projectInstructions && options.projectInstructions.length > 0) {
+            scope.push({
+              id: "project-instructions",
+              content: renderProjectInstructions(options.projectInstructions),
+            });
+          }
         }
+
+        const systemPrompt = renderPromptLayers({ core, scope, live });
 
         // Cache the result
         this.systemPromptCache.set(cacheKey, systemPrompt);
