@@ -111,15 +111,15 @@ Publishing a brand-new platform package for the first time requires registering 
 Trusted Publisher for this workflow, the same way `jazz-ai` itself already is: npm has no
 existing trust relationship for a package name it has never seen published.
 
-## Contributing a Persona
+## Contributing to the marketplace
 
-The persona marketplace is maintained by the website package, which publishes its content as the catalog consumed by Jazz. To add one:
+The marketplace is maintained by the website package, which publishes its content as the catalogs consumed by Jazz. To add an entry:
 
-1. Create `packages/website/src/content/marketplace/<name>/PERSONA.md` with frontmatter (`name`, `description`, optional `tone`, `style`, `author`, `tags`) and the system prompt in the body. Same format as the built-ins in `personas/`, which are worth reading first.
-2. Keep the prompt under 10,000 characters. `jazz persona install` refuses anything longer.
-3. Open a PR. Merging publishes it to <https://jazz-cli.vercel.app/marketplace> and to `jazz persona browse`.
+1. For a persona, create `packages/website/src/content/marketplace/personas/<name>/PERSONA.md` with frontmatter (`name`, `description`, optional `tone`, `style`, `author`, `tags`) and the system prompt in the body. Same format as the built-ins in `personas/`, which are worth reading first. Keep the prompt under 10,000 characters; `jazz persona install` refuses anything longer.
+2. For a workflow, create `packages/website/src/content/marketplace/workflows/<name>/WORKFLOW.md`. Same format as the built-ins in `workflows/`: every [frontmatter field](docs/configure/workflows.md) is honoured, and the index additionally reads `author` and `tags`. Ask for the lowest `autoApprove` tier the job can do with, and do not pin an `agent` other people will not have.
+3. Open a PR. Merging publishes it to <https://jazz-cli.vercel.app/marketplace> and to `jazz persona browse` or `jazz workflow browse`.
 
-The website build publishes marketplace content for the CLI to consume over HTTP. Personas in `personas/` ship inside the Jazz binary as its deliberately small built-in set.
+The website build publishes marketplace content for the CLI to consume over HTTP. `personas/`, `skills/`, and `workflows/` ship inside the Jazz binary as the deliberately small built-in set.
 
 ## Before Submitting PR
 

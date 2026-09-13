@@ -1,0 +1,51 @@
+---
+import MarketplaceDefinition from "../../../components/MarketplaceDefinition.astro";
+import Marketplace from "../../../layouts/Marketplace.astro";
+import {
+  describeFrequency,
+  getWorkflowEntries,
+  rawWorkflowPath,
+  readWorkflowSource,
+  type WorkflowEntry,
+} from "../../../lib/marketplace";
+
+export async function getStaticPaths() {
+  const entries = await getWorkflowEntries();
+  return entries.map((entry) => ({
+    params: { name: entry.data.name },
+    props: { entry },
+  }));
+}
+
+interface Props {
+  entry: WorkflowEntry;
+}
+
+const { entry } = Astro.props;
+const { name, description, schedule, autoApprove, author, tags } = entry.data;
+const meta = [
+  schedule ? `default frequency: ${describeFrequency(schedule)}` : "",
+  autoApprove !== undefined ? `auto-approve: ${String(autoApprove)}` : "",
+  author ? `by ${author}` : "",
+].filter(Boolean);
+const source = await readWorkflowSource(entry);
+const warning =
+  autoApprove !== undefined && autoApprove !== false
+    ? `The frontmatter decides how it runs, the body is the prompt. Scheduled or run with --auto-approve, its tools execute without asking up to the "${String(autoApprove)}" tier. Read it before you install it.`
+    : "The frontmatter decides how it runs, the body is the prompt. Read it before you install it.";
+---
+
+<Marketplace title={`${name} — Jazz workflow`} description={description}>
+  <MarketplaceDefinition
+    back={{ href: "/marketplace#workflows", label: "← all workflows" }}
+    name={name}
+    description={description}
+    meta={meta}
+    tags={tags}
+    install={`jazz workflow install ${name}`}
+    raw={{ href: rawWorkflowPath(name), label: "raw WORKFLOW.md" }}
+    heading="WORKFLOW.md"
+    warning={warning}
+    body={source}
+  />
+</Marketplace>

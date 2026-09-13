@@ -211,6 +211,7 @@
         "@astrojs/rss": "^4.0.19",
         "@astrojs/sitemap": "^3.7.3",
         "@jazz/cli": "workspace:*",
+        "@jazz/core": "workspace:*",
         "astro": "^7.2.4",
         "mermaid": "^11.17.0",
       },

@@ -1,0 +1,40 @@
+---
+import MarketplaceDefinition from "../../../components/MarketplaceDefinition.astro";
+import Marketplace from "../../../layouts/Marketplace.astro";
+import { getPersonaEntries, rawPersonaPath, type PersonaEntry } from "../../../lib/marketplace";
+
+export async function getStaticPaths() {
+  const entries = await getPersonaEntries();
+  return entries.map((entry) => ({
+    params: { name: entry.data.name },
+    props: { entry },
+  }));
+}
+
+interface Props {
+  entry: PersonaEntry;
+}
+
+const { entry } = Astro.props;
+const { name, description, tone, style, author, tags } = entry.data;
+const meta = [
+  tone ? `tone: ${tone}` : "",
+  style ? `style: ${style}` : "",
+  author ? `by ${author}` : "",
+].filter(Boolean);
+---
+
+<Marketplace title={`${name} — Jazz persona`} description={description}>
+  <MarketplaceDefinition
+    back={{ href: "/marketplace#personas", label: "← all personas" }}
+    name={name}
+    description={description}
+    meta={meta}
+    tags={tags}
+    install={`jazz persona install ${name}`}
+    raw={{ href: rawPersonaPath(name), label: "raw PERSONA.md" }}
+    heading="System prompt"
+    warning="This text becomes the instructions of any agent you apply the persona to. Read it before you install it."
+    body={entry.body ?? ""}
+  />
+</Marketplace>

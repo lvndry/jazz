@@ -5,13 +5,16 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { Effect } from "effect";
 import { getJazzHomeDirectory } from "@/core/utils/paths";
 import {
+  DEFAULT_SCHEDULE_LABEL,
+  deriveScheduleLabel,
   getLaunchdPath,
   InProcessScheduler,
+  parseScheduleId,
+  scheduleId,
   SchedulerServiceLayer,
   SchedulerServiceTag,
   type ScheduledWorkflow,
 } from "./scheduler-service";
-import type { WorkflowMetadata } from "./workflow-service";
 import { isValidCronExpression } from "../utils/cron";
 
 // Re-implement parseCronField for testing since it's not exported
@@ -62,6 +65,7 @@ describe("SchedulerService", () => {
   describe("ScheduledWorkflow metadata", () => {
     it("should store all required fields", () => {
       const scheduled: ScheduledWorkflow = {
+        label: "default",
         workflowName: "test-workflow",
         schedule: "0 8 * * *",
         agent: "my-agent",
@@ -76,6 +80,7 @@ describe("SchedulerService", () => {
 
     it("should support optional lastRun and nextRun fields", () => {
       const scheduled: ScheduledWorkflow = {
+        label: "default",
         workflowName: "test",
         schedule: "0 * * * *",
         agent: "agent1",
@@ -171,6 +176,7 @@ describe("SchedulerService", () => {
   describe("agent assignment", () => {
     it("should require agent for scheduled workflows", () => {
       const scheduled: ScheduledWorkflow = {
+        label: "default",
         workflowName: "test",
         schedule: "0 * * * *",
         agent: "research-agent",
@@ -183,6 +189,7 @@ describe("SchedulerService", () => {
 
     it("should allow different agents for different workflows", () => {
       const workflow1: ScheduledWorkflow = {
+        label: "default",
         workflowName: "email-cleanup",
         schedule: "0 * * * *",
         agent: "email-agent",
@@ -190,6 +197,7 @@ describe("SchedulerService", () => {
       };
 
       const workflow2: ScheduledWorkflow = {
+        label: "default",
         workflowName: "tech-digest",
         schedule: "0 8 * * *",
         agent: "research-agent",
@@ -227,18 +235,35 @@ describe("SchedulerService", () => {
     });
   });
 
+  describe("schedule ids and labels", () => {
+    it("formats and parses <workflow>/<label>", () => {
+      expect(scheduleId({ workflowName: "recap", label: "monthly" })).toBe("recap/monthly");
+      expect(parseScheduleId("recap/monthly")).toEqual({ workflowName: "recap", label: "monthly" });
+      expect(parseScheduleId("recap")).toEqual({ workflowName: "recap" });
+    });
+
+    it("derives a readable label from a cron", () => {
+      expect(deriveScheduleLabel("0 9 * * 1-5")).toMatch(/^[a-z0-9-]+$/);
+      expect(deriveScheduleLabel("0 9 * * 1-5")).not.toBe(deriveScheduleLabel("0 17 * * 5"));
+    });
+  });
+
   describe("InProcessScheduler", () => {
     const testWorkflowName = "in-process-scheduler-regression-test";
-    const workflow: WorkflowMetadata = {
-      name: testWorkflowName,
-      description: "In-process scheduler regression test",
-      path: "/tmp",
+    const request = {
+      workflowName: testWorkflowName,
+      label: DEFAULT_SCHEDULE_LABEL,
       schedule: "0 8 * * *",
+      agent: "test-agent-id",
     };
+    const schedulesDir = path.join(getJazzHomeDirectory(), "schedules");
 
     afterEach(async () => {
       const scheduler = new InProcessScheduler();
-      await Effect.runPromise(scheduler.unschedule(testWorkflowName));
+      for (const label of [DEFAULT_SCHEDULE_LABEL, "monthly"]) {
+        await Effect.runPromise(scheduler.unschedule(`${testWorkflowName}/${label}`));
+      }
+      await fs.rm(path.join(schedulesDir, `${testWorkflowName}.json`), { force: true });
     });
 
     it("reports its scheduler type as in-process", () => {
@@ -247,35 +272,94 @@ describe("SchedulerService", () => {
 
     it("writes only the metadata file — no OS artifact required to succeed", async () => {
       const scheduler = new InProcessScheduler();
-      await Effect.runPromise(scheduler.schedule(workflow, "test-agent-id"));
+      await Effect.runPromise(scheduler.schedule(request));
 
-      const isScheduled = await Effect.runPromise(scheduler.isScheduled(testWorkflowName));
+      const isScheduled = await Effect.runPromise(
+        scheduler.isScheduled(`${testWorkflowName}/default`),
+      );
       expect(isScheduled).toBe(true);
 
       const listed = await Effect.runPromise(scheduler.listScheduled());
       const entry = listed.find((s) => s.workflowName === testWorkflowName);
       expect(entry?.agent).toBe("test-agent-id");
       expect(entry?.schedule).toBe("0 8 * * *");
+      expect(entry?.label).toBe("default");
+      expect(entry?.scheduledAt).toBeDefined();
+    });
+
+    it("keeps two schedules of one workflow side by side and removes them one at a time", async () => {
+      const scheduler = new InProcessScheduler();
+      await Effect.runPromise(scheduler.schedule(request));
+      await Effect.runPromise(
+        scheduler.schedule({ ...request, label: "monthly", schedule: "0 9 1 * *" }),
+      );
+
+      const listed = (await Effect.runPromise(scheduler.listScheduled())).filter(
+        (s) => s.workflowName === testWorkflowName,
+      );
+      expect(listed.map((s) => s.label).sort()).toEqual(["default", "monthly"]);
+
+      await Effect.runPromise(scheduler.unschedule(`${testWorkflowName}/monthly`));
+      expect(await Effect.runPromise(scheduler.isScheduled(`${testWorkflowName}/monthly`))).toBe(
+        false,
+      );
+      expect(await Effect.runPromise(scheduler.isScheduled(`${testWorkflowName}/default`))).toBe(
+        true,
+      );
+    });
+
+    it("migrates a label-less metadata file to <workflow>/default on listing", async () => {
+      await fs.mkdir(schedulesDir, { recursive: true });
+      const legacyFile = path.join(schedulesDir, `${testWorkflowName}.json`);
+      await fs.writeFile(
+        legacyFile,
+        JSON.stringify({
+          workflowName: testWorkflowName,
+          schedule: "0 8 * * *",
+          agent: "legacy-agent",
+          enabled: true,
+        }),
+      );
+
+      const listed = await Effect.runPromise(new InProcessScheduler().listScheduled());
+      const entry = listed.find((s) => s.workflowName === testWorkflowName);
+
+      expect(entry?.label).toBe("default");
+      expect(entry?.agent).toBe("legacy-agent");
+      await expect(fs.stat(legacyFile)).rejects.toThrow();
+      await expect(
+        fs.stat(path.join(schedulesDir, `${testWorkflowName}.default.json`)),
+      ).resolves.toBeDefined();
     });
 
     it("rejects an invalid cron expression without touching disk", async () => {
       const scheduler = new InProcessScheduler();
-      const invalidWorkflow: WorkflowMetadata = { ...workflow, schedule: "not a cron" };
       const result = await Effect.runPromise(
-        scheduler.schedule(invalidWorkflow, "test-agent-id").pipe(Effect.either),
+        scheduler.schedule({ ...request, schedule: "not a cron" }).pipe(Effect.either),
       );
       expect(result._tag).toBe("Left");
 
-      const isScheduled = await Effect.runPromise(scheduler.isScheduled(testWorkflowName));
+      const isScheduled = await Effect.runPromise(
+        scheduler.isScheduled(`${testWorkflowName}/default`),
+      );
       expect(isScheduled).toBe(false);
+    });
+
+    it("rejects a label that is not a slug", async () => {
+      const result = await Effect.runPromise(
+        new InProcessScheduler().schedule({ ...request, label: "Not A Slug" }).pipe(Effect.either),
+      );
+      expect(result._tag).toBe("Left");
     });
 
     it("unschedule removes the metadata file", async () => {
       const scheduler = new InProcessScheduler();
-      await Effect.runPromise(scheduler.schedule(workflow, "test-agent-id"));
-      await Effect.runPromise(scheduler.unschedule(testWorkflowName));
+      await Effect.runPromise(scheduler.schedule(request));
+      await Effect.runPromise(scheduler.unschedule(`${testWorkflowName}/default`));
 
-      const isScheduled = await Effect.runPromise(scheduler.isScheduled(testWorkflowName));
+      const isScheduled = await Effect.runPromise(
+        scheduler.isScheduled(`${testWorkflowName}/default`),
+      );
       expect(isScheduled).toBe(false);
     });
   });
@@ -283,33 +367,18 @@ describe("SchedulerService", () => {
   describe("scheduler regression (tech-digest, paths, 6-field cron)", () => {
     const testWorkflowName = "scheduler-regression-test";
 
-    const techDigestWorkflow: WorkflowMetadata = {
-      name: testWorkflowName,
-      description: "Regression test workflow",
-      path: "/tmp",
-      schedule: "0 8 * * *",
-    };
-
-    const sixFieldWorkflow: WorkflowMetadata = {
-      name: testWorkflowName,
-      description: "6-field regression test",
-      path: "/tmp",
-      schedule: "0 0 8 * * *",
-    };
-
-    const workflowWithWhitespace: WorkflowMetadata = {
-      name: testWorkflowName,
-      description: "Whitespace trim regression test",
-      path: "/tmp",
-      schedule: "  0 8 * * *  ",
-    };
+    const base = { workflowName: testWorkflowName, label: "default", agent: "test-agent-id" };
+    const techDigestWorkflow = { ...base, schedule: "0 8 * * *" };
+    const sixFieldWorkflow = { ...base, schedule: "0 0 8 * * *" };
+    const workflowWithWhitespace = { ...base, schedule: "  0 8 * * *  " };
+    const id = `${testWorkflowName}/default`;
 
     it("should schedule tech-digest cron expression 0 8 * * * without error", async () => {
       if (process.platform !== "darwin") return;
 
       const program = Effect.gen(function* () {
         const scheduler = yield* SchedulerServiceTag;
-        yield* scheduler.schedule(techDigestWorkflow, "test-agent-id");
+        yield* scheduler.schedule(techDigestWorkflow);
         return "ok";
       });
 
@@ -327,7 +396,7 @@ describe("SchedulerService", () => {
         Effect.provide(
           Effect.gen(function* () {
             const s = yield* SchedulerServiceTag;
-            yield* s.unschedule(testWorkflowName);
+            yield* s.unschedule(id);
             return s;
           }),
           SchedulerServiceLayer,
@@ -341,7 +410,7 @@ describe("SchedulerService", () => {
 
       const program = Effect.gen(function* () {
         const scheduler = yield* SchedulerServiceTag;
-        yield* scheduler.schedule(sixFieldWorkflow, "test-agent-id");
+        yield* scheduler.schedule(sixFieldWorkflow);
         return "ok";
       });
 
@@ -359,7 +428,7 @@ describe("SchedulerService", () => {
         Effect.provide(
           Effect.gen(function* () {
             const s = yield* SchedulerServiceTag;
-            yield* s.unschedule(testWorkflowName);
+            yield* s.unschedule(id);
           }),
           SchedulerServiceLayer,
         ),
@@ -371,7 +440,7 @@ describe("SchedulerService", () => {
 
       const program = Effect.gen(function* () {
         const scheduler = yield* SchedulerServiceTag;
-        yield* scheduler.schedule(techDigestWorkflow, "test-agent-id");
+        yield* scheduler.schedule(techDigestWorkflow);
       });
 
       await Effect.runPromise(program.pipe(Effect.provide(SchedulerServiceLayer)));
@@ -380,7 +449,7 @@ describe("SchedulerService", () => {
         os.homedir(),
         "Library",
         "LaunchAgents",
-        `com.jazz.workflow.${testWorkflowName}.plist`,
+        `com.jazz.workflow.${testWorkflowName}.default.plist`,
       );
       const plistContent = await fs.readFile(plistPath, "utf-8");
 
@@ -393,7 +462,7 @@ describe("SchedulerService", () => {
         Effect.provide(
           Effect.gen(function* () {
             const s = yield* SchedulerServiceTag;
-            yield* s.unschedule(testWorkflowName);
+            yield* s.unschedule(id);
           }),
           SchedulerServiceLayer,
         ),
@@ -405,7 +474,7 @@ describe("SchedulerService", () => {
 
       const program = Effect.gen(function* () {
         const scheduler = yield* SchedulerServiceTag;
-        yield* scheduler.schedule(workflowWithWhitespace, "test-agent-id");
+        yield* scheduler.schedule(workflowWithWhitespace);
         return "ok";
       });
 
@@ -422,7 +491,7 @@ describe("SchedulerService", () => {
         Effect.provide(
           Effect.gen(function* () {
             const s = yield* SchedulerServiceTag;
-            yield* s.unschedule(testWorkflowName);
+            yield* s.unschedule(id);
           }),
           SchedulerServiceLayer,
         ),

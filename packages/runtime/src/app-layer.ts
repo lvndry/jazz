@@ -24,6 +24,7 @@ import { createReminderServiceLayer } from "@jazz/adapters/reminder-service";
 import { FileStorageService } from "@jazz/adapters/storage/file";
 import { createTelemetryServiceLayer } from "@jazz/adapters/telemetry/telemetry-service";
 import { createWakeTriggerServiceLayer } from "@jazz/adapters/wake-trigger-service";
+import { createWorkflowRegistryServiceLayer } from "@jazz/adapters/workflow-registry-service";
 import { createWorkspaceServiceLayer } from "@jazz/adapters/workspace-service";
 import { autoCheckForUpdate } from "@jazz/cli/auto-update";
 import { promptInteractiveCatchUp } from "@jazz/cli/catch-up-prompt";
@@ -209,6 +210,7 @@ export function createAppLayer(
   const agentLayer = createAgentServiceLayer().pipe(Layer.provide(storageLayer));
   const personaLayer = createPersonaServiceLayer();
   const personaRegistryLayer = createPersonaRegistryServiceLayer();
+  const workflowRegistryLayer = createWorkflowRegistryServiceLayer();
   const memoryServiceLayer = createMemoryServiceLayer();
   const workspaceServiceLayer = createWorkspaceServiceLayer().pipe(Layer.provide(configLayer));
   const reminderServiceLayer = createReminderServiceLayer();
@@ -253,6 +255,7 @@ export function createAppLayer(
     agentLayer,
     personaLayer,
     personaRegistryLayer,
+    workflowRegistryLayer,
     memoryServiceLayer,
     workspaceServiceLayer,
     reminderServiceLayer,

@@ -96,7 +96,7 @@ a command genuinely needs one. Implementation:
 
 **Local-first data.** Credentials resolve from the environment, OS keyring, or local config.
 Telemetry is recorded locally by default and is exported only when you configure an OTLP endpoint.
-`JAZZ_OFFLINE=1` skips Jazz's update, public model-catalog, and persona-marketplace requests; it
+`JAZZ_OFFLINE=1` skips Jazz's update, public model-catalog, and marketplace requests; it
 does not block inference, tools, MCP, or telemetry export. See
 [Local and air-gapped models](docs/getting-started/local-models.md).
 
@@ -145,7 +145,7 @@ not also permit `git status && rm -rf /`. Full tiers: [Tools reference](docs/too
 
 A chat bridge, a public webhook, or a CI job reviewing fork PRs takes input from someone who is
 not you. At `high-risk`, a message, or a prompt injection inside a web page the agent fetched
-,  can run arbitrary commands on that host. Use an allowlist of senders, keep the tier low, and
+, can run arbitrary commands on that host. Use an allowlist of senders, keep the tier low, and
 trim the toolset. See
 [Chat platforms → security](docs/surfaces/chat.md#security-for-chat-surfaces).
 

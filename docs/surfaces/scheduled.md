@@ -24,7 +24,7 @@ Jazz writes the launchd plist or crontab entry for you; from then on the run hap
 no terminal, no TUI, and nobody to answer an approval prompt.
 
 ```bash
-jazz workflow schedule daily-standup-prep
+jazz workflow schedule daily-standup-prep    # installs daily-standup-prep/default
 jazz workflow scheduled                    # confirm it's installed
 jazz workflow history daily-standup-prep   # see what happened
 ```
@@ -134,7 +134,7 @@ In rough order of how much they cost you:
 ## Debugging a scheduled run
 
 ```bash
-jazz workflow scheduled                  # is it actually installed?
+jazz workflow scheduled <name>           # is it actually installed, and under which labels?
 jazz workflow history <name>             # did it run? what did it do?
 tail -f ~/.jazz/logs/<name>.log          # stdout
 tail -f ~/.jazz/logs/<name>.error.log    # stderr

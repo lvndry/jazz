@@ -1,41 +1,92 @@
 /**
- * `SchedulerService`: schedules workflows either with the host OS scheduler
- * (launchd on macOS, cron on Linux) or, when configured, with Jazz's
- * in-process daemon ticker.
+ * `SchedulerService`: installs workflow schedules either with the host OS scheduler
+ * (launchd on macOS, cron on Linux) or, when configured, as inert metadata that
+ * Jazz's in-process daemon ticker fires.
+ *
+ * A workflow is a process definition; a schedule is one binding of that workflow to a
+ * cron expression and an agent. One workflow can carry several schedules, told apart by
+ * a label, so the same weekly recap can also run monthly. Every schedule is identified
+ * as `<workflow>/<label>` — in launchd labels, crontab markers, metadata files, and on
+ * the command line — and `default` is the label of the frontmatter `schedule:` cron.
+ *
+ * Every implementation records intent to `~/.jazz/schedules/<workflow>.<label>.json`;
+ * they differ only in which OS artifact, if any, they install next to it.
  */
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { Context, Effect, Layer, Option } from "effect";
 import * as plist from "plist";
-import type { WorkflowMetadata } from "./workflow-service";
 import { AgentConfigServiceTag } from "../interfaces/agent-config";
 import type { SchedulerMode } from "../types/config";
-import { isValidCronExpression } from "../utils/cron";
+import { describeCronSchedule, isValidCronExpression } from "../utils/cron";
 import { getGlobalUserDataDirectory } from "../utils/paths";
 import { getJazzSchedulerInvocation } from "../utils/runtime";
 import { execCommand, execCommandWithStdin } from "../utils/shell";
 
+/** Label of the schedule installed from a workflow's own `schedule:` frontmatter. */
+export const DEFAULT_SCHEDULE_LABEL = "default";
+
+/** Labels become file names and launchd labels, so they stay plain slugs. */
+export const VALID_SCHEDULE_LABEL = /^[a-z0-9][a-z0-9-]*$/;
+
 /**
- * Information about a scheduled workflow.
+ * One installed schedule of a workflow.
  */
 export interface ScheduledWorkflow {
   readonly workflowName: string;
+  /** Tells several schedules of one workflow apart; `default` for the frontmatter cron. */
+  readonly label: string;
+  /** Cron expression this schedule fires on. */
   readonly schedule: string;
   readonly agent: string; // Agent ID to use for this scheduled workflow
   readonly enabled: boolean;
   readonly runAtLoad?: boolean; // Whether launchd should run the workflow on login/wake
-  readonly scheduledAt?: string; // ISO timestamp of when the workflow was scheduled (used by --scheduled guard)
+  readonly scheduledAt?: string; // ISO timestamp of when the schedule was installed (used by --scheduled guard)
   readonly lastRun?: string;
   readonly nextRun?: string;
 }
 
 /**
- * Options for scheduling a workflow.
+ * What it takes to install one schedule. Deliberately not `WorkflowMetadata`: the
+ * scheduler only needs the name, and the cron may not be the workflow's own.
  */
-export interface ScheduleOptions {
+export interface ScheduleRequest {
+  readonly workflowName: string;
+  readonly label: string;
+  readonly schedule: string;
+  readonly agent: string;
   /** Whether launchd should run the workflow on login/wake (macOS only). Defaults to false. */
   readonly runAtLoad?: boolean;
+}
+
+/** The id a schedule is addressed by everywhere: `<workflow>/<label>`. */
+export function scheduleId(entry: Pick<ScheduledWorkflow, "workflowName" | "label">): string {
+  return `${entry.workflowName}/${entry.label}`;
+}
+
+/**
+ * Split `<workflow>/<label>` back into its parts. A bare workflow name is accepted and
+ * comes back without a label, so callers can offer a choice among that workflow's schedules.
+ */
+export function parseScheduleId(id: string): { workflowName: string; label?: string } {
+  const separator = id.indexOf("/");
+  if (separator === -1) return { workflowName: id };
+  const label = id.slice(separator + 1);
+  return { workflowName: id.slice(0, separator), ...(label.length > 0 && { label }) };
+}
+
+/**
+ * A label for a cron the user did not name: its English description as a slug, so
+ * `jazz workflow scheduled` reads `merged-pr-recap/monthly-on-day-1-at-09-00`.
+ */
+export function deriveScheduleLabel(cron: string): string {
+  const source = describeCronSchedule(cron) ?? cron.replace(/\*/g, "any");
+  const slug = source
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug.length > 0 ? slug : "custom";
 }
 
 /**
@@ -43,31 +94,25 @@ export interface ScheduleOptions {
  */
 export interface SchedulerService {
   /**
-   * Schedule a workflow for periodic execution.
-   * @param workflow - The workflow metadata
-   * @param agentId - The agent ID to use for scheduled runs (required)
-   * @param options - Additional scheduling options
+   * Install one schedule. Installing an id that already exists replaces it.
+   * @returns The stored schedule, including its `scheduledAt` timestamp
    */
-  readonly schedule: (
-    workflow: WorkflowMetadata,
-    agentId: string,
-    options?: ScheduleOptions,
-  ) => Effect.Effect<void, Error>;
+  readonly schedule: (request: ScheduleRequest) => Effect.Effect<ScheduledWorkflow, Error>;
 
   /**
-   * Remove a workflow from the schedule.
+   * Remove one schedule by id (`<workflow>/<label>`).
    */
-  readonly unschedule: (workflowName: string) => Effect.Effect<void, Error>;
+  readonly unschedule: (id: string) => Effect.Effect<void, Error>;
 
   /**
-   * List all scheduled workflows.
+   * List every installed schedule, across all workflows.
    */
   readonly listScheduled: () => Effect.Effect<readonly ScheduledWorkflow[], Error>;
 
   /**
-   * Check if a workflow is currently scheduled.
+   * Check whether a schedule id is installed.
    */
-  readonly isScheduled: (workflowName: string) => Effect.Effect<boolean, Error>;
+  readonly isScheduled: (id: string) => Effect.Effect<boolean, Error>;
 
   /**
    * Get the scheduler type being used (launchd, cron, etc.)
@@ -255,38 +300,47 @@ function cronToLaunchdSchedule(
 }
 
 /**
- * Generate a launchd plist file content.
+ * The `jazz workflow run` invocation an OS scheduler fires for one schedule.
  */
-function generateLaunchdPlist(
-  workflow: WorkflowMetadata,
+function scheduledRunArguments(
+  entry: ScheduleRequest,
   jazzInvocation: readonly string[],
-  agentId: string,
-  options?: ScheduleOptions,
-): string {
-  const schedule = cronToLaunchdSchedule(workflow.schedule!);
-  const logDir = path.join(getGlobalUserDataDirectory(), "logs");
-  const runAtLoad = options?.runAtLoad ?? false;
-
-  const programArgs = [
+): readonly string[] {
+  return [
     ...jazzInvocation,
     "--output",
     "quiet",
     "workflow",
     "run",
-    workflow.name,
+    entry.workflowName,
     "--agent",
-    agentId,
+    entry.agent,
     "--auto-approve",
     "--scheduled",
+    "--schedule",
+    scheduleId(entry),
   ];
+}
+
+function launchdLabel(id: string): string {
+  return `com.jazz.workflow.${id.replace("/", ".")}`;
+}
+
+/**
+ * Generate a launchd plist file content.
+ */
+function generateLaunchdPlist(entry: ScheduleRequest, jazzInvocation: readonly string[]): string {
+  const schedule = cronToLaunchdSchedule(entry.schedule);
+  const logDir = path.join(getGlobalUserDataDirectory(), "logs");
+  const id = scheduleId(entry);
 
   // Wrap in bash -c to print a timestamped header before exec'ing the real command.
   // This ensures logs contain a timestamp even when the jazz process crashes early.
-  const commandString = programArgs.map(escapeShellArg).join(" ");
+  const commandString = scheduledRunArguments(entry, jazzInvocation).map(escapeShellArg).join(" ");
   // Escape for double-quote context: \, ", $, and backticks are special in double quotes
-  const safeName = workflow.name.replace(/[\\"$`]/g, "\\$&");
+  const safeId = id.replace(/[\\"$`]/g, "\\$&");
   // $(date ...) uses $() not ${} so JS template literals leave it for bash to expand
-  const header = `[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] launchd starting: ${safeName}`;
+  const header = `[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] launchd starting: ${safeId}`;
   const wrappedArgs = [
     "/bin/bash",
     "-c",
@@ -294,12 +348,12 @@ function generateLaunchdPlist(
   ];
 
   const plistObject = {
-    Label: `com.jazz.workflow.${workflow.name}`,
+    Label: launchdLabel(id),
     ProgramArguments: wrappedArgs,
     StartCalendarInterval: schedule,
-    StandardOutPath: `${logDir}/${workflow.name}.log`,
-    StandardErrorPath: `${logDir}/${workflow.name}.error.log`,
-    RunAtLoad: runAtLoad,
+    StandardOutPath: `${logDir}/${entry.workflowName}.log`,
+    StandardErrorPath: `${logDir}/${entry.workflowName}.error.log`,
+    RunAtLoad: entry.runAtLoad ?? false,
     EnvironmentVariables: {
       PATH: getLaunchdPath(),
     },
@@ -308,257 +362,320 @@ function generateLaunchdPlist(
   return plist.build(plistObject);
 }
 
+const CRON_MARKER = "# Jazz schedule:";
+/** Marker written by versions that knew one schedule per workflow. Removed on migration. */
+const LEGACY_CRON_MARKER = "# Jazz workflow:";
+
 /**
- * Generate a crontab entry for a workflow.
+ * Generate a crontab entry for a schedule.
  * Uses shell escaping to prevent command injection.
  */
-function generateCrontabEntry(
-  workflow: WorkflowMetadata,
-  jazzInvocation: readonly string[],
-  agentId: string,
-): string {
+function generateCrontabEntry(entry: ScheduleRequest, jazzInvocation: readonly string[]): string {
   const logDir = path.join(getGlobalUserDataDirectory(), "logs");
+  const escapedLogPath = escapeShellArg(`${logDir}/${entry.workflowName}.log`);
+  const command = scheduledRunArguments(entry, jazzInvocation)
+    .map((token) => escapeShellArg(token))
+    .join(" ");
 
-  const escapedLogPath = escapeShellArg(`${logDir}/${workflow.name}.log`);
+  return `${CRON_MARKER} ${scheduleId(entry).replace(/\n/g, " ")}
+${entry.schedule} ${command} >> ${escapedLogPath} 2>&1`;
+}
 
-  const commandTokens = jazzInvocation.concat([
-    "--output",
-    "quiet",
-    "workflow",
-    "run",
-    workflow.name,
-    "--agent",
-    agentId,
-    "--auto-approve",
-    "--scheduled",
-  ]);
+/**
+ * Drop the marker line carrying `marker key` and the crontab line right after it.
+ */
+function removeCrontabEntry(crontab: string, marker: string, key: string): string {
+  const filtered: string[] = [];
+  let skipNext = false;
+  for (const line of crontab.split("\n")) {
+    if (line.includes(`${marker} ${key}`)) {
+      skipNext = true;
+      continue;
+    }
+    if (skipNext) {
+      skipNext = false;
+      continue;
+    }
+    filtered.push(line);
+  }
+  return filtered.join("\n");
+}
 
-  // Build the command with proper escaping
-  const command = commandTokens.map((token) => escapeShellArg(token)).join(" ");
-
-  return `# Jazz workflow: ${workflow.name.replace(/\n/g, " ")}
-${workflow.schedule} ${command} >> ${escapedLogPath} 2>&1`;
+/** A metadata file on disk: its parsed schedule and whether it predates labels. */
+interface StoredSchedule {
+  readonly entry: ScheduledWorkflow;
+  readonly file: string;
+  readonly legacy: boolean;
 }
 
 /**
  * Parse and validate a ScheduledWorkflow from JSON content.
- * Returns null if the content is invalid or missing required fields.
+ * Returns null if the content is invalid or missing required fields. A record with no
+ * label was written before schedules had one; it reads as `default` and is flagged so
+ * the scheduler can reinstall it under its new id.
  */
-function parseScheduledWorkflow(content: string): ScheduledWorkflow | null {
+function parseScheduledWorkflow(
+  content: string,
+): { entry: ScheduledWorkflow; legacy: boolean } | null {
   try {
     const parsed = JSON.parse(content) as Partial<ScheduledWorkflow>;
 
-    // Validate required fields
     if (typeof parsed.workflowName !== "string" || typeof parsed.schedule !== "string") {
       return null;
     }
 
+    const legacy = typeof parsed.label !== "string";
     return {
-      workflowName: parsed.workflowName,
-      schedule: parsed.schedule,
-      agent: typeof parsed.agent === "string" ? parsed.agent : "default",
-      enabled: typeof parsed.enabled === "boolean" ? parsed.enabled : true,
-      ...(typeof parsed.lastRun === "string" && { lastRun: parsed.lastRun }),
-      ...(typeof parsed.nextRun === "string" && { nextRun: parsed.nextRun }),
+      legacy,
+      entry: {
+        workflowName: parsed.workflowName,
+        label: legacy ? DEFAULT_SCHEDULE_LABEL : parsed.label,
+        schedule: parsed.schedule,
+        agent: typeof parsed.agent === "string" ? parsed.agent : "default",
+        enabled: typeof parsed.enabled === "boolean" ? parsed.enabled : true,
+        ...(typeof parsed.runAtLoad === "boolean" && { runAtLoad: parsed.runAtLoad }),
+        ...(typeof parsed.scheduledAt === "string" && { scheduledAt: parsed.scheduledAt }),
+        ...(typeof parsed.lastRun === "string" && { lastRun: parsed.lastRun }),
+        ...(typeof parsed.nextRun === "string" && { nextRun: parsed.nextRun }),
+      },
     };
   } catch {
     return null;
   }
 }
 
-/**
- * List all scheduled workflows from the schedules directory.
- * Shared implementation for both LaunchdScheduler and CronScheduler.
- */
-function listScheduledFromMetadataFiles(): Effect.Effect<readonly ScheduledWorkflow[], Error> {
+const toError = (error: unknown): Error =>
+  error instanceof Error ? error : new Error(String(error));
+
+function readStoredSchedules(): Effect.Effect<readonly StoredSchedule[], Error> {
   return Effect.gen(function* () {
     const schedulesDir = getSchedulesDirectory();
-
-    // Ensure directory exists
     yield* Effect.tryPromise({
       try: () => fs.mkdir(schedulesDir, { recursive: true }),
-      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+      catch: toError,
     });
+    const files = yield* Effect.tryPromise({ try: () => fs.readdir(schedulesDir), catch: toError });
 
-    // List metadata files
-    const files = yield* Effect.tryPromise({
-      try: () => fs.readdir(schedulesDir),
-      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
-    });
-    const jsonFiles = files.filter((f) => f.endsWith(".json"));
-
-    const scheduled: ScheduledWorkflow[] = [];
-    for (const file of jsonFiles) {
+    const stored: StoredSchedule[] = [];
+    for (const name of files.filter((f) => f.endsWith(".json"))) {
+      const file = path.join(schedulesDir, name);
       const content = yield* Effect.tryPromise({
-        try: () => fs.readFile(path.join(schedulesDir, file), "utf-8"),
-        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+        try: () => fs.readFile(file, "utf-8"),
+        catch: toError,
       }).pipe(Effect.catchAll(() => Effect.succeed(null)));
-
-      if (content) {
-        const metadata = parseScheduledWorkflow(content);
-        if (metadata) {
-          scheduled.push(metadata);
-        }
-      }
+      if (content === null) continue;
+      const parsed = parseScheduledWorkflow(content);
+      if (parsed) stored.push({ entry: parsed.entry, file, legacy: parsed.legacy });
     }
-
-    return scheduled;
+    return stored;
   });
 }
 
 /**
- * Check if a workflow is scheduled by checking metadata file existence.
+ * Everything the three schedulers share: the metadata files under `~/.jazz/schedules/`,
+ * validation, listing, and the one-time migration of label-less records. Subclasses
+ * install and remove the OS artifact for a schedule, if their scheduler has one.
  */
-function isScheduledByMetadata(workflowName: string): Effect.Effect<boolean, Error> {
-  return Effect.gen(function* () {
-    const metadataPath = path.join(getSchedulesDirectory(), `${workflowName}.json`);
-    const stat = yield* Effect.tryPromise({
-      try: () => fs.stat(metadataPath),
-      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
-    }).pipe(Effect.catchAll(() => Effect.succeed(null)));
-    return stat !== null;
-  });
-}
+abstract class MetadataScheduler implements SchedulerService {
+  abstract getSchedulerType(): "launchd" | "cron" | "in-process" | "unsupported";
 
-/**
- * macOS launchd implementation of SchedulerService.
- */
-class LaunchdScheduler implements SchedulerService {
-  private readonly launchAgentsDir = path.join(os.homedir(), "Library", "LaunchAgents");
+  /** Install whatever the host scheduler needs to fire this schedule. */
+  protected abstract installArtifact(entry: ScheduleRequest): Effect.Effect<void, Error>;
+  /** Remove the artifact for a schedule id. Must succeed when nothing is installed. */
+  protected abstract removeArtifact(id: string): Effect.Effect<void, Error>;
+  /** Remove the artifact a pre-label version installed for `workflowName`. */
+  protected abstract removeLegacyArtifact(workflowName: string): Effect.Effect<void, Error>;
 
-  getSchedulerType(): "launchd" | "cron" | "unsupported" {
-    return "launchd";
+  private metadataPath(entry: Pick<ScheduledWorkflow, "workflowName" | "label">): string {
+    return path.join(getSchedulesDirectory(), `${entry.workflowName}.${entry.label}.json`);
   }
 
-  private getPlistPath(workflowName: string): string {
-    return path.join(this.launchAgentsDir, `com.jazz.workflow.${workflowName}.plist`);
-  }
-
-  private getMetadataPath(workflowName: string): string {
-    return path.join(getSchedulesDirectory(), `${workflowName}.json`);
-  }
-
-  schedule(
-    workflow: WorkflowMetadata,
-    agentId: string,
-    options?: ScheduleOptions,
-  ): Effect.Effect<void, Error> {
+  schedule(request: ScheduleRequest): Effect.Effect<ScheduledWorkflow, Error> {
     return Effect.gen(
-      function* (this: LaunchdScheduler) {
-        if (!workflow.schedule || typeof workflow.schedule !== "string") {
-          return yield* Effect.fail(new Error(`Workflow ${workflow.name} has no schedule defined`));
+      function* (this: MetadataScheduler) {
+        const schedule = request.schedule.trim();
+        if (schedule.length === 0) {
+          return yield* Effect.fail(
+            new Error(`Schedule ${scheduleId(request)} has no cron expression`),
+          );
         }
-
-        const schedule = String(workflow.schedule).trim();
         if (!isValidCronExpression(schedule)) {
           return yield* Effect.fail(
-            new Error(`Workflow ${workflow.name} has invalid cron expression: ${schedule}`),
+            new Error(`Schedule ${scheduleId(request)} has invalid cron expression: ${schedule}`),
+          );
+        }
+        if (!VALID_SCHEDULE_LABEL.test(request.label)) {
+          return yield* Effect.fail(
+            new Error(
+              `"${request.label}" is not a valid schedule label: use lowercase letters, digits, and hyphens`,
+            ),
           );
         }
 
-        const jazzInvocation = yield* getJazzSchedulerInvocation();
-        const workflowWithTrimmedSchedule = { ...workflow, schedule };
-        const plistContent = generateLaunchdPlist(
-          workflowWithTrimmedSchedule,
-          jazzInvocation,
-          agentId,
-          options,
-        );
-        const plistPath = this.getPlistPath(workflow.name);
-        const metadataPath = this.getMetadataPath(workflow.name);
-
-        // Ensure directories exist
-        yield* Effect.tryPromise({
-          try: () => fs.mkdir(this.launchAgentsDir, { recursive: true }),
-          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
-        });
+        const entry: ScheduleRequest = { ...request, schedule };
         yield* Effect.tryPromise({
           try: () => fs.mkdir(getSchedulesDirectory(), { recursive: true }),
-          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+          catch: toError,
         });
         yield* Effect.tryPromise({
           try: () => fs.mkdir(path.join(getGlobalUserDataDirectory(), "logs"), { recursive: true }),
-          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+          catch: toError,
         });
 
-        // Unload existing job if present (ignore errors)
-        yield* execCommand("launchctl", ["unload", plistPath]).pipe(
-          Effect.catchAll(() => Effect.void),
-        );
+        yield* this.installArtifact(entry);
 
-        // Write the plist file
-        yield* Effect.tryPromise({
-          try: () => fs.writeFile(plistPath, plistContent, "utf-8"),
-          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
-        });
-
-        // Save metadata
-        const metadata: ScheduledWorkflow = {
-          workflowName: workflow.name,
+        const stored: ScheduledWorkflow = {
+          workflowName: entry.workflowName,
+          label: entry.label,
           schedule,
-          agent: agentId,
+          agent: entry.agent,
           enabled: true,
-          runAtLoad: options?.runAtLoad ?? false,
+          runAtLoad: entry.runAtLoad ?? false,
           scheduledAt: new Date().toISOString(),
         };
         yield* Effect.tryPromise({
-          try: () => fs.writeFile(metadataPath, JSON.stringify(metadata, null, 2)),
-          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+          try: () => fs.writeFile(this.metadataPath(stored), JSON.stringify(stored, null, 2)),
+          catch: toError,
         });
-
-        // Load the job
-        yield* execCommand("launchctl", ["load", plistPath]);
+        return stored;
       }.bind(this),
     );
   }
 
-  unschedule(workflowName: string): Effect.Effect<void, Error> {
+  unschedule(id: string): Effect.Effect<void, Error> {
     return Effect.gen(
-      function* (this: LaunchdScheduler) {
-        const plistPath = this.getPlistPath(workflowName);
-        const metadataPath = this.getMetadataPath(workflowName);
-
-        // Unload the job (ignore errors if not loaded)
-        yield* execCommand("launchctl", ["unload", plistPath]).pipe(
-          Effect.catchAll(() => Effect.void),
-        );
-
-        // Remove the plist file
+      function* (this: MetadataScheduler) {
+        const { workflowName, label } = parseScheduleId(id);
+        yield* this.removeArtifact(id);
         yield* Effect.tryPromise({
-          try: () => fs.unlink(plistPath),
-          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
-        }).pipe(Effect.catchAll(() => Effect.void));
-
-        // Remove metadata
-        yield* Effect.tryPromise({
-          try: () => fs.unlink(metadataPath),
-          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+          try: () =>
+            fs.unlink(this.metadataPath({ workflowName, label: label ?? DEFAULT_SCHEDULE_LABEL })),
+          catch: toError,
         }).pipe(Effect.catchAll(() => Effect.void));
       }.bind(this),
     );
   }
 
   listScheduled(): Effect.Effect<readonly ScheduledWorkflow[], Error> {
-    return listScheduledFromMetadataFiles();
+    return Effect.gen(
+      function* (this: MetadataScheduler) {
+        const stored = yield* readStoredSchedules();
+        const legacy = stored.filter((record) => record.legacy);
+        if (legacy.length === 0) {
+          return stored.map((record) => record.entry);
+        }
+        for (const record of legacy) {
+          yield* this.migrateLegacy(record).pipe(Effect.catchAll(() => Effect.void));
+        }
+        return (yield* readStoredSchedules())
+          .filter((record) => !record.legacy)
+          .map((record) => record.entry);
+      }.bind(this),
+    );
   }
 
-  isScheduled(workflowName: string): Effect.Effect<boolean, Error> {
-    return isScheduledByMetadata(workflowName);
+  isScheduled(id: string): Effect.Effect<boolean, Error> {
+    const target = parseScheduleId(id);
+    return this.listScheduled().pipe(
+      Effect.map((entries) =>
+        entries.some(
+          (entry) =>
+            entry.workflowName === target.workflowName &&
+            entry.label === (target.label ?? DEFAULT_SCHEDULE_LABEL),
+        ),
+      ),
+    );
+  }
+
+  /**
+   * Reinstall a pre-label schedule as `<workflow>/default` and remove what the old version
+   * left behind, so a job keyed by the bare workflow name never keeps firing beside its
+   * replacement.
+   */
+  private migrateLegacy(record: StoredSchedule): Effect.Effect<void, Error> {
+    return Effect.gen(
+      function* (this: MetadataScheduler) {
+        const { entry } = record;
+        yield* this.removeLegacyArtifact(entry.workflowName);
+        yield* Effect.tryPromise({ try: () => fs.unlink(record.file), catch: toError }).pipe(
+          Effect.catchAll(() => Effect.void),
+        );
+        yield* this.schedule({
+          workflowName: entry.workflowName,
+          label: DEFAULT_SCHEDULE_LABEL,
+          schedule: entry.schedule,
+          agent: entry.agent,
+          ...(entry.runAtLoad !== undefined && { runAtLoad: entry.runAtLoad }),
+        });
+      }.bind(this),
+    );
+  }
+}
+
+/**
+ * macOS launchd implementation of SchedulerService.
+ */
+class LaunchdScheduler extends MetadataScheduler {
+  private readonly launchAgentsDir = path.join(os.homedir(), "Library", "LaunchAgents");
+
+  getSchedulerType(): "launchd" {
+    return "launchd";
+  }
+
+  private plistPath(label: string): string {
+    return path.join(this.launchAgentsDir, `${label}.plist`);
+  }
+
+  private unloadAndRemove(plistPath: string): Effect.Effect<void, Error> {
+    return Effect.gen(function* () {
+      yield* execCommand("launchctl", ["unload", plistPath]).pipe(
+        Effect.catchAll(() => Effect.void),
+      );
+      yield* Effect.tryPromise({ try: () => fs.unlink(plistPath), catch: toError }).pipe(
+        Effect.catchAll(() => Effect.void),
+      );
+    });
+  }
+
+  protected installArtifact(entry: ScheduleRequest): Effect.Effect<void, Error> {
+    return Effect.gen(
+      function* (this: LaunchdScheduler) {
+        const jazzInvocation = yield* getJazzSchedulerInvocation();
+        const plistContent = generateLaunchdPlist(entry, jazzInvocation);
+        const plistPath = this.plistPath(launchdLabel(scheduleId(entry)));
+
+        yield* Effect.tryPromise({
+          try: () => fs.mkdir(this.launchAgentsDir, { recursive: true }),
+          catch: toError,
+        });
+        // Unload existing job if present (ignore errors)
+        yield* execCommand("launchctl", ["unload", plistPath]).pipe(
+          Effect.catchAll(() => Effect.void),
+        );
+        yield* Effect.tryPromise({
+          try: () => fs.writeFile(plistPath, plistContent, "utf-8"),
+          catch: toError,
+        });
+        yield* execCommand("launchctl", ["load", plistPath]);
+      }.bind(this),
+    );
+  }
+
+  protected removeArtifact(id: string): Effect.Effect<void, Error> {
+    return this.unloadAndRemove(this.plistPath(launchdLabel(id)));
+  }
+
+  protected removeLegacyArtifact(workflowName: string): Effect.Effect<void, Error> {
+    return this.unloadAndRemove(this.plistPath(`com.jazz.workflow.${workflowName}`));
   }
 }
 
 /**
  * Linux cron implementation of SchedulerService.
  */
-class CronScheduler implements SchedulerService {
-  private readonly cronMarker = "# Jazz workflow:";
-
-  getSchedulerType(): "launchd" | "cron" | "unsupported" {
+class CronScheduler extends MetadataScheduler {
+  getSchedulerType(): "cron" {
     return "cron";
-  }
-
-  private getMetadataPath(workflowName: string): string {
-    return path.join(getSchedulesDirectory(), `${workflowName}.json`);
   }
 
   private getCurrentCrontab(): Effect.Effect<string, Error> {
@@ -571,198 +688,63 @@ class CronScheduler implements SchedulerService {
     return execCommandWithStdin("crontab", ["-"], content);
   }
 
-  schedule(
-    workflow: WorkflowMetadata,
-    agentId: string,
-    _options?: ScheduleOptions,
-  ): Effect.Effect<void, Error> {
+  protected installArtifact(entry: ScheduleRequest): Effect.Effect<void, Error> {
     return Effect.gen(
       function* (this: CronScheduler) {
-        if (!workflow.schedule || typeof workflow.schedule !== "string") {
-          return yield* Effect.fail(new Error(`Workflow ${workflow.name} has no schedule defined`));
-        }
-
-        const schedule = String(workflow.schedule).trim();
-        if (!isValidCronExpression(schedule)) {
-          return yield* Effect.fail(
-            new Error(`Workflow ${workflow.name} has invalid cron expression: ${schedule}`),
-          );
-        }
-
         const jazzInvocation = yield* getJazzSchedulerInvocation();
-        const workflowWithTrimmedSchedule = { ...workflow, schedule };
-        const entry = generateCrontabEntry(workflowWithTrimmedSchedule, jazzInvocation, agentId);
-        const metadataPath = this.getMetadataPath(workflow.name);
-
-        // Ensure directories exist
-        yield* Effect.tryPromise({
-          try: () => fs.mkdir(getSchedulesDirectory(), { recursive: true }),
-          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
-        });
-        yield* Effect.tryPromise({
-          try: () => fs.mkdir(path.join(getGlobalUserDataDirectory(), "logs"), { recursive: true }),
-          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
-        });
-
-        // Get current crontab
         const crontab = yield* this.getCurrentCrontab();
-
-        // Remove existing entry for this workflow
-        const lines = crontab.split("\n");
-        const filtered: string[] = [];
-        let skipNext = false;
-        for (const line of lines) {
-          if (line.includes(`${this.cronMarker} ${workflow.name}`)) {
-            skipNext = true;
-            continue;
-          }
-          if (skipNext) {
-            skipNext = false;
-            continue;
-          }
-          filtered.push(line);
-        }
-
-        // Add new entry
-        filtered.push(entry);
-
-        // Set the new crontab
-        yield* this.setCrontab(filtered.join("\n"));
-
-        // Save metadata (runAtLoad is not applicable to cron, but stored for consistency)
-        const metadata: ScheduledWorkflow = {
-          workflowName: workflow.name,
-          schedule,
-          agent: agentId,
-          enabled: true,
-          scheduledAt: new Date().toISOString(),
-        };
-        yield* Effect.tryPromise({
-          try: () => fs.writeFile(metadataPath, JSON.stringify(metadata, null, 2)),
-          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
-        });
+        const withoutOld = removeCrontabEntry(crontab, CRON_MARKER, scheduleId(entry));
+        yield* this.setCrontab(`${withoutOld}\n${generateCrontabEntry(entry, jazzInvocation)}`);
       }.bind(this),
     );
   }
 
-  unschedule(workflowName: string): Effect.Effect<void, Error> {
+  protected removeArtifact(id: string): Effect.Effect<void, Error> {
     return Effect.gen(
       function* (this: CronScheduler) {
-        const metadataPath = this.getMetadataPath(workflowName);
-
-        // Get current crontab
         const crontab = yield* this.getCurrentCrontab();
-
-        // Remove entry for this workflow
-        const lines = crontab.split("\n");
-        const filtered: string[] = [];
-        let skipNext = false;
-        for (const line of lines) {
-          if (line.includes(`${this.cronMarker} ${workflowName}`)) {
-            skipNext = true;
-            continue;
-          }
-          if (skipNext) {
-            skipNext = false;
-            continue;
-          }
-          filtered.push(line);
-        }
-
-        // Set the new crontab
-        yield* this.setCrontab(filtered.join("\n"));
-
-        // Remove metadata
-        yield* Effect.tryPromise({
-          try: () => fs.unlink(metadataPath),
-          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
-        }).pipe(Effect.catchAll(() => Effect.void));
+        yield* this.setCrontab(removeCrontabEntry(crontab, CRON_MARKER, id));
       }.bind(this),
     );
   }
 
-  listScheduled(): Effect.Effect<readonly ScheduledWorkflow[], Error> {
-    return listScheduledFromMetadataFiles();
-  }
-
-  isScheduled(workflowName: string): Effect.Effect<boolean, Error> {
-    return isScheduledByMetadata(workflowName);
+  protected removeLegacyArtifact(workflowName: string): Effect.Effect<void, Error> {
+    return Effect.gen(
+      function* (this: CronScheduler) {
+        const crontab = yield* this.getCurrentCrontab();
+        yield* this.setCrontab(removeCrontabEntry(crontab, LEGACY_CRON_MARKER, workflowName));
+      }.bind(this),
+    );
   }
 }
 
 /**
  * In-process scheduler: writes only the metadata file, no OS artifact.
  *
- * `schedule()`/`unschedule()` do nothing `launchctl`/`crontab` would otherwise need to exist
- * for — they just record intent to `~/.jazz/schedules/*.json`. Actually running a due
- * workflow is the daemon's job (`jazz daemon`'s catch-up ticker), not this class's. That
- * split matters: a container with no cron/launchd binary can still register a schedule, and
- * "in process" only differs from the other two implementations in who does the waking.
+ * Actually running a due schedule is the daemon's job (`jazz daemon`'s ticker), not this
+ * class's. That split matters: a container with no cron/launchd binary can still register a
+ * schedule, and "in process" only differs from the other two implementations in who does
+ * the waking.
  *
  * Opt-in via `JAZZ_SCHEDULER=in-process`, never the platform default: a schedule written this
  * way is inert unless something is running the ticker, and defaulting to it would silently
  * stop workflows firing for anyone not running `jazz daemon`.
  */
-export class InProcessScheduler implements SchedulerService {
-  getSchedulerType(): "launchd" | "cron" | "in-process" | "unsupported" {
+export class InProcessScheduler extends MetadataScheduler {
+  getSchedulerType(): "in-process" {
     return "in-process";
   }
 
-  private getMetadataPath(workflowName: string): string {
-    return path.join(getSchedulesDirectory(), `${workflowName}.json`);
+  protected installArtifact(): Effect.Effect<void, Error> {
+    return Effect.void;
   }
 
-  schedule(
-    workflow: WorkflowMetadata,
-    agentId: string,
-    _options?: ScheduleOptions,
-  ): Effect.Effect<void, Error> {
-    const metadataPath = this.getMetadataPath(workflow.name);
-    return Effect.gen(function* () {
-      if (!workflow.schedule || typeof workflow.schedule !== "string") {
-        return yield* Effect.fail(new Error(`Workflow ${workflow.name} has no schedule defined`));
-      }
-
-      const schedule = String(workflow.schedule).trim();
-      if (!isValidCronExpression(schedule)) {
-        return yield* Effect.fail(
-          new Error(`Workflow ${workflow.name} has invalid cron expression: ${schedule}`),
-        );
-      }
-
-      yield* Effect.tryPromise({
-        try: () => fs.mkdir(getSchedulesDirectory(), { recursive: true }),
-        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
-      });
-
-      const metadata: ScheduledWorkflow = {
-        workflowName: workflow.name,
-        schedule,
-        agent: agentId,
-        enabled: true,
-        scheduledAt: new Date().toISOString(),
-      };
-      yield* Effect.tryPromise({
-        try: () => fs.writeFile(metadataPath, JSON.stringify(metadata, null, 2)),
-        catch: (error) => (error instanceof Error ? error : new Error(String(error))),
-      });
-    });
+  protected removeArtifact(): Effect.Effect<void, Error> {
+    return Effect.void;
   }
 
-  unschedule(workflowName: string): Effect.Effect<void, Error> {
-    const metadataPath = this.getMetadataPath(workflowName);
-    return Effect.tryPromise({
-      try: () => fs.unlink(metadataPath),
-      catch: (error) => (error instanceof Error ? error : new Error(String(error))),
-    }).pipe(Effect.catchAll(() => Effect.void));
-  }
-
-  listScheduled(): Effect.Effect<readonly ScheduledWorkflow[], Error> {
-    return listScheduledFromMetadataFiles();
-  }
-
-  isScheduled(workflowName: string): Effect.Effect<boolean, Error> {
-    return isScheduledByMetadata(workflowName);
+  protected removeLegacyArtifact(): Effect.Effect<void, Error> {
+    return Effect.void;
   }
 }
 
@@ -770,21 +752,17 @@ export class InProcessScheduler implements SchedulerService {
  * Unsupported platform scheduler (no-op).
  */
 class UnsupportedScheduler implements SchedulerService {
-  getSchedulerType(): "launchd" | "cron" | "in-process" | "unsupported" {
+  getSchedulerType(): "unsupported" {
     return "unsupported";
   }
 
-  schedule(
-    _workflow: WorkflowMetadata,
-    _agentId: string,
-    _options?: ScheduleOptions,
-  ): Effect.Effect<void, Error> {
+  schedule(_request: ScheduleRequest): Effect.Effect<ScheduledWorkflow, Error> {
     return Effect.fail(
       new Error("Scheduling is not supported on this platform. Supported: macOS, Linux."),
     );
   }
 
-  unschedule(_workflowName: string): Effect.Effect<void, Error> {
+  unschedule(_id: string): Effect.Effect<void, Error> {
     return Effect.fail(
       new Error("Scheduling is not supported on this platform. Supported: macOS, Linux."),
     );
@@ -794,7 +772,7 @@ class UnsupportedScheduler implements SchedulerService {
     return Effect.succeed([]);
   }
 
-  isScheduled(_workflowName: string): Effect.Effect<boolean, Error> {
+  isScheduled(_id: string): Effect.Effect<boolean, Error> {
     return Effect.succeed(false);
   }
 }

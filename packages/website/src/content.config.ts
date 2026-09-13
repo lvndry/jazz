@@ -12,13 +12,32 @@ export const collections = {
       description: z.string().optional(),
     }),
   }),
-  marketplace: defineCollection({
-    loader: glob({ pattern: "**/{PERSONA,persona}.md", base: "./src/content/marketplace" }),
+  personas: defineCollection({
+    loader: glob({
+      pattern: "**/{PERSONA,persona}.md",
+      base: "./src/content/marketplace/personas",
+    }),
     schema: z.object({
       name: z.string(),
       description: z.string(),
       tone: z.string().optional(),
       style: z.string().optional(),
+      author: z.string().optional(),
+      tags: z.array(z.string()).default([]),
+    }),
+  }),
+  workflows: defineCollection({
+    loader: glob({
+      pattern: "**/{WORKFLOW,workflow}.md",
+      base: "./src/content/marketplace/workflows",
+    }),
+    schema: z.object({
+      name: z.string(),
+      description: z.string(),
+      schedule: z.string().optional(),
+      autoApprove: z
+        .union([z.boolean(), z.enum(["read-only", "low-risk", "high-risk"])])
+        .optional(),
       author: z.string().optional(),
       tags: z.array(z.string()).default([]),
     }),

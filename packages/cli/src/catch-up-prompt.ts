@@ -12,6 +12,7 @@ import {
   type CatchUpCandidate,
 } from "@jazz/core/workflows/catch-up";
 import { addRunRecord } from "@jazz/core/workflows/run-history";
+import { scheduleId } from "@jazz/core/workflows/scheduler-service";
 import { Effect } from "effect";
 
 function formatMissedTime(scheduledAt: Date | undefined): string {
@@ -82,7 +83,7 @@ export function promptInteractiveCatchUp() {
 
     for (const candidate of candidates) {
       const missedStr = formatMissedTime(candidate.decision.scheduledAt);
-      yield* terminal.log(`   • ${candidate.entry.workflowName} (${missedStr})`);
+      yield* terminal.log(`   • ${scheduleId(candidate.entry)} (${missedStr})`);
     }
 
     yield* terminal.log("");
@@ -95,6 +96,7 @@ export function promptInteractiveCatchUp() {
       for (const candidate of candidates) {
         yield* addRunRecord({
           workflowName: candidate.entry.workflowName,
+          scheduleLabel: candidate.entry.label,
           startedAt: skippedAt,
           completedAt: skippedAt,
           status: "skipped",
@@ -108,12 +110,12 @@ export function promptInteractiveCatchUp() {
 
     // Let user select which workflows to run
     const choices = candidates.map((c) => ({
-      name: `${c.entry.workflowName} (${formatMissedTime(c.decision.scheduledAt)})`,
-      value: c.entry.workflowName,
+      name: `${scheduleId(c.entry)} (${formatMissedTime(c.decision.scheduledAt)})`,
+      value: scheduleId(c.entry),
     }));
 
     // Pre-select all by default
-    const defaultSelected = candidates.map((c) => c.entry.workflowName);
+    const defaultSelected = candidates.map((c) => scheduleId(c.entry));
 
     yield* terminal.log("");
     const selected = yield* terminal.checkbox<string>(
@@ -128,7 +130,7 @@ export function promptInteractiveCatchUp() {
     }
 
     const entriesToRun = candidates
-      .filter((c) => selected.includes(c.entry.workflowName))
+      .filter((c) => selected.includes(scheduleId(c.entry)))
       .map((c) => c.entry);
 
     yield* terminal.log("");
@@ -144,6 +146,7 @@ export function promptInteractiveCatchUp() {
     for (const entry of entriesToRun) {
       yield* addRunRecord({
         workflowName: entry.workflowName,
+        scheduleLabel: entry.label,
         startedAt,
         status: "running",
         triggeredBy: "scheduled",
@@ -160,7 +163,7 @@ export function promptInteractiveCatchUp() {
         Effect.provide(QuietPresentationServiceLayer),
         Effect.tap(() =>
           logger.info("Background catch-up completed", {
-            workflows: entriesToRun.map((e) => e.workflowName),
+            schedules: entriesToRun.map((e) => scheduleId(e)),
           }),
         ),
       ),

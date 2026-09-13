@@ -105,31 +105,48 @@ Full contract, examples, and a complete bridge implementation:
 
 ## `jazz workflow`
 
-| Command                           | Purpose                                            |
-| --------------------------------- | -------------------------------------------------- |
-| `jazz workflow list`              | List available workflows (built-in, global, local) |
-| `jazz workflow show <name>`       | Show a workflow's prompt and metadata              |
-| `jazz workflow run <name>`        | Run once. See flags below                          |
-| `jazz workflow schedule <name>`   | Install into launchd (macOS) or cron (Linux)       |
-| `jazz workflow unschedule <name>` | Remove from the scheduler                          |
-| `jazz workflow scheduled`         | List scheduled workflows                           |
-| `jazz workflow catchup`           | List workflows that missed a slot, select, run     |
-| `jazz workflow history [name]`    | Show run history                                   |
+| Command                          | Purpose                                                                                                                             |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `jazz workflow list`             | List available workflows (built-in, global, local)                                                                                  |
+| `jazz workflow show <name>`      | Show a workflow's prompt and metadata                                                                                               |
+| `jazz workflow run <name>`       | Run once. See flags below                                                                                                           |
+| `jazz workflow schedule <name>`  | Install a schedule: the workflow's own frequency, or `--cron "<expr>"` for another. `--as <label>` names it                         |
+| `jazz workflow unschedule <id>`  | Remove a schedule by `<name>/<label>`, or by `<name>` to pick among its schedules                                                   |
+| `jazz workflow scheduled [name]` | List every installed schedule, or one workflow's                                                                                    |
+| `jazz workflow catchup`          | List workflows that missed a slot, select, run                                                                                      |
+| `jazz workflow history [name]`   | Show run history                                                                                                                    |
+| `jazz workflow browse`           | Browse the marketplace and install a workflow (interactive). `--refresh`                                                            |
+| `jazz workflow search`           | List every workflow the marketplace offers. `--refresh`                                                                             |
+| `jazz workflow install <name>`   | Install a marketplace workflow into `~/.jazz/workflows/`. `--as <name>` (local name), `-y`/`--yes` (skip confirmation), `--refresh` |
+
+`install` prints the whole `WORKFLOW.md`, frontmatter included, and asks before writing it: the
+frontmatter decides what the workflow may do unattended, so non-interactive runs must pass `--yes`.
+The catalog is cached under `<jazz home>/cache/workflow-registry.json` and keeps working offline;
+`JAZZ_MARKETPLACE_URL` points Jazz at a self-hosted marketplace.
 
 ### `jazz workflow run` flags
 
-| Flag                     | Purpose                                                                     |
-| ------------------------ | --------------------------------------------------------------------------- |
-| `--auto-approve`         | Apply the workflow's own `autoApprove:` policy instead of prompting         |
-| `--agent <agentId>`      | Override the agent for this run                                             |
-| `--max-iterations <n>`   | Override the workflow's iteration cap                                       |
-| `--max-cost-usd <$>`     | Override the workflow's spend cap                                           |
-| `--max-tokens <n>`       | Override the workflow's token cap                                           |
-| `--max-duration-ms <ms>` | Override the workflow's wall-clock budget (50/80/90% agent pressure nudges) |
-| `--json`                 | One JSON envelope on stdout; all chatter suppressed                         |
-| `--timeout <ms>`         | Abort after this many milliseconds (hard external kill, no warning)         |
-| `--events <categories>`  | NDJSON progress on stderr. **Requires `--json`**: otherwise it errors       |
-| `--scheduled`            | Marks the run as scheduler-triggered (set automatically by launchd/cron)    |
+| Flag                     | Purpose                                                                       |
+| ------------------------ | ----------------------------------------------------------------------------- |
+| `--auto-approve`         | Apply the workflow's own `autoApprove:` policy instead of prompting           |
+| `--agent <agentId>`      | Override the agent for this run                                               |
+| `--max-iterations <n>`   | Override the workflow's iteration cap                                         |
+| `--max-cost-usd <$>`     | Override the workflow's spend cap                                             |
+| `--max-tokens <n>`       | Override the workflow's token cap                                             |
+| `--max-duration-ms <ms>` | Override the workflow's wall-clock budget (50/80/90% agent pressure nudges)   |
+| `--json`                 | One JSON envelope on stdout; all chatter suppressed                           |
+| `--timeout <ms>`         | Abort after this many milliseconds (hard external kill, no warning)           |
+| `--events <categories>`  | NDJSON progress on stderr. **Requires `--json`**: otherwise it errors         |
+| `--scheduled`            | Marks the run as scheduler-triggered (set automatically by launchd/cron)      |
+| `--schedule <id>`        | Which schedule fired, as `<name>/<label>` (set automatically by launchd/cron) |
+
+### Several schedules for one workflow
+
+A workflow is a definition; a schedule binds it to a cron. `schedule <name>` installs
+`<name>/default` from the frontmatter `schedule:` line. `schedule <name> --cron "0 9 1 * *" --as monthly`
+adds `<name>/monthly` beside it, so the same recap runs weekly and monthly. Each schedule keeps its
+own last-run marker, and the prompt can read `{schedule.label}`, `{schedule.cron}`,
+`{schedule.lastRunAt}`, and `{run.startedAt}`. See [Workflows](./concepts/workflows.md#several-schedules-one-workflow).
 
 Frontmatter fields: [Workflow frontmatter](./configure/workflows.md).
 
@@ -297,8 +314,8 @@ for both paths.
 
 `install` prints the full system prompt and asks before writing it: a persona becomes an agent's
 instructions, so non-interactive runs must pass `--yes`. The catalog is cached under
-`<jazz home>/cache/persona-registry.json` and keeps working offline; `JAZZ_PERSONA_REGISTRY_URL`
-points Jazz at a self-hosted catalog.
+`<jazz home>/cache/persona-registry.json` and keeps working offline; `JAZZ_MARKETPLACE_URL`
+points Jazz at a self-hosted marketplace.
 
 See [Personas](./concepts/personas.md).
 

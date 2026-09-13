@@ -38,7 +38,7 @@ maxDurationMs: 1800000
 | `name`             | string      | ✅       | Workflow identifier used by every `jazz workflow` command                                                                                                 |
 | `description`      | string      | ✅       | One-line summary shown in `jazz workflow list`                                                                                                            |
 | `agent`            | string      | no       | Agent id or name to run this workflow with. Overridable at runtime with `--agent`                                                                         |
-| `schedule`         | cron string | no       | When to run. Required only if you intend to `jazz workflow schedule` it                                                                                   |
+| `schedule`         | cron string | no       | When to run. Default frequency for `jazz workflow schedule`; `--cron` installs another beside it                                                          |
 | `autoApprove`      | see below   | no       | Autonomy tier for unattended runs                                                                                                                         |
 | `skills`           | string[]    | no       | Skills to make available to the agent for this workflow                                                                                                   |
 | `catchUpOnRestart` | boolean     | no       | Whether a recent missed run may be replayed after daemon restart                                                                                          |
@@ -140,3 +140,15 @@ Discovered in this order; later overrides earlier on name collision:
 - [Guides](../guides/index.md): complete, code-backed recipes
 - [Surfaces → Scheduled](../surfaces/scheduled.md): running them unattended
 - [Workflow commands](../commands.md#jazz-workflow): invocation and scheduling flags
+
+## Run-time placeholders
+
+The body may use these; Jazz fills them when the run starts, so one definition can serve
+several [schedules](../concepts/workflows.md#several-schedules-one-workflow).
+
+| Placeholder            | Value                                                         |
+| ---------------------- | ------------------------------------------------------------- |
+| `{schedule.label}`     | Label of the schedule that fired, `manual` for a terminal run |
+| `{schedule.cron}`      | Its cron expression, empty for a manual run                   |
+| `{schedule.lastRunAt}` | ISO time this workflow last completed under that label        |
+| `{run.startedAt}`      | ISO time this run started                                     |

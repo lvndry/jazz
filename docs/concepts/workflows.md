@@ -8,25 +8,25 @@ A workflow is a Markdown file. The body is the prompt. The frontmatter says how 
 
 ```markdown
 ---
-name: weekly-review
-description: "Review repository changes every Friday."
-agent: reviewer
+name: merged-pr-recap
+description: "Recap the pull requests merged since this schedule last ran."
 schedule: "0 17 * * 5"
 autoApprove: read-only
 maxIterations: 40
 maxCostUSD: 1.00
 ---
 
-# Weekly repository review
+# Merged pull requests recap
 
-Inspect commits from the last seven days. Report regressions, risky changes, and missing tests.
+List every pull request merged between {schedule.lastRunAt} and {run.startedAt}, grouped by
+theme. This is the {schedule.label} recap.
 ```
 
-Save that as `workflows/weekly-review/WORKFLOW.md` and you can run it by name:
+Save that as `workflows/merged-pr-recap/WORKFLOW.md` and you can run it by name:
 
 ```bash
-jazz workflow run weekly-review        # now
-jazz workflow schedule weekly-review   # every Friday at 5pm
+jazz workflow run merged-pr-recap        # now
+jazz workflow schedule merged-pr-recap   # every Friday at 5pm, as merged-pr-recap/default
 ```
 
 You could paste the same prompt into a chat instead. The file gives you three things a paste
@@ -37,7 +37,7 @@ does not: a name, a schedule, and a diff when somebody changes it.
 | Field                    | Decides                             |
 | ------------------------ | ----------------------------------- |
 | `agent`                  | Who runs it                         |
-| `schedule`               | When, as a cron expression          |
+| `schedule`               | Its default frequency, as a cron    |
 | `autoApprove`            | What it may do with nobody watching |
 | `maxCostUSD` and friends | When to stop                        |
 
@@ -57,6 +57,65 @@ Every field is listed in [workflow frontmatter](../configure/workflows.md).
 
 Closest wins. A repository can have its own `code-review` without touching yours.
 
+## Built-in workflows
+
+Three ship with Jazz, as much to show the format as to be useful on day one:
+
+| Workflow           | Schedule           | Unattended tier |
+| ------------------ | ------------------ | --------------- |
+| `weather-briefing` | every morning at 7 | `read-only`     |
+| `email-cleanup`    | hourly             | `low-risk`      |
+| `market-analysis`  | every morning at 6 | `true`          |
+
+`jazz workflow run <name>` runs one now, `jazz workflow schedule <name>` puts it on its clock. To
+change a built-in, copy its directory into `~/.jazz/workflows/` and edit the copy; the copy shadows
+the original. The files, with a longer walkthrough, are in
+[`workflows/`](../../workflows/README.md) in the repository.
+
+## Several schedules, one workflow
+
+A workflow is a process definition. A **schedule** binds it to a cron and an agent, and one
+workflow can have several. The id of a schedule is `<workflow>/<label>`; the frontmatter
+frequency installs as `default`.
+
+```bash
+jazz workflow schedule merged-pr-recap                                  # merged-pr-recap/default, Fridays
+jazz workflow schedule merged-pr-recap --cron "0 9 1 * *" --as monthly  # merged-pr-recap/monthly
+jazz workflow scheduled merged-pr-recap                                 # both, with their crons
+jazz workflow unschedule merged-pr-recap/monthly                        # just that one
+```
+
+The same file serves both because the prompt can read who fired it:
+
+| Placeholder            | Value                                                     |
+| ---------------------- | --------------------------------------------------------- |
+| `{schedule.label}`     | `default`, `monthly`, or `manual` for `jazz workflow run` |
+| `{schedule.cron}`      | the cron that fired, empty for a manual run               |
+| `{schedule.lastRunAt}` | when this workflow last completed under the same label    |
+| `{run.startedAt}`      | now                                                       |
+
+Each label keeps its own last-run marker, so the monthly recap covers the whole month even though
+the weekly one ran four times in between. Catch-up treats each schedule on its own for the same
+reason. Two schedules of one workflow may not share a cron.
+
+Schedules created before labels existed are re-installed as `<name>/default` the first time Jazz
+lists them.
+
+## The marketplace
+
+Other people's workflows are one command away:
+
+```bash
+jazz workflow browse             # pick one, read the whole file, install it
+jazz workflow search             # list what the marketplace offers
+jazz workflow install <name>     # straight to ~/.jazz/workflows/<name>/WORKFLOW.md
+```
+
+Installing prints the full `WORKFLOW.md`, frontmatter first, and asks. That is deliberate: the
+frontmatter is where `autoApprove` lives, and a workflow you did not write gets to run unattended
+only with the tier you read and accepted. `--as <name>` installs under a different local name.
+Contributing one is a pull request: [CONTRIBUTING.md](../../CONTRIBUTING.md#contributing-to-the-marketplace).
+
 ## Workflow, skill, or agent?
 
 A **workflow** is a job: this prompt, this agent, these limits.
@@ -72,7 +131,7 @@ Friday, the skill says how that kind of work is done.
 ## Try it in the terminal first
 
 ```bash
-jazz workflow run weekly-review --auto-approve
+jazz workflow run merged-pr-recap --auto-approve
 ```
 
 This is the same code path the scheduler uses. If it works here, it works on Friday.

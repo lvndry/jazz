@@ -1,7 +1,7 @@
-import { getMarketplaceEntries, type MarketplaceEntry } from "../../../lib/marketplace";
+import { getPersonaEntries, type PersonaEntry } from "../../../lib/marketplace";
 
 export async function getStaticPaths() {
-  const entries = await getMarketplaceEntries();
+  const entries = await getPersonaEntries();
   return entries.map((entry) => ({
     params: { name: entry.data.name },
     props: { entry },
@@ -9,7 +9,7 @@ export async function getStaticPaths() {
 }
 
 /** The raw `PERSONA.md`, exactly as `jazz persona install` parses it. */
-export function GET(context: { props: { entry: MarketplaceEntry } }): Response {
+export function GET(context: { props: { entry: PersonaEntry } }): Response {
   const { entry } = context.props;
   const { name, description, tone, style, author, tags } = entry.data;
   const frontmatter = [

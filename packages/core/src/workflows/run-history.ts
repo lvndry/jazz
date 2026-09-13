@@ -15,6 +15,11 @@ import { withLock, writeFileStringAtomic } from "@/core/utils/storage";
  */
 export interface WorkflowRunRecord {
   readonly workflowName: string;
+  /**
+   * Which schedule fired this run (`default`, `monthly`, ...), or `manual` for a
+   * terminal run. Missing on records written before schedules had labels.
+   */
+  readonly scheduleLabel?: string;
   readonly startedAt: string;
   readonly completedAt?: string;
   readonly status: "running" | "completed" | "failed" | "skipped";
@@ -22,6 +27,38 @@ export interface WorkflowRunRecord {
   readonly triggeredBy: "manual" | "scheduled";
   readonly costUSD?: number;
   readonly tokenUsage?: { readonly promptTokens: number; readonly completionTokens: number };
+}
+
+/** Label of a run started by hand rather than by a schedule. */
+export const MANUAL_RUN_LABEL = "manual";
+
+/**
+ * The schedule label a record belongs to, reading pre-label records the way the
+ * migration does: a scheduled one was the workflow's single `default` schedule.
+ */
+export function runScheduleLabel(record: WorkflowRunRecord): string {
+  if (record.scheduleLabel !== undefined) return record.scheduleLabel;
+  return record.triggeredBy === "scheduled" ? "default" : MANUAL_RUN_LABEL;
+}
+
+/**
+ * When this workflow last completed under this label. Each schedule keeps its own
+ * marker, so a monthly recap covers the whole month even when the weekly one ran
+ * in between.
+ */
+export function lastCompletedRunAt(
+  history: readonly WorkflowRunRecord[],
+  workflowName: string,
+  label: string,
+): string | undefined {
+  let latest: string | undefined;
+  for (const record of history) {
+    if (record.workflowName !== workflowName || record.status !== "completed") continue;
+    if (runScheduleLabel(record) !== label) continue;
+    const completedAt = record.completedAt ?? record.startedAt;
+    if (latest === undefined || completedAt > latest) latest = completedAt;
+  }
+  return latest;
 }
 
 /**

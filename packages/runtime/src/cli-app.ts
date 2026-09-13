@@ -1593,6 +1593,10 @@ function registerWorkflowCommands(program: Command): void {
       "Indicates this run was triggered by the system scheduler (launchd/cron)",
     )
     .option(
+      "--schedule <id>",
+      "Which schedule fired this run, as <workflow>/<label>; set by launchd/cron alongside --scheduled",
+    )
+    .option(
       "--json",
       "Emit a single JSON envelope { ok, answer, costUSD, tokenUsage, toolCalls } on stdout (for scripts/gateways); all chatter is suppressed",
     )
@@ -1626,6 +1630,7 @@ function registerWorkflowCommands(program: Command): void {
           events?: string;
           stream?: boolean;
           noStream?: boolean;
+          schedule?: string;
         },
         command: Command,
       ) => {
@@ -1662,6 +1667,7 @@ function registerWorkflowCommands(program: Command): void {
             import("@jazz/cli/commands/workflow").then((mod) =>
               mod.runWorkflowCommand(name, {
                 ...options,
+                ...(options.schedule !== undefined ? { scheduleId: options.schedule } : {}),
                 ...(options.timeout !== undefined ? { timeoutMs: options.timeout } : {}),
                 ...(options.maxCostUsd !== undefined ? { maxCostUSD: options.maxCostUsd } : {}),
                 ...(eventCategories?.ok ? { eventTypes: eventCategories.types } : {}),
@@ -1676,18 +1682,28 @@ function registerWorkflowCommands(program: Command): void {
 
   workflowCommand
     .command("schedule <name>")
-    .description("Enable scheduled execution for a workflow")
-    .action((name: string) =>
+    .description("Install a schedule for a workflow: its own frequency, or another with --cron")
+    .option("--cron <expr>", "Cron expression to run on, instead of the workflow's schedule: field")
+    .option(
+      "--as <label>",
+      "Label for this schedule, so one workflow can run at several frequencies",
+    )
+    .action((name: string, options: { cron?: string; as?: string }) =>
       runCliAction(
         () =>
-          import("@jazz/cli/commands/workflow").then((mod) => mod.scheduleWorkflowCommand(name)),
+          import("@jazz/cli/commands/workflow").then((mod) =>
+            mod.scheduleWorkflowCommand(name, {
+              ...(options.cron !== undefined ? { cron: options.cron } : {}),
+              ...(options.as !== undefined ? { as: options.as } : {}),
+            }),
+          ),
         cliRuntimeOptions(program),
       ),
     );
 
   workflowCommand
     .command("unschedule <name>")
-    .description("Disable scheduled execution for a workflow")
+    .description("Remove a schedule: <name>/<label>, or <name> to pick among its schedules")
     .action((name: string) =>
       runCliAction(
         () =>
@@ -1697,12 +1713,14 @@ function registerWorkflowCommands(program: Command): void {
     );
 
   workflowCommand
-    .command("scheduled")
-    .description("List all scheduled workflows")
-    .action(() =>
+    .command("scheduled [name]")
+    .description("List every installed schedule, or one workflow's")
+    .action((name?: string) =>
       runCliAction(
         () =>
-          import("@jazz/cli/commands/workflow").then((mod) => mod.listScheduledWorkflowsCommand()),
+          import("@jazz/cli/commands/workflow").then((mod) =>
+            mod.listScheduledWorkflowsCommand(name),
+          ),
         cliRuntimeOptions(program),
       ),
     );
@@ -1725,6 +1743,56 @@ function registerWorkflowCommands(program: Command): void {
       runCliAction(
         () => import("@jazz/cli/commands/workflow").then((mod) => mod.workflowHistoryCommand(name)),
         cliRuntimeOptions(program),
+      ),
+    );
+
+  workflowCommand
+    .command("browse")
+    .description("Browse the workflow marketplace and install a workflow (interactive)")
+    .option("--refresh", "Re-fetch the catalog instead of using the cached snapshot")
+    .action((options: { refresh?: boolean }) =>
+      runCliAction(
+        () =>
+          import("@jazz/cli/commands/workflow-marketplace").then((mod) =>
+            mod.browseWorkflowMarketplaceCommand({ refresh: options.refresh === true }),
+          ),
+        cliRuntimeOptions(program),
+        { session: true },
+      ),
+    );
+
+  workflowCommand
+    .command("search")
+    .description("List every workflow the marketplace offers")
+    .option("--refresh", "Re-fetch the catalog instead of using the cached snapshot")
+    .action((options: { refresh?: boolean }) =>
+      runCliAction(
+        () =>
+          import("@jazz/cli/commands/workflow-marketplace").then((mod) =>
+            mod.listMarketplaceWorkflowsCommand({ refresh: options.refresh === true }),
+          ),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  workflowCommand
+    .command("install <name>")
+    .description("Install a workflow from the marketplace into ~/.jazz/workflows/")
+    .option("--as <name>", "Install under a different local name")
+    .option("-y, --yes", "Skip the confirmation prompt (required when non-interactive)")
+    .option("--refresh", "Re-fetch the catalog instead of using the cached snapshot")
+    .action((name: string, options: { as?: string; yes?: boolean; refresh?: boolean }) =>
+      runCliAction(
+        () =>
+          import("@jazz/cli/commands/workflow-marketplace").then((mod) =>
+            mod.installWorkflowCommand(name, {
+              ...(options.as !== undefined ? { as: options.as } : {}),
+              yes: options.yes === true,
+              refresh: options.refresh === true,
+            }),
+          ),
+        cliRuntimeOptions(program),
+        { session: true },
       ),
     );
 }

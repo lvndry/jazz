@@ -11,12 +11,19 @@ import { LoggerServiceTag } from "@/core/interfaces/logger";
 import { normalizeCronExpression } from "@/core/utils/cron";
 import {
   addRunRecord,
+  lastCompletedRunAt,
   loadRunHistory,
+  runScheduleLabel,
   updateLatestRunRecord,
   type WorkflowRunRecord,
 } from "@/core/workflows/run-history";
-import { SchedulerServiceTag, type ScheduledWorkflow } from "@/core/workflows/scheduler-service";
+import {
+  scheduleId,
+  SchedulerServiceTag,
+  type ScheduledWorkflow,
+} from "@/core/workflows/scheduler-service";
 import { WorkflowServiceTag, type WorkflowMetadata } from "@/core/workflows/workflow-service";
+import { renderWorkflowPrompt } from "@/core/workflows/workflow-utils";
 
 export interface CatchUpDecision {
   readonly shouldRun: boolean;
@@ -40,6 +47,10 @@ interface WorkflowRunSnapshot {
   readonly lastRunStatus?: WorkflowRunRecord["status"];
 }
 
+/**
+ * Latest run per schedule id. Keyed by `<workflow>/<label>` rather than by workflow,
+ * because a weekly run satisfying the monthly slot would silently skip the monthly recap.
+ */
 function getLastRunSnapshot(
   history: readonly WorkflowRunRecord[],
 ): Map<string, WorkflowRunSnapshot> {
@@ -50,9 +61,10 @@ function getLastRunSnapshot(
     const parsed = new Date(timestamp);
     if (Number.isNaN(parsed.getTime())) continue;
 
-    const existing = map.get(record.workflowName);
+    const key = `${record.workflowName}/${runScheduleLabel(record)}`;
+    const existing = map.get(key);
     if (!existing || !existing.lastRunAt || parsed.getTime() > existing.lastRunAt.getTime()) {
-      map.set(record.workflowName, {
+      map.set(key, {
         workflowName: record.workflowName,
         lastRunAt: parsed,
         lastRunStatus: record.status,
@@ -121,8 +133,8 @@ export function decideCatchUp(
   return { shouldRun: true, reason: "missed run", scheduledAt };
 }
 
-function formatAgentRunId(workflowName: string, now: Date): string {
-  return `workflow-${workflowName}-catchup-${now.getTime()}`;
+function formatAgentRunId(entry: ScheduledWorkflow, now: Date): string {
+  return `workflow-${entry.workflowName}-${entry.label}-catchup-${now.getTime()}`;
 }
 
 /**
@@ -153,8 +165,13 @@ export function getCatchUpCandidates() {
 
       if (!workflow) continue;
 
-      const snapshot = lastRunMap.get(entry.workflowName);
-      const decision = decideCatchUp(workflow, snapshot?.lastRunAt, now, snapshot?.lastRunStatus);
+      const snapshot = lastRunMap.get(scheduleId(entry));
+      const decision = decideCatchUp(
+        { ...workflow, schedule: entry.schedule },
+        snapshot?.lastRunAt,
+        now,
+        snapshot?.lastRunStatus,
+      );
 
       if (decision.shouldRun) {
         candidates.push({ entry, workflow, decision });
@@ -200,11 +217,8 @@ export function runCatchUpForWorkflows(
     // Only load history and re-check decisions when records were not pre-created.
     // When the interactive prompt pre-creates records, re-checking would find
     // "already ran" (because the record exists) and skip execution entirely.
-    let lastRunMap: Map<string, WorkflowRunSnapshot> | undefined;
-    if (!options.recordsPreCreated) {
-      const history = yield* loadRunHistory().pipe(Effect.catchAll(() => Effect.succeed([])));
-      lastRunMap = getLastRunSnapshot(history);
-    }
+    const history = yield* loadRunHistory().pipe(Effect.catchAll(() => Effect.succeed([])));
+    const lastRunMap = options.recordsPreCreated ? undefined : getLastRunSnapshot(history);
 
     for (const entry of entries) {
       const workflow = yield* workflowService
@@ -218,10 +232,10 @@ export function runCatchUpForWorkflows(
         continue;
       }
 
-      if (!options.recordsPreCreated && lastRunMap) {
-        const snapshot = lastRunMap.get(entry.workflowName);
+      if (lastRunMap) {
+        const snapshot = lastRunMap.get(scheduleId(entry));
         const decision = decideCatchUp(
-          workflow,
+          { ...workflow, schedule: entry.schedule },
           snapshot?.lastRunAt,
           now,
           snapshot?.lastRunStatus,
@@ -257,15 +271,16 @@ export function runCatchUpForWorkflows(
       }
 
       yield* logger.info("Running workflow catch-up", {
-        workflow: entry.workflowName,
+        schedule: scheduleId(entry),
         agent: entry.agent,
       });
 
+      const startedAt = new Date().toISOString();
       // Only create run records if they weren't pre-created by the caller.
       if (!options.recordsPreCreated) {
-        const startedAt = new Date().toISOString();
         yield* addRunRecord({
           workflowName: entry.workflowName,
+          scheduleLabel: entry.label,
           startedAt,
           status: "running",
           triggeredBy: "scheduled",
@@ -273,11 +288,17 @@ export function runCatchUpForWorkflows(
       }
 
       const autoApprovePolicy = workflow.autoApprove ?? true;
-      const runId = formatAgentRunId(entry.workflowName, now);
+      const runId = formatAgentRunId(entry, now);
+      const prompt = renderWorkflowPrompt(workflowContent.prompt, {
+        label: entry.label,
+        cron: entry.schedule,
+        lastRunAt: lastCompletedRunAt(history, entry.workflowName, entry.label),
+        startedAt,
+      });
 
       yield* AgentRunner.run({
         agent: agentResult.right,
-        userInput: workflowContent.prompt,
+        userInput: prompt,
         conversationId: runId,
         pinInitialMessage: true,
         ...(workflow.maxIterations != null ? { maxIterations: workflow.maxIterations } : {}),
@@ -343,9 +364,9 @@ export function runInProcessScheduledWorkflows() {
         .pipe(Effect.catchAll(() => Effect.succeed(undefined)));
       if (!workflow) continue;
 
-      const snapshot = lastRunMap.get(entry.workflowName);
+      const snapshot = lastRunMap.get(scheduleId(entry));
       const decision = decideCatchUp(
-        workflow,
+        { ...workflow, schedule: entry.schedule },
         snapshot?.lastRunAt,
         now,
         snapshot?.lastRunStatus,

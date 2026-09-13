@@ -7,7 +7,7 @@ import { makeOneShotPresentationServiceLayer } from "@jazz/core/presentation/one
 import type { Agent } from "@jazz/core/types/agent";
 import type { StreamEvent } from "@jazz/core/types/streaming";
 import { generateConversationId } from "@jazz/core/utils/conversation-id";
-import { describeCronSchedule } from "@jazz/core/utils/cron";
+import { describeCronSchedule, isValidCronExpression } from "@jazz/core/utils/cron";
 import { agentModelString } from "@jazz/core/utils/provider-model";
 import {
   getCatchUpCandidates,
@@ -18,12 +18,26 @@ import {
   addRunRecord,
   getRecentRuns,
   getRunHistoryFilePath,
+  lastCompletedRunAt,
   loadRunHistory,
+  MANUAL_RUN_LABEL,
+  runScheduleLabel,
   updateLatestRunRecord,
 } from "@jazz/core/workflows/run-history";
-import { SchedulerServiceTag } from "@jazz/core/workflows/scheduler-service";
+import {
+  DEFAULT_SCHEDULE_LABEL,
+  deriveScheduleLabel,
+  parseScheduleId,
+  scheduleId,
+  SchedulerServiceTag,
+  type ScheduledWorkflow,
+} from "@jazz/core/workflows/scheduler-service";
 import { WorkflowServiceTag, type WorkflowMetadata } from "@jazz/core/workflows/workflow-service";
-import { formatWorkflow, groupWorkflows } from "@jazz/core/workflows/workflow-utils";
+import {
+  formatWorkflow,
+  groupWorkflows,
+  renderWorkflowPrompt,
+} from "@jazz/core/workflows/workflow-utils";
 import { Duration, Effect } from "effect";
 import { store } from "@/cli/ui/store";
 import { separatorLine } from "@/cli/utils/string-utils";
@@ -154,7 +168,7 @@ export function showWorkflowCommand(workflowName: string) {
       const scheduleDisplay = desc
         ? `${desc} (${workflow.metadata.schedule})`
         : workflow.metadata.schedule;
-      yield* terminal.log(`Schedule: ${scheduleDisplay}`);
+      yield* terminal.log(`Default frequency: ${scheduleDisplay}`);
     }
 
     if (workflow.metadata.autoApprove !== undefined) {
@@ -203,6 +217,8 @@ export function runWorkflowCommand(
     /** Wall-clock budget in ms, checked between iterations. Overrides the workflow's own setting. */
     maxDurationMs?: number;
     scheduled?: boolean;
+    /** Id of the schedule that fired this run (`<workflow>/<label>`), passed by launchd and cron. */
+    scheduleId?: string;
     /** Emit a single JSON envelope on stdout (same shape as `jazz run --json`) and suppress terminal chatter. */
     json?: boolean;
     /** Abort the run after this many milliseconds. */
@@ -234,6 +250,9 @@ export function runWorkflowCommand(
     // the agent picker, so missing agents must fail fast.
     const isNonInteractive = options?.autoApprove === true || jsonMode;
     const isSchedulerTriggered = options?.scheduled === true;
+    const scheduleLabel = isSchedulerTriggered
+      ? (parseScheduleId(options?.scheduleId ?? workflowName).label ?? DEFAULT_SCHEDULE_LABEL)
+      : MANUAL_RUN_LABEL;
 
     // When triggered by the system scheduler (--scheduled), guard against RunAtLoad
     // firing the workflow immediately when the plist is first loaded during
@@ -250,7 +269,9 @@ export function runWorkflowCommand(
       const allScheduled = yield* scheduler
         .listScheduled()
         .pipe(Effect.catchAll(() => Effect.succeed([] as const)));
-      const scheduleMeta = allScheduled.find((s) => s.workflowName === workflowName);
+      const scheduleMeta = allScheduled.find(
+        (s) => s.workflowName === workflowName && s.label === scheduleLabel,
+      );
 
       if (scheduleMeta?.scheduledAt) {
         const scheduledAtTime = new Date(scheduleMeta.scheduledAt).getTime();
@@ -262,7 +283,7 @@ export function runWorkflowCommand(
           now - scheduledAtTime < RECENT_SCHEDULE_THRESHOLD_MS
         ) {
           yield* logger.info("Scheduler-triggered run skipped: workflow was just scheduled", {
-            workflow: workflowName,
+            schedule: scheduleId(scheduleMeta),
             scheduledAt: scheduleMeta.scheduledAt,
             elapsedMs: now - scheduledAtTime,
           });
@@ -282,6 +303,7 @@ export function runWorkflowCommand(
     const triggeredBy = isSchedulerTriggered ? ("scheduled" as const) : ("manual" as const);
     yield* addRunRecord({
       workflowName,
+      scheduleLabel,
       startedAt,
       status: "running",
       triggeredBy,
@@ -386,8 +408,25 @@ export function runWorkflowCommand(
     yield* say(() => terminal.log(""));
     yield* logger.info("Starting workflow execution", {
       workflow: workflowName,
+      schedule: scheduleLabel,
       agent: agent.name,
       autoApprove: autoApprovePolicy,
+    });
+
+    const history = yield* loadRunHistory().pipe(Effect.catchAll(() => Effect.succeed([])));
+    const firedBy = isSchedulerTriggered
+      ? yield* Effect.flatMap(SchedulerServiceTag, (scheduler) => scheduler.listScheduled()).pipe(
+          Effect.map((all) =>
+            all.find((s) => s.workflowName === workflowName && s.label === scheduleLabel),
+          ),
+          Effect.catchAll(() => Effect.succeed(undefined)),
+        )
+      : undefined;
+    const prompt = renderWorkflowPrompt(workflow.prompt, {
+      label: scheduleLabel,
+      cron: firedBy?.schedule ?? "",
+      lastRunAt: lastCompletedRunAt(history, workflowName, scheduleLabel),
+      startedAt,
     });
 
     // Run the agent with the workflow prompt. Cap precedence for maxIterations,
@@ -399,7 +438,7 @@ export function runWorkflowCommand(
     const resolvedMaxDurationMs = options?.maxDurationMs ?? workflow.metadata.maxDurationMs;
     const runEffect = AgentRunner.run({
       agent,
-      userInput: workflow.prompt,
+      userInput: prompt,
       conversationId: generateConversationId(`workflow-${workflowName}`),
       pinInitialMessage: true,
       ...(resolvedMaxIterations != null ? { maxIterations: resolvedMaxIterations } : {}),
@@ -511,9 +550,18 @@ export function runWorkflowCommand(
 }
 
 /**
- * Schedule a workflow for periodic execution.
+ * Install one schedule for a workflow: `<name>/default` from its frontmatter cron, or
+ * another label from `--cron`, so one workflow can run at several frequencies.
  */
-export function scheduleWorkflowCommand(workflowName: string) {
+export function scheduleWorkflowCommand(
+  workflowName: string,
+  options?: {
+    /** Cron expression to run on, instead of the workflow's own `schedule:` field. */
+    cron?: string;
+    /** Label for this schedule. Default: `default`, or a slug of the cron when `--cron` is given. */
+    as?: string;
+  },
+) {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
     const workflowService = yield* WorkflowServiceTag;
@@ -522,7 +570,13 @@ export function scheduleWorkflowCommand(workflowName: string) {
     yield* terminal.heading(`⏰ Scheduling workflow: ${workflowName}`);
     yield* terminal.log("");
 
-    // Load the workflow to verify it exists and has a schedule
+    if (options?.cron !== undefined && !isValidCronExpression(options.cron)) {
+      yield* terminal.error(`"${options.cron}" is not a valid cron expression.`);
+      yield* terminal.info('Five fields, e.g. --cron "0 9 * * 1-5" for weekdays at 09:00.');
+      return yield* Effect.fail(new Error(`Invalid cron expression: ${options.cron}`));
+    }
+
+    // Load the workflow to verify it exists
     const workflow = yield* workflowService.loadWorkflow(workflowName).pipe(
       Effect.catchAll((error) =>
         Effect.gen(function* () {
@@ -533,17 +587,24 @@ export function scheduleWorkflowCommand(workflowName: string) {
       ),
     );
 
-    if (!workflow.metadata.schedule) {
-      yield* terminal.error(`Workflow '${workflowName}' has no schedule defined.`);
-      yield* terminal.info("Add a 'schedule' field to the workflow's WORKFLOW.md frontmatter.");
-      yield* terminal.log("");
-      yield* terminal.log("Example:");
+    const cron = (options?.cron ?? workflow.metadata.schedule)?.trim();
+    if (cron === undefined || cron.length === 0) {
+      yield* terminal.error(`Workflow '${workflowName}' has no default frequency.`);
+      yield* terminal.info(
+        `Pass one: jazz workflow schedule ${workflowName} --cron "0 * * * *"  (every hour)`,
+      );
+      yield* terminal.info("Or add a 'schedule' field to the workflow's WORKFLOW.md frontmatter:");
       yield* terminal.log("  ---");
       yield* terminal.log("  name: my-workflow");
-      yield* terminal.log('  schedule: "0 * * * *"  # Every hour');
+      yield* terminal.log('  schedule: "0 * * * *"');
       yield* terminal.log("  ---");
-      return;
+      return yield* Effect.fail(new Error(`Workflow ${workflowName} has no schedule`));
     }
+
+    const label =
+      options?.as ??
+      (options?.cron === undefined ? DEFAULT_SCHEDULE_LABEL : deriveScheduleLabel(cron));
+    const id = scheduleId({ workflowName, label });
 
     const schedulerType = scheduler.getSchedulerType();
     if (schedulerType === "unsupported") {
@@ -552,10 +613,17 @@ export function scheduleWorkflowCommand(workflowName: string) {
       return;
     }
 
-    // Check if already scheduled
-    const isScheduled = yield* scheduler.isScheduled(workflowName);
-    if (isScheduled) {
-      yield* terminal.info(`Workflow '${workflowName}' is already scheduled. Updating...`);
+    const existing = yield* scheduler.listScheduled();
+    const sameWorkflow = existing.filter((entry) => entry.workflowName === workflowName);
+    const sameCron = sameWorkflow.find((entry) => entry.schedule === cron && entry.label !== label);
+    if (sameCron !== undefined) {
+      yield* terminal.error(
+        `'${scheduleId(sameCron)}' already runs ${workflowName} on ${cron}. Two schedules with one cron would run it twice.`,
+      );
+      return yield* Effect.fail(new Error(`Duplicate cron for ${workflowName}: ${cron}`));
+    }
+    if (sameWorkflow.some((entry) => entry.label === label)) {
+      yield* terminal.info(`'${id}' is already scheduled. Updating...`);
     }
 
     // Determine which agent to use for scheduled runs
@@ -616,16 +684,24 @@ export function scheduleWorkflowCommand(workflowName: string) {
       yield* terminal.log("");
     }
 
-    // Schedule the workflow with the selected agent
-    yield* scheduler.schedule(workflow.metadata, agentId, { runAtLoad });
+    yield* scheduler.schedule({ workflowName, label, schedule: cron, agent: agentId, runAtLoad });
 
-    yield* terminal.success(`Workflow '${workflowName}' scheduled successfully!`);
+    const described = describeCronSchedule(cron);
+    yield* terminal.success(`Scheduled '${id}'.`);
     yield* terminal.log("");
-    yield* terminal.log(`  Schedule: ${workflow.metadata.schedule}`);
+    yield* terminal.log(`  Cron: ${cron}${described ? ` (${described})` : ""}`);
     yield* terminal.log(`  Agent: ${agentName}`);
     yield* terminal.log(`  Scheduler: ${schedulerType}`);
     if (runAtLoad) {
       yield* terminal.log(`  Run on login: yes`);
+    }
+    if (sameWorkflow.length > 0) {
+      yield* terminal.log(
+        `  Also scheduled: ${sameWorkflow
+          .filter((entry) => entry.label !== label)
+          .map((entry) => `${entry.label} (${entry.schedule})`)
+          .join(", ")}`,
+      );
     }
     yield* terminal.log("");
 
@@ -640,19 +716,23 @@ export function scheduleWorkflowCommand(workflowName: string) {
 
     yield* terminal.log("");
     yield* terminal.info("Logs will be written to: ~/.jazz/logs/");
-    yield* terminal.info(`To unschedule: jazz workflow unschedule ${workflowName}`);
+    yield* terminal.info(`To remove it: jazz workflow unschedule ${id}`);
+    yield* terminal.info(
+      `Another frequency: jazz workflow schedule ${workflowName} --cron "<expr>" --as <label>`,
+    );
   });
 }
 
 /**
- * Remove a workflow from the schedule.
+ * Remove one schedule. `<name>/<label>` names it exactly; a bare `<name>` removes the
+ * workflow's only schedule, or asks which when it has several.
  */
-export function unscheduleWorkflowCommand(workflowName: string) {
+export function unscheduleWorkflowCommand(target: string) {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
     const scheduler = yield* SchedulerServiceTag;
 
-    yield* terminal.heading(`🛑 Unscheduling workflow: ${workflowName}`);
+    yield* terminal.heading(`🛑 Unscheduling: ${target}`);
     yield* terminal.log("");
 
     const schedulerType = scheduler.getSchedulerType();
@@ -661,17 +741,48 @@ export function unscheduleWorkflowCommand(workflowName: string) {
       return;
     }
 
-    // Check if scheduled
-    const isScheduled = yield* scheduler.isScheduled(workflowName);
-    if (!isScheduled) {
-      yield* terminal.info(`Workflow '${workflowName}' is not currently scheduled.`);
+    const { workflowName, label } = parseScheduleId(target);
+    const all = yield* scheduler.listScheduled();
+    const candidates = all.filter(
+      (entry) =>
+        entry.workflowName === workflowName && (label === undefined || entry.label === label),
+    );
+
+    if (candidates.length === 0) {
+      yield* terminal.info(`'${target}' is not currently scheduled.`);
       return;
     }
 
-    // Unschedule the workflow
-    yield* scheduler.unschedule(workflowName);
+    let toRemove: readonly ScheduledWorkflow[] = candidates;
+    if (candidates.length > 1) {
+      if (!terminal.isInteractive) {
+        yield* terminal.error(`'${workflowName}' has ${candidates.length} schedules. Name one:`);
+        for (const entry of candidates) {
+          yield* terminal.log(`  jazz workflow unschedule ${scheduleId(entry)}`);
+        }
+        return yield* Effect.fail(new Error(`Ambiguous schedule: ${workflowName}`));
+      }
+      const selected = yield* terminal.checkbox<string>(
+        "Select schedules to remove (Space to toggle, Enter to confirm):",
+        {
+          choices: candidates.map((entry) => ({
+            name: `${scheduleId(entry)}  ${describeCronSchedule(entry.schedule) ?? entry.schedule}`,
+            value: scheduleId(entry),
+          })),
+          default: [],
+        },
+      );
+      if (selected.length === 0) {
+        yield* terminal.info("Nothing selected.");
+        return;
+      }
+      toRemove = candidates.filter((entry) => selected.includes(scheduleId(entry)));
+    }
 
-    yield* terminal.success(`Workflow '${workflowName}' unscheduled successfully.`);
+    for (const entry of toRemove) {
+      yield* scheduler.unschedule(scheduleId(entry));
+      yield* terminal.success(`Removed '${scheduleId(entry)}'.`);
+    }
   });
 }
 
@@ -709,15 +820,15 @@ export function catchupWorkflowCommand() {
       const scheduledStr = c.decision.scheduledAt?.toISOString() ?? "—";
       const scheduleLabel = describeCronSchedule(c.entry.schedule) ?? c.entry.schedule;
       yield* terminal.log(
-        `  • ${c.entry.workflowName} (${scheduleLabel}) — missed at ${scheduledStr}`,
+        `  • ${scheduleId(c.entry)} (${scheduleLabel}) — missed at ${scheduledStr}`,
       );
     }
 
     yield* terminal.log("");
 
     const choices = candidates.map((c) => ({
-      name: `${c.entry.workflowName} (${c.decision.scheduledAt?.toISOString() ?? "—"})`,
-      value: c.entry.workflowName,
+      name: `${scheduleId(c.entry)} (${c.decision.scheduledAt?.toISOString() ?? "—"})`,
+      value: scheduleId(c.entry),
     }));
 
     const selected = yield* terminal.checkbox<string>(
@@ -731,11 +842,11 @@ export function catchupWorkflowCommand() {
     }
 
     const entriesToRun = candidates
-      .filter((c) => selected.includes(c.entry.workflowName))
+      .filter((c) => selected.includes(scheduleId(c.entry)))
       .map((c) => c.entry);
 
     yield* terminal.log("");
-    yield* terminal.info(`Running catch-up for ${entriesToRun.length} workflow(s)...`);
+    yield* terminal.info(`Running catch-up for ${entriesToRun.length} schedule(s)...`);
     yield* terminal.log("");
 
     yield* runCatchUpForWorkflows(entriesToRun);
@@ -746,14 +857,16 @@ export function catchupWorkflowCommand() {
 }
 
 /**
- * List all scheduled workflows.
+ * List every installed schedule, one line each, optionally for a single workflow.
  */
-export function listScheduledWorkflowsCommand() {
+export function listScheduledWorkflowsCommand(workflowName?: string) {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
     const scheduler = yield* SchedulerServiceTag;
 
-    yield* terminal.heading("⏰ Scheduled Workflows");
+    yield* terminal.heading(
+      workflowName ? `⏰ Schedules: ${workflowName}` : "⏰ Scheduled Workflows",
+    );
     yield* terminal.log("");
 
     const schedulerType = scheduler.getSchedulerType();
@@ -766,23 +879,33 @@ export function listScheduledWorkflowsCommand() {
     yield* terminal.info(`Scheduler: ${schedulerType}`);
     yield* terminal.log("");
 
-    const scheduled = yield* scheduler.listScheduled();
+    const all = yield* scheduler.listScheduled();
+    const scheduled = workflowName
+      ? all.filter((entry) => entry.workflowName === workflowName)
+      : all;
 
     if (scheduled.length === 0) {
-      yield* terminal.info("No workflows are currently scheduled.");
+      yield* terminal.info(
+        workflowName
+          ? `'${workflowName}' has no schedules.`
+          : "No workflows are currently scheduled.",
+      );
       yield* terminal.log("");
-      yield* terminal.info("To schedule a workflow: jazz workflow schedule <name>");
+      yield* terminal.info(
+        `To schedule a workflow: jazz workflow schedule ${workflowName ?? "<name>"} [--cron "<expr>" --as <label>]`,
+      );
       return;
     }
 
-    for (const s of scheduled) {
-      const status = s.enabled ? "✓ enabled" : "✗ disabled";
-      const scheduleLabel = describeCronSchedule(s.schedule) ?? s.schedule;
-      yield* terminal.log(`  ${s.workflowName} (${scheduleLabel}) agent: ${s.agent} ${status}`);
+    for (const entry of scheduled) {
+      const described = describeCronSchedule(entry.schedule);
+      yield* terminal.log(
+        `  ${scheduleId(entry)}  ${entry.schedule}${described ? `  (${described})` : ""}  agent: ${entry.agent}`,
+      );
     }
 
     yield* terminal.log("");
-    yield* terminal.info(`Total: ${scheduled.length} scheduled workflow(s)`);
+    yield* terminal.info(`Total: ${scheduled.length} schedule(s)`);
   });
 }
 
@@ -835,7 +958,7 @@ export function workflowHistoryCommand(workflowName?: string) {
           ? "failed (stale — process exited without updating)"
           : "in progress";
 
-      const trigger = run.triggeredBy === "scheduled" ? " (scheduled)" : "";
+      const trigger = run.triggeredBy === "scheduled" ? ` (${runScheduleLabel(run)})` : "";
 
       yield* terminal.log(
         `  ${statusIcon} ${run.workflowName}${trigger} - ${displayStatus} (${duration})`,

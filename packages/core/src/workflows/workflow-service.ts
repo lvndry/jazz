@@ -45,6 +45,9 @@ export interface WorkflowMetadata {
   readonly maxDurationMs?: number;
 }
 
+/** Everything a WORKFLOW.md declares about itself, before Jazz knows where it lives. */
+export type WorkflowDefinition = Omit<WorkflowMetadata, "path">;
+
 /**
  * Full workflow content including the prompt.
  */
@@ -89,6 +92,17 @@ function parseWorkflowFrontmatter(
   data: Record<string, unknown>,
   workflowPath: string,
 ): WorkflowMetadata | null {
+  const definition = parseWorkflowDefinition(data);
+  return definition === null ? null : { ...definition, path: workflowPath };
+}
+
+/**
+ * Parse WORKFLOW.md frontmatter into a definition, or `null` when the two
+ * required fields (`name`, `description`) are missing. Shared by the local
+ * loaders and by the marketplace, which validates a download with the exact
+ * rules the loaders will later apply to it.
+ */
+export function parseWorkflowDefinition(data: Record<string, unknown>): WorkflowDefinition | null {
   const name = data["name"];
   const description = data["description"];
 
@@ -108,7 +122,6 @@ function parseWorkflowFrontmatter(
   return {
     name,
     description,
-    path: workflowPath,
     ...(typeof data["agent"] === "string" && { agent: data["agent"] }),
     ...(typeof data["schedule"] === "string" && { schedule: data["schedule"] }),
     ...(autoApprove !== undefined && { autoApprove }),
@@ -127,7 +140,7 @@ function parseWorkflowFrontmatter(
 /**
  * Parse autoApprove value from frontmatter.
  */
-function parseAutoApprove(value: unknown): AutoApprovePolicy | undefined {
+export function parseAutoApprove(value: unknown): AutoApprovePolicy | undefined {
   if (typeof value === "boolean") {
     return value;
   }
@@ -246,6 +259,10 @@ export class WorkflowsLive implements WorkflowService {
       function* (this: WorkflowsLive) {
         yield* Ref.set(this.workflowCache, new Map());
         yield* Ref.set(this.loadedWorkflows, new Map());
+        yield* Effect.tryPromise({
+          try: () => fs.rm(this.globalCachePath, { force: true }),
+          catch: (error) => (error instanceof Error ? error : new Error(String(error))),
+        });
         // Re-list to rebuild cache
         yield* this.listWorkflows();
       }.bind(this),

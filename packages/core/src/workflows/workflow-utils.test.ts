@@ -1,68 +1,55 @@
 import { describe, expect, it } from "bun:test";
-import type { WorkflowMetadata } from "./workflow-service";
-import { groupWorkflows, formatWorkflow } from "./workflow-utils";
+import { renameWorkflowDefinition, renderWorkflowPrompt } from "./workflow-utils";
 
-describe("Workflow Utilities", () => {
-  const cwd = process.cwd();
-  const homeDir = process.env["HOME"] || "/tmp";
+describe("renameWorkflowDefinition", () => {
+  it("rewrites only the frontmatter name and leaves the body untouched", () => {
+    const markdown = [
+      "---",
+      "name: weekly-review",
+      'description: "Review the week"',
+      "---",
+      "",
+      "# Weekly review",
+      "name: is a word that also appears in the prompt",
+      "",
+    ].join("\n");
 
-  const mockWorkflows: WorkflowMetadata[] = [
-    {
-      name: "local-wf",
-      description: "Local description",
-      path: `${cwd}/workflows/local/WORKFLOW.md`,
-    },
-    {
-      name: "global-wf",
-      description: "Global description",
-      path: `${homeDir}/.jazz/workflows/global/WORKFLOW.md`,
-    },
-    {
-      name: "builtin-wf",
-      description: "Built-in description",
-      path: "/usr/local/lib/jazz/workflows/builtin/WORKFLOW.md",
-    },
-  ];
+    const renamed = renameWorkflowDefinition(markdown, "my-review");
 
-  describe("groupWorkflows", () => {
-    it("should correctly group workflows by location", () => {
-      const { local, global, builtin } = groupWorkflows(mockWorkflows);
-      expect(local.length).toBe(1);
-      expect(local[0]?.name).toBe("local-wf");
-      expect(global.length).toBe(1);
-      expect(global[0]?.name).toBe("global-wf");
-      expect(builtin.length).toBe(1);
-      expect(builtin[0]?.name).toBe("builtin-wf");
-    });
+    expect(renamed).toBe(markdown.replace("name: weekly-review", "name: my-review"));
+    expect(renamed).toContain("name: is a word that also appears in the prompt");
   });
 
-  describe("formatWorkflow", () => {
-    it("should format a workflow without status badge", () => {
-      const wf = mockWorkflows[0]!;
-      const result = formatWorkflow(wf);
-      expect(result).toContain("local-wf");
-      expect(result).toContain("Local description");
-    });
+  it("returns the input unchanged when there is no frontmatter", () => {
+    expect(renameWorkflowDefinition("# Just a prompt\n", "x")).toBe("# Just a prompt\n");
+  });
+});
 
-    it("should format a workflow with status badge", () => {
-      const wf = mockWorkflows[0]!;
-      const result = formatWorkflow(wf, { statusBadge: " [ACTIVE]" });
-      expect(result).toContain("local-wf [ACTIVE]");
-      expect(result).toContain("Local description");
-    });
+describe("renderWorkflowPrompt", () => {
+  it("fills every placeholder and leaves the rest of the prompt alone", () => {
+    const rendered = renderWorkflowPrompt(
+      "The {schedule.label} recap ({schedule.cron}) from {schedule.lastRunAt} to {run.startedAt}. {other}",
+      {
+        label: "monthly",
+        cron: "0 9 1 * *",
+        lastRunAt: "2026-08-01T09:00:00.000Z",
+        startedAt: "2026-09-01T09:00:00.000Z",
+      },
+    );
 
-    it("should include schedule and agent info if present", () => {
-      const wf: WorkflowMetadata = {
-        name: "scheduled-wf",
-        description: "Scheduled description",
-        path: "/path/to/wf",
-        schedule: "0 9 * * *",
-        agent: "test-agent",
-      };
-      const result = formatWorkflow(wf);
-      expect(result).toContain("scheduled-wf");
-      expect(result).toContain("At 09:00 AM");
-      expect(result).toContain("agent: test-agent");
-    });
+    expect(rendered).toBe(
+      "The monthly recap (0 9 1 * *) from 2026-08-01T09:00:00.000Z to 2026-09-01T09:00:00.000Z. {other}",
+    );
+  });
+
+  it("renders a first run's lastRunAt as empty", () => {
+    expect(
+      renderWorkflowPrompt("since {schedule.lastRunAt}.", {
+        label: "manual",
+        cron: "",
+        lastRunAt: undefined,
+        startedAt: "now",
+      }),
+    ).toBe("since .");
   });
 });

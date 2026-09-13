@@ -1,65 +1,56 @@
 ---
-import Marketplace from "../../layouts/Marketplace.astro";
-import { getMarketplaceEntries, rawPersonaPath, type MarketplaceEntry } from "../../lib/marketplace";
-
-export async function getStaticPaths() {
-  const entries = await getMarketplaceEntries();
-  return entries.map((entry) => ({
-    params: { name: entry.data.name },
-    props: { entry },
-  }));
-}
-
+/**
+ * The body of one marketplace entry page — persona or workflow. Shows the
+ * metadata, the install command, and the full text the CLI will write to disk,
+ * with a copy button, so a reader can judge it before trusting it.
+ */
 interface Props {
-  entry: MarketplaceEntry;
+  back: { href: string; label: string };
+  name: string;
+  description: string;
+  meta: string[];
+  tags: string[];
+  install: string;
+  raw: { href: string; label: string };
+  heading: string;
+  warning: string;
+  body: string;
 }
 
-const { entry } = Astro.props;
-const { name, description, tone, style, author, tags } = entry.data;
-const prompt = entry.body ?? "";
-const meta = [
-  tone ? `tone: ${tone}` : "",
-  style ? `style: ${style}` : "",
-  author ? `by ${author}` : "",
-].filter(Boolean);
+const { back, name, description, meta, tags, install, raw, heading, warning, body } = Astro.props;
 ---
 
-<Marketplace title={`${name} — Jazz persona`} description={description}>
-  <a class="back mono" href="/marketplace">← all personas</a>
-  <h1 class="mono">{name}</h1>
-  <p class="lede">{description}</p>
-  {meta.length > 0 && <p class="meta mono">{meta.join("  ·  ")}</p>}
-  {
-    tags.length > 0 && (
-      <ul class="tags">
-        {tags.map((tag) => (
-          <li class="mono">{tag}</li>
-        ))}
-      </ul>
-    )
-  }
+<a class="back mono" href={back.href}>{back.label}</a>
+<h1 class="mono">{name}</h1>
+<p class="lede">{description}</p>
+{meta.length > 0 && <p class="meta mono">{meta.join("  ·  ")}</p>}
+{
+  tags.length > 0 && (
+    <ul class="tags">
+      {tags.map((tag) => (
+        <li class="mono">{tag}</li>
+      ))}
+    </ul>
+  )
+}
 
-  <div class="install">
-    <code class="mono">jazz persona install {name}</code>
-    <a class="mono raw" href={rawPersonaPath(name)}>raw PERSONA.md</a>
+<div class="install">
+  <code class="mono">{install}</code>
+  <a class="mono raw" href={raw.href}>{raw.label}</a>
+</div>
+
+<section class="definition">
+  <div class="definition-head">
+    <h2>{heading}</h2>
+    <button class="copy mono" type="button" data-copy>copy</button>
   </div>
-
-  <section class="prompt">
-    <div class="prompt-head">
-      <h2>System prompt</h2>
-      <button class="copy mono" type="button" data-copy>copy</button>
-    </div>
-    <p class="warn">
-      This text becomes the instructions of any agent you apply the persona to. Read it before you
-      install it.
-    </p>
-    <pre id="prompt-body">{prompt}</pre>
-  </section>
-</Marketplace>
+  <p class="warn">{warning}</p>
+  <pre id="definition-body">{body}</pre>
+</section>
 
 <script>
   const button = document.querySelector<HTMLButtonElement>("[data-copy]");
-  const body = document.getElementById("prompt-body");
+  const body = document.getElementById("definition-body");
 
   // The async clipboard API is denied outright in some embedded and locked-down
   // browsers, so fall back to selecting the text and letting the browser copy it.
@@ -156,18 +147,18 @@ const meta = [
     color: var(--jz-link);
     font-size: 13px;
   }
-  .prompt {
+  .definition {
     margin-top: 3rem;
     padding-top: 2rem;
     border-top: 1px solid var(--jz-border);
   }
-  .prompt-head {
+  .definition-head {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 16px;
   }
-  .prompt-head h2 {
+  .definition-head h2 {
     font-size: 20px;
     color: var(--jz-selected);
   }

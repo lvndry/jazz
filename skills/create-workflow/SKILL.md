@@ -14,7 +14,7 @@ Generate workflow automation files that schedule jazz agents to run recurring ta
 - User says "I want to check X every Y" (e.g., "check emails every hour")
 - User wants unattended agent execution
 
-**Note:** If the user wants to schedule a simple shell script or system command *without* using a Jazz Agent, use the `create-system-routine` skill instead.
+**Note:** If the user wants to schedule a simple shell script or system command _without_ using a Jazz Agent, use the `create-system-routine` skill instead.
 
 ## Gathering Information (Questionnaire)
 
@@ -114,6 +114,7 @@ Always include safety rules in the workflow prompt:
 
 ```markdown
 **Safety Rules:**
+
 - When in doubt, DO NOTHING
 - Only perform actions you're 100% confident about
 - Leave uncertain items for manual review
@@ -121,6 +122,7 @@ Always include safety rules in the workflow prompt:
 ```
 
 For workflows that modify or delete:
+
 - Emphasize conservative behavior
 - Specify exact criteria (e.g., "only archive newsletters older than 2 weeks")
 - Add "if unsure, skip it" instructions
@@ -138,9 +140,10 @@ Built-in workflows are shipped with Jazz and shouldn't be modified.
 
 ## Complete Example
 
-User request: *"I want to clean up my email inbox every hour, archiving old newsletters"*
+User request: _"I want to clean up my email inbox every hour, archiving old newsletters"_
 
 **Questions to ask:**
+
 1. ✓ What counts as "old"? (2 weeks)
 2. ✓ Should it only archive or also delete? (archive only)
 3. ✓ Any specific senders to target? (newsletters, promotional)
@@ -163,11 +166,13 @@ skills:
 Review my inbox from the last hour and archive emails matching these criteria:
 
 **Criteria for archiving:**
+
 - Newsletters older than 2 weeks
 - Promotional emails older than 3 days
 - GitHub notifications already read
 
 **Safety Rules:**
+
 - When in doubt, DO NOTHING
 - Only archive emails you're 100% confident match the criteria
 - If an email might be important, leave it in inbox
@@ -190,6 +195,7 @@ If the workflow needs specific capabilities, suggest relevant skills:
 | Web searches        | (none needed, built-in)       |
 
 Include skills in frontmatter:
+
 ```yaml
 skills:
   - email
@@ -197,6 +203,7 @@ skills:
 ```
 
 And reference in prompt:
+
 ```markdown
 Use the `email` skill to access my inbox efficiently.
 ```
@@ -342,9 +349,10 @@ Always recommend testing before scheduling:
 ## Documentation
 
 After creating the workflow, optionally create a README in the workflow directory explaining:
+
 - What it does
 - When it runs
 - What to expect
 - How to customize
 
-Example: `workflows/email-cleanup/README.md`
+Example: `workflows/README.md`

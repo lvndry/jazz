@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import type { WorkflowRunRecord } from "./run-history";
+import { lastCompletedRunAt, runScheduleLabel, type WorkflowRunRecord } from "./run-history";
 
 describe("WorkflowRunRecord", () => {
   describe("record structure", () => {
@@ -119,5 +119,51 @@ describe("WorkflowRunRecord", () => {
 
       expect(durationSeconds).toBe(330); // 5 minutes 30 seconds
     });
+  });
+});
+
+describe("per-schedule last run", () => {
+  const records: WorkflowRunRecord[] = [
+    {
+      workflowName: "recap",
+      scheduleLabel: "monthly",
+      startedAt: "2026-08-01T09:00:00.000Z",
+      completedAt: "2026-08-01T09:05:00.000Z",
+      status: "completed",
+      triggeredBy: "scheduled",
+    },
+    {
+      workflowName: "recap",
+      scheduleLabel: "default",
+      startedAt: "2026-08-28T17:00:00.000Z",
+      completedAt: "2026-08-28T17:04:00.000Z",
+      status: "completed",
+      triggeredBy: "scheduled",
+    },
+    {
+      workflowName: "recap",
+      scheduleLabel: "monthly",
+      startedAt: "2026-09-01T09:00:00.000Z",
+      status: "failed",
+      triggeredBy: "scheduled",
+    },
+  ];
+
+  it("ignores other labels and failed runs", () => {
+    expect(lastCompletedRunAt(records, "recap", "monthly")).toBe("2026-08-01T09:05:00.000Z");
+    expect(lastCompletedRunAt(records, "recap", "default")).toBe("2026-08-28T17:04:00.000Z");
+    expect(lastCompletedRunAt(records, "recap", "manual")).toBeUndefined();
+  });
+
+  it("reads pre-label records as default when scheduled and manual otherwise", () => {
+    const legacyScheduled: WorkflowRunRecord = {
+      workflowName: "recap",
+      startedAt: "2026-08-01T09:00:00.000Z",
+      status: "completed",
+      triggeredBy: "scheduled",
+    };
+    const legacyManual: WorkflowRunRecord = { ...legacyScheduled, triggeredBy: "manual" };
+    expect(runScheduleLabel(legacyScheduled)).toBe("default");
+    expect(runScheduleLabel(legacyManual)).toBe("manual");
   });
 });

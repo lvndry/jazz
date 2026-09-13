@@ -1,47 +1,94 @@
 ---
 import Marketplace from "../../layouts/Marketplace.astro";
-import { getMarketplaceEntries, personaPath } from "../../lib/marketplace";
+import {
+  describeFrequency,
+  getPersonaEntries,
+  getWorkflowEntries,
+  personaPath,
+  workflowPath,
+} from "../../lib/marketplace";
 
-const entries = await getMarketplaceEntries();
+const personas = await getPersonaEntries();
+const workflows = await getWorkflowEntries();
 ---
 
 <Marketplace
-  title="Persona marketplace — Jazz"
-  description="Browse and copy Jazz personas: reusable system prompts that change how an agent thinks, writes, and pushes back."
+  title="Marketplace — Jazz"
+  description="Browse and copy Jazz personas and workflows: reusable system prompts, and scheduled jobs with their autonomy written down."
 >
-  <p class="eyebrow mono">▞ persona marketplace</p>
+  <p class="eyebrow mono">▞ marketplace</p>
   <h1>Prompts worth stealing.</h1>
   <p class="lede">
-    A persona is a reusable system prompt — it sets how an agent thinks, writes, and pushes back,
-    independent of the model behind it. Copy one from here, or install it straight from your
-    terminal. Every entry lives in the Jazz repo and arrives through a pull request.
+    Personas change how an agent thinks, writes, and pushes back. Workflows are jobs: a prompt,
+    a schedule, and what it may do with nobody watching. Copy either from here, or install it
+    straight from your terminal. Every entry lives in the Jazz repo and arrives through a pull
+    request.
   </p>
 
-  <div class="install">
-    <code class="mono">jazz persona browse</code>
-    <span class="hint">pick, preview the prompt, install</span>
-  </div>
+  <section id="personas">
+    <div class="section-head">
+      <h2>Personas</h2>
+      <div class="install">
+        <code class="mono">jazz persona browse</code>
+        <span class="hint">pick, preview the prompt, install</span>
+      </div>
+    </div>
+    <div class="grid">
+      {
+        personas.map((entry) => (
+          <a class="card" href={personaPath(entry.data.name)}>
+            <span class="name mono">{entry.data.name}</span>
+            <span class="desc">{entry.data.description}</span>
+            <span class="meta mono">
+              {[entry.data.tone, entry.data.style].filter(Boolean).join(" · ")}
+            </span>
+          </a>
+        ))
+      }
+    </div>
+  </section>
 
-  <div class="grid">
-    {
-      entries.map((entry) => (
-        <a class="card" href={personaPath(entry.data.name)}>
-          <span class="name mono">{entry.data.name}</span>
-          <span class="desc">{entry.data.description}</span>
-          <span class="meta mono">
-            {[entry.data.tone, entry.data.style].filter(Boolean).join(" · ")}
-          </span>
-        </a>
-      ))
-    }
-  </div>
+  <section id="workflows">
+    <div class="section-head">
+      <h2>Workflows</h2>
+      <div class="install">
+        <code class="mono">jazz workflow browse</code>
+        <span class="hint">pick, read the file, install</span>
+      </div>
+    </div>
+    <div class="grid">
+      {
+        workflows.map((entry) => (
+          <a class="card" href={workflowPath(entry.data.name)}>
+            <span class="name mono">{entry.data.name}</span>
+            <span class="desc">{entry.data.description}</span>
+            <span class="meta mono">
+              {
+                [
+                  entry.data.schedule ? `default: ${describeFrequency(entry.data.schedule)}` : "",
+                  entry.data.autoApprove !== undefined
+                    ? `auto-approve: ${String(entry.data.autoApprove)}`
+                    : "",
+                ]
+                  .filter(Boolean)
+                  .join(" · ")
+              }
+            </span>
+          </a>
+        ))
+      }
+    </div>
+  </section>
 
   <section class="contribute">
     <h2>Add yours</h2>
     <p>
-      Drop a <code class="mono">PERSONA.md</code> into <code class="mono">packages/website/src/content/marketplace/&lt;name&gt;/</code>
-      in the <a href="https://github.com/lvndry/jazz">Jazz repository</a> and open a pull request.
-      Same format as the personas Jazz ships with — frontmatter for the metadata, the body is the prompt.
+      Drop a <code class="mono">PERSONA.md</code> into
+      <code class="mono">packages/website/src/content/marketplace/personas/&lt;name&gt;/</code>, or a
+      <code class="mono">WORKFLOW.md</code> into
+      <code class="mono">packages/website/src/content/marketplace/workflows/&lt;name&gt;/</code>, in
+      the <a href="https://github.com/lvndry/jazz">Jazz repository</a> and open a pull request. Same
+      format as the ones Jazz ships with — frontmatter for the metadata, the body is the prompt.
     </p>
   </section>
 </Marketplace>
@@ -63,8 +110,21 @@ const entries = await getMarketplaceEntries();
     color: var(--jz-secondary);
     max-width: 60ch;
   }
+  section {
+    margin-top: 3.5rem;
+  }
+  .section-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  .section-head h2 {
+    font-size: 22px;
+    color: var(--jz-selected);
+  }
   .install {
-    margin-top: 28px;
     display: flex;
     align-items: center;
     gap: 14px;
@@ -83,7 +143,7 @@ const entries = await getMarketplaceEntries();
     font-size: 13px;
   }
   .grid {
-    margin-top: 3rem;
+    margin-top: 1.5rem;
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
     gap: 16px;
