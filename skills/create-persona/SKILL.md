@@ -1,11 +1,11 @@
 ---
-name: persona
+name: create-persona
 description: Help users create, manage, and refine custom personas for Jazz agents. Use when the user wants to define a new communication style, character, or identity for an agent.
 ---
 
 # Persona
 
-Guide users through creating and refining custom personas reusable communication styles, tones, and behavioral rules that can be applied to any Jazz agent on any model.
+Guide users through creating and refining custom personas: reusable system prompts with a name that decide how an agent works on any model.
 
 ## When to Use
 
@@ -17,15 +17,31 @@ Guide users through creating and refining custom personas reusable communication
 
 ## Core Concepts
 
-A **persona** in Jazz defines:
+A persona is a reusable system prompt with a name. It decides how an agent works: its voice, its priorities, what it does when a task is unclear. It says nothing about which model runs; the same persona can be attached to many agents on many models.
 
-| Field          | Required | Purpose                                                       |
-| -------------- | -------- | ------------------------------------------------------------- |
-| `name`         | Yes      | Short identifier (letters, numbers, `_`, `-`). Used in CLI.   |
-| `description`  | Yes      | One-line summary of the persona's character                   |
-| `systemPrompt` | Yes      | Core instruction that shapes agent behavior and communication |
-| `tone`         | No       | Descriptor like "sarcastic", "formal", "friendly"             |
-| `style`        | No       | Descriptor like "concise", "verbose", "technical"             |
+On disk it is one `PERSONA.md` file: YAML frontmatter plus the system prompt as the body.
+
+| Field         | Required | Purpose                                                                             |
+| ------------- | -------- | ----------------------------------------------------------------------------------- |
+| `name`        | Yes      | Short identifier (letters, numbers, `_`, `-`).                                      |
+| `description` | Yes      | One-line summary of the persona's character                                         |
+| `tone`        | No       | Descriptor like "sarcastic", "formal", "friendly"                                   |
+| `style`       | No       | Descriptor like "concise", "verbose", "technical"                                   |
+| `toolProfile` | No       | `categories` and/or `deny` lists. Narrows the tools an agent may use, never widens. |
+
+Jazz keeps the body intact and appends one `Jazz harness` block for runtime rules. The persona's identity, tone, and priorities are treated as a binding contract for the whole conversation.
+
+### Placeholders
+
+Three placeholders are filled in at run time. They are what let one file serve many agents. Always use them instead of hardcoding.
+
+| Placeholder          | Becomes                                                        |
+| -------------------- | -------------------------------------------------------------- |
+| `{agentName}`        | The agent's name, so the persona addresses itself correctly    |
+| `{agentDescription}` | The agent's own description, so one persona hosts many jobs    |
+| `{environment}`      | Live machine facts: date, OS, shell, home, hostname, user, TTY |
+
+Never write "you are on macOS" or a date into the prompt; use `{environment}`. Omit `{environment}` only for personas that never touch the machine (pure conversational characters).
 
 ### Built-in Personas (reserved names)
 
@@ -36,34 +52,57 @@ These cannot be overridden by custom personas:
 - **researcher** -- Analytical, thorough, citation-driven researcher
 - **summarizer** -- (internal only) Used for conversation summarization
 
+Read `personas/coder/PERSONA.md` in the Jazz package before writing one; it is the reference shape.
+
 ### Storage
 
-Jazz scans two directories for PERSONA.md files (like skills and workflows):
+- **Built-in** (`personas/<name>/PERSONA.md` in the package)
+- **Custom** (`~/.jazz/personas/<name>/PERSONA.md`)
 
-- **Built-in** (`personas/<name>/PERSONA.md` in the package): `default`, `coder`, `researcher`, `summarizer`
-- **Custom** (`~/.jazz/personas/<name>/PERSONA.md`): Your own personas. Custom overrides built-in when names match.
+## Standard Structure
 
-Each persona is a markdown file with YAML frontmatter (name, description, tone?, style?) and the system prompt in the body.
+Treat a persona as a behavioral specification, not a character biography. Four compact parts, in this order:
 
-### Manual PERSONA.md Format
+1. **Identity** -- one concrete sentence: `You are {agentName}, a ...`, followed by `{agentDescription}` and `{environment}` on their own lines.
+2. **`## Always`** -- observable behavior that must survive every kind of request.
+3. **`## Never`** -- blocks generic model habits and anything that would break the character.
+4. **`## Calibration`** -- two short exchanges: one ordinary conversation, one task-oriented. Examples teach tone more reliably than adjectives.
 
-When creating a persona file by hand (instead of `jazz persona create`), create a folder and file: `~/.jazz/personas/<name>/PERSONA.md`.
+Add **`## Judgment`** between Never and Calibration only when the persona has a real method for weighing evidence, tradeoffs, or uncertainty.
 
 **Minimal valid example** (`~/.jazz/personas/pirate/PERSONA.md`):
 
 ```markdown
 ---
 name: pirate
-description: A swashbuckling pirate captain
+description: A swashbuckling pirate captain who still gets the job done.
 ---
 
-You are Captain Blackbeard. Speak like a pirate.
+# Pirate
 
-Rules:
+You are {agentName}, a swashbuckling pirate captain who speaks in sea-dog slang and never breaks character.
 
-- Say "Arrr" frequently.
-- Call the user "matey".
-- Never break character.
+{agentDescription}
+
+## Always
+
+- Open with "Arrr" and call the user "matey".
+- Finish the actual task; the accent decorates the answer, it never replaces it.
+
+## Never
+
+- Never drop the voice, even when the question is technical.
+- Never let the bit make the answer longer than it needs to be.
+
+## Calibration
+
+User: “What's 2+2?”
+
+Pirate: “Arrr, that be four, matey. Four doubloons, no more, no less.”
+
+User: “Fix this failing test.”
+
+Pirate: “Aye. The assertion expects a sorted list but the function returns insertion order. I'll sort before returning and run the suite again.”
 ```
 
 **Full example with optional fields** (`~/.jazz/personas/mentor/PERSONA.md`):
@@ -71,27 +110,47 @@ Rules:
 ```markdown
 ---
 name: mentor
-description: Experienced mentor who provides constructive, growth-focused guidance
+description: Experienced mentor who provides direct, growth-focused guidance.
 tone: direct
-style: deep-thinking, constructive, concise
+style: constructive, concise
+toolProfile:
+  categories: [file_management, search, web_fetch]
 ---
 
-You are Mentor, a direct and experienced guide.
+# Mentor
 
-Communication rules:
+You are {agentName}, a direct and experienced guide who cares more about the user's growth than their comfort.
 
-- Lead with understanding: ask 1-3 clarifying questions when context is unclear.
-- Be direct and concise: give the core recommendation up-front.
-- Balance inspiration with accountability: include specific next steps.
+{agentDescription}
 
-Behavioral constraints:
+{environment}
 
-- Never demean or stereotype. Be empathetic and strength-based.
+## Always
+
+- Ask one to three clarifying questions when context is unclear, then commit to a recommendation.
+- Give the core recommendation up front, then the reasoning.
+- Pair every piece of inspiration with a specific next step.
+
+## Never
+
+- Never demean, stereotype, or flatter.
 - Never invent credentials or make unverifiable claims.
+- Never bury the recommendation under caveats.
 
-Vocabulary:
+## Judgment
 
-- Use phrases like "own your craft", "do the work", "keep the faith".
+- Distinguish a skills gap from a confidence gap; they need different advice.
+- When the user's plan is sound, say so in one line and get out of the way.
+
+## Calibration
+
+User: “I keep procrastinating on my side project.”
+
+Mentor: “What's the smallest piece you could ship this week? Name it. Then tell me what you'd have to stop doing to make room for it.”
+
+User: “Review my study plan for the cert exam.”
+
+Mentor: “The plan covers the material but has no practice exams until week six. Move the first one to week two so you learn what you don't know while there's still time to fix it.”
 ```
 
 ## Workflow: Creating a Persona
@@ -100,28 +159,23 @@ Vocabulary:
 
 Ask the user:
 
-- What personality or character should the agent have?
-- What tone? (sarcastic, warm, formal, casual, etc.)
-- What style? (concise, verbose, technical, storytelling, etc.)
-- Any specific vocabulary, catchphrases, or speech patterns?
-- What should the agent avoid doing or saying?
+- Who is the agent, in one sentence?
+- What should it always do, regardless of the request?
+- What generic model habits should it refuse? What would break the character?
+- Does it have a method for weighing evidence or tradeoffs? (If yes, add `Judgment`.)
+- Should it be limited to certain tools? (If yes, add `toolProfile`.)
 
-### Step 2: Draft the system prompt
+### Step 2: Draft the file
 
-Write a system prompt that includes:
+Write the `PERSONA.md` using the Standard Structure above. Use the placeholders. Keep it 200-500 words.
 
-1. **Identity** -- Who the agent is (name, role, background)
-2. **Communication rules** -- How it speaks (tone, vocabulary, sentence structure)
-3. **Behavioral constraints** -- What it should/shouldn't do
-4. **Examples** -- Optional example exchanges showing the style
+### Step 3: Create
 
-### Step 3: Create via CLI
+Write the file to `~/.jazz/personas/<name>/PERSONA.md`, or run the interactive wizard:
 
 ```bash
 jazz persona create
 ```
-
-This launches the interactive wizard. Alternatively, help the user fill in each field directly.
 
 ### Step 4: Apply to an agent
 
@@ -137,94 +191,28 @@ jazz agent edit <agentId>
 # Change the persona field
 ```
 
-## System Prompt Writing Guide
+## Writing Tips
 
-### Structure
-
-```
-You are [NAME], a [ROLE/CHARACTER].
-
-## Communication Style
-- [Rule 1]
-- [Rule 2]
-- [Rule 3]
-
-## Behavioral Rules
-- [Constraint 1]
-- [Constraint 2]
-
-## Vocabulary / Catchphrases
-- [Pattern 1]
-- [Pattern 2]
-```
-
-### Tips for Good Prompts
-
-- **Be specific**: "Use technical jargon and occasional l33t speak" is better than "be technical"
-- **Show, don't tell**: Include example phrases the agent might use
-- **Set boundaries**: Define what the persona should NOT do
-- **Keep it focused**: 200-500 words is the sweet spot. Too long dilutes the character
-- **Test the voice**: Read the prompt aloud -- does it sound like the character?
+- **Be specific**: "Use technical jargon and occasional l33t speak" beats "be technical".
+- **Show, don't tell**: Calibration exchanges carry the voice; keep them short enough that the persona does not become a script.
+- **Observable rules**: each `Always` and `Never` line should be checkable from a transcript.
+- **Test the voice**: read the Calibration aloud. Does it sound like the character?
 
 ### Anti-Patterns
 
 - Vague instructions ("be friendly") without specifics
 - Contradictory rules ("be concise" + "explain everything in detail")
+- Hardcoded machine facts, dates, or agent names instead of placeholders
 - Overly long prompts (>1000 words) that the model can't follow consistently
-- Rules that conflict with safety/helpfulness
-
-```
-Name: therapist
-Description: Warm, empathetic counselor who helps process thoughts and decisions
-Tone: warm
-Style: reflective
-
-System Prompt:
-You are a thoughtful counselor and thinking partner. Your role is to help
-users process their thoughts, make decisions, and gain clarity.
-
-## Communication Style
-- Ask open-ended questions before giving advice
-- Reflect back what the user said to show understanding
-- Use validating language ("That makes sense", "I can see why...")
-- Be warm but professional
-
-## Behavioral Rules
-- Never rush to solutions -- help the user think through problems
-- Acknowledge emotions and complexity
-- Offer frameworks for decision-making rather than direct answers
-- When appropriate, summarize key insights from the conversation
-
-## Vocabulary
-- "What I'm hearing is..."
-- "How does that feel?"
-- "Let's explore that a bit more..."
-- "What would it look like if..."
-```
+- A `Judgment` section with nothing in it but restated `Always` lines
+- Rules that conflict with safety or helpfulness
 
 ## Managing Personas
 
-### List all personas
-
 ```bash
-jazz persona list
-```
-
-### View persona details
-
-```bash
-jazz persona show <name-or-id>
-```
-
-### Edit a persona
-
-```bash
+jazz persona list                 # built-in and custom
+jazz persona show <name-or-id>    # read one, as the agent sees it
 jazz persona edit <name-or-id>
-```
-
-### Delete a persona
-
-```bash
 jazz persona delete <name-or-id>
 ```
 
@@ -232,8 +220,8 @@ jazz persona delete <name-or-id>
 
 When helping a user improve an existing persona:
 
-1. **Review the current system prompt** -- `jazz persona show <name>`
-2. **Identify issues** -- Is the tone inconsistent? Too vague? Too long?
-3. **Suggest specific changes** -- Don't rewrite from scratch; iterate
-4. **Test** -- Have the user chat with an agent using the persona and report back
-5. **Iterate** -- Adjust based on real conversation results
+1. **Review the current file** -- `jazz persona show <name>`
+2. **Check the structure** -- placeholders present? Always/Never/Calibration in place?
+3. **Identify issues** -- Is the tone inconsistent? Too vague? Too long?
+4. **Suggest specific changes** -- Don't rewrite from scratch; iterate
+5. **Test** -- Have the user chat with an agent using the persona and report back
