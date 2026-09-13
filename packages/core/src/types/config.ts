@@ -26,6 +26,8 @@ export interface AppConfig {
   readonly telemetry?: TelemetryConfig;
   /** Maximum number of retries for transient LLM API failures. Defaults to 3. */
   readonly maxRetries?: number;
+  /** Editor command for `jazz persona edit` and `jazz mcp add`, e.g. "code --wait". Defaults to $VISUAL, then $EDITOR, then vi. */
+  readonly editor?: string;
   /** Sub-agent nesting levels allowed. Defaults to 3; 0 disables delegation. */
   readonly maxSubagentDepth?: number;
   /** Iteration budget for a top-level run. Defaults to 100; --max-iterations wins. */

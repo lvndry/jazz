@@ -34,15 +34,16 @@ Use `jazz config show`, `jazz config get <key>`, or `jazz config set <key> <valu
 
 ## Run budgets
 
-| Key                     | Default | Meaning                                                            |
-| ----------------------- | ------: | ------------------------------------------------------------------ |
-| `maxIterations`         |   `100` | Reason-and-act cycles for a top-level run                          |
-| `maxSubagentIterations` |    `30` | Reason-and-act cycles for each delegated child run                 |
-| `maxSubagentDepth`      |     `3` | Delegation levels below the top-level run; `0` disables delegation |
-| `maxRetries`            |    `10` | Retries after transient model-provider failures                    |
-| `maxCostUSD`            |   unset | Own and delegated model spend in US dollars                        |
-| `maxTokens`             |   unset | Own prompt and completion tokens; child tokens are not included    |
-| `maxDurationMs`         |   unset | Wall-clock budget with model warnings before termination           |
+| Key                     | Default | Meaning                                                                                                       |
+| ----------------------- | ------: | ------------------------------------------------------------------------------------------------------------- |
+| `maxIterations`         |   `100` | Reason-and-act cycles for a top-level run                                                                     |
+| `maxSubagentIterations` |    `30` | Reason-and-act cycles for each delegated child run                                                            |
+| `maxSubagentDepth`      |     `3` | Delegation levels below the top-level run; `0` disables delegation                                            |
+| `maxRetries`            |    `10` | Retries after transient model-provider failures                                                               |
+| `editor`                |         | Editor for `jazz persona edit` / `jazz mcp add`, e.g. `code --wait`; falls back to `$VISUAL`, `$EDITOR`, `vi` |
+| `maxCostUSD`            |   unset | Own and delegated model spend in US dollars                                                                   |
+| `maxTokens`             |   unset | Own prompt and completion tokens; child tokens are not included                                               |
+| `maxDurationMs`         |   unset | Wall-clock budget with model warnings before termination                                                      |
 
 Cost, token, and duration limits are checked between iterations. One model call or tool phase can cross a limit before Jazz stops the next iteration. An external `--timeout` is a separate hard deadline around the entire run.
 

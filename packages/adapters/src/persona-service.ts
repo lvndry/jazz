@@ -419,7 +419,7 @@ updatedAt: "${now.toISOString()}"
           seenDirs.add(m.path);
           const persona = yield* this.loadPersonaFromFile(
             m.path,
-            source === "builtin" ? `builtin-${m.name}` : m.name,
+            source === "builtin" ? `builtin-${m.name}` : path.basename(m.path),
           ).pipe(
             Effect.catchAll((err: StorageError | StorageNotFoundError) =>
               Effect.gen(function* () {

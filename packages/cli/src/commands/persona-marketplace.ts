@@ -27,9 +27,6 @@ import { Effect } from "effect";
  * Non-interactive runs must pass `--yes` to accept that explicitly.
  */
 
-/** How much of a prompt is shown before the preview is truncated. */
-const PROMPT_PREVIEW_LINES = 40;
-
 export interface InstallPersonaOptions {
   /** Install under a different local name (avoids clashing with an existing persona). */
   readonly as?: string;
@@ -73,14 +70,8 @@ function confirmInstall(
     );
     yield* terminal.log("");
 
-    const lines = download.systemPrompt.split("\n");
-    for (const line of lines.slice(0, PROMPT_PREVIEW_LINES)) {
+    for (const line of download.systemPrompt.split("\n")) {
       yield* terminal.log(`  ${chalk.dim(line)}`);
-    }
-    if (lines.length > PROMPT_PREVIEW_LINES) {
-      yield* terminal.log(
-        chalk.dim(`  … ${lines.length - PROMPT_PREVIEW_LINES} more lines at ${download.sourceUrl}`),
-      );
     }
     yield* terminal.log("");
 
@@ -92,6 +83,13 @@ function confirmInstall(
       );
       return false;
     }
+
+    const key = yield* terminal.ask("Type i to install, anything else to go back", {
+      simple: true,
+      cancellable: true,
+      placeholder: "i",
+    });
+    if (key?.trim().toLowerCase() !== "i") return false;
 
     return yield* terminal.confirm(`Install this persona as "${localName}"?`, false);
   });

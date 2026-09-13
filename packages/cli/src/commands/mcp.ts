@@ -24,6 +24,7 @@ import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/
 import { Effect, Option } from "effect";
 import { z } from "zod";
 import * as fmt from "@/cli/utils/list-format";
+import { resolveEditor } from "./editor";
 
 type McpServersRecord = Record<string, MCPServerConfig>;
 
@@ -243,7 +244,7 @@ export function addMcpServerCommand(
       return yield* parseAndSaveMcpServers(stdinContent, trusted);
     }
 
-    const editor = process.env["EDITOR"] || process.env["VISUAL"] || "vi";
+    const editor = yield* resolveEditor();
     const tmpFile = path.join(os.tmpdir(), `jazz-mcp-${Date.now()}.json`);
 
     const template = `{
@@ -262,7 +263,7 @@ export function addMcpServerCommand(
     } catch {
       yield* fs.remove(tmpFile).pipe(Effect.catchAll(() => Effect.void));
       yield* terminal.error(
-        `Failed to open editor (${editor}). Set $EDITOR or use --file instead.`,
+        `Failed to open editor (${editor}). Set "jazz config set editor <cmd>" or $EDITOR, or use --file instead.`,
       );
       return;
     }

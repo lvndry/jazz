@@ -521,6 +521,7 @@ function mergeConfig(base: AppConfig, override?: Partial<AppConfig>): AppConfig 
     // per-element merge would make removing one from a local override impossible.
     ...(override.webhooks && { webhooks: override.webhooks }),
     ...(override.maxRetries !== undefined && { maxRetries: override.maxRetries }),
+    ...(override.editor !== undefined && { editor: override.editor }),
     ...(override.maxSubagentDepth !== undefined && {
       maxSubagentDepth: override.maxSubagentDepth,
     }),

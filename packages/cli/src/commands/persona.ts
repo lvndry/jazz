@@ -1,4 +1,6 @@
+import { execSync } from "node:child_process";
 import { isBuiltinPersona, isBuiltinPersonaId } from "@jazz/adapters/persona-service";
+import type { AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import { PersonaServiceTag, type PersonaService } from "@jazz/core/interfaces/persona-service";
 import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
 import {
@@ -10,6 +12,7 @@ import {
 } from "@jazz/core/types/errors";
 import chalk from "chalk";
 import { Effect } from "effect";
+import { resolveEditor } from "./editor";
 
 /**
  * CLI commands for managing custom personas
@@ -175,6 +178,9 @@ export function listPersonasCommand(): Effect.Effect<
       if (!isBuiltin) {
         yield* terminal.log(`    ${chalk.dim(`id: ${persona.id}`)}`);
       }
+      if (persona.filePath) {
+        yield* terminal.log(`    ${chalk.dim(persona.filePath)}`);
+      }
       yield* terminal.log("");
     }
 
@@ -213,16 +219,12 @@ export function showPersonaCommand(
     if (persona.style) yield* terminal.log(`   Style:       ${persona.style}`);
     yield* terminal.log(`   Created:     ${persona.createdAt.toISOString()}`);
     yield* terminal.log(`   Updated:     ${persona.updatedAt.toISOString()}`);
+    if (persona.filePath) yield* terminal.log(`   File:        ${persona.filePath}`);
 
     if (!isBuiltin && persona.systemPrompt) {
       yield* terminal.log("");
       yield* terminal.log(chalk.bold("   System Prompt:"));
-      // Show first 500 chars with truncation
-      const prompt =
-        persona.systemPrompt.length > 500
-          ? persona.systemPrompt.substring(0, 500) + "..."
-          : persona.systemPrompt;
-      for (const line of prompt.split("\n")) {
+      for (const line of persona.systemPrompt.split("\n")) {
         yield* terminal.log(`   ${chalk.dim(line)}`);
       }
     }
@@ -238,12 +240,8 @@ export function editPersonaCommand(
   identifier: string,
 ): Effect.Effect<
   void,
-  | StorageError
-  | StorageNotFoundError
-  | PersonaNotFoundError
-  | PersonaAlreadyExistsError
-  | ValidationError,
-  PersonaService | TerminalService
+  StorageError | StorageNotFoundError | PersonaNotFoundError,
+  PersonaService | TerminalService | AgentConfigService
 > {
   return Effect.gen(function* () {
     const personaService = yield* PersonaServiceTag;
@@ -255,106 +253,23 @@ export function editPersonaCommand(
       yield* terminal.error("Built-in personas cannot be edited. Create a custom persona instead.");
       return;
     }
-
-    yield* terminal.heading(`Edit persona: ${persona.name}`);
-    yield* terminal.info("Press Enter to keep the current value, or type a new value.");
-    yield* terminal.log("");
-
-    // Select what to edit
-    const field = yield* terminal.select<string>("What would you like to edit?", {
-      choices: [
-        { name: "Name", value: "name" },
-        { name: "Description", value: "description" },
-        { name: "System Prompt", value: "systemPrompt" },
-        { name: "Tone", value: "tone" },
-        { name: "Style", value: "style" },
-      ],
-    });
-
-    if (!field) return;
-
-    let updatedName: string | undefined;
-    let updatedDescription: string | undefined;
-    let updatedSystemPrompt: string | undefined;
-    let updatedTone: string | undefined;
-    let updatedStyle: string | undefined;
-    let hasChanges = false;
-
-    if (field === "name") {
-      const newName = yield* terminal.ask(`New name (current: ${persona.name}):`, {
-        defaultValue: persona.name,
-        validate: (input: string): boolean | string => {
-          if (!input || input.trim().length === 0) return "Name cannot be empty";
-          if (!/^[a-zA-Z0-9_-]+$/.test(input))
-            return "Only letters, numbers, underscores, and hyphens allowed";
-          if (isBuiltinPersona(input) && input.toLowerCase() !== persona.name.toLowerCase())
-            return `"${input}" is a built-in persona name`;
-          return true;
-        },
-        simple: true,
-      });
-      if (newName) {
-        updatedName = newName.trim();
-        hasChanges = true;
-      }
-    } else if (field === "description") {
-      const newDesc = yield* terminal.ask(`New description (current: ${persona.description}):`, {
-        defaultValue: persona.description,
-        simple: true,
-      });
-      if (newDesc) {
-        updatedDescription = newDesc.trim();
-        hasChanges = true;
-      }
-    } else if (field === "systemPrompt") {
-      yield* terminal.log(chalk.dim("Current system prompt:"));
-      const preview =
-        persona.systemPrompt.length > 200
-          ? persona.systemPrompt.substring(0, 200) + "..."
-          : persona.systemPrompt;
-      yield* terminal.log(chalk.dim(preview));
-      yield* terminal.log("");
-
-      const newPrompt = yield* terminal.ask("New system prompt:", { simple: true });
-      if (newPrompt && newPrompt.trim().length > 0) {
-        updatedSystemPrompt = newPrompt.trim();
-        hasChanges = true;
-      }
-    } else if (field === "tone") {
-      const newTone = yield* terminal.ask(`New tone (current: ${persona.tone || "none"}):`, {
-        defaultValue: persona.tone || "",
-        simple: true,
-      });
-      const trimmedTone = newTone?.trim() || undefined;
-      if (trimmedTone !== (persona.tone || undefined)) {
-        updatedTone = trimmedTone;
-        hasChanges = true;
-      }
-    } else if (field === "style") {
-      const newStyle = yield* terminal.ask(`New style (current: ${persona.style || "none"}):`, {
-        defaultValue: persona.style || "",
-        simple: true,
-      });
-      const trimmedStyle = newStyle?.trim() || undefined;
-      if (trimmedStyle !== (persona.style || undefined)) {
-        updatedStyle = trimmedStyle;
-        hasChanges = true;
-      }
-    }
-
-    if (!hasChanges) {
-      yield* terminal.info("No changes made.");
+    if (!persona.filePath) {
+      yield* terminal.error(`Persona "${persona.name}" has no PERSONA.md on disk to edit.`);
       return;
     }
 
-    const updated = yield* personaService.updatePersona(persona.id, {
-      ...(updatedName !== undefined && { name: updatedName }),
-      ...(updatedDescription !== undefined && { description: updatedDescription }),
-      ...(updatedSystemPrompt !== undefined && { systemPrompt: updatedSystemPrompt }),
-      ...(updatedTone !== undefined && { tone: updatedTone }),
-      ...(updatedStyle !== undefined && { style: updatedStyle }),
-    });
-    yield* terminal.success(`Persona "${updated.name}" updated successfully!`);
+    const editor = yield* resolveEditor();
+    try {
+      execSync(`${editor} "${persona.filePath}"`, { stdio: "inherit" });
+    } catch {
+      yield* terminal.error(
+        `Failed to open editor (${editor}). Set "jazz config set editor <cmd>" or $EDITOR and retry.`,
+      );
+      return;
+    }
+
+    const updated = yield* personaService.getPersonaByIdentifier(identifier);
+    yield* terminal.success(`Persona "${updated.name}" saved: ${persona.filePath}`);
   });
 }
 
