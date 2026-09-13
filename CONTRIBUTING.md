@@ -119,7 +119,7 @@ The persona marketplace is maintained by the website package, which publishes it
 2. Keep the prompt under 10,000 characters. `jazz persona install` refuses anything longer.
 3. Open a PR. Merging publishes it to <https://jazz-cli.vercel.app/marketplace> and to `jazz persona browse`.
 
-The marketplace content is not a built-in asset directory. It is read by the website build and served to the CLI over HTTP, so it does not go in `ASSET_DIRECTORIES` and does not ship inside the binary. Personas in `personas/` are the ones Jazz ships with; those are a separate, deliberately small set.
+The website build publishes marketplace content for the CLI to consume over HTTP. Personas in `personas/` ship inside the Jazz binary as its deliberately small built-in set.
 
 ## Before Submitting PR
 
