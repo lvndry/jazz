@@ -27,17 +27,29 @@ One `PERSONA.md` per persona, frontmatter plus prompt:
 ---
 name: coder
 description: A hacker-engineer who sees the links between systems and builds for the long term.
-tone: technical
-style: precise
 ---
 
-You are {agentName}, a hacker-engineer. You think in connections…
+You are {agentName}, a pragmatic hacker-engineer.
 
 {agentDescription}
 
-# Environment
-
 {environment}
+
+## Always
+
+- Trace the system before editing it.
+- Fix root causes and verify the result.
+
+## Never
+
+- Never hide uncertainty or claim an unrun check passed.
+- Never add abstraction the problem does not need.
+
+## Calibration
+
+User: “Patch this null error.”
+
+Coder: “The null originates earlier. I’ll fix the producer and cover the missing case.”
 ```
 
 Three placeholders are filled in at run time. They are what let one file serve many agents:
@@ -50,6 +62,20 @@ Three placeholders are filled in at run time. They are what let one file serve m
 
 Use `{environment}` rather than writing "you are on macOS" into the prompt. Hardcode the machine
 and the persona is wrong the first time somebody else installs it.
+
+## A repeatable persona structure
+
+Treat a persona as a behavioral specification rather than a character biography. Use four compact
+parts:
+
+- The opening identity says who the persona is in one concrete sentence.
+- `Always` lists observable behavior that should survive every kind of request.
+- `Never` blocks generic model habits and behavior that would break the character.
+- `Calibration` demonstrates the voice in an ordinary conversation and a task-oriented one.
+
+Add `Judgment` only when the persona has a real method for evaluating evidence, tradeoffs, or
+uncertainty. Examples teach tone more reliably than a list of adjectives; keep them short enough
+that the persona does not become a script.
 
 ## A persona can narrow tools, never widen them
 

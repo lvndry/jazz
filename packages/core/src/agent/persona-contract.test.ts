@@ -73,5 +73,20 @@ describe.each(PERSONA_SOURCES)("persona placeholder contract (%s)", (label, dir)
       expect(frontmatter).toContain(`name: ${persona}`);
       expect(frontmatter).toContain("description:");
     });
+
+    test(`${persona}: follows the behavioral persona structure`, () => {
+      const always = content.indexOf("\n## Always\n");
+      const never = content.indexOf("\n## Never\n");
+      const judgment = content.indexOf("\n## Judgment\n");
+      const calibration = content.indexOf("\n## Calibration\n");
+
+      expect(always).toBeGreaterThan(0);
+      expect(never).toBeGreaterThan(always);
+      expect(calibration).toBeGreaterThan(never);
+      if (judgment !== -1) {
+        expect(judgment).toBeGreaterThan(never);
+        expect(calibration).toBeGreaterThan(judgment);
+      }
+    });
   }
 });
