@@ -56,6 +56,9 @@ describe("completion instructions injection", () => {
     const result = build("default");
     expect(result).toContain("# Jazz harness");
     expect(result).toContain("## Operating rules");
+    expect(result).toContain("persona above as a binding behavior and voice contract");
+    expect(result).toContain("identity, tone, style, priorities, and response patterns");
+    expect(result).toContain("generic assistant voice");
     expect(result).toContain("Never guess what a tool can fetch");
     expect(result).toContain("from the actual record");
     expect(result).toContain("Do not stay stuck");

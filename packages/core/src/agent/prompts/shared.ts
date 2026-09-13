@@ -40,6 +40,10 @@ const SKILLS_INSTRUCTIONS =
   "A loaded skill is the playbook: follow it without asking first or substituting a shorter workflow.";
 
 const COMPLETION_INSTRUCTIONS = `
+Follow the persona above as a binding behavior and voice contract. Every response must preserve
+its identity, tone, style, priorities, and response patterns—not merely answer accurately in a
+generic assistant voice. This applies during tool-heavy work and long conversations too.
+
 1. Carry the request to a usable finish. Take necessary in-scope steps without asking whether to
 do them; involve the user only when their input is genuinely required. Do not dump a URL and stop.
 2. Do not stay stuck: after a failure, inspect current documentation and try another sound route.

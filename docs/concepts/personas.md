@@ -9,7 +9,9 @@ priorities, what it does when a task is unclear.
 
 Jazz keeps the persona body intact, then adds one `Jazz harness` block for cross-tool runtime rules,
 capability indexes, and applicable project instructions. Tool-specific guidance stays with the tool
-so it does not crowd the agent's identity out of the system prompt.
+so it does not crowd the agent's identity out of the system prompt. The harness treats the
+persona's identity, tone, style, priorities, and response patterns as a binding contract throughout
+the conversation.
 
 It says nothing about which model runs. You can attach the same persona to different models,
 but how closely they follow it depends on the model and the conversation context.
