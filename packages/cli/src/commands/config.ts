@@ -6,10 +6,10 @@ import { ink, TerminalServiceTag, type TerminalService } from "@jazz/core/interf
 import type { LoggingConfig } from "@jazz/core/types/config";
 import { ConfigurationValidationError } from "@jazz/core/types/errors";
 import {
-  type ConfigValue,
-  type ConfigValueType,
-  parseConfigValue,
-} from "@jazz/core/utils/config-value";
+  type ConfigValueKind,
+  parseConfigInput,
+  resolveConfigPath,
+} from "@jazz/core/utils/config-schema";
 import { sortProvidersForPicker } from "@jazz/core/utils/provider-picker";
 import { Effect } from "effect";
 import React from "react";
@@ -80,38 +80,72 @@ export function getConfigCommand(
   });
 }
 
-/** What to type instead, for a value the declared type could not read. */
-const VALUE_HINTS: Readonly<Record<ConfigValueType, string>> = {
-  integer: "Pass a plain whole number, with no units or quotes — 600000, not 600000ms.",
-  number: "Pass a plain number, with no units or quotes — 0.8, not 80%.",
-  boolean: "Pass true or false (yes/no, on/off and 1/0 are read too).",
-  "boolean-or-auto": "Pass true, false, or auto.",
-};
+/** What to type instead, for a value the setting's schema could not read. */
+function valueHint(kind: ConfigValueKind, expected: string): string {
+  switch (kind) {
+    case "whole-number":
+      return "Pass a plain whole number, with no units or quotes — 600000, not 600000ms.";
+    case "number":
+      return "Pass a plain number, with no units or quotes — 0.8, not 80%.";
+    case "boolean":
+      return "Pass true or false (yes/no, on/off and 1/0 are read too).";
+    case "choice":
+      return `Pass ${expected}.`;
+    case "text":
+      return "Pass the value as plain text.";
+  }
+}
+
+function unknownSettingError(path: string, suggestion?: string): ConfigurationValidationError {
+  return new ConfigurationValidationError({
+    field: path,
+    expected: "a setting Jazz reads",
+    actual: "a key it does not know",
+    suggestion:
+      suggestion === undefined
+        ? "Check the key against the configuration docs; Jazz refuses keys it would never read."
+        : `Did you mean ${suggestion}?`,
+  });
+}
+
+function sectionError(path: string): ConfigurationValidationError {
+  return new ConfigurationValidationError({
+    field: path,
+    expected: "one of its fields",
+    actual: "a single value for the whole section",
+    suggestion: `Set a field inside it instead, e.g. '${path}.someField'.`,
+  });
+}
 
 /**
- * Convert one raw CLI string to the type its config path declares, failing the
- * command when it cannot be read as that type.
+ * Convert one raw CLI string to the type its config path declares, failing the command when the
+ * path is not a setting or the value cannot be read as that setting's type.
  *
- * Falling back to the string would be worse than refusing: config.json would
- * still parse, and every reader of that setting would then ignore it, because
- * they check for a real number or a real boolean.
+ * Falling back to the string would be worse than refusing: config.json would still parse, and
+ * every reader of that setting would then ignore it. Secrets are opaque text and pass through.
  */
 function typedConfigValue(
   path: string,
   raw: string,
-): Effect.Effect<ConfigValue, ConfigurationValidationError> {
-  const parsed = parseConfigValue(path, raw);
-  if (parsed.ok) {
-    return Effect.succeed(parsed.value);
+): Effect.Effect<string | number | boolean, ConfigurationValidationError> {
+  if (isSecretPath(path)) return Effect.succeed(raw);
+  const input = parseConfigInput(path, raw);
+  if (input.ok) return Effect.succeed(input.value);
+  switch (input.reason) {
+    case "unknown-key":
+      return Effect.fail(unknownSettingError(path, input.suggestion));
+    case "structured":
+      return Effect.fail(sectionError(path));
+    case "invalid":
+      return Effect.fail(
+        new ConfigurationValidationError({
+          field: path,
+          expected: input.expected,
+          actual: raw,
+          suggestion: valueHint(input.kind, input.expected),
+        }),
+      );
   }
-  return Effect.fail(
-    new ConfigurationValidationError({
-      field: path,
-      expected: parsed.expected,
-      actual: raw,
-      suggestion: VALUE_HINTS[parsed.type],
-    }),
-  );
 }
 
 /**
@@ -211,6 +245,13 @@ export function setConfigCommand(
       }
 
       const secret = isSecretPath(targetKey);
+      const resolution = secret ? undefined : resolveConfigPath(targetKey);
+      if (resolution !== undefined && !resolution.known) {
+        return yield* Effect.fail(unknownSettingError(targetKey, resolution.suggestion));
+      }
+      if (resolution?.structured) {
+        return yield* Effect.fail(sectionError(targetKey));
+      }
       const answer = yield* terminal.ask(`Enter value for ${targetKey}:`, {
         simple: true,
         cancellable: true,
@@ -227,24 +268,6 @@ export function setConfigCommand(
         secret ? `Config set: ${targetKey}` : `Config set: ${targetKey} = ${String(typedAnswer)}`,
       );
       return;
-    }
-
-    // Validation: Check if we are trying to overwrite an object with a string
-    const currentValue = yield* configService.getOrElse(targetKey, undefined);
-    if (
-      currentValue !== undefined &&
-      currentValue !== null &&
-      typeof currentValue === "object" &&
-      !Array.isArray(currentValue)
-    ) {
-      return yield* Effect.fail(
-        new ConfigurationValidationError({
-          field: targetKey,
-          expected: "object",
-          actual: "string",
-          suggestion: `Cannot overwrite complex configuration object '${targetKey}' with a string value. Use specific sub-keys (e.g., '${targetKey}.someField') or interactive mode.`,
-        }),
-      );
     }
 
     const settingSecret = isSecretPath(targetKey);

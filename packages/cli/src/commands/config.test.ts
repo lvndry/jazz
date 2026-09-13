@@ -8,8 +8,8 @@ import { setConfigCommand } from "./config";
 /**
  * `jazz config set` receives every value as a shell string, but most of
  * AppConfig is typed. These cover the boundary: what reaches
- * `AgentConfigService.set` has to be the type the setting is read back as, or
- * the write lands in config.json and is then ignored by whoever reads it.
+ * `AgentConfigService.set` has to be the type the setting is read back as, and
+ * a key Jazz never reads has to be refused rather than written.
  */
 
 let writes: { key: string; value: unknown }[] = [];
@@ -24,6 +24,7 @@ const mockConfigService = {
 } as unknown as AgentConfigService;
 
 const askAnswer = { value: "" };
+const ask = mock(() => Effect.succeed(askAnswer.value));
 
 const mockTerminal = {
   isInteractive: true,
@@ -32,7 +33,7 @@ const mockTerminal = {
   success: mock(() => Effect.void),
   error: mock(() => Effect.void),
   warn: mock(() => Effect.void),
-  ask: mock(() => Effect.succeed(askAnswer.value)),
+  ask,
   confirm: mock(() => Effect.succeed(true)),
 } as unknown as TerminalService;
 
@@ -51,9 +52,15 @@ function set(key: string, value?: string) {
   );
 }
 
+function failure(exit: Exit.Exit<void, ConfigurationValidationError>) {
+  const error = Exit.isFailure(exit) ? Cause.failureOption(exit.cause) : undefined;
+  return error?._tag === "Some" ? error.value : undefined;
+}
+
 beforeEach(() => {
   writes = [];
   askAnswer.value = "";
+  ask.mockClear();
 });
 
 describe("jazz config set", () => {
@@ -77,6 +84,12 @@ describe("jazz config set", () => {
     expect(writes).toEqual([{ key: "mcpServers.github.enabled", value: false }]);
   });
 
+  it("stores a choice as the value the setting names", async () => {
+    await set("scheduler.mode", "in-process");
+
+    expect(writes).toEqual([{ key: "scheduler.mode", value: "in-process" }]);
+  });
+
   it("leaves genuinely stringly settings alone", async () => {
     await set("llm.ollama.keep_alive", "-1");
     await set("logging.level", "debug");
@@ -87,13 +100,35 @@ describe("jazz config set", () => {
     ]);
   });
 
+  it("passes a secret through verbatim, including ones stored under a list", async () => {
+    const exit = await set("webhooks.deploy.token", " s3cret ");
+
+    expect(Exit.isSuccess(exit)).toBe(true);
+    expect(writes).toEqual([{ key: "webhooks.deploy.token", value: " s3cret " }]);
+  });
+
   it("refuses a value it cannot read as the declared type instead of writing it", async () => {
     const exit = await set("maxRetries", "abc");
 
-    expect(Exit.isFailure(exit)).toBe(true);
-    const error = Exit.isFailure(exit) ? Cause.failureOption(exit.cause) : undefined;
-    expect(error?._tag === "Some" && error.value).toBeInstanceOf(ConfigurationValidationError);
-    expect(error?._tag === "Some" && error.value.expected).toBe("a whole number");
+    const error = failure(exit);
+    expect(error).toBeInstanceOf(ConfigurationValidationError);
+    expect(error?.expected).toBe("a whole number of 0 or more");
+    expect(writes).toEqual([]);
+  });
+
+  it("refuses a key Jazz never reads, suggesting the one a typo meant", async () => {
+    const exit = await set("maxRetrys", "5");
+
+    const error = failure(exit);
+    expect(error?.field).toBe("maxRetrys");
+    expect(error?.suggestion).toBe("Did you mean maxRetries?");
+    expect(writes).toEqual([]);
+  });
+
+  it("refuses a single value for a whole section", async () => {
+    const exit = await set("output", "hybrid");
+
+    expect(failure(exit)?.field).toBe("output");
     expect(writes).toEqual([]);
   });
 
@@ -103,5 +138,13 @@ describe("jazz config set", () => {
 
     expect(Exit.isSuccess(exit)).toBe(true);
     expect(writes).toEqual([{ key: "maxRetries", value: 7 }]);
+  });
+
+  it("refuses an unknown key before prompting for its value", async () => {
+    const exit = await set("maxRetrys");
+
+    expect(Exit.isFailure(exit)).toBe(true);
+    expect(ask).not.toHaveBeenCalled();
+    expect(writes).toEqual([]);
   });
 });

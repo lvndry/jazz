@@ -9,7 +9,7 @@ import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import { type AppConfig } from "@jazz/core/types/index";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
 import { describe, expect, it, mock } from "bun:test";
-import { Effect, Layer } from "effect";
+import { Cause, Effect, Exit, Layer } from "effect";
 import { AgentConfigServiceImpl, createConfigLayer } from "./config";
 
 // Mock FileSystem
@@ -132,8 +132,8 @@ describe("AgentConfigService", () => {
         },
       },
     };
-    const mcpOverrides = { testServer: { enabled: true as const } };
-    const service = new AgentConfigServiceImpl(configWithMcp, mcpOverrides, configPath, mockFS);
+    const fileDocument = { mcpServers: { testServer: { enabled: true } } };
+    const service = new AgentConfigServiceImpl(configWithMcp, fileDocument, configPath, mockFS);
 
     await Effect.runPromise(service.set("mcpServers.testServer.enabled", false));
 
@@ -164,7 +164,7 @@ describe("AgentConfigService", () => {
     };
     const service = new AgentConfigServiceImpl(
       configWithMcp,
-      { testServer: { enabled: true as const } },
+      { mcpServers: { testServer: { enabled: true } } },
       configPath,
       mockFS,
     );
@@ -537,6 +537,220 @@ describe("createConfigLayer", () => {
     expect(result.endpoint).toBe("http://collector:4318");
     expect(result.captureContent).toBe(true);
     expect(result.retentionDays).toBe(7);
+  });
+
+  async function captureStderr<T>(run: () => Promise<T>): Promise<{ result: T; stderr: string }> {
+    const original = process.stderr.write.bind(process.stderr);
+    let stderr = "";
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      stderr += String(chunk);
+      return true;
+    }) as typeof process.stderr.write;
+    try {
+      return { result: await run(), stderr };
+    } finally {
+      process.stderr.write = original;
+    }
+  }
+
+  function lastWrite(fs: FileSystem.FileSystem): Record<string, unknown> {
+    const calls = (fs.writeFileString as ReturnType<typeof mock>).mock.calls;
+    return JSON.parse(calls[calls.length - 1]?.[1] as string) as Record<string, unknown>;
+  }
+
+  it("loads every budget and scheduling setting a file sets", async () => {
+    const customConfigPath = path.join(os.tmpdir(), "jazz-budgets-config.json");
+    const settings = {
+      maxCostUSD: 0.2,
+      maxTokens: 200000,
+      maxDurationMs: 1800000,
+      workspaceMaxTotalBytesPerAgent: 1048576,
+      scheduler: { mode: "in-process" },
+    };
+    const fileContents = new Map([[customConfigPath, JSON.stringify(settings)]]);
+
+    const layer = createConfigLayer(undefined, customConfigPath).pipe(
+      Layer.provide(Layer.succeed(FileSystem.FileSystem, createTestFileSystem(fileContents))),
+    );
+    const config = await Effect.runPromise(
+      Effect.flatMap(AgentConfigServiceTag, (service) => service.appConfig).pipe(
+        Effect.provide(layer),
+      ),
+    );
+
+    expect(config).toMatchObject(settings);
+  });
+
+  it("keeps everything a write did not touch, including entries it could not read", async () => {
+    const globalPath = path.join(getJazzHomeDirectory(), "config.json");
+    const fileContents = new Map([
+      [
+        globalPath,
+        JSON.stringify({
+          maxCostUSD: 0.2,
+          scheduler: { mode: "in-process" },
+          maxRetrys: 5,
+          maxRetries: "7",
+        }),
+      ],
+    ]);
+    const testFS = createTestFileSystem(fileContents);
+    const layer = createConfigLayer().pipe(
+      Layer.provide(Layer.succeed(FileSystem.FileSystem, testFS)),
+    );
+
+    await captureStderr(() =>
+      Effect.runPromise(
+        Effect.flatMap(AgentConfigServiceTag, (service) => service.set("maxRetries", 5)).pipe(
+          Effect.provide(layer),
+        ),
+      ),
+    );
+
+    expect(lastWrite(testFS)).toEqual({
+      maxCostUSD: 0.2,
+      scheduler: { mode: "in-process" },
+      maxRetrys: 5,
+      maxRetries: 5,
+    });
+  });
+
+  it("never copies project overrides, --debug, or defaults into the global file", async () => {
+    const globalPath = path.join(getJazzHomeDirectory(), "config.json");
+    const localPath = path.join(process.cwd(), ".jazz", "config.json");
+    const fileContents = new Map([
+      [globalPath, JSON.stringify({ logging: { level: "warn" } })],
+      [
+        localPath,
+        JSON.stringify({
+          maxRetries: 9,
+          llm: { ollama: { keep_alive: "-1" } },
+          mcpServers: { "proj-only": { enabled: false } },
+        }),
+      ],
+    ]);
+    const testFS = createTestFileSystem(fileContents);
+    const layer = createConfigLayer(true).pipe(
+      Layer.provide(Layer.succeed(FileSystem.FileSystem, testFS)),
+    );
+
+    const runtime = await Effect.runPromise(
+      Effect.gen(function* () {
+        const service = yield* AgentConfigServiceTag;
+        yield* service.set("notifications.enabled", false);
+        return yield* service.appConfig;
+      }).pipe(Effect.provide(layer)),
+    );
+
+    expect(runtime.logging.level).toBe("debug");
+    expect(runtime.maxRetries).toBe(9);
+    expect(lastWrite(testFS)).toEqual({
+      logging: { level: "warn" },
+      notifications: { enabled: false },
+    });
+  });
+
+  it("ignores a value of the wrong type, says so, and falls back to the default", async () => {
+    const customConfigPath = path.join(os.tmpdir(), "jazz-mistyped-config.json");
+    const fileContents = new Map([
+      [
+        customConfigPath,
+        JSON.stringify({ maxRetries: "5", output: { collapseReasoning: "false", mode: "raw" } }),
+      ],
+    ]);
+    const layer = createConfigLayer(undefined, customConfigPath).pipe(
+      Layer.provide(Layer.succeed(FileSystem.FileSystem, createTestFileSystem(fileContents))),
+    );
+
+    const { result: config, stderr } = await captureStderr(() =>
+      Effect.runPromise(
+        Effect.flatMap(AgentConfigServiceTag, (service) => service.appConfig).pipe(
+          Effect.provide(layer),
+        ),
+      ),
+    );
+
+    expect(config.maxRetries).toBeUndefined();
+    expect(config.output?.collapseReasoning).toBeUndefined();
+    expect(config.output?.mode).toBe("raw");
+    expect(stderr).toContain(customConfigPath);
+    expect(stderr).toContain('maxRetries: expected a whole number of 0 or more, got "5"');
+    expect(stderr).toContain("output.collapseReasoning: expected true or false");
+  });
+
+  it("merges a project provider block into the global one field by field", async () => {
+    const globalPath = path.join(getJazzHomeDirectory(), "config.json");
+    const localPath = path.join(process.cwd(), ".jazz", "config.json");
+    const fileContents = new Map([
+      [globalPath, JSON.stringify({ llm: { ollama: { base_url: "http://gpu-box:11434/api" } } })],
+      [localPath, JSON.stringify({ llm: { ollama: { keep_alive: "-1" } } })],
+    ]);
+    const layer = createConfigLayer().pipe(
+      Layer.provide(Layer.succeed(FileSystem.FileSystem, createTestFileSystem(fileContents))),
+    );
+
+    const config = await Effect.runPromise(
+      Effect.flatMap(AgentConfigServiceTag, (service) => service.appConfig).pipe(
+        Effect.provide(layer),
+      ),
+    );
+
+    expect(config.llm?.ollama).toEqual({ base_url: "http://gpu-box:11434/api", keep_alive: "-1" });
+  });
+
+  it("removes a setting from the file when it is cleared", async () => {
+    const globalPath = path.join(getJazzHomeDirectory(), "config.json");
+    const fileContents = new Map([
+      [globalPath, JSON.stringify({ web_search: { provider: "brave" }, maxRetries: 2 })],
+    ]);
+    const testFS = createTestFileSystem(fileContents);
+    const layer = createConfigLayer().pipe(
+      Layer.provide(Layer.succeed(FileSystem.FileSystem, testFS)),
+    );
+
+    await Effect.runPromise(
+      Effect.flatMap(AgentConfigServiceTag, (service) =>
+        service.set("web_search.provider", undefined),
+      ).pipe(Effect.provide(layer)),
+    );
+
+    expect(lastWrite(testFS)).toEqual({ maxRetries: 2 });
+  });
+});
+
+describe("AgentConfigService.set checks what callers hand it", () => {
+  const initialConfig: AppConfig = {
+    storage: { type: "file", path: "/tmp" },
+    logging: { level: "info", format: "plain" },
+  };
+
+  it("dies rather than writing a value its setting cannot hold", async () => {
+    const writeFileString = mock(() => Effect.void);
+    const fs = { ...mockFS, writeFileString } as unknown as FileSystem.FileSystem;
+    const service = new AgentConfigServiceImpl(initialConfig, {}, "/tmp/jazz-typed.json", fs);
+
+    const exit = await Effect.runPromiseExit(service.set("maxRetries", "5"));
+
+    expect(Exit.isFailure(exit) && Cause.isDie(exit.cause)).toBe(true);
+    expect(writeFileString).not.toHaveBeenCalled();
+    expect(await Effect.runPromise(service.get("maxRetries"))).toBeUndefined();
+  });
+
+  it("merges an MCP server patch into that server's existing overrides", async () => {
+    const writeFileString = mock(() => Effect.void);
+    const fs = { ...mockFS, writeFileString } as unknown as FileSystem.FileSystem;
+    const service = new AgentConfigServiceImpl(
+      initialConfig,
+      { mcpServers: { github: { enabled: false } } },
+      "/tmp/jazz-mcp-patch.json",
+      fs,
+    );
+
+    await Effect.runPromise(service.set("mcpServers.github", { trusted: true }));
+
+    const calls = (writeFileString as ReturnType<typeof mock>).mock.calls;
+    const written = JSON.parse(calls[0]?.[1] as string);
+    expect(written.mcpServers.github).toEqual({ enabled: false, trusted: true });
   });
 });
 

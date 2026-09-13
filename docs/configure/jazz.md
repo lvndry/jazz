@@ -6,7 +6,7 @@ description: "Configure Jazz runtime limits, context management, output, schedul
 
 Jazz reads global configuration from `~/.jazz/config.json` and optional project overrides from `./.jazz/config.json`.
 
-The merge order is defaults, global configuration, then project configuration. `JAZZ_CONFIG_PATH` or `--config` replaces the global file; it does not disable project overrides. `JAZZ_HOME` or `--data-dir` changes the Jazz data directory.
+The merge order is defaults, global configuration, then project configuration. Objects merge key by key at every depth, so a project `llm.ollama.keep_alive` keeps the global `llm.ollama.base_url`; lists such as `peers` and `webhooks` are replaced whole. `JAZZ_CONFIG_PATH` or `--config` replaces the global file; it does not disable project overrides. `JAZZ_HOME` or `--data-dir` changes the Jazz data directory.
 
 Agents are separate JSON files under the Jazz home directory. MCP server definitions use the shared `.agents/mcp.json` convention. Do not put either into `config.json`.
 
@@ -41,6 +41,22 @@ $ jazz config set maxRetries never
 
 💡 Suggestion: Pass a plain whole number, with no units or quotes — 600000, not 600000ms.
 ```
+
+It also refuses a key Jazz does not read, suggesting the one a typo most likely meant (`maxRetrys` → `maxRetries`). Lists such as `peers` and `webhooks` are not set one field at a time; use `jazz peers` and `jazz webhook`, or edit the file.
+
+A write changes only the key you set, and only in the global file. Values merged in from a project file, from `--debug`, from environment variables, or from the keyring are never copied into it, and entries Jazz cannot read are left in place.
+
+## Mistakes in a configuration file
+
+Jazz checks each configuration file as it loads. A value of the wrong type, or a key Jazz does not recognise, is ignored in favour of the default and reported on stderr. Jazz does not refuse to start over it, because a daemon or a scheduled run has nobody to read a refusal:
+
+```console
+jazz: ignoring 2 entries in /home/you/.jazz/config.json; defaults apply instead:
+  maxRetries: expected a whole number of 0 or more, got "5"
+  maxRetrys: not a setting — did you mean maxRetries?
+```
+
+A broken entry in a list is ignored as a whole: a webhook missing its `promptTemplate` is not served at all. A value found where a secret belongs is described by its type and never printed.
 
 ## Run budgets
 

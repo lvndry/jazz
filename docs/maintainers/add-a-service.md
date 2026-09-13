@@ -150,6 +150,7 @@ export function createHTTPFeatureFlagLayer(): Layer.Layer<
 Notes:
 
 - The Layer declares it requires `AgentConfigService` so it can read configuration (see the type parameter `AgentConfigService` in the return type).
+- A new `AppConfig` section also needs its shape in `packages/core/src/utils/config-schema.ts`. The schema will not compile until it matches the interface, and a setting missing from it is reported as unknown and never loaded.
 - `Effect.tryPromise` wraps async operations and converts promise rejections to Effect errors. Here we catch all errors and return safe defaults (`false`/`0`) to avoid breaking the app if the flag service is unavailable.
 - The Layer type `Layer.Layer<FeatureFlagService, never, AgentConfigService>` means:
   - Provides: `FeatureFlagService` (what this layer gives you)
