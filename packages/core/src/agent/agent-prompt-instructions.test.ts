@@ -51,87 +51,37 @@ function build(
   );
 }
 
-describe("persona voice reminder", () => {
-  test("tone and style are restated, and land after everything else", () => {
-    const result = build(
-      "noir",
-      {
-        toolNames: ["run_command"],
-        projectInstructions: [{ path: "/repo/AGENTS.md", content: "Use tabs." }],
-      },
-      { tone: "hardboiled", style: "atmospheric" },
-    );
-
-    expect(result).toContain("tone hardboiled, style atmospheric");
-    expect(result.indexOf("# Voice")).toBeGreaterThan(result.indexOf("# Seeing work through"));
-    expect(result.indexOf("# Voice")).toBeGreaterThan(result.indexOf("Use tabs."));
-  });
-
-  test("either field alone is enough", () => {
-    expect(build("noir", {}, { tone: "hardboiled" })).toContain("tone hardboiled");
-    expect(build("noir", {}, { style: "atmospheric" })).toContain("style atmospheric");
-  });
-
-  test("a persona declaring neither gets no voice block", () => {
-    expect(build("default")).not.toContain("# Voice");
-    expect(build("default", {}, { tone: "  ", style: "" })).not.toContain("# Voice");
-  });
-
-  test("the summarizer has no reader to perform for", () => {
-    expect(build("summarizer", {}, { tone: "hardboiled" })).not.toContain("# Voice");
-  });
-
-  test("editing only the frontmatter voice still busts the prompt cache", () => {
-    const builder = new AgentPromptBuilder();
-    const options: AgentPromptOptions = {
-      agentName: "Test",
-      agentDescription: "a test agent.",
-      userInput: "hello",
-    };
-    const withTone = (tone: string) =>
-      Effect.runSync(
-        builder.buildSystemPrompt(
-          "noir",
-          options,
-          personaServiceReturning("You are {agentName}.", { tone }),
-        ),
-      );
-
-    expect(withTone("hardboiled")).toContain("tone hardboiled");
-    expect(withTone("chipper")).toContain("tone chipper");
-  });
-});
-
 describe("completion instructions injection", () => {
   test("acting personas get the completion contract", () => {
     const result = build("default");
-    expect(result).toContain("# Seeing work through");
-    expect(result).toContain("Never guess a value you can fetch");
-    expect(result).toContain("answer from the record");
+    expect(result).toContain("# Jazz harness");
+    expect(result).toContain("## Operating rules");
+    expect(result).toContain("Never guess what a tool can fetch");
+    expect(result).toContain("from the actual record");
     expect(result).toContain("Do not stay stuck");
     expect(result).toContain("Do not dump a URL and stop");
-    expect(result).toContain("Look up live docs");
-    expect(result).toContain("Do not invent a larger next job");
+    expect(result).toContain("inspect current documentation");
+    expect(result).toContain("larger follow-up job");
     expect(result).not.toContain("brief offer of optional follow-up");
   });
 
   test("summarizer never receives the completion contract", () => {
     const result = build("summarizer");
-    expect(result).not.toContain("# Seeing work through");
+    expect(result).not.toContain("# Jazz harness");
   });
 });
 
 describe("tool guidance injection", () => {
   test("no tool blocks when the agent has no tools", () => {
     const result = build("default");
-    expect(result).not.toContain("# Tool usage");
+    expect(result).not.toContain("## Tools");
     expect(result).not.toContain("# Asking the user questions");
   });
 
   test("tool selection guidance appears when tools are present", () => {
     const result = build("default", { toolNames: ["http_request"] });
-    expect(result).toContain("# Tool usage");
-    expect(result).toContain("execute its playbook");
+    expect(result).toContain("## Tools");
+    expect(result).toContain("prefer the most specific available tool");
   });
 });
 
@@ -146,9 +96,9 @@ describe("skills playbook instructions", () => {
         },
       ],
     });
-    expect(result).toContain("A loaded skill is the playbook");
-    expect(result).toContain("Do not ask whether to follow it");
-    expect(result).toContain("do not substitute a shorter path");
+    expect(result).toContain("playbook: follow it");
+    expect(result).toContain("without asking first");
+    expect(result).toContain("shorter workflow");
     expect(result).not.toContain("Follow the loaded skill's step-by-step workflow");
   });
 });
@@ -165,30 +115,8 @@ describe("deferred tools index", () => {
     });
     expect(result).toContain("<deferred_tools>");
     expect(result).toContain("- linear_create_issue: Create a Linear issue.");
-    expect(result).toContain("Calling one of these names directly will fail");
-    expect(result).toContain("Call search_tools with a short phrase");
-  });
-});
-
-describe("system prompt cache keys off the toolset", () => {
-  test("same persona with different tools yields different prompts", () => {
-    const builder = new AgentPromptBuilder();
-    const service = personaServiceReturning("You are {agentName}.");
-    const base: AgentPromptOptions = {
-      agentName: "Test",
-      agentDescription: "a test agent.",
-      userInput: "hello",
-    };
-
-    const withMemory = Effect.runSync(
-      builder.buildSystemPrompt("default", { ...base, toolNames: ["view_memory"] }, service),
-    );
-    const withoutMemory = Effect.runSync(
-      builder.buildSystemPrompt("default", { ...base, toolNames: ["http_request"] }, service),
-    );
-
-    expect(withMemory).toContain("# Memory");
-    expect(withoutMemory).not.toContain("# Memory");
+    expect(result).toContain("call search_tools");
+    expect(result).toContain("Do not call a deferred");
   });
 });
 

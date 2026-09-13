@@ -7,8 +7,12 @@ description: "What a Jazz persona is, how it shapes behaviour and can narrow an 
 A persona is a reusable system prompt with a name. It decides how an agent works: its voice, its
 priorities, what it does when a task is unclear.
 
-It says nothing about which model runs. The same persona behaves recognisably on a frontier
-model and on a local one.
+Jazz keeps the persona body intact, then adds one `Jazz harness` block for cross-tool runtime rules,
+capability indexes, and applicable project instructions. Tool-specific guidance stays with the tool
+so it does not crowd the agent's identity out of the system prompt.
+
+It says nothing about which model runs. You can attach the same persona to different models,
+but how closely they follow it depends on the model and the conversation context.
 
 Jazz ships four: `default` for general work, `coder` for code and git, `researcher` for
 read-only investigation, and `summarizer`, which is internal and has no user to address.

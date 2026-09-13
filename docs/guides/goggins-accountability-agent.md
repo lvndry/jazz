@@ -45,7 +45,9 @@ Confirm what Jazz stored:
 jazz persona show goggins
 ```
 
-The persona is model-independent. It does not contain provider keys, schedules, or deployment settings, and it cannot grant itself tools.
+The persona is separate from the model configuration. It does not contain provider keys,
+schedules, or deployment settings, and it cannot grant itself tools. Different models may follow
+the same persona with different levels of fidelity.
 
 ## 2. Attach it to an agent
 
@@ -95,7 +97,10 @@ Jazz restores that conversation instead of treating Thursday as a new coaching r
 
 ## 4. Move the behavior to another model
 
-Create a second agent and select the same `goggins` persona. For example, use OpenRouter for a hosted check-in agent and Ollama for a private local one. The identity stays consistent while model credentials, context size, and tools remain isolated per agent.
+Create a second agent and select the same `goggins` persona. For example, use OpenRouter for a
+hosted check-in agent and Ollama for a private local one. This reuses the same instructions while
+model credentials, context size, and tools remain isolated per agent. Compare the outputs before
+relying on equivalent behavior: models can follow the persona with different levels of fidelity.
 
 ```bash
 jazz agent create

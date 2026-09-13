@@ -34,7 +34,7 @@ type UpdateWorkStateArgs = z.infer<typeof updateWorkStateParameters>;
  *
  * Deliberately separate from memory: memory is what stays true about a person or project
  * for weeks, this is what is true about this task right now. Routing task detail into
- * memory would pollute it, which is why `MEMORY_INSTRUCTIONS` tells the agent not to.
+ * memory would pollute it, so the distinction is documented directly in this tool's description.
  */
 export function createUpdateWorkStateTool(): Tool<never> {
   return defineTool<never, UpdateWorkStateArgs>({

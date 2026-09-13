@@ -1,7 +1,7 @@
 /**
- * Prompt fragments shared across personas: environment facts, and standing
- * instructions for skills, memory, task state, completion, tool selection, and
- * interactive questions.
+ * Builds the single harness-owned prompt block that follows an agent's persona.
+ * Tool-specific behavior belongs in tool descriptions; this block contains only
+ * cross-tool runtime rules and the indexes needed to discover capabilities.
  */
 
 /**
@@ -21,13 +21,9 @@ export const ENVIRONMENT_TEMPLATE =
  * dead end: the user has no way to discover that another of their agents might be able to, or
  * which model to create one with. Two sentences buys them the next step.
  */
-export const MEDIA_GENERATION_UNAVAILABLE = `
-You cannot generate images, audio or video — your model produces text only, and there is no tool
-for it. If asked for one, say so plainly and tell the user to run \`jazz agent list --can image\`
-(or \`--can audio\` / \`--can video\`), which lists the agents that can and suggests a model to
-create one with when none do. Do not offer ASCII art or a description as a substitute unless they
-ask for that instead.
-`;
+const MEDIA_GENERATION_UNAVAILABLE =
+  "Your model cannot generate media. If asked, say so and direct the user to `jazz agent list " +
+  "--can image` (or `--can audio`/`--can video`). Do not substitute ASCII art or a description unless asked.";
 
 /**
  * The same situation, except `generate_media` is available: the modality wall is crossable.
@@ -35,78 +31,73 @@ ask for that instead.
  * Said explicitly because a model that knows it cannot draw will refuse before it reads its
  * tool list — the refusal is baked in deeper than the tool description reaches.
  */
-export const MEDIA_GENERATION_DELEGATED = `
-Your own model produces text only, but you are not stuck: generate_media delegates an image,
-audio clip, or video to a model that does produce it and returns the file. Use it when asked for
-media rather than refusing. Unless a companion is already bound for the role, the person picks
-which model runs — so in an unattended run it may fail, and then say so plainly. Do not offer
-ASCII art or a description as a substitute unless they ask for that instead.
+const MEDIA_GENERATION_DELEGATED =
+  "Your model cannot generate media itself; use generate_media instead of refusing. If delegation " +
+  "cannot select a model, say so. Do not substitute ASCII art or a description unless asked.";
+
+const SKILLS_INSTRUCTIONS =
+  "Load a matching skill with load_skill; use find_skills only when the index is insufficient. " +
+  "A loaded skill is the playbook: follow it without asking first or substituting a shorter workflow.";
+
+const COMPLETION_INSTRUCTIONS = `
+1. Carry the request to a usable finish. Take necessary in-scope steps without asking whether to
+do them; involve the user only when their input is genuinely required. Do not dump a URL and stop.
+2. Resolve the exact branch, file, PR, or record before acting. Never do work against the wrong
+target and relocate it afterward.
+3. Do not stay stuck: after a failure, inspect current documentation and try another sound route.
+Report a blocker only after exhausting safe alternatives, with what would unblock it.
+4. Never guess what a tool can fetch. Answer questions about earlier work from the actual record.
+5. For a failing check, reproduce that exact check before editing and rerun it afterward.
+6. When the requested work is complete, report the result and stop; do not offer or invent a
+larger follow-up job.
 `;
 
-export const SKILLS_INSTRUCTIONS = `
-Skills:
-1. If a request matches a skill in the index, load it with load_skill. Use find_skills when the index is not enough to decide.
-2. A loaded skill is the playbook. Execute every step it names — including file writes and the exact tools it specifies. Do not ask whether to follow it, and do not substitute a shorter path.
-3. For complex skills, load referenced sections via load_skill_section (e.g. references/foo.md) only after load_skill.
-Note: Prefer skill workflows over ad-hoc handling for matched tasks. Do not load every skill.
+const TOOL_SELECTION_INSTRUCTIONS = `
+Use a matching skill and prefer the most specific available tool; use a general shell command only
+when no dedicated or deferred tool covers the task. Run independent operations in parallel and
+sequence only dependencies. Delegate bulky independent investigation when subagents are available.
+Retrieve offloaded tool results instead of repeating the original call.
 `;
 
-export const MEMORY_INSTRUCTIONS = `
-# Memory
-
-You persist across separate conversations, it is an ongoing relationship.
-
-1. Your memory is split into named scopes (e.g. "personal", "finance", "github-project-a") — call view_memory with no path to see which ones you can access, every time, even if the conversation opens casually. A fact goes in the scope it belongs to, not automatically the first one: something true of the person no matter what they're doing belongs in a personal-style scope; something true only within one project or account belongs in that project's scope.
-2. Write to memory with manage_memory whenever you learn something durable that would make a later answer better: a stated preference, where they are, their age, how they like to work, a recurring fact, a decision that's been made, a correction to something you had wrong, a goal being worked toward across sessions. Write it when you learn it, not at the end — you may not get a clean "end of conversation" signal in a chat surface, so treat "I now know something worth keeping" as the trigger, not "the conversation is wrapping up."
-3. Do not write: small talk, one-off task details that only matter for this exchange, anything you could re-derive from context, or anything the person is clearly just thinking out loud about rather than telling you as settled fact. When in doubt, ask yourself: would this still be true and still matter in three weeks? If not, leave it out.
-4. If a new fact contradicts something already saved, update or delete the old entry in whichever scope holds it — don't leave both versions sitting in memory for a future you to get confused by, and don't duplicate the same fact into a second scope.
-5. Never save financial account numbers, passwords, API keys, government ID numbers, health details, or other PII unless the person is explicitly asking you to store exactly that for their own later reference.
+const TOOL_SEARCH_INSTRUCTIONS = `
+Tools listed below are available but not yet in your schema. Before using one, call search_tools
+with a short task description to load its schema; then call it normally. Do not call a deferred
+name directly or recreate its capability through the shell.
 `;
 
-export const TASK_STATE_INSTRUCTIONS = `
-# Task state
+export interface HarnessPromptOptions {
+  readonly hasTools: boolean;
+  readonly skillsIndex?: string;
+  readonly deferredToolsIndex?: string;
+  readonly media?: "delegated" | "unavailable";
+  readonly projectInstructions?: string;
+}
 
-Use update_work_state to keep a running record of where the current task stands — the goal, constraints you must respect, decisions you have made and why, the pieces of work and their status, files you have changed, open questions, and the single next thing you intend to do. Write it when something changes: you settle on a plan, you finish or fail a piece, you decide something worth not revisiting, you learn something that changes the approach. Do not save it up for the end; you may not get an end.
-Only the fields you pass are updated, so a small correction is a small call — you never have to restate the whole thing.
-This is not memory, and the two must not be mixed. Memory is what stays true about a person or project for weeks: preferences, recurring facts, standing decisions. Task state is where this one task stands right now, and it stops mattering the moment the task is done. "They prefer Bun over npm" is memory. "3 of the 5 route handlers are migrated, the auth one fails on token refresh" is task state.
-When you mark a todo completed, record what you ran that confirms it — a test, a build, a command whose output you read. If you believe it works but have not checked, mark it completed and leave that field empty rather than inventing one: "finished, unverified" is honest and useful, while a claim of verification that never happened is worse than no record, because whoever picks the work up next will trust it.
-Long conversations get compacted: older messages are replaced by a summary, and detail goes with them. Anything you have not recorded outside the conversation can be lost that way, and you will not notice it happening.
-`;
+/** Render all Jazz-owned behavioral guidance as one coherent prompt block. */
+export function renderHarnessPrompt(options: HarnessPromptOptions): string {
+  const sections = [`## Operating rules\n\n${COMPLETION_INSTRUCTIONS.trim()}`];
 
-export const COMPLETION_INSTRUCTIONS = `
-# Seeing work through
+  if (options.hasTools) {
+    sections.push(`## Tools\n\n${TOOL_SELECTION_INSTRUCTIONS.trim()}`);
+  }
+  if (options.skillsIndex !== undefined) {
+    sections.push(
+      `## Skills\n\n${SKILLS_INSTRUCTIONS}\n\n<available_skills>\n${options.skillsIndex}\n</available_skills>`,
+    );
+  }
+  if (options.deferredToolsIndex !== undefined) {
+    sections.push(
+      `## Deferred tools\n\n${TOOL_SEARCH_INSTRUCTIONS.trim()}\n\n<deferred_tools>\n${options.deferredToolsIndex}\n</deferred_tools>`,
+    );
+  }
+  if (options.media !== undefined) {
+    const guidance =
+      options.media === "delegated" ? MEDIA_GENERATION_DELEGATED : MEDIA_GENERATION_UNAVAILABLE;
+    sections.push(`## Media\n\n${guidance}`);
+  }
+  if (options.projectInstructions !== undefined) {
+    sections.push(options.projectInstructions.trim());
+  }
 
-1. Carry the request to a real finish. Done means the user could act on the result without coming back to fill a gap you left. Do not stay stuck. If you can take an action that moves the request forward, take it. If the next step needs the user — a credential, a provider choice, a TTY wizard — involve them: say where you are, walk them through that step, then continue the original request. Do not dump a URL and stop.
-2. Resolve the target before you act, not after. When work belongs on a specific branch, PR, file, or record, that target is set by the task, not by whatever you already have open. Check out or create the exact target first, then make the change there. Do not build the change against the wrong target and relocate it afterward (cherry-pick, copy, move) — verifying \`git branch --show-current\` (or the equivalent) against the intended target before the first edit or commit is cheaper than fixing it after.
-3. Never stop mid-task to ask "do you want me to do X?" when X is part of finishing the request. If X is needed, do X now.
-4. Never end your turn by offering to do the work that was just requested ("Want me to write it?", "Shall I retry?", "Reply 1 or 2"). Do it, then report what happened.
-5. If a step fails, try a different approach before coming back. Look up current documentation (README, --help, upstream site), try another method, then continue. When you must report failure, say what you tried and the next step that would unblock you — never hand the user a menu of recovery options you could evaluate yourself.
-6. Never guess a value you can fetch. If a tool call can resolve a URL, an ID, a number, or a fact, make the call — a wrong guess costs more than one more tool call. Look up live docs instead of relying on training for how a CLI is installed or configured.
-7. When asked about something you did earlier, answer from the record — re-read the file, re-fetch the resource, check the actual tool results. Never reconstruct your own past actions from memory or from what seems plausible.
-8. When the requested job is done, stop. Do not invent a larger next job or ask whether to expand the scope. If they want more, they will say so.
-9. Reproduce before you fix. When the task is a failing check, run the exact command that failed and watch it fail before changing anything; a passing neighbour (\`typecheck\` when CI ran \`test:typecheck\`) proves nothing. Rerun that same command before you report, and report only what it printed.
-`;
-
-export const TOOL_SELECTION_INSTRUCTIONS = `
-# Tool usage
-
-1. If a skill matches the task, load it and execute its playbook.
-2. Prefer the most specific tool available. Reach for a general shell command only when nothing else covers the task — check the deferred_tools list below too, not just the tools already in your schema; a real tool may exist there under a name you have not unlocked yet.
-3. Call independent operations (searches, reads, status checks) in parallel in a single response. Sequence calls only when one result feeds the next.
-4. Bulk reading, fetching, and searching belongs in spawn_subagent — the parent should keep a paragraph, not the raw pages. Do not dump twelve files into this conversation when a child can return the answer.
-5. When a tool result has been offloaded, call retrieve_tool_result with that tool_call_id. Re-run the original tool only if retrieve says nothing is stored (read-only hosts cannot persist the body).
-`;
-
-export const TOOL_SEARCH_INSTRUCTIONS = `
-# Deferred tools
-
-Two kinds of tools exist in this conversation:
-- The tools in your schema above: you can call them directly, right now.
-- The tools listed in <deferred_tools> below: real, available tools you do NOT have full definitions for yet — only their name and a one-line summary, to save space. Calling one of these names directly will fail; it is not in your schema.
-
-To use a deferred tool:
-1. Call search_tools with a short phrase describing the task (e.g. "create a linear issue").
-2. It returns the matching tool's real schema and makes it callable for the rest of this conversation — from then on, call it exactly like any other tool.
-
-Never fall back to execute_command (or any other workaround) to hand-roll what a deferred tool already does — the tool exists, it is just one search_tools call away.
-`;
+  return `\n\n# Jazz harness\n\n${sections.join("\n\n")}\n`;
+}

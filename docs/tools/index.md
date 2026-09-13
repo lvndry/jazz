@@ -187,7 +187,7 @@ Opt-in per agent (like File Management) rather than always-on. See [Memory](../c
 
 | Tool            | Risk        | Approval pair | What it does                                                                                     |
 | --------------- | ----------- | ------------- | ------------------------------------------------------------------------------------------------ |
-| `view_memory`   | `read-only` | none          | Call first, before answering, at the start of every conversation.                                |
+| `view_memory`   | `read-only` | none          | Consult relevant memory when prior context could improve the answer.                             |
 | `manage_memory` | `low-risk`  | (             | Save facts about this person that will still matter later) preferences, location, age, how they… |
 
 `update_work_state` lives with the todo tools (always-on). It is scoped to one conversation and discarded when the task ends, unlike memory which persists across conversations. See [Context management](../maintainers/context-lifecycle.md).

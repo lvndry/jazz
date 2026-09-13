@@ -149,7 +149,7 @@ export function renderProjectInstructions(
     .join("\n\n");
 
   return `
-# Project instructions
+## Project instructions
 
 The AGENTS.md files below were found in and above the current working directory. They are instructions from the people who own this project — follow them as you would the user's own. Later files are more specific than earlier ones: when two conflict, the later one wins. They describe the project, not the current request; if the user asks for something these files do not cover, use your own judgment.
 

@@ -82,10 +82,12 @@ export function createViewMemoryTool(): Tool<MemoryToolDeps> {
     name: "view_memory",
     disclosure: "private",
     description:
-      "Call this first, before you answer, at the start of every conversation — even a casual one. " +
-      "Calling it with no path is the whole survey: it returns every memory scope you can access " +
+      "Consult memory when the request may depend on prior preferences, decisions, relationships, " +
+      "or work from another conversation. Skip it when prior context cannot improve the answer. " +
+      "Memory is split into scopes by subject; inspect only scopes relevant to the conversation. " +
+      "Calling it with no path returns every memory scope you can access " +
       '(e.g. "personal", "github-project-a") and the files saved in each, with sizes, so one call tells you ' +
-      "whether there is anything worth reading. " +
+      "where relevant memory may live when the right scope is unclear. " +
       'A path like "personal/notes.md" then reads one file. ' +
       "An empty or missing directory just means nothing has been saved yet — that is a normal answer, not an error.",
     parameters: viewMemoryParameters,
