@@ -1,3 +1,4 @@
+import os from "node:os";
 import { loadConversation, loadHistory } from "@jazz/adapters/history/conversation-history-service";
 import { sortAgents } from "@jazz/core/agent/agent-sort";
 import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
@@ -367,6 +368,7 @@ function startChatWithAgent(agent: Agent, options?: { initialHistory?: ChatMessa
 
     yield* terminal.clear();
     yield* terminal.heading(`Starting chat with: ${agent.name}`);
+    yield* terminal.log(`Working directory: ${process.cwd().replace(os.homedir(), "~")}`);
     yield* terminal.log(
       `${agentModelString(agent.config)} - Reasoning: ${agent.config.reasoningEffort ?? "disabled"}`,
     );

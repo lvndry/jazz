@@ -722,7 +722,7 @@ export function blocksFrom(
     }
 
     const tone = entry.type === "error" ? "error" : entry.type === "warn" ? "warn" : "info";
-    blocks.push({ id, seq: seq++, kind: "notice", text, tone });
+    blocks.push({ id, seq: seq++, kind: "notice", text: text.replace(/^\n+|\n+$/g, ""), tone });
   }
 
   // The turn still being written, appended live so prose streams in place.
