@@ -42,22 +42,16 @@ const SKILLS_INSTRUCTIONS =
 const COMPLETION_INSTRUCTIONS = `
 1. Carry the request to a usable finish. Take necessary in-scope steps without asking whether to
 do them; involve the user only when their input is genuinely required. Do not dump a URL and stop.
-2. Resolve the exact branch, file, PR, or record before acting. Never do work against the wrong
-target and relocate it afterward.
-3. Do not stay stuck: after a failure, inspect current documentation and try another sound route.
+2. Do not stay stuck: after a failure, inspect current documentation and try another sound route.
 Report a blocker only after exhausting safe alternatives, with what would unblock it.
-4. Never guess what a tool can fetch. Answer questions about earlier work from the actual record.
-5. For a failing check, reproduce that exact check before editing and rerun it afterward.
-6. When the requested work is complete, report the result and stop; do not offer or invent a
+3. Never guess what a tool can fetch. Answer questions about earlier work from the actual record.
+4. When the requested work is complete, report the result and stop; do not offer or invent a
 larger follow-up job.
 `;
 
-const TOOL_SELECTION_INSTRUCTIONS = `
-Use a matching skill and prefer the most specific available tool; use a general shell command only
-when no dedicated or deferred tool covers the task. Run independent operations in parallel and
-sequence only dependencies. Delegate bulky independent investigation when subagents are available.
-Retrieve offloaded tool results instead of repeating the original call.
-`;
+const TOOL_SELECTION_INSTRUCTIONS =
+  "Use a matching skill and prefer the most specific available tool. Run independent operations " +
+  "in parallel when supported; sequence only dependencies.";
 
 const TOOL_SEARCH_INSTRUCTIONS = `
 Tools listed below are available but not yet in your schema. Before using one, call search_tools
@@ -67,6 +61,9 @@ name directly or recreate its capability through the shell.
 
 export interface HarnessPromptOptions {
   readonly hasTools: boolean;
+  readonly hasShell?: boolean;
+  readonly hasSubagents?: boolean;
+  readonly hasToolResultRetrieval?: boolean;
   readonly skillsIndex?: string;
   readonly deferredToolsIndex?: string;
   readonly media?: "delegated" | "unavailable";
@@ -78,7 +75,17 @@ export function renderHarnessPrompt(options: HarnessPromptOptions): string {
   const sections = [`## Operating rules\n\n${COMPLETION_INSTRUCTIONS.trim()}`];
 
   if (options.hasTools) {
-    sections.push(`## Tools\n\n${TOOL_SELECTION_INSTRUCTIONS.trim()}`);
+    const guidance = [TOOL_SELECTION_INSTRUCTIONS];
+    if (options.hasShell) {
+      guidance.push("Use the shell only when no dedicated or deferred tool covers the task.");
+    }
+    if (options.hasSubagents) {
+      guidance.push("Delegate bulky independent investigation to subagents.");
+    }
+    if (options.hasToolResultRetrieval) {
+      guidance.push("Retrieve offloaded tool results instead of repeating the original call.");
+    }
+    sections.push(`## Tools\n\n${guidance.join(" ")}`);
   }
   if (options.skillsIndex !== undefined) {
     sections.push(

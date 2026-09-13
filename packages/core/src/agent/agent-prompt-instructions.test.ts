@@ -62,6 +62,8 @@ describe("completion instructions injection", () => {
     expect(result).toContain("Do not dump a URL and stop");
     expect(result).toContain("inspect current documentation");
     expect(result).toContain("larger follow-up job");
+    expect(result).not.toContain("exact branch");
+    expect(result).not.toContain("failing check");
     expect(result).not.toContain("brief offer of optional follow-up");
   });
 
@@ -82,6 +84,18 @@ describe("tool guidance injection", () => {
     const result = build("default", { toolNames: ["http_request"] });
     expect(result).toContain("## Tools");
     expect(result).toContain("prefer the most specific available tool");
+    expect(result).not.toContain("Use the shell");
+    expect(result).not.toContain("subagents");
+    expect(result).not.toContain("offloaded tool results");
+  });
+
+  test("capability-specific guidance appears only with its tool", () => {
+    const result = build("default", {
+      toolNames: ["execute_command", "spawn_subagent", "retrieve_tool_result"],
+    });
+    expect(result).toContain("Use the shell");
+    expect(result).toContain("subagents");
+    expect(result).toContain("offloaded tool results");
   });
 });
 

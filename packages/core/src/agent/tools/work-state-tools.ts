@@ -41,14 +41,10 @@ export function createUpdateWorkStateTool(): Tool<never> {
     name: "update_work_state",
     disclosure: "private",
     description:
-      "Record where you are in the current task so it survives context compaction and " +
-      "picking the work back up later. Call it when you settle on a goal or plan, finish " +
-      "or fail a piece of work, make a decision worth not revisiting, or learn something " +
-      "that changes the plan — not at the end, since you may never get a clean ending. " +
-      "Only the fields you pass are changed; the rest are left as they were. This is for " +
-      "THIS task's state, not durable facts about the person or project — those belong in " +
-      "memory. Call with no fields to read the current state. The list of work itself " +
-      "belongs in manage_todos, not here — this is the intent around it.",
+      "Read or update the current task state so progress survives context compaction or resumption. " +
+      "Update it when the goal, constraints, decisions, touched files, open questions, or next step " +
+      "materially change. This is temporary task context, not long-term memory or a todo list. " +
+      "Omitted fields remain unchanged; call with no fields to read the current state.",
     parameters: updateWorkStateParameters,
     riskLevel: "low-risk",
     hidden: false,
