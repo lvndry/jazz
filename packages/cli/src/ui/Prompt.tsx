@@ -83,10 +83,18 @@ function CommandSuggestionItem({
  * Hidden input that waits for Enter key without showing any visible UI.
  * Used for "Press Enter to continue" scenarios.
  */
-function HiddenInput({ onSubmit }: { onSubmit: () => void }): React.ReactElement {
-  useInput((_input: string, key: { return?: boolean; escape?: boolean }) => {
-    if (key.return || key.escape) {
-      onSubmit();
+function HiddenInput({
+  keys = [],
+  onSubmit,
+}: {
+  keys?: readonly string[];
+  onSubmit: (value: string) => void;
+}): React.ReactElement {
+  useInput((input: string, key: { return?: boolean; escape?: boolean }) => {
+    if (keys.includes(input)) {
+      onSubmit(input);
+    } else if (key.return || key.escape) {
+      onSubmit("");
     }
   });
   return <></>;
@@ -368,8 +376,8 @@ function PromptComponent({
         </Box>
       )}
 
-      {/* Question header — only for non-chat prompts */}
-      {prompt.type !== "chat" && (
+      {/* Question header — only for non-chat prompts; a keyed hidden prompt shows its message in the footer instead */}
+      {prompt.type !== "chat" && !(prompt.type === "hidden" && prompt.options?.["keys"]) && (
         <Box>
           <Text color={THEME.primary}>?</Text>
           <Text> </Text>
@@ -500,7 +508,12 @@ function PromptComponent({
               />
             );
           })()}
-        {prompt.type === "hidden" && <HiddenInput onSubmit={() => prompt.resolve("")} />}
+        {prompt.type === "hidden" && (
+          <HiddenInput
+            keys={(prompt.options?.["keys"] as readonly string[] | undefined) ?? []}
+            onSubmit={(value) => prompt.resolve(value)}
+          />
+        )}
         {prompt.type === "questionnaire" && (
           <Questionnaire
             suggestions={(prompt.options?.["suggestions"] as readonly Suggestion[]) ?? []}

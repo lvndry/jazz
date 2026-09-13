@@ -380,11 +380,19 @@ function validatePrompt(prompt: PromptState, value: string): string | null {
   return typeof result === "string" ? result : "Invalid input";
 }
 
+function hiddenPromptKeys(prompt: PromptState | null): readonly string[] | undefined {
+  if (prompt?.type !== "hidden") return undefined;
+  const keys = prompt.options?.["keys"];
+  return Array.isArray(keys) ? keys.filter((k): k is string => typeof k === "string") : undefined;
+}
+
 function overlayFromPrompt(
   prompt: PromptState | null,
   controls: PromptControlsState,
 ): QuestionModel | TextPromptModel | FilePickerModel | undefined {
-  if (prompt === null || prompt.type === "chat") return undefined;
+  if (prompt === null || prompt.type === "chat" || hiddenPromptKeys(prompt) !== undefined) {
+    return undefined;
+  }
   const { editor, question, file } = controls;
 
   switch (prompt.type) {
@@ -1647,6 +1655,12 @@ export function FullscreenBridge(): React.ReactNode {
         }
 
         if (active.type === "hidden") {
+          const keys = hiddenPromptKeys(active);
+          if (keys !== undefined) {
+            if (name === "up" || name === "down") return false;
+            if (keys.includes(sequence)) active.resolve(sequence);
+            return true;
+          }
           if (name === "return" || name === "enter") active.resolve("");
           return true;
         }
@@ -2255,7 +2269,8 @@ export function FullscreenBridge(): React.ReactNode {
   const footer = useMemo<FooterModel>(
     () => ({
       mode: isYolo ? "yolo" : "safe",
-      hints: [],
+      hints:
+        prompt !== null && hiddenPromptKeys(prompt) !== undefined ? prompt.message.split(", ") : [],
       ...(stats.promptTokens === undefined && stats.completionTokens === undefined
         ? {}
         : {
@@ -2265,7 +2280,7 @@ export function FullscreenBridge(): React.ReactNode {
       ...(stats.costUSD === undefined ? {} : { costUsd: stats.costUSD }),
       ...(elapsedMs === undefined ? {} : { elapsedMs }),
     }),
-    [isYolo, stats.promptTokens, stats.completionTokens, stats.costUSD, elapsedMs],
+    [isYolo, prompt, stats.promptTokens, stats.completionTokens, stats.costUSD, elapsedMs],
   );
 
   const live = useMemo<LiveModel>(() => {

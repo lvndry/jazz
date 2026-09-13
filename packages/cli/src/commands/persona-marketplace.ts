@@ -84,12 +84,11 @@ function confirmInstall(
       return false;
     }
 
-    const key = yield* terminal.ask("Type i to install, anything else to go back", {
-      simple: true,
-      cancellable: true,
-      placeholder: "i",
+    const key = yield* terminal.ask("i to install, esc to go back", {
+      hidden: true,
+      keys: ["i", "I"],
     });
-    if (key?.trim().toLowerCase() !== "i") return false;
+    if (key?.toLowerCase() !== "i") return false;
 
     return yield* terminal.confirm(`Install this persona as "${localName}"?`, false);
   });
