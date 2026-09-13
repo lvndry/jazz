@@ -10,6 +10,9 @@ Three rules keep it honest:
   the site.
 - **Blog posts live here.** `src/content/blog/**/*.md` is site-only
   content. Do not put posts at the repo root.
+- **Marketplace personas live here.** `src/content/marketplace/*/PERSONA.md`
+  is the source for both the browsable marketplace and the registry consumed
+  by `jazz persona browse`.
 - **Tokens are generated.** `bun run tokens` reads `src/cli/ui/theme.ts` and
   `src/cli/ui/glyphs.ts` and writes `src/styles/tokens.css` +
   `src/generated/tokens.ts`. CI fails if the checked-in output is stale.

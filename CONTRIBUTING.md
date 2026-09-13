@@ -113,13 +113,13 @@ existing trust relationship for a package name it has never seen published.
 
 ## Contributing a Persona
 
-The persona marketplace is a directory in this repo, not a hosted service. `marketplace/personas/<name>/PERSONA.md`. To add one:
+The persona marketplace is maintained by the website package, which publishes its content as the catalog consumed by Jazz. To add one:
 
-1. Create `marketplace/personas/<name>/PERSONA.md` with frontmatter (`name`, `description`, optional `tone`, `style`, `author`, `tags`) and the system prompt in the body. Same format as the built-ins in `personas/`, which are worth reading first.
+1. Create `packages/website/src/content/marketplace/<name>/PERSONA.md` with frontmatter (`name`, `description`, optional `tone`, `style`, `author`, `tags`) and the system prompt in the body. Same format as the built-ins in `personas/`, which are worth reading first.
 2. Keep the prompt under 10,000 characters. `jazz persona install` refuses anything longer.
 3. Open a PR. Merging publishes it to <https://jazz-cli.vercel.app/marketplace> and to `jazz persona browse`.
 
-`marketplace/` is not a built-in asset directory. It is read by the website build and served to the CLI over HTTP, so it does not go in `ASSET_DIRECTORIES` and does not ship inside the binary. Personas in `personas/` are the ones Jazz ships with; those are a separate, deliberately small set.
+The marketplace content is not a built-in asset directory. It is read by the website build and served to the CLI over HTTP, so it does not go in `ASSET_DIRECTORIES` and does not ship inside the binary. Personas in `personas/` are the ones Jazz ships with; those are a separate, deliberately small set.
 
 ## Before Submitting PR
 

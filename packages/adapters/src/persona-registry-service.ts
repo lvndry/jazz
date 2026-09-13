@@ -1,7 +1,6 @@
 /**
  * Implements `PersonaRegistryService`: reads the persona marketplace, a static
- * catalog published alongside the Jazz website from `marketplace/personas/` in
- * the repository.
+ * catalog published from the Jazz website's marketplace content directory.
  *
  * The index is mirrored to `<jazz home>/cache/persona-registry.json` so browsing
  * keeps working offline, and every URL the index points at is checked against the

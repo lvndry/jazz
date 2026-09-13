@@ -2,8 +2,8 @@
  * @fileoverview Persona marketplace domain model types
  *
  * The marketplace is a git-backed catalog of shareable personas: each entry is a
- * `PERSONA.md` under `marketplace/personas/<name>/` in the Jazz repository, published
- * as a static index plus one raw markdown file per persona. Nothing here is
+ * `PERSONA.md` under the website's marketplace content directory, published as
+ * a static index plus one raw markdown file per persona. Nothing here is
  * user-generated at runtime — entries land in the catalog through a pull request.
  */
 
