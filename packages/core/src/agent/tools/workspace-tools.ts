@@ -135,57 +135,38 @@ export function createViewWorkspaceTool(): Tool<WorkspaceToolDeps> {
 }
 
 const manageWorkspaceParameters = z.discriminatedUnion("command", [
-  z
-    .object({
-      command: z.literal("create"),
-      path: z
-        .string()
-        .min(1)
-        .describe("Scratchpad file path relative to the scratchpad directory."),
-      file_text: z.string().describe("Full file contents. Errors if the path already exists."),
-    })
-    .strict(),
-  z
-    .object({
-      command: z.literal("str_replace"),
-      path: z
-        .string()
-        .min(1)
-        .describe("Scratchpad file path relative to the scratchpad directory."),
-      old_str: z.string().min(1).describe("Exact unique snippet to replace."),
-      new_str: z.string().optional().describe("Replacement text. Omit to delete the snippet."),
-    })
-    .strict(),
-  z
-    .object({
-      command: z.literal("insert"),
-      path: z
-        .string()
-        .min(1)
-        .describe("Scratchpad file path relative to the scratchpad directory."),
-      insert_line: z
-        .number()
-        .int()
-        .nonnegative()
-        .describe(
-          "0-based line index to insert after (0 = beginning of the file). Note that view_scratchpad view_range is 1-based.",
-        ),
-      insert_text: z.string().describe("Text to insert."),
-    })
-    .strict(),
-  z
-    .object({
-      command: z.literal("delete"),
-      path: z.string().min(1).describe("Scratchpad file path to delete."),
-    })
-    .strict(),
-  z
-    .object({
-      command: z.literal("rename"),
-      old_path: z.string().min(1).describe("Current path, relative to the scratchpad directory."),
-      new_path: z.string().min(1).describe("New path, relative to the scratchpad directory."),
-    })
-    .strict(),
+  z.object({
+    command: z.literal("create"),
+    path: z.string().min(1).describe("Scratchpad file path relative to the scratchpad directory."),
+    file_text: z.string().describe("Full file contents. Errors if the path already exists."),
+  }),
+  z.object({
+    command: z.literal("str_replace"),
+    path: z.string().min(1).describe("Scratchpad file path relative to the scratchpad directory."),
+    old_str: z.string().min(1).describe("Exact unique snippet to replace."),
+    new_str: z.string().optional().describe("Replacement text. Omit to delete the snippet."),
+  }),
+  z.object({
+    command: z.literal("insert"),
+    path: z.string().min(1).describe("Scratchpad file path relative to the scratchpad directory."),
+    insert_line: z
+      .number()
+      .int()
+      .nonnegative()
+      .describe(
+        "0-based line index to insert after (0 = beginning of the file). Note that view_scratchpad view_range is 1-based.",
+      ),
+    insert_text: z.string().describe("Text to insert."),
+  }),
+  z.object({
+    command: z.literal("delete"),
+    path: z.string().min(1).describe("Scratchpad file path to delete."),
+  }),
+  z.object({
+    command: z.literal("rename"),
+    old_path: z.string().min(1).describe("Current path, relative to the scratchpad directory."),
+    new_path: z.string().min(1).describe("New path, relative to the scratchpad directory."),
+  }),
 ]);
 
 type ManageWorkspaceArgs = z.infer<typeof manageWorkspaceParameters>;
