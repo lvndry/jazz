@@ -521,7 +521,7 @@ function AppView({ view, onAction, onKey, onPaste, overrideContent }: AppProps):
     const notice = copyNotice ?? peerNotice;
     return {
       ...view.footer,
-      hints: footerHints,
+      hints: view.footer.hints.length > 0 ? view.footer.hints : footerHints,
       ...(notice === undefined ? {} : { notice }),
     };
   }, [view.footer, footerHints, copyNotice, peerNotice]);

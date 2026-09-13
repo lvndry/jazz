@@ -69,11 +69,14 @@ function shortenPath(path: string, homeDir: string | undefined, maxWidth: number
  */
 function StatusFooter({
   status,
+  hint = null,
   workingDirectory,
   runStats,
   modeIsYolo = false,
 }: {
   status: string | null;
+  /** Key hint for an invisible prompt, e.g. "Press i to install". */
+  hint?: string | null;
   workingDirectory: string | null;
   runStats: RunStats;
   modeIsYolo?: boolean;
@@ -82,7 +85,7 @@ function StatusFooter({
     runStats.model !== undefined ||
     runStats.tokensInContext !== undefined ||
     runStats.costUSD !== undefined;
-  const hasContent = status || workingDirectory || hasRunStats;
+  const hasContent = status || hint || workingDirectory || hasRunStats;
   if (!hasContent) return null;
 
   const homeDir = process.env["HOME"];
@@ -133,9 +136,15 @@ function StatusFooter({
                 yolo{statLine.length > 0 ? " · " : ""}
               </Text>
             ) : null}
+            {hint ? (
+              <Text color={THEME.primary}>
+                {hint}
+                {statLine.length > 0 ? " · " : ""}
+              </Text>
+            ) : null}
             {statLine.length > 0 ? (
               <Text color={THEME.secondary}>{statLine}</Text>
-            ) : (
+            ) : hint ? null : (
               <Text dimColor> </Text>
             )}
           </Box>

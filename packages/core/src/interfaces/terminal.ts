@@ -112,6 +112,8 @@ export interface TerminalService {
       simple?: boolean;
       /** When true, hide the prompt UI but still wait for Enter key. Useful for "Press Enter to continue" scenarios. */
       hidden?: boolean;
+      /** With `hidden`, resolve with the pressed key when it is one of these, or "" on Enter/Esc, drawing no prompt; the message is shown as footer hints, split on ", ". */
+      keys?: readonly string[];
       /** Optional placeholder text to show when input is empty. */
       placeholder?: string;
       /** When true, mask the live input and the echoed value (e.g. for API keys). Secret prompts are always Esc-cancellable. */

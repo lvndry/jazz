@@ -241,6 +241,7 @@ export class InkTerminalService implements TerminalService {
       cancellable?: boolean;
       simple?: boolean;
       hidden?: boolean;
+      keys?: readonly string[];
       placeholder?: string;
       secret?: boolean;
     },
@@ -280,6 +281,7 @@ export class InkTerminalService implements TerminalService {
                 ...(options.commandSuggestions === true ? { commandSuggestions: true } : {}),
                 ...(placeholder ? { placeholder } : {}),
                 ...(isSecret ? { secret: true } : {}),
+                ...(options.keys ? { keys: options.keys } : {}),
               },
             }
           : {}),
@@ -287,6 +289,10 @@ export class InkTerminalService implements TerminalService {
           // The Prompt component validates before calling resolve, so we can trust the input
           const inputValue = String(val);
           store.setPrompt(null);
+          if (isHidden) {
+            resume(Effect.succeed(inputValue));
+            return;
+          }
           // Pre-wrap user message to fit terminal width, consistent with how
           // agent responses are pre-wrapped. The offset accounts for App paddingX=3
           // (6 chars) + the "›" icon + space (2 chars) = 8 chars total.

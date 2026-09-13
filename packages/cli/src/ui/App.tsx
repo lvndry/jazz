@@ -77,10 +77,13 @@ const PromptIsland = React.memo(PromptIslandComponent);
 
 function StatusFooterIslandComponent(): React.ReactElement | null {
   const { runStats, isYolo } = useSessionSlice();
+  const { prompt } = usePromptSlice();
+  const hint = prompt?.type === "hidden" && prompt.options?.["keys"] ? prompt.message : null;
 
   return (
     <StatusFooter
       status={null}
+      hint={hint}
       workingDirectory={null}
       runStats={runStats}
       modeIsYolo={isYolo}
