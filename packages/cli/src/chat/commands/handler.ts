@@ -1494,7 +1494,7 @@ function handleWorkflowsCommand(
       return { shouldContinue: true };
     }
 
-    const { local, global, builtin } = groupWorkflows(workflows);
+    const { local, global } = groupWorkflows(workflows);
 
     if (local.length > 0) {
       yield* terminal.log(fmt.section("Local", local.length, "workflow"));
@@ -1507,14 +1507,6 @@ function handleWorkflowsCommand(
     if (global.length > 0) {
       yield* terminal.log(fmt.section("Global", global.length, "workflow"));
       for (const w of global) {
-        yield* terminal.log(fmt.itemWithDesc(w.name, formatWorkflowDesc(w)));
-      }
-      yield* terminal.log(fmt.blank());
-    }
-
-    if (builtin.length > 0) {
-      yield* terminal.log(fmt.section("Built-in", builtin.length, "workflow"));
-      for (const w of builtin) {
         yield* terminal.log(fmt.itemWithDesc(w.name, formatWorkflowDesc(w)));
       }
       yield* terminal.log(fmt.blank());

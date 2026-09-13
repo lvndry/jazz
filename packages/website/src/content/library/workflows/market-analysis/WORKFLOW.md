@@ -7,6 +7,8 @@ catchUpOnRestart: true
 maxCatchUpAge: 43200
 skills:
   - deep-research
+author: jazz
+tags: [finance, markets, research]
 ---
 
 # Daily Market Analysis
@@ -16,11 +18,14 @@ Comprehensive daily analysis across global equities, crypto, and macro — with 
 ## Analysis Scope
 
 ### 1. Major Indices & ETFs
+
 **US:**
+
 - S&P 500 (SPY), NASDAQ (QQQ), Dow Jones (DIA), Russell 2000 (IWM)
 - VIX; sector ETFs: XLF, XLE, XLK, XLV
 
 **Global:**
+
 - Europe: STOXX 600, DAX, CAC 40, FTSE 100
 - Asia-Pacific: Nikkei 225, Hang Seng, CSI 300, KOSPI, ASX 200, Nifty 50 / Sensex
 - Americas ex-US: Ibovespa, TSX
@@ -28,15 +33,18 @@ Comprehensive daily analysis across global equities, crypto, and macro — with 
 - Cross-assets: DXY, US 10Y, gold, Brent/WTI, copper
 
 ### 2. Individual Stocks
+
 - US: AAPL, MSFT, GOOGL, AMZN, META, NVDA; TSLA, RIVN, LCID; AMD, PLTR, C3.AI
 - International: ASML, TSM, SAP, Tencent, Nestlé, LVMH, Toyota, Samsung, Reliance
 - For any theme (AI, energy, defense, semis, luxury), pull the global leaders — not only US tickers
 
 ### 3. Cryptocurrencies
+
 - Bitcoin (BTC): price, dominance, Fear & Greed, on-chain flows
 - Ethereum (ETH): network activity, gas, DeFi trends
 
 ### 4. Economic Indicators (global)
+
 - Data across regions: US, Eurozone, UK, China, Japan, India, Brazil
 - Central banks beyond the Fed: ECB, BOE, BOJ, PBOC, RBI, BCB, EM policy
 - FX/rates: DXY, US 10Y, bund spreads, EM carry
@@ -80,16 +88,20 @@ Save to `$HOME/market-analysis/YYYY/MM/DD.md`:
 
 ```markdown
 # Market Analysis - [Date]
+
 **Generated**: [ISO timestamp] | **Market Status**: [Open/Closed, Pre-market if 6 AM]
 
 ## 📊 Executive Summary
+
 [2-3 sentences: bias and key drivers]
 **Quick Take:** ✅ Buy: […] 🔶 Hold: […] ⚠️ Avoid: […]
 
 ## 🏛️ Major Indices (US)
+
 [S&P/NASDAQ/Dow/Russell + VIX; sector best/worst]
 
 ## 🌍 Global Markets
+
 - Europe: [move + driver]
 - Asia-Pacific: [move + driver]
 - Americas ex-US: [move + driver]
@@ -97,22 +109,29 @@ Save to `$HOME/market-analysis/YYYY/MM/DD.md`:
 - Global flow note: [capital rotation; what a non-US event means for US positioning]
 
 ## 💼 Individual Stocks
+
 [Per name: price, technical, news, sentiment, verdict]
 
 ## ₿ Cryptocurrencies
+
 [Per coin: price, dominance, on-chain, verdict]
 
 ## 📈 Technical Market Overview
+
 [Breadth, volume, VIX, put/call]
 
 ## 📰 Key News & Events
+
 [Top 3-5, with impact]
 
 ## 🔮 Today's Outlook
+
 [Direction, levels, events today]
 
 ## 🏛️ Policy & Long-Term Impact
+
 For each major event:
+
 - What changed: [event]
 - Second-order effects: [who's helped/hurt, 1–4+ quarters]
 - Thesis impact: [12-month re-weight]
@@ -120,9 +139,11 @@ For each major event:
 - Regime vs headline: [durable or one-off]
 
 ## 💡 Investment Recommendations
+
 🟢 Top Buy / 🟡 Watch / 🔴 Avoid — with catalyst and risk/reward
 
 ## ⚠️ Risk Factors
+
 [2-3: policy, geopolitics, earnings]
 
 **Disclaimer**: Informational only, not financial advice.
@@ -131,7 +152,7 @@ For each major event:
 
 ## Research Quality Standards
 
-- Verify prices across sources; explain *why* moves happen
+- Verify prices across sources; explain _why_ moves happen
 - Actionable targets when possible; balanced bull/bear
 - Separate durable regime change from intraday noise
 

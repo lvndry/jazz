@@ -1,13 +1,13 @@
 /**
- * @fileoverview Persona marketplace domain model types
+ * @fileoverview Persona library domain model types
  *
- * The marketplace is a git-backed catalog of shareable personas: each entry is a
- * `PERSONA.md` under the website's marketplace content directory, published as
+ * The library is a git-backed catalog of shareable personas: each entry is a
+ * `PERSONA.md` under the website's library content directory, published as
  * a static index plus one raw markdown file per persona. Nothing here is
  * user-generated at runtime — entries land in the catalog through a pull request.
  */
 
-/** One persona as advertised by the marketplace index (metadata only, no prompt). */
+/** One persona as advertised by the library index (metadata only, no prompt). */
 export interface RegistryPersonaEntry {
   /** Catalog name, unique within the registry. Also the default install name. */
   readonly name: string;
@@ -28,7 +28,7 @@ export interface RegistryPersonaEntry {
   readonly url: string;
 }
 
-/** The marketplace index document served at `<registry base>/personas.json`. */
+/** The library index document served at `<registry base>/personas.json`. */
 export interface PersonaRegistryIndex {
   /** Index schema version. Bumped when the entry shape changes incompatibly. */
   readonly version: number;
@@ -36,7 +36,7 @@ export interface PersonaRegistryIndex {
 }
 
 /**
- * A persona downloaded from the marketplace: the catalog entry it came from, the
+ * A persona downloaded from the library: the catalog entry it came from, the
  * fields ready to hand to `PersonaService.createPersona`, and the URL it was read
  * from so the CLI can show the user exactly what they are about to trust.
  */

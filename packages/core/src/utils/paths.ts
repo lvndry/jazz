@@ -254,25 +254,6 @@ export function getBuiltinPersonasDirectory(): string | null {
 }
 
 /**
- * Finds the directory containing built-in workflows shipped with Jazz.
- *
- * @returns The package's `workflows` directory, or `null` when unavailable.
- */
-export function getBuiltinWorkflowsDirectory(): string | null {
-  const packageDir = getPackageRootDirectory();
-  if (!packageDir) {
-    return null;
-  }
-
-  const workflowsDir = path.join(packageDir, "workflows");
-  if (fs.existsSync(workflowsDir) && fs.statSync(workflowsDir).isDirectory()) {
-    return workflowsDir;
-  }
-
-  return null;
-}
-
-/**
  * Returns the global user-workflows directory under the resolved Jazz home.
  */
 export function getGlobalWorkflowsDirectory(): string {

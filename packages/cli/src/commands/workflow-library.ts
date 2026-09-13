@@ -1,5 +1,5 @@
 /**
- * CLI commands for the workflow marketplace — a shared catalog of WORKFLOW.md
+ * CLI commands for the workflow library — a shared catalog of WORKFLOW.md
  * files that users can browse and copy into their own `~/.jazz/workflows/`.
  *
  * A workflow is a prompt plus the autonomy it asks for, so every install shows
@@ -69,7 +69,7 @@ function confirmInstall(
     const terminal = yield* TerminalServiceTag;
     const { autoApprove } = download.definition;
 
-    yield* terminal.heading(`Marketplace workflow: ${download.entry.name}`);
+    yield* terminal.heading(`Library workflow: ${download.entry.name}`);
     yield* terminal.log(download.entry.description);
     const meta = formatMeta(download.entry);
     if (meta.length > 0) yield* terminal.log(chalk.dim(meta));
@@ -117,7 +117,7 @@ function confirmInstall(
 }
 
 /**
- * Download one marketplace workflow into ~/.jazz/workflows/<name>/WORKFLOW.md.
+ * Download one library workflow into ~/.jazz/workflows/<name>/WORKFLOW.md.
  */
 export function installWorkflowCommand(
   name: string,
@@ -162,9 +162,7 @@ export function installWorkflowCommand(
     const shadows =
       clash === undefined
         ? undefined
-        : clash.path.startsWith(process.cwd())
-          ? `local workflow at ${clash.path} everywhere except this directory`
-          : `built-in "${clash.name}" workflow`;
+        : `local workflow at ${clash.path} everywhere except this directory`;
 
     const download = yield* registry.fetchWorkflow(name);
     const accepted = yield* confirmInstall(download, localName, shadows, options);
@@ -206,9 +204,9 @@ export function installWorkflowCommand(
 }
 
 /**
- * List everything the marketplace offers, without installing.
+ * List everything the library offers, without installing.
  */
-export function listMarketplaceWorkflowsCommand(options?: {
+export function listLibraryWorkflowsCommand(options?: {
   readonly refresh?: boolean;
 }): Effect.Effect<void, NetworkError, WorkflowRegistryService | TerminalService> {
   return Effect.gen(function* () {
@@ -218,11 +216,11 @@ export function listMarketplaceWorkflowsCommand(options?: {
     const entries = yield* registry.listEntries({ refresh: options?.refresh === true });
 
     if (entries.length === 0) {
-      yield* terminal.info("The workflow marketplace is empty right now.");
+      yield* terminal.info("The workflow library is empty right now.");
       return;
     }
 
-    yield* terminal.heading(`Marketplace workflows (${entries.length})`);
+    yield* terminal.heading(`Library workflows (${entries.length})`);
     yield* terminal.log("");
 
     for (const entry of entries) {
@@ -238,9 +236,9 @@ export function listMarketplaceWorkflowsCommand(options?: {
 }
 
 /**
- * Interactive marketplace browser: pick a workflow, read its file, install it.
+ * Interactive library browser: pick a workflow, read its file, install it.
  */
-export function browseWorkflowMarketplaceCommand(options?: {
+export function browseWorkflowLibraryCommand(options?: {
   readonly refresh?: boolean;
 }): Effect.Effect<
   void,
@@ -252,17 +250,17 @@ export function browseWorkflowMarketplaceCommand(options?: {
     const registry = yield* WorkflowRegistryServiceTag;
 
     if (!terminal.isInteractive) {
-      return yield* listMarketplaceWorkflowsCommand(options);
+      return yield* listLibraryWorkflowsCommand(options);
     }
 
     const entries = yield* registry.listEntries({ refresh: options?.refresh === true });
 
     if (entries.length === 0) {
-      yield* terminal.info("The workflow marketplace is empty right now.");
+      yield* terminal.info("The workflow library is empty right now.");
       return;
     }
 
-    const selected = yield* terminal.search<string>("Search marketplace workflows", {
+    const selected = yield* terminal.search<string>("Search library workflows", {
       choices: entries.map((entry) => ({
         name: entry.name,
         value: entry.name,

@@ -1,4 +1,4 @@
-import { getPersonaEntries, type PersonaEntry } from "../../../lib/marketplace";
+import { getPersonaEntries, type PersonaEntry } from "../../../lib/library";
 
 export async function getStaticPaths() {
   const entries = await getPersonaEntries();

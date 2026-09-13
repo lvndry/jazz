@@ -2,27 +2,23 @@ import { describeCronSchedule } from "@/core/utils/cron";
 import type { WorkflowMetadata } from "./workflow-service";
 
 /**
- * Group workflows by their location (Local, Global, Built-in).
+ * Group workflows by their location: local to the current directory, or global.
  */
 export function groupWorkflows(workflows: readonly WorkflowMetadata[]) {
   const local: WorkflowMetadata[] = [];
   const global: WorkflowMetadata[] = [];
-  const builtin: WorkflowMetadata[] = [];
 
   const cwd = process.cwd();
-  const homeDir = process.env["HOME"] || "";
 
   for (const workflow of workflows) {
     if (workflow.path.startsWith(cwd)) {
       local.push(workflow);
-    } else if (workflow.path.includes(".jazz/workflows") && workflow.path.startsWith(homeDir)) {
-      global.push(workflow);
     } else {
-      builtin.push(workflow);
+      global.push(workflow);
     }
   }
 
-  return { local, global, builtin };
+  return { local, global };
 }
 
 /**
@@ -43,7 +39,7 @@ export function formatWorkflow(
 
 /**
  * Rewrite the `name:` line of a WORKFLOW.md's frontmatter, leaving every other
- * byte of the file as published. Used when a marketplace workflow is installed
+ * byte of the file as published. Used when a library workflow is installed
  * under a different local name.
  */
 export function renameWorkflowDefinition(markdown: string, name: string): string {

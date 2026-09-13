@@ -1,9 +1,9 @@
 /**
- * The marketplace as the CLI sees it: two collections, personas and workflows,
+ * The library as the CLI sees it: two collections, personas and workflows,
  * each published as a JSON index plus one raw markdown file per entry. The
  * index carries metadata only — browsing a catalog should not download every
  * prompt in it — and the raw file is what `jazz persona install` and
- * `jazz workflow install` parse. See packages/adapters/src/marketplace-catalog.ts
+ * `jazz workflow install` parse. See packages/adapters/src/library-catalog.ts
  * for the consumer.
  */
 import { readFile } from "node:fs/promises";
@@ -36,22 +36,22 @@ export interface WorkflowIndexEntry {
 
 /** Path of the raw markdown for a persona, relative to the site root. */
 export function rawPersonaPath(name: string): string {
-  return `/marketplace/personas/${name}.md`;
+  return `/library/personas/${name}.md`;
 }
 
 /** Path of a persona's page on the site. */
 export function personaPath(name: string): string {
-  return `/marketplace/personas/${name}`;
+  return `/library/personas/${name}`;
 }
 
 /** Path of the raw markdown for a workflow, relative to the site root. */
 export function rawWorkflowPath(name: string): string {
-  return `/marketplace/workflows/${name}.md`;
+  return `/library/workflows/${name}.md`;
 }
 
 /** Path of a workflow's page on the site. */
 export function workflowPath(name: string): string {
-  return `/marketplace/workflows/${name}`;
+  return `/library/workflows/${name}`;
 }
 
 function byName<T extends { data: { name: string } }>(entries: T[]): T[] {

@@ -1,8 +1,8 @@
 /**
- * @fileoverview Workflow marketplace domain model types
+ * @fileoverview Workflow library domain model types
  *
- * The marketplace is a git-backed catalog of shareable workflows: each entry is a
- * `WORKFLOW.md` under the website's marketplace content directory, published as
+ * The library is a git-backed catalog of shareable workflows: each entry is a
+ * `WORKFLOW.md` under the website's library content directory, published as
  * a static index plus one raw markdown file per workflow. Nothing here is
  * user-generated at runtime — entries land in the catalog through a pull request.
  */
@@ -10,7 +10,7 @@
 import type { AutoApprovePolicy } from "@/core/types/tools";
 import type { WorkflowDefinition } from "@/core/workflows/workflow-service";
 
-/** One workflow as advertised by the marketplace index (metadata only, no prompt). */
+/** One workflow as advertised by the library index (metadata only, no prompt). */
 export interface RegistryWorkflowEntry {
   /** Catalog name, unique within the registry. Also the default install name. */
   readonly name: string;
@@ -31,7 +31,7 @@ export interface RegistryWorkflowEntry {
   readonly url: string;
 }
 
-/** The marketplace index document served at `<registry base>/workflows.json`. */
+/** The library index document served at `<registry base>/workflows.json`. */
 export interface WorkflowRegistryIndex {
   /** Index schema version. Bumped when the entry shape changes incompatibly. */
   readonly version: number;
@@ -39,7 +39,7 @@ export interface WorkflowRegistryIndex {
 }
 
 /**
- * A workflow downloaded from the marketplace: the catalog entry it came from, the
+ * A workflow downloaded from the library: the catalog entry it came from, the
  * `WORKFLOW.md` exactly as published, the frontmatter Jazz parsed out of it, and
  * the URL it was read from so the CLI can show the user exactly what they are
  * about to trust.

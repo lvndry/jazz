@@ -26,7 +26,7 @@ function assertBunSupportsBytecode(): void {
   );
 }
 
-const ASSET_DIRECTORIES = ["personas", "skills", "workflows"] as const;
+const ASSET_DIRECTORIES = ["personas", "skills"] as const;
 const DARWIN_ONLY_ASSET_DIRECTORIES = ["vendor"] as const;
 
 /**

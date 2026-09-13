@@ -812,13 +812,13 @@ function registerPersonaCommands(program: Command): void {
 
   personaCommand
     .command("browse")
-    .description("Browse the persona marketplace and install a persona (interactive)")
+    .description("Browse the persona library and install a persona (interactive)")
     .option("--refresh", "Re-fetch the catalog instead of using the cached snapshot")
     .action((options: { refresh?: boolean }) =>
       run(
         () =>
-          import("@jazz/cli/commands/persona-marketplace").then((mod) =>
-            mod.browseMarketplaceCommand({ refresh: options.refresh === true }),
+          import("@jazz/cli/commands/persona-library").then((mod) =>
+            mod.browseLibraryCommand({ refresh: options.refresh === true }),
           ),
         { session: true },
       ),
@@ -826,26 +826,26 @@ function registerPersonaCommands(program: Command): void {
 
   personaCommand
     .command("search")
-    .description("List every persona the marketplace offers")
+    .description("List every persona the library offers")
     .option("--refresh", "Re-fetch the catalog instead of using the cached snapshot")
     .action((options: { refresh?: boolean }) =>
       run(() =>
-        import("@jazz/cli/commands/persona-marketplace").then((mod) =>
-          mod.listMarketplacePersonasCommand({ refresh: options.refresh === true }),
+        import("@jazz/cli/commands/persona-library").then((mod) =>
+          mod.listLibraryPersonasCommand({ refresh: options.refresh === true }),
         ),
       ),
     );
 
   personaCommand
     .command("install <name>")
-    .description("Install a persona from the marketplace into ~/.jazz/personas/")
+    .description("Install a persona from the library into ~/.jazz/personas/")
     .option("--as <name>", "Install under a different local name")
     .option("-y, --yes", "Skip the confirmation prompt (required when non-interactive)")
     .option("--refresh", "Re-fetch the catalog instead of using the cached snapshot")
     .action((name: string, options: { as?: string; yes?: boolean; refresh?: boolean }) =>
       run(
         () =>
-          import("@jazz/cli/commands/persona-marketplace").then((mod) =>
+          import("@jazz/cli/commands/persona-library").then((mod) =>
             mod.installPersonaCommand(name, {
               ...(options.as !== undefined ? { as: options.as } : {}),
               yes: options.yes === true,
@@ -1748,13 +1748,13 @@ function registerWorkflowCommands(program: Command): void {
 
   workflowCommand
     .command("browse")
-    .description("Browse the workflow marketplace and install a workflow (interactive)")
+    .description("Browse the workflow library and install a workflow (interactive)")
     .option("--refresh", "Re-fetch the catalog instead of using the cached snapshot")
     .action((options: { refresh?: boolean }) =>
       runCliAction(
         () =>
-          import("@jazz/cli/commands/workflow-marketplace").then((mod) =>
-            mod.browseWorkflowMarketplaceCommand({ refresh: options.refresh === true }),
+          import("@jazz/cli/commands/workflow-library").then((mod) =>
+            mod.browseWorkflowLibraryCommand({ refresh: options.refresh === true }),
           ),
         cliRuntimeOptions(program),
         { session: true },
@@ -1763,13 +1763,13 @@ function registerWorkflowCommands(program: Command): void {
 
   workflowCommand
     .command("search")
-    .description("List every workflow the marketplace offers")
+    .description("List every workflow the library offers")
     .option("--refresh", "Re-fetch the catalog instead of using the cached snapshot")
     .action((options: { refresh?: boolean }) =>
       runCliAction(
         () =>
-          import("@jazz/cli/commands/workflow-marketplace").then((mod) =>
-            mod.listMarketplaceWorkflowsCommand({ refresh: options.refresh === true }),
+          import("@jazz/cli/commands/workflow-library").then((mod) =>
+            mod.listLibraryWorkflowsCommand({ refresh: options.refresh === true }),
           ),
         cliRuntimeOptions(program),
       ),
@@ -1777,14 +1777,14 @@ function registerWorkflowCommands(program: Command): void {
 
   workflowCommand
     .command("install <name>")
-    .description("Install a workflow from the marketplace into ~/.jazz/workflows/")
+    .description("Install a workflow from the library into ~/.jazz/workflows/")
     .option("--as <name>", "Install under a different local name")
     .option("-y, --yes", "Skip the confirmation prompt (required when non-interactive)")
     .option("--refresh", "Re-fetch the catalog instead of using the cached snapshot")
     .action((name: string, options: { as?: string; yes?: boolean; refresh?: boolean }) =>
       runCliAction(
         () =>
-          import("@jazz/cli/commands/workflow-marketplace").then((mod) =>
+          import("@jazz/cli/commands/workflow-library").then((mod) =>
             mod.installWorkflowCommand(name, {
               ...(options.as !== undefined ? { as: options.as } : {}),
               yes: options.yes === true,

@@ -5,6 +5,8 @@ schedule: "0 * * * *"
 autoApprove: low-risk
 skills:
   - email
+author: jazz
+tags: [email, inbox, cleanup]
 ---
 
 # Email Cleanup Workflow
@@ -42,6 +44,7 @@ When in doubt, DO NOTHING.
 ## Output
 
 After cleaning, provide a brief summary:
+
 - How many emails were archived
 - Categories of cleaned emails
 - Any emails you're unsure about (leave these alone)

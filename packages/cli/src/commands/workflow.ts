@@ -64,7 +64,8 @@ export function listWorkflowsCommand() {
     if (workflows.length === 0) {
       yield* terminal.info("No workflows found.");
       yield* terminal.log("");
-      yield* terminal.info("Create a workflow by adding a WORKFLOW.md file to:");
+      yield* terminal.info("Install one from the library: jazz workflow browse");
+      yield* terminal.info("Or create a workflow by adding a WORKFLOW.md file to:");
       yield* terminal.log("  • ./workflows/<name>/WORKFLOW.md (local)");
       yield* terminal.log("  • ~/.jazz/workflows/<name>/WORKFLOW.md (global)");
       return;
@@ -98,7 +99,7 @@ export function listWorkflowsCommand() {
       ),
     );
 
-    const { local, global, builtin } = groupWorkflows(workflows);
+    const { local, global } = groupWorkflows(workflows);
 
     function statusBadge(w: WorkflowMetadata): string {
       if (runningNames.has(w.name)) return " ● running";
@@ -119,14 +120,6 @@ export function listWorkflowsCommand() {
     if (global.length > 0) {
       yield* terminal.log("Global workflows (~/.jazz/workflows):");
       for (const w of global) {
-        yield* terminal.log(formatWorkflow(w, { statusBadge: statusBadge(w) }));
-      }
-      yield* terminal.log("");
-    }
-
-    if (builtin.length > 0) {
-      yield* terminal.log("Built-in workflows:");
-      for (const w of builtin) {
         yield* terminal.log(formatWorkflow(w, { statusBadge: statusBadge(w) }));
       }
       yield* terminal.log("");

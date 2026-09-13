@@ -1,22 +1,22 @@
 ---
-import Marketplace from "../../layouts/Marketplace.astro";
+import Library from "../../layouts/Library.astro";
 import {
   describeFrequency,
   getPersonaEntries,
   getWorkflowEntries,
   personaPath,
   workflowPath,
-} from "../../lib/marketplace";
+} from "../../lib/library";
 
 const personas = await getPersonaEntries();
 const workflows = await getWorkflowEntries();
 ---
 
-<Marketplace
-  title="Marketplace — Jazz"
+<Library
+  title="Library — Jazz"
   description="Browse and copy Jazz personas and workflows: reusable system prompts, and scheduled jobs with their autonomy written down."
 >
-  <p class="eyebrow mono">▞ marketplace</p>
+  <p class="eyebrow mono">▞ library</p>
   <h1>Prompts worth stealing.</h1>
   <p class="lede">
     Personas change how an agent thinks, writes, and pushes back. Workflows are jobs: a prompt,
@@ -84,14 +84,14 @@ const workflows = await getWorkflowEntries();
     <h2>Add yours</h2>
     <p>
       Drop a <code class="mono">PERSONA.md</code> into
-      <code class="mono">packages/website/src/content/marketplace/personas/&lt;name&gt;/</code>, or a
+      <code class="mono">packages/website/src/content/library/personas/&lt;name&gt;/</code>, or a
       <code class="mono">WORKFLOW.md</code> into
-      <code class="mono">packages/website/src/content/marketplace/workflows/&lt;name&gt;/</code>, in
+      <code class="mono">packages/website/src/content/library/workflows/&lt;name&gt;/</code>, in
       the <a href="https://github.com/lvndry/jazz">Jazz repository</a> and open a pull request. Same
       format as the ones Jazz ships with — frontmatter for the metadata, the body is the prompt.
     </p>
   </section>
-</Marketplace>
+</Library>
 
 <style>
   .eyebrow {

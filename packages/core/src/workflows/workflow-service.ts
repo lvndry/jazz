@@ -1,6 +1,7 @@
 /**
- * `WorkflowService`: discovers and loads WORKFLOW.md definitions (builtin,
- * global, local), the automated prompts that agents run on a schedule.
+ * `WorkflowService`: discovers and loads WORKFLOW.md definitions (global and
+ * local), the automated prompts that agents run on a schedule. Jazz ships no
+ * built-in workflows; shared ones come from the library via `jazz workflow install`.
  */
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
@@ -9,7 +10,7 @@ import { Context, Effect, Layer, Ref } from "effect";
 import matter from "gray-matter";
 import type { AutoApprovePolicy } from "@/core/types/tools";
 import { loadCachedIndex, mergeByName, scanMarkdownIndex } from "@/core/utils/markdown-index";
-import { getBuiltinWorkflowsDirectory, getGlobalWorkflowsDirectory } from "@/core/utils/paths";
+import { getGlobalWorkflowsDirectory } from "@/core/utils/paths";
 
 const WORKFLOW_DEFINITION_FILENAME = "WORKFLOW.md" as const;
 
@@ -99,7 +100,7 @@ function parseWorkflowFrontmatter(
 /**
  * Parse WORKFLOW.md frontmatter into a definition, or `null` when the two
  * required fields (`name`, `description`) are missing. Shared by the local
- * loaders and by the marketplace, which validates a download with the exact
+ * loaders and by the library, which validates a download with the exact
  * rules the loaders will later apply to it.
  */
 export function parseWorkflowDefinition(data: Record<string, unknown>): WorkflowDefinition | null {
@@ -181,17 +182,14 @@ export class WorkflowsLive implements WorkflowService {
           return Array.from(cache.values());
         }
 
-        // 1. Get Built-in Workflows (shipped with Jazz)
-        const builtinWorkflows = yield* this.getBuiltinWorkflows();
-
-        // 2. Get Global Workflows (~/.jazz/workflows)
+        // 1. Get Global Workflows (~/.jazz/workflows)
         const globalWorkflows = yield* this.getGlobalWorkflows();
 
-        // 3. Get Local Workflows (cwd)
+        // 2. Get Local Workflows (cwd)
         const localWorkflows = yield* this.scanLocalWorkflows();
 
-        // 4. Merge (Local > Global > Built-in by name)
-        const merged = mergeByName(builtinWorkflows, globalWorkflows, localWorkflows);
+        // 3. Merge (Local > Global by name)
+        const merged = mergeByName(globalWorkflows, localWorkflows);
         const workflowMap = new Map<string, WorkflowMetadata>(merged.map((w) => [w.name, w]));
 
         // Update cache
@@ -290,22 +288,5 @@ export class WorkflowsLive implements WorkflowService {
       depth: 4,
       parse: (data, definitionDir) => parseWorkflowFrontmatter(data, definitionDir),
     });
-  }
-
-  private getBuiltinWorkflows(): Effect.Effect<readonly WorkflowMetadata[], Error> {
-    return Effect.gen(
-      function* (this: WorkflowsLive) {
-        const builtinDir = getBuiltinWorkflowsDirectory();
-        if (!builtinDir) {
-          return [];
-        }
-        return yield* scanMarkdownIndex({
-          dir: builtinDir,
-          fileName: WORKFLOW_DEFINITION_FILENAME,
-          depth: 2,
-          parse: (data, definitionDir) => parseWorkflowFrontmatter(data, definitionDir),
-        });
-      }.bind(this),
-    );
   }
 }

@@ -1,13 +1,13 @@
 ---
-import MarketplaceDefinition from "../../../components/MarketplaceDefinition.astro";
-import Marketplace from "../../../layouts/Marketplace.astro";
+import LibraryDefinition from "../../../components/LibraryDefinition.astro";
+import Library from "../../../layouts/Library.astro";
 import {
   describeFrequency,
   getWorkflowEntries,
   rawWorkflowPath,
   readWorkflowSource,
   type WorkflowEntry,
-} from "../../../lib/marketplace";
+} from "../../../lib/library";
 
 export async function getStaticPaths() {
   const entries = await getWorkflowEntries();
@@ -35,9 +35,9 @@ const warning =
     : "The frontmatter decides how it runs, the body is the prompt. Read it before you install it.";
 ---
 
-<Marketplace title={`${name} — Jazz workflow`} description={description}>
-  <MarketplaceDefinition
-    back={{ href: "/marketplace#workflows", label: "← all workflows" }}
+<Library title={`${name} — Jazz workflow`} description={description}>
+  <LibraryDefinition
+    back={{ href: "/library#workflows", label: "← all workflows" }}
     name={name}
     description={description}
     meta={meta}
@@ -48,4 +48,4 @@ const warning =
     warning={warning}
     body={source}
   />
-</Marketplace>
+</Library>

@@ -1,5 +1,5 @@
 /**
- * `PersonaRegistryService` interface for reading the persona marketplace — a
+ * `PersonaRegistryService` interface for reading the persona library — a
  * remote, git-backed catalog of shareable personas that users can install into
  * `~/.jazz/personas/`.
  */
@@ -9,7 +9,7 @@ import type { RegistryPersonaDownload, RegistryPersonaEntry } from "@/core/types
 
 export interface PersonaRegistryService {
   /**
-   * List every persona advertised by the marketplace.
+   * List every persona advertised by the library.
    *
    * Served from a disk snapshot while it is fresh, and falls back to the last
    * snapshot when the network is unreachable or Jazz is running offline.

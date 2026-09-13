@@ -88,19 +88,19 @@ An optional `toolProfile` lets a persona restrict what agents using it may reach
 This only ever subtracts. A persona cannot grant a tool, undo `deniedTools`, raise a disclosure
 ceiling, or change the approval policy.
 
-That separation is the point. Installing a persona from the marketplace should never widen what
+That separation is the point. Installing a persona from the library should never widen what
 your agent can do to your machine.
 
 ## Where they come from
 
 Built-in personas ship with Jazz. Your own live in `~/.jazz/personas/<name>/PERSONA.md`, written
-by hand or with `jazz persona create`. The marketplace is the third source:
+by hand or with `jazz persona create`. The library is the third source:
 
 ```bash
 jazz persona list              # built-in and custom
 jazz persona show coder        # read one, as the agent sees it
-jazz persona browse            # marketplace, interactive install
-jazz persona search            # everything the marketplace offers
+jazz persona browse            # library, interactive install
+jazz persona search            # everything the library offers
 ```
 
 ## Persona or agent config

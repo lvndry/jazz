@@ -3,6 +3,8 @@ name: weather-briefing
 description: Morning weather check and outfit recommendations
 schedule: "0 7 * * *"
 autoApprove: read-only
+author: jazz
+tags: [weather, daily, personal]
 ---
 
 # Morning Weather Briefing
@@ -40,6 +42,7 @@ Check the weather forecast for today and provide practical recommendations.
 Keep it brief and actionable - this is a quick morning glance, not a detailed report.
 
 Example output (Celsius):
+
 ```
 🌡️ Today: 18°C → 26°C, Sunny
 
@@ -49,6 +52,7 @@ Example output (Celsius):
 ```
 
 Example output (Fahrenheit, if in US):
+
 ```
 🌡️ Today: 65°F → 78°F, Sunny
 ...

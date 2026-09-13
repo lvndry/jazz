@@ -15,7 +15,7 @@ export const collections = {
   personas: defineCollection({
     loader: glob({
       pattern: "**/{PERSONA,persona}.md",
-      base: "./src/content/marketplace/personas",
+      base: "./src/content/library/personas",
     }),
     schema: z.object({
       name: z.string(),
@@ -29,7 +29,7 @@ export const collections = {
   workflows: defineCollection({
     loader: glob({
       pattern: "**/{WORKFLOW,workflow}.md",
-      base: "./src/content/marketplace/workflows",
+      base: "./src/content/library/workflows",
     }),
     schema: z.object({
       name: z.string(),

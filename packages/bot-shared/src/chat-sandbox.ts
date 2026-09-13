@@ -275,7 +275,7 @@ function exists(path: string): boolean {
  * Expose a shared, read-only directory inside a conversation home.
  *
  * Personas are the one thing every conversation is meant to see the same copy
- * of, and the marketplace installs them into the data directory as root, so a
+ * of, and the library installs them into the data directory as root, so a
  * symlink beats a per-conversation copy that would go stale on the next
  * install.
  */

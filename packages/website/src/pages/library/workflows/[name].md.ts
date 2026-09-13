@@ -1,8 +1,4 @@
-import {
-  getWorkflowEntries,
-  readWorkflowSource,
-  type WorkflowEntry,
-} from "../../../lib/marketplace";
+import { getWorkflowEntries, readWorkflowSource, type WorkflowEntry } from "../../../lib/library";
 
 export async function getStaticPaths() {
   const entries = await getWorkflowEntries();

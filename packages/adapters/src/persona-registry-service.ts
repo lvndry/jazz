@@ -1,7 +1,7 @@
 /**
- * Implements `PersonaRegistryService`: the persona half of the marketplace.
+ * Implements `PersonaRegistryService`: the persona half of the library.
  *
- * Fetching, caching, and the origin check live in `MarketplaceCatalog`; this
+ * Fetching, caching, and the origin check live in `LibraryCatalog`; this
  * module adds what makes an entry a persona (tone and style in the index) and
  * checks a downloaded `PERSONA.md` against the bounds `createPersona` enforces,
  * so an install can never produce a persona Jazz would refuse to create by hand.
@@ -18,24 +18,24 @@ import type {
 } from "@jazz/core/types/persona-registry";
 import { Effect, Layer } from "effect";
 import matter from "gray-matter";
-import { MarketplaceCatalog, optionalString } from "./marketplace-catalog";
+import { LibraryCatalog, optionalString } from "./library-catalog";
 
 /** Bounds on a downloaded definition, matching what `createPersona` will accept. */
 const MAX_DESCRIPTION_LENGTH = 500;
 const MAX_SYSTEM_PROMPT_LENGTH = 10_000;
 
 export interface PersonaRegistryServiceImplOptions {
-  /** Override the marketplace base URL. Default: JAZZ_MARKETPLACE_URL, else the public site. */
+  /** Override the library base URL. Default: JAZZ_LIBRARY_URL, else the public site. */
   readonly baseUrl?: string;
   /** Override the directory the index snapshot is mirrored to. Default: `<jazz home>/cache`. */
   readonly cacheDir?: string;
 }
 
 export class PersonaRegistryServiceImpl implements PersonaRegistryService {
-  private readonly catalog: MarketplaceCatalog<RegistryPersonaEntry>;
+  private readonly catalog: LibraryCatalog<RegistryPersonaEntry>;
 
   constructor(options?: PersonaRegistryServiceImplOptions) {
-    this.catalog = new MarketplaceCatalog<RegistryPersonaEntry>({
+    this.catalog = new LibraryCatalog<RegistryPersonaEntry>({
       kind: "persona",
       collection: "personas",
       cacheFile: "persona-registry.json",
@@ -75,7 +75,7 @@ export class PersonaRegistryServiceImpl implements PersonaRegistryService {
           return yield* Effect.fail(
             new ValidationError({
               field: "systemPrompt",
-              message: `Marketplace persona "${entry.name}" has an empty system prompt`,
+              message: `Library persona "${entry.name}" has an empty system prompt`,
               value: sourceUrl,
               suggestion: "Report this catalog entry — it was published without a prompt body.",
             }),
@@ -86,7 +86,7 @@ export class PersonaRegistryServiceImpl implements PersonaRegistryService {
           return yield* Effect.fail(
             new ValidationError({
               field: "systemPrompt",
-              message: `Marketplace persona "${entry.name}" exceeds the ${MAX_SYSTEM_PROMPT_LENGTH}-character prompt limit`,
+              message: `Library persona "${entry.name}" exceeds the ${MAX_SYSTEM_PROMPT_LENGTH}-character prompt limit`,
               value: `(${systemPrompt.length} chars)`,
               suggestion: "Report this catalog entry — Jazz will not install a prompt this large.",
             }),

@@ -1,7 +1,7 @@
 ---
-import MarketplaceDefinition from "../../../components/MarketplaceDefinition.astro";
-import Marketplace from "../../../layouts/Marketplace.astro";
-import { getPersonaEntries, rawPersonaPath, type PersonaEntry } from "../../../lib/marketplace";
+import LibraryDefinition from "../../../components/LibraryDefinition.astro";
+import Library from "../../../layouts/Library.astro";
+import { getPersonaEntries, rawPersonaPath, type PersonaEntry } from "../../../lib/library";
 
 export async function getStaticPaths() {
   const entries = await getPersonaEntries();
@@ -24,9 +24,9 @@ const meta = [
 ].filter(Boolean);
 ---
 
-<Marketplace title={`${name} — Jazz persona`} description={description}>
-  <MarketplaceDefinition
-    back={{ href: "/marketplace#personas", label: "← all personas" }}
+<Library title={`${name} — Jazz persona`} description={description}>
+  <LibraryDefinition
+    back={{ href: "/library#personas", label: "← all personas" }}
     name={name}
     description={description}
     meta={meta}
@@ -37,4 +37,4 @@ const meta = [
     warning="This text becomes the instructions of any agent you apply the persona to. Read it before you install it."
     body={entry.body ?? ""}
   />
-</Marketplace>
+</Library>

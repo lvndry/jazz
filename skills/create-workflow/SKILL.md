@@ -136,7 +136,7 @@ Ask user where they want the workflow (or choose based on context):
 | **Local**  | Project-specific automation   | `./workflows/<name>/WORKFLOW.md`       |
 | **Global** | User-wide personal automation | `~/.jazz/workflows/<name>/WORKFLOW.md` |
 
-Built-in workflows are shipped with Jazz and shouldn't be modified.
+Jazz ships no built-in workflows. `jazz workflow browse` installs shared ones from the library into the global directory.
 
 ## Complete Example
 
@@ -355,4 +355,4 @@ After creating the workflow, optionally create a README in the workflow director
 - What to expect
 - How to customize
 
-Example: `workflows/README.md`
+Example: any entry under `packages/website/src/content/library/workflows/`

@@ -1,5 +1,5 @@
 /**
- * `WorkflowRegistryService` interface for reading the workflow marketplace — a
+ * `WorkflowRegistryService` interface for reading the workflow library — a
  * remote, git-backed catalog of shareable workflows that users can install into
  * `~/.jazz/workflows/`.
  */
@@ -12,7 +12,7 @@ import type {
 
 export interface WorkflowRegistryService {
   /**
-   * List every workflow advertised by the marketplace.
+   * List every workflow advertised by the library.
    *
    * Served from a disk snapshot while it is fresh, and falls back to the last
    * snapshot when the network is unreachable or Jazz is running offline.

@@ -51,26 +51,16 @@ Every field is listed in [workflow frontmatter](../configure/workflows.md).
 
 | Path                 | Applies to           |
 | -------------------- | -------------------- |
-| ships with Jazz      | everywhere           |
 | `~/.jazz/workflows/` | all your projects    |
 | `./workflows/`       | this repository only |
 
 Closest wins. A repository can have its own `code-review` without touching yours.
 
-## Built-in workflows
+## Starting points
 
-Three ship with Jazz, as much to show the format as to be useful on day one:
-
-| Workflow           | Schedule           | Unattended tier |
-| ------------------ | ------------------ | --------------- |
-| `weather-briefing` | every morning at 7 | `read-only`     |
-| `email-cleanup`    | hourly             | `low-risk`      |
-| `market-analysis`  | every morning at 6 | `true`          |
-
-`jazz workflow run <name>` runs one now, `jazz workflow schedule <name>` puts it on its clock. To
-change a built-in, copy its directory into `~/.jazz/workflows/` and edit the copy; the copy shadows
-the original. The files, with a longer walkthrough, are in
-[`workflows/`](../../workflows/README.md) in the repository.
+Jazz ships no workflows of its own. The [library](#the-library) has a dozen you can install with
+one command and edit afterwards, from a morning weather briefing to a merged-pull-request recap.
+An installed copy is yours: it lives in `~/.jazz/workflows/<name>/` and nothing overwrites it.
 
 ## Several schedules, one workflow
 
@@ -101,20 +91,20 @@ reason. Two schedules of one workflow may not share a cron.
 Schedules created before labels existed are re-installed as `<name>/default` the first time Jazz
 lists them.
 
-## The marketplace
+## The library
 
 Other people's workflows are one command away:
 
 ```bash
 jazz workflow browse             # pick one, read the whole file, install it
-jazz workflow search             # list what the marketplace offers
+jazz workflow search             # list what the library offers
 jazz workflow install <name>     # straight to ~/.jazz/workflows/<name>/WORKFLOW.md
 ```
 
 Installing prints the full `WORKFLOW.md`, frontmatter first, and asks. That is deliberate: the
 frontmatter is where `autoApprove` lives, and a workflow you did not write gets to run unattended
 only with the tier you read and accepted. `--as <name>` installs under a different local name.
-Contributing one is a pull request: [CONTRIBUTING.md](../../CONTRIBUTING.md#contributing-to-the-marketplace).
+Contributing one is a pull request: [CONTRIBUTING.md](../../CONTRIBUTING.md#contributing-to-the-library).
 
 ## Workflow, skill, or agent?
 

@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import { Cause, Effect, Exit, Option } from "effect";
 import { PersonaRegistryServiceImpl } from "./persona-registry-service";
 
-const BASE_URL = "https://registry.test/marketplace";
+const BASE_URL = "https://registry.test/library";
 
 const INDEX = {
   version: 1,
@@ -13,7 +13,7 @@ const INDEX = {
     {
       name: "zebra",
       description: "Last alphabetically",
-      url: "/marketplace/personas/zebra.md",
+      url: "/library/personas/zebra.md",
     },
     {
       name: "rubber-duck",
@@ -22,10 +22,10 @@ const INDEX = {
       style: "methodical",
       author: "jazz",
       tags: ["debugging"],
-      url: "/marketplace/personas/rubber-duck.md",
+      url: "/library/personas/rubber-duck.md",
     },
     { name: "no-url", description: "Missing its url" },
-    { name: "bad name", description: "Invalid slug", url: "/marketplace/personas/bad.md" },
+    { name: "bad name", description: "Invalid slug", url: "/library/personas/bad.md" },
   ],
 };
 

@@ -3,7 +3,7 @@
  *
  * Embedded files are readable in place, but only one at a time and only by the
  * exact path the bundler assigned them — there is no directory to list and no
- * package root to resolve against. Every built-in persona, skill, and workflow
+ * package root to resolve against. Every built-in persona and skill
  * loader expects a directory it can walk, and the bundled `terminal-notifier`
  * has to be a real executable on disk before it can be spawned. So the binary
  * unpacks its assets once per version and hands the loaders that directory.

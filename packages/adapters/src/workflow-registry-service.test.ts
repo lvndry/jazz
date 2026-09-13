@@ -11,7 +11,7 @@ import { WorkflowRegistryServiceImpl } from "./workflow-registry-service";
  * pin what is specific to workflows: the index fields and the definition check.
  */
 
-const BASE_URL = "https://registry.test/marketplace";
+const BASE_URL = "https://registry.test/library";
 
 const INDEX = {
   version: 1,
@@ -23,13 +23,13 @@ const INDEX = {
       autoApprove: "read-only",
       author: "jazz",
       tags: ["git"],
-      url: "/marketplace/workflows/weekly-review.md",
+      url: "/library/workflows/weekly-review.md",
     },
     {
       name: "loose",
       description: "Claims an autonomy tier Jazz does not have",
       autoApprove: "yolo",
-      url: "/marketplace/workflows/loose.md",
+      url: "/library/workflows/loose.md",
     },
   ],
 };

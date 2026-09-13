@@ -106,7 +106,7 @@ The Jazz provider ID is `gemini`; its SDK and environment variable retain Google
 
 ## Offline operation
 
-`JAZZ_OFFLINE=1` disables Jazz's own update, hosted model-catalog, and marketplace requests. It does not make a hosted provider work offline. Use Ollama or llama.cpp, preinstall every required skill dependency, and enforce the network boundary outside Jazz. Follow [Local and air-gapped models](../getting-started/local-models.md).
+`JAZZ_OFFLINE=1` disables Jazz's own update, hosted model-catalog, and library requests. It does not make a hosted provider work offline. Use Ollama or llama.cpp, preinstall every required skill dependency, and enforce the network boundary outside Jazz. Follow [Local and air-gapped models](../getting-started/local-models.md).
 
 ## Diagnose provider failures
 

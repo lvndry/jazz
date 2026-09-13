@@ -19,7 +19,7 @@ import chalk from "chalk";
 import { Effect } from "effect";
 
 /**
- * CLI commands for the persona marketplace — a shared catalog of personas that
+ * CLI commands for the persona library — a shared catalog of personas that
  * users can browse and copy into their own `~/.jazz/personas/`.
  *
  * An installed persona becomes the system prompt of whichever agent uses it, so
@@ -58,7 +58,7 @@ function confirmInstall(
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
 
-    yield* terminal.heading(`Marketplace persona: ${download.entry.name}`);
+    yield* terminal.heading(`Library persona: ${download.entry.name}`);
     yield* terminal.log(download.entry.description);
     const meta = formatMeta(download.entry);
     if (meta.length > 0) yield* terminal.log(chalk.dim(meta));
@@ -95,7 +95,7 @@ function confirmInstall(
 }
 
 /**
- * Download one marketplace persona into ~/.jazz/personas/.
+ * Download one library persona into ~/.jazz/personas/.
  */
 export function installPersonaCommand(
   name: string,
@@ -153,9 +153,9 @@ export function installPersonaCommand(
 }
 
 /**
- * List everything the marketplace offers, without installing.
+ * List everything the library offers, without installing.
  */
-export function listMarketplacePersonasCommand(options?: {
+export function listLibraryPersonasCommand(options?: {
   readonly refresh?: boolean;
 }): Effect.Effect<void, NetworkError, PersonaRegistryService | TerminalService> {
   return Effect.gen(function* () {
@@ -165,11 +165,11 @@ export function listMarketplacePersonasCommand(options?: {
     const entries = yield* registry.listEntries({ refresh: options?.refresh === true });
 
     if (entries.length === 0) {
-      yield* terminal.info("The persona marketplace is empty right now.");
+      yield* terminal.info("The persona library is empty right now.");
       return;
     }
 
-    yield* terminal.heading(`Marketplace personas (${entries.length})`);
+    yield* terminal.heading(`Library personas (${entries.length})`);
     yield* terminal.log("");
 
     for (const entry of entries) {
@@ -185,9 +185,9 @@ export function listMarketplacePersonasCommand(options?: {
 }
 
 /**
- * Interactive marketplace browser: pick a persona, read its prompt, install it.
+ * Interactive library browser: pick a persona, read its prompt, install it.
  */
-export function browseMarketplaceCommand(options?: {
+export function browseLibraryCommand(options?: {
   readonly refresh?: boolean;
 }): Effect.Effect<
   void,
@@ -199,17 +199,17 @@ export function browseMarketplaceCommand(options?: {
     const registry = yield* PersonaRegistryServiceTag;
 
     if (!terminal.isInteractive) {
-      return yield* listMarketplacePersonasCommand(options);
+      return yield* listLibraryPersonasCommand(options);
     }
 
     const entries = yield* registry.listEntries({ refresh: options?.refresh === true });
 
     if (entries.length === 0) {
-      yield* terminal.info("The persona marketplace is empty right now.");
+      yield* terminal.info("The persona library is empty right now.");
       return;
     }
 
-    const selected = yield* terminal.search<string>("Search marketplace personas", {
+    const selected = yield* terminal.search<string>("Search library personas", {
       choices: entries.map((entry) => ({
         name: entry.name,
         value: entry.name,

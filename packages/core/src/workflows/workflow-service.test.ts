@@ -69,15 +69,9 @@ describe("WorkflowService", () => {
   });
 
   describe("workflow priority", () => {
-    it("should prioritize local over global over builtin", () => {
+    it("should prioritize local over global", () => {
       // Test that when multiple workflows have the same name,
-      // local takes precedence over global, and global over builtin
-      const builtin: WorkflowMetadata = {
-        name: "test",
-        description: "Builtin",
-        path: "/usr/local/lib/jazz/workflows/test",
-      };
-
+      // local takes precedence over global
       const global: WorkflowMetadata = {
         name: "test",
         description: "Global",
@@ -90,9 +84,8 @@ describe("WorkflowService", () => {
         path: "/Users/test/project/workflows/test",
       };
 
-      // Simulate the merge logic (local overwrites global, which overwrites builtin)
+      // Simulate the merge logic (local overwrites global)
       const workflowMap = new Map<string, WorkflowMetadata>();
-      workflowMap.set(builtin.name, builtin);
       workflowMap.set(global.name, global);
       workflowMap.set(local.name, local);
 

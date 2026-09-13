@@ -1,4 +1,4 @@
-import { getPersonaEntries, toPersonaIndexEntry } from "../../lib/marketplace";
+import { getPersonaEntries, toPersonaIndexEntry } from "../../lib/library";
 
 /**
  * The catalog `jazz persona browse` reads. Static, cache-friendly, and the only

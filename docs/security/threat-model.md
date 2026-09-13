@@ -72,7 +72,7 @@ WhatsApp bridges apply their own sender or conversation allowlists before a run 
 - **Host isolation:** a shell-capable agent can reach whatever its OS user and network can reach.
 - **Third-party correctness:** an MCP server, custom command, model provider, or chat transport may
   mishandle data after it crosses that boundary.
-- **Air gap from `JAZZ_OFFLINE`:** the flag skips public catalog, marketplace, and update requests;
+- **Air gap from `JAZZ_OFFLINE`:** the flag skips public catalog, library, and update requests;
   it does not block inference, tools, MCP, or OTLP. Enforce egress outside Jazz.
 - **Encrypted local history:** transcripts, work state, logs, and local telemetry are files under
   the Jazz data directory.

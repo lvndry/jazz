@@ -96,7 +96,7 @@ a command genuinely needs one. Implementation:
 
 **Local-first data.** Credentials resolve from the environment, OS keyring, or local config.
 Telemetry is recorded locally by default and is exported only when you configure an OTLP endpoint.
-`JAZZ_OFFLINE=1` skips Jazz's update, public model-catalog, and marketplace requests; it
+`JAZZ_OFFLINE=1` skips Jazz's update, public model-catalog, and library requests; it
 does not block inference, tools, MCP, or telemetry export. See
 [Local and air-gapped models](docs/getting-started/local-models.md).
 

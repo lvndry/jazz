@@ -1,4 +1,4 @@
-import { getWorkflowEntries, toWorkflowIndexEntry } from "../../lib/marketplace";
+import { getWorkflowEntries, toWorkflowIndexEntry } from "../../lib/library";
 
 /**
  * The catalog `jazz workflow browse` reads. Static, cache-friendly, and the only

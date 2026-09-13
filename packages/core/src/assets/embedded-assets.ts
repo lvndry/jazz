@@ -1,7 +1,7 @@
 /**
  * Manifest of the asset files embedded in a standalone binary.
  *
- * Jazz ships `personas/`, `skills/`, and `workflows/` as real directories, and
+ * Jazz ships `personas/` and `skills/` as real directories, and
  * every loader that reads them walks the filesystem. That works in
  * development, where `getPackageRootDirectory()` finds the repo root by
  * walking up from this file to a `package.json` named `jazz-ai`. Every

@@ -105,24 +105,24 @@ Full contract, examples, and a complete bridge implementation:
 
 ## `jazz workflow`
 
-| Command                          | Purpose                                                                                                                             |
-| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `jazz workflow list`             | List available workflows (built-in, global, local)                                                                                  |
-| `jazz workflow show <name>`      | Show a workflow's prompt and metadata                                                                                               |
-| `jazz workflow run <name>`       | Run once. See flags below                                                                                                           |
-| `jazz workflow schedule <name>`  | Install a schedule: the workflow's own frequency, or `--cron "<expr>"` for another. `--as <label>` names it                         |
-| `jazz workflow unschedule <id>`  | Remove a schedule by `<name>/<label>`, or by `<name>` to pick among its schedules                                                   |
-| `jazz workflow scheduled [name]` | List every installed schedule, or one workflow's                                                                                    |
-| `jazz workflow catchup`          | List workflows that missed a slot, select, run                                                                                      |
-| `jazz workflow history [name]`   | Show run history                                                                                                                    |
-| `jazz workflow browse`           | Browse the marketplace and install a workflow (interactive). `--refresh`                                                            |
-| `jazz workflow search`           | List every workflow the marketplace offers. `--refresh`                                                                             |
-| `jazz workflow install <name>`   | Install a marketplace workflow into `~/.jazz/workflows/`. `--as <name>` (local name), `-y`/`--yes` (skip confirmation), `--refresh` |
+| Command                          | Purpose                                                                                                                         |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `jazz workflow list`             | List available workflows (global and local)                                                                                     |
+| `jazz workflow show <name>`      | Show a workflow's prompt and metadata                                                                                           |
+| `jazz workflow run <name>`       | Run once. See flags below                                                                                                       |
+| `jazz workflow schedule <name>`  | Install a schedule: the workflow's own frequency, or `--cron "<expr>"` for another. `--as <label>` names it                     |
+| `jazz workflow unschedule <id>`  | Remove a schedule by `<name>/<label>`, or by `<name>` to pick among its schedules                                               |
+| `jazz workflow scheduled [name]` | List every installed schedule, or one workflow's                                                                                |
+| `jazz workflow catchup`          | List workflows that missed a slot, select, run                                                                                  |
+| `jazz workflow history [name]`   | Show run history                                                                                                                |
+| `jazz workflow browse`           | Browse the library and install a workflow (interactive). `--refresh`                                                            |
+| `jazz workflow search`           | List every workflow the library offers. `--refresh`                                                                             |
+| `jazz workflow install <name>`   | Install a library workflow into `~/.jazz/workflows/`. `--as <name>` (local name), `-y`/`--yes` (skip confirmation), `--refresh` |
 
 `install` prints the whole `WORKFLOW.md`, frontmatter included, and asks before writing it: the
 frontmatter decides what the workflow may do unattended, so non-interactive runs must pass `--yes`.
 The catalog is cached under `<jazz home>/cache/workflow-registry.json` and keeps working offline;
-`JAZZ_MARKETPLACE_URL` points Jazz at a self-hosted marketplace.
+`JAZZ_LIBRARY_URL` points Jazz at a self-hosted library.
 
 ### `jazz workflow run` flags
 
@@ -301,21 +301,21 @@ for both paths.
 
 ## `jazz persona`
 
-| Command                            | Purpose                                                                                                  |
-| ---------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `jazz persona list`                | List personas (built-in + custom)                                                                        |
-| `jazz persona create`              | Create a custom persona (interactive)                                                                    |
-| `jazz persona show <identifier>`   | Show a persona by name or id                                                                             |
-| `jazz persona edit <identifier>`   | Edit a custom persona                                                                                    |
-| `jazz persona delete <identifier>` | Delete a custom persona                                                                                  |
-| `jazz persona browse`              | Browse the marketplace and install a persona (interactive). `--refresh`                                  |
-| `jazz persona search`              | List every persona the marketplace offers. `--refresh`                                                   |
-| `jazz persona install <name>`      | Install a marketplace persona. `--as <name>` (local name), `-y`/`--yes` (skip confirmation), `--refresh` |
+| Command                            | Purpose                                                                                              |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `jazz persona list`                | List personas (built-in + custom)                                                                    |
+| `jazz persona create`              | Create a custom persona (interactive)                                                                |
+| `jazz persona show <identifier>`   | Show a persona by name or id                                                                         |
+| `jazz persona edit <identifier>`   | Edit a custom persona                                                                                |
+| `jazz persona delete <identifier>` | Delete a custom persona                                                                              |
+| `jazz persona browse`              | Browse the library and install a persona (interactive). `--refresh`                                  |
+| `jazz persona search`              | List every persona the library offers. `--refresh`                                                   |
+| `jazz persona install <name>`      | Install a library persona. `--as <name>` (local name), `-y`/`--yes` (skip confirmation), `--refresh` |
 
 `install` prints the full system prompt and asks before writing it: a persona becomes an agent's
 instructions, so non-interactive runs must pass `--yes`. The catalog is cached under
-`<jazz home>/cache/persona-registry.json` and keeps working offline; `JAZZ_MARKETPLACE_URL`
-points Jazz at a self-hosted marketplace.
+`<jazz home>/cache/persona-registry.json` and keeps working offline; `JAZZ_LIBRARY_URL`
+points Jazz at a self-hosted library.
 
 See [Personas](./concepts/personas.md).
 

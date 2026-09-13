@@ -29,7 +29,6 @@ mock.module("@jazz/core/utils/paths", () => ({
   getGlobalSkillsDirectory: () => tmpDir,
   getAgentsSkillsDirectory: () => tmpDir,
   getBuiltinPersonasDirectory: () => null,
-  getBuiltinWorkflowsDirectory: () => null,
   getGlobalWorkflowsDirectory: () => tmpDir,
 }));
 

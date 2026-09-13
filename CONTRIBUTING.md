@@ -76,7 +76,7 @@ optionalDependencies (see `deploy/npm/`). Both end up running the same compiled 
 
 The binary is self-contained, which changes two things a contributor can trip over:
 
-- **Built-in assets.** `personas/`, `skills/`, and `workflows/` are real directories the repo
+- **Built-in assets.** `personas/` and `skills/` are real directories the repo
   root resolves via `getPackageRootDirectory()` in development. A binary has no package
   directory, so the build embeds each file and Jazz unpacks them to `~/.jazz/runtime/<version>/`
   on first run.
@@ -111,15 +111,15 @@ Publishing a brand-new platform package for the first time requires registering 
 Trusted Publisher for this workflow, the same way `jazz-ai` itself already is: npm has no
 existing trust relationship for a package name it has never seen published.
 
-## Contributing to the marketplace
+## Contributing to the library
 
-The marketplace is maintained by the website package, which publishes its content as the catalogs consumed by Jazz. To add an entry:
+The library is maintained by the website package, which publishes its content as the catalogs consumed by Jazz. To add an entry:
 
-1. For a persona, create `packages/website/src/content/marketplace/personas/<name>/PERSONA.md` with frontmatter (`name`, `description`, optional `tone`, `style`, `author`, `tags`) and the system prompt in the body. Same format as the built-ins in `personas/`, which are worth reading first. Keep the prompt under 10,000 characters; `jazz persona install` refuses anything longer.
-2. For a workflow, create `packages/website/src/content/marketplace/workflows/<name>/WORKFLOW.md`. Same format as the built-ins in `workflows/`: every [frontmatter field](docs/configure/workflows.md) is honoured, and the index additionally reads `author` and `tags`. Ask for the lowest `autoApprove` tier the job can do with, and do not pin an `agent` other people will not have.
-3. Open a PR. Merging publishes it to <https://jazz-cli.vercel.app/marketplace> and to `jazz persona browse` or `jazz workflow browse`.
+1. For a persona, create `packages/website/src/content/library/personas/<name>/PERSONA.md` with frontmatter (`name`, `description`, optional `tone`, `style`, `author`, `tags`) and the system prompt in the body. Same format as the built-ins in `personas/`, which are worth reading first. Keep the prompt under 10,000 characters; `jazz persona install` refuses anything longer.
+2. For a workflow, create `packages/website/src/content/library/workflows/<name>/WORKFLOW.md`. Every [frontmatter field](docs/configure/workflows.md) is honoured, and the index additionally reads `author` and `tags`. Ask for the lowest `autoApprove` tier the job can do with, and do not pin an `agent` other people will not have.
+3. Open a PR. Merging publishes it to <https://jazz-cli.vercel.app/library> and to `jazz persona browse` or `jazz workflow browse`.
 
-The website build publishes marketplace content for the CLI to consume over HTTP. `personas/`, `skills/`, and `workflows/` ship inside the Jazz binary as the deliberately small built-in set.
+The website build publishes library content for the CLI to consume over HTTP. `personas/` and `skills/` ship inside the Jazz binary as the deliberately small built-in set; workflows are library-only.
 
 ## Before Submitting PR
 

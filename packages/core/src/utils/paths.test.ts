@@ -4,7 +4,6 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import {
   getBuiltinSkillsDirectory,
-  getBuiltinWorkflowsDirectory,
   getGlobalSkillsDirectory,
   getGlobalUserDataDirectory,
   getGlobalWorkflowsDirectory,
@@ -118,36 +117,6 @@ describe("Jazz paths", () => {
       expect(entries.length).toBeGreaterThan(0);
       expect(
         entries.some((entry) => fs.existsSync(path.join(skillsDirectory!, entry, "SKILL.md"))),
-      ).toBe(true);
-    });
-  });
-
-  describe("getBuiltinWorkflowsDirectory", () => {
-    it("finds the built-in workflows directory", () => {
-      const result = getBuiltinWorkflowsDirectory();
-
-      expect(result).not.toBeNull();
-      expect(fs.statSync(result!).isDirectory()).toBe(true);
-    });
-
-    it("returns the package workflows subdirectory", () => {
-      const packageRoot = getPackageRootDirectory();
-      const workflowsDirectory = getBuiltinWorkflowsDirectory();
-
-      expect(packageRoot).not.toBeNull();
-      expect(workflowsDirectory).toBe(path.join(packageRoot!, "workflows"));
-    });
-
-    it("contains WORKFLOW.md files", () => {
-      const workflowsDirectory = getBuiltinWorkflowsDirectory();
-
-      expect(workflowsDirectory).not.toBeNull();
-      const entries = fs.readdirSync(workflowsDirectory!);
-      expect(entries.length).toBeGreaterThan(0);
-      expect(
-        entries.some((entry) =>
-          fs.existsSync(path.join(workflowsDirectory!, entry, "WORKFLOW.md")),
-        ),
       ).toBe(true);
     });
   });

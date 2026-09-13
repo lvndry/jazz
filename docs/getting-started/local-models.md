@@ -4,7 +4,7 @@ description: "Run Jazz with self-hosted Ollama or llama.cpp, understand what off
 
 # Run Jazz with local and air-gapped models
 
-Jazz can run against a self-hosted inference server such as [Ollama](https://ollama.ai/) or [llama.cpp](https://github.com/ggml-org/llama.cpp). Local providers need no API key. `JAZZ_OFFLINE` disables Jazz's public catalog, marketplace, and update requests; it is a convenience switch, **not a network sandbox**. Use host or container egress controls for an enforced air gap.
+Jazz can run against a self-hosted inference server such as [Ollama](https://ollama.ai/) or [llama.cpp](https://github.com/ggml-org/llama.cpp). Local providers need no API key. `JAZZ_OFFLINE` disables Jazz's public catalog, library, and update requests; it is a convenience switch, **not a network sandbox**. Use host or container egress controls for an enforced air gap.
 
 ## Quick setup (Ollama)
 
@@ -48,7 +48,7 @@ With `JAZZ_OFFLINE=1` (or `true`), Jazz skips these product-service requests:
 
 - **No update check**: the periodic npm registry version check is skipped (equivalent to `JAZZ_DISABLE_UPDATE_CHECK=1`).
 - **No models.dev fetch**: the model catalog (used for cloud-provider model lists and metadata enrichment like context windows and pricing) is not fetched. Jazz uses the on-disk snapshot at `~/.jazz/cache/models-dev.json` if one exists from a previous online run, and otherwise falls back to provider-reported metadata and defaults.
-- **No marketplace fetch**: `jazz persona browse` and `jazz workflow browse` read the snapshots at `~/.jazz/cache/persona-registry.json` and `~/.jazz/cache/workflow-registry.json` from a previous online run, and error if there is none. Point `JAZZ_MARKETPLACE_URL` at an internal marketplace to browse and install inside the airgap.
+- **No library fetch**: `jazz persona browse` and `jazz workflow browse` read the snapshots at `~/.jazz/cache/persona-registry.json` and `~/.jazz/cache/workflow-registry.json` from a previous online run, and error if there is none. Point `JAZZ_LIBRARY_URL` at an internal library to browse and install inside the airgap.
 
 It does **not** block inference, `web_fetch`, `http_request`, remote MCP, OTLP export, or a command the agent runs. In an air-gapped deployment, use a local provider, disable OTLP export, omit network-capable tools and MCP servers, and enforce egress at the OS, container, or firewall boundary.
 
@@ -69,12 +69,12 @@ If you want catalog metadata (e.g. pricing display for cloud models) inside the 
 
 ## Environment variable reference
 
-| Variable                    | Effect                                                                                   |
-| --------------------------- | ---------------------------------------------------------------------------------------- |
-| `JAZZ_OFFLINE`              | `1`/`true`: skip update checks, the models.dev fetch, and the marketplace fetch entirely |
-| `OLLAMA_BASE_URL`           | Ollama server URL (default `http://localhost:11434/api`; `/api` appended automatically)  |
-| `LLAMACPP_BASE_URL`         | llama.cpp server URL (default `http://localhost:8080/v1`)                                |
-| `JAZZ_MODELS_DEV_URL`       | Internal mirror for the models.dev catalog                                               |
-| `JAZZ_MARKETPLACE_URL`      | Base URL of the persona and workflow marketplace (default the public Jazz site)          |
-| `JAZZ_DISABLE_UPDATE_CHECK` | `1`: skip only the update check                                                          |
-| `JAZZ_HOME`                 | Data directory (default `~/.jazz`): holds the catalog snapshot, history, telemetry       |
+| Variable                    | Effect                                                                                  |
+| --------------------------- | --------------------------------------------------------------------------------------- |
+| `JAZZ_OFFLINE`              | `1`/`true`: skip update checks, the models.dev fetch, and the library fetch entirely    |
+| `OLLAMA_BASE_URL`           | Ollama server URL (default `http://localhost:11434/api`; `/api` appended automatically) |
+| `LLAMACPP_BASE_URL`         | llama.cpp server URL (default `http://localhost:8080/v1`)                               |
+| `JAZZ_MODELS_DEV_URL`       | Internal mirror for the models.dev catalog                                              |
+| `JAZZ_LIBRARY_URL`          | Base URL of the persona and workflow library (default the public Jazz site)             |
+| `JAZZ_DISABLE_UPDATE_CHECK` | `1`: skip only the update check                                                         |
+| `JAZZ_HOME`                 | Data directory (default `~/.jazz`): holds the catalog snapshot, history, telemetry      |

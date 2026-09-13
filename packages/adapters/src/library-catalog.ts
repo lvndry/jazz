@@ -1,10 +1,10 @@
 /**
- * The machinery shared by the persona and workflow marketplaces: one static
+ * The machinery shared by the persona and workflow libraries: one static
  * catalog published from the Jazz website, read through a JSON index and one
  * raw markdown file per entry.
  *
- * `MarketplaceCatalog` owns everything that is the same for every kind of entry:
- * where the marketplace lives, the disk snapshot that keeps browsing working
+ * `LibraryCatalog` owns everything that is the same for every kind of entry:
+ * where the library lives, the disk snapshot that keeps browsing working
  * offline (`<jazz home>/cache/<cacheFile>`), and the origin check every entry URL
  * must pass before it is fetched — a catalog is remote data, and it must not be
  * able to redirect an install at an arbitrary host. Each registry service wraps a
@@ -20,14 +20,14 @@ import { getUserDataDirectory } from "@jazz/core/utils/paths";
 import { isOfflineMode } from "@jazz/core/utils/runtime";
 import { Effect, Option } from "effect";
 
-/** Where the marketplace is published. Overridable with JAZZ_MARKETPLACE_URL, for staging and tests. */
-const DEFAULT_MARKETPLACE_URL = "https://jazz-cli.vercel.app/marketplace";
+/** Where the library is published. Overridable with JAZZ_LIBRARY_URL, for staging and tests. */
+const DEFAULT_LIBRARY_URL = "https://jazz-cli.vercel.app/library";
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const FETCH_TIMEOUT_MS = 10_000;
 const VALID_NAME = /^[a-zA-Z0-9_-]+$/;
 
-/** The fields every marketplace entry carries, whatever its kind. */
-export interface MarketplaceEntry {
+/** The fields every library entry carries, whatever its kind. */
+export interface LibraryEntry {
   /** Catalog name, unique within its collection. Also the default install name. */
   readonly name: string;
   /** Brief human-readable summary. */
@@ -36,18 +36,18 @@ export interface MarketplaceEntry {
   readonly author?: string;
   /** Free-form tags used for search and filtering. */
   readonly tags?: readonly string[];
-  /** Location of the raw markdown, absolute or relative to the marketplace base URL. */
+  /** Location of the raw markdown, absolute or relative to the library base URL. */
   readonly url: string;
 }
 
 /** One entry's markdown, downloaded and ready for kind-specific validation. */
-export interface MarketplaceDownload<TEntry extends MarketplaceEntry> {
+export interface LibraryDownload<TEntry extends LibraryEntry> {
   readonly entry: TEntry;
   readonly sourceUrl: string;
   readonly markdown: string;
 }
 
-export interface MarketplaceCatalogOptions<TEntry extends MarketplaceEntry> {
+export interface LibraryCatalogOptions<TEntry extends LibraryEntry> {
   /** What one entry is called in messages, e.g. "persona". */
   readonly kind: string;
   /** Key of the entry array in the index document; also names the index file `<collection>.json`. */
@@ -57,8 +57,8 @@ export interface MarketplaceCatalogOptions<TEntry extends MarketplaceEntry> {
   /** Command that lists the catalog, offered in error suggestions. */
   readonly browseCommand: string;
   /** Add kind-specific fields to an entry whose shared fields already validated. */
-  readonly parseEntry: (record: Record<string, unknown>, base: MarketplaceEntry) => TEntry;
-  /** Override the marketplace base URL. Default: JAZZ_MARKETPLACE_URL, else the public site. */
+  readonly parseEntry: (record: Record<string, unknown>, base: LibraryEntry) => TEntry;
+  /** Override the library base URL. Default: JAZZ_LIBRARY_URL, else the public site. */
   readonly baseUrl?: string | undefined;
   /** Override the directory the index snapshot is mirrored to. Default: `<jazz home>/cache`. */
   readonly cacheDir?: string | undefined;
@@ -74,7 +74,7 @@ export function optionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
 
-function parseBaseEntry(raw: unknown): MarketplaceEntry | null {
+function parseBaseEntry(raw: unknown): LibraryEntry | null {
   if (raw === null || typeof raw !== "object") return null;
   const record = raw as Record<string, unknown>;
 
@@ -99,20 +99,18 @@ function parseBaseEntry(raw: unknown): MarketplaceEntry | null {
   };
 }
 
-function sortEntries<TEntry extends MarketplaceEntry>(
-  entries: readonly TEntry[],
-): readonly TEntry[] {
+function sortEntries<TEntry extends LibraryEntry>(entries: readonly TEntry[]): readonly TEntry[] {
   return [...entries].sort((left, right) => left.name.localeCompare(right.name));
 }
 
-export class MarketplaceCatalog<TEntry extends MarketplaceEntry> {
-  constructor(private readonly options: MarketplaceCatalogOptions<TEntry>) {}
+export class LibraryCatalog<TEntry extends LibraryEntry> {
+  constructor(private readonly options: LibraryCatalogOptions<TEntry>) {}
 
   private baseUrl(): string {
-    const fromEnv = process.env["JAZZ_MARKETPLACE_URL"];
+    const fromEnv = process.env["JAZZ_LIBRARY_URL"];
     const raw =
       this.options.baseUrl ??
-      (fromEnv !== undefined && fromEnv.length > 0 ? fromEnv : DEFAULT_MARKETPLACE_URL);
+      (fromEnv !== undefined && fromEnv.length > 0 ? fromEnv : DEFAULT_LIBRARY_URL);
     return raw.endsWith("/") ? raw : `${raw}/`;
   }
 
@@ -151,7 +149,7 @@ export class MarketplaceCatalog<TEntry extends MarketplaceEntry> {
   }
 
   /**
-   * Resolve an entry URL against the marketplace base, refusing anything that
+   * Resolve an entry URL against the library base, refusing anything that
    * leaves its origin. Without this, one bad index entry could point an install
    * at an attacker-controlled file on an unrelated host.
    */
@@ -201,7 +199,7 @@ export class MarketplaceCatalog<TEntry extends MarketplaceEntry> {
   }
 
   /**
-   * List every entry the marketplace advertises, sorted by name. Served from the
+   * List every entry the library advertises, sorted by name. Served from the
    * disk snapshot while fresh; falls back to it when the network is unreachable
    * or Jazz runs offline.
    */
@@ -209,7 +207,7 @@ export class MarketplaceCatalog<TEntry extends MarketplaceEntry> {
     readonly refresh?: boolean;
   }): Effect.Effect<readonly TEntry[], NetworkError> {
     return Effect.gen(
-      function* (this: MarketplaceCatalog<TEntry>) {
+      function* (this: LibraryCatalog<TEntry>) {
         const { kind, browseCommand } = this.options;
         const indexUrl = this.indexUrl();
         const refresh = options?.refresh === true;
@@ -226,7 +224,7 @@ export class MarketplaceCatalog<TEntry extends MarketplaceEntry> {
           return yield* Effect.fail(
             new NetworkError({
               url: indexUrl,
-              reason: "Jazz is running offline and no marketplace snapshot has been cached yet",
+              reason: "Jazz is running offline and no library snapshot has been cached yet",
               suggestion: `Unset JAZZ_OFFLINE and run '${browseCommand}' once to cache the catalog.`,
             }),
           );
@@ -242,7 +240,7 @@ export class MarketplaceCatalog<TEntry extends MarketplaceEntry> {
             const logger = yield* Effect.serviceOption(LoggerServiceTag);
             if (Option.isSome(logger)) {
               yield* logger.value.warn(
-                `${kind} marketplace unreachable at ${indexUrl}; using the cached catalog.`,
+                `${kind} library unreachable at ${indexUrl}; using the cached catalog.`,
               );
             }
             return sortEntries(cached.entries);
@@ -250,9 +248,9 @@ export class MarketplaceCatalog<TEntry extends MarketplaceEntry> {
           return yield* Effect.fail(
             new NetworkError({
               url: indexUrl,
-              reason: `Could not reach the ${kind} marketplace`,
+              reason: `Could not reach the ${kind} library`,
               suggestion:
-                "Check your connection, or set JAZZ_MARKETPLACE_URL if you host your own catalog.",
+                "Check your connection, or set JAZZ_LIBRARY_URL if you host your own catalog.",
             }),
           );
         }
@@ -264,7 +262,7 @@ export class MarketplaceCatalog<TEntry extends MarketplaceEntry> {
           return yield* Effect.fail(
             new NetworkError({
               url: indexUrl,
-              reason: `The ${kind} marketplace returned a catalog Jazz could not read`,
+              reason: `The ${kind} library returned a catalog Jazz could not read`,
               suggestion: "This is likely a temporary publishing problem — try again shortly.",
             }),
           );
@@ -282,13 +280,11 @@ export class MarketplaceCatalog<TEntry extends MarketplaceEntry> {
 
   /**
    * Find one entry by name (case-insensitive) and download its markdown from the
-   * marketplace's own origin. Validating the markdown is the caller's job.
+   * library's own origin. Validating the markdown is the caller's job.
    */
-  fetchEntry(
-    name: string,
-  ): Effect.Effect<MarketplaceDownload<TEntry>, NetworkError | ValidationError> {
+  fetchEntry(name: string): Effect.Effect<LibraryDownload<TEntry>, NetworkError | ValidationError> {
     return Effect.gen(
-      function* (this: MarketplaceCatalog<TEntry>) {
+      function* (this: LibraryCatalog<TEntry>) {
         const { kind, browseCommand } = this.options;
         const entries = yield* this.listEntries();
         const entry = entries.find(
@@ -299,9 +295,9 @@ export class MarketplaceCatalog<TEntry extends MarketplaceEntry> {
           return yield* Effect.fail(
             new ValidationError({
               field: "name",
-              message: `No marketplace ${kind} named "${name}"`,
+              message: `No library ${kind} named "${name}"`,
               value: name,
-              suggestion: `Run '${browseCommand}' to see what the marketplace offers.`,
+              suggestion: `Run '${browseCommand}' to see what the library offers.`,
             }),
           );
         }
@@ -311,9 +307,9 @@ export class MarketplaceCatalog<TEntry extends MarketplaceEntry> {
           return yield* Effect.fail(
             new ValidationError({
               field: "url",
-              message: `Marketplace entry "${entry.name}" points outside the registry`,
+              message: `Library entry "${entry.name}" points outside the registry`,
               value: entry.url,
-              suggestion: `Jazz refuses to install a ${kind} hosted off the marketplace's own origin. Report this catalog entry.`,
+              suggestion: `Jazz refuses to install a ${kind} hosted off the library's own origin. Report this catalog entry.`,
             }),
           );
         }
