@@ -85,6 +85,12 @@ describe("parseSpecialCommand", () => {
       expect(result.type).toBe("mcp");
       expect(result.args).toEqual([]);
     });
+
+    it("should parse /reload-skills command", () => {
+      const result = parseSpecialCommand("/reload-skills");
+      expect(result.type).toBe("reload-skills");
+      expect(result.args).toEqual([]);
+    });
   });
 
   describe("commands with arguments", () => {

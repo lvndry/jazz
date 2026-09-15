@@ -24,6 +24,7 @@ export type CommandType =
   | "reasoning"
   | "config"
   | "skills"
+  | "reload-skills"
   | "context"
   | "work"
   | "cost"

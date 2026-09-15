@@ -11,10 +11,12 @@ import { type LLMService, LLMServiceTag } from "@jazz/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@jazz/core/interfaces/logger";
 import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
 import { ToolRegistryTag, type ToolRegistry } from "@jazz/core/interfaces/tool-registry";
+import { SkillServiceTag, type SkillService } from "@jazz/core/skills/skill-service";
 import type { Agent } from "@jazz/core/types/agent";
 import type { ChatMessage } from "@jazz/core/types/message";
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { Effect, Layer } from "effect";
+import { getSkillCommandNames, setSkillCommands } from "./constants";
 import { handleSpecialCommand } from "./handler";
 import type { CommandContext, CommandResult } from "./types";
 
@@ -71,6 +73,77 @@ beforeEach(() => {
 
 afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
+  setSkillCommands([]);
+});
+
+describe("handleSpecialCommand /reload-skills", () => {
+  test("rescans skills and updates invokable skill commands", async () => {
+    const success = mock(() => Effect.void);
+    const reloadSkills = mock(() =>
+      Effect.succeed([
+        {
+          name: "new-playbook",
+          description: "Use the newly written playbook",
+          path: "/tmp/new-playbook",
+          source: "local" as const,
+        },
+      ]),
+    );
+    const layer = Layer.mergeAll(
+      Layer.succeed(TerminalServiceTag, {
+        success,
+        error: mock(() => Effect.void),
+      } as unknown as TerminalService),
+      Layer.succeed(SkillServiceTag, {
+        reloadSkills,
+      } as unknown as SkillService),
+    );
+    const context: CommandContext = {
+      agent: testAgent,
+      conversationHistory: [],
+      conversationId: "test-session",
+      sessionUsage: { promptTokens: 0, completionTokens: 0 },
+      sessionTurnCount: 0,
+      sessionLimits: {},
+      sessionStartedAt: new Date(),
+    };
+
+    const result = await Effect.runPromise(
+      handleSpecialCommand({ type: "reload-skills", args: [] }, context).pipe(
+        Effect.provide(layer),
+      ) as Effect.Effect<CommandResult, unknown, never>,
+    );
+
+    expect(result).toEqual({ shouldContinue: true });
+    expect(reloadSkills).toHaveBeenCalledTimes(1);
+    expect(getSkillCommandNames()).toContain("new-playbook");
+    expect(success).toHaveBeenCalledWith("Reloaded 1 skill.");
+  });
+
+  test("rejects arguments", async () => {
+    const error = mock(() => Effect.void);
+    const layer = Layer.succeed(TerminalServiceTag, {
+      error,
+    } as unknown as TerminalService);
+    const context: CommandContext = {
+      agent: testAgent,
+      conversationHistory: [],
+      conversationId: "test-session",
+      sessionUsage: { promptTokens: 0, completionTokens: 0 },
+      sessionTurnCount: 0,
+      sessionLimits: {},
+      sessionStartedAt: new Date(),
+    };
+
+    const result = await Effect.runPromise(
+      handleSpecialCommand({ type: "reload-skills", args: ["unexpected"] }, context).pipe(
+        Effect.provide(layer),
+      ) as Effect.Effect<CommandResult, unknown, never>,
+    );
+
+    expect(result).toEqual({ shouldContinue: true });
+    expect(error).toHaveBeenCalledWith("Usage: /reload-skills");
+  });
 });
 
 describe("handleSpecialCommand resume", () => {

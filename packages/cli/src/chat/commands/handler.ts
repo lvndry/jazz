@@ -44,7 +44,11 @@ import {
   type ToolRegistry,
   type ToolRequirements,
 } from "@jazz/core/interfaces/tool-registry";
-import { SkillServiceTag, type SkillService } from "@jazz/core/skills/skill-service";
+import {
+  getSkillIndexLine,
+  SkillServiceTag,
+  type SkillService,
+} from "@jazz/core/skills/skill-service";
 import { StorageError, StorageNotFoundError } from "@jazz/core/types/errors";
 import type { MCPPromptArgument, MCPPromptMessage } from "@jazz/core/types/mcp";
 import type { ChatMessage } from "@jazz/core/types/message";
@@ -62,7 +66,7 @@ import { describeTier } from "@/cli/commands/peers";
 import { getGlyphs } from "@/cli/ui/glyphs";
 import { getThemeVariant, setThemeVariant } from "@/cli/ui/theme";
 import * as fmt from "@/cli/utils/list-format";
-import { CHAT_COMMANDS } from "./constants";
+import { CHAT_COMMANDS, setSkillCommands } from "./constants";
 import {
   confirmSessionLimitOverage,
   estimateSessionCostUSD,
@@ -148,6 +152,9 @@ export function handleSpecialCommand(
 
       case "skills":
         return yield* handleSkillsCommand(terminal);
+
+      case "reload-skills":
+        return yield* handleReloadSkillsCommand(terminal, command.args);
 
       case "memory":
         return yield* handleMemoryCommand(terminal, agent, command.args);
@@ -1879,6 +1886,29 @@ function handleSkillsCommand(
     );
     yield* terminal.log(fmt.blank());
 
+    return { shouldContinue: true };
+  });
+}
+
+/** Refresh the skill index and the slash-command registry without restarting chat. */
+function handleReloadSkillsCommand(
+  terminal: TerminalService,
+  args: readonly string[],
+): Effect.Effect<CommandResult, Error, SkillService> {
+  return Effect.gen(function* () {
+    if (args.length > 0) {
+      yield* terminal.error("Usage: /reload-skills");
+      return { shouldContinue: true };
+    }
+
+    const skillService = yield* SkillServiceTag;
+    const skills = yield* skillService.reloadSkills();
+    setSkillCommands(
+      skills.map((skill) => ({ name: skill.name, description: getSkillIndexLine(skill) })),
+    );
+    yield* terminal.success(
+      `Reloaded ${skills.length} ${skills.length === 1 ? "skill" : "skills"}.`,
+    );
     return { shouldContinue: true };
   });
 }
