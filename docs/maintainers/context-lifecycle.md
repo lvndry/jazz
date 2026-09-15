@@ -199,6 +199,33 @@ flowchart LR
 The rebuild is literally `[system, summary, ...recentMessages]`. The middle: where the
 bulk of the tokens live: becomes one message describing what was learned.
 
+The summary is a fixed checkpoint rather than free-form prose. Every compaction writes:
+
+```md
+## Goal
+
+## Constraints & Preferences
+
+## Progress
+
+### Done
+
+### In Progress
+
+### Blocked
+
+## Key Decisions
+
+## Next Steps
+
+## Critical Context
+```
+
+On later compactions Jazz merges new evidence into that same schema: completed items move
+to **Done**, resolved blockers disappear, and **Next Steps** is refreshed. The source
+transcript and prior checkpoint are passed as untrusted reference material, not
+instructions for the summarizer to execute.
+
 **Why summarize rather than slide a window?** A sliding window drops the _plan_. Forty
 minutes into a research run, the early messages contain the task definition and the
 strategy; the recent ones contain a tool result about page 14 of a PDF. Truncating keeps
