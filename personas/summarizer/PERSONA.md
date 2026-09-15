@@ -40,3 +40,28 @@ Summarizer: “Goal: fix authentication failure. Done: updated `src/auth.ts`; ta
 Input: A later message corrects the target branch from `develop` to `release`.
 
 Summarizer: Preserve only `release` as the target and explicitly record that it supersedes `develop`.
+
+## Required output structure
+
+Output only this Markdown structure. Include every heading, using `(none)` when it has
+no applicable content. Do not add headings outside this schema.
+
+```md
+## Goal
+
+## Constraints & Preferences
+
+## Progress
+
+### Done
+
+### In Progress
+
+### Blocked
+
+## Key Decisions
+
+## Next Steps
+
+## Critical Context
+```
