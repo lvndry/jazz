@@ -111,6 +111,12 @@ export interface SkillService {
   readonly listSkills: () => Effect.Effect<readonly SkillMetadata[], Error>;
 
   /**
+   * Rescan every skill source, replacing the session and loaded-content caches.
+   * The global on-disk index is rebuilt as part of the refresh.
+   */
+  readonly reloadSkills: () => Effect.Effect<readonly SkillMetadata[], Error>;
+
+  /**
    * List all skills grouped by source (builtin, global, local) before merging.
    */
   readonly listSkillsBySource: () => Effect.Effect<SkillsBySource, Error>;
@@ -201,6 +207,26 @@ export class SkillsLive implements SkillService {
 
         // Cache for the session
         yield* Ref.set(this.skillsListCache, merged);
+
+        return merged;
+      }.bind(this),
+    );
+  }
+
+  reloadSkills(): Effect.Effect<readonly SkillMetadata[], Error> {
+    return Effect.gen(
+      function* (this: SkillsLive) {
+        const [builtin, global, agents, local] = yield* Effect.all([
+          this.getBuiltinSkills(),
+          this.scanGlobalSkills(),
+          this.getAgentsSkills(),
+          this.scanLocalSkills(),
+        ]);
+        const merged = mergeByName(builtin, global, agents, local);
+
+        yield* Ref.set(this.skillsListCache, merged);
+        yield* Ref.set(this.loadedSkills, new Map());
+        yield* this.writeGlobalSkillsCache(global);
 
         return merged;
       }.bind(this),
@@ -314,16 +340,32 @@ export class SkillsLive implements SkillService {
   }
 
   private getGlobalSkills(): Effect.Effect<readonly SkillMetadata[], Error> {
-    const globalSkillsDir = getGlobalSkillsDirectory();
     return loadCachedIndex<SkillMetadata>({
       cachePath: this.globalCachePath,
-      scan: scanMarkdownIndex({
-        dir: globalSkillsDir,
-        fileName: "SKILL.md",
-        depth: 3,
-        parse: (data, definitionDir) => parseSkillFrontmatter(data, definitionDir, "global"),
-      }),
+      scan: this.scanGlobalSkills(),
     });
+  }
+
+  private scanGlobalSkills(): Effect.Effect<readonly SkillMetadata[], Error> {
+    return scanMarkdownIndex({
+      dir: getGlobalSkillsDirectory(),
+      fileName: "SKILL.md",
+      depth: 3,
+      parse: (data, definitionDir) => parseSkillFrontmatter(data, definitionDir, "global"),
+    });
+  }
+
+  private writeGlobalSkillsCache(skills: readonly SkillMetadata[]): Effect.Effect<void, never> {
+    return Effect.tryPromise({
+      try: async () => {
+        await fs.mkdir(path.dirname(this.globalCachePath), { recursive: true });
+        await fs.writeFile(this.globalCachePath, JSON.stringify(skills, null, 2));
+      },
+      catch: () => undefined,
+    }).pipe(
+      Effect.asVoid,
+      Effect.catchAll(() => Effect.void),
+    );
   }
 
   private getAgentsSkills(): Effect.Effect<readonly SkillMetadata[], Error> {

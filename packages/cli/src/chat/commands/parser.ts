@@ -52,6 +52,8 @@ export function parseSpecialCommand(input: string): SpecialCommand {
       return { type: "config", args };
     case "skills":
       return { type: "skills", args };
+    case "reload-skills":
+      return { type: "reload-skills", args };
     case "context":
       return { type: "context", args };
     case "work":
