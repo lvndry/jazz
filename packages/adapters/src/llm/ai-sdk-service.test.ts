@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import type { ProviderName } from "@jazz/core/constants/models";
@@ -17,7 +18,6 @@ import {
 } from "@jazz/core/types/errors";
 import type { AppConfig, LLMConfig, StreamEvent } from "@jazz/core/types/index";
 import { APICallError, generateText } from "ai";
-import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { afterAll, beforeEach, describe, expect, it, mock } from "bun:test";
 import { Cause, Effect, Exit, Layer, Stream } from "effect";
 import { z } from "zod";
