@@ -167,7 +167,7 @@ interface StreamProcessorState {
   // Reasoning tracking
   reasoningSequence: number;
   reasoningTokens: number | undefined;
-  reasoningStreamCompleted: boolean;
+  reasoningStreamActive: boolean;
   /**
    * Reasoning text accumulated across reasoning-delta events. Always captured
    * (regardless of whether the user enabled reasoning) so a response that
@@ -205,7 +205,7 @@ function createInitialState(): StreamProcessorState {
     hasStartedText: false,
     reasoningSequence: 0,
     reasoningTokens: undefined,
-    reasoningStreamCompleted: false,
+    reasoningStreamActive: false,
     accumulatedReasoning: "",
     collectedToolCalls: [],
     pendingNativeToolCalls: new Map(),
@@ -278,6 +278,7 @@ export class StreamProcessor {
     if (this.config.reasoningParser) {
       this.routeParsedChunk(this.config.reasoningParser.flush());
     }
+    this.closeReasoningStream();
 
     Effect.runFork(
       this.logger.debug(
@@ -319,17 +320,7 @@ export class StreamProcessor {
 
         switch (part.type) {
           case "text-delta": {
-            if (this.state.reasoningSequence > 0 && !this.state.reasoningStreamCompleted) {
-              this.state.reasoningStreamCompleted = true;
-              void this.emitEvent({
-                type: "thinking_complete",
-                ...(this.state.reasoningTokens !== undefined && {
-                  totalTokens: this.state.reasoningTokens,
-                }),
-              });
-              this.state.reasoningSequence = 0;
-              this.state.reasoningStreamCompleted = false;
-            }
+            this.closeReasoningStream();
             let textChunk: string;
             if (typeof part.text === "string") {
               textChunk = part.text;
@@ -369,7 +360,7 @@ export class StreamProcessor {
             // disabled reasoning won't emit these parts, and providers that
             // emit reasoning anyway (e.g. llama-server with --jinja) should
             // remain visible to the user rather than be silently dropped.
-            if (this.state.reasoningSequence === 0) {
+            if (!this.state.reasoningStreamActive) {
               const firstReasoningLatency = Date.now() - this.config.startTime;
               Effect.runFork(
                 this.logger.debug(
@@ -377,6 +368,7 @@ export class StreamProcessor {
                 ),
               );
               void this.emitEvent({ type: "thinking_start", provider: this.config.providerName });
+              this.state.reasoningStreamActive = true;
               this.recordFirstToken("reasoning");
             }
             break;
@@ -389,7 +381,7 @@ export class StreamProcessor {
               this.state.accumulatedReasoning += textDelta;
 
               // Emit thinking start if we haven't received reasoning-start event
-              if (this.state.reasoningSequence === 0) {
+              if (!this.state.reasoningStreamActive) {
                 const firstReasoningLatency = Date.now() - this.config.startTime;
                 Effect.runFork(
                   this.logger.debug(
@@ -397,6 +389,7 @@ export class StreamProcessor {
                   ),
                 );
                 void this.emitEvent({ type: "thinking_start", provider: this.config.providerName });
+                this.state.reasoningStreamActive = true;
                 this.recordFirstToken("reasoning");
               }
 
@@ -428,18 +421,7 @@ export class StreamProcessor {
             // Emit thinking complete whenever a reasoning stream was opened
             // (matches reasoning-start / reasoning-delta: not gated on
             // hasReasoningEnabled so provider-emitted reasoning always closes).
-            if (this.state.reasoningSequence > 0 && !this.state.reasoningStreamCompleted) {
-              this.state.reasoningStreamCompleted = true;
-              void this.emitEvent({
-                type: "thinking_complete",
-                ...(this.state.reasoningTokens !== undefined && {
-                  totalTokens: this.state.reasoningTokens,
-                }),
-              });
-
-              this.state.reasoningSequence = 0;
-              this.state.reasoningStreamCompleted = false;
-            }
+            this.closeReasoningStream();
             break;
           }
 
@@ -595,7 +577,7 @@ export class StreamProcessor {
   }
 
   private routeParsedChunk(chunk: ParseChunk): void {
-    if (chunk.thinkingStarted && this.state.reasoningSequence === 0) {
+    if (chunk.thinkingStarted && !this.state.reasoningStreamActive) {
       const firstReasoningLatency = Date.now() - this.config.startTime;
       Effect.runFork(
         this.logger.debug(
@@ -603,6 +585,7 @@ export class StreamProcessor {
         ),
       );
       void this.emitEvent({ type: "thinking_start", provider: this.config.providerName });
+      this.state.reasoningStreamActive = true;
       this.recordFirstToken("reasoning");
     }
     if (chunk.thinkingText.length > 0) {
@@ -613,29 +596,22 @@ export class StreamProcessor {
         sequence: this.state.reasoningSequence++,
       });
     }
-    // Mirrors the reasoning-end handler above: reset reasoningSequence to 0 so a
-    // second thinking block in the same response can re-enter the thinking_start
-    // gate. The reasoningStreamCompleted toggle is kept symmetric with that handler
-    // for consistency, even though emitEvent is synchronous and re-entrancy isn't
-    // possible here.
-    if (
-      chunk.thinkingEnded &&
-      this.state.reasoningSequence > 0 &&
-      !this.state.reasoningStreamCompleted
-    ) {
-      this.state.reasoningStreamCompleted = true;
-      void this.emitEvent({
-        type: "thinking_complete",
-        ...(this.state.reasoningTokens !== undefined && {
-          totalTokens: this.state.reasoningTokens,
-        }),
-      });
-      this.state.reasoningSequence = 0;
-      this.state.reasoningStreamCompleted = false;
-    }
+    if (chunk.thinkingEnded) this.closeReasoningStream();
     if (chunk.visibleText.length > 0) {
       this.emitVisibleText(chunk.visibleText);
     }
+  }
+
+  private closeReasoningStream(): void {
+    if (!this.state.reasoningStreamActive) return;
+    this.state.reasoningStreamActive = false;
+    void this.emitEvent({
+      type: "thinking_complete",
+      ...(this.state.reasoningTokens !== undefined && {
+        totalTokens: this.state.reasoningTokens,
+      }),
+    });
+    this.state.reasoningSequence = 0;
   }
 
   /**

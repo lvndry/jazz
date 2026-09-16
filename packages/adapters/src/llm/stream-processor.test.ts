@@ -330,6 +330,34 @@ describe("StreamProcessor", () => {
     expect(firstTextChunkIdx).toBeGreaterThan(thinkingCompleteIdx);
   });
 
+  it("closes reasoning when the stream finishes without reasoning-end", async () => {
+    const events: any[] = [];
+    const emit = (eff: Effect.Effect<Chunk.Chunk<any>, any>) => {
+      const chunk = Effect.runSync(eff);
+      events.push(...Chunk.toArray(chunk));
+    };
+    const processor = new StreamProcessor(
+      { providerName: "p1", modelName: "m1", hasReasoningEnabled: true, startTime: Date.now() },
+      emit,
+      mockLogger,
+    );
+    const mockResult = {
+      fullStream: (async function* () {
+        yield { type: "reasoning-start" };
+        yield { type: "reasoning-delta", text: "unfinished thought" };
+        yield { type: "finish", finishReason: "length" };
+      })(),
+      usage: Promise.resolve({}),
+    } as any;
+
+    await processor.process(mockResult);
+
+    const thinkingCompleteIdx = events.findIndex((event) => event.type === "thinking_complete");
+    const completeIdx = events.findIndex((event) => event.type === "complete");
+    expect(thinkingCompleteIdx).toBeGreaterThanOrEqual(0);
+    expect(completeIdx).toBeGreaterThan(thinkingCompleteIdx);
+  });
+
   it("captures structured reasoning parts from the SDK response messages", async () => {
     const emit = (eff: Effect.Effect<Chunk.Chunk<any>, any>) => {
       Effect.runSync(eff);

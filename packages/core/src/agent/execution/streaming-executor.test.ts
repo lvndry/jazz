@@ -165,6 +165,13 @@ describe("executeWithStreaming", () => {
       Effect.succeed({ content: "recursive", conversationId: "id" } as AgentResponse);
 
     let attempts = 0;
+    const artifact = {
+      kind: "image" as const,
+      path: "/tmp/generated.png",
+      mediaType: "image/png",
+      tool: "image-model",
+      source: "model" as const,
+    };
     const mockLLMService: LLMService = {
       createStreamingChatCompletion: () => {
         attempts += 1;
@@ -191,6 +198,16 @@ describe("executeWithStreaming", () => {
                     metrics: { firstTokenLatencyMs: 10 },
                   },
                 ]),
+          response:
+            attempts === 1
+              ? Effect.fail(new LLMRequestError({ provider: "openai", message: "stream stalled" }))
+              : Effect.succeed({
+                  id: "test",
+                  model: "gpt-4",
+                  content: "Hello world",
+                  toolCalls: [],
+                  artifacts: [artifact],
+                }),
           cancel: Effect.void,
         });
       },
@@ -235,6 +252,7 @@ describe("executeWithStreaming", () => {
 
     expect(result.content).toBe("Hello world");
     expect(result.conversationId).toBe("conv-123");
+    expect(result.artifacts).toEqual([artifact]);
     expect(attempts).toBe(2);
   });
 
@@ -273,6 +291,18 @@ describe("executeWithStreaming", () => {
                 },
               },
             ]),
+            response: Effect.succeed({
+              id: "test",
+              model: "gpt-4",
+              content: "",
+              toolCalls: [
+                {
+                  id: "call_1",
+                  type: "function" as const,
+                  function: { name: "test_tool", arguments: "{}" },
+                },
+              ],
+            }),
             cancel: Effect.void,
           });
         } else {
@@ -295,6 +325,12 @@ describe("executeWithStreaming", () => {
                 },
               },
             ]),
+            response: Effect.succeed({
+              id: "test",
+              model: "gpt-4",
+              content: "Tool executed",
+              toolCalls: [],
+            }),
             cancel: Effect.void,
           });
         }
@@ -512,6 +548,12 @@ describe("executeWithStreaming", () => {
               },
             },
           ]),
+          response: Effect.succeed({
+            id: "test",
+            model: "gpt-4",
+            content: "Hello world",
+            toolCalls: [],
+          }),
           cancel: Effect.void,
         }),
       createChatCompletion: () => Effect.fail(new Error("")),

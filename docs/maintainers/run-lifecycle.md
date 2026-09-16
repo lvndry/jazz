@@ -223,6 +223,10 @@ as a `CompletionStrategy`:
 Adding a third mode means implementing one interface, not forking the loop. That's the
 reason for the indirection.
 
+Both modes return the provider's canonical completed response. In streaming mode that response
+is read after the event stream closes, so metadata finalized after the last visible delta—usage,
+reasoning signatures, and model-generated artifacts—is not lost.
+
 ---
 
 ## Finalization

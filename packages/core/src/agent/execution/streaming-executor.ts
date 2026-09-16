@@ -233,17 +233,17 @@ export function executeWithStreaming(
             }
 
             const fromRef = yield* Ref.get(completionRef);
-            const completion = fromRef
-              ? fromRef
-              : yield* streamingResult.response.pipe(
-                  Effect.timeout(DEFERRED_RESPONSE_TIMEOUT),
-                  Effect.catchAll(() =>
-                    Effect.gen(function* () {
+            const completion = yield* streamingResult.response.pipe(
+              Effect.timeout(DEFERRED_RESPONSE_TIMEOUT),
+              Effect.catchAll(() =>
+                fromRef
+                  ? Effect.succeed(fromRef)
+                  : Effect.gen(function* () {
                       yield* streamingResult.cancel;
                       return yield* llmService.createChatCompletion(provider, llmOptions);
                     }),
-                  ),
-                );
+              ),
+            );
             return { completion, interrupted: false };
           }).pipe(
             Effect.tapError((error) =>
