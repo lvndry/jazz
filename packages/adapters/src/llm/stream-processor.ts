@@ -65,9 +65,13 @@ export function resolveStreamIdleTimeoutMs(
 
 /** Raised when a provider stream stops producing without closing. */
 export class StreamIdleTimeoutError extends Error {
-  constructor(readonly idleMs: number) {
+  constructor(
+    readonly idleMs: number,
+    readonly phase: "first-part" | "between-parts",
+  ) {
+    const missing = phase === "first-part" ? "no first part" : "no additional part";
     super(
-      `Provider stream produced nothing for ${Math.round(idleMs / 1000)}s and was abandoned. ` +
+      `Provider stream produced ${missing} for ${Math.round(idleMs / 1000)}s and was abandoned. ` +
         `The connection stalled without closing.`,
     );
     this.name = "StreamIdleTimeoutError";
@@ -85,11 +89,18 @@ export async function* withIdleTimeout<T>(
   idleMs: number,
 ): AsyncGenerator<T> {
   const iterator = source[Symbol.asyncIterator]();
+  let receivedPart = false;
   try {
     for (;;) {
       let timer: ReturnType<typeof setTimeout> | undefined;
       const idle = new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(() => reject(new StreamIdleTimeoutError(idleMs)), idleMs);
+        timer = setTimeout(
+          () =>
+            reject(
+              new StreamIdleTimeoutError(idleMs, receivedPart ? "between-parts" : "first-part"),
+            ),
+          idleMs,
+        );
       });
       let step: IteratorResult<T>;
       try {
@@ -98,6 +109,7 @@ export async function* withIdleTimeout<T>(
         if (timer !== undefined) clearTimeout(timer);
       }
       if (step.done === true) return;
+      receivedPart = true;
       yield step.value;
     }
   } finally {

@@ -568,6 +568,11 @@ describe("StreamProcessor", () => {
 });
 
 describe("withIdleTimeout", () => {
+  async function* neverStarts(): AsyncGenerator<number> {
+    await new Promise(() => {});
+    yield 0;
+  }
+
   async function* never(): AsyncGenerator<number> {
     yield 1;
     // Stalls without closing — the shape of a provider that stops sending.
@@ -604,13 +609,22 @@ describe("withIdleTimeout", () => {
     expect(seen).toEqual([1]);
   });
 
-  it("names the idle budget in the error, so a log says what happened", async () => {
+  it("identifies a stall between stream parts", async () => {
     const drain = async (): Promise<void> => {
       for await (const _value of withIdleTimeout(never(), 60)) {
         // drain
       }
     };
-    await expect(drain()).rejects.toThrow(/produced nothing for/);
+    await expect(drain()).rejects.toThrow(/produced no additional part for/);
+  });
+
+  it("identifies a stream that never produces its first part", async () => {
+    const drain = async (): Promise<void> => {
+      for await (const _value of withIdleTimeout(neverStarts(), 60)) {
+        // drain
+      }
+    };
+    await expect(drain()).rejects.toThrow(/produced no first part for/);
   });
 
   it("closes the underlying iterator when it gives up", async () => {

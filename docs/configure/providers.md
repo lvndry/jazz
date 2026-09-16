@@ -111,6 +111,10 @@ The Jazz provider ID is `gemini`; its SDK and environment variable retain Google
 ## Diagnose provider failures
 
 - Authentication errors: confirm the agent's provider ID matches the key you supplied and inspect `jazz config show` for the resolved non-secret configuration.
+- Stream idle errors say whether the provider produced no first part or stopped between parts. The
+  former points to queuing, model loading, or prompt prefill; the latter means generation had
+  already started. Local servers that legitimately need longer can set
+  `llm.streamIdleTimeoutMs` or `JAZZ_STREAM_IDLE_TIMEOUT_MS`; the default is 120000 ms.
 - Unknown model: rerun agent editing after the provider catalog is reachable; do not copy a model name from an old documentation page.
 - Local connection errors: start the server and verify its base URL from the Jazz host, not from your laptop when Jazz runs elsewhere.
 - Tool-call failures on llama.cpp: confirm the model template supports tools and the server was started with `--jinja`.

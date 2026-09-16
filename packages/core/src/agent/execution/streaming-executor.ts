@@ -143,33 +143,136 @@ export function executeWithStreaming(
             retryAttemptRef,
           );
 
-          const streamingResult = yield* Effect.retry(
-            withLongRunningLlmNotice(
-              agent.name,
-              showAgentStatus,
-              llmService.createStreamingChatCompletion(provider, llmOptions).pipe(
-                Effect.tapError((error) =>
-                  Effect.gen(function* () {
-                    recordLLMRetry(runMetrics, error);
-                    yield* emitLLMRetry(runMetrics, error);
-                    if (
-                      error instanceof LLMRequestError ||
-                      error instanceof LLMRateLimitError ||
-                      error instanceof LLMAuthenticationError
-                    ) {
-                      yield* logger.error("LLM request error", {
-                        provider,
-                        model: agent.config.llmModel,
-                        errorType: error._tag,
-                        message: error.message,
-                        agentId: agent.id,
-                        conversationId: actualConversationId,
-                      });
+          const streamingAttempt = Effect.gen(function* () {
+            yield* Ref.set(completionRef, undefined);
+            yield* Ref.set(textAccumulatorRef, "");
+
+            const streamingResult = yield* llmService.createStreamingChatCompletion(
+              provider,
+              llmOptions,
+            );
+            const streamFiber = yield* Effect.fork(
+              Stream.runForEach(streamingResult.stream, (event: StreamEvent) =>
+                Effect.gen(function* () {
+                  yield* renderer.handleEvent(event);
+                  if (event.type === "text_chunk") {
+                    yield* Ref.set(textAccumulatorRef, event.accumulated);
+                  }
+                  if (event.type === "complete") {
+                    yield* Ref.set(completionRef, event.response);
+                    if (event.metrics?.firstTokenLatencyMs) {
+                      recordFirstTokenLatency(runMetrics, event.metrics.firstTokenLatencyMs);
                     }
-                  }),
-                ),
+                  }
+                  if (event.type === "error") {
+                    const error = event.error as
+                      LLMAuthenticationError | LLMRateLimitError | LLMRequestError;
+                    yield* logger.error("Stream event error", {
+                      provider,
+                      model: agent.config.llmModel,
+                      errorType: error._tag,
+                      message: error.message,
+                      recoverable: event.recoverable,
+                      agentId: agent.id,
+                      conversationId: actualConversationId,
+                    });
+                    if (!event.recoverable) {
+                      yield* streamingResult.cancel;
+                    }
+                  }
+                }),
               ),
+            );
+
+            const streamExit = yield* Fiber.await(streamFiber).pipe(
+              Effect.raceFirst(Deferred.await(interruptDeferred)),
+            );
+            const isInterrupted = yield* Deferred.isDone(interruptDeferred);
+
+            if (isInterrupted) {
+              yield* streamingResult.cancel.pipe(
+                Effect.catchAll((e) =>
+                  logger.debug(`Stream cancel error (safe to ignore): ${String(e)}`),
+                ),
+              );
+              yield* Fiber.interrupt(streamFiber).pipe(
+                Effect.catchAll((e) =>
+                  logger.debug(`Fiber interrupt error (safe to ignore): ${String(e)}`),
+                ),
+              );
+
+              const accumulatedText = yield* Ref.get(textAccumulatorRef);
+              yield* renderer
+                .flush()
+                .pipe(
+                  Effect.catchAll((e) =>
+                    logger.debug(`Renderer flush error (safe to ignore): ${String(e)}`),
+                  ),
+                );
+
+              const fromRef = yield* Ref.get(completionRef);
+              const partialCompletion: ChatCompletionResponse = fromRef ?? {
+                id: "interrupted",
+                model,
+                content: accumulatedText,
+              };
+              return { completion: partialCompletion, interrupted: true };
+            }
+
+            const exit = streamExit as Exit.Exit<void, LLMError>;
+            if (Exit.isFailure(exit)) {
+              yield* streamingResult.cancel;
+              const errorOption = Cause.failureOption(exit.cause);
+              if (Option.isSome(errorOption)) {
+                return yield* Effect.fail(errorOption.value);
+              }
+              const defectOption = Cause.dieOption(exit.cause);
+              if (Option.isSome(defectOption)) {
+                return yield* Effect.die(defectOption.value);
+              }
+            }
+
+            const fromRef = yield* Ref.get(completionRef);
+            const completion = fromRef
+              ? fromRef
+              : yield* streamingResult.response.pipe(
+                  Effect.timeout(DEFERRED_RESPONSE_TIMEOUT),
+                  Effect.catchAll(() =>
+                    Effect.gen(function* () {
+                      yield* streamingResult.cancel;
+                      return yield* llmService.createChatCompletion(provider, llmOptions);
+                    }),
+                  ),
+                );
+            return { completion, interrupted: false };
+          }).pipe(
+            Effect.tapError((error) =>
+              Effect.gen(function* () {
+                recordLLMRetry(runMetrics, error);
+                yield* emitLLMRetry(runMetrics, error);
+                if (isRetryableLLMError(error)) {
+                  yield* renderer.reset();
+                }
+                if (
+                  error instanceof LLMRequestError ||
+                  error instanceof LLMRateLimitError ||
+                  error instanceof LLMAuthenticationError
+                ) {
+                  yield* logger.error("LLM request error", {
+                    provider,
+                    model: agent.config.llmModel,
+                    errorType: error._tag,
+                    message: error.message,
+                    agentId: agent.id,
+                    conversationId: actualConversationId,
+                  });
+                }
+              }),
             ),
+          );
+
+          return yield* Effect.retry(
+            withLongRunningLlmNotice(agent.name, showAgentStatus, streamingAttempt),
             streamingRetrySchedule,
           ).pipe(
             Effect.timeout(Duration.seconds(LLM_TIMEOUT_SECONDS)),
@@ -200,7 +303,7 @@ export function executeWithStreaming(
                     showAgentStatus,
                     fallbackAttemptRef,
                   );
-                  const fallback = yield* Effect.retry(
+                  const completion = yield* Effect.retry(
                     withLongRunningLlmNotice(
                       agent.name,
                       showAgentStatus,
@@ -214,151 +317,11 @@ export function executeWithStreaming(
                       ),
                     ),
                     fallbackRetrySchedule,
-                  ).pipe(
-                    Effect.timeout(Duration.seconds(LLM_TIMEOUT_SECONDS)),
-                    Effect.tapError((innerError) =>
-                      Cause.isTimeoutException(innerError)
-                        ? showAgentStatus(
-                            `${agent.name} exceeded the maximum wait time for this step (including retries). Check connectivity or try again.`,
-                            "warning",
-                          )
-                        : Effect.void,
-                    ),
-                  );
-                  return {
-                    stream: Stream.empty,
-                    response: Effect.succeed(fallback),
-                    cancel: Effect.void,
-                  };
+                  ).pipe(Effect.timeout(Duration.seconds(LLM_TIMEOUT_SECONDS)));
+                  return { completion, interrupted: false };
                 }),
             ),
           );
-
-          // Process stream events
-          const streamFiber = yield* Effect.fork(
-            Stream.runForEach(streamingResult.stream, (event: StreamEvent) =>
-              Effect.gen(function* () {
-                yield* renderer.handleEvent(event);
-                if (event.type === "text_chunk") {
-                  yield* Ref.set(textAccumulatorRef, event.accumulated);
-                }
-                if (event.type === "complete") {
-                  yield* Ref.set(completionRef, event.response);
-                  if (event.metrics?.firstTokenLatencyMs) {
-                    recordFirstTokenLatency(runMetrics, event.metrics.firstTokenLatencyMs);
-                  }
-                }
-                if (event.type === "error") {
-                  const error = event.error as
-                    LLMAuthenticationError | LLMRateLimitError | LLMRequestError;
-                  yield* logger.error("Stream event error", {
-                    provider,
-                    model: agent.config.llmModel,
-                    errorType: error._tag,
-                    message: error.message,
-                    recoverable: event.recoverable,
-                    agentId: agent.id,
-                    conversationId: actualConversationId,
-                  });
-                  if (!event.recoverable) {
-                    yield* streamingResult.cancel;
-                  }
-                }
-              }),
-            ),
-          );
-
-          // Wait for stream completion or interruption
-          const streamExit = yield* Fiber.await(streamFiber).pipe(
-            Effect.raceFirst(Deferred.await(interruptDeferred)),
-          );
-
-          const isInterrupted = yield* Deferred.isDone(interruptDeferred);
-
-          if (isInterrupted) {
-            yield* streamingResult.cancel.pipe(
-              Effect.catchAll((e) =>
-                logger.debug(`Stream cancel error (safe to ignore): ${String(e)}`),
-              ),
-            );
-            yield* Fiber.interrupt(streamFiber).pipe(
-              Effect.catchAll((e) =>
-                logger.debug(`Fiber interrupt error (safe to ignore): ${String(e)}`),
-              ),
-            );
-
-            // Read accumulated text before flush clears the renderer state
-            const accumulatedText = yield* Ref.get(textAccumulatorRef);
-
-            yield* renderer
-              .flush()
-              .pipe(
-                Effect.catchAll((e) =>
-                  logger.debug(`Renderer flush error (safe to ignore): ${String(e)}`),
-                ),
-              );
-
-            const fromRef = yield* Ref.get(completionRef);
-            const partialCompletion: ChatCompletionResponse = fromRef ?? {
-              id: "interrupted",
-              model,
-              content: accumulatedText,
-            };
-            return { completion: partialCompletion, interrupted: true };
-          }
-
-          let completion: ChatCompletionResponse;
-          const exit = streamExit as Exit.Exit<void, LLMError>;
-
-          if (Exit.isFailure(exit)) {
-            yield* streamingResult.cancel;
-            const errorOption = Cause.failureOption(exit.cause);
-            if (Option.isSome(errorOption)) {
-              yield* logger.error("Stream processing failed", {
-                error:
-                  errorOption.value instanceof Error
-                    ? errorOption.value.message
-                    : String(errorOption.value),
-              });
-              return yield* Effect.fail(errorOption.value);
-            } else {
-              const defectOption = Cause.dieOption(exit.cause);
-              if (Option.isSome(defectOption)) {
-                return yield* Effect.die(defectOption.value);
-              }
-              const fromRef = yield* Ref.get(completionRef);
-              if (fromRef) {
-                completion = fromRef;
-              } else {
-                completion = yield* streamingResult.response.pipe(
-                  Effect.timeout(DEFERRED_RESPONSE_TIMEOUT),
-                  Effect.catchAll(() =>
-                    Effect.gen(function* () {
-                      yield* streamingResult.cancel;
-                      return yield* llmService.createChatCompletion(provider, llmOptions);
-                    }),
-                  ),
-                );
-              }
-            }
-          } else {
-            const fromRef = yield* Ref.get(completionRef);
-            if (fromRef) {
-              completion = fromRef;
-            } else {
-              completion = yield* streamingResult.response.pipe(
-                Effect.timeout(DEFERRED_RESPONSE_TIMEOUT),
-                Effect.catchAll(() =>
-                  Effect.gen(function* () {
-                    yield* streamingResult.cancel;
-                    return yield* llmService.createChatCompletion(provider, llmOptions);
-                  }),
-                ),
-              );
-            }
-          }
-
-          return { completion, interrupted: false };
         });
       },
 

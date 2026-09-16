@@ -21,6 +21,7 @@ import { ToolRegistryTag } from "../../interfaces/tool-registry";
 import { WakeTriggerServiceTag } from "../../interfaces/wake-trigger-service";
 import { WorkspaceServiceTag } from "../../interfaces/workspace-service";
 import { SkillServiceTag } from "../../skills/skill-service";
+import { LLMRequestError } from "../../types/errors";
 import type { RecursiveRunner } from "../context/summarizer";
 import type { AgentRunContext, AgentRunnerOptions, AgentResponse } from "../types";
 
@@ -95,7 +96,7 @@ const mockSkillService = {
 } as any;
 
 describe("executeWithStreaming", () => {
-  it("should execute a simple run with mocked services", async () => {
+  it("retries a retryable stream failure and completes", async () => {
     // Setup Context
     const options: AgentRunnerOptions = {
       conversationId: "test-session",
@@ -150,6 +151,7 @@ describe("executeWithStreaming", () => {
       maxCostUSD: undefined,
       maxTokens: undefined,
       maxDurationMs: undefined,
+      maxRetries: 1,
     };
 
     const displayConfig = {
@@ -162,30 +164,36 @@ describe("executeWithStreaming", () => {
     const runRecursive: RecursiveRunner = () =>
       Effect.succeed({ content: "recursive", conversationId: "id" } as AgentResponse);
 
+    let attempts = 0;
     const mockLLMService: LLMService = {
-      createStreamingChatCompletion: () =>
-        Effect.succeed({
-          stream: Stream.fromIterable([
-            {
-              type: "text_chunk",
-              delta: "Hello world",
-              accumulated: "Hello world",
-              sequence: 0,
-            },
-            {
-              type: "complete",
-              response: {
-                id: "test",
-                model: "gpt-4",
-                content: "Hello world",
-                toolCalls: [],
-                raw: {},
-              },
-              metrics: { firstTokenLatencyMs: 10 },
-            },
-          ]),
+      createStreamingChatCompletion: () => {
+        attempts += 1;
+        return Effect.succeed({
+          stream:
+            attempts === 1
+              ? Stream.fail(new LLMRequestError({ provider: "openai", message: "stream stalled" }))
+              : Stream.fromIterable([
+                  {
+                    type: "text_chunk",
+                    delta: "Hello world",
+                    accumulated: "Hello world",
+                    sequence: 0,
+                  },
+                  {
+                    type: "complete",
+                    response: {
+                      id: "test",
+                      model: "gpt-4",
+                      content: "Hello world",
+                      toolCalls: [],
+                      raw: {},
+                    },
+                    metrics: { firstTokenLatencyMs: 10 },
+                  },
+                ]),
           cancel: Effect.void,
-        }),
+        });
+      },
       createChatCompletion: () => Effect.fail(new Error("")),
       listProviders: () => Effect.succeed([]),
       getProvider: () => Effect.fail(new Error("")),
@@ -227,6 +235,7 @@ describe("executeWithStreaming", () => {
 
     expect(result.content).toBe("Hello world");
     expect(result.conversationId).toBe("conv-123");
+    expect(attempts).toBe(2);
   });
 
   it("should execute with tool calls", async () => {
