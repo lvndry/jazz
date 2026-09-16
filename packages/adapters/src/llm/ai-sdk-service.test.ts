@@ -16,7 +16,8 @@ import {
   type LLMError,
 } from "@jazz/core/types/errors";
 import type { AppConfig, LLMConfig, StreamEvent } from "@jazz/core/types/index";
-import { APICallError } from "ai";
+import { APICallError, generateText } from "ai";
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { afterAll, beforeEach, describe, expect, it, mock } from "bun:test";
 import { Cause, Effect, Exit, Layer, Stream } from "effect";
 import { z } from "zod";
@@ -1073,6 +1074,32 @@ describe("buildProviderOptions - llamacpp reasoning", () => {
 
   it("stays backward-compatible (no options) when no reasoning effort is set", () => {
     expect(buildProviderOptions("llamacpp", llamacppOptions(undefined))).toBeUndefined();
+  });
+
+  it("forwards the thinking toggle to an OpenAI-compatible request", async () => {
+    let requestBody: Record<string, unknown> | undefined;
+    const provider = createOpenAICompatible({
+      name: "llamacpp",
+      baseURL: "http://llm.test/v1",
+      fetch: async (_input, init) => {
+        requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+        return new Response(
+          JSON.stringify({
+            id: "test-response",
+            choices: [{ message: { role: "assistant", content: "ok" }, finish_reason: "stop" }],
+          }),
+          { headers: { "content-type": "application/json" } },
+        );
+      },
+    });
+
+    await generateText({
+      model: provider("qwen3-8b"),
+      prompt: "hi",
+      providerOptions: buildProviderOptions("llamacpp", llamacppOptions("low")),
+    });
+
+    expect(requestBody?.["chat_template_kwargs"]).toEqual({ enable_thinking: true });
   });
 });
 
