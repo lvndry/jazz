@@ -1081,7 +1081,7 @@ describe("buildProviderOptions - llamacpp reasoning", () => {
     const provider = createOpenAICompatible({
       name: "llamacpp",
       baseURL: "http://llm.test/v1",
-      fetch: async (_input, init) => {
+      fetch: (async (_input, init) => {
         requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
         return new Response(
           JSON.stringify({
@@ -1090,13 +1090,15 @@ describe("buildProviderOptions - llamacpp reasoning", () => {
           }),
           { headers: { "content-type": "application/json" } },
         );
-      },
+      }) as typeof fetch,
     });
 
+    const providerOptions = buildProviderOptions("llamacpp", llamacppOptions("low"));
+    if (!providerOptions) throw new Error("expected llamacpp provider options");
     await generateText({
       model: provider("qwen3-8b"),
       prompt: "hi",
-      providerOptions: buildProviderOptions("llamacpp", llamacppOptions("low")),
+      providerOptions,
     });
 
     expect(requestBody?.["chat_template_kwargs"]).toEqual({ enable_thinking: true });
