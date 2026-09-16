@@ -1131,26 +1131,20 @@ export function buildProviderOptions(
       break;
     }
     case "llamacpp": {
-      // reasoning_budget (0 = off, N = token budget) rides through the
-      // openai-compatible provider's passthrough of unrecognized body keys.
+      // OpenAI-compatible servers such as vLLM accept the Qwen chat-template
+      // toggle, but vLLM 0.28 does not implement a reasoning-token budget.
+      // Treat this route as binary rather than pretending low/medium/high differ.
       const reasoningEffort = options.reasoning_effort;
       if (reasoningEffort === "disable") {
         return {
           llamacpp: {
-            reasoning_budget: 0,
             chat_template_kwargs: { enable_thinking: false },
           },
         };
       }
       if (reasoningEffort) {
-        const budgetMap: Record<string, number> = {
-          low: 1024,
-          medium: 4096,
-          high: 16384,
-        };
         return {
           llamacpp: {
-            reasoning_budget: budgetMap[reasoningEffort] ?? 4096,
             chat_template_kwargs: { enable_thinking: true },
           },
         };

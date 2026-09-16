@@ -1052,22 +1052,22 @@ describe("buildProviderOptions - llamacpp reasoning", () => {
     };
   }
 
-  it("stops thinking with reasoning_budget:0 when disabled", () => {
+  it("disables thinking without sending an unsupported reasoning budget", () => {
     const result = buildProviderOptions("llamacpp", llamacppOptions("disable"));
     expect(result).toEqual({
-      llamacpp: { reasoning_budget: 0, chat_template_kwargs: { enable_thinking: false } },
+      llamacpp: { chat_template_kwargs: { enable_thinking: false } },
     });
   });
 
-  it("maps low/medium/high to an increasing reasoning_budget", () => {
+  it("maps every enabled effort to the same thinking toggle", () => {
     expect(buildProviderOptions("llamacpp", llamacppOptions("low"))).toEqual({
-      llamacpp: { reasoning_budget: 1024, chat_template_kwargs: { enable_thinking: true } },
+      llamacpp: { chat_template_kwargs: { enable_thinking: true } },
     });
     expect(buildProviderOptions("llamacpp", llamacppOptions("medium"))).toEqual({
-      llamacpp: { reasoning_budget: 4096, chat_template_kwargs: { enable_thinking: true } },
+      llamacpp: { chat_template_kwargs: { enable_thinking: true } },
     });
     expect(buildProviderOptions("llamacpp", llamacppOptions("high"))).toEqual({
-      llamacpp: { reasoning_budget: 16384, chat_template_kwargs: { enable_thinking: true } },
+      llamacpp: { chat_template_kwargs: { enable_thinking: true } },
     });
   });
 
