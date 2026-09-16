@@ -1131,9 +1131,7 @@ export function buildProviderOptions(
       break;
     }
     case "llamacpp": {
-      // OpenAI-compatible servers such as vLLM accept the Qwen chat-template
-      // toggle, but vLLM 0.28 does not implement a reasoning-token budget.
-      // Treat this route as binary rather than pretending low/medium/high differ.
+      // vLLM supports a thinking toggle, not a reasoning-token budget.
       const reasoningEffort = options.reasoning_effort;
       if (reasoningEffort === "disable") {
         return {
