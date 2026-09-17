@@ -1,6 +1,12 @@
 import { createHash } from "node:crypto";
 import type { TelemetryEvent } from "@jazz/core/interfaces/telemetry";
-import { eventToAttributes, stringAttribute, type OtlpKeyValue } from "./otlp-mapping";
+import {
+  buildResourceAttributes,
+  eventToAttributes,
+  type OtlpKeyValue,
+  type ResourceOptions,
+  stringAttribute,
+} from "./otlp-mapping";
 
 /** OTLP span kind. Everything Jazz emits is INTERNAL work inside one process. */
 const SPAN_KIND_INTERNAL = 1;
@@ -175,9 +181,7 @@ export function toSpan(event: TelemetryEvent, captureContent: boolean): OtlpSpan
 
 export function buildTracesPayload(
   events: readonly TelemetryEvent[],
-  options: {
-    readonly serviceName: string;
-    readonly serviceVersion: string;
+  options: ResourceOptions & {
     readonly captureContent: boolean;
   },
 ): OtlpTracesPayload {
@@ -185,12 +189,7 @@ export function buildTracesPayload(
     resourceSpans: [
       {
         resource: {
-          attributes: [
-            stringAttribute("service.name", options.serviceName),
-            stringAttribute("service.version", options.serviceVersion),
-            stringAttribute("telemetry.sdk.name", "jazz"),
-            stringAttribute("telemetry.sdk.language", "nodejs"),
-          ],
+          attributes: buildResourceAttributes(options),
         },
         scopeSpans: [
           {

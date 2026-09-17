@@ -19,6 +19,7 @@ function makeConfig(overrides: Partial<ResolvedOtlpConfig> = {}): ResolvedOtlpCo
     logsEndpoint: "http://collector.test/v1/logs",
     headers: {},
     serviceName: "jazz",
+    resourceAttributes: {},
     captureContent: false,
     timeoutMs: 1000,
     ...overrides,

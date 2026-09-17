@@ -56,6 +56,7 @@ export class OtlpTelemetrySink implements TelemetrySink {
     const payloadOptions = {
       serviceName: this.config.serviceName,
       serviceVersion: this.serviceVersion,
+      resourceAttributes: this.config.resourceAttributes,
       captureContent: this.config.captureContent,
     };
 

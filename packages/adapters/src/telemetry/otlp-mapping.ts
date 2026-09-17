@@ -221,11 +221,42 @@ export function toLogRecord(event: TelemetryEvent, captureContent: boolean): Otl
   };
 }
 
+/** Attributes describing the process, shared by the logs and traces payloads. */
+export interface ResourceOptions {
+  readonly serviceName: string;
+  readonly serviceVersion: string;
+  /** Operator-supplied extras, e.g. `deployment.environment`. */
+  readonly resourceAttributes?: Readonly<Record<string, string>>;
+}
+
+/**
+ * The OTLP resource attributes for a Jazz process: the identifiers Jazz sets
+ * itself, followed by any operator-supplied extras. Jazz's own keys win, so a
+ * stray `service.name` in `resourceAttributes` cannot shadow the resolved one.
+ */
+export function buildResourceAttributes(options: ResourceOptions): OtlpKeyValue[] {
+  const reserved = new Set([
+    "service.name",
+    "service.version",
+    "telemetry.sdk.name",
+    "telemetry.sdk.language",
+  ]);
+  const attributes = [
+    stringAttribute("service.name", options.serviceName),
+    stringAttribute("service.version", options.serviceVersion),
+    stringAttribute("telemetry.sdk.name", "jazz"),
+    stringAttribute("telemetry.sdk.language", "nodejs"),
+  ];
+  for (const [key, value] of Object.entries(options.resourceAttributes ?? {})) {
+    if (reserved.has(key)) continue;
+    attributes.push(stringAttribute(key, value));
+  }
+  return attributes;
+}
+
 export function buildLogsPayload(
   events: readonly TelemetryEvent[],
-  options: {
-    readonly serviceName: string;
-    readonly serviceVersion: string;
+  options: ResourceOptions & {
     readonly captureContent: boolean;
   },
 ): OtlpLogsPayload {
@@ -233,12 +264,7 @@ export function buildLogsPayload(
     resourceLogs: [
       {
         resource: {
-          attributes: [
-            stringAttribute("service.name", options.serviceName),
-            stringAttribute("service.version", options.serviceVersion),
-            stringAttribute("telemetry.sdk.name", "jazz"),
-            stringAttribute("telemetry.sdk.language", "nodejs"),
-          ],
+          attributes: buildResourceAttributes(options),
         },
         scopeLogs: [
           {

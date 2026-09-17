@@ -152,6 +152,12 @@ export interface OtlpTelemetryConfig {
   /** `service.name` on exported records. Defaults to "jazz". Env: OTEL_SERVICE_NAME. */
   readonly serviceName?: string;
   /**
+   * Resource attributes attached to every exported record beyond `service.name`,
+   * such as `deployment.environment` so a shared collector can filter and route
+   * this process's telemetry. Env: OTEL_RESOURCE_ATTRIBUTES.
+   */
+  readonly resourceAttributes?: Readonly<Record<string, string>>;
+  /**
    * Include prompt, completion, and tool argument text in exported events.
    * Defaults to false: enabling it sends user content to the configured
    * endpoint.

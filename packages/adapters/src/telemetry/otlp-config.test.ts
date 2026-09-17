@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import {
   joinOtlpEndpoint,
   parseOtlpHeaders,
+  parseResourceAttributes,
   redactHeaders,
   resolveOtlpConfig,
 } from "./otlp-config";
@@ -135,6 +136,50 @@ describe("resolveOtlpConfig", () => {
     });
 
     expect(resolved?.headers).toEqual({ authorization: "Bearer token" });
+  });
+
+  it("reads resource attributes from the environment", () => {
+    const resolved = resolveOtlpConfig(undefined, {
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://collector:4318",
+      OTEL_RESOURCE_ATTRIBUTES: "deployment.environment=production,service.namespace=ksyl",
+    });
+
+    expect(resolved?.resourceAttributes).toEqual({
+      "deployment.environment": "production",
+      "service.namespace": "ksyl",
+    });
+  });
+
+  it("takes service.name from the resource attributes when nothing else sets it", () => {
+    const resolved = resolveOtlpConfig(undefined, {
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://collector:4318",
+      OTEL_RESOURCE_ATTRIBUTES: "service.name=ksyl-reviewer,deployment.environment=production",
+    });
+
+    expect(resolved?.serviceName).toBe("ksyl-reviewer");
+  });
+
+  it("lets OTEL_SERVICE_NAME win over service.name in the resource attributes", () => {
+    const resolved = resolveOtlpConfig(undefined, {
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://collector:4318",
+      OTEL_SERVICE_NAME: "explicit",
+      OTEL_RESOURCE_ATTRIBUTES: "service.name=from-attrs",
+    });
+
+    expect(resolved?.serviceName).toBe("explicit");
+  });
+});
+
+describe("parseResourceAttributes", () => {
+  it("parses comma-separated key=value pairs", () => {
+    expect(parseResourceAttributes("deployment.environment=prod,service.namespace=ksyl")).toEqual({
+      "deployment.environment": "prod",
+      "service.namespace": "ksyl",
+    });
+  });
+
+  it("skips malformed pairs instead of throwing", () => {
+    expect(parseResourceAttributes("novalue,=orphan,good=1")).toEqual({ good: "1" });
   });
 });
 

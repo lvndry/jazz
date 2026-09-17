@@ -14,6 +14,11 @@ export interface ResolvedOtlpConfig {
   readonly logsEndpoint: string;
   readonly headers: Readonly<Record<string, string>>;
   readonly serviceName: string;
+  /**
+   * Resource attributes beyond `service.name`, e.g. `deployment.environment`.
+   * Attached to every exported span and log record.
+   */
+  readonly resourceAttributes: Readonly<Record<string, string>>;
   readonly captureContent: boolean;
   readonly timeoutMs: number;
 }
@@ -23,13 +28,12 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_SIGNALS: readonly OtlpSignal[] = ["traces"];
 
 /**
- * Decode an `OTEL_EXPORTER_OTLP_HEADERS` value.
- *
- * The spec formats it as W3C Baggage: comma-separated `key=value` pairs with
- * percent-encoded values.
+ * Decode a W3C Baggage value: comma-separated `key=value` pairs with
+ * percent-encoded values. Both `OTEL_EXPORTER_OTLP_HEADERS` and
+ * `OTEL_RESOURCE_ATTRIBUTES` use this format.
  */
-export function parseOtlpHeaders(raw: string): Record<string, string> {
-  const headers: Record<string, string> = {};
+function parseBaggagePairs(raw: string): Record<string, string> {
+  const pairs: Record<string, string> = {};
   for (const pair of raw.split(",")) {
     const separatorIndex = pair.indexOf("=");
     if (separatorIndex <= 0) continue;
@@ -37,12 +41,27 @@ export function parseOtlpHeaders(raw: string): Record<string, string> {
     const value = pair.slice(separatorIndex + 1).trim();
     if (key.length === 0) continue;
     try {
-      headers[key] = decodeURIComponent(value);
+      pairs[key] = decodeURIComponent(value);
     } catch {
-      headers[key] = value;
+      pairs[key] = value;
     }
   }
-  return headers;
+  return pairs;
+}
+
+/** Decode an `OTEL_EXPORTER_OTLP_HEADERS` value. */
+export function parseOtlpHeaders(raw: string): Record<string, string> {
+  return parseBaggagePairs(raw);
+}
+
+/**
+ * Decode an `OTEL_RESOURCE_ATTRIBUTES` value into resource attributes attached
+ * to every exported record — the standard way operators tag a process with
+ * `deployment.environment`, `service.namespace`, `service.instance.id` and the
+ * like so a shared collector can filter and route it.
+ */
+export function parseResourceAttributes(raw: string): Record<string, string> {
+  return parseBaggagePairs(raw);
 }
 
 /** Join an OTLP base endpoint with a signal path, tolerating a trailing slash. */
@@ -90,13 +109,27 @@ export function resolveOtlpConfig(
   const envHeaders = env["OTEL_EXPORTER_OTLP_HEADERS"];
   const headers = config?.headers ?? (envHeaders ? parseOtlpHeaders(envHeaders) : {});
 
+  const envResourceAttributes = env["OTEL_RESOURCE_ATTRIBUTES"];
+  const resourceAttributes =
+    config?.resourceAttributes ??
+    (envResourceAttributes ? parseResourceAttributes(envResourceAttributes) : {});
+
+  // Per the OTEL spec, an explicit service name wins over `service.name` carried
+  // in the resource attributes, which in turn beats the default.
+  const serviceName =
+    config?.serviceName ??
+    env["OTEL_SERVICE_NAME"] ??
+    resourceAttributes["service.name"] ??
+    DEFAULT_SERVICE_NAME;
+
   return {
     enabled,
     signals,
     tracesEndpoint: tracesEndpoint ?? "",
     logsEndpoint: logsEndpoint ?? "",
     headers,
-    serviceName: config?.serviceName ?? env["OTEL_SERVICE_NAME"] ?? DEFAULT_SERVICE_NAME,
+    serviceName,
+    resourceAttributes,
     captureContent: config?.captureContent ?? false,
     timeoutMs: config?.timeoutMs ?? DEFAULT_TIMEOUT_MS,
   };

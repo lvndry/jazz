@@ -210,4 +210,32 @@ describe("buildLogsPayload", () => {
 
     expect(() => JSON.stringify(payload)).not.toThrow();
   });
+
+  it("attaches operator resource attributes such as deployment.environment", () => {
+    const payload = buildLogsPayload([makeEvent("llm_usage", {})], {
+      serviceName: "ksyl-reviewer",
+      serviceVersion: "1.2.3",
+      resourceAttributes: { "deployment.environment": "production", "service.namespace": "ksyl" },
+      captureContent: false,
+    });
+
+    const resourceAttributes = attributeMap(payload.resourceLogs[0]!.resource.attributes);
+    expect(resourceAttributes["deployment.environment"]).toBe("production");
+    expect(resourceAttributes["service.namespace"]).toBe("ksyl");
+  });
+
+  it("never lets a resource attribute shadow a reserved key", () => {
+    const payload = buildLogsPayload([makeEvent("llm_usage", {})], {
+      serviceName: "resolved",
+      serviceVersion: "1.2.3",
+      resourceAttributes: { "service.name": "sneaky" },
+      captureContent: false,
+    });
+
+    const serviceNames = payload.resourceLogs[0]!.resource.attributes.filter(
+      (attribute) => attribute.key === "service.name",
+    );
+    expect(serviceNames).toHaveLength(1);
+    expect(serviceNames[0]!.value).toEqual({ stringValue: "resolved" });
+  });
 });
