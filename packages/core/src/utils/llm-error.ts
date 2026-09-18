@@ -303,7 +303,7 @@ export function localServerUnreachableMessage(providerName: ProviderName): strin
   if (!isLocalServerProvider(providerName)) {
     return undefined;
   }
-  const local = LOCAL_SERVER_PROVIDERS[providerName as keyof typeof LOCAL_SERVER_PROVIDERS];
+  const local = LOCAL_SERVER_PROVIDERS[providerName];
   const envUrl = process.env[local.envVar];
   const targetUrl = envUrl || local.defaultUrl;
   const isCustomUrl = envUrl && envUrl !== local.defaultUrl;
