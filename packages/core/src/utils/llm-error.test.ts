@@ -84,6 +84,20 @@ describe("localServerUnreachableMessage", () => {
   it("returns undefined for a cloud provider", () => {
     expect(localServerUnreachableMessage("openai")).toBeUndefined();
   });
+
+  it("shows the actual URL when LLAMACPP_BASE_URL is set", () => {
+    const original = process.env.LLAMACPP_BASE_URL;
+    try {
+      process.env.LLAMACPP_BASE_URL = "http://172.17.0.1:8000/v1";
+      const message = localServerUnreachableMessage("llamacpp");
+      expect(message).toContain("172.17.0.1:8000");
+      expect(message).not.toContain("localhost:8080");
+      expect(message).not.toContain("llama-server -m");
+    } finally {
+      if (original === undefined) delete process.env.LLAMACPP_BASE_URL;
+      else process.env.LLAMACPP_BASE_URL = original;
+    }
+  });
 });
 
 describe("convertToLLMError - local server diagnostics", () => {

@@ -304,7 +304,13 @@ export function localServerUnreachableMessage(providerName: ProviderName): strin
     return undefined;
   }
   const local = LOCAL_SERVER_PROVIDERS[providerName as keyof typeof LOCAL_SERVER_PROVIDERS];
-  return `Cannot reach the ${local.name} server (expected at ${local.defaultUrl}). Make sure it is running — start it with:\n  ${local.startHint}\nIf it listens elsewhere, set the base URL via 'jazz config set llm.${providerName}.base_url <url>'.`;
+  const envUrl = process.env[local.envVar];
+  const targetUrl = envUrl || local.defaultUrl;
+  const isCustomUrl = envUrl && envUrl !== local.defaultUrl;
+  if (isCustomUrl) {
+    return `Cannot reach the ${local.name} server at ${targetUrl}. Make sure it is running and reachable from this host.`;
+  }
+  return `Cannot reach the ${local.name} server (expected at ${targetUrl}). Make sure it is running — start it with:\n  ${local.startHint}\nIf it listens elsewhere, set the base URL via 'jazz config set llm.${providerName}.base_url <url>'.`;
 }
 
 /**
