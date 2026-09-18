@@ -927,6 +927,11 @@ function runIteration(
       }
     }
 
+    // Only the top-level, persistence-enabled run may write memory at compaction.
+    // Sub-agent runs (`internal`) have no human user for the user-stated bar, and
+    // `disablePersistence` (--ephemeral, A2A peers) means write nothing — a gate the
+    // recursive runner does not inherit on its own, so it is enforced here.
+    const allowMemoryExtraction = !options.internal && options.disablePersistence !== true;
     const messagesBeforeCompact = state.currentMessages;
     state.currentMessages = yield* Summarizer.compactIfNeeded(
       state.currentMessages,
@@ -934,6 +939,7 @@ function runIteration(
       actualConversationId,
       runRecursive,
       contextWindowMaxTokens,
+      allowMemoryExtraction,
     );
     const justCompacted = state.currentMessages !== messagesBeforeCompact;
 

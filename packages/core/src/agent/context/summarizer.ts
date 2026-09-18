@@ -22,6 +22,7 @@ import { logContextRung } from "./context-telemetry";
 import { resolveContextThresholds } from "./context-thresholds";
 import { DEFAULT_CONTEXT_WINDOW_MANAGER } from "./context-window-manager";
 import { resolveEffectiveContextWindow } from "./effective-context-window";
+import { extractMemories } from "./memory-extractor";
 import { DEFAULT_TOKEN_COUNTER, type ModelHint } from "./token-counter";
 import { appendJournalEntry, pruneJournal } from "./work-journal";
 import { formatWorkState, readWorkState } from "./work-state";
@@ -418,6 +419,7 @@ export const Summarizer = {
     conversationId: string,
     runRecursive: RecursiveRunner,
     modelContextWindow?: number,
+    allowMemoryExtraction = false,
   ): Effect.Effect<
     ConversationMessages,
     Error,
@@ -488,6 +490,14 @@ export const Summarizer = {
         messagesToSummarize: messagesToSummarize.length,
         recentKept: sanitizedRecentMessages.length,
       });
+
+      // Before these messages are condensed into a summary, give durable,
+      // user-stated facts in them a chance to reach long-term memory — the
+      // summary keeps this run resumable, memory carries facts across runs.
+      // Gated by the caller: only runs the parent permits to persist reach here.
+      if (allowMemoryExtraction) {
+        yield* extractMemories(messagesToSummarize, agent, conversationId, runRecursive);
+      }
 
       // Summarize the middle portion
       const summaryMessage = yield* Summarizer.summarizeHistory(

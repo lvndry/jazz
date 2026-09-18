@@ -231,13 +231,48 @@ minutes into a research run, the early messages contain the task definition and 
 strategy; the recent ones contain a tool result about page 14 of a PDF. Truncating keeps
 the trivia and throws away the point. Summarizing keeps the point.
 
-**The cost, honestly stated:** compaction is an extra LLM call, it adds latency mid-run, and
-a summary is lossy: a detail the agent needed might not survive. Mitigations:
+**The cost, honestly stated:** compaction is an extra LLM call (two, when the memory pass
+below also runs), it adds latency mid-run, and a summary is lossy: a detail the agent needed
+might not survive. Mitigations:
 
 - **`summarizerModel` is configurable per agent.** Point compaction at a cheap fast model while the main agent runs an expensive one. Falls back to the agent's own model, with a warning if the configured value is unparseable.
 - **It's visible.** You get a `Context window ~80% full: auto-compacting…` warning, then `Compacted 64 → 12 messages (saved ~48000 tokens)`. Never silent.
 - **You can force it.** `/compact` in chat, or the `summarize_context` tool, which the agent can call itself when it knows it's about to go deep.
 - **It's skipped when pointless.** If there's nothing in the middle worth summarizing, the messages come back untouched.
+
+### Durable facts reach memory before the summary
+
+The summary keeps a run resumable _within_ its conversation. It does nothing for the _next_
+conversation: a preference the user stated forty messages ago survives compaction only as
+summary gist, and vanishes entirely when the conversation ends. So at the compact rung, just
+before the middle is condensed, Jazz scans exactly those about-to-be-compressed messages for
+anything worth remembering long term and writes it to the agent's memory
+([`memory-extractor.ts`](../../packages/core/src/agent/context/memory-extractor.ts)).
+
+It runs as a throwaway `memory-extractor` sub-agent on the summarizer model, and it uses the
+real `view_memory`/`manage_memory` tools rather than a bespoke write path — so it inherits
+their discipline: find the right scope, read the file before changing it, one file per topic,
+replace stale facts instead of appending duplicates. The scopes are the parent agent's; the
+writes are tagged to `memory-extractor`, so an auto-extracted fact is distinguishable from one
+the agent wrote at the user's direct request.
+
+**The bar is deliberately narrow.** Only facts the user themselves stated or decided —
+stable preferences, recurring facts, standing project decisions — qualify. The model's own
+inferences, in-progress task state, tentative thoughts, secrets, and small talk do not.
+Writing nothing is the common, correct outcome; the pass does not invent memories to look
+useful.
+
+**It is gated, and the gate is enforced here, not inherited.** Only the top-level,
+persistence-enabled run extracts. A `--ephemeral` or A2A-peer run means "write nothing"
+(`disablePersistence`), and sub-agent runs have no human user for the user-stated bar — both
+skip the pass. This matters because the recursive runner does _not_ carry `disablePersistence`
+into a sub-run, so a sub-agent handed `manage_memory` would otherwise write memory in exactly
+the runs that forbid it. The gate is computed at the compaction call site and passed in.
+
+**It is best-effort.** Any failure is logged and swallowed: memory extraction can never fail
+or block compaction, which is the load-bearing step. And like the summary, the transcript it
+reads is untrusted — the extractor treats "remember this" directives inside the conversation
+as data to assess, not instructions to obey.
 
 Window size comes from the model catalog (models.dev), falling back to 128k when unknown ,
 so the threshold tracks the actual model rather than a guess.
