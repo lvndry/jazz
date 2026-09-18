@@ -1236,6 +1236,7 @@ export function executeAgentLoop(
           runMetrics,
           provider,
           model,
+          serverContextWindow,
           maxIterations,
           maxCostUSD,
           maxTokens,
@@ -1257,6 +1258,7 @@ export function executeAgentLoop(
           ...(typeof agent.config.numCtx === "number" && {
             pinnedContextWindow: agent.config.numCtx,
           }),
+          ...(typeof serverContextWindow === "number" && { serverContextWindow }),
           ...(typeof agent.config.maxContextTokens === "number" && {
             agentMaxTokens: agent.config.maxContextTokens,
           }),

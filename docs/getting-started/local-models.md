@@ -33,6 +33,8 @@ Jazz can run against a self-hosted inference server such as [Ollama](https://oll
    }
    ```
 
+   Or set it interactively: run `jazz config` → **LLM Providers**, pick Ollama or llama.cpp, and enter the server address as `host:port` (or a full URL). Jazz adds the scheme and the provider's REST path for you, so `192.168.1.50:11434` is enough. This is the same `base_url` as above and takes precedence over the environment variable.
+
 3. Create an agent and chat. Jazz lists models straight from Ollama's `/api/tags` endpoint, so no external catalog is needed:
 
    ```bash
@@ -40,7 +42,9 @@ Jazz can run against a self-hosted inference server such as [Ollama](https://oll
    jazz chat
    ```
 
-llama.cpp works the same way via `LLAMACPP_BASE_URL` (default `http://localhost:8080/v1`); start `llama-server` with `--jinja` for tool calling.
+llama.cpp works the same way via `LLAMACPP_BASE_URL` (default `http://localhost:8080/v1`), or the wizard's server-address prompt; start `llama-server` with `--jinja` for tool calling.
+
+A bare `llama-server` serves whatever single model was loaded at launch and ignores the model name in each request, and that model can differ between runs. So the model chosen when the agent was created is only a hint: at the start of every run Jazz asks the server (`/v1/models`) which model it is actually serving and uses that name, along with the real context window the server was started with (`/props`, i.e. `-c`). Pinning `numCtx` on the agent still overrides the server-reported window.
 
 ## What `JAZZ_OFFLINE` does, and does not do
 

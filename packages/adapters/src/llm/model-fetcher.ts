@@ -216,6 +216,43 @@ async function fetchLlamaCppProps(baseUrl: string): Promise<LlamaCppPropsRespons
 }
 
 /**
+ * Ask a running llama-server what it is actually serving right now.
+ *
+ * A bare `llama-server` loads one model (chosen with `-m` at launch) and serves it
+ * regardless of the `model` field a request carries, and that model can differ from
+ * one run to the next. So rather than trusting the id stored on the agent, read the
+ * live one from `/v1/models` (its first, and normally only, entry) and the real
+ * context window from `/props` (`n_ctx`, the `-c` the server was started with).
+ * Returns an empty object when the server is unreachable or answers nothing usable —
+ * callers fall back to the stored values.
+ */
+export async function fetchLlamaCppServerModel(
+  baseUrl: string,
+): Promise<{ modelId?: string; contextWindow?: number }> {
+  try {
+    const [modelsResponse, props] = await Promise.all([
+      fetch(`${baseUrl}/models`, {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+      }),
+      fetchLlamaCppProps(baseUrl),
+    ]);
+
+    const modelId = modelsResponse.ok
+      ? ((await modelsResponse.json()) as LlamaCppModelsResponse).data?.[0]?.id
+      : undefined;
+    const contextWindow = props?.default_generation_settings?.n_ctx;
+
+    return {
+      ...(typeof modelId === "string" && modelId.length > 0 ? { modelId } : {}),
+      ...(typeof contextWindow === "number" ? { contextWindow } : {}),
+    };
+  } catch {
+    return {};
+  }
+}
+
+/**
  * Extract context length from Ollama model_info
  * The key format is `<family>.context_length` (e.g., "gemma3.context_length")
  */

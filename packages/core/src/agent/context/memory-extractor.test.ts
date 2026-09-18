@@ -73,6 +73,7 @@ const mockLLMService: LLMService = {
     Effect.fail(new LLMRequestError({ provider: "openai", message: "Not implemented in mock" })),
   supportsNativeWebSearch: () => Effect.succeed(false),
   fetchOllamaModelDetails: () => Effect.succeed({}),
+  fetchLlamaCppServerModel: () => Effect.succeed({}),
   resolveLocalProviderBaseUrl: () => "",
 };
 

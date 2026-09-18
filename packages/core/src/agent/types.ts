@@ -364,6 +364,12 @@ export interface AgentRunContext {
   readonly runMetrics: ReturnType<typeof createAgentRunMetrics>;
   readonly provider: ProviderName;
   readonly model: string;
+  /**
+   * Context window a local server reported for the loaded model at run start (llama.cpp's
+   * `n_ctx`), when known. Feeds context accounting so a bare local server's real window is used
+   * instead of a catalog guess; a pinned `numCtx` still takes precedence.
+   */
+  readonly serverContextWindow?: number;
   readonly connectedMCPServers: readonly string[];
   readonly maxRetries?: number;
   /** Iteration budget, already resolved from the call site, config, and default. */

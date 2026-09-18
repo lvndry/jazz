@@ -1,6 +1,7 @@
 import type { LLMConfig } from "@jazz/core/types";
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import {
+  normalizeLocalProviderBaseUrl,
   OLLAMA_CLOUD_API_ROOT,
   resolveLocalProviderBaseUrl,
   resolveOllamaRequestBaseUrl,
@@ -133,5 +134,53 @@ describe("resolveOllamaRequestBaseUrl", () => {
   it("picks up OLLAMA_API_KEY from the environment", () => {
     process.env["OLLAMA_API_KEY"] = "env-key";
     expect(resolveOllamaRequestBaseUrl("kimi-k3:cloud")).toBe(OLLAMA_CLOUD_API_ROOT);
+  });
+});
+
+describe("normalizeLocalProviderBaseUrl", () => {
+  it("adds scheme and the /v1 path to a bare llamacpp host:port", () => {
+    expect(normalizeLocalProviderBaseUrl("llamacpp", "192.168.1.50:8080")).toBe(
+      "http://192.168.1.50:8080/v1",
+    );
+  });
+
+  it("adds scheme and the /api path to a bare ollama host:port", () => {
+    expect(normalizeLocalProviderBaseUrl("ollama", "192.168.1.50:11434")).toBe(
+      "http://192.168.1.50:11434/api",
+    );
+  });
+
+  it("keeps an explicit scheme and path", () => {
+    expect(normalizeLocalProviderBaseUrl("llamacpp", "https://gpu.lan:9000/v1")).toBe(
+      "https://gpu.lan:9000/v1",
+    );
+  });
+
+  it("respects a custom path rather than forcing the default", () => {
+    expect(normalizeLocalProviderBaseUrl("llamacpp", "http://proxy.lan/llamacpp/v1")).toBe(
+      "http://proxy.lan/llamacpp/v1",
+    );
+  });
+
+  it("adds the default path when a scheme is given but no path", () => {
+    expect(normalizeLocalProviderBaseUrl("ollama", "http://gpu.lan:11434")).toBe(
+      "http://gpu.lan:11434/api",
+    );
+  });
+
+  it("strips a trailing slash", () => {
+    expect(normalizeLocalProviderBaseUrl("llamacpp", "http://gpu.lan:8080/v1/")).toBe(
+      "http://gpu.lan:8080/v1",
+    );
+  });
+
+  it("returns an empty string for blank input", () => {
+    expect(normalizeLocalProviderBaseUrl("ollama", "   ")).toBe("");
+  });
+
+  it("canonicalizes a bare ollama host without a path to the /api root", () => {
+    expect(normalizeLocalProviderBaseUrl("ollama", "gpu.lan:11434")).toBe(
+      "http://gpu.lan:11434/api",
+    );
   });
 });

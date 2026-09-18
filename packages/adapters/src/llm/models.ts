@@ -114,6 +114,54 @@ export function resolveLocalProviderBaseUrl(
   return provider === "ollama" ? toOllamaApiRoot(resolved) : resolved;
 }
 
+/**
+ * The REST path a local provider's default base URL ends in (`/api` for Ollama,
+ * `/v1` for llama.cpp). Derived from `PROVIDER_MODELS` so the default host and the
+ * path a bare `host:port` should get stay defined in exactly one place.
+ */
+function defaultLocalProviderPath(provider: "llamacpp" | "ollama"): string {
+  const source = PROVIDER_MODELS[provider];
+  const defaultBaseUrl = source.type === "dynamic" ? source.defaultBaseUrl : undefined;
+  if (!defaultBaseUrl) return "";
+  try {
+    return new URL(defaultBaseUrl).pathname.replace(/\/+$/, "");
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Turn a user-entered local-server address into a base URL the fetch layer can use.
+ *
+ * The wizard accepts a bare `host:port` (the common case) or a full URL. A bare host
+ * lacks a scheme and the provider's REST path, both of which the ai-sdk clients and
+ * model listing require, so default them: `http://` when no scheme is given, and the
+ * provider's default path when the address carries none. An address that already
+ * spells out a path keeps it, so custom reverse-proxy setups still work.
+ */
+export function normalizeLocalProviderBaseUrl(
+  provider: "llamacpp" | "ollama",
+  input: string,
+): string {
+  const trimmed = input.trim();
+  if (trimmed.length === 0) return "";
+  const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `http://${trimmed}`;
+
+  let parsed: URL;
+  try {
+    parsed = new URL(withScheme);
+  } catch {
+    return provider === "ollama" ? toOllamaApiRoot(withScheme) : withScheme;
+  }
+
+  if (parsed.pathname.replace(/\/+$/, "").length === 0) {
+    parsed.pathname = defaultLocalProviderPath(provider);
+  }
+
+  const normalized = parsed.toString().replace(/\/+$/, "");
+  return provider === "ollama" ? toOllamaApiRoot(normalized) : normalized;
+}
+
 function isLoopbackOllamaHost(url: string): boolean {
   try {
     const parsed = new URL(url.includes("://") ? url : `http://${url}`);

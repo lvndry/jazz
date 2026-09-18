@@ -29,7 +29,12 @@ import { createXai, xai, type XaiProviderOptions } from "@ai-sdk/xai";
 import { AI_SDK_MAX_RETRIES, AI_SDK_MAX_STEPS } from "@jazz/core/constants/agent";
 import { OPENROUTER_GATEWAY_MODELS, type ProviderName } from "@jazz/core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
-import { LLMServiceTag, type LLMService, type OllamaShowExtras } from "@jazz/core/interfaces/llm";
+import {
+  LLMServiceTag,
+  type LLMService,
+  type LlamaCppServerModel,
+  type OllamaShowExtras,
+} from "@jazz/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@jazz/core/interfaces/logger";
 import type {
   ChatCompletionOptions,
@@ -95,7 +100,11 @@ import { z } from "zod";
 import { LLM_PROVIDER_ENV_VARS } from "@/adapters/secrets/registry";
 import { resolveAttachments, type ResolvedAttachments } from "./attachment-resolver";
 import { saveModelGeneratedFiles } from "./generated-files";
-import { fetchOllamaModelDetails, listModelsForProvider } from "./model-fetcher";
+import {
+  fetchLlamaCppServerModel,
+  fetchOllamaModelDetails,
+  listModelsForProvider,
+} from "./model-fetcher";
 import {
   PROVIDER_MODELS,
   resolveLocalProviderBaseUrl,
@@ -1711,6 +1720,15 @@ class AISDKService implements LLMService {
   ): Effect.Effect<OllamaShowExtras, unknown> => {
     return Effect.tryPromise({
       try: () => fetchOllamaModelDetails(baseUrl, model),
+      catch: (error) => error,
+    });
+  };
+
+  readonly fetchLlamaCppServerModel = (
+    baseUrl: string,
+  ): Effect.Effect<LlamaCppServerModel, unknown> => {
+    return Effect.tryPromise({
+      try: () => fetchLlamaCppServerModel(baseUrl),
       catch: (error) => error,
     });
   };

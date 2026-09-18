@@ -15,7 +15,12 @@ import { isLocalServerProvider } from "@/core/constants/local-providers";
 import type { ProviderName } from "@/core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { FileSystemContextServiceTag } from "@/core/interfaces/fs";
-import { LLMServiceTag, type LLMService, type OllamaShowExtras } from "@/core/interfaces/llm";
+import {
+  LLMServiceTag,
+  type LLMService,
+  type LlamaCppServerModel,
+  type OllamaShowExtras,
+} from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import { type MCPServerManager } from "@/core/interfaces/mcp-server";
 import { PersonaServiceTag, type PersonaService } from "@/core/interfaces/persona-service";
@@ -134,6 +139,25 @@ function resolveSupportedAttachmentKinds(
 }
 
 /**
+ * Ask a llama.cpp server what it is actually serving for this run.
+ *
+ * A bare llama-server serves whatever model was loaded at launch, ignoring the requested name,
+ * and that can change between runs. So the model id stored on the agent is only a hint: read the
+ * live model and context window from the server instead. Any failure (server down, endpoint
+ * missing) resolves to an empty result and the caller keeps the stored values — this must never
+ * fail the run.
+ */
+function resolveLlamaCppServerModel(): Effect.Effect<LlamaCppServerModel, never, LLMService> {
+  return Effect.gen(function* () {
+    const llmService = yield* LLMServiceTag;
+    const baseUrl = llmService.resolveLocalProviderBaseUrl("llamacpp", undefined);
+    return yield* llmService
+      .fetchLlamaCppServerModel(baseUrl)
+      .pipe(Effect.catchAll(() => Effect.succeed<LlamaCppServerModel>({})));
+  });
+}
+
+/**
  * The agent's tracked working directory, or the process cwd when no filesystem context exists.
  *
  * The agent can `cd` mid-session, so this is not the same as `process.cwd()` — which matters
@@ -203,7 +227,13 @@ function initializeAgentRun(
     const history: ChatMessage[] = options.conversationHistory || [];
     const persona = agent.config.persona;
     const provider: ProviderName = agent.config.llmProvider;
-    const model = agent.config.llmModel;
+    // llama.cpp serves whatever model is loaded and can change between runs, so the stored id is
+    // only a hint. Ask the server what it is actually serving; the resolved model and window then
+    // flow into metrics, the footer, and context accounting. A pinned numCtx still wins later.
+    const servedLlamaCppModel =
+      provider === "llamacpp" ? yield* resolveLlamaCppServerModel() : undefined;
+    const model = servedLlamaCppModel?.modelId ?? agent.config.llmModel;
+    const serverContextWindow = servedLlamaCppModel?.contextWindow;
 
     // Resolve persona service early so we can read the persona's tool profile
     // before building the tool set. Falls back gracefully if the service is
@@ -551,6 +581,7 @@ function initializeAgentRun(
       runMetrics,
       provider,
       model,
+      ...(typeof serverContextWindow === "number" ? { serverContextWindow } : {}),
       connectedMCPServers,
       maxRetries: Math.max(0, Math.floor(appConfig.maxRetries ?? DEFAULT_MAX_LLM_RETRIES)),
       maxIterations: resolvedMaxIterations,

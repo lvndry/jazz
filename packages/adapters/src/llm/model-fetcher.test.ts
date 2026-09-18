@@ -3,6 +3,7 @@ import { afterAll, describe, expect, it, mock, beforeEach } from "bun:test";
 import { Effect } from "effect";
 import {
   createModelFetcher,
+  fetchLlamaCppServerModel,
   fetchModelsDevModels,
   resolveOllamaToolSupport,
   type OllamaModel,
@@ -774,6 +775,86 @@ describe("ModelFetcher", () => {
       await expect(fetchModelsDevModels("anthropic")).rejects.toThrow(
         "Could not load the model catalog from models.dev",
       );
+    });
+  });
+});
+
+describe("fetchLlamaCppServerModel", () => {
+  it("returns the served model id and the server's context window", async () => {
+    global.fetch = mock((url: string) => {
+      if (url.endsWith("/v1/models"))
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ data: [{ id: "qwen2.5-coder-7b" }] }),
+        });
+      if (url.endsWith("/props"))
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ default_generation_settings: { n_ctx: 16384 } }),
+        });
+      return Promise.reject("Unknown URL");
+    }) as unknown as typeof fetch;
+
+    expect(await fetchLlamaCppServerModel("http://localhost:8080/v1")).toEqual({
+      modelId: "qwen2.5-coder-7b",
+      contextWindow: 16384,
+    });
+  });
+
+  it("returns only the model id when /props is unreachable", async () => {
+    global.fetch = mock((url: string) => {
+      if (url.endsWith("/v1/models"))
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ data: [{ id: "tinyllama" }] }),
+        });
+      if (url.endsWith("/props")) return Promise.resolve({ ok: false, status: 404 });
+      return Promise.reject("Unknown URL");
+    }) as unknown as typeof fetch;
+
+    expect(await fetchLlamaCppServerModel("http://localhost:8080/v1")).toEqual({
+      modelId: "tinyllama",
+    });
+  });
+
+  it("returns only the context window when /v1/models is unreachable", async () => {
+    global.fetch = mock((url: string) => {
+      if (url.endsWith("/v1/models")) return Promise.resolve({ ok: false, status: 503 });
+      if (url.endsWith("/props"))
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ default_generation_settings: { n_ctx: 8192 } }),
+        });
+      return Promise.reject("Unknown URL");
+    }) as unknown as typeof fetch;
+
+    expect(await fetchLlamaCppServerModel("http://localhost:8080/v1")).toEqual({
+      contextWindow: 8192,
+    });
+  });
+
+  it("returns an empty object when the server is unreachable", async () => {
+    global.fetch = mock(() =>
+      Promise.reject(new Error("connection refused")),
+    ) as unknown as typeof fetch;
+
+    expect(await fetchLlamaCppServerModel("http://localhost:8080/v1")).toEqual({});
+  });
+
+  it("ignores an empty model list", async () => {
+    global.fetch = mock((url: string) => {
+      if (url.endsWith("/v1/models"))
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ data: [] }) });
+      if (url.endsWith("/props"))
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ default_generation_settings: { n_ctx: 4096 } }),
+        });
+      return Promise.reject("Unknown URL");
+    }) as unknown as typeof fetch;
+
+    expect(await fetchLlamaCppServerModel("http://localhost:8080/v1")).toEqual({
+      contextWindow: 4096,
     });
   });
 });

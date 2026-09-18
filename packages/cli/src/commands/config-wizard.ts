@@ -3,7 +3,12 @@
  * search providers, output display, logging, scheduler mode, and notifications.
  */
 
+import { normalizeLocalProviderBaseUrl } from "@jazz/adapters/llm/models";
 import { WEB_SEARCH_PROVIDERS } from "@jazz/core/agent/tools/web-search-tools";
+import {
+  isLocalServerProvider,
+  LOCAL_SERVER_PROVIDERS,
+} from "@jazz/core/constants/local-providers";
 import { AVAILABLE_PROVIDERS, type ProviderName } from "@jazz/core/constants/models";
 import { AgentConfigServiceTag } from "@jazz/core/interfaces/agent-config";
 import { TerminalServiceTag } from "@jazz/core/interfaces/terminal";
@@ -113,9 +118,11 @@ function configureLLMProviders() {
       const choices: { name: string; value: ProviderName | "back" }[] = sortProvidersForPicker(
         AVAILABLE_PROVIDERS,
       ).map((provider) => {
-        const hasKey = !!config.llm?.[provider]?.api_key;
+        const configured = isLocalServerProvider(provider)
+          ? !!config.llm?.[provider]?.base_url || !!config.llm?.[provider]?.api_key
+          : !!config.llm?.[provider]?.api_key;
         return {
-          name: `${formatProviderDisplayName(provider)} ${hasKey ? "(configured)" : ""}`,
+          name: `${formatProviderDisplayName(provider)} ${configured ? "(configured)" : ""}`,
           value: provider,
         };
       });
@@ -134,6 +141,51 @@ function configureLLMProviders() {
 
       const providerDisplay = formatProviderDisplayName(provider);
       yield* terminal.info(`Configuring ${providerDisplay}...`);
+
+      if (isLocalServerProvider(provider)) {
+        const currentBaseUrl = config.llm?.[provider]?.base_url;
+        const defaultUrl = LOCAL_SERVER_PROVIDERS[provider].defaultUrl;
+        const address = yield* terminal.ask(
+          `${providerDisplay} server address (host:port, or full URL) (leave empty to ${currentBaseUrl ? "keep current" : `use default ${defaultUrl}`}):`,
+          {
+            simple: true,
+            ...(currentBaseUrl ? { defaultValue: currentBaseUrl } : {}),
+            validate: (input) => {
+              const value = input.trim();
+              if (value.length === 0) return true;
+              try {
+                const url = new URL(/:\/\//.test(value) ? value : `http://${value}`);
+                return url.hostname.length > 0 || "Enter a valid host:port or URL.";
+              } catch {
+                return "Enter a valid host:port or URL.";
+              }
+            },
+          },
+        );
+
+        if (address?.trim()) {
+          const normalized = normalizeLocalProviderBaseUrl(provider, address);
+          yield* configService.set(`llm.${provider}.base_url`, normalized);
+          yield* terminal.success(`${providerDisplay} server set to ${normalized}.`);
+        } else {
+          yield* terminal.info("No changes made.");
+        }
+
+        // llama.cpp has no API key; Ollama uses one only for :cloud models.
+        if (provider === "ollama") {
+          const cloudKey = yield* terminal.password(
+            "Ollama Cloud API key (only for :cloud models; leave empty to keep current):",
+          );
+          if (cloudKey.trim()) {
+            yield* configService.set(`llm.${provider}.api_key`, cloudKey);
+            yield* terminal.success("Ollama Cloud API key updated.");
+          }
+        }
+
+        yield* terminal.log(""); // Spacing
+        continue;
+      }
+
       const apiKey = yield* terminal.password(
         `Enter API Key for ${providerDisplay} (leave empty to keep current):`,
       );

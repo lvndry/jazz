@@ -20,6 +20,16 @@ export interface OllamaShowExtras {
   readonly capabilities?: readonly string[];
 }
 
+/**
+ * What a running llama-server reports it is actually serving: the loaded model's id and
+ * the context window it was started with. Both are absent when the server is unreachable
+ * or silent, so a bare llama.cpp agent falls back to the values stored on its config.
+ */
+export interface LlamaCppServerModel {
+  readonly modelId?: string;
+  readonly contextWindow?: number;
+}
+
 export interface LLMService {
   /**
    * Get a provider by name
@@ -62,6 +72,16 @@ export interface LLMService {
     baseUrl: string,
     model: string,
   ) => Effect.Effect<OllamaShowExtras, unknown>;
+
+  /**
+   * Asks a running llama-server which model it is currently serving and the context window it
+   * was started with, over the network. llama.cpp serves whatever was loaded regardless of the
+   * requested model name, so this is how a run learns the true model and window — see
+   * {@link LlamaCppServerModel}.
+   */
+  readonly fetchLlamaCppServerModel: (
+    baseUrl: string,
+  ) => Effect.Effect<LlamaCppServerModel, unknown>;
 
   /**
    * Resolves the base URL a local provider (Ollama, llama.cpp) is reachable at, from config,

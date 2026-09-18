@@ -22,6 +22,8 @@ export const LOCAL_SERVER_PROVIDERS = {
   },
 } as const satisfies Partial<Record<ProviderName, unknown>>;
 
+export type LocalServerProvider = keyof typeof LOCAL_SERVER_PROVIDERS;
+
 /**
  * Whether this provider serves models from the user's own machine.
  *
@@ -30,7 +32,7 @@ export const LOCAL_SERVER_PROVIDERS = {
  * limits are relaxed for them because every one of those limits is really a remote API's
  * request cap.
  */
-export function isLocalServerProvider(provider: string): boolean {
+export function isLocalServerProvider(provider: string): provider is LocalServerProvider {
   return provider in LOCAL_SERVER_PROVIDERS;
 }
 
