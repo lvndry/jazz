@@ -248,9 +248,13 @@ export class PluginRegistryServiceImpl {
       const conflicts: string[] = [];
       for (const [otherId, other] of Object.entries(state.plugins)) {
         if (otherId === id || !other.enabledAgentIds.includes(agentId)) continue;
-        const overlap = other.current.manifest.hooks.filter((hook) =>
+        const advisoryOverlap = other.current.manifest.hooks.filter((hook) =>
           existing.current.manifest.hooks.includes(hook),
         );
+        const policyOverlap = other.current.manifest.policyHooks.filter((hook) =>
+          existing.current.manifest.policyHooks.includes(hook),
+        );
+        const overlap = [...advisoryOverlap, ...policyOverlap];
         if (overlap.length > 0) conflicts.push(`${otherId} (${overlap.join(", ")})`);
       }
       if (conflicts.length > 0)

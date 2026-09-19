@@ -13,6 +13,7 @@ const manifest: PluginManifest = {
   artifact: "plugin.js",
   sha256: "a".repeat(64),
   hooks: ["route.skills"],
+  policyHooks: [],
   decisionProviders: [],
   network: { destinations: ["b.example", "a.example"] },
   dataSent: ["skills", "request"],
@@ -28,5 +29,8 @@ it("canonicalizes order but invalidates consent when disclosure changes", () => 
   expect(computePluginConsentDigest(reordered)).toBe(computePluginConsentDigest(manifest));
   expect(
     computePluginConsentDigest({ ...manifest, dataSent: [...manifest.dataSent, "content"] }),
+  ).not.toBe(computePluginConsentDigest(manifest));
+  expect(
+    computePluginConsentDigest({ ...manifest, policyHooks: ["classify.command-risk"] }),
   ).not.toBe(computePluginConsentDigest(manifest));
 });

@@ -10,6 +10,8 @@ export const MAX_PLUGIN_STATE_BYTES = 64 * 1024;
 export const MAX_DECISION_QUESTIONS = 64;
 export const MAX_DECISION_OPTIONS = 255;
 export const MAX_PLUGIN_IDENTIFIER_LENGTH = 128;
+export const MAX_COMMAND_RISK_COMMAND_CHARS = 4_000;
+export const MAX_POLICY_ABSTENTION_REASON_CHARS = 512;
 export const DEFAULT_PLUGIN_HOOK_TIMEOUT_MS = 2_000;
 
 export type JsonPrimitive = string | number | boolean | null;
@@ -30,8 +32,29 @@ export type SkillRouteOutcome =
   | { readonly status: "answered"; readonly distribution: SkillRouteDistribution }
   | { readonly status: "abstained"; readonly reason: string };
 
+export interface CommandRiskInput {
+  readonly command: string;
+}
+
+export interface CommandRiskDistribution {
+  readonly readOnlyProbability: number;
+  readonly lowRiskProbability: number;
+  readonly highRiskProbability: number;
+}
+
+export type CommandRiskOutcome =
+  | { readonly status: "answered"; readonly distribution: CommandRiskDistribution }
+  | { readonly status: "abstained"; readonly reason: string };
+
 export interface AdvisoryHookContracts {
   readonly "route.skills": { readonly input: SkillRouteInput; readonly output: SkillRouteOutcome };
+}
+
+export interface PolicyHookContracts {
+  readonly "classify.command-risk": {
+    readonly input: CommandRiskInput;
+    readonly output: CommandRiskOutcome;
+  };
 }
 
 export type AdvisoryHookId = keyof AdvisoryHookContracts;
@@ -39,6 +62,12 @@ export type AdvisoryHookHandler<K extends AdvisoryHookId> = (
   input: AdvisoryHookContracts[K]["input"],
   context: { readonly signal: AbortSignal },
 ) => Promise<AdvisoryHookContracts[K]["output"]>;
+
+export type PolicyHookId = keyof PolicyHookContracts;
+export type PolicyHookHandler<K extends PolicyHookId> = (
+  input: PolicyHookContracts[K]["input"],
+  context: { readonly signal: AbortSignal },
+) => Promise<PolicyHookContracts[K]["output"]>;
 
 export type DecisionQuestion =
   | { readonly kind: "probability"; readonly instructions: string }
@@ -114,6 +143,7 @@ export interface PluginManifest {
   readonly artifact: string;
   readonly sha256: string;
   readonly hooks: readonly AdvisoryHookId[];
+  readonly policyHooks: readonly PolicyHookId[];
   readonly decisionProviders: readonly string[];
   readonly network: { readonly destinations: readonly string[] };
   readonly dataSent: readonly string[];
@@ -124,6 +154,7 @@ export interface PluginConsentDisclosure {
   readonly pluginId: string;
   readonly codeDigest: string;
   readonly hooks: readonly AdvisoryHookId[];
+  readonly policyHooks: readonly PolicyHookId[];
   readonly decisionProviders: readonly string[];
   readonly destinations: readonly string[];
   readonly dataSent: readonly string[];
@@ -138,6 +169,9 @@ export interface PluginHostApi {
   readonly apiVersion: typeof PLUGIN_API_VERSION;
   readonly hooks: {
     register<K extends AdvisoryHookId>(id: K, handler: AdvisoryHookHandler<K>): void;
+  };
+  readonly policy: {
+    register<K extends PolicyHookId>(id: K, handler: PolicyHookHandler<K>): void;
   };
   readonly decisions: {
     /** Registers a backend and returns the only client plugins may use to invoke it. */

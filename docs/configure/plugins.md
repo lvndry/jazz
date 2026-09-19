@@ -4,10 +4,11 @@ description: "Install, inspect, trust, configure, enable, update, and remove opt
 
 # Plugins
 
-Jazz plugins are optional, pre-bundled JavaScript modules that add advisory harness behavior. They
-are not model-selected tools. Version 1 exposes one hook, `route.skills`, which may suggest a skill
-before the first model request. It cannot authorize a tool, change approval policy, or execute an
-action on the model's behalf.
+Jazz plugins are optional, pre-bundled JavaScript modules that add bounded harness behavior. They
+are not model-selected tools and cannot execute an action on the model's behalf. Version 1 exposes
+an advisory hook, `route.skills`, and a policy hook, `classify.command-risk`. The distinction is
+important: routing only suggests context, while command-risk classification can affect whether the
+active approval policy requires a person to approve one shell command.
 
 Plugins are absent and disabled by default. A normal Jazz installation has no plugin network call,
 latency, prompt change, or credential requirement.
@@ -39,6 +40,25 @@ Enabled `route.skills` plugins currently run in shadow mode: bounded usage, late
 measured, but their answer does not change the provider request. Maintainers can explicitly test
 host-rendered advisory injection with `JAZZ_EXPERIMENTAL_PLUGIN_ADVISORY=1`; this is not enabled by
 installation, trust, or consent and remains gated on held end-to-end eval results.
+
+## Command-risk policy hook
+
+`classify.command-risk` is eligible only for `execute_command`, whose declared risk is `unknown`
+because its arguments determine what it can do. The plugin classifies the proposed command as
+`read-only`, `low-risk`, or `high-risk`; Jazz validates that result and applies the operator's
+approval policy. A lower classification can therefore remove an approval prompt. Enabling this hook
+is explicit consent to that effect, not merely permission to collect shadow metrics.
+
+The plugin is not the enforcement point. It cannot lower another tool's declared risk, expand the
+run's effective tool set, override a command allowlist, change the selected approval tier, or bypass
+the shell denylist. Jazz sends the hook only the bounded command string: not conversation history,
+tool results, environment variables, or file contents. Network-backed manifests must disclose that
+command-text egress and its exact destination before local consent can be granted.
+
+If the hook is absent, abstains, times out, fails validation, exceeds its budget, or becomes
+unavailable, Jazz falls back to its built-in command classifier. If classification remains
+unresolved, the command is treated as `high-risk`. Plugin failure never silently makes an unknown
+command safer.
 
 ## Lifecycle
 
@@ -83,8 +103,13 @@ bun install
 # Commit the generated bun.lock before publishing.
 bun test
 jazz plugin dev . --hook route.skills --input fixtures/request.json
+jazz plugin dev . --hook classify.command-risk --input fixtures/command.json
 jazz plugin pack .
 ```
+
+The command-risk fixture is a JSON object such as `{ "command": "git status" }`. Development
+probing resolves declared environment-backed secrets from the current shell, while keeping the
+plugin disposable and out of installed state.
 
 `pack` produces one self-contained `release/plugin.mjs`, its SHA-256 file, and a catalog entry. All
 package dependencies must be bundled. Runtime imports, native addons, emitted assets, and install

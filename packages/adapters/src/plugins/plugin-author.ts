@@ -15,6 +15,8 @@ import { pathToFileURL } from "node:url";
 import { createAgentRunMetrics } from "@jazz/core/agent/metrics/agent-run-metrics";
 import { createPluginSession } from "@jazz/core/agent/plugins/plugin-session";
 import type {
+  CommandRiskInput,
+  CommandRiskOutcome,
   JazzPluginModule,
   PluginHostApi,
   PluginManifest,
@@ -37,6 +39,7 @@ interface SourceManifest {
   readonly hostApi: 1;
   readonly entry?: string;
   readonly hooks: readonly string[];
+  readonly policyHooks: readonly string[];
   readonly decisionProviders: readonly string[];
   readonly network: { readonly destinations: readonly string[] };
   readonly dataSent: readonly string[];
@@ -64,18 +67,22 @@ export interface ScaffoldPluginOptions {
 export interface ProbePackedPluginOptions {
   readonly manifestPath: string;
   readonly routeSkillsInput?: SkillRouteInput;
+  readonly commandRiskInput?: CommandRiskInput;
 }
 
 export interface PluginProbeResult {
   readonly manifest: PluginManifest;
   readonly registeredHooks: readonly string[];
+  readonly registeredPolicyHooks: readonly string[];
   readonly registeredDecisionProviders: readonly string[];
   readonly routeSkillsOutcome?: SkillRouteOutcome;
+  readonly commandRiskOutcome?: CommandRiskOutcome;
 }
 
 export interface DevPluginOptions {
   readonly pluginDirectory: string;
   readonly routeSkillsInput?: SkillRouteInput;
+  readonly commandRiskInput?: CommandRiskInput;
 }
 
 export const SCAFFOLD_PLUGIN_SDK_VERSION = "0.1.0";
@@ -111,6 +118,7 @@ async function readSourceManifest(pluginDirectory: string): Promise<SourceManife
     "hostApi",
     "entry",
     "hooks",
+    "policyHooks",
     "decisionProviders",
     "network",
     "dataSent",
@@ -269,6 +277,7 @@ export async function scaffoldPlugin(options: ScaffoldPluginOptions): Promise<st
     artifact: "./plugin.mjs",
     sha256: "0".repeat(64),
     hooks: ["route.skills"],
+    policyHooks: [],
     decisionProviders: [],
     network: { destinations: [] },
     dataSent: [],
@@ -326,6 +335,7 @@ export async function scaffoldPlugin(options: ScaffoldPluginOptions): Promise<st
           hostApi: 1,
           entry: "src/index.ts",
           hooks: ["route.skills"],
+          policyHooks: [],
           decisionProviders: [],
           network: { destinations: [] },
           dataSent: [],
@@ -369,6 +379,7 @@ function assertSameMembers(
 
 function auditRegistration(manifest: PluginManifest, module: JazzPluginModule): PluginProbeResult {
   const hooks = new Set<string>();
+  const policyHooks = new Set<string>();
   const providers = new Set<string>();
   const api: PluginHostApi = {
     apiVersion: 1,
@@ -376,6 +387,12 @@ function auditRegistration(manifest: PluginManifest, module: JazzPluginModule): 
       register: (id) => {
         if (hooks.has(id)) fail(`hook ${id} was registered more than once`);
         hooks.add(id);
+      },
+    },
+    policy: {
+      register: (id) => {
+        if (policyHooks.has(id)) fail(`policy hook ${id} was registered more than once`);
+        policyHooks.add(id);
       },
     },
     decisions: {
@@ -395,10 +412,12 @@ function auditRegistration(manifest: PluginManifest, module: JazzPluginModule): 
   };
   module.register(api);
   assertSameMembers("hook", manifest.hooks, hooks);
+  assertSameMembers("policy hook", manifest.policyHooks, policyHooks);
   assertSameMembers("decision provider", manifest.decisionProviders, providers);
   return {
     manifest,
     registeredHooks: [...hooks].sort(),
+    registeredPolicyHooks: [...policyHooks].sort(),
     registeredDecisionProviders: [...providers].sort(),
   };
 }
@@ -439,18 +458,31 @@ export async function probePackedPlugin(
         agentId: "plugin-probe",
         metrics: probeMetrics(),
         plugins: [{ manifest: acquired.manifest, module }],
-        resolveSecret: () => Promise.resolve(undefined),
+        resolveSecret: (_pluginId, declaration) =>
+          Promise.resolve(declaration.env ? process.env[declaration.env] : undefined),
       }),
     );
     try {
-      if (options.routeSkillsInput === undefined) return audit;
-      if (!acquired.manifest.hooks.includes("route.skills")) {
-        fail("route.skills input was provided but the hook is not declared");
+      let result = audit;
+      if (options.routeSkillsInput !== undefined) {
+        if (!acquired.manifest.hooks.includes("route.skills")) {
+          fail("route.skills input was provided but the hook is not declared");
+        }
+        const routeSkillsOutcome = await Effect.runPromise(
+          session.runHook("route.skills", options.routeSkillsInput),
+        );
+        result = { ...result, routeSkillsOutcome };
       }
-      const routeSkillsOutcome = await Effect.runPromise(
-        session.runHook("route.skills", options.routeSkillsInput),
-      );
-      return { ...audit, routeSkillsOutcome };
+      if (options.commandRiskInput !== undefined) {
+        if (!acquired.manifest.policyHooks.includes("classify.command-risk")) {
+          fail("classify.command-risk input was provided but the policy hook is not declared");
+        }
+        const commandRiskOutcome = await Effect.runPromise(
+          session.runPolicyHook("classify.command-risk", options.commandRiskInput),
+        );
+        result = { ...result, commandRiskOutcome };
+      }
+      return result;
     } finally {
       await Effect.runPromise(session.close());
       closedBySession = true;
@@ -476,6 +508,9 @@ export async function devPlugin(options: DevPluginOptions): Promise<PluginProbeR
       ...(options.routeSkillsInput === undefined
         ? {}
         : { routeSkillsInput: options.routeSkillsInput }),
+      ...(options.commandRiskInput === undefined
+        ? {}
+        : { commandRiskInput: options.commandRiskInput }),
     });
   } finally {
     await fs.rm(temporary, { recursive: true, force: true });
