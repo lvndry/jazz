@@ -56,7 +56,7 @@
     "dev": "bun --watch packages/runtime/src/main.ts",
     "cli": "bun packages/runtime/src/main.ts",
     "prepare": "git config core.hooksPath .githooks || true",
-    "lint": "bun eslint packages plugins scripts --cache",
+    "lint": "bun eslint packages plugins scripts --cache --no-error-on-unmatched-pattern",
     "lint:fix": "bun eslint packages plugins scripts --fix --cache",
     "format": "bun prettier --write packages docs",
     "test": "bun test",
