@@ -25,7 +25,7 @@
     "@ai-sdk/openai-compatible": "^3.0.53",
     "@ai-sdk/provider-utils": "^5.0.45",
     "@ai-sdk/togetherai": "^3.0.54",
-    "@ai-sdk/xai": "^4.0.59",
+    "@ai-sdk/xai": "^5.0.4",
     "@effect/cluster": "^0.60.2",
     "@effect/experimental": "^0.61.1",
     "@effect/platform": "^0.97.2",
