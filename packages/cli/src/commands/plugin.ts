@@ -271,10 +271,7 @@ export function pluginTrustCommand(id: string): Effect.Effect<void, Error, Termi
     const service = registry();
     const inspection = yield* attempt(() => service.inspect(id));
     yield* renderInspection(terminal, inspection);
-    const granted = yield* terminal.confirm(
-      `Grant ${id} full OS-user code execution at this code digest?`,
-      false,
-    );
+    const granted = yield* terminal.confirm(`Do you trust ${id}?`, false);
     if (!granted) return yield* Effect.fail(new Error("Plugin trust cancelled."));
     yield* attempt(() => service.trust(id, inspection.current.manifest.sha256));
     yield* terminal.success(`Trusted ${id} at the inspected code digest.`);
