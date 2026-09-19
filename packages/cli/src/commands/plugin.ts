@@ -271,12 +271,11 @@ export function pluginTrustCommand(id: string): Effect.Effect<void, Error, Termi
     const service = registry();
     const inspection = yield* attempt(() => service.inspect(id));
     yield* renderInspection(terminal, inspection);
-    const phrase = `trust ${inspection.current.manifest.sha256}`;
-    const answer = yield* terminal.ask(`Type '${phrase}' to grant full code execution:`, {
-      simple: true,
-      cancellable: true,
-    });
-    if (answer !== phrase) return yield* Effect.fail(new Error("Plugin trust cancelled."));
+    const granted = yield* terminal.confirm(
+      `Grant ${id} full OS-user code execution at this code digest?`,
+      false,
+    );
+    if (!granted) return yield* Effect.fail(new Error("Plugin trust cancelled."));
     yield* attempt(() => service.trust(id, inspection.current.manifest.sha256));
     yield* terminal.success(`Trusted ${id} at the inspected code digest.`);
   });
@@ -303,15 +302,11 @@ export function pluginEnableCommand(
         "This plugin declares policy hooks that can affect authorization decisions, including whether Jazz asks before running a command.",
       );
     }
-    const phrase = `enable ${inspection.consentDigest}`;
-    const answer = yield* terminal.ask(
-      `Type '${phrase}' to consent and enable for ${agent.name}:`,
-      {
-        simple: true,
-        cancellable: true,
-      },
+    const granted = yield* terminal.confirm(
+      `Consent to ${id}'s declared data egress and enable it for ${agent.name}?`,
+      false,
     );
-    if (answer !== phrase) return yield* Effect.fail(new Error("Plugin enablement cancelled."));
+    if (!granted) return yield* Effect.fail(new Error("Plugin enablement cancelled."));
     yield* attempt(() => service.grantConsent(id, inspection.consentDigest));
     yield* attempt(() => service.enable(id, agent.id));
     yield* terminal.success(`Enabled ${id} for agent ${agent.name} (${agent.id}).`);
