@@ -339,9 +339,6 @@ function initializeAgentRun(
           )
         : Option.none();
 
-    // An enabled route.skills plugin ranks the live skills for this turn. It never fails the run:
-    // any error or abstention falls back to deterministic behavior, and it is skipped for resumes
-    // and summarizer runs.
     const routingOutcome =
       options.isResume !== true && persona !== "summarizer" && Option.isSome(pluginSession)
         ? yield* pluginSession.value
