@@ -5,6 +5,8 @@ import type { AgentRunMetrics } from "@/core/agent/metrics/agent-run-metrics";
 import type {
   AdvisoryHookContracts,
   AdvisoryHookId,
+  PolicyHookContracts,
+  PolicyHookId,
   PluginRuntimeError,
 } from "@/core/types/plugin";
 
@@ -13,6 +15,10 @@ export interface PluginSession {
     id: K,
     input: AdvisoryHookContracts[K]["input"],
   ) => Effect.Effect<AdvisoryHookContracts[K]["output"]>;
+  readonly runPolicyHook: <K extends PolicyHookId>(
+    id: K,
+    input: PolicyHookContracts[K]["input"],
+  ) => Effect.Effect<PolicyHookContracts[K]["output"]>;
   readonly close: () => Effect.Effect<void>;
 }
 

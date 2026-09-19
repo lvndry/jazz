@@ -5,6 +5,8 @@
  */
 import type { Effect } from "effect";
 import type z from "zod";
+import type { LLMService } from "@/core/interfaces/llm";
+import type { LoggerService } from "@/core/interfaces/logger";
 import type { ToolRiskLevel } from "@/core/interfaces/tool-registry";
 import type { Agent } from "@/core/types/agent";
 import type { GeneratedArtifact } from "@/core/types/artifact";
@@ -290,6 +292,15 @@ export interface ToolExecutionContext {
    * Used by tools like summarize_context to access the full conversation.
    */
   readonly conversationMessages?: readonly ChatMessage[];
+  /**
+   * Resolve the risk of an eligible `execute_command` call. The runner binds
+   * this narrow callback to the run-scoped plugin session and Jazz fallback;
+   * tools never receive the plugin session or another policy capability.
+   */
+  readonly resolveCommandRisk?: (
+    command: string,
+    conversationMessages?: readonly ChatMessage[],
+  ) => Effect.Effect<ToolRiskLevel, never, LLMService | LoggerService>;
   /**
    * The parent agent running this tool execution.
    * Used by tools like spawn_subagent to inherit LLM configuration.

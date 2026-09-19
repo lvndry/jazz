@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "com.jazz.plugins.jev",
+  "name": "Jev decision provider",
+  "version": "0.1.0",
+  "hostApi": 1,
+  "entry": "src/index.ts",
+  "hooks": ["route.skills"],
+  "policyHooks": ["classify.command-risk"],
+  "decisionProviders": ["typesafe-jev"],
+  "network": {
+    "destinations": ["api.typesafe.ai"]
+  },
+  "dataSent": [
+    "current turn request text",
+    "installed skill names and one-line descriptions",
+    "proposed shell command text"
+  ],
+  "secrets": [
+    {
+      "name": "apiKey",
+      "env": "TYPESAFE_API_KEY",
+      "required": true,
+      "description": "TypeSafe API key used only for POST requests to api.typesafe.ai"
+    }
+  ]
+}

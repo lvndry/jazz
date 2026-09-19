@@ -967,9 +967,9 @@ function registerPluginCommands(program: Command): void {
     );
   plugin
     .command("enable <id>")
-    .description("Grant current data-egress consent and enable for one agent")
-    .requiredOption("--agent <agentId>", "Agent id")
-    .action((id: string, options: { agent: string }) =>
+    .description("Grant current data-egress consent and enable for one agent, or all agents")
+    .option("--agent <agentId>", "Agent id; omit to enable for all agents")
+    .action((id: string, options: { agent?: string }) =>
       run(() =>
         import("@jazz/cli/commands/plugin").then((mod) =>
           mod.pluginEnableCommand(id, options.agent),

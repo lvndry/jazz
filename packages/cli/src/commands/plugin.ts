@@ -17,7 +17,7 @@ import {
 import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
 import type { AgentService } from "@jazz/core/interfaces/agent-service";
 import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
-import type { SkillRouteInput } from "@jazz/core/types/plugin";
+import type { CommandRiskInput, SkillRouteInput } from "@jazz/core/types/plugin";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
 import { Effect } from "effect";
 
@@ -78,6 +78,18 @@ async function readSkillRouteInput(filePath: string): Promise<SkillRouteInput> {
   return { requestText: record["requestText"], skills };
 }
 
+async function readCommandRiskInput(filePath: string): Promise<CommandRiskInput> {
+  const value = JSON.parse(await fs.readFile(path.resolve(filePath), "utf8")) as unknown;
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Hook input must be a JSON object.");
+  }
+  const record = value as Record<string, unknown>;
+  if (Object.keys(record).length !== 1 || typeof record["command"] !== "string") {
+    throw new Error("classify.command-risk input requires exactly one string command field.");
+  }
+  return { command: record["command"] };
+}
+
 /** Scaffold a types-only SDK plugin project; dependency installation remains explicit. */
 export function pluginInitCommand(
   directory: string,
@@ -104,23 +116,32 @@ export function pluginDevCommand(
 ): Effect.Effect<void, Error, TerminalService> {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
-    if (options.hook !== undefined && options.hook !== "route.skills") {
+    if (
+      options.hook !== undefined &&
+      options.hook !== "route.skills" &&
+      options.hook !== "classify.command-risk"
+    ) {
       return yield* Effect.fail(new Error(`Unsupported v1 hook: ${options.hook}`));
     }
     if (options.input !== undefined && options.hook === undefined) {
-      return yield* Effect.fail(new Error("--input requires --hook route.skills."));
+      return yield* Effect.fail(new Error("--input requires --hook."));
     }
     yield* terminal.warn(
       "Development plugins execute inside Jazz with your full OS-user authority.",
     );
     const routeSkillsInput =
-      options.input === undefined
+      options.input === undefined || options.hook !== "route.skills"
         ? undefined
         : yield* attempt(() => readSkillRouteInput(options.input!));
+    const commandRiskInput =
+      options.input === undefined || options.hook !== "classify.command-risk"
+        ? undefined
+        : yield* attempt(() => readCommandRiskInput(options.input!));
     const result = yield* attempt(() =>
       devPlugin({
         pluginDirectory: directory,
         ...(routeSkillsInput === undefined ? {} : { routeSkillsInput }),
+        ...(commandRiskInput === undefined ? {} : { commandRiskInput }),
       }),
     );
     printJson({ ok: true, result });
@@ -161,13 +182,14 @@ function manifestSummary(inspection: PluginInspection): readonly string[] {
   return [
     `${manifest.name} (${manifest.id}) v${manifest.version}`,
     `code: ${manifest.sha256}`,
-    `hooks: ${manifest.hooks.join(", ") || "none"}`,
+    `advisory hooks: ${manifest.hooks.join(", ") || "none"}`,
+    `policy hooks: ${manifest.policyHooks.join(", ") || "none"}`,
     `decision providers: ${manifest.decisionProviders.join(", ") || "none"}`,
     `network: ${manifest.network.destinations.join(", ") || "none declared"}`,
     `data sent: ${manifest.dataSent.join("; ") || "none declared"}`,
     `trusted: ${inspection.trusted ? "yes" : "no"}`,
     `consented: ${inspection.consented ? "yes" : "no"}`,
-    `enabled agents: ${inspection.enabledAgentIds.join(", ") || "none"}`,
+    `enabled agents: ${inspection.enabledForAllAgents ? "all agents" : inspection.enabledAgentIds.join(", ") || "none"}`,
     `artifact valid: ${inspection.artifactValid ? "yes" : "no"}`,
     ...(inspection.restartRequired ? ["restart required to unload previously imported code"] : []),
   ];
@@ -224,7 +246,7 @@ export function pluginListCommand(
     yield* terminal.heading(`Plugins (${plugins.length})`);
     for (const plugin of plugins) {
       yield* terminal.log(
-        `${plugin.id}  ${plugin.current.manifest.version}  ${plugin.trusted ? "trusted" : "untrusted"}  agents: ${plugin.enabledAgentIds.join(",") || "none"}`,
+        `${plugin.id}  ${plugin.current.manifest.version}  ${plugin.trusted ? "trusted" : "untrusted"}  agents: ${plugin.enabledForAllAgents ? "all" : plugin.enabledAgentIds.join(",") || "none"}`,
       );
     }
   });
@@ -249,12 +271,8 @@ export function pluginTrustCommand(id: string): Effect.Effect<void, Error, Termi
     const service = registry();
     const inspection = yield* attempt(() => service.inspect(id));
     yield* renderInspection(terminal, inspection);
-    const phrase = `trust ${inspection.current.manifest.sha256}`;
-    const answer = yield* terminal.ask(`Type '${phrase}' to grant full code execution:`, {
-      simple: true,
-      cancellable: true,
-    });
-    if (answer !== phrase) return yield* Effect.fail(new Error("Plugin trust cancelled."));
+    const granted = yield* terminal.confirm(`Do you trust ${id}?`, false);
+    if (!granted) return yield* Effect.fail(new Error("Plugin trust cancelled."));
     yield* attempt(() => service.trust(id, inspection.current.manifest.sha256));
     yield* terminal.success(`Trusted ${id} at the inspected code digest.`);
   });
@@ -262,32 +280,68 @@ export function pluginTrustCommand(id: string): Effect.Effect<void, Error, Termi
 
 export function pluginEnableCommand(
   id: string,
-  agentId: string,
+  agentId?: string,
 ): Effect.Effect<void, Error, TerminalService | AgentService> {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
-    const agent = yield* getAgentByIdentifier(agentId);
-    yield* requireInteractive(terminal, "Plugin egress consent");
+    yield* requireInteractive(terminal, "Plugin enablement");
+    const agent = agentId === undefined ? undefined : yield* getAgentByIdentifier(agentId);
     const service = registry();
     const inspection = yield* attempt(() => service.inspect(id));
     if (!inspection.trusted) {
-      return yield* Effect.fail(
-        new Error(`${id} is not trusted. Run 'jazz plugin trust ${id}' first.`),
+      yield* renderInspection(terminal, inspection);
+      const trusted = yield* terminal.confirm(`Do you trust ${id}?`, false);
+      if (!trusted) return yield* Effect.fail(new Error("Plugin trust cancelled."));
+      yield* attempt(() => service.trust(id, inspection.current.manifest.sha256));
+    }
+    if (inspection.current.manifest.policyHooks.length > 0) {
+      yield* terminal.warn(
+        "This plugin declares policy hooks that can affect authorization decisions, including whether Jazz asks before running a command.",
       );
     }
-    yield* renderInspection(terminal, inspection);
-    const phrase = `enable ${inspection.consentDigest}`;
-    const answer = yield* terminal.ask(
-      `Type '${phrase}' to consent and enable for ${agent.name}:`,
-      {
+    const scope = agent === undefined ? "all agents" : `${agent.name} (${agent.id})`;
+    yield* attempt(() => service.grantConsent(id, inspection.consentDigest));
+    yield* attempt(() => service.enable(id, agent?.id));
+    yield* terminal.success(`Enabled ${id} for ${scope}.`);
+
+    // A required secret the host cannot already resolve would leave the plugin failing open on
+    // every run, so provision it as part of setup instead of making the operator discover the gap
+    // the first time the plugin silently abstains.
+    for (const declaration of inspection.current.manifest.secrets) {
+      if (!declaration.required) continue;
+      const status = inspection.secrets.find((secret) => secret.name === declaration.name);
+      if (status !== undefined && status.source !== "missing" && status.source !== "unavailable") {
+        continue;
+      }
+      if (status?.source === "unavailable") {
+        yield* terminal.warn(
+          `No secure secret storage is available for ${declaration.name}. Set the ${
+            declaration.env ?? "declared"
+          } environment variable before running this agent.`,
+        );
+        continue;
+      }
+      yield* terminal.info(
+        `${id} requires a secret: ${declaration.name}${
+          declaration.description ? ` — ${declaration.description}` : ""
+        }.`,
+      );
+      const secretValue = yield* terminal.ask(`Secret ${declaration.name}:`, {
+        secret: true,
         simple: true,
         cancellable: true,
-      },
-    );
-    if (answer !== phrase) return yield* Effect.fail(new Error("Plugin enablement cancelled."));
-    yield* attempt(() => service.grantConsent(id, inspection.consentDigest));
-    yield* attempt(() => service.enable(id, agent.id));
-    yield* terminal.success(`Enabled ${id} for agent ${agent.name} (${agent.id}).`);
+      });
+      if (secretValue === undefined || secretValue.length === 0) {
+        yield* terminal.warn(
+          `Skipped ${declaration.name}. ${id} falls back to deterministic behavior until you run 'jazz plugin secret set ${id} ${declaration.name}'.`,
+        );
+        continue;
+      }
+      const stored = yield* attempt(() => service.setSecret(id, declaration.name, secretValue));
+      yield* stored
+        ? terminal.success(`Stored ${declaration.name} for ${id}.`)
+        : terminal.warn(`Could not store ${declaration.name}: no secure storage available.`);
+    }
   });
 }
 

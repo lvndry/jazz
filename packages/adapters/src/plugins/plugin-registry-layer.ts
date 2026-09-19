@@ -33,6 +33,7 @@ function toInstalled(record: PluginStateRecord): InstalledPluginRecord {
     trusted: record.trustedDigests.includes(digest),
     ...(consent === undefined ? {} : { consent }),
     enabledAgentIds: record.enabledAgentIds,
+    enabledForAllAgents: record.enabledForAllAgents,
   };
 }
 
@@ -95,6 +96,7 @@ export class CorePluginRegistryServiceImpl implements PluginRegistryService {
           consentGrants: record.consent ? [record.consent] : [],
           // A persisted caller cannot bypass enable-time grant/conflict checks.
           enabledAgentIds: [],
+          enabledForAllAgents: false,
           activatedDigests: existing?.activatedDigests ?? [],
           storedSecretNames: existing?.storedSecretNames ?? [],
         };
@@ -123,6 +125,7 @@ export class CorePluginRegistryServiceImpl implements PluginRegistryService {
             ...current,
             trustedDigests: current.trustedDigests.filter((item) => item !== digest),
             enabledAgentIds: [],
+            enabledForAllAgents: false,
           }),
           result: undefined,
         };
@@ -146,6 +149,7 @@ export class CorePluginRegistryServiceImpl implements PluginRegistryService {
               (grant) => grant.digest !== inspection.consentDigest,
             ),
             enabledAgentIds: [],
+            enabledForAllAgents: false,
           }),
           result: undefined,
         };
@@ -162,7 +166,9 @@ export class CorePluginRegistryServiceImpl implements PluginRegistryService {
     attempt("listEnabledForAgent", async () => {
       const state = await this.lifecycle.stateStore.read();
       return Object.entries(state.plugins)
-        .filter(([, record]) => record.enabledAgentIds.includes(agentId))
+        .filter(
+          ([, record]) => record.enabledForAllAgents || record.enabledAgentIds.includes(agentId),
+        )
         .sort(([left], [right]) => left.localeCompare(right))
         .map(([, record]) => toInstalled(record));
     });

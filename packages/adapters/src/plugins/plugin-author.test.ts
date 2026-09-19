@@ -31,6 +31,7 @@ describe("packPlugin", () => {
         version: "1.0.0",
         hostApi: 1,
         hooks: [],
+        policyHooks: [],
         decisionProviders: [],
         network: { destinations: [] },
         dataSent: [],
@@ -60,6 +61,7 @@ describe("packPlugin", () => {
         version: "1.0.0",
         hostApi: 1,
         hooks: [],
+        policyHooks: [],
         decisionProviders: [],
         network: { destinations: [] },
         dataSent: [],
@@ -93,6 +95,53 @@ describe("packPlugin", () => {
     expect(result.routeSkillsOutcome?.status).toBe("answered");
   });
 
+  test("dev-runs a declared command-risk policy hook", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "jazz-plugin-policy-dev-"));
+    await fs.mkdir(path.join(root, "src"));
+    await fs.writeFile(
+      path.join(root, "src/index.ts"),
+      [
+        "export default { apiVersion: 1, register(api) {",
+        'api.policy.register("classify.command-risk", async () => ({',
+        'status: "answered", distribution: {',
+        "readOnlyProbability: 0.95, lowRiskProbability: 0.03, highRiskProbability: 0.02",
+        "} }));",
+        "} } as const;",
+      ].join("\n"),
+    );
+    await fs.writeFile(
+      path.join(root, "jazz-plugin.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        id: "com.jazz.test.policy-dev",
+        name: "Policy dev test",
+        version: "1.0.0",
+        hostApi: 1,
+        hooks: [],
+        policyHooks: ["classify.command-risk"],
+        decisionProviders: [],
+        network: { destinations: [] },
+        dataSent: ["proposed shell command text"],
+        secrets: [],
+      }),
+    );
+
+    const result = await devPlugin({
+      pluginDirectory: root,
+      commandRiskInput: { command: "git status" },
+    });
+
+    expect(result.registeredPolicyHooks).toEqual(["classify.command-risk"]);
+    expect(result.commandRiskOutcome).toEqual({
+      status: "answered",
+      distribution: {
+        readOnlyProbability: 0.95,
+        lowRiskProbability: 0.03,
+        highRiskProbability: 0.02,
+      },
+    });
+  });
+
   test("probe rejects registrations missing from the packed declaration", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "jazz-plugin-probe-declaration-"));
     await fs.mkdir(path.join(root, "src"));
@@ -109,6 +158,7 @@ describe("packPlugin", () => {
         version: "1.0.0",
         hostApi: 1,
         hooks: ["route.skills"],
+        policyHooks: [],
         decisionProviders: [],
         network: { destinations: [] },
         dataSent: [],

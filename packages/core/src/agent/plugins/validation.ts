@@ -3,11 +3,15 @@
 import {
   MAX_DECISION_OPTIONS,
   MAX_DECISION_QUESTIONS,
+  MAX_COMMAND_RISK_COMMAND_CHARS,
+  MAX_POLICY_ABSTENTION_REASON_CHARS,
   MAX_PLUGIN_IDENTIFIER_LENGTH,
   MAX_PLUGIN_STATE_BYTES,
   PluginValidationError,
   type DecisionBatchResult,
   type DecisionRequest,
+  type CommandRiskInput,
+  type CommandRiskOutcome,
   type JsonValue,
   type PluginManifest,
   type SkillRouteDistribution,
@@ -54,6 +58,10 @@ export function validatePluginManifest(manifest: PluginManifest): PluginManifest
   if (new Set(manifest.hooks).size !== manifest.hooks.length) fail("manifest hooks must be unique");
   if (manifest.hooks.some((hook) => hook !== "route.skills"))
     fail("manifest contains an unknown hook");
+  if (new Set(manifest.policyHooks).size !== manifest.policyHooks.length)
+    fail("manifest policy hooks must be unique");
+  if (manifest.policyHooks.some((hook) => hook !== "classify.command-risk"))
+    fail("manifest contains an unknown policy hook");
   const secretNames = manifest.secrets.map(({ name }) => name);
   if (
     secretNames.some((name) => !validIdentifier(name)) ||
@@ -62,6 +70,63 @@ export function validatePluginManifest(manifest: PluginManifest): PluginManifest
     fail("manifest secret names must be valid and unique");
   }
   return manifest;
+}
+
+export function validateCommandRiskInput(input: CommandRiskInput): CommandRiskInput {
+  if (
+    input === null ||
+    typeof input !== "object" ||
+    Array.isArray(input) ||
+    Object.keys(input).length !== 1 ||
+    !Object.hasOwn(input, "command")
+  ) {
+    fail("command risk input must contain exactly command");
+  }
+  if (
+    typeof input.command !== "string" ||
+    input.command.length === 0 ||
+    input.command.length > MAX_COMMAND_RISK_COMMAND_CHARS
+  ) {
+    fail(`command must contain 1-${MAX_COMMAND_RISK_COMMAND_CHARS} characters`);
+  }
+  return input;
+}
+
+export function validateCommandRiskOutcome(outcome: CommandRiskOutcome): CommandRiskOutcome {
+  if (outcome === null || typeof outcome !== "object" || Array.isArray(outcome))
+    fail("policy hook returned no outcome");
+  if (outcome.status === "abstained") {
+    if (
+      Object.keys(outcome).length !== 2 ||
+      !Object.hasOwn(outcome, "reason") ||
+      typeof outcome.reason !== "string" ||
+      outcome.reason.trim().length === 0 ||
+      outcome.reason.length > MAX_POLICY_ABSTENTION_REASON_CHARS
+    ) {
+      fail(`abstention reason must contain 1-${MAX_POLICY_ABSTENTION_REASON_CHARS} characters`);
+    }
+    return outcome;
+  }
+  if (outcome.status !== "answered") fail("policy hook returned an unknown outcome status");
+  if (Object.keys(outcome).length !== 2 || !Object.hasOwn(outcome, "distribution")) {
+    fail("answered policy outcome must contain exactly status and distribution");
+  }
+  const distribution = outcome.distribution;
+  if (distribution === null || typeof distribution !== "object")
+    fail("command risk distribution must be an object");
+  const keys = Object.keys(distribution).sort();
+  const expected = ["highRiskProbability", "lowRiskProbability", "readOnlyProbability"].sort();
+  if (keys.length !== expected.length || keys.some((key, index) => key !== expected[index]))
+    fail("command risk distribution must contain exactly three probabilities");
+  assertProbability(distribution.readOnlyProbability, "readOnlyProbability");
+  assertProbability(distribution.lowRiskProbability, "lowRiskProbability");
+  assertProbability(distribution.highRiskProbability, "highRiskProbability");
+  const sum =
+    distribution.readOnlyProbability +
+    distribution.lowRiskProbability +
+    distribution.highRiskProbability;
+  if (Math.abs(sum - 1) > EPSILON) fail("command risk probabilities must sum to 1");
+  return outcome;
 }
 
 export function validateDecisionRequest(request: DecisionRequest): DecisionRequest {

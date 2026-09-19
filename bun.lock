@@ -236,6 +236,13 @@
         "@jazz/core": "workspace:*",
       },
     },
+    "plugins/jev": {
+      "name": "@jazz-plugin/jev",
+      "version": "0.1.0",
+      "devDependencies": {
+        "@jazz/plugin-sdk": "workspace:*",
+      },
+    },
   },
   "packages": {
     "@a2a-js/sdk": ["@a2a-js/sdk@1.2.0", "", { "dependencies": { "jose": "^6.2.3" }, "peerDependencies": { "@bufbuild/protobuf": "^2.10.2", "@grpc/grpc-js": "^1.11.0", "express": "^4.21.2 || ^5.1.0" }, "optionalPeers": ["@bufbuild/protobuf", "@grpc/grpc-js", "express"] }, "sha512-zxjvBrxhPV4J/RN8QTbsYaUIu9Y9RvmR06IP5o42UdJX42A9I0m1StGVvqrcCQ3bdu3SzWHPm5CeC2FNHARvkw=="],
@@ -531,6 +538,8 @@
     "@img/sharp-win32-ia32": ["@img/sharp-win32-ia32@0.35.4", "", { "os": "win32", "cpu": "ia32" }, "sha512-kqRsbaa5CS6KHlpxnN7WhE6vAAugXyZButpRdvDWetlv6Qv4N9WTcrWzF7tXfB9T7MsoadqdI8hmwLq6UlLvtw=="],
 
     "@img/sharp-win32-x64": ["@img/sharp-win32-x64@0.35.4", "", { "os": "win32", "cpu": "x64" }, "sha512-XtmnYhBcrORsJ4XJngyzr/EWP0hRZLAZRFaApdKuviyqF78+ylxh2y06ZmtULAMOnObJ3ucpN0AcwSWnMowTRg=="],
+
+    "@jazz-plugin/jev": ["@jazz-plugin/jev@workspace:plugins/jev"],
 
     "@jazz/adapters": ["@jazz/adapters@workspace:packages/adapters"],
 

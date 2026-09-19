@@ -4,10 +4,11 @@ description: "Install, inspect, trust, configure, enable, update, and remove opt
 
 # Plugins
 
-Jazz plugins are optional, pre-bundled JavaScript modules that add advisory harness behavior. They
-are not model-selected tools. Version 1 exposes one hook, `route.skills`, which may suggest a skill
-before the first model request. It cannot authorize a tool, change approval policy, or execute an
-action on the model's behalf.
+Jazz plugins are optional, pre-bundled JavaScript modules that add bounded harness behavior. They
+are not model-selected tools and cannot execute an action on the model's behalf. Version 1 exposes
+an advisory hook, `route.skills`, and a policy hook, `classify.command-risk`. The distinction is
+important: routing only suggests context, while command-risk classification can affect whether the
+active approval policy requires a person to approve one shell command.
 
 Plugins are absent and disabled by default. A normal Jazz installation has no plugin network call,
 latency, prompt change, or credential requirement.
@@ -30,15 +31,39 @@ jazz plugin add ./release/catalog-entry.json
 jazz plugin inspect com.example.router
 jazz plugin trust com.example.router
 jazz plugin enable com.example.router --agent default
+# Or enable for every agent, including agents created later:
+jazz plugin enable com.example.router
 ```
 
 `add` verifies and stores bytes but never imports them. Jazz imports a module lazily only for a run
-whose agent has enabled it and whose exact code and consent digests are still granted.
+whose agent has enabled it — per agent, or for all agents — and whose exact code and consent digests
+are still granted.
 
-Enabled `route.skills` plugins currently run in shadow mode: bounded usage, latency, and cost are
-measured, but their answer does not change the provider request. Maintainers can explicitly test
-host-rendered advisory injection with `JAZZ_EXPERIMENTAL_PLUGIN_ADVISORY=1`; this is not enabled by
-installation, trust, or consent and remains gated on held end-to-end eval results.
+An enabled `route.skills` plugin ranks the live skills for the turn, and Jazz adds a short,
+non-authoritative relevance hint for the top skill to the first provider request when it beats the
+no-skill option. The hint is transient provider context: it never enters durable history, resume
+state, work state, or telemetry, and the plugin can never load a skill, change tools, or authorize
+anything. Any error or abstention falls back to deterministic behavior, and routing is skipped for
+resumes and summarizer runs.
+
+## Command-risk policy hook
+
+`classify.command-risk` is eligible only for `execute_command`, whose declared risk is `unknown`
+because its arguments determine what it can do. The plugin classifies the proposed command as
+`read-only`, `low-risk`, or `high-risk`; Jazz validates that result and applies the operator's
+approval policy. A lower classification can therefore remove an approval prompt. Enabling this hook
+is explicit consent to that effect.
+
+The plugin is not the enforcement point. It cannot lower another tool's declared risk, expand the
+run's effective tool set, override a command allowlist, change the selected approval tier, or bypass
+the shell denylist. Jazz sends the hook only the bounded command string: not conversation history,
+tool results, environment variables, or file contents. Network-backed manifests must disclose that
+command-text egress and its exact destination before local consent can be granted.
+
+If the hook is absent, abstains, times out, fails validation, exceeds its budget, or becomes
+unavailable, Jazz falls back to its built-in command classifier. If classification remains
+unresolved, the command is treated as `high-risk`. Plugin failure never silently makes an unknown
+command safer.
 
 ## Lifecycle
 
@@ -63,7 +88,9 @@ SHA-256. State transitions are cross-process locked and atomically committed.
 ## Secrets
 
 A plugin may ask only for secret names declared in its manifest. Resolution is environment first,
-then Jazz-owned secure storage. Set or clear a stored value without putting it in shell history:
+then Jazz-owned secure storage. `jazz plugin enable` prompts for any required secret it cannot
+already resolve and stores it in secure storage, so first-time setup needs no manual export or
+separate command. Set or clear a stored value later without putting it in shell history:
 
 ```bash
 jazz plugin secret set com.example.router apiKey
@@ -83,8 +110,13 @@ bun install
 # Commit the generated bun.lock before publishing.
 bun test
 jazz plugin dev . --hook route.skills --input fixtures/request.json
+jazz plugin dev . --hook classify.command-risk --input fixtures/command.json
 jazz plugin pack .
 ```
+
+The command-risk fixture is a JSON object such as `{ "command": "git status" }`. Development
+probing resolves declared environment-backed secrets from the current shell, while keeping the
+plugin disposable and out of installed state.
 
 `pack` produces one self-contained `release/plugin.mjs`, its SHA-256 file, and a catalog entry. All
 package dependencies must be bundled. Runtime imports, native addons, emitted assets, and install
