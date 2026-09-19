@@ -565,6 +565,14 @@ function registerConfigCommands(program: Command): void {
   const configCommand = program.command("config").description("Manage configuration");
 
   configCommand
+    .command("validate")
+    .description("Validate configuration files without starting Jazz")
+    .action(async () => {
+      const { runConfigValidation } = await import("./app-layer");
+      await runConfigValidation(cliRuntimeOptions(program).configPath);
+    });
+
+  configCommand
     .command("get <key>")
     .description("Get a configuration value")
     .action((key: string) =>

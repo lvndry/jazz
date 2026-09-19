@@ -323,11 +323,12 @@ See [Personas](./concepts/personas.md).
 
 ## `jazz config`
 
-| Command                         | Purpose                       |
-| ------------------------------- | ----------------------------- |
-| `jazz config show`              | Show all configuration values |
-| `jazz config get <key>`         | Get one value                 |
-| `jazz config set <key> [value]` | Set one value                 |
+| Command                         | Purpose                                             |
+| ------------------------------- | --------------------------------------------------- |
+| `jazz config show`              | Show all configuration values                       |
+| `jazz config validate`          | Check config files without starting the application |
+| `jazz config get <key>`         | Get one value                                       |
+| `jazz config set <key> [value]` | Set one value                                       |
 
 See [Configuration](./configure/jazz.md).
 

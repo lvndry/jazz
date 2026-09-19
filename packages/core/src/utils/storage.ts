@@ -99,6 +99,8 @@ export function abbreviateHomePath(targetPath: string): string {
 export interface AtomicFileWriteOptions {
   /** Human-readable prefix used to identify leftover temporary files. */
   readonly tempPrefix: string;
+  /** File mode applied when creating the sibling temporary file. */
+  readonly mode?: number;
 }
 
 function toError(error: unknown): Error {
@@ -186,7 +188,11 @@ export function writeFileStringAtomic(
     );
 
     yield* fs.makeDirectory(directory, { recursive: true }).pipe(Effect.mapError(toError));
-    yield* fs.writeFileString(tempPath, content).pipe(Effect.mapError(toError));
+    const write =
+      options.mode === undefined
+        ? fs.writeFileString(tempPath, content)
+        : fs.writeFileString(tempPath, content, { mode: options.mode });
+    yield* write.pipe(Effect.mapError(toError));
     yield* fs.rename(tempPath, targetPath).pipe(
       Effect.tapError(() => fs.remove(tempPath).pipe(Effect.catchAll(() => Effect.void))),
       Effect.mapError(toError),

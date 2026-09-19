@@ -5,6 +5,7 @@ import {
   parseConfigFile,
   parseConfigInput,
   resolveConfigPath,
+  validateEffectiveConfig,
 } from "./config-schema";
 
 const neverSecret = () => false;
@@ -125,6 +126,8 @@ describe("parseConfigFile", () => {
     const { issues } = parseConfigFile({
       maxRetries: -1,
       maxIterations: 2.5,
+      maxCostUSD: 0,
+      maxTokens: 0,
       llm: { streamIdleTimeoutMs: 0 },
       output: { streaming: { enabled: "sometimes" } },
       scheduler: { mode: "cron" },
@@ -135,10 +138,30 @@ describe("parseConfigFile", () => {
     );
     expect(expectations).toEqual({
       maxRetries: "a whole number of 0 or more",
-      maxIterations: "a whole number of 0 or more",
+      maxIterations: "a whole number greater than 0",
+      maxCostUSD: "a number greater than 0",
+      maxTokens: "a whole number greater than 0",
       "llm.streamIdleTimeoutMs": "a whole number greater than 0",
       "output.streaming.enabled": "true, false, or auto",
       "scheduler.mode": "auto or in-process",
+    });
+  });
+
+  it("enforces context thresholds before readers can silently replace them", () => {
+    const { issues } = parseConfigFile({
+      context: { warnThresholdRatio: 0.9, compactThresholdRatio: 0.8 },
+    });
+
+    expect(issues).toContainEqual({
+      kind: "invalid-value",
+      path: "context.warnThresholdRatio",
+      removed: "context.warnThresholdRatio",
+      expected: "a number greater than 0 and less than 1",
+      actual: 0.9,
+    });
+    expect(parseConfigFile({ context: { compactThresholdRatio: 0.95 } }).issues[0]).toMatchObject({
+      path: "context.compactThresholdRatio",
+      expected: "a number greater than 0 and less than 0.95",
     });
   });
 
@@ -168,10 +191,21 @@ describe("formatConfigIssues", () => {
     const { issues } = parseConfigFile({ maxRetries: "5", maxRetrys: 1 });
 
     expect(formatConfigIssues("/home/u/.jazz/config.json", issues, neverSecret)).toBe(
-      "jazz: ignoring 2 entries in /home/u/.jazz/config.json; defaults apply instead:\n" +
+      "jazz: invalid configuration in /home/u/.jazz/config.json (2 entries):\n" +
         '  maxRetries: expected a whole number of 0 or more, got "5"\n' +
         "  maxRetrys: not a setting — did you mean maxRetries?\n",
     );
+  });
+
+  it("requires one complete storage variant", () => {
+    expect(parseConfigFile({ storage: { type: "file", path: "/data" } }).issues).toEqual([]);
+    expect(parseConfigFile({ storage: { type: "database" } }).issues).toContainEqual({
+      kind: "invalid-value",
+      path: "storage.connectionString",
+      removed: "storage",
+      expected: "text",
+      actual: undefined,
+    });
   });
 
   it("never echoes a value found at a secret path", () => {
@@ -181,6 +215,24 @@ describe("formatConfigIssues", () => {
 
     expect(message).toContain("llm.openai.api_key: expected text, got a number");
     expect(message).not.toContain("123456789");
+  });
+});
+
+describe("validateEffectiveConfig", () => {
+  it("catches an invalid threshold order that may come from two different files", () => {
+    expect(
+      validateEffectiveConfig({
+        context: { warnThresholdRatio: 0.7, compactThresholdRatio: 0.6 },
+      }),
+    ).toEqual([
+      {
+        kind: "invalid-value",
+        path: "context.warnThresholdRatio",
+        removed: "context.warnThresholdRatio",
+        expected: "a number below context.compactThresholdRatio",
+        actual: 0.7,
+      },
+    ]);
   });
 });
 
@@ -203,6 +255,7 @@ describe("resolveConfigPath", () => {
     expect(resolveConfigPath("defaultModel")).toEqual({ known: false });
     expect(resolveConfigPath("webhooks.0.name")).toEqual({ known: false });
     expect(resolveConfigPath("output..mode")).toEqual({ known: false });
+    expect(resolveConfigPath("mcpServers.__proto__.enabled")).toEqual({ known: false });
   });
 });
 

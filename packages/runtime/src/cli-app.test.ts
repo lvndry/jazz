@@ -66,4 +66,10 @@ describe("createCLIApp help path", () => {
       ]),
     );
   });
+
+  it("keeps config validation available as a recovery command", () => {
+    const program = createCLIApp();
+    const config = program.commands.find((command) => command.name() === "config");
+    expect(config?.commands.map((command) => command.name())).toContain("validate");
+  });
 });

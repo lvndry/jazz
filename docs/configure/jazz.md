@@ -30,7 +30,7 @@ Configuration files are partial overrides, so include only values you intend to 
 }
 ```
 
-Use `jazz config show`, `jazz config get <key>`, or `jazz config set <key> <value>` instead of editing JSON when practical.
+Use `jazz config show`, `jazz config get <key>`, or `jazz config set <key> <value>` instead of editing JSON when practical. `jazz config validate` checks the global and project files without starting the rest of Jazz, so it remains usable when an invalid file blocks normal startup.
 
 `jazz config set` stores a value with the type the setting is read back as: `jazz config set maxRetries 5` stores the number `5`, and `jazz config set output.collapseReasoning false` stores the boolean `false`. Text settings such as API keys, paths, `logging.level`, and `llm.ollama.keep_alive` are stored as typed. A value that cannot be read as the setting's type is refused instead of written, because a string in a numeric or boolean field is ignored by everything that reads it:
 
@@ -44,19 +44,19 @@ $ jazz config set maxRetries never
 
 It also refuses a key Jazz does not read, suggesting the one a typo most likely meant (`maxRetrys` → `maxRetries`). Lists such as `peers` and `webhooks` are not set one field at a time; use `jazz peers` and `jazz webhook`, or edit the file.
 
-A write changes only the key you set, and only in the global file. Values merged in from a project file, from `--debug`, from environment variables, or from the keyring are never copied into it, and entries Jazz cannot read are left in place.
+A write changes only the key you set, and only in the global file. Values merged in from a project file, from `--debug`, from environment variables, or from the keyring are never copied into it. Jazz takes a cross-process lock, re-reads the latest file before applying the change, and atomically replaces it, so a concurrent edit is preserved. Unknown or invalid entries remain untouched, but Jazz refuses to overwrite malformed JSON.
 
 ## Mistakes in a configuration file
 
-Jazz checks each configuration file as it loads. A value of the wrong type, or a key Jazz does not recognise, is ignored in favour of the default and reported on stderr. Jazz does not refuse to start over it, because a daemon or a scheduled run has nobody to read a refusal:
+Jazz checks each configuration file before it can affect runtime behavior. A value of the wrong type, an unknown key, or an invalid safety invariant is reported and ignored; valid siblings still load, and Jazz continues with the setting's default. If the JSON itself is malformed, Jazz reports it and uses defaults for that file rather than refusing to start:
 
 ```console
-jazz: ignoring 2 entries in /home/you/.jazz/config.json; defaults apply instead:
+jazz: invalid configuration in /home/you/.jazz/config.json (2 entries):
   maxRetries: expected a whole number of 0 or more, got "5"
   maxRetrys: not a setting — did you mean maxRetries?
 ```
 
-A broken entry in a list is ignored as a whole: a webhook missing its `promptTemplate` is not served at all. A value found where a secret belongs is described by its type and never printed.
+Run `jazz config validate` for the same diagnostics and a non-zero exit status, without constructing the application layer. A daemon that notices an invalid live edit keeps serving its last-known-good configuration and reports the problem; once the file is repaired, a later reload adopts it. A value found where a secret belongs is described by its type and never printed.
 
 ## Run budgets
 
@@ -86,7 +86,7 @@ Command-line and workflow values override application defaults for that run.
 }
 ```
 
-Both values are fractions of the effective model context window. Jazz requires `warnThresholdRatio < compactThresholdRatio < 0.95`; invalid values are ignored in favor of defaults. See [Long-running work](../features/long-running-work.md).
+Both values are fractions of the effective model context window. Jazz requires `warnThresholdRatio < compactThresholdRatio < 0.95`; invalid values are reported and the defaults apply. See [Long-running work](../features/long-running-work.md).
 
 ## Output and notifications
 

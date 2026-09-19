@@ -7,7 +7,7 @@
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { createAgentServiceLayer } from "@jazz/adapters/agent-service";
-import { createConfigLayer } from "@jazz/adapters/config";
+import { createConfigLayer, validateConfigFiles } from "@jazz/adapters/config";
 import { createFileSystemContextServiceLayer } from "@jazz/adapters/fs";
 import { createJazzStateServiceLayer } from "@jazz/adapters/jazz-state";
 import { createJobQueueServiceLayer } from "@jazz/adapters/job-queue-service";
@@ -498,4 +498,24 @@ export function runCliEffect<R, E extends JazzError | Error>(
   ) as Effect.Effect<void, never, never>;
 
   void Effect.runPromise(managedEffect);
+}
+
+/**
+ * Run config validation without building the app layer, which may itself be blocked by the
+ * invalid file this recovery command is meant to diagnose.
+ */
+export async function runConfigValidation(configPath?: string): Promise<void> {
+  const exit = await Effect.runPromiseExit(
+    validateConfigFiles(configPath).pipe(Effect.provide(NodeFileSystem.layer)),
+  );
+  if (Exit.isSuccess(exit)) {
+    const detail =
+      exit.value.paths.length === 0 ? "No configuration files found." : exit.value.paths.join(", ");
+    console.log(`Configuration is valid. ${detail}`);
+    return;
+  }
+
+  const failure = Cause.failureOption(exit.cause);
+  console.error(Option.isSome(failure) ? failure.value.message : Cause.pretty(exit.cause));
+  process.exitCode = 1;
 }

@@ -8,9 +8,9 @@
  * `.agents/mcp.json`; and `daemon.token` may appear, the one secret whose no-keyring fallback
  * lands in this file under a section `AppConfig` does not model.
  *
- * - `parseConfigFile` checks a file as loaded. An invalid value or unknown key is removed and
- *   reported, never thrown: a daemon or a scheduled run has nobody to read a refusal, and running
- *   on a default beats not running. `formatConfigIssues` renders the report.
+ * - `parseConfigFile` checks a file as loaded and returns every problem alongside the largest
+ *   valid subset. The adapter decides whether this is an initial load, which must fail closed, or
+ *   a live reload, which keeps serving the last-known-good configuration.
  * - `parseConfigInput` turns one `jazz config set` argument, which is always a string, into the
  *   type its path declares — or says why it cannot.
  * - `checkConfigWrite` checks a value an internal caller hands `AgentConfigService.set`.
@@ -65,18 +65,9 @@ type SchemaShape<T> = {
   readonly [K in keyof T]-?: z.ZodType<FileShape<Exclude<T[K], undefined>> | undefined>;
 };
 
-/** Every key of every member of a union, each optional: how a partial file spells a tagged union. */
-type Flatten<U> = {
-  readonly [K in U extends unknown ? keyof U : never]?: U extends unknown
-    ? K extends keyof U
-      ? U[K]
-      : never
-    : never;
-};
-
 /** Everything one config file may hold. The file comment explains how it differs from `AppConfig`. */
 export interface ConfigFileContents extends Omit<AppConfig, "storage" | "mcpServers"> {
-  readonly storage?: Flatten<StorageConfig>;
+  readonly storage?: StorageConfig;
   readonly mcpServers?: Readonly<Record<string, MCPServerOverride>>;
   readonly daemon?: { readonly token?: string };
 }
@@ -94,14 +85,25 @@ function exhaustiveEnum<T extends string>() {
 
 const text = z.string();
 const flag = z.boolean();
-const wholeNumber = z.int().nonnegative();
+const expectedDescriptions = new WeakMap<z.ZodType, string>();
+const unsafePathSegments: ReadonlySet<string> = new Set(["__proto__", "constructor", "prototype"]);
+const safeRecordKey = z.string().refine((key) => !unsafePathSegments.has(key), {
+  message: "reserved object key",
+});
+
+function described<T extends z.ZodType>(schema: T, expected: string): T {
+  expectedDescriptions.set(schema, expected);
+  return schema;
+}
+
+const wholeNumber = described(z.int().nonnegative(), "a whole number of 0 or more");
+const positiveWholeNumber = described(z.int().positive(), "a whole number greater than 0");
 const names = z.array(z.string());
 
-const storageShape = {
-  type: exhaustiveEnum<StorageConfig["type"]>()(["file", "database"]).exactOptional(),
-  path: text.exactOptional(),
-  connectionString: text.exactOptional(),
-} satisfies SchemaShape<Flatten<StorageConfig>>;
+const storageSchema = z.discriminatedUnion("type", [
+  z.strictObject({ type: z.literal("file"), path: text }),
+  z.strictObject({ type: z.literal("database"), connectionString: text }),
+]);
 
 const loggingShape = {
   level: exhaustiveEnum<LoggingConfig["level"]>()([
@@ -118,7 +120,7 @@ const apiKeyOnly = z
   .exactOptional();
 
 const llmShape = {
-  streamIdleTimeoutMs: z.int().positive().exactOptional(),
+  streamIdleTimeoutMs: positiveWholeNumber.exactOptional(),
   ai_gateway: apiKeyOnly,
   alibaba: apiKeyOnly,
   anthropic: z
@@ -193,8 +195,9 @@ const otlpShape = {
   endpoint: text.exactOptional(),
   tracesEndpoint: text.exactOptional(),
   logsEndpoint: text.exactOptional(),
-  headers: z.record(z.string(), text).exactOptional(),
+  headers: z.record(safeRecordKey, text).exactOptional(),
   serviceName: text.exactOptional(),
+  resourceAttributes: z.record(safeRecordKey, text).exactOptional(),
   captureContent: flag.exactOptional(),
   timeoutMs: wholeNumber.exactOptional(),
 } satisfies SchemaShape<OtlpTelemetryConfig>;
@@ -208,10 +211,30 @@ const telemetryShape = {
   otlp: z.strictObject(otlpShape).exactOptional(),
 } satisfies SchemaShape<TelemetryConfig>;
 
+const contextRatio = described(z.number().gt(0).lt(1), "a number greater than 0 and less than 1");
+const compactContextRatio = described(
+  z.number().gt(0).lt(0.95),
+  "a number greater than 0 and less than 0.95",
+);
+
 const contextShape = {
-  warnThresholdRatio: z.number().exactOptional(),
-  compactThresholdRatio: z.number().exactOptional(),
+  warnThresholdRatio: contextRatio.exactOptional(),
+  compactThresholdRatio: compactContextRatio.exactOptional(),
 } satisfies SchemaShape<ContextConfig>;
+
+const contextSchema = z.strictObject(contextShape).superRefine((context, refinement) => {
+  if (
+    context.warnThresholdRatio !== undefined &&
+    context.compactThresholdRatio !== undefined &&
+    context.warnThresholdRatio >= context.compactThresholdRatio
+  ) {
+    refinement.addIssue({
+      code: "custom",
+      path: ["warnThresholdRatio"],
+      message: "must be below compactThresholdRatio",
+    });
+  }
+});
 
 const schedulerShape = {
   mode: exhaustiveEnum<SchedulerMode>()(["auto", "in-process"]).exactOptional(),
@@ -244,24 +267,25 @@ const webhookShape = {
 } satisfies SchemaShape<WebhookConfig>;
 
 const configFileShape = {
-  storage: z.strictObject(storageShape).exactOptional(),
+  storage: storageSchema.exactOptional(),
   logging: z.strictObject(loggingShape).exactOptional(),
   llm: z.strictObject(llmShape).exactOptional(),
   web_search: z.strictObject(webSearchShape).exactOptional(),
   output: z.strictObject(outputShape).exactOptional(),
-  mcpServers: z.record(z.string(), z.strictObject(mcpOverrideShape)).exactOptional(),
+  mcpServers: z.record(safeRecordKey, z.strictObject(mcpOverrideShape)).exactOptional(),
   notifications: z.strictObject(notificationsShape).exactOptional(),
   autoApprovedCommands: names.exactOptional(),
   telemetry: z.strictObject(telemetryShape).exactOptional(),
   maxRetries: wholeNumber.exactOptional(),
+  editor: text.exactOptional(),
   maxSubagentDepth: wholeNumber.exactOptional(),
-  maxIterations: wholeNumber.exactOptional(),
-  maxSubagentIterations: wholeNumber.exactOptional(),
-  maxCostUSD: z.number().nonnegative().exactOptional(),
-  maxTokens: wholeNumber.exactOptional(),
-  maxDurationMs: wholeNumber.exactOptional(),
-  context: z.strictObject(contextShape).exactOptional(),
-  workspaceMaxTotalBytesPerAgent: wholeNumber.exactOptional(),
+  maxIterations: positiveWholeNumber.exactOptional(),
+  maxSubagentIterations: positiveWholeNumber.exactOptional(),
+  maxCostUSD: described(z.number().positive(), "a number greater than 0").exactOptional(),
+  maxTokens: positiveWholeNumber.exactOptional(),
+  maxDurationMs: positiveWholeNumber.exactOptional(),
+  context: contextSchema.exactOptional(),
+  workspaceMaxTotalBytesPerAgent: positiveWholeNumber.exactOptional(),
   scheduler: z.strictObject(schedulerShape).exactOptional(),
   peers: z.array(z.strictObject(peerShape)).exactOptional(),
   webhooks: z.array(z.strictObject(webhookShape)).exactOptional(),
@@ -290,6 +314,13 @@ function unwrap(schema: z.ZodType): z.ZodType {
 
 function childSchema(schema: z.ZodType, segment: PropertyKey): z.ZodType | undefined {
   const inner = unwrap(schema);
+  if (inner instanceof z.ZodUnion) {
+    for (const option of inner.options as readonly z.ZodType[]) {
+      const child = childSchema(option, segment);
+      if (child !== undefined) return child;
+    }
+    return undefined;
+  }
   if (inner instanceof z.ZodObject) {
     return typeof segment === "string" && Object.hasOwn(inner.shape, segment)
       ? (inner.shape[segment] as z.ZodType)
@@ -330,10 +361,9 @@ function formatList(items: readonly string[]): string {
 }
 
 function describeNumber(schema: z.ZodNumber): string {
+  const described = expectedDescriptions.get(schema);
+  if (described !== undefined) return described;
   const kind = schema.isInt ? "a whole number" : "a number";
-  const bag = schema._zod.bag;
-  if (bag.exclusiveMinimum === 0) return `${kind} greater than 0`;
-  if (bag.minimum === 0) return `${kind} of 0 or more`;
   return kind;
 }
 
@@ -419,12 +449,42 @@ export interface ConfigFileParse {
 }
 
 /**
+ * Check invariants that can span independently valid files after they are merged.
+ *
+ * A global warning threshold and a project compaction threshold are each valid alone, yet their
+ * combination can invert the required warning-before-compaction order. Structural Zod validation
+ * cannot see across those ownership boundaries, so the effective view gets this final check.
+ */
+export function validateEffectiveConfig(
+  config: Pick<AppConfig, "context">,
+): readonly ConfigIssue[] {
+  const warn = config.context?.warnThresholdRatio;
+  const compact = config.context?.compactThresholdRatio;
+  if (warn === undefined || compact === undefined || warn < compact) return [];
+  return [
+    {
+      kind: "invalid-value",
+      path: "context.warnThresholdRatio",
+      removed: "context.warnThresholdRatio",
+      expected: "a number below context.compactThresholdRatio",
+      actual: warn,
+    },
+  ];
+}
+
+/**
  * Where to cut for a problem at `path`: the whole list entry when the problem is inside one, since
  * a webhook or peer missing a field is not a smaller webhook or peer but a broken one.
  */
 function removalPath(path: Path): Path {
   const index = path.findIndex((segment) => typeof segment === "number");
   return index === -1 ? path : path.slice(0, index + 1);
+}
+
+/** A missing required child makes its containing object invalid, so discard that object whole. */
+function issueRemovalPath(path: Path, actual: unknown): Path {
+  if (actual === undefined && path.length > 1) return removalPath(path.slice(0, -1));
+  return removalPath(path);
 }
 
 function removeAll(root: Record<string, unknown>, paths: readonly Path[]): void {
@@ -452,6 +512,15 @@ function removeAll(root: Record<string, unknown>, paths: readonly Path[]): void 
       list.splice(index, 1);
     }
   }
+}
+
+function valueAtPath(root: Record<string, unknown>, path: Path): unknown {
+  let value: unknown = root;
+  for (const segment of path) {
+    if (value === null || typeof value !== "object") return undefined;
+    value = (value as Record<PropertyKey, unknown>)[segment];
+  }
+  return value;
 }
 
 /** Removal can only shrink the input, so a pass that finds nothing new to remove never repeats. */
@@ -492,13 +561,14 @@ export function parseConfigFile(contents: Readonly<Record<string, unknown>>): Co
         }
         continue;
       }
-      const removed = removalPath(issue.path);
+      const actual = valueAtPath(working, issue.path);
+      const removed = issueRemovalPath(issue.path, actual);
       issues.push({
         kind: "invalid-value",
         path: formatConfigPath(issue.path),
         removed: formatConfigPath(removed),
         expected: describeExpected(schemaAt(issue.path)),
-        actual: issue.input,
+        actual,
       });
       removals.push(removed);
     }
@@ -540,7 +610,7 @@ export function formatConfigIssues(
     return `  ${issue.path}: expected ${issue.expected}, got ${actual}${entry}`;
   });
   const noun = issues.length === 1 ? "entry" : "entries";
-  return `jazz: ignoring ${issues.length} ${noun} in ${filePath}; defaults apply instead:\n${lines.join("\n")}\n`;
+  return `jazz: invalid configuration in ${filePath} (${issues.length} ${noun}):\n${lines.join("\n")}\n`;
 }
 
 /** How `jazz config set` should treat a path: a single value, a section, or not a setting at all. */
@@ -550,7 +620,9 @@ export type ConfigPathResolution =
 
 function parsePath(path: string): readonly string[] | undefined {
   const segments = path.split(".");
-  return segments.every((segment) => segment !== "") ? segments : undefined;
+  return segments.every((segment) => segment !== "" && !unsafePathSegments.has(segment))
+    ? segments
+    : undefined;
 }
 
 function isStructured(schema: z.ZodType): boolean {

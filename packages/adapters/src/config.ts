@@ -4,9 +4,9 @@
  * persisting a secret that came from somewhere other than the file back into it.
  *
  * Loading checks the global file and any project `./.jazz/config.json` against
- * `ConfigFileSchema`, reports and drops whatever does not fit, and lays what is left over the
- * defaults with a generic deep merge — so a setting added to the schema loads without a second
- * list of fields to keep in step with it.
+ * `ConfigFileSchema` before either can affect runtime behavior. Initial loads report and isolate
+ * invalid values so unattended work can continue; live reloads retain the last-known-good
+ * configuration until an edited file is valid again.
  *
  * Writing edits the global file as it was read, never the merged runtime view. Nothing from the
  * defaults, a project override, `--debug`, the environment or the keyring can reach the file
@@ -30,6 +30,7 @@ import {
   formatConfigIssues,
   parseConfigFile,
   type ConfigFile,
+  validateEffectiveConfig,
 } from "@jazz/core/utils/config-schema";
 import { safeParseJson } from "@jazz/core/utils/json";
 import {
@@ -41,6 +42,7 @@ import {
   migrateConfigProviderName,
   migrateKeyringProviderName,
 } from "@jazz/core/utils/provider-migration";
+import { withLock, writeFileStringAtomic } from "@jazz/core/utils/storage";
 import { Effect, Layer, Option } from "effect";
 import {
   detectKeyringBackend,
@@ -66,6 +68,16 @@ type SecretDestination = "keyring" | "file" | "cleared" | "nowhere";
 
 const EMPTY_CONFIG_FILE: ConfigFile = {};
 
+/** The independently owned layers needed to rebuild the effective runtime configuration. */
+interface RuntimeConfigSources {
+  readonly defaults: AppConfig;
+  global: ConfigFile;
+  readonly local: ConfigFile;
+  readonly debug: boolean;
+  readonly agentsServers: Record<string, MCPServerConfig>;
+  readonly resolvedSecrets: Map<string, string>;
+}
+
 /**
  * Configuration service over the merged runtime view, persisting to the global config file.
  */
@@ -82,6 +94,7 @@ export class AgentConfigServiceImpl implements AgentConfigService {
   /** When config.json was last read, so an external edit can be noticed. */
   private loadedAt: number | undefined;
   private keyringBackend: KeyringBackend;
+  private readonly sources: RuntimeConfigSources | undefined;
   /**
    * Secrets that could not be stored anywhere: no keyring, and no structural home in the
    * config file. Tracked so a command can report the failure instead of claiming success.
@@ -94,6 +107,7 @@ export class AgentConfigServiceImpl implements AgentConfigService {
     configPath: string | undefined,
     fs: FileSystem.FileSystem,
     keyringBackend: KeyringBackend = "none",
+    sources?: RuntimeConfigSources,
   ) {
     this.currentConfig = initialConfig;
     this.fileDocument = fileDocument;
@@ -101,6 +115,7 @@ export class AgentConfigServiceImpl implements AgentConfigService {
     this.fs = fs;
     this.currentRevision = 0;
     this.keyringBackend = keyringBackend;
+    this.sources = sources;
   }
 
   get<A>(key: string): Effect.Effect<A, never> {
@@ -153,16 +168,6 @@ export class AgentConfigServiceImpl implements AgentConfigService {
           }
         }
 
-        this.applyToRuntime(key, value, secret);
-
-        if (secret) {
-          const destination = yield* this.storeSecret(key, value);
-          if (destination === "file") deepSet(this.fileDocument, key, value);
-          else if (destination !== "nowhere") deepDelete(this.fileDocument, key);
-        } else {
-          writeToDocument(this.fileDocument, key, value);
-        }
-
         const path = this.configPath ?? `${getJazzHomeDirectory()}/config.json`;
         if (!this.configPath) {
           this.configPath = path;
@@ -172,10 +177,73 @@ export class AgentConfigServiceImpl implements AgentConfigService {
             .pipe(Effect.catchAll(() => Effect.void));
         }
 
-        yield* writePrivateFile(this.fs, path, JSON.stringify(this.fileDocument, null, 2));
-        this.currentRevision += 1;
+        yield* withLock(`${path}.lock`, this.writeValueLocked(path, key, value, secret)).pipe(
+          Effect.provideService(FileSystem.FileSystem, this.fs),
+          Effect.orDie,
+        );
       }.bind(this),
     ).pipe(Effect.catchAll(() => Effect.void));
+  }
+
+  /** Re-read, patch, validate, atomically persist, then commit the new in-memory view. */
+  private writeValueLocked(
+    path: string,
+    key: string,
+    value: unknown,
+    secret: boolean,
+  ): Effect.Effect<void, never> {
+    return Effect.gen(
+      function* (this: AgentConfigServiceImpl) {
+        const latestDocument =
+          this.sources === undefined
+            ? this.fileDocument
+            : yield* readConfigDocumentForWrite(this.fs, path);
+        const nextDocument = structuredClone(latestDocument);
+
+        const nextResolvedSecrets =
+          this.sources === undefined ? undefined : new Map(this.sources.resolvedSecrets);
+
+        if (secret) {
+          const destination = yield* this.storeSecret(key, value);
+          if (destination === "file") deepSet(nextDocument, key, value);
+          else if (destination !== "nowhere") deepDelete(nextDocument, key);
+          if (destination === "file" || destination === "keyring") {
+            nextResolvedSecrets?.set(key, value as string);
+          } else if (destination === "cleared") {
+            nextResolvedSecrets?.delete(key);
+          }
+        } else {
+          writeToDocument(nextDocument, key, value);
+        }
+
+        const checked = parseCheckedConfigFile(path, nextDocument);
+
+        const nextRuntime =
+          this.sources === undefined
+            ? undefined
+            : buildRuntimeConfig({
+                ...this.sources,
+                global: checked.config,
+                resolvedSecrets: nextResolvedSecrets ?? new Map<string, string>(),
+              });
+        const effectiveRuntime =
+          nextRuntime === undefined ? undefined : sanitizeEffectiveConfig(nextRuntime);
+
+        yield* writePrivateFile(this.fs, path, JSON.stringify(nextDocument, null, 2));
+        this.fileDocument = nextDocument;
+        if (this.sources === undefined) {
+          this.applyToRuntime(key, value, secret);
+        } else {
+          this.sources.resolvedSecrets.clear();
+          for (const [secretPath, secretValue] of nextResolvedSecrets ?? []) {
+            this.sources.resolvedSecrets.set(secretPath, secretValue);
+          }
+          this.sources.global = checked.config;
+          this.currentConfig = effectiveRuntime as AppConfig;
+        }
+        this.currentRevision += 1;
+      }.bind(this),
+    );
   }
 
   /** Mirror a write into the merged runtime view, so readers see it without a reload. */
@@ -254,16 +322,44 @@ export class AgentConfigServiceImpl implements AgentConfigService {
           .readFileString(path)
           .pipe(Effect.catchAll(() => Effect.succeed("")));
         const document = parseConfigDocument(content);
-        if (document === undefined) return false;
+        if (document === undefined) {
+          process.stderr.write(
+            `jazz: invalid configuration in ${path}: expected a JSON object.\n` +
+              "jazz: keeping the last-known-good configuration until the file is fixed.\n",
+          );
+          return false;
+        }
 
         migrateConfigProviderName(document);
+        const checked = parseCheckedConfigFile(path, document);
+        if (checked.report !== undefined) {
+          process.stderr.write(
+            `${checked.report.trimEnd()}\n` +
+              "jazz: keeping the last-known-good configuration until the file is fixed.\n",
+          );
+          return false;
+        }
+        if (this.sources === undefined) {
+          const fromFile = checked.config;
+          this.currentConfig = {
+            ...this.currentConfig,
+            ...(fromFile.webhooks !== undefined ? { webhooks: fromFile.webhooks } : {}),
+            ...(fromFile.peers !== undefined ? { peers: fromFile.peers } : {}),
+          };
+        } else {
+          const nextRuntime = buildRuntimeConfig({ ...this.sources, global: checked.config });
+          const report = effectiveConfigReport(nextRuntime);
+          if (report !== undefined) {
+            process.stderr.write(
+              `${report.trimEnd()}\n` +
+                "jazz: keeping the last-known-good configuration until the file is fixed.\n",
+            );
+            return false;
+          }
+          this.sources.global = checked.config;
+          this.currentConfig = nextRuntime;
+        }
         this.fileDocument = document;
-        const fromFile = checkConfigFile(path, document);
-        this.currentConfig = {
-          ...this.currentConfig,
-          ...(fromFile.webhooks !== undefined ? { webhooks: fromFile.webhooks } : {}),
-          ...(fromFile.peers !== undefined ? { peers: fromFile.peers } : {}),
-        };
         this.currentRevision += 1;
         return true;
       }.bind(this),
@@ -302,19 +398,103 @@ function parseConfigDocument(content: string): ConfigDocument | undefined {
 }
 
 /**
+ * Re-read the global file immediately before a mutation. This is Pi's useful invariant: a write
+ * patches the latest document, not the snapshot from process startup. Malformed JSON is never
+ * replaced. Schema-invalid entries remain byte-for-byte present unless the requested write targets
+ * them, while the runtime view continues to ignore them.
+ */
+function readConfigDocumentForWrite(
+  fs: FileSystem.FileSystem,
+  path: string,
+): Effect.Effect<ConfigDocument, never> {
+  return Effect.gen(function* () {
+    const exists = yield* fs.exists(path).pipe(Effect.orDie);
+    if (!exists) return {};
+    const content = yield* fs.readFileString(path).pipe(Effect.orDie);
+    const document = parseConfigDocument(content);
+    if (document === undefined) {
+      return yield* Effect.die(
+        new Error(`Refusing to overwrite ${path}: it is not a valid JSON object.`),
+      );
+    }
+    migrateConfigProviderName(document);
+    return document;
+  });
+}
+
+/**
  * Check one config file against the schema, reporting on stderr what was dropped.
  *
  * A legacy `google` block is left to `resolveSecrets`, which removes it with its own notice, so it
  * is not reported a second time here as an unknown key.
  */
-function checkConfigFile(path: string, document: ConfigDocument): ConfigFile {
+function parseCheckedConfigFile(
+  path: string,
+  document: ConfigDocument,
+): { readonly config: ConfigFile; readonly report?: string } {
   const { google: _legacyGoogle, ...withoutGoogle } = document;
   const { config, issues } = parseConfigFile(
     dropLegacyGoogleBlock(document) ? withoutGoogle : document,
   );
   const report = formatConfigIssues(path, issues, isSecretPath);
+  return report === undefined ? { config } : { config, report };
+}
+
+/** Validate an initial config load. Invalid files stop startup instead of removing safety limits. */
+function requireValidConfigFile(
+  path: string,
+  document: ConfigDocument,
+): Effect.Effect<ConfigFile, ConfigurationError> {
+  const checked = parseCheckedConfigFile(path, document);
+  if (checked.report === undefined) return Effect.succeed(checked.config);
+  return Effect.fail(
+    new ConfigurationError({
+      field: "file",
+      message: checked.report.trimEnd(),
+      suggestion: `Fix ${path} and restart Jazz.`,
+    }),
+  );
+}
+
+/** Load the largest valid subset and report what was ignored, without blocking startup. */
+function loadCheckedConfigFile(path: string, document: ConfigDocument): ConfigFile {
+  const checked = parseCheckedConfigFile(path, document);
+  if (checked.report !== undefined) process.stderr.write(checked.report);
+  return checked.config;
+}
+
+function effectiveConfigReport(config: AppConfig): string | undefined {
+  return formatConfigIssues(
+    "the merged configuration",
+    validateEffectiveConfig(config),
+    isSecretPath,
+  );
+}
+
+/** Remove invalid cross-layer values from the runtime view after reporting them. */
+function sanitizeEffectiveConfig(config: AppConfig): AppConfig {
+  const issues = validateEffectiveConfig(config);
+  if (issues.length === 0) return config;
+  const report = formatConfigIssues("the merged configuration", issues, isSecretPath);
   if (report !== undefined) process.stderr.write(report);
-  return config;
+  const sanitized = structuredClone(config) as unknown as ConfigDocument;
+  for (const issue of issues) deepDelete(sanitized, issue.removed);
+  return sanitized as unknown as AppConfig;
+}
+
+function requireValidEffectiveConfig(
+  config: AppConfig,
+): Effect.Effect<AppConfig, ConfigurationError> {
+  const report = effectiveConfigReport(config);
+  return report === undefined
+    ? Effect.succeed(config)
+    : Effect.fail(
+        new ConfigurationError({
+          field: "context",
+          message: report.trimEnd(),
+          suggestion: "Adjust the global or project override so warning precedes compaction.",
+        }),
+      );
 }
 
 function mergeMcpServers(
@@ -345,16 +525,18 @@ export function createConfigLayer(
     AgentConfigServiceTag,
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
-      const files = yield* loadConfigFiles(fs, customConfigPath);
+      const files = yield* loadConfigFiles(fs, customConfigPath, "warn");
 
-      const { mcpServers: globalOverrides, ...globalSettings } =
+      const checkedGlobal =
         files.global === undefined
           ? EMPTY_CONFIG_FILE
-          : checkConfigFile(files.global.path, files.global.document);
-      const { mcpServers: localOverrides, ...localSettings } =
+          : loadCheckedConfigFile(files.global.path, files.global.document);
+      const checkedLocal =
         files.local === undefined
           ? EMPTY_CONFIG_FILE
-          : checkConfigFile(files.local.path, files.local.document);
+          : loadCheckedConfigFile(files.local.path, files.local.document);
+      const { mcpServers: globalOverrides, ...globalSettings } = checkedGlobal;
+      const { mcpServers: localOverrides, ...localSettings } = checkedLocal;
 
       const mainConfig = mergeConfigLayers(defaultConfig(), [
         globalSettings,
@@ -378,15 +560,69 @@ export function createConfigLayer(
         keyringBackend,
       );
 
+      const persistedGlobal = parseCheckedConfigFile(files.configPath, secrets.document).config;
+      const sources: RuntimeConfigSources = {
+        defaults: baseConfigForRuntime(),
+        global: persistedGlobal,
+        local: checkedLocal,
+        debug: debug === true,
+        agentsServers,
+        resolvedSecrets: snapshotResolvedSecrets(secrets.config),
+      };
+
+      const runtimeConfig = sanitizeEffectiveConfig(buildRuntimeConfig(sources));
+
       return new AgentConfigServiceImpl(
-        secrets.config,
+        runtimeConfig,
         secrets.document,
         files.configPath,
         fs,
         keyringBackend,
+        sources,
       );
     }),
   );
+}
+
+export interface ConfigValidationResult {
+  readonly paths: readonly string[];
+}
+
+/**
+ * Validate configuration without constructing the application layer.
+ *
+ * This is deliberately independent of keyring, provider, telemetry, and agent startup so a
+ * broken file cannot prevent the recovery command that explains how to repair it.
+ */
+export function validateConfigFiles(
+  customConfigPath?: string,
+): Effect.Effect<
+  ConfigValidationResult,
+  ConfigurationError | ConfigurationNotFoundError,
+  FileSystem.FileSystem
+> {
+  return Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const files = yield* loadConfigFiles(fs, customConfigPath);
+    const global =
+      files.global === undefined
+        ? EMPTY_CONFIG_FILE
+        : yield* requireValidConfigFile(files.global.path, files.global.document);
+    const local =
+      files.local === undefined
+        ? EMPTY_CONFIG_FILE
+        : yield* requireValidConfigFile(files.local.path, files.local.document);
+    const { mcpServers: _globalMcp, ...globalSettings } = global;
+    const { mcpServers: _localMcp, ...localSettings } = local;
+    yield* requireValidEffectiveConfig(
+      mergeConfigLayers(defaultConfig(), [globalSettings, localSettings]),
+    );
+    return {
+      paths: [files.global?.path, files.local?.path].filter(
+        (path): path is string => path !== undefined,
+      ),
+    };
+  });
 }
 
 export function getConfigValue<T>(
@@ -425,6 +661,11 @@ function defaultConfig(): AppConfig {
   return { storage, logging, llm, web_search };
 }
 
+/** Named wrapper used when a fresh independent default layer is required. */
+function baseConfigForRuntime(): AppConfig {
+  return defaultConfig();
+}
+
 /**
  * Lay checked config files over the defaults, later layers winning.
  *
@@ -451,6 +692,35 @@ function mergeInto(base: Readonly<ConfigDocument>, layer: object): ConfigDocumen
   return out;
 }
 
+/** Build the effective view without ever making a persisted layer own another layer's values. */
+function buildRuntimeConfig(sources: RuntimeConfigSources): AppConfig {
+  const { mcpServers: globalOverrides, ...globalSettings } = sources.global;
+  const { mcpServers: localOverrides, ...localSettings } = sources.local;
+  const main = mergeConfigLayers(sources.defaults, [
+    globalSettings,
+    localSettings,
+    ...(sources.debug ? [{ logging: { level: "debug" } }] : []),
+  ]);
+  const withMcp = mergeAgentsMcpIntoConfig(main, sources.agentsServers, {
+    ...globalOverrides,
+    ...localOverrides,
+  });
+  const runtime = structuredClone(withMcp) as unknown as ConfigDocument;
+  for (const [path, value] of sources.resolvedSecrets) deepSet(runtime, path, value);
+  return runtime as unknown as AppConfig;
+}
+
+/** Capture the already-resolved secret overlay so rebuilding sources never drops credentials. */
+function snapshotResolvedSecrets(config: AppConfig): Map<string, string> {
+  const values = new Map<string, string>();
+  const paths = new Set([...SECRET_PATHS, ...collectSecretPaths(config)]);
+  for (const path of paths) {
+    const value = deepGet(config, path);
+    if (nonEmptyString(value)) values.set(path, value);
+  }
+  return values;
+}
+
 /**
  * Write a file that only the owning user can read, repairing the mode on files
  * that already exist — `writeFileString`'s mode applies solely at creation.
@@ -461,9 +731,10 @@ function writePrivateFile(
   content: string,
 ): Effect.Effect<void, never> {
   return Effect.gen(function* () {
-    yield* fs
-      .writeFileString(filePath, content, { mode: CONFIG_FILE_MODE })
-      .pipe(Effect.catchAll(() => Effect.void));
+    yield* writeFileStringAtomic(fs, filePath, content, {
+      tempPrefix: "jazz-config",
+      mode: CONFIG_FILE_MODE,
+    }).pipe(Effect.orDie);
     yield* chmodQuietly(fs, filePath, CONFIG_FILE_MODE);
   });
 }
@@ -664,6 +935,17 @@ interface ConfigFilesOnDisk {
   readonly local?: ConfigFileOnDisk;
 }
 
+type InvalidConfigPolicy = "warn" | "fail";
+
+function handleInvalidConfig(
+  error: ConfigurationError,
+  policy: InvalidConfigPolicy,
+): Effect.Effect<undefined, ConfigurationError> {
+  if (policy === "fail") return Effect.fail(error);
+  process.stderr.write(`jazz: ${error.message}\n`);
+  return Effect.succeed(undefined);
+}
+
 /**
  * Read a config file that may legitimately be absent. A file that exists but is not a JSON object
  * is reported and treated as absent, rather than silently ignored.
@@ -671,22 +953,46 @@ interface ConfigFilesOnDisk {
 function readOptionalConfigFile(
   fs: FileSystem.FileSystem,
   filePath: string,
-): Effect.Effect<GlobalConfigFileOnDisk | undefined, never> {
+  policy: InvalidConfigPolicy,
+): Effect.Effect<GlobalConfigFileOnDisk | undefined, ConfigurationError> {
   return Effect.gen(function* () {
     const exists = yield* fs.exists(filePath).pipe(Effect.catchAll(() => Effect.succeed(false)));
     if (!exists) return undefined;
 
-    const content = yield* fs
-      .readFileString(filePath)
-      .pipe(Effect.catchAll(() => Effect.succeed("")));
-    if (!content.trim()) return undefined;
+    const content = yield* fs.readFileString(filePath).pipe(
+      Effect.catchAll((cause) =>
+        handleInvalidConfig(
+          new ConfigurationError({
+            field: "file",
+            message: `Cannot read config file at ${filePath}: ${String(cause)}`,
+            suggestion: "Check the file permissions and try again.",
+          }),
+          policy,
+        ),
+      ),
+    );
+    if (content === undefined) return undefined;
+    if (!content.trim()) {
+      return yield* handleInvalidConfig(
+        new ConfigurationError({
+          field: "file",
+          message: `Config file is empty: ${filePath}`,
+          suggestion: "Delete the empty file or replace it with a JSON object.",
+        }),
+        policy,
+      );
+    }
 
     const document = parseConfigDocument(content);
     if (document === undefined) {
-      process.stderr.write(
-        `jazz: ${filePath} is not a JSON object; ignoring it and using defaults.\n`,
+      return yield* handleInvalidConfig(
+        new ConfigurationError({
+          field: "format",
+          message: `Config file is not a valid JSON object: ${filePath}`,
+          suggestion: "Fix the JSON before starting Jazz.",
+        }),
+        policy,
       );
-      return undefined;
     }
 
     const renamedProvider = migrateConfigProviderName(document);
@@ -696,8 +1002,9 @@ function readOptionalConfigFile(
 
 function readLocalConfigFile(
   fs: FileSystem.FileSystem,
-): Effect.Effect<ConfigFileOnDisk | undefined, never> {
-  return readOptionalConfigFile(fs, `${getLocalJazzDirectory()}/config.json`).pipe(
+  policy: InvalidConfigPolicy,
+): Effect.Effect<ConfigFileOnDisk | undefined, ConfigurationError> {
+  return readOptionalConfigFile(fs, `${getLocalJazzDirectory()}/config.json`, policy).pipe(
     Effect.map((file) => {
       if (file === undefined) return undefined;
       const { storage: _storage, ...document } = file.document;
@@ -709,6 +1016,7 @@ function readLocalConfigFile(
 function loadConfigFiles(
   fs: FileSystem.FileSystem,
   customConfigPath?: string,
+  policy: InvalidConfigPolicy = "fail",
 ): Effect.Effect<ConfigFilesOnDisk, ConfigurationError | ConfigurationNotFoundError> {
   return Effect.gen(function* () {
     // If custom config path is provided, validate and use it exclusively
@@ -727,56 +1035,11 @@ function loadConfigFiles(
         );
       }
 
-      const content = yield* fs.readFileString(expandedPath).pipe(
-        Effect.catchAll((error) =>
-          Effect.fail(
-            new ConfigurationError({
-              field: "file",
-              message: `Cannot read config file at: ${expandedPath}. Reason: ${String(error)}`,
-              suggestion: "Check file permissions and ensure the file is readable.",
-            }),
-          ),
-        ),
-      );
-
-      if (!content) {
-        return yield* Effect.fail(
-          new ConfigurationError({
-            field: "file",
-            message: `Config file is empty: ${expandedPath}`,
-            suggestion: "Add valid JSON configuration to the file.",
-          }),
-        );
-      }
-
-      const parsed = safeParseJson<unknown>(content);
-      if (Option.isNone(parsed)) {
-        return yield* Effect.fail(
-          new ConfigurationError({
-            field: "format",
-            message: `Invalid JSON in config file: ${expandedPath}`,
-            suggestion: "Please ensure the file contains valid JSON.",
-          }),
-        );
-      }
-
-      const document = parsed.value;
-      if (!isPlainObject(document)) {
-        return yield* Effect.fail(
-          new ConfigurationError({
-            field: "structure",
-            message: `Config file must contain a valid configuration object: ${expandedPath}`,
-            value: document,
-            suggestion: 'Expected format: { "llm": {...}, "storage": {...}, ... }',
-          }),
-        );
-      }
-
-      const renamedProvider = migrateConfigProviderName(document);
-      const local = yield* readLocalConfigFile(fs);
+      const global = yield* readOptionalConfigFile(fs, expandedPath, policy);
+      const local = yield* readLocalConfigFile(fs, policy);
       return {
         configPath: expandedPath,
-        global: { path: expandedPath, document, renamedProvider },
+        ...(global !== undefined ? { global } : {}),
         ...(local !== undefined ? { local } : {}),
       };
     }
@@ -786,8 +1049,8 @@ function loadConfigFiles(
       ? expandHome(envConfigPath)
       : `${getJazzHomeDirectory()}/config.json`;
 
-    const global = yield* readOptionalConfigFile(fs, globalConfigPath);
-    const local = yield* readLocalConfigFile(fs);
+    const global = yield* readOptionalConfigFile(fs, globalConfigPath, policy);
+    const local = yield* readLocalConfigFile(fs, policy);
     return {
       configPath: globalConfigPath,
       ...(global !== undefined ? { global } : {}),
