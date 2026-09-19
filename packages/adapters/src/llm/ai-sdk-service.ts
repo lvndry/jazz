@@ -526,6 +526,19 @@ type ModelName = string;
 type ProviderOptions = NonNullable<Parameters<typeof generateText>[0]["providerOptions"]>;
 type AISDKToolChoice = Parameters<typeof generateText>[0]["toolChoice"];
 
+interface XaiWebSearchConfig {
+  allowedDomains?: string[];
+  excludedDomains?: string[];
+  enableImageSearch?: boolean;
+  enableImageUnderstanding?: boolean;
+}
+
+interface XaiProviderWithTools {
+  tools?: {
+    webSearch?: (config?: XaiWebSearchConfig) => ToolSet[string];
+  };
+}
+
 /**
  * Get provider-native web search tool if supported by the provider
  * Returns the tool instance or null if not supported
@@ -576,16 +589,7 @@ function getProviderNativeWebSearchTool(
         return null;
       }
       case "xai": {
-        const xaiWithTools = xai as typeof xai & {
-          tools?: {
-            webSearch?: (config?: {
-              allowedDomains?: string[];
-              excludedDomains?: string[];
-              enableImageSearch?: boolean;
-              enableImageUnderstanding?: boolean;
-            }) => ToolSet[string];
-          };
-        };
+        const xaiWithTools = xai as typeof xai & XaiProviderWithTools;
         if (typeof xaiWithTools.tools?.webSearch === "function") {
           return xaiWithTools.tools.webSearch({});
         }
