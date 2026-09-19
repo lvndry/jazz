@@ -14,11 +14,11 @@ export interface PluginSession {
   readonly runHook: <K extends AdvisoryHookId>(
     id: K,
     input: AdvisoryHookContracts[K]["input"],
-  ) => Effect.Effect<AdvisoryHookContracts[K]["output"], PluginRuntimeError>;
+  ) => Effect.Effect<AdvisoryHookContracts[K]["output"]>;
   readonly runPolicyHook: <K extends PolicyHookId>(
     id: K,
     input: PolicyHookContracts[K]["input"],
-  ) => Effect.Effect<PolicyHookContracts[K]["output"], PluginRuntimeError>;
+  ) => Effect.Effect<PolicyHookContracts[K]["output"]>;
   readonly close: () => Effect.Effect<void>;
 }
 

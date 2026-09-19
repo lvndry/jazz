@@ -5,7 +5,7 @@ description: "Maintain Jazz's trusted in-process plugin lifecycle, per-run sessi
 # Plugin lifecycle
 
 Jazz's plugin runtime is a ports-and-adapters feature. Core owns the ABI-facing domain contracts,
-validated hook runner, consent digest, and service tags. Adapters own manifest parsing,
+non-failing, validated hook runner, consent digest, and service tags. Adapters own manifest parsing,
 downloads, filesystem state, dynamic import, keyring access, and module-session construction. The
 CLI owns local operator confirmation, and runtime wires the layers.
 
