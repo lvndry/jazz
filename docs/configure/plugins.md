@@ -24,7 +24,7 @@ steps. First-time trust and new consent can be granted only from a local interac
 Chat and unattended surfaces report the required local command instead.
 
 ```bash
-jazz plugin add <catalog-plugin-id>
+jazz plugin add com.jazz.plugins.jev-skill-router
 # Or install a locally packed/third-party manifest explicitly:
 jazz plugin add ./release/catalog-entry.json
 jazz plugin inspect com.example.router
