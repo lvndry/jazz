@@ -331,7 +331,7 @@ See [Personas](./concepts/personas.md).
 | `jazz plugin add <source-or-id>`                  | Verify/install a local manifest, HTTPS manifest, or official catalog id; does not trust or enable                 |
 | `jazz plugin inspect <id>`                        | Show exact digest, declarations, grants, enablement, and secret status. `--json`                                  |
 | `jazz plugin trust <id>`                          | Locally acknowledge full OS-user code execution for the current digest                                            |
-| `jazz plugin enable <id> --agent <id-or-name>`    | Grant current egress consent and enable for one existing agent                                                    |
+| `jazz plugin enable <id> --agent <id-or-name>`    | Grant current egress consent, enable for one existing agent, and prompt for any required secret not yet available |
 | `jazz plugin disable <id> [--agent <id-or-name>]` | Prevent new dispatches for one agent or all agents                                                                |
 | `jazz plugin update <id> [source]`                | Verify an update, retain one rollback artifact, and disable pending grants                                        |
 | `jazz plugin rollback <id>`                       | Swap current/previous artifacts and disable pending grants                                                        |

@@ -83,7 +83,9 @@ SHA-256. State transitions are cross-process locked and atomically committed.
 ## Secrets
 
 A plugin may ask only for secret names declared in its manifest. Resolution is environment first,
-then Jazz-owned secure storage. Set or clear a stored value without putting it in shell history:
+then Jazz-owned secure storage. `jazz plugin enable` prompts for any required secret it cannot
+already resolve and stores it in secure storage, so first-time setup needs no manual export or
+separate command. Set or clear a stored value later without putting it in shell history:
 
 ```bash
 jazz plugin secret set com.example.router apiKey

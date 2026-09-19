@@ -315,6 +315,45 @@ export function pluginEnableCommand(
     yield* attempt(() => service.grantConsent(id, inspection.consentDigest));
     yield* attempt(() => service.enable(id, agent.id));
     yield* terminal.success(`Enabled ${id} for agent ${agent.name} (${agent.id}).`);
+
+    // A required secret the host cannot already resolve would leave the plugin failing open on
+    // every run, so provision it as part of setup instead of making the operator discover the gap
+    // the first time the plugin silently abstains.
+    for (const declaration of inspection.current.manifest.secrets) {
+      if (!declaration.required) continue;
+      const status = inspection.secrets.find((secret) => secret.name === declaration.name);
+      if (status !== undefined && status.source !== "missing" && status.source !== "unavailable") {
+        continue;
+      }
+      if (status?.source === "unavailable") {
+        yield* terminal.warn(
+          `No secure secret storage is available for ${declaration.name}. Set the ${
+            declaration.env ?? "declared"
+          } environment variable before running this agent.`,
+        );
+        continue;
+      }
+      yield* terminal.info(
+        `${id} requires a secret: ${declaration.name}${
+          declaration.description ? ` — ${declaration.description}` : ""
+        }.`,
+      );
+      const secretValue = yield* terminal.ask(`Secret ${declaration.name}:`, {
+        secret: true,
+        simple: true,
+        cancellable: true,
+      });
+      if (secretValue === undefined || secretValue.length === 0) {
+        yield* terminal.warn(
+          `Skipped ${declaration.name}. ${id} falls back to deterministic behavior until you run 'jazz plugin secret set ${id} ${declaration.name}'.`,
+        );
+        continue;
+      }
+      const stored = yield* attempt(() => service.setSecret(id, declaration.name, secretValue));
+      yield* stored
+        ? terminal.success(`Stored ${declaration.name} for ${id}.`)
+        : terminal.warn(`Could not store ${declaration.name}: no secure storage available.`);
+    }
   });
 }
 
