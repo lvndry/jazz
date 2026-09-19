@@ -86,6 +86,19 @@ describe('the "file" backend — the headless-server fallback below both OS keyr
     expect(await Effect.runPromise(keyringGet("file", "peers.alice.token"))).toBe("alice-secret");
   });
 
+  it("serializes concurrent file-backend updates", async () => {
+    await Promise.all(
+      Array.from({ length: 20 }, (_, index) =>
+        Effect.runPromise(keyringSet("file", `plugin/test/key-${index}`, `value-${index}`)),
+      ),
+    );
+    for (let index = 0; index < 20; index++) {
+      expect(await Effect.runPromise(keyringGet("file", `plugin/test/key-${index}`))).toBe(
+        `value-${index}`,
+      );
+    }
+  });
+
   it("deleting an absent account is a no-op, not an error", async () => {
     await Effect.runPromise(keyringDelete("file", "peers.nobody.token"));
     expect(await Effect.runPromise(keyringGet("file", "peers.nobody.token"))).toBeUndefined();

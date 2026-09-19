@@ -2,7 +2,7 @@ import os from "node:os";
 import { FileSystem } from "@effect/platform";
 import { afterEach, describe, expect, it, mock, type Mock } from "bun:test";
 import { Effect, Layer, Stream } from "effect";
-import { AgentRunner } from "./agent-runner";
+import { AgentRunner, renderSkillRoutingAdvisory } from "./agent-runner";
 import type { AgentRunnerOptions } from "./types";
 import type { AgentConfigService } from "../interfaces/agent-config";
 import { AgentConfigServiceTag } from "../interfaces/agent-config";
@@ -24,6 +24,35 @@ import { ToolRegistryTag } from "../interfaces/tool-registry";
 import type { SkillService } from "../skills/skill-service";
 import { SkillServiceTag } from "../skills/skill-service";
 import type { Agent } from "../types/agent";
+
+describe("renderSkillRoutingAdvisory", () => {
+  it("renders only a live-roster winner that beats no-skill", () => {
+    expect(
+      renderSkillRoutingAdvisory(
+        {
+          status: "answered",
+          distribution: {
+            skills: [{ name: "pdf", probability: 0.8 }],
+            noSkillProbability: 0.2,
+          },
+        },
+        new Set(["pdf"]),
+      ),
+    ).toContain('"pdf"');
+    expect(
+      renderSkillRoutingAdvisory(
+        {
+          status: "answered",
+          distribution: {
+            skills: [{ name: "forged", probability: 0.9 }],
+            noSkillProbability: 0.1,
+          },
+        },
+        new Set(["pdf"]),
+      ),
+    ).toBeUndefined();
+  });
+});
 
 // Mock services
 const mockLogger = {

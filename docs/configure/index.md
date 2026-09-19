@@ -11,5 +11,6 @@ Jazz separates application configuration from agent definitions and workflow fil
 - [Workflows](./workflows.md) combine a prompt with scheduling and run overrides.
 - [Providers](./providers.md) explains cloud and local model credentials.
 - [MCP](./mcp.md), [web search](./web-search.md), and [email and calendar](./email-calendar.md) add external capabilities.
+- [Plugins](./plugins.md) covers optional trusted code, per-agent enablement, secrets, and authoring.
 
 Global configuration normally lives under `~/.jazz`. A project may provide `./.jazz/config.json` overrides. Read [Jazz configuration](./jazz.md) before editing either file because merge precedence and secret storage differ by field.

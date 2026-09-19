@@ -156,6 +156,7 @@ export default [
     languageOptions: {
       parserOptions: {
         project: "./evals/tsconfig.json",
+        projectService: false,
         tsconfigRootDir,
       },
       globals: {

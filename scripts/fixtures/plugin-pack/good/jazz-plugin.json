@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "com.jazz.tests.pack-fixture",
+  "name": "Pack fixture",
+  "version": "0.0.1",
+  "hostApi": 1,
+  "entry": "src/index.ts",
+  "hooks": ["route.skills"],
+  "decisionProviders": [],
+  "network": { "destinations": [] },
+  "dataSent": [],
+  "secrets": []
+}

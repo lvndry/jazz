@@ -47,6 +47,8 @@
   "scripts": {
     "build:binary": "bun run scripts/build.ts --compile",
     "build:binaries": "bun run scripts/build.ts --compile --all-targets",
+    "plugin:pack": "bun run scripts/plugin-pack.ts",
+    "plugin:catalog": "bun run scripts/build-plugin-catalog.ts",
     "stage-npm-packages": "bun run scripts/build.ts --compile --all-targets --npm-packages",
     "typecheck": "bun run tsc -b tsconfig.json",
     "typecheck:evals": "tsc -p evals/tsconfig.json",
@@ -54,8 +56,8 @@
     "dev": "bun --watch packages/runtime/src/main.ts",
     "cli": "bun packages/runtime/src/main.ts",
     "prepare": "git config core.hooksPath .githooks || true",
-    "lint": "bun eslint packages scripts --cache",
-    "lint:fix": "bun eslint packages scripts --fix --cache",
+    "lint": "bun eslint packages plugins scripts --cache",
+    "lint:fix": "bun eslint packages plugins scripts --fix --cache",
     "format": "bun prettier --write packages docs",
     "test": "bun test",
     "test:watch": "bun test --watch",
@@ -70,7 +72,8 @@
   },
   "type": "module",
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "plugins/*"
   ],
   "dependencies": {
     "@grpc/grpc-js": "^1.14.5",
@@ -78,6 +81,7 @@
     "nice-grpc-common": "^2.0.4"
   },
   "devDependencies": {
+    "@jazz/adapters": "workspace:*",
     "@a2a-js/sdk": "^1.2.0",
     "@ai-sdk/alibaba": "^2.0.51",
     "@ai-sdk/anthropic": "^4.0.58",

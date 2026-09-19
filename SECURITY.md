@@ -57,6 +57,8 @@ Some behavior that looks alarming is deliberate and documented rather than a vul
 - An agent acting on instructions embedded in content it fetched, when running at a tier that permits those actions. Prompt injection is real, which is why the tiers exist.
 - Plaintext conversation transcripts under `~/.jazz/history/`. Documented; treat that directory as sensitive.
 - An MCP server you configured doing something you did not expect. MCP servers are third-party code you chose to run.
+- A trusted Jazz plugin doing something outside its manifest declarations. Plugins are executable
+  in-process code, and those declarations are consent disclosures rather than a sandbox.
 
 If you are unsure which side of that line something falls on, report it: we would rather
 triage a non-issue than miss a real one.
@@ -104,6 +106,15 @@ does not block inference, tools, MCP, or telemetry export. See
 cost records under `~/.jazz/telemetry/`. Credential-bearing fields in tool arguments and
 structured metadata (including nested headers) are replaced with `<redacted>` before a log is
 written. Logs can still contain other sensitive user content, so protect the directory.
+
+### Plugins are trusted code
+
+Jazz plugins run inside the Jazz process with the full authority of your OS user. Installing a
+plugin only verifies and stores its exact bytes; it does not trust, consent to, or enable them.
+Only a local interactive terminal can grant code-digest trust and data-egress consent, and
+enablement is scoped to one agent. Inspect the digest, hooks, destinations, data classes, and
+secrets before granting either. Disable or remove a plugin and restart long-lived Jazz processes
+to evict code that was already imported. See [Plugins](docs/configure/plugins.md).
 
 ---
 

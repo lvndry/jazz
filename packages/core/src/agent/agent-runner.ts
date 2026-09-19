@@ -24,6 +24,7 @@ import {
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import { type MCPServerManager } from "@/core/interfaces/mcp-server";
 import { PersonaServiceTag, type PersonaService } from "@/core/interfaces/persona-service";
+import { PluginRuntimeServiceTag } from "@/core/interfaces/plugin-runtime";
 import { type PresentationService } from "@/core/interfaces/presentation";
 import type { TerminalService } from "@/core/interfaces/terminal";
 import {
@@ -37,6 +38,7 @@ import type { AttachmentKind } from "@/core/types/attachment";
 import { LLMRateLimitError } from "@/core/types/errors";
 import type { ChatMessage } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
+import type { SkillRouteOutcome } from "@/core/types/plugin";
 import type { AutoApprovePolicy, ToolExecutionContext } from "@/core/types/tools";
 import { generateConversationId } from "@/core/utils/conversation-id";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
@@ -200,6 +202,24 @@ function resolvePositiveCap(value: number | undefined): number | undefined {
 }
 
 /**
+ * Convert a validated routing distribution into the only text the conversation model sees.
+ * Plugin-authored prose is intentionally excluded; the selected name must come from the live roster.
+ */
+export function renderSkillRoutingAdvisory(
+  outcome: SkillRouteOutcome,
+  liveSkillNames: ReadonlySet<string>,
+): string | undefined {
+  if (outcome.status !== "answered") return undefined;
+  const best = [...outcome.distribution.skills]
+    .filter((choice) => liveSkillNames.has(choice.name))
+    .sort((left, right) => right.probability - left.probability)[0];
+  if (best === undefined || best.probability <= outcome.distribution.noSkillProbability) {
+    return undefined;
+  }
+  return `[Skill routing advisory: consider loading ${JSON.stringify(best.name)} before answering. This is a non-authoritative relevance hint with probability ${best.probability.toFixed(3)}.]`;
+}
+
+/**
  * Initialize common agent run context (tools, messages, metrics)
  */
 function initializeAgentRun(
@@ -279,6 +299,59 @@ function initializeAgentRun(
     yield* logger.debug(
       `[Skills] Discovered ${relevantSkills.length} skills: ${relevantSkills.map((s) => s.name).join(", ")}`,
     );
+
+    // Plugin routing is a shadow measurement unless the explicit experimental switch is on.
+    // The session is scoped to this run and closed immediately after the only v1 hook.
+    const pluginRuntime = yield* Effect.serviceOption(PluginRuntimeServiceTag);
+    const routingOutcome =
+      options.internal !== true &&
+      options.isResume !== true &&
+      persona !== "summarizer" &&
+      Option.isSome(pluginRuntime)
+        ? yield* Effect.acquireUseRelease(
+            pluginRuntime.value.openSession({
+              agentId: agent.id,
+              metrics: runMetrics,
+              ...(resolvedMaxCostUSD !== undefined ? { maxCostUSD: resolvedMaxCostUSD } : {}),
+              ...(resolvedMaxDurationMs !== undefined
+                ? {
+                    hookTimeoutMs: Math.max(
+                      1,
+                      resolvedMaxDurationMs - (Date.now() - runMetrics.startedAt.getTime()),
+                    ),
+                  }
+                : {}),
+              currentRunCostUSD: () => runMetrics.decisionCostUSD ?? 0,
+            }),
+            (session) =>
+              session.runHook("route.skills", {
+                requestText: userInput,
+                skills: relevantSkills.map(({ name, description }) => ({ name, description })),
+              }),
+            (session) => session.close(),
+          ).pipe(
+            Effect.catchAll((error) =>
+              logger
+                .warn("Plugin skill routing failed; using deterministic behavior", {
+                  error: error.message,
+                })
+                .pipe(Effect.as(undefined)),
+            ),
+          )
+        : undefined;
+    if (
+      routingOutcome?.status === "abstained" &&
+      routingOutcome.reason === "plugin handler failed"
+    ) {
+      yield* logger.warn("Plugin skill routing handler failed; using deterministic behavior");
+    }
+    const initialProviderAdvisory =
+      process.env["JAZZ_EXPERIMENTAL_PLUGIN_ADVISORY"] === "1" && routingOutcome !== undefined
+        ? renderSkillRoutingAdvisory(
+            routingOutcome,
+            new Set(relevantSkills.map((skill) => skill.name)),
+          )
+        : undefined;
 
     // Register skill tools with discovered skill names as enum constraint
     yield* registerSkillSystemTools(relevantSkills.map((s) => s.name));
@@ -578,6 +651,7 @@ function initializeAgentRun(
       tools,
       expandedToolNames,
       messages,
+      ...(initialProviderAdvisory !== undefined ? { initialProviderAdvisory } : {}),
       runMetrics,
       provider,
       model,

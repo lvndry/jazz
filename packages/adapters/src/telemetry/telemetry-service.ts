@@ -10,6 +10,7 @@ import { LoggerServiceTag, type LoggerService } from "@jazz/core/interfaces/logg
 import type {
   AgentUsage,
   ClassifierUsage,
+  DecisionUsage,
   ModelUsage,
   ProcessResourceSnapshot,
   TelemetryEvent,
@@ -167,6 +168,7 @@ export class TelemetryServiceImpl implements TelemetryService {
     readonly finished: boolean;
     readonly usage: TokenUsage;
     readonly classifierUsage?: ClassifierUsage;
+    readonly decisionUsage?: DecisionUsage;
     readonly process?: ProcessResourceSnapshot;
     readonly toolCalls: number;
     readonly toolErrors: number;

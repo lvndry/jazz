@@ -20,6 +20,18 @@ bun run evals --agent eval-sut --ab eval-sut-variant --samples 3 --stamp ab
 Reports land in `evals/report/` (gitignored). Metrics: pass@1, pass@k,
 **Pass^k** (reliability), bootstrap CI, cost-normalized, per-domain + overall.
 
+## Skill-routing component benchmark
+
+`evals/skill-routing/` contains 120 deterministic labeled cases split into development and held
+test sets. It reports coverage, top-1/top-3 recall, no-skill false positives, and probability
+metrics when a runner supplies calibrated distributions. The bundled lexical runner is only a
+reference proxy; product activation still requires the end-to-end A/B above.
+
+```bash
+bun test evals/skill-routing/runner.test.ts
+bun run typecheck:evals
+```
+
 ## Agents
 
 `evals/agents/*.json` are the SUT / ceiling / judge configs. Install them so
@@ -80,8 +92,8 @@ Two tasks, and they fail for different reasons on purpose:
 - **`continuity-kill-and-resume`** — seeds a corpus bulky enough that reading it forces
   compaction, runs the agent, **SIGKILLs it on the first compaction**, then resumes the
   same `--conversation` and asks what it established. The kill is deliberate: jazz saves
-  conversation history only when a run *completes*, so a killed run leaves none and
-  everything the successor gets must have been written *during* the run. A clean
+  conversation history only when a run _completes_, so a killed run leaves none and
+  everything the successor gets must have been written _during_ the run. A clean
   `--max-iterations` stop would quietly test the easy path. A sample that dies before
   compacting is **voided, not failed** — it says nothing either way.
 - **`continuity-blind-successor`** — seeds `state.json` + `journal.jsonl` and runs a

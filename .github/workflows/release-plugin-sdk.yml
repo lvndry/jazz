@@ -1,0 +1,28 @@
+name: release plugin SDK
+
+on:
+  push:
+    tags: ["plugin-sdk-v*"]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.0
+      - run: bun install --frozen-lockfile
+      - name: Verify tag matches package version
+        run: |
+          version="$(bun --print 'require("./packages/plugin-sdk/package.json").version')"
+          test "${GITHUB_REF_NAME}" = "plugin-sdk-v${version}"
+      - run: bun run typecheck
+      - run: bun run test:typecheck
+      - name: Publish with npm trusted publishing
+        working-directory: packages/plugin-sdk
+        run: npm publish --provenance --access public

@@ -33,6 +33,7 @@
         "@effect/sql": "^0.52.1",
         "@effect/workflow": "^0.19.1",
         "@eslint/js": "^10.0.1",
+        "@jazz/adapters": "workspace:*",
         "@modelcontextprotocol/client": "^2.0.0",
         "@openrouter/ai-sdk-provider": "^3.0.0",
         "@opentui/core": "^0.5.11",
@@ -186,6 +187,10 @@
         "spectrum-ts": "^12.8.0",
       },
     },
+    "packages/plugin-sdk": {
+      "name": "@jazz/plugin-sdk",
+      "version": "0.1.0",
+    },
     "packages/runtime": {
       "name": "@jazz/runtime",
       "version": "0.15.6",
@@ -229,6 +234,13 @@
         "@jazz/adapters": "workspace:*",
         "@jazz/bot-shared": "workspace:*",
         "@jazz/core": "workspace:*",
+      },
+    },
+    "plugins/jev-skill-router": {
+      "name": "@jazz-plugin/jev-skill-router",
+      "version": "0.1.0",
+      "devDependencies": {
+        "@jazz/plugin-sdk": "workspace:*",
       },
     },
   },
@@ -527,6 +539,8 @@
 
     "@img/sharp-win32-x64": ["@img/sharp-win32-x64@0.35.4", "", { "os": "win32", "cpu": "x64" }, "sha512-XtmnYhBcrORsJ4XJngyzr/EWP0hRZLAZRFaApdKuviyqF78+ylxh2y06ZmtULAMOnObJ3ucpN0AcwSWnMowTRg=="],
 
+    "@jazz-plugin/jev-skill-router": ["@jazz-plugin/jev-skill-router@workspace:plugins/jev-skill-router"],
+
     "@jazz/adapters": ["@jazz/adapters@workspace:packages/adapters"],
 
     "@jazz/bot-shared": ["@jazz/bot-shared@workspace:packages/bot-shared"],
@@ -540,6 +554,8 @@
     "@jazz/imessage-bot": ["@jazz/imessage-bot@workspace:packages/imessage-bot"],
 
     "@jazz/photon-bot": ["@jazz/photon-bot@workspace:packages/photon-bot"],
+
+    "@jazz/plugin-sdk": ["@jazz/plugin-sdk@workspace:packages/plugin-sdk"],
 
     "@jazz/runtime": ["@jazz/runtime@workspace:packages/runtime"],
 

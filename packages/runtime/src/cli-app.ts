@@ -875,6 +875,191 @@ function registerPersonaCommands(program: Command): void {
     );
 }
 
+/** Register trusted, opt-in executable plugin lifecycle commands. */
+function registerPluginCommands(program: Command): void {
+  const plugin = program
+    .command("plugin")
+    .description("Manage optional trusted Jazz plugins and author plugin bundles");
+  const run = (loadEffect: () => Promise<CliCommandEffect>) =>
+    runCliAction(loadEffect, cliRuntimeOptions(program), { skipCatchUp: true });
+
+  plugin
+    .command("init <directory>")
+    .description("Scaffold a new Jazz plugin project")
+    .option("--id <pluginId>", "Reverse-DNS plugin id")
+    .option("--name <displayName>", "Human-readable plugin name")
+    .action((directory: string, options: { id?: string; name?: string }) =>
+      run(() =>
+        import("@jazz/cli/commands/plugin").then((mod) =>
+          mod.pluginInitCommand(directory, options),
+        ),
+      ),
+    );
+  plugin
+    .command("dev [directory]", { hidden: false })
+    .description("Pack and audit a plugin in a disposable host")
+    .option("--hook <hookId>", "Invoke a hook after auditing registrations")
+    .option("--input <jsonFile>", "JSON input for --hook")
+    .action((directory: string = ".", options: { hook?: string; input?: string }) =>
+      run(() =>
+        import("@jazz/cli/commands/plugin").then((mod) => mod.pluginDevCommand(directory, options)),
+      ),
+    );
+  plugin
+    .command("pack [directory]")
+    .description("Build one dependency-inlined plugin.mjs and compute its SHA-256")
+    .action((directory: string = ".") =>
+      run(() =>
+        import("@jazz/cli/commands/plugin").then((mod) => mod.pluginPackCommand(directory)),
+      ),
+    );
+  plugin
+    .command("_probe-artifact <manifest>", { hidden: true })
+    .description("Internal: verify a packed artifact in standalone-binary tests")
+    .option("--input <jsonFile>", "route.skills input JSON")
+    .action((manifest: string, options: { input?: string }) =>
+      run(() =>
+        import("@jazz/cli/commands/plugin").then((mod) =>
+          mod.pluginProbeArtifactCommand(manifest, options.input),
+        ),
+      ),
+    );
+
+  plugin
+    .command("add <source>")
+    .description("Verify and install a plugin manifest without trusting or enabling it")
+    .option("--json", "Emit JSON")
+    .action((source: string, options: { json?: boolean }) =>
+      run(() =>
+        import("@jazz/cli/commands/plugin").then((mod) =>
+          mod.pluginAddCommand(source, { json: options.json === true }),
+        ),
+      ),
+    );
+  plugin
+    .command("list")
+    .alias("ls")
+    .description("List installed plugins and their grant state")
+    .option("--json", "Emit JSON")
+    .action((options: { json?: boolean }) =>
+      run(() =>
+        import("@jazz/cli/commands/plugin").then((mod) =>
+          mod.pluginListCommand({ json: options.json === true }),
+        ),
+      ),
+    );
+  plugin
+    .command("inspect <id>")
+    .description("Show a plugin's exact code and declared capabilities")
+    .option("--json", "Emit JSON")
+    .action((id: string, options: { json?: boolean }) =>
+      run(() =>
+        import("@jazz/cli/commands/plugin").then((mod) =>
+          mod.pluginInspectCommand(id, { json: options.json === true }),
+        ),
+      ),
+    );
+  plugin
+    .command("trust <id>")
+    .description("Locally acknowledge full OS-user code execution for the current digest")
+    .action((id: string) =>
+      run(() => import("@jazz/cli/commands/plugin").then((mod) => mod.pluginTrustCommand(id))),
+    );
+  plugin
+    .command("enable <id>")
+    .description("Grant current data-egress consent and enable for one agent")
+    .requiredOption("--agent <agentId>", "Agent id")
+    .action((id: string, options: { agent: string }) =>
+      run(() =>
+        import("@jazz/cli/commands/plugin").then((mod) =>
+          mod.pluginEnableCommand(id, options.agent),
+        ),
+      ),
+    );
+  plugin
+    .command("disable <id>")
+    .description("Prevent new hook dispatches for one agent or every agent")
+    .option("--agent <agentId>", "Agent id; omit to disable everywhere")
+    .action((id: string, options: { agent?: string }) =>
+      run(() =>
+        import("@jazz/cli/commands/plugin").then((mod) =>
+          mod.pluginDisableCommand(id, options.agent),
+        ),
+      ),
+    );
+  plugin
+    .command("update <id> [source]")
+    .description("Install an updated artifact and retain the previous one for rollback")
+    .action((id: string, source?: string) =>
+      run(() =>
+        import("@jazz/cli/commands/plugin").then((mod) => mod.pluginUpdateCommand(id, source)),
+      ),
+    );
+  plugin
+    .command("rollback <id>")
+    .description("Swap current and previous artifacts; leaves the plugin disabled")
+    .action((id: string) =>
+      run(() => import("@jazz/cli/commands/plugin").then((mod) => mod.pluginRollbackCommand(id))),
+    );
+  plugin
+    .command("remove <id>")
+    .description("Remove plugin state and Jazz-owned secrets")
+    .option("--keep-secrets", "Keep Jazz-owned plugin secrets")
+    .action((id: string, options: { keepSecrets?: boolean }) =>
+      run(() =>
+        import("@jazz/cli/commands/plugin").then((mod) =>
+          mod.pluginRemoveCommand(id, { keepSecrets: options.keepSecrets === true }),
+        ),
+      ),
+    );
+  plugin
+    .command("doctor <id>")
+    .description("Check artifact, grants, declarations, and required secrets")
+    .option("--json", "Emit JSON")
+    .action((id: string, options: { json?: boolean }) =>
+      run(() =>
+        import("@jazz/cli/commands/plugin").then((mod) =>
+          mod.pluginDoctorCommand(id, { json: options.json === true }),
+        ),
+      ),
+    );
+  plugin
+    .command("gc")
+    .description("Delete unreferenced, unloaded plugin artifacts")
+    .action(() =>
+      run(() => import("@jazz/cli/commands/plugin").then((mod) => mod.pluginGcCommand())),
+    );
+
+  const secret = plugin.command("secret").description("Manage declared plugin secrets");
+  secret
+    .command("set <id> <name>")
+    .description("Read a secret from a masked local prompt and store it")
+    .action((id: string, name: string) =>
+      run(() =>
+        import("@jazz/cli/commands/plugin").then((mod) => mod.pluginSecretSetCommand(id, name)),
+      ),
+    );
+  secret
+    .command("forget <id> <name>")
+    .description("Delete a Jazz-owned plugin secret")
+    .action((id: string, name: string) =>
+      run(() =>
+        import("@jazz/cli/commands/plugin").then((mod) => mod.pluginSecretForgetCommand(id, name)),
+      ),
+    );
+  secret
+    .command("status <id> <name>")
+    .description("Show the effective secret source without revealing its value")
+    .option("--json", "Emit JSON")
+    .action((id: string, name: string, options: { json?: boolean }) =>
+      run(() =>
+        import("@jazz/cli/commands/plugin").then((mod) =>
+          mod.pluginSecretStatusCommand(id, name, { json: options.json === true }),
+        ),
+      ),
+    );
+}
+
 /**
  * Register update command
  */
@@ -1857,6 +2042,7 @@ export function createCLIApp(): Command {
   registerRunCommand(program);
   registerAgentCommands(program);
   registerPersonaCommands(program);
+  registerPluginCommands(program);
   registerConfigCommands(program);
   registerMemoryCommands(program);
   registerWebhookCommands(program);

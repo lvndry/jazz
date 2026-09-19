@@ -5,6 +5,7 @@ on:
     branches: ["main"]
     paths:
       - "packages/**"
+      - "plugins/**"
       - "scripts/**"
       - "package.json"
       - "bun.lock"
@@ -18,6 +19,7 @@ on:
   pull_request:
     paths:
       - "packages/**"
+      - "plugins/**"
       - "scripts/**"
       - "package.json"
       - "bun.lock"
@@ -98,6 +100,11 @@ jobs:
       - name: Typecheck tests
         run: bun run test:typecheck
 
+      - name: Rebuild reviewed plugin catalog without credentials
+        env:
+          TYPESAFE_API_KEY: ""
+        run: bun run plugin:catalog
+
       - name: Build
         run: bun run build:binary
 
@@ -128,6 +135,15 @@ jobs:
           check "No agents found" agent list
           # Reads a persona out of the binary's embedded assets.
           check "Personas" persona list
+
+          # Proves a dependency-importing plugin can be pre-bundled once and
+          # imported by the standalone binary without node_modules at runtime.
+          bun run scripts/plugin-pack.ts scripts/fixtures/plugin-pack/good
+          probe="$($binary plugin _probe-artifact scripts/fixtures/plugin-pack/good/release/catalog-entry.json --input scripts/fixtures/plugin-pack/good/input.json)"
+          if ! printf '%s' "$probe" | grep -qF -- '"status": "answered"'; then
+            printf 'compiled plugin probe failed:\n%s\n' "$probe" >&2
+            exit 1
+          fi
 
   test:
     runs-on: ubuntu-latest

@@ -97,6 +97,14 @@ describe("eventToAttributes", () => {
         requests: 1,
         durationMs: 40,
       },
+      decisionUsage: {
+        inputTokens: 12,
+        outputTokens: 3,
+        requests: 1,
+        durationMs: 80,
+        costUSD: 0.002,
+        costUnknown: false,
+      },
       process: { rssBytes: 50_000_000, heapUsedBytes: 20_000_000 },
     });
 
@@ -107,6 +115,8 @@ describe("eventToAttributes", () => {
     expect(usageAttributes["gen_ai.usage.input_tokens"]).toBe("180");
     expect(runAttributes["jazz.classifierUsage.promptTokens"]).toBe("180");
     expect(runAttributes["jazz.classifierUsage.durationMs"]).toBe("40");
+    expect(runAttributes["jazz.decisionUsage.inputTokens"]).toBe("12");
+    expect(runAttributes["jazz.decisionUsage.costUSD"]).toBe(0.002);
     expect(runAttributes["jazz.process.rssBytes"]).toBe("50000000");
   });
 

@@ -7,6 +7,7 @@
   "exports": {
     "./notification": "./src/notification/index.ts",
     "./llm/reasoning": "./src/llm/reasoning/index.ts",
+    "./plugins": "./src/plugins/index.ts",
     "./*": [
       "./src/*.ts",
       "./src/*/index.ts"

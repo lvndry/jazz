@@ -1,0 +1,22 @@
+{
+  "name": "@jazz/plugin-sdk",
+  "version": "0.1.0",
+  "description": "Types-only public ABI for authoring trusted Jazz plugins.",
+  "license": "MIT",
+  "type": "module",
+  "types": "./src/index.ts",
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "files": [
+    "src/"
+  ]
+}

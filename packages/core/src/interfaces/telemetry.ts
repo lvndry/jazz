@@ -81,6 +81,21 @@ export interface ClassifierUsage {
 }
 
 /**
+ * Rolled-up usage for bounded decision providers invoked by plugins.
+ *
+ * This deliberately contains only counters and spend. Requests, skill text,
+ * provider responses, and plugin-authored diagnostics never enter telemetry.
+ */
+export interface DecisionUsage {
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly requests: number;
+  readonly durationMs: number;
+  readonly costUSD: number;
+  readonly costUnknown: boolean;
+}
+
+/**
  * Jazz process resources at one instant.
  *
  * RSS/heap/CPU are this process. GPU is omitted on purpose: Jazz does not
@@ -220,6 +235,7 @@ export interface TelemetryService {
     readonly finished: boolean;
     readonly usage: TokenUsage;
     readonly classifierUsage?: ClassifierUsage;
+    readonly decisionUsage?: DecisionUsage;
     readonly process?: ProcessResourceSnapshot;
     readonly toolCalls: number;
     readonly toolErrors: number;

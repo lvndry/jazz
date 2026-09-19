@@ -21,6 +21,8 @@ package importing from one it doesn't declare a reference to.
   - No imports from `packages/adapters/` or `packages/cli/` allowed in core, except in tests.
   - Contracts are expressed as interfaces + Context tags (e.g., `AgentConfigServiceTag`).
   - Publishable standalone as `@jazz/core`: no workspace dependencies of its own.
+- **`packages/plugin-sdk/`** is the zero-runtime-dependency public TypeScript contract for plugin
+  authors. Core structurally implements that plain-JavaScript ABI without exposing Effect values.
 - **`packages/adapters/`** implements adapters for model providers, configuration, storage,
   files, MCP, the daemon, telemetry, notifications, peers, and webhooks.
   - Adapters provide Layers that satisfy the tags declared in `core/interfaces`.

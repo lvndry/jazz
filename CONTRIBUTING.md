@@ -4,7 +4,7 @@ Thank you for your interest in contributing to Jazz! Please read the [Quick Star
 
 ## Workspace
 
-Jazz is a Bun workspace (`packages/*`), split along clean-architecture lines with the boundary
+Jazz is a Bun workspace (`packages/*` and `plugins/*`), split along clean-architecture lines with the boundary
 structurally enforced by TypeScript project references. `tsc -b` rejects a package importing
 from one it doesn't declare as a dependency, not just a documented convention.
 
@@ -22,6 +22,8 @@ from one it doesn't declare as a dependency, not just a documented convention.
 | `packages/telegram-bot` | Telegram bridge                                                         | `core`, `adapters`, `bot-shared` |
 | `packages/discord-bot`  | Discord bridge                                                          | `core`, `adapters`, `bot-shared` |
 | `packages/website`      | Astro docs/marketing site, reads `docs/` as a content collection        | `cli` (design tokens only)       |
+| `packages/plugin-sdk`   | Public plain-JavaScript/types ABI for external plugin authors           | nothing                          |
+| `plugins/*`             | Reviewed optional plugins; never imported by core                       | `plugin-sdk` only                |
 
 **Critical rule**: `core/` must **never** import from `adapters/`, `cli/`, or `runtime/`.
 Dependencies flow inward only.
@@ -120,6 +122,15 @@ The library is maintained by the website package, which publishes its content as
 3. Open a PR. Merging publishes it to <https://jazz-cli.vercel.app/library> and to `jazz persona browse` or `jazz workflow browse`.
 
 The website build publishes library content for the CLI to consume over HTTP. `personas/` and `skills/` ship inside the Jazz binary as the deliberately small built-in set; workflows are library-only.
+
+### Contributing a plugin
+
+Start with `jazz plugin init <slug>`, commit the resulting source plus `bun.lock`, and use
+`jazz plugin dev .` and `jazz plugin pack .` locally. Official plugins live under `plugins/` and
+may import only `@jazz/plugin-sdk`, never Jazz internals. The catalog build installs the reviewed
+lockfile, runs the repository checks, rebuilds the single-file artifact without provider secrets,
+and computes the published SHA-256 itself. See [Plugins](docs/configure/plugins.md) and the
+[maintainer lifecycle](docs/maintainers/plugin-lifecycle.md).
 
 ## Before Submitting PR
 

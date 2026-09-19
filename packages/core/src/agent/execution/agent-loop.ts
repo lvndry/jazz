@@ -267,6 +267,8 @@ interface LoopDeps {
   maxCostUSD: number | undefined;
   maxTokens: number | undefined;
   maxDurationMs: number | undefined;
+  /** Provider-only routing hint for iteration zero; never part of canonical messages. */
+  initialProviderAdvisory: string | undefined;
   modelMetadata: UsageCostPricing | undefined;
   runRecursive: RecursiveRunner;
   /**
@@ -1007,6 +1009,7 @@ function runIteration(
           })()
         : null;
     const pressureContent = [
+      iterationIndex === 0 ? deps.initialProviderAdvisory : undefined,
       contextMsg?.content,
       budgetMsg?.content,
       timeBudgetMsg?.content,
@@ -1241,6 +1244,7 @@ export function executeAgentLoop(
           maxCostUSD,
           maxTokens,
           maxDurationMs,
+          initialProviderAdvisory,
         } = runContext;
 
         const configService = yield* AgentConfigServiceTag;
@@ -1346,6 +1350,7 @@ export function executeAgentLoop(
           maxCostUSD,
           maxTokens,
           maxDurationMs,
+          initialProviderAdvisory,
           modelMetadata,
           runRecursive,
           supportedAttachmentKinds,

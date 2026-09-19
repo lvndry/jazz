@@ -690,6 +690,37 @@ describe("executeAgentLoop", () => {
     ToolExecutor.executeToolCalls = originalExecute;
   });
 
+  it("sends the initial plugin advisory only in the provider copy", async () => {
+    let providerMessages: ConversationMessages | undefined;
+    const strategy: CompletionStrategy = {
+      shouldShowReasoning: false,
+      getCompletion: (messages) => {
+        providerMessages = messages;
+        return Effect.succeed({
+          completion: { id: "plugin-advisory", model: "gpt-4", content: "done" },
+          interrupted: false,
+        });
+      },
+      presentResponse: () => Effect.void,
+      onComplete: () => Effect.void,
+      getRenderer: () => null,
+    };
+    const advisory = '[Skill routing advisory: consider loading "pdf".]';
+    const result = await Effect.runPromise(
+      executeAgentLoop(
+        makeOptions(),
+        makeRunContext({ initialProviderAdvisory: advisory, maxIterations: 1 }),
+        displayConfig,
+        strategy,
+        defaultObserver,
+        runRecursive,
+      ).pipe(Effect.provide(TestLayer)),
+    );
+
+    expect(providerMessages?.some((message) => message.content.includes(advisory))).toBe(true);
+    expect(result.messages?.some((message) => message.content.includes(advisory))).toBe(false);
+  });
+
   it("should handle interruption from strategy", async () => {
     let getCompletionCalls = 0;
     const strategy: CompletionStrategy = {

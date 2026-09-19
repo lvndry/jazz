@@ -159,9 +159,40 @@ export function detectKeyringBackend(): Effect.Effect<KeyringBackend, never> {
 }
 
 const SECRETS_FILE_MODE = 0o600;
+const SECRETS_LOCK_RETRIES = 1_000;
+const SECRETS_LOCK_RETRY_MS = 10;
+const SECRETS_LOCK_STALE_MS = 30_000;
 
 function secretsFilePath(): string {
   return path.join(getJazzHomeDirectory(), "secrets.json");
+}
+
+async function withSecretsFileLock<T>(operation: () => Promise<T>): Promise<T> {
+  const lockPath = path.join(getJazzHomeDirectory(), ".secrets.lock");
+  await nodeFs.mkdir(path.dirname(lockPath), { recursive: true, mode: 0o700 });
+  for (let attempt = 0; attempt < SECRETS_LOCK_RETRIES; attempt++) {
+    try {
+      await nodeFs.mkdir(lockPath, { mode: 0o700 });
+      try {
+        return await operation();
+      } finally {
+        await nodeFs.rm(lockPath, { recursive: true, force: true });
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      try {
+        const stat = await nodeFs.stat(lockPath);
+        if (Date.now() - stat.mtimeMs > SECRETS_LOCK_STALE_MS) {
+          await nodeFs.rm(lockPath, { recursive: true, force: true });
+          continue;
+        }
+      } catch {
+        continue;
+      }
+      await new Promise((resolve) => setTimeout(resolve, SECRETS_LOCK_RETRY_MS));
+    }
+  }
+  throw new Error(`Timed out acquiring secret-file lock ${lockPath}`);
 }
 
 /** Missing file, unreadable file, or corrupt JSON all read as "nothing stored yet". */
@@ -182,8 +213,8 @@ function readSecretsFile(): Effect.Effect<Record<string, string>, never> {
 
 /**
  * Write via a sibling temp file and rename, so a crash mid-write can't leave `secrets.json`
- * truncated or invalid. No cross-process lock: token writes are rare enough that a lost
- * update from two concurrent writers is an accepted risk, not worth the complexity.
+ * truncated or invalid. Callers performing read-modify-write hold `.secrets.lock`, preventing
+ * concurrent provider/plugin secret updates from silently losing one another.
  */
 function writeSecretsFile(secrets: Record<string, string>): Effect.Effect<boolean, never> {
   return Effect.promise(async () => {
@@ -254,8 +285,12 @@ export function keyringSet(
   return Effect.gen(function* () {
     if (backend === "none") return false;
     if (backend === "file") {
-      const secrets = yield* readSecretsFile();
-      return yield* writeSecretsFile({ ...secrets, [account]: secret });
+      return yield* Effect.promise(() =>
+        withSecretsFileLock(async () => {
+          const secrets = await Effect.runPromise(readSecretsFile());
+          return Effect.runPromise(writeSecretsFile({ ...secrets, [account]: secret }));
+        }),
+      ).pipe(Effect.catchAll(() => Effect.succeed(false)));
     }
 
     if (backend === "macos") {
@@ -292,10 +327,14 @@ export function keyringDelete(
   return Effect.gen(function* () {
     if (backend === "none") return;
     if (backend === "file") {
-      const secrets = yield* readSecretsFile();
-      if (!(account in secrets)) return;
-      const { [account]: _removed, ...rest } = secrets;
-      yield* writeSecretsFile(rest);
+      yield* Effect.promise(() =>
+        withSecretsFileLock(async () => {
+          const secrets = await Effect.runPromise(readSecretsFile());
+          if (!(account in secrets)) return;
+          const { [account]: _removed, ...rest } = secrets;
+          await Effect.runPromise(writeSecretsFile(rest));
+        }),
+      ).pipe(Effect.catchAll(() => Effect.void));
       return;
     }
 

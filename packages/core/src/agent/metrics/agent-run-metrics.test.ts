@@ -10,6 +10,7 @@ import {
   estimateTokens,
   finalizeAgentRun,
   recordClassifierUsage,
+  recordDecisionUsage,
   recordLLMUsage,
   recordToolDefinitionTokens,
 } from "./agent-run-metrics";
@@ -173,6 +174,19 @@ describe("classifier usage", () => {
 
 describe("computeRunCost", () => {
   const pricing = { inputPricePerMillion: 1, outputPricePerMillion: 2 };
+
+  it("includes decision-provider cost and propagates unknown decision pricing", () => {
+    const metrics = createMetrics();
+    recordDecisionUsage(metrics, {
+      inputTokens: 10,
+      outputTokens: 2,
+      durationMs: 8,
+      costUSD: 0.25,
+    });
+    expect(computeRunCost(metrics, pricing)).toEqual({ costUSD: 0.25, costIncomplete: false });
+    recordDecisionUsage(metrics, { durationMs: 3, costUnknown: true });
+    expect(computeRunCost(metrics, pricing).costIncomplete).toBe(true);
+  });
 
   it("prices own tokens against the given rates", () => {
     const metrics = createMetrics();

@@ -4,6 +4,7 @@
  * service tags, then runs a command's effect against it.
  */
 
+import path from "node:path";
 import { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { createAgentServiceLayer } from "@jazz/adapters/agent-service";
@@ -20,6 +21,12 @@ import { createPeerLedgerServiceLayer } from "@jazz/adapters/peers/ledger";
 import { createPeerTokenServiceLayer } from "@jazz/adapters/peers/token";
 import { createPersonaRegistryServiceLayer } from "@jazz/adapters/persona-registry-service";
 import { createPersonaServiceLayer } from "@jazz/adapters/persona-service";
+import {
+  createPluginRegistryServiceLayer,
+  createPluginRuntimeServiceLayer,
+  PluginModuleLoader,
+  PluginRegistryServiceImpl,
+} from "@jazz/adapters/plugins";
 import { createReminderServiceLayer } from "@jazz/adapters/reminder-service";
 import { FileStorageService } from "@jazz/adapters/storage/file";
 import { createTelemetryServiceLayer } from "@jazz/adapters/telemetry/telemetry-service";
@@ -53,6 +60,7 @@ import { QuietPresentationServiceLayer } from "@jazz/core/presentation/quiet-pre
 import { SkillsLive } from "@jazz/core/skills/skill-service";
 import type { JazzError } from "@jazz/core/types/errors";
 import { getCurrentCommandName } from "@jazz/core/utils/current-command";
+import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
 import { isOfflineMode } from "@jazz/core/utils/runtime";
 import { resolveStorageDirectory } from "@jazz/core/utils/storage";
 import { emitTelemetry } from "@jazz/core/utils/telemetry-emit";
@@ -210,6 +218,21 @@ export function createAppLayer(
   const agentLayer = createAgentServiceLayer().pipe(Layer.provide(storageLayer));
   const personaLayer = createPersonaServiceLayer();
   const personaRegistryLayer = createPersonaRegistryServiceLayer();
+  const pluginLoaderRef: { current?: PluginModuleLoader } = {};
+  const pluginLifecycle = new PluginRegistryServiceImpl({
+    pluginDirectory: path.join(getJazzHomeDirectory(), "plugins"),
+    hasLoadedDigest: (digest) => pluginLoaderRef.current?.hasLoadedDigest(digest) === true,
+  });
+  const pluginLoader = new PluginModuleLoader({
+    stateStore: pluginLifecycle.stateStore,
+    installer: pluginLifecycle.installer,
+  });
+  pluginLoaderRef.current = pluginLoader;
+  const pluginRegistryLayer = createPluginRegistryServiceLayer(pluginLifecycle);
+  const pluginRuntimeLayer = createPluginRuntimeServiceLayer({
+    loader: pluginLoader,
+    secrets: pluginLifecycle.secrets,
+  });
   const workflowRegistryLayer = createWorkflowRegistryServiceLayer();
   const memoryServiceLayer = createMemoryServiceLayer();
   const workspaceServiceLayer = createWorkspaceServiceLayer().pipe(Layer.provide(configLayer));
@@ -255,6 +278,8 @@ export function createAppLayer(
     agentLayer,
     personaLayer,
     personaRegistryLayer,
+    pluginRegistryLayer,
+    pluginRuntimeLayer,
     workflowRegistryLayer,
     memoryServiceLayer,
     workspaceServiceLayer,

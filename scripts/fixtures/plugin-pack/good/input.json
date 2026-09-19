@@ -1,0 +1,9 @@
+{
+  "requestText": "Use the bundled fixture",
+  "skills": [
+    {
+      "name": "fixture",
+      "description": "Exercises an imported package from a standalone plugin artifact"
+    }
+  ]
+}

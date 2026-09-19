@@ -12,4 +12,4 @@ repos:
         entry: bun eslint --fix --cache
         language: system
         types_or: [ts, tsx]
-
+        exclude: ^packages/website/

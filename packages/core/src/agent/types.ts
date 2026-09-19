@@ -361,6 +361,11 @@ export interface AgentRunContext {
   readonly tools: ToolDefinition[];
   readonly expandedToolNames: readonly string[];
   readonly messages: ConversationMessages;
+  /**
+   * Host-rendered, provider-only context for the first LLM request.
+   * Never push this into `messages`: canonical history must remain byte-equivalent.
+   */
+  readonly initialProviderAdvisory?: string;
   readonly runMetrics: ReturnType<typeof createAgentRunMetrics>;
   readonly provider: ProviderName;
   readonly model: string;

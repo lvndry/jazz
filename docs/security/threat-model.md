@@ -17,6 +17,8 @@ are independent:
 - **Model provider:** receives prompts and attachments sent for inference.
 - **Tool execution:** can read, mutate, or transmit data with the Jazz process's authority.
 - **MCP and custom tools:** run third-party or deployment-authored code.
+- **Plugins:** explicitly trusted in-process modules run with the Jazz process's full OS authority;
+  their manifests describe expected use but do not confine code.
 - **Remote surfaces:** bots, daemon clients, webhooks, invites, and peers decide who can start work.
 - **Persistence:** config, transcripts, work state, logs, and telemetry remain readable to the OS
   account unless the host provides stronger isolation.
@@ -72,6 +74,9 @@ WhatsApp bridges apply their own sender or conversation allowlists before a run 
 - **Host isolation:** a shell-capable agent can reach whatever its OS user and network can reach.
 - **Third-party correctness:** an MCP server, custom command, model provider, or chat transport may
   mishandle data after it crosses that boundary.
+- **Plugin isolation or preemption:** a trusted plugin can bypass its declared projection, network,
+  and secret API; synchronous code can block or terminate Jazz. Cooperative timeouts and disabling
+  stop host dispatch, not code that has already escaped host control.
 - **Air gap from `JAZZ_OFFLINE`:** the flag skips public catalog, library, and update requests;
   it does not block inference, tools, MCP, or OTLP. Enforce egress outside Jazz.
 - **Encrypted local history:** transcripts, work state, logs, and local telemetry are files under

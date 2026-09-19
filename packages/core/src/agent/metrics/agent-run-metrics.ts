@@ -8,7 +8,12 @@ import { Effect } from "effect";
 import { isZeroCostLocalModel } from "@/core/constants/local-providers";
 import type { LoggerService } from "@/core/interfaces/logger";
 import { LoggerServiceTag } from "@/core/interfaces/logger";
-import type { ClassifierUsage, TelemetryService, TokenUsage } from "@/core/interfaces/telemetry";
+import type {
+  ClassifierUsage,
+  DecisionUsage,
+  TelemetryService,
+  TokenUsage,
+} from "@/core/interfaces/telemetry";
 import { type Agent } from "@/core/types";
 import type { ChatMessage } from "@/core/types/message";
 import { emitTelemetry } from "@/core/utils/telemetry-emit";
@@ -84,6 +89,15 @@ export interface AgentRunMetrics {
   classifierRequests: number;
   /** Wall-clock time spent in classifier LLM calls. */
   classifierDurationMs: number;
+  /** Decision-provider tokens are separate from conversation and classifier tokens. */
+  decisionInputTokens?: number;
+  decisionOutputTokens?: number;
+  decisionRequests?: number;
+  decisionDurationMs?: number;
+  /** Provider-reported decision spend, included in the run cost. */
+  decisionCostUSD?: number;
+  /** True when a non-local decision provider reported usage without a price. */
+  decisionCostUnknown?: boolean;
 }
 
 export function createAgentRunMetrics(context: AgentRunMetricsContext): AgentRunMetrics {
@@ -136,6 +150,12 @@ export function createAgentRunMetrics(context: AgentRunMetricsContext): AgentRun
     classifierCompletionTokens: 0,
     classifierRequests: 0,
     classifierDurationMs: 0,
+    decisionInputTokens: 0,
+    decisionOutputTokens: 0,
+    decisionRequests: 0,
+    decisionDurationMs: 0,
+    decisionCostUSD: 0,
+    decisionCostUnknown: false,
   };
 }
 
@@ -187,6 +207,8 @@ export function computeRunCost(
     | "totalCacheReadTokens"
     | "childCostUSD"
     | "childCostUnknown"
+    | "decisionCostUSD"
+    | "decisionCostUnknown"
     | "provider"
     | "model"
   >,
@@ -206,8 +228,10 @@ export function computeRunCost(
   // side is known — a run with unpriced parent tokens but priced sub-agents should
   // still surface the sub-agent spend.
   const costUSD =
-    ownCostUSD !== undefined || metrics.childCostUSD > 0
-      ? parseFloat(((ownCostUSD ?? 0) + metrics.childCostUSD).toFixed(8))
+    ownCostUSD !== undefined || metrics.childCostUSD > 0 || (metrics.decisionCostUSD ?? 0) > 0
+      ? parseFloat(
+          ((ownCostUSD ?? 0) + metrics.childCostUSD + (metrics.decisionCostUSD ?? 0)).toFixed(8),
+        )
       : undefined;
 
   const ownCostUnknown =
@@ -215,7 +239,30 @@ export function computeRunCost(
     metrics.totalPromptTokens + metrics.totalCompletionTokens > 0 &&
     !isZeroCostLocalModel(metrics.provider ?? "", metrics.model ?? "");
 
-  return { costUSD, costIncomplete: ownCostUnknown || metrics.childCostUnknown };
+  return {
+    costUSD,
+    costIncomplete:
+      ownCostUnknown || metrics.childCostUnknown || metrics.decisionCostUnknown === true,
+  };
+}
+
+/** Record a completed host-mediated decision-provider call. */
+export function recordDecisionUsage(
+  metrics: AgentRunMetrics,
+  usage: {
+    readonly inputTokens?: number;
+    readonly outputTokens?: number;
+    readonly durationMs: number;
+    readonly costUSD?: number;
+    readonly costUnknown?: boolean;
+  },
+): void {
+  metrics.decisionInputTokens = (metrics.decisionInputTokens ?? 0) + (usage.inputTokens ?? 0);
+  metrics.decisionOutputTokens = (metrics.decisionOutputTokens ?? 0) + (usage.outputTokens ?? 0);
+  metrics.decisionRequests = (metrics.decisionRequests ?? 0) + 1;
+  metrics.decisionDurationMs = (metrics.decisionDurationMs ?? 0) + usage.durationMs;
+  metrics.decisionCostUSD = (metrics.decisionCostUSD ?? 0) + (usage.costUSD ?? 0);
+  metrics.decisionCostUnknown = metrics.decisionCostUnknown === true || usage.costUnknown === true;
 }
 
 /**
@@ -437,6 +484,14 @@ export function finalizeAgentRun(
         classifierRequests: metrics.classifierRequests,
         classifierDurationMs: metrics.classifierDurationMs,
       }),
+      ...((metrics.decisionRequests ?? 0) > 0 && {
+        decisionInputTokens: metrics.decisionInputTokens,
+        decisionOutputTokens: metrics.decisionOutputTokens,
+        decisionRequests: metrics.decisionRequests,
+        decisionDurationMs: metrics.decisionDurationMs,
+        decisionCostUSD: metrics.decisionCostUSD,
+        decisionCostUnknown: metrics.decisionCostUnknown,
+      }),
     });
 
     // Emit telemetry event (best-effort, never fails the run).
@@ -497,6 +552,12 @@ interface TokenUsageLogPayload {
   readonly classifierCompletionTokens?: number;
   readonly classifierRequests?: number;
   readonly classifierDurationMs?: number;
+  readonly decisionInputTokens?: number;
+  readonly decisionOutputTokens?: number;
+  readonly decisionRequests?: number;
+  readonly decisionDurationMs?: number;
+  readonly decisionCostUSD?: number;
+  readonly decisionCostUnknown?: boolean;
 }
 
 function writeTokenUsageLog(
@@ -552,6 +613,15 @@ function writeTokenUsageLog(
           classifierRequests: payload.classifierRequests,
           classifierDurationMs: payload.classifierDurationMs,
         }),
+      ...(payload.decisionRequests != null &&
+        payload.decisionRequests > 0 && {
+          decisionInputTokens: payload.decisionInputTokens,
+          decisionOutputTokens: payload.decisionOutputTokens,
+          decisionRequests: payload.decisionRequests,
+          decisionDurationMs: payload.decisionDurationMs,
+          decisionCostUSD: payload.decisionCostUSD,
+          decisionCostUnknown: payload.decisionCostUnknown,
+        }),
     };
 
     yield* logger.info("Agent token usage", logMeta);
@@ -601,6 +671,18 @@ function buildTelemetryPayload(
         }
       : undefined;
 
+  const decisionUsage: DecisionUsage | undefined =
+    (metrics.decisionRequests ?? 0) > 0
+      ? {
+          inputTokens: metrics.decisionInputTokens ?? 0,
+          outputTokens: metrics.decisionOutputTokens ?? 0,
+          requests: metrics.decisionRequests ?? 0,
+          durationMs: metrics.decisionDurationMs ?? 0,
+          costUSD: metrics.decisionCostUSD ?? 0,
+          costUnknown: metrics.decisionCostUnknown ?? false,
+        }
+      : undefined;
+
   return {
     runId: metrics.runId,
     agentId: metrics.agentId,
@@ -613,6 +695,7 @@ function buildTelemetryPayload(
     finished: details.finished,
     usage,
     ...(classifierUsage && { classifierUsage }),
+    ...(decisionUsage && { decisionUsage }),
     toolCalls: metrics.toolCalls,
     toolErrors: metrics.toolErrors,
   };

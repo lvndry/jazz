@@ -12,15 +12,15 @@ local NDJSON file is not where you go to look.
 
 Each run emits:
 
-| Event                                       | When                                                                                                                                                                                                                                                                              |
-| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `agent_run_started` / `agent_run_completed` | Once per run; a run emits exactly one terminal event. `usage` is the agent-loop model (system prompt + conversation). `classifierUsage` is the command-risk classifier, kept beside it so the two numbers stay comparable. Both ends carry a `process` snapshot (RSS, heap, CPU). |
-| `agent_run_failed`                          | Instead of `completed` when the run dies                                                                                                                                                                                                                                          |
-| `llm_usage`                                 | Per LLM request, with token usage and wall-clock `durationMs`. Classifier calls are tagged `purpose: "classifier"` and use the harness model, not the agent's.                                                                                                                    |
-| `llm_retry`                                 | Per failed LLM attempt                                                                                                                                                                                                                                                            |
-| `tool_invocation` / `tool_error`            | Per tool call, with duration                                                                                                                                                                                                                                                      |
-| `process_sample`                            | Jazz process RSS/heap/CPU every 10s while a run is live. Not a span.                                                                                                                                                                                                              |
-| `command_executed`                          | Per CLI command, with the command path only                                                                                                                                                                                                                                       |
+| Event                                       | When                                                                                                                                                                                                                                                              |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `agent_run_started` / `agent_run_completed` | Once per run; a run emits exactly one terminal event. `usage` is the agent-loop model, `classifierUsage` is the command-risk classifier, and `decisionUsage` is bounded plugin-provider counters/cost. These stay separate. Both ends carry a `process` snapshot. |
+| `agent_run_failed`                          | Instead of `completed` when the run dies                                                                                                                                                                                                                          |
+| `llm_usage`                                 | Per LLM request, with token usage and wall-clock `durationMs`. Classifier calls are tagged `purpose: "classifier"` and use the harness model, not the agent's.                                                                                                    |
+| `llm_retry`                                 | Per failed LLM attempt                                                                                                                                                                                                                                            |
+| `tool_invocation` / `tool_error`            | Per tool call, with duration                                                                                                                                                                                                                                      |
+| `process_sample`                            | Jazz process RSS/heap/CPU every 10s while a run is live. Not a span.                                                                                                                                                                                              |
+| `command_executed`                          | Per CLI command, with the command path only                                                                                                                                                                                                                       |
 
 They land in `~/.jazz/telemetry/events/YYYY-MM-DD.ndjson` and are pruned after
 `telemetry.retentionDays` (90 by default). This happens whether or not you export anywhere.
@@ -129,7 +129,7 @@ conventions define one, Jazz uses it:
 
 Everything else is namespaced under `jazz.*`: `jazz.agent.id`, `jazz.conversation.id`,
 `jazz.run.id`, `jazz.toolName`, `jazz.durationMs`, `jazz.purpose` (`classifier` on
-command-risk calls), `jazz.classifierUsage.*`, `jazz.process.*` (RSS, heap, cumulative CPU),
+command-risk calls), `jazz.classifierUsage.*`, `jazz.decisionUsage.*`, `jazz.process.*` (RSS, heap, cumulative CPU),
 and the cache and reasoning token counts that have no semconv equivalent, under
 `jazz.usage.*`.
 
