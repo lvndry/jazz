@@ -7,7 +7,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { packPlugin } from "@jazz/adapters/plugins";
 
-const OFFICIAL_PLUGINS = ["plugins/jev-skill-router"] as const;
+const OFFICIAL_PLUGINS = ["plugins/jev"] as const;
 const OUTPUT_DIRECTORY = path.resolve(".build/plugin-catalog");
 
 interface CatalogRoute {

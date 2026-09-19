@@ -1,5 +1,5 @@
 {
-  "name": "@jazz-plugin/jev-skill-router",
+  "name": "@jazz-plugin/jev",
   "version": "0.1.0",
   "private": true,
   "type": "module",

@@ -5,6 +5,8 @@ import type {
   AdvisoryHookId,
   DecisionProvider,
   JazzPluginModule,
+  PolicyHookHandler,
+  PolicyHookId,
   PluginHostApi,
 } from "@jazz/plugin-sdk";
 import { afterEach, describe, expect, it } from "bun:test";
@@ -20,14 +22,21 @@ function fakeHost(): {
   readonly api: PluginHostApi;
   readonly providers: DecisionProvider[];
   readonly handlers: Map<AdvisoryHookId, AdvisoryHookHandler<AdvisoryHookId>>;
+  readonly policyHandlers: Map<PolicyHookId, PolicyHookHandler<PolicyHookId>>;
 } {
   const providers: DecisionProvider[] = [];
   const handlers = new Map<AdvisoryHookId, AdvisoryHookHandler<AdvisoryHookId>>();
+  const policyHandlers = new Map<PolicyHookId, PolicyHookHandler<PolicyHookId>>();
   const api: PluginHostApi = {
     apiVersion: 1,
     hooks: {
       register(hookId, handler) {
         handlers.set(hookId, handler as unknown as AdvisoryHookHandler<AdvisoryHookId>);
+      },
+    },
+    policy: {
+      register(hookId, handler) {
+        policyHandlers.set(hookId, handler as unknown as PolicyHookHandler<PolicyHookId>);
       },
     },
     decisions: {
@@ -56,7 +65,7 @@ function fakeHost(): {
     },
     secrets: { get: async () => "test-key" },
   };
-  return { api, providers, handlers };
+  return { api, providers, handlers, policyHandlers };
 }
 
 function register(module: JazzPluginModule = plugin) {
@@ -65,11 +74,12 @@ function register(module: JazzPluginModule = plugin) {
   return host;
 }
 
-describe("Jev skill router", () => {
-  it("registers one decision provider and route.skills handler", () => {
+describe("Jev decision provider", () => {
+  it("registers one provider with skill-routing and command-risk handlers", () => {
     const host = register();
     expect(host.providers).toHaveLength(1);
     expect(host.handlers.has("route.skills")).toBe(true);
+    expect(host.policyHandlers.has("classify.command-risk")).toBe(true);
   });
 
   it("maps Noul, Choice, and Score through the current System One schema", async () => {
@@ -195,6 +205,77 @@ describe("Jev skill router", () => {
       },
     });
     expect(requestBody).toMatchObject({ model: JEV_MODEL });
+  });
+
+  it("returns the complete command-risk distribution for host policy", async () => {
+    let requestBody: unknown;
+    globalThis.fetch = (async (input, init) => {
+      expect(String(input)).toBe(JEV_API_URL);
+      requestBody = JSON.parse(String(init?.body));
+      return Response.json({
+        model: JEV_MODEL,
+        answers: {
+          command_risk: {
+            type: "choice",
+            choice: "read_only",
+            probabilities: { read_only: 0.96, low_risk: 0.03, high_risk: 0.01 },
+            confidence: 0.95,
+          },
+        },
+        usage: { input_tokens: 60, output_tokens: 4 },
+      });
+    }) as typeof fetch;
+    const host = register();
+    const result = await host.policyHandlers.get("classify.command-risk")?.(
+      { command: "git status --short" },
+      { signal: new AbortController().signal },
+    );
+
+    expect(result).toEqual({
+      status: "answered",
+      distribution: {
+        readOnlyProbability: 0.96,
+        lowRiskProbability: 0.03,
+        highRiskProbability: 0.01,
+      },
+    });
+    expect(requestBody).toMatchObject({
+      state: { command: "git status --short" },
+      model: JEV_MODEL,
+      questions: {
+        command_risk: {
+          type: "choice",
+          criteria: {
+            read_only: expect.any(String),
+            low_risk: expect.any(String),
+            high_risk: expect.any(String),
+          },
+        },
+      },
+    });
+  });
+
+  it("abstains command risk when Jev omits a probability", async () => {
+    globalThis.fetch = (async () =>
+      Response.json({
+        model: JEV_MODEL,
+        answers: {
+          command_risk: {
+            type: "choice",
+            choice: "high_risk",
+            probabilities: { read_only: 0.1, high_risk: 0.9 },
+            confidence: 0.9,
+          },
+        },
+        usage: { input_tokens: 50, output_tokens: 4 },
+      })) as unknown as typeof fetch;
+    const host = register();
+    const result = await host.policyHandlers.get("classify.command-risk")?.(
+      { command: "some ambiguous command" },
+      { signal: new AbortController().signal },
+    );
+
+    expect(result).toEqual({ status: "abstained", reason: "invalid provider answer" });
   });
 
   it("fails open on a model-version mismatch", async () => {

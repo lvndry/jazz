@@ -1,10 +1,13 @@
 /**
- * Optional trusted Jazz plugin that routes skill requests through TypeSafe's
- * System One API. It uses only the public plugin ABI, pins the model version
- * used for evaluation, and fails open through explicit abstention.
+ * Optional trusted Jazz plugin that answers bounded skill-routing and command-risk
+ * decisions through TypeSafe's System One API. It uses only the public plugin ABI,
+ * pins the evaluated model version, and fails through explicit abstention so Jazz
+ * can preserve its host-owned fallback policy.
  */
 
 import type {
+  CommandRiskInput,
+  CommandRiskOutcome,
   DecisionAnswer,
   DecisionBatchResult,
   DecisionProvider,
@@ -29,6 +32,8 @@ const MAX_COST_USD_PER_BATCH =
 const MAX_CHOICE_OPTIONS = 255;
 const MAX_ROUTING_STATE_BYTES = 64 * 1024;
 const MAX_RETRIES = 2;
+
+const COMMAND_RISK_OPTIONS = ["read_only", "low_risk", "high_risk"] as const;
 
 type JevQuestion =
   | { readonly type: "noul"; readonly instructions: string }
@@ -309,12 +314,80 @@ async function routeSkills(
   };
 }
 
+function commandRiskRequest(input: CommandRiskInput): DecisionRequest {
+  return {
+    state: { command: input.command },
+    questions: [
+      {
+        id: "command_risk",
+        question: {
+          kind: "choice",
+          instructions:
+            "Classify the proposed shell command by the effects visible in the command text. Treat uncertainty as high risk.",
+          options: [
+            {
+              value: "read_only",
+              criterion:
+                "Inspects state only: no writes or file redirects, process control, installation, network mutation, execution of another program's payload, or command chaining that could hide a mutation.",
+            },
+            {
+              value: "low_risk",
+              criterion:
+                "Makes only a minor local reversible change, such as staging files or writing a note. No deletion, force-git, push, installation, network mutation, or privilege change.",
+            },
+            {
+              value: "high_risk",
+              criterion:
+                "Anything else, including deletion, broad or irreversible changes, remote effects, hidden payload execution, privilege changes, or uncertainty.",
+            },
+          ],
+        },
+      },
+    ],
+  };
+}
+
+async function classifyCommandRisk(
+  client: PluginDecisionClient,
+  input: CommandRiskInput,
+  signal: AbortSignal,
+): Promise<CommandRiskOutcome> {
+  const result = await client.decide(commandRiskRequest(input), { signal });
+  const outcome = result.answers.find(({ id }) => id === "command_risk")?.outcome;
+  if (outcome?.status !== "answered" || outcome.answer.kind !== "choice") {
+    return {
+      status: "abstained",
+      reason: outcome?.status === "abstained" ? outcome.reason : "Jev did not answer command risk",
+    };
+  }
+  const byOption = new Map(
+    outcome.answer.probabilities.map(({ value, probability }) => [value, probability] as const),
+  );
+  const [readOnlyProbability, lowRiskProbability, highRiskProbability] = COMMAND_RISK_OPTIONS.map(
+    (option) => byOption.get(option),
+  );
+  if (
+    readOnlyProbability === undefined ||
+    lowRiskProbability === undefined ||
+    highRiskProbability === undefined
+  ) {
+    return { status: "abstained", reason: "Jev omitted a command-risk probability" };
+  }
+  return {
+    status: "answered",
+    distribution: { readOnlyProbability, lowRiskProbability, highRiskProbability },
+  };
+}
+
 const plugin: JazzPluginModule = {
   apiVersion: 1,
   register(api) {
     const client = api.decisions.registerProvider(createJevDecisionProvider(api));
     api.hooks.register("route.skills", (input, context) =>
       routeSkills(client, input, context.signal),
+    );
+    api.policy.register("classify.command-risk", (input, context) =>
+      classifyCommandRisk(client, input, context.signal),
     );
   },
 };
