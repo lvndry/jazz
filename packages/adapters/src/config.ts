@@ -28,6 +28,7 @@ import type {
 import {
   checkConfigWrite,
   formatConfigIssues,
+  mcpServerEntryName,
   parseConfigFile,
   type ConfigFile,
   validateEffectiveConfig,
@@ -250,15 +251,16 @@ export class AgentConfigServiceImpl implements AgentConfigService {
   private applyToRuntime(key: string, value: unknown, secret: boolean): void {
     const runtime = this.currentConfig as unknown as ConfigDocument;
     if (secret && !structuralHomeFor(this.currentConfig, key)) return;
+    const mcpName = mcpServerEntryName(key, value);
+    if (mcpName !== undefined) {
+      patchMcpServerEntry(runtime, mcpName, value);
+      return;
+    }
     if (value === undefined || (secret && isBlankSecret(value))) {
       deepDelete(runtime, key);
       return;
     }
-    deepSet(
-      runtime,
-      key,
-      isMcpServerEntry(key) ? mergedEntry(deepGet(runtime, key), value) : value,
-    );
+    deepSet(runtime, key, value);
   }
 
   /**
@@ -367,23 +369,34 @@ export class AgentConfigServiceImpl implements AgentConfigService {
   }
 }
 
-/** `mcpServers.<name>` set to an object patches that server's overrides rather than replacing them. */
-function isMcpServerEntry(key: string): boolean {
-  return /^mcpServers\.[^.]+$/.test(key);
-}
-
 function mergedEntry(existing: unknown, patch: unknown): ConfigDocument {
   return { ...(isPlainObject(existing) ? existing : {}), ...(isPlainObject(patch) ? patch : {}) };
 }
 
+/**
+ * Patch `mcpServers.<name>` at its literal key, merging into that server's existing entry.
+ *
+ * The name is a record key, not a dotted path, so a server named `com.example.mcp` is one key
+ * rather than a nested object — `deepSet` on the dotted form would both misplace it and, before
+ * the schema check reached here, reject it outright.
+ */
+function patchMcpServerEntry(target: ConfigDocument, name: string, patch: unknown): void {
+  const servers = isPlainObject(target["mcpServers"]) ? target["mcpServers"] : {};
+  target["mcpServers"] = { ...servers, [name]: structuredClone(mergedEntry(servers[name], patch)) };
+}
+
 /** Apply a checked, non-secret write to the file document. */
 function writeToDocument(document: ConfigDocument, key: string, value: unknown): void {
+  const mcpName = mcpServerEntryName(key, value);
+  if (mcpName !== undefined) {
+    patchMcpServerEntry(document, mcpName, value);
+    return;
+  }
   if (value === undefined) {
     deepDelete(document, key);
     return;
   }
-  const next = isMcpServerEntry(key) ? mergedEntry(deepGet(document, key), value) : value;
-  deepSet(document, key, structuredClone(next));
+  deepSet(document, key, structuredClone(value));
 }
 
 function isPlainObject(value: unknown): value is ConfigDocument {

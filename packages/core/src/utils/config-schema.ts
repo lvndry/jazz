@@ -245,6 +245,9 @@ const mcpOverrideShape = {
   trusted: flag.exactOptional(),
 } satisfies SchemaShape<MCPServerOverride>;
 
+/** The value under one `mcpServers.<name>` key: the enabled/trusted override Jazz owns. */
+const mcpOverrideSchema = z.strictObject(mcpOverrideShape);
+
 const peerShape = {
   name: z.string().min(1),
   url: text.exactOptional(),
@@ -272,7 +275,7 @@ const configFileShape = {
   llm: z.strictObject(llmShape).exactOptional(),
   web_search: z.strictObject(webSearchShape).exactOptional(),
   output: z.strictObject(outputShape).exactOptional(),
-  mcpServers: z.record(safeRecordKey, z.strictObject(mcpOverrideShape)).exactOptional(),
+  mcpServers: z.record(safeRecordKey, mcpOverrideSchema).exactOptional(),
   notifications: z.strictObject(notificationsShape).exactOptional(),
   autoApprovedCommands: names.exactOptional(),
   telemetry: z.strictObject(telemetryShape).exactOptional(),
@@ -335,13 +338,17 @@ function childSchema(schema: z.ZodType, segment: PropertyKey): z.ZodType | undef
   return undefined;
 }
 
-function schemaAt(path: Path): z.ZodType | undefined {
-  let current: z.ZodType | undefined = ConfigFileSchema;
+function schemaFrom(root: z.ZodType, path: Path): z.ZodType | undefined {
+  let current: z.ZodType | undefined = root;
   for (const segment of path) {
     if (current === undefined) return undefined;
     current = childSchema(current, segment);
   }
   return current;
+}
+
+function schemaAt(path: Path): z.ZodType | undefined {
+  return schemaFrom(ConfigFileSchema, path);
 }
 
 /** Render a path the way a person would type it: `webhooks[1].promptTemplate`. */
@@ -625,6 +632,31 @@ function parsePath(path: string): readonly string[] | undefined {
     : undefined;
 }
 
+const MCP_SERVERS = "mcpServers";
+
+function isObjectValue(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+/**
+ * The literal server name in a whole-entry `mcpServers.<name>` write, or `undefined`.
+ *
+ * `mcpServers` is a record keyed by free-form server names, so a name may contain dots
+ * (`com.example.mcp`). A whole-entry write carries the override object, so its name is the entire
+ * remainder taken literally rather than dot-split into a nested path. The per-field forms
+ * (`mcpServers.<name>.enabled` / `.trusted`) carry a boolean and stay on the generic dotted path.
+ */
+export function mcpServerEntryName(path: string, value: unknown): string | undefined {
+  if (!isObjectValue(value)) return undefined;
+  const prefix = `${MCP_SERVERS}.`;
+  if (!path.startsWith(prefix)) return undefined;
+  const name = path.slice(prefix.length);
+  if (name === "" || name.split(".").some((segment) => unsafePathSegments.has(segment))) {
+    return undefined;
+  }
+  return name;
+}
+
 function isStructured(schema: z.ZodType): boolean {
   const inner = unwrap(schema);
   return (
@@ -734,20 +766,31 @@ export type ConfigWriteCheck =
  * setting. Secrets are the caller's to route and are not checked here.
  */
 export function checkConfigWrite(path: string, value: unknown): ConfigWriteCheck {
+  const mcpName = mcpServerEntryName(path, value);
+  if (mcpName !== undefined) {
+    return checkAgainst(mcpOverrideSchema, [MCP_SERVERS, mcpName], value);
+  }
   const segments = parsePath(path);
   const schema = segments === undefined ? undefined : schemaAt(segments);
   if (segments === undefined || schema === undefined) {
     return { ok: false, problem: `"${path}" is not a setting` };
   }
   if (value === undefined) return { ok: true };
+  return checkAgainst(schema, segments, value);
+}
 
+/** Validate `value` against `schema` rooted at `prefix`, naming the offending path on failure. */
+function checkAgainst(schema: z.ZodType, prefix: Path, value: unknown): ConfigWriteCheck {
   const result = schema.safeParse(value);
   if (result.success) return { ok: true };
   const issue = result.error.issues[0];
-  const issuePath = [...segments, ...(issue?.path ?? [])];
+  const relativePath = issue?.path ?? [];
   const expected =
     issue?.code === "unrecognized_keys"
       ? `no key named ${issue.keys.map((key) => `"${key}"`).join(", ")}`
-      : describeExpected(schemaAt(issuePath));
-  return { ok: false, problem: `${formatConfigPath(issuePath)} expected ${expected}` };
+      : describeExpected(schemaFrom(schema, relativePath));
+  return {
+    ok: false,
+    problem: `${formatConfigPath([...prefix, ...relativePath])} expected ${expected}`,
+  };
 }

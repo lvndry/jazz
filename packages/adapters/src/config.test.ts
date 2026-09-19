@@ -825,6 +825,24 @@ describe("AgentConfigService.set checks what callers hand it", () => {
     expect(written.mcpServers.github).toEqual({ enabled: false, trusted: true });
   });
 
+  it("patches a server whose name contains dots at the literal key, not a nested path", async () => {
+    const writeFileString = mock(() => Effect.void);
+    const fs = { ...mockFS, writeFileString } as unknown as FileSystem.FileSystem;
+    const service = new AgentConfigServiceImpl(
+      initialConfig,
+      { mcpServers: { "com.example.mcp": { enabled: true } } },
+      "/tmp/jazz-mcp-dotted.json",
+      fs,
+    );
+
+    // `jazz mcp trust com.example.mcp` runs exactly this write; it used to die.
+    await Effect.runPromise(service.set("mcpServers.com.example.mcp", { trusted: true }));
+
+    const calls = (writeFileString as ReturnType<typeof mock>).mock.calls;
+    const written = JSON.parse(calls[0]?.[1] as string);
+    expect(written.mcpServers).toEqual({ "com.example.mcp": { enabled: true, trusted: true } });
+  });
+
   it("does not commit the in-memory value when the atomic replace fails", async () => {
     const rename = mock(() => Effect.fail(new Error("disk full")));
     const fs = { ...mockFS, rename } as unknown as FileSystem.FileSystem;

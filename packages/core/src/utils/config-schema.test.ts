@@ -367,4 +367,29 @@ describe("checkConfigWrite", () => {
       problem: '"wizard.lastUsedAgentId" is not a setting',
     });
   });
+
+  it("accepts a whole mcpServers entry whose name contains dots", () => {
+    expect(checkConfigWrite("mcpServers.com.example.mcp", { enabled: true })).toEqual({ ok: true });
+    expect(checkConfigWrite("mcpServers.my.server", { enabled: true, trusted: false })).toEqual({
+      ok: true,
+    });
+  });
+
+  it("still reports a bad field under a dotted server name", () => {
+    expect(checkConfigWrite("mcpServers.my.server", { command: "npx" })).toEqual({
+      ok: false,
+      problem: 'mcpServers.my.server expected no key named "command"',
+    });
+    expect(checkConfigWrite("mcpServers.my.server", { enabled: "yes" })).toEqual({
+      ok: false,
+      problem: "mcpServers.my.server.enabled expected true or false",
+    });
+  });
+
+  it("refuses a server name that would poison the prototype chain", () => {
+    expect(checkConfigWrite("mcpServers.__proto__", { enabled: true })).toEqual({
+      ok: false,
+      problem: '"mcpServers.__proto__" is not a setting',
+    });
+  });
 });
