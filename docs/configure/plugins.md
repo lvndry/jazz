@@ -31,10 +31,13 @@ jazz plugin add ./release/catalog-entry.json
 jazz plugin inspect com.example.router
 jazz plugin trust com.example.router
 jazz plugin enable com.example.router --agent default
+# Or enable for every agent, including agents created later:
+jazz plugin enable com.example.router
 ```
 
 `add` verifies and stores bytes but never imports them. Jazz imports a module lazily only for a run
-whose agent has enabled it and whose exact code and consent digests are still granted.
+whose agent has enabled it — per agent, or for all agents — and whose exact code and consent digests
+are still granted.
 
 An enabled `route.skills` plugin ranks the live skills for the turn, and Jazz adds a short,
 non-authoritative relevance hint for the top skill to the first provider request when it beats the

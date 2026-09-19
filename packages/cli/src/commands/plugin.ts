@@ -189,7 +189,7 @@ function manifestSummary(inspection: PluginInspection): readonly string[] {
     `data sent: ${manifest.dataSent.join("; ") || "none declared"}`,
     `trusted: ${inspection.trusted ? "yes" : "no"}`,
     `consented: ${inspection.consented ? "yes" : "no"}`,
-    `enabled agents: ${inspection.enabledAgentIds.join(", ") || "none"}`,
+    `enabled agents: ${inspection.enabledForAllAgents ? "all agents" : inspection.enabledAgentIds.join(", ") || "none"}`,
     `artifact valid: ${inspection.artifactValid ? "yes" : "no"}`,
     ...(inspection.restartRequired ? ["restart required to unload previously imported code"] : []),
   ];
@@ -246,7 +246,7 @@ export function pluginListCommand(
     yield* terminal.heading(`Plugins (${plugins.length})`);
     for (const plugin of plugins) {
       yield* terminal.log(
-        `${plugin.id}  ${plugin.current.manifest.version}  ${plugin.trusted ? "trusted" : "untrusted"}  agents: ${plugin.enabledAgentIds.join(",") || "none"}`,
+        `${plugin.id}  ${plugin.current.manifest.version}  ${plugin.trusted ? "trusted" : "untrusted"}  agents: ${plugin.enabledForAllAgents ? "all" : plugin.enabledAgentIds.join(",") || "none"}`,
       );
     }
   });
@@ -280,12 +280,12 @@ export function pluginTrustCommand(id: string): Effect.Effect<void, Error, Termi
 
 export function pluginEnableCommand(
   id: string,
-  agentId: string,
+  agentId?: string,
 ): Effect.Effect<void, Error, TerminalService | AgentService> {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
-    const agent = yield* getAgentByIdentifier(agentId);
     yield* requireInteractive(terminal, "Plugin egress consent");
+    const agent = agentId === undefined ? undefined : yield* getAgentByIdentifier(agentId);
     const service = registry();
     const inspection = yield* attempt(() => service.inspect(id));
     if (!inspection.trusted) {
@@ -299,14 +299,17 @@ export function pluginEnableCommand(
         "This plugin declares policy hooks that can affect authorization decisions, including whether Jazz asks before running a command.",
       );
     }
+    const scope = agent === undefined ? "all agents" : `${agent.name} (${agent.id})`;
     const granted = yield* terminal.confirm(
-      `Consent to ${id}'s declared data egress and enable it for ${agent.name}?`,
+      `Consent to ${id}'s declared data egress and enable it for ${
+        agent === undefined ? "all agents" : agent.name
+      }?`,
       false,
     );
     if (!granted) return yield* Effect.fail(new Error("Plugin enablement cancelled."));
     yield* attempt(() => service.grantConsent(id, inspection.consentDigest));
-    yield* attempt(() => service.enable(id, agent.id));
-    yield* terminal.success(`Enabled ${id} for agent ${agent.name} (${agent.id}).`);
+    yield* attempt(() => service.enable(id, agent?.id));
+    yield* terminal.success(`Enabled ${id} for ${scope}.`);
 
     // A required secret the host cannot already resolve would leave the plugin failing open on
     // every run, so provision it as part of setup instead of making the operator discover the gap
