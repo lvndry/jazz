@@ -284,29 +284,22 @@ export function pluginEnableCommand(
 ): Effect.Effect<void, Error, TerminalService | AgentService> {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
-    yield* requireInteractive(terminal, "Plugin egress consent");
+    yield* requireInteractive(terminal, "Plugin enablement");
     const agent = agentId === undefined ? undefined : yield* getAgentByIdentifier(agentId);
     const service = registry();
     const inspection = yield* attempt(() => service.inspect(id));
     if (!inspection.trusted) {
-      return yield* Effect.fail(
-        new Error(`${id} is not trusted. Run 'jazz plugin trust ${id}' first.`),
-      );
+      yield* renderInspection(terminal, inspection);
+      const trusted = yield* terminal.confirm(`Do you trust ${id}?`, false);
+      if (!trusted) return yield* Effect.fail(new Error("Plugin trust cancelled."));
+      yield* attempt(() => service.trust(id, inspection.current.manifest.sha256));
     }
-    yield* renderInspection(terminal, inspection);
     if (inspection.current.manifest.policyHooks.length > 0) {
       yield* terminal.warn(
         "This plugin declares policy hooks that can affect authorization decisions, including whether Jazz asks before running a command.",
       );
     }
     const scope = agent === undefined ? "all agents" : `${agent.name} (${agent.id})`;
-    const granted = yield* terminal.confirm(
-      `Consent to ${id}'s declared data egress and enable it for ${
-        agent === undefined ? "all agents" : agent.name
-      }?`,
-      false,
-    );
-    if (!granted) return yield* Effect.fail(new Error("Plugin enablement cancelled."));
     yield* attempt(() => service.grantConsent(id, inspection.consentDigest));
     yield* attempt(() => service.enable(id, agent?.id));
     yield* terminal.success(`Enabled ${id} for ${scope}.`);

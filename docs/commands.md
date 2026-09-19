@@ -323,25 +323,25 @@ See [Personas](./concepts/personas.md).
 
 ## `jazz plugin`
 
-| Command                                           | Purpose                                                                                                                                       |
-| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `jazz plugin init <directory>`                    | Scaffold a types-only SDK plugin project. `--id`, `--name`                                                                                    |
-| `jazz plugin dev [directory]`                     | Pack and audit in a disposable host. Invoke `route.skills` or `classify.command-risk` with `--hook` and `--input`                             |
-| `jazz plugin pack [directory]`                    | Emit `plugin.mjs`, its SHA-256, and `catalog-entry.json`                                                                                      |
-| `jazz plugin add <source-or-id>`                  | Verify/install a local manifest, HTTPS manifest, or official catalog id; does not trust or enable                                             |
-| `jazz plugin inspect <id>`                        | Show exact digest, declarations, grants, enablement, and secret status. `--json`                                                              |
-| `jazz plugin trust <id>`                          | Locally acknowledge full OS-user code execution for the current digest                                                                        |
-| `jazz plugin enable <id> [--agent <id-or-name>]`  | Grant egress consent and enable for one agent, or for all agents when `--agent` is omitted; prompts for any required secret not yet available |
-| `jazz plugin disable <id> [--agent <id-or-name>]` | Prevent new dispatches for one agent or all agents                                                                                            |
-| `jazz plugin update <id> [source]`                | Verify an update, retain one rollback artifact, and disable pending grants                                                                    |
-| `jazz plugin rollback <id>`                       | Swap current/previous artifacts and disable pending grants                                                                                    |
-| `jazz plugin doctor <id>`                         | Check artifact, grants, declarations, and required secrets. `--json`                                                                          |
-| `jazz plugin remove <id>`                         | Remove state/artifacts and Jazz-owned secrets. `--keep-secrets`                                                                               |
-| `jazz plugin list`                                | List installed plugin state                                                                                                                   |
-| `jazz plugin gc`                                  | Remove unreferenced, unloaded artifacts                                                                                                       |
-| `jazz plugin secret set <id> <name>`              | Store a declared plugin-scoped credential                                                                                                     |
-| `jazz plugin secret status <id> <name>`           | Report whether a credential comes from environment, keyring, file, or is missing                                                              |
-| `jazz plugin secret forget <id> <name>`           | Delete a Jazz-owned plugin credential; environment values are unaffected                                                                      |
+| Command                                           | Purpose                                                                                                                                                               |
+| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `jazz plugin init <directory>`                    | Scaffold a types-only SDK plugin project. `--id`, `--name`                                                                                                            |
+| `jazz plugin dev [directory]`                     | Pack and audit in a disposable host. Invoke `route.skills` or `classify.command-risk` with `--hook` and `--input`                                                     |
+| `jazz plugin pack [directory]`                    | Emit `plugin.mjs`, its SHA-256, and `catalog-entry.json`                                                                                                              |
+| `jazz plugin add <source-or-id>`                  | Verify/install a local manifest, HTTPS manifest, or official catalog id; does not trust or enable                                                                     |
+| `jazz plugin inspect <id>`                        | Show exact digest, declarations, grants, enablement, and secret status. `--json`                                                                                      |
+| `jazz plugin trust <id>`                          | Locally acknowledge full OS-user code execution for the current digest                                                                                                |
+| `jazz plugin enable <id> [--agent <id-or-name>]`  | Enable for one agent, or all agents when `--agent` is omitted; asks to trust first only if not already trusted, and prompts for any required secret not yet available |
+| `jazz plugin disable <id> [--agent <id-or-name>]` | Prevent new dispatches for one agent or all agents                                                                                                                    |
+| `jazz plugin update <id> [source]`                | Verify an update, retain one rollback artifact, and disable pending grants                                                                                            |
+| `jazz plugin rollback <id>`                       | Swap current/previous artifacts and disable pending grants                                                                                                            |
+| `jazz plugin doctor <id>`                         | Check artifact, grants, declarations, and required secrets. `--json`                                                                                                  |
+| `jazz plugin remove <id>`                         | Remove state/artifacts and Jazz-owned secrets. `--keep-secrets`                                                                                                       |
+| `jazz plugin list`                                | List installed plugin state                                                                                                                                           |
+| `jazz plugin gc`                                  | Remove unreferenced, unloaded artifacts                                                                                                                               |
+| `jazz plugin secret set <id> <name>`              | Store a declared plugin-scoped credential                                                                                                                             |
+| `jazz plugin secret status <id> <name>`           | Report whether a credential comes from environment, keyring, file, or is missing                                                                                      |
+| `jazz plugin secret forget <id> <name>`           | Delete a Jazz-owned plugin credential; environment values are unaffected                                                                                              |
 
 Trust and consent require a local interactive terminal. This includes explicit consent for a
 `classify.command-risk` policy hook: it may send bounded command text to its declared destination
