@@ -339,7 +339,9 @@ function initializeAgentRun(
           )
         : Option.none();
 
-    // Plugin routing is a shadow measurement unless the explicit experimental switch is on.
+    // An enabled route.skills plugin ranks the live skills for this turn. It never fails the run:
+    // any error or abstention falls back to deterministic behavior, and it is skipped for resumes
+    // and summarizer runs.
     const routingOutcome =
       options.isResume !== true && persona !== "summarizer" && Option.isSome(pluginSession)
         ? yield* pluginSession.value
@@ -366,7 +368,7 @@ function initializeAgentRun(
       yield* logger.warn("Plugin skill routing handler failed; using deterministic behavior");
     }
     const initialProviderAdvisory =
-      process.env["JAZZ_EXPERIMENTAL_PLUGIN_ADVISORY"] === "1" && routingOutcome !== undefined
+      routingOutcome !== undefined
         ? renderSkillRoutingAdvisory(
             routingOutcome,
             new Set(relevantSkills.map((skill) => skill.name)),

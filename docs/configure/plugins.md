@@ -36,10 +36,12 @@ jazz plugin enable com.example.router --agent default
 `add` verifies and stores bytes but never imports them. Jazz imports a module lazily only for a run
 whose agent has enabled it and whose exact code and consent digests are still granted.
 
-Enabled `route.skills` plugins currently run in shadow mode: bounded usage, latency, and cost are
-measured, but their answer does not change the provider request. Maintainers can explicitly test
-host-rendered advisory injection with `JAZZ_EXPERIMENTAL_PLUGIN_ADVISORY=1`; this is not enabled by
-installation, trust, or consent and remains gated on held end-to-end eval results.
+An enabled `route.skills` plugin ranks the live skills for the turn, and Jazz adds a short,
+non-authoritative relevance hint for the top skill to the first provider request when it beats the
+no-skill option. The hint is transient provider context: it never enters durable history, resume
+state, work state, or telemetry, and the plugin can never load a skill, change tools, or authorize
+anything. Any error or abstention falls back to deterministic behavior, and routing is skipped for
+resumes and summarizer runs.
 
 ## Command-risk policy hook
 
@@ -47,7 +49,7 @@ installation, trust, or consent and remains gated on held end-to-end eval result
 because its arguments determine what it can do. The plugin classifies the proposed command as
 `read-only`, `low-risk`, or `high-risk`; Jazz validates that result and applies the operator's
 approval policy. A lower classification can therefore remove an approval prompt. Enabling this hook
-is explicit consent to that effect, not merely permission to collect shadow metrics.
+is explicit consent to that effect.
 
 The plugin is not the enforcement point. It cannot lower another tool's declared risk, expand the
 run's effective tool set, override a command allowlist, change the selected approval tier, or bypass
