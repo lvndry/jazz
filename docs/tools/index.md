@@ -96,9 +96,9 @@ Risk and disclosure are both about this end of the call: what a tool does to you
 what its answer would reveal. Neither asks about the **request**, and for a handful of tools
 the request is where your material would actually leave.
 
-| Sends | Tools                                     |
-| ----- | ----------------------------------------- |
-| yes   | `http_request`, `web_fetch`, `web_search` |
+| Sends | Tools                                                 |
+| ----- | ----------------------------------------------------- |
+| yes   | `http_request`, `read_pdf`, `web_fetch`, `web_search` |
 
 Two more, absent above only because they are registered per agent rather than globally:
 `ask_peer`, whose whole purpose is to put your model's words in front of somebody else's
