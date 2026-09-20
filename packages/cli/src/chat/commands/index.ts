@@ -2,8 +2,10 @@ export {
   CHAT_COMMANDS,
   filterCommandsByPrefix,
   getMcpPromptCommandNames,
+  getPluginCommandNames,
   getSkillCommandNames,
   setMcpPromptCommands,
+  setPluginCommands,
   setSkillCommands,
   slashCommandQuery,
 } from "./constants";

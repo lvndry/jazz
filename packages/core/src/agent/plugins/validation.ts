@@ -80,6 +80,16 @@ export function validatePluginManifest(manifest: PluginManifest): PluginManifest
     if (typeof tool.egress !== "boolean") fail(`tool ${tool.name} must declare egress`);
     assertJsonValue(tool.parameters);
   }
+  const commandNames = manifest.commands.map(({ name }) => name);
+  if (
+    commandNames.some((name) => !validIdentifier(name)) ||
+    new Set(commandNames).size !== commandNames.length
+  ) {
+    fail("manifest command names must be valid and unique");
+  }
+  for (const command of manifest.commands) {
+    if (command.description.length === 0) fail(`command ${command.name} must have a description`);
+  }
   return manifest;
 }
 

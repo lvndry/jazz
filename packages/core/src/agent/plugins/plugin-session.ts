@@ -18,6 +18,9 @@ import {
   type PluginDecisionClient,
   type PluginHostApi,
   type PluginSecretDeclaration,
+  type PluginCommandDeclaration,
+  type PluginCommandRegistration,
+  type PluginCommandResult,
   type PluginToolDeclaration,
   type PluginToolRegistration,
   type PluginToolResult,
@@ -49,6 +52,12 @@ type RegisteredTool = {
   readonly pluginId: string;
   readonly declaration: PluginToolDeclaration;
   readonly handler: PluginToolRegistration["handler"];
+};
+
+type RegisteredCommand = {
+  readonly pluginId: string;
+  readonly declaration: PluginCommandDeclaration;
+  readonly handler: PluginCommandRegistration["handler"];
 };
 
 const toolError = (message: string): PluginToolResult => ({ content: message, isError: true });
@@ -99,6 +108,7 @@ export function createPluginSession(
     try: () => {
       const hooks = new Map<AdvisoryHookId, RegisteredHook>();
       const tools = new Map<string, RegisteredTool>();
+      const commands = new Map<string, RegisteredCommand>();
       const providers = new Set<string>();
       const disabledProviders = new Set<string>();
       let reservedCostUSD = 0;
@@ -144,6 +154,22 @@ export function createPluginSession(
               if (tools.has(registration.name))
                 throw new Error(`tool ${registration.name} already has a handler in this run`);
               tools.set(registration.name, {
+                pluginId: manifest.id,
+                declaration,
+                handler: registration.handler,
+              });
+            },
+          },
+          commands: {
+            register: (registration) => {
+              const declaration = manifest.commands.find(
+                (command) => command.name === registration.name,
+              );
+              if (declaration === undefined)
+                throw new Error(`plugin did not declare command ${registration.name}`);
+              if (commands.has(registration.name))
+                throw new Error(`command ${registration.name} already has a handler in this run`);
+              commands.set(registration.name, {
                 pluginId: manifest.id,
                 declaration,
                 handler: registration.handler,
@@ -285,6 +311,26 @@ export function createPluginSession(
               return toolError(`tool ${name} failed`);
             }
           }),
+        listCommands: () =>
+          [...commands.values()].map(({ pluginId, declaration }) => ({ ...declaration, pluginId })),
+        runCommand: (name, args) =>
+          Effect.promise(async (): Promise<PluginCommandResult> => {
+            if (closed) return {};
+            const registered = commands.get(name);
+            if (!registered) return {};
+            try {
+              return await deadline(
+                (signal) => registered.handler({ args }, { signal }),
+                timeoutMs,
+              );
+            } catch (error) {
+              options.reportFailure?.(
+                registered.pluginId,
+                error instanceof Error ? error.message : String(error),
+              );
+              return {};
+            }
+          }),
         close: () =>
           Effect.promise(async () => {
             if (closed) return;
@@ -298,6 +344,7 @@ export function createPluginSession(
             );
             hooks.clear();
             tools.clear();
+            commands.clear();
             providers.clear();
             disabledProviders.clear();
           }),

@@ -25,6 +25,7 @@ const manifest = {
   hooks: ["route.skills" as const],
   decisionProviders: ["p"],
   tools: [],
+  commands: [],
   network: { destinations: [] },
   dataSent: [],
   secrets: [{ name: "key", required: true, description: "API key" }],

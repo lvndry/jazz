@@ -7,8 +7,8 @@ export interface ChatCommandInfo {
   readonly description: string;
   /** Argument hint shown in autocomplete and /help, e.g. "[agent]". */
   readonly usage?: string;
-  /** Set for entries that come from a skill or MCP server rather than a built-in command. */
-  readonly source?: "skill" | "mcp-prompt";
+  /** Set for entries that come from a skill, MCP server, or plugin rather than a built-in command. */
+  readonly source?: "skill" | "mcp-prompt" | "plugin";
 }
 
 export const CHAT_COMMANDS: readonly ChatCommandInfo[] = [
@@ -132,6 +132,32 @@ export function getMcpPromptCommandNames(): ReadonlySet<string> {
 }
 
 /**
+ * Slash commands contributed by enabled plugins. Registered once at chat startup from the plugin
+ * runtime (see setPluginCommands), so they route and autocomplete like built-ins.
+ */
+let pluginCommands: readonly ChatCommandInfo[] = [];
+
+/**
+ * Register enabled plugins' commands as slash commands. Built-ins, skills, and MCP prompts all win
+ * a name collision, so a plugin cannot shadow `/help` or a skill command.
+ */
+export function setPluginCommands(commands: readonly ChatCommandInfo[]): void {
+  const reserved = new Set([
+    ...CHAT_COMMANDS.map((command) => command.name.toLowerCase()),
+    ...skillCommands.map((skill) => skill.name.toLowerCase()),
+    ...mcpPromptCommands.map((prompt) => prompt.name.toLowerCase()),
+  ]);
+  pluginCommands = commands
+    .filter((command) => !reserved.has(command.name.toLowerCase()))
+    .map((command) => ({ ...command, source: "plugin" as const }));
+}
+
+/** Names of all registered plugin commands, lower-cased, for parser routing. */
+export function getPluginCommandNames(): ReadonlySet<string> {
+  return new Set(pluginCommands.map((command) => command.name.toLowerCase()));
+}
+
+/**
  * Filter commands for autocomplete. Built-in commands and skills are merged
  * (built-ins first). Prefix matches rank first (in list order), then substring
  * matches (so "/ode" still surfaces /model and /mode). Case-insensitive.
@@ -152,7 +178,7 @@ export function slashCommandQuery(text: string): string | null {
 
 export function filterCommandsByPrefix(query: string): readonly ChatCommandInfo[] {
   const lower = query.toLowerCase();
-  const all = [...CHAT_COMMANDS, ...skillCommands, ...mcpPromptCommands];
+  const all = [...CHAT_COMMANDS, ...skillCommands, ...mcpPromptCommands, ...pluginCommands];
   const prefixMatches = all.filter((cmd) => cmd.name.toLowerCase().startsWith(lower));
   if (lower.length === 0) return prefixMatches;
   const substringMatches = all.filter(

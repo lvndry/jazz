@@ -1,14 +1,21 @@
 /** Exercises the example plugin at its public boundary with a fake host. */
 
-import type { JazzPluginModule, PluginHostApi, PluginToolRegistration } from "@jazz/plugin-sdk";
+import type {
+  JazzPluginModule,
+  PluginCommandRegistration,
+  PluginHostApi,
+  PluginToolRegistration,
+} from "@jazz/plugin-sdk";
 import { describe, expect, it } from "bun:test";
 import plugin from "../src/index";
 
 function fakeHost(): {
   readonly api: PluginHostApi;
   readonly tools: Map<string, PluginToolRegistration>;
+  readonly commands: Map<string, PluginCommandRegistration>;
 } {
   const tools = new Map<string, PluginToolRegistration>();
+  const commands = new Map<string, PluginCommandRegistration>();
   const api: PluginHostApi = {
     apiVersion: 1,
     hooks: { register: () => {} },
@@ -22,9 +29,14 @@ function fakeHost(): {
         tools.set(registration.name, registration);
       },
     },
+    commands: {
+      register: (registration) => {
+        commands.set(registration.name, registration);
+      },
+    },
     secrets: { get: async () => undefined },
   };
-  return { api, tools };
+  return { api, tools, commands };
 }
 
 function register(module: JazzPluginModule = plugin) {
@@ -53,5 +65,18 @@ describe("example-tool plugin", () => {
       .get("reverse_text")!
       .handler({}, { signal: new AbortController().signal });
     expect(result).toEqual({ content: "" });
+  });
+
+  it("registers the greet command and builds a message from its args", async () => {
+    const host = register();
+    expect([...host.commands.keys()]).toEqual(["greet"]);
+    const withName = await host.commands
+      .get("greet")!
+      .handler({ args: ["Ada", "Lovelace"] }, { signal: new AbortController().signal });
+    expect(withName).toEqual({ message: "Greet Ada Lovelace warmly." });
+    const noName = await host.commands
+      .get("greet")!
+      .handler({ args: [] }, { signal: new AbortController().signal });
+    expect(noName).toEqual({ message: "Greet the user warmly." });
   });
 });

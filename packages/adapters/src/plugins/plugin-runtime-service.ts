@@ -16,6 +16,8 @@ import {
 } from "@jazz/core/interfaces/plugin-runtime";
 import {
   PluginRuntimeError,
+  type PluginCommandInfo,
+  type PluginCommandResult,
   type PluginToolInfo,
   type PluginToolResult,
 } from "@jazz/core/types/plugin";
@@ -97,6 +99,26 @@ export class PluginRuntimeServiceImpl implements PluginRuntimeService {
         }),
       ),
     );
+  }
+
+  listAgentCommands(agentId: string): Effect.Effect<readonly PluginCommandInfo[]> {
+    return Effect.acquireUseRelease(
+      this.openSession({ agentId, metrics: toolSessionMetrics(agentId) }),
+      (session: PluginSession) => Effect.sync(() => session.listCommands()),
+      (session: PluginSession) => session.close(),
+    ).pipe(Effect.catchAll(() => Effect.succeed([] as readonly PluginCommandInfo[])));
+  }
+
+  runAgentCommand(
+    agentId: string,
+    name: string,
+    args: readonly string[],
+  ): Effect.Effect<PluginCommandResult> {
+    return Effect.acquireUseRelease(
+      this.openSession({ agentId, metrics: toolSessionMetrics(agentId) }),
+      (session: PluginSession) => session.runCommand(name, args),
+      (session: PluginSession) => session.close(),
+    ).pipe(Effect.catchAll(() => Effect.succeed<PluginCommandResult>({})));
   }
 }
 

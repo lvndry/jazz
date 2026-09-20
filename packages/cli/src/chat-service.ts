@@ -25,6 +25,7 @@ import { type LLMService } from "@jazz/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@jazz/core/interfaces/logger";
 import { MCPServerManagerTag, type MCPServerManager } from "@jazz/core/interfaces/mcp-server";
 import { type PersonaService } from "@jazz/core/interfaces/persona-service";
+import { PluginRuntimeServiceTag } from "@jazz/core/interfaces/plugin-runtime";
 import { type PresentationService } from "@jazz/core/interfaces/presentation";
 import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
 import {
@@ -51,10 +52,15 @@ import { isRetryableLLMError } from "@jazz/core/utils/llm-error";
 import { conversationLogGroup } from "@jazz/core/utils/log-group";
 import type { WorkflowService } from "@jazz/core/workflows/workflow-service";
 import chalk from "chalk";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Option } from "effect";
 import { hydrateTranscriptFromHistory } from "@/cli/ui/hydrate-transcript";
 import { store } from "@/cli/ui/store";
-import { handleSpecialCommand, parseSpecialCommand, setSkillCommands } from "./chat/commands";
+import {
+  handleSpecialCommand,
+  parseSpecialCommand,
+  setPluginCommands,
+  setSkillCommands,
+} from "./chat/commands";
 import {
   confirmSessionLimitOverage,
   estimateSessionCostUSD,
@@ -143,6 +149,17 @@ export class ChatServiceImpl implements ChatService {
         const skills = yield* skillService.listSkills();
         setSkillCommands(
           skills.map((skill) => ({ name: skill.name, description: getSkillIndexLine(skill) })),
+        );
+      }).pipe(Effect.catchAll(() => Effect.void));
+
+      // Register enabled plugins' slash commands the same way. Non-fatal: the menu simply omits
+      // plugin commands if the runtime is absent or listing fails.
+      yield* Effect.gen(function* () {
+        const runtimeOption = yield* Effect.serviceOption(PluginRuntimeServiceTag);
+        if (Option.isNone(runtimeOption)) return;
+        const commands = yield* runtimeOption.value.listAgentCommands(agent.id);
+        setPluginCommands(
+          commands.map((command) => ({ name: command.name, description: command.description })),
         );
       }).pipe(Effect.catchAll(() => Effect.void));
 

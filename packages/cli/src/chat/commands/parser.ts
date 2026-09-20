@@ -1,4 +1,4 @@
-import { getMcpPromptCommandNames, getSkillCommandNames } from "./constants";
+import { getMcpPromptCommandNames, getPluginCommandNames, getSkillCommandNames } from "./constants";
 import type { SpecialCommand } from "./types";
 
 /**
@@ -86,6 +86,10 @@ export function parseSpecialCommand(input: string): SpecialCommand {
 
       if (getMcpPromptCommandNames().has(command)) {
         return { type: "runMcpPrompt", args: [command, ...args] };
+      }
+
+      if (getPluginCommandNames().has(command)) {
+        return { type: "runPluginCommand", args: [command, ...args] };
       }
       return { type: "unknown", args: [command, ...args] };
   }

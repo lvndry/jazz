@@ -15,6 +15,7 @@ const manifest: PluginManifest = {
   hooks: ["route.skills"],
   decisionProviders: [],
   tools: [],
+  commands: [],
   network: { destinations: ["b.example", "a.example"] },
   dataSent: ["skills", "request"],
   secrets: [],

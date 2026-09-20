@@ -29,6 +29,8 @@ function fakeRuntime(overrides: Partial<PluginRuntimeService> = {}): PluginRunti
       Effect.succeed<PluginToolResult>({
         content: String(args["text"]).split("").reverse().join(""),
       }),
+    listAgentCommands: () => Effect.succeed([]),
+    runAgentCommand: () => Effect.succeed({}),
     ...overrides,
   };
 }

@@ -5,6 +5,8 @@ import type { AgentRunMetrics } from "@/core/agent/metrics/agent-run-metrics";
 import type {
   AdvisoryHookContracts,
   AdvisoryHookId,
+  PluginCommandInfo,
+  PluginCommandResult,
   PluginRuntimeError,
   PluginToolInfo,
   PluginToolResult,
@@ -22,6 +24,13 @@ export interface PluginSession {
     name: string,
     args: Record<string, unknown>,
   ) => Effect.Effect<PluginToolResult>;
+  /** Slash commands contributed by the plugins in this session, with their declarations. */
+  readonly listCommands: () => readonly PluginCommandInfo[];
+  /** Run a registered plugin command; always resolves ({} means no message for the agent). */
+  readonly runCommand: (
+    name: string,
+    args: readonly string[],
+  ) => Effect.Effect<PluginCommandResult>;
   readonly close: () => Effect.Effect<void>;
 }
 
@@ -51,6 +60,14 @@ export interface PluginRuntimeService {
     name: string,
     args: Record<string, unknown>,
   ) => Effect.Effect<PluginToolResult>;
+  /** The slash commands an agent's enabled plugins contribute, for registration at chat startup. */
+  readonly listAgentCommands: (agentId: string) => Effect.Effect<readonly PluginCommandInfo[]>;
+  /** Run one of an agent's plugin commands by name. Always resolves ({} means nothing to send). */
+  readonly runAgentCommand: (
+    agentId: string,
+    name: string,
+    args: readonly string[],
+  ) => Effect.Effect<PluginCommandResult>;
 }
 
 export const PluginRuntimeServiceTag = Context.GenericTag<PluginRuntimeService>(

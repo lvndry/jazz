@@ -23,6 +23,12 @@
       "egress": false
     }
   ],
+  "commands": [
+    {
+      "name": "greet",
+      "description": "Ask the agent to greet someone. Usage: /greet [name]"
+    }
+  ],
   "network": { "destinations": [] },
   "dataSent": [],
   "secrets": []

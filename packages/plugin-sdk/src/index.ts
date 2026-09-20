@@ -124,6 +124,26 @@ export interface PluginToolRegistration {
   ) => Promise<PluginToolResult>;
 }
 
+/** A user-invoked slash command declared in the manifest. */
+export interface PluginCommandDeclaration {
+  readonly name: string;
+  readonly description: string;
+}
+
+/** What a plugin command returns: a message sent to the agent as the user's turn (empty = no-op). */
+export interface PluginCommandResult {
+  readonly message?: string;
+}
+
+/** The runtime handler for a slash command the manifest declares. */
+export interface PluginCommandRegistration {
+  readonly name: string;
+  readonly handler: (
+    input: { readonly args: readonly string[] },
+    context: { readonly signal: AbortSignal },
+  ) => Promise<PluginCommandResult>;
+}
+
 export interface PluginHostApi {
   readonly apiVersion: JazzPluginApiVersion;
   readonly hooks: {
@@ -135,6 +155,10 @@ export interface PluginHostApi {
   readonly tools: {
     /** Supplies the handler for a tool the manifest declares; rejected otherwise. */
     register(registration: PluginToolRegistration): void;
+  };
+  readonly commands: {
+    /** Supplies the handler for a slash command the manifest declares; rejected otherwise. */
+    register(registration: PluginCommandRegistration): void;
   };
   readonly secrets: {
     /** Only names declared in the current plugin manifest are resolvable. */
@@ -167,6 +191,7 @@ export interface JazzPluginSourceManifest {
   readonly hooks: readonly AdvisoryHookId[];
   readonly decisionProviders: readonly string[];
   readonly tools?: readonly PluginToolDeclaration[];
+  readonly commands?: readonly PluginCommandDeclaration[];
   readonly network: { readonly destinations: readonly string[] };
   readonly dataSent: readonly string[];
   readonly secrets: readonly PluginSecretDeclaration[];

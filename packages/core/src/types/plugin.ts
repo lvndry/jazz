@@ -135,6 +135,7 @@ export interface PluginManifest {
   readonly hooks: readonly AdvisoryHookId[];
   readonly decisionProviders: readonly string[];
   readonly tools: readonly PluginToolDeclaration[];
+  readonly commands: readonly PluginCommandDeclaration[];
   readonly network: { readonly destinations: readonly string[] };
   readonly dataSent: readonly string[];
   readonly secrets: readonly PluginSecretDeclaration[];
@@ -146,6 +147,7 @@ export interface PluginConsentDisclosure {
   readonly hooks: readonly AdvisoryHookId[];
   readonly decisionProviders: readonly string[];
   readonly tools: readonly string[];
+  readonly commands: readonly string[];
   readonly destinations: readonly string[];
   readonly dataSent: readonly string[];
 }
@@ -178,6 +180,35 @@ export interface PluginToolInfo extends PluginToolDeclaration {
   readonly pluginId: string;
 }
 
+/**
+ * A user-invoked slash command a plugin contributes, declared in the manifest. Unlike a tool (the
+ * model calls it), a person types `/name` to run it. The declaration is what appears in the command
+ * menu; the module supplies the handler.
+ */
+export interface PluginCommandDeclaration {
+  readonly name: string;
+  readonly description: string;
+}
+
+/** What a plugin command returns: a message sent to the agent as the user's turn (empty = no-op). */
+export interface PluginCommandResult {
+  readonly message?: string;
+}
+
+/** The runtime half of a plugin command: the handler run when a person invokes `/name`. */
+export interface PluginCommandRegistration {
+  readonly name: string;
+  readonly handler: (
+    input: { readonly args: readonly string[] },
+    context: { readonly signal: AbortSignal },
+  ) => Promise<PluginCommandResult>;
+}
+
+/** A registered plugin command as the host sees it: its manifest declaration plus its owner. */
+export interface PluginCommandInfo extends PluginCommandDeclaration {
+  readonly pluginId: string;
+}
+
 export interface PluginHostApi {
   readonly apiVersion: typeof PLUGIN_API_VERSION;
   readonly hooks: {
@@ -190,6 +221,10 @@ export interface PluginHostApi {
   readonly tools: {
     /** Supplies the handler for a tool the manifest declares; rejected otherwise. */
     register(registration: PluginToolRegistration): void;
+  };
+  readonly commands: {
+    /** Supplies the handler for a slash command the manifest declares; rejected otherwise. */
+    register(registration: PluginCommandRegistration): void;
   };
   readonly secrets: {
     /** Only names declared by the current plugin manifest are resolvable. */

@@ -71,6 +71,7 @@ export interface PluginProbeResult {
   readonly registeredHooks: readonly string[];
   readonly registeredDecisionProviders: readonly string[];
   readonly registeredTools: readonly string[];
+  readonly registeredCommands: readonly string[];
   readonly routeSkillsOutcome?: SkillRouteOutcome;
 }
 
@@ -114,6 +115,7 @@ async function readSourceManifest(pluginDirectory: string): Promise<SourceManife
     "hooks",
     "decisionProviders",
     "tools",
+    "commands",
     "network",
     "dataSent",
     "secrets",
@@ -373,7 +375,9 @@ function auditRegistration(manifest: PluginManifest, module: JazzPluginModule): 
   const hooks = new Set<string>();
   const providers = new Set<string>();
   const tools = new Set<string>();
+  const commands = new Set<string>();
   const declaredTools = new Set(manifest.tools.map((tool) => tool.name));
+  const declaredCommands = new Set(manifest.commands.map((command) => command.name));
   const api: PluginHostApi = {
     apiVersion: 1,
     hooks: {
@@ -404,17 +408,28 @@ function auditRegistration(manifest: PluginManifest, module: JazzPluginModule): 
         tools.add(registration.name);
       },
     },
+    commands: {
+      register: (registration) => {
+        if (!declaredCommands.has(registration.name))
+          fail(`command ${registration.name} is not declared in the manifest`);
+        if (commands.has(registration.name))
+          fail(`command ${registration.name} was registered more than once`);
+        commands.add(registration.name);
+      },
+    },
     secrets: { get: () => Promise.resolve(undefined) },
   };
   module.register(api);
   assertSameMembers("hook", manifest.hooks, hooks);
   assertSameMembers("decision provider", manifest.decisionProviders, providers);
   assertSameMembers("tool", [...declaredTools], tools);
+  assertSameMembers("command", [...declaredCommands], commands);
   return {
     manifest,
     registeredHooks: [...hooks].sort(),
     registeredDecisionProviders: [...providers].sort(),
     registeredTools: [...tools].sort(),
+    registeredCommands: [...commands].sort(),
   };
 }
 

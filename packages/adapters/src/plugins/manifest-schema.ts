@@ -21,6 +21,7 @@ const ENV_NAME = /^[A-Z][A-Z0-9_]{0,127}$/;
 
 import type {
   JsonValue,
+  PluginCommandDeclaration,
   PluginManifest,
   PluginSecretDeclaration,
   PluginToolDeclaration,
@@ -132,6 +133,27 @@ function parseTools(value: unknown): readonly PluginToolDeclaration[] {
   return tools;
 }
 
+function parseCommandDeclaration(value: unknown, index: number): PluginCommandDeclaration {
+  const item = record(value, `commands[${index}]`);
+  exactKeys(item, ["name", "description"], `commands[${index}]`);
+  const name = boundedString(item["name"], `commands[${index}].name`, 64);
+  if (!TOOL_NAME.test(name)) throw new Error(`commands[${index}].name has an invalid format`);
+  const description = boundedString(item["description"], `commands[${index}].description`, 1024);
+  return { name, description };
+}
+
+function parseCommands(value: unknown): readonly PluginCommandDeclaration[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 32) {
+    throw new Error("commands must be an array with at most 32 entries");
+  }
+  const commands = value.map(parseCommandDeclaration);
+  if (new Set(commands.map((command) => command.name)).size !== commands.length) {
+    throw new Error("commands contains duplicate names");
+  }
+  return commands;
+}
+
 function parseSecret(value: unknown, index: number): PluginSecretDeclaration {
   const item = record(value, `secrets[${index}]`);
   exactKeys(item, ["name", "env", "required", "description"], `secrets[${index}]`);
@@ -174,6 +196,7 @@ export function parsePluginManifest(input: unknown): PluginManifest {
       "hooks",
       "decisionProviders",
       "tools",
+      "commands",
       "network",
       "dataSent",
       "secrets",
@@ -231,6 +254,7 @@ export function parsePluginManifest(input: unknown): PluginManifest {
       pattern: HOOK_ID,
     }),
     tools: parseTools(root["tools"]),
+    commands: parseCommands(root["commands"]),
     network: { destinations: [...destinations].sort() },
     dataSent: [
       ...uniqueStrings(root["dataSent"], "dataSent", {
