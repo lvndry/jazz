@@ -18,6 +18,7 @@
  */
 
 import { Effect } from "effect";
+import { MEMORY_EXTRACTOR_AGENT_ID } from "@/core/constants/memory";
 import type { ProviderName } from "@/core/constants/models";
 import type { AgentConfigService } from "@/core/interfaces/agent-config";
 import type { LLMService } from "@/core/interfaces/llm";
@@ -82,7 +83,7 @@ function buildMemoryExtractorAgent(
   } = parentAgent.config;
 
   return {
-    id: "memory-extractor",
+    id: MEMORY_EXTRACTOR_AGENT_ID,
     name: "Memory Extractor",
     description:
       "an internal agent that saves durable, user-stated facts to long-term memory before older context is compacted away.",

@@ -95,12 +95,41 @@ function splitSegments(virtualPath: string): string[] {
  * an existing entry rather than a new one.
  */
 export function slugifyMemorySegment(value: string): string {
-  return value
-    .normalize("NFKD")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, MAX_MEMORY_PATH_SEGMENT_LENGTH);
+  return (
+    value
+      .normalize("NFD")
+      // Drop combining marks so an accented word stays one word: without this,
+      // NFD splits "é" into "e" + mark, the mark becomes a separator, and
+      // "Café préféré" slugifies to "cafe-pre-fe-re".
+      .replace(/\p{M}+/gu, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, MAX_MEMORY_SLUG_LENGTH)
+      .replace(/-+$/g, "")
+  );
+}
+
+/**
+ * Longest slug that still fits a path segment once `.md` is appended.
+ *
+ * Slicing to the segment cap itself would build a 131-character segment that
+ * the path guardrail then rejects — and the caller chose a subject, not a path,
+ * so that error would be unactionable.
+ */
+export const MAX_MEMORY_SLUG_LENGTH = MAX_MEMORY_PATH_SEGMENT_LENGTH - ".md".length;
+
+/**
+ * Explains why a subject cannot be stored, or returns `undefined` when it can.
+ *
+ * A subject of only non-Latin characters or punctuation slugifies to nothing,
+ * which would otherwise produce a bare `.md` file: hidden from every listing
+ * and from the quota walk, yet still injected by recall, and colliding with
+ * every other such entry.
+ */
+export function describeUnusableSubject(subject: string): string | undefined {
+  if (slugifyMemorySegment(subject).length > 0) return undefined;
+  return `Subject ${JSON.stringify(subject)} contains no letters or digits that can be stored in a path. Give a subject containing Latin letters or digits.`;
 }
 
 /** A parsed entry path with the scope segment stripped. */

@@ -89,6 +89,48 @@ import { normalizeToolConfig } from "./utils/tool-config";
  * Unknown models count as "cannot", matching every other capability check here: the consequence
  * of guessing wrong is an agent that promises an image it cannot make.
  */
+/**
+ * The preferences to put in front of the model for this run.
+ *
+ * Injected rather than looked up: recall that depends on the model choosing to
+ * spend a tool call is recall it will sometimes skip, and a preference the user
+ * already stated is not something they should have to restate.
+ *
+ * Memory is optional — an agent configured without it still runs — and a failure
+ * to read the index degrades to injecting nothing rather than failing the run,
+ * since a broken index must not make the agent unusable. Both paths log, because
+ * the symptom otherwise is "it forgot my preferences" with nothing to go on.
+ */
+function resolveActivePreferences(
+  memoryScopes: readonly string[],
+  requestText: string,
+  logger: LoggerService,
+): Effect.Effect<{ summary: string }[], never, FileSystem.FileSystem> {
+  return Effect.gen(function* () {
+    const memoryServiceOption = yield* Effect.serviceOption(MemoryServiceTag);
+    if (Option.isNone(memoryServiceOption)) {
+      yield* logger.debug("No memory service in context; skipping preference injection");
+      return [];
+    }
+
+    return yield* memoryServiceOption.value.index(memoryScopes).pipe(
+      Effect.map((entries) =>
+        selectRecall({ entries, requestText }).preferences.flatMap((entry) =>
+          entry.summary === undefined ? [] : [{ summary: entry.summary }],
+        ),
+      ),
+      Effect.catchAll((error) =>
+        logger
+          .warn("Failed to read memory index; running without preferences", {
+            scopes: memoryScopes,
+            error: error instanceof Error ? error.message : String(error),
+          })
+          .pipe(Effect.as<{ summary: string }[]>([])),
+      ),
+    );
+  });
+}
+
 function resolveCanGenerateMedia(
   agent: AgentRunnerOptions["agent"],
 ): Effect.Effect<boolean, never> {
@@ -534,22 +576,11 @@ function initializeAgentRun(
     const canGenerateMedia = yield* resolveCanGenerateMedia(agent);
     const attachmentsAreLocal = isLocalServerProvider(agent.config.llmProvider);
 
-    // Standing preferences are injected rather than looked up. Recall that
-    // depends on the model choosing to spend a call is recall it will sometimes
-    // skip, and a preference the user already stated is not something they
-    // should have to restate. Memory is optional here: an agent configured
-    // without it still runs, just without this.
-    const memoryServiceOption = yield* Effect.serviceOption(MemoryServiceTag);
-    const activePreferences = Option.isSome(memoryServiceOption)
-      ? yield* memoryServiceOption.value.index(agent.config.memoryScopes ?? [agent.id]).pipe(
-          Effect.map((entries) =>
-            selectRecall({ entries, requestText: userInput }).preferences.map((entry) => ({
-              summary: entry.summary,
-            })),
-          ),
-          Effect.catchAll(() => Effect.succeed<{ summary: string }[]>([])),
-        )
-      : [];
+    const activePreferences = yield* resolveActivePreferences(
+      agent.config.memoryScopes ?? [agent.id],
+      userInput,
+      logger,
+    );
 
     // Build messages — reuses the PersonaService resolved earlier so custom
     // personas can be looked up by name when assembling the system prompt.
@@ -565,7 +596,7 @@ function initializeAgentRun(
         availableTools,
         knownSkills: relevantSkills,
         ...(deferredToolSummaries.length > 0 && { deferredTools: deferredToolSummaries }),
-        ...(activePreferences.length > 0 && { standingPreferences: activePreferences }),
+        ...(activePreferences.length > 0 && { activePreferences }),
         ...(attachmentWorkingDirectory !== undefined && {
           workingDirectory: attachmentWorkingDirectory,
         }),

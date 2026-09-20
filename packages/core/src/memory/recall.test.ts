@@ -48,9 +48,14 @@ describe("buildMemoryIndex", () => {
     expect(index).toEqual([]);
   });
 
-  test("falls back to the slug when an entry has no derived summary", () => {
+  test("leaves the summary unset when the store never derived one", () => {
     const index = buildMemoryIndex("personal", { "facts/home-timezone.md": record() });
-    expect(index[0]?.summary).toBe("home timezone");
+    expect(index[0]?.summary).toBeUndefined();
+  });
+
+  test("never injects a preference whose summary is unknown", () => {
+    const index = buildMemoryIndex("personal", { "preferences/_global/a.md": record() });
+    expect(selectRecall({ entries: index, requestText: "anything" }).preferences).toEqual([]);
   });
 });
 

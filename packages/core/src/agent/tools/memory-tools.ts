@@ -19,6 +19,7 @@ import type { Tool } from "@/core/interfaces/tool-registry";
 import {
   MEMORY_ENTRY_KINDS,
   buildMemoryEntryPath,
+  describeUnusableSubject,
   slugifyMemorySegment,
 } from "@/core/memory/entry-path";
 import type { ToolExecutionResult } from "@/core/types/tools";
@@ -298,6 +299,10 @@ export function createManageMemoryTool(): Tool<MemoryToolDeps> {
         const outcome = yield* (() => {
           switch (args.command) {
             case "create": {
+              const unusable = describeUnusableSubject(args.subject);
+              if (unusable !== undefined) {
+                return Effect.succeed({ success: false, message: unusable });
+              }
               const scope = args.scope ?? scopes[0] ?? context.agentId;
               const targetPath = buildMemoryEntryPath({
                 scope,

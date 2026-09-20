@@ -175,6 +175,95 @@ describe("create", () => {
   });
 });
 
+describe("sidecar resilience", () => {
+  function sidecarPath() {
+    return path.join(tmpDir, "agent-1", ".provenance.json");
+  }
+
+  test("a corrupt sidecar does not take down a read", async () => {
+    const service = makeService();
+    await runEffect(service.create(scopes, "agent-1/facts/a.md", "x", writeContext));
+    fs.writeFileSync(sidecarPath(), "{not json");
+    const index = await runEffect(service.index(scopes));
+    expect(index).toEqual([]);
+  });
+
+  test("a corrupt sidecar is quarantined rather than overwritten by the next write", async () => {
+    const service = makeService();
+    await runEffect(service.create(scopes, "agent-1/facts/a.md", "x", writeContext));
+    fs.writeFileSync(sidecarPath(), "{not json");
+
+    await runEffect(service.create(scopes, "agent-1/facts/b.md", "y", writeContext));
+
+    const quarantined = fs
+      .readdirSync(path.join(tmpDir, "agent-1"))
+      .filter((name) => name.includes(".corrupt-"));
+    expect(quarantined).toHaveLength(1);
+    expect(fs.readFileSync(path.join(tmpDir, "agent-1", quarantined[0] as string), "utf8")).toBe(
+      "{not json",
+    );
+  });
+
+  test("a record with a malformed field does not throw on the next write", async () => {
+    const service = makeService();
+    await runEffect(service.create(scopes, "agent-1/facts/a.md", "x", writeContext));
+    fs.writeFileSync(
+      sidecarPath(),
+      JSON.stringify({ files: { "facts/a.md": { writtenBy: "not-an-array", summary: 42 } } }),
+    );
+
+    const outcome = await runEffect(
+      service.strReplace(scopes, "agent-1/facts/a.md", "x", "z", writeContext),
+    );
+    expect(outcome.success).toBe(true);
+  });
+
+  test("a malformed summary never reaches the index as a non-string", async () => {
+    const service = makeService();
+    await runEffect(service.create(scopes, "agent-1/preferences/_global/a.md", "x", writeContext));
+    fs.writeFileSync(
+      sidecarPath(),
+      JSON.stringify({ files: { "preferences/_global/a.md": { summary: { nested: true } } } }),
+    );
+    const index = await runEffect(service.index(scopes));
+    expect(index[0]?.summary).toBeUndefined();
+  });
+});
+
+describe("provenance follows the tree", () => {
+  test("deleting a directory forgets the records beneath it", async () => {
+    const service = makeService();
+    await runEffect(
+      service.create(scopes, "agent-1/preferences/moodboard/a.md", "scale it", writeContext),
+    );
+    expect(await runEffect(service.index(scopes))).toHaveLength(1);
+
+    await runEffect(service.delete(scopes, "agent-1/preferences/moodboard"));
+
+    expect(await runEffect(service.index(scopes))).toEqual([]);
+  });
+
+  test("renaming a directory re-keys the records beneath it", async () => {
+    const service = makeService();
+    await runEffect(
+      service.create(scopes, "agent-1/preferences/moodboard/a.md", "scale it", writeContext),
+    );
+    await runEffect(
+      service.rename(
+        scopes,
+        "agent-1/preferences/moodboard",
+        "agent-1/preferences/slides",
+        writeContext,
+      ),
+    );
+
+    const index = await runEffect(service.index(scopes));
+    expect(index.map((entry) => [entry.path, entry.workflow])).toEqual([
+      ["agent-1/preferences/slides/a.md", "slides"],
+    ]);
+  });
+});
+
 describe("single entry per subject", () => {
   const preferenceEntry = (subject: string) => ({ agentId: "agent-1", entry: { subject } });
 

@@ -93,15 +93,15 @@ export interface AgentPromptOptions {
    */
   readonly deferredTools?: readonly { readonly name: string; readonly summary: string }[];
   /**
-   * Preferences that apply to every task, injected so the model acts on them
-   * without having to remember to look them up.
+   * Preferences in force for this run — the ones that apply to every task, plus
+   * the ones whose workflow this request is about — injected so the model acts
+   * on them without having to remember to look them up.
    *
-   * Only the request-independent ones belong here. A preference selected
-   * because of what this turn is about would rewrite the prompt's tail every
-   * turn and throw away the prefix cache, so those travel in the message
-   * stream instead.
+   * These are part of the prompt cache key, so amending a preference takes
+   * effect on the next turn. They change only when the active workflow changes,
+   * which is an ordinary prompt change rather than a per-turn rewrite.
    */
-  readonly standingPreferences?: readonly { readonly summary: string }[];
+  readonly activePreferences?: readonly { readonly summary: string }[];
   /**
    * AGENTS.md files discovered for the working directory, outermost first.
    * Rendered verbatim into the system prompt so project conventions reach the
@@ -234,9 +234,9 @@ export class AgentPromptBuilder {
     }
     // Content, not paths: amending a preference must take effect on the next
     // turn rather than serving a stale copy from the cache.
-    if (options.standingPreferences && options.standingPreferences.length > 0) {
+    if (options.activePreferences && options.activePreferences.length > 0) {
       hash.update(
-        `standingPreferences:${options.standingPreferences.map((entry) => entry.summary).join("|")}`,
+        `activePreferences:${options.activePreferences.map((entry) => entry.summary).join("|")}`,
       );
     }
     // Content, not just paths: editing an AGENTS.md must take effect on the
@@ -408,13 +408,13 @@ export class AgentPromptBuilder {
             });
           }
 
-          if (options.standingPreferences && options.standingPreferences.length > 0) {
+          if (options.activePreferences && options.activePreferences.length > 0) {
             live.push({
-              id: "standing-preferences",
+              id: "active-preferences",
               content: [
-                "## Standing preferences",
-                "How this user wants things done, on every task. Follow them without being asked.",
-                ...options.standingPreferences.map((entry) => `- ${entry.summary}`),
+                "## Preferences",
+                "How this user wants things done. Follow them without being asked.",
+                ...options.activePreferences.map((entry) => `- ${entry.summary}`),
               ].join("\n"),
             });
           }

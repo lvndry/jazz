@@ -7,10 +7,9 @@
  * to recall — a recall step that itself needed a model would cost a round trip
  * on every turn and could fail in ways the turn cannot recover from.
  *
- * Two groups come out, split by whether the request can change them. Standing
- * preferences apply to every task, so they are stable enough to freeze into the
- * cached prompt and the model never has to look them up. Contextual entries are
- * chosen for this turn and belong in the message stream. Both are carried as
+ * Two groups come out. Preferences in force — global ones plus those whose
+ * workflow the request is about — go into the system prompt, so the model never
+ * has to remember to look them up. Ranked facts and lessons are carried as
  * summaries with a path, keeping bodies out of context until they are wanted.
  */
 import {
@@ -28,7 +27,12 @@ export interface MemoryIndexEntry {
   /** `undefined` means the entry applies to every workflow. */
   readonly workflow: string | undefined;
   readonly subject: string | undefined;
-  readonly summary: string;
+  /**
+   * `undefined` when the store never derived one. Such an entry is still
+   * rankable by subject, but it is never injected as a preference: its filename
+   * rendered under "follow these" would be a directive that says nothing.
+   */
+  readonly summary: string | undefined;
 }
 
 /**
@@ -54,7 +58,7 @@ export function buildMemoryIndex(
       kind: parsed.kind,
       workflow: parsed.workflow,
       subject: record.subject,
-      summary: record.summary ?? parsed.slug.replace(/\.md$/, "").replace(/-/g, " "),
+      summary: record.summary,
     });
   }
 
@@ -111,7 +115,7 @@ function isActiveFor(entry: MemoryIndexEntry, activeWorkflows: readonly string[]
  */
 function scoreAgainstRequest(entry: MemoryIndexEntry, requestText: string): number {
   const terms = new Set(
-    `${entry.subject ?? ""} ${entry.summary}`
+    `${entry.subject ?? ""} ${entry.summary ?? ""}`
       .toLowerCase()
       .split(/[^a-z0-9]+/)
       .filter((term) => term.length > 3),
@@ -165,7 +169,12 @@ export function selectRecall(input: SelectRecallInput): RecallSelection {
   const activeWorkflows = classifyActiveWorkflows(input.requestText, input.entries);
 
   const preferences = input.entries
-    .filter((entry) => entry.kind === "preference" && isActiveFor(entry, activeWorkflows))
+    .filter(
+      (entry) =>
+        entry.kind === "preference" &&
+        entry.summary !== undefined &&
+        isActiveFor(entry, activeWorkflows),
+    )
     .slice(0, maxStanding);
 
   const alreadySelected = new Set(preferences.map((entry) => entry.path));

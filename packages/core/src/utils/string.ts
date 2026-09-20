@@ -154,12 +154,6 @@ export function findAllOccurrenceLineNumbers(
 }
 
 /**
- * Convert camelCase, kebab-case, snake_case, or words to PascalCase.
- *
- * @param str - The string to convert.
- * @returns The PascalCase string.
- */
-/**
  * Whole-word substring match for a term inside an input string.
  *
  * Uses lookaround for boundaries because `\b` only fires between word and
@@ -172,6 +166,12 @@ export function matchesWholeWord(input: string, term: string): boolean {
   return pattern.test(input);
 }
 
+/**
+ * Convert camelCase, kebab-case, snake_case, or words to PascalCase.
+ *
+ * @param str - The string to convert.
+ * @returns The PascalCase string.
+ */
 export function toPascalCase(str: string): string {
   if (!str) return str;
 
