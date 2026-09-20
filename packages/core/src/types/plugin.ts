@@ -105,6 +105,25 @@ export interface PluginSecretDeclaration {
   readonly description: string;
 }
 
+/** Risk tiers a plugin may declare for a tool; mirrors the host's non-`unknown` tiers. */
+export type PluginToolRiskLevel = "read-only" | "low-risk" | "high-risk";
+
+/**
+ * A model-callable tool a plugin contributes, declared in the manifest. This is the reviewed,
+ * consented contract: name, what it does, the JSON Schema the model is shown, its risk tier, and
+ * whether calling it sends model-authored content off the machine. The runtime handler is
+ * supplied separately by the module (see {@link PluginToolRegistration}); the module can never
+ * register a tool the manifest did not declare, nor claim a lower risk tier than declared here.
+ */
+export interface PluginToolDeclaration {
+  readonly name: string;
+  readonly description: string;
+  /** JSON Schema for the tool's arguments, advertised to the model. */
+  readonly parameters: JsonValue;
+  readonly riskLevel: PluginToolRiskLevel;
+  readonly egress: boolean;
+}
+
 export interface PluginManifest {
   readonly schemaVersion: 1;
   readonly id: string;
@@ -115,6 +134,7 @@ export interface PluginManifest {
   readonly sha256: string;
   readonly hooks: readonly AdvisoryHookId[];
   readonly decisionProviders: readonly string[];
+  readonly tools: readonly PluginToolDeclaration[];
   readonly network: { readonly destinations: readonly string[] };
   readonly dataSent: readonly string[];
   readonly secrets: readonly PluginSecretDeclaration[];
@@ -125,6 +145,7 @@ export interface PluginConsentDisclosure {
   readonly codeDigest: string;
   readonly hooks: readonly AdvisoryHookId[];
   readonly decisionProviders: readonly string[];
+  readonly tools: readonly string[];
   readonly destinations: readonly string[];
   readonly dataSent: readonly string[];
 }
@@ -132,6 +153,29 @@ export interface PluginConsentDisclosure {
 export interface PluginConsentGrant {
   readonly digest: string;
   readonly grantedAt: string;
+}
+
+/** What a plugin tool returns to the host, which relays it to the model as the tool result. */
+export interface PluginToolResult {
+  readonly content: string;
+  readonly isError?: boolean;
+}
+
+/**
+ * The runtime half of a plugin tool: the handler the host invokes when the model calls the tool.
+ * `name` must match a {@link PluginToolDeclaration} in the manifest, or registration is rejected.
+ */
+export interface PluginToolRegistration {
+  readonly name: string;
+  readonly handler: (
+    args: Record<string, unknown>,
+    context: { readonly signal: AbortSignal },
+  ) => Promise<PluginToolResult>;
+}
+
+/** A registered plugin tool as the host sees it: its manifest declaration plus its owner. */
+export interface PluginToolInfo extends PluginToolDeclaration {
+  readonly pluginId: string;
 }
 
 export interface PluginHostApi {
@@ -142,6 +186,10 @@ export interface PluginHostApi {
   readonly decisions: {
     /** Registers a backend and returns the only client plugins may use to invoke it. */
     registerProvider(provider: DecisionProvider): PluginDecisionClient;
+  };
+  readonly tools: {
+    /** Supplies the handler for a tool the manifest declares; rejected otherwise. */
+    register(registration: PluginToolRegistration): void;
   };
   readonly secrets: {
     /** Only names declared by the current plugin manifest are resolvable. */

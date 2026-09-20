@@ -61,6 +61,25 @@ export function validatePluginManifest(manifest: PluginManifest): PluginManifest
   ) {
     fail("manifest secret names must be valid and unique");
   }
+  const toolNames = manifest.tools.map(({ name }) => name);
+  if (
+    toolNames.some((name) => !validIdentifier(name)) ||
+    new Set(toolNames).size !== toolNames.length
+  ) {
+    fail("manifest tool names must be valid and unique");
+  }
+  for (const tool of manifest.tools) {
+    if (tool.description.length === 0) fail(`tool ${tool.name} must have a description`);
+    if (
+      tool.riskLevel !== "read-only" &&
+      tool.riskLevel !== "low-risk" &&
+      tool.riskLevel !== "high-risk"
+    ) {
+      fail(`tool ${tool.name} has an invalid risk level`);
+    }
+    if (typeof tool.egress !== "boolean") fail(`tool ${tool.name} must declare egress`);
+    assertJsonValue(tool.parameters);
+  }
   return manifest;
 }
 

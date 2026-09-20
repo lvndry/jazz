@@ -70,6 +70,7 @@ export interface PluginProbeResult {
   readonly manifest: PluginManifest;
   readonly registeredHooks: readonly string[];
   readonly registeredDecisionProviders: readonly string[];
+  readonly registeredTools: readonly string[];
   readonly routeSkillsOutcome?: SkillRouteOutcome;
 }
 
@@ -370,6 +371,8 @@ function assertSameMembers(
 function auditRegistration(manifest: PluginManifest, module: JazzPluginModule): PluginProbeResult {
   const hooks = new Set<string>();
   const providers = new Set<string>();
+  const tools = new Set<string>();
+  const declaredTools = new Set(manifest.tools.map((tool) => tool.name));
   const api: PluginHostApi = {
     apiVersion: 1,
     hooks: {
@@ -391,15 +394,26 @@ function auditRegistration(manifest: PluginManifest, module: JazzPluginModule): 
         };
       },
     },
+    tools: {
+      register: (registration) => {
+        if (!declaredTools.has(registration.name))
+          fail(`tool ${registration.name} is not declared in the manifest`);
+        if (tools.has(registration.name))
+          fail(`tool ${registration.name} was registered more than once`);
+        tools.add(registration.name);
+      },
+    },
     secrets: { get: () => Promise.resolve(undefined) },
   };
   module.register(api);
   assertSameMembers("hook", manifest.hooks, hooks);
   assertSameMembers("decision provider", manifest.decisionProviders, providers);
+  assertSameMembers("tool", [...declaredTools], tools);
   return {
     manifest,
     registeredHooks: [...hooks].sort(),
     registeredDecisionProviders: [...providers].sort(),
+    registeredTools: [...tools].sort(),
   };
 }
 

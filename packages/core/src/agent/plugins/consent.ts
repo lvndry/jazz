@@ -12,6 +12,7 @@ export function buildPluginConsentDisclosure(manifest: PluginManifest): PluginCo
     codeDigest: manifest.sha256,
     hooks: sortedUnique(manifest.hooks),
     decisionProviders: sortedUnique(manifest.decisionProviders),
+    tools: sortedUnique(manifest.tools.map((tool) => tool.name)),
     destinations: sortedUnique(manifest.network.destinations),
     dataSent: sortedUnique(manifest.dataSent),
   };
@@ -24,6 +25,7 @@ export function canonicalizePluginConsent(disclosure: PluginConsentDisclosure): 
     codeDigest: disclosure.codeDigest,
     hooks: sortedUnique(disclosure.hooks),
     decisionProviders: sortedUnique(disclosure.decisionProviders),
+    tools: sortedUnique(disclosure.tools),
     destinations: sortedUnique(disclosure.destinations),
     dataSent: sortedUnique(disclosure.dataSent),
   });

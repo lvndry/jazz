@@ -19,7 +19,12 @@ const HOOK_ID = /^[a-z][a-z0-9_.-]{0,63}$/;
 const SECRET_NAME = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
 const ENV_NAME = /^[A-Z][A-Z0-9_]{0,127}$/;
 
-import type { PluginManifest, PluginSecretDeclaration } from "@jazz/core/types/plugin";
+import type {
+  JsonValue,
+  PluginManifest,
+  PluginSecretDeclaration,
+  PluginToolDeclaration,
+} from "@jazz/core/types/plugin";
 
 export type { PluginManifest, PluginSecretDeclaration } from "@jazz/core/types/plugin";
 
@@ -97,6 +102,36 @@ function normalizeDestination(value: string, label: string): string {
   return url.port === "" || url.port === "443" ? host : `${host}:${url.port}`;
 }
 
+const TOOL_NAME = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
+
+function parseToolDeclaration(value: unknown, index: number): PluginToolDeclaration {
+  const item = record(value, `tools[${index}]`);
+  exactKeys(item, ["name", "description", "parameters", "riskLevel", "egress"], `tools[${index}]`);
+  const name = boundedString(item["name"], `tools[${index}].name`, 64);
+  if (!TOOL_NAME.test(name)) throw new Error(`tools[${index}].name has an invalid format`);
+  const description = boundedString(item["description"], `tools[${index}].description`, 1024);
+  const riskLevel = item["riskLevel"];
+  if (riskLevel !== "read-only" && riskLevel !== "low-risk" && riskLevel !== "high-risk") {
+    throw new Error(`tools[${index}].riskLevel must be read-only, low-risk, or high-risk`);
+  }
+  if (typeof item["egress"] !== "boolean")
+    throw new Error(`tools[${index}].egress must be boolean`);
+  const parameters = record(item["parameters"], `tools[${index}].parameters`) as JsonValue;
+  return { name, description, parameters, riskLevel, egress: item["egress"] };
+}
+
+function parseTools(value: unknown): readonly PluginToolDeclaration[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 32) {
+    throw new Error("tools must be an array with at most 32 entries");
+  }
+  const tools = value.map(parseToolDeclaration);
+  if (new Set(tools.map((tool) => tool.name)).size !== tools.length) {
+    throw new Error("tools contains duplicate names");
+  }
+  return tools;
+}
+
 function parseSecret(value: unknown, index: number): PluginSecretDeclaration {
   const item = record(value, `secrets[${index}]`);
   exactKeys(item, ["name", "env", "required", "description"], `secrets[${index}]`);
@@ -138,6 +173,7 @@ export function parsePluginManifest(input: unknown): PluginManifest {
       "sha256",
       "hooks",
       "decisionProviders",
+      "tools",
       "network",
       "dataSent",
       "secrets",
@@ -194,6 +230,7 @@ export function parsePluginManifest(input: unknown): PluginManifest {
       maxLength: 64,
       pattern: HOOK_ID,
     }),
+    tools: parseTools(root["tools"]),
     network: { destinations: [...destinations].sort() },
     dataSent: [
       ...uniqueStrings(root["dataSent"], "dataSent", {

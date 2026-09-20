@@ -18,6 +18,9 @@ import {
   type PluginDecisionClient,
   type PluginHostApi,
   type PluginSecretDeclaration,
+  type PluginToolDeclaration,
+  type PluginToolRegistration,
+  type PluginToolResult,
   type SkillRouteOutcome,
 } from "@/core/types/plugin";
 import {
@@ -41,6 +44,14 @@ type RegisteredHook = {
   readonly pluginId: string;
   readonly handler: AdvisoryHookHandler<"route.skills">;
 };
+
+type RegisteredTool = {
+  readonly pluginId: string;
+  readonly declaration: PluginToolDeclaration;
+  readonly handler: PluginToolRegistration["handler"];
+};
+
+const toolError = (message: string): PluginToolResult => ({ content: message, isError: true });
 
 const abstainedRoute = (reason: string): SkillRouteOutcome => ({ status: "abstained", reason });
 
@@ -87,6 +98,7 @@ export function createPluginSession(
   return Effect.try({
     try: () => {
       const hooks = new Map<AdvisoryHookId, RegisteredHook>();
+      const tools = new Map<string, RegisteredTool>();
       const providers = new Set<string>();
       const disabledProviders = new Set<string>();
       let reservedCostUSD = 0;
@@ -122,6 +134,20 @@ export function createPluginSession(
                 throw new Error(`decision provider ${provider.id} already registered`);
               providers.add(provider.id);
               return createDecisionClient(provider);
+            },
+          },
+          tools: {
+            register: (registration) => {
+              const declaration = manifest.tools.find((tool) => tool.name === registration.name);
+              if (declaration === undefined)
+                throw new Error(`plugin did not declare tool ${registration.name}`);
+              if (tools.has(registration.name))
+                throw new Error(`tool ${registration.name} already has a handler in this run`);
+              tools.set(registration.name, {
+                pluginId: manifest.id,
+                declaration,
+                handler: registration.handler,
+              });
             },
           },
           secrets: {
@@ -242,6 +268,23 @@ export function createPluginSession(
               return abstainedRoute("plugin handler failed");
             }
           }),
+        listTools: () =>
+          [...tools.values()].map(({ pluginId, declaration }) => ({ ...declaration, pluginId })),
+        runTool: (name, args) =>
+          Effect.promise(async () => {
+            if (closed) return toolError("plugin session closed");
+            const registered = tools.get(name);
+            if (!registered) return toolError(`no plugin handler for tool ${name}`);
+            try {
+              return await deadline((signal) => registered.handler(args, { signal }), timeoutMs);
+            } catch (error) {
+              options.reportFailure?.(
+                registered.pluginId,
+                error instanceof Error ? error.message : String(error),
+              );
+              return toolError(`tool ${name} failed`);
+            }
+          }),
         close: () =>
           Effect.promise(async () => {
             if (closed) return;
@@ -254,6 +297,7 @@ export function createPluginSession(
               ),
             );
             hooks.clear();
+            tools.clear();
             providers.clear();
             disabledProviders.clear();
           }),

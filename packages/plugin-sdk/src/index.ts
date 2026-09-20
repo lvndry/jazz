@@ -96,6 +96,34 @@ export interface PluginDecisionClient {
   ): Promise<DecisionBatchResult>;
 }
 
+/** Risk tiers a plugin may declare for a tool; mirrors the host's non-`unknown` tiers. */
+export type PluginToolRiskLevel = "read-only" | "low-risk" | "high-risk";
+
+/** A model-callable tool declared in the manifest (the reviewed, consented contract). */
+export interface PluginToolDeclaration {
+  readonly name: string;
+  readonly description: string;
+  /** JSON Schema for the tool's arguments, advertised to the model. */
+  readonly parameters: JsonValue;
+  readonly riskLevel: PluginToolRiskLevel;
+  readonly egress: boolean;
+}
+
+/** What a plugin tool returns to the host, which relays it to the model as the tool result. */
+export interface PluginToolResult {
+  readonly content: string;
+  readonly isError?: boolean;
+}
+
+/** The runtime handler for a tool the manifest declares; the name must match a declaration. */
+export interface PluginToolRegistration {
+  readonly name: string;
+  readonly handler: (
+    args: Record<string, unknown>,
+    context: { readonly signal: AbortSignal },
+  ) => Promise<PluginToolResult>;
+}
+
 export interface PluginHostApi {
   readonly apiVersion: JazzPluginApiVersion;
   readonly hooks: {
@@ -103,6 +131,10 @@ export interface PluginHostApi {
   };
   readonly decisions: {
     registerProvider(provider: DecisionProvider): PluginDecisionClient;
+  };
+  readonly tools: {
+    /** Supplies the handler for a tool the manifest declares; rejected otherwise. */
+    register(registration: PluginToolRegistration): void;
   };
   readonly secrets: {
     /** Only names declared in the current plugin manifest are resolvable. */
@@ -134,6 +166,7 @@ export interface JazzPluginSourceManifest {
   readonly entry?: string;
   readonly hooks: readonly AdvisoryHookId[];
   readonly decisionProviders: readonly string[];
+  readonly tools?: readonly PluginToolDeclaration[];
   readonly network: { readonly destinations: readonly string[] };
   readonly dataSent: readonly string[];
   readonly secrets: readonly PluginSecretDeclaration[];

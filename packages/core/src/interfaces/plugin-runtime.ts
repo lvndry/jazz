@@ -6,6 +6,8 @@ import type {
   AdvisoryHookContracts,
   AdvisoryHookId,
   PluginRuntimeError,
+  PluginToolInfo,
+  PluginToolResult,
 } from "@/core/types/plugin";
 
 export interface PluginSession {
@@ -13,6 +15,13 @@ export interface PluginSession {
     id: K,
     input: AdvisoryHookContracts[K]["input"],
   ) => Effect.Effect<AdvisoryHookContracts[K]["output"]>;
+  /** Tools contributed by the plugins in this session, with their manifest declarations. */
+  readonly listTools: () => readonly PluginToolInfo[];
+  /** Invoke a registered plugin tool; always resolves (a failure returns an error result). */
+  readonly runTool: (
+    name: string,
+    args: Record<string, unknown>,
+  ) => Effect.Effect<PluginToolResult>;
   readonly close: () => Effect.Effect<void>;
 }
 

@@ -14,6 +14,7 @@ const manifest: PluginManifest = {
   sha256: "a".repeat(64),
   hooks: ["route.skills"],
   decisionProviders: [],
+  tools: [],
   network: { destinations: ["b.example", "a.example"] },
   dataSent: ["skills", "request"],
   secrets: [],
