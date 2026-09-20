@@ -476,6 +476,102 @@ describe("provenance", () => {
     expect(edited?.createdAt).toBe(created?.createdAt);
   });
 
+  test("records the subject and trigger supplied on create", async () => {
+    const service = makeService();
+    await runEffect(
+      service.create(scopes, "agent-1/lessons/moodboard/artboard.md", "artboards autoscale", {
+        agentId: "agent-1",
+        entry: {
+          subject: "artboard-scaling",
+          origin: "auto",
+          trigger: { kind: "correction", correctedBehavior: "auto-scale the artboard" },
+        },
+      }),
+    );
+    const provenance = await runEffect(
+      service.provenance(scopes, "agent-1/lessons/moodboard/artboard.md"),
+    );
+    expect(provenance?.subject).toBe("artboard-scaling");
+    expect(provenance?.origin).toBe("auto");
+    expect(provenance?.trigger).toEqual({
+      kind: "correction",
+      correctedBehavior: "auto-scale the artboard",
+    });
+  });
+
+  test("carries subject, trigger, and credit through a later edit that supplies none", async () => {
+    const service = makeService();
+    const entryPath = "agent-1/lessons/moodboard/artboard.md";
+    await runEffect(
+      service.create(scopes, entryPath, "artboards autoscale", {
+        agentId: "agent-1",
+        entry: {
+          subject: "artboard-scaling",
+          trigger: { kind: "misfire", toolName: "edit_file", errorClass: "pattern too complex" },
+        },
+      }),
+    );
+    await runEffect(
+      service.strReplace(scopes, entryPath, "artboards autoscale", "artboards auto-scale", {
+        agentId: "agent-1",
+      }),
+    );
+    const provenance = await runEffect(service.provenance(scopes, entryPath));
+    expect(provenance?.subject).toBe("artboard-scaling");
+    expect(provenance?.trigger).toEqual({
+      kind: "misfire",
+      toolName: "edit_file",
+      errorClass: "pattern too complex",
+    });
+    expect(provenance?.writeCount).toBe(2);
+  });
+
+  test("derives the summary from the entry's first line and refreshes it on edit", async () => {
+    const service = makeService();
+    await runEffect(
+      service.create(scopes, "agent-1/facts/tz.md", "# Timezone\n\nUser is in Paris", writeContext),
+    );
+    expect((await runEffect(service.provenance(scopes, "agent-1/facts/tz.md")))?.summary).toBe(
+      "Timezone",
+    );
+
+    await runEffect(
+      service.strReplace(
+        scopes,
+        "agent-1/facts/tz.md",
+        "# Timezone",
+        "# Home timezone",
+        writeContext,
+      ),
+    );
+    expect((await runEffect(service.provenance(scopes, "agent-1/facts/tz.md")))?.summary).toBe(
+      "Home timezone",
+    );
+  });
+
+  test("keeps subject and trigger when an entry is renamed to another workflow", async () => {
+    const service = makeService();
+    await runEffect(
+      service.create(scopes, "agent-1/lessons/moodboard/artboard.md", "autoscale", {
+        agentId: "agent-1",
+        entry: { subject: "artboard-scaling", origin: "auto" },
+      }),
+    );
+    await runEffect(
+      service.rename(
+        scopes,
+        "agent-1/lessons/moodboard/artboard.md",
+        "agent-1/lessons/_global/artboard.md",
+        writeContext,
+      ),
+    );
+    const provenance = await runEffect(
+      service.provenance(scopes, "agent-1/lessons/_global/artboard.md"),
+    );
+    expect(provenance?.subject).toBe("artboard-scaling");
+    expect(provenance?.origin).toBe("auto");
+  });
+
   test("records every agent that has written to a shared scope", async () => {
     const shared = ["team"];
     const service = makeService();

@@ -14,6 +14,7 @@ import {
   MAX_MEMORY_PATH_DEPTH,
   MAX_MEMORY_PATH_SEGMENT_LENGTH,
   MAX_MEMORY_TOTAL_BYTES_PER_SCOPE,
+  MEMORY_SUMMARY_MAX_CHARS,
   MEMORY_VIEW_MAX_LINES,
   MEMORY_VIEW_TRUNCATE_CHARS,
 } from "@jazz/core/constants/memory";
@@ -181,7 +182,36 @@ function writeScopeProvenance(
   ).pipe(Effect.catchAll(() => Effect.void));
 }
 
-/** Records a write against `relativePath`, creating its entry if it is new. */
+/**
+ * Reads back the entry that was just written and takes its first non-empty
+ * line as the summary. Deriving it from the file rather than accepting it from
+ * the caller is what keeps the index text honest across every mutation —
+ * `str_replace` and `insert` change the content too, not just `create`.
+ */
+function deriveEntrySummary(
+  fs: FileSystem.FileSystem,
+  absolutePath: string,
+): Effect.Effect<string | undefined, never> {
+  return fs.readFileString(absolutePath).pipe(
+    Effect.map((content) => {
+      const firstLine = content
+        .split("\n")
+        .map((line) => line.trim())
+        .find((line) => line.length > 0);
+      if (firstLine === undefined) return undefined;
+      return firstLine.replace(/^#+\s*/, "").slice(0, MEMORY_SUMMARY_MAX_CHARS);
+    }),
+    Effect.catchAll(() => Effect.succeed(undefined)),
+  );
+}
+
+/**
+ * Records a write against `relativePath`, creating its entry if it is new.
+ *
+ * Existing fields are carried forward rather than rebuilt: the record holds
+ * typing and credit counters that no single write knows about, and dropping
+ * them here would silently reset an entry's learning history on its next edit.
+ */
 function recordWrite(
   fs: FileSystem.FileSystem,
   scopeRoot: string,
@@ -196,16 +226,26 @@ function recordWrite(
       ? existing.writtenBy
       : [...(existing?.writtenBy ?? []), writeContext.agentId];
 
+    const entry = writeContext.entry;
+    const summary = yield* deriveEntrySummary(fs, path.join(scopeRoot, relativePath));
+
     const updated: MemoryFileProvenance = {
+      ...(existing ?? {}),
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
-      ...(existing?.lastViewedAt !== undefined ? { lastViewedAt: existing.lastViewedAt } : {}),
       writeCount: (existing?.writeCount ?? 0) + 1,
       writtenBy,
+      ...(summary !== undefined ? { summary } : {}),
+      ...(entry !== undefined
+        ? {
+            subject: entry.subject,
+            ...(entry.trigger !== undefined ? { trigger: entry.trigger } : {}),
+            ...(entry.origin !== undefined ? { origin: entry.origin } : {}),
+          }
+        : {}),
     };
 
     yield* writeScopeProvenance(fs, scopeRoot, {
-      version: 1,
       files: { ...provenance.files, [relativePath]: updated },
     });
   });
@@ -221,10 +261,18 @@ function forgetProvenance(
     if (provenance.files[relativePath] === undefined) return;
     const files = { ...provenance.files };
     delete files[relativePath];
-    yield* writeScopeProvenance(fs, scopeRoot, { version: 1, files });
+    yield* writeScopeProvenance(fs, scopeRoot, { files });
   });
 }
 
+/**
+ * Moves a file's record to its new path, carrying its history forward.
+ *
+ * A rename is how an entry changes kind or workflow — promoting a
+ * workflow-scoped lesson to `_global`, for instance. Nothing needs re-deriving
+ * here because kind and workflow live in the path, which is the map key: the
+ * record moves and the new key already says what the entry now is.
+ */
 function moveProvenance(
   fs: FileSystem.FileSystem,
   scopeRoot: string,
@@ -238,16 +286,17 @@ function moveProvenance(
     const files = { ...provenance.files };
     delete files[fromPath];
     const now = new Date().toISOString();
+
     files[toPath] = {
+      ...(existing ?? {}),
       createdAt: existing?.createdAt ?? now,
       updatedAt: now,
-      ...(existing?.lastViewedAt !== undefined ? { lastViewedAt: existing.lastViewedAt } : {}),
       writeCount: (existing?.writeCount ?? 0) + 1,
       writtenBy: existing?.writtenBy.includes(writeContext.agentId)
         ? existing.writtenBy
         : [...(existing?.writtenBy ?? []), writeContext.agentId],
     };
-    yield* writeScopeProvenance(fs, scopeRoot, { version: 1, files });
+    yield* writeScopeProvenance(fs, scopeRoot, { files });
   });
 }
 
@@ -261,7 +310,6 @@ function touchViewed(
     const existing = provenance.files[relativePath];
     if (existing === undefined) return;
     yield* writeScopeProvenance(fs, scopeRoot, {
-      version: 1,
       files: {
         ...provenance.files,
         [relativePath]: { ...existing, lastViewedAt: new Date().toISOString() },

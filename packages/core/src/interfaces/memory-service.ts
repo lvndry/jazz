@@ -7,7 +7,7 @@
  */
 import { FileSystem } from "@effect/platform";
 import { Context, Effect } from "effect";
-import type { MemoryFileProvenance } from "./memory-provenance";
+import type { MemoryEntryMetadata, MemoryFileProvenance } from "./memory-provenance";
 
 export interface MemoryDirectoryEntry {
   readonly name: string;
@@ -57,6 +57,12 @@ export interface MemoryMutationOutcome {
  */
 export interface MemoryWriteContext {
   readonly agentId: string;
+  /**
+   * Typing recorded alongside the write. Supplied when an entry is created so
+   * the sidecar mirrors what the path encodes; omitted on later edits, which
+   * carry the existing typing forward untouched.
+   */
+  readonly entry?: MemoryEntryMetadata;
 }
 
 /**

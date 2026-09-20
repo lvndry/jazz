@@ -18,3 +18,10 @@ export const MEMORY_VIEW_TRUNCATE_CHARS = 20_000;
 
 /** Reject `view` on files with more lines than this. */
 export const MEMORY_VIEW_MAX_LINES = 999_999;
+
+/**
+ * Longest derived entry summary kept in the sidecar. Entries are one thought
+ * each, so anything past this is prose that belongs in the body rather than in
+ * the text the recall index ranks on.
+ */
+export const MEMORY_SUMMARY_MAX_CHARS = 200;
