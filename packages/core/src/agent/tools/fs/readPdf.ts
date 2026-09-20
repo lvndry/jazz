@@ -1,11 +1,11 @@
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { z } from "zod";
-import { WEB_FETCH_USER_AGENT } from "@/core/constants/agent";
 import type { FileSystemContextService } from "@/core/interfaces/fs";
 import type { Tool } from "@/core/interfaces/tool-registry";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
 import { defineTool, makeZodValidator } from "../base-tool";
+import { fetchWithUserAgentFallback } from "../user-agent-fetch";
 import {
   type FsToolDeps,
   isPdfPasswordError,
@@ -79,10 +79,9 @@ function loadRemotePdf(url: string): Effect.Effect<PdfBytes, never> {
     const timeout = setTimeout(() => controller.abort(), PDF_DOWNLOAD_TIMEOUT_MS);
     const response = yield* Effect.tryPromise({
       try: () =>
-        fetch(url, {
-          headers: { "User-Agent": WEB_FETCH_USER_AGENT, Accept: "application/pdf,*/*" },
-          redirect: "follow",
+        fetchWithUserAgentFallback(url, {
           signal: controller.signal,
+          accept: "application/pdf,*/*",
         }),
       catch: (error) =>
         error instanceof Error && error.name === "AbortError"
