@@ -1,10 +1,10 @@
 import { Defuddle } from "defuddle/node";
 import { Effect } from "effect";
 import { z } from "zod";
-import { WEB_FETCH_USER_AGENT } from "@/core/constants/agent";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import type { ToolExecutionContext, ToolExecutionResult } from "@/core/types";
 import { defineTool, makeZodValidator } from "./base-tool";
+import { fetchWithUserAgentFallback } from "./user-agent-fetch";
 
 const DEFAULT_MAX_CONTENT_LENGTH = 50_000;
 
@@ -99,11 +99,7 @@ export function createWebFetchTool(): ReturnType<typeof defineTool<LoggerService
         yield* logger.debug(`[Web Fetch] Fetching ${args.url}`);
 
         const response = yield* Effect.tryPromise({
-          try: (signal) =>
-            fetch(args.url, {
-              headers: { "User-Agent": WEB_FETCH_USER_AGENT },
-              signal,
-            }),
+          try: (signal) => fetchWithUserAgentFallback(args.url, { signal }),
           catch: (error) =>
             new Error(
               `Failed to fetch ${args.url}: ${error instanceof Error ? error.message : String(error)}`,
