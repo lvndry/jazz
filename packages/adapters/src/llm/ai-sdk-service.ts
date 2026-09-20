@@ -1741,9 +1741,10 @@ class AISDKService implements LLMService {
 
   readonly fetchLlamaCppServerModel = (
     baseUrl: string,
+    apiKey?: string,
   ): Effect.Effect<LlamaCppServerModel, unknown> => {
     return Effect.tryPromise({
-      try: () => fetchLlamaCppServerModel(baseUrl),
+      try: () => fetchLlamaCppServerModel(baseUrl, apiKey),
       catch: (error) => error,
     });
   };

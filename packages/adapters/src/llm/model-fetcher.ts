@@ -202,11 +202,16 @@ function llamaCppServerRoot(baseUrl: string): string {
   return baseUrl.replace(/\/v1\/?$/, "").replace(/\/$/, "");
 }
 
-async function fetchLlamaCppProps(baseUrl: string): Promise<LlamaCppPropsResponse | undefined> {
+async function fetchLlamaCppProps(
+  baseUrl: string,
+  apiKey?: string,
+): Promise<LlamaCppPropsResponse | undefined> {
   try {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
     const response = await fetch(`${llamaCppServerRoot(baseUrl)}/props`, {
       method: "GET",
-      headers: { "Content-Type": "application/json" },
+      headers,
     });
     if (!response.ok) return undefined;
     return (await response.json()) as LlamaCppPropsResponse;
@@ -229,14 +234,17 @@ async function fetchLlamaCppProps(baseUrl: string): Promise<LlamaCppPropsRespons
  */
 export async function fetchLlamaCppServerModel(
   baseUrl: string,
+  apiKey?: string,
 ): Promise<{ modelId?: string; contextWindow?: number }> {
   try {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
     const [modelsResponse, props] = await Promise.all([
       fetch(`${baseUrl}/models`, {
         method: "GET",
-        headers: { "Content-Type": "application/json" },
+        headers,
       }),
-      fetchLlamaCppProps(baseUrl),
+      fetchLlamaCppProps(baseUrl, apiKey),
     ]);
 
     const firstModel = modelsResponse.ok
