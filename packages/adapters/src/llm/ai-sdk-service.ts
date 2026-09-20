@@ -27,7 +27,11 @@ import { createProviderDefinedToolFactory } from "@ai-sdk/provider-utils";
 import { createTogetherAI, togetherai } from "@ai-sdk/togetherai";
 import { createXai, xai, type XaiResponsesProviderOptions } from "@ai-sdk/xai";
 import { AI_SDK_MAX_RETRIES, AI_SDK_MAX_STEPS } from "@jazz/core/constants/agent";
-import { OPENROUTER_GATEWAY_MODELS, type ProviderName } from "@jazz/core/constants/models";
+import {
+  OPENROUTER_GATEWAY_MODELS,
+  ORCAROUTER_GATEWAY_MODELS,
+  type ProviderName,
+} from "@jazz/core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import {
   LLMServiceTag,
@@ -741,6 +745,10 @@ function getConfiguredProviders(
       providers.push({ name: "openrouter", apiKey: llmConfig.openrouter.api_key });
       addedProviders.add("openrouter");
     }
+    if (llmConfig.orcarouter?.api_key) {
+      providers.push({ name: "orcarouter", apiKey: llmConfig.orcarouter.api_key });
+      addedProviders.add("orcarouter");
+    }
     if (llmConfig.togetherai?.api_key) {
       providers.push({ name: "togetherai", apiKey: llmConfig.togetherai.api_key });
       addedProviders.add("togetherai");
@@ -913,6 +921,16 @@ function selectModel(
         ) => (modelId: ModelName) => LanguageModel
       )(config);
       model = openrouter(modelId);
+      break;
+    }
+    case "orcarouter": {
+      const apiKey = resolveApiKey("orcarouter");
+      const orcarouter = createOpenAICompatible({
+        name: "orcarouter",
+        baseURL: "https://api.orcarouter.ai/v1",
+        ...(apiKey ? { headers: { Authorization: `Bearer ${apiKey}` } } : {}),
+      });
+      model = orcarouter(modelId);
       break;
     }
     case "ai_gateway": {
@@ -1505,7 +1523,9 @@ class AISDKService implements LLMService {
         // Check if the selected model supports tools
         // OpenRouter gateway models (e.g., openrouter/free) are meta-models that route to various
         // underlying models, so we assume tool support and pass tools through.
-        const isGatewayModel = OPENROUTER_GATEWAY_MODELS.has(options.model);
+        const isGatewayModel =
+          OPENROUTER_GATEWAY_MODELS.has(options.model) ||
+          ORCAROUTER_GATEWAY_MODELS.has(options.model);
         const supportsTools: boolean = isGatewayModel || (modelInfo?.supportsTools ?? false);
         const {
           tools: requestedTools,
@@ -1721,9 +1741,10 @@ class AISDKService implements LLMService {
 
   readonly fetchLlamaCppServerModel = (
     baseUrl: string,
+    apiKey?: string,
   ): Effect.Effect<LlamaCppServerModel, unknown> => {
     return Effect.tryPromise({
-      try: () => fetchLlamaCppServerModel(baseUrl),
+      try: () => fetchLlamaCppServerModel(baseUrl, apiKey),
       catch: (error) => error,
     });
   };
@@ -1811,7 +1832,9 @@ class AISDKService implements LLMService {
                 });
                 // OpenRouter gateway models (e.g., openrouter/free) are meta-models that route to various
                 // underlying models, so we assume tool support and pass tools through.
-                const isGatewayModel = OPENROUTER_GATEWAY_MODELS.has(options.model);
+                const isGatewayModel =
+                  OPENROUTER_GATEWAY_MODELS.has(options.model) ||
+                  ORCAROUTER_GATEWAY_MODELS.has(options.model);
                 const supportsTools = isGatewayModel || (modelInfo?.supportsTools ?? false);
                 const {
                   tools: requestedTools,

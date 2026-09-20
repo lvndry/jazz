@@ -2472,6 +2472,15 @@ describe("fullscreen bridge", () => {
     store.setPrompt(null);
     expect(frame).toContain("Ask anything");
   });
+  it("auto-appends a space when ! is typed on an empty composer", async () => {
+    const rendered = await liveComposer();
+    await rendered.mockInput.pressKey("!");
+    await settleKeypress(rendered.flush);
+    const frame = rendered.captureCharFrame();
+    rendered.renderer.destroy();
+    store.setPrompt(null);
+    expect(frame).toContain("! ");
+  });
   it("renders no ANSI escape codes, whatever styling the producer applied", async () => {
     // The presentation service styles strings with chalk before they reach the
     // store. Those escapes are terminal instructions, not characters: rendered

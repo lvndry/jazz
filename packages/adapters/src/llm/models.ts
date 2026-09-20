@@ -62,6 +62,11 @@ export const PROVIDER_MODELS: Record<ProviderName, ModelSource> = {
     endpointPath: "/models",
     defaultBaseUrl: DEFAULT_LLAMACPP_BASE_URL,
   },
+  orcarouter: {
+    type: "dynamic",
+    endpointPath: "/v1/models",
+    defaultBaseUrl: "https://api.orcarouter.ai",
+  },
   togetherai: {
     type: "dynamic",
     endpointPath: "/v1/models",

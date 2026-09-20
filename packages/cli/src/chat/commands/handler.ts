@@ -1009,8 +1009,12 @@ function handleCompactCommand(
       agent.config.llmModel,
       provider,
     );
+    const llamacppConfig =
+      provider === "llamacpp" ? (yield* (yield* AgentConfigServiceTag).appConfig).llm : undefined;
     const servedContextWindow =
-      provider === "llamacpp" ? (yield* resolveLlamaCppServerModel()).contextWindow : undefined;
+      provider === "llamacpp"
+        ? (yield* resolveLlamaCppServerModel(llamacppConfig)).contextWindow
+        : undefined;
     const contextWindow = resolveEffectiveContextWindow({
       provider,
       ...(advertisedContextWindow !== undefined && { modelMaxTokens: advertisedContextWindow }),
