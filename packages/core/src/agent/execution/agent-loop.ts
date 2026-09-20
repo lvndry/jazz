@@ -515,11 +515,14 @@ function finalizeRun(
 }
 
 /**
- * Close out assistant `tool_calls` that never got a `role: "tool"` result so the
- * transcript stays valid for the next LLM request. Used when the user interrupts
- * mid-batch: executeToolCalls fails before handleToolPhase can append results.
+ * Close assistant `tool_calls` that never got a `role: "tool"` result, so the transcript
+ * stays valid to send. Used on a user interrupt mid-batch, and on a copy of the transcript
+ * when a turn fails outright.
  */
-function closeDanglingToolCalls(state: LoopState): void {
+function closeDanglingToolCalls(
+  state: Pick<LoopState, "currentMessages">,
+  content = "Tool execution interrupted by user",
+): void {
   const lastAssistant = [...state.currentMessages]
     .reverse()
     .find((message) => message.role === "assistant" && (message.tool_calls?.length ?? 0) > 0);
@@ -536,10 +539,40 @@ function closeDanglingToolCalls(state: LoopState): void {
     state.currentMessages.push({
       role: "tool",
       name: toolCall.function.name,
-      content: "Tool execution interrupted by user",
+      content,
       tool_call_id: toolCall.id,
     });
   }
+}
+
+/** The result a dangling tool call is closed with when its turn failed before it returned. */
+const FAILED_TURN_TOOL_RESULT =
+  "Tool execution did not finish: the run failed before this tool returned a result.";
+
+/**
+ * Hand a failed turn's transcript to the caller before the failure unwinds it — otherwise
+ * the caller reverts to the history it passed in and the turn's work is lost. Dangling tool
+ * calls are closed on the copy so it stays valid to send.
+ *
+ * Parking is skipped: its transcript rides the signal, and its unanswered tool call must
+ * stay unanswered to resume.
+ */
+function reportFailedTurn(
+  error: unknown,
+  state: LoopState,
+  options: LoopDeps["options"],
+): Effect.Effect<void> {
+  const onFailedTurn = options.onFailedTurn;
+  if (onFailedTurn === undefined || options.internal === true || isRunParkRequested(error)) {
+    return Effect.void;
+  }
+  return Effect.sync(() => {
+    const transcript: Pick<LoopState, "currentMessages"> = {
+      currentMessages: [...state.currentMessages],
+    };
+    closeDanglingToolCalls(transcript, FAILED_TURN_TOOL_RESULT);
+    onFailedTurn(transcript.currentMessages);
+  });
 }
 
 /**
@@ -1378,7 +1411,7 @@ export function executeAgentLoop(
             "",
             0,
             deps,
-          );
+          ).pipe(Effect.tapError((error) => reportFailedTurn(error, state, options)));
           if (pendingPhase === "interrupted") {
             finished = true;
             interrupted = true;
@@ -1388,7 +1421,9 @@ export function executeAgentLoop(
         for (let i = 0; i < maxIterations && !interrupted; i++) {
           yield* Effect.sync(() => beginIteration(runMetrics, i + 1));
           try {
-            const step = yield* runIteration(state, i, deps);
+            const step = yield* runIteration(state, i, deps).pipe(
+              Effect.tapError((error) => reportFailedTurn(error, state, options)),
+            );
             if (step.kind === "interrupted") {
               finished = true;
               interrupted = true;
