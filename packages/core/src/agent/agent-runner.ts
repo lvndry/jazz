@@ -925,6 +925,21 @@ export class AgentRunner {
               })
             : undefined;
 
+          const pluginName = Option.isSome(session)
+            ? session.value.describeHook("compact.tools")?.pluginName
+            : undefined;
+          const observedPhase: CompactionProgressObserver | undefined =
+            onPhase === undefined
+              ? undefined
+              : pluginName === undefined
+                ? onPhase
+                : (event) =>
+                    onPhase(
+                      event.phase === "prune-start" || event.phase === "prune-done"
+                        ? { ...event, plugin: pluginName }
+                        : event,
+                    );
+
           return yield* Summarizer.compact(
             messages,
             agent,
@@ -933,7 +948,7 @@ export class AgentRunner {
             contextWindowTokens,
             false,
             reduceToolResults,
-            onPhase,
+            observedPhase,
           );
         }),
       );

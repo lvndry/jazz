@@ -955,7 +955,11 @@ function formatCharCount(chars: number): string {
 function compactionPhaseLines(event: CompactionProgress): string[] {
   switch (event.phase) {
     case "prune-start":
-      return ["Reviewing tool results…"];
+      return [
+        event.plugin === undefined
+          ? "Reviewing tool results…"
+          : `Reviewing tool results with the ${event.plugin} plugin…`,
+      ];
     case "prune-done": {
       if (event.decisions.length === 0) return ["No stale tool results to prune."];
       const counts: Record<string, number> = { keep: 0, truncate: 0, drop: 0 };

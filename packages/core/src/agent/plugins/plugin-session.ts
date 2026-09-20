@@ -103,6 +103,7 @@ export function createPluginSession(
     try: () => {
       const hooks = new Map<AdvisoryHookId, RegisteredHook>();
       const policyHooks = new Map<PolicyHookId, RegisteredPolicyHook>();
+      const pluginNameById = new Map<string, string>();
       const providers = new Set<string>();
       const disabledProviders = new Set<string>();
       let reservedCostUSD = 0;
@@ -113,6 +114,7 @@ export function createPluginSession(
         const manifest = validatePluginManifest(plugin.manifest);
         if (plugin.module.apiVersion !== manifest.hostApi)
           throw new Error("module API version does not match manifest");
+        pluginNameById.set(manifest.id, manifest.name);
         const declarations = new Map(
           manifest.secrets.map((declaration) => [declaration.name, declaration]),
         );
@@ -311,6 +313,14 @@ export function createPluginSession(
               return abstainedCompact("plugin handler failed");
             }
           }),
+        describeHook: (id) => {
+          const registration = hooks.get(id);
+          if (!registration) return undefined;
+          return {
+            pluginId: registration.pluginId,
+            pluginName: pluginNameById.get(registration.pluginId) ?? registration.pluginId,
+          };
+        },
         close: () =>
           Effect.promise(async () => {
             if (closed) return;

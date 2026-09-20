@@ -972,6 +972,20 @@ function runIteration(
           messagesAfter: state.currentMessages.length,
         });
       }
+      if (advisedClear?.answered && advisedClear.decisions.length > 0) {
+        yield* logger.info("Compaction plugin tool-result decisions", {
+          agentId: agent.id,
+          conversationId: actualConversationId,
+          rung: "clear",
+          clearedCount: advisedClear.clearedCount,
+          tokensReclaimed: advisedClear.tokensReclaimed,
+          decisions: advisedClear.decisions.map((decision) => ({
+            tool: decision.tool,
+            action: decision.action,
+            chars: decision.chars,
+          })),
+        });
+      }
     }
 
     const contextUsage = runContextWindowManager.usage(state.currentMessages);

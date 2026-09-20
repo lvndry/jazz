@@ -228,9 +228,10 @@ export interface CompactionOutcome {
  * `onPhase` observer — automatic compaction runs silent.
  */
 export type CompactionProgress =
-  | { readonly phase: "prune-start" }
+  | { readonly phase: "prune-start"; readonly plugin?: string }
   | {
       readonly phase: "prune-done";
+      readonly plugin?: string;
       readonly decisions: readonly AdvisedDecision[];
       readonly tokensReclaimed: number;
     }
@@ -587,6 +588,19 @@ export const Summarizer = {
             phase: "prune-done",
             decisions: advised.decisions,
             tokensReclaimed: advised.tokensReclaimed,
+          });
+        }
+        if (advised.answered && advised.decisions.length > 0) {
+          yield* logger.info("Compaction plugin tool-result decisions", {
+            agentId: agent.id,
+            conversationId,
+            clearedCount: advised.clearedCount,
+            tokensReclaimed: advised.tokensReclaimed,
+            decisions: advised.decisions.map((decision) => ({
+              tool: decision.tool,
+              action: decision.action,
+              chars: decision.chars,
+            })),
           });
         }
         if (advised.answered && advised.clearedCount > 0) {
