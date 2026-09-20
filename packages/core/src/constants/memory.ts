@@ -20,6 +20,15 @@ export const MEMORY_VIEW_TRUNCATE_CHARS = 20_000;
 export const MEMORY_VIEW_MAX_LINES = 999_999;
 
 /**
+ * Agent id the compaction-time extraction pass runs under.
+ *
+ * Shared so a write can be attributed: an entry written under this id was
+ * inferred by an unattended pass, while any other id means the agent wrote it
+ * while a person was in the conversation.
+ */
+export const MEMORY_EXTRACTOR_AGENT_ID = "memory-extractor";
+
+/**
  * Longest derived entry summary kept in the sidecar. Entries are one thought
  * each, so anything past this is prose that belongs in the body rather than in
  * the text the recall index ranks on.

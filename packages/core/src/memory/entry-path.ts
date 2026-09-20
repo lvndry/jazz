@@ -49,6 +49,16 @@ export const GLOBAL_WORKFLOW_SEGMENT = "_global";
 /** Kinds that carry a workflow segment. Facts are not workflow-scoped. */
 const WORKFLOW_SCOPED_KINDS: readonly MemoryEntryKind[] = ["preference", "lesson"];
 
+/**
+ * Kinds where one subject may have only one entry.
+ *
+ * A second fact or preference about something already recorded fragments the
+ * store into near-duplicates that drift apart, so those are amended in place
+ * instead. Lessons are exempt: two lessons can legitimately share a subject
+ * when they guard against failures in different situations.
+ */
+const SINGLE_ENTRY_PER_SUBJECT_KINDS: readonly MemoryEntryKind[] = ["fact", "preference"];
+
 export interface ParsedMemoryEntryPath {
   readonly scope: string;
   readonly kind: MemoryEntryKind;
@@ -67,6 +77,10 @@ export function isMemoryEntryKind(value: unknown): value is MemoryEntryKind {
 
 export function isWorkflowScopedKind(kind: MemoryEntryKind): boolean {
   return WORKFLOW_SCOPED_KINDS.includes(kind);
+}
+
+export function isSingleEntryPerSubjectKind(kind: MemoryEntryKind): boolean {
+  return SINGLE_ENTRY_PER_SUBJECT_KINDS.includes(kind);
 }
 
 function splitSegments(virtualPath: string): string[] {

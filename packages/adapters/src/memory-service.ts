@@ -34,6 +34,10 @@ import type {
   MemoryWriteContext,
 } from "@jazz/core/interfaces/memory-service";
 import { MemoryServiceTag } from "@jazz/core/interfaces/memory-service";
+import {
+  isSingleEntryPerSubjectKind,
+  parseMemoryEntryRelativePath,
+} from "@jazz/core/memory/entry-path";
 import { getMemoryDirectory } from "@jazz/core/utils/paths";
 import {
   abbreviateHomePath,
@@ -203,6 +207,31 @@ function deriveEntrySummary(
     }),
     Effect.catchAll(() => Effect.succeed(undefined)),
   );
+}
+
+/**
+ * Finds an entry of the same kind already covering `subject`, if any.
+ *
+ * Facts and preferences hold one entry per subject. Recording a second one
+ * beside the first is how a store fragments into near-duplicates that drift
+ * apart, so a colliding create is refused and the caller is pointed at the
+ * entry to amend instead. Lessons are exempt — two can guard against failures
+ * in different situations while sharing a subject.
+ */
+function findSubjectCollision(
+  provenance: MemoryScopeProvenance,
+  relativePath: string,
+  subject: string,
+): string | undefined {
+  const target = parseMemoryEntryRelativePath(relativePath);
+  if (target === undefined || !isSingleEntryPerSubjectKind(target.kind)) return undefined;
+
+  for (const [candidatePath, record] of Object.entries(provenance.files)) {
+    if (candidatePath === relativePath) continue;
+    if (record.subject !== subject) continue;
+    if (parseMemoryEntryRelativePath(candidatePath)?.kind === target.kind) return candidatePath;
+  }
+  return undefined;
 }
 
 /**
@@ -592,6 +621,31 @@ export class MemoryServiceImpl implements MemoryService {
                   success: false,
                   message: `Error: File ${abbreviateHomePath(target)} already exists`,
                 } satisfies MemoryMutationOutcome;
+              }
+
+              const declaredSubject = writeContext.entry?.subject;
+              if (declaredSubject !== undefined) {
+                const provenance = yield* readScopeProvenance(fs, root);
+                const collision = findSubjectCollision(
+                  provenance,
+                  path.relative(root, target),
+                  declaredSubject,
+                );
+                if (collision !== undefined) {
+                  const existingText = yield* fs
+                    .readFileString(path.join(root, collision))
+                    .pipe(Effect.catchAll(() => Effect.succeed("")));
+                  return {
+                    success: false,
+                    message: [
+                      `Error: "${declaredSubject}" is already recorded at ${scope}/${collision}.`,
+                      "Amend that entry with str_replace rather than adding a second one.",
+                      "",
+                      "Current content:",
+                      existingText.slice(0, MEMORY_SUMMARY_MAX_CHARS * 4),
+                    ].join("\n"),
+                  } satisfies MemoryMutationOutcome;
+                }
               }
 
               yield* this.requireScopeBudget(fs, root, {

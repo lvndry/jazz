@@ -7,6 +7,8 @@
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { z } from "zod";
+import { MEMORY_EXTRACTOR_AGENT_ID } from "@/core/constants/memory";
+import type { MemoryTrigger } from "@/core/interfaces/memory-provenance";
 import type {
   MemoryService,
   MemoryViewOutcome,
@@ -14,6 +16,11 @@ import type {
 } from "@/core/interfaces/memory-service";
 import { MemoryServiceTag } from "@/core/interfaces/memory-service";
 import type { Tool } from "@/core/interfaces/tool-registry";
+import {
+  MEMORY_ENTRY_KINDS,
+  buildMemoryEntryPath,
+  slugifyMemorySegment,
+} from "@/core/memory/entry-path";
 import type { ToolExecutionResult } from "@/core/types/tools";
 import { defineTool, makeZodValidator } from "./base-tool";
 
@@ -138,15 +145,70 @@ export function createViewMemoryTool(): Tool<MemoryToolDeps> {
   });
 }
 
-const manageMemoryParameters = z.discriminatedUnion("command", [
-  z.object({
-    command: z.literal("create"),
-    path: z
-      .string()
-      .min(1)
-      .describe('Memory file path, starting with a scope name (e.g. "personal/notes.md").'),
-    file_text: z.string().describe("Full file contents. Errors if the path already exists."),
-  }),
+const memoryTriggerParameter = z
+  .discriminatedUnion("kind", [
+    z.object({
+      kind: z.literal("misfire"),
+      tool_name: z.string().min(1).describe("Tool whose call failed."),
+      error_class: z
+        .string()
+        .min(1)
+        .describe("Short, stable description of the failure, without paths, ids, or numbers."),
+    }),
+    z.object({
+      kind: z.literal("correction"),
+      corrected_behavior: z.string().min(1).describe("What the user said you should do instead."),
+    }),
+  ])
+  .describe(
+    "The failure this lesson prevents. Required for kind=lesson: a lesson whose failure is not " +
+      "named can never be checked against what actually happens, so it would never be validated.",
+  );
+
+const createMemoryParameters = z.object({
+  command: z.literal("create"),
+  kind: z
+    .enum(MEMORY_ENTRY_KINDS)
+    .describe(
+      'What this is. "preference" = how the user wants things done; "fact" = something stable ' +
+        'about the user or their world; "lesson" = a failure and its fix, tied to something that ' +
+        "actually went wrong.",
+    ),
+  subject: z
+    .string()
+    .min(1)
+    .describe(
+      'What the entry is about, in a few words (e.g. "rendered output opening"). Facts and ' +
+        "preferences hold one entry per subject: reusing a subject is refused and you are shown " +
+        "the existing entry to amend instead.",
+    ),
+  workflow: z
+    .string()
+    .optional()
+    .describe(
+      'The kind of work this applies to (e.g. "moodboard"), for preferences and lessons. Omit ' +
+        "when it applies to every task. Workflows are not tied to a folder — the entry is " +
+        "recalled wherever that kind of work happens.",
+    ),
+  scope: z
+    .string()
+    .optional()
+    .describe("Memory scope to write into. Defaults to your first accessible scope."),
+  trigger: memoryTriggerParameter.optional(),
+  file_text: z
+    .string()
+    .describe("The entry itself. Keep it to one thought; the first line is used as its summary."),
+});
+
+/** Maps the tool's snake_case trigger shape onto the stored one. */
+function toMemoryTrigger(trigger: z.infer<typeof memoryTriggerParameter>): MemoryTrigger {
+  return trigger.kind === "misfire"
+    ? { kind: "misfire", toolName: trigger.tool_name, errorClass: trigger.error_class }
+    : { kind: "correction", correctedBehavior: trigger.corrected_behavior };
+}
+
+const manageMemoryCommands = z.discriminatedUnion("command", [
+  createMemoryParameters,
   z.object({
     command: z.literal("str_replace"),
     path: z
@@ -193,23 +255,50 @@ const manageMemoryParameters = z.discriminatedUnion("command", [
   }),
 ]);
 
+/**
+ * A lesson must name the failure it prevents. The rule lives here rather than
+ * on the create branch because a `superRefine` produces a ZodEffects, which a
+ * discriminated union cannot hold as a member.
+ */
+const manageMemoryParameters = manageMemoryCommands.superRefine((value, ctx) => {
+  if (value.command === "create" && value.kind === "lesson" && value.trigger === undefined) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["trigger"],
+      message:
+        "A lesson requires a trigger naming the failure it prevents, so it can be checked " +
+        "against what actually happens later.",
+    });
+  }
+});
+
 type ManageMemoryArgs = z.infer<typeof manageMemoryParameters>;
 
 export function createManageMemoryTool(): Tool<MemoryToolDeps> {
   return defineTool<MemoryToolDeps, ManageMemoryArgs>({
     name: "manage_memory",
     disclosure: "private",
+    summary:
+      "Remember durable user preferences, facts, corrections and lessons across conversations.",
     description:
-      "Save user-confirmed, durable information likely to improve a future conversation, such as " +
-      "preferences, recurring facts, and standing project decisions. Do not save small talk, " +
-      "temporary task state, tentative thoughts, sensitive personal data, or secrets. Every path " +
-      'starts with a relevant scope name (e.g. "personal/preferences.md" or "github-project-a/conventions.md"); ' +
-      "list scopes with view_memory only when the correct scope is unclear. Read the relevant file " +
-      "before changing it, keep one file per topic rather than a running log, and replace stale facts. " +
-      "Commands: create(path, file_text) makes a new file, errors if it already exists; " +
-      "str_replace(path, old_str, new_str) replaces one exact, unique snippet — omit new_str to delete it; " +
-      "insert(path, insert_line, insert_text) inserts text after a 0-based line (0 = start of file); " +
-      "delete(path) removes a file; rename(old_path, new_path) renames a file within its scope.",
+      "Remember something durable about the user across conversations: a preference (how they want " +
+      "things done), a fact (something stable about them or their world), or a lesson (a failure and " +
+      "its fix, tied to something that actually went wrong). Not for bulk drafts or large artifacts " +
+      "— those go in the scratchpad, referenced by path from a memory entry. Not for what the current " +
+      "task is doing — that is work state. Do not save small talk, tentative thoughts, sensitive " +
+      "personal data, or secrets.\n" +
+      'Write facts, not commands: "user prefers concise replies" — not "always reply concisely", ' +
+      "which a later session re-reads as an order overriding what the user is asking for then.\n" +
+      "If an entry already covers the subject, amend it rather than adding a second one; facts and " +
+      "preferences hold one entry per subject, and a create that reuses a subject is refused and " +
+      "shows you the entry to edit.\n" +
+      "create(kind, subject, file_text) stores a new entry and chooses its path for you; add " +
+      'workflow to scope a preference or lesson to a kind of work (e.g. "moodboard"), omit it when ' +
+      "it applies to every task — workflows are not tied to a folder, so the entry is recalled " +
+      "wherever that work happens. A lesson also requires a trigger naming the failure it prevents. " +
+      "str_replace(path, old_str, new_str) replaces one exact, unique snippet — omit new_str to " +
+      "delete it; insert(path, insert_line, insert_text) inserts after a 0-based line; " +
+      "delete(path) removes an entry; rename(old_path, new_path) moves one within its scope.",
     parameters: manageMemoryParameters,
     riskLevel: "low-risk",
     hidden: false,
@@ -222,8 +311,26 @@ export function createManageMemoryTool(): Tool<MemoryToolDeps> {
 
         const outcome = yield* (() => {
           switch (args.command) {
-            case "create":
-              return memoryService.create(scopes, args.path, args.file_text, writeContext);
+            case "create": {
+              const scope = args.scope ?? scopes[0] ?? context.agentId;
+              const targetPath = buildMemoryEntryPath({
+                scope,
+                kind: args.kind,
+                subject: args.subject,
+                ...(args.workflow !== undefined ? { workflow: args.workflow } : {}),
+              });
+              return memoryService.create(scopes, targetPath, args.file_text, {
+                ...writeContext,
+                entry: {
+                  subject: slugifyMemorySegment(args.subject),
+                  origin:
+                    context.agentId === MEMORY_EXTRACTOR_AGENT_ID
+                      ? ("auto" as const)
+                      : ("user" as const),
+                  ...(args.trigger !== undefined ? { trigger: toMemoryTrigger(args.trigger) } : {}),
+                },
+              });
+            }
             case "str_replace":
               return memoryService.strReplace(
                 scopes,

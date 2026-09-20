@@ -175,6 +175,127 @@ describe("create", () => {
   });
 });
 
+describe("single entry per subject", () => {
+  const preferenceEntry = (subject: string) => ({ agentId: "agent-1", entry: { subject } });
+
+  test("refuses a second preference on a subject already recorded", async () => {
+    const service = makeService();
+    await runEffect(
+      service.create(
+        scopes,
+        "agent-1/preferences/_global/auto-open.md",
+        "auto-open renders",
+        preferenceEntry("rendered-output-opening"),
+      ),
+    );
+    const outcome = await runEffect(
+      service.create(
+        scopes,
+        "agent-1/preferences/_global/open-the-render.md",
+        "open renders when done",
+        preferenceEntry("rendered-output-opening"),
+      ),
+    );
+    expect(outcome.success).toBe(false);
+    expect(outcome.message).toContain("already recorded");
+    expect(outcome.message).toContain("auto-open.md");
+  });
+
+  test("returns the existing content so the caller can amend it", async () => {
+    const service = makeService();
+    await runEffect(
+      service.create(
+        scopes,
+        "agent-1/preferences/_global/auto-open.md",
+        "auto-open renders when a task finishes",
+        preferenceEntry("rendered-output-opening"),
+      ),
+    );
+    const outcome = await runEffect(
+      service.create(
+        scopes,
+        "agent-1/preferences/_global/other.md",
+        "x",
+        preferenceEntry("rendered-output-opening"),
+      ),
+    );
+    expect(outcome.message).toContain("auto-open renders when a task finishes");
+    expect(outcome.message).toContain("str_replace");
+  });
+
+  test("collides across workflows, since the subject is what is unique", async () => {
+    const service = makeService();
+    await runEffect(
+      service.create(
+        scopes,
+        "agent-1/preferences/_global/auto-open.md",
+        "auto-open renders",
+        preferenceEntry("rendered-output-opening"),
+      ),
+    );
+    const outcome = await runEffect(
+      service.create(
+        scopes,
+        "agent-1/preferences/moodboard/auto-open.md",
+        "auto-open moodboards",
+        preferenceEntry("rendered-output-opening"),
+      ),
+    );
+    expect(outcome.success).toBe(false);
+  });
+
+  test("allows the same subject under a different kind", async () => {
+    const service = makeService();
+    await runEffect(
+      service.create(
+        scopes,
+        "agent-1/preferences/_global/auto-open.md",
+        "auto-open renders",
+        preferenceEntry("rendered-output-opening"),
+      ),
+    );
+    const outcome = await runEffect(
+      service.create(
+        scopes,
+        "agent-1/facts/auto-open.md",
+        "renders are produced by the moodboard tool",
+        preferenceEntry("rendered-output-opening"),
+      ),
+    );
+    expect(outcome.success).toBe(true);
+  });
+
+  test("allows two lessons on one subject, which may guard different situations", async () => {
+    const service = makeService();
+    await runEffect(
+      service.create(
+        scopes,
+        "agent-1/lessons/moodboard/scaling.md",
+        "scale artboards",
+        preferenceEntry("artboard-scaling"),
+      ),
+    );
+    const outcome = await runEffect(
+      service.create(
+        scopes,
+        "agent-1/lessons/slides/scaling.md",
+        "scale slides differently",
+        preferenceEntry("artboard-scaling"),
+      ),
+    );
+    expect(outcome.success).toBe(true);
+  });
+
+  test("does not constrain untyped legacy entries", async () => {
+    const service = makeService();
+    await runEffect(service.create(scopes, "agent-1/notes.md", "a", preferenceEntry("thing")));
+    const outcome = await runEffect(
+      service.create(scopes, "agent-1/other.md", "b", preferenceEntry("thing")),
+    );
+    expect(outcome.success).toBe(true);
+  });
+});
+
 describe("str_replace", () => {
   test("replaces a unique match", async () => {
     const service = makeService();

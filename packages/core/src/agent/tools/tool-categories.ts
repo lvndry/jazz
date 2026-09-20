@@ -52,10 +52,16 @@ export const PERCEPTION_CATEGORY: ToolCategory = {
   loadTier: "eager",
 };
 export const TODO_CATEGORY: ToolCategory = { id: "todo", displayName: "Todo", loadTier: "eager" };
+/**
+ * Eager because the scratchpad is: an assistant whose job is to remember the
+ * person cannot have its memory tools be the ones the model must go looking
+ * for while a scratchpad that also stores durable text sits in front of it.
+ * That asymmetry is what sends standing preferences into the wrong store.
+ */
 export const MEMORY_CATEGORY: ToolCategory = {
   id: "memory",
   displayName: "Memory",
-  loadTier: "deferred",
+  loadTier: "eager",
 };
 export const WORKSPACE_CATEGORY: ToolCategory = {
   id: "workspace",
@@ -131,6 +137,7 @@ export const BUILTIN_TOOL_CATEGORIES: readonly ToolCategory[] = [
   WEB_FETCH_CATEGORY,
   JOB_QUEUE_CATEGORY,
   WORKSPACE_CATEGORY,
+  MEMORY_CATEGORY,
 ] as const;
 
 /**
