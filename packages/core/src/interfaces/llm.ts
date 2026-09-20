@@ -81,7 +81,6 @@ export interface LLMService {
    */
   readonly fetchLlamaCppServerModel: (
     baseUrl: string,
-    apiKey?: string,
   ) => Effect.Effect<LlamaCppServerModel, unknown>;
 
   /**
