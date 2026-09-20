@@ -355,6 +355,9 @@ function handleNewCommand(
  * new one carrying the full history forward. Future turns diverge from here
  * while the transcript stays on screen — forking branches the conversation
  * without discarding what came before.
+ *
+ * The transcript repaint is skipped: the same full history stays on screen, so
+ * repainting would only clear the switch notice and redraw an identical view.
  */
 function handleForkCommand(
   terminal: TerminalService,
@@ -378,6 +381,7 @@ function handleForkCommand(
       newConversationId: generateConversationId(),
       newHistory: [...conversationHistory],
       saveCurrentHistory: true,
+      skipTranscriptRepaint: true,
     };
   });
 }
