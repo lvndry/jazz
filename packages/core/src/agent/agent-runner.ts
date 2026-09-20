@@ -48,7 +48,11 @@ import type { ConversationMessages, StreamingConfig } from "../types";
 import { type Agent } from "../types";
 import { agentPromptBuilder } from "./agent-prompt";
 import { buildAdvisedReducer } from "./context/advised-tool-clearing";
-import { Summarizer, type CompactionOutcome } from "./context/summarizer";
+import {
+  Summarizer,
+  type CompactionOutcome,
+  type CompactionProgressObserver,
+} from "./context/summarizer";
 import { executeWithStreaming, executeWithoutStreaming } from "./execution";
 import { createAgentRunMetrics, emitAgentRunStarted } from "./metrics/agent-run-metrics";
 import { discoverProjectInstructions, type ProjectInstructionFile } from "./project-instructions";
@@ -852,6 +856,7 @@ export class AgentRunner {
     agent: Agent,
     conversationId: string,
     contextWindowTokens: number,
+    onPhase?: CompactionProgressObserver,
   ): Effect.Effect<
     CompactionOutcome | undefined,
     Error,
@@ -884,6 +889,8 @@ export class AgentRunner {
           runRecursive,
           contextWindowTokens,
           false,
+          undefined,
+          onPhase,
         );
       }
 
@@ -927,6 +934,7 @@ export class AgentRunner {
             contextWindowTokens,
             false,
             reduceToolResults,
+            onPhase,
           );
         }),
       );

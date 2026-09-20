@@ -7,10 +7,12 @@ import type { ModelHint, TokenCounter } from "./token-counter";
 
 const modelHint: ModelHint = { provider: "anthropic", modelId: "test" };
 // Every message counts as well over MIN_CLEARABLE_RESULT_TOKENS so both tool results qualify.
-const fatCounter: TokenCounter = {
+// reduceToolResultsAdvised only calls countMessage, so a two-method stub stands in for the
+// full counter.
+const fatCounter = {
   countMessage: () => 1_000,
   countMessages: () => 1_000,
-};
+} as unknown as TokenCounter;
 
 function transcript(): ChatMessage[] {
   return [
@@ -29,8 +31,10 @@ function transcript(): ChatMessage[] {
   ];
 }
 
+type AnsweredDecisions = Extract<CompactToolsOutcome, { status: "answered" }>["decisions"];
+
 const answeredWith = (
-  decisions: CompactToolsOutcome extends { decisions: infer D } ? D : never,
+  decisions: AnsweredDecisions,
 ): ((input: CompactToolsInput) => Effect.Effect<CompactToolsOutcome>) => {
   return () => Effect.succeed({ status: "answered", decisions });
 };
@@ -61,6 +65,9 @@ describe("reduceToolResultsAdvised", () => {
     expect(String(outcome.messages[2]?.content)).toContain("cleared");
     expect(String(outcome.messages[3]?.content)).toContain("truncated");
     expect(String(outcome.messages[2]?.content).length).toBeLessThan(2_000);
+    // Decisions are surfaced as data (one per candidate, in order) so a caller can show them.
+    expect(outcome.decisions.map((decision) => decision.action)).toEqual(["drop", "truncate"]);
+    expect(outcome.decisions[0]?.chars).toBe(2_000);
   });
 
   it("leaves a result untouched when the decision is keep", async () => {

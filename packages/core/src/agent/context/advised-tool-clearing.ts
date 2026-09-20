@@ -33,12 +33,22 @@ export interface AdvisedReduceOptions {
   readonly minClearableTokens?: number;
 }
 
+/** One provider decision, kept as data so a caller can display what was decided. */
+export interface AdvisedDecision {
+  readonly tool: string;
+  readonly action: CompactToolAction;
+  readonly chars: number;
+  readonly tokens: number;
+}
+
 export interface AdvisedReduceOutcome {
   readonly messages: ChatMessage[];
   readonly clearedCount: number;
   readonly tokensReclaimed: number;
   /** True when the provider returned decisions; false means it abstained and the caller should fall back. */
   readonly answered: boolean;
+  /** Per-candidate decisions actually applied, in candidate order. Empty when abstained. */
+  readonly decisions: readonly AdvisedDecision[];
 }
 
 /**
@@ -121,6 +131,7 @@ export function reduceToolResultsAdvised(
       clearedCount: 0,
       tokensReclaimed: 0,
       answered: false,
+      decisions: [],
     };
     if (candidateTokens.size === 0) return unchanged;
 
@@ -148,13 +159,20 @@ export function reduceToolResultsAdvised(
 
     let clearedCount = 0;
     let tokensReclaimed = 0;
+    const decisions: AdvisedDecision[] = [];
     const next = messages.map((message, index) => {
       const originalTokens = candidateTokens.get(index);
       if (originalTokens === undefined) return message;
       const toolCallId = message.tool_call_id as string;
       const action = actionByCallId.get(toolCallId) ?? "keep";
-      if (action === "keep") return message;
       const toolName = toolNameByCallId.get(toolCallId);
+      decisions.push({
+        tool: toolName ?? "tool",
+        action,
+        chars: contentString(message).length,
+        tokens: originalTokens,
+      });
+      if (action === "keep") return message;
       const content =
         action === "truncate"
           ? truncatedContent(contentString(message), toolName)
@@ -170,6 +188,6 @@ export function reduceToolResultsAdvised(
       return replacement;
     });
 
-    return { messages: next, clearedCount, tokensReclaimed, answered: true };
+    return { messages: next, clearedCount, tokensReclaimed, answered: true, decisions };
   });
 }

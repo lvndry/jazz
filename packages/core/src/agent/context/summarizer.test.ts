@@ -6,6 +6,8 @@ import {
   selectSummarizerModel,
   Summarizer,
   type CompactionOutcome,
+  type CompactionProgress,
+  type CompactionProgressObserver,
   type RecursiveRunner,
 } from "./summarizer";
 import { readJournal } from "./work-journal";
@@ -796,10 +798,11 @@ describe("compact", () => {
         );
         sawCandidate = next.some((message) => message.content === "[cleared]");
         return Effect.succeed({
-          messages: next,
+          messages: next as ChatMessage[],
           clearedCount: 1,
           tokensReclaimed: 500,
           answered: true,
+          decisions: [{ tool: "read_file", action: "drop" as const, chars: 8000, tokens: 500 }],
         });
       };
 
@@ -838,6 +841,7 @@ describe("compact", () => {
           clearedCount: 0,
           tokensReclaimed: 0,
           answered: false,
+          decisions: [],
         });
 
       const outcome = await Effect.runPromise(
@@ -858,6 +862,51 @@ describe("compact", () => {
 
       expect(outcome).toBeUndefined();
       expect(inputs).toEqual([]);
+    });
+
+    it("reports prune then summarize phases to the onPhase observer", async () => {
+      const events: CompactionProgress[] = [];
+      const reduce: ReduceToolResultsFn = (messages) =>
+        Effect.succeed({
+          messages: messages as ChatMessage[],
+          clearedCount: 0,
+          tokensReclaimed: 0,
+          answered: true,
+          decisions: [{ tool: "read_file", action: "keep" as const, chars: 8000, tokens: 500 }],
+        });
+      const onPhase: CompactionProgressObserver = (event) =>
+        Effect.sync(() => {
+          events.push(event);
+        });
+
+      await Effect.runPromise(
+        Summarizer.compact(
+          conversationAfterEarlierCompaction(),
+          createMockAgent(),
+          "conv-phases",
+          capturingRunner([]),
+          2000,
+          false,
+          reduce,
+          onPhase,
+        ).pipe(Effect.provide(createTestLayer())) as Effect.Effect<
+          CompactionOutcome | undefined,
+          Error,
+          never
+        >,
+      );
+
+      expect(events.map((event) => event.phase)).toEqual([
+        "prune-start",
+        "prune-done",
+        "summarize-start",
+      ]);
+      const pruneDone = events.find((event) => event.phase === "prune-done");
+      expect(pruneDone).toBeDefined();
+      if (pruneDone?.phase === "prune-done") {
+        expect(pruneDone.decisions).toHaveLength(1);
+        expect(pruneDone.decisions[0]?.tool).toBe("read_file");
+      }
     });
   });
 });
