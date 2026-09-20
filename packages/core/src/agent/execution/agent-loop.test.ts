@@ -4,8 +4,9 @@ import { join } from "node:path";
 import { FileSystem } from "@effect/platform";
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import { Effect, Layer } from "effect";
+import { RunParkRequested } from "@/core/agent/run/park-signal";
 import { DEFAULT_MAX_ITERATIONS } from "@/core/constants/agent";
-import { GenerationInterruptedError } from "@/core/types/errors";
+import { GenerationInterruptedError, LLMRequestError } from "@/core/types/errors";
 import type { ChatMessage, ConversationMessages } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
 import { clearModelsDevCache } from "@/core/utils/models-dev";
@@ -809,6 +810,144 @@ describe("executeAgentLoop", () => {
     } finally {
       ToolExecutor.executeToolCalls = originalExecute;
     }
+  });
+
+  describe("a turn that fails", () => {
+    const toolCallCompletion = {
+      completion: {
+        id: "c1",
+        model: "gpt-4",
+        content: "",
+        toolCalls: [
+          {
+            id: "call_1",
+            type: "function" as const,
+            function: { name: "test_tool", arguments: "{}" },
+          },
+        ],
+      },
+      interrupted: false,
+    };
+    const timedOut = () =>
+      new LLMRequestError({ provider: "ollama", message: "The operation timed out." });
+
+    function strategyFailingAfter(successfulCompletions: number): CompletionStrategy {
+      let calls = 0;
+      return {
+        shouldShowReasoning: false,
+        getCompletion: () => {
+          calls++;
+          return calls <= successfulCompletions
+            ? Effect.succeed(toolCallCompletion)
+            : Effect.fail(timedOut());
+        },
+        presentResponse: () => Effect.void,
+        onComplete: () => Effect.void,
+        getRenderer: () => null,
+      };
+    }
+
+    function runToFailure(
+      strategy: CompletionStrategy,
+      overrides: Partial<AgentRunnerOptions>,
+    ): Promise<unknown> {
+      return Effect.runPromise(
+        executeAgentLoop(
+          makeOptions({ maxIterations: 5, ...overrides }),
+          makeRunContext(),
+          displayConfig,
+          strategy,
+          defaultObserver,
+          runRecursive,
+        ).pipe(Effect.flip, Effect.provide(TestLayer)) as Effect.Effect<unknown, never, never>,
+      );
+    }
+
+    it("hands its transcript to onFailedTurn, tool calls and results included", async () => {
+      const originalExecute = ToolExecutor.executeToolCalls;
+      ToolExecutor.executeToolCalls = mock(() =>
+        Effect.succeed([
+          { toolCallId: "call_1", name: "test_tool", result: "output", success: true },
+        ]),
+      );
+      let kept: readonly ChatMessage[] | undefined;
+
+      try {
+        const error = await runToFailure(strategyFailingAfter(1), {
+          onFailedTurn: (messages) => {
+            kept = messages;
+          },
+        });
+
+        expect(error).toBeInstanceOf(LLMRequestError);
+        expect(kept?.[0]).toEqual({ role: "user", content: "hello" });
+        expect(
+          kept?.some(
+            (message) => message.role === "assistant" && message.tool_calls?.[0]?.id === "call_1",
+          ),
+        ).toBe(true);
+        expect(
+          kept?.some((message) => message.role === "tool" && message.tool_call_id === "call_1"),
+        ).toBe(true);
+      } finally {
+        ToolExecutor.executeToolCalls = originalExecute;
+      }
+    });
+
+    it("closes a tool call the failure left without a result", async () => {
+      const originalExecute = ToolExecutor.executeToolCalls;
+      ToolExecutor.executeToolCalls = mock(() => Effect.fail(timedOut()));
+      let kept: readonly ChatMessage[] | undefined;
+
+      try {
+        await runToFailure(strategyFailingAfter(1), {
+          onFailedTurn: (messages) => {
+            kept = messages;
+          },
+        });
+
+        const last = kept?.at(-1);
+        expect(last?.role).toBe("tool");
+        expect(last?.tool_call_id).toBe("call_1");
+        expect(last?.content).toContain("did not finish");
+      } finally {
+        ToolExecutor.executeToolCalls = originalExecute;
+      }
+    });
+
+    it("is not reported for an internal run", async () => {
+      let reported = false;
+      await runToFailure(strategyFailingAfter(0), {
+        internal: true,
+        onFailedTurn: () => {
+          reported = true;
+        },
+      });
+
+      expect(reported).toBe(false);
+    });
+
+    it("leaves a parked run's unanswered tool call unanswered", async () => {
+      const originalExecute = ToolExecutor.executeToolCalls;
+      ToolExecutor.executeToolCalls = mock(() =>
+        Effect.fail(new RunParkRequested({ pending: {} as never })),
+      );
+      let reported = false;
+
+      try {
+        const error = await runToFailure(strategyFailingAfter(1), {
+          onFailedTurn: () => {
+            reported = true;
+          },
+        });
+
+        expect(reported).toBe(false);
+        expect(error).toBeInstanceOf(RunParkRequested);
+        expect((error as RunParkRequested).messages?.some((m) => m.role === "tool")).toBe(false);
+      } finally {
+        ToolExecutor.executeToolCalls = originalExecute;
+      }
+    });
   });
 
   it("should warn on empty response", async () => {

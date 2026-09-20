@@ -210,6 +210,15 @@ export function selectSummarizerModel(parentAgent: Agent): {
   };
 }
 
+/** What a compaction produced: the rebuilt history, and its size either side of the rebuild. */
+export interface CompactionOutcome {
+  readonly messages: ConversationMessages;
+  /** Request tokens before compacting, including per-request overhead. */
+  readonly tokensBefore: number;
+  /** Request tokens after compacting, including per-request overhead. */
+  readonly tokensAfter: number;
+}
+
 /**
  * Type for a function that runs an agent recursively (for sub-agent calls).
  * Injected by caller to avoid circular dependency.
@@ -467,9 +476,73 @@ export const Summarizer = {
         `Context window ~${Math.round(compactThresholdRatio * 100)}% full of ${maxTokens.toLocaleString()} tokens — auto-compacting conversation history...`,
       );
 
+      const outcome = yield* Summarizer.compact(
+        currentMessages,
+        agent,
+        conversationId,
+        runRecursive,
+        maxTokens,
+        allowMemoryExtraction,
+      );
+
+      if (outcome === undefined) {
+        // Not enough to summarize, just return as-is
+        return currentMessages;
+      }
+
+      yield* presentationService.presentWarning(
+        agent.name,
+        `Compacted ${currentMessages.length} → ${outcome.messages.length} messages (saved ~${outcome.tokensBefore - outcome.tokensAfter} tokens)`,
+      );
+
+      return outcome.messages;
+    });
+  },
+
+  /**
+   * Compact now, whatever the fill level.
+   *
+   * The one compaction path: automatic compaction, the `summarize_context` tool and
+   * `/compact` all come through here. Each of them used to rebuild history its own way,
+   * and the copies drifted — one never passed the earlier summary on, so a second
+   * compaction silently dropped everything the first had summarized, and another kept
+   * no recent messages at all.
+   *
+   * Returns `undefined` when nothing is old enough to summarize.
+   *
+   * @param contextWindowTokens - The run's context budget; recent messages keep 20% of it.
+   * @param allowMemoryExtraction - Whether this caller's run may write durable memory
+   *   before the middle is condensed. Each caller computes it where the run's persistence
+   *   and sub-agent state is known, because the gate is never inherited; the default is
+   *   the safe answer for a caller that cannot tell.
+   */
+  compact(
+    currentMessages: ConversationMessages,
+    agent: Agent,
+    conversationId: string,
+    runRecursive: RecursiveRunner,
+    contextWindowTokens: number,
+    allowMemoryExtraction = false,
+  ): Effect.Effect<
+    CompactionOutcome | undefined,
+    Error,
+    | LLMService
+    | ToolRegistry
+    | LoggerService
+    | AgentConfigService
+    | PresentationService
+    | ToolRequirements
+  > {
+    return Effect.gen(function* () {
+      const logger = yield* LoggerServiceTag;
+      const hint = modelHintFromAgent(agent);
+      const tokensBefore =
+        DEFAULT_TOKEN_COUNTER.countMessages(currentMessages, hint) +
+        DEFAULT_TOKEN_COUNTER.overheadFor(hint);
+
       yield* logger.info("Compacting history to preserve context...", {
         messageCount: currentMessages.length,
-        maxTokens,
+        maxTokens: contextWindowTokens,
       });
 
       const {
@@ -478,11 +551,10 @@ export const Summarizer = {
         pinnedMessages,
         messagesToSummarize,
         sanitizedRecentMessages,
-      } = Summarizer.splitMessages(currentMessages, maxTokens, hint);
+      } = Summarizer.splitMessages(currentMessages, contextWindowTokens, hint);
 
       if (messagesToSummarize.length === 0) {
-        // Not enough to summarize, just return as-is
-        return currentMessages;
+        return undefined;
       }
 
       yield* logger.debug("Summarizing messages from conversation", {
@@ -499,7 +571,9 @@ export const Summarizer = {
         yield* extractMemories(messagesToSummarize, agent, conversationId, runRecursive);
       }
 
-      // Summarize the middle portion
+      // Summarize the middle portion, merged into the earlier summary. `splitMessages`
+      // has already taken that summary out of the history, so it survives only if it is
+      // passed on here.
       const summaryMessage = yield* Summarizer.summarizeHistory(
         messagesToSummarize,
         agent,
@@ -520,24 +594,24 @@ export const Summarizer = {
         ...sanitizedRecentMessages,
       ] as ConversationMessages;
 
-      const newTokens =
+      const tokensAfter =
         DEFAULT_TOKEN_COUNTER.countMessages(compactedMessages, hint) +
         DEFAULT_TOKEN_COUNTER.overheadFor(hint);
 
       yield* logger.info("Context compacted successfully", {
         originalMessages: currentMessages.length,
         compactedMessages: compactedMessages.length,
-        originalTokens: currentTokens,
-        compactedTokens: newTokens,
-        tokensSaved: currentTokens - newTokens,
+        originalTokens: tokensBefore,
+        compactedTokens: tokensAfter,
+        tokensSaved: tokensBefore - tokensAfter,
       });
 
       // Persist before it enters context. From here on this summary is folded into
       // later ones; the journal keeps the version this cycle actually produced.
       yield* appendJournalEntry(agent.id, conversationId, {
         recordedAt: new Date().toISOString(),
-        tokensBefore: currentTokens,
-        tokensAfter: newTokens,
+        tokensBefore,
+        tokensAfter,
         messagesBefore: currentMessages.length,
         messagesAfter: compactedMessages.length,
         summary: summaryMessage.content,
@@ -548,19 +622,14 @@ export const Summarizer = {
         rung: "compact",
         agentId: agent.id,
         conversationId,
-        tokensBefore: currentTokens,
-        tokensAfter: newTokens,
-        budgetTokens: maxTokens,
+        tokensBefore,
+        tokensAfter,
+        budgetTokens: contextWindowTokens,
         messagesBefore: currentMessages.length,
         messagesAfter: compactedMessages.length,
       });
 
-      yield* presentationService.presentWarning(
-        agent.name,
-        `Compacted ${currentMessages.length} → ${compactedMessages.length} messages (saved ~${currentTokens - newTokens} tokens)`,
-      );
-
-      return compactedMessages;
+      return { messages: compactedMessages, tokensBefore, tokensAfter };
     });
   },
 

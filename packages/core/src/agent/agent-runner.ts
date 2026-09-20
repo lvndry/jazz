@@ -47,7 +47,7 @@ import { shouldEnableStreaming } from "@/core/utils/stream-detector";
 import type { ConversationMessages, StreamingConfig } from "../types";
 import { type Agent } from "../types";
 import { agentPromptBuilder } from "./agent-prompt";
-import { Summarizer } from "./context/summarizer";
+import { Summarizer, type CompactionOutcome } from "./context/summarizer";
 import { executeWithStreaming, executeWithoutStreaming } from "./execution";
 import { createAgentRunMetrics, emitAgentRunStarted } from "./metrics/agent-run-metrics";
 import { discoverProjectInstructions, type ProjectInstructionFile } from "./project-instructions";
@@ -150,7 +150,11 @@ function resolveSupportedAttachmentKinds(
  * missing) resolves to an empty result and the caller keeps the stored values — this must never
  * fail the run.
  */
-function resolveLlamaCppServerModel(): Effect.Effect<LlamaCppServerModel, never, LLMService> {
+export function resolveLlamaCppServerModel(): Effect.Effect<
+  LlamaCppServerModel,
+  never,
+  LLMService
+> {
   return Effect.gen(function* () {
     const llmService = yield* LLMServiceTag;
     const baseUrl = llmService.resolveLocalProviderBaseUrl("llamacpp", undefined);
@@ -821,17 +825,24 @@ export class AgentRunner {
   }
 
   /**
-   * Summarizes a portion of the conversation history using a specialized sub-agent.
-   * Returns a single assistant message containing the summary.
+   * Compacts a conversation now, exactly as a run does when its window fills: older
+   * history folded into the running summary, recent messages kept verbatim. Returns
+   * `undefined` when nothing is old enough to summarize.
    *
    * This is a public convenience method that delegates to the Summarizer module.
+   *
+   * Memory extraction stays off here. Its gate is `!internal && !disablePersistence`,
+   * and a caller outside a run — `/compact` in chat — holds neither flag, so it cannot
+   * answer for the run it is compacting. Automatic compaction still extracts when the
+   * run permits it.
    */
-  public static summarizeHistory(
-    messagesToSummarize: ChatMessage[],
+  public static compactHistory(
+    messages: ConversationMessages,
     agent: Agent,
     conversationId: string,
+    contextWindowTokens: number,
   ): Effect.Effect<
-    ChatMessage,
+    CompactionOutcome | undefined,
     Error,
     | LLMService
     | ToolRegistry
@@ -848,7 +859,7 @@ export class AgentRunner {
       maxIterations?: number;
     }) => AgentRunner.runRecursive(runOpts);
 
-    return Summarizer.summarizeHistory(messagesToSummarize, agent, conversationId, runRecursive);
+    return Summarizer.compact(messages, agent, conversationId, runRecursive, contextWindowTokens);
   }
 }
 

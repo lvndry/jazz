@@ -10,6 +10,7 @@ import { Effect } from "effect";
 import {
   persistConversationIfNeeded,
   shouldPersistConversation,
+  shouldSaveTurn,
   type PersistConversationInput,
 } from "./persist-conversation";
 
@@ -144,5 +145,19 @@ describe("persistConversationIfNeeded", () => {
       "What about the blockers?",
       "None remaining.",
     ]);
+  });
+});
+
+describe("shouldSaveTurn", () => {
+  test("saves a clean turn", () => {
+    expect(shouldSaveTurn({ lastTurnErrored: false, turnKeptFailedWork: false })).toBe(true);
+  });
+
+  test("saves a failed turn that handed back its work", () => {
+    expect(shouldSaveTurn({ lastTurnErrored: true, turnKeptFailedWork: true })).toBe(true);
+  });
+
+  test("skips a failed turn that kept nothing, leaving the pre-turn history untouched", () => {
+    expect(shouldSaveTurn({ lastTurnErrored: true, turnKeptFailedWork: false })).toBe(false);
   });
 });

@@ -209,6 +209,12 @@ export interface AgentRunnerOptions {
    */
   readonly onDetachedToolComplete?: (summary: string) => void;
   /**
+   * Called with this turn's transcript when the run fails, so the caller can keep the work
+   * instead of reverting to the history it passed in. Dangling tool calls are closed. Not
+   * called for internal (sub-agent) runs or a run that parks.
+   */
+  readonly onFailedTurn?: (messages: ConversationMessages) => void;
+  /**
    * IANA timezone (e.g. "Europe/Paris") for this run, copied into the tool
    * execution context so tools like add_reminder can resolve "now" in the
    * caller's local time without asking the model to supply a timezone string.

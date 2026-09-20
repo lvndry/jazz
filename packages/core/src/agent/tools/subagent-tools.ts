@@ -21,11 +21,7 @@ import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import { AgentRunner } from "../agent-runner";
 import { defineTool, makeZodValidator } from "./base-tool";
 import { resolveEffectiveContextWindow } from "../context/effective-context-window";
-import {
-  COMPACTION_CONTINUATION_MESSAGE,
-  Summarizer,
-  type RecursiveRunner,
-} from "../context/summarizer";
+import { Summarizer, type RecursiveRunner } from "../context/summarizer";
 
 // ─── Constants ───────────────────────────────────────────────────────
 
@@ -564,13 +560,23 @@ ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSc
             }),
           }).tokens;
 
-          const { systemMessage, pinnedMessages, messagesToSummarize, sanitizedRecentMessages } =
-            Summarizer.splitMessages(
-              [...conversationMessages] as unknown as ConversationMessages,
-              contextWindowMaxTokens,
-            );
+          const runRecursive: RecursiveRunner = (runOpts) => AgentRunner.runRecursive(runOpts);
 
-          if (messagesToSummarize.length === 0) {
+          // The same path automatic compaction takes, so an earlier summary is merged
+          // into the new one rather than dropped, and the result is journaled. Memory
+          // extraction runs under this run's own gate, set on the context by the loop:
+          // calling the tool instead of waiting for the 80% mark must not decide whether
+          // durable facts reach memory. Absent means no.
+          const outcome = yield* Summarizer.compact(
+            [...conversationMessages] as unknown as ConversationMessages,
+            parentAgent,
+            context.conversationId ?? generateConversationId("summary"),
+            runRecursive,
+            contextWindowMaxTokens,
+            context.allowMemoryExtraction ?? false,
+          );
+
+          if (outcome === undefined) {
             return {
               success: true,
               result:
@@ -578,38 +584,21 @@ ${args.task}${args.resultSchema ? structuredCompletionInstructions(args.resultSc
             };
           }
 
-          const runRecursive: RecursiveRunner = (runOpts) => AgentRunner.runRecursive(runOpts);
-
-          // Summarize older messages into a single condensed message
-          const summaryMessage = yield* Summarizer.summarizeHistory(
-            messagesToSummarize,
-            parentAgent,
-            context.conversationId ?? generateConversationId("summary"),
-            runRecursive,
-          );
-
-          const compacted = [
-            systemMessage,
-            ...pinnedMessages,
-            summaryMessage,
-            COMPACTION_CONTINUATION_MESSAGE,
-            ...sanitizedRecentMessages,
-          ] as ConversationMessages;
-
           // Replace messages in the executor loop via callback
           if (context.compactConversation) {
-            context.compactConversation(compacted);
+            context.compactConversation(outcome.messages);
           }
 
+          const tokensSaved = outcome.tokensBefore - outcome.tokensAfter;
           yield* logger.info("Context summarization completed", {
             originalMessageCount: conversationMessages.length,
-            compactedMessageCount: compacted.length,
-            summarizedMessageCount: messagesToSummarize.length,
+            compactedMessageCount: outcome.messages.length,
+            tokensSaved,
           });
 
           return {
             success: true,
-            result: `Context compacted from ${conversationMessages.length} to ${compacted.length} messages (summarized ${messagesToSummarize.length} older messages).`,
+            result: `Context compacted from ${conversationMessages.length} to ${outcome.messages.length} messages (saved ~${tokensSaved} tokens).`,
           };
         }),
       createSummary: (result) => {

@@ -48,7 +48,7 @@ flowchart TB
 | ----------- | --------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
 | Runs        | after appending the assistant message, once tokens exceed **95%** of the context budget | when tokens exceed 80% of the context budget (the model's window, or the agent's `maxContextTokens` ceiling when it is lower) |
 | Costs       | nothing                                                                                 | one LLM call                                                                                                                  |
-| Budget      | a fixed working-set target (50k tokens by default)                                      | the context window the provider will actually honour                                                                          |
+| Budget      | 95% of the context budget                                                               | the context window the provider will actually honour                                                                          |
 | What's lost | old messages, entirely                                                                  | detail: the gist survives as a summary                                                                                        |
 | Preserves   | system message + last N complete turns                                                  | system message + a summary + recent messages                                                                                  |
 
@@ -118,8 +118,8 @@ estimate.
 
 ## 2 · Trimming: turn-aware, never mid-tool-call
 
-Trimming runs every iteration against a fixed token budget. The subtlety isn't _what_ to
-drop, it's what must never be split.
+Trimming is checked after every reply, against 95% of the context budget. The subtlety
+isn't _what_ to drop, it's what must never be split.
 
 ```mermaid
 flowchart TB
@@ -196,8 +196,11 @@ flowchart LR
     class SUM,SUMMSG hot
 ```
 
-The rebuild is literally `[system, summary, ...recentMessages]`. The middle: where the
-bulk of the tokens live: becomes one message describing what was learned.
+The rebuild is `[system, ...pinned, summary, continuation, ...recent]`. The middle, where
+the bulk of the tokens live, becomes one message describing what was learned. A summary
+left by an earlier compaction is merged into the new one, never summarized again as raw
+history and never dropped, and a workflow's task message (`kind: "task"`) is kept verbatim
+through every cycle.
 
 The summary is a fixed checkpoint rather than free-form prose. Every compaction writes:
 
@@ -237,7 +240,7 @@ might not survive. Mitigations:
 
 - **`summarizerModel` is configurable per agent.** Point compaction at a cheap fast model while the main agent runs an expensive one. Falls back to the agent's own model, with a warning if the configured value is unparseable.
 - **It's visible.** You get a `Context window ~80% full: auto-compacting…` warning, then `Compacted 64 → 12 messages (saved ~48000 tokens)`. Never silent.
-- **You can force it.** `/compact` in chat, or the `summarize_context` tool, which the agent can call itself when it knows it's about to go deep.
+- **You can force it.** `/compact` in chat, or the `summarize_context` tool, which the agent can call itself when it knows it's about to go deep. Both go through `Summarizer.compact`, the same path automatic compaction takes: recent messages kept, the earlier summary merged, a journal entry written. They differ from it only in when they run.
 - **It's skipped when pointless.** If there's nothing in the middle worth summarizing, the messages come back untouched.
 
 ### Durable facts reach memory before the summary
@@ -268,6 +271,13 @@ persistence-enabled run extracts. A `--ephemeral` or A2A-peer run means "write n
 skip the pass. This matters because the recursive runner does _not_ carry `disablePersistence`
 into a sub-run, so a sub-agent handed `manage_memory` would otherwise write memory in exactly
 the runs that forbid it. The gate is computed at the compaction call site and passed in.
+
+Since all three ways of compacting share one path, each has to answer for itself. Automatic
+compaction computes the gate from the run's own options. `summarize_context` inherits that
+same answer, which the loop puts on the tool context beside `compactConversation` — calling
+the tool instead of waiting for the 80% mark should not change whether facts reach memory.
+`/compact` does not extract: it is invoked from the chat layer, which holds neither flag and
+so cannot answer for the run it is compacting.
 
 **It is best-effort.** Any failure is logged and swallowed: memory extraction can never fail
 or block compaction, which is the load-bearing step. And like the summary, the transcript it
@@ -315,19 +325,20 @@ ceiling and go back to the model's own window.
 
 ### The ladder, cheapest rung first
 
-Four mechanisms share one budget, escalating by cost. Clearing no longer waits
-on a window-fill percentage: it runs **every iteration**.
+Four mechanisms share one budget, escalating by cost.
 
-| Rung               | Fires at        | Costs              | Effect                                                                                   |
-| ------------------ | --------------- | ------------------ | ---------------------------------------------------------------------------------------- |
-| Clear tool results | every iteration | nothing            | Live tool cycle stays verbatim. Older large results become a pointer (or a re-run stub). |
-| Warn               | 70%             | nothing            | User _and_ agent are told; the agent is nudged to consolidate                            |
-| Compact            | 80%             | one LLM call       | Older history summarized into the running summary                                        |
-| Trim               | 95%             | nothing, but lossy | Messages dropped unsummarized: the floor, not the path                                   |
+| Rung               | Fires at | Costs              | Effect                                                                                                     |
+| ------------------ | -------- | ------------------ | ---------------------------------------------------------------------------------------------------------- |
+| Clear tool results | 50%      | nothing            | The last five tool cycles stay verbatim. Older results of 256+ tokens become a pointer (or a re-run stub). |
+| Warn               | 70%      | nothing            | User _and_ agent are told; the agent is nudged to consolidate                                              |
+| Compact            | 80%      | one LLM call       | Older history summarized into the running summary                                                          |
+| Trim               | 95%      | nothing, but lossy | Messages dropped unsummarized: the floor, not the path                                                     |
 
-Clearing is free, so it runs first, every turn. Each result is rewritten at most
-once (`cleared` sticks), so the prompt-cache prefix only jumps when a result
-actually ages out of the live cycle.
+Clearing costs no tokens, but it is not free: a stubbed result is evidence the model no
+longer has in front of it, and every rewrite moves the prompt-cache prefix. So below 50%
+(`CONTEXT_CLEAR_THRESHOLD_RATIO`) nothing is touched, and above it each result is
+rewritten at most once (`cleared` sticks), so the prefix only jumps when a result
+actually ages out of the protected window.
 
 Before stubbing, Jazz tries to write the original body under
 `~/.jazz/work/<agent>/<conversation>/tool-results/<tool_call_id>.txt`. The
@@ -336,10 +347,10 @@ CI images, locked-down containers, a Telegram host that can read but not write ,
 the run continues and the placeholder says to re-run the original tool. Missing
 retrieves fail the same way. The conversation never depends on a writable disk.
 
-The live cycle is the last assistant message that still has `tool_calls`,
-through the end of the list: those results have not been shown to the model yet
-(or are the ones it is about to use). A later assistant message without tool
-calls means that cycle was already consumed, and the bodies can go.
+The protected window runs from the assistant message that opened the fifth most
+recent tool cycle through the end of the list (`PROTECTED_TOOL_CYCLES`). One cycle
+was not enough: a model that reads a file, then lists a directory, then edits has
+already lost the file by the time it edits, and refetches it every turn.
 
 Tool results are cleared by replacing content and keeping the message, so the
 assistant/tool pairing survives. Deleting the message would orphan the `tool_calls` that

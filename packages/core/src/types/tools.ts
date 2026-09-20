@@ -362,6 +362,13 @@ export interface ToolExecutionContext {
    */
   readonly compactConversation?: (compacted: readonly ChatMessage[]) => void;
   /**
+   * Whether this run may write durable memory when `summarize_context` compacts, set
+   * beside `compactConversation` by the loop that knows the run's persistence and
+   * sub-agent state. Absent means no: the gate is never inherited, so a caller that
+   * cannot compute it must not extract.
+   */
+  readonly allowMemoryExtraction?: boolean;
+  /**
    * Every tool name this run may execute: resolved toolset plus aliases and hidden
    * execute halves. The executor refuses anything outside it before hitting the registry.
    * `spawn_subagent` hands the same set down as the child's allowlist.

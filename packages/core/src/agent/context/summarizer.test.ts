@@ -4,8 +4,10 @@ import {
   chunkForSummarizer,
   selectSummarizerModel,
   Summarizer,
+  type CompactionOutcome,
   type RecursiveRunner,
 } from "./summarizer";
+import { readJournal } from "./work-journal";
 import { AgentConfigServiceTag, type AgentConfigService } from "../../interfaces/agent-config";
 import { LLMServiceTag, type LLMService } from "../../interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "../../interfaces/logger";
@@ -657,6 +659,109 @@ describe("Summarizer", () => {
       const continuationMessages = secondPass.filter((message) => message.kind === "continuation");
       expect(continuationMessages.length).toBe(1);
     });
+  });
+});
+
+describe("compact", () => {
+  const priorSummary = {
+    role: "assistant",
+    content: "## Context\nEarlier work: migrated auth module.",
+    kind: "summary",
+  } as ChatMessage;
+
+  function conversationAfterEarlierCompaction(): ConversationMessages {
+    const messages: ChatMessage[] = [{ role: "system", content: "system" }, priorSummary];
+    for (let index = 0; index < 20; index++) {
+      messages.push({ role: "user", content: `ask ${index} ` + "detail ".repeat(100) });
+      messages.push({ role: "assistant", content: `answer ${index} ` + "text ".repeat(100) });
+    }
+    return messages as ConversationMessages;
+  }
+
+  function capturingRunner(inputs: string[]): RecursiveRunner {
+    return (options) => {
+      inputs.push(options.userInput);
+      return Effect.succeed({
+        content: "merged summary",
+        conversationId: "test-conv",
+      } as AgentResponse);
+    };
+  }
+
+  function runCompact(
+    messages: ConversationMessages,
+    runner: RecursiveRunner,
+    conversationId: string,
+    contextWindowTokens = 2000,
+  ): Promise<CompactionOutcome | undefined> {
+    return Effect.runPromise(
+      Summarizer.compact(
+        messages,
+        createMockAgent(),
+        conversationId,
+        runner,
+        contextWindowTokens,
+      ).pipe(Effect.provide(createTestLayer())) as Effect.Effect<
+        CompactionOutcome | undefined,
+        Error,
+        never
+      >,
+    );
+  }
+
+  it("merges an earlier summary into the new one instead of dropping it", async () => {
+    const inputs: string[] = [];
+    const outcome = await runCompact(
+      conversationAfterEarlierCompaction(),
+      capturingRunner(inputs),
+      "conv-compact-merge",
+    );
+
+    expect(inputs.join("\n")).toContain("migrated auth module");
+    const summaries = outcome?.messages.filter((message) => message.kind === "summary") ?? [];
+    expect(summaries.map((message) => message.content)).toEqual(["merged summary"]);
+  });
+
+  it("keeps the system message first and the most recent message verbatim", async () => {
+    const messages = conversationAfterEarlierCompaction();
+    const outcome = await runCompact(messages, capturingRunner([]), "conv-compact-recent");
+
+    expect(outcome?.messages[0]).toBe(messages[0]);
+    expect(outcome?.messages.at(-1)).toBe(messages.at(-1));
+    expect(outcome?.messages.length).toBeLessThan(messages.length);
+    expect(outcome?.tokensAfter).toBeLessThan(outcome?.tokensBefore ?? 0);
+  });
+
+  it("journals the summary it produced", async () => {
+    await runCompact(
+      conversationAfterEarlierCompaction(),
+      capturingRunner([]),
+      "conv-compact-journal",
+    );
+
+    const entries = await Effect.runPromise(
+      readJournal(createMockAgent().id, "conv-compact-journal"),
+    );
+    expect(entries.at(-1)?.summary).toBe("merged summary");
+  });
+
+  it("returns undefined without summarizing when nothing is old enough", async () => {
+    const inputs: string[] = [];
+    const messages: ConversationMessages = [
+      { role: "system", content: "system" },
+      { role: "user", content: "hi" },
+      { role: "assistant", content: "hello" },
+    ];
+
+    const outcome = await runCompact(
+      messages,
+      capturingRunner(inputs),
+      "conv-compact-empty",
+      128_000,
+    );
+
+    expect(outcome).toBeUndefined();
+    expect(inputs).toEqual([]);
   });
 });
 

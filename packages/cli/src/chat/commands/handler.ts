@@ -4,7 +4,7 @@ import { FileSystem } from "@effect/platform";
 import { loadConversation, loadHistory } from "@jazz/adapters/history/conversation-history-service";
 import { getLogsDirectory } from "@jazz/adapters/logger";
 import { authorizeServer, clearServerAuth, hasStoredAuth } from "@jazz/adapters/mcp/oauth";
-import { AgentRunner } from "@jazz/core/agent/agent-runner";
+import { AgentRunner, resolveLlamaCppServerModel } from "@jazz/core/agent/agent-runner";
 import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
 import { sortAgents } from "@jazz/core/agent/agent-sort";
 import { resolveContextThresholds } from "@jazz/core/agent/context/context-thresholds";
@@ -47,7 +47,7 @@ import {
 import { SkillServiceTag, type SkillService } from "@jazz/core/skills/skill-service";
 import { StorageError, StorageNotFoundError } from "@jazz/core/types/errors";
 import type { MCPPromptArgument, MCPPromptMessage } from "@jazz/core/types/mcp";
-import type { ChatMessage } from "@jazz/core/types/message";
+import type { ChatMessage, ConversationMessages } from "@jazz/core/types/message";
 import type { AutoApprovePolicy } from "@jazz/core/types/tools";
 import { generateConversationId } from "@jazz/core/utils/conversation-id";
 import { describeCronSchedule } from "@jazz/core/utils/cron";
@@ -947,7 +947,12 @@ function handleSwitchCommand(
 }
 
 /**
- * Handle /compact command - Summarize history to save tokens
+ * Handle /compact command - compact history now, exactly as automatic compaction would.
+ *
+ * This used to summarize every message into one and replace the history with
+ * [system, summary]: nothing recent was kept, a pinned task message and any earlier
+ * summary were flattened into it, and no journal entry was written. It now takes the
+ * shared compaction path, so it only ever differs from auto-compaction in when it runs.
  */
 function handleCompactCommand(
   terminal: TerminalService,
@@ -971,57 +976,61 @@ function handleCompactCommand(
       return { shouldContinue: true };
     }
 
-    const messageCount = conversationHistory.length - 1; // Exclude system message
+    // The same window a run compacts against, so the recent messages kept verbatim are
+    // the same share of it.
+    const provider = agent.config.llmProvider;
+    const advertisedContextWindow = yield* getModelContextWindowEffect(
+      agent.config.llmModel,
+      provider,
+    );
+    const servedContextWindow =
+      provider === "llamacpp" ? (yield* resolveLlamaCppServerModel()).contextWindow : undefined;
+    const contextWindow = resolveEffectiveContextWindow({
+      provider,
+      ...(advertisedContextWindow !== undefined && { modelMaxTokens: advertisedContextWindow }),
+      ...(typeof agent.config.numCtx === "number" && {
+        pinnedContextWindow: agent.config.numCtx,
+      }),
+      ...(typeof servedContextWindow === "number" && { serverContextWindow: servedContextWindow }),
+      ...(typeof agent.config.maxContextTokens === "number" && {
+        agentMaxTokens: agent.config.maxContextTokens,
+      }),
+    }).tokens;
 
-    // Stage 1: Reading
-    yield* terminal.info(`📖 Reading ${messageCount} messages from conversation history...`);
+    yield* terminal.info(`Compacting ${conversationHistory.length - 1} messages...`);
 
-    try {
-      // Keep system message [0], summarize everything else [1...N]
-      const messagesToSummarize = conversationHistory.slice(1);
+    const outcome = yield* AgentRunner.compactHistory(
+      conversationHistory as unknown as ConversationMessages,
+      agent,
+      conversationId,
+      contextWindow,
+    ).pipe(
+      Effect.catchAll((error) =>
+        terminal.error(`Failed to compact history: ${error.message}`).pipe(Effect.as(null)),
+      ),
+    );
 
-      // Show success for Stage 1
-      yield* terminal.success(`📖 Read ${messageCount} messages from conversation history`);
+    if (outcome === null) {
       yield* terminal.log("");
+      return { shouldContinue: true };
+    }
 
-      // Stage 2: Analyzing
-      yield* terminal.info("Analyzing content and extracting key information...");
-
-      // Show success for Stage 2
-      yield* terminal.success("Analyzed content and extracted key information");
-      yield* terminal.log("");
-
-      // Stage 3: Summarizing
-      yield* terminal.info("✨ Generating high-density summary...");
-
-      const summaryMessage = yield* AgentRunner.summarizeHistory(
-        messagesToSummarize,
-        agent,
-        conversationId,
-      );
-
-      // Show success for Stage 3
-      yield* terminal.success("✨ Generated high-density summary");
-      yield* terminal.log("");
-
-      const newHistory = [
-        conversationHistory[0] as CommandContext["conversationHistory"][0],
-        summaryMessage,
-      ];
-
-      yield* terminal.success("Conversation context compacted successfully!");
-      yield* terminal.log(`   Reduced from ${messageCount + 1} messages to 2 (system + summary)`);
-      yield* terminal.log("   Earlier context compressed while preserving key information");
-      yield* terminal.log("");
-
-      return { shouldContinue: true, newHistory };
-    } catch (error) {
-      yield* terminal.error(
-        `Failed to compact history: ${error instanceof Error ? error.message : String(error)}`,
+    if (outcome === undefined) {
+      yield* terminal.info(
+        "Nothing to compact yet: the whole conversation still counts as recent.",
       );
       yield* terminal.log("");
       return { shouldContinue: true };
     }
+
+    const tokensSaved = outcome.tokensBefore - outcome.tokensAfter;
+    yield* terminal.success(
+      `Compacted ${conversationHistory.length} → ${outcome.messages.length} messages (saved ~${tokensSaved.toLocaleString()} tokens)`,
+    );
+    yield* terminal.log("   Older history is summarized; recent messages are kept verbatim.");
+    yield* terminal.log("");
+
+    return { shouldContinue: true, newHistory: [...outcome.messages] };
   });
 }
 

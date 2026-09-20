@@ -5,6 +5,7 @@ import type { FileSystem } from "@effect/platform";
 import { NodeFileSystem } from "@effect/platform-node";
 import { createFileSystemContextServiceLayer } from "@jazz/adapters/fs";
 import { saveConversation } from "@jazz/adapters/history/conversation-history-service";
+import { AgentRunner } from "@jazz/core/agent/agent-runner";
 import { AgentConfigServiceTag, type AgentConfigService } from "@jazz/core/interfaces/agent-config";
 import { JazzStateServiceTag, type JazzStateService } from "@jazz/core/interfaces/jazz-state";
 import { type LLMService, LLMServiceTag } from "@jazz/core/interfaces/llm";
@@ -13,7 +14,7 @@ import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/
 import { ToolRegistryTag, type ToolRegistry } from "@jazz/core/interfaces/tool-registry";
 import type { Agent } from "@jazz/core/types/agent";
 import type { ChatMessage } from "@jazz/core/types/message";
-import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, mock, spyOn } from "bun:test";
 import { Effect, Layer } from "effect";
 import { handleSpecialCommand } from "./handler";
 import type { CommandContext, CommandResult } from "./types";
@@ -322,6 +323,154 @@ describe("handleSpecialCommand /reasoning", () => {
     );
 
     expect(result.newAgent?.config.reasoningEffort).toBe("medium");
+  });
+});
+
+describe("handleSpecialCommand /compact", () => {
+  const history: ChatMessage[] = [
+    { role: "system", content: "system" },
+    { role: "user", content: "first ask" },
+    { role: "assistant", content: "first answer" },
+    { role: "user", content: "second ask" },
+    { role: "assistant", content: "second answer" },
+  ];
+
+  const context: CommandContext = {
+    agent: testAgent,
+    conversationHistory: history,
+    conversationId: "conv-compact",
+    sessionUsage: { promptTokens: 0, completionTokens: 0 },
+    sessionTurnCount: 0,
+    sessionLimits: {},
+    sessionStartedAt: new Date(),
+  };
+
+  function runCompact(terminal: Partial<TerminalService> = {}): Promise<CommandResult> {
+    const mockTerminal: Partial<TerminalService> = {
+      info: mock(() => Effect.void),
+      success: mock(() => Effect.void),
+      warn: mock(() => Effect.void),
+      error: mock(() => Effect.void),
+      log: mock(() => Effect.succeed(undefined)),
+      ...terminal,
+    };
+    const terminalLayer = Layer.succeed(
+      TerminalServiceTag,
+      mockTerminal as unknown as TerminalService,
+    );
+    return Effect.runPromise(
+      handleSpecialCommand({ type: "compact", args: [] }, context).pipe(
+        Effect.provide(terminalLayer),
+      ) as Effect.Effect<CommandResult, unknown, never>,
+    );
+  }
+
+  test("replaces the history with the compacted one, recent messages included", async () => {
+    const compacted: ChatMessage[] = [
+      { role: "system", content: "system" },
+      { role: "assistant", content: "summary of the first exchange", kind: "summary" },
+      { role: "user", content: "Continue the task.", kind: "continuation" },
+      { role: "user", content: "second ask" },
+      { role: "assistant", content: "second answer" },
+    ];
+    let received: { messages: readonly ChatMessage[]; conversationId: string } | undefined;
+    const spy = spyOn(AgentRunner, "compactHistory").mockImplementation(
+      (messages, _agent, conversationId) => {
+        received = { messages, conversationId };
+        return Effect.succeed({
+          messages: compacted,
+          tokensBefore: 900,
+          tokensAfter: 400,
+        }) as unknown as ReturnType<typeof AgentRunner.compactHistory>;
+      },
+    );
+
+    try {
+      const result = await runCompact();
+
+      expect(received?.conversationId).toBe("conv-compact");
+      expect(received?.messages).toEqual(history);
+      expect(result.newHistory).toEqual(compacted);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  test("leaves the history alone when nothing is old enough to compact", async () => {
+    const spy = spyOn(AgentRunner, "compactHistory").mockImplementation(
+      () => Effect.succeed(undefined) as unknown as ReturnType<typeof AgentRunner.compactHistory>,
+    );
+
+    try {
+      const result = await runCompact();
+      expect(result.newHistory).toBeUndefined();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  test("reports a failed compaction and keeps the history", async () => {
+    const error = mock(() => Effect.void);
+    const spy = spyOn(AgentRunner, "compactHistory").mockImplementation(
+      () =>
+        Effect.fail(new Error("provider down")) as unknown as ReturnType<
+          typeof AgentRunner.compactHistory
+        >,
+    );
+
+    try {
+      const result = await runCompact({ error });
+      expect(result.newHistory).toBeUndefined();
+      expect(error).toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  test("accounts against the llama.cpp served window, not the advertised fallback", async () => {
+    const llamaAgent: Agent = {
+      ...testAgent,
+      config: { ...testAgent.config, llmProvider: "llamacpp", llmModel: "local-model" },
+    };
+    const llamaContext: CommandContext = { ...context, agent: llamaAgent };
+
+    let receivedContextWindow: number | undefined;
+    const spy = spyOn(AgentRunner, "compactHistory").mockImplementation(
+      (_messages, _agent, _conversationId, contextWindowTokens) => {
+        receivedContextWindow = contextWindowTokens;
+        return Effect.succeed(undefined) as unknown as ReturnType<
+          typeof AgentRunner.compactHistory
+        >;
+      },
+    );
+
+    const mockLLMService: Partial<LLMService> = {
+      resolveLocalProviderBaseUrl: () => "http://localhost:8080",
+      fetchLlamaCppServerModel: () => Effect.succeed({ contextWindow: 8000 }),
+    };
+    const mockTerminal: Partial<TerminalService> = {
+      info: mock(() => Effect.void),
+      success: mock(() => Effect.void),
+      warn: mock(() => Effect.void),
+      error: mock(() => Effect.void),
+      log: mock(() => Effect.succeed(undefined)),
+    };
+    const layers = Layer.mergeAll(
+      Layer.succeed(TerminalServiceTag, mockTerminal as unknown as TerminalService),
+      Layer.succeed(LLMServiceTag, mockLLMService as unknown as LLMService),
+    );
+
+    try {
+      await Effect.runPromise(
+        handleSpecialCommand({ type: "compact", args: [] }, llamaContext).pipe(
+          Effect.provide(layers),
+        ) as Effect.Effect<CommandResult, unknown, never>,
+      );
+
+      expect(receivedContextWindow).toBe(8000);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
 

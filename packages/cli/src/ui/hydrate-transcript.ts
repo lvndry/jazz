@@ -22,6 +22,11 @@ export function outputEntriesFromHistory(messages: readonly ChatMessage[]): Outp
     if (message.role !== "user" && message.role !== "assistant") {
       continue;
     }
+    // Compaction's "continue the task" nudge is addressed to the model. Painted as a
+    // user turn, it reads as something the user typed.
+    if (message.kind === "continuation") {
+      continue;
+    }
     if (message.content.trim().length === 0) {
       continue;
     }

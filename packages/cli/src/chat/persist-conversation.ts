@@ -27,6 +27,19 @@ export function shouldPersistConversation(input: PersistConversationInput): bool
   return !input.ephemeral && input.conversationHistory.some((message) => message.role === "user");
 }
 
+/**
+ * Whether a finished turn's history should be saved. A clean turn always is. A failed
+ * turn only when it handed back its work (via `onFailedTurn`), so that work survives the
+ * next message and a restart; a failed turn that kept nothing leaves the pre-turn history
+ * untouched, as before.
+ */
+export function shouldSaveTurn(input: {
+  readonly lastTurnErrored: boolean;
+  readonly turnKeptFailedWork: boolean;
+}): boolean {
+  return !input.lastTurnErrored || input.turnKeptFailedWork;
+}
+
 export function persistConversationIfNeeded(
   input: PersistConversationInput,
   dir?: string,

@@ -115,6 +115,143 @@ const candidateResultSchema = {
   },
 } as const;
 
+describe("summarize_context", () => {
+  const agent: Agent = {
+    ...parentAgent,
+    config: {
+      persona: "default",
+      llmProvider: "openai",
+      llmModel: "gpt-4",
+      tools: [],
+      // Small enough that most of the conversation is old rather than recent.
+      maxContextTokens: 2000,
+    } as Agent["config"],
+  };
+
+  function conversationAfterEarlierCompaction(): Array<{
+    role: string;
+    content: string;
+    kind?: string;
+  }> {
+    const messages: Array<{ role: string; content: string; kind?: string }> = [
+      { role: "system", content: "system" },
+      { role: "assistant", content: "Earlier work: migrated auth module.", kind: "summary" },
+    ];
+    for (let index = 0; index < 20; index++) {
+      messages.push({ role: "user", content: `ask ${index} ` + "detail ".repeat(100) });
+      messages.push({ role: "assistant", content: `answer ${index} ` + "text ".repeat(100) });
+    }
+    return messages;
+  }
+
+  it("merges an earlier summary into the new one instead of dropping it", async () => {
+    const summarizerInputs: string[] = [];
+    const spy = spyOn(AgentRunner, "runRecursive").mockImplementation((options) => {
+      summarizerInputs.push(options.userInput);
+      return Effect.succeed({
+        content: "merged summary",
+        conversationId: "conv-test",
+        messages: [],
+      }) as ReturnType<typeof AgentRunner.runRecursive>;
+    });
+
+    try {
+      const tool = createSubagentTools().find((t) => t.name === "summarize_context");
+      if (!tool) throw new Error("summarize_context tool not found");
+
+      let compacted: ReadonlyArray<{ content: string; kind?: string }> | undefined;
+      const context: Record<string, unknown> = {
+        conversationId: "conv-summarize-tool",
+        conversationMessages: conversationAfterEarlierCompaction(),
+        compactConversation: (messages: ReadonlyArray<{ content: string; kind?: string }>) => {
+          compacted = messages;
+        },
+      };
+      const { presentation } = createPresentationHarness();
+      const testLayer = Layer.mergeAll(
+        Layer.succeed(LoggerServiceTag, mockLogger),
+        Layer.succeed(PresentationServiceTag, presentation),
+      );
+
+      await Effect.runPromise(
+        (
+          tool.execute({}, { agentId: agent.id, parentAgent: agent, ...context }) as Effect.Effect<
+            unknown,
+            unknown,
+            LoggerService | PresentationService
+          >
+        ).pipe(Effect.provide(testLayer)),
+      );
+
+      expect(summarizerInputs.join("\n")).toContain("migrated auth module");
+      const summaries = compacted?.filter((message) => message.kind === "summary") ?? [];
+      expect(summaries.map((message) => message.content)).toEqual(["merged summary"]);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  /**
+   * Compacting through the tool rather than waiting for the window to fill must not
+   * decide whether durable facts reach memory. The run's own gate travels on the tool
+   * context, and its absence means no.
+   */
+  async function runSummarizeContext(gate?: boolean): Promise<string[]> {
+    const agentsRun: string[] = [];
+    const spy = spyOn(AgentRunner, "runRecursive").mockImplementation((options) => {
+      agentsRun.push(options.agent.id);
+      return Effect.succeed({
+        content: "merged summary",
+        conversationId: "conv-test",
+        messages: [],
+      }) as ReturnType<typeof AgentRunner.runRecursive>;
+    });
+
+    try {
+      const tool = createSubagentTools().find((t) => t.name === "summarize_context");
+      if (!tool) throw new Error("summarize_context tool not found");
+
+      const context: Record<string, unknown> = {
+        conversationId: "conv-summarize-gate",
+        conversationMessages: conversationAfterEarlierCompaction(),
+        compactConversation: () => {},
+        ...(gate === undefined ? {} : { allowMemoryExtraction: gate }),
+      };
+      const { presentation } = createPresentationHarness();
+      const testLayer = Layer.mergeAll(
+        Layer.succeed(LoggerServiceTag, mockLogger),
+        Layer.succeed(PresentationServiceTag, presentation),
+      );
+
+      await Effect.runPromise(
+        (
+          tool.execute({}, { agentId: agent.id, parentAgent: agent, ...context }) as Effect.Effect<
+            unknown,
+            unknown,
+            LoggerService | PresentationService
+          >
+        ).pipe(Effect.provide(testLayer)),
+      );
+
+      return agentsRun;
+    } finally {
+      spy.mockRestore();
+    }
+  }
+
+  it("extracts memories when the run that called the tool may persist them", async () => {
+    expect(await runSummarizeContext(true)).toContain("memory-extractor");
+  });
+
+  it("skips extraction when the run forbids it", async () => {
+    expect(await runSummarizeContext(false)).not.toContain("memory-extractor");
+  });
+
+  it("skips extraction when the context carries no gate at all", async () => {
+    expect(await runSummarizeContext()).not.toContain("memory-extractor");
+  });
+});
+
 describe("spawn_subagent auto-approve inheritance", () => {
   it("forwards the parent's auto-approve policy and allowlists to the sub-agent", async () => {
     let captured: Omit<AgentRunnerOptions, "internal"> | undefined;
