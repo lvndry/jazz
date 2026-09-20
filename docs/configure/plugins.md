@@ -6,9 +6,10 @@ description: "Install, inspect, trust, configure, enable, update, and remove opt
 
 Jazz plugins are optional, pre-bundled JavaScript modules that add bounded harness behavior. They
 are not model-selected tools and cannot execute an action on the model's behalf. Version 1 exposes
-an advisory hook, `route.skills`, and a policy hook, `classify.command-risk`. The distinction is
-important: routing only suggests context, while command-risk classification can affect whether the
-active approval policy requires a person to approve one shell command.
+two advisory hooks, `route.skills` and `compact.tools`, and a policy hook, `classify.command-risk`.
+The distinction is important: the advisory hooks only shape context (which skill to suggest, which
+stale tool results to prune), while command-risk classification can affect whether the active
+approval policy requires a person to approve one shell command.
 
 Plugins are absent and disabled by default. A normal Jazz installation has no plugin network call,
 latency, prompt change, or credential requirement.
@@ -45,6 +46,24 @@ no-skill option. The hint is transient provider context: it never enters durable
 state, work state, or telemetry, and the plugin can never load a skill, change tools, or authorize
 anything. Any error or abstention falls back to deterministic behavior, and routing is skipped for
 resumes and summarizer runs.
+
+## Tool-compaction hook
+
+`compact.tools` runs before summarization: automatically at the clear rung of the context ladder —
+once a run passes 50% of its context window, and on every iteration above it — and as a lossless
+pre-pass when you invoke `/compact` yourself (which otherwise jumps straight to the summarizer).
+Below 50% nothing is touched. For each old, large tool result it decides keep / truncate / drop;
+Jazz applies the decision by replacing content (never removing a message, so assistant/tool pairing
+stays valid) and only ever sends the result preview, not the whole body. The policy is asymmetric —
+a result is dropped only on a confident signal, a large uncertain one is truncated to head and tail,
+and anything else is kept — because losing a still-needed result is worse than keeping a stale one.
+If the plugin abstains, times out, or is absent, Jazz falls back to its deterministic tool-result
+clearer. It never touches user or assistant text.
+
+Because this happens quietly mid-run, Jazz surfaces it: the first time a run reclaims space this way
+it prints a one-line green notice crediting the plugin, and the individual keep / truncate / drop
+decisions are written to the log (`Compaction plugin tool-result decisions`) at both the clear rung
+and `/compact`. `/compact` additionally shows the decisions live and names the plugin as it works.
 
 ## Command-risk policy hook
 

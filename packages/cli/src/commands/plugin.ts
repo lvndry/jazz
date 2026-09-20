@@ -17,7 +17,7 @@ import {
 import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
 import type { AgentService } from "@jazz/core/interfaces/agent-service";
 import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
-import type { CommandRiskInput, SkillRouteInput } from "@jazz/core/types/plugin";
+import type { CommandRiskInput, CompactToolsInput, SkillRouteInput } from "@jazz/core/types/plugin";
 import { getJazzHomeDirectory } from "@jazz/core/utils/paths";
 import { Effect } from "effect";
 
@@ -90,6 +90,18 @@ async function readCommandRiskInput(filePath: string): Promise<CommandRiskInput>
   return { command: record["command"] };
 }
 
+async function readCompactToolsInput(filePath: string): Promise<CompactToolsInput> {
+  const value = JSON.parse(await fs.readFile(path.resolve(filePath), "utf8")) as unknown;
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Hook input must be a JSON object.");
+  }
+  const record = value as Record<string, unknown>;
+  if (typeof record["goal"] !== "string" || !Array.isArray(record["candidates"])) {
+    throw new Error("compact.tools input requires a goal string and a candidates array.");
+  }
+  return value as CompactToolsInput;
+}
+
 /** Scaffold a types-only SDK plugin project; dependency installation remains explicit. */
 export function pluginInitCommand(
   directory: string,
@@ -119,7 +131,8 @@ export function pluginDevCommand(
     if (
       options.hook !== undefined &&
       options.hook !== "route.skills" &&
-      options.hook !== "classify.command-risk"
+      options.hook !== "classify.command-risk" &&
+      options.hook !== "compact.tools"
     ) {
       return yield* Effect.fail(new Error(`Unsupported v1 hook: ${options.hook}`));
     }
@@ -137,11 +150,16 @@ export function pluginDevCommand(
       options.input === undefined || options.hook !== "classify.command-risk"
         ? undefined
         : yield* attempt(() => readCommandRiskInput(options.input!));
+    const compactToolsInput =
+      options.input === undefined || options.hook !== "compact.tools"
+        ? undefined
+        : yield* attempt(() => readCompactToolsInput(options.input!));
     const result = yield* attempt(() =>
       devPlugin({
         pluginDirectory: directory,
         ...(routeSkillsInput === undefined ? {} : { routeSkillsInput }),
         ...(commandRiskInput === undefined ? {} : { commandRiskInput }),
+        ...(compactToolsInput === undefined ? {} : { compactToolsInput }),
       }),
     );
     printJson({ ok: true, result });

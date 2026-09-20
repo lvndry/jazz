@@ -35,6 +35,7 @@ import { formatToolResultForContext } from "@/core/utils/tool-result-formatter";
 import type { UsageCostPricing } from "@/core/utils/usage-cost";
 import type { AgentLoopObserver } from "./agent-loop-observer";
 import { ToolExecutor } from "./tool-executor";
+import type { ReduceToolResultsFn } from "../context/advised-tool-clearing";
 import { logContextRung } from "../context/context-telemetry";
 import { resolveContextThresholds } from "../context/context-thresholds";
 import {
@@ -245,6 +246,7 @@ interface LoopState {
   recentToolCalls: TrackedToolCall[];
   iterationsUsed: number;
   contextPressureWarned: boolean;
+  toolCompactionAnnounced: boolean;
 }
 
 interface LoopDeps {
@@ -269,6 +271,14 @@ interface LoopDeps {
   maxDurationMs: number | undefined;
   /** Provider-only routing hint for iteration zero; never part of canonical messages. */
   initialProviderAdvisory: string | undefined;
+  /**
+   * Decision-advised clear rung. When set (a `compact.tools` plugin is enabled), it replaces the
+   * deterministic clearer; it falls back to the deterministic clearer when the provider abstains.
+   * Undefined when no plugin is enabled, leaving the clear rung's behavior unchanged.
+   */
+  reduceToolResults: ReduceToolResultsFn | undefined;
+  /** Display name of the plugin driving tool-result compaction, for the one-time run notice. */
+  compactPluginName: string | undefined;
   modelMetadata: UsageCostPricing | undefined;
   runRecursive: RecursiveRunner;
   /**
@@ -913,6 +923,8 @@ function runIteration(
     maxDurationMs,
     modelMetadata,
     runRecursive,
+    reduceToolResults,
+    compactPluginName,
   } = deps;
 
   return Effect.gen(function* () {
@@ -935,16 +947,26 @@ function runIteration(
         conversationId: actualConversationId,
         modelHint,
       });
-      const cleared = clearToolResults(state.currentMessages, {
-        protectedFromIndex: toolResultsProtectFromIndex(state.currentMessages),
-        modelHint,
-        retrievableIds,
-      });
+      const protectedFromIndex = toolResultsProtectFromIndex(state.currentMessages);
+      // A compact.tools plugin decides keep/truncate/drop per old result; it falls back to the
+      // deterministic clearer when it abstains or is not enabled. Never removes a message.
+      const advisedClear = reduceToolResults
+        ? yield* reduceToolResults(state.currentMessages, protectedFromIndex, retrievableIds)
+        : undefined;
+      const cleared = advisedClear?.answered
+        ? advisedClear
+        : clearToolResults(state.currentMessages, {
+            protectedFromIndex,
+            modelHint,
+            retrievableIds,
+          });
       if (cleared.clearedCount > 0) {
         state.currentMessages = [
           state.currentMessages[0],
           ...cleared.messages.slice(1),
         ] as typeof state.currentMessages;
+        const reclaimed =
+          before - runContextWindowManager.totalRequestTokens(state.currentMessages);
         yield* logContextRung(logger, {
           rung: "clear",
           agentId: agent.id,
@@ -954,6 +976,28 @@ function runIteration(
           budgetTokens: runContextWindowManager.contextBudgetTokens,
           messagesBefore: state.currentMessages.length,
           messagesAfter: state.currentMessages.length,
+        });
+        if (!options.internal && !state.toolCompactionAnnounced && reclaimed > 0) {
+          state.toolCompactionAnnounced = true;
+          yield* observer.onToolResultsCompacted(
+            agent.name,
+            advisedClear?.answered ? compactPluginName : undefined,
+            reclaimed,
+          );
+        }
+      }
+      if (advisedClear?.answered && advisedClear.decisions.length > 0) {
+        yield* logger.info("Compaction plugin tool-result decisions", {
+          agentId: agent.id,
+          conversationId: actualConversationId,
+          rung: "clear",
+          clearedCount: advisedClear.clearedCount,
+          tokensReclaimed: advisedClear.tokensReclaimed,
+          decisions: advisedClear.decisions.map((decision) => ({
+            tool: decision.tool,
+            action: decision.action,
+            chars: decision.chars,
+          })),
         });
       }
     }
@@ -1288,6 +1332,8 @@ export function executeAgentLoop(
           maxTokens,
           maxDurationMs,
           initialProviderAdvisory,
+          reduceToolResults,
+          compactPluginName,
         } = runContext;
 
         const configService = yield* AgentConfigServiceTag;
@@ -1357,6 +1403,7 @@ export function executeAgentLoop(
           recentToolCalls: [],
           iterationsUsed: 0,
           contextPressureWarned: false,
+          toolCompactionAnnounced: false,
         };
         let finished = false;
         let interrupted = false;
@@ -1394,6 +1441,8 @@ export function executeAgentLoop(
           maxTokens,
           maxDurationMs,
           initialProviderAdvisory,
+          reduceToolResults,
+          compactPluginName,
           modelMetadata,
           runRecursive,
           supportedAttachmentKinds,

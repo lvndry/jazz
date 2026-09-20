@@ -18,12 +18,14 @@ import type { ChatMessage, ConversationMessages } from "@/core/types/message";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import { parseProviderModel } from "@/core/utils/provider-model";
 import type { AgentResponse } from "../types";
+import type { AdvisedDecision, ReduceToolResultsFn } from "./advised-tool-clearing";
 import { logContextRung } from "./context-telemetry";
 import { resolveContextThresholds } from "./context-thresholds";
 import { DEFAULT_CONTEXT_WINDOW_MANAGER } from "./context-window-manager";
 import { resolveEffectiveContextWindow } from "./effective-context-window";
 import { extractMemories } from "./memory-extractor";
 import { DEFAULT_TOKEN_COUNTER, type ModelHint } from "./token-counter";
+import { toolResultsProtectFromIndex } from "./tool-result-clearing";
 import { appendJournalEntry, pruneJournal } from "./work-journal";
 import { formatWorkState, readWorkState } from "./work-state";
 
@@ -218,6 +220,25 @@ export interface CompactionOutcome {
   /** Request tokens after compacting, including per-request overhead. */
   readonly tokensAfter: number;
 }
+
+/**
+ * Phase boundaries a compaction crosses, reported to an optional observer so an
+ * interface can show the work live (the plugin prune, then the summary). Carries data,
+ * never presentation: the caller formats it. Only surfaced for callers that pass an
+ * `onPhase` observer — automatic compaction runs silent.
+ */
+export type CompactionProgress =
+  | { readonly phase: "prune-start"; readonly plugin?: string }
+  | {
+      readonly phase: "prune-done";
+      readonly plugin?: string;
+      readonly decisions: readonly AdvisedDecision[];
+      readonly tokensReclaimed: number;
+    }
+  | { readonly phase: "summarize-start"; readonly messageCount: number };
+
+/** Observer for {@link CompactionProgress}; its effect must not fail. */
+export type CompactionProgressObserver = (event: CompactionProgress) => Effect.Effect<void, never>;
 
 /**
  * Type for a function that runs an agent recursively (for sub-agent calls).
@@ -515,6 +536,12 @@ export const Summarizer = {
    *   before the middle is condensed. Each caller computes it where the run's persistence
    *   and sub-agent state is known, because the gate is never inherited; the default is
    *   the safe answer for a caller that cannot tell.
+   * @param reduceToolResults - Optional lossless pre-pass (a `compact.tools` plugin) run before
+   *   the lossy summary, so stale tool results are pruned first. A live run already ran this at
+   *   the clear rung and passes nothing here; the manual `/compact` path has no clear rung and
+   *   supplies it so `/compact` is plugin-driven too. It never removes a message.
+   * @param onPhase - Optional observer notified as compaction crosses its phases (prune, then
+   *   summarize), so an interface can show the work live. Absent for silent callers.
    */
   compact(
     currentMessages: ConversationMessages,
@@ -523,6 +550,8 @@ export const Summarizer = {
     runRecursive: RecursiveRunner,
     contextWindowTokens: number,
     allowMemoryExtraction = false,
+    reduceToolResults?: ReduceToolResultsFn,
+    onPhase?: CompactionProgressObserver,
   ): Effect.Effect<
     CompactionOutcome | undefined,
     Error,
@@ -545,15 +574,72 @@ export const Summarizer = {
         maxTokens: contextWindowTokens,
       });
 
+      // Lossless pre-pass before the lossy summary: a compact.tools plugin prunes stale tool
+      // results (keep/truncate/drop). Never removes a message, so assistant/tool pairing stays
+      // valid; the system message is kept verbatim. A live run already ran this at the clear rung
+      // and passes nothing; the manual /compact path supplies it so /compact is plugin-driven too.
+      let workingMessages = currentMessages;
+      if (reduceToolResults) {
+        if (onPhase) yield* onPhase({ phase: "prune-start" });
+        const protectedFromIndex = toolResultsProtectFromIndex(currentMessages);
+        const advised = yield* reduceToolResults(currentMessages, protectedFromIndex, undefined);
+        if (onPhase) {
+          yield* onPhase({
+            phase: "prune-done",
+            decisions: advised.decisions,
+            tokensReclaimed: advised.tokensReclaimed,
+          });
+        }
+        if (advised.answered && advised.decisions.length > 0) {
+          yield* logger.info("Compaction plugin tool-result decisions", {
+            agentId: agent.id,
+            conversationId,
+            clearedCount: advised.clearedCount,
+            tokensReclaimed: advised.tokensReclaimed,
+            decisions: advised.decisions.map((decision) => ({
+              tool: decision.tool,
+              action: decision.action,
+              chars: decision.chars,
+            })),
+          });
+        }
+        if (advised.answered && advised.clearedCount > 0) {
+          workingMessages = [
+            currentMessages[0],
+            ...advised.messages.slice(1),
+          ] as ConversationMessages;
+          yield* logContextRung(logger, {
+            rung: "clear",
+            agentId: agent.id,
+            conversationId,
+            tokensBefore,
+            tokensAfter:
+              DEFAULT_TOKEN_COUNTER.countMessages(workingMessages, hint) +
+              DEFAULT_TOKEN_COUNTER.overheadFor(hint),
+            budgetTokens: contextWindowTokens,
+            messagesBefore: currentMessages.length,
+            messagesAfter: workingMessages.length,
+          });
+        }
+      }
+
       const {
         systemMessage,
         priorSummary,
         pinnedMessages,
         messagesToSummarize,
         sanitizedRecentMessages,
-      } = Summarizer.splitMessages(currentMessages, contextWindowTokens, hint);
+      } = Summarizer.splitMessages(workingMessages, contextWindowTokens, hint);
 
       if (messagesToSummarize.length === 0) {
+        // Nothing was old enough to summarize. If the lossless pre-pass still reclaimed space,
+        // return that as the outcome rather than discarding it and reporting no change.
+        if (workingMessages !== currentMessages) {
+          const tokensAfter =
+            DEFAULT_TOKEN_COUNTER.countMessages(workingMessages, hint) +
+            DEFAULT_TOKEN_COUNTER.overheadFor(hint);
+          return { messages: workingMessages, tokensBefore, tokensAfter };
+        }
         return undefined;
       }
 
@@ -570,6 +656,9 @@ export const Summarizer = {
       if (allowMemoryExtraction) {
         yield* extractMemories(messagesToSummarize, agent, conversationId, runRecursive);
       }
+
+      if (onPhase)
+        yield* onPhase({ phase: "summarize-start", messageCount: messagesToSummarize.length });
 
       // Summarize the middle portion, merged into the earlier summary. `splitMessages`
       // has already taken that summary out of the history, so it survives only if it is

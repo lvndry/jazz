@@ -73,7 +73,7 @@ export function toolResultsProtectFromIndex(
   return protectFrom;
 }
 
-function placeholderFor(
+export function placeholderFor(
   toolName: string | undefined,
   tokens: number,
   toolCallId: string | undefined,

@@ -44,8 +44,41 @@ export type CommandRiskOutcome =
   | { readonly status: "answered"; readonly distribution: CommandRiskDistribution }
   | { readonly status: "abstained"; readonly reason: string };
 
+export interface CompactToolCandidate {
+  /** The tool call's id (`tool_call_id`), used to pair the decision back to the message. */
+  readonly id: string;
+  readonly tool: string;
+  /** Serialized call arguments, bounded by the host. */
+  readonly input?: string;
+  /** Head+tail preview of the result, so the provider judges content it can actually see. */
+  readonly resultPreview: string;
+  readonly resultChars: number;
+  readonly isError: boolean;
+}
+
+export interface CompactToolsInput {
+  /** The run's current goal or task, for judging what is still relevant. */
+  readonly goal: string;
+  readonly candidates: readonly CompactToolCandidate[];
+}
+
+export type CompactToolAction = "keep" | "truncate" | "drop";
+
+export interface CompactToolsDecision {
+  readonly id: string;
+  readonly action: CompactToolAction;
+}
+
+export type CompactToolsOutcome =
+  | { readonly status: "answered"; readonly decisions: readonly CompactToolsDecision[] }
+  | { readonly status: "abstained"; readonly reason: string };
+
 export interface AdvisoryHookContracts {
   readonly "route.skills": { readonly input: SkillRouteInput; readonly output: SkillRouteOutcome };
+  readonly "compact.tools": {
+    readonly input: CompactToolsInput;
+    readonly output: CompactToolsOutcome;
+  };
 }
 
 export interface PolicyHookContracts {

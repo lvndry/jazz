@@ -384,10 +384,13 @@ export class ChatServiceImpl implements ChatService {
             if (commandResult.newHistory !== undefined) {
               conversationHistory = commandResult.newHistory;
               // The transcript is the user's picture of what the agent knows.
-              // Any command that replaces the history — /new, /fork, /compact,
-              // /resume — has to repaint it, or the screen keeps showing turns
-              // the agent can no longer see.
-              hydrateTranscriptFromHistory(conversationHistory);
+              // Most commands that replace the history — /new, /fork, /resume — have to
+              // repaint it, or the screen keeps showing turns the agent can no longer see.
+              // /compact opts out (skipTranscriptRepaint): it only shrinks the model's
+              // context, and the user's scrollback stays as their record of the session.
+              if (!commandResult.skipTranscriptRepaint) {
+                hydrateTranscriptFromHistory(conversationHistory);
+              }
               if (commandResult.resendMessage !== undefined) {
                 // /retry replays the SAME conversation — clamp the session-log
                 // cursor instead of resetting it (a reset would re-log the

@@ -38,6 +38,7 @@ import { TextAttributes } from "@opentui/core";
 import {
   forwardRef,
   memo,
+  useEffect,
   useImperativeHandle,
   useMemo,
   useRef,
@@ -1430,6 +1431,8 @@ export interface TranscriptProps {
   readonly newBelow?: number;
   /** Stick to the newest row. False once the reader has taken the scroll. */
   readonly followLive?: boolean;
+  /** Called when the view reaches the live edge, so the "new below" hint can clear on scroll. */
+  readonly onReachedBottom?: () => void;
   /**
    * Rows the transcript may paint. Defaults to `viewport.height` for standalone
    * tests; the shell passes the leftover after chrome, live band, and composer.
@@ -1442,7 +1445,7 @@ export interface TranscriptHandle {
 }
 
 const TranscriptView = forwardRef<TranscriptHandle, TranscriptProps>(function Transcript(
-  { blocks, viewport, focus, newBelow, followLive = true, visibleCount },
+  { blocks, viewport, focus, newBelow, followLive = true, visibleCount, onReachedBottom },
   ref,
 ): ReactNode {
   // Deriving rows re-parses every block's markdown, tables and fences. The
@@ -1472,6 +1475,10 @@ const TranscriptView = forwardRef<TranscriptHandle, TranscriptProps>(function Tr
   const offset = clampScrollFromBottom(scrollFromBottomRef.current, rows.length, windowHeight);
   const visible = windowTranscriptRows(rows, windowHeight, offset);
   const padCount = Math.max(0, windowHeight - visible.length);
+
+  useEffect(() => {
+    if (offset === 0) onReachedBottom?.();
+  }, [offset, onReachedBottom]);
 
   useImperativeHandle(ref, () => ({
     scrollBy(delta: number, unit: "line" | "page" | "end" = "line"): void {

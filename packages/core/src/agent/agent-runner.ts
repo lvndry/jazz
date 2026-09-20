@@ -48,7 +48,12 @@ import { shouldEnableStreaming } from "@/core/utils/stream-detector";
 import type { ConversationMessages, StreamingConfig } from "../types";
 import { type Agent } from "../types";
 import { agentPromptBuilder } from "./agent-prompt";
-import { Summarizer, type CompactionOutcome } from "./context/summarizer";
+import { buildAdvisedReducer } from "./context/advised-tool-clearing";
+import {
+  Summarizer,
+  type CompactionOutcome,
+  type CompactionProgressObserver,
+} from "./context/summarizer";
 import { executeWithStreaming, executeWithoutStreaming } from "./execution";
 import { createAgentRunMetrics, emitAgentRunStarted } from "./metrics/agent-run-metrics";
 import { discoverProjectInstructions, type ProjectInstructionFile } from "./project-instructions";
@@ -676,6 +681,10 @@ function initializeAgentRun(
         }),
     };
 
+    const compactPluginName = Option.isSome(pluginSession)
+      ? pluginSession.value.describeHook("compact.tools")?.pluginName
+      : undefined;
+
     return {
       agent,
       actualConversationId,
@@ -684,6 +693,17 @@ function initializeAgentRun(
       expandedToolNames,
       messages,
       ...(initialProviderAdvisory !== undefined ? { initialProviderAdvisory } : {}),
+      ...(Option.isSome(pluginSession)
+        ? {
+            reduceToolResults: buildAdvisedReducer({
+              goal: userInput,
+              provider,
+              model,
+              decide: (input) => pluginSession.value.runCompactTools(input),
+            }),
+          }
+        : {}),
+      ...(compactPluginName !== undefined ? { compactPluginName } : {}),
       runMetrics,
       provider,
       model,
@@ -840,6 +860,7 @@ export class AgentRunner {
     agent: Agent,
     conversationId: string,
     contextWindowTokens: number,
+    onPhase?: CompactionProgressObserver,
   ): Effect.Effect<
     CompactionOutcome | undefined,
     Error,
@@ -858,8 +879,102 @@ export class AgentRunner {
       maxIterations?: number;
     }) => AgentRunner.runRecursive(runOpts);
 
-    return Summarizer.compact(messages, agent, conversationId, runRecursive, contextWindowTokens);
+    return Effect.gen(function* () {
+      const logger = yield* LoggerServiceTag;
+      // Manual /compact has no live agent loop, so it never hit the clear rung where a
+      // compact.tools plugin normally prunes. Open a short-lived session here and run the same
+      // lossless pre-pass before the summary, so /compact is plugin-driven exactly like a run.
+      const pluginRuntime = yield* Effect.serviceOption(PluginRuntimeServiceTag);
+      if (Option.isNone(pluginRuntime)) {
+        return yield* Summarizer.compact(
+          messages,
+          agent,
+          conversationId,
+          runRecursive,
+          contextWindowTokens,
+          false,
+          undefined,
+          onPhase,
+        );
+      }
+
+      const provider = agent.config.llmProvider;
+      const model = agent.config.llmModel;
+      const goal =
+        lastUserMessageText(messages) ??
+        "Continue the current task; keep tool results still relevant to it.";
+      const metrics = createAgentRunMetrics({ agent, conversationId, provider, model });
+
+      return yield* Effect.scoped(
+        Effect.gen(function* () {
+          const session = yield* Effect.acquireRelease(
+            pluginRuntime.value.openSession({ agentId: agent.id, metrics }),
+            (openedSession) => openedSession.close(),
+          ).pipe(
+            Effect.map(Option.some),
+            Effect.catchAll((error) =>
+              logger
+                .warn("Plugin session failed to open for /compact; summarizing without pruning", {
+                  error: error.message,
+                })
+                .pipe(Effect.as(Option.none())),
+            ),
+          );
+
+          const reduceToolResults = Option.isSome(session)
+            ? buildAdvisedReducer({
+                goal,
+                provider,
+                model,
+                decide: (input) => session.value.runCompactTools(input),
+              })
+            : undefined;
+
+          const pluginName = Option.isSome(session)
+            ? session.value.describeHook("compact.tools")?.pluginName
+            : undefined;
+          const observedPhase: CompactionProgressObserver | undefined =
+            onPhase === undefined
+              ? undefined
+              : pluginName === undefined
+                ? onPhase
+                : (event) =>
+                    onPhase(
+                      event.phase === "prune-start" || event.phase === "prune-done"
+                        ? { ...event, plugin: pluginName }
+                        : event,
+                    );
+
+          return yield* Summarizer.compact(
+            messages,
+            agent,
+            conversationId,
+            runRecursive,
+            contextWindowTokens,
+            false,
+            reduceToolResults,
+            observedPhase,
+          );
+        }),
+      );
+    });
   }
+}
+
+/** Most recent user message text, to hint the compaction prune at what is still relevant. */
+function lastUserMessageText(messages: ConversationMessages): string | undefined {
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index];
+    if (
+      message &&
+      message.role === "user" &&
+      typeof message.content === "string" &&
+      message.content.trim().length > 0
+    ) {
+      return message.content;
+    }
+  }
+  return undefined;
 }
 
 // Re-export types for convenience

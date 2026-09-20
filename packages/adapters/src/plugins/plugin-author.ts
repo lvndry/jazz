@@ -17,6 +17,8 @@ import { createPluginSession } from "@jazz/core/agent/plugins/plugin-session";
 import type {
   CommandRiskInput,
   CommandRiskOutcome,
+  CompactToolsInput,
+  CompactToolsOutcome,
   JazzPluginModule,
   PluginHostApi,
   PluginManifest,
@@ -26,6 +28,7 @@ import type {
 import { Effect } from "effect";
 import { PluginArtifactInstaller, acquirePluginManifest } from "./artifact-installer";
 import { parsePluginManifest } from "./manifest-schema";
+import { PluginSecretStore } from "./secret-store";
 
 const NATIVE_OR_ASSET_INPUT =
   /\.(?:node|wasm|css|html|sqlite|db|png|jpe?g|gif|webp|svg|woff2?|ttf|otf)$/i;
@@ -68,6 +71,7 @@ export interface ProbePackedPluginOptions {
   readonly manifestPath: string;
   readonly routeSkillsInput?: SkillRouteInput;
   readonly commandRiskInput?: CommandRiskInput;
+  readonly compactToolsInput?: CompactToolsInput;
 }
 
 export interface PluginProbeResult {
@@ -77,12 +81,14 @@ export interface PluginProbeResult {
   readonly registeredDecisionProviders: readonly string[];
   readonly routeSkillsOutcome?: SkillRouteOutcome;
   readonly commandRiskOutcome?: CommandRiskOutcome;
+  readonly compactToolsOutcome?: CompactToolsOutcome;
 }
 
 export interface DevPluginOptions {
   readonly pluginDirectory: string;
   readonly routeSkillsInput?: SkillRouteInput;
   readonly commandRiskInput?: CommandRiskInput;
+  readonly compactToolsInput?: CompactToolsInput;
 }
 
 export const SCAFFOLD_PLUGIN_SDK_VERSION = "0.1.0";
@@ -458,8 +464,10 @@ export async function probePackedPlugin(
         agentId: "plugin-probe",
         metrics: probeMetrics(),
         plugins: [{ manifest: acquired.manifest, module }],
-        resolveSecret: (_pluginId, declaration) =>
-          Promise.resolve(declaration.env ? process.env[declaration.env] : undefined),
+        // Resolve secrets exactly as the real runtime does — env first, then the OS keyring — so a
+        // probe of an installed plugin uses the same credential a normal run would.
+        resolveSecret: (pluginId, declaration) =>
+          new PluginSecretStore().get(pluginId, declaration),
       }),
     );
     try {
@@ -481,6 +489,15 @@ export async function probePackedPlugin(
           session.runPolicyHook("classify.command-risk", options.commandRiskInput),
         );
         result = { ...result, commandRiskOutcome };
+      }
+      if (options.compactToolsInput !== undefined) {
+        if (!acquired.manifest.hooks.includes("compact.tools")) {
+          fail("compact.tools input was provided but the hook is not declared");
+        }
+        const compactToolsOutcome = await Effect.runPromise(
+          session.runCompactTools(options.compactToolsInput),
+        );
+        result = { ...result, compactToolsOutcome };
       }
       return result;
     } finally {
@@ -511,6 +528,9 @@ export async function devPlugin(options: DevPluginOptions): Promise<PluginProbeR
       ...(options.commandRiskInput === undefined
         ? {}
         : { commandRiskInput: options.commandRiskInput }),
+      ...(options.compactToolsInput === undefined
+        ? {}
+        : { compactToolsInput: options.compactToolsInput }),
     });
   } finally {
     await fs.rm(temporary, { recursive: true, force: true });
