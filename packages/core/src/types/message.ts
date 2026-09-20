@@ -56,8 +56,13 @@ export interface ChatMessage {
    * "continuation" is the synthetic turn-taking nudge compaction re-inserts after every
    * cycle — discarded (not pinned) on the next split, since the rebuild always appends a
    * fresh one; keeping an old instance around too would duplicate it.
+   * "ephemeral" is a request-only message (the per-turn context/budget pressure nudge)
+   * appended to a single LLM request and never persisted to history. Its content changes
+   * every turn (live token counts, percentages), so request assembly must not land the
+   * conversation prompt-cache breakpoint on it — the breakpoint belongs on the last
+   * persisted message so the stable prefix keeps re-hitting the cache.
    */
-  kind?: "summary" | "task" | "continuation";
+  kind?: "summary" | "task" | "continuation" | "ephemeral";
   /**
    * For role === "assistant": include tool calls emitted by the model so that
    * subsequent tool messages are valid according to the OpenAI API.

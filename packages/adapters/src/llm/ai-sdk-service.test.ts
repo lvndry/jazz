@@ -1440,4 +1440,45 @@ describe("toCoreMessages - conversation prefix cache", () => {
     const converted = applyConversationCacheBreakpoint([{ role: "user", content: "hi" }], "ollama");
     expect(converted[0]).toEqual({ role: "user", content: "hi" });
   });
+
+  it("keeps the breakpoint off a trailing ephemeral nudge, on the last persisted message", () => {
+    const result = toCoreMessages(
+      [
+        { role: "system", content: "sys" },
+        { role: "user", content: "hello" },
+        { role: "assistant", content: "hi" },
+        { role: "user", content: "context is at 72%", kind: "ephemeral" },
+      ],
+      "anthropic",
+    );
+
+    const cacheControlOf = (message: (typeof result)[number]) => {
+      const parts = message.content as Array<{
+        providerOptions?: { anthropic?: { cacheControl?: { type: string } } };
+      }>;
+      return parts[parts.length - 1]?.providerOptions?.anthropic?.cacheControl;
+    };
+
+    expect(cacheControlOf(result[2] as (typeof result)[number])).toEqual({ type: "ephemeral" });
+    expect(cacheControlOf(result[3] as (typeof result)[number])).toBeUndefined();
+  });
+
+  it("targets the last message when no ephemeral nudge is present", () => {
+    const result = toCoreMessages(
+      [
+        { role: "system", content: "sys" },
+        { role: "user", content: "hello" },
+        { role: "assistant", content: "hi" },
+      ],
+      "anthropic",
+    );
+
+    const last = result[result.length - 1];
+    const parts = last?.content as Array<{
+      providerOptions?: { anthropic?: { cacheControl?: { type: string } } };
+    }>;
+    expect(parts[parts.length - 1]?.providerOptions?.anthropic?.cacheControl).toEqual({
+      type: "ephemeral",
+    });
+  });
 });

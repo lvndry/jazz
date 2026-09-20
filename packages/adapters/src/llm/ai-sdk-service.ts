@@ -277,6 +277,7 @@ export function toCoreMessages(
   messages: ReadonlyArray<{
     role: "system" | "user" | "assistant" | "tool";
     content: string;
+    kind?: "summary" | "task" | "continuation" | "ephemeral";
     name?: string;
     tool_call_id?: string;
     tool_calls?: ReadonlyArray<{
@@ -457,7 +458,16 @@ export function toCoreMessages(
     throw new Error(`Unsupported message role: ${String(role)}`);
   });
 
-  return applyConversationCacheBreakpoint(result, normalizedProviderName);
+  // The last message may be a per-turn ephemeral nudge (context/budget pressure) whose text
+  // changes every turn. Landing the conversation cache breakpoint on it would spend the
+  // incremental cache write on content guaranteed to miss next turn, so target the last
+  // persisted (non-ephemeral) message instead; the nudge rides as a cheap uncached suffix.
+  let breakpointIndex = result.length - 1;
+  while (breakpointIndex > 0 && messages[breakpointIndex]?.kind === "ephemeral") {
+    breakpointIndex--;
+  }
+
+  return applyConversationCacheBreakpoint(result, normalizedProviderName, breakpointIndex);
 }
 
 const PREFIX_CACHE_PROVIDERS = new Set(["anthropic", "ai_gateway", "openrouter"]);
@@ -476,25 +486,30 @@ function cacheControlProviderOptions(provider: string): Record<string, unknown> 
  * the next turn reuses everything up to that point at cache-read prices.
  * Rewriting an earlier message (offload, compaction) is one cache miss,
  * then the new prefix is stable again.
+ *
+ * `targetIndex` selects which message carries the breakpoint (default: the last).
+ * Callers point it at the last persisted message so a trailing ephemeral nudge —
+ * whose text changes every turn — does not become the cached boundary.
  */
 export function applyConversationCacheBreakpoint(
   messages: ModelMessage[],
   providerName: string | undefined,
+  targetIndex: number = messages.length - 1,
 ): ModelMessage[] {
   if (!providerName || !PREFIX_CACHE_PROVIDERS.has(providerName)) return messages;
   if (messages.length < 2) return messages;
 
-  const lastIndex = messages.length - 1;
-  const last = messages[lastIndex];
-  if (!last || last.role === "system") return messages;
+  if (targetIndex < 1 || targetIndex > messages.length - 1) return messages;
+  const target = messages[targetIndex];
+  if (!target || target.role === "system") return messages;
 
   const cache = cacheControlProviderOptions(providerName);
-  const content = last.content;
+  const content = target.content;
 
   if (typeof content === "string") {
     const next = messages.slice();
-    next[lastIndex] = {
-      ...last,
+    next[targetIndex] = {
+      ...target,
       content: [{ type: "text", text: content, providerOptions: cache }],
     } as ModelMessage;
     return next;
@@ -518,7 +533,7 @@ export function applyConversationCacheBreakpoint(
   } as (typeof parts)[number];
 
   const next = messages.slice();
-  next[lastIndex] = { ...last, content: parts } as ModelMessage;
+  next[targetIndex] = { ...target, content: parts } as ModelMessage;
   return next;
 }
 

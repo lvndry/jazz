@@ -1021,7 +1021,7 @@ function runIteration(
     const messagesForLLM = pressureContent
       ? ([
           ...state.currentMessages,
-          { role: "user" as const, content: pressureContent },
+          { role: "user" as const, content: pressureContent, kind: "ephemeral" as const },
         ] as typeof state.currentMessages)
       : state.currentMessages;
 
