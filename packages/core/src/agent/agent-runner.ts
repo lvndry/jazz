@@ -681,6 +681,10 @@ function initializeAgentRun(
         }),
     };
 
+    const compactPluginName = Option.isSome(pluginSession)
+      ? pluginSession.value.describeHook("compact.tools")?.pluginName
+      : undefined;
+
     return {
       agent,
       actualConversationId,
@@ -699,6 +703,7 @@ function initializeAgentRun(
             }),
           }
         : {}),
+      ...(compactPluginName !== undefined ? { compactPluginName } : {}),
       runMetrics,
       provider,
       model,

@@ -246,6 +246,7 @@ interface LoopState {
   recentToolCalls: TrackedToolCall[];
   iterationsUsed: number;
   contextPressureWarned: boolean;
+  toolCompactionAnnounced: boolean;
 }
 
 interface LoopDeps {
@@ -276,6 +277,8 @@ interface LoopDeps {
    * Undefined when no plugin is enabled, leaving the clear rung's behavior unchanged.
    */
   reduceToolResults: ReduceToolResultsFn | undefined;
+  /** Display name of the plugin driving tool-result compaction, for the one-time run notice. */
+  compactPluginName: string | undefined;
   modelMetadata: UsageCostPricing | undefined;
   runRecursive: RecursiveRunner;
   /**
@@ -921,6 +924,7 @@ function runIteration(
     modelMetadata,
     runRecursive,
     reduceToolResults,
+    compactPluginName,
   } = deps;
 
   return Effect.gen(function* () {
@@ -961,6 +965,8 @@ function runIteration(
           state.currentMessages[0],
           ...cleared.messages.slice(1),
         ] as typeof state.currentMessages;
+        const reclaimed =
+          before - runContextWindowManager.totalRequestTokens(state.currentMessages);
         yield* logContextRung(logger, {
           rung: "clear",
           agentId: agent.id,
@@ -971,6 +977,14 @@ function runIteration(
           messagesBefore: state.currentMessages.length,
           messagesAfter: state.currentMessages.length,
         });
+        if (!options.internal && !state.toolCompactionAnnounced && reclaimed > 0) {
+          state.toolCompactionAnnounced = true;
+          yield* observer.onToolResultsCompacted(
+            agent.name,
+            advisedClear?.answered ? compactPluginName : undefined,
+            reclaimed,
+          );
+        }
       }
       if (advisedClear?.answered && advisedClear.decisions.length > 0) {
         yield* logger.info("Compaction plugin tool-result decisions", {
@@ -1319,6 +1333,7 @@ export function executeAgentLoop(
           maxDurationMs,
           initialProviderAdvisory,
           reduceToolResults,
+          compactPluginName,
         } = runContext;
 
         const configService = yield* AgentConfigServiceTag;
@@ -1388,6 +1403,7 @@ export function executeAgentLoop(
           recentToolCalls: [],
           iterationsUsed: 0,
           contextPressureWarned: false,
+          toolCompactionAnnounced: false,
         };
         let finished = false;
         let interrupted = false;
@@ -1426,6 +1442,7 @@ export function executeAgentLoop(
           maxDurationMs,
           initialProviderAdvisory,
           reduceToolResults,
+          compactPluginName,
           modelMetadata,
           runRecursive,
           supportedAttachmentKinds,

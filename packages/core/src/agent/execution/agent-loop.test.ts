@@ -81,6 +81,7 @@ const mockPresentationService = {
   formatToolExecutionError: () => Effect.succeed("Tool failed"),
   presentAgentResponse: () => Effect.void,
   presentWarning: () => Effect.void,
+  presentStatus: () => Effect.void,
   renderMarkdown: (c: string) => Effect.succeed(c),
   signalToolExecutionStarted: () => Effect.void,
   requestApproval: () => Effect.succeed({ approved: true }),
@@ -155,6 +156,15 @@ function recordingObserver() {
       Effect.sync(() => void calls.push(`history-trimmed:${name}:${messagesRemoved}`)),
     onContextPressure: (name: string, percentUsed: number) =>
       Effect.sync(() => void calls.push(`context-pressure:${name}:${percentUsed}`)),
+    onToolResultsCompacted: (
+      name: string,
+      pluginName: string | undefined,
+      tokensReclaimed: number,
+    ) =>
+      Effect.sync(
+        () =>
+          void calls.push(`tool-compacted:${name}:${pluginName ?? "builtin"}:${tokensReclaimed}`),
+      ),
     onCompletion: (name: string) => Effect.sync(() => void calls.push(`completion:${name}`)),
   };
   return { observer, calls };

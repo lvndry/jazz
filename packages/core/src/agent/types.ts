@@ -378,6 +378,8 @@ export interface AgentRunContext {
    * leaving the deterministic clearer in charge.
    */
   readonly reduceToolResults?: ReduceToolResultsFn;
+  /** Display name of the plugin providing `compact.tools`, to credit it in the run's UI. */
+  readonly compactPluginName?: string;
   readonly runMetrics: ReturnType<typeof createAgentRunMetrics>;
   readonly provider: ProviderName;
   readonly model: string;
