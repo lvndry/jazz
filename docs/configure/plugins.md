@@ -4,14 +4,21 @@ description: "Install, inspect, trust, configure, enable, update, and remove opt
 
 # Plugins
 
-Jazz plugins are optional, pre-bundled JavaScript modules that extend the harness. A plugin may add
-an advisory hook (`route.skills`, which suggests a skill before the first model request) and/or
-contribute **model-callable tools** that appear in the agent's tool set. An advisory hook cannot
-authorize a tool, change approval policy, or act on the model's behalf; a contributed tool is a
-real tool and goes through the same approval and risk gating as any built-in.
+Jazz plugins are optional, pre-bundled JavaScript modules that extend the harness. A plugin may
+contribute any mix of capabilities:
+
+- **tools** — model-callable functions that join the agent's tool set;
+- **commands** — user-invoked `/name` slash commands;
+- **personas** — selectable agent personalities;
+- **skills** — loadable instruction documents;
+- an advisory **hook** (`route.skills`) that suggests a skill before the first model request.
+
+Tools and commands run code and are gated accordingly; personas and skills are inert declared data.
+An advisory hook cannot authorize a tool, change approval policy, or act on the model's behalf.
 
 Plugins are absent and disabled by default. A normal Jazz installation has no plugin network call,
-latency, prompt change, or credential requirement.
+latency, prompt change, or credential requirement. Everything a plugin adds is declared in its
+manifest — the reviewed, consented contract — and the module can never exceed what it declared.
 
 ## Trust means code execution
 
@@ -95,7 +102,37 @@ const plugin: JazzPluginModule = {
 export default plugin;
 ```
 
-`plugins/example-tool` in the repository is a complete, minimal example.
+`plugins/example-tool` in the repository is a complete, minimal example — it contributes one of
+each capability below.
+
+## Commands
+
+A plugin may contribute user-invoked slash commands. Each is declared in the manifest (name +
+description); the module registers a handler via `api.commands.register`. When a plugin is enabled,
+its commands are registered at chat startup and behave like the built-in dynamic commands: `/name`
+autocompletes (with a `(plugin)` badge), and running it invokes the handler, whose returned
+`message` becomes your next turn to the agent. Built-in, skill, and MCP-prompt commands win a name
+collision, so a plugin cannot shadow `/help`. A command that returns nothing is a quiet no-op.
+
+## Personas
+
+A plugin may contribute personas — pure manifest data (name, description, systemPrompt, optional
+tone/style), no handler or egress. An enabled plugin's personas appear alongside built-in and
+custom ones in the wizard, `/switch`, and `jazz persona list`, and an agent's `config.persona` may
+name one. A built-in or custom persona of the same name always wins.
+
+## Skills
+
+A plugin may contribute skills — inert instruction documents declared in the manifest (name,
+description, content). They appear in the skill index the model sees; the body is injected only
+when the model loads the skill, never automatically. A skill of the same name from any other source
+takes precedence. A plugin skill is instruction-trust surface (it can steer the model), not a
+capability grant — it cannot itself act or reach the network.
+
+## Global vs per-agent
+
+Tools attach to the agent whose run registers them. Personas and skills are treated as globally
+available once a plugin is enabled anywhere — there is no separate per-agent gating for inert data.
 
 ## Lifecycle
 
