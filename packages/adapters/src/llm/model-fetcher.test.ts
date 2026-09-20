@@ -861,6 +861,38 @@ describe("fetchLlamaCppServerModel", () => {
     });
   });
 
+  it("returns empty when vLLM requires auth and no API key is provided", async () => {
+    global.fetch = mock((url: string) => {
+      if (url.endsWith("/v1/models")) return Promise.resolve({ ok: false, status: 401 });
+      if (url.endsWith("/props")) return Promise.resolve({ ok: false, status: 401 });
+      return Promise.reject("Unknown URL");
+    }) as unknown as typeof fetch;
+
+    expect(await fetchLlamaCppServerModel("http://localhost:8090/v1")).toEqual({});
+  });
+
+  it("passes API key as Bearer token to authenticated vLLM", async () => {
+    global.fetch = mock((url: string, init?: RequestInit) => {
+      const authHeader = (init?.headers as Record<string, string>)?.["Authorization"];
+      if (authHeader !== "Bearer test-key") return Promise.resolve({ ok: false, status: 401 });
+      if (url.endsWith("/v1/models"))
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              data: [{ id: "qwen3.8-27b", max_model_len: 65536 }],
+            }),
+        });
+      if (url.endsWith("/props")) return Promise.resolve({ ok: false, status: 404 });
+      return Promise.reject("Unknown URL");
+    }) as unknown as typeof fetch;
+
+    expect(await fetchLlamaCppServerModel("http://localhost:8090/v1", "test-key")).toEqual({
+      modelId: "qwen3.8-27b",
+      contextWindow: 65536,
+    });
+  });
+
   it("returns only the context window when /v1/models is unreachable", async () => {
     global.fetch = mock((url: string) => {
       if (url.endsWith("/v1/models")) return Promise.resolve({ ok: false, status: 503 });

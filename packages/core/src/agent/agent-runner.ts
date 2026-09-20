@@ -149,16 +149,14 @@ function resolveSupportedAttachmentKinds(
  * missing) resolves to an empty result and the caller keeps the stored values — this must never
  * fail the run.
  */
-export function resolveLlamaCppServerModel(): Effect.Effect<
-  LlamaCppServerModel,
-  never,
-  LLMService
-> {
+export function resolveLlamaCppServerModel(
+  apiKey?: string,
+): Effect.Effect<LlamaCppServerModel, never, LLMService> {
   return Effect.gen(function* () {
     const llmService = yield* LLMServiceTag;
     const baseUrl = llmService.resolveLocalProviderBaseUrl("llamacpp", undefined);
     return yield* llmService
-      .fetchLlamaCppServerModel(baseUrl)
+      .fetchLlamaCppServerModel(baseUrl, apiKey)
       .pipe(Effect.catchAll(() => Effect.succeed<LlamaCppServerModel>({})));
   });
 }
@@ -255,7 +253,9 @@ function initializeAgentRun(
     // only a hint. Ask the server what it is actually serving; the resolved model and window then
     // flow into metrics, the footer, and context accounting. A pinned numCtx still wins later.
     const servedLlamaCppModel =
-      provider === "llamacpp" ? yield* resolveLlamaCppServerModel() : undefined;
+      provider === "llamacpp"
+        ? yield* resolveLlamaCppServerModel(appConfig.llm?.llamacpp?.api_key)
+        : undefined;
     const model = servedLlamaCppModel?.modelId ?? agent.config.llmModel;
     const serverContextWindow = servedLlamaCppModel?.contextWindow;
 
