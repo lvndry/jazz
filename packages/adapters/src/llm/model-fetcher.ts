@@ -435,6 +435,18 @@ const LIST_EXTRACTORS: Partial<Record<ProviderName, (data: unknown) => RawModelE
       // no fallback; models.dev or defaults
     }));
   },
+  orcarouter: (data: unknown) => {
+    const response = data as {
+      data: { id: string; name?: string; context_length?: number }[];
+    };
+    return (response.data ?? []).map((model) => ({
+      id: model.id,
+      displayName: model.name ?? model.id,
+      fallback: {
+        contextWindow: model.context_length ?? DEFAULT_CONTEXT_WINDOW,
+      },
+    }));
+  },
   togetherai: (data: unknown) => {
     const models = data as {
       id: string;

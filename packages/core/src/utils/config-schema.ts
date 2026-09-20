@@ -152,6 +152,7 @@ const llmShape = {
     .exactOptional(),
   openai: apiKeyOnly,
   openrouter: apiKeyOnly,
+  orcarouter: apiKeyOnly,
   togetherai: apiKeyOnly,
   xai: apiKeyOnly,
   zhipuai: apiKeyOnly,

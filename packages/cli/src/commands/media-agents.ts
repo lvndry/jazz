@@ -10,7 +10,7 @@
  * to create one with.
  */
 
-import { OPENROUTER_GATEWAY_MODELS } from "@jazz/core/constants/models";
+import { OPENROUTER_GATEWAY_MODELS, ORCAROUTER_GATEWAY_MODELS } from "@jazz/core/constants/models";
 import type { Agent } from "@jazz/core/types/agent";
 import { companionRole, type MediaModality } from "@jazz/core/types/llm";
 import { modelSupportsRole } from "@jazz/core/utils/model-capabilities";
@@ -100,7 +100,8 @@ export async function suggestModelsForModality(
       if (entry.status === "deprecated") continue;
       // A router advertises what it might reach. Recommending it for image generation would send
       // someone to a model that may or may not be able to do the thing they asked for.
-      if (OPENROUTER_GATEWAY_MODELS.has(entry.id)) continue;
+      if (OPENROUTER_GATEWAY_MODELS.has(entry.id) || ORCAROUTER_GATEWAY_MODELS.has(entry.id))
+        continue;
       if (!metadataGenerates(entry.metadata, modality)) continue;
       // Only models jazz will let you select: it must hold a conversation.
       if (!entry.inputModalities.includes("text") || !entry.outputModalities.includes("text")) {
