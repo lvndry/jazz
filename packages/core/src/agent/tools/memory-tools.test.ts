@@ -74,74 +74,72 @@ describe("manage_memory tool", () => {
     return { captured, fakeService };
   }
 
-  test("derives a fact's path from its subject so the caller cannot misfile it", async () => {
+  test("derives the path from the subject so the caller cannot misfile it", async () => {
     const { captured, fakeService } = captureCreate();
     const result = await runWithFakeMemoryService(
       fakeService as MemoryService,
       createManageMemoryTool().execute(
-        { command: "create", kind: "fact", subject: "Home timezone", file_text: "Paris" },
+        { command: "create", subject: "Home timezone", file_text: "Paris" },
         context,
       ),
     );
     expect(result.success).toBe(true);
-    expect(captured.args[1]).toBe("agent-1/facts/home-timezone.md");
-    expect(captured.args[3]).toMatchObject({
-      agentId: "agent-1",
-      entry: { subject: "home-timezone", origin: "user" },
-    });
+    expect(captured.args[1]).toBe("agent-1/always/home-timezone.md");
   });
 
-  test("files a preference with no workflow under _global", async () => {
+  test("stores an entry with no topic as in force on every task", async () => {
     const { captured, fakeService } = captureCreate();
     await runWithFakeMemoryService(
       fakeService as MemoryService,
       createManageMemoryTool().execute(
-        {
-          command: "create",
-          kind: "preference",
-          subject: "Rendered output opening",
-          file_text: "auto-open renders",
-        },
+        { command: "create", subject: "Rendered output opening", file_text: "auto-open" },
         context,
       ),
     );
-    expect(captured.args[1]).toBe("agent-1/preferences/_global/rendered-output-opening.md");
+    expect(captured.args[1]).toBe("agent-1/always/rendered-output-opening.md");
   });
 
-  test("files a workflow-scoped preference under its workflow, not a directory", async () => {
+  test("stores a topic entry under that topic rather than a directory", async () => {
     const { captured, fakeService } = captureCreate();
     await runWithFakeMemoryService(
       fakeService as MemoryService,
       createManageMemoryTool().execute(
         {
           command: "create",
-          kind: "preference",
           subject: "Artboard scaling",
-          workflow: "Mood Board",
+          topic: "Mood Board",
           file_text: "artboards auto-scale",
         },
         context,
       ),
     );
-    expect(captured.args[1]).toBe("agent-1/preferences/mood-board/artboard-scaling.md");
+    expect(captured.args[1]).toBe("agent-1/when/mood-board/artboard-scaling.md");
   });
 
-  test("records a lesson's trigger so the loop can score it later", async () => {
+  test("refuses a subject that would write a hidden file", async () => {
+    const { fakeService } = captureCreate();
+    const result = await runWithFakeMemoryService(
+      fakeService as MemoryService,
+      createManageMemoryTool().execute(
+        { command: "create", subject: "\u65e5\u672c\u8a9e", file_text: "x" },
+        context,
+      ),
+    );
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("Latin letters");
+  });
+
+  test("records the failure an entry guards against", async () => {
     const { captured, fakeService } = captureCreate();
     await runWithFakeMemoryService(
       fakeService as MemoryService,
       createManageMemoryTool().execute(
         {
           command: "create",
-          kind: "lesson",
           subject: "Edit pattern complexity",
-          workflow: "editing",
-          failure: {
-            kind: "misfire",
-            tool_name: "edit_file",
-            error_class: "pattern too complex",
-          },
-          file_text: "prefer a literal snippet over a broad pattern",
+          topic: "editing",
+          failure: { kind: "misfire", tool_name: "edit_file", error_class: "pattern too complex" },
+          file_text: "prefer a literal snippet",
         },
         context,
       ),
@@ -153,43 +151,12 @@ describe("manage_memory tool", () => {
     });
   });
 
-  test("rejects a lesson with no failure, which could never be validated", async () => {
-    const { fakeService } = captureCreate();
-    const result = await runWithFakeMemoryService(
-      fakeService as MemoryService,
-      createManageMemoryTool().execute(
-        { command: "create", kind: "lesson", subject: "Something", file_text: "x" },
-        context,
-      ),
-    );
-    expect(result.success).toBe(false);
-    expect(result.error).toContain("failure");
-  });
-
-  test("accepts a lesson that names its trigger", async () => {
-    const { fakeService } = captureCreate();
-    const result = await runWithFakeMemoryService(
-      fakeService as MemoryService,
-      createManageMemoryTool().execute(
-        {
-          command: "create",
-          kind: "lesson",
-          subject: "Something",
-          file_text: "x",
-          failure: { kind: "correction", corrected_behavior: "do it differently" },
-        },
-        context,
-      ),
-    );
-    expect(result.success).toBe(true);
-  });
-
   test("marks an entry written by the extraction pass as auto rather than user-stated", async () => {
     const { captured, fakeService } = captureCreate();
     await runWithFakeMemoryService(
       fakeService as MemoryService,
       createManageMemoryTool().execute(
-        { command: "create", kind: "fact", subject: "Timezone", file_text: "Paris" },
+        { command: "create", subject: "Timezone", file_text: "Paris" },
         { ...context, agentId: "memory-extractor" },
       ),
     );

@@ -15,10 +15,11 @@
  * external content has entered the run, which is why everything stored is
  * first-hand by construction.
  *
- * What an entry *is* — its kind and workflow — lives in its path, and this
- * sidecar is keyed by that path, so the recall index reads both straight off
- * the key. Only what a path cannot express is stored here: the entry's subject,
- * the failure a lesson guards against, and how well it has served.
+ * Nothing here is load-bearing for recall. Recall reads the tree, so an entry
+ * found or missing on disk behaves the same whether or not this file knows
+ * about it, and a sidecar that is lost or corrupt costs history rather than
+ * memory. Only what the files cannot express lives here: who wrote an entry,
+ * the failure it guards against, and how well it has served.
  */
 
 /**
@@ -87,12 +88,6 @@ export interface MemoryFileProvenance {
   readonly writtenBy: readonly string[];
 
   /**
-   * Slug of what this entry is *about*. Facts and preferences are
-   * single-entry-per-subject, so this is what makes a repeat write resolve to
-   * the existing entry instead of adding a near-duplicate beside it.
-   */
-  readonly subject?: string;
-  /**
    * First non-empty line of the entry, derived by the store on every write.
    * Entries are one thought each, so the opening line is the whole point of the
    * entry — it is the text the recall index ranks on, and keeping it derived
@@ -115,14 +110,12 @@ export interface MemoryFileProvenance {
 /**
  * Entry facts supplied by the caller on a write.
  *
- * Deliberately excludes kind and workflow: both are encoded in the entry's
- * path, and the sidecar is keyed by that path, so anything reading the index
- * can parse them for free. Storing a second copy would only create a way for
- * the two to disagree after a rename. `summary` is likewise absent — the store
- * derives it from the file so it cannot drift from what the file says.
+ * Deliberately excludes anything the path or the file already says. Where an
+ * entry applies is its directory, what it says is its first line, and both are
+ * read from disk — a second copy here would only be a way for the two to
+ * disagree.
  */
 export interface MemoryEntryMetadata {
-  readonly subject: string;
   readonly failure?: MemoryFailureSignature;
   readonly origin?: MemoryEntryOrigin;
 }

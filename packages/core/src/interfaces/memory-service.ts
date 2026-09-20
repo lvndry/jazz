@@ -8,7 +8,16 @@
 import { FileSystem } from "@effect/platform";
 import { Context, Effect } from "effect";
 import type { MemoryEntryMetadata, MemoryFileProvenance } from "./memory-provenance";
-import type { MemoryIndexEntry } from "../memory/recall";
+
+/** An entry the current turn should act on. */
+export interface MemoryEntryInForce {
+  /** Scope-qualified path, as the memory tools address it. */
+  readonly path: string;
+  /** `undefined` means the entry is in force on every task. */
+  readonly topic: string | undefined;
+  /** First non-empty line: entries are one thought each, so this is the point. */
+  readonly summary: string;
+}
 
 export interface MemoryDirectoryEntry {
   readonly name: string;
@@ -88,15 +97,28 @@ export interface MemoryService {
   ) => Effect.Effect<MemoryViewOutcome, Error, FileSystem.FileSystem>;
 
   /**
-   * Every typed entry across the accessible scopes, for deciding what a turn
-   * should be shown.
+   * Topics the accessible scopes hold entries for.
    *
-   * Built from the per-scope sidecars, which are already keyed by entry path,
-   * so this costs one small read per scope rather than a walk of the tree.
+   * One directory listing per scope — no file is opened, because deciding
+   * which topics a request is about needs only their names.
    */
-  readonly index: (
+  readonly topics: (
     scopes: readonly string[],
-  ) => Effect.Effect<readonly MemoryIndexEntry[], Error, FileSystem.FileSystem>;
+  ) => Effect.Effect<readonly string[], Error, FileSystem.FileSystem>;
+
+  /**
+   * The entries in force for a turn: everything under `always`, plus everything
+   * under each active topic.
+   *
+   * Only those directories are read, so the cost tracks how much is relevant
+   * rather than how much has ever been remembered. The tree is the only source
+   * consulted, so an entry a person created or deleted by hand behaves exactly
+   * like one the tool wrote.
+   */
+  readonly inForce: (
+    scopes: readonly string[],
+    topics: readonly string[],
+  ) => Effect.Effect<readonly MemoryEntryInForce[], Error, FileSystem.FileSystem>;
 
   readonly create: (
     scopes: readonly string[],

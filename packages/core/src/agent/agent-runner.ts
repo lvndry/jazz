@@ -34,7 +34,7 @@ import {
   type ToolRegistry,
   type ToolRequirements,
 } from "@/core/interfaces/tool-registry";
-import { selectRecall } from "@/core/memory/recall";
+import { activeTopics, matchTopics } from "@/core/memory/topics";
 import { resolveDisplayConfig } from "@/core/presentation/display-config";
 import { SkillServiceTag, type SkillService } from "@/core/skills/skill-service";
 import type { AttachmentKind } from "@/core/types/attachment";
@@ -109,19 +109,29 @@ function resolveActivePreferences(
   return Effect.gen(function* () {
     const memoryServiceOption = yield* Effect.serviceOption(MemoryServiceTag);
     if (Option.isNone(memoryServiceOption)) {
-      yield* logger.debug("No memory service in context; skipping preference injection");
+      yield* logger.debug("No memory service in context; skipping memory injection");
       return [];
     }
+    const memoryService = memoryServiceOption.value;
 
-    return yield* memoryServiceOption.value.index(memoryScopes).pipe(
-      Effect.map((entries) =>
-        selectRecall({ entries, requestText }).preferences.flatMap((entry) =>
-          entry.summary === undefined ? [] : [{ summary: entry.summary }],
-        ),
-      ),
+    return yield* Effect.gen(function* () {
+      const topics = yield* memoryService.topics(memoryScopes);
+      const matches = matchTopics(requestText, topics);
+      const active = activeTopics(matches);
+
+      // Every topic and why it did or did not fire: a topic that should have
+      // matched and did not is the one way this disappoints invisibly.
+      yield* logger.debug("Resolved memory topics", {
+        active,
+        considered: matches.map((match) => `${match.topic}:${match.reason}`),
+      });
+
+      const entries = yield* memoryService.inForce(memoryScopes, active);
+      return entries.map((entry) => ({ summary: entry.summary }));
+    }).pipe(
       Effect.catchAll((error) =>
         logger
-          .warn("Failed to read memory index; running without preferences", {
+          .warn("Failed to read memory; running without it", {
             scopes: memoryScopes,
             error: error instanceof Error ? error.message : String(error),
           })

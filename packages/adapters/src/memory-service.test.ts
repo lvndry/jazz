@@ -175,216 +175,6 @@ describe("create", () => {
   });
 });
 
-describe("sidecar resilience", () => {
-  function sidecarPath() {
-    return path.join(tmpDir, "agent-1", ".provenance.json");
-  }
-
-  test("a corrupt sidecar does not take down a read", async () => {
-    const service = makeService();
-    await runEffect(service.create(scopes, "agent-1/facts/a.md", "x", writeContext));
-    fs.writeFileSync(sidecarPath(), "{not json");
-    const index = await runEffect(service.index(scopes));
-    expect(index).toEqual([]);
-  });
-
-  test("a corrupt sidecar is quarantined rather than overwritten by the next write", async () => {
-    const service = makeService();
-    await runEffect(service.create(scopes, "agent-1/facts/a.md", "x", writeContext));
-    fs.writeFileSync(sidecarPath(), "{not json");
-
-    await runEffect(service.create(scopes, "agent-1/facts/b.md", "y", writeContext));
-
-    const quarantined = fs
-      .readdirSync(path.join(tmpDir, "agent-1"))
-      .filter((name) => name.includes(".corrupt-"));
-    expect(quarantined).toHaveLength(1);
-    expect(fs.readFileSync(path.join(tmpDir, "agent-1", quarantined[0] as string), "utf8")).toBe(
-      "{not json",
-    );
-  });
-
-  test("a record with a malformed field does not throw on the next write", async () => {
-    const service = makeService();
-    await runEffect(service.create(scopes, "agent-1/facts/a.md", "x", writeContext));
-    fs.writeFileSync(
-      sidecarPath(),
-      JSON.stringify({ files: { "facts/a.md": { writtenBy: "not-an-array", summary: 42 } } }),
-    );
-
-    const outcome = await runEffect(
-      service.strReplace(scopes, "agent-1/facts/a.md", "x", "z", writeContext),
-    );
-    expect(outcome.success).toBe(true);
-  });
-
-  test("a malformed summary never reaches the index as a non-string", async () => {
-    const service = makeService();
-    await runEffect(service.create(scopes, "agent-1/preferences/_global/a.md", "x", writeContext));
-    fs.writeFileSync(
-      sidecarPath(),
-      JSON.stringify({ files: { "preferences/_global/a.md": { summary: { nested: true } } } }),
-    );
-    const index = await runEffect(service.index(scopes));
-    expect(index[0]?.summary).toBeUndefined();
-  });
-});
-
-describe("provenance follows the tree", () => {
-  test("deleting a directory forgets the records beneath it", async () => {
-    const service = makeService();
-    await runEffect(
-      service.create(scopes, "agent-1/preferences/moodboard/a.md", "scale it", writeContext),
-    );
-    expect(await runEffect(service.index(scopes))).toHaveLength(1);
-
-    await runEffect(service.delete(scopes, "agent-1/preferences/moodboard"));
-
-    expect(await runEffect(service.index(scopes))).toEqual([]);
-  });
-
-  test("renaming a directory re-keys the records beneath it", async () => {
-    const service = makeService();
-    await runEffect(
-      service.create(scopes, "agent-1/preferences/moodboard/a.md", "scale it", writeContext),
-    );
-    await runEffect(
-      service.rename(
-        scopes,
-        "agent-1/preferences/moodboard",
-        "agent-1/preferences/slides",
-        writeContext,
-      ),
-    );
-
-    const index = await runEffect(service.index(scopes));
-    expect(index.map((entry) => [entry.path, entry.workflow])).toEqual([
-      ["agent-1/preferences/slides/a.md", "slides"],
-    ]);
-  });
-});
-
-describe("single entry per subject", () => {
-  const preferenceEntry = (subject: string) => ({ agentId: "agent-1", entry: { subject } });
-
-  test("refuses a second preference on a subject already recorded", async () => {
-    const service = makeService();
-    await runEffect(
-      service.create(
-        scopes,
-        "agent-1/preferences/_global/auto-open.md",
-        "auto-open renders",
-        preferenceEntry("rendered-output-opening"),
-      ),
-    );
-    const outcome = await runEffect(
-      service.create(
-        scopes,
-        "agent-1/preferences/_global/open-the-render.md",
-        "open renders when done",
-        preferenceEntry("rendered-output-opening"),
-      ),
-    );
-    expect(outcome.success).toBe(false);
-    expect(outcome.message).toContain("already recorded");
-    expect(outcome.message).toContain("auto-open.md");
-  });
-
-  test("returns the existing content so the caller can amend it", async () => {
-    const service = makeService();
-    await runEffect(
-      service.create(
-        scopes,
-        "agent-1/preferences/_global/auto-open.md",
-        "auto-open renders when a task finishes",
-        preferenceEntry("rendered-output-opening"),
-      ),
-    );
-    const outcome = await runEffect(
-      service.create(
-        scopes,
-        "agent-1/preferences/_global/other.md",
-        "x",
-        preferenceEntry("rendered-output-opening"),
-      ),
-    );
-    expect(outcome.message).toContain("auto-open renders when a task finishes");
-    expect(outcome.message).toContain("str_replace");
-  });
-
-  test("collides across workflows, since the subject is what is unique", async () => {
-    const service = makeService();
-    await runEffect(
-      service.create(
-        scopes,
-        "agent-1/preferences/_global/auto-open.md",
-        "auto-open renders",
-        preferenceEntry("rendered-output-opening"),
-      ),
-    );
-    const outcome = await runEffect(
-      service.create(
-        scopes,
-        "agent-1/preferences/moodboard/auto-open.md",
-        "auto-open moodboards",
-        preferenceEntry("rendered-output-opening"),
-      ),
-    );
-    expect(outcome.success).toBe(false);
-  });
-
-  test("allows the same subject under a different kind", async () => {
-    const service = makeService();
-    await runEffect(
-      service.create(
-        scopes,
-        "agent-1/preferences/_global/auto-open.md",
-        "auto-open renders",
-        preferenceEntry("rendered-output-opening"),
-      ),
-    );
-    const outcome = await runEffect(
-      service.create(
-        scopes,
-        "agent-1/facts/auto-open.md",
-        "renders are produced by the moodboard tool",
-        preferenceEntry("rendered-output-opening"),
-      ),
-    );
-    expect(outcome.success).toBe(true);
-  });
-
-  test("allows two lessons on one subject, which may guard different situations", async () => {
-    const service = makeService();
-    await runEffect(
-      service.create(
-        scopes,
-        "agent-1/lessons/moodboard/scaling.md",
-        "scale artboards",
-        preferenceEntry("artboard-scaling"),
-      ),
-    );
-    const outcome = await runEffect(
-      service.create(
-        scopes,
-        "agent-1/lessons/slides/scaling.md",
-        "scale slides differently",
-        preferenceEntry("artboard-scaling"),
-      ),
-    );
-    expect(outcome.success).toBe(true);
-  });
-
-  test("does not constrain untyped legacy entries", async () => {
-    const service = makeService();
-    await runEffect(service.create(scopes, "agent-1/notes.md", "a", preferenceEntry("thing")));
-    const outcome = await runEffect(
-      service.create(scopes, "agent-1/other.md", "b", preferenceEntry("thing")),
-    );
-    expect(outcome.success).toBe(true);
-  });
-});
-
 describe("str_replace", () => {
   test("replaces a unique match", async () => {
     const service = makeService();
@@ -686,22 +476,19 @@ describe("provenance", () => {
     expect(edited?.createdAt).toBe(created?.createdAt);
   });
 
-  test("records the subject and trigger supplied on create", async () => {
+  test("records the origin and failure supplied on create", async () => {
     const service = makeService();
+    const entryPath = "agent-1/when/moodboard/artboard.md";
     await runEffect(
-      service.create(scopes, "agent-1/lessons/moodboard/artboard.md", "artboards autoscale", {
+      service.create(scopes, entryPath, "artboards autoscale", {
         agentId: "agent-1",
         entry: {
-          subject: "artboard-scaling",
           origin: "auto",
           failure: { kind: "correction", correctedBehavior: "auto-scale the artboard" },
         },
       }),
     );
-    const provenance = await runEffect(
-      service.provenance(scopes, "agent-1/lessons/moodboard/artboard.md"),
-    );
-    expect(provenance?.subject).toBe("artboard-scaling");
+    const provenance = await runEffect(service.provenance(scopes, entryPath));
     expect(provenance?.origin).toBe("auto");
     expect(provenance?.failure).toEqual({
       kind: "correction",
@@ -709,14 +496,14 @@ describe("provenance", () => {
     });
   });
 
-  test("carries subject, failure, and credit through a later edit that supplies none", async () => {
+  test("carries origin and failure through a later edit that supplies neither", async () => {
     const service = makeService();
-    const entryPath = "agent-1/lessons/moodboard/artboard.md";
+    const entryPath = "agent-1/when/moodboard/artboard.md";
     await runEffect(
       service.create(scopes, entryPath, "artboards autoscale", {
         agentId: "agent-1",
         entry: {
-          subject: "artboard-scaling",
+          origin: "auto",
           failure: { kind: "misfire", toolName: "edit_file", errorClass: "pattern too complex" },
         },
       }),
@@ -727,7 +514,7 @@ describe("provenance", () => {
       }),
     );
     const provenance = await runEffect(service.provenance(scopes, entryPath));
-    expect(provenance?.subject).toBe("artboard-scaling");
+    expect(provenance?.origin).toBe("auto");
     expect(provenance?.failure).toEqual({
       kind: "misfire",
       toolName: "edit_file",
@@ -736,49 +523,23 @@ describe("provenance", () => {
     expect(provenance?.writeCount).toBe(2);
   });
 
-  test("derives the summary from the entry's first line and refreshes it on edit", async () => {
+  test("keeps an entry's history when it moves to another topic", async () => {
     const service = makeService();
     await runEffect(
-      service.create(scopes, "agent-1/facts/tz.md", "# Timezone\n\nUser is in Paris", writeContext),
-    );
-    expect((await runEffect(service.provenance(scopes, "agent-1/facts/tz.md")))?.summary).toBe(
-      "Timezone",
-    );
-
-    await runEffect(
-      service.strReplace(
-        scopes,
-        "agent-1/facts/tz.md",
-        "# Timezone",
-        "# Home timezone",
-        writeContext,
-      ),
-    );
-    expect((await runEffect(service.provenance(scopes, "agent-1/facts/tz.md")))?.summary).toBe(
-      "Home timezone",
-    );
-  });
-
-  test("keeps subject and trigger when an entry is renamed to another workflow", async () => {
-    const service = makeService();
-    await runEffect(
-      service.create(scopes, "agent-1/lessons/moodboard/artboard.md", "autoscale", {
+      service.create(scopes, "agent-1/when/moodboard/artboard.md", "autoscale", {
         agentId: "agent-1",
-        entry: { subject: "artboard-scaling", origin: "auto" },
+        entry: { origin: "auto" },
       }),
     );
     await runEffect(
       service.rename(
         scopes,
-        "agent-1/lessons/moodboard/artboard.md",
-        "agent-1/lessons/_global/artboard.md",
+        "agent-1/when/moodboard/artboard.md",
+        "agent-1/always/artboard.md",
         writeContext,
       ),
     );
-    const provenance = await runEffect(
-      service.provenance(scopes, "agent-1/lessons/_global/artboard.md"),
-    );
-    expect(provenance?.subject).toBe("artboard-scaling");
+    const provenance = await runEffect(service.provenance(scopes, "agent-1/always/artboard.md"));
     expect(provenance?.origin).toBe("auto");
   });
 

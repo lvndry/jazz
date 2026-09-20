@@ -16,12 +16,7 @@ import type {
 } from "@/core/interfaces/memory-service";
 import { MemoryServiceTag } from "@/core/interfaces/memory-service";
 import type { Tool } from "@/core/interfaces/tool-registry";
-import {
-  MEMORY_ENTRY_KINDS,
-  buildMemoryEntryPath,
-  describeUnusableSubject,
-  slugifyMemorySegment,
-} from "@/core/memory/entry-path";
+import { buildMemoryEntryPath, describeUnusableSubject } from "@/core/memory/entry-path";
 import type { ToolExecutionResult } from "@/core/types/tools";
 import { defineTool, makeZodValidator } from "./base-tool";
 
@@ -165,26 +160,19 @@ const memoryFailureParameter = z
 
 const createMemoryParameters = z.object({
   command: z.literal("create"),
-  kind: z
-    .enum(MEMORY_ENTRY_KINDS)
-    .describe(
-      "preference = how they want things done; fact = stable about them; lesson = a failure and its fix.",
-    ),
   subject: z
     .string()
     .min(1)
     .describe(
-      'What the entry is about, in a few words (e.g. "rendered output opening"). Facts and ' +
-        "preferences hold one entry per subject: reusing a subject is refused and you are shown " +
-        "the existing entry to amend instead.",
+      'What this is about, in a few words (e.g. "rendered output opening"). One entry per ' +
+        "subject: reusing one is refused and you are shown the existing entry to amend.",
     ),
-  workflow: z
+  topic: z
     .string()
     .optional()
     .describe(
-      'The kind of work this applies to (e.g. "moodboard"), for preferences and lessons. Omit ' +
-        "when it applies to every task. Workflows are not tied to a folder — the entry is " +
-        "recalled wherever that kind of work happens.",
+      'The kind of work this applies to (e.g. "moodboard"). Omit when it applies to every task. ' +
+        "A topic is not a folder — the entry comes back wherever that work happens.",
     ),
   scope: z
     .string()
@@ -193,7 +181,7 @@ const createMemoryParameters = z.object({
   failure: memoryFailureParameter.optional(),
   file_text: z
     .string()
-    .describe("The entry itself. Keep it to one thought; the first line is used as its summary."),
+    .describe("The entry itself. Keep it to one thought; the first line is the point."),
 });
 
 /** Maps the tool's snake_case failure shape onto the stored one. */
@@ -258,17 +246,7 @@ const manageMemoryCommands = z.discriminatedUnion("command", [
  * on the create branch because a `superRefine` produces a ZodEffects, which a
  * discriminated union cannot hold as a member.
  */
-const manageMemoryParameters = manageMemoryCommands.superRefine((value, ctx) => {
-  if (value.command === "create" && value.kind === "lesson" && value.failure === undefined) {
-    ctx.addIssue({
-      code: "custom",
-      path: ["failure"],
-      message:
-        "A lesson must name the failure it prevents, so it can be checked " +
-        "against what actually happens later.",
-    });
-  }
-});
+const manageMemoryParameters = manageMemoryCommands;
 
 type ManageMemoryArgs = z.infer<typeof manageMemoryParameters>;
 
@@ -276,19 +254,16 @@ export function createManageMemoryTool(): Tool<MemoryToolDeps> {
   return defineTool<MemoryToolDeps, ManageMemoryArgs>({
     name: "manage_memory",
     disclosure: "private",
-    summary:
-      "Remember durable user preferences, facts, corrections and lessons across conversations.",
+    summary: "Remember durable user preferences, facts and corrections across conversations.",
     description:
-      "Remember something durable about the user: a preference (how they want things done), a " +
-      "fact (stable about them or their world), or a lesson (a failure and its fix). No secrets.\n" +
+      "Remember something durable about the user — how they want things done, something stable " +
+      "about them, or a correction they gave you. No secrets.\n" +
       'Write facts, not commands: "prefers concise replies", not "always reply concisely" — a ' +
       "later session re-reads a command as an order.\n" +
-      "One entry per subject for facts and preferences: reusing a subject is refused and shows " +
-      "you the entry to amend.\n" +
-      "create(kind, subject, file_text) picks the path. workflow scopes it to a kind of work, " +
-      "recalled wherever that work happens rather than per folder; omit when it always applies. " +
-      "A lesson must name the failure it prevents. str_replace / insert / delete / rename take " +
-      "an entry's path.",
+      "One entry per subject: reusing one is refused and shows you the entry to amend.\n" +
+      "create(subject, file_text) picks the path. Add topic to scope it to a kind of work, " +
+      "which brings it back wherever that work happens rather than per folder; omit it when it " +
+      "always applies. str_replace / insert / delete / rename take an entry's path.",
     parameters: manageMemoryParameters,
     riskLevel: "low-risk",
     hidden: false,
@@ -309,14 +284,12 @@ export function createManageMemoryTool(): Tool<MemoryToolDeps> {
               const scope = args.scope ?? scopes[0] ?? context.agentId;
               const targetPath = buildMemoryEntryPath({
                 scope,
-                kind: args.kind,
                 subject: args.subject,
-                ...(args.workflow !== undefined ? { workflow: args.workflow } : {}),
+                ...(args.topic !== undefined ? { topic: args.topic } : {}),
               });
               return memoryService.create(scopes, targetPath, args.file_text, {
                 ...writeContext,
                 entry: {
-                  subject: slugifyMemorySegment(args.subject),
                   origin:
                     context.agentId === MEMORY_EXTRACTOR_AGENT_ID
                       ? ("auto" as const)

@@ -30,17 +30,14 @@ import {
 } from "@jazz/core/interfaces/memory-provenance";
 import type {
   MemoryDirectoryEntry,
+  MemoryEntryInForce,
   MemoryMutationOutcome,
   MemoryService,
   MemoryViewOutcome,
   MemoryWriteContext,
 } from "@jazz/core/interfaces/memory-service";
 import { MemoryServiceTag } from "@jazz/core/interfaces/memory-service";
-import {
-  isSingleEntryPerSubjectKind,
-  parseMemoryEntryRelativePath,
-} from "@jazz/core/memory/entry-path";
-import { buildMemoryIndex, type MemoryIndexEntry } from "@jazz/core/memory/recall";
+import { ALWAYS_SEGMENT, WHEN_SEGMENT } from "@jazz/core/memory/entry-path";
 import { getMemoryDirectory } from "@jazz/core/utils/paths";
 import {
   abbreviateHomePath,
@@ -334,7 +331,7 @@ function writeScopeProvenance(
  * the caller is what keeps the index text honest across every mutation —
  * `str_replace` and `insert` change the content too, not just `create`.
  */
-function deriveEntrySummary(
+function readEntrySummary(
   fs: FileSystem.FileSystem,
   absolutePath: string,
 ): Effect.Effect<string | undefined, never> {
@@ -349,31 +346,6 @@ function deriveEntrySummary(
     }),
     Effect.catchAll(() => Effect.succeed(undefined)),
   );
-}
-
-/**
- * Finds an entry of the same kind already covering `subject`, if any.
- *
- * Facts and preferences hold one entry per subject. Recording a second one
- * beside the first is how a store fragments into near-duplicates that drift
- * apart, so a colliding create is refused and the caller is pointed at the
- * entry to amend instead. Lessons are exempt — two can guard against failures
- * in different situations while sharing a subject.
- */
-function findSubjectCollision(
-  provenance: MemoryScopeProvenance,
-  relativePath: string,
-  subject: string,
-): string | undefined {
-  const target = parseMemoryEntryRelativePath(relativePath);
-  if (target === undefined || !isSingleEntryPerSubjectKind(target.kind)) return undefined;
-
-  for (const [candidatePath, record] of Object.entries(provenance.files)) {
-    if (candidatePath === relativePath) continue;
-    if (record.subject !== subject) continue;
-    if (parseMemoryEntryRelativePath(candidatePath)?.kind === target.kind) return candidatePath;
-  }
-  return undefined;
 }
 
 /**
@@ -398,7 +370,7 @@ function recordWrite(
       : [...(existing?.writtenBy ?? []), writeContext.agentId];
 
     const entry = writeContext.entry;
-    const summary = yield* deriveEntrySummary(fs, path.join(scopeRoot, relativePath));
+    const summary = yield* readEntrySummary(fs, path.join(scopeRoot, relativePath));
 
     const updated: MemoryFileProvenance = {
       ...(existing ?? {}),
@@ -409,7 +381,6 @@ function recordWrite(
       ...(summary !== undefined ? { summary } : {}),
       ...(entry !== undefined
         ? {
-            subject: entry.subject,
             ...(entry.failure !== undefined ? { failure: entry.failure } : {}),
             ...(entry.origin !== undefined ? { origin: entry.origin } : {}),
           }
@@ -743,17 +714,62 @@ export class MemoryServiceImpl implements MemoryService {
       }.bind(this),
     );
 
-  readonly index: MemoryService["index"] = (scopes) =>
+  readonly topics: MemoryService["topics"] = (scopes) =>
     Effect.gen(
       function* (this: MemoryServiceImpl) {
         const fs = yield* FileSystem.FileSystem;
-        const entries: MemoryIndexEntry[] = [];
+        const found = new Set<string>();
+
+        for (const scope of scopes) {
+          if (!isValidStorageKey(scope)) continue;
+          const whenRoot = path.join(this.baseMemoryDirectory, scope, WHEN_SEGMENT);
+          const names = yield* fs
+            .readDirectory(whenRoot)
+            .pipe(Effect.catchAll(() => Effect.succeed<string[]>([])));
+          for (const name of names) {
+            if (!name.startsWith(".")) found.add(name);
+          }
+        }
+
+        return [...found].sort();
+      }.bind(this),
+    );
+
+  readonly inForce: MemoryService["inForce"] = (scopes, topics) =>
+    Effect.gen(
+      function* (this: MemoryServiceImpl) {
+        const fs = yield* FileSystem.FileSystem;
+        const entries: MemoryEntryInForce[] = [];
 
         for (const scope of scopes) {
           if (!isValidStorageKey(scope)) continue;
           const scopeRoot = path.join(this.baseMemoryDirectory, scope);
-          const provenance = (yield* readScopeProvenance(fs, scopeRoot)).provenance;
-          entries.push(...buildMemoryIndex(scope, provenance.files));
+
+          const directories: { readonly relative: string; readonly topic: string | undefined }[] = [
+            { relative: ALWAYS_SEGMENT, topic: undefined },
+            ...topics.map((topic) => ({
+              relative: `${WHEN_SEGMENT}/${topic}`,
+              topic,
+            })),
+          ];
+
+          for (const directory of directories) {
+            const absolute = path.join(scopeRoot, directory.relative);
+            const names = yield* fs
+              .readDirectory(absolute)
+              .pipe(Effect.catchAll(() => Effect.succeed<string[]>([])));
+
+            for (const name of names.sort()) {
+              if (name.startsWith(".")) continue;
+              const summary = yield* readEntrySummary(fs, path.join(absolute, name));
+              if (summary === undefined) continue;
+              entries.push({
+                path: `${scope}/${directory.relative}/${name}`,
+                topic: directory.topic,
+                summary,
+              });
+            }
+          }
         }
 
         return entries;
@@ -802,35 +818,28 @@ export class MemoryServiceImpl implements MemoryService {
                 .exists(target)
                 .pipe(Effect.catchAll(() => Effect.succeed(false)));
               if (alreadyExists) {
+                // The filename is the entry's identity, so an existing file is
+                // the answer to "is this already recorded?". Returning what it
+                // says turns the refusal into something the caller can act on:
+                // amend the entry that exists rather than adding a second one
+                // beside it, which is how a store fragments into near-duplicates.
+                const existingText = yield* fs
+                  .readFileString(target)
+                  .pipe(Effect.catchAll(() => Effect.succeed("")));
                 return {
                   success: false,
-                  message: `Error: File ${abbreviateHomePath(target)} already exists`,
+                  message: [
+                    `Error: ${abbreviateHomePath(target)} already exists.`,
+                    "Amend it with str_replace rather than adding a second entry.",
+                    ...(existingText.length > 0
+                      ? [
+                          "",
+                          "Current content:",
+                          existingText.slice(0, MEMORY_SUMMARY_MAX_CHARS * 4),
+                        ]
+                      : []),
+                  ].join("\n"),
                 } satisfies MemoryMutationOutcome;
-              }
-
-              const declaredSubject = writeContext.entry?.subject;
-              if (declaredSubject !== undefined) {
-                const provenance = yield* readProvenanceForWrite(fs, root);
-                const collision = findSubjectCollision(
-                  provenance,
-                  path.relative(root, target),
-                  declaredSubject,
-                );
-                if (collision !== undefined) {
-                  const existingText = yield* fs
-                    .readFileString(path.join(root, collision))
-                    .pipe(Effect.catchAll(() => Effect.succeed("")));
-                  return {
-                    success: false,
-                    message: [
-                      `Error: "${declaredSubject}" is already recorded at ${scope}/${collision}.`,
-                      "Amend that entry with str_replace rather than adding a second one.",
-                      "",
-                      "Current content:",
-                      existingText.slice(0, MEMORY_SUMMARY_MAX_CHARS * 4),
-                    ].join("\n"),
-                  } satisfies MemoryMutationOutcome;
-                }
               }
 
               yield* this.requireScopeBudget(fs, root, {
