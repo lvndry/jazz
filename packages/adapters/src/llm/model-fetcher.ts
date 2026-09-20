@@ -184,7 +184,7 @@ type OllamaShowResponse = {
   capabilities?: string[];
 };
 
-type LlamaCppModelEntry = { id: string };
+type LlamaCppModelEntry = { id: string; max_model_len?: number };
 type LlamaCppModelsResponse = { data?: LlamaCppModelEntry[] };
 type LlamaCppPropsResponse = {
   default_generation_settings?: { n_ctx?: number };
@@ -222,7 +222,8 @@ async function fetchLlamaCppProps(baseUrl: string): Promise<LlamaCppPropsRespons
  * regardless of the `model` field a request carries, and that model can differ from
  * one run to the next. So rather than trusting the id stored on the agent, read the
  * live one from `/v1/models` (its first, and normally only, entry) and the real
- * context window from `/props` (`n_ctx`, the `-c` the server was started with).
+ * context window from `/props` (`n_ctx`, the `-c` the server was started with),
+ * falling back to `max_model_len` from the `/v1/models` response (vLLM).
  * Returns an empty object when the server is unreachable or answers nothing usable —
  * callers fall back to the stored values.
  */
@@ -238,10 +239,11 @@ export async function fetchLlamaCppServerModel(
       fetchLlamaCppProps(baseUrl),
     ]);
 
-    const modelId = modelsResponse.ok
-      ? ((await modelsResponse.json()) as LlamaCppModelsResponse).data?.[0]?.id
+    const firstModel = modelsResponse.ok
+      ? ((await modelsResponse.json()) as LlamaCppModelsResponse).data?.[0]
       : undefined;
-    const contextWindow = props?.default_generation_settings?.n_ctx;
+    const modelId = firstModel?.id;
+    const contextWindow = props?.default_generation_settings?.n_ctx ?? firstModel?.max_model_len;
 
     return {
       ...(typeof modelId === "string" && modelId.length > 0 ? { modelId } : {}),
