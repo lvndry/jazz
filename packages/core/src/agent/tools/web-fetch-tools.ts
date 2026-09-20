@@ -8,16 +8,24 @@ import { defineTool, makeZodValidator } from "./base-tool";
 
 const DEFAULT_MAX_CONTENT_LENGTH = 50_000;
 
-const SUPPORTED_CONTENT_TYPES = [
-  "text/html",
-  "text/plain",
+// Non-HTML bodies are returned as raw text, so the tool supports any textual type: every
+// `text/*` subtype, the common textual `application/*` types, and structured-syntax suffixes
+// (RFC 6839, e.g. `application/ld+json`, `application/rss+xml`). Binary types — PDFs, images,
+// archives, `application/octet-stream` — are intentionally rejected; use http_request for those.
+const TEXTUAL_APPLICATION_TYPES = [
   "application/json",
   "application/xml",
-  "text/xml",
+  "application/markdown",
+  "application/yaml",
+  "application/x-yaml",
+  "application/csv",
 ] as const;
 
-function isSupportedContentType(contentType: string): boolean {
-  return SUPPORTED_CONTENT_TYPES.some((type) => contentType.includes(type));
+export function isSupportedContentType(contentType: string): boolean {
+  const mediaType = contentType.split(";")[0]?.trim().toLowerCase() ?? "";
+  if (mediaType.startsWith("text/")) return true;
+  if (TEXTUAL_APPLICATION_TYPES.some((type) => type === mediaType)) return true;
+  return /^application\/[\w.-]+\+(json|xml|yaml)$/.test(mediaType);
 }
 
 const webFetchSchema = z
@@ -60,8 +68,8 @@ export function createWebFetchTool(): ReturnType<typeof defineTool<LoggerService
     // the path or query string, and the reply comes back for it to read.
     egress: true,
     description:
-      "Fetch a URL with HTTP GET and return its title and main content as markdown. HTML is passed through reader-mode extraction (via Defuddle) to strip navigation, ads, and other boilerplate — JavaScript is not run. PDFs and images are not supported. Allowed types: HTML, plain text, JSON, XML. " +
-      "Default 50000 characters (max 200000) per call; the full body is still downloaded and extracted first. If the result is truncated (see `truncated` and `total_length` in the response), call again with `offset` set to page through the rest. Redirects are followed. For APIs, custom headers, POST, or binary, use http_request. To find URLs, use web_search.",
+      "Fetch a URL over HTTP GET and return its title and main content as clean markdown, with navigation, ads, and boilerplate stripped. JavaScript is not run, so content that appears only after client-side rendering is not captured. " +
+      "Default 50000 characters (max 200000) per call; if the result is `truncated`, call again with `offset` to page through the rest (`total_length` reports the full size). Redirects are followed. For PDFs, images, other binary, APIs, custom headers, or POST, use http_request. To find URLs, use web_search.",
     tags: ["web", "fetch"],
     parameters: webFetchSchema,
     validate: makeZodValidator(webFetchSchema),
