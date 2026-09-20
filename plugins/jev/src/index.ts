@@ -41,13 +41,13 @@ const COMMAND_RISK_OPTIONS = ["read_only", "low_risk", "high_risk"] as const;
 
 // Compaction policy. A confident "keep" needs the top option to hold at least this much of the
 // distribution; below it the result is uncertain and resolved by size, biased toward keeping.
-const COMPACT_KEEP_CONFIDENCE = 0.55;
+export const COMPACT_KEEP_CONFIDENCE = 0.55;
 // A full drop needs "drop" to be the top choice AND this concentrated: dropping a still-needed
 // result is the costly, irreversible error, so it must clear a higher bar than keep/truncate.
-const COMPACT_STRONG_DROP = 0.7;
+export const COMPACT_STRONG_DROP = 0.7;
 // Results larger than this hold the tokens worth reclaiming, so an uncertain large one is
 // truncated to head+tail rather than kept whole; an uncertain small one is cheap to keep verbatim.
-const COMPACT_BIG_RESULT_CHARS = 1_500;
+export const COMPACT_BIG_RESULT_CHARS = 1_500;
 // One request per compaction pass; the host sends bounded batches, larger ones abstain and fall back.
 const MAX_COMPACT_CANDIDATES = 128;
 
@@ -439,7 +439,7 @@ function compactToolsRequest(input: CompactToolsInput): DecisionRequest | undefi
 }
 
 /** Asymmetric policy: default to keeping, drop only on a confident drop, truncate big-uncertain. */
-function compactAction(
+export function compactAction(
   outcome: DecisionOutcome | undefined,
   resultChars: number,
 ): CompactToolAction {

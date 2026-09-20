@@ -3,6 +3,8 @@
 import type {
   AdvisoryHookHandler,
   AdvisoryHookId,
+  CompactToolAction,
+  DecisionOutcome,
   DecisionProvider,
   JazzPluginModule,
   PolicyHookHandler,
@@ -10,7 +12,14 @@ import type {
   PluginHostApi,
 } from "@jazz/plugin-sdk";
 import { afterEach, describe, expect, it } from "bun:test";
-import plugin, { JEV_API_URL, JEV_MODEL } from "../src/index";
+import plugin, {
+  compactAction,
+  COMPACT_BIG_RESULT_CHARS,
+  COMPACT_KEEP_CONFIDENCE,
+  COMPACT_STRONG_DROP,
+  JEV_API_URL,
+  JEV_MODEL,
+} from "../src/index";
 
 const originalFetch = globalThis.fetch;
 
@@ -155,6 +164,123 @@ describe("Jev decision provider", () => {
       { signal: new AbortController().signal },
     );
     expect(result).toEqual({ status: "abstained", reason: "Jev did not answer compaction" });
+  });
+
+  describe("compactAction thresholds", () => {
+    const choice = (top: string, probabilities: Record<string, number>): DecisionOutcome => ({
+      status: "answered",
+      answer: {
+        kind: "choice",
+        choice: top,
+        probabilities: Object.entries(probabilities).map(([value, probability]) => ({
+          value,
+          probability,
+        })),
+      },
+    });
+
+    const small = 100;
+    const large = COMPACT_BIG_RESULT_CHARS + 1;
+
+    const cases: ReadonlyArray<{
+      readonly name: string;
+      readonly outcome: DecisionOutcome | undefined;
+      readonly chars: number;
+      readonly expected: CompactToolAction;
+    }> = [
+      {
+        name: "drops at exactly the strong-drop threshold",
+        outcome: choice("drop", { keep: 0.2, truncate: 0.1, drop: COMPACT_STRONG_DROP }),
+        chars: small,
+        expected: "drop",
+      },
+      {
+        name: "does not drop just below the threshold; truncates a large result",
+        outcome: choice("drop", { keep: 0.2, truncate: 0.11, drop: COMPACT_STRONG_DROP - 0.01 }),
+        chars: large,
+        expected: "truncate",
+      },
+      {
+        name: "does not drop just below the threshold; truncates even a small confident-ish drop",
+        outcome: choice("drop", { keep: 0.2, truncate: 0.11, drop: COMPACT_STRONG_DROP - 0.01 }),
+        chars: small,
+        expected: "truncate",
+      },
+      {
+        name: "keeps a weak, small drop (top probability below keep-confidence)",
+        outcome: choice("drop", { keep: 0.35, truncate: 0.25, drop: 0.4 }),
+        chars: small,
+        expected: "keep",
+      },
+      {
+        name: "truncates a weak, large drop",
+        outcome: choice("drop", { keep: 0.35, truncate: 0.25, drop: 0.4 }),
+        chars: large,
+        expected: "truncate",
+      },
+      {
+        name: "keeps at exactly keep-confidence, even when large",
+        outcome: choice("keep", { keep: COMPACT_KEEP_CONFIDENCE, truncate: 0.25, drop: 0.2 }),
+        chars: large,
+        expected: "keep",
+      },
+      {
+        name: "truncates a large keep just below keep-confidence",
+        outcome: choice("keep", {
+          keep: COMPACT_KEEP_CONFIDENCE - 0.01,
+          truncate: 0.27,
+          drop: 0.19,
+        }),
+        chars: large,
+        expected: "truncate",
+      },
+      {
+        name: "keeps a small keep just below keep-confidence",
+        outcome: choice("keep", {
+          keep: COMPACT_KEEP_CONFIDENCE - 0.01,
+          truncate: 0.27,
+          drop: 0.19,
+        }),
+        chars: small,
+        expected: "keep",
+      },
+      {
+        name: "truncates one char over the big-result boundary",
+        outcome: choice("truncate", { keep: 0.3, truncate: 0.5, drop: 0.2 }),
+        chars: COMPACT_BIG_RESULT_CHARS + 1,
+        expected: "truncate",
+      },
+      {
+        name: "keeps an uncertain result at exactly the big-result boundary",
+        outcome: choice("truncate", { keep: 0.3, truncate: 0.5, drop: 0.2 }),
+        chars: COMPACT_BIG_RESULT_CHARS,
+        expected: "keep",
+      },
+      {
+        name: "keeps on an abstained outcome",
+        outcome: { status: "abstained", reason: "unavailable" },
+        chars: large,
+        expected: "keep",
+      },
+      {
+        name: "keeps on a non-choice (probability) answer",
+        outcome: { status: "answered", answer: { kind: "probability", probability: 0.9 } },
+        chars: large,
+        expected: "keep",
+      },
+      {
+        name: "keeps on an undefined outcome",
+        outcome: undefined,
+        chars: large,
+        expected: "keep",
+      },
+    ];
+
+    for (const testCase of cases) {
+      it(testCase.name, () => {
+        expect(compactAction(testCase.outcome, testCase.chars)).toBe(testCase.expected);
+      });
+    }
   });
 
   it("maps Noul, Choice, and Score through the current System One schema", async () => {
