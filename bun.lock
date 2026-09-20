@@ -236,6 +236,13 @@
         "@jazz/core": "workspace:*",
       },
     },
+    "plugins/example-tool": {
+      "name": "@jazz-plugin/example-tool",
+      "version": "0.1.0",
+      "devDependencies": {
+        "@jazz/plugin-sdk": "workspace:*",
+      },
+    },
     "plugins/jev": {
       "name": "@jazz-plugin/jev",
       "version": "0.1.0",
@@ -538,6 +545,8 @@
     "@img/sharp-win32-ia32": ["@img/sharp-win32-ia32@0.35.4", "", { "os": "win32", "cpu": "ia32" }, "sha512-kqRsbaa5CS6KHlpxnN7WhE6vAAugXyZButpRdvDWetlv6Qv4N9WTcrWzF7tXfB9T7MsoadqdI8hmwLq6UlLvtw=="],
 
     "@img/sharp-win32-x64": ["@img/sharp-win32-x64@0.35.4", "", { "os": "win32", "cpu": "x64" }, "sha512-XtmnYhBcrORsJ4XJngyzr/EWP0hRZLAZRFaApdKuviyqF78+ylxh2y06ZmtULAMOnObJ3ucpN0AcwSWnMowTRg=="],
+
+    "@jazz-plugin/example-tool": ["@jazz-plugin/example-tool@workspace:plugins/example-tool"],
 
     "@jazz-plugin/jev": ["@jazz-plugin/jev@workspace:plugins/jev"],
 

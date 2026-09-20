@@ -22,6 +22,15 @@ import {
   type PolicyHookHandler,
   type PolicyHookId,
   type PluginSecretDeclaration,
+  type LifecycleEvent,
+  type LifecycleEventId,
+  type PluginCommandDeclaration,
+  type PluginCommandRegistration,
+  type PluginCommandResult,
+  type PluginLifecycleRegistration,
+  type PluginToolDeclaration,
+  type PluginToolRegistration,
+  type PluginToolResult,
   type SkillRouteOutcome,
 } from "@/core/types/plugin";
 import {
@@ -54,6 +63,25 @@ type RegisteredPolicyHook = {
   readonly pluginId: string;
   readonly handler: PolicyHookHandler<"classify.command-risk">;
 };
+
+type RegisteredTool = {
+  readonly pluginId: string;
+  readonly declaration: PluginToolDeclaration;
+  readonly handler: PluginToolRegistration["handler"];
+};
+
+type RegisteredCommand = {
+  readonly pluginId: string;
+  readonly declaration: PluginCommandDeclaration;
+  readonly handler: PluginCommandRegistration["handler"];
+};
+
+type RegisteredLifecycle = {
+  readonly pluginId: string;
+  readonly handler: PluginLifecycleRegistration["handler"];
+};
+
+const toolError = (message: string): PluginToolResult => ({ content: message, isError: true });
 
 const abstainedRoute = (reason: string): SkillRouteOutcome => ({ status: "abstained", reason });
 const abstainedPolicy = (reason: string): CommandRiskOutcome => ({ status: "abstained", reason });
@@ -104,6 +132,9 @@ export function createPluginSession(
       const hooks = new Map<AdvisoryHookId, RegisteredHook>();
       const policyHooks = new Map<PolicyHookId, RegisteredPolicyHook>();
       const pluginNameById = new Map<string, string>();
+      const tools = new Map<string, RegisteredTool>();
+      const commands = new Map<string, RegisteredCommand>();
+      const lifecycle = new Map<LifecycleEventId, RegisteredLifecycle[]>();
       const providers = new Set<string>();
       const disabledProviders = new Set<string>();
       let reservedCostUSD = 0;
@@ -152,6 +183,45 @@ export function createPluginSession(
                 throw new Error(`decision provider ${provider.id} already registered`);
               providers.add(provider.id);
               return createDecisionClient(provider);
+            },
+          },
+          tools: {
+            register: (registration) => {
+              const declaration = manifest.tools.find((tool) => tool.name === registration.name);
+              if (declaration === undefined)
+                throw new Error(`plugin did not declare tool ${registration.name}`);
+              if (tools.has(registration.name))
+                throw new Error(`tool ${registration.name} already has a handler in this run`);
+              tools.set(registration.name, {
+                pluginId: manifest.id,
+                declaration,
+                handler: registration.handler,
+              });
+            },
+          },
+          commands: {
+            register: (registration) => {
+              const declaration = manifest.commands.find(
+                (command) => command.name === registration.name,
+              );
+              if (declaration === undefined)
+                throw new Error(`plugin did not declare command ${registration.name}`);
+              if (commands.has(registration.name))
+                throw new Error(`command ${registration.name} already has a handler in this run`);
+              commands.set(registration.name, {
+                pluginId: manifest.id,
+                declaration,
+                handler: registration.handler,
+              });
+            },
+          },
+          lifecycle: {
+            register: (registration) => {
+              if (!manifest.lifecycleHooks.includes(registration.event))
+                throw new Error(`plugin did not declare lifecycle event ${registration.event}`);
+              const existing = lifecycle.get(registration.event) ?? [];
+              existing.push({ pluginId: manifest.id, handler: registration.handler });
+              lifecycle.set(registration.event, existing);
             },
           },
           secrets: {
@@ -205,19 +275,21 @@ export function createPluginSession(
                   provider.networkBacked === true &&
                   result.costUSD === undefined;
                 if (exceededBound || missingCappedCost) disabledProviders.add(provider.id);
-                recordDecisionUsage(options.metrics, {
-                  ...(result.usage && {
-                    inputTokens: result.usage.inputTokens,
-                    outputTokens: result.usage.outputTokens,
-                  }),
-                  durationMs: Date.now() - started,
-                  ...(result.costUSD !== undefined
-                    ? { costUSD: result.costUSD }
-                    : missingCappedCost && bound !== undefined
-                      ? { costUSD: bound }
-                      : {}),
-                  costUnknown: provider.networkBacked === true && result.costUSD === undefined,
-                });
+                if (options.metrics !== undefined) {
+                  recordDecisionUsage(options.metrics, {
+                    ...(result.usage && {
+                      inputTokens: result.usage.inputTokens,
+                      outputTokens: result.usage.outputTokens,
+                    }),
+                    durationMs: Date.now() - started,
+                    ...(result.costUSD !== undefined
+                      ? { costUSD: result.costUSD }
+                      : missingCappedCost && bound !== undefined
+                        ? { costUSD: bound }
+                        : {}),
+                    costUnknown: provider.networkBacked === true && result.costUSD === undefined,
+                  });
+                }
                 return exceededBound
                   ? abstainedBatch(
                       provider.id,
@@ -321,6 +393,60 @@ export function createPluginSession(
             pluginName: pluginNameById.get(registration.pluginId) ?? registration.pluginId,
           };
         },
+        listTools: () =>
+          [...tools.values()].map(({ pluginId, declaration }) => ({ ...declaration, pluginId })),
+        runTool: (name, args) =>
+          Effect.promise(async () => {
+            if (closed) return toolError("plugin session closed");
+            const registered = tools.get(name);
+            if (!registered) return toolError(`no plugin handler for tool ${name}`);
+            try {
+              return await deadline((signal) => registered.handler(args, { signal }), timeoutMs);
+            } catch (error) {
+              options.reportFailure?.(
+                registered.pluginId,
+                error instanceof Error ? error.message : String(error),
+              );
+              return toolError(`tool ${name} failed`);
+            }
+          }),
+        emitLifecycle: (event: LifecycleEvent) =>
+          Effect.promise(async () => {
+            if (closed) return;
+            const handlers = lifecycle.get(event.event) ?? [];
+            await Promise.allSettled(
+              handlers.map(async (registered) => {
+                try {
+                  await deadline((signal) => registered.handler(event, { signal }), timeoutMs);
+                } catch (error) {
+                  options.reportFailure?.(
+                    registered.pluginId,
+                    error instanceof Error ? error.message : String(error),
+                  );
+                }
+              }),
+            );
+          }),
+        listCommands: () =>
+          [...commands.values()].map(({ pluginId, declaration }) => ({ ...declaration, pluginId })),
+        runCommand: (name, args) =>
+          Effect.promise(async (): Promise<PluginCommandResult> => {
+            if (closed) return {};
+            const registered = commands.get(name);
+            if (!registered) return {};
+            try {
+              return await deadline(
+                (signal) => registered.handler({ args }, { signal }),
+                timeoutMs,
+              );
+            } catch (error) {
+              options.reportFailure?.(
+                registered.pluginId,
+                error instanceof Error ? error.message : String(error),
+              );
+              return {};
+            }
+          }),
         close: () =>
           Effect.promise(async () => {
             if (closed) return;
@@ -334,6 +460,9 @@ export function createPluginSession(
             );
             hooks.clear();
             policyHooks.clear();
+            tools.clear();
+            commands.clear();
+            lifecycle.clear();
             providers.clear();
             disabledProviders.clear();
           }),

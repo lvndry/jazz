@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "id": "com.jazz.plugins.example-tool",
+  "name": "Example tool",
+  "version": "0.1.0",
+  "hostApi": 1,
+  "entry": "src/index.ts",
+  "hooks": [],
+  "decisionProviders": [],
+  "tools": [
+    {
+      "name": "reverse_text",
+      "description": "Reverse the characters of the given text. A trivial, offline example tool.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "text": { "type": "string", "description": "The text to reverse." }
+        },
+        "required": ["text"],
+        "additionalProperties": false
+      },
+      "riskLevel": "read-only",
+      "egress": false
+    }
+  ],
+  "commands": [
+    {
+      "name": "greet",
+      "description": "Ask the agent to greet someone. Usage: /greet [name]"
+    }
+  ],
+  "personas": [
+    {
+      "name": "pirate",
+      "description": "Answers like a cheerful pirate.",
+      "systemPrompt": "You are a cheerful pirate. Answer helpfully, but pepper your replies with light nautical flair. Never let the theme get in the way of being correct and useful.",
+      "tone": "playful",
+      "style": "concise"
+    }
+  ],
+  "skills": [
+    {
+      "name": "haiku_writing",
+      "description": "How to write a proper 5-7-5 haiku.",
+      "content": "# Writing a haiku\n\nA haiku is three lines of 5, 7, and 5 syllables. Favor a concrete image and a seasonal or sensory reference. Avoid rhyme and abstraction; end on a small turn or observation."
+    }
+  ],
+  "lifecycleHooks": ["run-complete"],
+  "network": { "destinations": [] },
+  "dataSent": [],
+  "secrets": []
+}

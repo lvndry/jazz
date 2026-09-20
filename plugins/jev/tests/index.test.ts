@@ -72,6 +72,9 @@ function fakeHost(): {
         };
       },
     },
+    tools: { register: () => {} },
+    commands: { register: () => {} },
+    lifecycle: { register: () => {} },
     secrets: { get: async () => "test-key" },
   };
   return { api, providers, handlers, policyHandlers };

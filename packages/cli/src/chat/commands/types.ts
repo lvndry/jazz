@@ -39,6 +39,7 @@ export type CommandType =
   | "limit"
   | "runSkill"
   | "runMcpPrompt"
+  | "runPluginCommand"
   | "unknown";
 
 /**

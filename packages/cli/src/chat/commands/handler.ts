@@ -41,6 +41,7 @@ import {
 } from "@jazz/core/interfaces/mcp-server";
 import { MemoryServiceTag, type MemoryService } from "@jazz/core/interfaces/memory-service";
 import { PersonaServiceTag, type PersonaService } from "@jazz/core/interfaces/persona-service";
+import { PluginRuntimeServiceTag } from "@jazz/core/interfaces/plugin-runtime";
 import {
   PresentationServiceTag,
   type PresentationService,
@@ -210,6 +211,9 @@ export function handleSpecialCommand(
 
       case "runMcpPrompt":
         return yield* handleRunMcpPromptCommand(terminal, command.args);
+
+      case "runPluginCommand":
+        return yield* handlePluginCommand(context.agent.id, command.args);
 
       case "unknown":
         return yield* handleUnknownCommand(terminal, command.args);
@@ -1626,6 +1630,26 @@ function formatWorkflowDesc(w: WorkflowMetadata): string {
  * invocation to the agent via `resendMessage` so it loads and follows the skill
  * through its existing `load_skill` tool — the same path skills use elsewhere.
  */
+/**
+ * Run a plugin-contributed slash command. `args[0]` is the command name (mirrors the runSkill
+ * convention); the rest are its arguments. The plugin's message, if any, becomes the user's next
+ * turn. Fail-open: no plugin runtime, or any failure, yields a quiet no-op continuation.
+ */
+function handlePluginCommand(
+  agentId: string,
+  args: string[],
+): Effect.Effect<CommandResult, never, never> {
+  return Effect.gen(function* () {
+    const name = args[0] ?? "";
+    const runtimeOption = yield* Effect.serviceOption(PluginRuntimeServiceTag);
+    if (Option.isNone(runtimeOption)) return { shouldContinue: true };
+    const outcome = yield* runtimeOption.value.runAgentCommand(agentId, name, args.slice(1));
+    return outcome.message !== undefined && outcome.message.length > 0
+      ? { shouldContinue: true, resendMessage: outcome.message }
+      : { shouldContinue: true };
+  });
+}
+
 function handleRunSkillCommand(args: string[]): Effect.Effect<CommandResult, never, never> {
   return Effect.sync(() => {
     const skillName = args[0] ?? "";

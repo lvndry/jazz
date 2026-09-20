@@ -10,9 +10,19 @@ import { createPluginSession } from "@jazz/core/agent/plugins/plugin-session";
 import {
   PluginRuntimeServiceTag,
   type PluginRuntimeService,
+  type PluginSession,
   type PluginSessionOptions,
 } from "@jazz/core/interfaces/plugin-runtime";
-import { PluginRuntimeError } from "@jazz/core/types/plugin";
+import {
+  PluginRuntimeError,
+  type LifecycleEvent,
+  type PluginCommandInfo,
+  type PluginCommandResult,
+  type PluginPersonaInfo,
+  type PluginSkillInfo,
+  type PluginToolInfo,
+  type PluginToolResult,
+} from "@jazz/core/types/plugin";
 import { Effect, Layer } from "effect";
 import type { PluginModuleLoader } from "./module-loader";
 import type { PluginSecretStore } from "./secret-store";
@@ -25,6 +35,9 @@ export interface PluginRuntimeServiceOptions {
 
 export class PluginRuntimeServiceImpl implements PluginRuntimeService {
   constructor(private readonly options: PluginRuntimeServiceOptions) {}
+
+  /** Long-lived per-agent sessions for lifecycle dispatch, so frequent events don't reload code. */
+  private readonly lifecycleSessions = new Map<string, PluginSession>();
 
   openSession(run: PluginSessionOptions) {
     return Effect.tryPromise({
@@ -45,6 +58,90 @@ export class PluginRuntimeServiceImpl implements PluginRuntimeService {
             : { reportFailure: this.options.reportFailure }),
         }),
       ),
+    );
+  }
+
+  listAgentTools(agentId: string): Effect.Effect<readonly PluginToolInfo[]> {
+    return Effect.acquireUseRelease(
+      this.openSession({ agentId }),
+      (session: PluginSession) => Effect.sync(() => session.listTools()),
+      (session: PluginSession) => session.close(),
+    ).pipe(Effect.catchAll(() => Effect.succeed([] as readonly PluginToolInfo[])));
+  }
+
+  runAgentTool(
+    agentId: string,
+    name: string,
+    args: Record<string, unknown>,
+  ): Effect.Effect<PluginToolResult> {
+    return Effect.acquireUseRelease(
+      this.openSession({ agentId }),
+      (session: PluginSession) => session.runTool(name, args),
+      (session: PluginSession) => session.close(),
+    ).pipe(
+      Effect.catchAll(() =>
+        Effect.succeed<PluginToolResult>({
+          content: `plugin tool ${name} is unavailable`,
+          isError: true,
+        }),
+      ),
+    );
+  }
+
+  listAgentCommands(agentId: string): Effect.Effect<readonly PluginCommandInfo[]> {
+    return Effect.acquireUseRelease(
+      this.openSession({ agentId }),
+      (session: PluginSession) => Effect.sync(() => session.listCommands()),
+      (session: PluginSession) => session.close(),
+    ).pipe(Effect.catchAll(() => Effect.succeed([] as readonly PluginCommandInfo[])));
+  }
+
+  runAgentCommand(
+    agentId: string,
+    name: string,
+    args: readonly string[],
+  ): Effect.Effect<PluginCommandResult> {
+    return Effect.acquireUseRelease(
+      this.openSession({ agentId }),
+      (session: PluginSession) => session.runCommand(name, args),
+      (session: PluginSession) => session.close(),
+    ).pipe(Effect.catchAll(() => Effect.succeed<PluginCommandResult>({})));
+  }
+
+  listAllPersonas(): Effect.Effect<readonly PluginPersonaInfo[]> {
+    return Effect.tryPromise(() => this.options.loader.listEnabledManifests()).pipe(
+      Effect.map((manifests) =>
+        manifests.flatMap((manifest) =>
+          manifest.personas.map((persona) => ({ ...persona, pluginId: manifest.id })),
+        ),
+      ),
+      Effect.catchAll(() => Effect.succeed([] as readonly PluginPersonaInfo[])),
+    );
+  }
+
+  listAllSkills(): Effect.Effect<readonly PluginSkillInfo[]> {
+    return Effect.tryPromise(() => this.options.loader.listEnabledManifests()).pipe(
+      Effect.map((manifests) =>
+        manifests.flatMap((manifest) =>
+          manifest.skills.map((skill) => ({ ...skill, pluginId: manifest.id })),
+        ),
+      ),
+      Effect.catchAll(() => Effect.succeed([] as readonly PluginSkillInfo[])),
+    );
+  }
+
+  emitLifecycleEvent(event: LifecycleEvent): Effect.Effect<void> {
+    const cached = this.lifecycleSessions.get(event.agentId);
+    const session = cached
+      ? Effect.succeed(cached)
+      : this.openSession({ agentId: event.agentId }).pipe(
+          Effect.tap((opened) =>
+            Effect.sync(() => this.lifecycleSessions.set(event.agentId, opened)),
+          ),
+        );
+    return session.pipe(
+      Effect.flatMap((resolved) => resolved.emitLifecycle(event)),
+      Effect.catchAll(() => Effect.void),
     );
   }
 }

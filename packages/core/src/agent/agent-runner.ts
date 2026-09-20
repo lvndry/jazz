@@ -63,6 +63,7 @@ import { toolDenials } from "./tools/agent-tool-resolution";
 import { resolveCommandRisk } from "./tools/command-risk";
 import { registerCustomToolsForAgent } from "./tools/custom-tools";
 import { registerMCPToolsForAgent } from "./tools/register-mcp-tools";
+import { registerPluginToolsForAgent } from "./tools/register-plugin-tools";
 import { registerPeerTools } from "./tools/register-tools";
 import { registerSkillSystemTools } from "./tools/register-tools";
 import { BUILTIN_TOOL_CATEGORIES } from "./tools/tool-categories";
@@ -406,6 +407,11 @@ function initializeAgentRun(
       ),
     );
 
+    // Tools contributed by the agent's enabled plugins. Additive and fail-open, like MCP; enabling
+    // a plugin is the opt-in, so these names are folded into the tool set below without needing a
+    // separate mention in the agent's config.
+    const pluginToolNames = yield* registerPluginToolsForAgent(agent.id);
+
     // Register the agent's declared custom tools (record handler only for now).
     // Unlike MCP registration above, failures here are NOT swallowed: a name
     // collision with an already-registered tool is a configuration error that
@@ -431,8 +437,11 @@ function initializeAgentRun(
         .map((id) => toolRegistry.getToolsInCategory(id)),
     )).flat();
 
-    // Combine agent tools with built-in tools, then apply persona deny list.
-    let combinedToolNames = [...new Set([...agentToolNames, ...builtInToolNames])];
+    // Combine agent tools with built-in tools and enabled-plugin tools, then apply persona deny
+    // list.
+    let combinedToolNames = [
+      ...new Set([...agentToolNames, ...builtInToolNames, ...pluginToolNames]),
+    ];
 
     // Both scopes of denial, after everything that grants. Neither is undoable below: the
     // allowlist and carve-outs that follow can only narrow further.

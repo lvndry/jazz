@@ -8,6 +8,17 @@
  * changing this boundary parser.
  */
 
+import type {
+  JsonValue,
+  LifecycleEventId,
+  PluginCommandDeclaration,
+  PluginManifest,
+  PluginPersonaDeclaration,
+  PluginSecretDeclaration,
+  PluginSkillDeclaration,
+  PluginToolDeclaration,
+} from "@jazz/core/types/plugin";
+
 export const PLUGIN_MANIFEST_SCHEMA_VERSION = 1;
 export const MAX_PLUGIN_MANIFEST_BYTES = 128 * 1024;
 export const MAX_PLUGIN_ARTIFACT_BYTES = 8 * 1024 * 1024;
@@ -18,8 +29,6 @@ const SHA256 = /^[a-f0-9]{64}$/;
 const HOOK_ID = /^[a-z][a-z0-9_.-]{0,63}$/;
 const SECRET_NAME = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
 const ENV_NAME = /^[A-Z][A-Z0-9_]{0,127}$/;
-
-import type { PluginManifest, PluginSecretDeclaration } from "@jazz/core/types/plugin";
 
 export type { PluginManifest, PluginSecretDeclaration } from "@jazz/core/types/plugin";
 
@@ -97,6 +106,134 @@ function normalizeDestination(value: string, label: string): string {
   return url.port === "" || url.port === "443" ? host : `${host}:${url.port}`;
 }
 
+const TOOL_NAME = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
+
+function parseToolDeclaration(value: unknown, index: number): PluginToolDeclaration {
+  const item = record(value, `tools[${index}]`);
+  exactKeys(item, ["name", "description", "parameters", "riskLevel", "egress"], `tools[${index}]`);
+  const name = boundedString(item["name"], `tools[${index}].name`, 64);
+  if (!TOOL_NAME.test(name)) throw new Error(`tools[${index}].name has an invalid format`);
+  const description = boundedString(item["description"], `tools[${index}].description`, 1024);
+  const riskLevel = item["riskLevel"];
+  if (riskLevel !== "read-only" && riskLevel !== "low-risk" && riskLevel !== "high-risk") {
+    throw new Error(`tools[${index}].riskLevel must be read-only, low-risk, or high-risk`);
+  }
+  if (typeof item["egress"] !== "boolean")
+    throw new Error(`tools[${index}].egress must be boolean`);
+  const parameters = record(item["parameters"], `tools[${index}].parameters`) as JsonValue;
+  return { name, description, parameters, riskLevel, egress: item["egress"] };
+}
+
+function parseTools(value: unknown): readonly PluginToolDeclaration[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 32) {
+    throw new Error("tools must be an array with at most 32 entries");
+  }
+  const tools = value.map(parseToolDeclaration);
+  if (new Set(tools.map((tool) => tool.name)).size !== tools.length) {
+    throw new Error("tools contains duplicate names");
+  }
+  return tools;
+}
+
+function parseCommandDeclaration(value: unknown, index: number): PluginCommandDeclaration {
+  const item = record(value, `commands[${index}]`);
+  exactKeys(item, ["name", "description"], `commands[${index}]`);
+  const name = boundedString(item["name"], `commands[${index}].name`, 64);
+  if (!TOOL_NAME.test(name)) throw new Error(`commands[${index}].name has an invalid format`);
+  const description = boundedString(item["description"], `commands[${index}].description`, 1024);
+  return { name, description };
+}
+
+function parseCommands(value: unknown): readonly PluginCommandDeclaration[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 32) {
+    throw new Error("commands must be an array with at most 32 entries");
+  }
+  const commands = value.map(parseCommandDeclaration);
+  if (new Set(commands.map((command) => command.name)).size !== commands.length) {
+    throw new Error("commands contains duplicate names");
+  }
+  return commands;
+}
+
+function parsePersonaDeclaration(value: unknown, index: number): PluginPersonaDeclaration {
+  const item = record(value, `personas[${index}]`);
+  exactKeys(item, ["name", "description", "systemPrompt", "tone", "style"], `personas[${index}]`);
+  const name = boundedString(item["name"], `personas[${index}].name`, 64);
+  if (!TOOL_NAME.test(name)) throw new Error(`personas[${index}].name has an invalid format`);
+  const description = boundedString(item["description"], `personas[${index}].description`, 1024);
+  const systemPrompt = boundedString(
+    item["systemPrompt"],
+    `personas[${index}].systemPrompt`,
+    16384,
+  );
+  const base = { name, description, systemPrompt };
+  const tone =
+    item["tone"] === undefined
+      ? undefined
+      : boundedString(item["tone"], `personas[${index}].tone`, 200);
+  const style =
+    item["style"] === undefined
+      ? undefined
+      : boundedString(item["style"], `personas[${index}].style`, 200);
+  return {
+    ...base,
+    ...(tone !== undefined ? { tone } : {}),
+    ...(style !== undefined ? { style } : {}),
+  };
+}
+
+function parsePersonas(value: unknown): readonly PluginPersonaDeclaration[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 16) {
+    throw new Error("personas must be an array with at most 16 entries");
+  }
+  const personas = value.map(parsePersonaDeclaration);
+  if (new Set(personas.map((persona) => persona.name)).size !== personas.length) {
+    throw new Error("personas contains duplicate names");
+  }
+  return personas;
+}
+
+function parseSkillDeclaration(value: unknown, index: number): PluginSkillDeclaration {
+  const item = record(value, `skills[${index}]`);
+  exactKeys(item, ["name", "description", "content"], `skills[${index}]`);
+  const name = boundedString(item["name"], `skills[${index}].name`, 64);
+  if (!TOOL_NAME.test(name)) throw new Error(`skills[${index}].name has an invalid format`);
+  const description = boundedString(item["description"], `skills[${index}].description`, 1024);
+  const content = boundedString(item["content"], `skills[${index}].content`, 32768);
+  return { name, description, content };
+}
+
+const LIFECYCLE_EVENTS: ReadonlySet<string> = new Set([
+  "session-start",
+  "user-prompt",
+  "run-complete",
+  "awaiting-input",
+]);
+
+function parseLifecycleHooks(value: unknown): readonly LifecycleEventId[] {
+  if (value === undefined) return [];
+  const events = uniqueStrings(value, "lifecycleHooks", { maxItems: 16, maxLength: 64 });
+  for (const event of events) {
+    if (!LIFECYCLE_EVENTS.has(event)) throw new Error(`unknown lifecycle event: ${event}`);
+  }
+  return events as readonly LifecycleEventId[];
+}
+
+function parseSkills(value: unknown): readonly PluginSkillDeclaration[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 16) {
+    throw new Error("skills must be an array with at most 16 entries");
+  }
+  const skills = value.map(parseSkillDeclaration);
+  if (new Set(skills.map((skill) => skill.name)).size !== skills.length) {
+    throw new Error("skills contains duplicate names");
+  }
+  return skills;
+}
+
 function parseSecret(value: unknown, index: number): PluginSecretDeclaration {
   const item = record(value, `secrets[${index}]`);
   exactKeys(item, ["name", "env", "required", "description"], `secrets[${index}]`);
@@ -139,6 +276,11 @@ export function parsePluginManifest(input: unknown): PluginManifest {
       "hooks",
       "policyHooks",
       "decisionProviders",
+      "tools",
+      "commands",
+      "personas",
+      "skills",
+      "lifecycleHooks",
       "network",
       "dataSent",
       "secrets",
@@ -205,6 +347,11 @@ export function parsePluginManifest(input: unknown): PluginManifest {
       maxLength: 64,
       pattern: HOOK_ID,
     }),
+    tools: parseTools(root["tools"]),
+    commands: parseCommands(root["commands"]),
+    personas: parsePersonas(root["personas"]),
+    skills: parseSkills(root["skills"]),
+    lifecycleHooks: parseLifecycleHooks(root["lifecycleHooks"]),
     network: { destinations: [...destinations].sort() },
     dataSent: [
       ...uniqueStrings(root["dataSent"], "dataSent", {

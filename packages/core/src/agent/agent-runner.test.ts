@@ -372,7 +372,8 @@ describe("AgentRunner", () => {
             events.push("open");
             return session;
           }),
-      } as PluginRuntimeService;
+        listAgentTools: () => Effect.succeed([]),
+      } as unknown as PluginRuntimeService;
       const llm = {
         ...mockLlmService,
         createChatCompletion: () =>
@@ -404,7 +405,8 @@ describe("AgentRunner", () => {
       } as unknown as PluginSession;
       const pluginRuntime = {
         openSession: () => Effect.succeed(session),
-      } as PluginRuntimeService;
+        listAgentTools: () => Effect.succeed([]),
+      } as unknown as PluginRuntimeService;
       const llm = {
         ...mockLlmService,
         createChatCompletion: () => Effect.fail(new Error("model unavailable")),
@@ -436,7 +438,8 @@ describe("AgentRunner", () => {
       } as unknown as PluginSession;
       const pluginRuntime = {
         openSession: () => Effect.succeed(session),
-      } as PluginRuntimeService;
+        listAgentTools: () => Effect.succeed([]),
+      } as unknown as PluginRuntimeService;
       const llm = {
         ...mockLlmService,
         createChatCompletion: () => {

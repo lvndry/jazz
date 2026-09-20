@@ -11,6 +11,10 @@ import { JazzStateServiceTag, type JazzStateService } from "@jazz/core/interface
 import { type LLMService, LLMServiceTag } from "@jazz/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@jazz/core/interfaces/logger";
 import {
+  PluginRuntimeServiceTag,
+  type PluginRuntimeService,
+} from "@jazz/core/interfaces/plugin-runtime";
+import {
   PresentationServiceTag,
   type PresentationService,
 } from "@jazz/core/interfaces/presentation";
@@ -713,5 +717,77 @@ describe("handleSpecialCommand /peers", () => {
     );
 
     expect(infoMessages.join("\n")).toContain("jazz peers invite");
+  });
+});
+
+describe("handleSpecialCommand /runPluginCommand", () => {
+  const context: CommandContext = {
+    agent: testAgent,
+    conversationHistory: [],
+    conversationId: "test-session",
+    sessionUsage: { promptTokens: 0, completionTokens: 0 },
+    sessionTurnCount: 0,
+    sessionLimits: {},
+    sessionStartedAt: new Date(),
+  };
+
+  const terminalLayer = Layer.succeed(TerminalServiceTag, {
+    info: () => Effect.void,
+    success: () => Effect.void,
+    warn: () => Effect.void,
+    error: () => Effect.void,
+    log: () => Effect.succeed(undefined),
+  } as unknown as TerminalService);
+
+  function runtimeLayer(
+    runAgentCommand: PluginRuntimeService["runAgentCommand"],
+  ): Layer.Layer<PluginRuntimeService | TerminalService> {
+    return Layer.merge(
+      terminalLayer,
+      Layer.succeed(PluginRuntimeServiceTag, {
+        openSession: () => Effect.die("unused"),
+        listAgentTools: () => Effect.succeed([]),
+        runAgentTool: () => Effect.succeed({ content: "" }),
+        listAgentCommands: () => Effect.succeed([]),
+        runAgentCommand,
+        listAllPersonas: () => Effect.succeed([]),
+        listAllSkills: () => Effect.succeed([]),
+        emitLifecycleEvent: () => Effect.void,
+      }),
+    );
+  }
+
+  test("sends the plugin command's message to the agent", async () => {
+    let received: { agentId: string; name: string; args: readonly string[] } | undefined;
+    const layer = runtimeLayer((agentId, name, args) => {
+      received = { agentId, name, args };
+      return Effect.succeed({ message: `Greet ${args.join(" ")} warmly.` });
+    });
+    const result = await Effect.runPromise(
+      handleSpecialCommand({ type: "runPluginCommand", args: ["greet", "Ada"] }, context).pipe(
+        Effect.provide(layer),
+      ) as Effect.Effect<CommandResult, unknown, never>,
+    );
+    expect(received).toEqual({ agentId: testAgent.id, name: "greet", args: ["Ada"] });
+    expect(result.resendMessage).toBe("Greet Ada warmly.");
+  });
+
+  test("is a quiet no-op when the command returns no message", async () => {
+    const layer = runtimeLayer(() => Effect.succeed({}));
+    const result = await Effect.runPromise(
+      handleSpecialCommand({ type: "runPluginCommand", args: ["greet"] }, context).pipe(
+        Effect.provide(layer),
+      ) as Effect.Effect<CommandResult, unknown, never>,
+    );
+    expect(result).toEqual({ shouldContinue: true });
+  });
+
+  test("is a quiet no-op when no plugin runtime is available", async () => {
+    const result = await Effect.runPromise(
+      handleSpecialCommand({ type: "runPluginCommand", args: ["greet"] }, context).pipe(
+        Effect.provide(terminalLayer),
+      ) as Effect.Effect<CommandResult, unknown, never>,
+    );
+    expect(result).toEqual({ shouldContinue: true });
   });
 });
