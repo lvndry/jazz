@@ -4,10 +4,11 @@ description: "Install, inspect, trust, configure, enable, update, and remove opt
 
 # Plugins
 
-Jazz plugins are optional, pre-bundled JavaScript modules that add advisory harness behavior. They
-are not model-selected tools. Version 1 exposes one hook, `route.skills`, which may suggest a skill
-before the first model request. It cannot authorize a tool, change approval policy, or execute an
-action on the model's behalf.
+Jazz plugins are optional, pre-bundled JavaScript modules that extend the harness. A plugin may add
+an advisory hook (`route.skills`, which suggests a skill before the first model request) and/or
+contribute **model-callable tools** that appear in the agent's tool set. An advisory hook cannot
+authorize a tool, change approval policy, or act on the model's behalf; a contributed tool is a
+real tool and goes through the same approval and risk gating as any built-in.
 
 Plugins are absent and disabled by default. A normal Jazz installation has no plugin network call,
 latency, prompt change, or credential requirement.
@@ -39,6 +40,62 @@ Enabled `route.skills` plugins currently run in shadow mode: bounded usage, late
 measured, but their answer does not change the provider request. Maintainers can explicitly test
 host-rendered advisory injection with `JAZZ_EXPERIMENTAL_PLUGIN_ADVISORY=1`; this is not enabled by
 installation, trust, or consent and remains gated on held end-to-end eval results.
+
+## Tools
+
+A plugin may contribute model-callable tools. Each tool is declared in the manifest — name,
+description, a JSON Schema for its arguments, a `riskLevel` (`read-only` / `low-risk` /
+`high-risk`), and whether calling it sends model-authored content off the machine (`egress`) — and
+the module supplies the matching handler. The manifest declaration is the reviewed, consented
+contract; the module can neither register an undeclared tool nor claim a lower risk than declared.
+
+When a plugin is enabled for an agent, its tools join that agent's tool set automatically — no
+separate mention in the agent's config is needed. Jazz namespaces each tool (`plugin_<id>_<tool>`)
+so it never collides, advertises the declared JSON Schema to the model, and **validates the model's
+arguments against that schema before the handler runs**. A `read-only` tool runs directly; anything
+else becomes an approval-gated tool, so a person confirms it under the active approval policy exactly
+like a built-in. A handler that throws, times out, or is unavailable returns an error result to the
+model rather than crashing the run.
+
+```jsonc
+// jazz-plugin.json
+{
+  "tools": [
+    {
+      "name": "reverse_text",
+      "description": "Reverse the characters of the given text.",
+      "parameters": {
+        "type": "object",
+        "properties": { "text": { "type": "string" } },
+        "required": ["text"],
+        "additionalProperties": false,
+      },
+      "riskLevel": "read-only",
+      "egress": false,
+    },
+  ],
+}
+```
+
+```ts
+// src/index.ts
+import type { JazzPluginModule } from "@jazz/plugin-sdk";
+
+const plugin: JazzPluginModule = {
+  apiVersion: 1,
+  register(api) {
+    api.tools.register({
+      name: "reverse_text",
+      handler: (args) =>
+        Promise.resolve({ content: [...String(args["text"] ?? "")].reverse().join("") }),
+    });
+  },
+};
+
+export default plugin;
+```
+
+`plugins/example-tool` in the repository is a complete, minimal example.
 
 ## Lifecycle
 

@@ -68,6 +68,43 @@ describe("adaptPluginToolToJazz", () => {
     expect(result.error).toBe("boom");
   });
 
+  it("rejects arguments that violate the declared schema before the handler runs", async () => {
+    let handlerCalled = false;
+    const invoke: PluginToolInvoker = () => {
+      handlerCalled = true;
+      return Effect.succeed({ content: "should not run" });
+    };
+    const tools = adaptPluginToolToJazz(
+      info({
+        parameters: {
+          type: "object",
+          properties: { text: { type: "string" } },
+          required: ["text"],
+          additionalProperties: false,
+        },
+      }),
+      invoke,
+    );
+    const missing = await Effect.runPromise(
+      tools[0]!.execute({}, context) as Effect.Effect<
+        { success: boolean; result: unknown; error?: string },
+        Error,
+        never
+      >,
+    );
+    expect(missing.success).toBe(false);
+    expect(handlerCalled).toBe(false);
+
+    const extra = await Effect.runPromise(
+      tools[0]!.execute({ text: "ok", surprise: 1 }, context) as Effect.Effect<
+        { success: boolean; result: unknown; error?: string },
+        Error,
+        never
+      >,
+    );
+    expect(extra.success).toBe(false);
+  });
+
   it("makes a non-read-only tool an approval pair that gates on execution", async () => {
     const tools = adaptPluginToolToJazz(
       info({ riskLevel: "high-risk", egress: true }),
