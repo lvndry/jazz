@@ -59,11 +59,7 @@ export interface CommandResult {
   newConversationId?: string;
   /** New conversation history if history was modified */
   newHistory?: ChatMessage[];
-  /**
-   * When set with `newHistory`, apply the new history but leave the on-screen transcript
-   * untouched instead of repainting it from that history. `/compact` sets this so its
-   * confirmation line survives and the scrollback stays as the user left it.
-   */
+  /** Leave the on-screen chat as-is instead of redrawing it. */
   skipTranscriptRepaint?: boolean;
   /** New agent if agent was switched */
   newAgent?: Agent;
