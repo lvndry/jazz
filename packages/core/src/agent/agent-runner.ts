@@ -35,6 +35,7 @@ import {
 import { resolveDisplayConfig } from "@/core/presentation/display-config";
 import { SkillServiceTag, type SkillService } from "@/core/skills/skill-service";
 import type { AttachmentKind } from "@/core/types/attachment";
+import type { LLMConfig } from "@/core/types/config";
 import { LLMRateLimitError } from "@/core/types/errors";
 import type { ChatMessage } from "@/core/types/message";
 import type { DisplayConfig } from "@/core/types/output";
@@ -151,10 +152,11 @@ function resolveSupportedAttachmentKinds(
  */
 export function resolveLlamaCppServerModel(
   apiKey?: string,
+  llmConfig?: LLMConfig,
 ): Effect.Effect<LlamaCppServerModel, never, LLMService> {
   return Effect.gen(function* () {
     const llmService = yield* LLMServiceTag;
-    const baseUrl = llmService.resolveLocalProviderBaseUrl("llamacpp", undefined);
+    const baseUrl = llmService.resolveLocalProviderBaseUrl("llamacpp", llmConfig);
     return yield* llmService
       .fetchLlamaCppServerModel(baseUrl, apiKey)
       .pipe(Effect.catchAll(() => Effect.succeed<LlamaCppServerModel>({})));
@@ -254,7 +256,7 @@ function initializeAgentRun(
     // flow into metrics, the footer, and context accounting. A pinned numCtx still wins later.
     const servedLlamaCppModel =
       provider === "llamacpp"
-        ? yield* resolveLlamaCppServerModel(appConfig.llm?.llamacpp?.api_key)
+        ? yield* resolveLlamaCppServerModel(appConfig.llm?.llamacpp?.api_key, appConfig.llm)
         : undefined;
     const model = servedLlamaCppModel?.modelId ?? agent.config.llmModel;
     const serverContextWindow = servedLlamaCppModel?.contextWindow;
