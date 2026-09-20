@@ -8,6 +8,7 @@
 import { FileSystem } from "@effect/platform";
 import { Context, Effect } from "effect";
 import type { MemoryEntryMetadata, MemoryFileProvenance } from "./memory-provenance";
+import type { MemoryIndexEntry } from "../memory/recall";
 
 export interface MemoryDirectoryEntry {
   readonly name: string;
@@ -85,6 +86,17 @@ export interface MemoryService {
     virtualPath: string,
     viewRange?: readonly [number, number],
   ) => Effect.Effect<MemoryViewOutcome, Error, FileSystem.FileSystem>;
+
+  /**
+   * Every typed entry across the accessible scopes, for deciding what a turn
+   * should be shown.
+   *
+   * Built from the per-scope sidecars, which are already keyed by entry path,
+   * so this costs one small read per scope rather than a walk of the tree.
+   */
+  readonly index: (
+    scopes: readonly string[],
+  ) => Effect.Effect<readonly MemoryIndexEntry[], Error, FileSystem.FileSystem>;
 
   readonly create: (
     scopes: readonly string[],

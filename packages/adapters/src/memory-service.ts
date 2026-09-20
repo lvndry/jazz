@@ -38,6 +38,7 @@ import {
   isSingleEntryPerSubjectKind,
   parseMemoryEntryRelativePath,
 } from "@jazz/core/memory/entry-path";
+import { buildMemoryIndex, type MemoryIndexEntry } from "@jazz/core/memory/recall";
 import { getMemoryDirectory } from "@jazz/core/utils/paths";
 import {
   abbreviateHomePath,
@@ -572,6 +573,23 @@ export class MemoryServiceImpl implements MemoryService {
           totalLines,
           truncated,
         } satisfies MemoryViewOutcome;
+      }.bind(this),
+    );
+
+  readonly index: MemoryService["index"] = (scopes) =>
+    Effect.gen(
+      function* (this: MemoryServiceImpl) {
+        const fs = yield* FileSystem.FileSystem;
+        const entries: MemoryIndexEntry[] = [];
+
+        for (const scope of scopes) {
+          if (!isValidStorageKey(scope)) continue;
+          const scopeRoot = path.join(this.baseMemoryDirectory, scope);
+          const provenance = yield* readScopeProvenance(fs, scopeRoot);
+          entries.push(...buildMemoryIndex(scope, provenance.files));
+        }
+
+        return entries;
       }.bind(this),
     );
 

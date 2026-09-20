@@ -14,6 +14,7 @@ import {
   getBuiltinSkillsDirectory,
   getGlobalSkillsDirectory,
 } from "../utils/paths.js";
+import { matchesWholeWord } from "../utils/string";
 
 export interface SkillMetadata {
   readonly name: string;
@@ -59,7 +60,7 @@ export function scoreSkillsForQuery(
     if (name === q) score += 100;
     else if (name.includes(q)) score += 20;
 
-    if (matchesTriggerWord(skill.description.toLowerCase(), q)) score += 2;
+    if (matchesWholeWord(skill.description.toLowerCase(), q)) score += 2;
 
     if (score > 0) scored.push({ skill, score });
   }
@@ -70,24 +71,6 @@ export function scoreSkillsForQuery(
   });
 
   return scored.slice(0, limit).map((entry) => entry.skill);
-}
-
-/**
- * Whole-word substring match for a word inside an input string.
- *
- * Uses lookaround for boundaries because `\b` only fires between word and
- * non-word characters — tokens like "c++" or "node-fetch" need to match
- * even though `+` and `-` are non-word, and naive `\b...\b` would fail.
- *
- * Both inputs assumed lowercase.
- */
-function matchesTriggerWord(input: string, trigger: string): boolean {
-  const escaped = trigger.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  // (?<![A-Za-z0-9_]) and (?![A-Za-z0-9_]) act as a "not adjacent to an
-  // identifier char" boundary. Works whether the trigger ends with a word
-  // char or not — start-of-string and whitespace both satisfy the lookaround.
-  const re = new RegExp(`(?<![A-Za-z0-9_])${escaped}(?![A-Za-z0-9_])`, "i");
-  return re.test(input);
 }
 
 export interface SkillsBySource {
