@@ -8,17 +8,6 @@
  * changing this boundary parser.
  */
 
-export const PLUGIN_MANIFEST_SCHEMA_VERSION = 1;
-export const MAX_PLUGIN_MANIFEST_BYTES = 128 * 1024;
-export const MAX_PLUGIN_ARTIFACT_BYTES = 8 * 1024 * 1024;
-
-const PLUGIN_ID = /^[a-z0-9](?:[a-z0-9.-]{1,126}[a-z0-9])?$/;
-const VERSION = /^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/;
-const SHA256 = /^[a-f0-9]{64}$/;
-const HOOK_ID = /^[a-z][a-z0-9_.-]{0,63}$/;
-const SECRET_NAME = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
-const ENV_NAME = /^[A-Z][A-Z0-9_]{0,127}$/;
-
 import type {
   JsonValue,
   LifecycleEventId,
@@ -29,6 +18,17 @@ import type {
   PluginSkillDeclaration,
   PluginToolDeclaration,
 } from "@jazz/core/types/plugin";
+
+export const PLUGIN_MANIFEST_SCHEMA_VERSION = 1;
+export const MAX_PLUGIN_MANIFEST_BYTES = 128 * 1024;
+export const MAX_PLUGIN_ARTIFACT_BYTES = 8 * 1024 * 1024;
+
+const PLUGIN_ID = /^[a-z0-9](?:[a-z0-9.-]{1,126}[a-z0-9])?$/;
+const VERSION = /^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/;
+const SHA256 = /^[a-f0-9]{64}$/;
+const HOOK_ID = /^[a-z][a-z0-9_.-]{0,63}$/;
+const SECRET_NAME = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
+const ENV_NAME = /^[A-Z][A-Z0-9_]{0,127}$/;
 
 export type { PluginManifest, PluginSecretDeclaration } from "@jazz/core/types/plugin";
 
