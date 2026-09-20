@@ -9,10 +9,19 @@
  */
 
 import * as fs from "node:fs/promises";
+import * as os from "node:os";
 import * as path from "node:path";
+import { pathToFileURL } from "node:url";
 import { computePluginConsentDigest } from "@jazz/core/agent/plugins/consent";
 import { PluginArtifactInstaller, acquirePluginManifest } from "./artifact-installer";
+import {
+  describeGitHubSource,
+  hashSourceTree,
+  materializeGitHubSource,
+  type GitHubPluginSource,
+} from "./github-source";
 import type { PluginManifest } from "./manifest-schema";
+import { prepareSourceManifest } from "./plugin-author";
 import { PluginSecretStore, type PluginSecretStatus } from "./secret-store";
 import {
   PluginStateStore,
@@ -136,6 +145,65 @@ export class PluginRegistryServiceImpl {
         },
       };
     });
+  }
+
+  /**
+   * Install a plugin from a source repository — a GitHub `owner/repo` (downloaded over HTTPS, no
+   * local `git`) or a local directory holding a `jazz-plugin.json`. The source tree is hashed and
+   * that hash is the digest the operator trusts; no code is bundled or executed. The plugin lands
+   * untrusted and disabled.
+   */
+  async addFromSource(spec: {
+    readonly github?: GitHubPluginSource;
+    readonly localDirectory?: string;
+  }): Promise<PluginLifecycleResult> {
+    const temporary = spec.github
+      ? await fs.mkdtemp(path.join(os.tmpdir(), "jazz-plugin-src-"))
+      : undefined;
+    try {
+      const root = spec.localDirectory ?? temporary;
+      if (root === undefined) {
+        throw new Error("A source install requires a GitHub source or a local directory");
+      }
+      if (spec.github) await materializeGitHubSource(spec.github, root, this.options.fetchImpl);
+      const digest = await hashSourceTree(root);
+      const { manifest, entry } = await prepareSourceManifest(root, digest);
+      const sourceLabel = spec.github
+        ? describeGitHubSource(spec.github)
+        : pathToFileURL(path.resolve(root)).toString();
+      return await this.stateStore.transact(async (state) => {
+        if (state.plugins[manifest.id]) {
+          throw new Error(`Plugin is already installed: ${manifest.id}`);
+        }
+        const committed = await this.installer.commitSourceTree(root, digest);
+        const record: PluginStateRecord = {
+          current: {
+            manifest,
+            source: sourceLabel,
+            artifactPath: path.join(committed, entry),
+            installedAt: new Date().toISOString(),
+            kind: "source",
+          },
+          trustedDigests: [],
+          consentGrants: [],
+          enabledAgentIds: [],
+          activatedDigests: [],
+          storedSecretNames: [],
+        };
+        return {
+          state: replaceEntry(state, manifest.id, record),
+          result: {
+            action: "added" as const,
+            pluginId: manifest.id,
+            digest,
+            restartRequired: false,
+          },
+        };
+      });
+    } finally {
+      if (temporary)
+        await fs.rm(temporary, { recursive: true, force: true }).catch(() => undefined);
+    }
   }
 
   async update(id: string, source: string | URL): Promise<PluginLifecycleResult> {
@@ -371,7 +439,7 @@ export class PluginRegistryServiceImpl {
       secrets: await Promise.all(
         entry.current.manifest.secrets.map((secret) => this.secrets.status(id, secret)),
       ),
-      artifactValid: await this.installer.verify(digest),
+      artifactValid: await this.verifyInstalled(entry.current),
       restartRequired: this.wasLoaded(digest),
     };
   }
@@ -406,25 +474,50 @@ export class PluginRegistryServiceImpl {
         referenced.add(entry.current.manifest.sha256);
         if (entry.previous) referenced.add(entry.previous.manifest.sha256);
       }
-      const artifacts = path.join(this.options.pluginDirectory, "artifacts");
       const removed: string[] = [];
-      for (const item of await fs.readdir(artifacts, { withFileTypes: true }).catch(() => [])) {
-        if (!item.isDirectory() || item.name.startsWith(".")) continue;
-        if (
-          !/^[a-f0-9]{64}$/.test(item.name) ||
-          referenced.has(item.name) ||
-          this.wasLoaded(item.name)
-        ) {
-          continue;
+      const collect = async (
+        directory: string,
+        remove: (digest: string) => Promise<void>,
+      ): Promise<void> => {
+        for (const item of await fs.readdir(directory, { withFileTypes: true }).catch(() => [])) {
+          if (!item.isDirectory() || item.name.startsWith(".")) continue;
+          if (
+            !/^[a-f0-9]{64}$/.test(item.name) ||
+            referenced.has(item.name) ||
+            this.wasLoaded(item.name)
+          ) {
+            continue;
+          }
+          await remove(item.name);
+          removed.push(item.name);
         }
-        await this.installer.removeDigest(item.name);
-        removed.push(item.name);
-      }
+      };
+      await collect(path.join(this.options.pluginDirectory, "artifacts"), (digest) =>
+        this.installer.removeDigest(digest),
+      );
+      await collect(path.join(this.options.pluginDirectory, "sources"), (digest) =>
+        this.installer.removeSource(digest),
+      );
       return { state, result: removed };
     });
   }
 
   private wasLoaded(digest: string): boolean {
     return this.options.hasLoadedDigest?.(digest) === true;
+  }
+
+  /** Verify an installed plugin against its digest: a source-tree hash, or a bundled-artifact hash. */
+  private async verifyInstalled(record: PluginLockRecord): Promise<boolean> {
+    if (record.kind === "source") {
+      try {
+        return (
+          (await hashSourceTree(this.installer.sourcePath(record.manifest.sha256))) ===
+          record.manifest.sha256
+        );
+      } catch {
+        return false;
+      }
+    }
+    return this.installer.verify(record.manifest.sha256);
   }
 }

@@ -32,16 +32,24 @@ steps. First-time trust and new consent can be granted only from a local interac
 Chat and unattended surfaces report the required local command instead.
 
 ```bash
-jazz plugin add <catalog-plugin-id>
-# Or install a locally packed/third-party manifest explicitly:
-jazz plugin add ./release/catalog-entry.json
+# GitHub is the default source: no author build, pack, or release step.
+jazz plugin add owner/repo            # latest default branch
+jazz plugin add owner/repo@v1.2.3     # pin a branch, tag, or commit
 jazz plugin inspect com.example.router
 jazz plugin trust com.example.router
 jazz plugin enable com.example.router --agent default
 ```
 
-`add` verifies and stores bytes but never imports them. Jazz imports a module lazily only for a run
-whose agent has enabled it and whose exact code and consent digests are still granted.
+`jazz plugin add owner/repo` downloads the repository tarball over HTTPS — no local `git` — extracts
+it, and hashes the source tree; that hash is the digest you trust. A local directory holding a
+`jazz-plugin.json` installs the same way (`jazz plugin add ./my-plugin`). A curated catalog id, an
+HTTPS manifest URL, or a locally packed `./release/catalog-entry.json` still install as bundled
+artifacts (see [Authoring](#authoring)).
+
+`add` stores the source or bytes but never imports them. Jazz imports a module lazily only for a run
+whose agent has enabled it and whose exact code and consent digests are still granted; before each
+run it re-hashes the installed source tree and refuses to load code that no longer matches its
+trusted digest.
 
 Enabled `route.skills` plugins currently run in shadow mode: bounded usage, latency, and cost are
 measured, but their answer does not change the provider request. Maintainers can explicitly test
@@ -198,16 +206,24 @@ environment variable and reports when one remains effective.
 jazz plugin init my-router
 cd my-router
 bun install
-# Commit the generated bun.lock before publishing.
 bun test
 jazz plugin dev . --hook route.skills --input fixtures/request.json
-jazz plugin pack .
+git init && git add -A && git commit -m "my plugin" && git push   # publish
 ```
 
-`pack` produces one self-contained `release/plugin.mjs`, its SHA-256 file, and a catalog entry. All
-package dependencies must be bundled. Runtime imports, native addons, emitted assets, and install
-scripts are unsupported. The module receives the plain-JavaScript API from `@jazz/plugin-sdk`; it
-must not import Jazz internals.
+To publish, push the repository to GitHub — no build, pack, digest, or release step. Users install
+it with `jazz plugin add owner/repo`, and Jazz imports the entry (`src/index.ts`) directly. Keep the
+plugin dependency-free: it should import only Node/Bun built-ins and the plain-JavaScript API from
+`@jazz/plugin-sdk`, and must not import Jazz internals. `node_modules` and `.git` are excluded from
+the trusted source-tree hash.
+
+For a plugin that genuinely needs bundled dependencies, `jazz plugin pack .` still produces a
+self-contained `release/plugin.mjs`, its SHA-256, and a catalog entry, installable as a bundled
+artifact from a local path or HTTPS manifest URL — an opt-in escape hatch, no longer the default.
+
+The official catalog build runs reviewed, locked source without provider credentials and publishes
+the generated manifest plus its immutable digest-addressed artifact with the Jazz website. Authors
+never choose the catalog's authoritative digest.
 
 The official catalog build runs reviewed, locked source without provider credentials and publishes
 the generated manifest plus its immutable digest-addressed artifact with the Jazz website. Authors
