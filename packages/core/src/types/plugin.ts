@@ -46,8 +46,37 @@ export type CommandRiskOutcome =
   | { readonly status: "answered"; readonly distribution: CommandRiskDistribution }
   | { readonly status: "abstained"; readonly reason: string };
 
+export interface CompactToolCandidate {
+  readonly id: string;
+  readonly tool: string;
+  readonly input?: string;
+  readonly resultPreview: string;
+  readonly resultChars: number;
+  readonly isError: boolean;
+}
+
+export interface CompactToolsInput {
+  readonly goal: string;
+  readonly candidates: readonly CompactToolCandidate[];
+}
+
+export type CompactToolAction = "keep" | "truncate" | "drop";
+
+export interface CompactToolsDecision {
+  readonly id: string;
+  readonly action: CompactToolAction;
+}
+
+export type CompactToolsOutcome =
+  | { readonly status: "answered"; readonly decisions: readonly CompactToolsDecision[] }
+  | { readonly status: "abstained"; readonly reason: string };
+
 export interface AdvisoryHookContracts {
   readonly "route.skills": { readonly input: SkillRouteInput; readonly output: SkillRouteOutcome };
+  readonly "compact.tools": {
+    readonly input: CompactToolsInput;
+    readonly output: CompactToolsOutcome;
+  };
 }
 
 export interface PolicyHookContracts {

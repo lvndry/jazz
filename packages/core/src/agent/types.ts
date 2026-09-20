@@ -13,6 +13,7 @@ import type {
   ToolExecutionContext,
 } from "@/core/types/tools";
 import type { Agent } from "../types";
+import type { JevReduceOutcome } from "./context/jev-tool-clearing";
 import type { createAgentRunMetrics } from "./metrics/agent-run-metrics";
 
 /**
@@ -372,6 +373,15 @@ export interface AgentRunContext {
    * Never push this into `messages`: canonical history must remain byte-equivalent.
    */
   readonly initialProviderAdvisory?: string;
+  /**
+   * Jev-assisted clear rung, injected when a `compact.tools` plugin is enabled. Absent otherwise,
+   * leaving the deterministic clearer in charge.
+   */
+  readonly reduceToolResults?: (
+    messages: ConversationMessages,
+    protectedFromIndex: number,
+    retrievableIds: ReadonlySet<string> | undefined,
+  ) => Effect.Effect<JevReduceOutcome>;
   readonly runMetrics: ReturnType<typeof createAgentRunMetrics>;
   readonly provider: ProviderName;
   readonly model: string;

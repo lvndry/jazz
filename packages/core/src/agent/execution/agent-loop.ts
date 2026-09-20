@@ -49,6 +49,7 @@ import {
   describeContextWindowShortfall,
   resolveEffectiveContextWindow,
 } from "../context/effective-context-window";
+import type { JevReduceOutcome } from "../context/jev-tool-clearing";
 import { Summarizer, type RecursiveRunner } from "../context/summarizer";
 import { clearToolResults, toolResultsProtectFromIndex } from "../context/tool-result-clearing";
 import { persistLargeToolResults } from "../context/tool-result-offload";
@@ -269,6 +270,18 @@ interface LoopDeps {
   maxDurationMs: number | undefined;
   /** Provider-only routing hint for iteration zero; never part of canonical messages. */
   initialProviderAdvisory: string | undefined;
+  /**
+   * Jev-assisted clear rung. When set (a `compact.tools` plugin is enabled), it replaces the
+   * deterministic clearer; it falls back to the deterministic clearer when the provider abstains.
+   * Undefined when no plugin is enabled, leaving the clear rung's behavior unchanged.
+   */
+  reduceToolResults:
+    | ((
+        messages: ConversationMessages,
+        protectedFromIndex: number,
+        retrievableIds: ReadonlySet<string> | undefined,
+      ) => Effect.Effect<JevReduceOutcome>)
+    | undefined;
   modelMetadata: UsageCostPricing | undefined;
   runRecursive: RecursiveRunner;
   /**
@@ -913,6 +926,7 @@ function runIteration(
     maxDurationMs,
     modelMetadata,
     runRecursive,
+    reduceToolResults,
   } = deps;
 
   return Effect.gen(function* () {
@@ -935,11 +949,19 @@ function runIteration(
         conversationId: actualConversationId,
         modelHint,
       });
-      const cleared = clearToolResults(state.currentMessages, {
-        protectedFromIndex: toolResultsProtectFromIndex(state.currentMessages),
-        modelHint,
-        retrievableIds,
-      });
+      const protectedFromIndex = toolResultsProtectFromIndex(state.currentMessages);
+      // A compact.tools plugin decides keep/truncate/drop per old result; it falls back to the
+      // deterministic clearer when it abstains or is not enabled. Never removes a message.
+      const jevReduced = reduceToolResults
+        ? yield* reduceToolResults(state.currentMessages, protectedFromIndex, retrievableIds)
+        : undefined;
+      const cleared = jevReduced?.answered
+        ? jevReduced
+        : clearToolResults(state.currentMessages, {
+            protectedFromIndex,
+            modelHint,
+            retrievableIds,
+          });
       if (cleared.clearedCount > 0) {
         state.currentMessages = [
           state.currentMessages[0],
@@ -1288,6 +1310,7 @@ export function executeAgentLoop(
           maxTokens,
           maxDurationMs,
           initialProviderAdvisory,
+          reduceToolResults,
         } = runContext;
 
         const configService = yield* AgentConfigServiceTag;
@@ -1394,6 +1417,7 @@ export function executeAgentLoop(
           maxTokens,
           maxDurationMs,
           initialProviderAdvisory,
+          reduceToolResults,
           modelMetadata,
           runRecursive,
           supportedAttachmentKinds,

@@ -47,6 +47,7 @@ import { shouldEnableStreaming } from "@/core/utils/stream-detector";
 import type { ConversationMessages, StreamingConfig } from "../types";
 import { type Agent } from "../types";
 import { agentPromptBuilder } from "./agent-prompt";
+import { reduceToolResultsWithJev } from "./context/jev-tool-clearing";
 import { Summarizer, type CompactionOutcome } from "./context/summarizer";
 import { executeWithStreaming, executeWithoutStreaming } from "./execution";
 import { createAgentRunMetrics, emitAgentRunStarted } from "./metrics/agent-run-metrics";
@@ -685,6 +686,22 @@ function initializeAgentRun(
       expandedToolNames,
       messages,
       ...(initialProviderAdvisory !== undefined ? { initialProviderAdvisory } : {}),
+      ...(Option.isSome(pluginSession)
+        ? {
+            reduceToolResults: (
+              messages: ConversationMessages,
+              protectedFromIndex: number,
+              retrievableIds: ReadonlySet<string> | undefined,
+            ) =>
+              reduceToolResultsWithJev(messages, {
+                protectedFromIndex,
+                goal: userInput,
+                retrievableIds,
+                modelHint: { provider, modelId: model },
+                decide: (input) => pluginSession.value.runCompactTools(input),
+              }),
+          }
+        : {}),
       runMetrics,
       provider,
       model,

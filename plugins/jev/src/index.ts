@@ -8,8 +8,12 @@
 import type {
   CommandRiskInput,
   CommandRiskOutcome,
+  CompactToolAction,
+  CompactToolsInput,
+  CompactToolsOutcome,
   DecisionAnswer,
   DecisionBatchResult,
+  DecisionOutcome,
   DecisionProvider,
   DecisionQuestion,
   DecisionRequest,
@@ -34,6 +38,18 @@ const MAX_ROUTING_STATE_BYTES = 64 * 1024;
 const MAX_RETRIES = 2;
 
 const COMMAND_RISK_OPTIONS = ["read_only", "low_risk", "high_risk"] as const;
+
+// Compaction policy. A confident "keep" needs the top option to hold at least this much of the
+// distribution; below it the result is uncertain and resolved by size, biased toward keeping.
+const COMPACT_KEEP_CONFIDENCE = 0.55;
+// A full drop needs "drop" to be the top choice AND this concentrated: dropping a still-needed
+// result is the costly, irreversible error, so it must clear a higher bar than keep/truncate.
+const COMPACT_STRONG_DROP = 0.7;
+// Results larger than this hold the tokens worth reclaiming, so an uncertain large one is
+// truncated to head+tail rather than kept whole; an uncertain small one is cheap to keep verbatim.
+const COMPACT_BIG_RESULT_CHARS = 1_500;
+// One request per compaction pass; the host sends bounded batches, larger ones abstain and fall back.
+const MAX_COMPACT_CANDIDATES = 128;
 
 type JevQuestion =
   | { readonly type: "noul"; readonly instructions: string }
@@ -379,12 +395,98 @@ async function classifyCommandRisk(
   };
 }
 
+function compactToolsRequest(input: CompactToolsInput): DecisionRequest | undefined {
+  const count = input.candidates.length;
+  if (count === 0 || count > MAX_COMPACT_CANDIDATES) return undefined;
+  const state = {
+    goal: input.goal,
+    candidates: input.candidates.map((candidate) => ({
+      id: candidate.id,
+      tool: candidate.tool,
+      ...(candidate.input === undefined ? {} : { input: candidate.input }),
+      resultPreview: candidate.resultPreview,
+      resultChars: candidate.resultChars,
+      isError: candidate.isError,
+    })),
+  } satisfies JsonValue;
+  if (new TextEncoder().encode(JSON.stringify(state)).byteLength > MAX_ROUTING_STATE_BYTES) {
+    return undefined;
+  }
+  return {
+    state,
+    questions: input.candidates.map((candidate, index) => ({
+      id: `q${index}`,
+      question: {
+        kind: "choice",
+        instructions: `Decide what to do with tool result ${candidate.id} (${candidate.tool}, ${candidate.resultChars} chars${candidate.isError ? ", error" : ""}) for continuing toward the goal.`,
+        options: [
+          {
+            value: "keep",
+            criterion: "Its full contents are still needed verbatim to continue correctly.",
+          },
+          {
+            value: "truncate",
+            criterion: "It mattered but the full body no longer does; a head and tail is enough.",
+          },
+          {
+            value: "drop",
+            criterion: "Stale or superseded; removing it loses nothing needed now.",
+          },
+        ],
+      },
+    })),
+  };
+}
+
+/** Asymmetric policy: default to keeping, drop only on a confident drop, truncate big-uncertain. */
+function compactAction(
+  outcome: DecisionOutcome | undefined,
+  resultChars: number,
+): CompactToolAction {
+  if (outcome?.status !== "answered" || outcome.answer.kind !== "choice") return "keep";
+  const probability = new Map(
+    outcome.answer.probabilities.map(({ value, probability }) => [value, probability] as const),
+  );
+  const top = outcome.answer.choice;
+  const topProbability = probability.get(top) ?? 0;
+  if (top === "drop" && (probability.get("drop") ?? 0) >= COMPACT_STRONG_DROP) return "drop";
+  if (top === "keep" && topProbability >= COMPACT_KEEP_CONFIDENCE) return "keep";
+  if (resultChars > COMPACT_BIG_RESULT_CHARS) return "truncate";
+  if (topProbability < COMPACT_KEEP_CONFIDENCE) return "keep";
+  return "truncate";
+}
+
+async function compactTools(
+  client: PluginDecisionClient,
+  input: CompactToolsInput,
+  signal: AbortSignal,
+): Promise<CompactToolsOutcome> {
+  const request = compactToolsRequest(input);
+  if (request === undefined)
+    return { status: "abstained", reason: "compaction input exceeds limits" };
+  const result = await client.decide(request, { signal });
+  if (result.answers.every(({ outcome }) => outcome.status === "abstained")) {
+    return { status: "abstained", reason: "Jev did not answer compaction" };
+  }
+  const byQuestion = new Map(result.answers.map(({ id, outcome }) => [id, outcome] as const));
+  return {
+    status: "answered",
+    decisions: input.candidates.map((candidate, index) => ({
+      id: candidate.id,
+      action: compactAction(byQuestion.get(`q${index}`), candidate.resultChars),
+    })),
+  };
+}
+
 const plugin: JazzPluginModule = {
   apiVersion: 1,
   register(api) {
     const client = api.decisions.registerProvider(createJevDecisionProvider(api));
     api.hooks.register("route.skills", (input, context) =>
       routeSkills(client, input, context.signal),
+    );
+    api.hooks.register("compact.tools", (input, context) =>
+      compactTools(client, input, context.signal),
     );
     api.policy.register("classify.command-risk", (input, context) =>
       classifyCommandRisk(client, input, context.signal),

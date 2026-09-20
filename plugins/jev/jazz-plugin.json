@@ -5,7 +5,7 @@
   "version": "0.1.0",
   "hostApi": 1,
   "entry": "src/index.ts",
-  "hooks": ["route.skills"],
+  "hooks": ["route.skills", "compact.tools"],
   "policyHooks": ["classify.command-risk"],
   "decisionProviders": ["typesafe-jev"],
   "network": {
@@ -14,7 +14,8 @@
   "dataSent": [
     "current turn request text",
     "installed skill names and one-line descriptions",
-    "proposed shell command text"
+    "proposed shell command text",
+    "tool call names and result previews during compaction"
   ],
   "secrets": [
     {

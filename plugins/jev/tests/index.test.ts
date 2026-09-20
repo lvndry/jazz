@@ -75,11 +75,86 @@ function register(module: JazzPluginModule = plugin) {
 }
 
 describe("Jev decision provider", () => {
-  it("registers one provider with skill-routing and command-risk handlers", () => {
+  it("registers one provider with skill-routing, compaction, and command-risk handlers", () => {
     const host = register();
     expect(host.providers).toHaveLength(1);
     expect(host.handlers.has("route.skills")).toBe(true);
+    expect(host.handlers.has("compact.tools")).toBe(true);
     expect(host.policyHandlers.has("classify.command-risk")).toBe(true);
+  });
+
+  it("maps compaction candidates to keep/truncate/drop with an asymmetric policy", async () => {
+    globalThis.fetch = (async () =>
+      Response.json({
+        model: JEV_MODEL,
+        answers: {
+          q0: {
+            type: "choice",
+            choice: "drop",
+            probabilities: { keep: 0.05, truncate: 0.1, drop: 0.85 },
+            confidence: 0.85,
+          },
+          q1: {
+            type: "choice",
+            choice: "keep",
+            probabilities: { keep: 0.8, truncate: 0.15, drop: 0.05 },
+            confidence: 0.8,
+          },
+          q2: {
+            type: "choice",
+            choice: "truncate",
+            probabilities: { keep: 0.3, truncate: 0.5, drop: 0.2 },
+            confidence: 0.5,
+          },
+          q3: {
+            type: "choice",
+            choice: "drop",
+            probabilities: { keep: 0.3, truncate: 0.3, drop: 0.4 },
+            confidence: 0.4,
+          },
+        },
+        usage: { input_tokens: 100, output_tokens: 10 },
+      })) as unknown as typeof fetch;
+    const host = register();
+    const handler = host.handlers.get("compact.tools");
+    const result = await handler?.(
+      {
+        goal: "refactor the bridge",
+        candidates: [
+          { id: "t0", tool: "Read", resultPreview: "…", resultChars: 4000, isError: false },
+          { id: "t1", tool: "Bash", resultPreview: "err", resultChars: 200, isError: true },
+          { id: "t2", tool: "Grep", resultPreview: "…", resultChars: 3000, isError: false },
+          { id: "t3", tool: "Read", resultPreview: "…", resultChars: 300, isError: false },
+        ],
+      },
+      { signal: new AbortController().signal },
+    );
+    expect(result).toEqual({
+      status: "answered",
+      decisions: [
+        { id: "t0", action: "drop" }, // confident drop (0.85)
+        { id: "t1", action: "keep" }, // confident keep (0.8)
+        { id: "t2", action: "truncate" }, // uncertain + large (3000 chars)
+        { id: "t3", action: "keep" }, // weak drop, small → kept
+      ],
+    });
+  });
+
+  it("abstains compaction when the provider is unavailable, so the host falls back", async () => {
+    globalThis.fetch = (async () =>
+      new Response("overloaded", { status: 500 })) as unknown as typeof fetch;
+    const host = register();
+    const handler = host.handlers.get("compact.tools");
+    const result = await handler?.(
+      {
+        goal: "x",
+        candidates: [
+          { id: "t0", tool: "Read", resultPreview: "…", resultChars: 4000, isError: false },
+        ],
+      },
+      { signal: new AbortController().signal },
+    );
+    expect(result).toEqual({ status: "abstained", reason: "Jev did not answer compaction" });
   });
 
   it("maps Noul, Choice, and Score through the current System One schema", async () => {

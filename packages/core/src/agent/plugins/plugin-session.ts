@@ -12,6 +12,7 @@ import {
   type AdvisoryHookHandler,
   type AdvisoryHookId,
   type CommandRiskOutcome,
+  type CompactToolsOutcome,
   type DecisionBatchResult,
   type DecisionProvider,
   type DecisionRequest,
@@ -28,6 +29,8 @@ import {
   validateDecisionResult,
   validateCommandRiskInput,
   validateCommandRiskOutcome,
+  validateCompactToolsInput,
+  validateCompactToolsOutcome,
   validatePluginManifest,
   validateSkillRouteDistribution,
   validateSkillRouteInput,
@@ -54,6 +57,7 @@ type RegisteredPolicyHook = {
 
 const abstainedRoute = (reason: string): SkillRouteOutcome => ({ status: "abstained", reason });
 const abstainedPolicy = (reason: string): CommandRiskOutcome => ({ status: "abstained", reason });
+const abstainedCompact = (reason: string): CompactToolsOutcome => ({ status: "abstained", reason });
 
 function abstainedBatch(
   providerId: string,
@@ -282,6 +286,29 @@ export function createPluginSession(
                 error instanceof Error ? error.message : String(error),
               );
               return abstainedPolicy("plugin policy handler failed");
+            }
+          }),
+        runCompactTools: (rawInput) =>
+          Effect.promise(async () => {
+            if (closed) return abstainedCompact("plugin session closed");
+            const registration = hooks.get("compact.tools");
+            if (!registration) return abstainedCompact("no plugin handler");
+            try {
+              const input = validateCompactToolsInput(rawInput);
+              const outcome = await deadline(
+                (signal) =>
+                  (registration.handler as unknown as AdvisoryHookHandler<"compact.tools">)(input, {
+                    signal,
+                  }),
+                timeoutMs,
+              );
+              return validateCompactToolsOutcome(input, outcome);
+            } catch (error) {
+              options.reportFailure?.(
+                registration.pluginId,
+                error instanceof Error ? error.message : String(error),
+              );
+              return abstainedCompact("plugin handler failed");
             }
           }),
         close: () =>

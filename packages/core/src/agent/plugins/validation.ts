@@ -12,6 +12,10 @@ import {
   type DecisionRequest,
   type CommandRiskInput,
   type CommandRiskOutcome,
+  type CompactToolCandidate,
+  type CompactToolsDecision,
+  type CompactToolsInput,
+  type CompactToolsOutcome,
   type JsonValue,
   type PluginManifest,
   type SkillRouteDistribution,
@@ -90,6 +94,84 @@ export function validateCommandRiskInput(input: CommandRiskInput): CommandRiskIn
     fail(`command must contain 1-${MAX_COMMAND_RISK_COMMAND_CHARS} characters`);
   }
   return input;
+}
+
+export function validateCompactToolsInput(input: CompactToolsInput): CompactToolsInput {
+  if (input === null || typeof input !== "object" || Array.isArray(input)) {
+    fail("compact tools input must be an object");
+  }
+  if (typeof input.goal !== "string" || input.goal.length > MAX_PLUGIN_STATE_BYTES) {
+    fail("compact tools goal must be a bounded string");
+  }
+  if (!Array.isArray(input.candidates) || input.candidates.length > MAX_DECISION_QUESTIONS) {
+    fail(`compact tools candidates must be an array of at most ${MAX_DECISION_QUESTIONS}`);
+  }
+  const seen = new Set<string>();
+  for (const candidate of input.candidates as readonly CompactToolCandidate[]) {
+    if (candidate === null || typeof candidate !== "object") {
+      fail("compact tools candidate must be an object");
+    }
+    if (typeof candidate.id !== "string" || candidate.id.length === 0) {
+      fail("compact tools candidate id must be a non-empty string");
+    }
+    if (seen.has(candidate.id)) fail("compact tools candidate ids must be unique");
+    seen.add(candidate.id);
+    if (typeof candidate.tool !== "string") fail("compact tools candidate tool must be a string");
+    if (candidate.input !== undefined && typeof candidate.input !== "string") {
+      fail("compact tools candidate input must be a string");
+    }
+    if (typeof candidate.resultPreview !== "string") {
+      fail("compact tools candidate resultPreview must be a string");
+    }
+    if (!Number.isInteger(candidate.resultChars) || candidate.resultChars < 0) {
+      fail("compact tools candidate resultChars must be a non-negative integer");
+    }
+    if (typeof candidate.isError !== "boolean") {
+      fail("compact tools candidate isError must be a boolean");
+    }
+  }
+  return input;
+}
+
+export function validateCompactToolsOutcome(
+  input: CompactToolsInput,
+  outcome: CompactToolsOutcome,
+): CompactToolsOutcome {
+  if (outcome === null || typeof outcome !== "object")
+    fail("compact tools outcome must be an object");
+  if (outcome.status === "abstained") {
+    if (
+      typeof outcome.reason !== "string" ||
+      outcome.reason.length === 0 ||
+      outcome.reason.length > MAX_POLICY_ABSTENTION_REASON_CHARS
+    ) {
+      fail("compact tools abstention reason must be a bounded non-empty string");
+    }
+    return outcome;
+  }
+  if (outcome.status !== "answered" || !Array.isArray(outcome.decisions)) {
+    fail("compact tools outcome must be answered with decisions, or abstained");
+  }
+  const candidateIds = new Set(input.candidates.map((candidate) => candidate.id));
+  const decided = new Set<string>();
+  for (const decision of outcome.decisions as readonly CompactToolsDecision[]) {
+    if (decision === null || typeof decision !== "object") {
+      fail("compact tools decision must be an object");
+    }
+    if (typeof decision.id !== "string" || !candidateIds.has(decision.id)) {
+      fail("compact tools decision id must reference a candidate");
+    }
+    if (decided.has(decision.id)) fail("compact tools decision ids must be unique");
+    decided.add(decision.id);
+    if (
+      decision.action !== "keep" &&
+      decision.action !== "truncate" &&
+      decision.action !== "drop"
+    ) {
+      fail("compact tools decision action must be keep, truncate, or drop");
+    }
+  }
+  return outcome;
 }
 
 export function validateCommandRiskOutcome(outcome: CommandRiskOutcome): CommandRiskOutcome {

@@ -187,7 +187,9 @@ export function parsePluginManifest(input: unknown): PluginManifest {
       maxLength: 64,
       pattern: HOOK_ID,
     }).map((hook) => {
-      if (hook !== "route.skills") throw new Error(`Unknown advisory hook: ${hook}`);
+      if (hook !== "route.skills" && hook !== "compact.tools") {
+        throw new Error(`Unknown advisory hook: ${hook}`);
+      }
       return hook;
     }),
     policyHooks: uniqueStrings(root["policyHooks"], "policyHooks", {
