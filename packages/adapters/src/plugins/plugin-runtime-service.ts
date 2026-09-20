@@ -6,16 +6,40 @@
  * hook deadlines, budget accounting, secret disclosure, and session cleanup.
  */
 
+import { createAgentRunMetrics } from "@jazz/core/agent/metrics/agent-run-metrics";
 import { createPluginSession } from "@jazz/core/agent/plugins/plugin-session";
 import {
   PluginRuntimeServiceTag,
   type PluginRuntimeService,
+  type PluginSession,
   type PluginSessionOptions,
 } from "@jazz/core/interfaces/plugin-runtime";
-import { PluginRuntimeError } from "@jazz/core/types/plugin";
+import {
+  PluginRuntimeError,
+  type PluginToolInfo,
+  type PluginToolResult,
+} from "@jazz/core/types/plugin";
 import { Effect, Layer } from "effect";
 import type { PluginModuleLoader } from "./module-loader";
 import type { PluginSecretStore } from "./secret-store";
+
+/**
+ * A throwaway metrics object for a tool-only session. Plugin tools do not touch the decision-cost
+ * accounting these carry; the session type requires them, so we give it inert ones.
+ */
+function toolSessionMetrics(agentId: string): PluginSessionOptions["metrics"] {
+  const now = new Date();
+  return createAgentRunMetrics({
+    agent: {
+      id: agentId,
+      name: agentId,
+      config: { persona: "default", llmProvider: "openai", llmModel: "plugin-tools" },
+      createdAt: now,
+      updatedAt: now,
+    },
+    conversationId: `plugin-tools:${agentId}`,
+  });
+}
 
 export interface PluginRuntimeServiceOptions {
   readonly loader: PluginModuleLoader;
@@ -43,6 +67,33 @@ export class PluginRuntimeServiceImpl implements PluginRuntimeService {
           ...(this.options.reportFailure === undefined
             ? {}
             : { reportFailure: this.options.reportFailure }),
+        }),
+      ),
+    );
+  }
+
+  listAgentTools(agentId: string): Effect.Effect<readonly PluginToolInfo[]> {
+    return Effect.acquireUseRelease(
+      this.openSession({ agentId, metrics: toolSessionMetrics(agentId) }),
+      (session: PluginSession) => Effect.sync(() => session.listTools()),
+      (session: PluginSession) => session.close(),
+    ).pipe(Effect.catchAll(() => Effect.succeed([] as readonly PluginToolInfo[])));
+  }
+
+  runAgentTool(
+    agentId: string,
+    name: string,
+    args: Record<string, unknown>,
+  ): Effect.Effect<PluginToolResult> {
+    return Effect.acquireUseRelease(
+      this.openSession({ agentId, metrics: toolSessionMetrics(agentId) }),
+      (session: PluginSession) => session.runTool(name, args),
+      (session: PluginSession) => session.close(),
+    ).pipe(
+      Effect.catchAll(() =>
+        Effect.succeed<PluginToolResult>({
+          content: `plugin tool ${name} is unavailable`,
+          isError: true,
         }),
       ),
     );

@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "id": "com.jazz.plugins.example-tool",
+  "name": "Example tool",
+  "version": "0.1.0",
+  "hostApi": 1,
+  "entry": "src/index.ts",
+  "hooks": [],
+  "decisionProviders": [],
+  "tools": [
+    {
+      "name": "reverse_text",
+      "description": "Reverse the characters of the given text. A trivial, offline example tool.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "text": { "type": "string", "description": "The text to reverse." }
+        },
+        "required": ["text"],
+        "additionalProperties": false
+      },
+      "riskLevel": "read-only",
+      "egress": false
+    }
+  ],
+  "network": { "destinations": [] },
+  "dataSent": [],
+  "secrets": []
+}

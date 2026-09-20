@@ -37,6 +37,20 @@ export interface PluginRuntimeService {
   readonly openSession: (
     options: PluginSessionOptions,
   ) => Effect.Effect<PluginSession, PluginRuntimeError>;
+  /**
+   * The tools an agent's enabled plugins contribute, for registration into the tool set.
+   * Resolves to an empty list on any failure — plugin tools are additive, never fatal.
+   */
+  readonly listAgentTools: (agentId: string) => Effect.Effect<readonly PluginToolInfo[]>;
+  /**
+   * Run one of an agent's plugin tools by name. Always resolves; a failure or unknown tool
+   * returns an error result, so a plugin tool can never crash the run.
+   */
+  readonly runAgentTool: (
+    agentId: string,
+    name: string,
+    args: Record<string, unknown>,
+  ) => Effect.Effect<PluginToolResult>;
 }
 
 export const PluginRuntimeServiceTag = Context.GenericTag<PluginRuntimeService>(
