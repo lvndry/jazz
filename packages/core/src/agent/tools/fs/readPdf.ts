@@ -305,9 +305,7 @@ export function createReadPdfTool(): Tool<FileSystem.FileSystem | FileSystemCont
             catch: (error) => (error instanceof Error ? error : new Error(String(error))),
           }).pipe(Effect.either);
           const pageCount =
-            infoResult._tag === "Right"
-              ? (infoResult.right as { pageCount?: number }).pageCount || 0
-              : 0;
+            infoResult._tag === "Right" ? (infoResult.right as { total?: number }).total || 0 : 0;
 
           // Enforce maxChars safeguard on combined content
           const maxChars =
