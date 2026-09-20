@@ -26,7 +26,7 @@ export const CHAT_COMMANDS: readonly ChatCommandInfo[] = [
   { name: "cost", description: "Show conversation token usage and estimated cost" },
   { name: "exit", description: "Exit the chat" },
   { name: "export", description: "Export the conversation to a markdown file", usage: "[path]" },
-  { name: "fork", description: "Fork conversation (new branch from last message)" },
+  { name: "fork", description: "Fork conversation into a new branch (keeps full history)" },
   { name: "help", description: "Show available commands and shortcuts", usage: "[command]" },
   {
     name: "memory",

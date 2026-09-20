@@ -344,10 +344,10 @@ function handleNewCommand(
 /**
  * Handle /fork command - Fork the conversation into a new branch
  *
- * Creates a new conversation ID, keeping only the system prompt and the
- * last user message from the current history. This gives the user a clean
- * branch to explore a different approach to their most recent question
- * without carrying over the entire conversation context.
+ * Saves the current branch under its own conversation ID, then continues on a
+ * new one carrying the full history forward. Future turns diverge from here
+ * while the transcript stays on screen — forking branches the conversation
+ * without discarding what came before.
  */
 function handleForkCommand(
   terminal: TerminalService,
@@ -360,31 +360,15 @@ function handleForkCommand(
       return { shouldContinue: true };
     }
 
-    // Keep the system message (first message) and the last user message
-    const systemMessage = conversationHistory.find((m) => m.role === "system");
-    const lastUserMessage = [...conversationHistory].reverse().find((m) => m.role === "user");
-
-    if (!lastUserMessage) {
-      yield* terminal.warn("No user message found to fork from.");
-      yield* terminal.log(fmt.blank());
-      return { shouldContinue: true };
-    }
-
-    const newHistory: ChatMessage[] = [];
-    if (systemMessage) {
-      newHistory.push(systemMessage);
-    }
-    newHistory.push(lastUserMessage);
-
     yield* terminal.info("Forking conversation...");
     yield* terminal.log(fmt.item("New conversation branch created"));
-    yield* terminal.log(fmt.item("Kept last user message as starting point"));
+    yield* terminal.log(fmt.item("Kept the full conversation history"));
     yield* terminal.log(fmt.blank());
     yield* terminal.log(fmt.blank());
     return {
       shouldContinue: true,
       newConversationId: generateConversationId(),
-      newHistory,
+      newHistory: [...conversationHistory],
       saveCurrentHistory: true,
     };
   });
