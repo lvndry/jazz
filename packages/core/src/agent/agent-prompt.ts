@@ -93,6 +93,16 @@ export interface AgentPromptOptions {
    */
   readonly deferredTools?: readonly { readonly name: string; readonly summary: string }[];
   /**
+   * Preferences that apply to every task, injected so the model acts on them
+   * without having to remember to look them up.
+   *
+   * Only the request-independent ones belong here. A preference selected
+   * because of what this turn is about would rewrite the prompt's tail every
+   * turn and throw away the prefix cache, so those travel in the message
+   * stream instead.
+   */
+  readonly standingPreferences?: readonly { readonly summary: string }[];
+  /**
    * AGENTS.md files discovered for the working directory, outermost first.
    * Rendered verbatim into the system prompt so project conventions reach the
    * model without the user restating them every session.
@@ -221,6 +231,13 @@ export class AgentPromptBuilder {
     if (options.deferredTools && options.deferredTools.length > 0) {
       const deferredFingerprints = options.deferredTools.map((t) => `${t.name}|${t.summary}`);
       hash.update(`deferredTools:${JSON.stringify(deferredFingerprints.sort())}`);
+    }
+    // Content, not paths: amending a preference must take effect on the next
+    // turn rather than serving a stale copy from the cache.
+    if (options.standingPreferences && options.standingPreferences.length > 0) {
+      hash.update(
+        `standingPreferences:${options.standingPreferences.map((entry) => entry.summary).join("|")}`,
+      );
     }
     // Content, not just paths: editing an AGENTS.md must take effect on the
     // next turn rather than waiting for a process restart.
@@ -388,6 +405,17 @@ export class AgentPromptBuilder {
             scope.push({
               id: "project-instructions",
               content: renderProjectInstructions(options.projectInstructions),
+            });
+          }
+
+          if (options.standingPreferences && options.standingPreferences.length > 0) {
+            live.push({
+              id: "standing-preferences",
+              content: [
+                "## Standing preferences",
+                "How this user wants things done, on every task. Follow them without being asked.",
+                ...options.standingPreferences.map((entry) => `- ${entry.summary}`),
+              ].join("\n"),
             });
           }
         }

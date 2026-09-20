@@ -4,6 +4,7 @@
  * executor depending on the model's capabilities.
  */
 
+import { FileSystem } from "@effect/platform";
 import { Effect, Option } from "effect";
 import {
   DEFAULT_MAX_ITERATIONS,
@@ -23,6 +24,7 @@ import {
 } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import { type MCPServerManager } from "@/core/interfaces/mcp-server";
+import { MemoryServiceTag } from "@/core/interfaces/memory-service";
 import { PersonaServiceTag, type PersonaService } from "@/core/interfaces/persona-service";
 import { PluginRuntimeServiceTag } from "@/core/interfaces/plugin-runtime";
 import { type PresentationService } from "@/core/interfaces/presentation";
@@ -32,6 +34,7 @@ import {
   type ToolRegistry,
   type ToolRequirements,
 } from "@/core/interfaces/tool-registry";
+import { selectRecall } from "@/core/memory/recall";
 import { resolveDisplayConfig } from "@/core/presentation/display-config";
 import { SkillServiceTag, type SkillService } from "@/core/skills/skill-service";
 import type { AttachmentKind } from "@/core/types/attachment";
@@ -238,6 +241,7 @@ function initializeAgentRun(
   | SkillService
   | PresentationService
   | LLMService
+  | FileSystem.FileSystem
 > {
   return Effect.gen(function* () {
     const { agent, userInput, conversationId } = options;
@@ -530,6 +534,23 @@ function initializeAgentRun(
     const canGenerateMedia = yield* resolveCanGenerateMedia(agent);
     const attachmentsAreLocal = isLocalServerProvider(agent.config.llmProvider);
 
+    // Standing preferences are injected rather than looked up. Recall that
+    // depends on the model choosing to spend a call is recall it will sometimes
+    // skip, and a preference the user already stated is not something they
+    // should have to restate. Memory is optional here: an agent configured
+    // without it still runs, just without this.
+    const memoryServiceOption = yield* Effect.serviceOption(MemoryServiceTag);
+    const standingPreferences = Option.isSome(memoryServiceOption)
+      ? yield* memoryServiceOption.value.index(agent.config.memoryScopes ?? [agent.id]).pipe(
+          Effect.map((entries) =>
+            selectRecall({ entries, requestText: userInput }).standing.map((entry) => ({
+              summary: entry.summary,
+            })),
+          ),
+          Effect.catchAll(() => Effect.succeed<{ summary: string }[]>([])),
+        )
+      : [];
+
     // Build messages — reuses the PersonaService resolved earlier so custom
     // personas can be looked up by name when assembling the system prompt.
     const messages: ConversationMessages = yield* agentPromptBuilder.buildAgentMessages(
@@ -544,6 +565,7 @@ function initializeAgentRun(
         availableTools,
         knownSkills: relevantSkills,
         ...(deferredToolSummaries.length > 0 && { deferredTools: deferredToolSummaries }),
+        ...(standingPreferences.length > 0 && { standingPreferences }),
         ...(attachmentWorkingDirectory !== undefined && {
           workingDirectory: attachmentWorkingDirectory,
         }),

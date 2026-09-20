@@ -7,10 +7,11 @@
  * to recall — a recall step that itself needed a model would cost a round trip
  * on every turn and could fail in ways the turn cannot recover from.
  *
- * Two groups come out. Standing preferences are injected because they exist and
- * their workflow is active, so the model never has to remember to look them up.
- * Everything else is ranked against the request and offered as summaries with
- * the path to read in full, keeping bodies out of context until they are wanted.
+ * Two groups come out, split by whether the request can change them. Standing
+ * preferences apply to every task, so they are stable enough to freeze into the
+ * cached prompt and the model never has to look them up. Contextual entries are
+ * chosen for this turn and belong in the message stream. Both are carried as
+ * summaries with a path, keeping bodies out of context until they are wanted.
  */
 import {
   type MemoryEntryKind,
