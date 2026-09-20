@@ -4,13 +4,21 @@ description: "Install, inspect, trust, configure, enable, update, and remove opt
 
 # Plugins
 
-Jazz plugins are optional, pre-bundled JavaScript modules that add advisory harness behavior. They
-are not model-selected tools. Version 1 exposes one hook, `route.skills`, which may suggest a skill
-before the first model request. It cannot authorize a tool, change approval policy, or execute an
-action on the model's behalf.
+Jazz plugins are optional, pre-bundled JavaScript modules that extend the harness. A plugin may
+contribute any mix of capabilities:
+
+- **tools** — model-callable functions that join the agent's tool set;
+- **commands** — user-invoked `/name` slash commands;
+- **personas** — selectable agent personalities;
+- **skills** — loadable instruction documents;
+- an advisory **hook** (`route.skills`) that suggests a skill before the first model request.
+
+Tools and commands run code and are gated accordingly; personas and skills are inert declared data.
+An advisory hook cannot authorize a tool, change approval policy, or act on the model's behalf.
 
 Plugins are absent and disabled by default. A normal Jazz installation has no plugin network call,
-latency, prompt change, or credential requirement.
+latency, prompt change, or credential requirement. Everything a plugin adds is declared in its
+manifest — the reviewed, consented contract — and the module can never exceed what it declared.
 
 ## Trust means code execution
 
@@ -39,6 +47,116 @@ Enabled `route.skills` plugins currently run in shadow mode: bounded usage, late
 measured, but their answer does not change the provider request. Maintainers can explicitly test
 host-rendered advisory injection with `JAZZ_EXPERIMENTAL_PLUGIN_ADVISORY=1`; this is not enabled by
 installation, trust, or consent and remains gated on held end-to-end eval results.
+
+## Tools
+
+A plugin may contribute model-callable tools. Each tool is declared in the manifest — name,
+description, a JSON Schema for its arguments, a `riskLevel` (`read-only` / `low-risk` /
+`high-risk`), and whether calling it sends model-authored content off the machine (`egress`) — and
+the module supplies the matching handler. The manifest declaration is the reviewed, consented
+contract; the module can neither register an undeclared tool nor claim a lower risk than declared.
+
+When a plugin is enabled for an agent, its tools join that agent's tool set automatically — no
+separate mention in the agent's config is needed. Jazz namespaces each tool (`plugin_<id>_<tool>`)
+so it never collides, advertises the declared JSON Schema to the model, and **validates the model's
+arguments against that schema before the handler runs**. A `read-only` tool runs directly; anything
+else becomes an approval-gated tool, so a person confirms it under the active approval policy exactly
+like a built-in. A handler that throws, times out, or is unavailable returns an error result to the
+model rather than crashing the run.
+
+```jsonc
+// jazz-plugin.json
+{
+  "tools": [
+    {
+      "name": "reverse_text",
+      "description": "Reverse the characters of the given text.",
+      "parameters": {
+        "type": "object",
+        "properties": { "text": { "type": "string" } },
+        "required": ["text"],
+        "additionalProperties": false,
+      },
+      "riskLevel": "read-only",
+      "egress": false,
+    },
+  ],
+}
+```
+
+```ts
+// src/index.ts
+import type { JazzPluginModule } from "@jazz/plugin-sdk";
+
+const plugin: JazzPluginModule = {
+  apiVersion: 1,
+  register(api) {
+    api.tools.register({
+      name: "reverse_text",
+      handler: (args) =>
+        Promise.resolve({ content: [...String(args["text"] ?? "")].reverse().join("") }),
+    });
+  },
+};
+
+export default plugin;
+```
+
+`plugins/example-tool` in the repository is a complete, minimal example — it contributes one of
+each capability below.
+
+## Commands
+
+A plugin may contribute user-invoked slash commands. Each is declared in the manifest (name +
+description); the module registers a handler via `api.commands.register`. When a plugin is enabled,
+its commands are registered at chat startup and behave like the built-in dynamic commands: `/name`
+autocompletes (with a `(plugin)` badge), and running it invokes the handler, whose returned
+`message` becomes your next turn to the agent. Built-in, skill, and MCP-prompt commands win a name
+collision, so a plugin cannot shadow `/help`. A command that returns nothing is a quiet no-op.
+
+## Personas
+
+A plugin may contribute personas — pure manifest data (name, description, systemPrompt, optional
+tone/style), no handler or egress. An enabled plugin's personas appear alongside built-in and
+custom ones in the wizard, `/switch`, and `jazz persona list`, and an agent's `config.persona` may
+name one. A built-in or custom persona of the same name always wins.
+
+## Skills
+
+A plugin may contribute skills — inert instruction documents declared in the manifest (name,
+description, content). They appear in the skill index the model sees; the body is injected only
+when the model loads the skill, never automatically. A skill of the same name from any other source
+takes precedence. A plugin skill is instruction-trust surface (it can steer the model), not a
+capability grant — it cannot itself act or reach the network.
+
+## Lifecycle hooks
+
+A plugin may subscribe to host lifecycle events — `session-start`, `user-prompt`, `run-complete`,
+and `awaiting-input` — declared in the manifest (`lifecycleHooks`) and registered via
+`api.lifecycle.register`. Handlers are **fire-and-forget observers**: they receive a bounded event
+payload (agent id, conversation id, and event-specific data such as the prompt and a response
+summary) and **cannot change what the host does** — a throw or timeout is swallowed and never
+delays or breaks the run.
+
+This is what a terminal-notification plugin rides. A Warp notifier, for example, subscribes to
+`run-complete` (task finished — send a desktop notification with the response summary) and
+`awaiting-input` (Jazz is waiting on you), then shells out to raise the notification — the same
+shape as [`warpdotdev/claude-code-warp`](https://github.com/warpdotdev/claude-code-warp), which
+rides Claude Code's hook system.
+
+```ts
+api.lifecycle.register({
+  event: "run-complete",
+  handler: async (event) => {
+    // e.g. Bun.spawn(["osascript", "-e", `display notification ${JSON.stringify(event.data?.summary ?? "done")}`])
+  },
+});
+```
+
+## Global vs per-agent
+
+Tools attach to the agent whose run registers them. Personas and skills are treated as globally
+available once a plugin is enabled anywhere — there is no separate per-agent gating for inert data.
 
 ## Lifecycle
 

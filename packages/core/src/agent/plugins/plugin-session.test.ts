@@ -24,6 +24,11 @@ const manifest = {
   sha256: "a".repeat(64),
   hooks: ["route.skills" as const],
   decisionProviders: ["p"],
+  tools: [],
+  commands: [],
+  personas: [],
+  skills: [],
+  lifecycleHooks: [],
   network: { destinations: [] },
   dataSent: [],
   secrets: [{ name: "key", required: true, description: "API key" }],
@@ -178,4 +183,152 @@ it("charges the reservation and disables a capped network provider that omits co
   expect(metrics.decisionCostUSD).toBe(0.1);
   await client!.decide(request);
   expect(calls).toBe(1);
+});
+
+const toolManifest = {
+  ...manifest,
+  tools: [
+    {
+      name: "reverse_text",
+      description: "Reverse text.",
+      parameters: { type: "object", properties: { text: { type: "string" } } },
+      riskLevel: "read-only" as const,
+      egress: false,
+    },
+  ],
+};
+
+const makeToolSession = (module: LoadedPlugin["module"]) =>
+  createPluginSession({
+    agentId: "a",
+    plugins: [{ manifest: toolManifest, module }],
+    metrics: createAgentRunMetrics({ agent, conversationId: "c" }),
+    resolveSecret: async () => "secret",
+  });
+
+it("lists a declared tool and runs its handler", async () => {
+  const session = await Effect.runPromise(
+    makeToolSession({
+      apiVersion: 1,
+      register(api) {
+        api.tools.register({
+          name: "reverse_text",
+          handler: async (args) => ({ content: String(args["text"]).split("").reverse().join("") }),
+        });
+      },
+    }),
+  );
+  expect(session.listTools().map((tool) => tool.name)).toEqual(["reverse_text"]);
+  expect(session.listTools()[0]?.pluginId).toBe("com.example.router");
+  const result = await Effect.runPromise(session.runTool("reverse_text", { text: "abc" }));
+  expect(result).toEqual({ content: "cba" });
+});
+
+it("rejects a tool the manifest did not declare", async () => {
+  const outcome = await Effect.runPromise(
+    makeToolSession({
+      apiVersion: 1,
+      register(api) {
+        api.tools.register({ name: "undeclared", handler: async () => ({ content: "x" }) });
+      },
+    }).pipe(Effect.either),
+  );
+  expect(outcome._tag).toBe("Left");
+});
+
+it("returns an error result when the handler throws, so the host falls back", async () => {
+  const session = await Effect.runPromise(
+    makeToolSession({
+      apiVersion: 1,
+      register(api) {
+        api.tools.register({
+          name: "reverse_text",
+          handler: async () => {
+            throw new Error("kaboom");
+          },
+        });
+      },
+    }),
+  );
+  const result = await Effect.runPromise(session.runTool("reverse_text", { text: "abc" }));
+  expect(result.isError).toBe(true);
+});
+
+it("returns an error result for an unknown tool name", async () => {
+  const session = await Effect.runPromise(
+    makeToolSession({
+      apiVersion: 1,
+      register(api) {
+        api.tools.register({
+          name: "reverse_text",
+          handler: async () => ({ content: "ok" }),
+        });
+      },
+    }),
+  );
+  const result = await Effect.runPromise(session.runTool("does_not_exist", {}));
+  expect(result.isError).toBe(true);
+});
+
+const lifecycleManifest = {
+  ...manifest,
+  lifecycleHooks: ["run-complete" as const],
+};
+
+it("delivers a declared lifecycle event to its handler", async () => {
+  let received: unknown;
+  const session = await Effect.runPromise(
+    createPluginSession({
+      agentId: "a",
+      plugins: [
+        {
+          manifest: lifecycleManifest,
+          module: {
+            apiVersion: 1,
+            register(api) {
+              api.lifecycle.register({
+                event: "run-complete",
+                handler: async (event) => {
+                  received = event.data?.["summary"];
+                },
+              });
+            },
+          },
+        },
+      ],
+      metrics: createAgentRunMetrics({ agent, conversationId: "c" }),
+      resolveSecret: async () => "secret",
+    }),
+  );
+  await Effect.runPromise(
+    session.emitLifecycle({
+      event: "run-complete",
+      agentId: "a",
+      conversationId: "c",
+      data: { summary: "all done" },
+    }),
+  );
+  expect(received).toBe("all done");
+});
+
+it("rejects a lifecycle subscription the manifest did not declare", async () => {
+  const outcome = await Effect.runPromise(
+    createPluginSession({
+      agentId: "a",
+      plugins: [
+        {
+          manifest,
+          module: {
+            apiVersion: 1,
+            register(api) {
+              api.lifecycle.register({ event: "run-complete", handler: async () => {} });
+            },
+          },
+        },
+      ],
+      metrics: createAgentRunMetrics({ agent, conversationId: "c" }),
+      resolveSecret: async () => "secret",
+    }).pipe(Effect.either),
+  );
+  expect(outcome._tag).toBe("Left");
 });

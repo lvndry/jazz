@@ -12,7 +12,6 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
-import { createAgentRunMetrics } from "@jazz/core/agent/metrics/agent-run-metrics";
 import { createPluginSession } from "@jazz/core/agent/plugins/plugin-session";
 import type {
   JazzPluginModule,
@@ -70,6 +69,9 @@ export interface PluginProbeResult {
   readonly manifest: PluginManifest;
   readonly registeredHooks: readonly string[];
   readonly registeredDecisionProviders: readonly string[];
+  readonly registeredTools: readonly string[];
+  readonly registeredCommands: readonly string[];
+  readonly registeredLifecycleEvents: readonly string[];
   readonly routeSkillsOutcome?: SkillRouteOutcome;
 }
 
@@ -112,6 +114,11 @@ async function readSourceManifest(pluginDirectory: string): Promise<SourceManife
     "entry",
     "hooks",
     "decisionProviders",
+    "tools",
+    "commands",
+    "personas",
+    "skills",
+    "lifecycleHooks",
     "network",
     "dataSent",
     "secrets",
@@ -370,6 +377,12 @@ function assertSameMembers(
 function auditRegistration(manifest: PluginManifest, module: JazzPluginModule): PluginProbeResult {
   const hooks = new Set<string>();
   const providers = new Set<string>();
+  const tools = new Set<string>();
+  const commands = new Set<string>();
+  const lifecycleEvents = new Set<string>();
+  const declaredTools = new Set(manifest.tools.map((tool) => tool.name));
+  const declaredCommands = new Set(manifest.commands.map((command) => command.name));
+  const declaredLifecycle = new Set<string>(manifest.lifecycleHooks);
   const api: PluginHostApi = {
     apiVersion: 1,
     hooks: {
@@ -391,30 +404,47 @@ function auditRegistration(manifest: PluginManifest, module: JazzPluginModule): 
         };
       },
     },
+    tools: {
+      register: (registration) => {
+        if (!declaredTools.has(registration.name))
+          fail(`tool ${registration.name} is not declared in the manifest`);
+        if (tools.has(registration.name))
+          fail(`tool ${registration.name} was registered more than once`);
+        tools.add(registration.name);
+      },
+    },
+    commands: {
+      register: (registration) => {
+        if (!declaredCommands.has(registration.name))
+          fail(`command ${registration.name} is not declared in the manifest`);
+        if (commands.has(registration.name))
+          fail(`command ${registration.name} was registered more than once`);
+        commands.add(registration.name);
+      },
+    },
+    lifecycle: {
+      register: (registration) => {
+        if (!declaredLifecycle.has(registration.event))
+          fail(`lifecycle event ${registration.event} is not declared in the manifest`);
+        lifecycleEvents.add(registration.event);
+      },
+    },
     secrets: { get: () => Promise.resolve(undefined) },
   };
   module.register(api);
   assertSameMembers("hook", manifest.hooks, hooks);
   assertSameMembers("decision provider", manifest.decisionProviders, providers);
+  assertSameMembers("tool", [...declaredTools], tools);
+  assertSameMembers("command", [...declaredCommands], commands);
+  assertSameMembers("lifecycle event", [...declaredLifecycle], lifecycleEvents);
   return {
     manifest,
     registeredHooks: [...hooks].sort(),
     registeredDecisionProviders: [...providers].sort(),
+    registeredTools: [...tools].sort(),
+    registeredCommands: [...commands].sort(),
+    registeredLifecycleEvents: [...lifecycleEvents].sort(),
   };
-}
-
-function probeMetrics() {
-  const now = new Date();
-  return createAgentRunMetrics({
-    agent: {
-      id: "plugin-probe",
-      name: "Plugin probe",
-      config: { persona: "default", llmProvider: "openai", llmModel: "probe" },
-      createdAt: now,
-      updatedAt: now,
-    },
-    conversationId: "plugin-probe",
-  });
 }
 
 /** Verify and execute a packed plugin in a disposable store, without changing global state. */
@@ -437,7 +467,6 @@ export async function probePackedPlugin(
     const session = await Effect.runPromise(
       createPluginSession({
         agentId: "plugin-probe",
-        metrics: probeMetrics(),
         plugins: [{ manifest: acquired.manifest, module }],
         resolveSecret: () => Promise.resolve(undefined),
       }),

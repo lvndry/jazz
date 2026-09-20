@@ -72,7 +72,10 @@ function CommandSuggestionItem({
       </Text>
       {command.usage ? <Text color={THEME.muted}> {command.usage}</Text> : null}
       {command.source ? (
-        <Text color={THEME.muted}> ({command.source === "skill" ? "skill" : "mcp"})</Text>
+        <Text color={THEME.muted}>
+          {" "}
+          ({command.source === "skill" ? "skill" : command.source === "plugin" ? "plugin" : "mcp"})
+        </Text>
       ) : null}
       <Text dimColor> – {command.description}</Text>
     </Box>

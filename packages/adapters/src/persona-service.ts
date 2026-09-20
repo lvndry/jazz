@@ -8,6 +8,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { LoggerServiceTag } from "@jazz/core/interfaces/logger";
 import { PersonaServiceTag, type PersonaService } from "@jazz/core/interfaces/persona-service";
+import { PluginRuntimeServiceTag } from "@jazz/core/interfaces/plugin-runtime";
 import {
   PersonaAlreadyExistsError,
   PersonaNotFoundError,
@@ -501,6 +502,30 @@ updatedAt: "${now.toISOString()}"
           } else {
             seenNames.add(key);
             result.push(p);
+          }
+        }
+
+        // 3. Personas contributed by enabled plugins (global). Lowest precedence: a built-in or
+        // custom persona of the same name wins, so a plugin cannot shadow one. Pure manifest data,
+        // fail-open: absent runtime or any error contributes nothing.
+        const runtimeOption = yield* Effect.serviceOption(PluginRuntimeServiceTag);
+        if (Option.isSome(runtimeOption)) {
+          const pluginPersonas = yield* runtimeOption.value.listAllPersonas();
+          const now = new Date();
+          for (const info of pluginPersonas) {
+            const key = info.name.toLowerCase();
+            if (seenNames.has(key)) continue;
+            seenNames.add(key);
+            result.push({
+              id: `plugin-${info.pluginId}-${info.name}`,
+              name: info.name,
+              description: info.description,
+              systemPrompt: info.systemPrompt,
+              ...(info.tone !== undefined ? { tone: info.tone } : {}),
+              ...(info.style !== undefined ? { style: info.style } : {}),
+              createdAt: now,
+              updatedAt: now,
+            });
           }
         }
 

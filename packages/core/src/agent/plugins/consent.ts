@@ -12,6 +12,11 @@ export function buildPluginConsentDisclosure(manifest: PluginManifest): PluginCo
     codeDigest: manifest.sha256,
     hooks: sortedUnique(manifest.hooks),
     decisionProviders: sortedUnique(manifest.decisionProviders),
+    tools: sortedUnique(manifest.tools.map((tool) => tool.name)),
+    commands: sortedUnique(manifest.commands.map((command) => command.name)),
+    personas: sortedUnique(manifest.personas.map((persona) => persona.name)),
+    skills: sortedUnique(manifest.skills.map((skill) => skill.name)),
+    lifecycleHooks: sortedUnique(manifest.lifecycleHooks),
     destinations: sortedUnique(manifest.network.destinations),
     dataSent: sortedUnique(manifest.dataSent),
   };
@@ -24,6 +29,11 @@ export function canonicalizePluginConsent(disclosure: PluginConsentDisclosure): 
     codeDigest: disclosure.codeDigest,
     hooks: sortedUnique(disclosure.hooks),
     decisionProviders: sortedUnique(disclosure.decisionProviders),
+    tools: sortedUnique(disclosure.tools),
+    commands: sortedUnique(disclosure.commands),
+    personas: sortedUnique(disclosure.personas),
+    skills: sortedUnique(disclosure.skills),
+    lifecycleHooks: sortedUnique(disclosure.lifecycleHooks),
     destinations: sortedUnique(disclosure.destinations),
     dataSent: sortedUnique(disclosure.dataSent),
   });

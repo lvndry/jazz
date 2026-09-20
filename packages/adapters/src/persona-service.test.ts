@@ -11,6 +11,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PersonaServiceTag } from "@jazz/core/interfaces/persona-service";
 import {
+  PluginRuntimeServiceTag,
+  type PluginRuntimeService,
+} from "@jazz/core/interfaces/plugin-runtime";
+import {
   PersonaAlreadyExistsError,
   PersonaNotFoundError,
   StorageError,
@@ -637,6 +641,54 @@ describe("PersonaService", () => {
 
       const result = await run(program);
       expect(result.toolProfile?.deny).toEqual(["git_push", "write_file"]);
+    });
+  });
+
+  describe("plugin personas (global)", () => {
+    const pluginRuntime = (): PluginRuntimeService =>
+      ({
+        listAllPersonas: () =>
+          Effect.succeed([
+            {
+              pluginId: "com.example.demo",
+              name: "pirate",
+              description: "Talks like a pirate.",
+              systemPrompt: "You are a pirate.",
+              tone: "playful",
+            },
+          ]),
+      }) as unknown as PluginRuntimeService;
+
+    const withPlugin = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+      Effect.runPromise(
+        Effect.provide(
+          effect,
+          Layer.merge(layer, Layer.succeed(PluginRuntimeServiceTag, pluginRuntime())),
+        ) as Effect.Effect<A, E, never>,
+      );
+
+    it("includes an enabled plugin's persona in the list", async () => {
+      const personas = await withPlugin(
+        Effect.gen(function* () {
+          const service = yield* PersonaServiceTag;
+          return yield* service.listPersonas();
+        }),
+      );
+      const pirate = personas.find((persona) => persona.name === "pirate");
+      expect(pirate).toBeDefined();
+      expect(pirate?.id).toBe("plugin-com.example.demo-pirate");
+      expect(pirate?.systemPrompt).toBe("You are a pirate.");
+    });
+
+    it("resolves a plugin persona by name", async () => {
+      const persona = await withPlugin(
+        Effect.gen(function* () {
+          const service = yield* PersonaServiceTag;
+          return yield* service.getPersonaByIdentifier("pirate");
+        }),
+      );
+      expect(persona.name).toBe("pirate");
+      expect(persona.tone).toBe("playful");
     });
   });
 });
