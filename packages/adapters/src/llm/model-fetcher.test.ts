@@ -817,6 +817,50 @@ describe("fetchLlamaCppServerModel", () => {
     });
   });
 
+  it("falls back to max_model_len from /v1/models when /props is unavailable (vLLM)", async () => {
+    global.fetch = mock((url: string) => {
+      if (url.endsWith("/v1/models"))
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              data: [{ id: "qwen3.8-27b", max_model_len: 65536 }],
+            }),
+        });
+      if (url.endsWith("/props")) return Promise.resolve({ ok: false, status: 404 });
+      return Promise.reject("Unknown URL");
+    }) as unknown as typeof fetch;
+
+    expect(await fetchLlamaCppServerModel("http://localhost:8090/v1")).toEqual({
+      modelId: "qwen3.8-27b",
+      contextWindow: 65536,
+    });
+  });
+
+  it("prefers /props n_ctx over max_model_len when both are available", async () => {
+    global.fetch = mock((url: string) => {
+      if (url.endsWith("/v1/models"))
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              data: [{ id: "some-model", max_model_len: 131072 }],
+            }),
+        });
+      if (url.endsWith("/props"))
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ default_generation_settings: { n_ctx: 16384 } }),
+        });
+      return Promise.reject("Unknown URL");
+    }) as unknown as typeof fetch;
+
+    expect(await fetchLlamaCppServerModel("http://localhost:8080/v1")).toEqual({
+      modelId: "some-model",
+      contextWindow: 16384,
+    });
+  });
+
   it("returns only the context window when /v1/models is unreachable", async () => {
     global.fetch = mock((url: string) => {
       if (url.endsWith("/v1/models")) return Promise.resolve({ ok: false, status: 503 });
