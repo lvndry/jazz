@@ -178,13 +178,8 @@ export function createManageWorkspaceTool(): Tool<WorkspaceToolDeps> {
     disclosure: "private",
     summary: "Store bulky working files: research dumps, scraped data, long in-progress drafts.",
     description:
-      "Store bulk or provisional working files — full research results, scraped data, long " +
-      "in-progress documents — that are too large or too unfinished to belong in memory. This " +
-      "is working storage, not what you know about the user: a standing preference, a fact " +
-      "about them, or a lesson from a failure goes to manage_memory instead, however durable " +
-      "it feels. Once work is done, reference the scratchpad path from a memory entry " +
-      '(e.g. "full research at scratchpad/research/topic.md") rather than copying the content ' +
-      "into memory. Never write secrets (account numbers, passwords, health data).",
+      "Bulk working files: research dumps, scraped data, long in-progress drafts. " +
+      "Never write secrets.",
     parameters: manageWorkspaceParameters,
     riskLevel: "low-risk",
     hidden: false,

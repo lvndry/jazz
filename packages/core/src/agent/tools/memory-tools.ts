@@ -160,19 +160,14 @@ const memoryTriggerParameter = z
       corrected_behavior: z.string().min(1).describe("What the user said you should do instead."),
     }),
   ])
-  .describe(
-    "The failure this lesson prevents. Required for kind=lesson: a lesson whose failure is not " +
-      "named can never be checked against what actually happens, so it would never be validated.",
-  );
+  .describe("The failure this lesson prevents. Required for lessons.");
 
 const createMemoryParameters = z.object({
   command: z.literal("create"),
   kind: z
     .enum(MEMORY_ENTRY_KINDS)
     .describe(
-      'What this is. "preference" = how the user wants things done; "fact" = something stable ' +
-        'about the user or their world; "lesson" = a failure and its fix, tied to something that ' +
-        "actually went wrong.",
+      "preference = how they want things done; fact = stable about them; lesson = a failure and its fix.",
     ),
   subject: z
     .string()
@@ -281,24 +276,15 @@ export function createManageMemoryTool(): Tool<MemoryToolDeps> {
     summary:
       "Remember durable user preferences, facts, corrections and lessons across conversations.",
     description:
-      "Remember something durable about the user across conversations: a preference (how they want " +
-      "things done), a fact (something stable about them or their world), or a lesson (a failure and " +
-      "its fix, tied to something that actually went wrong). Not for bulk drafts or large artifacts " +
-      "— those go in the scratchpad, referenced by path from a memory entry. Not for what the current " +
-      "task is doing — that is work state. Do not save small talk, tentative thoughts, sensitive " +
-      "personal data, or secrets.\n" +
-      'Write facts, not commands: "user prefers concise replies" — not "always reply concisely", ' +
-      "which a later session re-reads as an order overriding what the user is asking for then.\n" +
-      "If an entry already covers the subject, amend it rather than adding a second one; facts and " +
-      "preferences hold one entry per subject, and a create that reuses a subject is refused and " +
-      "shows you the entry to edit.\n" +
-      "create(kind, subject, file_text) stores a new entry and chooses its path for you; add " +
-      'workflow to scope a preference or lesson to a kind of work (e.g. "moodboard"), omit it when ' +
-      "it applies to every task — workflows are not tied to a folder, so the entry is recalled " +
-      "wherever that work happens. A lesson also requires a trigger naming the failure it prevents. " +
-      "str_replace(path, old_str, new_str) replaces one exact, unique snippet — omit new_str to " +
-      "delete it; insert(path, insert_line, insert_text) inserts after a 0-based line; " +
-      "delete(path) removes an entry; rename(old_path, new_path) moves one within its scope.",
+      "Remember something durable about the user: a preference (how they want things done), a " +
+      "fact (stable about them or their world), or a lesson (a failure and its fix). No secrets.\n" +
+      'Write facts, not commands: "prefers concise replies", not "always reply concisely" — a ' +
+      "later session re-reads a command as an order.\n" +
+      "One entry per subject for facts and preferences: reusing a subject is refused and shows " +
+      "you the entry to amend.\n" +
+      "create(kind, subject, file_text) picks the path. workflow scopes it to a kind of work, " +
+      "recalled wherever that work happens rather than per folder; omit when it always applies. " +
+      "A lesson needs a trigger. str_replace / insert / delete / rename take an entry's path.",
     parameters: manageMemoryParameters,
     riskLevel: "low-risk",
     hidden: false,
