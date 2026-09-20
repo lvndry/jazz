@@ -448,6 +448,9 @@ describe("handleSpecialCommand /compact", () => {
       resolveLocalProviderBaseUrl: () => "http://localhost:8080",
       fetchLlamaCppServerModel: () => Effect.succeed({ contextWindow: 8000 }),
     };
+    const mockAgentConfigService: Partial<AgentConfigService> = {
+      appConfig: Effect.succeed({}) as AgentConfigService["appConfig"],
+    };
     const mockTerminal: Partial<TerminalService> = {
       info: mock(() => Effect.void),
       success: mock(() => Effect.void),
@@ -458,6 +461,7 @@ describe("handleSpecialCommand /compact", () => {
     const layers = Layer.mergeAll(
       Layer.succeed(TerminalServiceTag, mockTerminal as unknown as TerminalService),
       Layer.succeed(LLMServiceTag, mockLLMService as unknown as LLMService),
+      Layer.succeed(AgentConfigServiceTag, mockAgentConfigService as unknown as AgentConfigService),
     );
 
     try {

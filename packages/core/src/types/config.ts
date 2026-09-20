@@ -245,6 +245,7 @@ export interface LLMConfig {
   readonly ollama?: OllamaProviderConfig;
   readonly openai?: LLMProviderConfig;
   readonly openrouter?: LLMProviderConfig;
+  readonly orcarouter?: LLMProviderConfig;
   readonly togetherai?: LLMProviderConfig;
   readonly xai?: LLMProviderConfig;
   readonly zhipuai?: LLMProviderConfig;

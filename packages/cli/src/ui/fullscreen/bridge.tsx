@@ -2118,7 +2118,8 @@ export function FullscreenBridge(): React.ReactNode {
       if (!ctrl && !superKey && [...sequence].length === 1) {
         const code = sequence.codePointAt(0) ?? 0;
         if (code >= 0x20 && code !== 0x7f) {
-          insertAtCaret(sequence);
+          const text = sequence === "!" && composerRef.current.text.length === 0 ? "! " : sequence;
+          insertAtCaret(text);
           return true;
         }
       }

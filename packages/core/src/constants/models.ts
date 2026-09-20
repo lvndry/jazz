@@ -40,6 +40,7 @@ export const AVAILABLE_PROVIDERS = [
   "mistral",
   "moonshotai",
   "ollama",
+  "orcarouter",
   "togetherai",
   "zhipuai",
 ] as const;
@@ -62,3 +63,5 @@ export const OPENROUTER_GATEWAY_MODELS: ReadonlySet<string> = new Set([
   "openrouter/free",
   "openrouter/auto",
 ]);
+
+export const ORCAROUTER_GATEWAY_MODELS: ReadonlySet<string> = new Set(["orcarouter/auto"]);

@@ -92,5 +92,7 @@ export const LLM_TIMEOUT_SECONDS = 900;
 export const LLM_SLOW_MODEL_HINT_SECONDS = 45;
 
 export const HTTP_USER_AGENT = "Jazz/1.0 (https://github.com/lvndry/jazz)";
+// A current desktop Chrome string: many sites serve a degraded page, or none, to a UA they read
+// as stale or non-browser. Bump this as browser versions move on.
 export const WEB_FETCH_USER_AGENT =
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
