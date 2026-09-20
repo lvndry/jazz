@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "com.jazz.plugins.warp",
+  "name": "Warp notifications",
+  "version": "0.1.0",
+  "hostApi": 1,
+  "entry": "src/index.ts",
+  "hooks": [],
+  "decisionProviders": [],
+  "tools": [],
+  "commands": [],
+  "personas": [],
+  "skills": [],
+  "lifecycleHooks": ["run-complete", "awaiting-input"],
+  "network": { "destinations": [] },
+  "dataSent": [],
+  "secrets": []
+}
