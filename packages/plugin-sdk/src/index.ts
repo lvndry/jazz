@@ -160,6 +160,26 @@ export interface PluginCommandRegistration {
   ) => Promise<PluginCommandResult>;
 }
 
+/** Host-emitted lifecycle events a plugin may observe (notifications only, cannot change behavior). */
+export type LifecycleEventId = "session-start" | "user-prompt" | "run-complete" | "awaiting-input";
+
+/** The payload delivered to a lifecycle handler. */
+export interface LifecycleEvent {
+  readonly event: LifecycleEventId;
+  readonly agentId: string;
+  readonly conversationId: string;
+  readonly data?: Readonly<Record<string, JsonValue>>;
+}
+
+/** A fire-and-forget handler the host calls when a declared lifecycle event occurs. */
+export interface PluginLifecycleRegistration {
+  readonly event: LifecycleEventId;
+  readonly handler: (
+    event: LifecycleEvent,
+    context: { readonly signal: AbortSignal },
+  ) => Promise<void>;
+}
+
 export interface PluginHostApi {
   readonly apiVersion: JazzPluginApiVersion;
   readonly hooks: {
@@ -175,6 +195,10 @@ export interface PluginHostApi {
   readonly commands: {
     /** Supplies the handler for a slash command the manifest declares; rejected otherwise. */
     register(registration: PluginCommandRegistration): void;
+  };
+  readonly lifecycle: {
+    /** Subscribes a handler to a lifecycle event the manifest declares; rejected otherwise. */
+    register(registration: PluginLifecycleRegistration): void;
   };
   readonly secrets: {
     /** Only names declared in the current plugin manifest are resolvable. */
@@ -210,6 +234,7 @@ export interface JazzPluginSourceManifest {
   readonly commands?: readonly PluginCommandDeclaration[];
   readonly personas?: readonly PluginPersonaDeclaration[];
   readonly skills?: readonly PluginSkillDeclaration[];
+  readonly lifecycleHooks?: readonly LifecycleEventId[];
   readonly network: { readonly destinations: readonly string[] };
   readonly dataSent: readonly string[];
   readonly secrets: readonly PluginSecretDeclaration[];

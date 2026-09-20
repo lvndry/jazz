@@ -16,6 +16,7 @@ import {
 } from "@jazz/core/interfaces/plugin-runtime";
 import {
   PluginRuntimeError,
+  type LifecycleEvent,
   type PluginCommandInfo,
   type PluginCommandResult,
   type PluginPersonaInfo,
@@ -53,6 +54,9 @@ export interface PluginRuntimeServiceOptions {
 
 export class PluginRuntimeServiceImpl implements PluginRuntimeService {
   constructor(private readonly options: PluginRuntimeServiceOptions) {}
+
+  /** Long-lived per-agent sessions for lifecycle dispatch, so frequent events don't reload code. */
+  private readonly lifecycleSessions = new Map<string, PluginSession>();
 
   openSession(run: PluginSessionOptions) {
     return Effect.tryPromise({
@@ -142,6 +146,24 @@ export class PluginRuntimeServiceImpl implements PluginRuntimeService {
         ),
       ),
       Effect.catchAll(() => Effect.succeed([] as readonly PluginSkillInfo[])),
+    );
+  }
+
+  emitLifecycleEvent(event: LifecycleEvent): Effect.Effect<void> {
+    const cached = this.lifecycleSessions.get(event.agentId);
+    const session = cached
+      ? Effect.succeed(cached)
+      : this.openSession({
+          agentId: event.agentId,
+          metrics: toolSessionMetrics(event.agentId),
+        }).pipe(
+          Effect.tap((opened) =>
+            Effect.sync(() => this.lifecycleSessions.set(event.agentId, opened)),
+          ),
+        );
+    return session.pipe(
+      Effect.flatMap((resolved) => resolved.emitLifecycle(event)),
+      Effect.catchAll(() => Effect.void),
     );
   }
 }

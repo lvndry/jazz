@@ -18,9 +18,12 @@ import {
   type PluginDecisionClient,
   type PluginHostApi,
   type PluginSecretDeclaration,
+  type LifecycleEvent,
+  type LifecycleEventId,
   type PluginCommandDeclaration,
   type PluginCommandRegistration,
   type PluginCommandResult,
+  type PluginLifecycleRegistration,
   type PluginToolDeclaration,
   type PluginToolRegistration,
   type PluginToolResult,
@@ -58,6 +61,11 @@ type RegisteredCommand = {
   readonly pluginId: string;
   readonly declaration: PluginCommandDeclaration;
   readonly handler: PluginCommandRegistration["handler"];
+};
+
+type RegisteredLifecycle = {
+  readonly pluginId: string;
+  readonly handler: PluginLifecycleRegistration["handler"];
 };
 
 const toolError = (message: string): PluginToolResult => ({ content: message, isError: true });
@@ -109,6 +117,7 @@ export function createPluginSession(
       const hooks = new Map<AdvisoryHookId, RegisteredHook>();
       const tools = new Map<string, RegisteredTool>();
       const commands = new Map<string, RegisteredCommand>();
+      const lifecycle = new Map<LifecycleEventId, RegisteredLifecycle[]>();
       const providers = new Set<string>();
       const disabledProviders = new Set<string>();
       let reservedCostUSD = 0;
@@ -174,6 +183,15 @@ export function createPluginSession(
                 declaration,
                 handler: registration.handler,
               });
+            },
+          },
+          lifecycle: {
+            register: (registration) => {
+              if (!manifest.lifecycleHooks.includes(registration.event))
+                throw new Error(`plugin did not declare lifecycle event ${registration.event}`);
+              const existing = lifecycle.get(registration.event) ?? [];
+              existing.push({ pluginId: manifest.id, handler: registration.handler });
+              lifecycle.set(registration.event, existing);
             },
           },
           secrets: {
@@ -311,6 +329,23 @@ export function createPluginSession(
               return toolError(`tool ${name} failed`);
             }
           }),
+        emitLifecycle: (event: LifecycleEvent) =>
+          Effect.promise(async () => {
+            if (closed) return;
+            const handlers = lifecycle.get(event.event) ?? [];
+            await Promise.allSettled(
+              handlers.map(async (registered) => {
+                try {
+                  await deadline((signal) => registered.handler(event, { signal }), timeoutMs);
+                } catch (error) {
+                  options.reportFailure?.(
+                    registered.pluginId,
+                    error instanceof Error ? error.message : String(error),
+                  );
+                }
+              }),
+            );
+          }),
         listCommands: () =>
           [...commands.values()].map(({ pluginId, declaration }) => ({ ...declaration, pluginId })),
         runCommand: (name, args) =>
@@ -345,6 +380,7 @@ export function createPluginSession(
             hooks.clear();
             tools.clear();
             commands.clear();
+            lifecycle.clear();
             providers.clear();
             disabledProviders.clear();
           }),

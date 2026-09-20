@@ -33,6 +33,7 @@ function fakeRuntime(overrides: Partial<PluginRuntimeService> = {}): PluginRunti
     runAgentCommand: () => Effect.succeed({}),
     listAllPersonas: () => Effect.succeed([]),
     listAllSkills: () => Effect.succeed([]),
+    emitLifecycleEvent: () => Effect.void,
     ...overrides,
   };
 }

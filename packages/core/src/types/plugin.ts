@@ -138,6 +138,7 @@ export interface PluginManifest {
   readonly commands: readonly PluginCommandDeclaration[];
   readonly personas: readonly PluginPersonaDeclaration[];
   readonly skills: readonly PluginSkillDeclaration[];
+  readonly lifecycleHooks: readonly LifecycleEventId[];
   readonly network: { readonly destinations: readonly string[] };
   readonly dataSent: readonly string[];
   readonly secrets: readonly PluginSecretDeclaration[];
@@ -152,6 +153,7 @@ export interface PluginConsentDisclosure {
   readonly commands: readonly string[];
   readonly personas: readonly string[];
   readonly skills: readonly string[];
+  readonly lifecycleHooks: readonly LifecycleEventId[];
   readonly destinations: readonly string[];
   readonly dataSent: readonly string[];
 }
@@ -247,6 +249,33 @@ export interface PluginSkillInfo extends PluginSkillDeclaration {
   readonly pluginId: string;
 }
 
+/**
+ * Host-emitted lifecycle events a plugin may observe. These are notifications only — a handler
+ * cannot change what the host does; it reacts (e.g. raises a desktop notification). The set is
+ * closed because each event is a point the host actually emits.
+ */
+export type LifecycleEventId = "session-start" | "user-prompt" | "run-complete" | "awaiting-input";
+
+/** The payload delivered to a lifecycle handler. `data` carries bounded, event-specific fields. */
+export interface LifecycleEvent {
+  readonly event: LifecycleEventId;
+  readonly agentId: string;
+  readonly conversationId: string;
+  readonly data?: Readonly<Record<string, JsonValue>>;
+}
+
+/**
+ * The runtime half of a lifecycle subscription: a fire-and-forget handler the host calls when an
+ * event it declared occurs. It cannot affect the run; a throw or timeout is swallowed.
+ */
+export interface PluginLifecycleRegistration {
+  readonly event: LifecycleEventId;
+  readonly handler: (
+    event: LifecycleEvent,
+    context: { readonly signal: AbortSignal },
+  ) => Promise<void>;
+}
+
 export interface PluginHostApi {
   readonly apiVersion: typeof PLUGIN_API_VERSION;
   readonly hooks: {
@@ -263,6 +292,10 @@ export interface PluginHostApi {
   readonly commands: {
     /** Supplies the handler for a slash command the manifest declares; rejected otherwise. */
     register(registration: PluginCommandRegistration): void;
+  };
+  readonly lifecycle: {
+    /** Subscribes a handler to a lifecycle event the manifest declares; rejected otherwise. */
+    register(registration: PluginLifecycleRegistration): void;
   };
   readonly secrets: {
     /** Only names declared by the current plugin manifest are resolvable. */

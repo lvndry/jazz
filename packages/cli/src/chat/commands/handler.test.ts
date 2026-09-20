@@ -738,6 +738,7 @@ describe("handleSpecialCommand /runPluginCommand", () => {
         runAgentCommand,
         listAllPersonas: () => Effect.succeed([]),
         listAllSkills: () => Effect.succeed([]),
+        emitLifecycleEvent: () => Effect.void,
       }),
     );
   }

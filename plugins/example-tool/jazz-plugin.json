@@ -45,6 +45,7 @@
       "content": "# Writing a haiku\n\nA haiku is three lines of 5, 7, and 5 syllables. Favor a concrete image and a seasonal or sensory reference. Avoid rhyme and abstraction; end on a small turn or observation."
     }
   ],
+  "lifecycleHooks": ["run-complete"],
   "network": { "destinations": [] },
   "dataSent": [],
   "secrets": []

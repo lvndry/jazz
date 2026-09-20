@@ -72,6 +72,7 @@ export interface PluginProbeResult {
   readonly registeredDecisionProviders: readonly string[];
   readonly registeredTools: readonly string[];
   readonly registeredCommands: readonly string[];
+  readonly registeredLifecycleEvents: readonly string[];
   readonly routeSkillsOutcome?: SkillRouteOutcome;
 }
 
@@ -118,6 +119,7 @@ async function readSourceManifest(pluginDirectory: string): Promise<SourceManife
     "commands",
     "personas",
     "skills",
+    "lifecycleHooks",
     "network",
     "dataSent",
     "secrets",
@@ -378,8 +380,10 @@ function auditRegistration(manifest: PluginManifest, module: JazzPluginModule): 
   const providers = new Set<string>();
   const tools = new Set<string>();
   const commands = new Set<string>();
+  const lifecycleEvents = new Set<string>();
   const declaredTools = new Set(manifest.tools.map((tool) => tool.name));
   const declaredCommands = new Set(manifest.commands.map((command) => command.name));
+  const declaredLifecycle = new Set<string>(manifest.lifecycleHooks);
   const api: PluginHostApi = {
     apiVersion: 1,
     hooks: {
@@ -419,6 +423,13 @@ function auditRegistration(manifest: PluginManifest, module: JazzPluginModule): 
         commands.add(registration.name);
       },
     },
+    lifecycle: {
+      register: (registration) => {
+        if (!declaredLifecycle.has(registration.event))
+          fail(`lifecycle event ${registration.event} is not declared in the manifest`);
+        lifecycleEvents.add(registration.event);
+      },
+    },
     secrets: { get: () => Promise.resolve(undefined) },
   };
   module.register(api);
@@ -426,12 +437,14 @@ function auditRegistration(manifest: PluginManifest, module: JazzPluginModule): 
   assertSameMembers("decision provider", manifest.decisionProviders, providers);
   assertSameMembers("tool", [...declaredTools], tools);
   assertSameMembers("command", [...declaredCommands], commands);
+  assertSameMembers("lifecycle event", [...declaredLifecycle], lifecycleEvents);
   return {
     manifest,
     registeredHooks: [...hooks].sort(),
     registeredDecisionProviders: [...providers].sort(),
     registeredTools: [...tools].sort(),
     registeredCommands: [...commands].sort(),
+    registeredLifecycleEvents: [...lifecycleEvents].sort(),
   };
 }
 

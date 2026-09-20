@@ -21,6 +21,7 @@ const ENV_NAME = /^[A-Z][A-Z0-9_]{0,127}$/;
 
 import type {
   JsonValue,
+  LifecycleEventId,
   PluginCommandDeclaration,
   PluginManifest,
   PluginPersonaDeclaration,
@@ -205,6 +206,22 @@ function parseSkillDeclaration(value: unknown, index: number): PluginSkillDeclar
   return { name, description, content };
 }
 
+const LIFECYCLE_EVENTS: ReadonlySet<string> = new Set([
+  "session-start",
+  "user-prompt",
+  "run-complete",
+  "awaiting-input",
+]);
+
+function parseLifecycleHooks(value: unknown): readonly LifecycleEventId[] {
+  if (value === undefined) return [];
+  const events = uniqueStrings(value, "lifecycleHooks", { maxItems: 16, maxLength: 64 });
+  for (const event of events) {
+    if (!LIFECYCLE_EVENTS.has(event)) throw new Error(`unknown lifecycle event: ${event}`);
+  }
+  return events as readonly LifecycleEventId[];
+}
+
 function parseSkills(value: unknown): readonly PluginSkillDeclaration[] {
   if (value === undefined) return [];
   if (!Array.isArray(value) || value.length > 16) {
@@ -262,6 +279,7 @@ export function parsePluginManifest(input: unknown): PluginManifest {
       "commands",
       "personas",
       "skills",
+      "lifecycleHooks",
       "network",
       "dataSent",
       "secrets",
@@ -322,6 +340,7 @@ export function parsePluginManifest(input: unknown): PluginManifest {
     commands: parseCommands(root["commands"]),
     personas: parsePersonas(root["personas"]),
     skills: parseSkills(root["skills"]),
+    lifecycleHooks: parseLifecycleHooks(root["lifecycleHooks"]),
     network: { destinations: [...destinations].sort() },
     dataSent: [
       ...uniqueStrings(root["dataSent"], "dataSent", {

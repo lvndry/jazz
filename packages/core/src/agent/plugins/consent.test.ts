@@ -18,6 +18,7 @@ const manifest: PluginManifest = {
   commands: [],
   personas: [],
   skills: [],
+  lifecycleHooks: [],
   network: { destinations: ["b.example", "a.example"] },
   dataSent: ["skills", "request"],
   secrets: [],

@@ -4,6 +4,7 @@ import type {
   JazzPluginModule,
   PluginCommandRegistration,
   PluginHostApi,
+  PluginLifecycleRegistration,
   PluginToolRegistration,
 } from "@jazz/plugin-sdk";
 import { describe, expect, it } from "bun:test";
@@ -13,9 +14,11 @@ function fakeHost(): {
   readonly api: PluginHostApi;
   readonly tools: Map<string, PluginToolRegistration>;
   readonly commands: Map<string, PluginCommandRegistration>;
+  readonly lifecycle: Map<string, PluginLifecycleRegistration>;
 } {
   const tools = new Map<string, PluginToolRegistration>();
   const commands = new Map<string, PluginCommandRegistration>();
+  const lifecycle = new Map<string, PluginLifecycleRegistration>();
   const api: PluginHostApi = {
     apiVersion: 1,
     hooks: { register: () => {} },
@@ -34,9 +37,14 @@ function fakeHost(): {
         commands.set(registration.name, registration);
       },
     },
+    lifecycle: {
+      register: (registration) => {
+        lifecycle.set(registration.event, registration);
+      },
+    },
     secrets: { get: async () => undefined },
   };
-  return { api, tools, commands };
+  return { api, tools, commands, lifecycle };
 }
 
 function register(module: JazzPluginModule = plugin) {
@@ -65,6 +73,22 @@ describe("example-tool plugin", () => {
       .get("reverse_text")!
       .handler({}, { signal: new AbortController().signal });
     expect(result).toEqual({ content: "" });
+  });
+
+  it("subscribes to the run-complete lifecycle event", async () => {
+    const host = register();
+    expect([...host.lifecycle.keys()]).toEqual(["run-complete"]);
+    await expect(
+      host.lifecycle.get("run-complete")!.handler(
+        {
+          event: "run-complete",
+          agentId: "a",
+          conversationId: "c",
+          data: { summary: "done" },
+        },
+        { signal: new AbortController().signal },
+      ),
+    ).resolves.toBeUndefined();
   });
 
   it("registers the greet command and builds a message from its args", async () => {

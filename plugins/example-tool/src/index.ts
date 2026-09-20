@@ -26,6 +26,17 @@ const plugin: JazzPluginModule = {
         });
       },
     });
+
+    // A real notifier plugin (e.g. Warp) would raise a desktop notification here — this example
+    // just demonstrates the shape. The handler is fire-and-forget: its result is ignored and a
+    // throw or timeout can never affect the run.
+    api.lifecycle.register({
+      event: "run-complete",
+      handler: (event) => {
+        void event.data?.["summary"]; // e.g. Bun.spawn(["osascript","-e", ...]) to notify
+        return Promise.resolve();
+      },
+    });
   },
 };
 

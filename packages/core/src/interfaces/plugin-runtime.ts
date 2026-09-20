@@ -5,6 +5,7 @@ import type { AgentRunMetrics } from "@/core/agent/metrics/agent-run-metrics";
 import type {
   AdvisoryHookContracts,
   AdvisoryHookId,
+  LifecycleEvent,
   PluginCommandInfo,
   PluginCommandResult,
   PluginPersonaInfo,
@@ -33,6 +34,8 @@ export interface PluginSession {
     name: string,
     args: readonly string[],
   ) => Effect.Effect<PluginCommandResult>;
+  /** Deliver a lifecycle event to every plugin subscribed to it. Fire-and-forget; never fails. */
+  readonly emitLifecycle: (event: LifecycleEvent) => Effect.Effect<void>;
   readonly close: () => Effect.Effect<void>;
 }
 
@@ -80,6 +83,12 @@ export interface PluginRuntimeService {
    * serving their content on load. Pure manifest data. Resolves to an empty list on any failure.
    */
   readonly listAllSkills: () => Effect.Effect<readonly PluginSkillInfo[]>;
+  /**
+   * Deliver a lifecycle event to enabled plugins that subscribed to it. Fire-and-forget and
+   * fail-open — never blocks or breaks the run. Reuses one long-lived session per agent so frequent
+   * events do not reload modules.
+   */
+  readonly emitLifecycleEvent: (event: LifecycleEvent) => Effect.Effect<void>;
 }
 
 export const PluginRuntimeServiceTag = Context.GenericTag<PluginRuntimeService>(
