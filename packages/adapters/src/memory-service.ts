@@ -22,7 +22,7 @@ import type {
   MemoryEntryCredit,
   MemoryFileProvenance,
   MemoryScopeProvenance,
-  MemoryTrigger,
+  MemoryFailureSignature,
 } from "@jazz/core/interfaces/memory-provenance";
 import {
   EMPTY_MEMORY_SCOPE_PROVENANCE,
@@ -194,7 +194,7 @@ function sanitizeFileProvenance(value: unknown, now: string): MemoryFileProvenan
     asOptionalString(record["origin"]) === "user"
       ? { origin: record["origin"] as "auto" | "user" }
       : {}),
-    ...(isMemoryTrigger(record["trigger"]) ? { trigger: record["trigger"] } : {}),
+    ...(isMemoryFailureSignature(record["failure"]) ? { failure: record["failure"] } : {}),
     ...(isMemoryEntryCredit(record["credit"]) ? { credit: record["credit"] } : {}),
     ...(asOptionalString(record["compiledInto"]) !== undefined
       ? { compiledInto: record["compiledInto"] as string }
@@ -203,7 +203,7 @@ function sanitizeFileProvenance(value: unknown, now: string): MemoryFileProvenan
   };
 }
 
-function isMemoryTrigger(value: unknown): value is MemoryTrigger {
+function isMemoryFailureSignature(value: unknown): value is MemoryFailureSignature {
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Record<string, unknown>;
   if (candidate["kind"] === "misfire") {
@@ -410,7 +410,7 @@ function recordWrite(
       ...(entry !== undefined
         ? {
             subject: entry.subject,
-            ...(entry.trigger !== undefined ? { trigger: entry.trigger } : {}),
+            ...(entry.failure !== undefined ? { failure: entry.failure } : {}),
             ...(entry.origin !== undefined ? { origin: entry.origin } : {}),
           }
         : {}),

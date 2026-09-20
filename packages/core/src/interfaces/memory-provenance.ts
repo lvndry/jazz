@@ -24,10 +24,10 @@
 /**
  * The failure a lesson exists to prevent, recorded so the learning loop can
  * check whether that failure recurred and credit or blame the lesson
- * accordingly. A lesson without a trigger could never be scored, which is why
+ * accordingly. A lesson whose failure is unnamed could never be scored, which is why
  * `manage_memory` requires one.
  */
-export type MemoryTrigger =
+export type MemoryFailureSignature =
   | {
       readonly kind: "misfire";
       readonly toolName: string;
@@ -43,8 +43,8 @@ export type MemoryTrigger =
  * How an entry has performed when recalled.
  *
  * `failed` and `missed` are deliberately separate. `failed` means the entry was
- * recalled and its trigger fired anyway, so its *content* is wrong. `missed`
- * means the trigger fired while the entry was not recalled, so its *routing* is
+ * recalled and the failure happened anyway, so its *content* is wrong. `missed`
+ * means the failure happened while the entry was not recalled, so its *routing* is
  * wrong. Conflating them would delete a sound entry because retrieval failed to
  * surface it.
  */
@@ -53,7 +53,7 @@ export interface MemoryEntryCredit {
   readonly failed: number;
   readonly missed: number;
   /**
-   * Whether this entry's trigger has ever fired. `helped` is only credited once
+   * Whether this entry's failure has ever been seen. `helped` is only credited once
    * it has: otherwise an entry describing a failure that never happens would
    * accrue credit on every quiet run, which is the cheapest way to game the loop.
    */
@@ -99,7 +99,7 @@ export interface MemoryFileProvenance {
    * means it cannot drift from what the file says.
    */
   readonly summary?: string;
-  readonly trigger?: MemoryTrigger;
+  readonly failure?: MemoryFailureSignature;
   readonly credit?: MemoryEntryCredit;
   readonly origin?: MemoryEntryOrigin;
   /** Name of the skill this lesson was distilled into, if any. */
@@ -123,7 +123,7 @@ export interface MemoryFileProvenance {
  */
 export interface MemoryEntryMetadata {
   readonly subject: string;
-  readonly trigger?: MemoryTrigger;
+  readonly failure?: MemoryFailureSignature;
   readonly origin?: MemoryEntryOrigin;
 }
 

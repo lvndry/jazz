@@ -8,7 +8,7 @@ import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { z } from "zod";
 import { MEMORY_EXTRACTOR_AGENT_ID } from "@/core/constants/memory";
-import type { MemoryTrigger } from "@/core/interfaces/memory-provenance";
+import type { MemoryFailureSignature } from "@/core/interfaces/memory-provenance";
 import type {
   MemoryService,
   MemoryViewOutcome,
@@ -146,7 +146,7 @@ export function createViewMemoryTool(): Tool<MemoryToolDeps> {
   });
 }
 
-const memoryTriggerParameter = z
+const memoryFailureParameter = z
   .discriminatedUnion("kind", [
     z.object({
       kind: z.literal("misfire"),
@@ -190,17 +190,19 @@ const createMemoryParameters = z.object({
     .string()
     .optional()
     .describe("Memory scope to write into. Defaults to your first accessible scope."),
-  trigger: memoryTriggerParameter.optional(),
+  failure: memoryFailureParameter.optional(),
   file_text: z
     .string()
     .describe("The entry itself. Keep it to one thought; the first line is used as its summary."),
 });
 
-/** Maps the tool's snake_case trigger shape onto the stored one. */
-function toMemoryTrigger(trigger: z.infer<typeof memoryTriggerParameter>): MemoryTrigger {
-  return trigger.kind === "misfire"
-    ? { kind: "misfire", toolName: trigger.tool_name, errorClass: trigger.error_class }
-    : { kind: "correction", correctedBehavior: trigger.corrected_behavior };
+/** Maps the tool's snake_case failure shape onto the stored one. */
+function toMemoryFailureSignature(
+  failure: z.infer<typeof memoryFailureParameter>,
+): MemoryFailureSignature {
+  return failure.kind === "misfire"
+    ? { kind: "misfire", toolName: failure.tool_name, errorClass: failure.error_class }
+    : { kind: "correction", correctedBehavior: failure.corrected_behavior };
 }
 
 const manageMemoryCommands = z.discriminatedUnion("command", [
@@ -257,12 +259,12 @@ const manageMemoryCommands = z.discriminatedUnion("command", [
  * discriminated union cannot hold as a member.
  */
 const manageMemoryParameters = manageMemoryCommands.superRefine((value, ctx) => {
-  if (value.command === "create" && value.kind === "lesson" && value.trigger === undefined) {
+  if (value.command === "create" && value.kind === "lesson" && value.failure === undefined) {
     ctx.addIssue({
       code: "custom",
-      path: ["trigger"],
+      path: ["failure"],
       message:
-        "A lesson requires a trigger naming the failure it prevents, so it can be checked " +
+        "A lesson must name the failure it prevents, so it can be checked " +
         "against what actually happens later.",
     });
   }
@@ -285,7 +287,8 @@ export function createManageMemoryTool(): Tool<MemoryToolDeps> {
       "you the entry to amend.\n" +
       "create(kind, subject, file_text) picks the path. workflow scopes it to a kind of work, " +
       "recalled wherever that work happens rather than per folder; omit when it always applies. " +
-      "A lesson needs a trigger. str_replace / insert / delete / rename take an entry's path.",
+      "A lesson must name the failure it prevents. str_replace / insert / delete / rename take " +
+      "an entry's path.",
     parameters: manageMemoryParameters,
     riskLevel: "low-risk",
     hidden: false,
@@ -318,7 +321,9 @@ export function createManageMemoryTool(): Tool<MemoryToolDeps> {
                     context.agentId === MEMORY_EXTRACTOR_AGENT_ID
                       ? ("auto" as const)
                       : ("user" as const),
-                  ...(args.trigger !== undefined ? { trigger: toMemoryTrigger(args.trigger) } : {}),
+                  ...(args.failure !== undefined
+                    ? { failure: toMemoryFailureSignature(args.failure) }
+                    : {}),
                 },
               });
             }

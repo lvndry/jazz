@@ -136,7 +136,7 @@ describe("manage_memory tool", () => {
           kind: "lesson",
           subject: "Edit pattern complexity",
           workflow: "editing",
-          trigger: {
+          failure: {
             kind: "misfire",
             tool_name: "edit_file",
             error_class: "pattern too complex",
@@ -148,12 +148,12 @@ describe("manage_memory tool", () => {
     );
     expect(captured.args[3]).toMatchObject({
       entry: {
-        trigger: { kind: "misfire", toolName: "edit_file", errorClass: "pattern too complex" },
+        failure: { kind: "misfire", toolName: "edit_file", errorClass: "pattern too complex" },
       },
     });
   });
 
-  test("rejects a lesson with no trigger, which could never be validated", async () => {
+  test("rejects a lesson with no failure, which could never be validated", async () => {
     const { fakeService } = captureCreate();
     const result = await runWithFakeMemoryService(
       fakeService as MemoryService,
@@ -163,7 +163,7 @@ describe("manage_memory tool", () => {
       ),
     );
     expect(result.success).toBe(false);
-    expect(result.error).toContain("trigger");
+    expect(result.error).toContain("failure");
   });
 
   test("accepts a lesson that names its trigger", async () => {
@@ -176,7 +176,7 @@ describe("manage_memory tool", () => {
           kind: "lesson",
           subject: "Something",
           file_text: "x",
-          trigger: { kind: "correction", corrected_behavior: "do it differently" },
+          failure: { kind: "correction", corrected_behavior: "do it differently" },
         },
         context,
       ),

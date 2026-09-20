@@ -694,7 +694,7 @@ describe("provenance", () => {
         entry: {
           subject: "artboard-scaling",
           origin: "auto",
-          trigger: { kind: "correction", correctedBehavior: "auto-scale the artboard" },
+          failure: { kind: "correction", correctedBehavior: "auto-scale the artboard" },
         },
       }),
     );
@@ -703,13 +703,13 @@ describe("provenance", () => {
     );
     expect(provenance?.subject).toBe("artboard-scaling");
     expect(provenance?.origin).toBe("auto");
-    expect(provenance?.trigger).toEqual({
+    expect(provenance?.failure).toEqual({
       kind: "correction",
       correctedBehavior: "auto-scale the artboard",
     });
   });
 
-  test("carries subject, trigger, and credit through a later edit that supplies none", async () => {
+  test("carries subject, failure, and credit through a later edit that supplies none", async () => {
     const service = makeService();
     const entryPath = "agent-1/lessons/moodboard/artboard.md";
     await runEffect(
@@ -717,7 +717,7 @@ describe("provenance", () => {
         agentId: "agent-1",
         entry: {
           subject: "artboard-scaling",
-          trigger: { kind: "misfire", toolName: "edit_file", errorClass: "pattern too complex" },
+          failure: { kind: "misfire", toolName: "edit_file", errorClass: "pattern too complex" },
         },
       }),
     );
@@ -728,7 +728,7 @@ describe("provenance", () => {
     );
     const provenance = await runEffect(service.provenance(scopes, entryPath));
     expect(provenance?.subject).toBe("artboard-scaling");
-    expect(provenance?.trigger).toEqual({
+    expect(provenance?.failure).toEqual({
       kind: "misfire",
       toolName: "edit_file",
       errorClass: "pattern too complex",
