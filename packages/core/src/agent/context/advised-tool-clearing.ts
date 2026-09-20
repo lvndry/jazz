@@ -7,7 +7,7 @@
  */
 
 import { Effect } from "effect";
-import type { ChatMessage } from "@/core/types/message";
+import type { ChatMessage, ConversationMessages } from "@/core/types/message";
 import type {
   CompactToolAction,
   CompactToolsInput,
@@ -39,6 +39,40 @@ export interface AdvisedReduceOutcome {
   readonly tokensReclaimed: number;
   /** True when the provider returned decisions; false means it abstained and the caller should fall back. */
   readonly answered: boolean;
+}
+
+/**
+ * The run-facing shape of the advised clear rung: the host passes the live message list, the
+ * index below which messages are protected, and any offloaded tool-call ids, and gets back an
+ * outcome that either replaces content or abstains. Both the live loop (clear rung) and the
+ * summarizer (manual `/compact` pre-pass) hold one of these; `buildAdvisedReducer` produces it
+ * from a plugin session so callers never reassemble the option bag.
+ */
+export type ReduceToolResultsFn = (
+  messages: ConversationMessages,
+  protectedFromIndex: number,
+  retrievableIds: ReadonlySet<string> | undefined,
+) => Effect.Effect<AdvisedReduceOutcome>;
+
+/**
+ * Bind a `compact.tools` decision provider into a `ReduceToolResultsFn`, so the goal and model
+ * hint are fixed once and every call site shares the same option assembly instead of duplicating
+ * it.
+ */
+export function buildAdvisedReducer(params: {
+  readonly goal: string;
+  readonly provider: string;
+  readonly model: string;
+  readonly decide: (input: CompactToolsInput) => Effect.Effect<CompactToolsOutcome>;
+}): ReduceToolResultsFn {
+  return (messages, protectedFromIndex, retrievableIds) =>
+    reduceToolResultsAdvised(messages, {
+      protectedFromIndex,
+      goal: params.goal,
+      retrievableIds,
+      modelHint: { provider: params.provider, modelId: params.model },
+      decide: params.decide,
+    });
 }
 
 function contentString(message: ChatMessage): string {

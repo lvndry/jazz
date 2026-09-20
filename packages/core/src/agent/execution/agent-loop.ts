@@ -35,7 +35,7 @@ import { formatToolResultForContext } from "@/core/utils/tool-result-formatter";
 import type { UsageCostPricing } from "@/core/utils/usage-cost";
 import type { AgentLoopObserver } from "./agent-loop-observer";
 import { ToolExecutor } from "./tool-executor";
-import type { AdvisedReduceOutcome } from "../context/advised-tool-clearing";
+import type { ReduceToolResultsFn } from "../context/advised-tool-clearing";
 import { logContextRung } from "../context/context-telemetry";
 import { resolveContextThresholds } from "../context/context-thresholds";
 import {
@@ -275,13 +275,7 @@ interface LoopDeps {
    * deterministic clearer; it falls back to the deterministic clearer when the provider abstains.
    * Undefined when no plugin is enabled, leaving the clear rung's behavior unchanged.
    */
-  reduceToolResults:
-    | ((
-        messages: ConversationMessages,
-        protectedFromIndex: number,
-        retrievableIds: ReadonlySet<string> | undefined,
-      ) => Effect.Effect<AdvisedReduceOutcome>)
-    | undefined;
+  reduceToolResults: ReduceToolResultsFn | undefined;
   modelMetadata: UsageCostPricing | undefined;
   runRecursive: RecursiveRunner;
   /**

@@ -49,10 +49,11 @@ resumes and summarizer runs.
 
 ## Tool-compaction hook
 
-`compact.tools` runs at the clear rung of the context ladder, before summarization. For each old,
-large tool result it decides keep / truncate / drop; Jazz applies the decision by replacing content
-(never removing a message, so assistant/tool pairing stays valid) and only ever sends the result
-preview, not the whole body. The policy is asymmetric — a result is dropped only on a confident
+`compact.tools` runs before summarization: automatically at the clear rung of the context ladder
+during a run, and as a lossless pre-pass when you invoke `/compact` yourself (which otherwise jumps
+straight to the summarizer). For each old, large tool result it decides keep / truncate / drop; Jazz
+applies the decision by replacing content (never removing a message, so assistant/tool pairing stays
+valid) and only ever sends the result preview, not the whole body. The policy is asymmetric — a result is dropped only on a confident
 signal, a large uncertain one is truncated to head and tail, and anything else is kept — because
 losing a still-needed result is worse than keeping a stale one. If the plugin abstains, times out,
 or is absent, Jazz falls back to its deterministic tool-result clearer. It never touches user or

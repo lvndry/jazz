@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { Effect, Layer } from "effect";
+import type { ReduceToolResultsFn } from "./advised-tool-clearing";
 import {
   chunkForSummarizer,
   selectSummarizerModel,
@@ -762,6 +763,102 @@ describe("compact", () => {
 
     expect(outcome).toBeUndefined();
     expect(inputs).toEqual([]);
+  });
+
+  describe("reduceToolResults pre-pass", () => {
+    function conversationWithLargeToolResult(): ConversationMessages {
+      return [
+        { role: "system", content: "system" },
+        { role: "user", content: "Read the config file." },
+        {
+          role: "assistant",
+          content: "",
+          tool_calls: [
+            {
+              id: "tc-1",
+              type: "function" as const,
+              function: { name: "read_file", arguments: "{}" },
+            },
+          ],
+        },
+        { role: "tool", tool_call_id: "tc-1", content: "OLD ".repeat(2000) },
+      ] as ConversationMessages;
+    }
+
+    it("returns the lossless prune as the outcome when nothing is old enough to summarize", async () => {
+      const inputs: string[] = [];
+      let sawCandidate = false;
+      const reduce: ReduceToolResultsFn = (messages) => {
+        const next = messages.map((message) =>
+          message.role === "tool" && message.tool_call_id === "tc-1"
+            ? { ...message, content: "[cleared]", cleared: true }
+            : message,
+        );
+        sawCandidate = next.some((message) => message.content === "[cleared]");
+        return Effect.succeed({
+          messages: next,
+          clearedCount: 1,
+          tokensReclaimed: 500,
+          answered: true,
+        });
+      };
+
+      const outcome = await Effect.runPromise(
+        Summarizer.compact(
+          conversationWithLargeToolResult(),
+          createMockAgent(),
+          "conv-prune-only",
+          capturingRunner(inputs),
+          128_000,
+          false,
+          reduce,
+        ).pipe(Effect.provide(createTestLayer())) as Effect.Effect<
+          CompactionOutcome | undefined,
+          Error,
+          never
+        >,
+      );
+
+      expect(sawCandidate).toBe(true);
+      // The summarizer never ran (nothing old enough), but the prune result is not discarded.
+      expect(inputs).toEqual([]);
+      expect(outcome).not.toBeUndefined();
+      const toolMessage = outcome?.messages.find(
+        (message) => message.role === "tool" && message.tool_call_id === "tc-1",
+      );
+      expect(toolMessage?.content).toBe("[cleared]");
+      expect(outcome?.tokensAfter).toBeLessThan(outcome?.tokensBefore ?? 0);
+    });
+
+    it("returns undefined when the prune abstains and nothing is old enough to summarize", async () => {
+      const inputs: string[] = [];
+      const reduce: ReduceToolResultsFn = (messages) =>
+        Effect.succeed({
+          messages: messages as ChatMessage[],
+          clearedCount: 0,
+          tokensReclaimed: 0,
+          answered: false,
+        });
+
+      const outcome = await Effect.runPromise(
+        Summarizer.compact(
+          conversationWithLargeToolResult(),
+          createMockAgent(),
+          "conv-prune-abstain",
+          capturingRunner(inputs),
+          128_000,
+          false,
+          reduce,
+        ).pipe(Effect.provide(createTestLayer())) as Effect.Effect<
+          CompactionOutcome | undefined,
+          Error,
+          never
+        >,
+      );
+
+      expect(outcome).toBeUndefined();
+      expect(inputs).toEqual([]);
+    });
   });
 });
 

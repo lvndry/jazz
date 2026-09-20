@@ -18,12 +18,14 @@ import type { ChatMessage, ConversationMessages } from "@/core/types/message";
 import { getModelsDevMetadata } from "@/core/utils/models-dev";
 import { parseProviderModel } from "@/core/utils/provider-model";
 import type { AgentResponse } from "../types";
+import type { ReduceToolResultsFn } from "./advised-tool-clearing";
 import { logContextRung } from "./context-telemetry";
 import { resolveContextThresholds } from "./context-thresholds";
 import { DEFAULT_CONTEXT_WINDOW_MANAGER } from "./context-window-manager";
 import { resolveEffectiveContextWindow } from "./effective-context-window";
 import { extractMemories } from "./memory-extractor";
 import { DEFAULT_TOKEN_COUNTER, type ModelHint } from "./token-counter";
+import { toolResultsProtectFromIndex } from "./tool-result-clearing";
 import { appendJournalEntry, pruneJournal } from "./work-journal";
 import { formatWorkState, readWorkState } from "./work-state";
 
@@ -515,6 +517,10 @@ export const Summarizer = {
    *   before the middle is condensed. Each caller computes it where the run's persistence
    *   and sub-agent state is known, because the gate is never inherited; the default is
    *   the safe answer for a caller that cannot tell.
+   * @param reduceToolResults - Optional lossless pre-pass (a `compact.tools` plugin) run before
+   *   the lossy summary, so stale tool results are pruned first. A live run already ran this at
+   *   the clear rung and passes nothing here; the manual `/compact` path has no clear rung and
+   *   supplies it so `/compact` is plugin-driven too. It never removes a message.
    */
   compact(
     currentMessages: ConversationMessages,
@@ -523,6 +529,7 @@ export const Summarizer = {
     runRecursive: RecursiveRunner,
     contextWindowTokens: number,
     allowMemoryExtraction = false,
+    reduceToolResults?: ReduceToolResultsFn,
   ): Effect.Effect<
     CompactionOutcome | undefined,
     Error,
@@ -545,15 +552,51 @@ export const Summarizer = {
         maxTokens: contextWindowTokens,
       });
 
+      // Lossless pre-pass before the lossy summary: a compact.tools plugin prunes stale tool
+      // results (keep/truncate/drop). Never removes a message, so assistant/tool pairing stays
+      // valid; the system message is kept verbatim. A live run already ran this at the clear rung
+      // and passes nothing; the manual /compact path supplies it so /compact is plugin-driven too.
+      let workingMessages = currentMessages;
+      if (reduceToolResults) {
+        const protectedFromIndex = toolResultsProtectFromIndex(currentMessages);
+        const advised = yield* reduceToolResults(currentMessages, protectedFromIndex, undefined);
+        if (advised.answered && advised.clearedCount > 0) {
+          workingMessages = [
+            currentMessages[0],
+            ...advised.messages.slice(1),
+          ] as ConversationMessages;
+          yield* logContextRung(logger, {
+            rung: "clear",
+            agentId: agent.id,
+            conversationId,
+            tokensBefore,
+            tokensAfter:
+              DEFAULT_TOKEN_COUNTER.countMessages(workingMessages, hint) +
+              DEFAULT_TOKEN_COUNTER.overheadFor(hint),
+            budgetTokens: contextWindowTokens,
+            messagesBefore: currentMessages.length,
+            messagesAfter: workingMessages.length,
+          });
+        }
+      }
+
       const {
         systemMessage,
         priorSummary,
         pinnedMessages,
         messagesToSummarize,
         sanitizedRecentMessages,
-      } = Summarizer.splitMessages(currentMessages, contextWindowTokens, hint);
+      } = Summarizer.splitMessages(workingMessages, contextWindowTokens, hint);
 
       if (messagesToSummarize.length === 0) {
+        // Nothing was old enough to summarize. If the lossless pre-pass still reclaimed space,
+        // return that as the outcome rather than discarding it and reporting no change.
+        if (workingMessages !== currentMessages) {
+          const tokensAfter =
+            DEFAULT_TOKEN_COUNTER.countMessages(workingMessages, hint) +
+            DEFAULT_TOKEN_COUNTER.overheadFor(hint);
+          return { messages: workingMessages, tokensBefore, tokensAfter };
+        }
         return undefined;
       }
 
