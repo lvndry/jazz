@@ -367,10 +367,11 @@ function handleForkCommand(
       return { shouldContinue: true };
     }
 
-    yield* terminal.info("Forking conversation...");
-    yield* terminal.log(fmt.item("New conversation branch created"));
-    yield* terminal.log(fmt.item("Kept the full conversation history"));
-    yield* terminal.log(fmt.blank());
+    yield* terminal.warn(
+      "Switched to a new forked branch — the original conversation is preserved.",
+    );
+    yield* terminal.log(fmt.item("The full history carried over; new turns continue on the fork."));
+    yield* terminal.log(fmt.item("Resume the original anytime with /resume."));
     yield* terminal.log(fmt.blank());
     return {
       shouldContinue: true,
