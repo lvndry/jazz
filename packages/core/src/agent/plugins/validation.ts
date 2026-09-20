@@ -60,7 +60,7 @@ export function validatePluginManifest(manifest: PluginManifest): PluginManifest
   if (manifest.hostApi !== 1) fail("unsupported plugin API version");
   if (!SHA256.test(manifest.sha256)) fail("sha256 must be a lowercase SHA-256 hex digest");
   if (new Set(manifest.hooks).size !== manifest.hooks.length) fail("manifest hooks must be unique");
-  if (manifest.hooks.some((hook) => hook !== "route.skills"))
+  if (manifest.hooks.some((hook) => hook !== "route.skills" && hook !== "compact.tools"))
     fail("manifest contains an unknown hook");
   if (new Set(manifest.policyHooks).size !== manifest.policyHooks.length)
     fail("manifest policy hooks must be unique");
