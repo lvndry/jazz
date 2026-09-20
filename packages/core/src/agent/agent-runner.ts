@@ -47,7 +47,7 @@ import { shouldEnableStreaming } from "@/core/utils/stream-detector";
 import type { ConversationMessages, StreamingConfig } from "../types";
 import { type Agent } from "../types";
 import { agentPromptBuilder } from "./agent-prompt";
-import { reduceToolResultsWithJev } from "./context/jev-tool-clearing";
+import { reduceToolResultsAdvised } from "./context/advised-tool-clearing";
 import { Summarizer, type CompactionOutcome } from "./context/summarizer";
 import { executeWithStreaming, executeWithoutStreaming } from "./execution";
 import { createAgentRunMetrics, emitAgentRunStarted } from "./metrics/agent-run-metrics";
@@ -693,7 +693,7 @@ function initializeAgentRun(
               protectedFromIndex: number,
               retrievableIds: ReadonlySet<string> | undefined,
             ) =>
-              reduceToolResultsWithJev(messages, {
+              reduceToolResultsAdvised(messages, {
                 protectedFromIndex,
                 goal: userInput,
                 retrievableIds,

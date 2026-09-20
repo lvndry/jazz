@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
 import type { ChatMessage } from "@/core/types/message";
 import type { CompactToolsInput, CompactToolsOutcome } from "@/core/types/plugin";
-import { reduceToolResultsWithJev } from "./jev-tool-clearing";
+import { reduceToolResultsAdvised } from "./advised-tool-clearing";
 import type { ModelHint, TokenCounter } from "./token-counter";
 
 const modelHint: ModelHint = { provider: "anthropic", modelId: "test" };
@@ -35,11 +35,11 @@ const answeredWith = (
   return () => Effect.succeed({ status: "answered", decisions });
 };
 
-describe("reduceToolResultsWithJev", () => {
+describe("reduceToolResultsAdvised", () => {
   it("drops and truncates by decision, replacing content but never removing messages", async () => {
     const messages = transcript();
     const outcome = await Effect.runPromise(
-      reduceToolResultsWithJev(messages, {
+      reduceToolResultsAdvised(messages, {
         protectedFromIndex: 4,
         goal: "refactor",
         modelHint,
@@ -66,7 +66,7 @@ describe("reduceToolResultsWithJev", () => {
   it("leaves a result untouched when the decision is keep", async () => {
     const messages = transcript();
     const outcome = await Effect.runPromise(
-      reduceToolResultsWithJev(messages, {
+      reduceToolResultsAdvised(messages, {
         protectedFromIndex: 4,
         goal: "refactor",
         modelHint,
@@ -84,7 +84,7 @@ describe("reduceToolResultsWithJev", () => {
   it("reports answered=false when the provider abstains, so the caller falls back", async () => {
     const messages = transcript();
     const outcome = await Effect.runPromise(
-      reduceToolResultsWithJev(messages, {
+      reduceToolResultsAdvised(messages, {
         protectedFromIndex: 4,
         goal: "refactor",
         modelHint,

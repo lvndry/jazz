@@ -35,6 +35,7 @@ import { formatToolResultForContext } from "@/core/utils/tool-result-formatter";
 import type { UsageCostPricing } from "@/core/utils/usage-cost";
 import type { AgentLoopObserver } from "./agent-loop-observer";
 import { ToolExecutor } from "./tool-executor";
+import type { AdvisedReduceOutcome } from "../context/advised-tool-clearing";
 import { logContextRung } from "../context/context-telemetry";
 import { resolveContextThresholds } from "../context/context-thresholds";
 import {
@@ -49,7 +50,6 @@ import {
   describeContextWindowShortfall,
   resolveEffectiveContextWindow,
 } from "../context/effective-context-window";
-import type { JevReduceOutcome } from "../context/jev-tool-clearing";
 import { Summarizer, type RecursiveRunner } from "../context/summarizer";
 import { clearToolResults, toolResultsProtectFromIndex } from "../context/tool-result-clearing";
 import { persistLargeToolResults } from "../context/tool-result-offload";
@@ -271,7 +271,7 @@ interface LoopDeps {
   /** Provider-only routing hint for iteration zero; never part of canonical messages. */
   initialProviderAdvisory: string | undefined;
   /**
-   * Jev-assisted clear rung. When set (a `compact.tools` plugin is enabled), it replaces the
+   * Decision-advised clear rung. When set (a `compact.tools` plugin is enabled), it replaces the
    * deterministic clearer; it falls back to the deterministic clearer when the provider abstains.
    * Undefined when no plugin is enabled, leaving the clear rung's behavior unchanged.
    */
@@ -280,7 +280,7 @@ interface LoopDeps {
         messages: ConversationMessages,
         protectedFromIndex: number,
         retrievableIds: ReadonlySet<string> | undefined,
-      ) => Effect.Effect<JevReduceOutcome>)
+      ) => Effect.Effect<AdvisedReduceOutcome>)
     | undefined;
   modelMetadata: UsageCostPricing | undefined;
   runRecursive: RecursiveRunner;
@@ -952,11 +952,11 @@ function runIteration(
       const protectedFromIndex = toolResultsProtectFromIndex(state.currentMessages);
       // A compact.tools plugin decides keep/truncate/drop per old result; it falls back to the
       // deterministic clearer when it abstains or is not enabled. Never removes a message.
-      const jevReduced = reduceToolResults
+      const advisedClear = reduceToolResults
         ? yield* reduceToolResults(state.currentMessages, protectedFromIndex, retrievableIds)
         : undefined;
-      const cleared = jevReduced?.answered
-        ? jevReduced
+      const cleared = advisedClear?.answered
+        ? advisedClear
         : clearToolResults(state.currentMessages, {
             protectedFromIndex,
             modelHint,

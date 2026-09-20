@@ -13,7 +13,7 @@ import type {
   ToolExecutionContext,
 } from "@/core/types/tools";
 import type { Agent } from "../types";
-import type { JevReduceOutcome } from "./context/jev-tool-clearing";
+import type { AdvisedReduceOutcome } from "./context/advised-tool-clearing";
 import type { createAgentRunMetrics } from "./metrics/agent-run-metrics";
 
 /**
@@ -374,14 +374,14 @@ export interface AgentRunContext {
    */
   readonly initialProviderAdvisory?: string;
   /**
-   * Jev-assisted clear rung, injected when a `compact.tools` plugin is enabled. Absent otherwise,
+   * Decision-advised clear rung, injected when a `compact.tools` plugin is enabled. Absent otherwise,
    * leaving the deterministic clearer in charge.
    */
   readonly reduceToolResults?: (
     messages: ConversationMessages,
     protectedFromIndex: number,
     retrievableIds: ReadonlySet<string> | undefined,
-  ) => Effect.Effect<JevReduceOutcome>;
+  ) => Effect.Effect<AdvisedReduceOutcome>;
   readonly runMetrics: ReturnType<typeof createAgentRunMetrics>;
   readonly provider: ProviderName;
   readonly model: string;

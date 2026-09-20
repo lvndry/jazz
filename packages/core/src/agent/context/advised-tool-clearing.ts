@@ -1,5 +1,5 @@
 /**
- * Jev-assisted variant of the clear rung: instead of stubbing every old, large tool result by age,
+ * Decision-advised variant of the clear rung: instead of stubbing every old, large tool result by age,
  * ask a decision provider (via the `compact.tools` hook) to keep, truncate, or drop each one. Like
  * the deterministic clearer, it never removes a message — it only replaces content — so
  * assistant/tool pairing stays valid. It fails open: when the provider abstains, `answered` is false
@@ -19,7 +19,7 @@ import { MIN_CLEARABLE_RESULT_TOKENS, placeholderFor } from "./tool-result-clear
 const PREVIEW_HEAD = 320;
 const PREVIEW_TAIL = 140;
 
-export interface JevReduceOptions {
+export interface AdvisedReduceOptions {
   /** Messages at or after this index are recent/protected and never candidates. */
   readonly protectedFromIndex: number;
   /** The run's goal or current request, for judging what is still relevant. */
@@ -33,7 +33,7 @@ export interface JevReduceOptions {
   readonly minClearableTokens?: number;
 }
 
-export interface JevReduceOutcome {
+export interface AdvisedReduceOutcome {
   readonly messages: ChatMessage[];
   readonly clearedCount: number;
   readonly tokensReclaimed: number;
@@ -58,10 +58,10 @@ function truncatedContent(text: string, toolName: string | undefined): string {
 }
 
 /** Ask the provider what to do with each old, large tool result, then apply keep/truncate/drop. */
-export function reduceToolResultsWithJev(
+export function reduceToolResultsAdvised(
   messages: readonly ChatMessage[],
-  options: JevReduceOptions,
-): Effect.Effect<JevReduceOutcome> {
+  options: AdvisedReduceOptions,
+): Effect.Effect<AdvisedReduceOutcome> {
   return Effect.gen(function* () {
     const counter = options.tokenCounter ?? DEFAULT_TOKEN_COUNTER;
     const minTokens = options.minClearableTokens ?? MIN_CLEARABLE_RESULT_TOKENS;
@@ -82,7 +82,7 @@ export function reduceToolResultsWithJev(
       candidateTokens.set(index, tokens);
     }
 
-    const unchanged: JevReduceOutcome = {
+    const unchanged: AdvisedReduceOutcome = {
       messages: messages as ChatMessage[],
       clearedCount: 0,
       tokensReclaimed: 0,
