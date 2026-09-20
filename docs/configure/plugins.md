@@ -129,6 +129,30 @@ when the model loads the skill, never automatically. A skill of the same name fr
 takes precedence. A plugin skill is instruction-trust surface (it can steer the model), not a
 capability grant — it cannot itself act or reach the network.
 
+## Lifecycle hooks
+
+A plugin may subscribe to host lifecycle events — `session-start`, `user-prompt`, `run-complete`,
+and `awaiting-input` — declared in the manifest (`lifecycleHooks`) and registered via
+`api.lifecycle.register`. Handlers are **fire-and-forget observers**: they receive a bounded event
+payload (agent id, conversation id, and event-specific data such as the prompt and a response
+summary) and **cannot change what the host does** — a throw or timeout is swallowed and never
+delays or breaks the run.
+
+This is what a terminal-notification plugin rides. A Warp notifier, for example, subscribes to
+`run-complete` (task finished — send a desktop notification with the response summary) and
+`awaiting-input` (Jazz is waiting on you), then shells out to raise the notification — the same
+shape as [`warpdotdev/claude-code-warp`](https://github.com/warpdotdev/claude-code-warp), which
+rides Claude Code's hook system.
+
+```ts
+api.lifecycle.register({
+  event: "run-complete",
+  handler: async (event) => {
+    // e.g. Bun.spawn(["osascript", "-e", `display notification ${JSON.stringify(event.data?.summary ?? "done")}`])
+  },
+});
+```
+
 ## Global vs per-agent
 
 Tools attach to the agent whose run registers them. Personas and skills are treated as globally
