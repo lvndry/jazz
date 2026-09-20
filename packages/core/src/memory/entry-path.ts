@@ -98,9 +98,9 @@ export function slugifyMemorySegment(value: string): string {
   return (
     value
       .normalize("NFD")
-      // Drop combining marks so an accented word stays one word: without this,
-      // NFD splits "é" into "e" + mark, the mark becomes a separator, and
-      // "Café préféré" slugifies to "cafe-pre-fe-re".
+      // Marks are dropped rather than left to become separators: the slug is a
+      // subject's identity for collision detection, so two spellings of one
+      // subject have to slugify the same.
       .replace(/\p{M}+/gu, "")
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
