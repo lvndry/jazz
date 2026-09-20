@@ -15,6 +15,7 @@ import { Effect } from "effect";
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getGlyphs } from "../glyphs";
 import { THEME } from "../theme";
+import { useAutoScrollOnDrag } from "./auto-scroll-selection";
 import {
   copyText,
   pasteTextFromEvent,
@@ -485,6 +486,13 @@ function AppView({ view, onAction, onKey, onPaste, overrideContent }: AppProps):
     void copyText(textFromSelection(selection), rendererRef.current).then(announceCopy);
   });
 
+  const visibleCountRef = useRef(0);
+  const { onMouseDrag, onMouseDragEnd } = useAutoScrollOnDrag(
+    transcriptRef,
+    2,
+    visibleCountRef.current,
+  );
+
   const viewportRef = useRef<Viewport>({ width, height });
   viewportRef.current = reuseViewport(width, height, viewportRef.current);
   const viewport = viewportRef.current;
@@ -550,6 +558,7 @@ function AppView({ view, onAction, onKey, onPaste, overrideContent }: AppProps):
     inputFocused,
   });
   const visibleCount = regions.transcript;
+  visibleCountRef.current = visibleCount;
 
   return (
     <box
@@ -559,6 +568,13 @@ function AppView({ view, onAction, onKey, onPaste, overrideContent }: AppProps):
         const scroll = event.scroll;
         if (scroll === undefined) return;
         scrollTranscriptByWheel(scroll.direction, scroll.delta);
+      }}
+      onMouseDrag={(event) => {
+        if (overlayOpen) return;
+        onMouseDrag(event);
+      }}
+      onMouseDragEnd={() => {
+        onMouseDragEnd();
       }}
     >
       <Header
