@@ -17,6 +17,7 @@ const manifest: PluginManifest = {
   tools: [],
   commands: [],
   personas: [],
+  skills: [],
   network: { destinations: ["b.example", "a.example"] },
   dataSent: ["skills", "request"],
   secrets: [],

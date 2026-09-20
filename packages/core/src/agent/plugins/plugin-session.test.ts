@@ -27,6 +27,7 @@ const manifest = {
   tools: [],
   commands: [],
   personas: [],
+  skills: [],
   network: { destinations: [] },
   dataSent: [],
   secrets: [{ name: "key", required: true, description: "API key" }],

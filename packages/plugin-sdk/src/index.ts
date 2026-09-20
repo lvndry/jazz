@@ -144,6 +144,13 @@ export interface PluginPersonaDeclaration {
   readonly style?: string;
 }
 
+/** A skill a plugin contributes, declared entirely in the manifest (inert instructions). */
+export interface PluginSkillDeclaration {
+  readonly name: string;
+  readonly description: string;
+  readonly content: string;
+}
+
 /** The runtime handler for a slash command the manifest declares. */
 export interface PluginCommandRegistration {
   readonly name: string;
@@ -202,6 +209,7 @@ export interface JazzPluginSourceManifest {
   readonly tools?: readonly PluginToolDeclaration[];
   readonly commands?: readonly PluginCommandDeclaration[];
   readonly personas?: readonly PluginPersonaDeclaration[];
+  readonly skills?: readonly PluginSkillDeclaration[];
   readonly network: { readonly destinations: readonly string[] };
   readonly dataSent: readonly string[];
   readonly secrets: readonly PluginSecretDeclaration[];

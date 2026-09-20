@@ -137,6 +137,7 @@ export interface PluginManifest {
   readonly tools: readonly PluginToolDeclaration[];
   readonly commands: readonly PluginCommandDeclaration[];
   readonly personas: readonly PluginPersonaDeclaration[];
+  readonly skills: readonly PluginSkillDeclaration[];
   readonly network: { readonly destinations: readonly string[] };
   readonly dataSent: readonly string[];
   readonly secrets: readonly PluginSecretDeclaration[];
@@ -150,6 +151,7 @@ export interface PluginConsentDisclosure {
   readonly tools: readonly string[];
   readonly commands: readonly string[];
   readonly personas: readonly string[];
+  readonly skills: readonly string[];
   readonly destinations: readonly string[];
   readonly dataSent: readonly string[];
 }
@@ -226,6 +228,22 @@ export interface PluginPersonaDeclaration {
 
 /** A plugin persona as the host sees it: its manifest declaration plus its owner. */
 export interface PluginPersonaInfo extends PluginPersonaDeclaration {
+  readonly pluginId: string;
+}
+
+/**
+ * A skill a plugin contributes, declared entirely in the manifest — inert instructions the model
+ * may load. `content` is the skill body (what a SKILL.md would hold); it is injected only when the
+ * model chooses to load the skill, never automatically.
+ */
+export interface PluginSkillDeclaration {
+  readonly name: string;
+  readonly description: string;
+  readonly content: string;
+}
+
+/** A plugin skill as the host sees it: its manifest declaration plus its owner. */
+export interface PluginSkillInfo extends PluginSkillDeclaration {
   readonly pluginId: string;
 }
 

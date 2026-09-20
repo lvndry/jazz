@@ -117,6 +117,7 @@ async function readSourceManifest(pluginDirectory: string): Promise<SourceManife
     "tools",
     "commands",
     "personas",
+    "skills",
     "network",
     "dataSent",
     "secrets",

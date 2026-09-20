@@ -19,6 +19,7 @@ import {
   type PluginCommandInfo,
   type PluginCommandResult,
   type PluginPersonaInfo,
+  type PluginSkillInfo,
   type PluginToolInfo,
   type PluginToolResult,
 } from "@jazz/core/types/plugin";
@@ -130,6 +131,17 @@ export class PluginRuntimeServiceImpl implements PluginRuntimeService {
         ),
       ),
       Effect.catchAll(() => Effect.succeed([] as readonly PluginPersonaInfo[])),
+    );
+  }
+
+  listAllSkills(): Effect.Effect<readonly PluginSkillInfo[]> {
+    return Effect.tryPromise(() => this.options.loader.listEnabledManifests()).pipe(
+      Effect.map((manifests) =>
+        manifests.flatMap((manifest) =>
+          manifest.skills.map((skill) => ({ ...skill, pluginId: manifest.id })),
+        ),
+      ),
+      Effect.catchAll(() => Effect.succeed([] as readonly PluginSkillInfo[])),
     );
   }
 }

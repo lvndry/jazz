@@ -6,8 +6,9 @@
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { Context, Effect, Layer, Ref } from "effect";
+import { Context, Effect, Layer, Option, Ref } from "effect";
 import matter from "gray-matter";
+import { PluginRuntimeServiceTag } from "../interfaces/plugin-runtime.js";
 import { loadCachedIndex, mergeByName, scanMarkdownIndex } from "../utils/markdown-index.js";
 import {
   getAgentsSkillsDirectory,
@@ -18,8 +19,9 @@ import {
 export interface SkillMetadata {
   readonly name: string;
   readonly description: string;
+  /** Filesystem directory holding the skill's SKILL.md, or "" for a plugin-provided skill. */
   readonly path: string;
-  readonly source: "builtin" | "global" | "agents" | "local";
+  readonly source: "builtin" | "global" | "agents" | "local" | "plugin";
 }
 
 /**
@@ -95,6 +97,7 @@ export interface SkillsBySource {
   readonly global: readonly SkillMetadata[];
   readonly agents: readonly SkillMetadata[];
   readonly local: readonly SkillMetadata[];
+  readonly plugin: readonly SkillMetadata[];
 }
 
 export interface SkillContent {
@@ -196,8 +199,17 @@ export class SkillsLive implements SkillService {
         // 4. Get Local Skills (Fresh scan, highest priority - cwd)
         const localSkills = yield* this.scanLocalSkills();
 
-        // 5. Merge (Local > Agents > Global > Built-in by name)
-        const merged = mergeByName(builtinSkills, globalSkills, agentsSkills, localSkills);
+        // 5. Get plugin skills (global, lowest priority - anything else of the same name wins)
+        const pluginSkills = yield* this.getPluginSkills();
+
+        // 6. Merge (Local > Agents > Global > Built-in > Plugin by name; last arg wins)
+        const merged = mergeByName(
+          pluginSkills,
+          builtinSkills,
+          globalSkills,
+          agentsSkills,
+          localSkills,
+        );
 
         // Cache for the session
         yield* Ref.set(this.skillsListCache, merged);
@@ -214,7 +226,8 @@ export class SkillsLive implements SkillService {
         const global = yield* this.getGlobalSkills();
         const agents = yield* this.getAgentsSkills();
         const local = yield* this.scanLocalSkills();
-        return { builtin, global, agents, local };
+        const plugin = yield* this.getPluginSkills();
+        return { builtin, global, agents, local, plugin };
       }.bind(this),
     );
   }
@@ -232,6 +245,23 @@ export class SkillsLive implements SkillService {
         const metadata = allSkills.find((skill: SkillMetadata) => skill.name === skillName);
         if (!metadata) {
           return yield* Effect.fail(new Error(`Skill not found: ${skillName}`));
+        }
+
+        // Plugin skills carry their body in the manifest, not on disk. Serve it directly.
+        if (metadata.source === "plugin") {
+          const runtimeOption = yield* Effect.serviceOption(PluginRuntimeServiceTag);
+          const pluginSkills = Option.isSome(runtimeOption)
+            ? yield* runtimeOption.value.listAllSkills()
+            : [];
+          const found = pluginSkills.find((skill) => skill.name === skillName);
+          if (!found) return yield* Effect.fail(new Error(`Skill not found: ${skillName}`));
+          const pluginContent: SkillContent = {
+            metadata,
+            core: found.content,
+            sections: new Map(),
+          };
+          yield* Ref.update(this.loadedSkills, (map) => new Map(map).set(skillName, pluginContent));
+          return pluginContent;
         }
 
         const skillPath = metadata.path;
@@ -344,6 +374,25 @@ export class SkillsLive implements SkillService {
       depth: 4,
       dot: true,
       parse: (data, definitionDir) => parseSkillFrontmatter(data, definitionDir, "local"),
+    });
+  }
+
+  /**
+   * Skills contributed by enabled plugins (global), as metadata. Their content lives in the plugin
+   * manifest and is served by loadSkill, so there is no filesystem path. Fail-open: an absent
+   * runtime contributes nothing.
+   */
+  private getPluginSkills(): Effect.Effect<readonly SkillMetadata[], Error> {
+    return Effect.gen(function* () {
+      const runtimeOption = yield* Effect.serviceOption(PluginRuntimeServiceTag);
+      if (Option.isNone(runtimeOption)) return [];
+      const skills = yield* runtimeOption.value.listAllSkills();
+      return skills.map((skill) => ({
+        name: skill.name,
+        description: skill.description,
+        path: "",
+        source: "plugin" as const,
+      }));
     });
   }
 

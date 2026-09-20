@@ -101,6 +101,17 @@ export function validatePluginManifest(manifest: PluginManifest): PluginManifest
     if (persona.description.length === 0) fail(`persona ${persona.name} must have a description`);
     if (persona.systemPrompt.length === 0) fail(`persona ${persona.name} must have a systemPrompt`);
   }
+  const skillNames = manifest.skills.map(({ name }) => name);
+  if (
+    skillNames.some((name) => !validIdentifier(name)) ||
+    new Set(skillNames).size !== skillNames.length
+  ) {
+    fail("manifest skill names must be valid and unique");
+  }
+  for (const skill of manifest.skills) {
+    if (skill.description.length === 0) fail(`skill ${skill.name} must have a description`);
+    if (skill.content.length === 0) fail(`skill ${skill.name} must have content`);
+  }
   return manifest;
 }
 

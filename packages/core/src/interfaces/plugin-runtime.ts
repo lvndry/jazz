@@ -9,6 +9,7 @@ import type {
   PluginCommandResult,
   PluginPersonaInfo,
   PluginRuntimeError,
+  PluginSkillInfo,
   PluginToolInfo,
   PluginToolResult,
 } from "@/core/types/plugin";
@@ -74,6 +75,11 @@ export interface PluginRuntimeService {
    * Pure manifest data — no code is imported. Resolves to an empty list on any failure.
    */
   readonly listAllPersonas: () => Effect.Effect<readonly PluginPersonaInfo[]>;
+  /**
+   * Skills contributed by all enabled plugins (global), for folding into the skill index and
+   * serving their content on load. Pure manifest data. Resolves to an empty list on any failure.
+   */
+  readonly listAllSkills: () => Effect.Effect<readonly PluginSkillInfo[]>;
 }
 
 export const PluginRuntimeServiceTag = Context.GenericTag<PluginRuntimeService>(

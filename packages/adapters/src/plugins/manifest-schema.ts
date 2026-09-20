@@ -25,6 +25,7 @@ import type {
   PluginManifest,
   PluginPersonaDeclaration,
   PluginSecretDeclaration,
+  PluginSkillDeclaration,
   PluginToolDeclaration,
 } from "@jazz/core/types/plugin";
 
@@ -194,6 +195,28 @@ function parsePersonas(value: unknown): readonly PluginPersonaDeclaration[] {
   return personas;
 }
 
+function parseSkillDeclaration(value: unknown, index: number): PluginSkillDeclaration {
+  const item = record(value, `skills[${index}]`);
+  exactKeys(item, ["name", "description", "content"], `skills[${index}]`);
+  const name = boundedString(item["name"], `skills[${index}].name`, 64);
+  if (!TOOL_NAME.test(name)) throw new Error(`skills[${index}].name has an invalid format`);
+  const description = boundedString(item["description"], `skills[${index}].description`, 1024);
+  const content = boundedString(item["content"], `skills[${index}].content`, 32768);
+  return { name, description, content };
+}
+
+function parseSkills(value: unknown): readonly PluginSkillDeclaration[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 16) {
+    throw new Error("skills must be an array with at most 16 entries");
+  }
+  const skills = value.map(parseSkillDeclaration);
+  if (new Set(skills.map((skill) => skill.name)).size !== skills.length) {
+    throw new Error("skills contains duplicate names");
+  }
+  return skills;
+}
+
 function parseSecret(value: unknown, index: number): PluginSecretDeclaration {
   const item = record(value, `secrets[${index}]`);
   exactKeys(item, ["name", "env", "required", "description"], `secrets[${index}]`);
@@ -238,6 +261,7 @@ export function parsePluginManifest(input: unknown): PluginManifest {
       "tools",
       "commands",
       "personas",
+      "skills",
       "network",
       "dataSent",
       "secrets",
@@ -297,6 +321,7 @@ export function parsePluginManifest(input: unknown): PluginManifest {
     tools: parseTools(root["tools"]),
     commands: parseCommands(root["commands"]),
     personas: parsePersonas(root["personas"]),
+    skills: parseSkills(root["skills"]),
     network: { destinations: [...destinations].sort() },
     dataSent: [
       ...uniqueStrings(root["dataSent"], "dataSent", {
