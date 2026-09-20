@@ -59,6 +59,13 @@ export interface CommandResult {
   newConversationId?: string;
   /** New conversation history if history was modified */
   newHistory?: ChatMessage[];
+  /**
+   * Update the model's history without repainting the on-screen transcript. `/compact`
+   * sets this: it shrinks the context the agent sees, but the user's scrollback is their
+   * record of what actually happened and should stay intact (repainting would replace it
+   * with the raw summary and erase the confirmation line).
+   */
+  skipTranscriptRepaint?: boolean;
   /** New agent if agent was switched */
   newAgent?: Agent;
   /** New auto-approve policy for tool calls (set by /mode command) */

@@ -1011,10 +1011,10 @@ function handleCompactCommand(
     yield* terminal.success(
       `Compacted ${conversationHistory.length} → ${outcome.messages.length} messages (saved ~${tokensSaved.toLocaleString()} tokens)`,
     );
-    yield* terminal.log("   Older history is summarized; recent messages are kept verbatim.");
+    yield* terminal.log("   The agent's context is summarized; your on-screen history stays.");
     yield* terminal.log("");
 
-    return { shouldContinue: true, newHistory: [...outcome.messages] };
+    return { shouldContinue: true, newHistory: [...outcome.messages], skipTranscriptRepaint: true };
   });
 }
 
