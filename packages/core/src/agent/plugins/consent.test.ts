@@ -16,6 +16,7 @@ const manifest: PluginManifest = {
   decisionProviders: [],
   tools: [],
   commands: [],
+  personas: [],
   network: { destinations: ["b.example", "a.example"] },
   dataSent: ["skills", "request"],
   secrets: [],

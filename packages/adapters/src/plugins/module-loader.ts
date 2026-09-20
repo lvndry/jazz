@@ -7,7 +7,7 @@
  */
 
 import { pathToFileURL } from "node:url";
-import type { JazzPluginModule, LoadedPlugin } from "@jazz/core/types/plugin";
+import type { JazzPluginModule, LoadedPlugin, PluginManifest } from "@jazz/core/types/plugin";
 import type { PluginArtifactInstaller } from "./artifact-installer";
 import { pluginConsentDigest } from "./plugin-registry-service";
 import type { PluginStateRecord, PluginStateStore } from "./state-store";
@@ -43,6 +43,19 @@ export class PluginModuleLoader {
   constructor(private readonly options: PluginModuleLoaderOptions) {}
 
   hasLoadedDigest = (digest: string): boolean => this.loaded.has(digest);
+
+  /**
+   * Manifests of every plugin enabled for at least one agent, without importing any code. For
+   * reading declared, inert data (personas, skills) that needs no module execution — plugins are
+   * treated as globally available once enabled anywhere.
+   */
+  async listEnabledManifests(): Promise<readonly PluginManifest[]> {
+    const state = await this.options.stateStore.read();
+    return Object.values(state.plugins)
+      .filter((record) => record.enabledAgentIds.length > 0)
+      .map((record) => record.current.manifest)
+      .sort((left, right) => left.id.localeCompare(right.id));
+  }
 
   /** Verify and import all plugins enabled for one agent without registering them. */
   async loadEnabledForAgent(agentId: string): Promise<readonly LoadedPlugin[]> {

@@ -135,6 +135,15 @@ export interface PluginCommandResult {
   readonly message?: string;
 }
 
+/** A persona a plugin contributes, declared entirely in the manifest (pure, inert configuration). */
+export interface PluginPersonaDeclaration {
+  readonly name: string;
+  readonly description: string;
+  readonly systemPrompt: string;
+  readonly tone?: string;
+  readonly style?: string;
+}
+
 /** The runtime handler for a slash command the manifest declares. */
 export interface PluginCommandRegistration {
   readonly name: string;
@@ -192,6 +201,7 @@ export interface JazzPluginSourceManifest {
   readonly decisionProviders: readonly string[];
   readonly tools?: readonly PluginToolDeclaration[];
   readonly commands?: readonly PluginCommandDeclaration[];
+  readonly personas?: readonly PluginPersonaDeclaration[];
   readonly network: { readonly destinations: readonly string[] };
   readonly dataSent: readonly string[];
   readonly secrets: readonly PluginSecretDeclaration[];

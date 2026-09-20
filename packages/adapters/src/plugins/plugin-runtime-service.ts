@@ -18,6 +18,7 @@ import {
   PluginRuntimeError,
   type PluginCommandInfo,
   type PluginCommandResult,
+  type PluginPersonaInfo,
   type PluginToolInfo,
   type PluginToolResult,
 } from "@jazz/core/types/plugin";
@@ -119,6 +120,17 @@ export class PluginRuntimeServiceImpl implements PluginRuntimeService {
       (session: PluginSession) => session.runCommand(name, args),
       (session: PluginSession) => session.close(),
     ).pipe(Effect.catchAll(() => Effect.succeed<PluginCommandResult>({})));
+  }
+
+  listAllPersonas(): Effect.Effect<readonly PluginPersonaInfo[]> {
+    return Effect.tryPromise(() => this.options.loader.listEnabledManifests()).pipe(
+      Effect.map((manifests) =>
+        manifests.flatMap((manifest) =>
+          manifest.personas.map((persona) => ({ ...persona, pluginId: manifest.id })),
+        ),
+      ),
+      Effect.catchAll(() => Effect.succeed([] as readonly PluginPersonaInfo[])),
+    );
   }
 }
 

@@ -136,6 +136,7 @@ export interface PluginManifest {
   readonly decisionProviders: readonly string[];
   readonly tools: readonly PluginToolDeclaration[];
   readonly commands: readonly PluginCommandDeclaration[];
+  readonly personas: readonly PluginPersonaDeclaration[];
   readonly network: { readonly destinations: readonly string[] };
   readonly dataSent: readonly string[];
   readonly secrets: readonly PluginSecretDeclaration[];
@@ -148,6 +149,7 @@ export interface PluginConsentDisclosure {
   readonly decisionProviders: readonly string[];
   readonly tools: readonly string[];
   readonly commands: readonly string[];
+  readonly personas: readonly string[];
   readonly destinations: readonly string[];
   readonly dataSent: readonly string[];
 }
@@ -206,6 +208,24 @@ export interface PluginCommandRegistration {
 
 /** A registered plugin command as the host sees it: its manifest declaration plus its owner. */
 export interface PluginCommandInfo extends PluginCommandDeclaration {
+  readonly pluginId: string;
+}
+
+/**
+ * A persona a plugin contributes, declared entirely in the manifest — pure, inert configuration
+ * (no handler, no egress, no secret). `systemPrompt` is injected into the model prompt when an
+ * agent uses the persona; `tone`/`style` are optional hints.
+ */
+export interface PluginPersonaDeclaration {
+  readonly name: string;
+  readonly description: string;
+  readonly systemPrompt: string;
+  readonly tone?: string;
+  readonly style?: string;
+}
+
+/** A plugin persona as the host sees it: its manifest declaration plus its owner. */
+export interface PluginPersonaInfo extends PluginPersonaDeclaration {
   readonly pluginId: string;
 }
 

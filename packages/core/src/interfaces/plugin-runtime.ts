@@ -7,6 +7,7 @@ import type {
   AdvisoryHookId,
   PluginCommandInfo,
   PluginCommandResult,
+  PluginPersonaInfo,
   PluginRuntimeError,
   PluginToolInfo,
   PluginToolResult,
@@ -68,6 +69,11 @@ export interface PluginRuntimeService {
     name: string,
     args: readonly string[],
   ) => Effect.Effect<PluginCommandResult>;
+  /**
+   * Personas contributed by all enabled plugins (global), for folding into the persona list.
+   * Pure manifest data — no code is imported. Resolves to an empty list on any failure.
+   */
+  readonly listAllPersonas: () => Effect.Effect<readonly PluginPersonaInfo[]>;
 }
 
 export const PluginRuntimeServiceTag = Context.GenericTag<PluginRuntimeService>(

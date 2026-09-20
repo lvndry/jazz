@@ -90,6 +90,17 @@ export function validatePluginManifest(manifest: PluginManifest): PluginManifest
   for (const command of manifest.commands) {
     if (command.description.length === 0) fail(`command ${command.name} must have a description`);
   }
+  const personaNames = manifest.personas.map(({ name }) => name);
+  if (
+    personaNames.some((name) => !validIdentifier(name)) ||
+    new Set(personaNames).size !== personaNames.length
+  ) {
+    fail("manifest persona names must be valid and unique");
+  }
+  for (const persona of manifest.personas) {
+    if (persona.description.length === 0) fail(`persona ${persona.name} must have a description`);
+    if (persona.systemPrompt.length === 0) fail(`persona ${persona.name} must have a systemPrompt`);
+  }
   return manifest;
 }
 

@@ -29,6 +29,15 @@
       "description": "Ask the agent to greet someone. Usage: /greet [name]"
     }
   ],
+  "personas": [
+    {
+      "name": "pirate",
+      "description": "Answers like a cheerful pirate.",
+      "systemPrompt": "You are a cheerful pirate. Answer helpfully, but pepper your replies with light nautical flair. Never let the theme get in the way of being correct and useful.",
+      "tone": "playful",
+      "style": "concise"
+    }
+  ],
   "network": { "destinations": [] },
   "dataSent": [],
   "secrets": []

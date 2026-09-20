@@ -14,6 +14,7 @@ export function buildPluginConsentDisclosure(manifest: PluginManifest): PluginCo
     decisionProviders: sortedUnique(manifest.decisionProviders),
     tools: sortedUnique(manifest.tools.map((tool) => tool.name)),
     commands: sortedUnique(manifest.commands.map((command) => command.name)),
+    personas: sortedUnique(manifest.personas.map((persona) => persona.name)),
     destinations: sortedUnique(manifest.network.destinations),
     dataSent: sortedUnique(manifest.dataSent),
   };
@@ -28,6 +29,7 @@ export function canonicalizePluginConsent(disclosure: PluginConsentDisclosure): 
     decisionProviders: sortedUnique(disclosure.decisionProviders),
     tools: sortedUnique(disclosure.tools),
     commands: sortedUnique(disclosure.commands),
+    personas: sortedUnique(disclosure.personas),
     destinations: sortedUnique(disclosure.destinations),
     dataSent: sortedUnique(disclosure.dataSent),
   });

@@ -736,6 +736,7 @@ describe("handleSpecialCommand /runPluginCommand", () => {
         runAgentTool: () => Effect.succeed({ content: "" }),
         listAgentCommands: () => Effect.succeed([]),
         runAgentCommand,
+        listAllPersonas: () => Effect.succeed([]),
       }),
     );
   }

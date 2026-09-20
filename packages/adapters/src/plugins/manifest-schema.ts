@@ -23,6 +23,7 @@ import type {
   JsonValue,
   PluginCommandDeclaration,
   PluginManifest,
+  PluginPersonaDeclaration,
   PluginSecretDeclaration,
   PluginToolDeclaration,
 } from "@jazz/core/types/plugin";
@@ -154,6 +155,45 @@ function parseCommands(value: unknown): readonly PluginCommandDeclaration[] {
   return commands;
 }
 
+function parsePersonaDeclaration(value: unknown, index: number): PluginPersonaDeclaration {
+  const item = record(value, `personas[${index}]`);
+  exactKeys(item, ["name", "description", "systemPrompt", "tone", "style"], `personas[${index}]`);
+  const name = boundedString(item["name"], `personas[${index}].name`, 64);
+  if (!TOOL_NAME.test(name)) throw new Error(`personas[${index}].name has an invalid format`);
+  const description = boundedString(item["description"], `personas[${index}].description`, 1024);
+  const systemPrompt = boundedString(
+    item["systemPrompt"],
+    `personas[${index}].systemPrompt`,
+    16384,
+  );
+  const base = { name, description, systemPrompt };
+  const tone =
+    item["tone"] === undefined
+      ? undefined
+      : boundedString(item["tone"], `personas[${index}].tone`, 200);
+  const style =
+    item["style"] === undefined
+      ? undefined
+      : boundedString(item["style"], `personas[${index}].style`, 200);
+  return {
+    ...base,
+    ...(tone !== undefined ? { tone } : {}),
+    ...(style !== undefined ? { style } : {}),
+  };
+}
+
+function parsePersonas(value: unknown): readonly PluginPersonaDeclaration[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 16) {
+    throw new Error("personas must be an array with at most 16 entries");
+  }
+  const personas = value.map(parsePersonaDeclaration);
+  if (new Set(personas.map((persona) => persona.name)).size !== personas.length) {
+    throw new Error("personas contains duplicate names");
+  }
+  return personas;
+}
+
 function parseSecret(value: unknown, index: number): PluginSecretDeclaration {
   const item = record(value, `secrets[${index}]`);
   exactKeys(item, ["name", "env", "required", "description"], `secrets[${index}]`);
@@ -197,6 +237,7 @@ export function parsePluginManifest(input: unknown): PluginManifest {
       "decisionProviders",
       "tools",
       "commands",
+      "personas",
       "network",
       "dataSent",
       "secrets",
@@ -255,6 +296,7 @@ export function parsePluginManifest(input: unknown): PluginManifest {
     }),
     tools: parseTools(root["tools"]),
     commands: parseCommands(root["commands"]),
+    personas: parsePersonas(root["personas"]),
     network: { destinations: [...destinations].sort() },
     dataSent: [
       ...uniqueStrings(root["dataSent"], "dataSent", {

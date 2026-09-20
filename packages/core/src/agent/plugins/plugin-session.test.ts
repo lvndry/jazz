@@ -26,6 +26,7 @@ const manifest = {
   decisionProviders: ["p"],
   tools: [],
   commands: [],
+  personas: [],
   network: { destinations: [] },
   dataSent: [],
   secrets: [{ name: "key", required: true, description: "API key" }],
