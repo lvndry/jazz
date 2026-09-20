@@ -127,19 +127,23 @@ function scoreAgainstRequest(entry: MemoryIndexEntry, requestText: string): numb
 
 export interface RecallSelection {
   /**
-   * Preferences that apply to every task. Request-independent, so these can be
-   * frozen into the cached system prompt without a per-turn rewrite.
-   */
-  readonly standing: readonly MemoryIndexEntry[];
-  /**
-   * Entries selected because of what this turn is about — preferences whose
-   * workflow is active, plus anything ranked against the request.
+   * Preferences in force for this turn: the ones that apply to every task, plus
+   * the ones whose workflow the request is about.
    *
-   * These change from turn to turn, so they belong in the message stream. Put
-   * in the system prompt they would rewrite its tail on every turn and discard
-   * the prefix cache for the whole conversation.
+   * These go into the system prompt together. They only change when the active
+   * workflow does, which over a conversation happens about once — an ordinary
+   * prompt change, not a per-turn rewrite, so no second injection channel is
+   * needed to keep the prefix cache intact.
    */
-  readonly contextual: readonly MemoryIndexEntry[];
+  readonly preferences: readonly MemoryIndexEntry[];
+  /**
+   * Facts and lessons ranked against this specific request.
+   *
+   * Genuinely per-request, so these are not put in the prompt. Nothing consumes
+   * them yet — facts stay reachable through `view_memory`, and lessons do not
+   * exist until the learning loop does.
+   */
+  readonly ranked: readonly MemoryIndexEntry[];
   readonly activeWorkflows: readonly string[];
 }
 
@@ -160,18 +164,11 @@ export function selectRecall(input: SelectRecallInput): RecallSelection {
   const requestText = input.requestText.toLowerCase();
   const activeWorkflows = classifyActiveWorkflows(input.requestText, input.entries);
 
-  const standing = input.entries
-    .filter((entry) => entry.kind === "preference" && entry.workflow === undefined)
+  const preferences = input.entries
+    .filter((entry) => entry.kind === "preference" && isActiveFor(entry, activeWorkflows))
     .slice(0, maxStanding);
 
-  const activePreferences = input.entries.filter(
-    (entry) =>
-      entry.kind === "preference" &&
-      entry.workflow !== undefined &&
-      activeWorkflows.includes(entry.workflow),
-  );
-
-  const alreadySelected = new Set([...standing, ...activePreferences].map((entry) => entry.path));
+  const alreadySelected = new Set(preferences.map((entry) => entry.path));
 
   const ranked = input.entries
     .filter((entry) => !alreadySelected.has(entry.path) && isActiveFor(entry, activeWorkflows))
@@ -185,5 +182,5 @@ export function selectRecall(input: SelectRecallInput): RecallSelection {
     .slice(0, maxRanked)
     .map((scored) => scored.entry);
 
-  return { standing, contextual: [...activePreferences, ...ranked], activeWorkflows };
+  return { preferences, ranked, activeWorkflows };
 }

@@ -120,20 +120,22 @@ describe("selectRecall", () => {
 
   test("always injects a global preference regardless of the request", () => {
     const selection = selectRecall({ entries, requestText: "what time is it" });
-    expect(selection.standing.map((item) => item.path)).toEqual([globalPreference.path]);
+    expect(selection.preferences.map((item) => item.path)).toEqual([globalPreference.path]);
   });
 
-  test("keeps standing entries request-independent so the cached prompt is stable", () => {
-    const first = selectRecall({ entries, requestText: "build me a moodboard" });
-    const second = selectRecall({ entries, requestText: "fix the invoicing script" });
-    expect(first.standing).toEqual(second.standing);
-  });
-
-  test("surfaces a workflow preference contextually when that work is active", () => {
+  test("adds a workflow preference when that work is active", () => {
     const selection = selectRecall({ entries, requestText: "build me a moodboard" });
-    expect(selection.contextual.map((item) => item.path)).toContain(moodboardPreference.path);
-    expect(selection.standing.map((item) => item.path)).not.toContain(moodboardPreference.path);
+    expect(selection.preferences.map((item) => item.path)).toEqual([
+      globalPreference.path,
+      moodboardPreference.path,
+    ]);
     expect(selection.activeWorkflows).toEqual(["moodboard"]);
+  });
+
+  test("changes only when the active workflow changes, not on every request", () => {
+    const first = selectRecall({ entries, requestText: "tweak the moodboard spacing" });
+    const second = selectRecall({ entries, requestText: "redo this moodboard" });
+    expect(first.preferences).toEqual(second.preferences);
   });
 
   test("recalls a workflow preference wherever that work happens, not per folder", () => {
@@ -143,14 +145,14 @@ describe("selectRecall", () => {
       "a moodboard please",
     ]) {
       expect(
-        selectRecall({ entries, requestText: request }).contextual.map((item) => item.path),
+        selectRecall({ entries, requestText: request }).preferences.map((item) => item.path),
       ).toContain(moodboardPreference.path);
     }
   });
 
   test("leaves out preferences for workflows that are not active", () => {
     const selection = selectRecall({ entries, requestText: "build me a moodboard" });
-    const selected = [...selection.standing, ...selection.contextual].map((item) => item.path);
+    const selected = [...selection.preferences, ...selection.ranked].map((item) => item.path);
     expect(selected).not.toContain(invoicingPreference.path);
   });
 
@@ -159,7 +161,7 @@ describe("selectRecall", () => {
       entry({ path: `personal/preferences/_global/p${index}.md`, kind: "preference" }),
     );
     expect(
-      selectRecall({ entries: many, requestText: "hi", maxStanding: 3 }).standing,
+      selectRecall({ entries: many, requestText: "hi", maxStanding: 3 }).preferences,
     ).toHaveLength(3);
   });
 
@@ -173,7 +175,7 @@ describe("selectRecall", () => {
       entries: [lesson],
       requestText: "the artboards look wrong",
     });
-    expect(selection.contextual.map((item) => item.path)).toEqual([lesson.path]);
+    expect(selection.ranked.map((item) => item.path)).toEqual([lesson.path]);
   });
 
   test("does not rank an entry with nothing in common with the request", () => {
@@ -183,7 +185,7 @@ describe("selectRecall", () => {
       summary: "lives in Paris",
     });
     const selection = selectRecall({ entries: [fact], requestText: "rename this variable" });
-    expect(selection.contextual).toEqual([]);
+    expect(selection.ranked).toEqual([]);
   });
 
   test("never repeats a standing preference in the contextual set", () => {
@@ -191,8 +193,8 @@ describe("selectRecall", () => {
       entries,
       requestText: "moodboard artboards rendered output",
     });
-    const contextualPaths = selection.contextual.map((item) => item.path);
-    for (const standing of selection.standing) {
+    const contextualPaths = selection.ranked.map((item) => item.path);
+    for (const standing of selection.preferences) {
       expect(contextualPaths).not.toContain(standing.path);
     }
   });

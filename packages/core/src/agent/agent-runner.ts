@@ -540,10 +540,10 @@ function initializeAgentRun(
     // should have to restate. Memory is optional here: an agent configured
     // without it still runs, just without this.
     const memoryServiceOption = yield* Effect.serviceOption(MemoryServiceTag);
-    const standingPreferences = Option.isSome(memoryServiceOption)
+    const activePreferences = Option.isSome(memoryServiceOption)
       ? yield* memoryServiceOption.value.index(agent.config.memoryScopes ?? [agent.id]).pipe(
           Effect.map((entries) =>
-            selectRecall({ entries, requestText: userInput }).standing.map((entry) => ({
+            selectRecall({ entries, requestText: userInput }).preferences.map((entry) => ({
               summary: entry.summary,
             })),
           ),
@@ -565,7 +565,7 @@ function initializeAgentRun(
         availableTools,
         knownSkills: relevantSkills,
         ...(deferredToolSummaries.length > 0 && { deferredTools: deferredToolSummaries }),
-        ...(standingPreferences.length > 0 && { standingPreferences }),
+        ...(activePreferences.length > 0 && { standingPreferences: activePreferences }),
         ...(attachmentWorkingDirectory !== undefined && {
           workingDirectory: attachmentWorkingDirectory,
         }),
