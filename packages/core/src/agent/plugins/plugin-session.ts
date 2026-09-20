@@ -245,19 +245,21 @@ export function createPluginSession(
                   provider.networkBacked === true &&
                   result.costUSD === undefined;
                 if (exceededBound || missingCappedCost) disabledProviders.add(provider.id);
-                recordDecisionUsage(options.metrics, {
-                  ...(result.usage && {
-                    inputTokens: result.usage.inputTokens,
-                    outputTokens: result.usage.outputTokens,
-                  }),
-                  durationMs: Date.now() - started,
-                  ...(result.costUSD !== undefined
-                    ? { costUSD: result.costUSD }
-                    : missingCappedCost && bound !== undefined
-                      ? { costUSD: bound }
-                      : {}),
-                  costUnknown: provider.networkBacked === true && result.costUSD === undefined,
-                });
+                if (options.metrics !== undefined) {
+                  recordDecisionUsage(options.metrics, {
+                    ...(result.usage && {
+                      inputTokens: result.usage.inputTokens,
+                      outputTokens: result.usage.outputTokens,
+                    }),
+                    durationMs: Date.now() - started,
+                    ...(result.costUSD !== undefined
+                      ? { costUSD: result.costUSD }
+                      : missingCappedCost && bound !== undefined
+                        ? { costUSD: bound }
+                        : {}),
+                    costUnknown: provider.networkBacked === true && result.costUSD === undefined,
+                  });
+                }
                 return exceededBound
                   ? abstainedBatch(
                       provider.id,

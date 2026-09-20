@@ -6,7 +6,6 @@
  * hook deadlines, budget accounting, secret disclosure, and session cleanup.
  */
 
-import { createAgentRunMetrics } from "@jazz/core/agent/metrics/agent-run-metrics";
 import { createPluginSession } from "@jazz/core/agent/plugins/plugin-session";
 import {
   PluginRuntimeServiceTag,
@@ -27,24 +26,6 @@ import {
 import { Effect, Layer } from "effect";
 import type { PluginModuleLoader } from "./module-loader";
 import type { PluginSecretStore } from "./secret-store";
-
-/**
- * A throwaway metrics object for a tool-only session. Plugin tools do not touch the decision-cost
- * accounting these carry; the session type requires them, so we give it inert ones.
- */
-function toolSessionMetrics(agentId: string): PluginSessionOptions["metrics"] {
-  const now = new Date();
-  return createAgentRunMetrics({
-    agent: {
-      id: agentId,
-      name: agentId,
-      config: { persona: "default", llmProvider: "openai", llmModel: "plugin-tools" },
-      createdAt: now,
-      updatedAt: now,
-    },
-    conversationId: `plugin-tools:${agentId}`,
-  });
-}
 
 export interface PluginRuntimeServiceOptions {
   readonly loader: PluginModuleLoader;
@@ -82,7 +63,7 @@ export class PluginRuntimeServiceImpl implements PluginRuntimeService {
 
   listAgentTools(agentId: string): Effect.Effect<readonly PluginToolInfo[]> {
     return Effect.acquireUseRelease(
-      this.openSession({ agentId, metrics: toolSessionMetrics(agentId) }),
+      this.openSession({ agentId }),
       (session: PluginSession) => Effect.sync(() => session.listTools()),
       (session: PluginSession) => session.close(),
     ).pipe(Effect.catchAll(() => Effect.succeed([] as readonly PluginToolInfo[])));
@@ -94,7 +75,7 @@ export class PluginRuntimeServiceImpl implements PluginRuntimeService {
     args: Record<string, unknown>,
   ): Effect.Effect<PluginToolResult> {
     return Effect.acquireUseRelease(
-      this.openSession({ agentId, metrics: toolSessionMetrics(agentId) }),
+      this.openSession({ agentId }),
       (session: PluginSession) => session.runTool(name, args),
       (session: PluginSession) => session.close(),
     ).pipe(
@@ -109,7 +90,7 @@ export class PluginRuntimeServiceImpl implements PluginRuntimeService {
 
   listAgentCommands(agentId: string): Effect.Effect<readonly PluginCommandInfo[]> {
     return Effect.acquireUseRelease(
-      this.openSession({ agentId, metrics: toolSessionMetrics(agentId) }),
+      this.openSession({ agentId }),
       (session: PluginSession) => Effect.sync(() => session.listCommands()),
       (session: PluginSession) => session.close(),
     ).pipe(Effect.catchAll(() => Effect.succeed([] as readonly PluginCommandInfo[])));
@@ -121,7 +102,7 @@ export class PluginRuntimeServiceImpl implements PluginRuntimeService {
     args: readonly string[],
   ): Effect.Effect<PluginCommandResult> {
     return Effect.acquireUseRelease(
-      this.openSession({ agentId, metrics: toolSessionMetrics(agentId) }),
+      this.openSession({ agentId }),
       (session: PluginSession) => session.runCommand(name, args),
       (session: PluginSession) => session.close(),
     ).pipe(Effect.catchAll(() => Effect.succeed<PluginCommandResult>({})));
@@ -153,10 +134,7 @@ export class PluginRuntimeServiceImpl implements PluginRuntimeService {
     const cached = this.lifecycleSessions.get(event.agentId);
     const session = cached
       ? Effect.succeed(cached)
-      : this.openSession({
-          agentId: event.agentId,
-          metrics: toolSessionMetrics(event.agentId),
-        }).pipe(
+      : this.openSession({ agentId: event.agentId }).pipe(
           Effect.tap((opened) =>
             Effect.sync(() => this.lifecycleSessions.set(event.agentId, opened)),
           ),

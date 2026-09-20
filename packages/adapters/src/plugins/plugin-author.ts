@@ -12,7 +12,6 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
-import { createAgentRunMetrics } from "@jazz/core/agent/metrics/agent-run-metrics";
 import { createPluginSession } from "@jazz/core/agent/plugins/plugin-session";
 import type {
   JazzPluginModule,
@@ -448,20 +447,6 @@ function auditRegistration(manifest: PluginManifest, module: JazzPluginModule): 
   };
 }
 
-function probeMetrics() {
-  const now = new Date();
-  return createAgentRunMetrics({
-    agent: {
-      id: "plugin-probe",
-      name: "Plugin probe",
-      config: { persona: "default", llmProvider: "openai", llmModel: "probe" },
-      createdAt: now,
-      updatedAt: now,
-    },
-    conversationId: "plugin-probe",
-  });
-}
-
 /** Verify and execute a packed plugin in a disposable store, without changing global state. */
 export async function probePackedPlugin(
   options: ProbePackedPluginOptions,
@@ -482,7 +467,6 @@ export async function probePackedPlugin(
     const session = await Effect.runPromise(
       createPluginSession({
         agentId: "plugin-probe",
-        metrics: probeMetrics(),
         plugins: [{ manifest: acquired.manifest, module }],
         resolveSecret: () => Promise.resolve(undefined),
       }),

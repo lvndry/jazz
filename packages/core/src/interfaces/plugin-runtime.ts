@@ -41,7 +41,11 @@ export interface PluginSession {
 
 export interface PluginSessionOptions {
   readonly agentId: string;
-  readonly metrics: AgentRunMetrics;
+  /**
+   * Metrics sink for decision-provider cost accounting. Optional: a session that only serves tools,
+   * commands, or lifecycle events never invokes a decision provider, so it needs none.
+   */
+  readonly metrics?: AgentRunMetrics;
   readonly hookTimeoutMs?: number;
   readonly maxCostUSD?: number;
   readonly currentRunCostUSD?: () => number | undefined;
