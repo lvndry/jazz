@@ -126,6 +126,8 @@ export interface RenderRow {
   /** `prose` for running text, the full content width for scanned output. */
   readonly contentWidth: number;
   readonly meta: readonly Segment[];
+  /** A compact surface behind exactly the populated content cells. */
+  readonly contentBackground?: string;
 }
 
 /**
@@ -866,26 +868,38 @@ function rowsForBlock(
   }
 }
 
+/** Render a user turn as a compact neutral bubble so its boundary survives wrapping. */
 function userRows(
   block: Extract<Block, { kind: "user" }>,
   geometry: Geometry,
   glyphs: GlyphSet,
 ): RenderRow[] {
-  const rail = railCell(THEME.border);
+  const BUBBLE_CHROME_WIDTH = 4;
   const meta: readonly Segment[] =
     block.at !== undefined && geometry.metadata > 0 ? [{ text: block.at, fg: THEME.muted }] : [];
-  // What you typed is an echo; the agent's answer is the bright thing on screen.
-  const lines = wrap([{ text: block.text, fg: THEME.secondary }], geometry.prose);
+  const lines = wrap(
+    [{ text: block.text, fg: THEME.secondary }],
+    geometry.prose - BUBBLE_CHROME_WIDTH,
+  );
   const rows: RenderRow[] = [];
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
     if (line === undefined) continue;
+    const prefix: readonly Segment[] =
+      index === 0
+        ? [
+            { text: " ", fg: THEME.secondary },
+            { text: glyphs.promptCursor, fg: THEME.primary },
+            { text: " ", fg: THEME.secondary },
+          ]
+        : [{ text: "   ", fg: THEME.secondary }];
     rows.push({
       key: `${block.id}:${String(index)}`,
-      gutter: [index === 0 ? { text: glyphs.promptCursor, fg: THEME.primary } : rail, BLANK_CELL],
-      content: line,
+      gutter: [railCell(THEME.border), BLANK_CELL],
+      content: [...prefix, ...line, { text: " ", fg: THEME.secondary }],
       contentWidth: geometry.prose,
       meta: index === 0 ? meta : [],
+      contentBackground: THEME.surfaceStrong,
     });
   }
   return rows;
@@ -1405,13 +1419,26 @@ function Spans({ segments }: { segments: readonly Segment[] }): ReactNode {
 }
 
 function Row({ row, width }: { row: RenderRow; width: number }): ReactNode {
+  const contentWidth = Math.min(row.contentWidth, terminalSegmentsWidth(row.content));
   return (
     <box style={{ width, height: 1, flexShrink: 0, flexDirection: "row" }}>
       <box style={{ width: GUTTER, flexShrink: 0 }}>
         <Spans segments={row.gutter} />
       </box>
       <box style={{ width: row.contentWidth, flexShrink: 0 }}>
-        <Spans segments={row.content} />
+        {row.contentBackground === undefined ? (
+          <Spans segments={row.content} />
+        ) : (
+          <box
+            style={{
+              width: Math.max(1, contentWidth),
+              flexShrink: 0,
+              backgroundColor: row.contentBackground,
+            }}
+          >
+            <Spans segments={row.content} />
+          </box>
+        )}
       </box>
       <box style={{ flexGrow: 1 }} />
       <box style={{ flexShrink: 0 }}>
