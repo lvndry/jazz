@@ -168,6 +168,8 @@ export interface LifecycleEvent {
   readonly event: LifecycleEventId;
   readonly agentId: string;
   readonly conversationId: string;
+  /** The working directory the run executes in — lets a notifier bind to the originating session. */
+  readonly cwd: string;
   readonly data?: Readonly<Record<string, JsonValue>>;
 }
 

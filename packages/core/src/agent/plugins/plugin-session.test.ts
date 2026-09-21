@@ -305,6 +305,7 @@ it("delivers a declared lifecycle event to its handler", async () => {
       event: "run-complete",
       agentId: "a",
       conversationId: "c",
+      cwd: "/tmp",
       data: { summary: "all done" },
     }),
   );
