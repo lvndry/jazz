@@ -234,6 +234,14 @@ export function validateCompactToolsOutcome(
       fail("compact tools decision action must be keep, truncate, or drop");
     }
   }
+  // A partial answer would let the reducer default every undecided candidate to keep, silently
+  // suppressing the deterministic clearer. Require full coverage; otherwise abstain and fall back.
+  if (decided.size !== candidateIds.size) {
+    return {
+      status: "abstained",
+      reason: `compact tools response covered ${decided.size} of ${candidateIds.size} candidates`,
+    };
+  }
   return outcome;
 }
 
