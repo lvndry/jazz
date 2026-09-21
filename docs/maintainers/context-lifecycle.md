@@ -254,7 +254,7 @@ anything worth remembering long term and writes it to the agent's memory
 
 It runs as a throwaway `memory-extractor` sub-agent on the summarizer model, and it uses the
 real `view_memory`/`manage_memory` tools rather than a bespoke write path — so it inherits
-their discipline: find the right scope, read the file before changing it, one file per topic,
+their discipline: find the right scope, read the file before changing it, one file per subject,
 replace stale facts instead of appending duplicates. The scopes are the parent agent's; the
 writes are tagged to `memory-extractor`, so an auto-extracted fact is distinguishable from one
 the agent wrote at the user's direct request.

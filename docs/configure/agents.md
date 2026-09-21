@@ -124,8 +124,9 @@ explicit. A command-backed webhook is useful when the HTTP endpoint itself is th
 ## Memory
 
 `memoryScopes` controls which long-term memory namespaces the agent can read and write. The default
-is the agent's own id. Share a scope between agents only when they should deliberately share durable
-context; conversation history remains separate.
+is `["personal"]` — a single shared scope so that preferences follow the person across agents.
+Override it when an agent should see project-specific or role-specific memory instead.
+Conversation history remains separate.
 
 Run `jazz agent show <name>` to inspect the resolved agent and `/tools` inside chat to see the tools
 available to that run.
