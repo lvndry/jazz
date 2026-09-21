@@ -962,17 +962,23 @@ function registerPluginCommands(program: Command): void {
   plugin
     .command("trust <id>")
     .description("Locally acknowledge full OS-user code execution for the current digest")
-    .action((id: string) =>
-      run(() => import("@jazz/cli/commands/plugin").then((mod) => mod.pluginTrustCommand(id))),
+    .option("-y, --yes", "Skip confirmation prompt")
+    .action((id: string, options: { yes?: boolean }) =>
+      run(() =>
+        import("@jazz/cli/commands/plugin").then((mod) =>
+          mod.pluginTrustCommand(id, { yes: options.yes === true }),
+        ),
+      ),
     );
   plugin
     .command("enable <id>")
     .description("Grant current data-egress consent and enable for one agent, or all agents")
     .option("--agent <agentId>", "Agent id or name; omit to enable for all agents")
-    .action((id: string, options: { agent?: string }) =>
+    .option("-y, --yes", "Skip confirmation prompt")
+    .action((id: string, options: { agent?: string; yes?: boolean }) =>
       run(() =>
         import("@jazz/cli/commands/plugin").then((mod) =>
-          mod.pluginEnableCommand(id, options.agent),
+          mod.pluginEnableCommand(id, options.agent, { yes: options.yes === true }),
         ),
       ),
     );
