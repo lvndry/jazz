@@ -78,7 +78,7 @@ bear.
 
 ### Layout: the tree is the index
 
-```
+```text
 ~/.jazz/memory/
 ├── personal/                          ← scope: follows the user everywhere
 │   ├── always/                        ← in force on every turn
