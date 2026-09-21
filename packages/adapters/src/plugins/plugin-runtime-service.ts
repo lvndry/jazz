@@ -130,6 +130,13 @@ export class PluginRuntimeServiceImpl implements PluginRuntimeService {
     );
   }
 
+  hasNotificationPlugin(): Effect.Effect<boolean> {
+    return Effect.tryPromise(() => this.options.loader.listEnabledManifests()).pipe(
+      Effect.map((manifests) => manifests.some((manifest) => manifest.claimsNotifications)),
+      Effect.catchAll(() => Effect.succeed(false)),
+    );
+  }
+
   emitLifecycleEvent(event: LifecycleEvent): Effect.Effect<void> {
     const cached = this.lifecycleSessions.get(event.agentId);
     const session = cached

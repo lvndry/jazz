@@ -739,6 +739,7 @@ describe("handleSpecialCommand /runPluginCommand", () => {
         listAllPersonas: () => Effect.succeed([]),
         listAllSkills: () => Effect.succeed([]),
         emitLifecycleEvent: () => Effect.void,
+        hasNotificationPlugin: () => Effect.succeed(false),
       }),
     );
   }
