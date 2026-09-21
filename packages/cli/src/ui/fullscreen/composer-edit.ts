@@ -110,6 +110,50 @@ export function deleteForward(buffer: ComposerBuffer): ComposerBuffer {
   return replaceRange(current, current.caret, current.caret + 1, "");
 }
 
+/**
+ * Move the caret to the same column on the previous (-1) or next (+1) logical
+ * line. When already on the first line moving up lands at position 0; on the
+ * last line moving down lands at the end — matching standard textarea behavior.
+ */
+export function moveCaretVertical(
+  characters: readonly string[],
+  caret: number,
+  direction: -1 | 1,
+): number {
+  let lineStart = Math.min(caret, characters.length);
+  while (lineStart > 0 && characters[lineStart - 1] !== "\n") {
+    lineStart--;
+  }
+  const column = caret - lineStart;
+
+  if (direction === -1) {
+    if (lineStart === 0) {
+      return 0;
+    }
+    let prevLineStart = lineStart - 1;
+    while (prevLineStart > 0 && characters[prevLineStart - 1] !== "\n") {
+      prevLineStart--;
+    }
+    const prevLineLength = lineStart - 1 - prevLineStart;
+    return prevLineStart + Math.min(column, prevLineLength);
+  }
+
+  let lineEnd = caret;
+  while (lineEnd < characters.length && characters[lineEnd] !== "\n") {
+    lineEnd++;
+  }
+  if (lineEnd >= characters.length) {
+    return characters.length;
+  }
+  const nextLineStart = lineEnd + 1;
+  let nextLineEnd = nextLineStart;
+  while (nextLineEnd < characters.length && characters[nextLineEnd] !== "\n") {
+    nextLineEnd++;
+  }
+  const nextLineLength = nextLineEnd - nextLineStart;
+  return nextLineStart + Math.min(column, nextLineLength);
+}
+
 export function deleteRange(buffer: ComposerBuffer, start: number, end: number): ComposerBuffer {
   if (hasSelection(buffer)) {
     const range = selectionRange(buffer);

@@ -56,6 +56,7 @@ import {
   EMPTY_HISTORY,
   insertText,
   moveCaret,
+  moveCaretVertical,
   redo,
   selectAll,
   type ComposerHistory,
@@ -2034,6 +2035,15 @@ export function FullscreenBridge(): React.ReactNode {
             return true;
           }
         }
+      }
+      if (name === "up" || name === "down") {
+        const current = composerRef.current;
+        const characters = [...current.text];
+        const target = moveCaretVertical(characters, current.caret, name === "up" ? -1 : 1);
+        if (target !== current.caret) {
+          moveComposer(target, shift);
+        }
+        return true;
       }
 
       // Cmd+Backspace on macOS and the classic readline Ctrl+U both mean
