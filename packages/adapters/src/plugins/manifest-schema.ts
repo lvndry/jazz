@@ -208,9 +208,20 @@ function parseSkillDeclaration(value: unknown, index: number): PluginSkillDeclar
 
 const LIFECYCLE_EVENTS: ReadonlySet<string> = new Set([
   "session-start",
+  "session-end",
   "user-prompt",
   "run-complete",
+  "run-failed",
   "awaiting-input",
+  "tool-start",
+  "tool-end",
+  "tool-error",
+  "subagent-start",
+  "subagent-stop",
+  "compact-start",
+  "compact-end",
+  "permission-request",
+  "permission-denied",
 ]);
 
 function parseLifecycleHooks(value: unknown): readonly LifecycleEventId[] {

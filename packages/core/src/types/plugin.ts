@@ -254,7 +254,22 @@ export interface PluginSkillInfo extends PluginSkillDeclaration {
  * cannot change what the host does; it reacts (e.g. raises a desktop notification). The set is
  * closed because each event is a point the host actually emits.
  */
-export type LifecycleEventId = "session-start" | "user-prompt" | "run-complete" | "awaiting-input";
+export type LifecycleEventId =
+  | "session-start"
+  | "session-end"
+  | "user-prompt"
+  | "run-complete"
+  | "run-failed"
+  | "awaiting-input"
+  | "tool-start"
+  | "tool-end"
+  | "tool-error"
+  | "subagent-start"
+  | "subagent-stop"
+  | "compact-start"
+  | "compact-end"
+  | "permission-request"
+  | "permission-denied";
 
 /** The payload delivered to a lifecycle handler. `data` carries bounded, event-specific fields. */
 export interface LifecycleEvent {

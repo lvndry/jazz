@@ -161,7 +161,22 @@ export interface PluginCommandRegistration {
 }
 
 /** Host-emitted lifecycle events a plugin may observe (notifications only, cannot change behavior). */
-export type LifecycleEventId = "session-start" | "user-prompt" | "run-complete" | "awaiting-input";
+export type LifecycleEventId =
+  | "session-start"
+  | "session-end"
+  | "user-prompt"
+  | "run-complete"
+  | "run-failed"
+  | "awaiting-input"
+  | "tool-start"
+  | "tool-end"
+  | "tool-error"
+  | "subagent-start"
+  | "subagent-stop"
+  | "compact-start"
+  | "compact-end"
+  | "permission-request"
+  | "permission-denied";
 
 /** The payload delivered to a lifecycle handler. */
 export interface LifecycleEvent {
