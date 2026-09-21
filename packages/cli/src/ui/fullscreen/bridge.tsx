@@ -52,6 +52,7 @@ import {
   deleteBackward,
   deleteForward,
   deleteRange,
+  DOWN,
   EMPTY_COMPOSER,
   EMPTY_HISTORY,
   insertText,
@@ -59,6 +60,7 @@ import {
   moveCaretVertical,
   redo,
   selectAll,
+  UP,
   type ComposerHistory,
   undo,
 } from "./composer-edit";
@@ -2039,7 +2041,7 @@ export function FullscreenBridge(): React.ReactNode {
       if (name === "up" || name === "down") {
         const current = composerRef.current;
         const characters = [...current.text];
-        const target = moveCaretVertical(characters, current.caret, name === "up" ? -1 : 1);
+        const target = moveCaretVertical(characters, current.caret, name === "up" ? UP : DOWN);
         if (target !== current.caret) {
           moveComposer(target, shift);
         }

@@ -110,15 +110,19 @@ export function deleteForward(buffer: ComposerBuffer): ComposerBuffer {
   return replaceRange(current, current.caret, current.caret + 1, "");
 }
 
+export const UP = -1 as const;
+export const DOWN = 1 as const;
+export type VerticalDirection = typeof UP | typeof DOWN;
+
 /**
- * Move the caret to the same column on the previous (-1) or next (+1) logical
- * line. When already on the first line moving up lands at position 0; on the
- * last line moving down lands at the end — matching standard textarea behavior.
+ * Move the caret to the same column on the previous or next logical line.
+ * When already on the first line moving up lands at position 0; on the last
+ * line moving down lands at the end — matching standard textarea behavior.
  */
 export function moveCaretVertical(
   characters: readonly string[],
   caret: number,
-  direction: -1 | 1,
+  direction: VerticalDirection,
 ): number {
   let lineStart = Math.min(caret, characters.length);
   while (lineStart > 0 && characters[lineStart - 1] !== "\n") {
@@ -126,7 +130,7 @@ export function moveCaretVertical(
   }
   const column = caret - lineStart;
 
-  if (direction === -1) {
+  if (direction === UP) {
     if (lineStart === 0) {
       return 0;
     }

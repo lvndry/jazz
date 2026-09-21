@@ -4,6 +4,7 @@ import {
   composerFromText,
   deleteBackward,
   deleteForward,
+  DOWN,
   EMPTY_COMPOSER,
   EMPTY_HISTORY,
   hasSelection,
@@ -14,6 +15,7 @@ import {
   selectAll,
   selectedText,
   undo,
+  UP,
 } from "./composer-edit";
 
 describe("composer-edit", () => {
@@ -72,51 +74,51 @@ describe("composer-edit", () => {
 
     it("moves down to the same column on the next line", () => {
       const text = "hello\nworld";
-      expect(moveCaretVertical(spread(text), 2, 1)).toBe(8);
+      expect(moveCaretVertical(spread(text), 2, DOWN)).toBe(8);
     });
 
     it("moves up to the same column on the previous line", () => {
       const text = "hello\nworld";
-      expect(moveCaretVertical(spread(text), 8, -1)).toBe(2);
+      expect(moveCaretVertical(spread(text), 8, UP)).toBe(2);
     });
 
     it("clamps to a shorter line when moving down", () => {
       const text = "long line\nhi";
-      expect(moveCaretVertical(spread(text), 7, 1)).toBe(12);
+      expect(moveCaretVertical(spread(text), 7, DOWN)).toBe(12);
     });
 
     it("clamps to a shorter line when moving up", () => {
       const text = "hi\nlong line";
-      expect(moveCaretVertical(spread(text), 10, -1)).toBe(2);
+      expect(moveCaretVertical(spread(text), 10, UP)).toBe(2);
     });
 
     it("moves to position 0 when pressing up on the first line", () => {
       const text = "hello\nworld";
-      expect(moveCaretVertical(spread(text), 3, -1)).toBe(0);
+      expect(moveCaretVertical(spread(text), 3, UP)).toBe(0);
     });
 
     it("moves to the end when pressing down on the last line", () => {
       const text = "hello\nworld";
-      expect(moveCaretVertical(spread(text), 8, 1)).toBe(11);
+      expect(moveCaretVertical(spread(text), 8, DOWN)).toBe(11);
     });
 
     it("handles three lines", () => {
       const text = "aaa\nbbb\nccc";
-      expect(moveCaretVertical(spread(text), 5, 1)).toBe(9);
-      expect(moveCaretVertical(spread(text), 9, -1)).toBe(5);
+      expect(moveCaretVertical(spread(text), 5, DOWN)).toBe(9);
+      expect(moveCaretVertical(spread(text), 9, UP)).toBe(5);
     });
 
     it("handles single-line text", () => {
       const text = "hello";
-      expect(moveCaretVertical(spread(text), 3, -1)).toBe(0);
-      expect(moveCaretVertical(spread(text), 3, 1)).toBe(5);
+      expect(moveCaretVertical(spread(text), 3, UP)).toBe(0);
+      expect(moveCaretVertical(spread(text), 3, DOWN)).toBe(5);
     });
 
     it("handles empty lines", () => {
       const text = "hello\n\nworld";
-      expect(moveCaretVertical(spread(text), 3, 1)).toBe(6);
-      expect(moveCaretVertical(spread(text), 6, 1)).toBe(6 + 1);
-      expect(moveCaretVertical(spread(text), 6, -1)).toBe(0 + 0);
+      expect(moveCaretVertical(spread(text), 3, DOWN)).toBe(6);
+      expect(moveCaretVertical(spread(text), 6, DOWN)).toBe(6 + 1);
+      expect(moveCaretVertical(spread(text), 6, UP)).toBe(0 + 0);
     });
   });
 });
