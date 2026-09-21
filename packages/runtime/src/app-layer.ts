@@ -369,6 +369,8 @@ export function runCliEffect<R, E extends JazzError | Error>(
     configPath: config.configPath,
   });
 
+  let receivedShutdownSignal = false;
+
   const program = Effect.gen(function* () {
     const commandStartedAt = Date.now();
     const shouldSkipCatchUp =
@@ -405,6 +407,7 @@ export function runCliEffect<R, E extends JazzError | Error>(
       const label = signal === "SIGINT" ? "Ctrl+C" : signal;
 
       if (signalCount === 1) {
+        receivedShutdownSignal = true;
         process.stdout.write(`\nReceived ${label}. Shutting down...\n`);
         const notify = requestShutdownRef.current;
         if (notify) notify({ _tag: "request" });
@@ -522,7 +525,11 @@ export function runCliEffect<R, E extends JazzError | Error>(
     Effect.scoped,
   ) as Effect.Effect<void, never, never>;
 
-  void Effect.runPromise(managedEffect);
+  void Effect.runPromise(managedEffect).finally(() => {
+    if (receivedShutdownSignal) {
+      process.exit(process.exitCode ?? 0);
+    }
+  });
 }
 
 /**
