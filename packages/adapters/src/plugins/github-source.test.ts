@@ -13,6 +13,7 @@ import {
 } from "./github-source";
 import { PluginModuleLoader } from "./module-loader";
 import { PluginRegistryServiceImpl } from "./plugin-registry-service";
+import { ALL_AGENTS } from "./state-store";
 
 const SOURCE_MANIFEST = {
   schemaVersion: 1,
@@ -38,6 +39,23 @@ async function writePluginRepo(directory: string): Promise<void> {
   await fs.mkdir(path.join(directory, "src"), { recursive: true });
   await fs.writeFile(path.join(directory, "jazz-plugin.json"), JSON.stringify(SOURCE_MANIFEST));
   await fs.writeFile(path.join(directory, "src", "index.ts"), PLUGIN_ENTRY);
+}
+
+async function githubTarball(manifest: Record<string, unknown>): Promise<Uint8Array> {
+  return createTarGzip([
+    { name: "owner-repo-abc/jazz-plugin.json", data: JSON.stringify(manifest) },
+    { name: "owner-repo-abc/src/index.ts", data: PLUGIN_ENTRY },
+  ]);
+}
+
+/** A fetch that returns each tarball in turn, so successive installs get distinct manifests. */
+function sequentialFetch(...tarballs: readonly Uint8Array[]): typeof fetch {
+  let call = 0;
+  return (async () => {
+    const body = tarballs[Math.min(call, tarballs.length - 1)];
+    call += 1;
+    return new Response(body as unknown as BodyInit, { status: 200 });
+  }) as unknown as typeof fetch;
 }
 
 describe("parseGitHubPluginSource", () => {
@@ -139,6 +157,105 @@ describe("source-repo install lifecycle", () => {
     const loaded = await loader.loadEnabledForAgent("default");
     expect(loaded.map((plugin) => plugin.manifest.id)).toEqual(["com.jazz.test.source"]);
     expect(loaded[0]?.module.apiVersion).toBe(1);
+  });
+
+  test("resolves the owner/repo used to install to the plugin id for management commands", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "jazz-source-resolve-"));
+    const tarball = await createTarGzip([
+      {
+        name: "lvndry-jazz-plugin-warp-abc/jazz-plugin.json",
+        data: JSON.stringify(SOURCE_MANIFEST),
+      },
+      { name: "lvndry-jazz-plugin-warp-abc/src/index.ts", data: PLUGIN_ENTRY },
+    ]);
+    const fetchImpl = (async () =>
+      new Response(tarball as unknown as BodyInit, { status: 200 })) as unknown as typeof fetch;
+    const registry = new PluginRegistryServiceImpl({
+      pluginDirectory: path.join(root, "plugins"),
+      fetchImpl,
+    });
+    const added = await registry.addFromSource({
+      github: { owner: "lvndry", repo: "jazz-plugin-warp" },
+    });
+
+    // The same owner/repo used with `add` resolves to the installed id.
+    expect((await registry.inspect("lvndry/jazz-plugin-warp")).id).toBe("com.jazz.test.source");
+    await registry.trust("lvndry/jazz-plugin-warp", added.digest!);
+    expect((await registry.inspect("com.jazz.test.source")).trusted).toBe(true);
+
+    // A github URL and @ref form resolve to the same plugin.
+    expect((await registry.inspect("https://github.com/lvndry/jazz-plugin-warp")).id).toBe(
+      "com.jazz.test.source",
+    );
+  });
+
+  test("drives the full lifecycle through an owner/repo alias, pinned to the canonical id", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "jazz-source-alias-"));
+    const registry = new PluginRegistryServiceImpl({
+      pluginDirectory: path.join(root, "plugins"),
+      fetchImpl: sequentialFetch(await githubTarball(SOURCE_MANIFEST)),
+    });
+    const alias = "lvndry/jazz-plugin-warp";
+    const added = await registry.addFromSource({
+      github: { owner: "lvndry", repo: "jazz-plugin-warp" },
+    });
+
+    await registry.trust(alias, added.digest!);
+    const consent = await registry.inspect(alias);
+    await registry.grantConsent(alias, consent.consentDigest);
+    const enabled = await registry.enable(alias, "default");
+    expect(enabled.pluginId).toBe("com.jazz.test.source");
+    expect((await registry.inspect("com.jazz.test.source")).enabledAgentIds).toEqual(["default"]);
+
+    // A mutating command via the alias resolves to and reports the canonical id.
+    const disabled = await registry.disable(alias, "default");
+    expect(disabled.pluginId).toBe("com.jazz.test.source");
+    expect((await registry.inspect("com.jazz.test.source")).enabledAgentIds).toEqual([]);
+
+    // The secret path resolves to the canonical plugin before any keyring access.
+    await expect(registry.setSecret(alias, "TOKEN", "x")).rejects.toThrow(
+      "com.jazz.test.source did not declare secret",
+    );
+
+    const removed = await registry.remove(alias);
+    expect(removed.pluginId).toBe("com.jazz.test.source");
+  });
+
+  test("fails closed when an owner/repo alias is ambiguous across installs", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "jazz-source-ambiguous-"));
+    const registry = new PluginRegistryServiceImpl({
+      pluginDirectory: path.join(root, "plugins"),
+      fetchImpl: sequentialFetch(
+        await githubTarball({ ...SOURCE_MANIFEST, id: "com.jazz.test.a" }),
+        await githubTarball({ ...SOURCE_MANIFEST, id: "com.jazz.test.b" }),
+      ),
+    });
+    await registry.addFromSource({ github: { owner: "acme", repo: "multi" } });
+    await registry.addFromSource({ github: { owner: "acme", repo: "multi" } });
+
+    await expect(registry.inspect("acme/multi")).rejects.toThrow("ambiguous");
+    // The exact plugin id still resolves unambiguously.
+    expect((await registry.inspect("com.jazz.test.a")).id).toBe("com.jazz.test.a");
+  });
+
+  test("enabling globally loads the plugin for any agent", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "jazz-source-global-"));
+    const repo = path.join(root, "plugin-repo");
+    await writePluginRepo(repo);
+    const registry = new PluginRegistryServiceImpl({ pluginDirectory: path.join(root, "plugins") });
+    const added = await registry.addFromSource({ localDirectory: repo });
+    await registry.trust("com.jazz.test.source", added.digest!);
+    const consent = await registry.inspect("com.jazz.test.source");
+    await registry.grantConsent("com.jazz.test.source", consent.consentDigest);
+    await registry.enable("com.jazz.test.source", ALL_AGENTS);
+
+    expect((await registry.inspect("com.jazz.test.source")).enabledAgentIds).toEqual([ALL_AGENTS]);
+    const loader = new PluginModuleLoader({
+      stateStore: registry.stateStore,
+      installer: registry.installer,
+    });
+    const loaded = await loader.loadEnabledForAgent("an-agent-never-enabled-explicitly");
+    expect(loaded.map((plugin) => plugin.manifest.id)).toEqual(["com.jazz.test.source"]);
   });
 
   test("verification fails if the installed source tree is tampered with", async () => {

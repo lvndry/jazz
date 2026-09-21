@@ -11,7 +11,12 @@ import type { JazzPluginModule, LoadedPlugin, PluginManifest } from "@jazz/core/
 import type { PluginArtifactInstaller } from "./artifact-installer";
 import { hashSourceTree } from "./github-source";
 import { pluginConsentDigest } from "./plugin-registry-service";
-import type { PluginLockRecord, PluginStateRecord, PluginStateStore } from "./state-store";
+import {
+  ALL_AGENTS,
+  type PluginLockRecord,
+  type PluginStateRecord,
+  type PluginStateStore,
+} from "./state-store";
 
 export interface PluginModuleLoaderOptions {
   readonly stateStore: PluginStateStore;
@@ -87,10 +92,15 @@ export class PluginModuleLoader {
 
   /** Verify and import all plugins enabled for one agent without registering them. */
   async loadEnabledForAgent(agentId: string): Promise<readonly LoadedPlugin[]> {
-    if (agentId.trim().length === 0) throw new Error("agentId cannot be empty");
+    if (agentId.trim().length === 0) {
+      throw new Error("agentId cannot be empty");
+    }
     const state = await this.options.stateStore.read();
     const enabled = Object.entries(state.plugins)
-      .filter(([, record]) => record.enabledAgentIds.includes(agentId))
+      .filter(
+        ([, record]) =>
+          record.enabledAgentIds.includes(agentId) || record.enabledAgentIds.includes(ALL_AGENTS),
+      )
       .sort(([left], [right]) => left.localeCompare(right));
 
     // Validate every grant before importing any code. This avoids partial loading
