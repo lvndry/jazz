@@ -105,6 +105,25 @@ export interface PluginSecretDeclaration {
   readonly description: string;
 }
 
+/** Risk tiers a plugin may declare for a tool; mirrors the host's non-`unknown` tiers. */
+export type PluginToolRiskLevel = "read-only" | "low-risk" | "high-risk";
+
+/**
+ * A model-callable tool a plugin contributes, declared in the manifest. This is the reviewed,
+ * consented contract: name, what it does, the JSON Schema the model is shown, its risk tier, and
+ * whether calling it sends model-authored content off the machine. The runtime handler is
+ * supplied separately by the module (see {@link PluginToolRegistration}); the module can never
+ * register a tool the manifest did not declare, nor claim a lower risk tier than declared here.
+ */
+export interface PluginToolDeclaration {
+  readonly name: string;
+  readonly description: string;
+  /** JSON Schema for the tool's arguments, advertised to the model. */
+  readonly parameters: JsonValue;
+  readonly riskLevel: PluginToolRiskLevel;
+  readonly egress: boolean;
+}
+
 export interface PluginManifest {
   readonly schemaVersion: 1;
   readonly id: string;
@@ -115,6 +134,11 @@ export interface PluginManifest {
   readonly sha256: string;
   readonly hooks: readonly AdvisoryHookId[];
   readonly decisionProviders: readonly string[];
+  readonly tools: readonly PluginToolDeclaration[];
+  readonly commands: readonly PluginCommandDeclaration[];
+  readonly personas: readonly PluginPersonaDeclaration[];
+  readonly skills: readonly PluginSkillDeclaration[];
+  readonly lifecycleHooks: readonly LifecycleEventId[];
   readonly network: { readonly destinations: readonly string[] };
   readonly dataSent: readonly string[];
   readonly secrets: readonly PluginSecretDeclaration[];
@@ -125,6 +149,11 @@ export interface PluginConsentDisclosure {
   readonly codeDigest: string;
   readonly hooks: readonly AdvisoryHookId[];
   readonly decisionProviders: readonly string[];
+  readonly tools: readonly string[];
+  readonly commands: readonly string[];
+  readonly personas: readonly string[];
+  readonly skills: readonly string[];
+  readonly lifecycleHooks: readonly LifecycleEventId[];
   readonly destinations: readonly string[];
   readonly dataSent: readonly string[];
 }
@@ -132,6 +161,120 @@ export interface PluginConsentDisclosure {
 export interface PluginConsentGrant {
   readonly digest: string;
   readonly grantedAt: string;
+}
+
+/** What a plugin tool returns to the host, which relays it to the model as the tool result. */
+export interface PluginToolResult {
+  readonly content: string;
+  readonly isError?: boolean;
+}
+
+/**
+ * The runtime half of a plugin tool: the handler the host invokes when the model calls the tool.
+ * `name` must match a {@link PluginToolDeclaration} in the manifest, or registration is rejected.
+ */
+export interface PluginToolRegistration {
+  readonly name: string;
+  readonly handler: (
+    args: Record<string, unknown>,
+    context: { readonly signal: AbortSignal },
+  ) => Promise<PluginToolResult>;
+}
+
+/** A registered plugin tool as the host sees it: its manifest declaration plus its owner. */
+export interface PluginToolInfo extends PluginToolDeclaration {
+  readonly pluginId: string;
+}
+
+/**
+ * A user-invoked slash command a plugin contributes, declared in the manifest. Unlike a tool (the
+ * model calls it), a person types `/name` to run it. The declaration is what appears in the command
+ * menu; the module supplies the handler.
+ */
+export interface PluginCommandDeclaration {
+  readonly name: string;
+  readonly description: string;
+}
+
+/** What a plugin command returns: a message sent to the agent as the user's turn (empty = no-op). */
+export interface PluginCommandResult {
+  readonly message?: string;
+}
+
+/** The runtime half of a plugin command: the handler run when a person invokes `/name`. */
+export interface PluginCommandRegistration {
+  readonly name: string;
+  readonly handler: (
+    input: { readonly args: readonly string[] },
+    context: { readonly signal: AbortSignal },
+  ) => Promise<PluginCommandResult>;
+}
+
+/** A registered plugin command as the host sees it: its manifest declaration plus its owner. */
+export interface PluginCommandInfo extends PluginCommandDeclaration {
+  readonly pluginId: string;
+}
+
+/**
+ * A persona a plugin contributes, declared entirely in the manifest — pure, inert configuration
+ * (no handler, no egress, no secret). `systemPrompt` is injected into the model prompt when an
+ * agent uses the persona; `tone`/`style` are optional hints.
+ */
+export interface PluginPersonaDeclaration {
+  readonly name: string;
+  readonly description: string;
+  readonly systemPrompt: string;
+  readonly tone?: string;
+  readonly style?: string;
+}
+
+/** A plugin persona as the host sees it: its manifest declaration plus its owner. */
+export interface PluginPersonaInfo extends PluginPersonaDeclaration {
+  readonly pluginId: string;
+}
+
+/**
+ * A skill a plugin contributes, declared entirely in the manifest — inert instructions the model
+ * may load. `content` is the skill body (what a SKILL.md would hold); it is injected only when the
+ * model chooses to load the skill, never automatically.
+ */
+export interface PluginSkillDeclaration {
+  readonly name: string;
+  readonly description: string;
+  readonly content: string;
+}
+
+/** A plugin skill as the host sees it: its manifest declaration plus its owner. */
+export interface PluginSkillInfo extends PluginSkillDeclaration {
+  readonly pluginId: string;
+}
+
+/**
+ * Host-emitted lifecycle events a plugin may observe. These are notifications only — a handler
+ * cannot change what the host does; it reacts (e.g. raises a desktop notification). The set is
+ * closed because each event is a point the host actually emits.
+ */
+export type LifecycleEventId = "session-start" | "user-prompt" | "run-complete" | "awaiting-input";
+
+/** The payload delivered to a lifecycle handler. `data` carries bounded, event-specific fields. */
+export interface LifecycleEvent {
+  readonly event: LifecycleEventId;
+  readonly agentId: string;
+  readonly conversationId: string;
+  readonly cwd: string;
+  readonly data?: Readonly<Record<string, JsonValue>>;
+}
+
+/**
+ * The runtime half of a lifecycle subscription: a fire-and-forget handler the host calls when an
+ * event it declared occurs. It cannot affect the run; a throw or timeout is swallowed.
+ */
+export interface PluginLifecycleRegistration {
+  readonly event: LifecycleEventId;
+  readonly handler: (
+    event: LifecycleEvent,
+    context: { readonly signal: AbortSignal },
+  ) => Promise<void>;
 }
 
 export interface PluginHostApi {
@@ -142,6 +285,18 @@ export interface PluginHostApi {
   readonly decisions: {
     /** Registers a backend and returns the only client plugins may use to invoke it. */
     registerProvider(provider: DecisionProvider): PluginDecisionClient;
+  };
+  readonly tools: {
+    /** Supplies the handler for a tool the manifest declares; rejected otherwise. */
+    register(registration: PluginToolRegistration): void;
+  };
+  readonly commands: {
+    /** Supplies the handler for a slash command the manifest declares; rejected otherwise. */
+    register(registration: PluginCommandRegistration): void;
+  };
+  readonly lifecycle: {
+    /** Subscribes a handler to a lifecycle event the manifest declares; rejected otherwise. */
+    register(registration: PluginLifecycleRegistration): void;
   };
   readonly secrets: {
     /** Only names declared by the current plugin manifest are resolvable. */

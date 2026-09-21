@@ -99,6 +99,7 @@
       "dependencies": {
         "@jazz/core": "workspace:*",
         "hono": "^4.13.5",
+        "nanotar": "^0.3.0",
         "plist": "^5.0.0",
       },
     },
@@ -234,6 +235,13 @@
         "@jazz/adapters": "workspace:*",
         "@jazz/bot-shared": "workspace:*",
         "@jazz/core": "workspace:*",
+      },
+    },
+    "plugins/example-tool": {
+      "name": "@jazz-plugin/example-tool",
+      "version": "0.1.0",
+      "devDependencies": {
+        "@jazz/plugin-sdk": "workspace:*",
       },
     },
   },
@@ -531,6 +539,8 @@
     "@img/sharp-win32-ia32": ["@img/sharp-win32-ia32@0.35.4", "", { "os": "win32", "cpu": "ia32" }, "sha512-kqRsbaa5CS6KHlpxnN7WhE6vAAugXyZButpRdvDWetlv6Qv4N9WTcrWzF7tXfB9T7MsoadqdI8hmwLq6UlLvtw=="],
 
     "@img/sharp-win32-x64": ["@img/sharp-win32-x64@0.35.4", "", { "os": "win32", "cpu": "x64" }, "sha512-XtmnYhBcrORsJ4XJngyzr/EWP0hRZLAZRFaApdKuviyqF78+ylxh2y06ZmtULAMOnObJ3ucpN0AcwSWnMowTRg=="],
+
+    "@jazz-plugin/example-tool": ["@jazz-plugin/example-tool@workspace:plugins/example-tool"],
 
     "@jazz/adapters": ["@jazz/adapters@workspace:packages/adapters"],
 
@@ -1783,6 +1793,8 @@
     "mz": ["mz@2.7.0", "", { "dependencies": { "any-promise": "^1.0.0", "object-assign": "^4.0.1", "thenify-all": "^1.0.0" } }, "sha512-z81GNO7nnYMEhrGh9LeymoE4+Yr0Wn5McHIZMK5cfQCl+NDX08sCZgUc9/6MHni9IWuFLm1Z3HTCXu2z9fN62Q=="],
 
     "nanoid": ["nanoid@3.3.19", "", { "bin": { "nanoid": "bin/nanoid.cjs" } }, "sha512-Y2tUNy4ouw6tq5oDSKeQYGOyhkUBhNOcGV/02KC+6kd9eDGqdZd++mjMiIDilrBYvjEnCYvVtsuHCuP+okSfug=="],
+
+    "nanotar": ["nanotar@0.3.0", "", {}, "sha512-Kv2JYYiCzt16Kt5QwAc9BFG89xfPNBx+oQL4GQXD9nLqPkZBiNaqaCWtwnbk/q7UVsTYevvM1b0UF8zmEI4pCg=="],
 
     "napi-postinstall": ["napi-postinstall@0.3.4", "", { "bin": { "napi-postinstall": "lib/cli.js" } }, "sha512-PHI5f1O0EP5xJ9gQmFGMS6IZcrVvTjpXjz7Na41gTE7eE2hK11lg04CECCYEEjdc17EV4DO+fkGEtt7TpTaTiQ=="],
 

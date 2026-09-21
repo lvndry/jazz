@@ -25,6 +25,7 @@ import { type LLMService } from "@jazz/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@jazz/core/interfaces/logger";
 import { MCPServerManagerTag, type MCPServerManager } from "@jazz/core/interfaces/mcp-server";
 import { type PersonaService } from "@jazz/core/interfaces/persona-service";
+import { PluginRuntimeServiceTag } from "@jazz/core/interfaces/plugin-runtime";
 import { type PresentationService } from "@jazz/core/interfaces/presentation";
 import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
 import {
@@ -45,16 +46,22 @@ import {
 } from "@jazz/core/types/errors";
 import type { Agent } from "@jazz/core/types/index";
 import { type ChatMessage } from "@jazz/core/types/message";
+import type { JsonValue, LifecycleEventId } from "@jazz/core/types/plugin";
 import type { AutoApprovePolicy } from "@jazz/core/types/tools";
 import { generateConversationId } from "@jazz/core/utils/conversation-id";
 import { isRetryableLLMError } from "@jazz/core/utils/llm-error";
 import { conversationLogGroup } from "@jazz/core/utils/log-group";
 import type { WorkflowService } from "@jazz/core/workflows/workflow-service";
 import chalk from "chalk";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Option } from "effect";
 import { hydrateTranscriptFromHistory } from "@/cli/ui/hydrate-transcript";
 import { store } from "@/cli/ui/store";
-import { handleSpecialCommand, parseSpecialCommand, setSkillCommands } from "./chat/commands";
+import {
+  handleSpecialCommand,
+  parseSpecialCommand,
+  setPluginCommands,
+  setSkillCommands,
+} from "./chat/commands";
 import {
   confirmSessionLimitOverage,
   estimateSessionCostUSD,
@@ -146,12 +153,47 @@ export class ChatServiceImpl implements ChatService {
         );
       }).pipe(Effect.catchAll(() => Effect.void));
 
+      // Register enabled plugins' slash commands the same way. Non-fatal: the menu simply omits
+      // plugin commands if the runtime is absent or listing fails.
+      yield* Effect.gen(function* () {
+        const runtimeOption = yield* Effect.serviceOption(PluginRuntimeServiceTag);
+        if (Option.isNone(runtimeOption)) return;
+        const commands = yield* runtimeOption.value.listAgentCommands(agent.id);
+        setPluginCommands(
+          commands.map((command) => ({ name: command.name, description: command.description })),
+        );
+      }).pipe(Effect.catchAll(() => Effect.void));
+
       store.resetRunStats({ provider: agent.config.llmProvider, model: agent.config.llmModel });
 
       const ephemeral = options?.ephemeral === true;
 
       let chatActive = true;
       let conversationHistory: ChatMessage[] = options?.initialHistory ?? [];
+
+      // Notify enabled plugins of chat lifecycle events (a Warp-style notifier rides these).
+      // Fire-and-forget and fail-open so a plugin can never delay or break the loop.
+      const emitLifecycle = (
+        event: LifecycleEventId,
+        data?: Readonly<Record<string, JsonValue>>,
+      ): Effect.Effect<void> =>
+        Effect.gen(function* () {
+          const runtimeOption = yield* Effect.serviceOption(PluginRuntimeServiceTag);
+          if (Option.isNone(runtimeOption)) return;
+          yield* runtimeOption.value.emitLifecycleEvent({
+            event,
+            agentId: agent.id,
+            conversationId,
+            cwd: process.cwd(),
+            ...(data !== undefined ? { data } : {}),
+          });
+        }).pipe(
+          Effect.catchAll(() => Effect.void),
+          Effect.forkDaemon,
+          Effect.asVoid,
+        );
+
+      yield* emitLifecycle("session-start");
       if (conversationHistory.length > 0) {
         hydrateTranscriptFromHistory(conversationHistory);
       }
@@ -234,6 +276,7 @@ export class ChatServiceImpl implements ChatService {
             commandSuggestions: true,
             ...(queued.length > 0 ? { defaultValue: queued } : {}),
           };
+          yield* emitLifecycle("awaiting-input");
           userMessage = yield* terminal.ask("You:", askOptions).pipe(
             Effect.catchAll((error: unknown) => {
               // Handle ExitPromptError from inquirer when user presses Ctrl+C
@@ -524,6 +567,7 @@ export class ChatServiceImpl implements ChatService {
           };
 
           // Run the agent with proper error handling
+          yield* emitLifecycle("user-prompt", { prompt: trimmedMessage.slice(0, 2000) });
           store.setChatBusy(true);
           const response = yield* AgentRunner.run(runnerOptions).pipe(
             Effect.catchAll((error) =>
@@ -617,6 +661,14 @@ export class ChatServiceImpl implements ChatService {
           // Store the conversation ID for continuity
           conversationId = response.conversationId;
           store.setCurrentConversation({ agentId: agent.id, conversationId });
+
+          // A finished turn — the event a task-completion notifier (e.g. Warp) rides.
+          if (!lastTurnErrored) {
+            yield* emitLifecycle("run-complete", {
+              prompt: trimmedMessage.slice(0, 2000),
+              summary: (response.content ?? "").slice(0, 2000),
+            });
+          }
 
           // Accumulate token usage for /cost (only on full AgentResponse, not error fallback)
           if ("usage" in response && response.usage) {

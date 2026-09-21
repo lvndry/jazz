@@ -23,6 +23,8 @@ export interface PluginLockRecord {
   readonly source: string;
   readonly artifactPath: string;
   readonly installedAt: string;
+  /** "source" for a source-tree install; absent or "packed" for a bundled `.mjs` artifact. */
+  readonly kind?: "packed" | "source";
 }
 
 export interface PluginStateRecord {
@@ -85,7 +87,8 @@ function isLockRecord(value: unknown): value is PluginLockRecord {
     typeof item["manifest"] === "object" &&
     typeof item["source"] === "string" &&
     typeof item["artifactPath"] === "string" &&
-    typeof item["installedAt"] === "string"
+    typeof item["installedAt"] === "string" &&
+    (item["kind"] === undefined || item["kind"] === "packed" || item["kind"] === "source")
   );
 }
 

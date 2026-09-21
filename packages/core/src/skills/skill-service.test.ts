@@ -1,5 +1,13 @@
 import { describe, expect, it } from "bun:test";
-import { getSkillIndexLine, scoreSkillsForQuery, type SkillMetadata } from "./skill-service";
+import { Effect, Layer } from "effect";
+import {
+  getSkillIndexLine,
+  scoreSkillsForQuery,
+  SkillServiceTag,
+  SkillsLive,
+  type SkillMetadata,
+} from "./skill-service";
+import { PluginRuntimeServiceTag, type PluginRuntimeService } from "../interfaces/plugin-runtime";
 
 const skill = (overrides: Partial<SkillMetadata> & Pick<SkillMetadata, "name">): SkillMetadata => ({
   description: "",
@@ -102,5 +110,45 @@ describe("scoreSkillsForQuery", () => {
     ];
     const result = scoreSkillsForQuery("email", candidates);
     expect(result[0]?.name).toBe("email-skill");
+  });
+});
+
+describe("SkillsLive plugin skills", () => {
+  const runtime = (): PluginRuntimeService =>
+    ({
+      listAllSkills: () =>
+        Effect.succeed([
+          {
+            pluginId: "com.example.demo",
+            name: "haiku_writing",
+            description: "Write a haiku.",
+            content: "# Haiku\nfive seven five",
+          },
+        ]),
+    }) as unknown as PluginRuntimeService;
+
+  const layer = Layer.merge(SkillsLive.layer, Layer.succeed(PluginRuntimeServiceTag, runtime()));
+  const run = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+    Effect.runPromise(Effect.provide(effect, layer) as Effect.Effect<A, E, never>);
+
+  it("includes an enabled plugin's skill in the index", async () => {
+    const skills = await run(
+      Effect.gen(function* () {
+        const service = yield* SkillServiceTag;
+        return yield* service.listSkills();
+      }),
+    );
+    const found = skills.find((skill) => skill.name === "haiku_writing");
+    expect(found?.source).toBe("plugin");
+  });
+
+  it("serves plugin skill content on load", async () => {
+    const content = await run(
+      Effect.gen(function* () {
+        const service = yield* SkillServiceTag;
+        return yield* service.loadSkill("haiku_writing");
+      }),
+    );
+    expect(content.core).toContain("Haiku");
   });
 });

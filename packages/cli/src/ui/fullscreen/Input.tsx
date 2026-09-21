@@ -133,7 +133,13 @@ function commandSuggestRows(
     // the mixed command list needs to say where an entry came from — and a
     // file entry's `source` is always undefined, so it falls out naturally.
     const origin =
-      command.source === "skill" ? " (skill)" : command.source === "mcp-prompt" ? " (mcp)" : "";
+      command.source === "skill"
+        ? " (skill)"
+        : command.source === "mcp-prompt"
+          ? " (mcp)"
+          : command.source === "plugin"
+            ? " (plugin)"
+            : "";
     const segments: InputSegment[] = [
       { text: selected ? `${glyphs.rail} ` : "  ", fg: THEME.primary },
       { text: `${prefix}${command.name}`, fg: selected ? THEME.selected : THEME.secondary },

@@ -61,6 +61,69 @@ export function validatePluginManifest(manifest: PluginManifest): PluginManifest
   ) {
     fail("manifest secret names must be valid and unique");
   }
+  const toolNames = manifest.tools.map(({ name }) => name);
+  if (
+    toolNames.some((name) => !validIdentifier(name)) ||
+    new Set(toolNames).size !== toolNames.length
+  ) {
+    fail("manifest tool names must be valid and unique");
+  }
+  for (const tool of manifest.tools) {
+    if (tool.description.length === 0) fail(`tool ${tool.name} must have a description`);
+    if (
+      tool.riskLevel !== "read-only" &&
+      tool.riskLevel !== "low-risk" &&
+      tool.riskLevel !== "high-risk"
+    ) {
+      fail(`tool ${tool.name} has an invalid risk level`);
+    }
+    if (typeof tool.egress !== "boolean") fail(`tool ${tool.name} must declare egress`);
+    assertJsonValue(tool.parameters);
+  }
+  const commandNames = manifest.commands.map(({ name }) => name);
+  if (
+    commandNames.some((name) => !validIdentifier(name)) ||
+    new Set(commandNames).size !== commandNames.length
+  ) {
+    fail("manifest command names must be valid and unique");
+  }
+  for (const command of manifest.commands) {
+    if (command.description.length === 0) fail(`command ${command.name} must have a description`);
+  }
+  const personaNames = manifest.personas.map(({ name }) => name);
+  if (
+    personaNames.some((name) => !validIdentifier(name)) ||
+    new Set(personaNames).size !== personaNames.length
+  ) {
+    fail("manifest persona names must be valid and unique");
+  }
+  for (const persona of manifest.personas) {
+    if (persona.description.length === 0) fail(`persona ${persona.name} must have a description`);
+    if (persona.systemPrompt.length === 0) fail(`persona ${persona.name} must have a systemPrompt`);
+  }
+  const skillNames = manifest.skills.map(({ name }) => name);
+  if (
+    skillNames.some((name) => !validIdentifier(name)) ||
+    new Set(skillNames).size !== skillNames.length
+  ) {
+    fail("manifest skill names must be valid and unique");
+  }
+  for (const skill of manifest.skills) {
+    if (skill.description.length === 0) fail(`skill ${skill.name} must have a description`);
+    if (skill.content.length === 0) fail(`skill ${skill.name} must have content`);
+  }
+  const validLifecycleEvents = new Set([
+    "session-start",
+    "user-prompt",
+    "run-complete",
+    "awaiting-input",
+  ]);
+  if (new Set(manifest.lifecycleHooks).size !== manifest.lifecycleHooks.length) {
+    fail("manifest lifecycleHooks must be unique");
+  }
+  if (manifest.lifecycleHooks.some((event) => !validLifecycleEvents.has(event))) {
+    fail("manifest contains an unknown lifecycle event");
+  }
   return manifest;
 }
 

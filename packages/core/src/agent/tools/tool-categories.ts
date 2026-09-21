@@ -154,6 +154,19 @@ export function mcpToolCategory(serverName: string): ToolCategory {
 }
 
 /**
+ * Category for tools contributed by one plugin.
+ * Id format: `plugin_<pluginid>` (lowercased, non-alphanumerics collapsed). Always `deferred` —
+ * plugin tool counts are user-configured and advertised as summaries until pulled in on demand.
+ */
+export function pluginToolCategory(pluginId: string): ToolCategory {
+  return {
+    id: `plugin_${pluginId.replace(/[^a-z0-9]+/gi, "_").toLowerCase()}`,
+    displayName: `${pluginId} (plugin)`,
+    loadTier: "deferred",
+  };
+}
+
+/**
  * Create mappings between category display names and IDs.
  */
 export function createCategoryMappings(): {

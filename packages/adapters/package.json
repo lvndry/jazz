@@ -16,6 +16,7 @@
   "dependencies": {
     "@jazz/core": "workspace:*",
     "hono": "^4.13.5",
+    "nanotar": "^0.3.0",
     "plist": "^5.0.0"
   }
 }
