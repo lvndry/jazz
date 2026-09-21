@@ -73,7 +73,7 @@ cannot be added without someone deciding.
 | Level      | Safe to tell                                                   | Tools                                                                                                                                                                                                                                                                                                                                                                               |
 | ---------- | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `public`   | safe to tell anyone                                            | `add_reminder`, `cp`, `mkdir`, `mv`, `rm`, `web_fetch`, `web_search`, `write_file`                                                                                                                                                                                                                                                                                                  |
-| `internal` | the shape of this machine: paths, names, what is installed     | `analyze_media`, `cancel_batch`, `cancel_trigger`, `cd`, `context_info`, `create_pdf`, `create_web_app`, `find`, `generate_media`, `get_time`, `list_jobs`, `list_triggers`, `ls`, `pdf_page_count`, `pwd`, `register_trigger`, `search_tools`, `stat`                                                                                                                              |
+| `internal` | the shape of this machine: paths, names, what is installed     | `analyze_media`, `cancel_batch`, `cancel_trigger`, `cd`, `context_info`, `create_composition`, `create_pdf`, `find`, `generate_media`, `get_time`, `list_jobs`, `list_triggers`, `ls`, `pdf_page_count`, `pwd`, `register_trigger`, `search_tools`, `stat`                                                                                                                          |
 | `private`  | your own material: file contents, memory, schedule, transcript | `ask_file_picker`, `ask_user_question`, `cancel_reminder`, `edit_file`, `enqueue_batch`, `execute_command`, `grep`, `http_request`, `list_reminders`, `list_todos`, `manage_memory`, `manage_todos`, `manage_scratchpad`, `read_file`, `read_pdf`, `retrieve_tool_result`, `spawn_subagent`, `summarize_context`, `update_work_state`, `view_memory`, `view_scratchpad`, `wait_for` |
 
 A tool spanning two levels takes the more sensitive one. `edit_file` writes, but its approval
@@ -310,14 +310,15 @@ Always-on. Lets an agent borrow specialist perception or generation from another
 | `ask_file_picker`   | `read-only` | none          | Show an interactive file picker for the user to select a file.                          |
 | `ask_user_question` | `read-only` | none          | Ask the user a question with interactive selectable suggestions. One question per call. |
 
-### Web App
+### Compositions
 
 Opt-in per agent via `tools`. Used by chat bridges that can render a Mini App or a static image.
+The companion `composition` skill supplies the visual-design and HTML/CSS playbook.
 
-| Tool             | Risk       | Approval pair | What it does                                                                                                                                                 |
-| ---------------- | ---------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `create_web_app` | `low-risk` | (             | Create an interactive UI) a chart, form, dashboard, small game, or any other webpage: for delivery as a static image or a live page.                         |
-| `create_pdf`     | `low-risk` | none          | Render a PDF from HTML the agent writes, saved to the working directory or an explicit path. Text and numbers are exact: a renderer, not an image generator. |
+| Tool                 | Risk       | Approval pair | What it does                                                                                                                                                 |
+| -------------------- | ---------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `create_composition` | `low-risk` | (             | Compose a polished visualization, interactive explainer, dashboard, form, or small tool as a static image or live HTML artifact.                             |
+| `create_pdf`         | `low-risk` | none          | Render a PDF from HTML the agent writes, saved to the working directory or an explicit path. Text and numbers are exact: a renderer, not an image generator. |
 
 ---
 
@@ -356,8 +357,8 @@ That keeps the tier low while letting the one command through. Matching is on a 
 - **`http_request` is `read-only`** by risk classification even though it can issue POSTs. It reaches whatever URL the agent targets; network policy belongs at the firewall, not the tier. Treat it accordingly on surfaces that accept untrusted input.
 - **Timeouts**: 3 minutes by default per tool. `ask_user_question` and `ask_file_picker` are `longRunning` and never time out, because waiting for a human is not a hang. `execute_command` and `wait_for` are capped at 15 minutes, which is also the largest timeout either will accept: asking for more is refused rather than silently reduced, since the executor would kill the call at 15 minutes anyway and discard the output the command had already produced.
 - **Concurrency**: up to 10 tools execute in parallel per iteration.
-- **`create_pdf` needs a browser too**: same `puppeteer-core` path as `create_web_app`'s static mode, rendering through `page.pdf()`. It writes to the agent's working directory by default (an explicit `path` overrides), unlike `create_web_app`, whose output lands in Jazz's own data directory because only a bridge ever reads it.
-- **`create_web_app` needs a browser for `mode: "static"`**: it screenshots the page through `puppeteer-core`, which deliberately ships no bundled Chrome so that installing Jazz never downloads one. It uses `PUPPETEER_EXECUTABLE_PATH` if set, otherwise an installed Google Chrome; with neither it fails and says so. `mode: "interactive"` needs no browser.
+- **`create_pdf` needs a browser too**: it uses the same `puppeteer-core` path as `create_composition`'s static mode, rendering through `page.pdf()`. It writes to the agent's working directory by default (an explicit `path` overrides), unlike compositions, which live under `~/.jazz/compositions/<session-id>/`.
+- **`create_composition` needs a browser for `mode: "static"`**: it screenshots the page through `puppeteer-core`, which deliberately ships no bundled Chrome so that installing Jazz never downloads one. It uses `PUPPETEER_EXECUTABLE_PATH` if set, otherwise an installed Google Chrome; with neither it fails and says so. `mode: "interactive"` needs no browser. On an interactive local terminal, Jazz opens a completed composition in the default browser; it never does so for a chat bridge, a non-TTY run, or CI.
 
 ---
 

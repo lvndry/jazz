@@ -33,10 +33,12 @@ export interface JazzEvent {
   readonly suggestions?: readonly { value: string; label?: string; description?: string }[];
 }
 
-export interface JazzWebApp {
+export interface JazzComposition {
   readonly id: string;
   readonly mode: "static" | "interactive";
   readonly title: string;
+  readonly sessionId: string;
+  readonly filename: string;
   readonly htmlPath: string;
   readonly imagePath?: string;
 }
@@ -52,7 +54,7 @@ export interface JazzSuccessEnvelope {
     readonly completionTokens?: number;
     readonly cacheReadTokens?: number;
   };
-  readonly webApp?: JazzWebApp;
+  readonly composition?: JazzComposition;
   /**
    * Only present for `--ephemeral` runs (incognito conversations): the full
    * transcript, opaque to the bridge, round-tripped back in as `--history-json`
