@@ -13,6 +13,7 @@ import {
 } from "./github-source";
 import { PluginModuleLoader } from "./module-loader";
 import { PluginRegistryServiceImpl } from "./plugin-registry-service";
+import { ALL_AGENTS } from "./state-store";
 
 const SOURCE_MANIFEST = {
   schemaVersion: 1,
@@ -169,6 +170,26 @@ describe("source-repo install lifecycle", () => {
     expect((await registry.inspect("https://github.com/lvndry/jazz-plugin-warp")).id).toBe(
       "com.jazz.test.source",
     );
+  });
+
+  test("enabling globally loads the plugin for any agent", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "jazz-source-global-"));
+    const repo = path.join(root, "plugin-repo");
+    await writePluginRepo(repo);
+    const registry = new PluginRegistryServiceImpl({ pluginDirectory: path.join(root, "plugins") });
+    const added = await registry.addFromSource({ localDirectory: repo });
+    await registry.trust("com.jazz.test.source", added.digest!);
+    const consent = await registry.inspect("com.jazz.test.source");
+    await registry.grantConsent("com.jazz.test.source", consent.consentDigest);
+    await registry.enable("com.jazz.test.source", ALL_AGENTS);
+
+    expect((await registry.inspect("com.jazz.test.source")).enabledAgentIds).toEqual([ALL_AGENTS]);
+    const loader = new PluginModuleLoader({
+      stateStore: registry.stateStore,
+      installer: registry.installer,
+    });
+    const loaded = await loader.loadEnabledForAgent("an-agent-never-enabled-explicitly");
+    expect(loaded.map((plugin) => plugin.manifest.id)).toEqual(["com.jazz.test.source"]);
   });
 
   test("verification fails if the installed source tree is tampered with", async () => {

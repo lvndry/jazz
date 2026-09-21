@@ -7,6 +7,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import {
+  ALL_AGENTS,
   PluginRegistryServiceImpl,
   devPlugin,
   isLocalSourceDirectory,
@@ -158,6 +159,13 @@ export function pluginProbeArtifactCommand(
   });
 }
 
+function formatEnabledAgents(agentIds: readonly string[]): string {
+  if (agentIds.includes(ALL_AGENTS)) {
+    return "all";
+  }
+  return agentIds.join(", ") || "none";
+}
+
 function manifestSummary(inspection: PluginInspection): readonly string[] {
   const { manifest } = inspection.current;
   return [
@@ -169,7 +177,7 @@ function manifestSummary(inspection: PluginInspection): readonly string[] {
     `data sent: ${manifest.dataSent.join("; ") || "none declared"}`,
     `trusted: ${inspection.trusted ? "yes" : "no"}`,
     `consented: ${inspection.consented ? "yes" : "no"}`,
-    `enabled agents: ${inspection.enabledAgentIds.join(", ") || "none"}`,
+    `enabled agents: ${formatEnabledAgents(inspection.enabledAgentIds)}`,
     `artifact valid: ${inspection.artifactValid ? "yes" : "no"}`,
     ...(inspection.restartRequired ? ["restart required to unload previously imported code"] : []),
   ];
@@ -229,7 +237,7 @@ export function pluginListCommand(
     yield* terminal.heading(`Plugins (${plugins.length})`);
     for (const plugin of plugins) {
       yield* terminal.log(
-        `${plugin.id}  ${plugin.current.manifest.version}  ${plugin.trusted ? "trusted" : "untrusted"}  agents: ${plugin.enabledAgentIds.join(",") || "none"}`,
+        `${plugin.id}  ${plugin.current.manifest.version}  ${plugin.trusted ? "trusted" : "untrusted"}  agents: ${formatEnabledAgents(plugin.enabledAgentIds)}`,
       );
     }
   });
@@ -266,28 +274,37 @@ export function pluginTrustCommand(id: string): Effect.Effect<void, Error, Termi
 
 export function pluginEnableCommand(
   id: string,
-  agentId: string,
+  agentId?: string,
 ): Effect.Effect<void, Error, TerminalService | AgentService> {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
-    const agent = yield* getAgentByIdentifier(agentId);
+    const agent = agentId === undefined ? undefined : yield* getAgentByIdentifier(agentId);
     yield* requireInteractive(terminal, "Plugin egress consent");
     const service = registry();
     const inspection = yield* attempt(() => service.inspect(id));
     if (!inspection.trusted) {
       return yield* Effect.fail(
-        new Error(`${id} is not trusted. Run 'jazz plugin trust ${id}' first.`),
+        new Error(
+          `${inspection.id} is not trusted. Run 'jazz plugin trust ${inspection.id}' first.`,
+        ),
       );
     }
     yield* renderInspection(terminal, inspection);
+    const target = agent === undefined ? "all agents" : agent.name;
     const confirmed = yield* terminal.confirm(
-      `Enable ${inspection.id} for ${agent.name}? It runs with your OS-user authority and its declared network and data access.`,
+      `Enable ${inspection.id} for ${target}? It runs with your OS-user authority and its declared network and data access.`,
       false,
     );
-    if (!confirmed) return yield* Effect.fail(new Error("Plugin enablement cancelled."));
+    if (!confirmed) {
+      return yield* Effect.fail(new Error("Plugin enablement cancelled."));
+    }
     yield* attempt(() => service.grantConsent(id, inspection.consentDigest));
-    yield* attempt(() => service.enable(id, agent.id));
-    yield* terminal.success(`Enabled ${inspection.id} for agent ${agent.name} (${agent.id}).`);
+    yield* attempt(() => service.enable(id, agent === undefined ? ALL_AGENTS : agent.id));
+    yield* terminal.success(
+      agent === undefined
+        ? `Enabled ${inspection.id} for all agents.`
+        : `Enabled ${inspection.id} for agent ${agent.name} (${agent.id}).`,
+    );
   });
 }
 

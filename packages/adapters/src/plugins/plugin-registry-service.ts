@@ -96,7 +96,9 @@ export function pluginConsentDigest(manifest: PluginManifest): string {
  * management commands accept the same identifier used with `add`.
  */
 function resolveInstalledId(state: PluginStateDocument, given: string): string | undefined {
-  if (state.plugins[given]) return given;
+  if (state.plugins[given]) {
+    return given;
+  }
   const github = parseGitHubPluginSource(given);
   if (github) {
     const base = `github:${github.owner}/${github.repo}`;
@@ -112,7 +114,9 @@ function resolveInstalledId(state: PluginStateDocument, given: string): string |
 function requireEntry(state: PluginStateDocument, id: string): PluginStateRecord {
   const resolved = resolveInstalledId(state, id);
   const entry = resolved === undefined ? undefined : state.plugins[resolved];
-  if (!entry) throw new Error(`Plugin is not installed: ${id}`);
+  if (!entry) {
+    throw new Error(`Plugin is not installed: ${id}`);
+  }
   return entry;
 }
 

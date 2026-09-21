@@ -334,7 +334,7 @@ from — it resolves to the installed plugin. Trust and enable prompt for a plai
 | `jazz plugin add <owner/repo\|source\|id>`        | Install from a GitHub `owner/repo` (default, `@ref` to pin), a local source dir, a manifest, or a catalog id; does not trust or enable |
 | `jazz plugin inspect <id>`                        | Show exact digest, declarations, grants, enablement, and secret status. `--json`                                                       |
 | `jazz plugin trust <id>`                          | Locally acknowledge full OS-user code execution for the current digest                                                                 |
-| `jazz plugin enable <id> --agent <id-or-name>`    | Grant current egress consent and enable for one existing agent                                                                         |
+| `jazz plugin enable <id> [--agent <id-or-name>]`  | Grant current egress consent and enable for one agent, or for all agents when `--agent` is omitted                                     |
 | `jazz plugin disable <id> [--agent <id-or-name>]` | Prevent new dispatches for one agent or all agents                                                                                     |
 | `jazz plugin update <id> [source]`                | Verify an update, retain one rollback artifact, and disable pending grants                                                             |
 | `jazz plugin rollback <id>`                       | Swap current/previous artifacts and disable pending grants                                                                             |

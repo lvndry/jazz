@@ -12,6 +12,9 @@ import type { PluginConsentGrant } from "@jazz/core/types/plugin";
 import type { PluginManifest } from "./manifest-schema";
 
 export const PLUGIN_STATE_SCHEMA_VERSION = 1;
+
+/** Sentinel enablement entry meaning "every agent" — a plugin enabled globally rather than per-agent. */
+export const ALL_AGENTS = "*";
 const LOCK_RETRIES = 4_800;
 const LOCK_RETRY_MS = 20;
 // HTTPS acquisition can legitimately span several bounded redirect requests.
