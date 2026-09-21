@@ -349,9 +349,13 @@ export function pluginUpdateCommand(
     const service = registry();
     const inspection = yield* attempt(() => service.inspect(id));
     const result = yield* attempt(() => service.update(id, source ?? inspection.current.source));
-    yield* terminal.success(
-      `Updated ${id} to ${result.digest}; it is disabled pending trust and consent.`,
-    );
+    if (result.action === "already-current") {
+      yield* terminal.success(`${id} is already up to date.`);
+    } else {
+      yield* terminal.success(
+        `Updated ${id} to ${result.digest}; it is disabled pending trust and consent.`,
+      );
+    }
   });
 }
 
