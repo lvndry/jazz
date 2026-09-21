@@ -13,6 +13,7 @@ import {
   DEFAULT_MAX_SUBAGENT_ITERATIONS,
 } from "@/core/constants/agent";
 import { isLocalServerProvider } from "@/core/constants/local-providers";
+import { DEFAULT_MEMORY_SCOPE } from "@/core/constants/memory";
 import type { ProviderName } from "@/core/constants/models";
 import { AgentConfigServiceTag, type AgentConfigService } from "@/core/interfaces/agent-config";
 import { FileSystemContextServiceTag } from "@/core/interfaces/fs";
@@ -34,7 +35,6 @@ import {
   type ToolRegistry,
   type ToolRequirements,
 } from "@/core/interfaces/tool-registry";
-import { activeTopics, matchTopics } from "@/core/memory/topics";
 import { resolveDisplayConfig } from "@/core/presentation/display-config";
 import { SkillServiceTag, type SkillService } from "@/core/skills/skill-service";
 import type { AttachmentKind } from "@/core/types/attachment";
@@ -91,20 +91,18 @@ import { normalizeToolConfig } from "./utils/tool-config";
  * of guessing wrong is an agent that promises an image it cannot make.
  */
 /**
- * The preferences to put in front of the model for this run.
+ * Reads the entries that apply to every turn (`always/`).
  *
  * Injected rather than looked up: recall that depends on the model choosing to
  * spend a tool call is recall it will sometimes skip, and a preference the user
- * already stated is not something they should have to restate.
+ * already stated is not something they should have to restate. Topic-scoped
+ * entries are the agent's responsibility to discover via `view_memory`.
  *
  * Memory is optional — an agent configured without it still runs — and a failure
- * to read the index degrades to injecting nothing rather than failing the run,
- * since a broken index must not make the agent unusable. Both paths log, because
- * the symptom otherwise is "it forgot my preferences" with nothing to go on.
+ * to read degrades to injecting nothing rather than failing the run.
  */
 function resolveActivePreferences(
   memoryScopes: readonly string[],
-  requestText: string,
   logger: LoggerService,
 ): Effect.Effect<{ summary: string }[], never, FileSystem.FileSystem> {
   return Effect.gen(function* () {
@@ -116,18 +114,7 @@ function resolveActivePreferences(
     const memoryService = memoryServiceOption.value;
 
     return yield* Effect.gen(function* () {
-      const topics = yield* memoryService.topics(memoryScopes);
-      const matches = matchTopics(requestText, topics);
-      const active = activeTopics(matches);
-
-      // Every topic and why it did or did not fire: a topic that should have
-      // matched and did not is the one way this disappoints invisibly.
-      yield* logger.debug("Resolved memory topics", {
-        active,
-        considered: matches.map((match) => `${match.topic}:${match.reason}`),
-      });
-
-      const entries = yield* memoryService.inForce(memoryScopes, active);
+      const entries = yield* memoryService.standingEntries(memoryScopes);
       return entries.map((entry) => ({ summary: entry.summary }));
     }).pipe(
       Effect.catchAll((error) =>
@@ -596,8 +583,7 @@ function initializeAgentRun(
     const attachmentsAreLocal = isLocalServerProvider(agent.config.llmProvider);
 
     const activePreferences = yield* resolveActivePreferences(
-      agent.config.memoryScopes ?? [agent.id],
-      userInput,
+      agent.config.memoryScopes ?? [DEFAULT_MEMORY_SCOPE],
       logger,
     );
 
@@ -652,7 +638,7 @@ function initializeAgentRun(
 
     const toolContext: ToolExecutionContext = {
       agentId: agent.id,
-      memoryScopes: agent.config.memoryScopes ?? [agent.id],
+      memoryScopes: agent.config.memoryScopes ?? [DEFAULT_MEMORY_SCOPE],
       conversationId: actualConversationId,
       model,
       ...(getAutoApprovePolicy !== undefined ? { getAutoApprovePolicy } : {}),

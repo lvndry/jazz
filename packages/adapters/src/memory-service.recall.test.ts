@@ -25,110 +25,99 @@ function makeService(): MemoryServiceImpl {
   return new MemoryServiceImpl({ baseMemoryDirectory: tmpDir });
 }
 
-const scopes = ["agent-1"];
+const scopes = ["personal"];
 const writeContext = { agentId: "agent-1" } as const;
 
 function writeByHand(relativePath: string, content: string) {
-  const absolute = path.join(tmpDir, "agent-1", relativePath);
+  const absolute = path.join(tmpDir, "personal", relativePath);
   fs.mkdirSync(path.dirname(absolute), { recursive: true });
   fs.writeFileSync(absolute, content);
 }
 
-describe("what is in force", () => {
-  test("an always entry applies with no topic active", async () => {
+describe("standingEntries", () => {
+  test("returns always/ entries", async () => {
     const service = makeService();
     await runEffect(
-      service.create(scopes, "agent-1/always/auto-open.md", "auto-open the render", writeContext),
+      service.create(scopes, "personal/always/auto-open.md", "auto-open the render", writeContext),
     );
-    expect(await runEffect(service.inForce(scopes, []))).toEqual([
-      { path: "agent-1/always/auto-open.md", topic: undefined, summary: "auto-open the render" },
+    expect(await runEffect(service.standingEntries(scopes))).toEqual([
+      { path: "personal/always/auto-open.md", topic: undefined, summary: "auto-open the render" },
     ]);
   });
 
-  test("a topic entry applies only when that topic is active", async () => {
+  test("does not return topic-scoped entries", async () => {
     const service = makeService();
     await runEffect(
-      service.create(scopes, "agent-1/when/moodboard/scale.md", "artboards scale", writeContext),
+      service.create(scopes, "personal/when/moodboard/scale.md", "artboards scale", writeContext),
     );
-    expect(await runEffect(service.inForce(scopes, []))).toEqual([]);
-    expect(
-      (await runEffect(service.inForce(scopes, ["moodboard"]))).map((entry) => entry.topic),
-    ).toEqual(["moodboard"]);
+    expect(await runEffect(service.standingEntries(scopes))).toEqual([]);
   });
 
-  test("reads only the directories that matter, not the whole store", async () => {
+  test("ignores topic entries even when always/ entries also exist", async () => {
     const service = makeService();
-    await runEffect(service.create(scopes, "agent-1/always/a.md", "always", writeContext));
+    await runEffect(service.create(scopes, "personal/always/a.md", "always", writeContext));
     for (const topic of ["moodboard", "invoicing", "travel"]) {
       writeByHand(`when/${topic}/x.md`, `${topic} entry`);
     }
-    const entries = await runEffect(service.inForce(scopes, ["moodboard"]));
-    expect(entries.map((entry) => entry.summary)).toEqual(["always", "moodboard entry"]);
+    const entries = await runEffect(service.standingEntries(scopes));
+    expect(entries.map((entry) => entry.summary)).toEqual(["always"]);
   });
 
-  test("an entry created by hand is in force, with no tool involved", async () => {
+  test("an entry created by hand is returned", async () => {
     const service = makeService();
     writeByHand("always/by-hand.md", "written in an editor\nmore detail\n");
-    expect(await runEffect(service.inForce(scopes, []))).toEqual([
-      { path: "agent-1/always/by-hand.md", topic: undefined, summary: "written in an editor" },
+    expect(await runEffect(service.standingEntries(scopes))).toEqual([
+      { path: "personal/always/by-hand.md", topic: undefined, summary: "written in an editor" },
     ]);
   });
 
-  test("an entry deleted by hand stops being in force", async () => {
+  test("an entry deleted by hand stops being returned", async () => {
     const service = makeService();
-    await runEffect(service.create(scopes, "agent-1/always/gone.md", "temporary", writeContext));
-    fs.rmSync(path.join(tmpDir, "agent-1", "always", "gone.md"));
-    expect(await runEffect(service.inForce(scopes, []))).toEqual([]);
+    await runEffect(service.create(scopes, "personal/always/gone.md", "temporary", writeContext));
+    fs.rmSync(path.join(tmpDir, "personal", "always", "gone.md"));
+    expect(await runEffect(service.standingEntries(scopes))).toEqual([]);
   });
 
-  test("a directory removed by hand takes its entries with it", async () => {
+  test("survives a corrupt sidecar", async () => {
     const service = makeService();
-    writeByHand("when/moodboard/a.md", "scale it");
-    fs.rmSync(path.join(tmpDir, "agent-1", "when", "moodboard"), { recursive: true });
-    expect(await runEffect(service.inForce(scopes, ["moodboard"]))).toEqual([]);
+    await runEffect(service.create(scopes, "personal/always/a.md", "still here", writeContext));
+    fs.writeFileSync(path.join(tmpDir, "personal", ".provenance.json"), "{not json");
+    expect(
+      (await runEffect(service.standingEntries(scopes))).map((entry) => entry.summary),
+    ).toEqual(["still here"]);
   });
 
-  test("survives a corrupt sidecar, which recall never consults", async () => {
-    const service = makeService();
-    await runEffect(service.create(scopes, "agent-1/always/a.md", "still here", writeContext));
-    fs.writeFileSync(path.join(tmpDir, "agent-1", ".provenance.json"), "{not json");
-    expect((await runEffect(service.inForce(scopes, []))).map((entry) => entry.summary)).toEqual([
-      "still here",
-    ]);
-  });
-
-  test("skips an entry with no readable first line rather than injecting a blank", async () => {
+  test("skips an entry with no readable first line", async () => {
     const service = makeService();
     writeByHand("always/blank.md", "   \n\n");
-    expect(await runEffect(service.inForce(scopes, []))).toEqual([]);
+    expect(await runEffect(service.standingEntries(scopes))).toEqual([]);
   });
 
-  test("takes the first non-empty line as the point of the entry", async () => {
+  test("takes the first non-empty line as the summary", async () => {
     const service = makeService();
     writeByHand("always/headed.md", "\n# Auto-open renders\n\nlonger explanation\n");
-    expect((await runEffect(service.inForce(scopes, []))).map((entry) => entry.summary)).toEqual([
-      "Auto-open renders",
-    ]);
-  });
-});
-
-describe("topics", () => {
-  test("lists the topics the store holds entries for", async () => {
-    const service = makeService();
-    writeByHand("when/moodboard/x.md", "entry");
-    writeByHand("when/invoicing/x.md", "entry");
-    expect(await runEffect(service.topics(scopes))).toEqual(["invoicing", "moodboard"]);
+    expect(
+      (await runEffect(service.standingEntries(scopes))).map((entry) => entry.summary),
+    ).toEqual(["Auto-open renders"]);
   });
 
-  test("is empty when nothing is topic-scoped", async () => {
+  test("returns entries sorted by filename", async () => {
     const service = makeService();
-    await runEffect(service.create(scopes, "agent-1/always/a.md", "x", writeContext));
-    expect(await runEffect(service.topics(scopes))).toEqual([]);
+    writeByHand("always/z-last.md", "last");
+    writeByHand("always/a-first.md", "first");
+    const summaries = (await runEffect(service.standingEntries(scopes))).map(
+      (entry) => entry.summary,
+    );
+    expect(summaries).toEqual(["first", "last"]);
   });
 
-  test("finds a topic directory created by hand", async () => {
+  test("spans multiple scopes", async () => {
     const service = makeService();
-    writeByHand("when/gardening/notes.md", "water on tuesdays");
-    expect(await runEffect(service.topics(scopes))).toEqual(["gardening"]);
+    const multiScopes = ["personal", "work"];
+    fs.mkdirSync(path.join(tmpDir, "work", "always"), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, "work", "always", "note.md"), "work note");
+    writeByHand("always/home.md", "home note");
+    const entries = await runEffect(service.standingEntries(multiScopes));
+    expect(entries.map((entry) => entry.summary)).toEqual(["home note", "work note"]);
   });
 });

@@ -97,27 +97,14 @@ export interface MemoryService {
   ) => Effect.Effect<MemoryViewOutcome, Error, FileSystem.FileSystem>;
 
   /**
-   * Topics the accessible scopes hold entries for.
+   * Standing entries: everything under `always/` in the accessible scopes.
    *
-   * One directory listing per scope — no file is opened, because deciding
-   * which topics a request is about needs only their names.
+   * Topic-scoped entries are the agent's responsibility to discover via
+   * `view_memory` — the recall path cannot do semantic association, so it
+   * only injects what applies unconditionally.
    */
-  readonly topics: (
+  readonly standingEntries: (
     scopes: readonly string[],
-  ) => Effect.Effect<readonly string[], Error, FileSystem.FileSystem>;
-
-  /**
-   * The entries in force for a turn: everything under `always`, plus everything
-   * under each active topic.
-   *
-   * Only those directories are read, so the cost tracks how much is relevant
-   * rather than how much has ever been remembered. The tree is the only source
-   * consulted, so an entry a person created or deleted by hand behaves exactly
-   * like one the tool wrote.
-   */
-  readonly inForce: (
-    scopes: readonly string[],
-    topics: readonly string[],
   ) => Effect.Effect<readonly MemoryEntryInForce[], Error, FileSystem.FileSystem>;
 
   readonly create: (

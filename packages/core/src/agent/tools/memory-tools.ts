@@ -7,7 +7,7 @@
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { z } from "zod";
-import { MEMORY_EXTRACTOR_AGENT_ID } from "@/core/constants/memory";
+import { DEFAULT_MEMORY_SCOPE, MEMORY_EXTRACTOR_AGENT_ID } from "@/core/constants/memory";
 import type { MemoryFailureSignature } from "@/core/interfaces/memory-provenance";
 import type {
   MemoryService,
@@ -16,7 +16,11 @@ import type {
 } from "@/core/interfaces/memory-service";
 import { MemoryServiceTag } from "@/core/interfaces/memory-service";
 import type { Tool } from "@/core/interfaces/tool-registry";
-import { buildMemoryEntryPath, describeUnusableSubject } from "@/core/memory/entry-path";
+import {
+  buildMemoryEntryPath,
+  describeUnusableSubject,
+  describeUnusableTopic,
+} from "@/core/memory/entry-path";
 import type { ToolExecutionResult } from "@/core/types/tools";
 import { defineTool, makeZodValidator } from "./base-tool";
 
@@ -271,7 +275,7 @@ export function createManageMemoryTool(): Tool<MemoryToolDeps> {
     handler: (args, context) =>
       Effect.gen(function* () {
         const memoryService = yield* MemoryServiceTag;
-        const scopes = context.memoryScopes ?? [context.agentId];
+        const scopes = context.memoryScopes ?? [DEFAULT_MEMORY_SCOPE];
         const writeContext: MemoryWriteContext = { agentId: context.agentId };
 
         const outcome = yield* (() => {
@@ -281,7 +285,13 @@ export function createManageMemoryTool(): Tool<MemoryToolDeps> {
               if (unusable !== undefined) {
                 return Effect.succeed({ success: false, message: unusable });
               }
-              const scope = args.scope ?? scopes[0] ?? context.agentId;
+              if (args.topic !== undefined) {
+                const unusableTopic = describeUnusableTopic(args.topic);
+                if (unusableTopic !== undefined) {
+                  return Effect.succeed({ success: false, message: unusableTopic });
+                }
+              }
+              const scope = args.scope ?? scopes[0] ?? DEFAULT_MEMORY_SCOPE;
               const targetPath = buildMemoryEntryPath({
                 scope,
                 subject: args.subject,

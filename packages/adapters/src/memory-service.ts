@@ -37,7 +37,7 @@ import type {
   MemoryWriteContext,
 } from "@jazz/core/interfaces/memory-service";
 import { MemoryServiceTag } from "@jazz/core/interfaces/memory-service";
-import { ALWAYS_SEGMENT, WHEN_SEGMENT } from "@jazz/core/memory/entry-path";
+import { ALWAYS_SEGMENT } from "@jazz/core/memory/entry-path";
 import { getMemoryDirectory } from "@jazz/core/utils/paths";
 import {
   abbreviateHomePath,
@@ -714,28 +714,7 @@ export class MemoryServiceImpl implements MemoryService {
       }.bind(this),
     );
 
-  readonly topics: MemoryService["topics"] = (scopes) =>
-    Effect.gen(
-      function* (this: MemoryServiceImpl) {
-        const fs = yield* FileSystem.FileSystem;
-        const found = new Set<string>();
-
-        for (const scope of scopes) {
-          if (!isValidStorageKey(scope)) continue;
-          const whenRoot = path.join(this.baseMemoryDirectory, scope, WHEN_SEGMENT);
-          const names = yield* fs
-            .readDirectory(whenRoot)
-            .pipe(Effect.catchAll(() => Effect.succeed<string[]>([])));
-          for (const name of names) {
-            if (!name.startsWith(".")) found.add(name);
-          }
-        }
-
-        return [...found].sort();
-      }.bind(this),
-    );
-
-  readonly inForce: MemoryService["inForce"] = (scopes, topics) =>
+  readonly standingEntries: MemoryService["standingEntries"] = (scopes) =>
     Effect.gen(
       function* (this: MemoryServiceImpl) {
         const fs = yield* FileSystem.FileSystem;
@@ -743,32 +722,20 @@ export class MemoryServiceImpl implements MemoryService {
 
         for (const scope of scopes) {
           if (!isValidStorageKey(scope)) continue;
-          const scopeRoot = path.join(this.baseMemoryDirectory, scope);
+          const absolute = path.join(this.baseMemoryDirectory, scope, ALWAYS_SEGMENT);
+          const names = yield* fs
+            .readDirectory(absolute)
+            .pipe(Effect.catchAll(() => Effect.succeed<string[]>([])));
 
-          const directories: { readonly relative: string; readonly topic: string | undefined }[] = [
-            { relative: ALWAYS_SEGMENT, topic: undefined },
-            ...topics.map((topic) => ({
-              relative: `${WHEN_SEGMENT}/${topic}`,
-              topic,
-            })),
-          ];
-
-          for (const directory of directories) {
-            const absolute = path.join(scopeRoot, directory.relative);
-            const names = yield* fs
-              .readDirectory(absolute)
-              .pipe(Effect.catchAll(() => Effect.succeed<string[]>([])));
-
-            for (const name of names.sort()) {
-              if (name.startsWith(".")) continue;
-              const summary = yield* readEntrySummary(fs, path.join(absolute, name));
-              if (summary === undefined) continue;
-              entries.push({
-                path: `${scope}/${directory.relative}/${name}`,
-                topic: directory.topic,
-                summary,
-              });
-            }
+          for (const name of names.sort()) {
+            if (name.startsWith(".")) continue;
+            const summary = yield* readEntrySummary(fs, path.join(absolute, name));
+            if (summary === undefined) continue;
+            entries.push({
+              path: `${scope}/${ALWAYS_SEGMENT}/${name}`,
+              topic: undefined,
+              summary,
+            });
           }
         }
 

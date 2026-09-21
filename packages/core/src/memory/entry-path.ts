@@ -79,6 +79,18 @@ export function describeUnusableSubject(subject: string): string | undefined {
   return `Subject ${JSON.stringify(subject)} contains no letters or digits that can be stored in a path. Give a subject containing Latin letters or digits.`;
 }
 
+/**
+ * Explains why a topic cannot be stored, or returns `undefined` when it can.
+ *
+ * An explicitly supplied topic that normalizes to nothing would silently file
+ * the entry under `always/` — the caller asked for topic scoping and should
+ * learn the topic is unusable rather than having it dropped.
+ */
+export function describeUnusableTopic(topic: string): string | undefined {
+  if (slugifyMemorySegment(topic).length > 0) return undefined;
+  return `Topic ${JSON.stringify(topic)} contains no letters or digits that can be stored in a path. Give a topic containing Latin letters or digits, or omit it to apply this entry to every task.`;
+}
+
 export interface BuildMemoryEntryPathInput {
   readonly scope: string;
   readonly subject: string;

@@ -84,7 +84,7 @@ describe("manage_memory tool", () => {
       ),
     );
     expect(result.success).toBe(true);
-    expect(captured.args[1]).toBe("agent-1/always/home-timezone.md");
+    expect(captured.args[1]).toBe("personal/always/home-timezone.md");
   });
 
   test("stores an entry with no topic as in force on every task", async () => {
@@ -96,7 +96,7 @@ describe("manage_memory tool", () => {
         context,
       ),
     );
-    expect(captured.args[1]).toBe("agent-1/always/rendered-output-opening.md");
+    expect(captured.args[1]).toBe("personal/always/rendered-output-opening.md");
   });
 
   test("stores a topic entry under that topic rather than a directory", async () => {
@@ -113,7 +113,7 @@ describe("manage_memory tool", () => {
         context,
       ),
     );
-    expect(captured.args[1]).toBe("agent-1/when/mood-board/artboard-scaling.md");
+    expect(captured.args[1]).toBe("personal/when/mood-board/artboard-scaling.md");
   });
 
   test("refuses a subject that would write a hidden file", async () => {
@@ -127,6 +127,19 @@ describe("manage_memory tool", () => {
     );
     expect(result.success).toBe(false);
     expect(result.error).toContain("Latin letters");
+  });
+
+  test("refuses a topic that normalizes to nothing", async () => {
+    const { fakeService } = captureCreate();
+    const result = await runWithFakeMemoryService(
+      fakeService as MemoryService,
+      createManageMemoryTool().execute(
+        { command: "create", subject: "Theme colors", topic: "???", file_text: "dark mode" },
+        context,
+      ),
+    );
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("Latin letters or digits");
   });
 
   test("records the failure an entry guards against", async () => {

@@ -20,6 +20,15 @@ export const MEMORY_VIEW_TRUNCATE_CHARS = 20_000;
 export const MEMORY_VIEW_MAX_LINES = 999_999;
 
 /**
+ * Scope every agent writes to when none is configured.
+ *
+ * Memory belongs to the person, not to whichever agent happens to run. A
+ * preference like "concise replies" should follow the user across agents, so
+ * the default is one shared scope rather than one silo per agent id.
+ */
+export const DEFAULT_MEMORY_SCOPE = "personal";
+
+/**
  * Agent id the compaction-time extraction pass runs under.
  *
  * Shared so a write can be attributed: an entry written under this id was
