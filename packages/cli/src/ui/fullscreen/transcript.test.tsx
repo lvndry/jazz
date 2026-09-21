@@ -640,6 +640,22 @@ describe("colour is state, not speaker", () => {
     expect(continuation?.gutter[0]?.fg).toBe(THEME.border);
   });
 
+  it("puts every wrapped user row in a compact bubble instead of relying on the chevron", () => {
+    const message =
+      "user should not have to approve memories because a long request needs a clear boundary too";
+    const rows = transcriptRows([{ id: "u", seq: 1, kind: "user", text: message }], NARROW).filter(
+      (row) => row.key.startsWith("u:"),
+    );
+
+    expect(rows.length).toBeGreaterThan(1);
+    expect(rows.every((row) => row.contentBackground === THEME.surfaceStrong)).toBe(true);
+    expect(rows[0]?.gutter.map((segment) => segment.text).join("")).toBe("  ");
+    expect(rows[0]?.content.map((segment) => segment.text).join("")).toStartWith(
+      ` ${getGlyphs().promptCursor} `,
+    );
+    expect(rows[1]?.content.map((segment) => segment.text).join("")).toStartWith("   ");
+  });
+
   it("puts the accent on a streaming rail and takes it away once settled", async () => {
     const streaming: readonly Block[] = [
       { id: "a", seq: 1, kind: "agent", markdown: "still typing", streaming: true },
