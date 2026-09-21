@@ -139,6 +139,7 @@ export interface PluginManifest {
   readonly personas: readonly PluginPersonaDeclaration[];
   readonly skills: readonly PluginSkillDeclaration[];
   readonly lifecycleHooks: readonly LifecycleEventId[];
+  readonly claimsNotifications: boolean;
   readonly network: { readonly destinations: readonly string[] };
   readonly dataSent: readonly string[];
   readonly secrets: readonly PluginSecretDeclaration[];
@@ -154,6 +155,7 @@ export interface PluginConsentDisclosure {
   readonly personas: readonly string[];
   readonly skills: readonly string[];
   readonly lifecycleHooks: readonly LifecycleEventId[];
+  readonly claimsNotifications: boolean;
   readonly destinations: readonly string[];
   readonly dataSent: readonly string[];
 }

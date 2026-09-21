@@ -291,6 +291,7 @@ export function parsePluginManifest(input: unknown): PluginManifest {
       "personas",
       "skills",
       "lifecycleHooks",
+      "claimsNotifications",
       "network",
       "dataSent",
       "secrets",
@@ -352,6 +353,7 @@ export function parsePluginManifest(input: unknown): PluginManifest {
     personas: parsePersonas(root["personas"]),
     skills: parseSkills(root["skills"]),
     lifecycleHooks: parseLifecycleHooks(root["lifecycleHooks"]),
+    claimsNotifications: root["claimsNotifications"] === true,
     network: { destinations: [...destinations].sort() },
     dataSent: [
       ...uniqueStrings(root["dataSent"], "dataSent", {

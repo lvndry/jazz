@@ -10,6 +10,7 @@ import {
   type NotificationService,
   type NotificationOptions,
 } from "@jazz/core/interfaces/notification";
+import { PluginRuntimeServiceTag } from "@jazz/core/interfaces/plugin-runtime";
 import { Effect, Layer, Option } from "effect";
 import { getTerminalBundleId } from "./terminal-bundle-id";
 import { resolveTerminalNotifierBinary } from "./terminal-notifier-path";
@@ -86,6 +87,16 @@ export class NotificationServiceImpl implements NotificationService {
 
       if (notificationsConfig?.enabled === false) {
         return;
+      }
+
+      const pluginRuntime = yield* Effect.serviceOption(PluginRuntimeServiceTag);
+      if (Option.isSome(pluginRuntime)) {
+        const pluginHandles = yield* pluginRuntime.value
+          .hasNotificationPlugin()
+          .pipe(Effect.catchAll(() => Effect.succeed(false)));
+        if (pluginHandles) {
+          return;
+        }
       }
 
       const title = options?.title ?? "🎷 Jazz";

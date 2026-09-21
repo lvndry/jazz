@@ -99,6 +99,7 @@ export interface PluginRuntimeService {
    * events do not reload modules.
    */
   readonly emitLifecycleEvent: (event: LifecycleEvent) => Effect.Effect<void>;
+  readonly hasNotificationPlugin: () => Effect.Effect<boolean>;
 }
 
 export const PluginRuntimeServiceTag = Context.GenericTag<PluginRuntimeService>(
