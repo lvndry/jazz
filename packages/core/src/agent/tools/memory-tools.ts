@@ -89,8 +89,11 @@ export function createViewMemoryTool(): Tool<MemoryToolDeps> {
     name: "view_memory",
     disclosure: "private",
     description:
-      "Consult memory when the request may depend on prior preferences, decisions, relationships, " +
-      "or work from another conversation. Skip it when prior context cannot improve the answer. " +
+      "Check memory BEFORE answering or acting on any request that could be shaped by the user's " +
+      "preferences, opinions, style, history, relationships, prior decisions, or past work. This " +
+      "applies to tasks ('let's write a blog' → check for writing preferences) just as much as " +
+      "questions ('what's my favorite X' → check for stored facts). Skip it only for requests " +
+      "with no personal dimension (factual lookups, technical questions, time/weather). " +
       "Memory is split into scopes by subject; inspect only scopes relevant to the conversation. " +
       "Calling it with no path returns every memory scope you can access " +
       '(e.g. "personal", "github-project-a") and the files saved in each, with sizes, so one call tells you ' +
