@@ -266,8 +266,10 @@ export function pluginTrustCommand(id: string): Effect.Effect<void, Error, Termi
       `Are you sure you want to trust ${inspection.id}? This can execute code on your behalf.`,
       false,
     );
-    if (!confirmed) return yield* Effect.fail(new Error("Plugin trust cancelled."));
-    yield* attempt(() => service.trust(id, inspection.current.manifest.sha256));
+    if (!confirmed) {
+      return yield* Effect.fail(new Error("Plugin trust cancelled."));
+    }
+    yield* attempt(() => service.trust(inspection.id, inspection.current.manifest.sha256));
     yield* terminal.success(`Trusted ${inspection.id} at the inspected code digest.`);
   });
 }
@@ -298,8 +300,10 @@ export function pluginEnableCommand(
     if (!confirmed) {
       return yield* Effect.fail(new Error("Plugin enablement cancelled."));
     }
-    yield* attempt(() => service.grantConsent(id, inspection.consentDigest));
-    yield* attempt(() => service.enable(id, agent === undefined ? ALL_AGENTS : agent.id));
+    yield* attempt(() => service.grantConsent(inspection.id, inspection.consentDigest));
+    yield* attempt(() =>
+      service.enable(inspection.id, agent === undefined ? ALL_AGENTS : agent.id),
+    );
     yield* terminal.success(
       agent === undefined
         ? `Enabled ${inspection.id} for all agents.`

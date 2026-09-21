@@ -100,15 +100,29 @@ function resolveInstalledId(state: PluginStateDocument, given: string): string |
     return given;
   }
   const github = parseGitHubPluginSource(given);
-  if (github) {
-    const base = `github:${github.owner}/${github.repo}`;
-    for (const [id, record] of Object.entries(state.plugins)) {
-      if (record.current.source === base || record.current.source.startsWith(`${base}@`)) {
-        return id;
-      }
-    }
+  if (github === undefined) {
+    return undefined;
   }
-  return undefined;
+  // A ref-qualified source resolves only to that exact ref; an unqualified one resolves to any ref
+  // installed from the repo. Fail closed when the alias is ambiguous rather than picking the first.
+  const base = `github:${github.owner}/${github.repo}`;
+  const canonical = describeGitHubSource(github);
+  const matches = Object.entries(state.plugins).filter(([, record]) =>
+    github.ref === undefined
+      ? record.current.source === base || record.current.source.startsWith(`${base}@`)
+      : record.current.source === canonical,
+  );
+  if (matches.length === 0) {
+    return undefined;
+  }
+  if (matches.length > 1) {
+    const ids = matches
+      .map(([id]) => id)
+      .sort()
+      .join(", ");
+    throw new Error(`Plugin source ${given} is ambiguous across installed plugins: ${ids}`);
+  }
+  return matches[0]?.[0];
 }
 
 function requireEntry(state: PluginStateDocument, id: string): PluginStateRecord {
