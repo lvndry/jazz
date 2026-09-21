@@ -255,26 +255,19 @@ export function pluginInspectCommand(
   });
 }
 
-export function pluginTrustCommand(
-  id: string,
-  options: { yes?: boolean } = {},
-): Effect.Effect<void, Error, TerminalService> {
+export function pluginTrustCommand(id: string): Effect.Effect<void, Error, TerminalService> {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
-    if (!options.yes) {
-      yield* requireInteractive(terminal, "Plugin trust");
-    }
+    yield* requireInteractive(terminal, "Plugin trust");
     const service = registry();
     const inspection = yield* attempt(() => service.inspect(id));
     yield* renderInspection(terminal, inspection);
-    if (!options.yes) {
-      const confirmed = yield* terminal.confirm(
-        `Are you sure you want to trust ${inspection.id}? This can execute code on your behalf.`,
-        false,
-      );
-      if (!confirmed) {
-        return yield* Effect.fail(new Error("Plugin trust cancelled."));
-      }
+    const confirmed = yield* terminal.confirm(
+      `Are you sure you want to trust ${inspection.id}? This can execute code on your behalf.`,
+      false,
+    );
+    if (!confirmed) {
+      return yield* Effect.fail(new Error("Plugin trust cancelled."));
     }
     yield* attempt(() => service.trust(inspection.id, inspection.current.manifest.sha256));
     yield* terminal.success(`Trusted ${inspection.id} at the inspected code digest.`);
@@ -284,14 +277,11 @@ export function pluginTrustCommand(
 export function pluginEnableCommand(
   id: string,
   agentId?: string,
-  options: { yes?: boolean } = {},
 ): Effect.Effect<void, Error, TerminalService | AgentService> {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
     const agent = agentId === undefined ? undefined : yield* getAgentByIdentifier(agentId);
-    if (!options.yes) {
-      yield* requireInteractive(terminal, "Plugin egress consent");
-    }
+    yield* requireInteractive(terminal, "Plugin egress consent");
     const service = registry();
     const inspection = yield* attempt(() => service.inspect(id));
     if (!inspection.trusted) {
@@ -302,15 +292,13 @@ export function pluginEnableCommand(
       );
     }
     yield* renderInspection(terminal, inspection);
-    if (!options.yes) {
-      const target = agent === undefined ? "all agents" : agent.name;
-      const confirmed = yield* terminal.confirm(
-        `Enable ${inspection.id} for ${target}? It runs with your OS-user authority and its declared network and data access.`,
-        false,
-      );
-      if (!confirmed) {
-        return yield* Effect.fail(new Error("Plugin enablement cancelled."));
-      }
+    const target = agent === undefined ? "all agents" : agent.name;
+    const confirmed = yield* terminal.confirm(
+      `Enable ${inspection.id} for ${target}? It runs with your OS-user authority and its declared network and data access.`,
+      false,
+    );
+    if (!confirmed) {
+      return yield* Effect.fail(new Error("Plugin enablement cancelled."));
     }
     yield* attempt(() => service.grantConsent(inspection.id, inspection.consentDigest));
     yield* attempt(() =>
