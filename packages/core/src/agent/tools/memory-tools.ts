@@ -263,8 +263,9 @@ export function createManageMemoryTool(): Tool<MemoryToolDeps> {
     disclosure: "private",
     summary: "Remember durable user preferences, facts and corrections across conversations.",
     description:
-      "Remember something durable about the user — how they want things done, something stable " +
-      "about them, or a correction they gave you. No secrets.\n" +
+      "Save to memory in the same turn whenever the user reveals a preference, opinion, " +
+      "relationship, or personal fact — don't wait to be asked or for the conversation to end. " +
+      "Also save corrections and standing decisions. No secrets.\n" +
       'Write facts, not commands: "prefers concise replies", not "always reply concisely" — a ' +
       "later session re-reads a command as an order.\n" +
       "One entry per subject: reusing one is refused and shows you the entry to amend.\n" +
