@@ -58,6 +58,7 @@ function operatorOwnedPaths(dataDir: string, home: string): Move[] {
     "xdg-state",
     "gnupg",
     "password-store",
+    "compositions",
     "webapps",
   ];
   return names

@@ -28,7 +28,7 @@ import {
   formatOneShotResult,
   isRunCostKnown,
   type OneShotOutputOptions,
-  type OneShotWebApp,
+  type OneShotComposition,
 } from "./envelope";
 import type { ApprovalPolicyFlag, ReasoningEffort } from "./flags";
 
@@ -50,7 +50,7 @@ import type { ApprovalPolicyFlag, ReasoningEffort } from "./flags";
  */
 
 /**
- * Narrow `create_web_app`'s structured tool result (last call wins if invoked
+ * Narrow `create_composition`'s structured tool result (last call wins if invoked
  * more than once in a turn) out of the agent run's `toolResults` map.
  */
 /**
@@ -75,10 +75,10 @@ export function composeResumedHistory(
   return workStatePreamble !== undefined ? [workStatePreamble] : null;
 }
 
-export function extractWebAppResult(
+export function extractCompositionResult(
   toolResults: Record<string, unknown> | undefined,
-): OneShotWebApp | undefined {
-  const raw = toolResults?.["create_web_app"];
+): OneShotComposition | undefined {
+  const raw = toolResults?.["create_composition"];
   if (!raw || typeof raw !== "object") return undefined;
 
   const data = raw as Record<string, unknown>;
@@ -86,6 +86,8 @@ export function extractWebAppResult(
     typeof data["id"] !== "string" ||
     (data["mode"] !== "static" && data["mode"] !== "interactive") ||
     typeof data["title"] !== "string" ||
+    typeof data["sessionId"] !== "string" ||
+    typeof data["filename"] !== "string" ||
     typeof data["htmlPath"] !== "string"
   ) {
     return undefined;
@@ -95,6 +97,8 @@ export function extractWebAppResult(
     id: data["id"],
     mode: data["mode"],
     title: data["title"],
+    sessionId: data["sessionId"],
+    filename: data["filename"],
     htmlPath: data["htmlPath"],
     ...(typeof data["imagePath"] === "string" ? { imagePath: data["imagePath"] } : {}),
   };
@@ -413,7 +417,7 @@ export function runAgentOnceCommand(
       name: toolCall.function?.name ?? "",
       arguments: toolCall.function?.arguments ?? "",
     }));
-    const webApp = extractWebAppResult(runResult.toolResults);
+    const composition = extractCompositionResult(runResult.toolResults);
     const artifacts = runResult.artifacts ?? [];
 
     yield* writeStdout(
@@ -439,7 +443,7 @@ export function runAgentOnceCommand(
             }),
           },
           toolCalls,
-          ...(webApp ? { webApp } : {}),
+          ...(composition ? { composition } : {}),
           ...(artifacts.length > 0 ? { artifacts } : {}),
           ...(ephemeral ? { messages: runResult.messages ?? [] } : {}),
         },

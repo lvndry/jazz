@@ -46,7 +46,7 @@ import {
   TODO_CATEGORY,
   USER_INTERACTION_CATEGORY,
   WAKE_TRIGGER_CATEGORY,
-  WEB_APP_CATEGORY,
+  COMPOSITION_CATEGORY,
   WEB_FETCH_CATEGORY,
   WEB_SEARCH_CATEGORY,
   WORKSPACE_CATEGORY,
@@ -58,7 +58,7 @@ import {
   createListTriggersTool,
   createRegisterTriggerTool,
 } from "./wake-trigger-tools";
-import { createWebAppTool } from "./web-app-tools";
+import { createCompositionTool } from "./web-app-tools";
 import { createWebFetchTool } from "./web-fetch-tools";
 import { createWebSearchTool } from "./web-search-tools";
 import { createUpdateWorkStateTool } from "./work-state-tools";
@@ -88,7 +88,7 @@ export function registerAllTools(): Effect.Effect<void, Error, ToolRegistry> {
     yield* registerSubagentTools();
     yield* registerPerceptionTools();
     yield* registerUserInteractionTools();
-    yield* registerWebAppTools();
+    yield* registerCompositionTools();
   });
 }
 
@@ -311,12 +311,12 @@ export function registerSearchToolsTool(): Effect.Effect<void, Error, ToolRegist
   });
 }
 
-export function registerWebAppTools(): Effect.Effect<void, Error, ToolRegistry> {
+export function registerCompositionTools(): Effect.Effect<void, Error, ToolRegistry> {
   return Effect.gen(function* () {
     const registry = yield* ToolRegistryTag;
-    const registerTool = registry.registerForCategory(WEB_APP_CATEGORY);
+    const registerTool = registry.registerForCategory(COMPOSITION_CATEGORY);
 
-    yield* registerTool(createWebAppTool());
+    yield* registerTool(createCompositionTool());
     // Same category: both turn HTML the agent wrote into a file, and both need Chromium.
     yield* registerTool(createPdfTool());
   });
