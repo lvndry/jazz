@@ -3,6 +3,7 @@
  * provider disablement, and hook failures are deliberately scoped to this object.
  */
 
+import { closeSync, openSync, writeSync } from "node:fs";
 import { Effect } from "effect";
 import { recordDecisionUsage } from "@/core/agent/metrics/agent-run-metrics";
 import type { PluginSession, PluginSessionOptions } from "@/core/interfaces/plugin-runtime";
@@ -36,6 +37,33 @@ import {
   validateSkillRouteDistribution,
   validateSkillRouteInput,
 } from "./validation";
+
+/**
+ * Write bytes to the process's controlling terminal so a terminal escape (for example an OSC
+ * notification) reaches the user even when a fullscreen TUI owns stdout. Falls back to stdout when
+ * there is no controlling terminal, and never throws. This is the default `writeTerminalSequence`.
+ */
+function writeControllingTerminal(data: string): void {
+  try {
+    const tty = openSync("/dev/tty", "w");
+    try {
+      writeSync(tty, data);
+    } finally {
+      closeSync(tty);
+    }
+    return;
+  } catch {
+    // No controlling terminal; fall through to stdout only if it is itself a terminal.
+  }
+  // Never write to a piped/redirected stdout — an escape sequence would corrupt machine-readable
+  // output (headless runs, `--json`). With no terminal to reach, drop the sequence.
+  if (process.stdout.isTTY !== true) return;
+  try {
+    process.stdout.write(data);
+  } catch {
+    // Best-effort: a closed or non-writable stdout must never surface to the run.
+  }
+}
 
 export interface PluginSessionFactoryOptions extends PluginSessionOptions {
   readonly plugins: readonly LoadedPlugin[];
@@ -338,7 +366,15 @@ export function createPluginSession(
             await Promise.allSettled(
               handlers.map(async (registered) => {
                 try {
-                  await deadline((signal) => registered.handler(event, { signal }), timeoutMs);
+                  await deadline(
+                    (signal) =>
+                      registered.handler(event, {
+                        signal,
+                        writeTerminalSequence:
+                          options.writeTerminalSequence ?? writeControllingTerminal,
+                      }),
+                    timeoutMs,
+                  );
                 } catch (error) {
                   options.reportFailure?.(
                     registered.pluginId,

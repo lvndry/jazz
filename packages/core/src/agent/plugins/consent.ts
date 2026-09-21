@@ -17,6 +17,7 @@ export function buildPluginConsentDisclosure(manifest: PluginManifest): PluginCo
     personas: sortedUnique(manifest.personas.map((persona) => persona.name)),
     skills: sortedUnique(manifest.skills.map((skill) => skill.name)),
     lifecycleHooks: sortedUnique(manifest.lifecycleHooks),
+    claimsNotifications: manifest.claimsNotifications,
     destinations: sortedUnique(manifest.network.destinations),
     dataSent: sortedUnique(manifest.dataSent),
   };
@@ -34,6 +35,7 @@ export function canonicalizePluginConsent(disclosure: PluginConsentDisclosure): 
     personas: sortedUnique(disclosure.personas),
     skills: sortedUnique(disclosure.skills),
     lifecycleHooks: sortedUnique(disclosure.lifecycleHooks),
+    claimsNotifications: disclosure.claimsNotifications,
     destinations: sortedUnique(disclosure.destinations),
     dataSent: sortedUnique(disclosure.dataSent),
   });

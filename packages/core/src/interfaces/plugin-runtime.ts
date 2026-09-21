@@ -49,6 +49,12 @@ export interface PluginSessionOptions {
   readonly hookTimeoutMs?: number;
   readonly maxCostUSD?: number;
   readonly currentRunCostUSD?: () => number | undefined;
+  /**
+   * Writes raw bytes to the user's controlling terminal, passed to lifecycle handlers as
+   * `writeTerminalSequence`. Defaults to writing the controlling terminal directly (so it survives a
+   * fullscreen TUI that owns stdout); the host can override it to route through its own output.
+   */
+  readonly writeTerminalSequence?: (data: string) => void;
 }
 
 export interface PluginRuntimeService {
@@ -93,6 +99,7 @@ export interface PluginRuntimeService {
    * events do not reload modules.
    */
   readonly emitLifecycleEvent: (event: LifecycleEvent) => Effect.Effect<void>;
+  readonly hasNotificationPlugin: () => Effect.Effect<boolean>;
 }
 
 export const PluginRuntimeServiceTag = Context.GenericTag<PluginRuntimeService>(

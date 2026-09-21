@@ -598,6 +598,7 @@ export class ChatServiceImpl implements ChatService {
                 }
 
                 yield* logger.error("Agent execution error", errorDetails);
+                yield* emitLifecycle("run-failed", { error: String(error).slice(0, 2000) });
 
                 yield* terminal.log("");
 
@@ -787,6 +788,7 @@ export class ChatServiceImpl implements ChatService {
         });
       }
 
+      yield* emitLifecycle("session-end");
       yield* persistConversationIfNeeded({
         ephemeral,
         conversationHistory,

@@ -139,24 +139,53 @@ capability grant — it cannot itself act or reach the network.
 
 ## Lifecycle hooks
 
-A plugin may subscribe to host lifecycle events — `session-start`, `user-prompt`, `run-complete`,
-and `awaiting-input` — declared in the manifest (`lifecycleHooks`) and registered via
-`api.lifecycle.register`. Handlers are **fire-and-forget observers**: they receive a bounded event
-payload (agent id, conversation id, and event-specific data such as the prompt and a response
-summary) and **cannot change what the host does** — a throw or timeout is swallowed and never
-delays or breaks the run.
+A plugin may subscribe to host lifecycle events, declared in the manifest (`lifecycleHooks`) and
+registered via `api.lifecycle.register`. Handlers are **fire-and-forget observers**: they receive a
+bounded payload (agent id, conversation id, the run's working directory `cwd`, and event-specific
+`data`) and **cannot change what the host does** — a throw or timeout is swallowed and never delays
+or breaks the run. To _influence_ a decision (routing, tool-result pruning, command risk) a plugin
+uses an advisory or policy hook instead, not a lifecycle event.
 
-This is what a terminal-notification plugin rides. A Warp notifier, for example, subscribes to
-`run-complete` (task finished — send a desktop notification with the response summary) and
-`awaiting-input` (Jazz is waiting on you), then shells out to raise the notification — the same
-shape as [`warpdotdev/claude-code-warp`](https://github.com/warpdotdev/claude-code-warp), which
-rides Claude Code's hook system.
+| Event                | Fires when                  | `data`                                       |
+| -------------------- | --------------------------- | -------------------------------------------- |
+| `session-start`      | A chat session starts       | —                                            |
+| `session-end`        | A chat session ends         | —                                            |
+| `user-prompt`        | You submit a prompt         | `prompt`                                     |
+| `run-complete`       | A turn finishes             | `prompt`, `summary`                          |
+| `run-failed`         | A turn errors               | `error`                                      |
+| `awaiting-input`     | Jazz is waiting for you     | —                                            |
+| `tool-start`         | A tool call begins          | `tool`, `toolCallId`                         |
+| `tool-end`           | A tool call succeeds        | `toolCallId`, `durationMs`, `summary?`       |
+| `tool-error`         | A tool call fails           | `toolCallId`, `durationMs`, `error`          |
+| `permission-request` | A tool needs approval       | `tool`, `toolCallId`, `riskLevel?`           |
+| `permission-denied`  | An approval is declined     | `tool`, `toolCallId`, `auto`                 |
+| `subagent-start`     | A sub-agent is spawned      | `agentName?`, `task?`                        |
+| `subagent-stop`      | A sub-agent finishes        | `agentName?`, `durationMs?`                  |
+| `compact-start`      | History compaction begins   | `messages`, `tokensBefore`                   |
+| `compact-end`        | History compaction finishes | `messagesBefore/After`, `tokensBefore/After` |
+
+`data` fields are bounded (long strings truncated) and may be absent, so always guard
+(`event.data?.summary`). The tool, permission, and sub-agent events are delivered on the interactive
+streaming path.
+
+The handler's second argument is a context with an `AbortSignal` and **`writeTerminalSequence`** —
+use the latter to send a terminal escape sequence (for example an OSC notification) to the user's
+terminal. The host writes to the controlling terminal directly, so the sequence reaches it **even
+though Jazz's fullscreen UI owns stdout** — plugin authors don't have to know that detail.
+
+This is what a terminal-notification plugin rides. A Warp notifier subscribes to `run-complete`
+(task finished) and `awaiting-input` (Jazz is waiting on you) and emits an OSC sequence bound to the
+terminal tab — the same shape as
+[`warpdotdev/claude-code-warp`](https://github.com/warpdotdev/claude-code-warp). Off a supporting
+terminal a plugin can instead shell out to a desktop notifier.
 
 ```ts
 api.lifecycle.register({
   event: "run-complete",
-  handler: async (event) => {
-    // e.g. Bun.spawn(["osascript", "-e", `display notification ${JSON.stringify(event.data?.summary ?? "done")}`])
+  handler: async (event, { writeTerminalSequence }) => {
+    const summary = typeof event.data?.summary === "string" ? event.data.summary : "done";
+    // OSC 777 desktop notification, delivered to the user's terminal (e.g. a Warp tab).
+    writeTerminalSequence(`\u001b]777;notify;Jazz;${summary}\u0007`);
   },
 });
 ```
@@ -171,7 +200,7 @@ available once a plugin is enabled anywhere — there is no separate per-agent g
 ```bash
 jazz plugin list
 jazz plugin doctor com.example.router
-jazz plugin update com.example.router
+jazz plugin update owner/repo        # re-fetches a source install; omit the source to reuse the recorded one
 jazz plugin rollback com.example.router
 jazz plugin disable com.example.router --agent default
 jazz plugin remove com.example.router

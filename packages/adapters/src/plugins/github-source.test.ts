@@ -221,6 +221,34 @@ describe("source-repo install lifecycle", () => {
     expect(removed.pluginId).toBe("com.jazz.test.source");
   });
 
+  test("update re-fetches a GitHub source install and keeps the previous digest for rollback", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "jazz-source-update-"));
+    const second = await createTarGzip([
+      { name: "owner-repo-def/jazz-plugin.json", data: JSON.stringify(SOURCE_MANIFEST) },
+      {
+        name: "owner-repo-def/src/index.ts",
+        data: "export default { apiVersion: 1, register() { /* v2 */ } };\n",
+      },
+    ]);
+    const registry = new PluginRegistryServiceImpl({
+      pluginDirectory: path.join(root, "plugins"),
+      fetchImpl: sequentialFetch(await githubTarball(SOURCE_MANIFEST), second),
+    });
+    const added = await registry.addFromSource({
+      github: { owner: "lvndry", repo: "jazz-plugin-warp" },
+    });
+
+    // No explicit source: the CLI passes the recorded source, so update re-pulls the same repo.
+    const updated = await registry.update("lvndry/jazz-plugin-warp", "lvndry/jazz-plugin-warp");
+    expect(updated.action).toBe("updated");
+    expect(updated.digest).not.toBe(added.digest);
+
+    const inspection = await registry.inspect("com.jazz.test.source");
+    expect(inspection.current.kind).toBe("source");
+    expect(inspection.current.manifest.sha256).toBe(updated.digest!);
+    expect(inspection.previous?.manifest.sha256).toBe(added.digest!);
+  });
+
   test("fails closed when an owner/repo alias is ambiguous across installs", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "jazz-source-ambiguous-"));
     const registry = new PluginRegistryServiceImpl({
