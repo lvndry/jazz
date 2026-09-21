@@ -36,6 +36,7 @@ import {
 export type PluginLifecycleAction =
   | "added"
   | "updated"
+  | "already-current"
   | "rolled-back"
   | "trusted"
   | "consented"
@@ -259,14 +260,22 @@ export class PluginRegistryServiceImpl {
       return this.updateFromSource(id, spec);
     }
     const acquired = await acquirePluginManifest(source, this.options.fetchImpl);
-    return this.stateStore.transact(async (state) => {
+    return this.stateStore.transact<PluginLifecycleResult>(async (state) => {
       const existing = requireEntry(state, id);
       const pluginId = existing.current.manifest.id;
       if (acquired.manifest.id !== pluginId) {
         throw new Error(`Update id mismatch: expected ${pluginId}`);
       }
       if (existing.current.manifest.sha256 === acquired.manifest.sha256) {
-        throw new Error(`Plugin ${pluginId} is already at digest ${acquired.manifest.sha256}`);
+        return {
+          state,
+          result: {
+            action: "already-current" as const,
+            pluginId,
+            digest: acquired.manifest.sha256,
+            restartRequired: false,
+          },
+        };
       }
       const artifactPath = await this.installer.install(acquired.manifest, acquired.source);
       const entry: PluginStateRecord = {
@@ -290,14 +299,22 @@ export class PluginRegistryServiceImpl {
   private async updateFromSource(id: string, spec: SourceSpec): Promise<PluginLifecycleResult> {
     const prepared = await this.materializeSource(spec);
     try {
-      return await this.stateStore.transact(async (state) => {
+      return await this.stateStore.transact<PluginLifecycleResult>(async (state) => {
         const existing = requireEntry(state, id);
         const pluginId = existing.current.manifest.id;
         if (prepared.manifest.id !== pluginId) {
           throw new Error(`Update id mismatch: expected ${pluginId}`);
         }
         if (existing.current.manifest.sha256 === prepared.digest) {
-          throw new Error(`Plugin ${pluginId} is already at digest ${prepared.digest}`);
+          return {
+            state,
+            result: {
+              action: "already-current" as const,
+              pluginId,
+              digest: prepared.digest,
+              restartRequired: false,
+            },
+          };
         }
         const committed = await this.installer.commitSourceTree(prepared.root, prepared.digest);
         const record: PluginStateRecord = {
