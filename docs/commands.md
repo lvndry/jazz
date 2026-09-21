@@ -107,6 +107,7 @@ Full contract, examples, and a complete bridge implementation:
 
 | Command                          | Purpose                                                                                                                         |
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `jazz workflow create`           | Create a new workflow interactively                                                                                             |
 | `jazz workflow list`             | List available workflows (global and local)                                                                                     |
 | `jazz workflow show <name>`      | Show a workflow's prompt and metadata                                                                                           |
 | `jazz workflow run <name>`       | Run once. See flags below                                                                                                       |
