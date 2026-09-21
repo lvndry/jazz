@@ -1736,6 +1736,17 @@ function registerWorkflowCommands(program: Command): void {
   const workflowCommand = program.command("workflow").description("Manage and run workflows");
 
   workflowCommand
+    .command("create")
+    .description("Create a new workflow interactively")
+    .action(() =>
+      runCliAction(
+        () =>
+          import("@jazz/cli/commands/create-workflow").then((mod) => mod.createWorkflowCommand()),
+        cliRuntimeOptions(program),
+      ),
+    );
+
+  workflowCommand
     .command("list")
     .alias("ls")
     .description("List all available workflows")
