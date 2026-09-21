@@ -32,6 +32,7 @@ const manifest = {
   network: { destinations: [] },
   dataSent: [],
   secrets: [{ name: "key", required: true, description: "API key" }],
+  claimsNotifications: false,
 };
 
 it("keeps registrations per run and enforces declared secrets", async () => {
