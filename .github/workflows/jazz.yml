@@ -334,7 +334,7 @@ jobs:
             echo "::error::No model provider API key found. Add <PROVIDER>_API_KEY — OPENAI_API_KEY, ANTHROPIC_API_KEY, OPENROUTER_API_KEY, whichever your agent configs name — as a GitHub Actions secret (Settings → Secrets and variables → Actions)."
             exit 1
           fi
-          jazz --output raw workflow run code-review --auto-approve --agent ci-reviewer --events tools | tee /tmp/jazz-review.txt
+          jazz workflow run code-review --auto-approve --agent ci-reviewer --json --events tools | tee /tmp/jazz-review.txt
           echo "${PIPESTATUS[0]}" > /tmp/jazz-review-exit
 
       - name: Post review comments
@@ -348,11 +348,19 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const output = fs.readFileSync('/tmp/jazz-review.txt', 'utf8');
+            const raw = fs.readFileSync('/tmp/jazz-review.txt', 'utf8');
             const prNumber = parseInt(process.env.PR_NUMBER, 10);
             const headSha = process.env.PR_HEAD_SHA;
             const statusCommentId = parseInt(process.env.STATUS_COMMENT_ID, 10) || 0;
             const runUrl = process.env.RUN_URL;
+
+            // --json wraps the answer in a JSON envelope; extract the answer field.
+            let output = raw;
+            try {
+              const firstBrace = raw.indexOf('{');
+              const json = JSON.parse(firstBrace > 0 ? raw.slice(firstBrace) : raw);
+              output = json.answer ?? raw;
+            } catch (_) {}
 
             const postOrUpdate = async (body) => {
               if (statusCommentId > 0) {
@@ -747,7 +755,7 @@ jobs:
             echo "::error::No model provider API key found. Add <PROVIDER>_API_KEY — OPENAI_API_KEY, ANTHROPIC_API_KEY, OPENROUTER_API_KEY, whichever your agent configs name — as a GitHub Actions secret (Settings → Secrets and variables → Actions)."
             exit 1
           fi
-          jazz --output raw workflow run pr-assistant --auto-approve --agent pr-assistant --events tools \
+          jazz workflow run pr-assistant --auto-approve --agent pr-assistant --json --events tools \
             | tee /tmp/jazz-pr-assistant.txt
 
       - name: Post PR comment
@@ -760,10 +768,17 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const output = fs.readFileSync('/tmp/jazz-pr-assistant.txt', 'utf8');
+            const raw = fs.readFileSync('/tmp/jazz-pr-assistant.txt', 'utf8');
             const prNumber = parseInt(process.env.PR_NUMBER, 10);
             const statusCommentId = parseInt(process.env.STATUS_COMMENT_ID, 10) || 0;
             const runUrl = process.env.RUN_URL;
+
+            let output = raw;
+            try {
+              const firstBrace = raw.indexOf('{');
+              const json = JSON.parse(firstBrace > 0 ? raw.slice(firstBrace) : raw);
+              output = json.answer ?? raw;
+            } catch (_) {}
 
             const postOrUpdate = async (body) => {
               if (statusCommentId > 0) {
