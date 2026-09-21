@@ -9,7 +9,9 @@ import * as path from "node:path";
 import {
   PluginRegistryServiceImpl,
   devPlugin,
+  isLocalSourceDirectory,
   packPlugin,
+  parseGitHubPluginSource,
   probePackedPlugin,
   scaffoldPlugin,
   type PluginInspection,
@@ -206,7 +208,14 @@ export function pluginAddCommand(
 ): Effect.Effect<void, Error, TerminalService> {
   return Effect.gen(function* () {
     const terminal = yield* TerminalServiceTag;
-    const result = yield* attempt(() => registry().add(resolvePluginSource(source)));
+    const github = parseGitHubPluginSource(source);
+    const localSource = github ? false : yield* attempt(() => isLocalSourceDirectory(source));
+    if (github) yield* terminal.info(`Fetching ${github.owner}/${github.repo} from GitHub…`);
+    const result = yield* github
+      ? attempt(() => registry().addFromSource({ github }))
+      : localSource
+        ? attempt(() => registry().addFromSource({ localDirectory: path.resolve(source) }))
+        : attempt(() => registry().add(resolvePluginSource(source)));
     if (options.json === true) return printJson({ ok: true, result });
     yield* terminal.success(`Installed ${result.pluginId} at ${result.digest}.`);
     yield* terminal.info("It is not trusted or enabled. Inspect it before granting either.");

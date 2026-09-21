@@ -1,6 +1,7 @@
 /** Public adapter implementations for Jazz's executable plugin lifecycle. */
 
 export * from "./artifact-installer";
+export * from "./github-source";
 export * from "./manifest-schema";
 export * from "./module-loader";
 export * from "./plugin-author";
