@@ -16,6 +16,7 @@ import { computePluginConsentDigest } from "@jazz/core/agent/plugins/consent";
 import { PluginArtifactInstaller, acquirePluginManifest } from "./artifact-installer";
 import {
   describeGitHubSource,
+  EXCLUDED_DIRECTORIES,
   hashSourceTree,
   isLocalSourceDirectory,
   materializeGitHubSource,
@@ -342,26 +343,33 @@ export class PluginRegistryServiceImpl {
 
   /** Fetch and hash a source tree into a temp/local dir, ready to commit. Caller runs cleanup(). */
   private async materializeSource(spec: SourceSpec): Promise<PreparedSource> {
-    const temporary = spec.github
-      ? await fs.mkdtemp(path.join(os.tmpdir(), "jazz-plugin-src-"))
-      : undefined;
+    // Always work in a private snapshot so the tree that is hashed is exactly the tree that is
+    // committed. A GitHub source is downloaded into it; a local directory is copied into it, so a
+    // concurrent edit to the user's directory cannot make the recorded digest diverge from the
+    // committed bytes.
+    const temporary = await fs.mkdtemp(path.join(os.tmpdir(), "jazz-plugin-src-"));
     const cleanup = async (): Promise<void> => {
-      if (temporary) {
-        await fs.rm(temporary, { recursive: true, force: true }).catch(() => undefined);
-      }
+      await fs.rm(temporary, { recursive: true, force: true }).catch(() => undefined);
     };
     try {
-      const root = spec.localDirectory ?? temporary;
-      if (root === undefined) {
+      let sourceLabel: string;
+      if (spec.github) {
+        await materializeGitHubSource(spec.github, temporary, this.options.fetchImpl);
+        sourceLabel = describeGitHubSource(spec.github);
+      } else if (spec.localDirectory !== undefined) {
+        await fs.cp(spec.localDirectory, temporary, {
+          recursive: true,
+          dereference: false,
+          errorOnExist: false,
+          filter: (candidate) => !EXCLUDED_DIRECTORIES.has(path.basename(candidate)),
+        });
+        sourceLabel = pathToFileURL(path.resolve(spec.localDirectory)).toString();
+      } else {
         throw new Error("A source install requires a GitHub source or a local directory");
       }
-      if (spec.github) await materializeGitHubSource(spec.github, root, this.options.fetchImpl);
-      const digest = await hashSourceTree(root);
-      const { manifest, entry } = await prepareSourceManifest(root, digest);
-      const sourceLabel = spec.github
-        ? describeGitHubSource(spec.github)
-        : pathToFileURL(path.resolve(root)).toString();
-      return { manifest, entry, digest, sourceLabel, root, cleanup };
+      const digest = await hashSourceTree(temporary);
+      const { manifest, entry } = await prepareSourceManifest(temporary, digest);
+      return { manifest, entry, digest, sourceLabel, root: temporary, cleanup };
     } catch (error) {
       await cleanup();
       throw error;

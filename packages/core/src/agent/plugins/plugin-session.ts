@@ -53,8 +53,11 @@ function writeControllingTerminal(data: string): void {
     }
     return;
   } catch {
-    // No controlling terminal; fall through to stdout.
+    // No controlling terminal; fall through to stdout only if it is itself a terminal.
   }
+  // Never write to a piped/redirected stdout — an escape sequence would corrupt machine-readable
+  // output (headless runs, `--json`). With no terminal to reach, drop the sequence.
+  if (process.stdout.isTTY !== true) return;
   try {
     process.stdout.write(data);
   } catch {
