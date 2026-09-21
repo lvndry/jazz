@@ -254,7 +254,22 @@ export interface PluginSkillInfo extends PluginSkillDeclaration {
  * cannot change what the host does; it reacts (e.g. raises a desktop notification). The set is
  * closed because each event is a point the host actually emits.
  */
-export type LifecycleEventId = "session-start" | "user-prompt" | "run-complete" | "awaiting-input";
+export type LifecycleEventId =
+  | "session-start"
+  | "session-end"
+  | "user-prompt"
+  | "run-complete"
+  | "run-failed"
+  | "awaiting-input"
+  | "tool-start"
+  | "tool-end"
+  | "tool-error"
+  | "subagent-start"
+  | "subagent-stop"
+  | "compact-start"
+  | "compact-end"
+  | "permission-request"
+  | "permission-denied";
 
 /** The payload delivered to a lifecycle handler. `data` carries bounded, event-specific fields. */
 export interface LifecycleEvent {
@@ -269,12 +284,20 @@ export interface LifecycleEvent {
  * The runtime half of a lifecycle subscription: a fire-and-forget handler the host calls when an
  * event it declared occurs. It cannot affect the run; a throw or timeout is swallowed.
  */
+/** What a lifecycle handler receives besides the event. */
+export interface LifecycleHandlerContext {
+  readonly signal: AbortSignal;
+  /**
+   * Write raw bytes to the user's controlling terminal. Use this for terminal escape sequences (for
+   * example an OSC notification): the host targets the controlling terminal directly, so the write
+   * reaches it even when a fullscreen TUI owns stdout. Best-effort and never throws.
+   */
+  readonly writeTerminalSequence: (data: string) => void;
+}
+
 export interface PluginLifecycleRegistration {
   readonly event: LifecycleEventId;
-  readonly handler: (
-    event: LifecycleEvent,
-    context: { readonly signal: AbortSignal },
-  ) => Promise<void>;
+  readonly handler: (event: LifecycleEvent, context: LifecycleHandlerContext) => Promise<void>;
 }
 
 export interface PluginHostApi {

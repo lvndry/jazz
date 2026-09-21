@@ -11,12 +11,14 @@
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { computePluginConsentDigest } from "@jazz/core/agent/plugins/consent";
 import { PluginArtifactInstaller, acquirePluginManifest } from "./artifact-installer";
 import {
   describeGitHubSource,
+  EXCLUDED_DIRECTORIES,
   hashSourceTree,
+  isLocalSourceDirectory,
   materializeGitHubSource,
   parseGitHubPluginSource,
   type GitHubPluginSource,
@@ -71,6 +73,22 @@ export interface PluginRegistryServiceOptions {
   readonly fetchImpl?: typeof fetch;
   /** True after this process imported at least one plugin digest. */
   readonly hasLoadedDigest?: (digest: string) => boolean;
+}
+
+/** A plugin to install from source: a GitHub repo or a local directory holding a `jazz-plugin.json`. */
+interface SourceSpec {
+  readonly github?: GitHubPluginSource;
+  readonly localDirectory?: string;
+}
+
+/** A source tree materialized and hashed on disk, ready to commit into the digest-addressed store. */
+interface PreparedSource {
+  readonly manifest: PluginManifest;
+  readonly entry: string;
+  readonly digest: string;
+  readonly sourceLabel: string;
+  readonly root: string;
+  readonly cleanup: () => Promise<void>;
 }
 
 function recordFor(manifest: PluginManifest, source: URL, artifactPath: string): PluginLockRecord {
@@ -192,34 +210,19 @@ export class PluginRegistryServiceImpl {
    * that hash is the digest the operator trusts; no code is bundled or executed. The plugin lands
    * untrusted and disabled.
    */
-  async addFromSource(spec: {
-    readonly github?: GitHubPluginSource;
-    readonly localDirectory?: string;
-  }): Promise<PluginLifecycleResult> {
-    const temporary = spec.github
-      ? await fs.mkdtemp(path.join(os.tmpdir(), "jazz-plugin-src-"))
-      : undefined;
+  async addFromSource(spec: SourceSpec): Promise<PluginLifecycleResult> {
+    const prepared = await this.materializeSource(spec);
     try {
-      const root = spec.localDirectory ?? temporary;
-      if (root === undefined) {
-        throw new Error("A source install requires a GitHub source or a local directory");
-      }
-      if (spec.github) await materializeGitHubSource(spec.github, root, this.options.fetchImpl);
-      const digest = await hashSourceTree(root);
-      const { manifest, entry } = await prepareSourceManifest(root, digest);
-      const sourceLabel = spec.github
-        ? describeGitHubSource(spec.github)
-        : pathToFileURL(path.resolve(root)).toString();
       return await this.stateStore.transact(async (state) => {
-        if (state.plugins[manifest.id]) {
-          throw new Error(`Plugin is already installed: ${manifest.id}`);
+        if (state.plugins[prepared.manifest.id]) {
+          throw new Error(`Plugin is already installed: ${prepared.manifest.id}`);
         }
-        const committed = await this.installer.commitSourceTree(root, digest);
+        const committed = await this.installer.commitSourceTree(prepared.root, prepared.digest);
         const record: PluginStateRecord = {
           current: {
-            manifest,
-            source: sourceLabel,
-            artifactPath: path.join(committed, entry),
+            manifest: prepared.manifest,
+            source: prepared.sourceLabel,
+            artifactPath: path.join(committed, prepared.entry),
             installedAt: new Date().toISOString(),
             kind: "source",
           },
@@ -230,22 +233,31 @@ export class PluginRegistryServiceImpl {
           storedSecretNames: [],
         };
         return {
-          state: replaceEntry(state, manifest.id, record),
+          state: replaceEntry(state, prepared.manifest.id, record),
           result: {
             action: "added" as const,
-            pluginId: manifest.id,
-            digest,
+            pluginId: prepared.manifest.id,
+            digest: prepared.digest,
             restartRequired: false,
           },
         };
       });
     } finally {
-      if (temporary)
-        await fs.rm(temporary, { recursive: true, force: true }).catch(() => undefined);
+      await prepared.cleanup();
     }
   }
 
+  /**
+   * Update a plugin, re-fetching from its source when it was installed from one. `source` may be a
+   * GitHub `owner/repo`, a github URL, or a local source directory; a packed manifest path/URL keeps
+   * the bundled-artifact path. The CLI defaults `source` to the plugin's recorded source, so
+   * `jazz plugin update owner/repo` re-pulls the same repo.
+   */
   async update(id: string, source: string | URL): Promise<PluginLifecycleResult> {
+    const spec = await this.sourceSpecFor(source);
+    if (spec !== undefined) {
+      return this.updateFromSource(id, spec);
+    }
     const acquired = await acquirePluginManifest(source, this.options.fetchImpl);
     return this.stateStore.transact(async (state) => {
       const existing = requireEntry(state, id);
@@ -273,6 +285,95 @@ export class PluginRegistryServiceImpl {
         },
       };
     });
+  }
+
+  private async updateFromSource(id: string, spec: SourceSpec): Promise<PluginLifecycleResult> {
+    const prepared = await this.materializeSource(spec);
+    try {
+      return await this.stateStore.transact(async (state) => {
+        const existing = requireEntry(state, id);
+        const pluginId = existing.current.manifest.id;
+        if (prepared.manifest.id !== pluginId) {
+          throw new Error(`Update id mismatch: expected ${pluginId}`);
+        }
+        if (existing.current.manifest.sha256 === prepared.digest) {
+          throw new Error(`Plugin ${pluginId} is already at digest ${prepared.digest}`);
+        }
+        const committed = await this.installer.commitSourceTree(prepared.root, prepared.digest);
+        const record: PluginStateRecord = {
+          ...existing,
+          current: {
+            manifest: prepared.manifest,
+            source: prepared.sourceLabel,
+            artifactPath: path.join(committed, prepared.entry),
+            installedAt: new Date().toISOString(),
+            kind: "source",
+          },
+          previous: existing.current,
+          enabledAgentIds: [],
+        };
+        return {
+          state: replaceEntry(state, pluginId, record),
+          result: {
+            action: "updated" as const,
+            pluginId,
+            digest: prepared.digest,
+            restartRequired: this.wasLoaded(existing.current.manifest.sha256),
+          },
+        };
+      });
+    } finally {
+      await prepared.cleanup();
+    }
+  }
+
+  /** Classify an update/install source: a GitHub or local-directory source, or undefined for packed. */
+  private async sourceSpecFor(source: string | URL): Promise<SourceSpec | undefined> {
+    const text = typeof source === "string" ? source : source.toString();
+    const github = parseGitHubPluginSource(text);
+    if (github !== undefined) {
+      return { github };
+    }
+    const candidate = text.startsWith("file://") ? fileURLToPath(text) : text;
+    if (await isLocalSourceDirectory(candidate)) {
+      return { localDirectory: path.resolve(candidate) };
+    }
+    return undefined;
+  }
+
+  /** Fetch and hash a source tree into a temp/local dir, ready to commit. Caller runs cleanup(). */
+  private async materializeSource(spec: SourceSpec): Promise<PreparedSource> {
+    // Always work in a private snapshot so the tree that is hashed is exactly the tree that is
+    // committed. A GitHub source is downloaded into it; a local directory is copied into it, so a
+    // concurrent edit to the user's directory cannot make the recorded digest diverge from the
+    // committed bytes.
+    const temporary = await fs.mkdtemp(path.join(os.tmpdir(), "jazz-plugin-src-"));
+    const cleanup = async (): Promise<void> => {
+      await fs.rm(temporary, { recursive: true, force: true }).catch(() => undefined);
+    };
+    try {
+      let sourceLabel: string;
+      if (spec.github) {
+        await materializeGitHubSource(spec.github, temporary, this.options.fetchImpl);
+        sourceLabel = describeGitHubSource(spec.github);
+      } else if (spec.localDirectory !== undefined) {
+        await fs.cp(spec.localDirectory, temporary, {
+          recursive: true,
+          dereference: false,
+          errorOnExist: false,
+          filter: (candidate) => !EXCLUDED_DIRECTORIES.has(path.basename(candidate)),
+        });
+        sourceLabel = pathToFileURL(path.resolve(spec.localDirectory)).toString();
+      } else {
+        throw new Error("A source install requires a GitHub source or a local directory");
+      }
+      const digest = await hashSourceTree(temporary);
+      const { manifest, entry } = await prepareSourceManifest(temporary, digest);
+      return { manifest, entry, digest, sourceLabel, root: temporary, cleanup };
+    } catch (error) {
+      await cleanup();
+      throw error;
+    }
   }
 
   async rollback(id: string): Promise<PluginLifecycleResult> {
