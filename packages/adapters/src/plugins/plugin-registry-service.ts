@@ -18,6 +18,7 @@ import {
   describeGitHubSource,
   hashSourceTree,
   materializeGitHubSource,
+  parseGitHubPluginSource,
   type GitHubPluginSource,
 } from "./github-source";
 import type { PluginManifest } from "./manifest-schema";
@@ -89,8 +90,28 @@ export function pluginConsentDigest(manifest: PluginManifest): string {
   return computePluginConsentDigest(manifest);
 }
 
+/**
+ * Resolve a user-supplied identifier to an installed plugin id: an exact id, or the `owner/repo`
+ * (or github URL) the plugin was installed from, matched against its recorded source. Lets the
+ * management commands accept the same identifier used with `add`.
+ */
+function resolveInstalledId(state: PluginStateDocument, given: string): string | undefined {
+  if (state.plugins[given]) return given;
+  const github = parseGitHubPluginSource(given);
+  if (github) {
+    const base = `github:${github.owner}/${github.repo}`;
+    for (const [id, record] of Object.entries(state.plugins)) {
+      if (record.current.source === base || record.current.source.startsWith(`${base}@`)) {
+        return id;
+      }
+    }
+  }
+  return undefined;
+}
+
 function requireEntry(state: PluginStateDocument, id: string): PluginStateRecord {
-  const entry = state.plugins[id];
+  const resolved = resolveInstalledId(state, id);
+  const entry = resolved === undefined ? undefined : state.plugins[resolved];
   if (!entry) throw new Error(`Plugin is not installed: ${id}`);
   return entry;
 }
@@ -208,11 +229,14 @@ export class PluginRegistryServiceImpl {
 
   async update(id: string, source: string | URL): Promise<PluginLifecycleResult> {
     const acquired = await acquirePluginManifest(source, this.options.fetchImpl);
-    if (acquired.manifest.id !== id) throw new Error(`Update id mismatch: expected ${id}`);
     return this.stateStore.transact(async (state) => {
       const existing = requireEntry(state, id);
+      const pluginId = existing.current.manifest.id;
+      if (acquired.manifest.id !== pluginId) {
+        throw new Error(`Update id mismatch: expected ${pluginId}`);
+      }
       if (existing.current.manifest.sha256 === acquired.manifest.sha256) {
-        throw new Error(`Plugin ${id} is already at digest ${acquired.manifest.sha256}`);
+        throw new Error(`Plugin ${pluginId} is already at digest ${acquired.manifest.sha256}`);
       }
       const artifactPath = await this.installer.install(acquired.manifest, acquired.source);
       const entry: PluginStateRecord = {
@@ -222,10 +246,10 @@ export class PluginRegistryServiceImpl {
         enabledAgentIds: [],
       };
       return {
-        state: replaceEntry(state, id, entry),
+        state: replaceEntry(state, pluginId, entry),
         result: {
           action: "updated" as const,
-          pluginId: id,
+          pluginId,
           digest: acquired.manifest.sha256,
           restartRequired: this.wasLoaded(existing.current.manifest.sha256),
         },
@@ -236,6 +260,7 @@ export class PluginRegistryServiceImpl {
   async rollback(id: string): Promise<PluginLifecycleResult> {
     return this.stateStore.transact((state) => {
       const existing = requireEntry(state, id);
+      const pluginId = existing.current.manifest.id;
       if (!existing.previous) throw new Error(`Plugin ${id} has no rollback artifact`);
       const entry: PluginStateRecord = {
         ...existing,
@@ -244,10 +269,10 @@ export class PluginRegistryServiceImpl {
         enabledAgentIds: [],
       };
       return {
-        state: replaceEntry(state, id, entry),
+        state: replaceEntry(state, pluginId, entry),
         result: {
           action: "rolled-back" as const,
-          pluginId: id,
+          pluginId,
           digest: entry.current.manifest.sha256,
           restartRequired: this.wasLoaded(existing.current.manifest.sha256),
         },
@@ -258,6 +283,7 @@ export class PluginRegistryServiceImpl {
   async trust(id: string, expectedDigest: string): Promise<PluginLifecycleResult> {
     return this.stateStore.transact((state) => {
       const existing = requireEntry(state, id);
+      const pluginId = existing.current.manifest.id;
       if (existing.current.manifest.sha256 !== expectedDigest) {
         throw new Error(`Plugin digest changed; inspect ${id} and acknowledge the current digest`);
       }
@@ -266,10 +292,10 @@ export class PluginRegistryServiceImpl {
         trustedDigests: normalized([...existing.trustedDigests, expectedDigest]),
       };
       return {
-        state: replaceEntry(state, id, entry),
+        state: replaceEntry(state, pluginId, entry),
         result: {
           action: "trusted" as const,
-          pluginId: id,
+          pluginId,
           digest: expectedDigest,
           restartRequired: false,
         },
@@ -280,6 +306,7 @@ export class PluginRegistryServiceImpl {
   async grantConsent(id: string, expectedConsentDigest: string): Promise<PluginLifecycleResult> {
     return this.stateStore.transact((state) => {
       const existing = requireEntry(state, id);
+      const pluginId = existing.current.manifest.id;
       const actual = pluginConsentDigest(existing.current.manifest);
       if (actual !== expectedConsentDigest) {
         throw new Error(`Plugin consent declaration changed; inspect ${id} again`);
@@ -289,10 +316,10 @@ export class PluginRegistryServiceImpl {
         : [...existing.consentGrants, { digest: actual, grantedAt: new Date().toISOString() }];
       const entry = { ...existing, consentGrants };
       return {
-        state: replaceEntry(state, id, entry),
+        state: replaceEntry(state, pluginId, entry),
         result: {
           action: "consented" as const,
-          pluginId: id,
+          pluginId,
           digest: actual,
           restartRequired: false,
         },
@@ -304,6 +331,7 @@ export class PluginRegistryServiceImpl {
     if (agentId.trim().length === 0) throw new Error("agentId cannot be empty");
     return this.stateStore.transact((state) => {
       const existing = requireEntry(state, id);
+      const pluginId = existing.current.manifest.id;
       const digest = existing.current.manifest.sha256;
       if (!existing.trustedDigests.includes(digest)) throw new Error(`Plugin ${id} is not trusted`);
       if (
@@ -315,7 +343,7 @@ export class PluginRegistryServiceImpl {
       }
       const conflicts: string[] = [];
       for (const [otherId, other] of Object.entries(state.plugins)) {
-        if (otherId === id || !other.enabledAgentIds.includes(agentId)) continue;
+        if (otherId === pluginId || !other.enabledAgentIds.includes(agentId)) continue;
         const overlap = other.current.manifest.hooks.filter((hook) =>
           existing.current.manifest.hooks.includes(hook),
         );
@@ -329,8 +357,8 @@ export class PluginRegistryServiceImpl {
         activatedDigests: normalized([...existing.activatedDigests, digest]),
       };
       return {
-        state: replaceEntry(state, id, entry),
-        result: { action: "enabled" as const, pluginId: id, digest, restartRequired: false },
+        state: replaceEntry(state, pluginId, entry),
+        result: { action: "enabled" as const, pluginId, digest, restartRequired: false },
       };
     });
   }
@@ -338,14 +366,15 @@ export class PluginRegistryServiceImpl {
   async disable(id: string, agentId?: string): Promise<PluginLifecycleResult> {
     return this.stateStore.transact((state) => {
       const existing = requireEntry(state, id);
+      const pluginId = existing.current.manifest.id;
       const enabledAgentIds = agentId
         ? existing.enabledAgentIds.filter((candidate) => candidate !== agentId)
         : [];
       return {
-        state: replaceEntry(state, id, { ...existing, enabledAgentIds }),
+        state: replaceEntry(state, pluginId, { ...existing, enabledAgentIds }),
         result: {
           action: "disabled" as const,
-          pluginId: id,
+          pluginId,
           digest: existing.current.manifest.sha256,
           restartRequired:
             existing.activatedDigests.includes(existing.current.manifest.sha256) ||
@@ -360,13 +389,15 @@ export class PluginRegistryServiceImpl {
     options?: { readonly keepSecrets?: boolean },
   ): Promise<PluginLifecycleResult> {
     let removed: PluginStateRecord | undefined;
+    let pluginId = id;
     const result = await this.stateStore.transact((state) => {
       removed = requireEntry(state, id);
+      pluginId = removed.current.manifest.id;
       return {
-        state: replaceEntry(state, id, undefined),
+        state: replaceEntry(state, pluginId, undefined),
         result: {
           action: "removed" as const,
-          pluginId: id,
+          pluginId,
           digest: removed.current.manifest.sha256,
           restartRequired:
             removed.activatedDigests.length > 0 ||
@@ -381,7 +412,7 @@ export class PluginRegistryServiceImpl {
         ...removed.current.manifest.secrets.map((secret) => secret.name),
         ...(removed.previous?.manifest.secrets.map((secret) => secret.name) ?? []),
       ]);
-      await Promise.all(names.map((name) => this.secrets.delete(id, name)));
+      await Promise.all(names.map((name) => this.secrets.delete(pluginId, name)));
     }
     await this.gc();
     return result;
@@ -390,15 +421,16 @@ export class PluginRegistryServiceImpl {
   async setSecret(id: string, name: string, value: string): Promise<boolean> {
     const state = await this.stateStore.read();
     const entry = requireEntry(state, id);
+    const pluginId = entry.current.manifest.id;
     if (!entry.current.manifest.secrets.some((secret) => secret.name === name)) {
-      throw new Error(`Plugin ${id} did not declare secret ${name}`);
+      throw new Error(`Plugin ${pluginId} did not declare secret ${name}`);
     }
-    const stored = await this.secrets.set(id, name, value);
+    const stored = await this.secrets.set(pluginId, name, value);
     if (stored) {
       await this.stateStore.transact((latest) => {
         const current = requireEntry(latest, id);
         return {
-          state: replaceEntry(latest, id, {
+          state: replaceEntry(latest, current.current.manifest.id, {
             ...current,
             storedSecretNames: normalized([...current.storedSecretNames, name]),
           }),
@@ -410,11 +442,13 @@ export class PluginRegistryServiceImpl {
   }
 
   async deleteSecret(id: string, name: string): Promise<void> {
-    await this.secrets.delete(id, name);
-    await this.stateStore.transact((state) => {
-      const entry = requireEntry(state, id);
+    const state = await this.stateStore.read();
+    const pluginId = requireEntry(state, id).current.manifest.id;
+    await this.secrets.delete(pluginId, name);
+    await this.stateStore.transact((latest) => {
+      const entry = requireEntry(latest, id);
       return {
-        state: replaceEntry(state, id, {
+        state: replaceEntry(latest, entry.current.manifest.id, {
           ...entry,
           storedSecretNames: entry.storedSecretNames.filter((candidate) => candidate !== name),
         }),
@@ -427,9 +461,10 @@ export class PluginRegistryServiceImpl {
     const state = await this.stateStore.read();
     const entry = requireEntry(state, id);
     const digest = entry.current.manifest.sha256;
+    const pluginId = entry.current.manifest.id;
     const consentDigest = pluginConsentDigest(entry.current.manifest);
     return {
-      id,
+      id: pluginId,
       current: entry.current,
       ...(entry.previous ? { previous: entry.previous } : {}),
       trusted: entry.trustedDigests.includes(digest),
@@ -437,7 +472,7 @@ export class PluginRegistryServiceImpl {
       consentDigest,
       enabledAgentIds: entry.enabledAgentIds,
       secrets: await Promise.all(
-        entry.current.manifest.secrets.map((secret) => this.secrets.status(id, secret)),
+        entry.current.manifest.secrets.map((secret) => this.secrets.status(pluginId, secret)),
       ),
       artifactValid: await this.verifyInstalled(entry.current),
       restartRequired: this.wasLoaded(digest),

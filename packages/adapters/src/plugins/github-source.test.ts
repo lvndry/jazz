@@ -141,6 +141,36 @@ describe("source-repo install lifecycle", () => {
     expect(loaded[0]?.module.apiVersion).toBe(1);
   });
 
+  test("resolves the owner/repo used to install to the plugin id for management commands", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "jazz-source-resolve-"));
+    const tarball = await createTarGzip([
+      {
+        name: "lvndry-jazz-plugin-warp-abc/jazz-plugin.json",
+        data: JSON.stringify(SOURCE_MANIFEST),
+      },
+      { name: "lvndry-jazz-plugin-warp-abc/src/index.ts", data: PLUGIN_ENTRY },
+    ]);
+    const fetchImpl = (async () =>
+      new Response(tarball as unknown as BodyInit, { status: 200 })) as unknown as typeof fetch;
+    const registry = new PluginRegistryServiceImpl({
+      pluginDirectory: path.join(root, "plugins"),
+      fetchImpl,
+    });
+    const added = await registry.addFromSource({
+      github: { owner: "lvndry", repo: "jazz-plugin-warp" },
+    });
+
+    // The same owner/repo used with `add` resolves to the installed id.
+    expect((await registry.inspect("lvndry/jazz-plugin-warp")).id).toBe("com.jazz.test.source");
+    await registry.trust("lvndry/jazz-plugin-warp", added.digest!);
+    expect((await registry.inspect("com.jazz.test.source")).trusted).toBe(true);
+
+    // A github URL and @ref form resolve to the same plugin.
+    expect((await registry.inspect("https://github.com/lvndry/jazz-plugin-warp")).id).toBe(
+      "com.jazz.test.source",
+    );
+  });
+
   test("verification fails if the installed source tree is tampered with", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "jazz-source-tamper-"));
     const repo = path.join(root, "plugin-repo");

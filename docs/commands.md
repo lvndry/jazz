@@ -323,6 +323,9 @@ See [Personas](./concepts/personas.md).
 
 ## `jazz plugin`
 
+Every command below that takes `<id>` also accepts the `owner/repo` (or github URL) you installed
+from — it resolves to the installed plugin. Trust and enable prompt for a plain yes/no confirmation.
+
 | Command                                           | Purpose                                                                                                                                |
 | ------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
 | `jazz plugin init <directory>`                    | Scaffold a types-only SDK plugin project. `--id`, `--name`                                                                             |

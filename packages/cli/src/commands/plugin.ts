@@ -182,10 +182,6 @@ function renderInspection(
   return Effect.gen(function* () {
     yield* terminal.heading("Jazz plugin");
     for (const line of manifestSummary(inspection)) yield* terminal.log(line);
-    yield* terminal.log("");
-    yield* terminal.warn(
-      "Trusted plugins execute inside Jazz with your full OS-user authority. Manifest declarations are disclosure, not a sandbox.",
-    );
   });
 }
 
@@ -258,14 +254,13 @@ export function pluginTrustCommand(id: string): Effect.Effect<void, Error, Termi
     const service = registry();
     const inspection = yield* attempt(() => service.inspect(id));
     yield* renderInspection(terminal, inspection);
-    const phrase = `trust ${inspection.current.manifest.sha256}`;
-    const answer = yield* terminal.ask(`Type '${phrase}' to grant full code execution:`, {
-      simple: true,
-      cancellable: true,
-    });
-    if (answer !== phrase) return yield* Effect.fail(new Error("Plugin trust cancelled."));
+    const confirmed = yield* terminal.confirm(
+      `Are you sure you want to trust ${inspection.id}? This can execute code on your behalf.`,
+      false,
+    );
+    if (!confirmed) return yield* Effect.fail(new Error("Plugin trust cancelled."));
     yield* attempt(() => service.trust(id, inspection.current.manifest.sha256));
-    yield* terminal.success(`Trusted ${id} at the inspected code digest.`);
+    yield* terminal.success(`Trusted ${inspection.id} at the inspected code digest.`);
   });
 }
 
@@ -285,18 +280,14 @@ export function pluginEnableCommand(
       );
     }
     yield* renderInspection(terminal, inspection);
-    const phrase = `enable ${inspection.consentDigest}`;
-    const answer = yield* terminal.ask(
-      `Type '${phrase}' to consent and enable for ${agent.name}:`,
-      {
-        simple: true,
-        cancellable: true,
-      },
+    const confirmed = yield* terminal.confirm(
+      `Enable ${inspection.id} for ${agent.name}? It runs with your OS-user authority and its declared network and data access.`,
+      false,
     );
-    if (answer !== phrase) return yield* Effect.fail(new Error("Plugin enablement cancelled."));
+    if (!confirmed) return yield* Effect.fail(new Error("Plugin enablement cancelled."));
     yield* attempt(() => service.grantConsent(id, inspection.consentDigest));
     yield* attempt(() => service.enable(id, agent.id));
-    yield* terminal.success(`Enabled ${id} for agent ${agent.name} (${agent.id}).`);
+    yield* terminal.success(`Enabled ${inspection.id} for agent ${agent.name} (${agent.id}).`);
   });
 }
 
