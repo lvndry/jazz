@@ -173,12 +173,20 @@ export interface LifecycleEvent {
 }
 
 /** A fire-and-forget handler the host calls when a declared lifecycle event occurs. */
+/** What a lifecycle handler receives besides the event. */
+export interface LifecycleHandlerContext {
+  readonly signal: AbortSignal;
+  /**
+   * Write raw bytes to the user's controlling terminal. Use this for terminal escape sequences (for
+   * example an OSC notification): the host targets the controlling terminal directly, so the write
+   * reaches it even when a fullscreen TUI owns stdout. Best-effort and never throws.
+   */
+  readonly writeTerminalSequence: (data: string) => void;
+}
+
 export interface PluginLifecycleRegistration {
   readonly event: LifecycleEventId;
-  readonly handler: (
-    event: LifecycleEvent,
-    context: { readonly signal: AbortSignal },
-  ) => Promise<void>;
+  readonly handler: (event: LifecycleEvent, context: LifecycleHandlerContext) => Promise<void>;
 }
 
 export interface PluginHostApi {

@@ -87,7 +87,7 @@ describe("example-tool plugin", () => {
           cwd: "/tmp",
           data: { summary: "done" },
         },
-        { signal: new AbortController().signal },
+        { signal: new AbortController().signal, writeTerminalSequence: () => {} },
       ),
     ).resolves.toBeUndefined();
   });
