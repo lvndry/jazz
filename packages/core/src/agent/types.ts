@@ -14,6 +14,7 @@ import type {
   ToolExecutionContext,
 } from "@/core/types/tools";
 import type { Agent } from "../types";
+import type { ReduceToolResultsFn } from "./context/advised-tool-clearing";
 import type { createAgentRunMetrics } from "./metrics/agent-run-metrics";
 
 /**
@@ -378,6 +379,13 @@ export interface AgentRunContext {
    * Never push this into `messages`: canonical history must remain byte-equivalent.
    */
   readonly initialProviderAdvisory?: string;
+  /**
+   * Decision-advised clear rung, injected when a `compact.tools` plugin is enabled. Absent otherwise,
+   * leaving the deterministic clearer in charge.
+   */
+  readonly reduceToolResults?: ReduceToolResultsFn;
+  /** Display name of the plugin providing `compact.tools`, to credit it in the run's UI. */
+  readonly compactPluginName?: string;
   readonly runMetrics: ReturnType<typeof createAgentRunMetrics>;
   readonly provider: ProviderName;
   readonly model: string;

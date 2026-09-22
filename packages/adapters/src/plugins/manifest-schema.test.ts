@@ -18,6 +18,7 @@ function manifest(overrides: Record<string, unknown> = {}): Record<string, unkno
     artifact: "./plugin.mjs",
     sha256: "a".repeat(64),
     hooks: ["route.skills"],
+    policyHooks: [],
     decisionProviders: ["test"],
     network: { destinations: ["API.Example.com:443"] },
     dataSent: ["turn.request_text"],
@@ -53,6 +54,30 @@ describe("parsePluginManifest", () => {
   test("rejects unknown fields and malformed digests", () => {
     expect(() => parsePluginManifest(manifest({ surprise: true }))).toThrow("unknown field");
     expect(() => parsePluginManifest(manifest({ sha256: "ABC" }))).toThrow("64 lowercase hex");
+  });
+
+  test("parses policy hooks separately from advisory hooks", () => {
+    expect(
+      parsePluginManifest(manifest({ policyHooks: ["classify.command-risk"] })).policyHooks,
+    ).toEqual(["classify.command-risk"]);
+    expect(() => parsePluginManifest(manifest({ policyHooks: ["route.skills"] }))).toThrow(
+      "Unknown policy hook",
+    );
+    expect(() => parsePluginManifest(manifest({ hooks: ["classify.command-risk"] }))).toThrow(
+      "Unknown advisory hook",
+    );
+  });
+
+  test("defaults omitted policy hooks while validating declared values", () => {
+    const legacy = manifest();
+    delete legacy["policyHooks"];
+    expect(parsePluginManifest(legacy).policyHooks).toEqual([]);
+    expect(() => parsePluginManifest(manifest({ policyHooks: ["route.skills"] }))).toThrow(
+      "Unknown policy hook",
+    );
+    expect(() => parsePluginManifest(manifest({ policyHooks: "classify.command-risk" }))).toThrow(
+      "policyHooks must be an array",
+    );
   });
 
   test("rejects wildcard, URL-shaped, and local destinations", () => {

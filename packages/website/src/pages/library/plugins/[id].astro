@@ -1,0 +1,26 @@
+---
+import PluginDefinition from "../../../components/PluginDefinition.astro";
+import Library from "../../../layouts/Library.astro";
+import { getPluginEntries, pluginManifestPath, type PluginEntry } from "../../../lib/library";
+
+export async function getStaticPaths() {
+  const entries = await getPluginEntries();
+  return entries.map((entry) => ({
+    params: { id: entry.id },
+    props: { entry },
+  }));
+}
+
+interface Props {
+  entry: PluginEntry;
+}
+
+const { entry } = Astro.props;
+const manifest = JSON.stringify(entry, null, 2);
+const manifestPath = entry.sourceType === "reviewed" ? pluginManifestPath(entry.id) : entry.manifestUrl;
+const listingType = entry.sourceType === "reviewed" ? "Reviewed" : "Community";
+---
+
+<Library title={`${entry.name} — Jazz plugin`} description={`${listingType} Jazz plugin: ${entry.name}.`}>
+  <PluginDefinition entry={entry} manifest={manifest} manifestPath={manifestPath} />
+</Library>

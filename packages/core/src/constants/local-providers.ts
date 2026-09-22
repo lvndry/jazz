@@ -6,23 +6,29 @@
 import type { ProviderName } from "@/core/constants/models";
 import { isOllamaCloudModel } from "@/core/constants/ollama";
 
+/** Providers whose models run behind a server controlled by the Jazz user. */
+export const LOCAL_MODEL_PROVIDERS = [
+  "llamacpp",
+  "ollama",
+] as const satisfies readonly ProviderName[];
+
+export type LocalServerProvider = (typeof LOCAL_MODEL_PROVIDERS)[number];
+
 // Local, user-run servers. This metadata drives the "server unreachable" diagnostics.
 export const LOCAL_SERVER_PROVIDERS = {
   llamacpp: {
     name: "llama.cpp",
-    defaultUrl: "http://localhost:8080",
+    defaultUrl: "http://127.0.0.1:8080",
     envVar: "LLAMACPP_BASE_URL",
     startHint: "llama-server -m <model>.gguf --port 8080 --jinja",
   },
   ollama: {
     name: "Ollama",
-    defaultUrl: "http://localhost:11434",
+    defaultUrl: "http://127.0.0.1:11434",
     envVar: "OLLAMA_BASE_URL",
     startHint: "ollama serve",
   },
-} as const satisfies Partial<Record<ProviderName, unknown>>;
-
-export type LocalServerProvider = keyof typeof LOCAL_SERVER_PROVIDERS;
+} as const satisfies Record<LocalServerProvider, unknown>;
 
 /**
  * Whether this provider serves models from the user's own machine.
@@ -33,7 +39,7 @@ export type LocalServerProvider = keyof typeof LOCAL_SERVER_PROVIDERS;
  * request cap.
  */
 export function isLocalServerProvider(provider: string): provider is LocalServerProvider {
-  return provider in LOCAL_SERVER_PROVIDERS;
+  return LOCAL_MODEL_PROVIDERS.some((localProvider) => localProvider === provider);
 }
 
 /**

@@ -1,5 +1,17 @@
 import { describe, expect, it } from "bun:test";
-import { isZeroCostLocalModel } from "./local-providers";
+import {
+  isLocalServerProvider,
+  isZeroCostLocalModel,
+  LOCAL_MODEL_PROVIDERS,
+} from "./local-providers";
+
+describe("LOCAL_MODEL_PROVIDERS", () => {
+  it("lists exactly the local model servers", () => {
+    expect(LOCAL_MODEL_PROVIDERS).toEqual(["llamacpp", "ollama"]);
+    expect(isLocalServerProvider("llamacpp")).toBe(true);
+    expect(isLocalServerProvider("openai")).toBe(false);
+  });
+});
 
 describe("isZeroCostLocalModel", () => {
   it("treats local servers as zero-cost", () => {

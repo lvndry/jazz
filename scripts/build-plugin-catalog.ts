@@ -1,14 +1,17 @@
 /**
- * Rebuild the reviewed first-party plugin catalog into `.build/plugin-catalog`.
- * The website publishes only these packer-generated manifests and artifacts.
+ * Rebuild the reviewed and community plugin catalogs into `.build/plugin-catalog`.
+ * Reviewed entries publish packer-generated artifacts; community entries remain metadata-only.
  */
 
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { packPlugin } from "@jazz/adapters/plugins";
 
-const OFFICIAL_PLUGINS: readonly string[] = [];
+const OFFICIAL_PLUGINS = ["plugins/jev"] as const;
 const OUTPUT_DIRECTORY = path.resolve(".build/plugin-catalog");
+const COMMUNITY_CATALOG_SOURCE = path.resolve(
+  "packages/website/src/data/community-plugin-catalog.json",
+);
 
 interface CatalogRoute {
   readonly path: string;
@@ -37,6 +40,8 @@ export async function buildPluginCatalog(): Promise<void> {
       unknown
     >;
     const artifactPath = `/library/plugins/${sourceManifest.id}/${sourceManifest.version}/${packed.sha256}.mjs`;
+    // Keep the reviewed catalog entry a valid install manifest. Website-only provenance is
+    // inferred by the absence of community metadata, so `jazz plugin add <id>` can consume it.
     const publicManifest = { ...manifest, artifact: artifactPath };
     const manifestFile = path.join(OUTPUT_DIRECTORY, `${sourceManifest.id}.json`);
     await writeFile(manifestFile, `${JSON.stringify(publicManifest, null, 2)}\n`, "utf8");
@@ -60,6 +65,9 @@ export async function buildPluginCatalog(): Promise<void> {
     `${JSON.stringify({ schemaVersion: 1, plugins }, null, 2)}\n`,
     "utf8",
   );
+
+  const communityCatalog = await readFile(COMMUNITY_CATALOG_SOURCE, "utf8");
+  await writeFile(path.join(OUTPUT_DIRECTORY, "community-plugins.json"), communityCatalog, "utf8");
   await writeFile(
     path.join(OUTPUT_DIRECTORY, "routes.json"),
     `${JSON.stringify(routes, null, 2)}\n`,

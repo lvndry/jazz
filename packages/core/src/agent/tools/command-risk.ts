@@ -11,13 +11,14 @@
  * separately from the agent-loop totals so telemetry can split approval
  * gating from the conversation.
  */
-import { Duration, Effect } from "effect";
+import { Cause, Duration, Effect } from "effect";
 import { selectSummarizerModel } from "@/core/agent/context/summarizer";
 import { LLMServiceTag, type LLMService } from "@/core/interfaces/llm";
 import { LoggerServiceTag, type LoggerService } from "@/core/interfaces/logger";
 import type { TokenUsage } from "@/core/interfaces/telemetry";
 import type { Agent } from "@/core/types/agent";
 import type { ChatMessage } from "@/core/types/message";
+import type { CommandRiskOutcome } from "@/core/types/plugin";
 import type { AutoApprovePolicy, ToolRiskLevel } from "@/core/types/tools";
 import {
   emitLLMUsage,
@@ -78,6 +79,68 @@ export function parseClassifierVerdict(content: string): ToolRiskLevel {
   if (normalized === "read-only") return "read-only";
   if (normalized === "low-risk") return "low-risk";
   return "high-risk";
+}
+
+/**
+ * Turn a validated policy-plugin distribution into a risk verdict.
+ *
+ * Lowering an unknown command's risk is an authorization decision, so a merely
+ * likely answer is not sufficient: one class must carry at least 90% of the
+ * probability mass. Everything else remains high-risk.
+ */
+export function riskFromPluginDistribution(
+  outcome: Extract<CommandRiskOutcome, { readonly status: "answered" }>,
+): ToolRiskLevel {
+  const distribution = outcome.distribution;
+  if (
+    distribution.readOnlyProbability >= 0.9 &&
+    distribution.readOnlyProbability > distribution.lowRiskProbability &&
+    distribution.readOnlyProbability > distribution.highRiskProbability
+  ) {
+    return "read-only";
+  }
+  if (
+    distribution.lowRiskProbability >= 0.9 &&
+    distribution.lowRiskProbability > distribution.readOnlyProbability &&
+    distribution.lowRiskProbability > distribution.highRiskProbability
+  ) {
+    return "low-risk";
+  }
+  return "high-risk";
+}
+
+export type CommandRiskPolicyHook = (command: string) => Effect.Effect<CommandRiskOutcome, unknown>;
+
+/**
+ * Resolve an eligible command through the optional policy plugin, falling back
+ * to Jazz's built-in classifier when no plugin answers or the plugin fails.
+ * An answered but uncertain distribution is deliberately high-risk rather than
+ * a fallback: the provider made a decision, and the host applies its threshold.
+ */
+export function resolveCommandRisk(
+  command: string,
+  agent: Agent,
+  conversationMessages?: readonly ChatMessage[],
+  runMetrics?: AgentRunMetrics,
+  policyHook?: CommandRiskPolicyHook,
+): Effect.Effect<ToolRiskLevel, never, LLMService | LoggerService> {
+  return Effect.gen(function* () {
+    if (policyHook !== undefined) {
+      const outcome = yield* policyHook(command).pipe(
+        Effect.map((value) => ({ ok: true as const, value })),
+        Effect.catchAll(() => Effect.succeed({ ok: false as const })),
+        Effect.catchAllCause((cause) =>
+          Cause.isInterruptedOnly(cause)
+            ? Effect.failCause(cause)
+            : Effect.succeed({ ok: false as const }),
+        ),
+      );
+      if (outcome.ok && outcome.value.status === "answered") {
+        return riskFromPluginDistribution(outcome.value);
+      }
+    }
+    return yield* classifyCommandRisk(command, agent, conversationMessages, runMetrics);
+  });
 }
 
 interface ClassifierTurn {

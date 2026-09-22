@@ -11,14 +11,25 @@ contribute any mix of capabilities:
 - **commands** — user-invoked `/name` slash commands;
 - **personas** — selectable agent personalities;
 - **skills** — loadable instruction documents;
-- an advisory **hook** (`route.skills`) that suggests a skill before the first model request.
+- **advisory hooks** — `route.skills` (suggest a skill before the first model request) and
+  `compact.tools` (choose which stale tool results to prune during compaction), which only shape
+  context;
+- a **policy hook** — `classify.command-risk`, which can affect whether the active approval policy
+  requires a person to approve one shell command.
 
 Tools and commands run code and are gated accordingly; personas and skills are inert declared data.
-An advisory hook cannot authorize a tool, change approval policy, or act on the model's behalf.
+Advisory hooks cannot authorize a tool, change approval policy, or act on the model's behalf; the
+policy hook shapes approval only.
 
 Plugins are absent and disabled by default. A normal Jazz installation has no plugin network call,
 latency, prompt change, or credential requirement. Everything a plugin adds is declared in its
 manifest — the reviewed, consented contract — and the module can never exceed what it declared.
+
+The [Jazz Marketplace](https://jazz-cli.vercel.app/library) lists reviewed first-party plugins
+alongside skills, personas, and workflows. A listing is a discovery and review surface, not a
+trust grant: use `jazz plugin add`, `inspect`, `trust`, and `enable` as separate local decisions.
+The marketplace exposes the plugin's exact version, artifact digest, hooks, capabilities, network
+destinations, data classes, and secrets before installation.
 
 ## Trust means code execution
 
@@ -38,6 +49,8 @@ jazz plugin add owner/repo@v1.2.3     # pin a branch, tag, or commit
 jazz plugin inspect com.example.router
 jazz plugin trust com.example.router
 jazz plugin enable com.example.router --agent default
+# Or enable for every agent, including agents created later:
+jazz plugin enable com.example.router
 ```
 
 `jazz plugin add owner/repo` downloads the repository tarball over HTTPS — no local `git` — extracts
@@ -46,15 +59,79 @@ it, and hashes the source tree; that hash is the digest you trust. A local direc
 HTTPS manifest URL, or a locally packed `./release/catalog-entry.json` still install as bundled
 artifacts (see [Authoring](#authoring)).
 
-`add` stores the source or bytes but never imports them. Jazz imports a module lazily only for a run
-whose agent has enabled it and whose exact code and consent digests are still granted; before each
-run it re-hashes the installed source tree and refuses to load code that no longer matches its
-trusted digest.
+## Community plugin discovery
 
-Enabled `route.skills` plugins currently run in shadow mode: bounded usage, latency, and cost are
-measured, but their answer does not change the provider request. Maintainers can explicitly test
-host-rendered advisory injection with `JAZZ_EXPERIMENTAL_PLUGIN_ADVISORY=1`; this is not enabled by
-installation, trust, or consent and remains gated on held end-to-end eval results.
+Public repositories can opt into Jazz's metadata-only community directory by adding the exact
+GitHub topic `jazz-plugin` and a valid root `jazz-plugin.json`. Jazz's scheduled index refresh reads
+repository metadata, resolves the default branch to a full commit SHA, and fetches only that JSON
+manifest. It never checks out, builds, imports, or executes community repository code.
+
+Community entries are labeled **community-indexed — not reviewed by Jazz**. Their declared hooks,
+network destinations, data classes, secrets, tools, and commands are disclosures supplied by the
+repository, not independent security findings. Jazz shows the observed commit and emits an install
+command pinned to it:
+
+```bash
+jazz plugin add owner/repo@<commit-sha>
+```
+
+The normal local lifecycle still applies: installation stores and hashes the source, then the
+operator must inspect, trust, grant egress consent, and enable it. Community entries are kept out
+of the reviewed artifact catalog and cannot be installed by reviewed catalog id.
+
+The website consumes a checked-in snapshot at
+`packages/website/src/data/community-plugin-catalog.json`. The scheduled
+`community plugin catalog` workflow refreshes that snapshot through a pull request, so website
+builds remain deterministic and do not depend on GitHub being available at deploy time.
+
+`add` stores the source or bytes but never imports them. Jazz imports a module lazily only for a run
+whose agent has enabled it — per agent, or for all agents — and whose exact code and consent digests
+are still granted; before each run it re-hashes the installed source tree and refuses to load code
+that no longer matches its trusted digest.
+
+An enabled `route.skills` plugin ranks the live skills for the turn, and Jazz adds a short,
+non-authoritative relevance hint for the top skill to the first provider request when it beats the
+no-skill option. The hint is transient provider context: it never enters durable history, resume
+state, work state, or telemetry, and the plugin can never load a skill, change tools, or authorize
+anything. Any error or abstention falls back to deterministic behavior, and routing is skipped for
+resumes and summarizer runs.
+
+## Tool-compaction hook
+
+`compact.tools` runs before summarization: automatically at the clear rung of the context ladder —
+once a run passes 50% of its context window, and on every iteration above it — and as a lossless
+pre-pass when you invoke `/compact` yourself (which otherwise jumps straight to the summarizer).
+Below 50% nothing is touched. For each old, large tool result it decides keep / truncate / drop;
+Jazz applies the decision by replacing content (never removing a message, so assistant/tool pairing
+stays valid) and only ever sends the result preview, not the whole body. The policy is asymmetric —
+a result is dropped only on a confident signal, a large uncertain one is truncated to head and tail,
+and anything else is kept — because losing a still-needed result is worse than keeping a stale one.
+If the plugin abstains, times out, or is absent, Jazz falls back to its deterministic tool-result
+clearer. It never touches user or assistant text.
+
+Because this happens quietly mid-run, Jazz surfaces it: the first time a run reclaims space this way
+it prints a one-line green notice crediting the plugin, and the individual keep / truncate / drop
+decisions are written to the log (`Compaction plugin tool-result decisions`) at both the clear rung
+and `/compact`. `/compact` additionally shows the decisions live and names the plugin as it works.
+
+## Command-risk policy hook
+
+`classify.command-risk` is eligible only for `execute_command`, whose declared risk is `unknown`
+because its arguments determine what it can do. The plugin classifies the proposed command as
+`read-only`, `low-risk`, or `high-risk`; Jazz validates that result and applies the operator's
+approval policy. A lower classification can therefore remove an approval prompt. Enabling this hook
+is explicit consent to that effect.
+
+The plugin is not the enforcement point. It cannot lower another tool's declared risk, expand the
+run's effective tool set, override a command allowlist, change the selected approval tier, or bypass
+the shell denylist. Jazz sends the hook only the bounded command string: not conversation history,
+tool results, environment variables, or file contents. Network-backed manifests must disclose that
+command-text egress and its exact destination before local consent can be granted.
+
+If the hook is absent, abstains, times out, fails validation, exceeds its budget, or becomes
+unavailable, Jazz falls back to its built-in command classifier. If classification remains
+unresolved, the command is treated as `high-risk`. Plugin failure never silently makes an unknown
+command safer.
 
 ## Tools
 
@@ -218,7 +295,9 @@ SHA-256. State transitions are cross-process locked and atomically committed.
 ## Secrets
 
 A plugin may ask only for secret names declared in its manifest. Resolution is environment first,
-then Jazz-owned secure storage. Set or clear a stored value without putting it in shell history:
+then Jazz-owned secure storage. `jazz plugin enable` prompts for any required secret it cannot
+already resolve and stores it in secure storage, so first-time setup needs no manual export or
+separate command. Set or clear a stored value later without putting it in shell history:
 
 ```bash
 jazz plugin secret set com.example.router apiKey
@@ -237,8 +316,13 @@ cd my-router
 bun install
 bun test
 jazz plugin dev . --hook route.skills --input fixtures/request.json
+jazz plugin dev . --hook classify.command-risk --input fixtures/command.json
 git init && git add -A && git commit -m "my plugin" && git push   # publish
 ```
+
+The command-risk fixture is a JSON object such as `{ "command": "git status" }`. Development
+probing resolves declared environment-backed secrets from the current shell, while keeping the
+plugin disposable and out of installed state.
 
 To publish, push the repository to GitHub — no build, pack, digest, or release step. Users install
 it with `jazz plugin add owner/repo`, and Jazz imports the entry (`src/index.ts`) directly. Keep the
@@ -249,10 +333,6 @@ the trusted source-tree hash.
 For a plugin that genuinely needs bundled dependencies, `jazz plugin pack .` still produces a
 self-contained `release/plugin.mjs`, its SHA-256, and a catalog entry, installable as a bundled
 artifact from a local path or HTTPS manifest URL — an opt-in escape hatch, no longer the default.
-
-The official catalog build runs reviewed, locked source without provider credentials and publishes
-the generated manifest plus its immutable digest-addressed artifact with the Jazz website. Authors
-never choose the catalog's authoritative digest.
 
 The official catalog build runs reviewed, locked source without provider credentials and publishes
 the generated manifest plus its immutable digest-addressed artifact with the Jazz website. Authors

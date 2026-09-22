@@ -30,14 +30,16 @@ export interface OneShotToolCall {
 }
 
 /**
- * Structured result of a `create_web_app` tool call, surfaced alongside the
- * text answer so callers (e.g. the Telegram bridge) can deliver it as an
- * image or a Web App button without having to parse it out of `answer`.
+ * Structured result of a `create_composition` tool call, surfaced alongside
+ * the text answer so callers can deliver it as an image or interactive link
+ * without parsing it out of `answer`.
  */
-export interface OneShotWebApp {
+export interface OneShotComposition {
   readonly id: string;
   readonly mode: "static" | "interactive";
   readonly title: string;
+  readonly sessionId: string;
+  readonly filename: string;
   readonly htmlPath: string;
   readonly imagePath?: string;
 }
@@ -55,13 +57,13 @@ export interface OneShotSuccess {
   readonly durationCapped?: boolean;
   readonly tokenUsage: OneShotTokenUsage;
   readonly toolCalls: readonly OneShotToolCall[];
-  readonly webApp?: OneShotWebApp;
+  readonly composition?: OneShotComposition;
   /**
    * Files this run produced, in the order they were made.
    *
-   * Supersedes `webApp` for anything that only needs "a file appeared, here is where and what
+   * Supersedes `composition` for anything that only needs "a file appeared, here is where and what
    * kind" — a script or bridge reads this instead of learning each producing tool by name.
-   * `webApp` stays because its interactive mode carries a URL-bearing shape no generic artifact
+   * `composition` stays because its interactive mode carries a URL-bearing shape no generic artifact
    * can express.
    */
   readonly artifacts?: readonly GeneratedArtifact[];
@@ -127,7 +129,7 @@ export function formatOneShotResult(result: OneShotSuccess, options: OneShotOutp
     ...(result.durationCapped ? { durationCapped: true } : {}),
     tokenUsage: result.tokenUsage,
     toolCalls: result.toolCalls,
-    ...(result.webApp ? { webApp: result.webApp } : {}),
+    ...(result.composition ? { composition: result.composition } : {}),
     ...(result.artifacts && result.artifacts.length > 0 ? { artifacts: result.artifacts } : {}),
     ...(result.messages ? { messages: result.messages } : {}),
   })}\n`;

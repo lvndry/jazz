@@ -10,10 +10,17 @@ Three rules keep it honest:
   the site.
 - **Blog posts live here.** `src/content/blog/**/*.md` is site-only
   content. Do not put posts at the repo root.
-- **Library content lives here.** `src/content/library/personas/*/PERSONA.md`
+- **Marketplace content has three sources.** `src/content/library/personas/*/PERSONA.md`
   and `src/content/library/workflows/*/WORKFLOW.md` are the source for both
   the browsable library and the catalogs consumed by `jazz persona browse`
-  and `jazz workflow browse`.
+  and `jazz workflow browse`. Repository-level `skills/**/SKILL.md` files are
+  discovered during the website build and served with their frontmatter intact.
+  Reviewed plugins are read from the generated `.build/plugin-catalog` output, while
+  community-indexed plugins come from the checked-in `src/data/community-plugin-catalog.json`
+  snapshot; the site does not accept, build, or execute arbitrary uploads.
+- `/library/marketplace.json` is the unified metadata index for all four listing
+  types. The type-specific JSON indexes remain available for existing CLI
+  consumers and integrations.
 - **Tokens are generated.** `bun run tokens` reads `src/cli/ui/theme.ts` and
   `src/cli/ui/glyphs.ts` and writes `src/styles/tokens.css` +
   `src/generated/tokens.ts`. CI fails if the checked-in output is stale.

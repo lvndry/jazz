@@ -119,9 +119,13 @@ The library is maintained by the website package, which publishes its content as
 
 1. For a persona, create `packages/website/src/content/library/personas/<name>/PERSONA.md` with frontmatter (`name`, `description`, optional `tone`, `style`, `author`, `tags`) and the system prompt in the body. Same format as the built-ins in `personas/`, which are worth reading first. Keep the prompt under 10,000 characters; `jazz persona install` refuses anything longer.
 2. For a workflow, create `packages/website/src/content/library/workflows/<name>/WORKFLOW.md`. Every [frontmatter field](docs/configure/workflows.md) is honoured, and the index additionally reads `author` and `tags`. Ask for the lowest `autoApprove` tier the job can do with, and do not pin an `agent` other people will not have.
-3. Open a PR. Merging publishes it to <https://jazz-cli.vercel.app/library> and to `jazz persona browse` or `jazz workflow browse`.
+3. For a marketplace skill, add or update a root `skills/<name>/SKILL.md`. It must have `name` and `description` frontmatter, and the published marketplace path contains only that instruction file. Do not rely on scripts, binaries, secrets, or undeclared files being installed. Review the instructions for prompt injection and accidental tool-use assumptions.
+4. Open a PR. Merging publishes it to <https://jazz-cli.vercel.app/library> and to the matching `jazz persona`, `jazz workflow`, or `jazz skill` catalog commands.
 
-The website build publishes library content for the CLI to consume over HTTP. `personas/` and `skills/` ship inside the Jazz binary as the deliberately small built-in set; workflows are library-only.
+The website build publishes library content for the CLI to consume over HTTP. `personas/` and the
+root `skills/` directory also ship inside the Jazz binary as the deliberately small built-in set;
+workflows remain library-only. Marketplace skills are installed into `~/.jazz/skills/` and do not
+execute during installation.
 
 ### Contributing a plugin
 

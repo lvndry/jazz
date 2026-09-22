@@ -15,6 +15,11 @@ async function packageFixture(
   root: string,
   version: string,
   source: string,
+  capabilities: {
+    readonly hooks?: readonly string[];
+    readonly policyHooks?: readonly string[];
+    readonly lifecycleHooks?: readonly string[];
+  } = {},
 ): Promise<{ readonly manifestPath: string; readonly digest: string }> {
   const directory = path.join(root, `package-${version}`);
   await fs.mkdir(directory, { recursive: true });
@@ -28,8 +33,10 @@ async function packageFixture(
     hostApi: 1,
     artifact: "./plugin.mjs",
     sha256: digest,
-    hooks: ["route.skills"],
+    hooks: capabilities.hooks ?? ["route.skills"],
+    policyHooks: capabilities.policyHooks ?? [],
     decisionProviders: [],
+    lifecycleHooks: capabilities.lifecycleHooks ?? [],
     network: { destinations: [] },
     dataSent: [],
     secrets: [],
@@ -132,6 +139,7 @@ describe("PluginRegistryServiceImpl", () => {
         artifact: "./plugin.mjs",
         sha256: secondDigest,
         hooks: ["route.skills"],
+        policyHooks: [],
         decisionProviders: [],
         network: { destinations: [] },
         dataSent: [],
@@ -150,6 +158,118 @@ describe("PluginRegistryServiceImpl", () => {
     await registry.enable("com.jazz.test.lifecycle", "default");
     await expect(registry.enable("com.jazz.test.other", "default")).rejects.toThrow(
       "hook conflict",
+    );
+  });
+
+  test("enables for all agents and conflicts across every agent", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "jazz-plugin-global-"));
+    const first = await packageFixture(
+      root,
+      "1.0.0",
+      "export default { apiVersion: 1, register() {} };\n",
+    );
+    const secondDirectory = path.join(root, "other");
+    await fs.mkdir(secondDirectory);
+    const secondSource = "export default { apiVersion: 1, register() {} };\n// other";
+    const secondDigest = createHash("sha256").update(secondSource).digest("hex");
+    await fs.writeFile(path.join(secondDirectory, "plugin.mjs"), secondSource);
+    await fs.writeFile(
+      path.join(secondDirectory, "manifest.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        id: "com.jazz.test.other",
+        name: "Other",
+        version: "1.0.0",
+        hostApi: 1,
+        artifact: "./plugin.mjs",
+        sha256: secondDigest,
+        hooks: ["route.skills"],
+        policyHooks: [],
+        decisionProviders: [],
+        network: { destinations: [] },
+        dataSent: [],
+        secrets: [],
+      }),
+    );
+    const registry = new PluginRegistryServiceImpl({ pluginDirectory: path.join(root, "plugins") });
+    for (const [manifestPath, digest, id] of [
+      [first.manifestPath, first.digest, "com.jazz.test.lifecycle"],
+      [path.join(secondDirectory, "manifest.json"), secondDigest, "com.jazz.test.other"],
+    ] as const) {
+      await registry.add(manifestPath);
+      await registry.trust(id, digest);
+      await registry.grantConsent(id, (await registry.inspect(id)).consentDigest);
+    }
+
+    await registry.enable("com.jazz.test.lifecycle");
+    const enabled = await registry.inspect("com.jazz.test.lifecycle");
+    expect(enabled.enabledForAllAgents).toBe(true);
+    expect(enabled.enabledAgentIds).toEqual([]);
+
+    const loader = new PluginModuleLoader({
+      stateStore: registry.stateStore,
+      installer: registry.installer,
+    });
+    expect(await loader.listEnabledForAgent("future-agent")).toEqual([
+      { id: "com.jazz.test.lifecycle", digest: first.digest },
+    ]);
+    expect(await loader.loadEnabledForAgent("future-agent")).toHaveLength(1);
+    expect(await loader.listEnabledManifests()).toHaveLength(1);
+
+    await expect(registry.enable("com.jazz.test.other", "default")).rejects.toThrow(
+      "hook conflict",
+    );
+
+    await registry.disable("com.jazz.test.lifecycle");
+    expect((await registry.inspect("com.jazz.test.lifecycle")).enabledForAllAgents).toBe(false);
+
+    await registry.enable("com.jazz.test.other");
+    expect((await registry.inspect("com.jazz.test.other")).enabledForAllAgents).toBe(true);
+  });
+
+  test("detects one-handler-per-policy-hook conflicts for the same agent", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "jazz-plugin-policy-lifecycle-"));
+    const first = await packageFixture(
+      root,
+      "1.0.0",
+      "export default { apiVersion: 1, register() {} };\n",
+      { hooks: [], policyHooks: ["classify.command-risk"] },
+    );
+    const secondDirectory = path.join(root, "other");
+    await fs.mkdir(secondDirectory);
+    const secondSource = "export default { apiVersion: 1, register() {} };\n// other";
+    const secondDigest = createHash("sha256").update(secondSource).digest("hex");
+    await fs.writeFile(path.join(secondDirectory, "plugin.mjs"), secondSource);
+    await fs.writeFile(
+      path.join(secondDirectory, "manifest.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        id: "com.jazz.test.other-policy",
+        name: "Other policy",
+        version: "1.0.0",
+        hostApi: 1,
+        artifact: "./plugin.mjs",
+        sha256: secondDigest,
+        hooks: [],
+        policyHooks: ["classify.command-risk"],
+        decisionProviders: [],
+        network: { destinations: [] },
+        dataSent: [],
+        secrets: [],
+      }),
+    );
+    const registry = new PluginRegistryServiceImpl({ pluginDirectory: path.join(root, "plugins") });
+    for (const [manifestPath, digest, id] of [
+      [first.manifestPath, first.digest, "com.jazz.test.lifecycle"],
+      [path.join(secondDirectory, "manifest.json"), secondDigest, "com.jazz.test.other-policy"],
+    ] as const) {
+      await registry.add(manifestPath);
+      await registry.trust(id, digest);
+      await registry.grantConsent(id, (await registry.inspect(id)).consentDigest);
+    }
+    await registry.enable("com.jazz.test.lifecycle", "default");
+    await expect(registry.enable("com.jazz.test.other-policy", "default")).rejects.toThrow(
+      "classify.command-risk",
     );
   });
 
@@ -199,6 +319,64 @@ describe("PluginRegistryServiceImpl", () => {
     const disabled = await registry.disable("com.jazz.test.lifecycle");
     expect(disabled.restartRequired).toBe(true);
     expect(await loader.loadEnabledForAgent("default")).toEqual([]);
+  });
+
+  test("invalidates cached lifecycle sessions after update and disable", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "jazz-plugin-lifecycle-cache-"));
+    const marker = path.join(root, "lifecycle.log");
+    const source = (label: string) =>
+      [
+        'import { appendFileSync } from "node:fs";',
+        "export default { apiVersion: 1, register(api) {",
+        `api.lifecycle.register({ event: "run-complete", handler: async () => appendFileSync(${JSON.stringify(marker)}, ${JSON.stringify(`${label}\n`)}) });`,
+        "} };",
+      ].join("\n");
+    const first = await packageFixture(root, "1.0.0", source("v1"), {
+      hooks: [],
+      lifecycleHooks: ["run-complete"],
+    });
+    const second = await packageFixture(root, "2.0.0", source("v2"), {
+      hooks: [],
+      lifecycleHooks: ["run-complete"],
+    });
+    const registry = new PluginRegistryServiceImpl({ pluginDirectory: path.join(root, "plugins") });
+    const loader = new PluginModuleLoader({
+      stateStore: registry.stateStore,
+      installer: registry.installer,
+    });
+    const runtime = new PluginRuntimeServiceImpl({ loader, secrets: registry.secrets });
+    const event = {
+      event: "run-complete" as const,
+      agentId: "default",
+      conversationId: "conversation",
+      cwd: process.cwd(),
+    };
+
+    await registry.add(first.manifestPath);
+    await registry.trust("com.jazz.test.lifecycle", first.digest);
+    await registry.grantConsent(
+      "com.jazz.test.lifecycle",
+      (await registry.inspect("com.jazz.test.lifecycle")).consentDigest,
+    );
+    await registry.enable("com.jazz.test.lifecycle", "default");
+    await Effect.runPromise(runtime.emitLifecycleEvent(event));
+
+    await registry.update("com.jazz.test.lifecycle", second.manifestPath);
+    await Effect.runPromise(runtime.emitLifecycleEvent(event));
+    expect(await fs.readFile(marker, "utf8")).toBe("v1\n");
+
+    await registry.trust("com.jazz.test.lifecycle", second.digest);
+    await registry.grantConsent(
+      "com.jazz.test.lifecycle",
+      (await registry.inspect("com.jazz.test.lifecycle")).consentDigest,
+    );
+    await registry.enable("com.jazz.test.lifecycle", "default");
+    await Effect.runPromise(runtime.emitLifecycleEvent(event));
+    expect(await fs.readFile(marker, "utf8")).toBe("v1\nv2\n");
+
+    await registry.disable("com.jazz.test.lifecycle", "default");
+    await Effect.runPromise(runtime.emitLifecycleEvent(event));
+    expect(await fs.readFile(marker, "utf8")).toBe("v1\nv2\n");
   });
 
   test("removes state and garbage-collects unreferenced artifacts", async () => {

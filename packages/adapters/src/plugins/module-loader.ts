@@ -23,6 +23,11 @@ export interface PluginModuleLoaderOptions {
   readonly installer: PluginArtifactInstaller;
 }
 
+export interface EnabledPluginSnapshot {
+  readonly id: string;
+  readonly digest: string;
+}
+
 function isPluginModule(value: unknown): value is JazzPluginModule {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
   const item = value as Record<string, unknown>;
@@ -77,6 +82,21 @@ export class PluginModuleLoader {
     }
   }
 
+  /** Return the current enablement snapshot without importing plugin code. */
+  async listEnabledForAgent(agentId: string): Promise<readonly EnabledPluginSnapshot[]> {
+    if (agentId.trim().length === 0) throw new Error("agentId cannot be empty");
+    const state = await this.options.stateStore.read();
+    return Object.entries(state.plugins)
+      .filter(
+        ([, record]) =>
+          record.enabledForAllAgents ||
+          record.enabledAgentIds.includes(agentId) ||
+          record.enabledAgentIds.includes(ALL_AGENTS),
+      )
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([id, record]) => ({ id, digest: record.current.manifest.sha256 }));
+  }
+
   /**
    * Manifests of every plugin enabled for at least one agent, without importing any code. For
    * reading declared, inert data (personas, skills) that needs no module execution — plugins are
@@ -85,7 +105,7 @@ export class PluginModuleLoader {
   async listEnabledManifests(): Promise<readonly PluginManifest[]> {
     const state = await this.options.stateStore.read();
     return Object.values(state.plugins)
-      .filter((record) => record.enabledAgentIds.length > 0)
+      .filter((record) => record.enabledForAllAgents || record.enabledAgentIds.length > 0)
       .map((record) => record.current.manifest)
       .sort((left, right) => left.id.localeCompare(right.id));
   }
@@ -99,7 +119,9 @@ export class PluginModuleLoader {
     const enabled = Object.entries(state.plugins)
       .filter(
         ([, record]) =>
-          record.enabledAgentIds.includes(agentId) || record.enabledAgentIds.includes(ALL_AGENTS),
+          record.enabledForAllAgents ||
+          record.enabledAgentIds.includes(agentId) ||
+          record.enabledAgentIds.includes(ALL_AGENTS),
       )
       .sort(([left], [right]) => left.localeCompare(right));
 
