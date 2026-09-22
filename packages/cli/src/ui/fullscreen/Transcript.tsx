@@ -1449,7 +1449,7 @@ export interface TranscriptProps {
 }
 
 export interface TranscriptHandle {
-  scrollBy(delta: number, unit?: "line" | "page" | "end"): void;
+  scrollBy(delta: number, unit?: "line" | "page" | "end"): boolean;
 }
 
 const TranscriptView = forwardRef<TranscriptHandle, TranscriptProps>(function Transcript(
@@ -1485,7 +1485,7 @@ const TranscriptView = forwardRef<TranscriptHandle, TranscriptProps>(function Tr
   const padCount = Math.max(0, windowHeight - visible.length);
 
   useImperativeHandle(ref, () => ({
-    scrollBy(delta: number, unit: "line" | "page" | "end" = "line"): void {
+    scrollBy(delta: number, unit: "line" | "page" | "end" = "line"): boolean {
       const currentRows = rowsRef.current;
       const next = applyScrollDelta(
         scrollFromBottomRef.current,
@@ -1494,9 +1494,10 @@ const TranscriptView = forwardRef<TranscriptHandle, TranscriptProps>(function Tr
         delta,
         unit,
       );
-      if (next === scrollFromBottomRef.current) return;
+      if (next === scrollFromBottomRef.current) return next === 0;
       scrollFromBottomRef.current = next;
       setScrollVersion((version) => version + 1);
+      return next === 0;
     },
   }));
 

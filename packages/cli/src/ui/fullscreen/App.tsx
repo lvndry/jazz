@@ -211,6 +211,7 @@ function AppView({ view, onAction, onKey, onPaste, overrideContent }: AppProps):
   const [focus, setFocus] = useState<Focus>("input");
   const focusRef = useRef<Focus>("input");
   const transcriptRef = useRef<TranscriptHandle | null>(null);
+  const [followLive, setFollowLive] = useState(true);
   const [newBelow, setNewBelow] = useState<number | undefined>(view.newBelow);
   const seenBlocks = useRef(view.blocks.length);
   const armedAt = useRef<number | undefined>(undefined);
@@ -254,7 +255,7 @@ function AppView({ view, onAction, onKey, onPaste, overrideContent }: AppProps):
         armedAt.current = undefined;
         break;
       case "scroll-transcript":
-        transcriptRef.current?.scrollBy(action.delta, action.unit);
+        setFollowLive(transcriptRef.current?.scrollBy(action.delta, action.unit) ?? true);
         break;
       default:
         break;
@@ -267,7 +268,7 @@ function AppView({ view, onAction, onKey, onPaste, overrideContent }: AppProps):
       const amount = wheelScrollDelta(direction, delta);
       if (amount === null) return;
       if (focusRef.current !== "transcript") dispatch({ type: "focus-transcript" });
-      transcriptRef.current?.scrollBy(amount, "line");
+      setFollowLive(transcriptRef.current?.scrollBy(amount, "line") ?? true);
     },
     [dispatch],
   );
@@ -571,6 +572,7 @@ function AppView({ view, onAction, onKey, onPaste, overrideContent }: AppProps):
       }}
       onMouseDrag={(event) => {
         if (overlayOpen) return;
+        setFollowLive(false);
         onMouseDrag(event);
       }}
       onMouseDragEnd={() => {
@@ -606,7 +608,7 @@ function AppView({ view, onAction, onKey, onPaste, overrideContent }: AppProps):
           viewport={viewport}
           focus={focus}
           visibleCount={visibleCount}
-          followLive={focus === "input" && newBelow === undefined && !overlayOpen}
+          followLive={followLive && !overlayOpen}
           {...(newBelow === undefined ? {} : { newBelow })}
         />
       </box>
