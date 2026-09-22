@@ -47,6 +47,23 @@ it governs, and it should beat your personal default without you disabling anyth
 Jazz ships skills for research, journaling, meeting notes, email, calendar, Obsidian, and
 creating personas, workflows and skills themselves.
 
+## The skill marketplace
+
+The Jazz website's [Marketplace](https://jazz-cli.vercel.app/library) publishes reviewed skills
+alongside personas, workflows, and plugins. A marketplace skill is an instruction artifact: it
+does not add tools, credentials, network access, or approval authority. Its instructions can still
+steer an agent, so read the content and its source before installing it.
+
+Install a skill from the cached catalog with `jazz skill browse`, `jazz skill search`, or
+`jazz skill install <name>`. Jazz shows the complete `SKILL.md`, its source URL, and metadata before
+writing it to `~/.jazz/skills/<name>/SKILL.md`; non-interactive installs must pass `--yes`. The
+installer accepts only a single reviewed `SKILL.md` and never executes files from the catalog.
+
+The catalog is cached under `<jazz home>/cache/skill-registry.json`, works offline after its first
+successful fetch, and can be pointed at a self-hosted library with `JAZZ_LIBRARY_URL`. The website
+is curated through pull requests, so a listing is a review and provenance signal—not a claim that
+the instructions are harmless or universally correct.
+
 ## Skill, tool, or workflow
 
 Three things that sound similar and are not:

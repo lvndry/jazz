@@ -23,6 +23,11 @@ export interface PluginModuleLoaderOptions {
   readonly installer: PluginArtifactInstaller;
 }
 
+export interface EnabledPluginSnapshot {
+  readonly id: string;
+  readonly digest: string;
+}
+
 function isPluginModule(value: unknown): value is JazzPluginModule {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
   const item = value as Record<string, unknown>;
@@ -75,6 +80,21 @@ export class PluginModuleLoader {
     if (!(await this.options.installer.verify(digest))) {
       throw new Error(`Plugin ${pluginId} artifact is missing or failed digest verification`);
     }
+  }
+
+  /** Return the current enablement snapshot without importing plugin code. */
+  async listEnabledForAgent(agentId: string): Promise<readonly EnabledPluginSnapshot[]> {
+    if (agentId.trim().length === 0) throw new Error("agentId cannot be empty");
+    const state = await this.options.stateStore.read();
+    return Object.entries(state.plugins)
+      .filter(
+        ([, record]) =>
+          record.enabledForAllAgents ||
+          record.enabledAgentIds.includes(agentId) ||
+          record.enabledAgentIds.includes(ALL_AGENTS),
+      )
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([id, record]) => ({ id, digest: record.current.manifest.sha256 }));
   }
 
   /**

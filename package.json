@@ -49,6 +49,7 @@
     "build:binaries": "bun run scripts/build.ts --compile --all-targets",
     "plugin:pack": "bun run scripts/plugin-pack.ts",
     "plugin:catalog": "bun run scripts/build-plugin-catalog.ts",
+    "plugin:community-catalog": "bun run scripts/build-community-plugin-catalog.ts",
     "stage-npm-packages": "bun run scripts/build.ts --compile --all-targets --npm-packages",
     "typecheck": "bun run tsc -b tsconfig.json",
     "typecheck:evals": "tsc -p evals/tsconfig.json",

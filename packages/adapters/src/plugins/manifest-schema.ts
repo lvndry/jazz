@@ -371,3 +371,31 @@ export function parsePluginManifest(input: unknown): PluginManifest {
     secrets,
   };
 }
+
+/** Parse the authoring manifest stored as `jazz-plugin.json` before a source tree is installed. */
+export function parsePluginSourceManifest(input: unknown): {
+  readonly manifest: PluginManifest;
+  readonly entry: string;
+} {
+  const root = record(input, "plugin source manifest");
+  exactKeys(root, [...PLUGIN_MANIFEST_METADATA_FIELDS, "entry"], "plugin source manifest");
+  const entry =
+    root["entry"] === undefined ? "src/index.ts" : boundedString(root["entry"], "entry", 2048);
+  if (
+    entry.startsWith("/") ||
+    entry.includes("\\") ||
+    entry.split("/").some((segment) => segment.length === 0 || segment === "." || segment === "..")
+  ) {
+    throw new Error("entry must be a safe relative path");
+  }
+  const { entry: _entry, ...installMetadata } = root;
+  return {
+    manifest: parsePluginManifest({
+      ...installMetadata,
+      schemaVersion: root["schemaVersion"] ?? 1,
+      artifact: entry,
+      sha256: "0".repeat(64),
+    }),
+    entry,
+  };
+}

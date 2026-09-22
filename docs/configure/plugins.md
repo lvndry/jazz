@@ -25,6 +25,12 @@ Plugins are absent and disabled by default. A normal Jazz installation has no pl
 latency, prompt change, or credential requirement. Everything a plugin adds is declared in its
 manifest — the reviewed, consented contract — and the module can never exceed what it declared.
 
+The [Jazz Marketplace](https://jazz-cli.vercel.app/library) lists reviewed first-party plugins
+alongside skills, personas, and workflows. A listing is a discovery and review surface, not a
+trust grant: use `jazz plugin add`, `inspect`, `trust`, and `enable` as separate local decisions.
+The marketplace exposes the plugin's exact version, artifact digest, hooks, capabilities, network
+destinations, data classes, and secrets before installation.
+
 ## Trust means code execution
 
 Plugins run inside the Jazz process with the authority of the operating-system user. The manifest's
@@ -52,6 +58,31 @@ it, and hashes the source tree; that hash is the digest you trust. A local direc
 `jazz-plugin.json` installs the same way (`jazz plugin add ./my-plugin`). A curated catalog id, an
 HTTPS manifest URL, or a locally packed `./release/catalog-entry.json` still install as bundled
 artifacts (see [Authoring](#authoring)).
+
+## Community plugin discovery
+
+Public repositories can opt into Jazz's metadata-only community directory by adding the exact
+GitHub topic `jazz-plugin` and a valid root `jazz-plugin.json`. Jazz's scheduled index refresh reads
+repository metadata, resolves the default branch to a full commit SHA, and fetches only that JSON
+manifest. It never checks out, builds, imports, or executes community repository code.
+
+Community entries are labeled **community-indexed — not reviewed by Jazz**. Their declared hooks,
+network destinations, data classes, secrets, tools, and commands are disclosures supplied by the
+repository, not independent security findings. Jazz shows the observed commit and emits an install
+command pinned to it:
+
+```bash
+jazz plugin add owner/repo@<commit-sha>
+```
+
+The normal local lifecycle still applies: installation stores and hashes the source, then the
+operator must inspect, trust, grant egress consent, and enable it. Community entries are kept out
+of the reviewed artifact catalog and cannot be installed by reviewed catalog id.
+
+The website consumes a checked-in snapshot at
+`packages/website/src/data/community-plugin-catalog.json`. The scheduled
+`community plugin catalog` workflow refreshes that snapshot through a pull request, so website
+builds remain deterministic and do not depend on GitHub being available at deploy time.
 
 `add` stores the source or bytes but never imports them. Jazz imports a module lazily only for a run
 whose agent has enabled it — per agent, or for all agents — and whose exact code and consent digests
