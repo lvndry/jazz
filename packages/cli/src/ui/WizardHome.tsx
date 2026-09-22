@@ -62,6 +62,7 @@ export const TIPS = [
 
   // Fun/Power User
   "You can have multiple agents running in different terminal tabs",
+  "Use /caveman for terse, token-efficient replies",
   "Agents can write their own tests before writing code",
   "Try asking an agent to 'optimize your system prompt'",
   "Jazz agents never execute dangerous commands without approval",
