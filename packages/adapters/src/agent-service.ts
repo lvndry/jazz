@@ -21,6 +21,7 @@ import {
 import { type Agent, type AgentConfig, type CustomToolDefinition } from "@jazz/core/types/index";
 import { COMPANION_ROLES, isCompanionRole } from "@jazz/core/types/llm";
 import { parseProviderModel } from "@jazz/core/utils/provider-model";
+import { isValidStorageKey } from "@jazz/core/utils/storage";
 import { Effect, Layer } from "effect";
 import shortuuid from "short-uuid";
 
@@ -513,7 +514,6 @@ export class AgentServiceImpl implements AgentService {
             }),
           );
         }
-
         for (const scope of config.memoryScopes as readonly string[]) {
           if (typeof scope !== "string" || scope.trim().length === 0) {
             return yield* Effect.fail(
@@ -522,6 +522,16 @@ export class AgentServiceImpl implements AgentService {
                 field: "config.memoryScopes",
                 message: "Each memoryScopes entry must be a non-empty string",
                 suggestion: "Remove blank entries so every scope has a name.",
+              }),
+            );
+          }
+          if (!isValidStorageKey(scope)) {
+            return yield* Effect.fail(
+              new AgentConfigurationError({
+                agentId: "unknown",
+                field: "config.memoryScopes",
+                message: `Invalid memory scope name: "${scope}"`,
+                suggestion: "Use 1–64 letters, digits, underscores, or hyphens.",
               }),
             );
           }

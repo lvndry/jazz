@@ -7,7 +7,11 @@
 import { FileSystem } from "@effect/platform";
 import { Effect } from "effect";
 import { z } from "zod";
-import { DEFAULT_MEMORY_SCOPE, MEMORY_EXTRACTOR_AGENT_ID } from "@/core/constants/memory";
+import {
+  DEFAULT_MEMORY_SCOPE,
+  effectiveMemoryScopes,
+  MEMORY_EXTRACTOR_AGENT_ID,
+} from "@/core/constants/memory";
 import type { MemoryFailureSignature } from "@/core/interfaces/memory-provenance";
 import type {
   MemoryService,
@@ -107,7 +111,7 @@ export function createViewMemoryTool(): Tool<MemoryToolDeps> {
     handler: (args, context) =>
       Effect.gen(function* () {
         const memoryService = yield* MemoryServiceTag;
-        const scopes = context.memoryScopes ?? [context.agentId];
+        const scopes = effectiveMemoryScopes(context.memoryScopes);
         const outcome = yield* memoryService.view(scopes, args.path, args.view_range);
 
         if (outcome.kind === "not_found" || outcome.kind === "too_large") {
@@ -279,7 +283,7 @@ export function createManageMemoryTool(): Tool<MemoryToolDeps> {
     handler: (args, context) =>
       Effect.gen(function* () {
         const memoryService = yield* MemoryServiceTag;
-        const scopes = context.memoryScopes ?? [DEFAULT_MEMORY_SCOPE];
+        const scopes = effectiveMemoryScopes(context.memoryScopes);
         const writeContext: MemoryWriteContext = { agentId: context.agentId };
 
         const outcome = yield* (() => {

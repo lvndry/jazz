@@ -236,7 +236,7 @@ export class AgentPromptBuilder {
     // turn rather than serving a stale copy from the cache.
     if (options.activePreferences && options.activePreferences.length > 0) {
       hash.update(
-        `activePreferences:${options.activePreferences.map((entry) => entry.summary).join("|")}`,
+        `activePreferences:${JSON.stringify(options.activePreferences.map((entry) => entry.summary))}`,
       );
     }
     // Content, not just paths: editing an AGENTS.md must take effect on the
