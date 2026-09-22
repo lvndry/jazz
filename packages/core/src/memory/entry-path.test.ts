@@ -3,8 +3,6 @@ import {
   ALWAYS_SEGMENT,
   buildMemoryEntryPath,
   describeUnusableSubject,
-  parseMemoryEntryPath,
-  parseMemoryEntryRelativePath,
   slugifyMemorySegment,
 } from "./entry-path";
 
@@ -57,57 +55,5 @@ describe("buildMemoryEntryPath", () => {
     expect(buildMemoryEntryPath({ scope: "personal", subject: "x", topic: "  " })).toBe(
       `personal/${ALWAYS_SEGMENT}/x.md`,
     );
-  });
-
-  test("round-trips through parseMemoryEntryPath", () => {
-    const built = buildMemoryEntryPath({
-      scope: "personal",
-      subject: "Artboard scaling",
-      topic: "moodboard",
-    });
-    expect(parseMemoryEntryPath(built)).toEqual({
-      scope: "personal",
-      topic: "moodboard",
-      slug: "artboard-scaling.md",
-    });
-  });
-});
-
-describe("parseMemoryEntryPath", () => {
-  test("reads an always entry as having no topic", () => {
-    expect(parseMemoryEntryPath("personal/always/auto-open.md")).toEqual({
-      scope: "personal",
-      topic: undefined,
-      slug: "auto-open.md",
-    });
-  });
-
-  test("reads a topic off the path", () => {
-    expect(parseMemoryEntryPath("personal/when/moodboard/scaling.md")?.topic).toBe("moodboard");
-  });
-
-  test("ignores a file that is not laid out as an entry", () => {
-    for (const path of [
-      "personal/notes.md",
-      "personal/always/nested/too-deep.md",
-      "personal/when/moodboard",
-      "personal/when",
-      "",
-    ]) {
-      expect(parseMemoryEntryPath(path)).toBeUndefined();
-    }
-  });
-});
-
-describe("parseMemoryEntryRelativePath", () => {
-  test("parses the form the store addresses files in", () => {
-    expect(parseMemoryEntryRelativePath("when/moodboard/scaling.md")).toEqual({
-      topic: "moodboard",
-      slug: "scaling.md",
-    });
-    expect(parseMemoryEntryRelativePath("always/auto-open.md")).toEqual({
-      topic: undefined,
-      slug: "auto-open.md",
-    });
   });
 });

@@ -366,12 +366,13 @@ See [Configuration](./configure/jazz.md).
 
 ## `jazz memory`
 
-| Command                             | Purpose                                                   |
-| ----------------------------------- | --------------------------------------------------------- |
-| `jazz memory list <agent>`          | List durable memory files available to an agent           |
-| `jazz memory show <agent> <path>`   | Print one memory file as the agent reads it               |
-| `jazz memory forget <agent> <path>` | Permanently delete one memory file                        |
-| `jazz memory recall`                | Report memory consultation; `--surface <name>` filters it |
+| Command                              | Purpose                                                               |
+| ------------------------------------ | --------------------------------------------------------------------- |
+| `jazz memory list <agent>`           | List durable memory files available to an agent                       |
+| `jazz memory show <agent> <path>`    | Print one memory file as the agent reads it                           |
+| `jazz memory forget <agent> <path>`  | Permanently delete one memory file                                    |
+| `jazz memory explain <agent> <path>` | Show why an entry exists and whether it helped, failed, or was missed |
+| `jazz memory recall`                 | Report memory consultation; `--surface <name>` filters it             |
 
 Conversation history and current working state are separate. See [Conversations, working state, and memory](./concepts/conversations-and-memory.md).
 

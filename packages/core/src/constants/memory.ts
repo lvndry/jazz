@@ -51,3 +51,10 @@ export const MEMORY_EXTRACTOR_AGENT_ID = "memory-extractor";
  * the text the recall index ranks on.
  */
 export const MEMORY_SUMMARY_MAX_CHARS = 200;
+
+/**
+ * Most lifecycle observations kept per entry. Enough to explain why an entry's
+ * credit moved recently; older observations are already summed into the
+ * counters, so keeping them would only grow the sidecar.
+ */
+export const MAX_MEMORY_EVIDENCE = 5;

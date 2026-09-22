@@ -36,8 +36,8 @@ import {
   type ToolRequirements,
 } from "@/core/interfaces/tool-registry";
 import {
-  inferMemoryTaskDimensions,
   resolveRelevantMemories,
+  topicMatchesDimensions,
   type MemoryTaskDimensions,
 } from "@/core/memory/relevance";
 import { resolveDisplayConfig } from "@/core/presentation/display-config";
@@ -111,7 +111,12 @@ function resolveActivePreferences(
   logger: LoggerService,
   dimensions?: MemoryTaskDimensions,
 ): Effect.Effect<
-  { readonly scope: string; readonly topic?: string; readonly summary: string }[],
+  {
+    readonly path: string;
+    readonly scope: string;
+    readonly topic?: string;
+    readonly summary: string;
+  }[],
   never,
   FileSystem.FileSystem
 > {
@@ -125,9 +130,15 @@ function resolveActivePreferences(
     return yield* Effect.gen(function* () {
       const standing = yield* memoryService.standingEntries(memoryScopes);
       const conditional = dimensions
-        ? resolveRelevantMemories(yield* memoryService.conditionalEntries(memoryScopes), dimensions)
+        ? resolveRelevantMemories(
+            yield* memoryService.conditionalEntries(memoryScopes, (topic) =>
+              topicMatchesDimensions(topic, dimensions),
+            ),
+            dimensions,
+          )
         : [];
       return [...standing, ...conditional].map((entry) => ({
+        path: entry.path,
         scope: entry.scope,
         ...(entry.topic === undefined ? {} : { topic: entry.topic }),
         summary: entry.summary,
@@ -141,7 +152,12 @@ function resolveActivePreferences(
           })
           .pipe(
             Effect.as<
-              { readonly scope: string; readonly topic?: string; readonly summary: string }[]
+              {
+                readonly path: string;
+                readonly scope: string;
+                readonly topic?: string;
+                readonly summary: string;
+              }[]
             >([]),
           ),
       ),
@@ -604,7 +620,7 @@ function initializeAgentRun(
     const activePreferences = yield* resolveActivePreferences(
       agent.config.memoryScopes ?? [DEFAULT_MEMORY_SCOPE],
       logger,
-      options.memoryTaskDimensions ?? inferMemoryTaskDimensions(options.userInput),
+      options.memoryTaskDimensions,
     );
 
     // Build messages — reuses the PersonaService resolved earlier so custom
@@ -732,9 +748,7 @@ function initializeAgentRun(
       tools,
       expandedToolNames,
       messages,
-      activeMemoryPaths: activePreferences.map(
-        (entry) => `${entry.scope}/${entry.topic === undefined ? "always" : `when/${entry.topic}`}`,
-      ),
+      activeMemoryPaths: activePreferences.map((entry) => entry.path),
       ...(initialProviderAdvisory !== undefined ? { initialProviderAdvisory } : {}),
       runMetrics,
       provider,

@@ -25,8 +25,7 @@
 /**
  * The failure a lesson exists to prevent, recorded so the learning loop can
  * check whether that failure recurred and credit or blame the lesson
- * accordingly. A lesson whose failure is unnamed could never be scored, which is why
- * `manage_memory` requires one.
+ * accordingly. An entry without one is recalled like any other but never scored.
  */
 export type MemoryFailureSignature =
   | {
@@ -71,6 +70,14 @@ export const EMPTY_MEMORY_ENTRY_CREDIT: MemoryEntryCredit = {
 /** Whether an entry was written by the extraction pass or by a person. */
 export type MemoryEntryOrigin = "auto" | "user";
 
+/** One observation behind a credit change, kept so a score can be explained. */
+export interface MemoryEvidence {
+  readonly kind: "correction" | "misfire" | "run";
+  readonly summary: string;
+  readonly recordedAt: string;
+  readonly runId?: string;
+}
+
 export interface MemoryFileProvenance {
   /** ISO 8601. */
   readonly createdAt: string;
@@ -96,13 +103,8 @@ export interface MemoryFileProvenance {
   readonly summary?: string;
   readonly failure?: MemoryFailureSignature;
   readonly credit?: MemoryEntryCredit;
-  /** Bounded evidence that explains recent lifecycle updates. */
-  readonly evidence?: readonly {
-    readonly kind: "correction" | "misfire" | "run";
-    readonly summary: string;
-    readonly recordedAt: string;
-    readonly runId?: string;
-  }[];
+  /** The most recent lifecycle observations, newest last, capped at `MAX_MEMORY_EVIDENCE`. */
+  readonly evidence?: readonly MemoryEvidence[];
   readonly origin?: MemoryEntryOrigin;
   /** Name of the skill this lesson was distilled into, if any. */
   readonly compiledInto?: string;
