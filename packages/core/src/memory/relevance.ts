@@ -23,6 +23,17 @@ export interface RelevantMemoryEntry extends MemoryEntryInForce {
   readonly specificity: number;
 }
 
+/** Derive conservative dimensions from explicit task words; omitted dimensions remain unknown. */
+export function inferMemoryTaskDimensions(input: string): MemoryTaskDimensions {
+  const text = input.toLowerCase();
+  return {
+    ...(/\b(email|e-mail)\b/.test(text) ? { medium: "email" } : {}),
+    ...(/\b(text|sms|message)\b/.test(text) ? { medium: "text" } : {}),
+    ...(/\b(colleague|coworker|client)\b/.test(text) ? { relationship: "colleagues" } : {}),
+    ...(/\b(friend|friends)\b/.test(text) ? { relationship: "friends" } : {}),
+  };
+}
+
 function normalize(value: string): string {
   return value
     .normalize("NFD")

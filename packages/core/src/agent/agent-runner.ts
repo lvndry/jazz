@@ -35,7 +35,11 @@ import {
   type ToolRegistry,
   type ToolRequirements,
 } from "@/core/interfaces/tool-registry";
-import { resolveRelevantMemories, type MemoryTaskDimensions } from "@/core/memory/relevance";
+import {
+  inferMemoryTaskDimensions,
+  resolveRelevantMemories,
+  type MemoryTaskDimensions,
+} from "@/core/memory/relevance";
 import { resolveDisplayConfig } from "@/core/presentation/display-config";
 import { SkillServiceTag, type SkillService } from "@/core/skills/skill-service";
 import type { AttachmentKind } from "@/core/types/attachment";
@@ -600,7 +604,7 @@ function initializeAgentRun(
     const activePreferences = yield* resolveActivePreferences(
       agent.config.memoryScopes ?? [DEFAULT_MEMORY_SCOPE],
       logger,
-      options.memoryTaskDimensions,
+      options.memoryTaskDimensions ?? inferMemoryTaskDimensions(options.userInput),
     );
 
     // Build messages — reuses the PersonaService resolved earlier so custom
