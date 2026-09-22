@@ -60,6 +60,20 @@ function resolveToolDisplayMetadata(
   });
 }
 
+/** Use the run-scoped policy resolver when present, preserving the built-in classifier fallback. */
+function resolveEligibleCommandRisk(
+  command: string,
+  context: ToolExecutionContext,
+  conversationMessages: ToolExecutionContext["conversationMessages"],
+  runMetrics: ReturnType<typeof createAgentRunMetrics>,
+): Effect.Effect<ToolRiskLevel, never, LLMService | LoggerService> {
+  if (context.resolveCommandRisk !== undefined) {
+    return context.resolveCommandRisk(command, conversationMessages);
+  }
+  if (context.parentAgent === undefined) return Effect.succeed("high-risk");
+  return classifyCommandRisk(command, context.parentAgent, conversationMessages, runMetrics);
+}
+
 /**
  * Service for executing tools
  */
@@ -340,6 +354,7 @@ export class ToolExecutor {
             classifiedRisk = alreadyClassified;
             riskLevel = alreadyClassified;
           } else if (
+            name === "execute_command" &&
             shouldClassifyExecuteCommand(riskLevel, autoApprovePolicy, allowlisted) &&
             context.parentAgent &&
             command !== undefined
@@ -356,9 +371,9 @@ export class ToolExecutor {
                 yield* presentationService.writeOutput(`Classifying ${name}…\n`);
               }
             }
-            classifiedRisk = yield* classifyCommandRisk(
+            classifiedRisk = yield* resolveEligibleCommandRisk(
               command,
-              context.parentAgent,
+              context,
               // Conversation context is only evidence when the person the
               // approval protects is the one who wrote it. On a bridge those
               // turns come from whoever is messaging the bot, so the command
@@ -866,17 +881,13 @@ export class ToolExecutor {
           const commandArg = request.executeArgs["command"];
           const command = typeof commandArg === "string" ? commandArg : undefined;
           if (
+            name === "execute_command" &&
             shouldClassifyExecuteCommand(riskLevel, policy, allowlisted) &&
             context.parentAgent &&
             command !== undefined
           ) {
             // Nobody can be prompted here, so the command stands on its own.
-            riskLevel = yield* classifyCommandRisk(
-              command,
-              context.parentAgent,
-              undefined,
-              runMetrics,
-            );
+            riskLevel = yield* resolveEligibleCommandRisk(command, context, undefined, runMetrics);
             preclassifiedRisk.set(toolCall.id, riskLevel);
           }
 

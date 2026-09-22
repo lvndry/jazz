@@ -30,6 +30,7 @@ export const PLUGIN_MANIFEST_METADATA_FIELDS = [
   "version",
   "hostApi",
   "hooks",
+  "policyHooks",
   "decisionProviders",
   "tools",
   "commands",
@@ -336,7 +337,17 @@ export function parsePluginManifest(input: unknown): PluginManifest {
       maxLength: 64,
       pattern: HOOK_ID,
     }).map((hook) => {
-      if (hook !== "route.skills") throw new Error(`Unknown advisory hook: ${hook}`);
+      if (hook !== "route.skills" && hook !== "compact.tools") {
+        throw new Error(`Unknown advisory hook: ${hook}`);
+      }
+      return hook;
+    }),
+    policyHooks: uniqueStrings(root["policyHooks"] ?? [], "policyHooks", {
+      maxItems: 8,
+      maxLength: 64,
+      pattern: HOOK_ID,
+    }).map((hook) => {
+      if (hook !== "classify.command-risk") throw new Error(`Unknown policy hook: ${hook}`);
       return hook;
     }),
     decisionProviders: uniqueStrings(root["decisionProviders"], "decisionProviders", {
@@ -358,5 +369,33 @@ export function parsePluginManifest(input: unknown): PluginManifest {
       }),
     ].sort(),
     secrets,
+  };
+}
+
+/** Parse the authoring manifest stored as `jazz-plugin.json` before a source tree is installed. */
+export function parsePluginSourceManifest(input: unknown): {
+  readonly manifest: PluginManifest;
+  readonly entry: string;
+} {
+  const root = record(input, "plugin source manifest");
+  exactKeys(root, [...PLUGIN_MANIFEST_METADATA_FIELDS, "entry"], "plugin source manifest");
+  const entry =
+    root["entry"] === undefined ? "src/index.ts" : boundedString(root["entry"], "entry", 2048);
+  if (
+    entry.startsWith("/") ||
+    entry.includes("\\") ||
+    entry.split("/").some((segment) => segment.length === 0 || segment === "." || segment === "..")
+  ) {
+    throw new Error("entry must be a safe relative path");
+  }
+  const { entry: _entry, ...installMetadata } = root;
+  return {
+    manifest: parsePluginManifest({
+      ...installMetadata,
+      schemaVersion: root["schemaVersion"] ?? 1,
+      artifact: entry,
+      sha256: "0".repeat(64),
+    }),
+    entry,
   };
 }

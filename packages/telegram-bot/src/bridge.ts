@@ -193,7 +193,7 @@ interface BridgeConfig {
   readonly showReasoning: boolean;
   /**
    * Public HTTPS origin this bridge's own HTTP server is reachable at, used to
-   * build Web App button URLs for `create_web_app`'s "interactive" mode (e.g.
+   * build Web App button URLs for `create_composition`'s interactive mode (e.g.
    * a Tailscale Funnel origin). Falls back to TELEGRAM_WEBHOOK_URL's origin in
    * webhook mode. Undefined disables interactive web apps (static/image mode
    * still works — it needs no public URL).
@@ -201,10 +201,12 @@ interface BridgeConfig {
   readonly webAppBaseUrl: string | undefined;
 }
 
-interface JazzWebApp {
+interface JazzComposition {
   readonly id: string;
   readonly mode: "static" | "interactive";
   readonly title: string;
+  readonly sessionId: string;
+  readonly filename: string;
   readonly htmlPath: string;
   readonly imagePath?: string;
 }
@@ -220,7 +222,7 @@ interface JazzSuccessEnvelope {
     readonly completionTokens?: number;
     readonly cacheReadTokens?: number;
   };
-  readonly webApp?: JazzWebApp;
+  readonly composition?: JazzComposition;
   /**
    * Only present for `--ephemeral` runs (incognito chats): the full
    * transcript, opaque to the bridge, round-tripped back in as
@@ -312,18 +314,22 @@ function sandboxForChat(config: BridgeConfig, chatId: number): ChatSandbox {
 }
 
 /**
- * Every file a `/webapps/<id>` request could be asking for.
+ * Every file a `/compositions/<session>/<name>.html` request could be asking for.
  *
  * The URL carries only the app's id, and with one Jazz home per chat there is
  * no chat to key that on, so each home is a candidate. The health server runs
  * in the bridge process, which is the one identity allowed to read across
  * sandboxes.
  */
-function webAppCandidatePaths(config: BridgeConfig, id: string): string[] {
+function compositionCandidatePaths(
+  config: BridgeConfig,
+  sessionId: string,
+  filename: string,
+): string[] {
   const homes = chatIsolationEnabled()
     ? listChatSandboxes(config.jazzHome).map((sandbox) => sandbox.home)
     : [config.jazzHome];
-  return homes.map((home) => `${home}/webapps/${id}.html`);
+  return homes.map((home) => `${home}/compositions/${sessionId}/${filename}`);
 }
 
 async function callTelegram(
@@ -1092,21 +1098,23 @@ async function runJazz(
 }
 
 /**
- * Deliver a `create_web_app` result: a static chart/diagram is uploaded
+ * Deliver a `create_composition` result: a static chart/diagram is uploaded
  * directly as a photo (no tap needed); an interactive page needs a public URL
  * to open in — falls back to a warning if TELEGRAM_WEBAPP_BASE_URL isn't set.
  */
-async function deliverWebApp(
+async function deliverComposition(
   config: BridgeConfig,
   chatId: number,
-  webApp: JazzWebApp,
+  composition: JazzComposition,
 ): Promise<void> {
-  if (webApp.mode === "static") {
-    if (webApp.imagePath === undefined) {
-      console.error(`create_web_app returned static mode with no imagePath (id=${webApp.id})`);
+  if (composition.mode === "static") {
+    if (composition.imagePath === undefined) {
+      console.error(
+        `create_composition returned static mode with no imagePath (id=${composition.id})`,
+      );
       return;
     }
-    await sendPhotoFile(config, chatId, webApp.imagePath, webApp.title);
+    await sendPhotoFile(config, chatId, composition.imagePath, composition.title);
     return;
   }
 
@@ -1120,9 +1128,9 @@ async function deliverWebApp(
     return;
   }
 
-  const url = `${config.webAppBaseUrl}/webapps/${webApp.id}`;
-  await sendReply(config, chatId, `Tap to open: <b>${escapeHtml(webApp.title)}</b>`, {
-    markup: webAppKeyboard(url, webApp.title),
+  const url = `${config.webAppBaseUrl}/compositions/${composition.sessionId}/${composition.filename}`;
+  await sendReply(config, chatId, `Tap to open: <b>${escapeHtml(composition.title)}</b>`, {
+    markup: webAppKeyboard(url, composition.title),
   });
 }
 
@@ -1255,8 +1263,8 @@ async function handleMessage(
       if (config.showReasoning) {
         await sendReasoningLog(config, chatId, reporter?.reasoningLog() ?? "");
       }
-      if (envelope.webApp) {
-        await deliverWebApp(config, chatId, envelope.webApp);
+      if (envelope.composition) {
+        await deliverComposition(config, chatId, envelope.composition);
       }
     } else {
       await reporter?.finish("⚠️ <b>Failed</b>");
@@ -2272,11 +2280,13 @@ function startHealthServer(config: BridgeConfig): void {
         return new Response("ok", { status: 200 });
       }
 
-      const webAppMatch =
-        request.method === "GET" ? /^\/webapps\/([A-Za-z0-9_-]+)$/.exec(url.pathname) : null;
-      if (webAppMatch) {
-        const id = webAppMatch[1];
-        for (const path of webAppCandidatePaths(config, id ?? "")) {
+      const compositionMatch =
+        request.method === "GET"
+          ? /^\/compositions\/([A-Za-z0-9_-]+)\/([A-Za-z0-9_-]+\.html)$/.exec(url.pathname)
+          : null;
+      if (compositionMatch) {
+        const [, sessionId, filename] = compositionMatch;
+        for (const path of compositionCandidatePaths(config, sessionId ?? "", filename ?? "")) {
           const file = Bun.file(path);
           if (await file.exists()) {
             return new Response(file, { headers: { "content-type": "text/html; charset=utf-8" } });

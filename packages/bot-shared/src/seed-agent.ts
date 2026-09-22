@@ -42,7 +42,7 @@ export const DEFAULT_BRIDGE_TOOLS: readonly string[] = [
   "add_reminder",
   "list_reminders",
   "cancel_reminder",
-  "create_web_app",
+  "create_composition",
 ];
 
 export interface SeedAgentSpec {

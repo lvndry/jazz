@@ -18,7 +18,7 @@ Jazz can run against a self-hosted inference server such as [Ollama](https://oll
 
    ```bash
    export JAZZ_OFFLINE=1
-   export OLLAMA_BASE_URL=http://localhost:11434
+   export OLLAMA_BASE_URL=http://127.0.0.1:11434
    ```
 
    Point `OLLAMA_BASE_URL` at the machine running Ollama if it lives elsewhere on the internal network. Alternatively use the config file:
@@ -42,7 +42,7 @@ Jazz can run against a self-hosted inference server such as [Ollama](https://oll
    jazz chat
    ```
 
-llama.cpp works the same way via `LLAMACPP_BASE_URL` (default `http://localhost:8080/v1`), or the wizard's server-address prompt; start `llama-server` with `--jinja` for tool calling.
+llama.cpp works the same way via `LLAMACPP_BASE_URL` (default `http://127.0.0.1:8080/v1`), or the first-use server-URL prompt in `jazz agent create`; start `llama-server` with `--jinja` for tool calling. The same `llamacpp` provider works with vLLM's OpenAI-compatible API, commonly at `http://127.0.0.1:8000/v1`.
 
 A bare `llama-server` serves whatever single model was loaded at launch and ignores the model name in each request, and that model can differ between runs. So the model chosen when the agent was created is only a hint: at the start of every run Jazz asks the server (`/v1/models`) which model it is actually serving and uses that name, along with the real context window the server was started with (`/props`, i.e. `-c`). Pinning `numCtx` on the agent still overrides the server-reported window.
 
@@ -76,8 +76,8 @@ If you want catalog metadata (e.g. pricing display for cloud models) inside the 
 | Variable                    | Effect                                                                                  |
 | --------------------------- | --------------------------------------------------------------------------------------- |
 | `JAZZ_OFFLINE`              | `1`/`true`: skip update checks, the models.dev fetch, and the library fetch entirely    |
-| `OLLAMA_BASE_URL`           | Ollama server URL (default `http://localhost:11434/api`; `/api` appended automatically) |
-| `LLAMACPP_BASE_URL`         | llama.cpp server URL (default `http://localhost:8080/v1`)                               |
+| `OLLAMA_BASE_URL`           | Ollama server URL (default `http://127.0.0.1:11434/api`; `/api` appended automatically) |
+| `LLAMACPP_BASE_URL`         | llama.cpp/vLLM server URL (default `http://127.0.0.1:8080/v1`)                          |
 | `JAZZ_MODELS_DEV_URL`       | Internal mirror for the models.dev catalog                                              |
 | `JAZZ_LIBRARY_URL`          | Base URL of the persona and workflow library (default the public Jazz site)             |
 | `JAZZ_DISABLE_UPDATE_CHECK` | `1`: skip only the update check                                                         |

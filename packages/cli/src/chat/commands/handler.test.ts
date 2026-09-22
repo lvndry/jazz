@@ -14,6 +14,10 @@ import {
   PluginRuntimeServiceTag,
   type PluginRuntimeService,
 } from "@jazz/core/interfaces/plugin-runtime";
+import {
+  PresentationServiceTag,
+  type PresentationService,
+} from "@jazz/core/interfaces/presentation";
 import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
 import { ToolRegistryTag, type ToolRegistry } from "@jazz/core/interfaces/tool-registry";
 import type { Agent } from "@jazz/core/types/agent";
@@ -68,6 +72,15 @@ const testRecord = {
 
 function runEffect<A>(eff: Effect.Effect<A, unknown, FileSystem.FileSystem>) {
   return Effect.runPromise(eff.pipe(Effect.provide(NodeFileSystem.layer)));
+}
+
+/** Minimal presentation layer: /compact drives a live region, so the handler needs one. */
+function mockPresentationLayer(): Layer.Layer<PresentationService> {
+  return Layer.succeed(PresentationServiceTag, {
+    openEphemeralRegion: () => Effect.succeed("region-test"),
+    appendEphemeralRegion: () => Effect.void,
+    collapseEphemeralRegion: () => Effect.void,
+  } as unknown as PresentationService);
 }
 
 beforeEach(() => {
@@ -364,7 +377,7 @@ describe("handleSpecialCommand /compact", () => {
     );
     return Effect.runPromise(
       handleSpecialCommand({ type: "compact", args: [] }, context).pipe(
-        Effect.provide(terminalLayer),
+        Effect.provide(Layer.mergeAll(terminalLayer, mockPresentationLayer())),
       ) as Effect.Effect<CommandResult, unknown, never>,
     );
   }
@@ -466,6 +479,7 @@ describe("handleSpecialCommand /compact", () => {
       Layer.succeed(TerminalServiceTag, mockTerminal as unknown as TerminalService),
       Layer.succeed(LLMServiceTag, mockLLMService as unknown as LLMService),
       Layer.succeed(AgentConfigServiceTag, mockAgentConfigService as unknown as AgentConfigService),
+      mockPresentationLayer(),
     );
 
     try {

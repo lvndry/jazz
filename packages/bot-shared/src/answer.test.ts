@@ -4,7 +4,7 @@ import {
   FOLLOWUP_OPTIONS,
   followupChoices,
   followupPrompt,
-  planWebAppDelivery,
+  planCompositionDelivery,
   usageLines,
 } from "./answer";
 import type { JazzSuccessEnvelope } from "./jazz-run";
@@ -90,11 +90,17 @@ describe("follow-ups", () => {
   });
 });
 
-describe("planWebAppDelivery", () => {
-  const base = { id: "abc", title: "Chart", htmlPath: "/tmp/abc.html" } as const;
+describe("planCompositionDelivery", () => {
+  const base = {
+    id: "abc",
+    title: "Chart",
+    sessionId: "session-1",
+    filename: "chart.html",
+    htmlPath: "/tmp/chart.html",
+  } as const;
 
   test("a static app is an image, which every surface can show", () => {
-    const plan = planWebAppDelivery(
+    const plan = planCompositionDelivery(
       { ...base, mode: "static", imagePath: "/tmp/abc.png" },
       undefined,
       "PUBLIC_URL",
@@ -103,21 +109,25 @@ describe("planWebAppDelivery", () => {
   });
 
   test("a static app with no image is logged, not sent as an empty message", () => {
-    const plan = planWebAppDelivery({ ...base, mode: "static" }, undefined, "PUBLIC_URL");
+    const plan = planCompositionDelivery({ ...base, mode: "static" }, undefined, "PUBLIC_URL");
     expect(plan.kind).toBe("nothing");
   });
 
   test("an interactive app becomes a link under the configured origin", () => {
-    const plan = planWebAppDelivery(
+    const plan = planCompositionDelivery(
       { ...base, mode: "interactive" },
       "https://jazz.example",
       "PUBLIC_URL",
     );
-    expect(plan).toEqual({ kind: "link", url: "https://jazz.example/webapps/abc", title: "Chart" });
+    expect(plan).toEqual({
+      kind: "link",
+      url: "https://jazz.example/compositions/session-1/chart.html",
+      title: "Chart",
+    });
   });
 
   test("with no origin it names the setting instead of failing silently", () => {
-    const plan = planWebAppDelivery({ ...base, mode: "interactive" }, undefined, "PUBLIC_URL");
+    const plan = planCompositionDelivery({ ...base, mode: "interactive" }, undefined, "PUBLIC_URL");
     expect(plan.kind).toBe("unavailable");
     expect(plan.kind === "unavailable" && renderPlain(plan.body)).toContain("PUBLIC_URL");
   });

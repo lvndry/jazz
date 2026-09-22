@@ -4,7 +4,7 @@ FROM oven/bun:1
 
 WORKDIR /app
 
-# System Chromium for the create_web_app tool (puppeteer-core screenshots HTML
+# System Chromium for the create_composition tool (puppeteer-core screenshots HTML
 # the agent writes). puppeteer-core ships no browser, so this is the only one.
 #
 # util-linux and passwd are what per-conversation isolation is built on:

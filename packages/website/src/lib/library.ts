@@ -1,18 +1,78 @@
 /**
- * The library as the CLI sees it: two collections, personas and workflows,
- * each published as a JSON index plus one raw markdown file per entry. The
- * index carries metadata only — browsing a catalog should not download every
- * prompt in it — and the raw file is what `jazz persona install` and
- * `jazz workflow install` parse. See packages/adapters/src/library-catalog.ts
- * for the consumer.
+ * The website's marketplace catalog readers and route helpers.
+ *
+ * Personas and workflows come from Astro content collections. Skills are
+ * discovered directly from repository-level `skills/<name>/SKILL.md` files so
+ * their frontmatter and body can be served byte-for-byte. Reviewed plugins are
+ * read from the generated catalog emitted before the Astro build. JSON indexes
+ * carry metadata only; raw markdown and plugin manifests remain separate
+ * routes for callers that need the complete definition.
  */
-import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { readdir, readFile } from "node:fs/promises";
+import { basename, relative, resolve, sep } from "node:path";
 import { describeCronSchedule } from "@jazz/core/utils/cron";
 import { getCollection, type CollectionEntry } from "astro:content";
 
 export type PersonaEntry = CollectionEntry<"personas">;
 export type WorkflowEntry = CollectionEntry<"workflows">;
+
+export interface SkillEntry {
+  id: string;
+  name: string;
+  description: string;
+  sourcePath: string;
+}
+
+export interface PluginSecretEntry {
+  name: string;
+  env?: string;
+  required: boolean;
+  description: string;
+}
+
+interface PluginEntryBase {
+  schemaVersion: number;
+  id: string;
+  name: string;
+  version: string;
+  hostApi: number;
+  hooks: string[];
+  policyHooks: string[];
+  decisionProviders: string[];
+  tools: Array<{ name: string; description: string; riskLevel: string; egress: boolean }>;
+  commands: Array<{ name: string; description: string }>;
+  personas: Array<{ name: string; description: string }>;
+  skills: Array<{ name: string; description: string }>;
+  lifecycleHooks: string[];
+  network: { destinations: string[] };
+  dataSent: string[];
+  secrets: PluginSecretEntry[];
+}
+
+export type PluginEntry = PluginEntryBase &
+  (
+    | {
+        sourceType: "reviewed";
+        artifact: string;
+        sha256: string;
+      }
+    | {
+        sourceType: "community";
+        repository: string;
+        repositoryUrl: string;
+        manifestUrl: string;
+        defaultBranch: string;
+        sourceSha: string;
+        manifestSha256: string;
+        manifestPath: string;
+        trustTier: "community-indexed";
+        repositoryId: number;
+        indexedAt: string;
+        entry: string;
+        description?: string;
+        license?: string;
+      }
+  );
 
 export interface PersonaIndexEntry {
   name: string;
@@ -32,6 +92,13 @@ export interface WorkflowIndexEntry {
   author?: string;
   tags?: string[];
   url: string;
+}
+
+export interface SkillIndexEntry {
+  name: string;
+  description: string;
+  url: string;
+  page: string;
 }
 
 /** Path of the raw markdown for a persona, relative to the site root. */
@@ -54,6 +121,30 @@ export function workflowPath(name: string): string {
   return `/library/workflows/${name}`;
 }
 
+/** Path of a skill's rendered marketplace page. */
+export function skillPath(id: string): string {
+  return `/library/skills/${encodePath(id)}`;
+}
+
+/** Path of a skill's raw, frontmatter-preserving markdown source. */
+export function rawSkillPath(id: string): string {
+  return `/library/skills/${encodePath(id)}.md`;
+}
+
+/** Path of a reviewed plugin's marketplace page. */
+export function pluginPath(id: string): string {
+  return `/library/plugins/${encodePath(id)}`;
+}
+
+/** Path of a reviewed plugin's generated manifest. */
+export function pluginManifestPath(id: string): string {
+  return `/library/plugins/${encodePath(id)}.json`;
+}
+
+function encodePath(value: string): string {
+  return value.split("/").map(encodeURIComponent).join("/");
+}
+
 function byName<T extends { data: { name: string } }>(entries: T[]): T[] {
   return entries.sort((left, right) => left.data.name.localeCompare(right.data.name));
 }
@@ -66,6 +157,378 @@ export async function getPersonaEntries(): Promise<PersonaEntry[]> {
 /** Every published workflow, sorted by name. */
 export async function getWorkflowEntries(): Promise<WorkflowEntry[]> {
   return byName(await getCollection("workflows"));
+}
+
+const skillDirectoryCandidates = [
+  resolve(process.cwd(), "skills"),
+  resolve(process.cwd(), "../skills"),
+  resolve(process.cwd(), "../../skills"),
+] as const;
+const reviewedPluginCatalogCandidates = [
+  resolve(process.cwd(), ".build/plugin-catalog/plugins.json"),
+  resolve(process.cwd(), "../.build/plugin-catalog/plugins.json"),
+  resolve(process.cwd(), "../../.build/plugin-catalog/plugins.json"),
+] as const;
+const communityPluginCatalogCandidates = [
+  resolve(process.cwd(), ".build/plugin-catalog/community-plugins.json"),
+  resolve(process.cwd(), "../.build/plugin-catalog/community-plugins.json"),
+  resolve(process.cwd(), "../../.build/plugin-catalog/community-plugins.json"),
+] as const;
+
+let repositorySkillsDirectoryPromise: Promise<string> | undefined;
+
+async function getRepositorySkillsDirectory(): Promise<string> {
+  repositorySkillsDirectoryPromise ??= (async () => {
+    for (const candidate of skillDirectoryCandidates) {
+      try {
+        await readdir(candidate);
+        return candidate;
+      } catch (error: unknown) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+        throw error;
+      }
+    }
+    throw new Error("Could not locate the repository skills directory");
+  })();
+  return repositorySkillsDirectoryPromise;
+}
+
+async function findSkillFiles(directory: string): Promise<string[]> {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const files: string[] = [];
+  for (const entry of entries) {
+    const path = resolve(directory, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...(await findSkillFiles(path)));
+    } else if (entry.isFile() && entry.name === "SKILL.md") {
+      files.push(path);
+    }
+  }
+  return files.sort((left, right) => left.localeCompare(right));
+}
+
+function unquoteFrontmatterValue(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
+    try {
+      return JSON.parse(trimmed) as string;
+    } catch {
+      return trimmed.slice(1, -1);
+    }
+  }
+  if (trimmed.startsWith("'") && trimmed.endsWith("'")) {
+    return trimmed.slice(1, -1).replaceAll("''", "'");
+  }
+  return trimmed;
+}
+
+function readSkillMetadata(source: string, id: string): { name: string; description: string } {
+  const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(source);
+  if (!match) throw new Error(`Skill "${id}" is missing YAML frontmatter`);
+
+  const lines = match[1].split(/\r?\n/);
+  let name: string | undefined;
+  let description: string | undefined;
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] ?? "";
+    const field = /^(name|description):(?:\s*(.*))?$/.exec(line);
+    if (!field) continue;
+    const key = field[1];
+    const value = field[2] ?? "";
+    if (key === "name" && value !== ">" && value !== "|") {
+      name = unquoteFrontmatterValue(value);
+      continue;
+    }
+    if (key !== "description") continue;
+    if (value !== ">" && value !== "|") {
+      description = unquoteFrontmatterValue(value);
+      continue;
+    }
+    const block: string[] = [];
+    while (index + 1 < lines.length && /^(?:\s+|$)/.test(lines[index + 1] ?? "")) {
+      index += 1;
+      block.push((lines[index] ?? "").trim());
+    }
+    description = value === ">" ? block.join(" ").trim() : block.join("\n").trim();
+  }
+  if (!name || !description)
+    throw new Error(`Skill "${id}" needs name and description frontmatter`);
+  return { name, description };
+}
+
+function skillIdForFile(filePath: string, repositorySkillsDirectory: string): string {
+  const directory = relative(repositorySkillsDirectory, filePath).split(sep).slice(0, -1);
+  if (
+    directory.length === 0 ||
+    directory.some((segment) => !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(segment))
+  ) {
+    throw new Error(`Skill path is not a safe marketplace identifier: ${filePath}`);
+  }
+  return directory.join("/");
+}
+
+let skillEntriesPromise: Promise<SkillEntry[]> | undefined;
+
+/** Discover repository skills without rewriting their source or frontmatter. */
+export async function getSkillEntries(): Promise<SkillEntry[]> {
+  skillEntriesPromise ??= (async () => {
+    const repositorySkillsDirectory = await getRepositorySkillsDirectory();
+    const files = await findSkillFiles(repositorySkillsDirectory);
+    const entries = await Promise.all(
+      files.map(async (sourcePath) => {
+        const id = skillIdForFile(sourcePath, repositorySkillsDirectory);
+        const metadata = readSkillMetadata(await readFile(sourcePath, "utf8"), id);
+        return { id, sourcePath, ...metadata };
+      }),
+    );
+    return entries.sort((left, right) => left.name.localeCompare(right.name));
+  })();
+  return skillEntriesPromise;
+}
+
+/** Read a skill exactly as committed, including its YAML frontmatter. */
+export async function readSkillSource(entry: SkillEntry): Promise<string> {
+  const repositorySkillsDirectory = await getRepositorySkillsDirectory();
+  const sourcePath = resolve(entry.sourcePath);
+  const relativePath = relative(repositorySkillsDirectory, sourcePath);
+  if (
+    basename(sourcePath) !== "SKILL.md" ||
+    relativePath === ".." ||
+    relativePath.startsWith(`..${sep}`) ||
+    relativePath.startsWith(sep)
+  ) {
+    throw new Error(`Skill "${entry.id}" is outside the repository skills root`);
+  }
+  return readFile(sourcePath, "utf8");
+}
+
+export function toSkillIndexEntry(entry: SkillEntry): SkillIndexEntry {
+  return {
+    name: entry.name,
+    description: entry.description,
+    url: rawSkillPath(entry.id),
+    page: skillPath(entry.id),
+  };
+}
+
+function catalogRecord(value: unknown, label: string): Record<string, unknown> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Invalid reviewed plugin catalog: ${label} must be an object`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function catalogString(value: unknown, label: string): string {
+  if (typeof value !== "string") {
+    throw new Error(`Invalid reviewed plugin catalog: ${label} must be a string`);
+  }
+  return value;
+}
+
+function catalogNumber(value: unknown, label: string): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new Error(`Invalid reviewed plugin catalog: ${label} must be a number`);
+  }
+  return value;
+}
+
+function catalogBoolean(value: unknown, label: string): boolean {
+  if (typeof value !== "boolean") {
+    throw new Error(`Invalid reviewed plugin catalog: ${label} must be a boolean`);
+  }
+  return value;
+}
+
+function catalogStrings(value: unknown, label: string): string[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
+    throw new Error(`Invalid reviewed plugin catalog: ${label} must be an array of strings`);
+  }
+  return [...value];
+}
+
+function catalogNamedDescriptions(
+  value: unknown,
+  label: string,
+): Array<{ name: string; description: string }> {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) {
+    throw new Error(`Invalid reviewed plugin catalog: ${label} must be an array`);
+  }
+  return value.map((item, index) => {
+    const record = catalogRecord(item, `${label}[${index}]`);
+    return {
+      name: catalogString(record.name, `${label}[${index}].name`),
+      description: catalogString(record.description, `${label}[${index}].description`),
+    };
+  });
+}
+
+function parsePluginEntry(value: unknown, index: number): PluginEntry {
+  const record = catalogRecord(value, `plugins[${index}]`);
+  const network =
+    record.network === undefined ? {} : catalogRecord(record.network, `plugins[${index}].network`);
+  const tools = record.tools === undefined ? [] : record.tools;
+  const commands = record.commands === undefined ? [] : record.commands;
+  const secrets = record.secrets === undefined ? [] : record.secrets;
+
+  if (!Array.isArray(tools) || !Array.isArray(commands) || !Array.isArray(secrets)) {
+    throw new Error(`Invalid plugin catalog: plugins[${index}] capability fields must be arrays`);
+  }
+
+  const common = {
+    schemaVersion: catalogNumber(record.schemaVersion, `plugins[${index}].schemaVersion`),
+    id: catalogString(record.id, `plugins[${index}].id`),
+    name: catalogString(record.name, `plugins[${index}].name`),
+    version: catalogString(record.version, `plugins[${index}].version`),
+    hostApi: catalogNumber(record.hostApi, `plugins[${index}].hostApi`),
+    hooks: catalogStrings(record.hooks, `plugins[${index}].hooks`),
+    policyHooks: catalogStrings(record.policyHooks, `plugins[${index}].policyHooks`),
+    decisionProviders: catalogStrings(
+      record.decisionProviders,
+      `plugins[${index}].decisionProviders`,
+    ),
+    tools: tools.map((item, toolIndex) => {
+      const tool = catalogRecord(item, `plugins[${index}].tools[${toolIndex}]`);
+      return {
+        name: catalogString(tool.name, `plugins[${index}].tools[${toolIndex}].name`),
+        description: catalogString(
+          tool.description,
+          `plugins[${index}].tools[${toolIndex}].description`,
+        ),
+        riskLevel: catalogString(tool.riskLevel, `plugins[${index}].tools[${toolIndex}].riskLevel`),
+        egress: catalogBoolean(tool.egress, `plugins[${index}].tools[${toolIndex}].egress`),
+      };
+    }),
+    commands: commands.map((item, commandIndex) => {
+      const command = catalogRecord(item, `plugins[${index}].commands[${commandIndex}]`);
+      return {
+        name: catalogString(command.name, `plugins[${index}].commands[${commandIndex}].name`),
+        description: catalogString(
+          command.description,
+          `plugins[${index}].commands[${commandIndex}].description`,
+        ),
+      };
+    }),
+    personas: catalogNamedDescriptions(record.personas, `plugins[${index}].personas`),
+    skills: catalogNamedDescriptions(record.skills, `plugins[${index}].skills`),
+    lifecycleHooks: catalogStrings(record.lifecycleHooks, `plugins[${index}].lifecycleHooks`),
+    network: {
+      destinations: catalogStrings(network.destinations, `plugins[${index}].network.destinations`),
+    },
+    dataSent: catalogStrings(record.dataSent, `plugins[${index}].dataSent`),
+    secrets: secrets.map((item, secretIndex) => {
+      const secret = catalogRecord(item, `plugins[${index}].secrets[${secretIndex}]`);
+      const env =
+        secret.env === undefined
+          ? undefined
+          : catalogString(secret.env, `plugins[${index}].secrets[${secretIndex}].env`);
+      return {
+        name: catalogString(secret.name, `plugins[${index}].secrets[${secretIndex}].name`),
+        ...(env === undefined ? {} : { env }),
+        required: catalogBoolean(
+          secret.required,
+          `plugins[${index}].secrets[${secretIndex}].required`,
+        ),
+        description: catalogString(
+          secret.description,
+          `plugins[${index}].secrets[${secretIndex}].description`,
+        ),
+      };
+    }),
+  };
+
+  const sourceType =
+    record.sourceType === undefined
+      ? "reviewed"
+      : catalogString(record.sourceType, `plugins[${index}].sourceType`);
+  if (sourceType === "reviewed") {
+    return {
+      ...common,
+      sourceType,
+      artifact: catalogString(record.artifact, `plugins[${index}].artifact`),
+      sha256: catalogString(record.sha256, `plugins[${index}].sha256`),
+    };
+  }
+  if (sourceType === "community") {
+    const description =
+      record.description === undefined
+        ? undefined
+        : catalogString(record.description, `plugins[${index}].description`);
+    const license =
+      record.license === undefined
+        ? undefined
+        : catalogString(record.license, `plugins[${index}].license`);
+    const sourceSha = catalogString(record.sourceSha, `plugins[${index}].sourceSha`);
+    const manifestSha256 = catalogString(record.manifestSha256, `plugins[${index}].manifestSha256`);
+    if (!/^[a-f0-9]{40}$/i.test(sourceSha)) {
+      throw new Error(`Invalid plugin catalog: plugins[${index}].sourceSha is invalid`);
+    }
+    if (!/^[a-f0-9]{64}$/.test(manifestSha256)) {
+      throw new Error(`Invalid plugin catalog: plugins[${index}].manifestSha256 is invalid`);
+    }
+    return {
+      ...common,
+      sourceType,
+      repository: catalogString(record.repository, `plugins[${index}].repository`),
+      repositoryUrl: catalogString(record.repositoryUrl, `plugins[${index}].repositoryUrl`),
+      manifestUrl: catalogString(record.manifestUrl, `plugins[${index}].manifestUrl`),
+      defaultBranch: catalogString(record.defaultBranch, `plugins[${index}].defaultBranch`),
+      sourceSha,
+      manifestSha256,
+      manifestPath: catalogString(record.manifestPath, `plugins[${index}].manifestPath`),
+      trustTier:
+        record.trustTier === "community-indexed"
+          ? "community-indexed"
+          : (() => {
+              throw new Error(`Invalid plugin catalog: plugins[${index}].trustTier is unsupported`);
+            })(),
+      repositoryId:
+        typeof record.repositoryId === "number" &&
+        Number.isSafeInteger(record.repositoryId) &&
+        record.repositoryId > 0
+          ? record.repositoryId
+          : (() => {
+              throw new Error(`Invalid plugin catalog: plugins[${index}].repositoryId is invalid`);
+            })(),
+      indexedAt: catalogString(record.indexedAt, `plugins[${index}].indexedAt`),
+      entry: catalogString(record.entry, `plugins[${index}].entry`),
+      ...(description === undefined ? {} : { description }),
+      ...(license === undefined ? {} : { license }),
+    };
+  }
+  throw new Error(`Invalid plugin catalog: plugins[${index}].sourceType is unsupported`);
+}
+
+let pluginEntriesPromise: Promise<PluginEntry[]> | undefined;
+
+async function readPluginCatalog(candidate: string): Promise<PluginEntry[] | undefined> {
+  try {
+    const catalog = JSON.parse(await readFile(candidate, "utf8")) as { plugins?: unknown };
+    if (!Array.isArray(catalog.plugins)) {
+      throw new Error(`Invalid plugin catalog: ${candidate} must contain a plugins array`);
+    }
+    return catalog.plugins.map(parsePluginEntry);
+  } catch (error: unknown) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+    throw error;
+  }
+}
+
+/** Read reviewed and community plugin releases from the catalogs generated before Astro builds. */
+export async function getPluginEntries(): Promise<PluginEntry[]> {
+  pluginEntriesPromise ??= (async () => {
+    const reviewed = await Promise.all(reviewedPluginCatalogCandidates.map(readPluginCatalog));
+    const community = await Promise.all(communityPluginCatalogCandidates.map(readPluginCatalog));
+    const reviewedEntries = reviewed.find((entries) => entries !== undefined) ?? [];
+    const communityEntries = community.find((entries) => entries !== undefined) ?? [];
+    const reviewedIds = new Set(reviewedEntries.map((entry) => entry.id));
+    return [
+      ...reviewedEntries,
+      ...communityEntries.filter((entry) => !reviewedIds.has(entry.id)),
+    ].sort((left, right) => left.name.localeCompare(right.name));
+  })();
+  return pluginEntriesPromise;
 }
 
 export function toPersonaIndexEntry(entry: PersonaEntry): PersonaIndexEntry {

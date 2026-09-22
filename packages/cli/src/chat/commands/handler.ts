@@ -9,6 +9,10 @@ import { getAgentByIdentifier } from "@jazz/core/agent/agent-service";
 import { sortAgents } from "@jazz/core/agent/agent-sort";
 import { resolveContextThresholds } from "@jazz/core/agent/context/context-thresholds";
 import { resolveEffectiveContextWindow } from "@jazz/core/agent/context/effective-context-window";
+import type {
+  CompactionProgress,
+  CompactionProgressObserver,
+} from "@jazz/core/agent/context/summarizer";
 import { DEFAULT_TOKEN_COUNTER } from "@jazz/core/agent/context/token-counter";
 import {
   clearWorkState,
@@ -39,7 +43,10 @@ import {
 import { MemoryServiceTag, type MemoryService } from "@jazz/core/interfaces/memory-service";
 import { PersonaServiceTag, type PersonaService } from "@jazz/core/interfaces/persona-service";
 import { PluginRuntimeServiceTag } from "@jazz/core/interfaces/plugin-runtime";
-import type { PresentationService } from "@jazz/core/interfaces/presentation";
+import {
+  PresentationServiceTag,
+  type PresentationService,
+} from "@jazz/core/interfaces/presentation";
 import { TerminalServiceTag, type TerminalService } from "@jazz/core/interfaces/terminal";
 import {
   ToolRegistryTag,
@@ -349,10 +356,13 @@ function handleNewCommand(
 /**
  * Handle /fork command - Fork the conversation into a new branch
  *
- * Creates a new conversation ID, keeping only the system prompt and the
- * last user message from the current history. This gives the user a clean
- * branch to explore a different approach to their most recent question
- * without carrying over the entire conversation context.
+ * Saves the current branch under its own conversation ID, then continues on a
+ * new one carrying the full history forward. Future turns diverge from here
+ * while the transcript stays on screen — forking branches the conversation
+ * without discarding what came before.
+ *
+ * The transcript repaint is skipped: the same full history stays on screen, so
+ * repainting would only clear the switch notice and redraw an identical view.
  */
 function handleForkCommand(
   terminal: TerminalService,
@@ -365,32 +375,18 @@ function handleForkCommand(
       return { shouldContinue: true };
     }
 
-    // Keep the system message (first message) and the last user message
-    const systemMessage = conversationHistory.find((m) => m.role === "system");
-    const lastUserMessage = [...conversationHistory].reverse().find((m) => m.role === "user");
-
-    if (!lastUserMessage) {
-      yield* terminal.warn("No user message found to fork from.");
-      yield* terminal.log(fmt.blank());
-      return { shouldContinue: true };
-    }
-
-    const newHistory: ChatMessage[] = [];
-    if (systemMessage) {
-      newHistory.push(systemMessage);
-    }
-    newHistory.push(lastUserMessage);
-
-    yield* terminal.info("Forking conversation...");
-    yield* terminal.log(fmt.item("New conversation branch created"));
-    yield* terminal.log(fmt.item("Kept last user message as starting point"));
-    yield* terminal.log(fmt.blank());
+    yield* terminal.warn(
+      "Switched to a new forked branch — the original conversation is preserved.",
+    );
+    yield* terminal.log(fmt.item("The full history carried over; new turns continue on the fork."));
+    yield* terminal.log(fmt.item("Resume the original anytime with /resume."));
     yield* terminal.log(fmt.blank());
     return {
       shouldContinue: true,
       newConversationId: generateConversationId(),
-      newHistory,
+      newHistory: [...conversationHistory],
       saveCurrentHistory: true,
+      skipTranscriptRepaint: true,
     };
   });
 }
@@ -951,6 +947,44 @@ function handleSwitchCommand(
   });
 }
 
+/** Human-readable size for a tool result, so a decision line reads "Bash · 8.2k chars". */
+function formatCharCount(chars: number): string {
+  if (chars < 1000) return `${chars} chars`;
+  return `${(chars / 1000).toFixed(1)}k chars`;
+}
+
+/**
+ * Render one compaction phase as lines for the live region: the plugin's per-result
+ * keep/truncate/drop calls with a rollup, then the summarizer step.
+ */
+function compactionPhaseLines(event: CompactionProgress): string[] {
+  switch (event.phase) {
+    case "prune-start":
+      return [
+        event.plugin === undefined
+          ? "Reviewing tool results…"
+          : `Reviewing tool results with the ${event.plugin} plugin…`,
+      ];
+    case "prune-done": {
+      if (event.decisions.length === 0) return ["No stale tool results to prune."];
+      const counts: Record<string, number> = { keep: 0, truncate: 0, drop: 0 };
+      const detail: string[] = [];
+      for (const decision of event.decisions) {
+        counts[decision.action] = (counts[decision.action] ?? 0) + 1;
+        detail.push(
+          `  ${decision.action.padEnd(8)} ${decision.tool} · ${formatCharCount(decision.chars)}`,
+        );
+      }
+      const summary =
+        `${counts["drop"]} dropped · ${counts["truncate"]} truncated · ${counts["keep"]} kept` +
+        ` · ~${event.tokensReclaimed.toLocaleString()} tokens reclaimed`;
+      return [...detail, summary];
+    }
+    case "summarize-start":
+      return [`Summarizing ${event.messageCount} older messages…`];
+  }
+}
+
 /**
  * Handle /compact command - compact history now, exactly as automatic compaction would.
  *
@@ -1006,16 +1040,47 @@ function handleCompactCommand(
       }),
     }).tokens;
 
-    yield* terminal.info(`Compacting ${conversationHistory.length - 1} messages...`);
+    // A live region shows the work as it happens: the plugin's keep/truncate/drop calls,
+    // then the summarizer. Its header ticks a running clock, so a slow summary reads as
+    // in-progress rather than frozen.
+    const presentationService = yield* PresentationServiceTag;
+    const startedAt = Date.now();
+    const regionId = yield* presentationService.openEphemeralRegion(
+      "subagent",
+      `Compacting ${conversationHistory.length - 1} messages`,
+    );
+    let firstAppend = true;
+    const onPhase: CompactionProgressObserver = (event) =>
+      Effect.suspend(() => {
+        const lines = compactionPhaseLines(event);
+        if (lines.length === 0) return Effect.void;
+        const text = (firstAppend ? "" : "\n") + lines.join("\n");
+        firstAppend = false;
+        return presentationService.appendEphemeralRegion(regionId, text);
+      });
 
+    let compactionFailed = false;
     const outcome = yield* AgentRunner.compactHistory(
       conversationHistory as unknown as ConversationMessages,
       agent,
       conversationId,
       contextWindow,
+      onPhase,
     ).pipe(
       Effect.catchAll((error) =>
-        terminal.error(`Failed to compact history: ${error.message}`).pipe(Effect.as(null)),
+        Effect.gen(function* () {
+          compactionFailed = true;
+          yield* terminal.error(`Failed to compact history: ${error.message}`);
+          return null;
+        }),
+      ),
+      Effect.ensuring(
+        Effect.suspend(() =>
+          presentationService.collapseEphemeralRegion(regionId, "Compaction", {
+            status: compactionFailed ? "failed" : "completed",
+            durationMs: Date.now() - startedAt,
+          }),
+        ),
       ),
     );
 
@@ -1036,10 +1101,10 @@ function handleCompactCommand(
     yield* terminal.success(
       `Compacted ${conversationHistory.length} → ${outcome.messages.length} messages (saved ~${tokensSaved.toLocaleString()} tokens)`,
     );
-    yield* terminal.log("   Older history is summarized; recent messages are kept verbatim.");
+    yield* terminal.log("   The agent's context is summarized; your on-screen history stays.");
     yield* terminal.log("");
 
-    return { shouldContinue: true, newHistory: [...outcome.messages] };
+    return { shouldContinue: true, newHistory: [...outcome.messages], skipTranscriptRepaint: true };
   });
 }
 

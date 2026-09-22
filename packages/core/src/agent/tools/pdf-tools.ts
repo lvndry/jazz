@@ -3,11 +3,11 @@
  *
  * Deliberately not a model capability. Three models in the whole models.dev catalog claim PDF
  * output, while every provider can write HTML — and the same Chromium jazz already needs for
- * `create_web_app`'s static mode turns that HTML into a PDF via `page.pdf()`. That makes PDF the
+ * `create_composition`'s static mode turns that HTML into a PDF via `page.pdf()`. That makes PDF the
  * only generated format that is exact, reproducible, free, and works offline on every provider
  * including local models.
  *
- * Unlike `create_web_app`, the output lands in the user's working directory by default. That
+ * Unlike `create_composition`, the output lands in the user's working directory by default. That
  * tool writes into jazz's own home because only a bridge ever read its path; a person running
  * `jazz run "turn these notes into a PDF"` in a terminal wants the file where they are, not
  * buried in `~/.jazz`.

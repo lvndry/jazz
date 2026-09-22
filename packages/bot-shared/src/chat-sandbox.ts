@@ -365,7 +365,7 @@ export function ensureChatSandbox(dataDir: string, agentId: string): ChatSandbox
     "memory",
     "workspace",
     "reminders",
-    "webapps",
+    "compositions",
     "tg-media",
     "xdg-config",
     "xdg-data",
