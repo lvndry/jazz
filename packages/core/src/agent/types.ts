@@ -374,7 +374,7 @@ export interface AgentRunContext {
    * Never push this into `messages`: canonical history must remain byte-equivalent.
    */
   /** Scope-qualified memory entries injected into the live prompt. */
-  readonly activeMemoryPaths: readonly string[];
+  readonly activeMemoryPaths?: readonly string[];
   readonly initialProviderAdvisory?: string;
   readonly runMetrics: ReturnType<typeof createAgentRunMetrics>;
   readonly provider: ProviderName;
